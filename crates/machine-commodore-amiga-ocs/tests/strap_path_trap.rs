@@ -15,8 +15,8 @@
 //! Together these tell us whether strap completed its real work
 //! (success path) or bailed on AllocMem failure.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const STRAP_ENTRY: u32 = 0x00FE_8444;
 const STRAP_ALERT_CALL: u32 = 0x00FE_848E;

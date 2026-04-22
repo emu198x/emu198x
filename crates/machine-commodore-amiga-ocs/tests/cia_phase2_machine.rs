@@ -32,8 +32,10 @@ fn load_kickstart() -> Option<Vec<u8>> {
 #[test]
 fn ovl_defaults_true_at_reset_mapping_rom_into_low_memory() {
     let amiga = AmigaOcs::new(zero_rom());
-    assert!(amiga.memory().overlay(),
-        "reset overlay must be high: DDRA bit 0 = input, PRA floats high");
+    assert!(
+        amiga.memory().overlay(),
+        "reset overlay must be high: DDRA bit 0 = input, PRA floats high"
+    );
     assert!(amiga.cia_a().ovl(), "CIA-A OVL() helper matches");
 }
 
@@ -55,8 +57,10 @@ fn ovl_rises_again_when_cpu_writes_pra_bit0_high() {
     amiga.poke_byte(0x00BF_E001, 0x00); // OVL low
     assert!(!amiga.memory().overlay());
     amiga.poke_byte(0x00BF_E001, 0x01); // OVL high again
-    assert!(amiga.memory().overlay(),
-        "overlay must track CIA-A PRA bit 0 after every write");
+    assert!(
+        amiga.memory().overlay(),
+        "overlay must track CIA-A PRA bit 0 after every write"
+    );
 }
 
 #[test]
@@ -67,8 +71,10 @@ fn cia_a_pra_reads_eb_on_reset_for_empty_drive_sense() {
     // output bits OR floating input bits → $EB on reset.
     let amiga = AmigaOcs::with_slow_ram(zero_rom(), 0);
     let pa = amiga.cia_a().peek(0);
-    assert_eq!(pa, 0xEB,
-        "CIA-A PRA effective byte should be $EB so trackdisk sees /CHNG asserted");
+    assert_eq!(
+        pa, 0xEB,
+        "CIA-A PRA effective byte should be $EB so trackdisk sees /CHNG asserted"
+    );
 }
 
 #[test]
@@ -117,11 +123,16 @@ fn cia_a_tod_alarm_latches_icr_when_counter_matches() {
     amiga.cia_a_mut().tod_pulse();
     amiga.cia_a_mut().tod_pulse();
     assert_eq!(amiga.cia_a().tod_counter(), 3);
-    assert!(amiga.cia_a().irq_active(),
-        "TOD match with ICR.ALARM unmasked must assert /IRQ");
+    assert!(
+        amiga.cia_a().irq_active(),
+        "TOD match with ICR.ALARM unmasked must assert /IRQ"
+    );
     // ICR read clears; peek to see flags.
-    assert_ne!(amiga.cia_a().peek(0x0D) & 0x04, 0,
-        "ICR.ALARM flag must be latched");
+    assert_ne!(
+        amiga.cia_a().peek(0x0D) & 0x04,
+        0,
+        "ICR.ALARM flag must be latched"
+    );
 }
 
 #[test]
@@ -132,8 +143,11 @@ fn cia_a_tod_writes_to_msb_halt_the_counter() {
     amiga.poke_byte(0x00BF_EA01, 0x00); // TODHI → halt
     amiga.cia_a_mut().tod_pulse();
     amiga.cia_a_mut().tod_pulse();
-    assert_eq!(amiga.cia_a().tod_counter(), 0,
-        "TOD is halted after TODHI write; pulses are ignored");
+    assert_eq!(
+        amiga.cia_a().tod_counter(),
+        0,
+        "TOD is halted after TODHI write; pulses are ignored"
+    );
 }
 
 // ─── #112 SDR serial + SP/CNT ─────────────────────────────────────
@@ -153,8 +167,11 @@ fn cia_a_spmode_bit_persists_through_cra_write() {
 fn cia_a_sdr_write_and_read_back_roundtrips() {
     let mut amiga = AmigaOcs::new(zero_rom());
     amiga.poke_byte(0x00BF_EC01, 0xA5); // SDR write
-    assert_eq!(amiga.cia_a().sdr(), 0xA5,
-        "SDR value must round-trip through the machine memory decoder");
+    assert_eq!(
+        amiga.cia_a().sdr(),
+        0xA5,
+        "SDR value must round-trip through the machine memory decoder"
+    );
 }
 
 // ─── #113 ICR edge cases ──────────────────────────────────────────
@@ -167,8 +184,11 @@ fn cia_a_icr_set_clear_semantics_via_machine_bus() {
     assert_eq!(amiga.cia_a().icr_mask() & 0x1F, 0x03);
     // CLEAR: bit 7 = 0 → clear bit 0 (TA).
     amiga.poke_byte(0x00BF_ED01, 0x01);
-    assert_eq!(amiga.cia_a().icr_mask() & 0x1F, 0x02,
-        "clear must remove only the masked bit");
+    assert_eq!(
+        amiga.cia_a().icr_mask() & 0x1F,
+        0x02,
+        "clear must remove only the masked bit"
+    );
 }
 
 #[test]
@@ -177,8 +197,11 @@ fn cia_a_icr_read_clears_status_flags() {
     amiga.cia_a_mut().receive_serial_byte(0);
     // Reading $0D via the CIA bus must clear flags.
     let _ = amiga.cia_a_mut().read(0x0D);
-    assert_eq!(amiga.cia_a().icr_status(), 0,
-        "ICR read must clear latched status bits");
+    assert_eq!(
+        amiga.cia_a().icr_status(),
+        0,
+        "ICR read must clear latched status bits"
+    );
 }
 
 // ─── #115 CIA-B wiring ────────────────────────────────────────────
@@ -189,8 +212,11 @@ fn cia_b_at_bfd000_even_bytes_isolated_from_cia_a() {
     // CIA-B PRA write at $BFD000 (even) must land in CIA-B.
     amiga.poke_byte(0x00BF_D000, 0x42);
     assert_eq!(amiga.cia_b().port_a_latch(), 0x42);
-    assert_eq!(amiga.cia_a().port_a_latch(), 0xFF,
-        "CIA-A must be untouched — different decode space");
+    assert_eq!(
+        amiga.cia_a().port_a_latch(),
+        0xFF,
+        "CIA-A must be untouched — different decode space"
+    );
 }
 
 #[test]
@@ -202,8 +228,10 @@ fn cia_b_prb_output_drives_pin_read_back() {
     amiga.poke_byte(0x00BF_D300, 0xFF);
     amiga.poke_byte(0x00BF_D100, 0x5A);
     let prb = amiga.cia_b().peek(1);
-    assert_eq!(prb, 0x5A,
-        "all-output DDRB means PRB write is visible on the read-back pin value");
+    assert_eq!(
+        prb, 0x5A,
+        "all-output DDRB means PRB write is visible on the read-back pin value"
+    );
 }
 
 #[test]
@@ -252,7 +280,7 @@ fn tod_alarm_fires_during_a_long_real_kickstart_run() {
     amiga.cia_a_mut().write(0x0A, 0x00); // TOD-HI (halts)
     amiga.cia_a_mut().write(0x09, 0x00); // TOD-MID
     amiga.cia_a_mut().write(0x08, 0x00); // TOD-LO (restarts at 0)
-    let _ = amiga.cia_a_mut().read(0x0D);    // clear any pending ICR
+    let _ = amiga.cia_a_mut().read(0x0D); // clear any pending ICR
     amiga.cia_a_mut().write(0x0D, 0x84); // enable ICR.ALARM mask (bit 2)
 
     // Run 20 frames — 20 VBLs pulse TOD 20 times → exceeds the $10

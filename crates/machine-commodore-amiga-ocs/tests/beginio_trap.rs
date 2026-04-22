@@ -7,8 +7,8 @@
 //! library jump table (just like any LVO). That slot is `JMP
 //! <addr>` — we follow it to the ROM entry and trap that.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const EXEC_DEVICE_LIST: u32 = 350;
 const LN_SUCC: u32 = 0;
@@ -88,9 +88,7 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
     let beginio_slot = td_base.wrapping_add(LVO_BEGIN_IO as u32);
     let opcode = amiga.read_word(beginio_slot);
     if opcode != 0x4EF9 {
-        eprintln!(
-            "BeginIO slot at ${beginio_slot:08X} isn't JMP (op=${opcode:04X}) — bail"
-        );
+        eprintln!("BeginIO slot at ${beginio_slot:08X} isn't JMP (op=${opcode:04X}) — bail");
         return;
     }
     let beginio = read_long(amiga, beginio_slot.wrapping_add(2));

@@ -90,10 +90,16 @@ fn sprite_hstart_comparator_honours_subpixel_bit() {
     d.write_sprite_datb(0, 0x0000);
     d.write_sprite_data(0, 0x8000);
 
-    assert_eq!(d.output_pixel_color(40, 10), DeniseOcs::rgb12_to_argb32(0x000),
-        "beam just before hstart should be background");
-    assert_eq!(d.output_pixel_color(41, 10), DeniseOcs::rgb12_to_argb32(0xF00),
-        "sprite should light at odd hstart");
+    assert_eq!(
+        d.output_pixel_color(40, 10),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "beam just before hstart should be background"
+    );
+    assert_eq!(
+        d.output_pixel_color(41, 10),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "sprite should light at odd hstart"
+    );
 }
 
 #[test]
@@ -108,14 +114,26 @@ fn sprite_vstart_vstop_gate_vertical_extent() {
     d.write_sprite_datb(0, 0x0000);
     d.write_sprite_data(0, 0x8000);
 
-    assert_eq!(d.output_pixel_color(30, 19), DeniseOcs::rgb12_to_argb32(0x000),
-        "before vstart -> no sprite");
-    assert_eq!(d.output_pixel_color(30, 20), DeniseOcs::rgb12_to_argb32(0xF00),
-        "on vstart -> sprite visible");
-    assert_eq!(d.output_pixel_color(30, 21), DeniseOcs::rgb12_to_argb32(0xF00),
-        "between vstart and vstop -> sprite visible");
-    assert_eq!(d.output_pixel_color(30, 22), DeniseOcs::rgb12_to_argb32(0x000),
-        "on vstop -> sprite no longer visible");
+    assert_eq!(
+        d.output_pixel_color(30, 19),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "before vstart -> no sprite"
+    );
+    assert_eq!(
+        d.output_pixel_color(30, 20),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "on vstart -> sprite visible"
+    );
+    assert_eq!(
+        d.output_pixel_color(30, 21),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "between vstart and vstop -> sprite visible"
+    );
+    assert_eq!(
+        d.output_pixel_color(30, 22),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "on vstop -> sprite no longer visible"
+    );
 }
 
 #[test]
@@ -144,8 +162,10 @@ fn transparent_sprite_pixel_leaves_playfield_visible() {
         let _ = d.output_pixel_with_beam(x, 0, x, 0);
     }
     let dbg = d.output_pixel_with_beam(5, 0, 5, 0);
-    assert_eq!(dbg.final_color_idx, 1,
-        "transparent sprite pixel -> playfield remains visible");
+    assert_eq!(
+        dbg.final_color_idx, 1,
+        "transparent sprite pixel -> playfield remains visible"
+    );
 }
 
 #[test]
@@ -237,13 +257,19 @@ fn sprite_vs_pf1_priority_via_bplcon2_pf1p_field() {
 
     let mut d = build();
     d.bplcon2 = 0x0000; // PF1P = 0 -> no sprite in front of PF1
-    assert_eq!(d.output_pixel_color(0, 5), DeniseOcs::rgb12_to_argb32(0x00F),
-        "PF1P=0 -> PF1 wins over sprite group 0");
+    assert_eq!(
+        d.output_pixel_color(0, 5),
+        DeniseOcs::rgb12_to_argb32(0x00F),
+        "PF1P=0 -> PF1 wins over sprite group 0"
+    );
 
     let mut d = build();
     d.bplcon2 = 0x0001; // PF1P = 1 -> sprite group 0 wins over PF1
-    assert_eq!(d.output_pixel_color(0, 5), DeniseOcs::rgb12_to_argb32(0xF00),
-        "PF1P=1 -> sprite group 0 in front of PF1");
+    assert_eq!(
+        d.output_pixel_color(0, 5),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "PF1P=1 -> sprite group 0 in front of PF1"
+    );
 }
 
 #[test]
@@ -269,7 +295,11 @@ fn clxdat_is_read_and_clear() {
 
     let first = d.read_clxdat();
     let second = d.read_clxdat();
-    assert_ne!(first & 1, 0, "CLXDAT bit 0 should latch BP-odd/BP-even match");
+    assert_ne!(
+        first & 1,
+        0,
+        "CLXDAT bit 0 should latch BP-odd/BP-even match"
+    );
     assert_eq!(second, 0, "subsequent read returns 0 (read-clear)");
 }
 
@@ -295,8 +325,11 @@ fn clxcon_disables_bitplane_match_per_plane() {
     d.bpl_data[1] = 0x0000; // plane 1 clear
     d.trigger_shift_load();
     let _ = d.output_pixel_with_beam(0, 0, 0, 0);
-    assert_ne!(d.read_clxdat() & 1, 0,
-        "MVBP1=1, MVBP2=0 matches the plane bits -> collision bit 0 set");
+    assert_ne!(
+        d.read_clxdat() & 1,
+        0,
+        "MVBP1=1, MVBP2=0 matches the plane bits -> collision bit 0 set"
+    );
 
     // Clear ENBP1 -> plane 0 is ignored, match succeeds even when
     // the plane bits don't match the MVBP value.
@@ -309,8 +342,11 @@ fn clxcon_disables_bitplane_match_per_plane() {
     d.bpl_data[1] = 0x0000;
     d.trigger_shift_load();
     let _ = d.output_pixel_with_beam(0, 0, 0, 0);
-    assert_ne!(d.read_clxdat() & 1, 0,
-        "ENBP1=0 masks plane 0 out of the comparator");
+    assert_ne!(
+        d.read_clxdat() & 1,
+        0,
+        "ENBP1=0 masks plane 0 out of the comparator"
+    );
 }
 
 #[test]
@@ -336,6 +372,9 @@ fn clxdat_latches_sprite_pair_crosses() {
 
     let _ = d.output_pixel_with_beam(30, 5, 30, 5);
     let clx = d.read_clxdat();
-    assert_ne!(clx & (1 << 9), 0,
-        "sprite pair 0 + sprite pair 1 at same pixel -> bit 9 set");
+    assert_ne!(
+        clx & (1 << 9),
+        0,
+        "sprite pair 0 + sprite pair 1 at same pixel -> bit 9 set"
+    );
 }

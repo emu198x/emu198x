@@ -41,12 +41,16 @@ fn machine_decodes_chip_ram_rom_cia_custom_correctly() {
 fn machine_gary_is_configured_for_a500_with_slow_ram() {
     let amiga = AmigaOcs::new(zero_rom());
     let gary = amiga.gary();
-    assert!(gary.slow_ram_present(),
-        "A500 machine should enable the slow-RAM chip select");
+    assert!(
+        gary.slow_ram_present(),
+        "A500 machine should enable the slow-RAM chip select"
+    );
     assert!(!gary.gayle_present(), "no Gayle on A500");
     assert!(!gary.dmac_present(), "no DMAC on A500");
-    assert!(!gary.resource_regs_present(),
-        "no A3000 resource registers on A500");
+    assert!(
+        !gary.resource_regs_present(),
+        "no A3000 resource registers on A500"
+    );
 }
 
 #[test]
@@ -54,8 +58,11 @@ fn machine_poke_word_routes_custom_registers_via_gary() {
     // $DFF180 is COLOR00 — writing should land in Denise's palette.
     let mut amiga = AmigaOcs::new(zero_rom());
     amiga.poke_word(0x00DF_F180, 0x0F0F);
-    assert_eq!(amiga.color(0), 0x0F0F,
-        "COLOR00 write via poke_word should reach Denise through Gary's Custom decode");
+    assert_eq!(
+        amiga.color(0),
+        0x0F0F,
+        "COLOR00 write via poke_word should reach Denise through Gary's Custom decode"
+    );
 }
 
 #[test]

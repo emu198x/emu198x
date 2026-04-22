@@ -6,8 +6,8 @@
 //!   - TaskReady head vs lh_Tail (is the ready list empty?)
 //!   - Key ExecBase fields (IdleCount, TDNestCnt, ThisTask)
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const EXEC_THIS_TASK: u32 = 276;
 const EXEC_IDLE_COUNT: u32 = 280;
@@ -190,9 +190,7 @@ fn snapshot(amiga: &AmigaOcs, label: &str) {
             }
             addr = addr.wrapping_add(4);
         }
-        eprintln!(
-            "\n  Copper MOVE DMACON seen: {dmacon_seen},  MOVE BPLCON0 seen: {bplcon0_seen}"
-        );
+        eprintln!("\n  Copper MOVE DMACON seen: {dmacon_seen},  MOVE BPLCON0 seen: {bplcon0_seen}");
     }
 
     eprintln!("\n=== ExecBase ===");
@@ -231,11 +229,22 @@ fn snapshot(amiga: &AmigaOcs, label: &str) {
     dump_task_list(amiga, "TaskReady", exec_base.wrapping_add(EXEC_TASK_READY));
     dump_task_list(amiga, "TaskWait", exec_base.wrapping_add(EXEC_TASK_WAIT));
     dump_task_list(amiga, "LibList", exec_base.wrapping_add(EXEC_LIB_LIST));
-    dump_task_list(amiga, "DeviceList", exec_base.wrapping_add(EXEC_DEVICE_LIST));
-    dump_task_list(amiga, "ResourceList", exec_base.wrapping_add(EXEC_RESOURCE_LIST));
+    dump_task_list(
+        amiga,
+        "DeviceList",
+        exec_base.wrapping_add(EXEC_DEVICE_LIST),
+    );
+    dump_task_list(
+        amiga,
+        "ResourceList",
+        exec_base.wrapping_add(EXEC_RESOURCE_LIST),
+    );
     dump_task_list(amiga, "PortList", exec_base.wrapping_add(EXEC_PORT_LIST));
 
-    eprintln!("\n=== COP1LC write history ({} entries) ===", amiga.debug_cop1lc_log.len());
+    eprintln!(
+        "\n=== COP1LC write history ({} entries) ===",
+        amiga.debug_cop1lc_log.len()
+    );
     for (cck, pc, val) in amiga.debug_cop1lc_log.iter().take(20) {
         eprintln!("  cck={cck:10} pc=${pc:08X} → COP1LC=${val:08X}");
     }
@@ -246,7 +255,10 @@ fn snapshot(amiga: &AmigaOcs, label: &str) {
         }
     }
 
-    eprintln!("\n=== COP2LC write history ({} entries) ===", amiga.debug_cop2lc_log.len());
+    eprintln!(
+        "\n=== COP2LC write history ({} entries) ===",
+        amiga.debug_cop2lc_log.len()
+    );
     for (cck, pc, val) in amiga.debug_cop2lc_log.iter().take(20) {
         eprintln!("  cck={cck:10} pc=${pc:08X} → COP2LC=${val:08X}");
     }
@@ -260,8 +272,7 @@ fn snapshot(amiga: &AmigaOcs, label: &str) {
     eprintln!("\n=== Framebuffer ===");
     let fb = amiga.denise().framebuffer();
     let (w, h) = amiga.denise().framebuffer_size();
-    let mut distinct: std::collections::BTreeMap<u32, u32> =
-        std::collections::BTreeMap::new();
+    let mut distinct: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
     for &px in fb.iter() {
         *distinct.entry(px).or_insert(0) += 1;
     }

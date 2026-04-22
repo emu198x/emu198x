@@ -11,8 +11,8 @@
 //!   $FE854A post CloseLibrary          LVO -414
 //!   $FE8560 post DoIO(CMD_CLEAR=5)     LVO -456  ← prime suspect
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const RETURN_POINTS: &[(u32, &str)] = &[
     (0x00FE_84AE, "post FindTask(NULL)"),
@@ -32,7 +32,9 @@ const RETURN_POINTS: &[(u32, &str)] = &[
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
-    if !path.exists() { return None; }
+    if !path.exists() {
+        return None;
+    }
     Some(std::fs::read(&path).expect("read Kickstart 1.3 ROM"))
 }
 
@@ -49,7 +51,9 @@ fn run(label: &str, use_slow_ram: bool) {
     for tick in 0..(600u64 * PAL_FRAME_TICKS as u64) {
         amiga.tick();
         let pc = amiga.cpu().regs.pc;
-        if pc == prev_pc { continue; }
+        if pc == prev_pc {
+            continue;
+        }
         for (i, (tpc, _)) in RETURN_POINTS.iter().enumerate() {
             if pc == *tpc && first_hits[i].is_none() {
                 let d0 = amiga.cpu().regs.d[0];
@@ -63,7 +67,7 @@ fn run(label: &str, use_slow_ram: bool) {
     for ((pc, desc), hit) in RETURN_POINTS.iter().zip(first_hits.iter()) {
         match hit {
             Some((frame, d0)) => eprintln!("  ${pc:08X} frame~{frame:<3}  d0=${d0:08X}  {desc}"),
-            None             => eprintln!("  ${pc:08X}  <NEVER REACHED>        {desc}"),
+            None => eprintln!("  ${pc:08X}  <NEVER REACHED>        {desc}"),
         }
     }
 }
@@ -71,6 +75,6 @@ fn run(label: &str, use_slow_ram: bool) {
 #[test]
 #[ignore]
 fn bisect_romboot_d0() {
-    run("slow-RAM",  true);
+    run("slow-RAM", true);
     run("chip-only", false);
 }

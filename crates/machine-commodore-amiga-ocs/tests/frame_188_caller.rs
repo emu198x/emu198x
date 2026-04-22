@@ -11,8 +11,8 @@
 //!  2. What TASK is running at that moment (ThisTask.ln_Name)?
 //!  3. Does the same code sequence exist somewhere in chip-only?
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const EXEC_THIS_TASK: u32 = 276;
 const LN_NAME: u32 = 10;
@@ -20,7 +20,9 @@ const LN_NAME: u32 = 10;
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
-    if !path.exists() { return None; }
+    if !path.exists() {
+        return None;
+    }
     Some(std::fs::read(&path).expect("read Kickstart 1.3 ROM"))
 }
 
@@ -29,11 +31,15 @@ fn read_byte(amiga: &AmigaOcs, addr: u32) -> u8 {
 }
 
 fn read_cstring(amiga: &AmigaOcs, addr: u32, max: u32) -> String {
-    if addr == 0 { return "<null>".into(); }
+    if addr == 0 {
+        return "<null>".into();
+    }
     let mut s = String::new();
     for i in 0..max {
         let b = read_byte(amiga, addr.wrapping_add(i));
-        if b == 0 { break; }
+        if b == 0 {
+            break;
+        }
         if b.is_ascii() && !b.is_ascii_control() {
             s.push(b as char);
         } else {

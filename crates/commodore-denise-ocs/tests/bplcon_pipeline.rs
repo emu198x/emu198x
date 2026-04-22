@@ -83,8 +83,11 @@ fn bplcon1_hi_nibble_delays_plane_0() {
     d.trigger_shift_load();
 
     for beam_x in 0..4 {
-        assert_eq!(d.output_pixel_with_beam(0, 0, beam_x, 0).final_color_idx, 0,
-            "beam_x={beam_x} should still be delayed");
+        assert_eq!(
+            d.output_pixel_with_beam(0, 0, beam_x, 0).final_color_idx,
+            0,
+            "beam_x={beam_x} should still be delayed"
+        );
     }
     assert_eq!(d.output_pixel_with_beam(0, 0, 4, 0).final_color_idx, 1);
 }
@@ -104,8 +107,11 @@ fn bplcon1_lo_nibble_delays_plane_1() {
     d.trigger_shift_load();
 
     for beam_x in 0..3 {
-        assert_eq!(d.output_pixel_with_beam(0, 0, beam_x, 0).final_color_idx, 0,
-            "beam_x={beam_x} should still be delayed");
+        assert_eq!(
+            d.output_pixel_with_beam(0, 0, beam_x, 0).final_color_idx,
+            0,
+            "beam_x={beam_x} should still be delayed"
+        );
     }
     assert_eq!(d.output_pixel_with_beam(0, 0, 3, 0).final_color_idx, 2);
 }
@@ -154,8 +160,11 @@ fn bplcon1_prev_word_carries_into_next_load() {
     d.trigger_shift_load();
     // With scroll=1 the combined (prev << 16 | raw) >> 1 gives the
     // first word's LSB as the MSB of the loaded shift register.
-    assert_eq!(d.output_pixel_with_beam(0, 0, 16, 0).final_color_idx, 1,
-        "prev-word carry should show first word's LSB at start of second load");
+    assert_eq!(
+        d.output_pixel_with_beam(0, 0, 16, 0).final_color_idx,
+        1,
+        "prev-word carry should show first word's LSB at start of second load"
+    );
 }
 
 #[test]
@@ -203,6 +212,8 @@ fn invisible_gate_suppresses_playfield_contribution() {
     d.trigger_shift_load();
 
     let dbg = d.output_pixel_with_beam_and_playfield_gate(0, 0, 0, 0, false);
-    assert_eq!(dbg.final_color_idx, 0,
-        "playfield_visible_gate=false outputs COLOR00");
+    assert_eq!(
+        dbg.final_color_idx, 0,
+        "playfield_visible_gate=false outputs COLOR00"
+    );
 }

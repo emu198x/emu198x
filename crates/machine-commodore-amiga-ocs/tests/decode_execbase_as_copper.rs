@@ -2,13 +2,15 @@
 //! COP2LC=$0676 and decode them as copper instructions. Look for
 //! a SKIP / WAIT that SHOULD stop the copper.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
-    if !path.exists() { return None; }
+    if !path.exists() {
+        return None;
+    }
     Some(std::fs::read(&path).expect("read Kickstart 1.3 ROM"))
 }
 
@@ -58,14 +60,22 @@ fn decode_chip_only_execbase_as_copper() {
             // MOVE
             let reg = w1 & 0x1FE;
             let name = reg_name(reg);
-            let stop_hint = if reg < 0x80 { " ← DANGEROUS (<$80) — stops copper!" } else { "" };
-            eprintln!("  ${pc:08X}  ${w1:04X} ${w2:04X}  MOVE ${reg:03X} ({name}) = ${w2:04X}{stop_hint}");
+            let stop_hint = if reg < 0x80 {
+                " ← DANGEROUS (<$80) — stops copper!"
+            } else {
+                ""
+            };
+            eprintln!(
+                "  ${pc:08X}  ${w1:04X} ${w2:04X}  MOVE ${reg:03X} ({name}) = ${w2:04X}{stop_hint}"
+            );
         } else if w2 & 1 == 0 {
             // WAIT
             let vpos = (w1 >> 8) & 0xFF;
             let hpos = w1 & 0xFE;
-            eprintln!("  ${pc:08X}  ${w1:04X} ${w2:04X}  WAIT vp=${vpos:02X} hp=${hpos:02X} (BFD={})",
-                if w2 & 0x8000 != 0 { 1 } else { 0 });
+            eprintln!(
+                "  ${pc:08X}  ${w1:04X} ${w2:04X}  WAIT vp=${vpos:02X} hp=${hpos:02X} (BFD={})",
+                if w2 & 0x8000 != 0 { 1 } else { 0 }
+            );
             if w1 == 0xFFFF && w2 == 0xFFFE {
                 eprintln!("      ← end-of-list (FFFE) — copper halts here");
                 break;

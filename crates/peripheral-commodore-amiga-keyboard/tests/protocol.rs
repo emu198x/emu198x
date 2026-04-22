@@ -44,13 +44,19 @@ fn power_up_emits_init_then_terminate_sequence() {
     // The tick that reaches the threshold transitions state but
     // produces no byte yet; the next tick sends $FD.
     assert_eq!(kb.tick(), None);
-    assert_eq!(kb.tick(), Some(encode(0xFD)),
-        "init-power-up byte \\$FD transmitted after delay");
+    assert_eq!(
+        kb.tick(),
+        Some(encode(0xFD)),
+        "init-power-up byte \\$FD transmitted after delay"
+    );
 
     // Host acknowledges; next tick sends $FE.
     kb.handshake();
-    assert_eq!(kb.tick(), Some(encode(0xFE)),
-        "terminate-power-up byte \\$FE transmitted after handshake");
+    assert_eq!(
+        kb.tick(),
+        Some(encode(0xFE)),
+        "terminate-power-up byte \\$FE transmitted after handshake"
+    );
     kb.handshake();
 }
 
@@ -90,8 +96,11 @@ fn init_byte_is_resent_after_handshake_timeout() {
         assert_eq!(kb.tick(), None);
     }
     // Second $FD is emitted on the next tick.
-    assert_eq!(kb.tick(), Some(encode(0xFD)),
-        "keyboard retransmits \\$FD after handshake timeout");
+    assert_eq!(
+        kb.tick(),
+        Some(encode(0xFD)),
+        "keyboard retransmits \\$FD after handshake timeout"
+    );
     assert_eq!(kb.bytes_sent, 2);
 }
 
@@ -108,8 +117,11 @@ fn terminate_byte_is_resent_after_handshake_timeout() {
     for _ in 0..HANDSHAKE_TIMEOUT_TICKS {
         assert_eq!(kb.tick(), None);
     }
-    assert_eq!(kb.tick(), Some(encode(0xFE)),
-        "keyboard retransmits \\$FE after handshake timeout");
+    assert_eq!(
+        kb.tick(),
+        Some(encode(0xFE)),
+        "keyboard retransmits \\$FE after handshake timeout"
+    );
     assert_eq!(kb.bytes_sent, 3);
 }
 
@@ -133,7 +145,11 @@ fn key_events_queue_in_fifo_order_with_press_release_bit_7() {
     for _ in 0..BYTE_INTERVAL_TICKS - 1 {
         assert_eq!(kb.tick(), None);
     }
-    assert_eq!(kb.tick(), Some(encode(0xC5)), "Enter up -> raw $C5 (bit 7 set)");
+    assert_eq!(
+        kb.tick(),
+        Some(encode(0xC5)),
+        "Enter up -> raw $C5 (bit 7 set)"
+    );
     kb.handshake();
 
     for _ in 0..BYTE_INTERVAL_TICKS - 1 {
@@ -157,8 +173,11 @@ fn key_byte_handshake_timeout_drops_in_flight_byte_but_keeps_queue() {
         assert_eq!(kb.tick(), None);
     }
     assert_eq!(kb.tick(), Some(encode(0x20)), "first queued key goes out");
-    assert_eq!(kb.queued_key_count(), 1,
-        "second key remains queued while we wait for handshake");
+    assert_eq!(
+        kb.queued_key_count(),
+        1,
+        "second key remains queued while we wait for handshake"
+    );
 
     // No handshake — timeout drops the byte.
     for _ in 0..HANDSHAKE_TIMEOUT_TICKS {
@@ -169,6 +188,9 @@ fn key_byte_handshake_timeout_drops_in_flight_byte_but_keeps_queue() {
     for _ in 0..BYTE_INTERVAL_TICKS - 1 {
         assert_eq!(kb.tick(), None);
     }
-    assert_eq!(kb.tick(), Some(encode(0x21)),
-        "second queued key is sent after timeout drops the first");
+    assert_eq!(
+        kb.tick(),
+        Some(encode(0x21)),
+        "second queued key is sent after timeout drops the first"
+    );
 }

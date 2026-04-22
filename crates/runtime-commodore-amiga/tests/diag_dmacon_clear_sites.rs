@@ -14,8 +14,7 @@ use runtime_commodore_amiga::{AmigaRuntime, Model};
 
 fn load_ks13() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").ok()?;
-    let path = PathBuf::from(home)
-        .join(".emu198x/roms/commodore-amiga/kick13.rom");
+    let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
     if !path.exists() {
         eprintln!("skipping: KS 1.3 ROM missing at {}", path.display());
         return None;
@@ -36,16 +35,16 @@ fn dump_rom_around_dmacon_clear_sites() {
     // conditional branches.
     dump_window(&rt, "SPREN clear site", 0x00FD_689E, 0x20, 0x40);
     dump_window(&rt, "BPLEN clear site", 0x00FE_8554, 0x20, 0x40);
-    dump_window(&rt, "WAITBLIT spin (where the CPU is pinned)", 0x00FC_5A70, 0x10, 0x20);
+    dump_window(
+        &rt,
+        "WAITBLIT spin (where the CPU is pinned)",
+        0x00FC_5A70,
+        0x10,
+        0x20,
+    );
 }
 
-fn dump_window(
-    rt: &AmigaRuntime,
-    label: &str,
-    center: u32,
-    pre_bytes: u32,
-    post_bytes: u32,
-) {
+fn dump_window(rt: &AmigaRuntime, label: &str, center: u32, pre_bytes: u32, post_bytes: u32) {
     let lo = (center - pre_bytes) & !1; // align even
     let hi = (center + post_bytes) & !1;
     println!("=== {label} at ${center:08X} ===");
@@ -76,23 +75,16 @@ fn classify(word: u16, addr: u32, rt: &AmigaRuntime) -> String {
             // movew #imm, (xxx).L
             let imm = rt.machine().read_word(addr.wrapping_add(2));
             let abs = rt.machine().read_long(addr.wrapping_add(4));
-            format!(
-                "move.w #${imm:04X}, (${abs:08X}).L"
-            )
+            format!("move.w #${imm:04X}, (${abs:08X}).L")
         }
         _ if word == 0x31FC => {
             // movew #imm, (xxx).W
             let imm = rt.machine().read_word(addr.wrapping_add(2));
             let abs = rt.machine().read_word(addr.wrapping_add(4));
-            format!(
-                "move.w #${imm:04X}, (${abs:04X}).W"
-            )
+            format!("move.w #${imm:04X}, (${abs:04X}).W")
         }
         _ => match word & 0xF000 {
-            0x6000 => format!(
-                "branch? disp ${:02X}",
-                (word & 0xFF) as i8
-            ),
+            0x6000 => format!("branch? disp ${:02X}", (word & 0xFF) as i8),
             0x4E00 if word == 0x4E75 => "rts".into(),
             0x4E00 if word == 0x4E71 => "nop".into(),
             0x4E00 if word == 0x4E73 => "rte".into(),

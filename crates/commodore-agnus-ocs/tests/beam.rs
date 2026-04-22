@@ -12,8 +12,7 @@
 
 use commodore_agnus_ocs::{Agnus, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME};
 
-const PAL_CCKS_PER_FRAME: u64 =
-    PAL_CCKS_PER_LINE as u64 * PAL_LINES_PER_FRAME as u64;
+const PAL_CCKS_PER_FRAME: u64 = PAL_CCKS_PER_LINE as u64 * PAL_LINES_PER_FRAME as u64;
 
 #[test]
 fn pal_constants_match_hardware_reference() {

@@ -27,8 +27,10 @@ fn adkcon_write_bit_15_set_adds_to_mask() {
     assert_eq!(p.adkcon() & ADKCON_FAST, ADKCON_FAST);
 
     p.write_adkcon(INT_SETCLR | ADKCON_USE_VOL[0]); // must not clear FAST
-    assert_eq!(p.adkcon() & (ADKCON_FAST | ADKCON_USE_VOL[0]),
-               ADKCON_FAST | ADKCON_USE_VOL[0]);
+    assert_eq!(
+        p.adkcon() & (ADKCON_FAST | ADKCON_USE_VOL[0]),
+        ADKCON_FAST | ADKCON_USE_VOL[0]
+    );
 }
 
 #[test]
@@ -45,7 +47,11 @@ fn adkcon_write_bit_15_clear_removes_from_mask() {
 fn adkcon_bit_15_is_not_stored() {
     let mut p = Paula8364::new();
     p.write_adkcon(0xFFFF);
-    assert_eq!(p.adkcon() & INT_SETCLR, 0, "SET flag lives only in the write");
+    assert_eq!(
+        p.adkcon() & INT_SETCLR,
+        0,
+        "SET flag lives only in the write"
+    );
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -56,7 +62,9 @@ fn adkcon_bit_15_is_not_stored() {
 fn fast_disk_bit_shortens_next_byte_arrival_cck() {
     fn ccks_until_byte_valid(fast: bool) -> u32 {
         let mut p = Paula8364::new();
-        if fast { p.write_adkcon(INT_SETCLR | ADKCON_FAST); }
+        if fast {
+            p.write_adkcon(INT_SETCLR | ADKCON_FAST);
+        }
         p.set_dsksync(0x4489);
         let wordequal = p.note_disk_read_word(0xA1A1);
         assert!(!wordequal);

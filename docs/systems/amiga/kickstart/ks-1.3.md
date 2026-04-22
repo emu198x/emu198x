@@ -1150,6 +1150,13 @@ $FE85C0  BNE.S   $FE8600            ; Non-zero -- invalid bootblock
    `JSR 12(A4)` -- boot code entry.
 6. If invalid, wait and retry.
 
+For the saved disassembly and live diagnostic entry points behind this bootblock
+path, see [ks-1.3-trackdisk-bootblock.md](ks-1.3-trackdisk-bootblock.md).
+
+For the later Workbench 1.3 state where the bootblock has already executed but
+the machine falls back into Exec idle, see
+[ks-1.3-wb13-late-boot.md](ks-1.3-wb13-late-boot.md).
+
 ### Expected register state
 
 After STRAP displays the insert-disk screen:

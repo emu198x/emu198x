@@ -19,6 +19,7 @@ const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Cli {
+    model: ModelArg,
     rom_dir: Option<PathBuf>,
     kickstart: Option<PathBuf>,
     disk: Option<PathBuf>,
@@ -28,6 +29,16 @@ struct Cli {
     wait_for_boot: Option<u32>,
     print_queries: Vec<String>,
     frames: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum ModelArg {
+    A1000,
+    #[default]
+    A500,
+    A500A501,
+    A500Plus,
+    A500Maxed,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,6 +62,7 @@ Usage: emu198x-script-amiga [OPTIONS]
 Firmware:
     --rom-dir DIR             directory containing Kickstart ROM images
     --kickstart PATH          explicit Kickstart ROM path
+    --model MODEL             a1000 | a500 | a500-a501 | a500-plus | a500-maxed [default: a500]
 
 Media:
     --disk PATH               insert one ADF image into DF0:
@@ -82,6 +94,7 @@ Filename resolution inside the ROM directory:
 Examples:
     emu198x-script-amiga --wait-for-boot 300 --screenshot kick13.png
     emu198x-script-amiga --disk workbench13.adf --wait-for-boot 400
+    emu198x-script-amiga --model a500-a501 --disk workbench13.adf --frames 900 --screenshot wb13.png
 ";
 
 fn main() {
@@ -125,6 +138,7 @@ where
             "--kickstart" => {
                 cli.kickstart = Some(PathBuf::from(next_arg(&mut iter, "--kickstart")));
             }
+            "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
             "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
             "--script" => cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script"))),
             "--wait-for-boot" => {
@@ -155,6 +169,17 @@ where
     }
 
     cli
+}
+
+fn parse_model_arg(value: &str) -> ModelArg {
+    match value {
+        "a1000" => ModelArg::A1000,
+        "a500" => ModelArg::A500,
+        "a500-a501" => ModelArg::A500A501,
+        "a500-plus" => ModelArg::A500Plus,
+        "a500-maxed" => ModelArg::A500Maxed,
+        _ => die("--model expects a1000, a500, a500-a501, a500-plus, or a500-maxed"),
+    }
 }
 
 fn next_arg<I>(iter: &mut I, flag: &str) -> String
@@ -197,11 +222,12 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         firmware,
         snapshot: None,
     };
+    let model = cli.model.to_model();
 
     let machine = boot_machine(
         &artifacts,
-        |images| AmigaRuntime::from_firmware(Model::A500OcsPal, images),
-        || AmigaRuntime::blank(Model::A500OcsPal),
+        |images| AmigaRuntime::from_firmware(model, images),
+        || AmigaRuntime::blank(model),
     )
     .map_err(|err| format!("machine construction failed: {err}"))?;
 
@@ -287,6 +313,18 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         boot_reason,
         query_values,
     })
+}
+
+impl ModelArg {
+    const fn to_model(self) -> Model {
+        match self {
+            Self::A1000 => Model::A1000OcsPal,
+            Self::A500 => Model::A500OcsPal,
+            Self::A500A501 => Model::A500OcsPalA501,
+            Self::A500Plus => Model::A500PlusOcsPal,
+            Self::A500Maxed => Model::A500OcsPalMaxed,
+        }
+    }
 }
 
 fn resolve_kickstart_path(cli: &Cli) -> Result<PathBuf, String> {
@@ -388,6 +426,8 @@ mod tests {
     #[test]
     fn parse_cli_accepts_kickstart_disk_and_capture_flags() {
         let cli = parse_cli([
+            "--model".to_owned(),
+            "a500-a501".to_owned(),
             "--kickstart".to_owned(),
             "kick13.rom".to_owned(),
             "--disk".to_owned(),
@@ -403,6 +443,7 @@ mod tests {
         assert_eq!(
             cli,
             Cli {
+                model: ModelArg::A500A501,
                 rom_dir: None,
                 kickstart: Some(PathBuf::from("kick13.rom")),
                 disk: Some(PathBuf::from("workbench.adf")),
@@ -441,6 +482,7 @@ mod tests {
         fs::write(&disk_path, vec![0u8; ADF_SIZE_DD]).expect("temporary ADF write should succeed");
 
         let result = run(Cli {
+            model: ModelArg::A500,
             rom_dir: None,
             kickstart: Some(kickstart_path.clone()),
             disk: Some(disk_path.clone()),
@@ -463,5 +505,14 @@ mod tests {
         let _ = fs::remove_file(disk_path);
         let _ = fs::remove_file(screenshot_path);
         let _ = fs::remove_file(audio_path);
+    }
+
+    #[test]
+    fn model_arg_maps_to_runtime_model() {
+        assert_eq!(ModelArg::A1000.to_model(), Model::A1000OcsPal);
+        assert_eq!(ModelArg::A500.to_model(), Model::A500OcsPal);
+        assert_eq!(ModelArg::A500A501.to_model(), Model::A500OcsPalA501);
+        assert_eq!(ModelArg::A500Plus.to_model(), Model::A500PlusOcsPal);
+        assert_eq!(ModelArg::A500Maxed.to_model(), Model::A500OcsPalMaxed);
     }
 }

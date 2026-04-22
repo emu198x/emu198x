@@ -9,9 +9,7 @@
 use std::path::PathBuf;
 
 use format_commodore_amiga_adf::Adf;
-use peripheral_commodore_amiga_floppy::mfm::{
-    MFM_TRACK_BYTES, decode_mfm_track, encode_mfm_track,
-};
+use peripheral_commodore_amiga_floppy::mfm::{MFM_TRACK_BYTES, decode_mfm_track, encode_mfm_track};
 use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntime, Model};
 
 fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
@@ -25,14 +23,12 @@ fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
 #[test]
 fn wb13_boot_state_checkpoints() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
-    let Some(rom) = load_artifact(
-        &home.join(".emu198x/roms/commodore-amiga/kick13.rom"),
-    ) else {
+    let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
         return;
     };
-    let Some(adf_bytes) = load_artifact(
-        &home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"),
-    ) else {
+    let Some(adf_bytes) =
+        load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
+    else {
         return;
     };
 
@@ -42,8 +38,7 @@ fn wb13_boot_state_checkpoints() {
     // exactly where.
     let adf_bootblock: Vec<u8> = adf_bytes[..1024].to_vec();
 
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)
-        .expect("build runtime");
+    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom).expect("build runtime");
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     rt.machine_mut().insert_adf(adf);
 
@@ -80,8 +75,8 @@ fn wb13_boot_state_checkpoints() {
     // $FEAD10 = format byte (info[0]) != $FF
     // $FEAD1C = track byte (info[1]) != expected
     const TD_CKSUM_MISMATCH: u32 = 0x00FE_ACFA;
-    const TD_FMT_MISMATCH:   u32 = 0x00FE_AD10;
-    const TD_TRK_MISMATCH:   u32 = 0x00FE_AD1C;
+    const TD_FMT_MISMATCH: u32 = 0x00FE_AD10;
+    const TD_TRK_MISMATCH: u32 = 0x00FE_AD1C;
     // graphics.library Init entry, found by walking ROM resident
     // table — graphics.library resident @ $FC53E4, init at $FCABA2.
     // If this PC is never sampled, gfx library was never initialized
@@ -99,29 +94,29 @@ fn wb13_boot_state_checkpoints() {
     // trackdisk decode-and-copy for READ — called once per sector
     // after successful validation. (CMD_WRITE goes through $FEA7CA
     // / $FEA81E — those are the WRITE side. CMD_READ uses these.)
-    const TD_READ_DECODE_CALL: u32 = 0x00FE_A552;  // bsr.w $FEA932
+    const TD_READ_DECODE_CALL: u32 = 0x00FE_A552; // bsr.w $FEA932
     const TD_READ_DECODE_ENTRY: u32 = 0x00FE_A932; // entry point
-    const TD_READ_DECODE_CB:    u32 = 0x00FE_A970; // QBlit callback
-    const TD_READ_BLT0_WRITE:   u32 = 0x00FE_A996; // BLTCON0=$1DD8 write
+    const TD_READ_DECODE_CB: u32 = 0x00FE_A970; // QBlit callback
+    const TD_READ_BLT0_WRITE: u32 = 0x00FE_A996; // BLTCON0=$1DD8 write
     let strap_points = [
         (STRAP_POST_CMD_READ, "post-CMD_READ"),
         (STRAP_DOS_MAGIC_OK, "DOS-magic-OK"),
         (STRAP_EXEC_BOOT, "EXEC_BOOT"),
         (STRAP_ERR_EXIT, "err-exit"),
         (TD_CKSUM_MISMATCH, "td $1B cksum-mismatch (BNE.W taken)"),
-        (TD_FMT_MISMATCH,   "td $1B fmt!=$FF (BNE.W taken)"),
-        (TD_TRK_MISMATCH,   "td $1B track-mismatch (BNE.W taken)"),
-        (GFX_LIB_INIT,      "graphics.library Init entry"),
+        (TD_FMT_MISMATCH, "td $1B fmt!=$FF (BNE.W taken)"),
+        (TD_TRK_MISMATCH, "td $1B track-mismatch (BNE.W taken)"),
+        (GFX_LIB_INIT, "graphics.library Init entry"),
         (GFX_BLIT_ENABLE_1, "gfx SET BLITINT @ $FC5916"),
         (GFX_BLIT_ENABLE_2, "gfx SET BLITINT @ $FC5984"),
         (GFX_BLIT_ENABLE_3, "gfx SET BLITINT @ $FC641E"),
         (GFX_BLIT_ENABLE_4, "gfx SET BLITINT @ $FC6508"),
         (GFX_BLIT_ENABLE_5, "gfx SET BLITINT @ $FC6DE8"),
         (GFX_BLIT_ENABLE_6, "gfx SET BLITINT @ $FC6F18"),
-        (TD_READ_DECODE_CALL,  "td READ-decode call site $FEA552"),
+        (TD_READ_DECODE_CALL, "td READ-decode call site $FEA552"),
         (TD_READ_DECODE_ENTRY, "td READ-decode entry $FEA932"),
-        (TD_READ_DECODE_CB,    "td READ-decode QBlit callback $FEA970"),
-        (TD_READ_BLT0_WRITE,   "td READ-decode BLTCON0=$1DD8 $FEA996"),
+        (TD_READ_DECODE_CB, "td READ-decode QBlit callback $FEA970"),
+        (TD_READ_BLT0_WRITE, "td READ-decode BLTCON0=$1DD8 $FEA996"),
     ];
     let mut strap_hits = [0u64; 18];
 
@@ -158,8 +153,12 @@ fn wb13_boot_state_checkpoints() {
             }
             if bootblock_range.contains(&pc) {
                 chip_pc_hits += 1;
-                if pc > max_chip_pc { max_chip_pc = pc; }
-                if pc < min_chip_pc { min_chip_pc = pc; }
+                if pc > max_chip_pc {
+                    max_chip_pc = pc;
+                }
+                if pc < min_chip_pc {
+                    min_chip_pc = pc;
+                }
             }
             let cia_irq_now = m.cia_a().irq_active();
             if cia_irq_now && !prev_cia_a_irq {
@@ -178,17 +177,25 @@ fn wb13_boot_state_checkpoints() {
             *pc_histogram.entry(pc).or_insert(0) += 1;
         }
         let m = rt.machine();
-        if m.drive().motor_on() { saw_motor_on = true; }
-        if m.drive().motor_spinning() { saw_motor_spinning = true; }
-        if m.paula().disk_dma_pending() { saw_disk_dma_pending = true; }
+        if m.drive().motor_on() {
+            saw_motor_on = true;
+        }
+        if m.drive().motor_spinning() {
+            saw_motor_spinning = true;
+        }
+        if m.paula().disk_dma_pending() {
+            saw_disk_dma_pending = true;
+        }
         let steps = m.drive().step_event_counter();
-        if steps > max_step_events { max_step_events = steps; }
+        if steps > max_step_events {
+            max_step_events = steps;
+        }
         let cyl = m.drive().cylinder();
-        if cyl > max_cylinder { max_cylinder = cyl; }
+        if cyl > max_cylinder {
+            max_cylinder = cyl;
+        }
 
-        if next_idx < checkpoints.len()
-            && frame + 1 == checkpoints[next_idx]
-        {
+        if next_idx < checkpoints.len() && frame + 1 == checkpoints[next_idx] {
             let m = rt.machine();
             let dmacon = m.dmacon();
             let intena = m.intena();
@@ -264,7 +271,9 @@ fn wb13_boot_state_checkpoints() {
     for i in 0..(16 * 1024 - 1) {
         let a = m.memory().read_chip_ram_byte(target + i);
         let b = m.memory().read_chip_ram_byte(target + i + 1);
-        if a == 0x44 && b == 0x89 { sync_hits += 1; }
+        if a == 0x44 && b == 0x89 {
+            sync_hits += 1;
+        }
     }
     println!("DSKSYNC (0x4489) occurrences in 16KB at ${target:06X}: {sync_hits}");
 
@@ -299,9 +308,7 @@ fn wb13_boot_state_checkpoints() {
     // buffer presents sectors in an unexpected order (e.g. first
     // sync is sector 10 rather than sector 0) the blit-count path
     // in trackdisk will double-blit into the wrong slots.
-    let decode_mfm_byte = |odd: u8, even: u8| -> u8 {
-        ((odd & 0x55) << 1) | (even & 0x55)
-    };
+    let decode_mfm_byte = |odd: u8, even: u8| -> u8 { ((odd & 0x55) << 1) | (even & 0x55) };
     println!("Sync header decodes (pair_offset: [fmt trk sec stg]):");
     // sync_offsets has both halves of the pair ($4489 twice); group
     // them so we only print one header per sector.
@@ -353,9 +360,12 @@ fn wb13_boot_state_checkpoints() {
         m.memory().read_chip_ram_byte(target + sec1_data_off + 11),
     ];
     let sec1_b9_10_11_even = [
-        m.memory().read_chip_ram_byte(target + sec1_data_off + 9 + 512),
-        m.memory().read_chip_ram_byte(target + sec1_data_off + 10 + 512),
-        m.memory().read_chip_ram_byte(target + sec1_data_off + 11 + 512),
+        m.memory()
+            .read_chip_ram_byte(target + sec1_data_off + 9 + 512),
+        m.memory()
+            .read_chip_ram_byte(target + sec1_data_off + 10 + 512),
+        m.memory()
+            .read_chip_ram_byte(target + sec1_data_off + 11 + 512),
     ];
     println!(
         "sector-1 MFM in chip RAM @ ${:04X} gap, ${:04X} sync, ${:04X} data:",
@@ -370,13 +380,11 @@ fn wb13_boot_state_checkpoints() {
     );
     println!(
         "  byte 9-11 odd:  {:02X} {:02X} {:02X} @${:04X} (expect all $AA)",
-        sec1_b9_10_11_odd[0], sec1_b9_10_11_odd[1], sec1_b9_10_11_odd[2],
-        sec1_b9_odd_off
+        sec1_b9_10_11_odd[0], sec1_b9_10_11_odd[1], sec1_b9_10_11_odd[2], sec1_b9_odd_off
     );
     println!(
         "  byte 9-11 even: {:02X} {:02X} {:02X} @${:04X} (expect all $AA)",
-        sec1_b9_10_11_even[0], sec1_b9_10_11_even[1], sec1_b9_10_11_even[2],
-        sec1_b9_even_off
+        sec1_b9_10_11_even[0], sec1_b9_10_11_even[1], sec1_b9_10_11_even[2], sec1_b9_even_off
     );
 
     // Dump trackdisk's per-unit buffer header. At base+$3 is the
@@ -398,7 +406,10 @@ fn wb13_boot_state_checkpoints() {
     println!("\nTrackdisk unit buffer header @ ${buf_base:06X} (state[$4E]):");
     let mut line = format!("  header: ");
     for k in 0..16u32 {
-        line.push_str(&format!("{:02X} ", m.memory().read_chip_ram_byte(buf_base + k)));
+        line.push_str(&format!(
+            "{:02X} ",
+            m.memory().read_chip_ram_byte(buf_base + k)
+        ));
     }
     println!("{line}");
     let err = m.memory().read_chip_ram_byte(buf_base + 3);
@@ -419,9 +430,7 @@ fn wb13_boot_state_checkpoints() {
     let watches = &rt.machine().debug_watch_writes;
     println!("  buffer[3] write sequence ({} total):", watches.len());
     for (cck, pc, addr, val, is_word) in watches.iter().take(20) {
-        println!(
-            "    cck={cck:>9} pc=${pc:06X} addr=${addr:06X} val=${val:04X} word={is_word}"
-        );
+        println!("    cck={cck:>9} pc=${pc:06X} addr=${addr:06X} val=${val:04X} word={is_word}");
     }
     if watches.len() > 20 {
         println!("    ... and {} more", watches.len() - 20);
@@ -441,7 +450,8 @@ fn wb13_boot_state_checkpoints() {
     // sync's info shows. If the encoder produced track 0 but
     // trackdisk reads a different value, we have an encoder/decoder
     // disagreement at the per-sector header level.
-    println!("  drive cyl={} head={}  → expected info[1] = {}",
+    println!(
+        "  drive cyl={} head={}  → expected info[1] = {}",
         m.drive().cylinder(),
         m.drive().head(),
         m.drive().cylinder() * 2 + m.drive().head()
@@ -463,9 +473,7 @@ fn wb13_boot_state_checkpoints() {
     for i in 0..10u32 {
         let mut w = 0u32;
         for k in 0..4u32 {
-            w = (w << 8) | u32::from(
-                m.memory().read_chip_ram_byte(target + info_pos + i * 4 + k)
-            );
+            w = (w << 8) | u32::from(m.memory().read_chip_ram_byte(target + info_pos + i * 4 + k));
         }
         info_label[i as usize] = w;
     }
@@ -474,16 +482,14 @@ fn wb13_boot_state_checkpoints() {
         xor ^= *v;
     }
     let computed = xor & 0x5555_5555;
-    let cksum_odd = (0..4u32).fold(0u32, |a, k| (a << 8) | u32::from(
-        m.memory().read_chip_ram_byte(target + cksum_pos + k)
-    ));
-    let cksum_even = (0..4u32).fold(0u32, |a, k| (a << 8) | u32::from(
-        m.memory().read_chip_ram_byte(target + cksum_pos + 4 + k)
-    ));
+    let cksum_odd = (0..4u32).fold(0u32, |a, k| {
+        (a << 8) | u32::from(m.memory().read_chip_ram_byte(target + cksum_pos + k))
+    });
+    let cksum_even = (0..4u32).fold(0u32, |a, k| {
+        (a << 8) | u32::from(m.memory().read_chip_ram_byte(target + cksum_pos + 4 + k))
+    });
     let stored = ((cksum_odd & 0x5555_5555) << 1) | (cksum_even & 0x5555_5555);
-    println!(
-        "  hdr cksum verify (FIRST sync at end of run, gap=${first_sync_gap:04X}):"
-    );
+    println!("  hdr cksum verify (FIRST sync at end of run, gap=${first_sync_gap:04X}):");
     println!("    info+label longs: {:08X?}", info_label);
     println!("    computed XOR & $55555555 = ${computed:08X}");
     println!(
@@ -491,8 +497,11 @@ fn wb13_boot_state_checkpoints() {
     );
     println!(
         "    {}",
-        if computed == stored { "✓ MATCH (validation should pass)" }
-        else { "✗ MISMATCH (this is what triggers $1B)" }
+        if computed == stored {
+            "✓ MATCH (validation should pass)"
+        } else {
+            "✗ MISMATCH (this is what triggers $1B)"
+        }
     );
 
     // Verify cksum for ALL 11 syncs in the DMA buffer.
@@ -505,25 +514,22 @@ fn wb13_boot_state_checkpoints() {
         for i in 0..10u32 {
             let mut w = 0u32;
             for k in 0..4u32 {
-                w = (w << 8) | u32::from(
-                    m.memory().read_chip_ram_byte(target + info_pos + i * 4 + k)
-                );
+                w = (w << 8)
+                    | u32::from(m.memory().read_chip_ram_byte(target + info_pos + i * 4 + k));
             }
             info_label[i as usize] = w;
         }
         let xor: u32 = info_label.iter().fold(0u32, |a, v| a ^ v);
         let computed = xor & 0x5555_5555;
-        let cksum_odd = (0..4u32).fold(0u32, |a, k| (a << 8) | u32::from(
-            m.memory().read_chip_ram_byte(target + cksum_pos + k)
-        ));
-        let cksum_even = (0..4u32).fold(0u32, |a, k| (a << 8) | u32::from(
-            m.memory().read_chip_ram_byte(target + cksum_pos + 4 + k)
-        ));
+        let cksum_odd = (0..4u32).fold(0u32, |a, k| {
+            (a << 8) | u32::from(m.memory().read_chip_ram_byte(target + cksum_pos + k))
+        });
+        let cksum_even = (0..4u32).fold(0u32, |a, k| {
+            (a << 8) | u32::from(m.memory().read_chip_ram_byte(target + cksum_pos + 4 + k))
+        });
         let stored = ((cksum_odd & 0x5555_5555) << 1) | (cksum_even & 0x5555_5555);
         let mark = if computed == stored { "OK" } else { "FAIL" };
-        println!(
-            "    gap=${gap_pos:04X}: computed=${computed:08X} stored=${stored:08X}  {mark}"
-        );
+        println!("    gap=${gap_pos:04X}: computed=${computed:08X} stored=${stored:08X}  {mark}");
     }
 
     // KEY: The trackdisk decode buffer is at state[$4E] + $680, and
@@ -537,14 +543,20 @@ fn wb13_boot_state_checkpoints() {
     // Dump first 16 bytes (slot 0 gap + sync + info odd).
     let mut line = format!("  slot  0: ");
     for k in 0..16u32 {
-        line.push_str(&format!("{:02X} ", m.memory().read_chip_ram_byte(decode_buf + k)));
+        line.push_str(&format!(
+            "{:02X} ",
+            m.memory().read_chip_ram_byte(decode_buf + k)
+        ));
     }
     println!("{line}");
     // Slot 2 (= sector 1's slot given first sync was sector 10):
     let slot2 = decode_buf + 2 * 1088;
     let mut line = format!("  slot  2: ");
     for k in 0..16u32 {
-        line.push_str(&format!("{:02X} ", m.memory().read_chip_ram_byte(slot2 + k)));
+        line.push_str(&format!(
+            "{:02X} ",
+            m.memory().read_chip_ram_byte(slot2 + k)
+        ));
     }
     println!("{line}");
     // Dump sector 1 slot 2's data byte 9 odd/even halves.
@@ -660,7 +672,10 @@ fn wb13_boot_state_checkpoints() {
         mfm_words.push((hi << 8) | lo);
     }
     let decoded = decode_mfm_track(&mfm_words);
-    println!("Our decoder: recovered {} sectors from chip RAM", decoded.len());
+    println!(
+        "Our decoder: recovered {} sectors from chip RAM",
+        decoded.len()
+    );
     for ds in &decoded {
         if ds.sector <= 1 {
             let sec_off = ds.sector as usize * 512;
@@ -668,7 +683,8 @@ fn wb13_boot_state_checkpoints() {
             let matches = ds.data.as_slice() == adf_sec;
             println!(
                 "  track={} sector={} data matches ADF? {}",
-                ds.track, ds.sector,
+                ds.track,
+                ds.sector,
                 if matches { "YES" } else { "NO" }
             );
         }
@@ -678,9 +694,8 @@ fn wb13_boot_state_checkpoints() {
     // compare byte-for-byte with what DMA actually landed in chip
     // RAM. If these diverge, the bug is in the DMA/memory path, not
     // in the encoder itself.
-    let adf_full = std::fs::read(
-        home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"),
-    ).expect("re-read ADF");
+    let adf_full = std::fs::read(home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
+        .expect("re-read ADF");
     let track0 = &adf_full[0..11 * 512];
     let expected_mfm = encode_mfm_track(track0, 0, 11);
     assert_eq!(expected_mfm.len(), MFM_TRACK_BYTES);
@@ -698,7 +713,8 @@ fn wb13_boot_state_checkpoints() {
     }
     println!(
         "encoder → chip RAM diff: {} / {} bytes, first {}",
-        encode_vs_dma_mismatches, MFM_TRACK_BYTES,
+        encode_vs_dma_mismatches,
+        MFM_TRACK_BYTES,
         match first_mismatch {
             Some((o, w, g)) => format!("off=${o:04X} want=${w:02X} got=${g:02X}"),
             None => "<none — identical>".into(),
@@ -744,16 +760,19 @@ fn wb13_boot_state_checkpoints() {
         let mut acc: u64 = 0;
         for i in 0..5 {
             acc = (acc << 8)
-                | u64::from(m.memory().read_chip_ram_byte(
-                    target + (byte_off + i) as u32,
-                ));
+                | u64::from(
+                    m.memory()
+                        .read_chip_ram_byte(target + (byte_off + i) as u32),
+                );
         }
         // acc has byte[0] in bits 32..39, byte[4] in bits 0..7.
         // Shift right so the first candidate bit is at bit 31.
         let candidate = ((acc >> (8 - in_byte)) & 0xFFFF_FFFF) as u32;
         if candidate == 0x4489_4489 {
             bit_aligned += 1;
-            if in_byte == 0 { byte_aligned += 1; }
+            if in_byte == 0 {
+                byte_aligned += 1;
+            }
         }
     }
     println!(
@@ -773,12 +792,14 @@ fn wb13_boot_state_checkpoints() {
         let hi = m.memory().read_chip_ram_byte(target + i as u32);
         let lo = m.memory().read_chip_ram_byte(target + (i + 1) as u32);
         let w = ((hi as u16) << 8) | (lo as u16);
-        if w == 0xAAAA { aaaa_words += 1; }
-        if w == 0x5555 { five_words += 1; }
+        if w == 0xAAAA {
+            aaaa_words += 1;
+        }
+        if w == 0x5555 {
+            five_words += 1;
+        }
     }
-    println!(
-        "byte-aligned $AAAA words: {aaaa_words}, $5555 words: {five_words}"
-    );
+    println!("byte-aligned $AAAA words: {aaaa_words}, $5555 words: {five_words}");
 
     // Display pipeline state — tells us whether Intuition has put
     // something up (non-zero BPU, non-white COLOR00) or whether we
@@ -805,7 +826,9 @@ fn wb13_boot_state_checkpoints() {
             && m.memory().read_chip_ram_byte(base + 2) == b'S'
         {
             dos_hits.push(base);
-            if dos_hits.len() >= 4 { break; }
+            if dos_hits.len() >= 4 {
+                break;
+            }
         }
     }
     println!("'DOS' string occurrences (first 4): {dos_hits:?}");
@@ -822,10 +845,7 @@ fn wb13_boot_state_checkpoints() {
     for base in &dos_hits {
         let mut line = format!("  bootblock @ ${base:06X}: ");
         for i in 0..16 {
-            line.push_str(&format!(
-                "{:02X} ",
-                m.memory().read_chip_ram_byte(base + i)
-            ));
+            line.push_str(&format!("{:02X} ", m.memory().read_chip_ram_byte(base + i)));
         }
         println!("{line}");
         // Bootblock length is 2 sectors = 1024 bytes for OFS/FFS.
@@ -877,7 +897,9 @@ fn wb13_boot_state_checkpoints() {
             for off in 0..512u32 {
                 let got = m.memory().read_chip_ram_byte(base + sec_base + off);
                 let want = adf_bootblock[(sec_base + off) as usize];
-                if got != want { bad += 1; }
+                if got != want {
+                    bad += 1;
+                }
             }
             println!("     sector {sector}: {bad}/512 bytes differ");
         }
@@ -893,10 +915,7 @@ fn wb13_boot_state_checkpoints() {
                     "{:02X} ",
                     m.memory().read_chip_ram_byte(base + off)
                 ));
-                want_line.push_str(&format!(
-                    "{:02X} ",
-                    adf_bootblock[off as usize]
-                ));
+                want_line.push_str(&format!("{:02X} ", adf_bootblock[off as usize]));
             }
             println!("{got_line}");
             println!("{want_line}");
@@ -908,7 +927,9 @@ fn wb13_boot_state_checkpoints() {
     // forward-progress loop.
     println!(
         "cpu_pc=${:06X} intena=${:04X} intreq=${:04X}",
-        m.cpu().regs.pc, m.intena(), m.intreq()
+        m.cpu().regs.pc,
+        m.intena(),
+        m.intreq()
     );
 
     // Top 5 most-frequent PCs sampled over the last 50 frames —
@@ -944,8 +965,12 @@ fn wb13_boot_state_checkpoints() {
     println!(
         "  CPU: d0=${:08X} d1=${:08X} d2=${:08X} a0=${:08X} a1=${:08X} \
          a6=${:08X} sp=${:08X}",
-        cpu.regs.d[0], cpu.regs.d[1], cpu.regs.d[2],
-        cpu.regs.a[0], cpu.regs.a[1], cpu.regs.a[6],
+        cpu.regs.d[0],
+        cpu.regs.d[1],
+        cpu.regs.d[2],
+        cpu.regs.a[0],
+        cpu.regs.a[1],
+        cpu.regs.a[6],
         cpu.regs.ssp,
     );
 
@@ -969,9 +994,7 @@ fn wb13_boot_state_checkpoints() {
     if chip_pc_hits == 0 {
         println!("   NO HIT — CPU never executed bootblock code");
     } else {
-        println!(
-            "   {chip_pc_hits} PC samples, range ${min_chip_pc:06X}..${max_chip_pc:06X}"
-        );
+        println!("   {chip_pc_hits} PC samples, range ${min_chip_pc:06X}..${max_chip_pc:06X}");
     }
     let cia = rt.machine().cia_a();
     let ta = cia.timer_a();
@@ -994,9 +1017,7 @@ fn wb13_boot_state_checkpoints() {
         "   Timer B: counter=${tb:04X} CRB=${crb:02X} running={}",
         cia.timer_b_running(),
     );
-    println!(
-        "   CIA-A ICR: status=${icr_status:02X} mask=${icr_mask:02X}"
-    );
+    println!("   CIA-A ICR: status=${icr_status:02X} mask=${icr_mask:02X}");
     println!(
         "   Blit starts (BLTSIZE writes): {}",
         rt.machine().debug_blit_starts
@@ -1015,7 +1036,9 @@ fn wb13_boot_state_checkpoints() {
         .collect();
     println!(
         "   INTENA BLIT-bit changes: enables={} disables={} total writes={}",
-        blit_enables.len(), blit_disables.len(), intena_log.len()
+        blit_enables.len(),
+        blit_disables.len(),
+        intena_log.len()
     );
     for (cck, pc, w, b, a) in blit_enables.iter().take(3) {
         println!("     enable cck={cck:>9} pc=${pc:06X} w=${w:04X} b=${b:04X} a=${a:04X}");
@@ -1023,8 +1046,16 @@ fn wb13_boot_state_checkpoints() {
     println!(
         "   Final intena=${:04X}, BLIT bit ({}): {}",
         rt.machine().intena(),
-        if rt.machine().intena() & 0x40 != 0 { "set" } else { "CLEAR — gfx library never enabled BLITINT" },
-        if rt.machine().intena() & 0x40 != 0 { "✓" } else { "✗" }
+        if rt.machine().intena() & 0x40 != 0 {
+            "set"
+        } else {
+            "CLEAR — gfx library never enabled BLITINT"
+        },
+        if rt.machine().intena() & 0x40 != 0 {
+            "✓"
+        } else {
+            "✗"
+        }
     );
 
     // Show all blits whose dest pointer falls in the bootblock buffer
@@ -1040,7 +1071,8 @@ fn wb13_boot_state_checkpoints() {
         // range covers a length of ((sz>>6)*(sz&$3F)*2) bytes.
         let height = (sz >> 6) as u32;
         let width = (sz & 0x3F) as u32;
-        let len_bytes = if width == 0 { 64 } else { width } * 2 * if height == 0 { 1024 } else { height };
+        let len_bytes =
+            if width == 0 { 64 } else { width } * 2 * if height == 0 { 1024 } else { height };
         let desc = (c1 & 0x02) != 0;
         let (dlo, dhi) = if desc {
             (dpt.wrapping_sub(len_bytes), *dpt)
@@ -1055,8 +1087,7 @@ fn wb13_boot_state_checkpoints() {
     }
 
     // Bucket all INTENA writes by value to see what's being written.
-    let mut intena_writes: std::collections::HashMap<u16, u32> =
-        std::collections::HashMap::new();
+    let mut intena_writes: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
     for (_, _, val, _, _) in intena_log {
         *intena_writes.entry(*val).or_insert(0) += 1;
     }
@@ -1065,7 +1096,11 @@ fn wb13_boot_state_checkpoints() {
     println!("   INTENA write values (top 12):");
     for (val, count) in sorted.iter().take(12) {
         let setclr = if *val & 0x8000 != 0 { "SET" } else { "CLEAR" };
-        let blit_bit = if *val & 0x40 != 0 { " ⚠ has BLIT bit" } else { "" };
+        let blit_bit = if *val & 0x40 != 0 {
+            " ⚠ has BLIT bit"
+        } else {
+            ""
+        };
         println!("     ${val:04X} ({setclr}) × {count}{blit_bit}");
     }
     // Count ANY write that touches bit 6 (BLIT) — set or clear.

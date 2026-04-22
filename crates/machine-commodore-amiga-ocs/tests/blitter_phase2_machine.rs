@@ -9,7 +9,9 @@
 
 use machine_commodore_amiga_ocs::{AmigaOcs, CiaExt, IntSource};
 
-fn zero_rom() -> Vec<u8> { vec![0; 512 * 1024] }
+fn zero_rom() -> Vec<u8> {
+    vec![0; 512 * 1024]
+}
 
 /// Disable the OVL overlay so read_word reads chip RAM, not ROM. OVL
 /// = CIA-A PRA bit 0; the Amiga ROM drives this low immediately after
@@ -46,8 +48,11 @@ fn bltsize_write_drives_a_one_word_copy_to_completion() {
     // After the synchronous completion model, the destination holds
     // the copied word and INT_BLIT is pending.
     assert_eq!(amiga.read_word(0x0000_2000), 0xCAFE);
-    assert_ne!(amiga.intreq() & IntSource::Blit.mask(), 0,
-        "INT_BLIT should be raised when the blit completes");
+    assert_ne!(
+        amiga.intreq() & IntSource::Blit.mask(),
+        0,
+        "INT_BLIT should be raised when the blit completes"
+    );
 }
 
 #[test]
@@ -88,7 +93,10 @@ fn two_row_two_word_copy_exercises_amod_and_dmod_paths() {
     amiga.poke_word(0x00DF_F058, (2 << 6) | 2);
 
     for (i, expected) in [0x1111u16, 0x2222, 0x3333, 0x4444].into_iter().enumerate() {
-        assert_eq!(amiga.read_word(0x0000_2000 + (i as u32) * 2), expected,
-            "word {i} should have been copied");
+        assert_eq!(
+            amiga.read_word(0x0000_2000 + (i as u32) * 2),
+            expected,
+            "word {i} should have been copied"
+        );
     }
 }

@@ -8,8 +8,8 @@
 //! init. Here we hardcode the ROM targets found by the earlier
 //! traps — same KS 1.3, same addresses.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 // Resolved earlier on the actual Kickstart 1.3 ROM by lvo_trap
 // and intuition_trap. Stable across runs (same ROM).
@@ -72,7 +72,8 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
             None
         };
         if let Some(n) = name
-            && first_hits.iter().filter(|(m, _, _)| *m == n).count() < 2 {
+            && first_hits.iter().filter(|(m, _, _)| *m == n).count() < 2
+        {
             first_hits.push((n, tick, pc));
         }
         prev_pc = pc;
@@ -94,9 +95,7 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
         for (name, t, pc) in &first_hits {
             let cck = t / 2;
             let frame = cck / 70824;
-            eprintln!(
-                "  {name} at tick={t} (cck={cck}, frame~={frame})  pc=${pc:08X}"
-            );
+            eprintln!("  {name} at tick={t} (cck={cck}, frame~={frame})  pc=${pc:08X}");
         }
     }
 

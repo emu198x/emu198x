@@ -7,8 +7,7 @@
 //! master/4 ticks (the machine's primary clock).
 
 pub use commodore_agnus_ocs::{
-    Agnus, CckBusPlan, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE,
-    bits,
+    Agnus, CckBusPlan, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
 };
 
 /// PAL line length in CCKs — alias for the chip-crate constant under
@@ -23,5 +22,4 @@ pub const PAL_FRAME_LINES: u16 = PAL_LINES_PER_FRAME;
 pub const PAL_LINE_TICKS: u16 = PAL_CCKS_PER_LINE * 2;
 
 /// PAL frame length in master/4 ticks: 227 × 312 × 2 = 141,648.
-pub const PAL_FRAME_TICKS: u64 =
-    (PAL_LINE_TICKS as u64) * (PAL_FRAME_LINES as u64);
+pub const PAL_FRAME_TICKS: u64 = (PAL_LINE_TICKS as u64) * (PAL_FRAME_LINES as u64);

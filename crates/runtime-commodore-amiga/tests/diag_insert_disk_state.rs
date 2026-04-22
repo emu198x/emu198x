@@ -16,8 +16,7 @@ use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntime, Model};
 
 fn load_ks13() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").ok()?;
-    let path = PathBuf::from(home)
-        .join(".emu198x/roms/commodore-amiga/kick13.rom");
+    let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
     if !path.exists() {
         eprintln!("skipping: Kickstart 1.3 ROM missing at {}", path.display());
         return None;
@@ -142,7 +141,8 @@ fn dump_state_at_frame_250_a500_a501() {
     println!("=== chipset snapshot at frame 258 (A500+A501, KS 1.3) ===");
     println!();
 
-    println!("DMACON   = ${:04X}  (DMAEN={} BPLEN={} COPEN={} BLTEN={} DSKEN={} SPREN={})",
+    println!(
+        "DMACON   = ${:04X}  (DMAEN={} BPLEN={} COPEN={} BLTEN={} DSKEN={} SPREN={})",
         a.dmacon,
         (a.dmacon >> 9) & 1,
         (a.dmacon >> 8) & 1,
@@ -167,8 +167,14 @@ fn dump_state_at_frame_250_a500_a501() {
     println!("BPL1MOD  = {}  BPL2MOD = {}", a.bpl1mod, a.bpl2mod);
     println!();
 
-    println!("DDFSTRT  = ${:04X}  DDFSTOP = ${:04X}", a.ddfstrt, a.ddfstop);
-    println!("DIWSTRT  = ${:04X}  DIWSTOP = ${:04X}", a.diwstrt, a.diwstop);
+    println!(
+        "DDFSTRT  = ${:04X}  DDFSTOP = ${:04X}",
+        a.ddfstrt, a.ddfstop
+    );
+    println!(
+        "DIWSTRT  = ${:04X}  DIWSTOP = ${:04X}",
+        a.diwstrt, a.diwstop
+    );
     println!();
 
     println!("Bitplane pointers (current):");
@@ -239,10 +245,7 @@ fn dump_state_at_frame_250_a500_a501() {
     // Count the total number of CPU DMACON writes + BPL*DAT writes
     // logged. If CPU never wrote BPL*DAT, that rules out the CPU-
     // direct-bitplane theory too.
-    println!(
-        "DMACON writes recorded: {}",
-        m.debug_dmacon_log.len()
-    );
+    println!("DMACON writes recorded: {}", m.debug_dmacon_log.len());
     println!();
 
     // Blitter state right now. Bitplanes are all zeros so either
@@ -251,7 +254,8 @@ fn dump_state_at_frame_250_a500_a501() {
     //     window, or (c) the blit is producing zero output because
     //     the source data (APT/BPT/CPT) is itself zero or the
     //     minterm selects nothing.
-    let last_cck = m.debug_cia_b_cr_log
+    let last_cck = m
+        .debug_cia_b_cr_log
         .last()
         .map(|(cck, _, _, _)| *cck)
         .unwrap_or(0);
@@ -274,7 +278,11 @@ fn dump_state_at_frame_250_a500_a501() {
             non_zero_pages.push(base);
         }
     }
-    println!("  {} / {} pages non-empty", non_zero_pages.len(), 512 * 1024 / 256);
+    println!(
+        "  {} / {} pages non-empty",
+        non_zero_pages.len(),
+        512 * 1024 / 256
+    );
     println!("  ALL non-empty page bases:");
     for page in &non_zero_pages {
         // Count non-zero bytes in the page as a cheap "density".
@@ -288,7 +296,10 @@ fn dump_state_at_frame_250_a500_a501() {
     }
     println!();
 
-    println!("Total blit starts (BLTSIZE writes) since reset: {}", m.debug_blit_starts);
+    println!(
+        "Total blit starts (BLTSIZE writes) since reset: {}",
+        m.debug_blit_starts
+    );
     println!();
     println!("Top 10 custom-register read counts:");
     let mut counts: Vec<(u16, u64)> = m
@@ -337,7 +348,10 @@ fn decode_copper_instr(w0: u16, w1: u16) -> String {
         let hp = w0 & 0xFE;
         let ve = (w1 >> 8) & 0x7F;
         let he = w1 & 0xFE;
-        format!("WAIT  V=${:02X} H=${:02X}  mask V=${:02X} H=${:02X}", vp, hp, ve, he)
+        format!(
+            "WAIT  V=${:02X} H=${:02X}  mask V=${:02X} H=${:02X}",
+            vp, hp, ve, he
+        )
     } else {
         let vp = (w0 >> 8) & 0xFF;
         let hp = w0 & 0xFE;

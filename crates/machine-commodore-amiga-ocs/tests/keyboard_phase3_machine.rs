@@ -55,8 +55,11 @@ fn keyboard_emits_fd_byte_into_cia_sdr_after_power_up_delay() {
     // Power-up delay is 150_000 E-clock ticks. Advance a bit past it
     // and confirm the init byte has landed in SDR.
     advance_eclock(&mut amiga, 150_001);
-    assert_eq!(amiga.cia_a().sdr(), encode(0xFD),
-        "CIA-A SDR should hold rotated-inverted \\$FD");
+    assert_eq!(
+        amiga.cia_a().sdr(),
+        encode(0xFD),
+        "CIA-A SDR should hold rotated-inverted \\$FD"
+    );
     assert_eq!(amiga.keyboard().bytes_sent, 1);
 }
 
@@ -70,13 +73,19 @@ fn handshake_advances_state_machine_through_fd_then_fe_to_idle() {
     pulse_handshake(&mut amiga);
     // Give the state machine one tick to emit the next byte.
     advance_eclock(&mut amiga, 1);
-    assert_eq!(amiga.cia_a().sdr(), encode(0xFE),
-        "second byte after first handshake should be \\$FE");
+    assert_eq!(
+        amiga.cia_a().sdr(),
+        encode(0xFE),
+        "second byte after first handshake should be \\$FE"
+    );
 
     pulse_handshake(&mut amiga);
     advance_eclock(&mut amiga, 1);
-    assert_eq!(amiga.keyboard().debug_state_name(), "Idle",
-        "second handshake lands the controller in Idle");
+    assert_eq!(
+        amiga.keyboard().debug_state_name(),
+        "Idle",
+        "second handshake lands the controller in Idle"
+    );
     assert_eq!(amiga.keyboard().bytes_sent, 2);
 }
 
@@ -96,8 +105,10 @@ fn queued_key_event_reaches_cia_sdr_after_power_up() {
 
     // Byte interval is 700 E-clock ticks.
     advance_eclock(&mut amiga, 701);
-    assert_eq!(amiga.cia_a().sdr(), encode(0x45),
-        "queued key press arrives rotated-inverted at SDR");
+    assert_eq!(
+        amiga.cia_a().sdr(),
+        encode(0x45),
+        "queued key press arrives rotated-inverted at SDR"
+    );
     assert_eq!(amiga.keyboard().queued_key_count(), 0);
 }
-

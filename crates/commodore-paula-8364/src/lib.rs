@@ -26,57 +26,57 @@ use std::collections::VecDeque;
 /// bit numbering so callers can read like the spec.
 pub mod bits {
     // INTENA / INTREQ sources (each share layout).
-    pub const INT_TBE:    u16 = 0x0001; // Serial transmit buffer empty
+    pub const INT_TBE: u16 = 0x0001; // Serial transmit buffer empty
     pub const INT_DSKBLK: u16 = 0x0002; // Disk block finished
-    pub const INT_SOFT:   u16 = 0x0004; // Software-requested
-    pub const INT_PORTS:  u16 = 0x0008; // CIA-A /IRQ
-    pub const INT_COPER:  u16 = 0x0010; // Copper
-    pub const INT_VERTB:  u16 = 0x0020; // Vertical blank
-    pub const INT_BLIT:   u16 = 0x0040; // Blitter finished
-    pub const INT_AUD0:   u16 = 0x0080;
-    pub const INT_AUD1:   u16 = 0x0100;
-    pub const INT_AUD2:   u16 = 0x0200;
-    pub const INT_AUD3:   u16 = 0x0400;
-    pub const INT_RBF:    u16 = 0x0800; // Serial receive buffer full
+    pub const INT_SOFT: u16 = 0x0004; // Software-requested
+    pub const INT_PORTS: u16 = 0x0008; // CIA-A /IRQ
+    pub const INT_COPER: u16 = 0x0010; // Copper
+    pub const INT_VERTB: u16 = 0x0020; // Vertical blank
+    pub const INT_BLIT: u16 = 0x0040; // Blitter finished
+    pub const INT_AUD0: u16 = 0x0080;
+    pub const INT_AUD1: u16 = 0x0100;
+    pub const INT_AUD2: u16 = 0x0200;
+    pub const INT_AUD3: u16 = 0x0400;
+    pub const INT_RBF: u16 = 0x0800; // Serial receive buffer full
     pub const INT_DSKSYN: u16 = 0x1000; // DSKDATR == DSKSYNC
-    pub const INT_EXTER:  u16 = 0x2000; // CIA-B /IRQ
-    pub const INT_INTEN:  u16 = 0x4000; // Master enable (bit 14)
+    pub const INT_EXTER: u16 = 0x2000; // CIA-B /IRQ
+    pub const INT_INTEN: u16 = 0x4000; // Master enable (bit 14)
     pub const INT_SETCLR: u16 = 0x8000; // Write flag: 1 = SET, 0 = CLEAR
     /// Mask covering every real source (bits 0..13). Bit 14 is the
     /// master-enable, not a pending source; bit 15 is the write flag.
     pub const INT_SOURCES: u16 = 0x3FFF;
 
     // DMACON bits Paula cares about.
-    pub const DMA_AUD0:   u16 = 0x0001;
-    pub const DMA_AUD1:   u16 = 0x0002;
-    pub const DMA_AUD2:   u16 = 0x0004;
-    pub const DMA_AUD3:   u16 = 0x0008;
-    pub const DMA_DSK:    u16 = 0x0010;
+    pub const DMA_AUD0: u16 = 0x0001;
+    pub const DMA_AUD1: u16 = 0x0002;
+    pub const DMA_AUD2: u16 = 0x0004;
+    pub const DMA_AUD3: u16 = 0x0008;
+    pub const DMA_DSK: u16 = 0x0010;
     pub const DMA_MASTER: u16 = 0x0200;
 
     /// Per-channel audio DMA enable masks (indexed 0..=3).
     pub const DMA_AUD: [u16; 4] = [DMA_AUD0, DMA_AUD1, DMA_AUD2, DMA_AUD3];
 
     // DSKLEN bits.
-    pub const DSKLEN_DMAEN:    u16 = 0x8000;
-    pub const DSKLEN_WRITE:    u16 = 0x4000;
+    pub const DSKLEN_DMAEN: u16 = 0x8000;
+    pub const DSKLEN_WRITE: u16 = 0x4000;
 
     // DSKBYTR read fields.
-    pub const DSKBYTR_DSKBYT:    u16 = 0x8000;
-    pub const DSKBYTR_DMAON:     u16 = 0x4000;
+    pub const DSKBYTR_DSKBYT: u16 = 0x8000;
+    pub const DSKBYTR_DMAON: u16 = 0x4000;
     pub const DSKBYTR_DISKWRITE: u16 = 0x2000;
     pub const DSKBYTR_WORDEQUAL: u16 = 0x1000;
     pub const DSKBYTR_DATA_MASK: u16 = 0x00FF;
 
     // SERDATR read fields (HRM §6 — Serial Port Hardware).
-    pub const SERDATR_OVRUN:     u16 = 0x8000; // receive overrun
-    pub const SERDATR_RBF:       u16 = 0x4000; // receive buffer full
-    pub const SERDATR_TBE:       u16 = 0x2000; // transmit buffer empty
-    pub const SERDATR_TSRE:      u16 = 0x1000; // transmit shift register empty
+    pub const SERDATR_OVRUN: u16 = 0x8000; // receive overrun
+    pub const SERDATR_RBF: u16 = 0x4000; // receive buffer full
+    pub const SERDATR_TBE: u16 = 0x2000; // transmit buffer empty
+    pub const SERDATR_TSRE: u16 = 0x1000; // transmit shift register empty
     pub const SERDATR_DATA_MASK: u16 = 0x00FF;
 
     // SERPER ($032 write) — 8-bit vs 9-bit selector + baud divisor.
-    pub const SERPER_LONG:       u16 = 0x8000; // 1 = 9 data bits, 0 = 8
+    pub const SERPER_LONG: u16 = 0x8000; // 1 = 9 data bits, 0 = 8
 
     // POTGO / POTGOR pin fields (HRM §6 Controller I/O).
     //
@@ -101,12 +101,11 @@ pub mod bits {
     /// Convenient masks for the four pot pins (input readback in POTGOR
     /// uses the DAT bits to report the current pin level).
     pub const POTGOR_BTN_PORT0_MIDDLE: u16 = POTGO_DATRX;
-    pub const POTGOR_BTN_PORT0_RIGHT:  u16 = POTGO_DATLX;
+    pub const POTGOR_BTN_PORT0_RIGHT: u16 = POTGO_DATLX;
     pub const POTGOR_BTN_PORT1_MIDDLE: u16 = POTGO_DATRY;
-    pub const POTGOR_BTN_PORT1_RIGHT:  u16 = POTGO_DATLY;
+    pub const POTGOR_BTN_PORT1_RIGHT: u16 = POTGO_DATLY;
     /// DAT bit mask for all four pot pins in POTGOR.
-    pub const POTGOR_DAT_ALL: u16 =
-        POTGO_DATRY | POTGO_DATLY | POTGO_DATRX | POTGO_DATLX;
+    pub const POTGOR_DAT_ALL: u16 = POTGO_DATRY | POTGO_DATLY | POTGO_DATRX | POTGO_DATLX;
 
     // ADKCON bits Paula uses.
     //
@@ -119,11 +118,11 @@ pub mod bits {
     // checked bit 9 (MSBSYNC) and never raised DSKSYN.
     pub const ADKCON_PRECOMP1: u16 = 0x4000;
     pub const ADKCON_PRECOMP0: u16 = 0x2000;
-    pub const ADKCON_MFMPREC:  u16 = 0x1000;
-    pub const ADKCON_UARTBRK:  u16 = 0x0800;
+    pub const ADKCON_MFMPREC: u16 = 0x1000;
+    pub const ADKCON_UARTBRK: u16 = 0x0800;
     pub const ADKCON_WORDSYNC: u16 = 0x0400;
-    pub const ADKCON_MSBSYNC:  u16 = 0x0200;
-    pub const ADKCON_FAST:     u16 = 0x0100;
+    pub const ADKCON_MSBSYNC: u16 = 0x0200;
+    pub const ADKCON_FAST: u16 = 0x0100;
     /// Per-channel "channel N modulates channel N+1's period" enables.
     pub const ADKCON_USE_PER: [u16; 4] = [0x0010, 0x0020, 0x0040, 0x0080];
     /// Per-channel "channel N modulates channel N+1's volume" enables.
@@ -151,20 +150,20 @@ use bits::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum IntSource {
-    Tbe    = 0,
+    Tbe = 0,
     DskBlk = 1,
-    Soft   = 2,
-    Ports  = 3,
-    Coper  = 4,
-    Vertb  = 5,
-    Blit   = 6,
-    Aud0   = 7,
-    Aud1   = 8,
-    Aud2   = 9,
-    Aud3   = 10,
-    Rbf    = 11,
+    Soft = 2,
+    Ports = 3,
+    Coper = 4,
+    Vertb = 5,
+    Blit = 6,
+    Aud0 = 7,
+    Aud1 = 8,
+    Aud2 = 9,
+    Aud3 = 10,
+    Rbf = 11,
     DskSyn = 12,
-    Exter  = 13,
+    Exter = 13,
 }
 
 impl IntSource {
@@ -180,10 +179,10 @@ impl IntSource {
 pub enum AudioField {
     LcHi = 0,
     LcLo = 1,
-    Len  = 2,
-    Per  = 3,
-    Vol  = 4,
-    Dat  = 5,
+    Len = 2,
+    Per = 3,
+    Vol = 4,
+    Dat = 5,
 }
 
 /// Address-decode helpers for code that speaks the Amiga custom-
@@ -237,8 +236,7 @@ fn build_dac_table() -> [f32; 256] {
     table
 }
 
-static DAC_TABLE: std::sync::LazyLock<[f32; 256]> =
-    std::sync::LazyLock::new(build_dac_table);
+static DAC_TABLE: std::sync::LazyLock<[f32; 256]> = std::sync::LazyLock::new(build_dac_table);
 
 // ─────────────────────────────────────────────────────────────────────
 // Audio channel
@@ -313,7 +311,11 @@ impl AudioChannel {
     }
 
     fn programmed_length_words(&self) -> u32 {
-        if self.len_words == 0 { 65_536 } else { u32::from(self.len_words) }
+        if self.len_words == 0 {
+            65_536
+        } else {
+            u32::from(self.len_words)
+        }
     }
 
     fn start_dma(&mut self) {
@@ -468,7 +470,11 @@ impl AudioChannel {
         }
         let word = self.current_word?;
 
-        let byte = if self.next_byte_is_hi { (word >> 8) as u8 } else { word as u8 };
+        let byte = if self.next_byte_is_hi {
+            (word >> 8) as u8
+        } else {
+            word as u8
+        };
         self.output_sample = byte as i8;
 
         if self.next_byte_is_hi {
@@ -575,7 +581,9 @@ pub struct Paula8364 {
 }
 
 impl Default for Paula8364 {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Paula8364 {
@@ -650,9 +658,18 @@ impl Paula8364 {
         self.raise_intreq(source.mask());
     }
 
-    #[must_use] pub fn intena(&self) -> u16 { self.intena }
-    #[must_use] pub fn intreq(&self) -> u16 { self.intreq }
-    #[must_use] pub fn adkcon(&self) -> u16 { self.adkcon }
+    #[must_use]
+    pub fn intena(&self) -> u16 {
+        self.intena
+    }
+    #[must_use]
+    pub fn intreq(&self) -> u16 {
+        self.intreq
+    }
+    #[must_use]
+    pub fn adkcon(&self) -> u16 {
+        self.adkcon
+    }
 
     /// Compute the 68000 IPL this chipset is requesting. Bit 14
     /// (INTEN) gates everything; per-level priority per HRM Table 3-3.
@@ -662,13 +679,21 @@ impl Paula8364 {
             return 0;
         }
         let active = self.intena & self.intreq & INT_SOURCES;
-        if active & INT_EXTER != 0 { 6 }
-        else if active & (INT_RBF | INT_DSKSYN) != 0 { 5 }
-        else if active & (INT_AUD0 | INT_AUD1 | INT_AUD2 | INT_AUD3) != 0 { 4 }
-        else if active & (INT_COPER | INT_VERTB | INT_BLIT) != 0 { 3 }
-        else if active & INT_PORTS != 0 { 2 }
-        else if active & (INT_TBE | INT_DSKBLK | INT_SOFT) != 0 { 1 }
-        else { 0 }
+        if active & INT_EXTER != 0 {
+            6
+        } else if active & (INT_RBF | INT_DSKSYN) != 0 {
+            5
+        } else if active & (INT_AUD0 | INT_AUD1 | INT_AUD2 | INT_AUD3) != 0 {
+            4
+        } else if active & (INT_COPER | INT_VERTB | INT_BLIT) != 0 {
+            3
+        } else if active & INT_PORTS != 0 {
+            2
+        } else if active & (INT_TBE | INT_DSKBLK | INT_SOFT) != 0 {
+            1
+        } else {
+            0
+        }
     }
 
     fn apply_set_clear(reg: &mut u16, val: u16) {
@@ -689,27 +714,31 @@ impl Paula8364 {
     // ─── Audio register access (typed) ────────────────────────────────
 
     pub fn write_audio(&mut self, ch: u8, field: AudioField, val: u16) {
-        let Some(channel) = self.audio.get_mut(ch as usize) else { return };
+        let Some(channel) = self.audio.get_mut(ch as usize) else {
+            return;
+        };
         match field {
             AudioField::LcHi => channel.lc = (channel.lc & 0x0000_FFFF) | (u32::from(val) << 16),
             AudioField::LcLo => channel.lc = (channel.lc & 0xFFFF_0000) | u32::from(val & 0xFFFE),
-            AudioField::Len  => channel.len_words = val,
-            AudioField::Per  => channel.write_period(val),
-            AudioField::Vol  => channel.write_volume(val),
-            AudioField::Dat  => channel.write_dat(val),
+            AudioField::Len => channel.len_words = val,
+            AudioField::Per => channel.write_period(val),
+            AudioField::Vol => channel.write_volume(val),
+            AudioField::Dat => channel.write_dat(val),
         }
     }
 
     #[must_use]
     pub fn read_audio(&self, ch: u8, field: AudioField) -> u16 {
-        let Some(channel) = self.audio.get(ch as usize) else { return 0 };
+        let Some(channel) = self.audio.get(ch as usize) else {
+            return 0;
+        };
         match field {
             AudioField::LcHi => (channel.lc >> 16) as u16,
             AudioField::LcLo => (channel.lc & 0xFFFF) as u16,
-            AudioField::Len  => channel.len_words,
-            AudioField::Per  => channel.per,
-            AudioField::Vol  => u16::from(channel.vol),
-            AudioField::Dat  => channel.dat,
+            AudioField::Len => channel.len_words,
+            AudioField::Per => channel.per,
+            AudioField::Vol => u16::from(channel.vol),
+            AudioField::Dat => channel.dat,
         }
     }
 
@@ -745,8 +774,7 @@ impl Paula8364 {
     {
         let mut irq_mask: u16 = 0;
         for (index, channel) in self.audio.iter_mut().enumerate() {
-            let dma_enabled =
-                (dmacon & DMA_MASTER) != 0 && (dmacon & DMA_AUD[index]) != 0;
+            let dma_enabled = (dmacon & DMA_MASTER) != 0 && (dmacon & DMA_AUD[index]) != 0;
             if channel.sync_dma_enable(dma_enabled) {
                 irq_mask |= INT_AUD0 << index;
             }
@@ -788,7 +816,11 @@ impl Paula8364 {
     #[must_use]
     pub fn mix_audio_stereo(&self) -> (f32, f32) {
         let s = |i: usize| -> f32 {
-            if self.audio_channel_is_modulator(i) { 0.0 } else { self.audio[i].mix_sample() }
+            if self.audio_channel_is_modulator(i) {
+                0.0
+            } else {
+                self.audio[i].mix_sample()
+            }
         };
         let left = (s(0) + s(3)) * 0.5;
         let right = (s(1) + s(2)) * 0.5;
@@ -796,8 +828,7 @@ impl Paula8364 {
     }
 
     fn audio_channel_is_modulator(&self, index: usize) -> bool {
-        (self.adkcon & ADKCON_USE_VOL[index] != 0)
-            || (self.adkcon & ADKCON_USE_PER[index] != 0)
+        (self.adkcon & ADKCON_USE_VOL[index] != 0) || (self.adkcon & ADKCON_USE_PER[index] != 0)
     }
 
     fn audio_dma_request_on_event(&self, index: usize, event: AudioOutputEvent) -> bool {
@@ -877,15 +908,34 @@ impl Paula8364 {
     }
 
     #[must_use]
-    pub fn dskdat_queue_len(&self) -> usize { self.dskdat_queue.len() }
+    pub fn dskdat_queue_len(&self) -> usize {
+        self.dskdat_queue.len()
+    }
 
-    pub fn set_dsksync(&mut self, val: u16) { self.dsksync = val; }
+    pub fn set_dsksync(&mut self, val: u16) {
+        self.dsksync = val;
+    }
 
-    #[must_use] pub fn dsksync(&self) -> u16 { self.dsksync }
-    #[must_use] pub fn dsklen(&self) -> u16 { self.dsklen }
-    #[must_use] pub fn dskdat(&self) -> u16 { self.dskdat }
-    #[must_use] pub fn dskdatr(&self) -> u16 { self.dskdatr }
-    #[must_use] pub fn disk_dma_pending(&self) -> bool { self.disk_dma_pending }
+    #[must_use]
+    pub fn dsksync(&self) -> u16 {
+        self.dsksync
+    }
+    #[must_use]
+    pub fn dsklen(&self) -> u16 {
+        self.dsklen
+    }
+    #[must_use]
+    pub fn dskdat(&self) -> u16 {
+        self.dskdat
+    }
+    #[must_use]
+    pub fn dskdatr(&self) -> u16 {
+        self.dskdatr
+    }
+    #[must_use]
+    pub fn disk_dma_pending(&self) -> bool {
+        self.disk_dma_pending
+    }
 
     /// Called by the drive when a fresh MFM word has arrived. Returns
     /// `true` iff it matches DSKSYNC.
@@ -905,7 +955,11 @@ impl Paula8364 {
         self.dskbytr_valid = true;
         let wordequal = word == self.dsksync;
         self.dskbytr_wordequal = wordequal;
-        self.dskbytr_wordequal_delay_cck = if wordequal { self.disk_byte_cck_delay() } else { 0 };
+        self.dskbytr_wordequal_delay_cck = if wordequal {
+            self.disk_byte_cck_delay()
+        } else {
+            0
+        };
         if wordequal && self.adkcon & ADKCON_WORDSYNC != 0 {
             self.raise(IntSource::DskSyn);
         }
@@ -922,13 +976,22 @@ impl Paula8364 {
     /// Side-effect-free DSKBYTR view for debuggers/tracing.
     #[must_use]
     pub fn peek_dskbytr(&self, dmacon: u16) -> u16 {
-        let dmaon = (self.dsklen & DSKLEN_DMAEN != 0) && (dmacon & (DMA_MASTER | DMA_DSK)) == (DMA_MASTER | DMA_DSK);
+        let dmaon = (self.dsklen & DSKLEN_DMAEN != 0)
+            && (dmacon & (DMA_MASTER | DMA_DSK)) == (DMA_MASTER | DMA_DSK);
         let diskwrite = self.dsklen & DSKLEN_WRITE != 0;
         let mut value = u16::from(self.dskbytr_data);
-        if self.dskbytr_valid { value |= DSKBYTR_DSKBYT; }
-        if dmaon { value |= DSKBYTR_DMAON; }
-        if diskwrite { value |= DSKBYTR_DISKWRITE; }
-        if self.dskbytr_wordequal { value |= DSKBYTR_WORDEQUAL; }
+        if self.dskbytr_valid {
+            value |= DSKBYTR_DSKBYT;
+        }
+        if dmaon {
+            value |= DSKBYTR_DMAON;
+        }
+        if diskwrite {
+            value |= DSKBYTR_DISKWRITE;
+        }
+        if self.dskbytr_wordequal {
+            value |= DSKBYTR_WORDEQUAL;
+        }
         value
     }
 
@@ -957,7 +1020,11 @@ impl Paula8364 {
     }
 
     fn disk_byte_cck_delay(&self) -> u8 {
-        if self.adkcon & ADKCON_FAST != 0 { DISK_BYTE_CCK_FAST } else { DISK_BYTE_CCK_SLOW }
+        if self.adkcon & ADKCON_FAST != 0 {
+            DISK_BYTE_CCK_FAST
+        } else {
+            DISK_BYTE_CCK_SLOW
+        }
     }
 
     // ─── Disk PLL (IPF variable-rate) ─────────────────────────────────
@@ -974,14 +1041,18 @@ impl Paula8364 {
         }
     }
 
-    pub fn disk_pll_reset(&mut self) { self.disk_pll_phase = 0; }
+    pub fn disk_pll_reset(&mut self) {
+        self.disk_pll_phase = 0;
+    }
 
     pub fn set_disk_pll_variable_rate(&mut self, enabled: bool) {
         self.disk_pll_variable_rate = enabled;
     }
 
     #[must_use]
-    pub fn disk_pll_variable_rate(&self) -> bool { self.disk_pll_variable_rate }
+    pub fn disk_pll_variable_rate(&self) -> bool {
+        self.disk_pll_variable_rate
+    }
 
     // ─── Serial UART ──────────────────────────────────────────────────
 
@@ -995,10 +1066,18 @@ impl Paula8364 {
     }
 
     /// CPU write to SERPER (\$032). Baud-rate divisor + LONG flag.
-    pub fn write_serper(&mut self, val: u16) { self.serper = val; }
+    pub fn write_serper(&mut self, val: u16) {
+        self.serper = val;
+    }
 
-    #[must_use] pub fn serdat(&self) -> u16 { self.serdat }
-    #[must_use] pub fn serper(&self) -> u16 { self.serper }
+    #[must_use]
+    pub fn serdat(&self) -> u16 {
+        self.serdat
+    }
+    #[must_use]
+    pub fn serper(&self) -> u16 {
+        self.serper
+    }
 
     /// Read SERDATR (\$018) with its HRM side effects: RBF + OVRUN
     /// clear on a successful read. Returns the composite status word
@@ -1014,8 +1093,12 @@ impl Paula8364 {
     #[must_use]
     pub fn peek_serdatr(&self) -> u16 {
         let mut v = self.serial_rx_byte & SERDATR_DATA_MASK;
-        if self.serial_rx_overrun { v |= SERDATR_OVRUN; }
-        if self.serial_rx_full { v |= SERDATR_RBF; }
+        if self.serial_rx_overrun {
+            v |= SERDATR_OVRUN;
+        }
+        if self.serial_rx_full {
+            v |= SERDATR_RBF;
+        }
         // Transmitter is modelled as always idle after a write.
         v | SERDATR_TBE | SERDATR_TSRE
     }
@@ -1070,9 +1153,18 @@ impl Paula8364 {
         out_bits | dat
     }
 
-    #[must_use] pub fn potgo(&self) -> u16 { self.potgo }
-    #[must_use] pub fn pot0dat(&self) -> u16 { self.pot0dat }
-    #[must_use] pub fn pot1dat(&self) -> u16 { self.pot1dat }
+    #[must_use]
+    pub fn potgo(&self) -> u16 {
+        self.potgo
+    }
+    #[must_use]
+    pub fn pot0dat(&self) -> u16 {
+        self.pot0dat
+    }
+    #[must_use]
+    pub fn pot1dat(&self) -> u16 {
+        self.pot1dat
+    }
 
     /// Inject the live level of one of the four pot pins. `mask` must
     /// be one of `POTGOR_BTN_*` / `POTGO_DAT*` constants. `high = true`
@@ -1100,27 +1192,43 @@ impl Paula8364 {
 
     /// Append an observed disk-write DMA word to the diagnostic log.
     /// Floppy peripheral calls this as it consumes DSKDAT via DMA.
-    pub fn note_disk_write_dma_word(&mut self, word: u16) { self.disk_write_dma_log.push(word); }
+    pub fn note_disk_write_dma_word(&mut self, word: u16) {
+        self.disk_write_dma_log.push(word);
+    }
 
     /// Append an observed disk-write PIO word.
-    pub fn note_disk_write_pio_word(&mut self, word: u16) { self.disk_write_pio_log.push(word); }
+    pub fn note_disk_write_pio_word(&mut self, word: u16) {
+        self.disk_write_pio_log.push(word);
+    }
 
     #[must_use]
-    pub fn debug_disk_write_dma_log(&self) -> &[u16] { &self.disk_write_dma_log }
+    pub fn debug_disk_write_dma_log(&self) -> &[u16] {
+        &self.disk_write_dma_log
+    }
 
     #[must_use]
-    pub fn debug_disk_write_pio_log(&self) -> &[u16] { &self.disk_write_pio_log }
+    pub fn debug_disk_write_pio_log(&self) -> &[u16] {
+        &self.disk_write_pio_log
+    }
 
-    pub fn clear_debug_disk_write_dma_log(&mut self) { self.disk_write_dma_log.clear(); }
-    pub fn clear_debug_disk_write_pio_log(&mut self) { self.disk_write_pio_log.clear(); }
+    pub fn clear_debug_disk_write_dma_log(&mut self) {
+        self.disk_write_dma_log.clear();
+    }
+    pub fn clear_debug_disk_write_pio_log(&mut self) {
+        self.disk_write_pio_log.clear();
+    }
 
     /// Most-recent INTENA writes (up to 16 deep, oldest first).
     #[must_use]
-    pub fn debug_intena_writes(&self) -> &VecDeque<u16> { &self.intena_write_log }
+    pub fn debug_intena_writes(&self) -> &VecDeque<u16> {
+        &self.intena_write_log
+    }
 
     /// Most-recent INTREQ writes (up to 16 deep, oldest first).
     #[must_use]
-    pub fn debug_intreq_writes(&self) -> &VecDeque<u16> { &self.intreq_write_log }
+    pub fn debug_intreq_writes(&self) -> &VecDeque<u16> {
+        &self.intreq_write_log
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────

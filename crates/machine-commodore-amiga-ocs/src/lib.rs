@@ -11,6 +11,7 @@ mod cia;
 mod copper;
 mod denise;
 mod memory;
+mod rtc;
 
 pub use agnus::{
     Agnus, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS, VBL_END_LINE,
@@ -18,18 +19,20 @@ pub use agnus::{
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
 pub use commodore_gary::{ChipSelect, Gary};
-pub use format_commodore_amiga_adf::Adf;
-pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
-pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
-pub use commodore_paula_8364::{AudioField, IntSource, Paula8364};
 use commodore_paula_8364::decode as paula_decode;
+pub use commodore_paula_8364::{AudioField, IntSource, Paula8364};
 pub use copper::Copper;
 pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
-pub use memory::{Memory, CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE};
+pub use format_commodore_amiga_adf::Adf;
+pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
+pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
+pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
+pub use rtc::RTC_BASE;
 
+use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode};
 use motorola_68000::cpu::State;
-use motorola_68000::Cpu68000;
+use rtc::Msm6242Rtc;
 
 const CUSTOM_BASE: u32 = 0x00DF_0000;
 const CUSTOM_TOP: u32 = 0x00E0_0000;
@@ -66,25 +69,41 @@ impl RamConfig {
     /// Stock A500: 512K chip, no expansion.
     #[must_use]
     pub const fn bare() -> Self {
-        Self { chip_kb: 512, slow_kb: 0, fast_kb: 0 }
+        Self {
+            chip_kb: 512,
+            slow_kb: 0,
+            fast_kb: 0,
+        }
     }
 
     /// A500 with A501 trapdoor: 512K chip + 512K slow.
     #[must_use]
     pub const fn a501_trapdoor() -> Self {
-        Self { chip_kb: 512, slow_kb: 512, fast_kb: 0 }
+        Self {
+            chip_kb: 512,
+            slow_kb: 512,
+            fast_kb: 0,
+        }
     }
 
     /// A500Plus-equivalent chip layout: 1M chip, no slow, no fast.
     #[must_use]
     pub const fn a500_plus() -> Self {
-        Self { chip_kb: 1024, slow_kb: 0, fast_kb: 0 }
+        Self {
+            chip_kb: 1024,
+            slow_kb: 0,
+            fast_kb: 0,
+        }
     }
 
     /// Maxed A500: 1M chip + 512K slow + 8M Zorro-II fast.
     #[must_use]
     pub const fn a500_maxed() -> Self {
-        Self { chip_kb: 1024, slow_kb: 512, fast_kb: 8192 }
+        Self {
+            chip_kb: 1024,
+            slow_kb: 512,
+            fast_kb: 8192,
+        }
     }
 
     /// `true` if the sizes are all within the supported set.
@@ -111,10 +130,18 @@ impl Default for RamConfig {
 /// corresponding drive signal is asserted.
 fn drive_pra_byte(s: &DriveStatus) -> u8 {
     let mut v = 0b1111_1111u8;
-    if s.disk_change   { v &= !(1 << 2); }
-    if s.write_protect { v &= !(1 << 3); }
-    if s.track0        { v &= !(1 << 4); }
-    if s.ready         { v &= !(1 << 5); }
+    if s.disk_change {
+        v &= !(1 << 2);
+    }
+    if s.write_protect {
+        v &= !(1 << 3);
+    }
+    if s.track0 {
+        v &= !(1 << 4);
+    }
+    if s.ready {
+        v &= !(1 << 5);
+    }
     v
 }
 
@@ -124,13 +151,13 @@ fn drive_pra_byte(s: &DriveStatus) -> u8 {
 ///
 /// HRM Appendix F:
 ///   PB0 /STEP     — step pulse, falling edge advances head
-///   PB1  DIR      — active-HIGH, 1 = step inward
+///   PB1  DIR      — 0 = step inward, 1 = step outward
 ///   PB2 /SIDE     — 0 = upper head
 ///   PB3 /SEL0     — 0 = DF0 selected
 ///   PB7 /MTR      — 0 = motor on
 fn decode_cia_b_prb_for_df0(prb: u8) -> (bool, bool, bool, bool, bool) {
     let step = (prb & 0x01) == 0;
-    let dir_inward = (prb & 0x02) != 0;
+    let dir_inward = (prb & 0x02) == 0;
     let side_upper = (prb & 0x04) == 0;
     let sel_df0 = (prb & 0x08) == 0;
     let motor_on = (prb & 0x80) == 0;
@@ -142,6 +169,7 @@ fn decode_cia_b_prb_for_df0(prb: u8) -> (bool, bool, bool, bool, bool) {
 /// rate), so CIAs fire once every 10 ticks. Confirmed by HRM register
 /// map: "CIAA timer A (.709379 MHz PAL)" = master/40 exactly.
 const CIA_E_CLOCK_DIVISOR: u64 = 10;
+const DEBUG_RTC_LOG_LIMIT: usize = 4096;
 
 /// State carried while a disk DMA transfer is in-flight.
 ///
@@ -211,6 +239,10 @@ pub struct AmigaOcs {
     /// Configured once at construction (A500 + slow RAM) and read-
     /// only thereafter.
     gary: Gary,
+    /// Battery-backed old-address RTC (`$DC0000`) used by A500+A501-
+    /// style configurations. Backed by host time so `SetClock load`
+    /// has something real to read.
+    rtc: Msm6242Rtc,
     /// Zorro-II autoconfig board, present when the `RamConfig` asks
     /// for fast RAM. `None` when `fast_kb == 0`. Answers at the probe
     /// window `$E80000-$E8007F` until `expansion.library` writes both
@@ -280,14 +312,24 @@ pub struct AmigaOcs {
     /// bltcpt, bltdpt, bltsize)`. Captures the parameters at the
     /// moment the blit was kicked off — so we can replay any
     /// suspicious blit and find issues with B→D copy paths.
-    pub debug_blit_log:
-        Vec<(u64, u32, u16, u16, u32, u32, u32, u32, u16)>,
+    pub debug_blit_log: Vec<(u64, u32, u16, u16, u32, u32, u32, u32, u16)>,
     /// Diagnostic: log of CIA-A register writes. Entry is
     /// `(cck, pc, reg, raw_val)` where reg is 0..=$F. Lets us see
     /// how timer.device and other code start/stop the CIA-A timers.
     pub debug_cia_a_cr_log: Vec<(u64, u32, u8, u8)>,
     /// Same for CIA-B.
     pub debug_cia_b_cr_log: Vec<(u64, u32, u8, u8)>,
+    /// Diagnostic: log of Copper MOVEs routed through the custom
+    /// register dispatcher. Entry is `(cck, vpos, hpos, reg, val)`.
+    /// Useful for confirming which BPLCON0 mode word is actually
+    /// applied during the visible desktop, rather than inferring
+    /// from the source template in RAM.
+    pub debug_copper_move_log: Vec<(u64, u16, u16, u16, u16)>,
+    /// Diagnostic: log of CPU custom-register writes. Entry is
+    /// `(cck, pc, addr24, offset, raw_val, is_word)`. Used to catch
+    /// byte-write behaviour differences against the archive machine,
+    /// especially for display registers like BPLCON0.
+    pub debug_custom_write_log: Vec<(u64, u32, u32, u16, u16, bool)>,
     /// Diagnostic: when set, every CPU-initiated memory write whose
     /// address falls in `[watch_addr, watch_addr+watch_len)` is
     /// recorded as `(cck, pc, addr, val, is_word)`. Used by task #96
@@ -295,9 +337,21 @@ pub struct AmigaOcs {
     /// writes what to a specific memory cell.
     pub debug_watch_addr: Option<(u32, u32)>,
     pub debug_watch_writes: Vec<(u64, u32, u32, u16, bool)>,
+    /// Diagnostic: bounded log of CPU RTC bus accesses. Entry is
+    /// `(cck, pc, addr24, is_read, is_word, value)`, where `value`
+    /// is the delivered word/byte payload. Used to trace KS 1.3's
+    /// direct old-address clock probes at `$DC0000`.
+    pub debug_rtc_log: Vec<(u64, u32, u32, bool, bool, u16)>,
 }
 
 impl AmigaOcs {
+    fn apply_df0_control_from_cia_b(&mut self) {
+        let prb = self.cia_b.port_b_output();
+        let (step, dir_in, side_upper, sel0, motor) = decode_cia_b_prb_for_df0(prb);
+        self.drive
+            .update_control(step, dir_in, side_upper, sel0, motor);
+    }
+
     /// Build a new Amiga (OCS) with the given Kickstart ROM image
     /// and stock 512K chip RAM only (no expansion).
     #[must_use]
@@ -384,6 +438,7 @@ impl AmigaOcs {
         // the slow-RAM backing anyway (harmless for boot).
         let mut gary = Gary::new();
         gary.set_slow_ram_present(true);
+        gary.set_rtc_present(cfg.slow_kb > 0);
         Self {
             cpu,
             memory,
@@ -395,6 +450,7 @@ impl AmigaOcs {
             keyboard: AmigaKeyboard::new(),
             prev_cia_a_spmode: false,
             gary,
+            rtc: Msm6242Rtc::new(),
             autoconfig,
             cia_a,
             cia_b: Cia::new(),
@@ -425,9 +481,26 @@ impl AmigaOcs {
             debug_blit_log: Vec::new(),
             debug_cia_a_cr_log: Vec::new(),
             debug_cia_b_cr_log: Vec::new(),
+            debug_copper_move_log: Vec::new(),
+            debug_custom_write_log: Vec::new(),
             debug_watch_addr: None,
             debug_watch_writes: Vec::new(),
+            debug_rtc_log: Vec::new(),
         }
+    }
+
+    fn log_rtc_access(&mut self, addr24: u32, is_read: bool, is_word: bool, value: u16) {
+        if self.debug_rtc_log.len() >= DEBUG_RTC_LOG_LIMIT {
+            return;
+        }
+        self.debug_rtc_log.push((
+            self.tick_count / TICKS_PER_CCK,
+            self.cpu.regs.pc,
+            addr24,
+            is_read,
+            is_word,
+            value,
+        ));
     }
 
     /// Read-only Agnus access.
@@ -542,13 +615,26 @@ impl AmigaOcs {
     pub fn insert_adf(&mut self, adf: Adf) {
         self.drive.insert_disk(adf);
         self.drive.acknowledge_disk_change();
-        self.cia_a.set_external_a(drive_pra_byte(&self.drive.status()));
+        self.cia_a
+            .set_external_a(drive_pra_byte(&self.drive.status()));
+    }
+
+    /// Insert an ADF image into DF0 but leave `/DSKCHANGE` pending.
+    ///
+    /// This is useful for probes that want to compare "disk already
+    /// present at power-on" against "newly inserted disk still awaiting
+    /// acknowledgement" without changing the default boot behavior.
+    pub fn insert_adf_with_change_pending(&mut self, adf: Adf) {
+        self.drive.insert_disk(adf);
+        self.cia_a
+            .set_external_a(drive_pra_byte(&self.drive.status()));
     }
 
     /// Eject the disk from DF0.
     pub fn eject_disk(&mut self) {
         self.drive.eject_disk();
-        self.cia_a.set_external_a(drive_pra_byte(&self.drive.status()));
+        self.cia_a
+            .set_external_a(drive_pra_byte(&self.drive.status()));
     }
 
     /// Read-only keyboard controller access — useful for tests
@@ -617,7 +703,9 @@ impl AmigaOcs {
         let Some(board) = self.autoconfig.as_mut() else {
             return false;
         };
-        let Some(base) = board.base() else { return false };
+        let Some(base) = board.base() else {
+            return false;
+        };
         let size = board.ram_size();
         if addr24 < base || addr24 >= base + size {
             return false;
@@ -747,8 +835,7 @@ impl AmigaOcs {
         let word_count = u32::from(dsklen & 0x3FFF);
         let is_write = (dsklen & 0x4000) != 0;
         const ADKCON_WORDSYNC: u16 = 0x0400;
-        let wordsync_enabled = !is_write
-            && (self.paula.adkcon() & ADKCON_WORDSYNC) != 0;
+        let wordsync_enabled = !is_write && (self.paula.adkcon() & ADKCON_WORDSYNC) != 0;
         if word_count == 0 {
             // Zero-length transfers complete immediately — matches
             // the archive and HRM ("a DSKLEN write with DMAEN set
@@ -770,7 +857,11 @@ impl AmigaOcs {
     /// uses 28 / 14 CCKs per byte; a word is two bytes.
     fn disk_word_cck_interval(&self) -> u16 {
         const ADKCON_FAST: u16 = 0x0100;
-        if self.paula.adkcon() & ADKCON_FAST != 0 { 28 } else { 56 }
+        if self.paula.adkcon() & ADKCON_FAST != 0 {
+            28
+        } else {
+            56
+        }
     }
 
     /// Drive the pending Agnus blit to completion and raise INT_BLIT.
@@ -826,6 +917,7 @@ impl AmigaOcs {
                 let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
                 self.dispatch_custom_write(offset, val);
             }
+            ChipSelect::Rtc => self.rtc.write_word(addr24, val),
             _ => self.memory.write_word(addr24, val),
         }
     }
@@ -836,8 +928,7 @@ impl AmigaOcs {
         let intena_before = self.paula.intena();
         match offset {
             0x080 => {
-                self.copper.cop1lc =
-                    (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(val) << 16);
+                self.copper.cop1lc = (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(val) << 16);
                 self.debug_cop1lc_log.push((
                     self.tick_count / TICKS_PER_CCK,
                     self.cpu.regs.pc,
@@ -845,8 +936,7 @@ impl AmigaOcs {
                 ));
             }
             0x082 => {
-                self.copper.cop1lc =
-                    (self.copper.cop1lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
+                self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
                 self.debug_cop1lc_log.push((
                     self.tick_count / TICKS_PER_CCK,
                     self.cpu.regs.pc,
@@ -854,8 +944,7 @@ impl AmigaOcs {
                 ));
             }
             0x084 => {
-                self.copper.cop2lc =
-                    (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(val) << 16);
+                self.copper.cop2lc = (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(val) << 16);
                 self.debug_cop2lc_log.push((
                     self.tick_count / TICKS_PER_CCK,
                     self.cpu.regs.pc,
@@ -863,8 +952,7 @@ impl AmigaOcs {
                 ));
             }
             0x086 => {
-                self.copper.cop2lc =
-                    (self.copper.cop2lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
+                self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
                 self.debug_cop2lc_log.push((
                     self.tick_count / TICKS_PER_CCK,
                     self.cpu.regs.pc,
@@ -990,12 +1078,18 @@ impl AmigaOcs {
             self.memory.set_overlay(self.cia_a.ovl());
         } else if let Some(reg) = cia::decode_cia_b(addr) {
             self.cia_b.write(reg, val);
+            if matches!(reg, 0x01 | 0x03) {
+                self.apply_df0_control_from_cia_b();
+            }
         } else if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr) {
             // Custom registers are word-only; byte writes pad with
             // the same byte in both halves on real hardware. For our
             // purposes a byte write just writes the byte value.
             let offset = (addr - CUSTOM_BASE) as u16 & 0x1FE;
-            self.denise.write_word(offset, u16::from(val) << 8 | u16::from(val));
+            self.denise
+                .write_word(offset, u16::from(val) << 8 | u16::from(val));
+        } else if self.gary.decode(addr) == ChipSelect::Rtc {
+            self.rtc.write_byte(addr, val);
         } else {
             self.memory.write_byte(addr, val);
         }
@@ -1072,6 +1166,9 @@ impl AmigaOcs {
         // Fast-RAM window served by a configured autoconfig board.
         if let Some(val) = self.autoconfig_fast_ram_read_word(addr24) {
             return val;
+        }
+        if self.gary.decode(addr24) == ChipSelect::Rtc {
+            return self.rtc.read_word(addr24);
         }
         if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
             let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
@@ -1165,9 +1262,14 @@ impl AmigaOcs {
                 // the non-Denise ones.
                 let vpos = self.agnus.vpos;
                 let hpos = self.agnus.hpos;
-                if let Some((reg, val)) =
-                    self.copper.tick_cck(&self.memory, vpos, hpos, claim)
-                {
+                if let Some((reg, val)) = self.copper.tick_cck(&self.memory, vpos, hpos, claim) {
+                    self.debug_copper_move_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        vpos,
+                        hpos,
+                        reg,
+                        val,
+                    ));
                     self.dispatch_custom_write(reg, val);
                 }
             }
@@ -1183,12 +1285,8 @@ impl AmigaOcs {
             // Move the memory borrow outside the closure so the
             // closure only borrows the Memory, not all of Self.
             let memory = &self.memory;
-            self.paula.tick_audio_cck(
-                dmacon,
-                slot,
-                true,
-                |addr| memory.read_chip_ram_byte(addr),
-            );
+            self.paula
+                .tick_audio_cck(dmacon, slot, true, |addr| memory.read_chip_ram_byte(addr));
 
             // ── Paula disk engine — DSKBYTR byte-pacing + WORDEQUAL
             // delay. Ticked once per CCK; no-op until a drive has
@@ -1240,14 +1338,12 @@ impl AmigaOcs {
             self.cia_b.phi2_pulse();
 
             // Floppy drive runs at E-clock rate (same rate as CIA
-            // internal ticks). CIA-B PRB drives the control pins;
-            // CIA-A PRA inputs reflect drive status.
-            let prb = self.cia_b.port_b_output();
-            let (step, dir_in, side_upper, sel0, motor) =
-                decode_cia_b_prb_for_df0(prb);
-            self.drive.update_control(step, dir_in, side_upper, sel0, motor);
+            // internal ticks). CIA-B PRB updates the control pins on
+            // writes; the E-clock phase advances the mechanical drive
+            // state and feeds status back onto CIA-A PRA.
             let _ = self.drive.tick();
-            self.cia_a.set_external_a(drive_pra_byte(&self.drive.status()));
+            self.cia_a
+                .set_external_a(drive_pra_byte(&self.drive.status()));
 
             // Keyboard controller — detect CIA-A CRA bit 6 (SPMODE)
             // rising edge as the host handshake, then tick the state
@@ -1337,8 +1433,7 @@ impl AmigaOcs {
         //   - CIA / custom / slow-RAM / ROM / unmapped accesses are
         //     not on the chip-RAM arbitration path.
         let addr24 = addr & 0xFF_FFFF;
-        let is_chip_ram_access = addr24 < 0x20_0000
-            && (!is_read || !self.memory.overlay());
+        let is_chip_ram_access = addr24 < 0x20_0000 && (!is_read || !self.memory.overlay());
         if is_chip_ram_access {
             let claim = denise::dma_claim(
                 self.agnus.hpos,
@@ -1404,6 +1499,33 @@ impl AmigaOcs {
                 // the high byte if it's a word write, low byte if byte.
                 let byte = if is_word { (val >> 8) as u8 } else { val as u8 };
                 self.cia_b.write(reg, byte);
+                if matches!(reg, 0x01 | 0x03) {
+                    self.apply_df0_control_from_cia_b();
+                }
+                self.cpu.bus_status = BusStatus::Ready(0);
+            }
+            return;
+        }
+
+        if self.gary.decode(addr24) == ChipSelect::Rtc {
+            if is_read {
+                let val = if is_word {
+                    self.rtc.read_word(addr24)
+                } else {
+                    u16::from(self.rtc.read_byte(addr24))
+                };
+                self.log_rtc_access(addr24, true, is_word, val);
+                self.memory.set_last_bus_value(val);
+                self.cpu.bus_status = BusStatus::Ready(val);
+            } else {
+                let val = data.unwrap_or(0);
+                self.log_rtc_access(addr24, false, is_word, val);
+                self.memory.set_last_bus_value(val);
+                if is_word {
+                    self.rtc.write_word(addr24, val);
+                } else {
+                    self.rtc.write_byte(addr24, val as u8);
+                }
                 self.cpu.bus_status = BusStatus::Ready(0);
             }
             return;
@@ -1545,6 +1667,14 @@ impl AmigaOcs {
             } else {
                 let val = data.unwrap_or(0);
                 self.memory.set_last_bus_value(val);
+                self.debug_custom_write_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    addr24,
+                    offset,
+                    val,
+                    is_word,
+                ));
                 self.dispatch_custom_write(offset, val);
                 self.cpu.bus_status = BusStatus::Ready(0);
             }

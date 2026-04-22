@@ -8,7 +8,9 @@
 
 use commodore_paula_8364::{AudioField, IntSource, Paula8364, bits::*};
 
-fn zero_reader(_: u32) -> u8 { 0 }
+fn zero_reader(_: u32) -> u8 {
+    0
+}
 
 // ────────────────────────────────────────────────────────────────
 // Register storage (typed API)
@@ -78,11 +80,17 @@ fn audx_per_below_minimum_uses_clamp_for_playback_timing() {
         p.tick_audio_cck(dmacon, Some(0), true, sample);
     }
     let (left, _) = p.mix_audio_stereo();
-    assert!(left.abs() < 0.01, "no output before clamped minimum elapses; got {left}");
+    assert!(
+        left.abs() < 0.01,
+        "no output before clamped minimum elapses; got {left}"
+    );
 
     p.tick_audio_cck(dmacon, Some(0), true, sample);
     let (left, _) = p.mix_audio_stereo();
-    assert!(left > 0.4, "output appears at the clamped minimum; got {left}");
+    assert!(
+        left > 0.4,
+        "output appears at the clamped minimum; got {left}"
+    );
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -132,7 +140,10 @@ fn channels_0_and_3_route_to_left_and_1_2_to_right() {
         p.tick_audio_cck(DMA_MASTER | DMA_AUD1, Some(1), true, read);
     }
     let (left, right) = p.mix_audio_stereo();
-    assert!(left.abs() < 0.01, "ch 1 must not leak into left; got {left}");
+    assert!(
+        left.abs() < 0.01,
+        "ch 1 must not leak into left; got {left}"
+    );
     assert!(right > 0.4, "ch 1 → right; got {right}");
 }
 
@@ -155,8 +166,10 @@ fn attach_period_bit_mutes_modulator_channel_in_stereo_mix() {
         p.tick_audio_cck(DMA_MASTER | DMA_AUD0, Some(0), true, read);
     }
     let (left, _) = p.mix_audio_stereo();
-    assert!(left.abs() < 0.01,
-        "modulator channels don't contribute to the audio mix; got {left}");
+    assert!(
+        left.abs() < 0.01,
+        "modulator channels don't contribute to the audio mix; got {left}"
+    );
 }
 
 #[test]
@@ -175,8 +188,10 @@ fn attach_volume_uses_channel_n_low_byte_to_set_volume_on_n_plus_1() {
         p.tick_audio_cck(DMA_MASTER | DMA_AUD0, Some(0), true, read);
     }
     let ch1_vol = p.read_audio(1, AudioField::Vol);
-    assert_eq!(ch1_vol, 0x20,
-        "channel 1 volume should have been written by channel 0's low-byte event; got {ch1_vol}");
+    assert_eq!(
+        ch1_vol, 0x20,
+        "channel 1 volume should have been written by channel 0's low-byte event; got {ch1_vol}"
+    );
 }
 
 // ────────────────────────────────────────────────────────────────

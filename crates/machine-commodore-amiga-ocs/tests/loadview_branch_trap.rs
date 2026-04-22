@@ -16,17 +16,19 @@
 //! We trap BOTH branches and for the non-null one, also capture
 //! a1 (View ptr), 4(a1) (LOFCprList), and the value being written.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const PC_NONNULL_PATH: u32 = 0x00FC_D5B8;
-const PC_NULL_PATH:    u32 = 0x00FC_D5D8;
+const PC_NULL_PATH: u32 = 0x00FC_D5D8;
 const PC_LOFLIST_WRITE: u32 = 0x00FC_D5C2;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
-    if !path.exists() { return None; }
+    if !path.exists() {
+        return None;
+    }
     Some(std::fs::read(&path).expect("read Kickstart 1.3 ROM"))
 }
 
@@ -47,14 +49,20 @@ fn trap(label: &str, use_slow_ram: bool) {
     for tick in 0..end {
         amiga.tick();
         let pc = amiga.cpu().regs.pc;
-        if pc == prev_pc { continue; }
-        if pc == PC_NONNULL_PATH { nonnull_hits += 1; }
-        if pc == PC_NULL_PATH    { null_hits += 1; }
+        if pc == prev_pc {
+            continue;
+        }
+        if pc == PC_NONNULL_PATH {
+            nonnull_hits += 1;
+        }
+        if pc == PC_NULL_PATH {
+            null_hits += 1;
+        }
         if pc == PC_LOFLIST_WRITE {
             let r = &amiga.cpu().regs;
             let a0 = r.a[0];
             let a1 = r.a[1];
-            let a3 = r.a[2];  // wait a3 would be r.a[2] for A2 — A3 is index 3
+            let a3 = r.a[2]; // wait a3 would be r.a[2] for A2 — A3 is index 3
             // Actually a[0]=A0, a[1]=A1, a[2]=A2, a[3]=A3
             let a3 = r.a[3];
             let value = amiga.read_long(a0.wrapping_add(4));
@@ -75,8 +83,12 @@ fn trap(label: &str, use_slow_ram: bool) {
 
 #[test]
 #[ignore]
-fn slow_ram_branches() { trap("slow-RAM", true); }
+fn slow_ram_branches() {
+    trap("slow-RAM", true);
+}
 
 #[test]
 #[ignore]
-fn chip_only_branches() { trap("chip-only", false); }
+fn chip_only_branches() {
+    trap("chip-only", false);
+}

@@ -142,15 +142,10 @@ fn update_mode() -> bool {
 /// absent. Used for both ROMs and ADFs.
 fn load_optional_artifact(path: &Path, kind: &str, row: &str) -> Option<Vec<u8>> {
     if !path.exists() {
-        eprintln!(
-            "skipping {row}: {kind} missing at {}",
-            path.display()
-        );
+        eprintln!("skipping {row}: {kind} missing at {}", path.display());
         return None;
     }
-    Some(std::fs::read(path).unwrap_or_else(|e| {
-        panic!("read {kind} at {}: {e}", path.display())
-    }))
+    Some(std::fs::read(path).unwrap_or_else(|e| panic!("read {kind} at {}: {e}", path.display())))
 }
 
 /// Tick the runtime for `frames` PAL frames. Uses the machine's
@@ -209,13 +204,7 @@ fn encode_rgb_png(rgb: &[u8], w: u32, h: u32) -> Vec<u8> {
 /// `actual` and `expected` RGB frames. Matches: black. Mismatches:
 /// red. Kept small and cheap — it's a debug artefact, not a user-
 /// facing diff tool.
-fn write_diff_mask(
-    path: &Path,
-    actual_rgb: &[u8],
-    expected_rgb: &[u8],
-    w: u32,
-    h: u32,
-) {
+fn write_diff_mask(path: &Path, actual_rgb: &[u8], expected_rgb: &[u8], w: u32, h: u32) {
     assert_eq!(actual_rgb.len(), expected_rgb.len());
     let mut mask = Vec::with_capacity(actual_rgb.len());
     for (a, e) in actual_rgb.chunks_exact(3).zip(expected_rgb.chunks_exact(3)) {
@@ -270,8 +259,7 @@ fn run_row(row: &GoldenRow) {
         return;
     };
     let rom_path = roms.join(row.kickstart);
-    let Some(rom_bytes) = load_optional_artifact(&rom_path, "Kickstart ROM", row.name)
-    else {
+    let Some(rom_bytes) = load_optional_artifact(&rom_path, "Kickstart ROM", row.name) else {
         return;
     };
 
@@ -292,8 +280,8 @@ fn run_row(row: &GoldenRow) {
     let mut rt = AmigaRuntime::new(row.model, rom_bytes)
         .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
     if let Some(bytes) = adf_bytes {
-        let adf = Adf::from_bytes(bytes)
-            .unwrap_or_else(|e| panic!("{}: decode ADF: {e}", row.name));
+        let adf =
+            Adf::from_bytes(bytes).unwrap_or_else(|e| panic!("{}: decode ADF: {e}", row.name));
         rt.machine_mut().insert_adf(adf);
     }
 
@@ -345,11 +333,8 @@ fn run_row(row: &GoldenRow) {
 
     // Mismatch: dump actual + diff mask and panic with pointers.
     let actual_path = goldens_dir().join(format!("{}.actual.png", row.name));
-    std::fs::write(
-        &actual_path,
-        encode_rgb_png(&actual_rgb, FSUAE_W, FSUAE_H),
-    )
-    .unwrap_or_else(|e| panic!("write actual {}: {e}", actual_path.display()));
+    std::fs::write(&actual_path, encode_rgb_png(&actual_rgb, FSUAE_W, FSUAE_H))
+        .unwrap_or_else(|e| panic!("write actual {}: {e}", actual_path.display()));
 
     let diff_path = goldens_dir().join(format!("{}.diff.png", row.name));
     write_diff_mask(&diff_path, &actual_rgb, &expected_rgb, FSUAE_W, FSUAE_H);

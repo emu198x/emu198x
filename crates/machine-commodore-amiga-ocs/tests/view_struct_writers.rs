@@ -13,13 +13,15 @@
 //! those fields isn't running. Watch the 24-byte View range
 //! $5A10..$5A28 in slow-RAM, log every write with PC.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
-    if !path.exists() { return None; }
+    if !path.exists() {
+        return None;
+    }
     Some(std::fs::read(&path).expect("read Kickstart 1.3 ROM"))
 }
 
@@ -34,14 +36,14 @@ fn slow_ram_view_struct_writers() {
     for _ in 0..(200u64 * PAL_FRAME_TICKS as u64) {
         amiga.tick();
     }
-    eprintln!("=== View @ $5A10 write log ({} entries) ===",
-              amiga.debug_watch_writes.len());
+    eprintln!(
+        "=== View @ $5A10 write log ({} entries) ===",
+        amiga.debug_watch_writes.len()
+    );
     for (cck, pc, addr, val, is_word) in amiga.debug_watch_writes.iter() {
         let frame = cck / 70824;
         let size = if *is_word { 'W' } else { 'B' };
-        eprintln!(
-            "  frame~{frame:<3}  pc=${pc:08X}  {size} ${addr:08X} = ${val:04X}"
-        );
+        eprintln!("  frame~{frame:<3}  pc=${pc:08X}  {size} ${addr:08X} = ${val:04X}");
     }
 }
 
@@ -56,13 +58,13 @@ fn chip_only_view_struct_region_writers() {
     for _ in 0..(200u64 * PAL_FRAME_TICKS as u64) {
         amiga.tick();
     }
-    eprintln!("=== chip-only $5A10..$5A30 write log ({} entries) ===",
-              amiga.debug_watch_writes.len());
+    eprintln!(
+        "=== chip-only $5A10..$5A30 write log ({} entries) ===",
+        amiga.debug_watch_writes.len()
+    );
     for (cck, pc, addr, val, is_word) in amiga.debug_watch_writes.iter() {
         let frame = cck / 70824;
         let size = if *is_word { 'W' } else { 'B' };
-        eprintln!(
-            "  frame~{frame:<3}  pc=${pc:08X}  {size} ${addr:08X} = ${val:04X}"
-        );
+        eprintln!("  frame~{frame:<3}  pc=${pc:08X}  {size} ${addr:08X} = ${val:04X}");
     }
 }

@@ -9,9 +9,9 @@
 //! init, or by anyone else), we know the Intuition setup chain
 //! is dormant.
 
+use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 
 const EXEC_THIS_TASK: u32 = 276;
 const EXEC_LIB_LIST: u32 = 378;
@@ -122,15 +122,42 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
     eprintln!("intuition.library base = ${int_base:08X}");
 
     let targets = [
-        ("DisplayAlert  ", resolve_lvo(amiga, int_base, LVO_DISPLAY_ALERT)),
-        ("DisplayBeep   ", resolve_lvo(amiga, int_base, LVO_DISPLAY_BEEP)),
-        ("OpenScreen    ", resolve_lvo(amiga, int_base, LVO_OPEN_SCREEN)),
-        ("OpenWindow    ", resolve_lvo(amiga, int_base, LVO_OPEN_WINDOW)),
-        ("PrintIText    ", resolve_lvo(amiga, int_base, LVO_PRINT_ITEXT)),
-        ("ViewAddress   ", resolve_lvo(amiga, int_base, LVO_VIEW_ADDRESS)),
-        ("ViewPortAddress", resolve_lvo(amiga, int_base, LVO_VIEW_PORT_ADDRESS)),
-        ("AutoRequest   ", resolve_lvo(amiga, int_base, LVO_AUTO_REQUEST)),
-        ("InitRequester ", resolve_lvo(amiga, int_base, LVO_INIT_REQUESTER)),
+        (
+            "DisplayAlert  ",
+            resolve_lvo(amiga, int_base, LVO_DISPLAY_ALERT),
+        ),
+        (
+            "DisplayBeep   ",
+            resolve_lvo(amiga, int_base, LVO_DISPLAY_BEEP),
+        ),
+        (
+            "OpenScreen    ",
+            resolve_lvo(amiga, int_base, LVO_OPEN_SCREEN),
+        ),
+        (
+            "OpenWindow    ",
+            resolve_lvo(amiga, int_base, LVO_OPEN_WINDOW),
+        ),
+        (
+            "PrintIText    ",
+            resolve_lvo(amiga, int_base, LVO_PRINT_ITEXT),
+        ),
+        (
+            "ViewAddress   ",
+            resolve_lvo(amiga, int_base, LVO_VIEW_ADDRESS),
+        ),
+        (
+            "ViewPortAddress",
+            resolve_lvo(amiga, int_base, LVO_VIEW_PORT_ADDRESS),
+        ),
+        (
+            "AutoRequest   ",
+            resolve_lvo(amiga, int_base, LVO_AUTO_REQUEST),
+        ),
+        (
+            "InitRequester ",
+            resolve_lvo(amiga, int_base, LVO_INIT_REQUESTER),
+        ),
     ];
 
     eprintln!("\n=== LVO entry points ===");
@@ -153,7 +180,8 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
         }
         for (name, ep) in &targets {
             if let Some(ep) = ep
-                && pc == *ep {
+                && pc == *ep
+            {
                 *counts.entry(*name).or_insert(0) += 1;
                 if events.len() < 40 {
                     let this_task = read_long(amiga, exec_base.wrapping_add(EXEC_THIS_TASK));

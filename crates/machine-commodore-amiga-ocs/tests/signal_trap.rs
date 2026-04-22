@@ -24,9 +24,9 @@
 //!   - Are any tasks ever Signal()ed directly?
 //!   - Which task is stuck Wait()ing for which bitmask?
 
+use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 
 // ExecBase offsets.
 const EXEC_THIS_TASK: u32 = 276;
@@ -246,10 +246,7 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
         eprintln!("\n=== First {} events ===", events.len());
         for e in &events {
             match e.kind {
-                "Wait" => eprintln!(
-                    "  Wait: {} mask=${:08X}",
-                    e.source, e.mask
-                ),
+                "Wait" => eprintln!("  Wait: {} mask=${:08X}", e.source, e.mask),
                 "Signal" => eprintln!(
                     "  Signal: {} → {} mask=${:08X}  [{}]",
                     e.source, e.target, e.mask, e.extra

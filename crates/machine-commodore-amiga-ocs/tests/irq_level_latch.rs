@@ -44,12 +44,18 @@ fn rom_with_boot(configure: &[u16]) -> Vec<u8> {
     let mut at = 0x0100usize;
 
     // Drop OVL: DDRA bit 0 = output; PRA bit 0 = 0.
-    put_w(&mut rom, at, 0x13FC); at += 2;
-    put_w(&mut rom, at, 0x0001); at += 2;
-    put_l(&mut rom, at, 0x00BF_E201); at += 4;
-    put_w(&mut rom, at, 0x13FC); at += 2;
-    put_w(&mut rom, at, 0x0000); at += 2;
-    put_l(&mut rom, at, 0x00BF_E001); at += 4;
+    put_w(&mut rom, at, 0x13FC);
+    at += 2;
+    put_w(&mut rom, at, 0x0001);
+    at += 2;
+    put_l(&mut rom, at, 0x00BF_E201);
+    at += 4;
+    put_w(&mut rom, at, 0x13FC);
+    at += 2;
+    put_w(&mut rom, at, 0x0000);
+    at += 2;
+    put_l(&mut rom, at, 0x00BF_E001);
+    at += 4;
 
     // Emit the caller's configuration instructions.
     for &w in configure {
@@ -106,11 +112,7 @@ fn vbl_intreq_relatches_when_cleared_mid_blanking() {
     // Clear INTREQ.VERTB as a handler would (write $0020 with bit
     // 15 = 0 → CLEAR semantics).
     amiga.poke_word(0x00DF_F09C, 0x0020);
-    assert_eq!(
-        amiga.intreq() & 0x0020,
-        0,
-        "INTREQ.VERTB cleared by poke"
-    );
+    assert_eq!(amiga.intreq() & 0x0020, 0, "INTREQ.VERTB cleared by poke");
 
     // Advance a few more ticks — still inside blanking — and expect
     // the bit to re-latch on the next CCK boundary.
@@ -183,16 +185,15 @@ fn cia_a_intreq_does_not_relatch_without_icr_read() {
             break;
         }
     }
-    assert!(latched, "INTREQ.PORTS should latch on first CIA-A /IRQ edge");
+    assert!(
+        latched,
+        "INTREQ.PORTS should latch on first CIA-A /IRQ edge"
+    );
 
     // Now clear INTREQ.PORTS WITHOUT reading the CIA ICR. The CIA
     // flag stays set, so /IRQ stays low, so no new rising edge.
     amiga.poke_word(0x00DF_F09C, 0x0008);
-    assert_eq!(
-        amiga.intreq() & 0x0008,
-        0,
-        "INTREQ.PORTS cleared by poke"
-    );
+    assert_eq!(amiga.intreq() & 0x0008, 0, "INTREQ.PORTS cleared by poke");
 
     // Tick a bunch. INTREQ.PORTS must stay cleared until something
     // resets the CIA edge (e.g. handler reads ICR, or flag is

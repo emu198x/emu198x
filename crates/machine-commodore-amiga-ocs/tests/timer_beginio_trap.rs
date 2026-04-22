@@ -9,8 +9,8 @@
 //! trackdisk's A6 switch (MOVEA.L $34(A6), A6 at $FEA18C) loads
 //! a bogus TimerBase (path A variant).
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const EXEC_DEVICE_LIST: u32 = 350;
 const LN_SUCC: u32 = 0;
@@ -122,7 +122,11 @@ fn run_with_trap(amiga_ctor: impl Fn() -> AmigaOcs, label: &str) {
             let name = if this_task == 0 {
                 "<null>".to_string()
             } else {
-                read_cstring(&amiga, read_long(&amiga, this_task.wrapping_add(LN_NAME)), 32)
+                read_cstring(
+                    &amiga,
+                    read_long(&amiga, this_task.wrapping_add(LN_NAME)),
+                    32,
+                )
             };
             *caller_hits.entry((name.clone(), cmd)).or_insert(0) += 1;
             // Always record trackdisk.device calls; cap others at 12.
@@ -167,18 +171,14 @@ fn run_with_trap(amiga_ctor: impl Fn() -> AmigaOcs, label: &str) {
     for (i, (name, a1, cmd, tick)) in first_calls.iter().enumerate() {
         let cck = tick / 2;
         let frame = cck / 70824;
-        eprintln!(
-            "  [{i}] frame~{frame:<3}  by={name:<20}  A1=${a1:08X}  cmd=${cmd:04X}"
-        );
+        eprintln!("  [{i}] frame~{frame:<3}  by={name:<20}  A1=${a1:08X}  cmd=${cmd:04X}");
     }
     // Show trackdisk-specific calls.
     eprintln!("\n=== Trackdisk calls only ===");
     for (i, (name, a1, cmd, tick)) in first_calls.iter().enumerate() {
         if name == "trackdisk.device" {
             let frame = tick / (2 * 70824);
-            eprintln!(
-                "  [{i}] frame~{frame:<3}  A1=${a1:08X}  cmd=${cmd:04X}"
-            );
+            eprintln!("  [{i}] frame~{frame:<3}  A1=${a1:08X}  cmd=${cmd:04X}");
         }
     }
 }

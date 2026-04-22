@@ -6,8 +6,8 @@
 //! For the handler to run, TB must be started (CRB.START=1), in
 //! continuous mode (CRB.RUNMODE=0), and ICR.TB must be unmasked.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -26,9 +26,13 @@ fn sample(amiga: &AmigaOcs, frame: u64, label: &str) {
          TA counter=${:04X} CRA=${:02X}  \
          TB counter=${:04X} CRB=${:02X}\n  \
          ICR mask=${:02X} status=${:02X}  irq={}  TOD=${:06X}",
-        cia_a.timer_a(), cia_a.cra(),
-        cia_a.timer_b(), cia_a.crb(),
-        cia_a.icr_mask(), cia_a.icr_status(), cia_a.irq_active(),
+        cia_a.timer_a(),
+        cia_a.cra(),
+        cia_a.timer_b(),
+        cia_a.crb(),
+        cia_a.icr_mask(),
+        cia_a.icr_status(),
+        cia_a.irq_active(),
         cia_a.tod_counter(),
     );
 }
@@ -50,15 +54,27 @@ fn snapshot_cia_a_timers() {
         last = cp;
     }
 
-    eprintln!("\n=== CIA-A register write log ({} entries) ===",
-        amiga.debug_cia_a_cr_log.len());
+    eprintln!(
+        "\n=== CIA-A register write log ({} entries) ===",
+        amiga.debug_cia_a_cr_log.len()
+    );
     for (cck, pc, reg, val) in &amiga.debug_cia_a_cr_log {
         let frame = cck / 70824;
         let name = match reg {
-            0 => "PRA ", 1 => "PRB ", 2 => "DDRA", 3 => "DDRB",
-            4 => "TALO", 5 => "TAHI", 6 => "TBLO", 7 => "TBHI",
-            8 => "TODL", 9 => "TODM", 0xA => "TODH",
-            0xD => "ICR ", 0xE => "CRA ", 0xF => "CRB ",
+            0 => "PRA ",
+            1 => "PRB ",
+            2 => "DDRA",
+            3 => "DDRB",
+            4 => "TALO",
+            5 => "TAHI",
+            6 => "TBLO",
+            7 => "TBHI",
+            8 => "TODL",
+            9 => "TODM",
+            0xA => "TODH",
+            0xD => "ICR ",
+            0xE => "CRA ",
+            0xF => "CRB ",
             _ => "??? ",
         };
         let extra = if *reg == 0xE || *reg == 0xF {
@@ -72,8 +88,6 @@ fn snapshot_cia_a_timers() {
         } else {
             String::new()
         };
-        eprintln!(
-            "  frame~{frame:<3}  pc=${pc:08X}  {name}=${val:02X}{extra}"
-        );
+        eprintln!("  frame~{frame:<3}  pc=${pc:08X}  {name}=${val:02X}{extra}");
     }
 }

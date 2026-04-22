@@ -45,7 +45,11 @@ fn er_type_identifies_zorro_ii_ram_board_post_inversion() {
     // rest invert.
     let amiga = AmigaOcs::with_ram_config(
         zero_rom(),
-        RamConfig { chip_kb: 512, slow_kb: 0, fast_kb: 2048 },
+        RamConfig {
+            chip_kb: 512,
+            slow_kb: 0,
+            fast_kb: 2048,
+        },
     );
     let er_type = read_rom_byte(&amiga, 0x00);
     // bits 7-6 = 11 (Zorro-II, untouched); bits 5-0 = !(MEMORY | size)
@@ -60,7 +64,11 @@ fn manufacturer_id_reads_commodore_post_inversion() {
     // inverts by XORing with $FF.
     let amiga = AmigaOcs::with_ram_config(
         zero_rom(),
-        RamConfig { chip_kb: 512, slow_kb: 0, fast_kb: 512 },
+        RamConfig {
+            chip_kb: 512,
+            slow_kb: 0,
+            fast_kb: 512,
+        },
     );
     let hi = read_rom_byte(&amiga, 0x10);
     let lo = read_rom_byte(&amiga, 0x14);
@@ -80,7 +88,11 @@ fn host_base_assignment_handshake_maps_fast_ram() {
     //      board's RAM backing.
     let mut amiga = AmigaOcs::with_ram_config(
         zero_rom(),
-        RamConfig { chip_kb: 512, slow_kb: 0, fast_kb: 2048 },
+        RamConfig {
+            chip_kb: 512,
+            slow_kb: 0,
+            fast_kb: 2048,
+        },
     );
     // Step 2-3: assign base $20_0000 (the canonical first Zorro-II
     // slot above the chip + slow-RAM region).
@@ -105,7 +117,11 @@ fn host_base_assignment_handshake_maps_fast_ram() {
 fn probe_window_goes_silent_after_configuration() {
     let mut amiga = AmigaOcs::with_ram_config(
         zero_rom(),
-        RamConfig { chip_kb: 512, slow_kb: 0, fast_kb: 512 },
+        RamConfig {
+            chip_kb: 512,
+            slow_kb: 0,
+            fast_kb: 512,
+        },
     );
     amiga.poke_word(0x00E8_0048, 0x2000);
     amiga.poke_word(0x00E8_004A, 0x0000);
@@ -122,7 +138,11 @@ fn shut_up_command_silences_board_permanently() {
     // escape at `$E8004C`. Board goes silent forever.
     let mut amiga = AmigaOcs::with_ram_config(
         zero_rom(),
-        RamConfig { chip_kb: 512, slow_kb: 0, fast_kb: 512 },
+        RamConfig {
+            chip_kb: 512,
+            slow_kb: 0,
+            fast_kb: 512,
+        },
     );
     amiga.poke_word(0x00E8_004C, 0x0000);
     assert_eq!(amiga.read_word(0x00E8_0000), 0xFFFF);

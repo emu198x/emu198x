@@ -7,8 +7,8 @@
 //! where A2 is the timer.device base. Interrupt.is_Code (offset
 //! $12) holds the handler entry point.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const EXEC_DEVICE_LIST: u32 = 350;
 const LN_SUCC: u32 = 0;

@@ -17,8 +17,8 @@
 //! first 20 longs starting at tc_SPReg so we can inspect them and
 //! spot ROM addresses ($00FCxxxx..$00FEFFFF).
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const EXEC_TASK_WAIT: u32 = 420;
 const LN_SUCC: u32 = 0;
@@ -73,11 +73,7 @@ fn dump_task(amiga: &AmigaOcs, label: &str, task_addr: u32) {
     if task_addr == 0 {
         return;
     }
-    let name = read_cstring(
-        amiga,
-        read_long(amiga, task_addr.wrapping_add(LN_NAME)),
-        32,
-    );
+    let name = read_cstring(amiga, read_long(amiga, task_addr.wrapping_add(LN_NAME)), 32);
     let state = read_byte(amiga, task_addr.wrapping_add(TASK_STATE));
     let sig_wait = read_long(amiga, task_addr.wrapping_add(TASK_SIG_WAIT));
     let sig_recvd = read_long(amiga, task_addr.wrapping_add(TASK_SIG_RECVD));
@@ -145,11 +141,7 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
         if node == 0 || node == tail_sentinel {
             break;
         }
-        let name = read_cstring(
-            amiga,
-            read_long(amiga, node.wrapping_add(LN_NAME)),
-            32,
-        );
+        let name = read_cstring(amiga, read_long(amiga, node.wrapping_add(LN_NAME)), 32);
         dump_task(amiga, &name, node);
         node = read_long(amiga, node.wrapping_add(LN_SUCC));
     }

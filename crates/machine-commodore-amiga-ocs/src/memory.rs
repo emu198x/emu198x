@@ -64,10 +64,7 @@ pub fn is_valid_chip_ram_size(bytes: usize) -> bool {
 /// remapped the trapdoor slot as chip RAM.
 #[must_use]
 pub fn is_valid_slow_ram_size(bytes: usize) -> bool {
-    matches!(
-        bytes,
-        0 | 0x4_0000 | 0x8_0000 | 0x10_0000 | 0x18_0000
-    )
+    matches!(bytes, 0 | 0x4_0000 | 0x8_0000 | 0x10_0000 | 0x18_0000)
 }
 
 /// Memory subsystem for the Amiga (OCS).
@@ -114,11 +111,7 @@ impl Memory {
     /// later milestone — the machine wires it up; `Memory` only owns
     /// chip + slow.
     #[must_use]
-    pub fn new_with_ram(
-        kickstart: Vec<u8>,
-        chip_bytes: usize,
-        slow_bytes: usize,
-    ) -> Self {
+    pub fn new_with_ram(kickstart: Vec<u8>, chip_bytes: usize, slow_bytes: usize) -> Self {
         assert!(
             kickstart.len().is_power_of_two(),
             "Kickstart ROM size must be a power of two; got {} bytes",

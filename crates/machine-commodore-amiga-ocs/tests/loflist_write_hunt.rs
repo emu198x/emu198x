@@ -17,8 +17,8 @@
 //! The divergence: slow-RAM's value-change log should contain a
 //! transition to the real buffer; chip-only's should not.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const EXEC_LIB_LIST: u32 = 378;
 const LN_SUCC: u32 = 0;
@@ -44,11 +44,15 @@ fn read_byte(amiga: &AmigaOcs, addr: u32) -> u8 {
 }
 
 fn read_cstring(amiga: &AmigaOcs, addr: u32, max: u32) -> String {
-    if addr == 0 { return "<null>".into(); }
+    if addr == 0 {
+        return "<null>".into();
+    }
     let mut s = String::new();
     for i in 0..max {
         let b = read_byte(amiga, addr.wrapping_add(i));
-        if b == 0 { break; }
+        if b == 0 {
+            break;
+        }
         if b.is_ascii() && !b.is_ascii_control() {
             s.push(b as char);
         } else {
@@ -64,7 +68,9 @@ fn find_library(amiga: &AmigaOcs, exec_base: u32, target: &str) -> Option<u32> {
     let tail_sentinel = list_addr.wrapping_add(4);
     let mut node = head;
     for _ in 0..32 {
-        if node == 0 || node == tail_sentinel { return None; }
+        if node == 0 || node == tail_sentinel {
+            return None;
+        }
         let name_ptr = read_long(amiga, node.wrapping_add(LN_NAME));
         if read_cstring(amiga, name_ptr, 32) == target {
             return Some(node);
@@ -84,7 +90,11 @@ fn hunt_loflist_writer(label: &str, use_slow_ram: bool) {
 
     // GfxBase is deterministic across runs with the same config —
     // we pre-learned the addresses from the `gfxbase_state.rs` test:
-    let gfx_base = if use_slow_ram { 0x00C0_1E1E } else { 0x0000_221E };
+    let gfx_base = if use_slow_ram {
+        0x00C0_1E1E
+    } else {
+        0x0000_221E
+    };
     let loflist_addr = gfx_base + GFX_LOFLIST_OFFSET;
 
     eprintln!("\n########## {label} ##########");
@@ -111,9 +121,7 @@ fn hunt_loflist_writer(label: &str, use_slow_ram: bool) {
 
     eprintln!("LOFlist changes over frames 120..700 ({}):", changes.len());
     for (frame, tick, pc, from, to) in changes.iter().take(30) {
-        eprintln!(
-            "  frame~{frame:<3}  tick={tick:<10}  pc=${pc:08X}  ${from:08X} → ${to:08X}"
-        );
+        eprintln!("  frame~{frame:<3}  tick={tick:<10}  pc=${pc:08X}  ${from:08X} → ${to:08X}");
     }
     if changes.len() > 30 {
         eprintln!("  ... and {} more", changes.len() - 30);

@@ -7,25 +7,24 @@ pub mod bits {
     /// DMACON write flag: 1 = SET bits in val[14..0], 0 = CLEAR.
     pub const DMACON_SETCLR: u16 = 0x8000;
     pub const DMACON_BLTPRI: u16 = 0x0400; // blitter bus priority
-    pub const DMACON_DMAEN:  u16 = 0x0200; // master enable
-    pub const DMACON_BPLEN:  u16 = 0x0100; // bitplane DMA
-    pub const DMACON_COPEN:  u16 = 0x0080; // copper DMA
-    pub const DMACON_BLTEN:  u16 = 0x0040; // blitter DMA
-    pub const DMACON_SPREN:  u16 = 0x0020; // sprite DMA
-    pub const DMACON_DSKEN:  u16 = 0x0010; // disk DMA
+    pub const DMACON_DMAEN: u16 = 0x0200; // master enable
+    pub const DMACON_BPLEN: u16 = 0x0100; // bitplane DMA
+    pub const DMACON_COPEN: u16 = 0x0080; // copper DMA
+    pub const DMACON_BLTEN: u16 = 0x0040; // blitter DMA
+    pub const DMACON_SPREN: u16 = 0x0020; // sprite DMA
+    pub const DMACON_DSKEN: u16 = 0x0010; // disk DMA
     pub const DMACON_AUD3EN: u16 = 0x0008;
     pub const DMACON_AUD2EN: u16 = 0x0004;
     pub const DMACON_AUD1EN: u16 = 0x0002;
     pub const DMACON_AUD0EN: u16 = 0x0001;
     /// Per-channel audio DMA enable masks, indexed 0..=3.
-    pub const DMACON_AUD: [u16; 4] =
-        [DMACON_AUD0EN, DMACON_AUD1EN, DMACON_AUD2EN, DMACON_AUD3EN];
+    pub const DMACON_AUD: [u16; 4] = [DMACON_AUD0EN, DMACON_AUD1EN, DMACON_AUD2EN, DMACON_AUD3EN];
     /// DMACON bits Agnus stores (excludes SETCLR write flag).
     pub const DMACON_MASK: u16 = 0x07FF;
 
     /// BPLCON0 bits Agnus cares about (rest are Denise-owned).
     pub const BPLCON0_HIRES: u16 = 0x8000;
-    pub const BPLCON0_LACE:  u16 = 0x0004;
+    pub const BPLCON0_LACE: u16 = 0x0004;
     /// BPU (number of bitplanes) field — 3 high bits at 14..12.
     pub const BPLCON0_BPU_MASK: u16 = 0x7000;
     pub const BPLCON0_BPU_SHIFT: u32 = 12;
@@ -1239,20 +1238,36 @@ impl Agnus {
 
     /// Write BPLCON0 ($DFF100). Straight store; Denise sees the same
     /// value for mode bits.
-    pub fn write_bplcon0(&mut self, val: u16) { self.bplcon0 = val; }
+    pub fn write_bplcon0(&mut self, val: u16) {
+        self.bplcon0 = val;
+    }
 
-    pub fn write_ddfstrt(&mut self, val: u16) { self.ddfstrt = val; }
-    pub fn write_ddfstop(&mut self, val: u16) { self.ddfstop = val; }
-    pub fn write_diwstrt(&mut self, val: u16) { self.diwstrt = val; }
-    pub fn write_diwstop(&mut self, val: u16) { self.diwstop = val; }
-    pub fn write_bpl1mod(&mut self, val: u16) { self.bpl1mod = val as i16; }
-    pub fn write_bpl2mod(&mut self, val: u16) { self.bpl2mod = val as i16; }
+    pub fn write_ddfstrt(&mut self, val: u16) {
+        self.ddfstrt = val;
+    }
+    pub fn write_ddfstop(&mut self, val: u16) {
+        self.ddfstop = val;
+    }
+    pub fn write_diwstrt(&mut self, val: u16) {
+        self.diwstrt = val;
+    }
+    pub fn write_diwstop(&mut self, val: u16) {
+        self.diwstop = val;
+    }
+    pub fn write_bpl1mod(&mut self, val: u16) {
+        self.bpl1mod = val as i16;
+    }
+    pub fn write_bpl2mod(&mut self, val: u16) {
+        self.bpl2mod = val as i16;
+    }
 
     /// Write one half of a bitplane pointer. `high_word = true` writes
     /// BPLxPTH (the upper 16 bits); `false` writes BPLxPTL (lower 16,
     /// bit 0 forced to 0 for chip-RAM word alignment).
     pub fn write_bpl_pointer(&mut self, plane: usize, high_word: bool, val: u16) {
-        if plane >= self.bpl_pt.len() { return; }
+        if plane >= self.bpl_pt.len() {
+            return;
+        }
         let cur = self.bpl_pt[plane];
         self.bpl_pt[plane] = if high_word {
             (cur & 0x0000_FFFF) | (u32::from(val) << 16)
@@ -1324,22 +1339,16 @@ impl Agnus {
                     |_| 0,
                     |addr, val| bus.write_word(addr, val),
                 ),
-                BlitterDmaOp::Internal => self.execute_incremental_blitter_op(
-                    op,
-                    |_| 0,
-                    |_, _| {},
-                ),
-                _ => self.execute_incremental_blitter_op(
-                    op,
-                    |addr| bus.read_word(addr),
-                    |_, _| {},
-                ),
+                BlitterDmaOp::Internal => self.execute_incremental_blitter_op(op, |_| 0, |_, _| {}),
+                _ => self.execute_incremental_blitter_op(op, |addr| bus.read_word(addr), |_, _| {}),
             };
             if self.blitter_word_complete() && !done {
                 self.advance_blitter_word();
             }
             guard += 1;
-            if guard > 1_000_000 { break; }
+            if guard > 1_000_000 {
+                break;
+            }
         }
         self.blitter_busy = false;
     }
@@ -1352,13 +1361,14 @@ pub trait BlitterBus {
 }
 
 impl Agnus {
-
     /// Read VPOSR ($DFF004): bit 15 = LOF, bits 14-8 = agnus_id, bit 0
     /// = vpos high bit (vpos bit 8). Bits 7-1 are unused.
     #[must_use]
     pub fn vposr(&self) -> u16 {
         let mut v = self.agnus_id & 0x7F00;
-        if self.lof { v |= 0x8000; }
+        if self.lof {
+            v |= 0x8000;
+        }
         v | ((self.vpos >> 8) & 0x0001)
     }
 

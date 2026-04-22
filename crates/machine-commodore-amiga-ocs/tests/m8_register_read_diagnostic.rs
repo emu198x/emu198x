@@ -2,8 +2,8 @@
 //! Helps identify which registers the boot is hammering — likely
 //! candidates for needing real values rather than floating-bus.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::AmigaOcs;
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -17,11 +17,21 @@ fn load_kickstart() -> Option<Vec<u8>> {
 
 fn name_of(offset: u16) -> &'static str {
     match offset {
-        0x000 => "BLTDDAT", 0x002 => "DMACONR", 0x004 => "VPOSR",
-        0x006 => "VHPOSR", 0x008 => "DSKDATR", 0x00A => "JOY0DAT",
-        0x00C => "JOY1DAT", 0x00E => "CLXDAT", 0x010 => "ADKCONR",
-        0x012 => "POT0DAT", 0x014 => "POT1DAT", 0x016 => "POTGOR",
-        0x018 => "SERDATR", 0x01A => "DSKBYTR", 0x01C => "INTENAR",
+        0x000 => "BLTDDAT",
+        0x002 => "DMACONR",
+        0x004 => "VPOSR",
+        0x006 => "VHPOSR",
+        0x008 => "DSKDATR",
+        0x00A => "JOY0DAT",
+        0x00C => "JOY1DAT",
+        0x00E => "CLXDAT",
+        0x010 => "ADKCONR",
+        0x012 => "POT0DAT",
+        0x014 => "POT1DAT",
+        0x016 => "POTGOR",
+        0x018 => "SERDATR",
+        0x01A => "DSKBYTR",
+        0x01C => "INTENAR",
         0x01E => "INTREQR",
         _ => "(unnamed)",
     }

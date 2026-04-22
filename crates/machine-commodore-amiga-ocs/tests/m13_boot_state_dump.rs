@@ -6,8 +6,8 @@
 //!
 //! Ignored by default — it's for investigation, not a pass/fail gate.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, CiaExt, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -30,8 +30,7 @@ fn pc_histogram_over_last_20_frames() {
     for _ in 0..(400 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
-    let mut hist: std::collections::HashMap<u32, u64> =
-        std::collections::HashMap::new();
+    let mut hist: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
     let mut prev = amiga.cpu().regs.pc;
     for _ in 0..(20 * PAL_FRAME_TICKS) {
         amiga.tick();
@@ -43,13 +42,19 @@ fn pc_histogram_over_last_20_frames() {
     }
     let mut entries: Vec<_> = hist.into_iter().collect();
     entries.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
-    eprintln!("=== Top 20 PCs seen over 20 frames ({} distinct) ===", entries.len());
+    eprintln!(
+        "=== Top 20 PCs seen over 20 frames ({} distinct) ===",
+        entries.len()
+    );
     for (pc, count) in entries.iter().take(20) {
         eprintln!("  ${pc:08X}  {count:>6}");
     }
     let min_pc = entries.iter().map(|(pc, _)| *pc).min().unwrap();
     let max_pc = entries.iter().map(|(pc, _)| *pc).max().unwrap();
-    eprintln!("\nPC range: ${min_pc:08X} – ${max_pc:08X} (span ${:X})", max_pc - min_pc);
+    eprintln!(
+        "\nPC range: ${min_pc:08X} – ${max_pc:08X} (span ${:X})",
+        max_pc - min_pc
+    );
 }
 
 #[test]
@@ -68,10 +73,18 @@ fn dump_boot_state() {
 
     // CIA-B PRA effective output — disk pins.
     let pa = amiga.cia_b().peek(0);
-    eprintln!("\nCIA-B PA = ${pa:02X} (bits: /RDY={} /TK0={} /WPRO={} /CHNG={})",
-        (pa >> 5) & 1, (pa >> 4) & 1, (pa >> 3) & 1, (pa >> 2) & 1);
+    eprintln!(
+        "\nCIA-B PA = ${pa:02X} (bits: /RDY={} /TK0={} /WPRO={} /CHNG={})",
+        (pa >> 5) & 1,
+        (pa >> 4) & 1,
+        (pa >> 3) & 1,
+        (pa >> 2) & 1
+    );
 
-    eprintln!("\n=== Disk register writes ({} total) ===", amiga.debug_dsk_log.len());
+    eprintln!(
+        "\n=== Disk register writes ({} total) ===",
+        amiga.debug_dsk_log.len()
+    );
     for (cck, pc, reg, val) in amiga.debug_dsk_log.iter() {
         let f = cck / 70824;
         let name = match reg {

@@ -16,8 +16,11 @@ use commodore_paula_8364::{Paula8364, bits::*};
 fn potgo_pure_store_for_out_and_dat_bits_strobe_bit_does_not_latch() {
     let mut p = Paula8364::new();
     p.write_potgo(POTGO_OUTRY | POTGO_DATRY | POTGO_START);
-    assert_eq!(p.potgo() & POTGO_START, 0,
-        "bit 0 START is a strobe — does not read back");
+    assert_eq!(
+        p.potgo() & POTGO_START,
+        0,
+        "bit 0 START is a strobe — does not read back"
+    );
     assert_ne!(p.potgo() & POTGO_OUTRY, 0);
     assert_ne!(p.potgo() & POTGO_DATRY, 0);
 }
@@ -39,8 +42,11 @@ fn potgor_reads_pot_pin_levels_on_input_pins() {
     // All pins configured as inputs by default (OUT bits clear).
     let p = Paula8364::new();
     let v = p.peek_potgor();
-    assert_eq!(v & POTGOR_DAT_ALL, POTGOR_DAT_ALL,
-        "idle: all four pot pins float high (buttons released)");
+    assert_eq!(
+        v & POTGOR_DAT_ALL,
+        POTGOR_DAT_ALL,
+        "idle: all four pot pins float high (buttons released)"
+    );
 }
 
 #[test]
@@ -49,8 +55,11 @@ fn potgor_input_pin_can_be_pulled_low_by_peripheral() {
     let mut p = Paula8364::new();
     p.set_pot_pin_level(POTGOR_BTN_PORT0_MIDDLE, false);
     let v = p.peek_potgor();
-    assert_eq!(v & POTGOR_BTN_PORT0_MIDDLE, 0,
-        "pulled-low input reads back as 0");
+    assert_eq!(
+        v & POTGOR_BTN_PORT0_MIDDLE,
+        0,
+        "pulled-low input reads back as 0"
+    );
     // Other pins unaffected.
     assert_ne!(v & POTGOR_BTN_PORT0_RIGHT, 0);
     assert_ne!(v & POTGOR_BTN_PORT1_MIDDLE, 0);
@@ -66,8 +75,11 @@ fn potgor_output_pin_reads_back_the_latched_dat_bit() {
     // wins because the chip is actively driving the line.
     p.set_pot_pin_level(POTGOR_BTN_PORT0_MIDDLE, true);
     let v = p.peek_potgor();
-    assert_eq!(v & POTGOR_BTN_PORT0_MIDDLE, 0,
-        "output-configured pin reports the driven DAT value");
+    assert_eq!(
+        v & POTGOR_BTN_PORT0_MIDDLE,
+        0,
+        "output-configured pin reports the driven DAT value"
+    );
 
     p.write_potgo(POTGO_OUTRX | POTGO_DATRX); // drive high
     let v = p.peek_potgor();
@@ -78,8 +90,7 @@ fn potgor_output_pin_reads_back_the_latched_dat_bit() {
 fn set_pot_data_saturates_to_10_bits_per_hrm() {
     let mut p = Paula8364::new();
     p.set_pot_data(0, 0xFFFF);
-    assert_eq!(p.pot0dat(), 0x03FF,
-        "HRM: POTxDAT is a 10-bit count");
+    assert_eq!(p.pot0dat(), 0x03FF, "HRM: POTxDAT is a 10-bit count");
 }
 
 #[test]
@@ -91,6 +102,9 @@ fn reset_clears_pot_state_and_restores_pin_default_highs() {
     p.reset();
     assert_eq!(p.potgo(), 0);
     assert_eq!(p.pot0dat(), 0);
-    assert_eq!(p.peek_potgor() & POTGOR_DAT_ALL, POTGOR_DAT_ALL,
-        "reset: every input pin floats high again");
+    assert_eq!(
+        p.peek_potgor() & POTGOR_DAT_ALL,
+        POTGOR_DAT_ALL,
+        "reset: every input pin floats high again"
+    );
 }

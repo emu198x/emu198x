@@ -50,8 +50,11 @@ fn ehb_passes_indices_0_31_through_unchanged() {
     configure_6_plane(&mut d);
     for i in 0..32u8 {
         d.set_palette(i as usize, u16::from(i) * 0x0011);
-        assert_eq!(d.resolve_color_rgb12(i), u16::from(i) * 0x0011,
-            "EHB low-half index {i} should be palette[{i}]");
+        assert_eq!(
+            d.resolve_color_rgb12(i),
+            u16::from(i) * 0x0011,
+            "EHB low-half index {i} should be palette[{i}]"
+        );
     }
 }
 
@@ -131,8 +134,11 @@ fn begin_beam_line_resets_ham_prev_to_color00() {
     d.begin_beam_line();
     // Modify blue to 7: output should be (COLOR00 R/G) | new blue
     // = 0x02_ with low nibble 7 = 0x027, not 0xFE7.
-    assert_eq!(d.resolve_color_rgb12(0b01_0111), 0x027,
-        "begin_beam_line should reset HAM prev to COLOR00");
+    assert_eq!(
+        d.resolve_color_rgb12(0b01_0111),
+        0x027,
+        "begin_beam_line should reset HAM prev to COLOR00"
+    );
 }
 
 #[test]
@@ -159,11 +165,15 @@ fn ham_end_to_end_pipeline_produces_modify_sequence() {
     d.trigger_shift_load();
 
     let dbg0 = d.output_pixel_with_beam(0, 0, 0, 0);
-    assert_eq!(dbg0.final_color_idx, 0b00_0001,
-        "pixel 0 should resolve via control-00 to palette[1]");
+    assert_eq!(
+        dbg0.final_color_idx, 0b00_0001,
+        "pixel 0 should resolve via control-00 to palette[1]"
+    );
     let dbg1 = d.output_pixel_with_beam(1, 0, 1, 0);
-    assert_eq!(dbg1.final_color_idx, 0b10_1111,
-        "pixel 1 should carry the modify-red 6-bit index forward");
+    assert_eq!(
+        dbg1.final_color_idx, 0b10_1111,
+        "pixel 1 should carry the modify-red 6-bit index forward"
+    );
     // Spot check that the resolver gives the chained result.
     // (Direct resolve_color_rgb12 bypasses shift but shares prev state.)
 }

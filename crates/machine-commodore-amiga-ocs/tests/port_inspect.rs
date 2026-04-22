@@ -9,8 +9,8 @@
 //!   $10..$13  mp_SigTask (APTR — task to signal)
 //!   $14..$1F  mp_MsgList (struct List)
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const PORT_FLAGS: u32 = 0x0E;
 const PORT_SIGBIT: u32 = 0x0F;
@@ -59,26 +59,21 @@ fn dump_port(amiga: &AmigaOcs, addr: u32, label: &str) {
     let flags = read_byte(amiga, addr.wrapping_add(PORT_FLAGS));
     let sigbit = read_byte(amiga, addr.wrapping_add(PORT_SIGBIT));
     let sigtask = read_long(amiga, addr.wrapping_add(PORT_SIGTASK));
-    let name = read_cstring(
-        amiga,
-        read_long(amiga, addr.wrapping_add(LN_NAME)),
-        32,
-    );
+    let name = read_cstring(amiga, read_long(amiga, addr.wrapping_add(LN_NAME)), 32);
     let mask = 1u32 << sigbit;
-    eprintln!("  mp_Flags   = ${flags:02X}  ({})", match flags {
-        0 => "PA_SIGNAL",
-        1 => "PA_SOFTINT",
-        2 => "PA_IGNORE",
-        _ => "???",
-    });
+    eprintln!(
+        "  mp_Flags   = ${flags:02X}  ({})",
+        match flags {
+            0 => "PA_SIGNAL",
+            1 => "PA_SOFTINT",
+            2 => "PA_IGNORE",
+            _ => "???",
+        }
+    );
     eprintln!("  mp_SigBit  = ${sigbit:02X}  (mask = ${mask:08X})");
     eprintln!("  mp_SigTask = ${sigtask:08X}");
     if sigtask != 0 {
-        let task_name = read_cstring(
-            amiga,
-            read_long(amiga, sigtask.wrapping_add(LN_NAME)),
-            32,
-        );
+        let task_name = read_cstring(amiga, read_long(amiga, sigtask.wrapping_add(LN_NAME)), 32);
         eprintln!("    → task \"{task_name}\"");
     }
     eprintln!("  mp_Name    = \"{name}\"");

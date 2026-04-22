@@ -20,16 +20,22 @@ fn blank_kickstart() -> Vec<u8> {
     let mut kickstart = vec![0u8; 256 * 1024];
     // Minimal reset vector so `AmigaOcs::new` doesn't blow up on
     // startup. Same shape as the runtime's own dummy_kickstart.
-    kickstart[0] = 0x00; kickstart[1] = 0x08; kickstart[2] = 0x00; kickstart[3] = 0x00;
-    kickstart[4] = 0x00; kickstart[5] = 0xF8; kickstart[6] = 0x00; kickstart[7] = 0x08;
-    kickstart[8] = 0x60; kickstart[9] = 0xFE;
+    kickstart[0] = 0x00;
+    kickstart[1] = 0x08;
+    kickstart[2] = 0x00;
+    kickstart[3] = 0x00;
+    kickstart[4] = 0x00;
+    kickstart[5] = 0xF8;
+    kickstart[6] = 0x00;
+    kickstart[7] = 0x08;
+    kickstart[8] = 0x60;
+    kickstart[9] = 0xFE;
     kickstart
 }
 
 fn load_kickstart_13() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").ok()?;
-    let path = PathBuf::from(home)
-        .join(".emu198x/roms/commodore-amiga/kick13.rom");
+    let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
     if !path.exists() {
         eprintln!("skipping: Kickstart 1.3 ROM missing at {}", path.display());
         return None;
@@ -84,11 +90,18 @@ fn with_ram_config_accepts_custom_layout() {
     let rt = AmigaRuntime::with_ram_config(
         Model::A500OcsPal,
         blank_kickstart(),
-        RamConfig { chip_kb: 512, slow_kb: 0, fast_kb: 2048 },
+        RamConfig {
+            chip_kb: 512,
+            slow_kb: 0,
+            fast_kb: 2048,
+        },
     )
     .unwrap();
     assert_eq!(rt.model(), Model::A500OcsPal);
-    let board = rt.machine().autoconfig().expect("2M fast-RAM board attached");
+    let board = rt
+        .machine()
+        .autoconfig()
+        .expect("2M fast-RAM board attached");
     assert_eq!(board.ram_size(), 2 * 1024 * 1024);
 }
 
@@ -107,7 +120,9 @@ fn with_ram_config_accepts_custom_layout() {
 /// the machine-layer boot tests use.
 #[test]
 fn kickstart_13_configures_fast_ram_board_during_boot() {
-    let Some(rom) = load_kickstart_13() else { return };
+    let Some(rom) = load_kickstart_13() else {
+        return;
+    };
     let mut rt = AmigaRuntime::new(Model::A500OcsPalMaxed, rom).unwrap();
     // 300 frames mirrors the machine-level boot tests — ample time
     // for Kickstart to finish Exec init, run ExpansionInit, and
@@ -115,7 +130,9 @@ fn kickstart_13_configures_fast_ram_board_during_boot() {
     for _ in 0..(300u64 * runtime_commodore_amiga::A500_PAL_FRAME_TICKS) {
         rt.machine_mut().tick();
     }
-    let board = rt.machine().autoconfig()
+    let board = rt
+        .machine()
+        .autoconfig()
         .expect("board should still be present after boot");
     let base = board.base().unwrap_or_else(|| {
         panic!(

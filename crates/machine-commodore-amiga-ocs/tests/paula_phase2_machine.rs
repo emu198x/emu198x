@@ -8,7 +8,9 @@
 
 use machine_commodore_amiga_ocs::{AmigaOcs, AudioField, IntSource};
 
-fn zero_rom() -> Vec<u8> { vec![0; 512 * 1024] }
+fn zero_rom() -> Vec<u8> {
+    vec![0; 512 * 1024]
+}
 
 // ─── CPU custom-register access → Paula ────────────────────────────
 
@@ -85,8 +87,11 @@ fn master_enable_clear_keeps_cpu_ipl_at_zero() {
     amiga.poke_word(0x00DF_F09C, 0xA000); // SET EXTER
     // tick once to let compute_ipl propagate to the CPU.
     amiga.tick();
-    assert_eq!(amiga.cpu().ipl, 0,
-        "INTEN clear → IPL = 0 regardless of pending bits");
+    assert_eq!(
+        amiga.cpu().ipl,
+        0,
+        "INTEN clear → IPL = 0 regardless of pending bits"
+    );
 }
 
 #[test]
@@ -95,7 +100,11 @@ fn master_enable_plus_source_raises_cpu_ipl_to_matching_level() {
     amiga.poke_word(0x00DF_F09A, 0xE000); // SET INTEN + EXTER
     amiga.poke_word(0x00DF_F09C, 0xA000); // SET EXTER
     amiga.tick();
-    assert_eq!(amiga.cpu().ipl, 6, "EXTER enabled + pending + INTEN → IPL 6");
+    assert_eq!(
+        amiga.cpu().ipl,
+        6,
+        "EXTER enabled + pending + INTEN → IPL 6"
+    );
 }
 
 // ─── Audio channel register storage (#124) ────────────────────────
@@ -106,8 +115,8 @@ fn aud0_registers_round_trip_through_the_custom_bus() {
     amiga.poke_word(0x00DF_F0A0, 0x0012); // AUD0LC  hi
     amiga.poke_word(0x00DF_F0A2, 0x3456); // AUD0LC  lo
     amiga.poke_word(0x00DF_F0A4, 0x0008); // AUD0LEN
-    amiga.poke_word(0x00DF_F0A6, 500);    // AUD0PER
-    amiga.poke_word(0x00DF_F0A8, 32);     // AUD0VOL
+    amiga.poke_word(0x00DF_F0A6, 500); // AUD0PER
+    amiga.poke_word(0x00DF_F0A8, 32); // AUD0VOL
     amiga.poke_word(0x00DF_F0AA, 0xAABB); // AUD0DAT
 
     assert_eq!(amiga.paula().read_audio(0, AudioField::LcHi), 0x0012);
@@ -136,16 +145,21 @@ fn cpu_bus_read_of_audio_register_returns_paula_state() {
     let mut amiga = AmigaOcs::new(zero_rom());
     amiga.poke_word(0x00DF_F0A6, 0x1234); // AUD0PER
     let val = amiga.cpu_read_word(0x00DF_F0A6);
-    assert_eq!(val, 0x1234,
-        "CPU-side bus read must see Paula audio state, not floating bus");
+    assert_eq!(
+        val, 0x1234,
+        "CPU-side bus read must see Paula audio state, not floating bus"
+    );
 }
 
 #[test]
 fn audio_lc_low_word_masks_off_bit_0_from_bus_writes() {
     let mut amiga = AmigaOcs::new(zero_rom());
     amiga.poke_word(0x00DF_F0A2, 0xFFFF);
-    assert_eq!(amiga.paula().read_audio(0, AudioField::LcLo), 0xFFFE,
-        "chip enforces word-alignment on low LC at the register layer");
+    assert_eq!(
+        amiga.paula().read_audio(0, AudioField::LcLo),
+        0xFFFE,
+        "chip enforces word-alignment on low LC at the register layer"
+    );
 }
 
 #[test]
@@ -163,8 +177,8 @@ fn program_aud0_one_word_block(amiga: &mut AmigaOcs) {
     amiga.poke_word(0x00DF_F0A0, 0x0000); // AUD0LC hi
     amiga.poke_word(0x00DF_F0A2, 0x1000); // AUD0LC lo
     amiga.poke_word(0x00DF_F0A4, 0x0001); // AUD0LEN
-    amiga.poke_word(0x00DF_F0A6, 124);    // AUD0PER (minimum)
-    amiga.poke_word(0x00DF_F0A8, 64);     // AUD0VOL (max)
+    amiga.poke_word(0x00DF_F0A6, 124); // AUD0PER (minimum)
+    amiga.poke_word(0x00DF_F0A8, 64); // AUD0VOL (max)
     amiga.poke_word(0x00DF_F096, 0x8201); // DMAEN + AUD0EN
 }
 
@@ -214,8 +228,11 @@ fn audio_dma_fetch_at_slot_advances_channel_pointer() {
 
     // The archive's `audio_state` surfaces the live output sample.
     let snap = amiga.paula().audio_state(0).expect("ch 0 exists");
-    assert_ne!(snap.sample, 0,
-        "audio sample should have advanced through the DAC; got {:?}", snap);
+    assert_ne!(
+        snap.sample, 0,
+        "audio sample should have advanced through the DAC; got {:?}",
+        snap
+    );
 }
 
 // ─── Disk register storage (#126) ─────────────────────────────────
@@ -225,12 +242,16 @@ fn dsklen_write_lands_in_paula_and_drives_the_arming_flip_flop() {
     let mut amiga = AmigaOcs::new(zero_rom());
     // First DSKLEN write with DMAEN arms but doesn't start DMA.
     amiga.poke_word(0x00DF_F024, 0x8200);
-    assert!(!amiga.paula().disk_dma_pending(),
-        "first DMAEN write only arms");
+    assert!(
+        !amiga.paula().disk_dma_pending(),
+        "first DMAEN write only arms"
+    );
     // Second identical write triggers.
     amiga.poke_word(0x00DF_F024, 0x8200);
-    assert!(amiga.paula().disk_dma_pending(),
-        "second DMAEN write starts DMA");
+    assert!(
+        amiga.paula().disk_dma_pending(),
+        "second DMAEN write starts DMA"
+    );
 }
 
 #[test]
@@ -255,14 +276,20 @@ fn dskbytr_peek_read_via_bus_is_side_effect_free() {
 
     // `read_word` uses the peek path — DSKBYT should stay latched.
     assert_ne!(amiga.read_word(0x00DF_F01A) & 0x8000, 0);
-    assert_ne!(amiga.read_word(0x00DF_F01A) & 0x8000, 0,
-        "repeat peek shows DSKBYT still latched");
+    assert_ne!(
+        amiga.read_word(0x00DF_F01A) & 0x8000,
+        0,
+        "repeat peek shows DSKBYT still latched"
+    );
 
     // A direct Paula-level read (what the side-effecting CPU bus
     // servicer invokes) does clear it.
     let _ = amiga.paula_mut().read_dskbytr(0);
-    assert_eq!(amiga.paula().peek_dskbytr(0) & 0x8000, 0,
-        "side-effecting path cleared DSKBYT");
+    assert_eq!(
+        amiga.paula().peek_dskbytr(0) & 0x8000,
+        0,
+        "side-effecting path cleared DSKBYT"
+    );
 }
 
 // ─── Disk DMA completion + MFM sync IRQs (#127) ───────────────────
@@ -279,8 +306,11 @@ fn complete_disk_dma_raises_dskblk_through_the_machine_intreq() {
 
     amiga.paula_mut().complete_disk_dma();
     assert!(!amiga.paula().disk_dma_pending());
-    assert_ne!(amiga.intreq() & IntSource::DskBlk.mask(), 0,
-        "DSKBLK should be set on machine INTREQ after DMA completion");
+    assert_ne!(
+        amiga.intreq() & IntSource::DskBlk.mask(),
+        0,
+        "DSKBLK should be set on machine INTREQ after DMA completion"
+    );
 }
 
 #[test]
@@ -289,8 +319,7 @@ fn dskblk_reaches_cpu_ipl_when_enabled() {
     amiga.poke_word(0x00DF_F09A, 0xC002); // SET INTEN + DSKBLK
     amiga.paula_mut().complete_disk_dma();
     amiga.tick();
-    assert_eq!(amiga.cpu().ipl, 1,
-        "DSKBLK is IPL 1 per HRM priority table");
+    assert_eq!(amiga.cpu().ipl, 1, "DSKBLK is IPL 1 per HRM priority table");
 }
 
 #[test]
@@ -301,8 +330,11 @@ fn sync_match_via_wordsync_raises_dsksyn_through_machine_intreq() {
 
     // Without WORDSYNC gate → nothing would fire; with it, INT_DSKSYN.
     amiga.paula_mut().note_disk_read_word(0x4489);
-    assert_ne!(amiga.intreq() & IntSource::DskSyn.mask(), 0,
-        "machine INTREQ should show DSKSYN after a sync-gated match");
+    assert_ne!(
+        amiga.intreq() & IntSource::DskSyn.mask(),
+        0,
+        "machine INTREQ should show DSKSYN after a sync-gated match"
+    );
 }
 
 #[test]
@@ -313,8 +345,7 @@ fn dsksyn_reaches_cpu_ipl_when_enabled() {
     amiga.poke_word(0x00DF_F09A, 0xD000); // SET INTEN + DSKSYN
     amiga.paula_mut().note_disk_read_word(0x4489);
     amiga.tick();
-    assert_eq!(amiga.cpu().ipl, 5,
-        "DSKSYN is IPL 5 per HRM priority table");
+    assert_eq!(amiga.cpu().ipl, 5, "DSKSYN is IPL 5 per HRM priority table");
 }
 
 #[test]
@@ -325,8 +356,11 @@ fn sync_match_without_wordsync_does_not_raise_dsksyn() {
     amiga.poke_word(0x00DF_F07E, 0x4489); // DSKSYNC set, WORDSYNC clear
     amiga.paula_mut().note_disk_read_word(0x4489);
     assert_eq!(amiga.intreq() & IntSource::DskSyn.mask(), 0);
-    assert_ne!(amiga.paula().peek_dskbytr(0) & 0x1000, 0,
-        "WORDEQUAL latches regardless of WORDSYNC");
+    assert_ne!(
+        amiga.paula().peek_dskbytr(0) & 0x1000,
+        0,
+        "WORDEQUAL latches regardless of WORDSYNC"
+    );
 }
 
 // ─── Serial UART (#128) ───────────────────────────────────────────
@@ -335,8 +369,11 @@ fn sync_match_without_wordsync_does_not_raise_dsksyn() {
 fn serdat_write_via_bus_raises_int_tbe() {
     let mut amiga = AmigaOcs::new(zero_rom());
     amiga.poke_word(0x00DF_F030, 0x0100 | 0x41); // stop-bit + 'A'
-    assert_ne!(amiga.intreq() & IntSource::Tbe.mask(), 0,
-        "SERDAT write through the bus must raise INT_TBE");
+    assert_ne!(
+        amiga.intreq() & IntSource::Tbe.mask(),
+        0,
+        "SERDAT write through the bus must raise INT_TBE"
+    );
     assert_eq!(amiga.paula().serdat(), 0x0141);
 }
 
@@ -398,8 +435,11 @@ fn potgor_reads_back_button_pins_floating_high() {
     // DAT bits 14, 12, 10, 8 all high = idle.
     let amiga = AmigaOcs::new(zero_rom());
     let v = amiga.read_word(0x00DF_F016);
-    assert_eq!(v & 0x5500, 0x5500,
-        "all four pot button pins idle-high at reset");
+    assert_eq!(
+        v & 0x5500,
+        0x5500,
+        "all four pot button pins idle-high at reset"
+    );
 }
 
 #[test]
@@ -430,8 +470,11 @@ fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
     for _ in 0..(14 * 2) {
         amiga.tick();
     }
-    assert_ne!(amiga.paula().peek_dskbytr(0) & 0x8000, 0,
-        "FAST disk pacing delivers next byte after 14 CCKs");
+    assert_ne!(
+        amiga.paula().peek_dskbytr(0) & 0x8000,
+        0,
+        "FAST disk pacing delivers next byte after 14 CCKs"
+    );
 }
 
 #[test]
@@ -450,8 +493,11 @@ fn audio_dma_disabled_leaves_channel_silent() {
         amiga.tick();
     }
 
-    assert_eq!(amiga.paula().intreq() & (1 << 7), 0,
-        "with AUD0EN clear, no audio IRQ should fire");
+    assert_eq!(
+        amiga.paula().intreq() & (1 << 7),
+        0,
+        "with AUD0EN clear, no audio IRQ should fire"
+    );
     let snap = amiga.paula().audio_state(0).unwrap();
     assert_eq!(snap.sample, 0, "no DMA → no sample delivered");
 }

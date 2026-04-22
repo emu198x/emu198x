@@ -117,6 +117,8 @@ immediately overwrites SP before using the stack.
 | [ks-1.0.md](ks-1.0.md) | Kickstart 1.0 (A1000) |
 | [ks-1.2.md](ks-1.2.md) | Kickstart 1.2 (A1000, A500/A2000) |
 | [ks-1.3.md](ks-1.3.md) | Kickstart 1.3 (A500/A2000/CDTV, A3000) — primary reference |
+| [ks-1.3-trackdisk-bootblock.md](ks-1.3-trackdisk-bootblock.md) | Saved STRAP / `trackdisk.device` notes for the KS 1.3 bootblock-read path |
+| [ks-1.3-wb13-late-boot.md](ks-1.3-wb13-late-boot.md) | Saved late-boot task / signal / wait-site notes for the KS 1.3 Workbench 1.3 path |
 | [ks-2.0-beta.md](ks-2.0-beta.md) | Kickstart 2.0 beta (A3000) |
 | [ks-2.02.md](ks-2.02.md) | Kickstart 2.02 (A3000) |
 | [ks-2.04.md](ks-2.04.md) | Kickstart 2.04 (A500+) |

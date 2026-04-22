@@ -6,8 +6,8 @@
 //! slow-RAM KS 1.3 did reach display setup (even though the chip-only
 //! path didn't).
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_LINES, PAL_LINE_CCKS};
+use std::path::PathBuf;
 
 // frame_ccks below is in Agnus beam-coordinate units (CCKs); cck_count()
 // also returns CCKs, so the while-loop gating is unchanged by the

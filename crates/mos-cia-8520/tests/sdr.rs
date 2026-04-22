@@ -54,7 +54,11 @@ fn receive_byte_helper_stores_byte_and_latches_sp_flag() {
     let mut cia = Cia8520::new();
     cia.receive_serial_byte(0xA5);
     assert_eq!(cia.read(SDR), 0xA5, "byte stored in SDR");
-    assert_ne!(cia.icr_status() & ICR_SP, 0, "SP flag latched on byte complete");
+    assert_ne!(
+        cia.icr_status() & ICR_SP,
+        0,
+        "SP flag latched on byte complete"
+    );
 }
 
 #[test]
@@ -77,7 +81,11 @@ fn sp_flag_masked_does_not_assert_irq() {
     let mut cia = Cia8520::new();
     cia.receive_serial_byte(0x01);
     assert!(!cia.irq_active(), "no IRQ when SP mask bit is clear");
-    assert_ne!(cia.icr_status() & ICR_SP, 0, "flag latches regardless of mask");
+    assert_ne!(
+        cia.icr_status() & ICR_SP,
+        0,
+        "flag latches regardless of mask"
+    );
 }
 
 #[test]

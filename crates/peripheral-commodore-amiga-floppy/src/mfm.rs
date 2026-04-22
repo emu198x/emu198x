@@ -78,7 +78,11 @@ pub fn encode_mfm_track(track_sectors: &[u8], track_num: u8, sectors_per_track: 
         let prev_idx = (byte_idx + track_len - 1) % track_len;
         let next_data_in_same_byte = (buf[byte_idx] >> 6) & 1;
         let prev_data = buf[prev_idx] & 1;
-        let clock_bit = if prev_data == 0 && next_data_in_same_byte == 0 { 1 } else { 0 };
+        let clock_bit = if prev_data == 0 && next_data_in_same_byte == 0 {
+            1
+        } else {
+            0
+        };
         buf[byte_idx] = (buf[byte_idx] & 0x7F) | (clock_bit << 7);
     }
 
@@ -232,9 +236,8 @@ pub fn decode_mfm_track(mfm_words: &[u16]) -> Vec<DecodedSector> {
         let read_mfm_long = |pos: usize| -> u32 {
             (u32::from(mfm_words[pos]) << 16) | u32::from(mfm_words[pos + 1])
         };
-        let decode_long = |odd: u32, even: u32| -> u32 {
-            ((odd & 0x5555_5555) << 1) | (even & 0x5555_5555)
-        };
+        let decode_long =
+            |odd: u32, even: u32| -> u32 { ((odd & 0x5555_5555) << 1) | (even & 0x5555_5555) };
 
         // Info: 2 MFM longs (odd + even), reconstructed into one 32-bit.
         let info_odd = read_mfm_long(i);
@@ -353,8 +356,7 @@ mod tests {
         assert_eq!(sectors.len(), 11);
         for s in &sectors {
             assert_eq!(s.track, 0);
-            let expected =
-                &track_data[s.sector as usize * 512..(s.sector as usize + 1) * 512];
+            let expected = &track_data[s.sector as usize * 512..(s.sector as usize + 1) * 512];
             assert_eq!(&s.data[..], expected, "sector {} mismatch", s.sector);
         }
     }

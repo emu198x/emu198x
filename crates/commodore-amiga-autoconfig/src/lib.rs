@@ -79,7 +79,7 @@ pub const AUTOCONFIG_WINDOW_BYTES: u32 = 0x80;
 #[must_use]
 pub const fn size_code_for_kib(size_kib: u32) -> Option<u8> {
     Some(match size_kib {
-        8192 => 0b000,  // 8M ambiguity: zero means 8M
+        8192 => 0b000, // 8M ambiguity: zero means 8M
         64 => 0b001,
         128 => 0b010,
         256 => 0b011,
@@ -142,9 +142,8 @@ impl AutoconfigBoard {
     /// Panics if `size_kib` is outside the supported set.
     #[must_use]
     pub fn fast_ram(size_kib: u32) -> Self {
-        let size_code = size_code_for_kib(size_kib).unwrap_or_else(|| {
-            panic!("fast_ram: {size_kib} KiB is not a Zorro-II board size")
-        });
+        let size_code = size_code_for_kib(size_kib)
+            .unwrap_or_else(|| panic!("fast_ram: {size_kib} KiB is not a Zorro-II board size"));
         Self {
             manufacturer: MANUFACTURER_COMMODORE,
             product: 0x09, // arbitrary — not currently checked by ROM
@@ -355,8 +354,10 @@ mod tests {
     /// low-nibble slot). Helper for the protocol-level tests — the
     /// host does the same reconstruction during autoconfig scanning.
     fn read_byte_from_probe(board: &AutoconfigBoard, hi_offset: u16) -> u8 {
-        assert!(hi_offset & 0x3 == 0,
-            "hi_offset must land on a high-nibble slot (multiple of 4)");
+        assert!(
+            hi_offset & 0x3 == 0,
+            "hi_offset must land on a high-nibble slot (multiple of 4)"
+        );
         let hi = ((board.read_word(hi_offset) >> 12) & 0x0F) as u8;
         let lo = ((board.read_word(hi_offset + 2) >> 12) & 0x0F) as u8;
         (hi << 4) | lo
@@ -412,7 +413,10 @@ mod tests {
 
         // Now low nibble = $0 — complete base $20_0000.
         board.write_word(0x4A, 0x0000);
-        assert_eq!(board.state(), AutoconfigState::Configured { base: 0x0020_0000 });
+        assert_eq!(
+            board.state(),
+            AutoconfigState::Configured { base: 0x0020_0000 }
+        );
         assert!(!board.visible_in_probe_window());
         assert_eq!(board.base(), Some(0x0020_0000));
     }
@@ -463,12 +467,21 @@ mod tests {
     #[test]
     fn size_code_round_trips_for_all_supported_sizes() {
         let cases = [
-            (8192, 0b000), (64, 0b001), (128, 0b010), (256, 0b011),
-            (512, 0b100), (1024, 0b101), (2048, 0b110), (4096, 0b111),
+            (8192, 0b000),
+            (64, 0b001),
+            (128, 0b010),
+            (256, 0b011),
+            (512, 0b100),
+            (1024, 0b101),
+            (2048, 0b110),
+            (4096, 0b111),
         ];
         for (kib, code) in cases {
-            assert_eq!(size_code_for_kib(kib), Some(code),
-                "size code mismatch for {kib} KiB");
+            assert_eq!(
+                size_code_for_kib(kib),
+                Some(code),
+                "size code mismatch for {kib} KiB"
+            );
         }
         assert_eq!(size_code_for_kib(100), None);
         assert_eq!(size_code_for_kib(3072), None);

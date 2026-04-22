@@ -140,7 +140,12 @@ fn ipl_level_3_for_coper_vertb_blit() {
 
 #[test]
 fn ipl_level_4_for_audio_channels() {
-    for src in [IntSource::Aud0, IntSource::Aud1, IntSource::Aud2, IntSource::Aud3] {
+    for src in [
+        IntSource::Aud0,
+        IntSource::Aud1,
+        IntSource::Aud2,
+        IntSource::Aud3,
+    ] {
         let mut p = Paula8364::new();
         arm_and_fire(&mut p, src);
         assert_eq!(p.compute_ipl(), 4);

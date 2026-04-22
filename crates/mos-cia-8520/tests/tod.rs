@@ -160,7 +160,10 @@ fn alarm_write_after_counter_halt_does_not_restart_counter() {
     cia.write(TODMID, 0xBB);
     cia.write(TODLO, 0xCC);
 
-    assert!(cia.tod_halted(), "alarm writes must not restart a halted counter");
+    assert!(
+        cia.tod_halted(),
+        "alarm writes must not restart a halted counter"
+    );
     assert_eq!(cia.tod_alarm(), 0x00AA_BBCC);
 }
 
@@ -238,7 +241,10 @@ fn tod_read_msb_latches_snapshot_until_lsb_read() {
     let mid = cia.read(TODMID);
     assert_eq!(mid, 0xBB, "MID read returns latched snapshot");
     let lo = cia.read(TODLO);
-    assert_eq!(lo, 0xCC, "LO read returns latched snapshot (AND releases latch)");
+    assert_eq!(
+        lo, 0xCC,
+        "LO read returns latched snapshot (AND releases latch)"
+    );
 }
 
 #[test]

@@ -24,8 +24,8 @@
 //!
 //! Counts + first-hit tick for each init entry, from frame 0.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 // Resident init function addresses from ROM scan.
 const INIT_FNS: &[(u32, &str)] = &[

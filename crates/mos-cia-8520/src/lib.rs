@@ -270,15 +270,27 @@ impl Cia8520 {
                 }
             }
             reg::TOD_LO => {
-                let val = if self.tod_latched { self.tod_latch } else { self.tod_counter };
+                let val = if self.tod_latched {
+                    self.tod_latch
+                } else {
+                    self.tod_counter
+                };
                 val as u8
             }
             reg::TOD_MID => {
-                let val = if self.tod_latched { self.tod_latch } else { self.tod_counter };
+                let val = if self.tod_latched {
+                    self.tod_latch
+                } else {
+                    self.tod_counter
+                };
                 (val >> 8) as u8
             }
             reg::TOD_HI => {
-                let val = if self.tod_latched { self.tod_latch } else { self.tod_counter };
+                let val = if self.tod_latched {
+                    self.tod_latch
+                } else {
+                    self.tod_counter
+                };
                 (val >> 16) as u8
             }
             reg::SDR => self.sdr,
@@ -326,8 +338,7 @@ impl Cia8520 {
             reg::DDRB => self.ddr_b = value,
             reg::TA_LO => self.timer_a_latch = (self.timer_a_latch & 0xFF00) | u16::from(value),
             reg::TA_HI => {
-                self.timer_a_latch =
-                    (self.timer_a_latch & 0x00FF) | (u16::from(value) << 8);
+                self.timer_a_latch = (self.timer_a_latch & 0x00FF) | (u16::from(value) << 8);
                 if !self.timer_a_running {
                     self.timer_a = self.timer_a_latch;
                     // 8520: in one-shot mode, high-byte write auto-starts.
@@ -339,8 +350,7 @@ impl Cia8520 {
             }
             reg::TB_LO => self.timer_b_latch = (self.timer_b_latch & 0xFF00) | u16::from(value),
             reg::TB_HI => {
-                self.timer_b_latch =
-                    (self.timer_b_latch & 0x00FF) | (u16::from(value) << 8);
+                self.timer_b_latch = (self.timer_b_latch & 0x00FF) | (u16::from(value) << 8);
                 if !self.timer_b_running {
                     self.timer_b = self.timer_b_latch;
                     // 8520: in one-shot mode, high-byte write auto-starts.
@@ -460,22 +470,70 @@ impl Cia8520 {
     // and tests. They must never be used by runtime-critical code: the
     // register-level API (`read`/`write`/`peek`) is the contract.
 
-    #[must_use] pub fn timer_a(&self) -> u16 { self.timer_a }
-    #[must_use] pub fn timer_b(&self) -> u16 { self.timer_b }
-    #[must_use] pub fn timer_a_running(&self) -> bool { self.timer_a_running }
-    #[must_use] pub fn timer_b_running(&self) -> bool { self.timer_b_running }
-    #[must_use] pub fn icr_status(&self) -> u8 { self.icr_status }
-    #[must_use] pub fn icr_mask(&self) -> u8 { self.icr_mask }
-    #[must_use] pub fn port_a_latch(&self) -> u8 { self.port_a }
-    #[must_use] pub fn port_b_latch(&self) -> u8 { self.port_b }
-    #[must_use] pub fn ddr_a(&self) -> u8 { self.ddr_a }
-    #[must_use] pub fn ddr_b(&self) -> u8 { self.ddr_b }
-    #[must_use] pub fn cra(&self) -> u8 { self.cra }
-    #[must_use] pub fn crb(&self) -> u8 { self.crb }
-    #[must_use] pub fn sdr(&self) -> u8 { self.sdr }
-    #[must_use] pub fn tod_counter(&self) -> u32 { self.tod_counter }
-    #[must_use] pub fn tod_alarm(&self) -> u32 { self.tod_alarm }
-    #[must_use] pub fn tod_halted(&self) -> bool { self.tod_halted }
+    #[must_use]
+    pub fn timer_a(&self) -> u16 {
+        self.timer_a
+    }
+    #[must_use]
+    pub fn timer_b(&self) -> u16 {
+        self.timer_b
+    }
+    #[must_use]
+    pub fn timer_a_running(&self) -> bool {
+        self.timer_a_running
+    }
+    #[must_use]
+    pub fn timer_b_running(&self) -> bool {
+        self.timer_b_running
+    }
+    #[must_use]
+    pub fn icr_status(&self) -> u8 {
+        self.icr_status
+    }
+    #[must_use]
+    pub fn icr_mask(&self) -> u8 {
+        self.icr_mask
+    }
+    #[must_use]
+    pub fn port_a_latch(&self) -> u8 {
+        self.port_a
+    }
+    #[must_use]
+    pub fn port_b_latch(&self) -> u8 {
+        self.port_b
+    }
+    #[must_use]
+    pub fn ddr_a(&self) -> u8 {
+        self.ddr_a
+    }
+    #[must_use]
+    pub fn ddr_b(&self) -> u8 {
+        self.ddr_b
+    }
+    #[must_use]
+    pub fn cra(&self) -> u8 {
+        self.cra
+    }
+    #[must_use]
+    pub fn crb(&self) -> u8 {
+        self.crb
+    }
+    #[must_use]
+    pub fn sdr(&self) -> u8 {
+        self.sdr
+    }
+    #[must_use]
+    pub fn tod_counter(&self) -> u32 {
+        self.tod_counter
+    }
+    #[must_use]
+    pub fn tod_alarm(&self) -> u32 {
+        self.tod_alarm
+    }
+    #[must_use]
+    pub fn tod_halted(&self) -> bool {
+        self.tod_halted
+    }
 
     #[must_use]
     pub fn port_a_output(&self) -> u8 {

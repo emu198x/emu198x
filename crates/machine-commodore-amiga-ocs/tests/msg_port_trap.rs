@@ -12,9 +12,9 @@
 //! the boot block → the insert-disk screen setup never runs.
 //! We need to trace what's upstream of that call.
 
+use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 
 const EXEC_THIS_TASK: u32 = 276;
 const EXEC_LIB_LIST: u32 = 378;
@@ -165,7 +165,8 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
         }
         for (name, ep) in &targets {
             if let Some(ep) = ep
-                && pc == *ep {
+                && pc == *ep
+            {
                 *counts.entry(*name).or_insert(0) += 1;
                 // Capture the arguments we care about per LVO.
                 let this_task = read_long(amiga, exec_base.wrapping_add(EXEC_THIS_TASK));
@@ -175,12 +176,9 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
                         // PutMsg(port A0, message A1)
                         let port = amiga.cpu().regs.a[0];
                         let msg = amiga.cpu().regs.a[1];
-                        let port_name_ptr =
-                            read_long(amiga, port.wrapping_add(LN_NAME));
+                        let port_name_ptr = read_long(amiga, port.wrapping_add(LN_NAME));
                         let port_name = read_cstring(amiga, port_name_ptr, 32);
-                        format!(
-                            "PutMsg src={src} port=${port:08X}({port_name}) msg=${msg:08X}"
-                        )
+                        format!("PutMsg src={src} port=${port:08X}({port_name}) msg=${msg:08X}")
                     }
                     "DoIO" | "SendIO" => {
                         // DoIO(iorequest A1)
@@ -190,8 +188,7 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
                     "WaitPort" => {
                         // WaitPort(port A0)
                         let port = amiga.cpu().regs.a[0];
-                        let port_name_ptr =
-                            read_long(amiga, port.wrapping_add(LN_NAME));
+                        let port_name_ptr = read_long(amiga, port.wrapping_add(LN_NAME));
                         let port_name = read_cstring(amiga, port_name_ptr, 32);
                         format!("WaitPort src={src} port=${port:08X}({port_name})")
                     }

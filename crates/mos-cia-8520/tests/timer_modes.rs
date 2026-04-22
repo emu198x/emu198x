@@ -89,11 +89,7 @@ fn timer_a_continuous_underflow_reloads_from_latch() {
     // visible for one cycle before flag" rule so reload takes 3 ticks.
     tick_n(&mut cia, 3);
     assert_eq!(cia.timer_a(), 2, "continuous mode reloads latch");
-    assert_ne!(
-        cia.icr_status() & ICR_TA,
-        0,
-        "TA flag latched on underflow"
-    );
+    assert_ne!(cia.icr_status() & ICR_TA, 0, "TA flag latched on underflow");
     assert!(
         cia.timer_a_running(),
         "continuous mode keeps the timer running"
@@ -119,7 +115,11 @@ fn timer_a_continuous_latch_update_affects_next_reload() {
     // Change latch to 10 mid-flight. The counter keeps counting the
     // old value (3 → 2 → 1 → 0 → reload from NEW latch = 10).
     program_timer_a(&mut cia, 10);
-    assert_eq!(cia.timer_a(), 3, "counter not affected by latch write while running");
+    assert_eq!(
+        cia.timer_a(),
+        3,
+        "counter not affected by latch write while running"
+    );
     tick_n(&mut cia, 4);
     assert_eq!(cia.timer_a(), 10, "underflow reloads from updated latch");
 }
@@ -134,7 +134,11 @@ fn timer_a_oneshot_stops_on_underflow_and_clears_start_bit() {
     program_timer_a(&mut cia, 2);
     cia.write(CRA, LOAD | START | ONESHOT);
     tick_n(&mut cia, 3);
-    assert_eq!(cia.timer_a(), 2, "counter reloaded to latch after one-shot underflow");
+    assert_eq!(
+        cia.timer_a(),
+        2,
+        "counter reloaded to latch after one-shot underflow"
+    );
     assert!(!cia.timer_a_running(), "one-shot auto-stops");
     assert_eq!(cia.read(CRA) & START, 0, "START bit cleared automatically");
     assert_ne!(cia.icr_status() & ICR_TA, 0, "TA flag still latches");
@@ -157,7 +161,10 @@ fn timer_a_oneshot_txhi_autostart_without_start_bit() {
     assert_ne!(cia.read(CRA) & START, 0, "START bit reads back as 1");
     assert_eq!(cia.timer_a(), 3);
     tick_n(&mut cia, 4); // 3 → 2 → 1 → 0 → reload to 3, stop
-    assert!(!cia.timer_a_running(), "auto-started one-shot still self-stops");
+    assert!(
+        !cia.timer_a_running(),
+        "auto-started one-shot still self-stops"
+    );
     assert_ne!(cia.icr_status() & ICR_TA, 0);
 }
 
@@ -184,7 +191,11 @@ fn timer_a_oneshot_txhi_does_not_autostart_when_running() {
 fn load_strobe_forces_counter_from_latch_and_reads_back_as_zero() {
     let mut cia = Cia8520::new();
     program_timer_a(&mut cia, 0x1234);
-    assert_eq!(cia.timer_a(), 0x1234, "TAHI write loads counter while stopped");
+    assert_eq!(
+        cia.timer_a(),
+        0x1234,
+        "TAHI write loads counter while stopped"
+    );
     cia.write(TALO, 0xFF);
     cia.write(TAHI, 0xFF); // latch = $FFFF
     cia.write(CRA, LOAD); // strobe only
@@ -205,15 +216,17 @@ fn load_strobe_while_running_reloads_without_stopping() {
     assert_eq!(cia.timer_a(), 2);
     cia.write(CRA, START | LOAD); // re-strobe LOAD, stay running
     cia.phi2_pulse();
-    assert_eq!(cia.timer_a(), 4, "LOAD reloads then counts in the same tick");
+    assert_eq!(
+        cia.timer_a(),
+        4,
+        "LOAD reloads then counts in the same tick"
+    );
     assert!(cia.timer_a_running(), "still running");
 }
 #[test]
-
 // ────────────────────────────────────────────────────────────────
 // Timer A — CNT source (CRA bit 5 = 1)
 // ────────────────────────────────────────────────────────────────
-
 #[test]
 fn timer_a_cnt_mode_ignores_phi2_and_counts_cnt_pulses() {
     let mut cia = Cia8520::new();
@@ -331,7 +344,11 @@ fn timer_a_oneshot_zero_visible_for_one_tick_before_flag() {
     assert_eq!(cia.timer_a(), 0, "$0000 visible before flag");
     assert_eq!(cia.icr_status() & ICR_TA, 0, "no flag on zero-tick");
     cia.phi2_pulse(); // underflow fires flag + reload
-    assert_ne!(cia.icr_status() & ICR_TA, 0, "flag raised on the tick AFTER zero");
+    assert_ne!(
+        cia.icr_status() & ICR_TA,
+        0,
+        "flag raised on the tick AFTER zero"
+    );
     assert_eq!(cia.timer_a(), 2, "reloaded from latch");
 }
 
@@ -410,7 +427,10 @@ fn stopped_timer_txhi_loads_counter_without_starting_in_continuous_mode() {
     let mut cia = Cia8520::new();
     cia.write(CRA, 0); // continuous, stopped
     program_timer_a(&mut cia, 0x0042);
-    assert!(!cia.timer_a_running(), "continuous mode: TAHI must NOT auto-start");
+    assert!(
+        !cia.timer_a_running(),
+        "continuous mode: TAHI must NOT auto-start"
+    );
     assert_eq!(cia.timer_a(), 0x0042, "counter did get loaded");
 }
 

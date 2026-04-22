@@ -28,7 +28,8 @@ fn no_disk_final_pc() {
     println!(
         "no-disk final: pc=${pc:06X} a0=${a0:08X} a6=${a6:08X} \
          intena=${:04X} intreq=${:04X}",
-        m.intena(), m.intreq()
+        m.intena(),
+        m.intreq()
     );
     // Bytes at PC — same window as wb13 diag for easy compare.
     let base = pc.saturating_sub(40);

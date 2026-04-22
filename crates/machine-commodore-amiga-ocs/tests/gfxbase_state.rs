@@ -20,8 +20,8 @@
 //! deadlock. If it matches the slow-RAM column we've lost something
 //! else. If it sits somewhere else entirely, that's its own clue.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 // ExecBase offsets we need.
 const EXEC_LIB_LIST: u32 = 378;

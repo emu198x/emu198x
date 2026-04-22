@@ -112,12 +112,14 @@ fn unmapped_reads_return_floating_bus() {
     // subsequent reads must match it.
     let first = amiga.read_word(0xC0_0000);
     assert_eq!(
-        amiga.read_word(0xA0_0000), first,
+        amiga.read_word(0xA0_0000),
+        first,
         "Second unmapped read should observe the same floating-bus \
          residue as the first"
     );
     assert_eq!(
-        amiga.read_word(0xDC_0000), first,
+        amiga.read_word(0xDC_0000),
+        first,
         "Third unmapped read should still observe the same residue"
     );
 }

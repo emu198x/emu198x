@@ -114,13 +114,7 @@ impl DmaClaim {
 /// claims even CCKs, but BPL5 / BPL6 claim odd CCKs, which is
 /// exactly where copper competes.
 #[must_use]
-pub fn dma_claim(
-    hpos: u16,
-    dmacon: u16,
-    bplcon0: u16,
-    ddfstrt: u16,
-    ddfstop: u16,
-) -> DmaClaim {
+pub fn dma_claim(hpos: u16, dmacon: u16, bplcon0: u16, ddfstrt: u16, ddfstop: u16) -> DmaClaim {
     // Bitplane DMA requires DMACON.DMAEN + DMACON.BPLEN (bits 9 + 8).
     if dmacon & 0x0300 != 0x0300 {
         return DmaClaim::Free;
@@ -210,11 +204,7 @@ impl Denise {
     /// `color(idx)` accessor which many tests rely on.
     #[must_use]
     pub fn color(&self, idx: usize) -> u16 {
-        if idx < 32 {
-            self.ocs.palette[idx]
-        } else {
-            0
-        }
+        if idx < 32 { self.ocs.palette[idx] } else { 0 }
     }
 
     /// Tick one master/4 period (= 1 lores pixel, = half a CCK).
@@ -236,10 +226,8 @@ impl Denise {
         agnus: &mut commodore_agnus_ocs::Agnus,
         memory: &Memory,
     ) {
-        let (vstart, vstop) =
-            diw_vertical_window(agnus.diwstrt, agnus.diwstop);
-        let (ddf_start, ddf_stop) =
-            ddf_window(agnus.ddfstrt, agnus.ddfstop);
+        let (vstart, vstop) = diw_vertical_window(agnus.diwstrt, agnus.diwstop);
+        let (ddf_start, _) = ddf_window(agnus.ddfstrt, agnus.ddfstop);
 
         let in_visible_line = (vstart..vstop).contains(&vpos);
         let bpl_dma_on = dmacon & 0x0300 == 0x0300;
@@ -255,11 +243,6 @@ impl Denise {
         // reads data drawn one word earlier — producing the
         // per-scanline horizontal shear on KS 1.3's insert-disk
         // graphic.
-        let ddf_fetch_stop = ddf_stop.saturating_add(8);
-        let in_ddf =
-            ddf_fetch_stop > ddf_start
-                && (ddf_start..ddf_fetch_stop).contains(&hpos);
-
         // Keep the archive's BPLCON0 copy in lockstep with Agnus's —
         // Agnus owns the primary storage (it consumes BPU for the DMA
         // scheduler); Denise reads HIRES/HOMOD/DBLPF/LACE from it.
@@ -273,22 +256,22 @@ impl Denise {
 
         // ── CCK-boundary events (phase 0 only) ──────────────────
         if phase == 0 {
-            // Bitplane fetch — one slot per CCK at the scheduled hpos
-            // position within the 8-CCK block. The fetch writes into
-            // the archive's `bpl_data` latch; writing BPL1DAT (plane
-            // 0) queues the parallel shift-load that BPLCON1 will
-            // commit when its comparator matches.
-            if in_visible_line && bpl_dma_on && in_ddf {
-                let slot_in_block = (hpos - ddf_start) % 8;
-                if let Some(plane) = lores_fetch_plane(slot_in_block, bpu) {
+            // Bitplane fetch — follow Agnus's live DMA grant rather
+            // than re-deriving the schedule locally. The old local
+            // `lores_fetch_plane()` path silently kept using 8-CCK
+            // lores fetch groups even when BPLCON0 switched the line
+            // into hires, which left Workbench's hires desktop area
+            // fetching half as many words as it should.
+            if in_visible_line && bpl_dma_on {
+                if let Some(plane_u8) = agnus.cck_bus_plan().bitplane_dma_fetch_plane {
+                    let plane = plane_u8 as usize;
                     let addr = agnus.bpl_pt[plane];
                     let word = memory.read_chip_ram_word(addr);
                     self.ocs.load_bitplane(plane, word);
                     if plane == 0 {
                         self.ocs.queue_shift_load_from_bpl1dat();
                     }
-                    agnus.bpl_pt[plane] =
-                        agnus.bpl_pt[plane].wrapping_add(2);
+                    agnus.bpl_pt[plane] = agnus.bpl_pt[plane].wrapping_add(2);
                     self.bytes_this_line += 2;
                 }
             }
@@ -302,8 +285,7 @@ impl Denise {
                     } else {
                         i32::from(agnus.bpl2mod)
                     };
-                    agnus.bpl_pt[p] =
-                        agnus.bpl_pt[p].wrapping_add(modulo as u32);
+                    agnus.bpl_pt[p] = agnus.bpl_pt[p].wrapping_add(modulo as u32);
                 }
                 self.bytes_this_line = 0;
             }
@@ -351,17 +333,13 @@ impl Denise {
                     } else {
                         self.ocs.write_sprite_pos(sprite, w0);
                         self.ocs.write_sprite_ctl(sprite, w1);
-                        let new_vstart =
-                            (((w1 >> 2) & 1) << 8) | ((w0 >> 8) & 0xFF);
-                        let new_vstop =
-                            (((w1 >> 1) & 1) << 8) | ((w1 >> 8) & 0xFF);
+                        let new_vstart = (((w1 >> 2) & 1) << 8) | ((w0 >> 8) & 0xFF);
+                        let new_vstop = (((w1 >> 1) & 1) << 8) | ((w1 >> 8) & 0xFF);
                         self.spr_vwindow[sprite] = (new_vstart, new_vstop);
                         // Arm if we've reached vstart. (vstart == 0
                         // with vstop == 0 means the sprite is off —
                         // leave it waiting.)
-                        if new_vstart == vpos.wrapping_add(1)
-                            && new_vstop > new_vstart
-                        {
+                        if new_vstart == vpos.wrapping_add(1) && new_vstop > new_vstart {
                             self.spr_displaying[sprite] = true;
                         }
                         let _ = vstart;
@@ -398,14 +376,11 @@ impl Denise {
         const VIEWPORT_V_START_LINE: u16 = 0x19;
         const VIEWPORT_H_END_CCK: u16 = 0xEC;
         const VIEWPORT_V_END_LINE: u16 = 0x139;
-        let in_viewport_h =
-            hpos >= VIEWPORT_H_START_CCK && hpos < VIEWPORT_H_END_CCK;
-        let in_viewport_v =
-            vpos >= VIEWPORT_V_START_LINE && vpos < VIEWPORT_V_END_LINE;
+        let in_viewport_h = hpos >= VIEWPORT_H_START_CCK && hpos < VIEWPORT_H_END_CCK;
+        let in_viewport_v = vpos >= VIEWPORT_V_START_LINE && vpos < VIEWPORT_V_END_LINE;
         if in_viewport_h && in_viewport_v {
             let fb_y = u32::from(vpos - VIEWPORT_V_START_LINE) * 2;
-            let fb_x_lores = u32::from(hpos - VIEWPORT_H_START_CCK) * 2
-                + u32::from(phase);
+            let fb_x_lores = u32::from(hpos - VIEWPORT_H_START_CCK) * 2 + u32::from(phase);
 
             // Pipeline coordinates (DDF-relative) stay the same —
             // they're what Denise uses internally for sprite and
@@ -420,20 +395,34 @@ impl Denise {
             let local_x = fb_x_lores;
             let local_y = fb_y;
 
-            // Only consult the bitplane pipeline inside DIW+DDF;
-            // elsewhere the beam shows COLOR00 background.
-            let color_idx = if in_visible_line && in_ddf {
-                let dbg = self.ocs.output_pixel_with_beam(
-                    pipeline_x, pipeline_y, pipeline_x, pipeline_y,
-                );
-                if dbg.called { Some(dbg.final_color_idx) } else { None }
+            // Always advance Denise's per-pixel pipeline across the whole
+            // viewport. DDF controls fetch timing, not an immediate "display
+            // blank" edge: pixels already sitting in the shifter remain
+            // visible until they drain. If we both stop ticking *and* blank
+            // on DDF close, the previous line wraps into the next one first,
+            // and after fixing that we clip the trailing edge of the line.
+            //
+            // So:
+            // - keep ticking through the full viewport
+            // - only use the DIW-visible line gate here
+            // - let an empty shifter naturally fall back to COLOR00
+            let dbg = self.ocs.output_pixel_with_beam_and_playfield_gate(
+                pipeline_x,
+                pipeline_y,
+                pipeline_x,
+                pipeline_y,
+                in_visible_line,
+            );
+            let cols = if dbg.called {
+                match dbg.source_pixels_per_fb_pixel.min(2) {
+                    0 => [0, 0],
+                    1 => [dbg.final_color_idx, dbg.final_color_idx],
+                    _ => [dbg.quad_color_idx[0], dbg.quad_color_idx[1]],
+                }
             } else {
-                None
+                [0, 0]
             };
-            let final_idx = color_idx.unwrap_or(0);
             {
-                let rgb12 = self.ocs.resolve_color_rgb12(final_idx);
-                let pixel = rgb12_to_argb(rgb12);
                 // LACE: paint one row per field (long frame = even,
                 // short frame = odd). Non-interlaced: paint both rows
                 // of the doubled pair. Both cases pixel-double across
@@ -450,8 +439,10 @@ impl Denise {
                     &[local_y, local_y + 1]
                 };
                 for &dy in rows {
-                    for dx in 0..2u32 {
-                        let x = local_x * 2 + dx;
+                    for (dx, color_idx) in cols.iter().enumerate() {
+                        let rgb12 = self.ocs.resolve_color_rgb12(*color_idx);
+                        let pixel = rgb12_to_argb(rgb12);
+                        let x = local_x * 2 + dx as u32;
                         let idx = (dy * FB_WIDTH + x) as usize;
                         if idx < self.framebuffer.len() {
                             self.framebuffer[idx] = pixel;
@@ -474,13 +465,16 @@ impl Denise {
             // the value we already write for pre-DDF / post-DIW
             // pixels, keeping the border a single uniform colour.
             if phase == 1 && hpos == PAL_CCKS_PER_LINE - 1 {
-                let tail_start = u32::from(hpos - VIEWPORT_H_START_CCK + 1)
-                    * 4;
+                let tail_start = u32::from(hpos - VIEWPORT_H_START_CCK + 1) * 4;
                 if tail_start < FB_WIDTH {
                     let rgb12_bg = self.ocs.resolve_color_rgb12(0);
                     let bg_pixel = rgb12_to_argb(rgb12_bg);
                     let rows: &[u32] = if lace {
-                        if agnus.lof { &[local_y] } else { &[local_y + 1] }
+                        if agnus.lof {
+                            &[local_y]
+                        } else {
+                            &[local_y + 1]
+                        }
                     } else {
                         &[local_y, local_y + 1]
                     };
@@ -511,6 +505,7 @@ fn rgb12_to_argb(c12: u16) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::Memory;
 
     #[test]
     fn rgb12_conversion() {
@@ -567,7 +562,9 @@ mod tests {
     const DMACON_BPL: u16 = 0x0300;
     const DDFSTRT: u16 = 0x0038;
     const DDFSTOP: u16 = 0x00D0;
-    const fn bplcon0(bpu: u16) -> u16 { bpu << 12 }
+    const fn bplcon0(bpu: u16) -> u16 {
+        bpu << 12
+    }
 
     #[test]
     fn dma_claim_free_when_bpl_dma_disabled() {
@@ -632,6 +629,70 @@ mod tests {
         assert_eq!(
             dma_claim(0x38 + 7, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
             DmaClaim::Free,
+        );
+    }
+
+    #[test]
+    fn hires_two_plane_line_fetches_forty_words_per_plane() {
+        let mut denise = Denise::new();
+        let mut agnus = commodore_agnus_ocs::Agnus::new();
+        let memory = Memory::new(vec![0; 256 * 1024]);
+
+        agnus.vpos = 0x002C;
+        agnus.dmacon = DMACON_BPL;
+        agnus.bplcon0 = 0xA200; // HIRES + BPU=2 + COLOR
+        agnus.ddfstrt = 0x003C;
+        agnus.ddfstop = 0x00D0;
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+        agnus.bpl1mod = 0;
+        agnus.bpl2mod = 0;
+        agnus.bpl_pt[0] = 0x0000_0100;
+        agnus.bpl_pt[1] = 0x0000_0200;
+
+        for hpos in 0..=0x00E2 {
+            agnus.hpos = hpos;
+            denise.tick(0, agnus.vpos, hpos, agnus.dmacon, &mut agnus, &memory);
+        }
+
+        assert_eq!(
+            agnus.bpl_pt[0],
+            0x0000_0100 + 80,
+            "hires BPL1 should fetch 40 words across the line",
+        );
+        assert_eq!(
+            agnus.bpl_pt[1],
+            0x0000_0200 + 80,
+            "hires BPL2 should fetch 40 words across the line",
+        );
+    }
+
+    #[test]
+    fn hires_line_drains_shift_register_before_next_line() {
+        let mut denise = Denise::new();
+        let mut agnus = commodore_agnus_ocs::Agnus::new();
+        let memory = Memory::new(vec![0; 256 * 1024]);
+
+        agnus.vpos = 0x002C;
+        agnus.dmacon = DMACON_BPL;
+        agnus.bplcon0 = 0x9200; // HIRES + BPU=1 + COLOR
+        agnus.ddfstrt = 0x003C;
+        agnus.ddfstop = 0x00D0;
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+        agnus.bpl1mod = 0;
+        agnus.bpl2mod = 0;
+        agnus.bpl_pt[0] = 0x0000_0100;
+
+        for hpos in 0..=0x00E2 {
+            agnus.hpos = hpos;
+            denise.tick(0, agnus.vpos, hpos, agnus.dmacon, &mut agnus, &memory);
+            denise.tick(1, agnus.vpos, hpos, agnus.dmacon, &mut agnus, &memory);
+        }
+
+        assert_eq!(
+            denise.ocs.shift_count, 0,
+            "the wrapper must keep advancing Denise after DDF closes so late-line pixels do not leak into the next line",
         );
     }
 }

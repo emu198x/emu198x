@@ -21,8 +21,8 @@
 //! When (IDR & IMR) != 0, the CIA asserts /IRQ → Paula INTREQ.PORTS
 //! (bit 3) latches.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::AmigaOcs;
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");

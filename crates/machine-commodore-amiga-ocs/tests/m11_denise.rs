@@ -15,8 +15,8 @@
 //! v_end_line $139. = 192 CCKs × 288 lines = 384 lores px × 288 lines
 //! at lores; line-doubled to 768×576 for 4:3 display.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -44,7 +44,10 @@ fn framebuffer_dimensions_are_pal_standard() {
     let Some(rom) = load_kickstart() else { return };
     let amiga = AmigaOcs::new(rom);
     let (w, h) = amiga.denise().framebuffer_size();
-    assert_eq!(w, 768, "PAL Standard width should be 768 lores px (line-doubled)");
+    assert_eq!(
+        w, 768,
+        "PAL Standard width should be 768 lores px (line-doubled)"
+    );
     assert_eq!(h, 576, "PAL Standard height should be 576 (line-doubled)");
     assert_eq!(amiga.denise().framebuffer().len(), (w * h) as usize);
 }

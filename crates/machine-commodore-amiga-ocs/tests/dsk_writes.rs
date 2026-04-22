@@ -10,8 +10,8 @@
 //!
 //! `debug_dsk_log` entries are (cck, pc, reg_offset, value).
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -62,8 +62,7 @@ fn run(label: &str, mut amiga: AmigaOcs, frames: u64) {
     }
 
     // Per-register counts.
-    let mut counts: std::collections::BTreeMap<u16, u64> =
-        std::collections::BTreeMap::new();
+    let mut counts: std::collections::BTreeMap<u16, u64> = std::collections::BTreeMap::new();
     for &(_, _, reg, _) in log {
         *counts.entry(reg).or_insert(0) += 1;
     }
@@ -125,9 +124,7 @@ fn run(label: &str, mut amiga: AmigaOcs, frames: u64) {
         }
     }
     if !arm_events.is_empty() {
-        eprintln!(
-            "\n=== DSKLEN arm events (DMAEN written twice in a row) ==="
-        );
+        eprintln!("\n=== DSKLEN arm events (DMAEN written twice in a row) ===");
         for (cck, pc, val) in &arm_events {
             eprintln!(
                 "  cck={cck:>10} pc=${pc:08X}  DSKLEN=${val:04X}  {}",

@@ -37,8 +37,8 @@
 //! When a future change breaks any of these, this test catches it
 //! before the regression cascades.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 // ExecBase field offsets (exec/execbase.h).
 const EXEC_THIS_TASK: u32 = 276;
@@ -147,30 +147,46 @@ fn boot_reaches_insert_disk_idle_with_keyboard_live() {
     // the CPU is ready to take interrupts, it just has userland
     // code currently on the PC.
     let sr = amiga.cpu().regs.sr;
-    assert_eq!(sr & 0x0700, 0x0000,
-        "IPL mask must be 0 (taking interrupts); got SR=\\${sr:04X}");
-    assert_eq!(sr & 0x2000, 0x0000,
-        "CPU should be in user mode after keyboard made input.device dispatchable; got SR=\\${sr:04X}");
+    assert_eq!(
+        sr & 0x0700,
+        0x0000,
+        "IPL mask must be 0 (taking interrupts); got SR=\\${sr:04X}"
+    );
+    assert_eq!(
+        sr & 0x2000,
+        0x0000,
+        "CPU should be in user mode after keyboard made input.device dispatchable; got SR=\\${sr:04X}"
+    );
 
     // ── Chipset: same steady-state as pre-keyboard ──────────
-    assert_eq!(amiga.dmacon() & 0x02FF, 0x02D0,
-        "DMACON should have DMAEN + COPEN + BLITEN + DSKEN, BPLEN off");
-    assert_eq!(amiga.intena() & 0x7FFF, 0x602C,
-        "INTENA should be \\$602C = master + EXTER + VERTB + PORTS + SOFT");
+    assert_eq!(
+        amiga.dmacon() & 0x02FF,
+        0x02D0,
+        "DMACON should have DMAEN + COPEN + BLITEN + DSKEN, BPLEN off"
+    );
+    assert_eq!(
+        amiga.intena() & 0x7FFF,
+        0x602C,
+        "INTENA should be \\$602C = master + EXTER + VERTB + PORTS + SOFT"
+    );
 
     // ── ExecBase ────────────────────────────────────────────
     let exec_base = read_long(&amiga, 0x00000004);
     assert_ne!(exec_base, 0, "ExecBase must be initialised");
     let disp_count = read_long(&amiga, exec_base.wrapping_add(EXEC_DISP_COUNT));
-    assert!(disp_count >= 100,
-        "Exec should have done ≥ 100 task dispatches; got {disp_count}");
+    assert!(
+        disp_count >= 100,
+        "Exec should have done ≥ 100 task dispatches; got {disp_count}"
+    );
 
     // ── TaskReady empty, ThisTask running ───────────────────
     let ready_addr = exec_base.wrapping_add(EXEC_TASK_READY);
     let ready_head = read_long(&amiga, ready_addr);
     let ready_tail = ready_addr.wrapping_add(4);
-    assert_eq!(ready_head, ready_tail,
-        "TaskReady should be empty — all runnable work is handled");
+    assert_eq!(
+        ready_head, ready_tail,
+        "TaskReady should be empty — all runnable work is handled"
+    );
 
     let this_task = read_long(&amiga, exec_base.wrapping_add(EXEC_THIS_TASK));
     assert_ne!(this_task, 0, "ThisTask must be set");
@@ -185,21 +201,29 @@ fn boot_reaches_insert_disk_idle_with_keyboard_live() {
     // ThisTask running the animation.
     let wait_addr = exec_base.wrapping_add(EXEC_TASK_WAIT);
     let names = walk_task_names(&amiga, wait_addr);
-    assert!(names.iter().any(|n| n == "trackdisk.device"),
-        "trackdisk.device should be in TaskWait (got {names:?})");
-    assert!(names.iter().any(|n| n == "input.device"),
-        "input.device should be in TaskWait (got {names:?})");
-    assert!(!names.iter().any(|n| n == "exec.library"),
-        "exec.library should NOT be in TaskWait — it is the running task (got {names:?})");
+    assert!(
+        names.iter().any(|n| n == "trackdisk.device"),
+        "trackdisk.device should be in TaskWait (got {names:?})"
+    );
+    assert!(
+        names.iter().any(|n| n == "input.device"),
+        "input.device should be in TaskWait (got {names:?})"
+    );
+    assert!(
+        !names.iter().any(|n| n == "exec.library"),
+        "exec.library should NOT be in TaskWait — it is the running task (got {names:?})"
+    );
 
     // ── Keyboard: power-up sequence has settled ─────────────
     // The keyboard controller needs at least the $FD + $FE pair
     // handshaked by the host. By 300 frames (~6 s wall-clock)
     // that pair is long done; bytes_sent counts both plus any
     // timeout-retransmit.
-    assert!(amiga.keyboard().bytes_sent >= 2,
+    assert!(
+        amiga.keyboard().bytes_sent >= 2,
         "keyboard should have emitted at least the \\$FD + \\$FE power-up pair; got {}",
-        amiga.keyboard().bytes_sent);
+        amiga.keyboard().bytes_sent
+    );
 }
 
 /// Companion assertion: slow-RAM and chip-only now converge.

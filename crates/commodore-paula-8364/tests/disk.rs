@@ -19,8 +19,10 @@ use commodore_paula_8364::{IntSource, Paula8364, bits::*};
 fn dsklen_first_write_with_dmaen_only_arms_does_not_start_dma() {
     let mut p = Paula8364::new();
     p.write_dsklen(DSKLEN_DMAEN | 0x0200);
-    assert!(!p.disk_dma_pending(),
-        "first bit-15=1 write must only arm — no DMA start yet");
+    assert!(
+        !p.disk_dma_pending(),
+        "first bit-15=1 write must only arm — no DMA start yet"
+    );
 }
 
 #[test]
@@ -34,11 +36,11 @@ fn dsklen_second_write_with_dmaen_starts_dma() {
 #[test]
 fn dsklen_bit_15_zero_disarms_the_flip_flop() {
     let mut p = Paula8364::new();
-    p.write_dsklen(DSKLEN_DMAEN | 0x0200);   // arm
-    p.write_dsklen(DSKLEN_WRITE);            // $4000 safety → disarm
-    p.write_dsklen(DSKLEN_DMAEN | 0x0200);   // only arm again
+    p.write_dsklen(DSKLEN_DMAEN | 0x0200); // arm
+    p.write_dsklen(DSKLEN_WRITE); // $4000 safety → disarm
+    p.write_dsklen(DSKLEN_DMAEN | 0x0200); // only arm again
     assert!(!p.disk_dma_pending());
-    p.write_dsklen(DSKLEN_DMAEN | 0x0200);   // now trigger
+    p.write_dsklen(DSKLEN_DMAEN | 0x0200); // now trigger
     assert!(p.disk_dma_pending());
 }
 
@@ -51,8 +53,11 @@ fn complete_disk_dma_clears_pending_and_raises_dskblk_irq() {
 
     p.complete_disk_dma();
     assert!(!p.disk_dma_pending());
-    assert_ne!(p.intreq() & IntSource::DskBlk.mask(), 0,
-        "completion raises INTREQ.DSKBLK");
+    assert_ne!(
+        p.intreq() & IntSource::DskBlk.mask(),
+        0,
+        "completion raises INTREQ.DSKBLK"
+    );
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -74,8 +79,11 @@ fn peek_dskbytr_is_side_effect_free() {
     let mut p = Paula8364::new();
     p.note_disk_read_word(0xABCD);
     assert_ne!(p.peek_dskbytr(0) & DSKBYTR_DSKBYT, 0);
-    assert_ne!(p.peek_dskbytr(0) & DSKBYTR_DSKBYT, 0,
-        "peek must not clear DSKBYT");
+    assert_ne!(
+        p.peek_dskbytr(0) & DSKBYTR_DSKBYT,
+        0,
+        "peek must not clear DSKBYT"
+    );
     let _ = p.read_dskbytr(0);
     assert_eq!(p.peek_dskbytr(0) & DSKBYTR_DSKBYT, 0);
 }
@@ -129,14 +137,20 @@ fn sync_match_raises_int_dsksyn_only_when_adkcon_wordsync_is_set() {
 
     // Match with WORDSYNC clear → no IRQ.
     assert!(p.note_disk_read_word(0x4489));
-    assert_eq!(p.intreq() & IntSource::DskSyn.mask(), 0,
-        "match with WORDSYNC clear must not raise INT_DSKSYN");
+    assert_eq!(
+        p.intreq() & IntSource::DskSyn.mask(),
+        0,
+        "match with WORDSYNC clear must not raise INT_DSKSYN"
+    );
 
     // Enable WORDSYNC, match again → IRQ.
     p.write_adkcon(INT_SETCLR | ADKCON_WORDSYNC);
     assert!(p.note_disk_read_word(0x4489));
-    assert_ne!(p.intreq() & IntSource::DskSyn.mask(), 0,
-        "match with WORDSYNC set raises INT_DSKSYN");
+    assert_ne!(
+        p.intreq() & IntSource::DskSyn.mask(),
+        0,
+        "match with WORDSYNC set raises INT_DSKSYN"
+    );
 
     // Non-match with WORDSYNC set → no new IRQ bit (but existing
     // pending bit stays — INTREQ is sticky until cleared).
@@ -158,8 +172,11 @@ fn wordequal_bit_latches_until_delay_elapses_then_clears() {
         p.tick_disk_cck();
     }
     let byt = p.read_dskbytr(0);
-    assert_eq!(byt & DSKBYTR_WORDEQUAL, 0,
-        "WORDEQUAL clears after the sync-match delay");
+    assert_eq!(
+        byt & DSKBYTR_WORDEQUAL,
+        0,
+        "WORDEQUAL clears after the sync-match delay"
+    );
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -177,7 +194,9 @@ fn fast_disk_bit_picks_14_cck_per_byte() {
     for _ in 1..=40u8 {
         p.tick_disk_cck();
         elapsed += 1;
-        if p.read_dskbytr(0) & DSKBYTR_DSKBYT != 0 { break; }
+        if p.read_dskbytr(0) & DSKBYTR_DSKBYT != 0 {
+            break;
+        }
     }
     assert_eq!(elapsed, DISK_BYTE_CCK_FAST);
 }
@@ -192,7 +211,9 @@ fn slow_disk_default_picks_28_cck_per_byte() {
     for _ in 1..=60u8 {
         p.tick_disk_cck();
         elapsed += 1;
-        if p.read_dskbytr(0) & DSKBYTR_DSKBYT != 0 { break; }
+        if p.read_dskbytr(0) & DSKBYTR_DSKBYT != 0 {
+            break;
+        }
     }
     assert_eq!(elapsed, DISK_BYTE_CCK_SLOW);
 }
@@ -238,14 +259,18 @@ fn disk_pll_accumulates_to_16_bits_before_word_ready() {
     for _ in 0..15 {
         assert!(!p.disk_pll_accumulate(1));
     }
-    assert!(p.disk_pll_accumulate(1),
-        "16 bit-cells make a word — PLL signals ready");
+    assert!(
+        p.disk_pll_accumulate(1),
+        "16 bit-cells make a word — PLL signals ready"
+    );
 }
 
 #[test]
 fn disk_pll_reset_clears_accumulator() {
     let mut p = Paula8364::new();
-    for _ in 0..15 { p.disk_pll_accumulate(1); }
+    for _ in 0..15 {
+        p.disk_pll_accumulate(1);
+    }
     p.disk_pll_reset();
     assert!(!p.disk_pll_accumulate(15));
     assert!(p.disk_pll_accumulate(1));

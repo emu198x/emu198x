@@ -21,8 +21,7 @@ use runtime_commodore_amiga::{
 
 fn load_ks13() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").ok()?;
-    let path = PathBuf::from(home)
-        .join(".emu198x/roms/commodore-amiga/kick13.rom");
+    let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
     if !path.exists() {
         eprintln!("skipping: KS 1.3 ROM missing at {}", path.display());
         return None;

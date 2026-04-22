@@ -29,7 +29,11 @@ fn serdatr_default_has_tbe_and_tsre_set() {
     let p = Paula8364::new();
     assert_ne!(p.peek_serdatr() & SERDATR_TBE, 0);
     assert_ne!(p.peek_serdatr() & SERDATR_TSRE, 0);
-    assert_eq!(p.peek_serdatr() & SERDATR_RBF, 0, "RBF clear — nothing received");
+    assert_eq!(
+        p.peek_serdatr() & SERDATR_RBF,
+        0,
+        "RBF clear — nothing received"
+    );
     assert_eq!(p.peek_serdatr() & SERDATR_OVRUN, 0);
 }
 
@@ -37,8 +41,11 @@ fn serdatr_default_has_tbe_and_tsre_set() {
 fn serdat_write_raises_int_tbe() {
     let mut p = Paula8364::new();
     p.write_serdat(0x0100 | 0x41); // stop-bit + 'A'
-    assert_ne!(p.intreq() & IntSource::Tbe.mask(), 0,
-        "SERDAT write must raise INT_TBE so driver's next-byte loop progresses");
+    assert_ne!(
+        p.intreq() & IntSource::Tbe.mask(),
+        0,
+        "SERDAT write must raise INT_TBE so driver's next-byte loop progresses"
+    );
     assert_eq!(p.serdat(), 0x0141, "SERDAT stores the written value");
 }
 

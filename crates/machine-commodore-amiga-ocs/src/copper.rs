@@ -320,17 +320,9 @@ mod tests {
     /// exercise Denise-owned registers, so a local routing closure
     /// is enough. The machine layer wires this through the full
     /// `dispatch_custom_write` in production.
-    fn run_ccks(
-        copper: &mut Copper,
-        mem: &Memory,
-        denise: &mut Denise,
-        vpos: u16,
-        ccks: u16,
-    ) {
+    fn run_ccks(copper: &mut Copper, mem: &Memory, denise: &mut Denise, vpos: u16, ccks: u16) {
         for i in 0..ccks {
-            if let Some((reg, val)) =
-                copper.tick_cck(mem, vpos, i % 227, DmaClaim::Free)
-            {
+            if let Some((reg, val)) = copper.tick_cck(mem, vpos, i % 227, DmaClaim::Free) {
                 denise.write_word(reg, val);
             }
         }
@@ -338,10 +330,7 @@ mod tests {
 
     #[test]
     fn move_writes_chipset_register() {
-        let mem = build_test_memory_with_list(
-            &[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)],
-            0x1000,
-        );
+        let mem = build_test_memory_with_list(&[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)], 0x1000);
         let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
@@ -357,10 +346,7 @@ mod tests {
     fn move_does_not_run_when_only_even_ccks_offered() {
         // Pin hpos = 0 (even) for 40 ticks — copper gets zero
         // eligible cycles and should not execute.
-        let mem = build_test_memory_with_list(
-            &[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)],
-            0x1000,
-        );
+        let mem = build_test_memory_with_list(&[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)], 0x1000);
         let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
@@ -380,10 +366,7 @@ mod tests {
         // Copper MOVE needs 2 eligible odd CCKs. If every odd CCK is
         // claimed by a bitplane (simulating BPL5/BPL6 contention at
         // BPU ≥ 5), the copper never completes.
-        let mem = build_test_memory_with_list(
-            &[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)],
-            0x1000,
-        );
+        let mem = build_test_memory_with_list(&[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)], 0x1000);
         let mut denise = Denise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
@@ -401,7 +384,8 @@ mod tests {
             }
         }
         assert_eq!(
-            denise.color(0), 0x0000,
+            denise.color(0),
+            0x0000,
             "copper must yield to bitplane DMA on odd CCKs",
         );
     }
@@ -411,8 +395,8 @@ mod tests {
         // WAIT line 5, full mask, then MOVE COLOR00=$0FFF.
         let mem = build_test_memory_with_list(
             &[
-                (0x0501, 0xFFFE),   // WAIT v=5, h=0, full mask
-                (0x0180, 0x0FFF),   // MOVE COLOR00 = $0FFF (after wait)
+                (0x0501, 0xFFFE), // WAIT v=5, h=0, full mask
+                (0x0180, 0x0FFF), // MOVE COLOR00 = $0FFF (after wait)
                 (0xFFFF, 0xFFFE),
             ],
             0x1000,
@@ -430,9 +414,7 @@ mod tests {
 
         // Tick more with beam still below target — MOVE doesn't run.
         for i in 0..50 {
-            if let Some((reg, val)) =
-                copper.tick_cck(&mem, 4, i % 227, DmaClaim::Free)
-            {
+            if let Some((reg, val)) = copper.tick_cck(&mem, 4, i % 227, DmaClaim::Free) {
                 denise.write_word(reg, val);
             }
         }
@@ -456,8 +438,8 @@ mod tests {
         // (cycle 3).
         let mem = build_test_memory_with_list(
             &[
-                (0x0501, 0xFFFE),  // WAIT v=5, full mask
-                (0xFFFF, 0xFFFE),  // end-of-list
+                (0x0501, 0xFFFE), // WAIT v=5, full mask
+                (0xFFFF, 0xFFFE), // end-of-list
             ],
             0x1000,
         );
@@ -552,11 +534,7 @@ mod tests {
         // IR1 = $0A01 (VP=10, HP=0, flag=1)
         // IR2 = $FF00 (BFD=1, VE=$7F, HE=$00, flag=0)
         let mem = build_test_memory_with_list(
-            &[
-                (0x0A01, 0xFF00),
-                (0x0180, 0x0ABC),
-                (0xFFFF, 0xFFFE),
-            ],
+            &[(0x0A01, 0xFF00), (0x0180, 0x0ABC), (0xFFFF, 0xFFFE)],
             0x2000,
         );
         let mut denise = Denise::new();
@@ -585,9 +563,9 @@ mod tests {
         // IR1 = $0501 (WAIT/SKIP flag), IR2 = $FFFF (SKIP, full mask).
         let mem = build_test_memory_with_list(
             &[
-                (0x0501, 0xFFFF),           // SKIP if beam >= (5, 0)
-                (0x0180, 0x0F00),           // COLOR00 = $F00
-                (0x0182, 0x00F0),           // COLOR01 = $0F0
+                (0x0501, 0xFFFF), // SKIP if beam >= (5, 0)
+                (0x0180, 0x0F00), // COLOR00 = $F00
+                (0x0182, 0x00F0), // COLOR01 = $0F0
                 (0xFFFF, 0xFFFE),
             ],
             0x3000,
@@ -623,10 +601,10 @@ mod tests {
         //   ...
         let mem = build_test_memory_with_list(
             &[
-                (0x0180, 0x0F00),           // MOVE COLOR00
-                (0x008A, 0x0000),           // MOVE COPJMP2 strobe
-                (0x0182, 0x00F0),           // MOVE COLOR01 (should be skipped)
-                (0xFFFF, 0xFFFE),           // end
+                (0x0180, 0x0F00), // MOVE COLOR00
+                (0x008A, 0x0000), // MOVE COPJMP2 strobe
+                (0x0182, 0x00F0), // MOVE COLOR01 (should be skipped)
+                (0xFFFF, 0xFFFE), // end
             ],
             0x1000,
         );
@@ -650,13 +628,19 @@ mod tests {
 
         // Plenty of cycles to run through MOVE + COPJMP2 + MOVE.
         run_ccks(&mut copper, &mem, &mut denise, 10, 20);
-        assert_eq!(denise.color(0), 0x0F00, "first MOVE before COPJMP2 should run");
         assert_eq!(
-            denise.color(1), 0x0000,
+            denise.color(0),
+            0x0F00,
+            "first MOVE before COPJMP2 should run"
+        );
+        assert_eq!(
+            denise.color(1),
+            0x0000,
             "MOVE after COPJMP2 in list-1 must NOT run (jumped past)",
         );
         assert_eq!(
-            denise.color(2), 0x00FF,
+            denise.color(2),
+            0x00FF,
             "MOVE in list-2 (at COP2LC) should run after the jump",
         );
     }
@@ -668,8 +652,8 @@ mod tests {
         // do not execute until a COPJMP strobe restarts it.
         let mem = build_test_memory_with_list(
             &[
-                (0x0000, 0x1234),           // MOVE BLTDDAT (dangerous)
-                (0x0180, 0x0F00),           // MOVE COLOR00=$F00 (must NOT run)
+                (0x0000, 0x1234), // MOVE BLTDDAT (dangerous)
+                (0x0180, 0x0F00), // MOVE COLOR00=$F00 (must NOT run)
                 (0xFFFF, 0xFFFE),
             ],
             0x5000,
@@ -681,18 +665,19 @@ mod tests {
 
         run_ccks(&mut copper, &mem, &mut denise, 0, 40);
         assert_eq!(
-            denise.color(0), 0x0000,
+            denise.color(0),
+            0x0000,
             "COLOR00 must NOT have been written — dangerous MOVE halts copper"
         );
-        assert!(copper.stopped, "copper should be stopped after dangerous MOVE");
+        assert!(
+            copper.stopped,
+            "copper should be stopped after dangerous MOVE"
+        );
 
         // Restart via COPJMP1: COP1LC unchanged → copper re-runs the
         // same dangerous MOVE and halts again. But if we reset COP1LC
         // to a safe list first, it resumes.
-        let mem2 = build_test_memory_with_list(
-            &[(0x0180, 0x0ABC), (0xFFFF, 0xFFFE)],
-            0x6000,
-        );
+        let mem2 = build_test_memory_with_list(&[(0x0180, 0x0ABC), (0xFFFF, 0xFFFE)], 0x6000);
         copper.cop1lc = 0x6000;
         copper.jump1();
         assert!(!copper.stopped, "COPJMP1 must clear stopped");
@@ -704,17 +689,15 @@ mod tests {
     fn safe_register_threshold_is_exactly_dollar_80() {
         // Reg $7E is still dangerous ($< $80); reg $80 is safe.
         for (reg, should_halt) in [(0x007E, true), (0x0080, false)] {
-            let mem = build_test_memory_with_list(
-                &[(reg, 0x1234), (0xFFFF, 0xFFFE)],
-                0x7000,
-            );
+            let mem = build_test_memory_with_list(&[(reg, 0x1234), (0xFFFF, 0xFFFE)], 0x7000);
             let mut denise = Denise::new();
             let mut copper = Copper::new();
             copper.cop1lc = 0x7000;
             copper.jump1();
             run_ccks(&mut copper, &mem, &mut denise, 0, 8);
             assert_eq!(
-                copper.stopped, should_halt,
+                copper.stopped,
+                should_halt,
                 "reg ${reg:03X} should {} the copper",
                 if should_halt { "halt" } else { "NOT halt" }
             );
@@ -725,8 +708,8 @@ mod tests {
     fn skip_does_not_consume_when_beam_before_target() {
         let mem = build_test_memory_with_list(
             &[
-                (0x6401, 0xFFFF),           // SKIP if beam >= (100, 0)
-                (0x0180, 0x0F00),           // COLOR00 = $F00 (should run)
+                (0x6401, 0xFFFF), // SKIP if beam >= (100, 0)
+                (0x0180, 0x0F00), // COLOR00 = $F00 (should run)
                 (0xFFFF, 0xFFFE),
             ],
             0x4000,

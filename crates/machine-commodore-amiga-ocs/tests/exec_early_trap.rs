@@ -13,8 +13,8 @@
 //!   OpenDev   = $00FC06EA  (approx; resolved = $FC06EA)
 //!   Signal    = $00FC1E84
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const PUT_MSG: u32 = 0x00FC_1B70;
 const GET_MSG: u32 = 0x00FC_1BEA;

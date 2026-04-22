@@ -46,8 +46,7 @@ pub enum Model {
 }
 
 /// Native PAL frame length in Agnus colour clocks.
-pub const A500_PAL_FRAME_CCKS: u64 =
-    PAL_CCKS_PER_LINE as u64 * PAL_LINES_PER_FRAME as u64;
+pub const A500_PAL_FRAME_CCKS: u64 = PAL_CCKS_PER_LINE as u64 * PAL_LINES_PER_FRAME as u64;
 
 /// Native PAL frame length in machine ticks (master/4 = 2 per CCK).
 pub const A500_PAL_FRAME_TICKS: u64 = A500_PAL_FRAME_CCKS * 2;
@@ -91,7 +90,11 @@ impl Model {
     #[must_use]
     pub const fn ram_config(self) -> RamConfig {
         match self {
-            Self::A1000OcsPal => RamConfig { chip_kb: 256, slow_kb: 0, fast_kb: 0 },
+            Self::A1000OcsPal => RamConfig {
+                chip_kb: 256,
+                slow_kb: 0,
+                fast_kb: 0,
+            },
             Self::A500OcsPal => RamConfig::bare(),
             Self::A500OcsPalA501 => RamConfig::a501_trapdoor(),
             Self::A500PlusOcsPal => RamConfig::a500_plus(),

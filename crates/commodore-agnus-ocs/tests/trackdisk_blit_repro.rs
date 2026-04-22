@@ -27,7 +27,11 @@ struct TestRam {
 }
 
 impl TestRam {
-    fn new() -> Self { Self { cells: RefCell::new(HashMap::new()) } }
+    fn new() -> Self {
+        Self {
+            cells: RefCell::new(HashMap::new()),
+        }
+    }
     fn poke(&self, addr: u32, val: u16) {
         self.cells.borrow_mut().insert(addr & !1, val);
     }
@@ -47,7 +51,9 @@ fn run_blit(agnus: &mut Agnus, ram: &TestRam) {
             agnus.advance_blitter_word();
         }
         ops += 1;
-        if ops > 10_000_000 { panic!("blit runaway after {ops} ops"); }
+        if ops > 10_000_000 {
+            panic!("blit runaway after {ops} ops");
+        }
     }
 }
 

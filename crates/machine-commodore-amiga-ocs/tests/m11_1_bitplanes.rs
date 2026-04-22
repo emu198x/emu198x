@@ -9,8 +9,8 @@
 //!   - Each visible line: fetch words from chip RAM, decode pixels,
 //!     write to framebuffer, advance pointers by line + modulo.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");

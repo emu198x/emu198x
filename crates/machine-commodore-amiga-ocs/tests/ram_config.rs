@@ -55,7 +55,11 @@ fn with_slow_ram_is_thin_wrapper_over_with_ram_config() {
     let a = AmigaOcs::with_slow_ram(zero_rom(), 512 * 1024);
     let b = AmigaOcs::with_ram_config(
         zero_rom(),
-        RamConfig { chip_kb: 512, slow_kb: 512, fast_kb: 0 },
+        RamConfig {
+            chip_kb: 512,
+            slow_kb: 512,
+            fast_kb: 0,
+        },
     );
     assert_eq!(a.memory().chip_ram_size(), b.memory().chip_ram_size());
     assert_eq!(a.memory().slow_ram_size(), b.memory().slow_ram_size());
@@ -71,21 +75,37 @@ fn new_is_thin_wrapper_over_bare_config() {
 
 #[test]
 fn ram_config_validates_fast_kb_multiple_of_64() {
-    let bad = RamConfig { chip_kb: 512, slow_kb: 0, fast_kb: 100 };
+    let bad = RamConfig {
+        chip_kb: 512,
+        slow_kb: 0,
+        fast_kb: 100,
+    };
     assert!(!bad.is_valid(), "100 KiB is not a multiple of 64");
-    let ok = RamConfig { chip_kb: 512, slow_kb: 0, fast_kb: 128 };
+    let ok = RamConfig {
+        chip_kb: 512,
+        slow_kb: 0,
+        fast_kb: 128,
+    };
     assert!(ok.is_valid());
 }
 
 #[test]
 fn ram_config_rejects_fast_kb_above_8m() {
-    let bad = RamConfig { chip_kb: 512, slow_kb: 0, fast_kb: 16384 };
+    let bad = RamConfig {
+        chip_kb: 512,
+        slow_kb: 0,
+        fast_kb: 16384,
+    };
     assert!(!bad.is_valid(), "Zorro-II single-board max is 8 MiB");
 }
 
 #[test]
 #[should_panic(expected = "RamConfig out of range")]
 fn with_ram_config_panics_on_invalid_sizes() {
-    let bad = RamConfig { chip_kb: 384, slow_kb: 0, fast_kb: 0 };
+    let bad = RamConfig {
+        chip_kb: 384,
+        slow_kb: 0,
+        fast_kb: 0,
+    };
     let _ = AmigaOcs::with_ram_config(zero_rom(), bad);
 }

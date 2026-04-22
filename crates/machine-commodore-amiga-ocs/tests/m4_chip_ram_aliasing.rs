@@ -11,8 +11,8 @@
 //! `$100000` to `$0`, etc. — anywhere in the `$0-$1FFFFF` chip-RAM
 //! decode range routes via `addr & 0x7FFFF`.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::AmigaOcs;
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");

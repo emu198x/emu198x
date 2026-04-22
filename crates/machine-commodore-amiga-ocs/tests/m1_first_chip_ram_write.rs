@@ -19,8 +19,8 @@
 //! boot won't write to chip RAM until later, but it WILL execute
 //! many instructions, advancing PC well past the initial value.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::AmigaOcs;
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");

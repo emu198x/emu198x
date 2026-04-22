@@ -47,74 +47,86 @@ fn assert_table(label: &str, gary: &Gary, cases: &[(u32, ChipSelect)]) {
 #[test]
 fn a500_truth_table_matches_hrm_memory_map() {
     let gary = gary_a500_with_slow_ram();
-    assert_table("A500", &gary, &[
-        // Chip RAM
-        (0x00_0000, ChipSelect::ChipRam),
-        (0x08_0000, ChipSelect::ChipRam),
-        (0x1F_FFFF, ChipSelect::ChipRam),
-        // Expansion gap (unmapped on stock A500)
-        (0x20_0000, ChipSelect::Unmapped),
-        (0x9F_FFFF, ChipSelect::Unmapped),
-        // Ranger gap
-        (0xA0_0000, ChipSelect::Unmapped),
-        (0xBF_0000, ChipSelect::Unmapped),
-        // CIA-B / CIA-A
-        (0xBF_D000, ChipSelect::CiaB),
-        (0xBF_DF00, ChipSelect::CiaB),
-        (0xBF_E001, ChipSelect::CiaA),
-        (0xBF_EF01, ChipSelect::CiaA),
-        // Slow RAM
-        (0xC0_0000, ChipSelect::SlowRam),
-        (0xD7_FFFF, ChipSelect::SlowRam),
-        (0xD8_0000, ChipSelect::SlowRam),
-        // Custom shadows the slow-RAM range
-        (0xDF_F000, ChipSelect::Custom),
-        (0xDF_F1FE, ChipSelect::Custom),
-        // Diagnostics gap
-        (0xE0_0000, ChipSelect::Unmapped),
-        (0xE7_FFFF, ChipSelect::Unmapped),
-        // Autoconfig
-        (0xE8_0000, ChipSelect::Autoconfig),
-        (0xEF_FFFF, ChipSelect::Autoconfig),
-        // Diagnostics gap
-        (0xF0_0000, ChipSelect::Unmapped),
-        (0xF7_FFFF, ChipSelect::Unmapped),
-        // ROM
-        (0xF8_0000, ChipSelect::Rom),
-        (0xFF_FFFF, ChipSelect::Rom),
-    ]);
+    assert_table(
+        "A500",
+        &gary,
+        &[
+            // Chip RAM
+            (0x00_0000, ChipSelect::ChipRam),
+            (0x08_0000, ChipSelect::ChipRam),
+            (0x1F_FFFF, ChipSelect::ChipRam),
+            // Expansion gap (unmapped on stock A500)
+            (0x20_0000, ChipSelect::Unmapped),
+            (0x9F_FFFF, ChipSelect::Unmapped),
+            // Ranger gap
+            (0xA0_0000, ChipSelect::Unmapped),
+            (0xBF_0000, ChipSelect::Unmapped),
+            // CIA-B / CIA-A
+            (0xBF_D000, ChipSelect::CiaB),
+            (0xBF_DF00, ChipSelect::CiaB),
+            (0xBF_E001, ChipSelect::CiaA),
+            (0xBF_EF01, ChipSelect::CiaA),
+            // Slow RAM
+            (0xC0_0000, ChipSelect::SlowRam),
+            (0xD7_FFFF, ChipSelect::SlowRam),
+            (0xD8_0000, ChipSelect::SlowRam),
+            // Custom shadows the slow-RAM range
+            (0xDF_F000, ChipSelect::Custom),
+            (0xDF_F1FE, ChipSelect::Custom),
+            // Diagnostics gap
+            (0xE0_0000, ChipSelect::Unmapped),
+            (0xE7_FFFF, ChipSelect::Unmapped),
+            // Autoconfig
+            (0xE8_0000, ChipSelect::Autoconfig),
+            (0xEF_FFFF, ChipSelect::Autoconfig),
+            // Diagnostics gap
+            (0xF0_0000, ChipSelect::Unmapped),
+            (0xF7_FFFF, ChipSelect::Unmapped),
+            // ROM
+            (0xF8_0000, ChipSelect::Rom),
+            (0xFF_FFFF, ChipSelect::Rom),
+        ],
+    );
 }
 
 #[test]
 fn a1200_gayle_truncates_slow_ram_and_is_shadowed_by_custom() {
     let gary = gary_a1200();
-    assert_table("A1200", &gary, &[
-        // Slow RAM only up to $D7FFFF; $D80000+ is Gayle.
-        (0xC0_0000, ChipSelect::SlowRam),
-        (0xD7_FFFF, ChipSelect::SlowRam),
-        (0xD8_0000, ChipSelect::Gayle),
-        (0xDE_FFFF, ChipSelect::Gayle),
-        // Custom still wins inside Gayle's range.
-        (0xDF_F000, ChipSelect::Custom),
-    ]);
+    assert_table(
+        "A1200",
+        &gary,
+        &[
+            // Slow RAM only up to $D7FFFF; $D80000+ is Gayle.
+            (0xC0_0000, ChipSelect::SlowRam),
+            (0xD7_FFFF, ChipSelect::SlowRam),
+            (0xD8_0000, ChipSelect::Gayle),
+            (0xDE_FFFF, ChipSelect::Gayle),
+            // Custom still wins inside Gayle's range.
+            (0xDF_F000, ChipSelect::Custom),
+        ],
+    );
 }
 
 #[test]
 fn a3000_dmac_and_resource_regs_decode_ahead_of_slow_ram() {
     let gary = gary_a3000();
-    assert_table("A3000", &gary, &[
-        // No slow RAM by default
-        (0xC0_0000, ChipSelect::Unmapped),
-        (0xDC_FFFF, ChipSelect::Unmapped),
-        // DMAC
-        (0xDD_0000, ChipSelect::Dmac),
-        (0xDD_FFFF, ChipSelect::Dmac),
-        // Resource registers
-        (0xDE_0000, ChipSelect::ResourceRegisters),
-        (0xDE_FFFF, ChipSelect::ResourceRegisters),
-        // Custom
-        (0xDF_F000, ChipSelect::Custom),
-    ]);
+    assert_table(
+        "A3000",
+        &gary,
+        &[
+            // No slow RAM by default
+            (0xC0_0000, ChipSelect::Unmapped),
+            (0xDC_FFFF, ChipSelect::Unmapped),
+            // DMAC
+            (0xDD_0000, ChipSelect::Dmac),
+            (0xDD_FFFF, ChipSelect::Dmac),
+            // Resource registers
+            (0xDE_0000, ChipSelect::ResourceRegisters),
+            (0xDE_FFFF, ChipSelect::ResourceRegisters),
+            // Custom
+            (0xDF_F000, ChipSelect::Custom),
+        ],
+    );
 }
 
 #[test]
@@ -122,10 +134,16 @@ fn address_is_truncated_to_24_bits() {
     // A 68020 system running in 24-bit-gate mode feeds 32-bit
     // addresses into Gary; the top byte must be ignored.
     let gary = Gary::new();
-    assert_eq!(gary.decode(0x0100_0000), ChipSelect::ChipRam,
-        "$01000000 should alias to $000000");
-    assert_eq!(gary.decode(0x01BF_E001), ChipSelect::CiaA,
-        "$01BFE001 should alias to CIA-A");
+    assert_eq!(
+        gary.decode(0x0100_0000),
+        ChipSelect::ChipRam,
+        "$01000000 should alias to $000000"
+    );
+    assert_eq!(
+        gary.decode(0x01BF_E001),
+        ChipSelect::CiaA,
+        "$01BFE001 should alias to CIA-A"
+    );
 }
 
 #[test]

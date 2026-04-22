@@ -14,7 +14,7 @@
 //! write-capture round-trip. Both are lifted into the live crate
 //! verbatim when Phase 2 / Phase 3 land.
 
-use format_commodore_amiga_adf::{Adf, ADF_SIZE_DD};
+use format_commodore_amiga_adf::{ADF_SIZE_DD, Adf};
 use peripheral_commodore_amiga_floppy::AmigaFloppyDrive;
 
 /// Matches the archive's private `MOTOR_SPINUP_TICKS` constant.
@@ -157,5 +157,8 @@ fn selecting_with_motor_on_bypasses_id_stream() {
     for _ in 0..MOTOR_SPINUP_TICKS {
         drive.tick();
     }
-    assert!(drive.status().ready, "ready reports spindle speed, not ID stream");
+    assert!(
+        drive.status().ready,
+        "ready reports spindle speed, not ID stream"
+    );
 }

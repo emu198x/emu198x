@@ -27,8 +27,8 @@
 //!
 //! Walk the list from lh_Head following ln_Succ until ln_Succ == NULL.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_LINES, PAL_LINE_CCKS};
+use std::path::PathBuf;
 
 const EXEC_MEMLIST_OFFSET: u32 = 322;
 const MH_ATTRS_OFFSET: u32 = 14;
@@ -218,12 +218,11 @@ fn dump_intena_log(amiga: &AmigaOcs, label: &str) {
     );
     for (cck, pc, val, before, after) in &amiga.debug_intena_log {
         let kind = if val & 0x8000 != 0 { "SET  " } else { "CLEAR" };
-        let master_change =
-            match ((before & 0x4000) != 0, (after & 0x4000) != 0) {
-                (false, true) => " *master ON*",
-                (true, false) => " *master OFF*",
-                _ => "",
-            };
+        let master_change = match ((before & 0x4000) != 0, (after & 0x4000) != 0) {
+            (false, true) => " *master ON*",
+            (true, false) => " *master OFF*",
+            _ => "",
+        };
         eprintln!(
             "[{label}]   cck={cck:9} pc=${pc:08X} {kind} write=${val:04X} \
              before=${before:04X} after=${after:04X}{master_change}",
@@ -238,9 +237,7 @@ fn dump_rom_bytes(rom: &[u8], pc: u32, words_before: u32, words_after: u32) {
     let rom_off = (pc & 0x3_FFFF) as usize;
     let start = rom_off.saturating_sub(words_before as usize * 2);
     let end = (rom_off + words_after as usize * 2 + 2).min(rom.len());
-    eprintln!(
-        "  ROM bytes around PC=${pc:08X} (rom offset ${rom_off:05X}):",
-    );
+    eprintln!("  ROM bytes around PC=${pc:08X} (rom offset ${rom_off:05X}):",);
     let mut addr = pc - words_before * 2;
     let mut i = start;
     while i + 1 < end {

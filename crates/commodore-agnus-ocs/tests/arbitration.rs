@@ -23,16 +23,16 @@
 use commodore_agnus_ocs::{Agnus, SlotOwner};
 
 /// DMACON bits used by this test file.
-const DMAEN:  u16 = 0x0200;
-const DSKEN:  u16 = 0x0010;
+const DMAEN: u16 = 0x0200;
+const DSKEN: u16 = 0x0010;
 const AUD0EN: u16 = 0x0001;
 const AUD1EN: u16 = 0x0002;
 const AUD2EN: u16 = 0x0004;
 const AUD3EN: u16 = 0x0008;
-const SPREN:  u16 = 0x0020;
-const BPLEN:  u16 = 0x0100;
-const COPEN:  u16 = 0x0080;
-const BLTEN:  u16 = 0x0040;
+const SPREN: u16 = 0x0020;
+const BPLEN: u16 = 0x0100;
+const COPEN: u16 = 0x0080;
+const BLTEN: u16 = 0x0040;
 const BLTPRI: u16 = 0x0400;
 
 fn agnus_with_dmacon(dmacon: u16) -> Agnus {
@@ -61,8 +61,11 @@ fn hpos_1_through_3_are_refresh_slots() {
     let mut a = agnus_with_dmacon(DMAEN | DSKEN | AUD0EN | SPREN);
     for hpos in 1..=3 {
         at_hpos(&mut a, hpos);
-        assert_eq!(a.current_slot(), SlotOwner::Refresh,
-            "hpos {hpos:#x} is always refresh regardless of DMACON");
+        assert_eq!(
+            a.current_slot(),
+            SlotOwner::Refresh,
+            "hpos {hpos:#x} is always refresh regardless of DMACON"
+        );
     }
 }
 
@@ -91,8 +94,11 @@ fn disk_slots_fall_back_to_cpu_without_dsken() {
     let mut a = agnus_with_dmacon(DMAEN); // master on, DSKEN off
     for hpos in 4..=6 {
         at_hpos(&mut a, hpos);
-        assert_eq!(a.current_slot(), SlotOwner::Cpu,
-            "hpos {hpos:#x}: no DSKEN → CPU");
+        assert_eq!(
+            a.current_slot(),
+            SlotOwner::Cpu,
+            "hpos {hpos:#x}: no DSKEN → CPU"
+        );
     }
 }
 
@@ -115,8 +121,11 @@ fn audio_channels_each_own_exactly_one_slot() {
     let mut a = agnus_with_dmacon(DMAEN | AUD0EN | AUD1EN | AUD2EN | AUD3EN);
     for (hpos, expected_ch) in [(0x07u16, 0u8), (0x08, 1), (0x09, 2), (0x0A, 3)] {
         at_hpos(&mut a, hpos);
-        assert_eq!(a.current_slot(), SlotOwner::Audio(expected_ch),
-            "hpos {hpos:#x} → audio {expected_ch}");
+        assert_eq!(
+            a.current_slot(),
+            SlotOwner::Audio(expected_ch),
+            "hpos {hpos:#x} → audio {expected_ch}"
+        );
     }
 }
 
@@ -143,11 +152,18 @@ fn sprite_slots_map_channel_to_hpos_pairs() {
     for ch in 0u8..8 {
         let base = 0x0B + u16::from(ch) * 2;
         at_hpos(&mut a, base);
-        assert_eq!(a.current_slot(), SlotOwner::Sprite(ch),
-            "sprite {ch} first slot at hpos {base:#x}");
+        assert_eq!(
+            a.current_slot(),
+            SlotOwner::Sprite(ch),
+            "sprite {ch} first slot at hpos {base:#x}"
+        );
         at_hpos(&mut a, base + 1);
-        assert_eq!(a.current_slot(), SlotOwner::Sprite(ch),
-            "sprite {ch} second slot at hpos {:#x}", base + 1);
+        assert_eq!(
+            a.current_slot(),
+            SlotOwner::Sprite(ch),
+            "sprite {ch} second slot at hpos {:#x}",
+            base + 1
+        );
     }
 }
 
@@ -285,5 +301,8 @@ fn bus_plan_cpu_grant_matches_slot_owner() {
     at_hpos(&mut a, 0);
     assert!(a.cck_bus_plan().cpu_chip_bus_granted);
     at_hpos(&mut a, 0x01);
-    assert!(!a.cck_bus_plan().cpu_chip_bus_granted, "refresh steals from CPU");
+    assert!(
+        !a.cck_bus_plan().cpu_chip_bus_granted,
+        "refresh steals from CPU"
+    );
 }

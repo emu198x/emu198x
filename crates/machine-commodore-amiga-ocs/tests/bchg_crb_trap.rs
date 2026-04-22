@@ -5,8 +5,8 @@
 //! is skipping the call. We also need to verify BCHG is actually
 //! performing the R-M-W write when it runs.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const PC_BCHG: u32 = 0x00FE_94BC;
 const PC_AFTER_BCHG: u32 = 0x00FE_94C2;
@@ -75,8 +75,6 @@ fn trap_bchg_crb() {
     eprintln!("\nCIA-A CRB writes total: {}", crb_writes.len());
     for (cck, pc, _, val) in &crb_writes {
         let frame = cck / 70824;
-        eprintln!(
-            "  frame~{frame:<3}  pc=${pc:08X}  CRB=${val:02X}"
-        );
+        eprintln!("  frame~{frame:<3}  pc=${pc:08X}  CRB=${val:02X}");
     }
 }

@@ -39,7 +39,11 @@ struct TestRam {
 }
 
 impl TestRam {
-    fn new() -> Self { Self { cells: RefCell::new(HashMap::new()) } }
+    fn new() -> Self {
+        Self {
+            cells: RefCell::new(HashMap::new()),
+        }
+    }
     fn poke(&self, addr: u32, val: u16) {
         self.cells.borrow_mut().insert(addr & !1, val);
     }
@@ -61,7 +65,9 @@ fn run_blit(agnus: &mut Agnus, ram: &TestRam) -> u32 {
             agnus.advance_blitter_word();
         }
         ops += 1;
-        if ops > 10_000 { panic!("blit runaway"); }
+        if ops > 10_000 {
+            panic!("blit runaway");
+        }
     }
     ops
 }
@@ -70,11 +76,15 @@ fn run_blit(agnus: &mut Agnus, ram: &TestRam) -> u32 {
 fn program_single_word_blit(
     agnus: &mut Agnus,
     lf: u8,
-    use_a: bool, use_b: bool, use_c: bool, use_d: bool,
+    use_a: bool,
+    use_b: bool,
+    use_c: bool,
+    use_d: bool,
 ) {
-    let useflags: u16 =
-        (u16::from(use_a) << 11) | (u16::from(use_b) << 10)
-        | (u16::from(use_c) << 9) | (u16::from(use_d) << 8);
+    let useflags: u16 = (u16::from(use_a) << 11)
+        | (u16::from(use_b) << 10)
+        | (u16::from(use_c) << 9)
+        | (u16::from(use_d) << 8);
     agnus.bltcon0 = useflags | u16::from(lf);
     agnus.bltcon1 = 0;
     agnus.blt_afwm = 0xFFFF;
@@ -154,7 +164,11 @@ fn first_word_mask_afwm_is_anded_with_the_first_a_word() {
     agnus.start_blit();
     run_blit(&mut agnus, &ram);
     assert_eq!(ram.peek(0x2000), 0xFF00, "AFWM masks the first word");
-    assert_eq!(ram.peek(0x2002), 0xFFFF, "AFWM does NOT mask subsequent words");
+    assert_eq!(
+        ram.peek(0x2002),
+        0xFFFF,
+        "AFWM does NOT mask subsequent words"
+    );
 }
 
 #[test]
@@ -229,9 +243,11 @@ fn minterm_truth_table_covers_all_256_functions() {
             let index = (a << 2) | (b << 1) | c;
             let expected = (lf >> index) & 1;
             let got = (d >> bit) & 1;
-            assert_eq!(got, expected,
+            assert_eq!(
+                got, expected,
                 "lf={lf:02X} bit={bit} abc={a}{b}{c} index={index}: \
-                 expected {expected}, got {got}");
+                 expected {expected}, got {got}"
+            );
         }
     }
 }
@@ -277,7 +293,7 @@ fn inclusive_fill_fills_from_first_one_through_just_before_next_one() {
     agnus.blt_cpt = 0x3000;
     agnus.blt_dpt = 0x4000;
     agnus.bltcon0 = 0x0300 | 0xAA; // USEC+USED, minterm $AA (D = C)
-    agnus.bltcon1 = 0x0008;        // IFE
+    agnus.bltcon1 = 0x0008; // IFE
     agnus.blt_afwm = 0xFFFF;
     agnus.blt_alwm = 0xFFFF;
     agnus.bltsize = (1 << 6) | 1;
@@ -319,21 +335,25 @@ fn line_mode_draws_a_horizontal_line_as_pixels_into_d() {
     let mut agnus = Agnus::new();
     let ram = TestRam::new();
     // BLTCON0 ash = starting pixel in word (bits 15-12).
-    agnus.bltcon0 = 0x0B00 | 0xCA;   // USEB+C+D, minterm $CA: standard line LF
-    agnus.bltcon1 = 0x0001;           // LINE mode
-    agnus.blt_apt = 0;                // Bresenham error
-    agnus.blt_bdat = 0xFFFF;          // texture: solid
+    agnus.bltcon0 = 0x0B00 | 0xCA; // USEB+C+D, minterm $CA: standard line LF
+    agnus.bltcon1 = 0x0001; // LINE mode
+    agnus.blt_apt = 0; // Bresenham error
+    agnus.blt_bdat = 0xFFFF; // texture: solid
     agnus.blt_cpt = 0x2000;
     agnus.blt_dpt = 0x2000;
     agnus.blt_amod = 0;
     agnus.blt_bmod = 4;
-    agnus.blt_cmod = 0;               // row modulo 0 for horizontal
-    agnus.bltsize = (4 << 6) | 2;     // 4 line steps
+    agnus.blt_cmod = 0; // row modulo 0 for horizontal
+    agnus.bltsize = (4 << 6) | 2; // 4 line steps
     agnus.start_blit();
     run_blit(&mut agnus, &ram);
     // First four pixels of $2000 set.
     let out = ram.peek(0x2000);
-    assert_eq!(out & 0xF000, 0xF000, "4 leftmost pixels plotted; got ${out:04X}");
+    assert_eq!(
+        out & 0xF000,
+        0xF000,
+        "4 leftmost pixels plotted; got ${out:04X}"
+    );
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -343,11 +363,11 @@ fn line_mode_draws_a_horizontal_line_as_pixels_into_d() {
 #[test]
 fn scheduler_total_ops_matches_enabled_channel_count() {
     let cases = [
-        (0x0000, 0),                       // no channels → still internal
-        (0x0100, 1),                       // D only
-        (0x0900, 2),                       // A + D
-        (0x0D00, 3),                       // A + B + D
-        (0x0F00, 4),                       // A + B + C + D
+        (0x0000, 0), // no channels → still internal
+        (0x0100, 1), // D only
+        (0x0900, 2), // A + D
+        (0x0D00, 3), // A + B + D
+        (0x0F00, 4), // A + B + C + D
     ];
     for (useflags, expected_ops) in cases {
         let mut agnus = Agnus::new();
@@ -357,8 +377,10 @@ fn scheduler_total_ops_matches_enabled_channel_count() {
         let ops = agnus.blitter_ccks_remaining;
         // Internal-only (useflags == 0) → 1 internal cycle per word.
         let expected = if expected_ops == 0 { 1 } else { expected_ops };
-        assert_eq!(ops, expected,
-            "useflags ${useflags:04X}: expected {expected} ops, got {ops}");
+        assert_eq!(
+            ops, expected,
+            "useflags ${useflags:04X}: expected {expected} ops, got {ops}"
+        );
     }
 }
 
@@ -381,7 +403,7 @@ fn scheduler_halts_when_bus_grant_is_withheld() {
 
 #[test]
 fn blitter_nasty_mode_requires_busy_blten_bltpri_all_set() {
-    use commodore_agnus_ocs::bits::{DMACON_DMAEN, DMACON_BLTEN, DMACON_BLTPRI};
+    use commodore_agnus_ocs::bits::{DMACON_BLTEN, DMACON_BLTPRI, DMACON_DMAEN};
     let mut agnus = Agnus::new();
     agnus.blitter_busy = true;
     agnus.dmacon = DMACON_DMAEN | DMACON_BLTEN | DMACON_BLTPRI;

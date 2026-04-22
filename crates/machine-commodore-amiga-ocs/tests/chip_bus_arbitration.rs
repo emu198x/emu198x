@@ -51,52 +51,82 @@ fn build_rom(arm_bitplane_dma: bool) -> Vec<u8> {
     let mut at = 0x0100usize;
 
     // Drop OVL.
-    put_w(&mut rom, at, 0x13FC); at += 2;
-    put_w(&mut rom, at, 0x0001); at += 2;
-    put_l(&mut rom, at, 0x00BF_E201); at += 4;
-    put_w(&mut rom, at, 0x13FC); at += 2;
-    put_w(&mut rom, at, 0x0000); at += 2;
-    put_l(&mut rom, at, 0x00BF_E001); at += 4;
+    put_w(&mut rom, at, 0x13FC);
+    at += 2;
+    put_w(&mut rom, at, 0x0001);
+    at += 2;
+    put_l(&mut rom, at, 0x00BF_E201);
+    at += 4;
+    put_w(&mut rom, at, 0x13FC);
+    at += 2;
+    put_w(&mut rom, at, 0x0000);
+    at += 2;
+    put_l(&mut rom, at, 0x00BF_E001);
+    at += 4;
 
     if arm_bitplane_dma {
         // BPLCON0: BPU=6 (bits 14-12 = 110), COLOR enable bit 9.
         // Value: $6200.
-        put_w(&mut rom, at, 0x33FC); at += 2;
-        put_w(&mut rom, at, 0x6200); at += 2;
-        put_l(&mut rom, at, 0x00DF_F100); at += 4;
+        put_w(&mut rom, at, 0x33FC);
+        at += 2;
+        put_w(&mut rom, at, 0x6200);
+        at += 2;
+        put_l(&mut rom, at, 0x00DF_F100);
+        at += 4;
 
         // DDFSTRT = $0000 (maximise DDF coverage so nearly every CCK
         // inside the line produces a bitplane claim).
-        put_w(&mut rom, at, 0x33FC); at += 2;
-        put_w(&mut rom, at, 0x0000); at += 2;
-        put_l(&mut rom, at, 0x00DF_F092); at += 4;
+        put_w(&mut rom, at, 0x33FC);
+        at += 2;
+        put_w(&mut rom, at, 0x0000);
+        at += 2;
+        put_l(&mut rom, at, 0x00DF_F092);
+        at += 4;
 
         // DDFSTOP = $00D8 (wide window).
-        put_w(&mut rom, at, 0x33FC); at += 2;
-        put_w(&mut rom, at, 0x00D8); at += 2;
-        put_l(&mut rom, at, 0x00DF_F094); at += 4;
+        put_w(&mut rom, at, 0x33FC);
+        at += 2;
+        put_w(&mut rom, at, 0x00D8);
+        at += 2;
+        put_l(&mut rom, at, 0x00DF_F094);
+        at += 4;
 
         // DIWSTRT / DIWSTOP — cover the full frame so
         // in_visible_line gates the fetch predominantly by DDF.
-        put_w(&mut rom, at, 0x33FC); at += 2;
-        put_w(&mut rom, at, 0x0081); at += 2; // V=0, H=$81
-        put_l(&mut rom, at, 0x00DF_F08E); at += 4;
-        put_w(&mut rom, at, 0x33FC); at += 2;
-        put_w(&mut rom, at, 0xF0C1); at += 2;
-        put_l(&mut rom, at, 0x00DF_F090); at += 4;
+        put_w(&mut rom, at, 0x33FC);
+        at += 2;
+        put_w(&mut rom, at, 0x0081);
+        at += 2; // V=0, H=$81
+        put_l(&mut rom, at, 0x00DF_F08E);
+        at += 4;
+        put_w(&mut rom, at, 0x33FC);
+        at += 2;
+        put_w(&mut rom, at, 0xF0C1);
+        at += 2;
+        put_l(&mut rom, at, 0x00DF_F090);
+        at += 4;
 
         // Point BPL1PT at chip RAM $0200 (harmless data region).
-        put_w(&mut rom, at, 0x33FC); at += 2;
-        put_w(&mut rom, at, 0x0000); at += 2;
-        put_l(&mut rom, at, 0x00DF_F0E0); at += 4;
-        put_w(&mut rom, at, 0x33FC); at += 2;
-        put_w(&mut rom, at, 0x0200); at += 2;
-        put_l(&mut rom, at, 0x00DF_F0E2); at += 4;
+        put_w(&mut rom, at, 0x33FC);
+        at += 2;
+        put_w(&mut rom, at, 0x0000);
+        at += 2;
+        put_l(&mut rom, at, 0x00DF_F0E0);
+        at += 4;
+        put_w(&mut rom, at, 0x33FC);
+        at += 2;
+        put_w(&mut rom, at, 0x0200);
+        at += 2;
+        put_l(&mut rom, at, 0x00DF_F0E2);
+        at += 4;
 
         // Enable DMA: DMAEN + BPLEN.
-        put_w(&mut rom, at, 0x33FC); at += 2;
-        put_w(&mut rom, at, 0x8300); at += 2;
-        put_l(&mut rom, at, 0x00DF_F096); at += 4;
+        put_w(&mut rom, at, 0x33FC);
+        at += 2;
+        put_w(&mut rom, at, 0x8300);
+        at += 2;
+        put_l(&mut rom, at, 0x00DF_F096);
+        at += 4;
     }
 
     // Counter loop at $FC01xx (address depends on DMA setup size).
@@ -113,8 +143,10 @@ fn build_rom(arm_bitplane_dma: bool) -> Vec<u8> {
     //
     // So: ADDQ.L at offset 0 (6 bytes), BRA.S $F8 at offset 6 (2 bytes).
     let loop_start = at;
-    put_w(&mut rom, at, 0x52B9); at += 2;
-    put_l(&mut rom, at, 0x0000_1000); at += 4;
+    put_w(&mut rom, at, 0x52B9);
+    at += 2;
+    put_l(&mut rom, at, 0x0000_1000);
+    at += 4;
     // BRA.S disp. disp is signed 8-bit offset from (pc_at_BRA + 2).
     // We want target = loop_start = current at - 6 - 2 = at - 8.
     // disp = target - (at + 2) = (at - 8) - (at + 2) = -10 = $F6.

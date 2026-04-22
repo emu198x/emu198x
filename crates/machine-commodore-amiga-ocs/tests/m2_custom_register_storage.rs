@@ -17,8 +17,8 @@
 //! yet (no DMA, no copper, no display). Set/clear semantics for the
 //! INTENA/INTREQ/DMACON triple: bit 15 = set if 1, clear if 0.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::AmigaOcs;
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -58,11 +58,7 @@ fn boot_clears_intena_intreq_dmacon_then_sets_bplcon0_color00() {
         0,
         "INTREQ (excluding VERTB latched by Agnus) should be cleared"
     );
-    assert_eq!(
-        amiga.dmacon(),
-        0,
-        "DMACON should be cleared"
-    );
+    assert_eq!(amiga.dmacon(), 0, "DMACON should be cleared");
     // BPLCON0 = $0200 — set once and not changed until much later in
     // boot. After 2M CCKs we should still see this value (BPU=0 +
     // COLOR enable).

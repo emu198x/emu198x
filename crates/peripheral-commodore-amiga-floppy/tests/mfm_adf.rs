@@ -11,10 +11,10 @@
 //! before Phase 2, so these tests lock the byte counts, sync-word
 //! positions, and header-info layout that downstream code depends on.
 
-use format_commodore_amiga_adf::{Adf, ADF_SIZE_DD};
+use format_commodore_amiga_adf::{ADF_SIZE_DD, Adf};
 use peripheral_commodore_amiga_floppy::{
-    mfm::{decode_mfm_track, encode_mfm_track, MFM_TRACK_BYTES, SECTOR_MFM_BYTES},
     AmigaFloppyDrive,
+    mfm::{MFM_TRACK_BYTES, SECTOR_MFM_BYTES, decode_mfm_track, encode_mfm_track},
 };
 
 /// Build one track of distinctive sector data (every byte unique mod
@@ -27,10 +27,15 @@ fn distinctive_track_bytes() -> Vec<u8> {
 fn encoded_track_has_fixed_byte_count() {
     let track = distinctive_track_bytes();
     let mfm = encode_mfm_track(&track, 0, 11);
-    assert_eq!(mfm.len(), MFM_TRACK_BYTES,
-        "fixed 12,668-byte track layout for 11-sector DD");
-    assert_eq!(SECTOR_MFM_BYTES, 1088,
-        "1088 MFM bytes per sector (header + data + interleave)");
+    assert_eq!(
+        mfm.len(),
+        MFM_TRACK_BYTES,
+        "fixed 12,668-byte track layout for 11-sector DD"
+    );
+    assert_eq!(
+        SECTOR_MFM_BYTES, 1088,
+        "1088 MFM bytes per sector (header + data + interleave)"
+    );
 }
 
 #[test]
@@ -81,10 +86,8 @@ fn encode_then_decode_round_trips_all_11_sectors() {
     assert_eq!(decoded.len(), 11, "all 11 sectors should decode");
     for s in &decoded {
         assert_eq!(s.track, 0, "track preserved through round-trip");
-        let expected =
-            &track[s.sector as usize * 512..(s.sector as usize + 1) * 512];
-        assert_eq!(&s.data[..], expected,
-            "sector {} data mismatch", s.sector);
+        let expected = &track[s.sector as usize * 512..(s.sector as usize + 1) * 512];
+        assert_eq!(&s.data[..], expected, "sector {} data mismatch", s.sector);
     }
 }
 
@@ -136,8 +139,11 @@ fn write_capture_flushes_through_to_adf_save() {
 
     let saved = drive.save_adf().expect("disk present");
     let expected: Vec<u8> = (0..512).map(|i| ((i * 5 + 0x40) & 0xFF) as u8).collect();
-    assert_eq!(&saved[..512], &expected[..],
-        "sector 0 data survives the write-capture -> decode -> ADF path");
+    assert_eq!(
+        &saved[..512],
+        &expected[..],
+        "sector 0 data survives the write-capture -> decode -> ADF path"
+    );
 }
 
 #[test]
@@ -145,8 +151,11 @@ fn flush_write_capture_returns_zero_without_disk() {
     let mut drive = AmigaFloppyDrive::new();
     drive.note_write_mfm_word(0x4489);
     drive.note_write_mfm_word(0x4489);
-    assert_eq!(drive.flush_write_capture(), 0,
-        "no disk -> nothing persisted");
+    assert_eq!(
+        drive.flush_write_capture(),
+        0,
+        "no disk -> nothing persisted"
+    );
 }
 
 #[test]

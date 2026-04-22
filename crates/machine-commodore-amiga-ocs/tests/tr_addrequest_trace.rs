@@ -15,9 +15,9 @@
 //! the routine called with both a "current" and "new" time ptr,
 //! likely for insertion-point resolution.
 
+use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 
 const INTERESTING: &[(u32, &str)] = &[
     (0x00FE_94A2, "LOAD TB latch helper entry"),
@@ -51,10 +51,7 @@ fn trace_tr_addrequest_paths() {
     let Some(rom) = load_kickstart() else { return };
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
 
-    let mut hits: BTreeMap<u32, u64> = INTERESTING
-        .iter()
-        .map(|(pc, _)| (*pc, 0u64))
-        .collect();
+    let mut hits: BTreeMap<u32, u64> = INTERESTING.iter().map(|(pc, _)| (*pc, 0u64)).collect();
     let mut prev_pc = amiga.cpu().regs.pc;
 
     for _ in 0..(400 * PAL_FRAME_TICKS) {

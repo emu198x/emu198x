@@ -9,8 +9,8 @@
 //! isn't running at all. If it DOES hit but writes different values,
 //! the divergence is in the arguments.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 const TARGETS: &[(u32, &str)] = &[
     (0x00FE_8444, "romboot.resident entry (MOVEM)"),
@@ -52,7 +52,9 @@ const TARGETS: &[(u32, &str)] = &[
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
-    if !path.exists() { return None; }
+    if !path.exists() {
+        return None;
+    }
     Some(std::fs::read(&path).expect("read Kickstart 1.3 ROM"))
 }
 
@@ -68,7 +70,9 @@ fn count(label: &str, use_slow_ram: bool) {
     for _ in 0..(250u64 * PAL_FRAME_TICKS as u64) {
         amiga.tick();
         let pc = amiga.cpu().regs.pc;
-        if pc == prev_pc { continue; }
+        if pc == prev_pc {
+            continue;
+        }
         for (i, (tpc, _)) in TARGETS.iter().enumerate() {
             if pc == *tpc {
                 counts[i] += 1;

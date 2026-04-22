@@ -10,8 +10,8 @@
 //! the CIA-B address space, IRQ routed to EXTER. No disk control
 //! peripheral wiring yet.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::AmigaOcs;
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -34,7 +34,11 @@ fn cia_b_at_bfd000_even_bytes() {
     // (OVL, LED) via DDRA soon after, but not before we run the test.
     amiga.poke_byte(0x00BFD000, 0x42);
     assert_eq!(amiga.cia_b().port_a_latch(), 0x42);
-    assert_eq!(amiga.cia_a().port_a_latch(), 0xFF, "CIA-A unchanged, still at reset default");
+    assert_eq!(
+        amiga.cia_a().port_a_latch(),
+        0xFF,
+        "CIA-A unchanged, still at reset default"
+    );
 }
 
 #[test]

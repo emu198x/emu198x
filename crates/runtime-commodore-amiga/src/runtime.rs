@@ -299,11 +299,7 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
         paths
     }
 
-    fn query(
-        &self,
-        machine: &AmigaRuntime,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn query(&self, machine: &AmigaRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let amiga = &machine.machine;
         let drive = amiga.drive();
         let drive_status = drive.status();
@@ -472,18 +468,45 @@ fn key_name_to_raw_code(name: &str) -> Option<u8> {
         return u8::from_str_radix(raw.trim_start_matches("0x"), 16).ok();
     }
     Some(match lower.as_str() {
-        "1" => 0x01, "2" => 0x02, "3" => 0x03, "4" => 0x04,
-        "5" => 0x05, "6" => 0x06, "7" => 0x07, "8" => 0x08,
-        "9" => 0x09, "0" => 0x0A,
-        "q" => 0x10, "w" => 0x11, "e" => 0x12, "r" => 0x13,
-        "t" => 0x14, "y" => 0x15, "u" => 0x16, "i" => 0x17,
-        "o" => 0x18, "p" => 0x19,
-        "a" => 0x20, "s" => 0x21, "d" => 0x22, "f" => 0x23,
-        "g" => 0x24, "h" => 0x25, "j" => 0x26, "k" => 0x27,
+        "1" => 0x01,
+        "2" => 0x02,
+        "3" => 0x03,
+        "4" => 0x04,
+        "5" => 0x05,
+        "6" => 0x06,
+        "7" => 0x07,
+        "8" => 0x08,
+        "9" => 0x09,
+        "0" => 0x0A,
+        "q" => 0x10,
+        "w" => 0x11,
+        "e" => 0x12,
+        "r" => 0x13,
+        "t" => 0x14,
+        "y" => 0x15,
+        "u" => 0x16,
+        "i" => 0x17,
+        "o" => 0x18,
+        "p" => 0x19,
+        "a" => 0x20,
+        "s" => 0x21,
+        "d" => 0x22,
+        "f" => 0x23,
+        "g" => 0x24,
+        "h" => 0x25,
+        "j" => 0x26,
+        "k" => 0x27,
         "l" => 0x28,
-        "z" => 0x31, "x" => 0x32, "c" => 0x33, "v" => 0x34,
-        "b" => 0x35, "n" => 0x36, "m" => 0x37,
-        "space" => 0x40, "backspace" => 0x41, "tab" => 0x42,
+        "z" => 0x31,
+        "x" => 0x32,
+        "c" => 0x33,
+        "v" => 0x34,
+        "b" => 0x35,
+        "n" => 0x36,
+        "m" => 0x37,
+        "space" => 0x40,
+        "backspace" => 0x41,
+        "tab" => 0x42,
         "enter" | "return" => 0x45,
         _ => return None,
     })
@@ -492,19 +515,24 @@ fn key_name_to_raw_code(name: &str) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use emu198x_shell::{
-        FirmwareImage, MediaImage, NullAudioSink, NullFrameSink, NullTraceSink,
-    };
+    use emu198x_shell::{FirmwareImage, MediaImage, NullAudioSink, NullFrameSink, NullTraceSink};
     use format_commodore_amiga_adf::ADF_SIZE_DD;
 
     fn dummy_kickstart() -> Vec<u8> {
         let mut kickstart = vec![0u8; 256 * 1024];
         // Initial SSP + PC: high half of a valid address so the CPU
         // fetches a reset vector that points somewhere in-ROM.
-        kickstart[0] = 0x00; kickstart[1] = 0x08; kickstart[2] = 0x00; kickstart[3] = 0x00;
-        kickstart[4] = 0x00; kickstart[5] = 0xF8; kickstart[6] = 0x00; kickstart[7] = 0x08;
+        kickstart[0] = 0x00;
+        kickstart[1] = 0x08;
+        kickstart[2] = 0x00;
+        kickstart[3] = 0x00;
+        kickstart[4] = 0x00;
+        kickstart[5] = 0xF8;
+        kickstart[6] = 0x00;
+        kickstart[7] = 0x08;
         // Branch-to-self loop at the reset PC.
-        kickstart[8] = 0x60; kickstart[9] = 0xFE;
+        kickstart[8] = 0x60;
+        kickstart[9] = 0xFE;
         kickstart
     }
 
@@ -538,7 +566,9 @@ mod tests {
         let disk = vec![0u8; ADF_SIZE_DD];
         let mut media = MediaSet::new();
         media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
-        runtime.load_media(&media).expect("ADF bytes should insert into DF0");
+        runtime
+            .load_media(&media)
+            .expect("ADF bytes should insert into DF0");
         assert!(runtime.machine().drive().has_disk());
     }
 
@@ -565,7 +595,9 @@ mod tests {
             audio_sink: &mut audio_sink,
             trace_sink: &mut trace_sink,
         };
-        runtime.run_until(target, &mut host).expect("one frame should run");
+        runtime
+            .run_until(target, &mut host)
+            .expect("one frame should run");
         assert_eq!(runtime.time(), target);
         assert_eq!(runtime.frame_count, 1);
     }

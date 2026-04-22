@@ -26,8 +26,8 @@
 //! "zero vs non-zero" distinction, and if MrgCop early-exits every
 //! VBL for 200 frames we expect a large count.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use std::path::PathBuf;
 
 // ExecBase offsets.
 const EXEC_LIB_LIST: u32 = 378;
@@ -106,9 +106,7 @@ fn resolve_lvo(amiga: &AmigaOcs, gfx_base: u32, lvo: i32) -> Option<u32> {
     let slot = (gfx_base as i64 + lvo as i64) as u32;
     let opcode = amiga.read_word(slot);
     if opcode != 0x4EF9 {
-        eprintln!(
-            "  LVO {lvo} at ${slot:08X}: not a JMP (opcode=${opcode:04X})"
-        );
+        eprintln!("  LVO {lvo} at ${slot:08X}: not a JMP (opcode=${opcode:04X})");
         return None;
     }
     let target = read_long(amiga, slot.wrapping_add(2));
@@ -171,9 +169,7 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
         }
     }
 
-    eprintln!(
-        "\n=== Phase 2 LVO hit counts (over {total_ticks} ticks / 200 frames) ==="
-    );
+    eprintln!("\n=== Phase 2 LVO hit counts (over {total_ticks} ticks / 200 frames) ===");
     eprintln!("  LoadView  = {load_view_ticks} tick(s) on entry PC");
     eprintln!("  MakeVPort = {make_vport_ticks} tick(s) on entry PC");
     eprintln!("  MrgCop    = {mrg_cop_ticks} tick(s) on entry PC");

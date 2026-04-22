@@ -18,8 +18,8 @@
 //! slot scheduling yet — copper just runs at one instruction per
 //! 4 CCKs when enabled.
 
-use std::path::PathBuf;
 use machine_commodore_amiga_ocs::AmigaOcs;
+use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
@@ -61,9 +61,9 @@ fn copper_executes_simple_move_list() {
         &mut amiga,
         0x1000,
         &[
-            (0x0180, 0x0F00),  // MOVE COLOR00 = $0F00
-            (0x0182, 0x00F0),  // MOVE COLOR01 = $00F0
-            (0xFFFF, 0xFFFE),  // end-of-list
+            (0x0180, 0x0F00), // MOVE COLOR00 = $0F00
+            (0x0182, 0x00F0), // MOVE COLOR01 = $00F0
+            (0xFFFF, 0xFFFE), // end-of-list
         ],
     );
 
@@ -102,11 +102,7 @@ fn copper_does_not_run_without_copen() {
     amiga.poke_byte(0x00BFE201, 0x03);
     amiga.poke_byte(0x00BFE001, 0x02);
 
-    write_copper_list(
-        &mut amiga,
-        0x1000,
-        &[(0x0180, 0x0FFF), (0xFFFF, 0xFFFE)],
-    );
+    write_copper_list(&mut amiga, 0x1000, &[(0x0180, 0x0FFF), (0xFFFF, 0xFFFE)]);
     amiga.poke_word(0x00DFF080, 0x0000);
     amiga.poke_word(0x00DFF082, 0x1000);
     amiga.poke_word(0x00DFF088, 0x0000); // COPJMP1
@@ -138,10 +134,10 @@ fn copper_wait_pauses_until_beam_reaches_target() {
         &mut amiga,
         0x1000,
         &[
-            (0x0180, 0x0F00),  // MOVE
-            (0x0501, 0xFFFE),  // WAIT v=5, h=0
-            (0x0182, 0x00F0),  // MOVE
-            (0xFFFF, 0xFFFE),  // END
+            (0x0180, 0x0F00), // MOVE
+            (0x0501, 0xFFFE), // WAIT v=5, h=0
+            (0x0182, 0x00F0), // MOVE
+            (0xFFFF, 0xFFFE), // END
         ],
     );
     amiga.poke_word(0x00DFF080, 0x0000);
@@ -154,7 +150,11 @@ fn copper_wait_pauses_until_beam_reaches_target() {
     for _ in 0..16 {
         amiga.tick();
     }
-    assert_eq!(amiga.color(0) & 0x0FFF, 0x0F00, "first MOVE should have run");
+    assert_eq!(
+        amiga.color(0) & 0x0FFF,
+        0x0F00,
+        "first MOVE should have run"
+    );
     assert_eq!(amiga.color(1) & 0x0FFF, 0x0000, "post-WAIT MOVE blocked");
 
     // Tick to line 5 (5 lines × 454 ticks/line = 2270 ticks).
