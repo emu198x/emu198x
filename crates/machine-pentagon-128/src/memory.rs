@@ -1,6 +1,5 @@
 use common_sinclair_zx_spectrum::memory::{Bank16K, MemoryBus};
 use common_sinclair_zx_spectrum::snapshot::Paged128kMemory;
-use serde_big_array::BigArray;
 use std::path::Path;
 
 /// Pentagon 128 memory: 2 × 16K ROM + 8 × 16K RAM banks + TR-DOS ROM.
@@ -19,8 +18,7 @@ use std::path::Path;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MemoryPentagon {
     rom: Vec<Bank16K>,
-    #[serde(with = "BigArray")]
-    trdos_rom: [u8; 16384],
+    trdos_rom: Bank16K,
     ram: Vec<Bank16K>,
     paging: u8,
     locked: bool,
@@ -30,7 +28,7 @@ impl MemoryPentagon {
     pub fn new() -> Self {
         Self {
             rom: vec![Bank16K::zeroed(); 2],
-            trdos_rom: [0; 16384],
+            trdos_rom: Bank16K::zeroed(),
             ram: vec![Bank16K::zeroed(); 8],
             paging: 0,
             locked: false,

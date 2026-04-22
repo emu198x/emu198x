@@ -15,7 +15,7 @@
 pub mod memory;
 
 use beta_disk_interface::BetaDisk;
-use common_sinclair_zx_spectrum::audio::BeeperAudio;
+use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
@@ -49,8 +49,7 @@ pub struct ScorpionZS256 {
     pub audio_frame: Vec<f32>,
 
     pub(crate) hc: u32,
-    beeper_state: bool,
-    last_ear: bool,
+    speaker: SpeakerMixer,
 }
 
 impl ScorpionZS256 {
@@ -71,8 +70,7 @@ impl ScorpionZS256 {
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, TIMING_SCORPION.tstates_per_frame, cpu_hz),
             audio_frame: vec![0.0; AUDIO_SAMPLES_PER_FRAME],
             hc: 0,
-            beeper_state: false,
-            last_ear: false,
+            speaker: SpeakerMixer::default(),
         }
     }
 
@@ -105,8 +103,7 @@ impl ScorpionZS256 {
     pub fn reset(&mut self) {
         self.z80 = Z80::new();
         self.hc = 0;
-        self.beeper_state = false;
-        self.last_ear = false;
+        self.speaker = SpeakerMixer::default();
     }
 
     /// Apply a parsed `.z80` snapshot. Scorpion uses 128K-style page-to-bank
@@ -124,19 +121,11 @@ impl ScorpionZS256 {
     }
 
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
-        let frame_hc = TIMING_SCORPION.halfcycles_per_frame;
-        for _ in 0..halfcycles {
-            self.tick_one_halfcycle();
-            if self.hc >= frame_hc {
-                self.end_frame_ula();
-                self.on_end_frame();
-                self.hc -= frame_hc;
-            }
-        }
+        <Self as SpectrumDriver>::advance_halfcycles(self, halfcycles);
     }
 
     pub fn advance_tstates(&mut self, tstates: u32) {
-        self.advance_halfcycles(TIMING_SCORPION.tstates_to_hc(tstates));
+        <Self as SpectrumDriver>::advance_tstates(self, tstates);
     }
 
     fn handle_bus(&mut self) {
@@ -188,10 +177,10 @@ impl ScorpionZS256 {
         if port & 0x0001 == 0 {
             self.ula.write_fe(data);
             let beeper = data & 0x10 != 0;
-            if beeper != self.beeper_state {
-                self.beeper_state = beeper;
+            if beeper != self.speaker.beeper {
+                self.speaker.beeper = beeper;
                 let tstate = self.hc / 4;
-                self.audio.set_level(tstate, self.speaker_level());
+                self.audio.set_level(tstate, self.speaker.level());
             }
         }
         if port & 0x8002 == 0x0000 {
@@ -205,12 +194,6 @@ impl ScorpionZS256 {
         } else if port & 0xC002 == 0x8000 {
             self.ay.write_data(data);
         }
-    }
-
-    fn speaker_level(&self) -> f32 {
-        let beeper = if self.beeper_state { 0.8 } else { 0.0 };
-        let ear = if self.last_ear { 0.2 } else { 0.0 };
-        beeper + ear
     }
 
     pub fn audio_frame(&self) -> &[f32] {
@@ -236,6 +219,10 @@ impl SpectrumDriver for ScorpionZS256 {
     #[inline(always)]
     fn frame_hc(&self) -> u32 {
         TIMING_SCORPION.halfcycles_per_frame
+    }
+    #[inline(always)]
+    fn halfcycles_per_tstate(&self) -> u32 {
+        TIMING_SCORPION.cpu_divisor
     }
 
     /// Scorpion has no memory contention.
@@ -273,10 +260,10 @@ impl SpectrumDriver for ScorpionZS256 {
             self.ay.tick();
         }
         let ear = self.tape.ear_level();
-        if ear != self.last_ear {
-            self.last_ear = ear;
+        if ear != self.speaker.ear {
+            self.speaker.ear = ear;
             let tstate = hc / 4;
-            self.audio.set_level(tstate, self.speaker_level());
+            self.audio.set_level(tstate, self.speaker.level());
         }
     }
 

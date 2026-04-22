@@ -4,7 +4,7 @@
 //! ULA are wired together against the 48K memory map, keyboard matrix, tape
 //! path, and beeper/EAR audio path.
 
-use common_sinclair_zx_spectrum::audio::BeeperAudio;
+use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
@@ -31,8 +31,7 @@ pub struct Spectrum48k {
     tape_input: TapeInput,
     audio: BeeperAudio,
     audio_frame: Vec<f32>,
-    beeper_state: bool,
-    last_ear: bool,
+    speaker: SpeakerMixer,
     framebuffer: Vec<u8>,
     hc: u32,
 }
@@ -68,8 +67,7 @@ impl Spectrum48k {
                 )
                 .samples_per_frame()
             ],
-            beeper_state: false,
-            last_ear: false,
+            speaker: SpeakerMixer::default(),
             framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
             hc: 0,
         }
@@ -99,8 +97,7 @@ impl Spectrum48k {
                 )
                 .samples_per_frame()
             ],
-            beeper_state: false,
-            last_ear: false,
+            speaker: SpeakerMixer::default(),
             framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
             hc: 0,
         }
@@ -299,8 +296,7 @@ impl Spectrum48k {
             (TIMING_48K.master_hz / u64::from(TIMING_48K.cpu_divisor)) as u32,
         );
         self.audio_frame.fill(0.0);
-        self.beeper_state = false;
-        self.last_ear = false;
+        self.speaker = SpeakerMixer::default();
         self.hc = 0;
         self.framebuffer.fill(0);
         self.sync_ear_level();
@@ -311,22 +307,16 @@ impl Spectrum48k {
         <Self as SpectrumDriver>::run_frame(self);
     }
 
-    /// Advances the machine by an exact number of master-clock half-cycles.
+    /// Advances the machine by an exact number of master-clock
+    /// half-cycles. Inherent shim around the trait default so existing
+    /// callers don't need an explicit `<Self as SpectrumDriver>` cast.
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
-        let frame_hc = TIMING_48K.halfcycles_per_frame;
-        for _ in 0..halfcycles {
-            self.tick_one_halfcycle();
-            if self.hc >= frame_hc {
-                self.end_frame_ula();
-                self.on_end_frame();
-                self.hc -= frame_hc;
-            }
-        }
+        <Self as SpectrumDriver>::advance_halfcycles(self, halfcycles);
     }
 
     /// Advances the machine by an exact number of CPU T-states.
     pub fn advance_tstates(&mut self, tstates: u32) {
-        self.advance_halfcycles(TIMING_48K.tstates_to_hc(tstates));
+        <Self as SpectrumDriver>::advance_tstates(self, tstates);
     }
 
     fn handle_bus(&mut self) {
@@ -371,27 +361,21 @@ impl Spectrum48k {
         self.tstate_in_frame()
     }
 
-    fn speaker_level(&self) -> f32 {
-        let beeper = if self.beeper_state { 0.8 } else { 0.0 };
-        let ear = if self.last_ear { 0.2 } else { 0.0 };
-        beeper + ear
-    }
-
     fn sync_beeper_level(&mut self, value: u8) {
-        let beeper_state = value & 0x10 != 0;
-        if beeper_state != self.beeper_state {
-            self.beeper_state = beeper_state;
+        let beeper = value & 0x10 != 0;
+        if beeper != self.speaker.beeper {
+            self.speaker.beeper = beeper;
             self.audio
-                .set_level(self.current_tstate(), self.speaker_level());
+                .set_level(self.current_tstate(), self.speaker.level());
         }
     }
 
     fn sync_ear_level(&mut self) {
         let ear = self.current_tape_level().unwrap_or(false);
-        if ear != self.last_ear {
-            self.last_ear = ear;
+        if ear != self.speaker.ear {
+            self.speaker.ear = ear;
             self.audio
-                .set_level(self.current_tstate(), self.speaker_level());
+                .set_level(self.current_tstate(), self.speaker.level());
         }
     }
 
@@ -409,6 +393,10 @@ impl SpectrumDriver for Spectrum48k {
     #[inline(always)]
     fn frame_hc(&self) -> u32 {
         TIMING_48K.halfcycles_per_frame
+    }
+    #[inline(always)]
+    fn halfcycles_per_tstate(&self) -> u32 {
+        TIMING_48K.cpu_divisor
     }
 
     #[inline(always)]

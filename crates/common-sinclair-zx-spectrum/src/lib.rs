@@ -18,7 +18,7 @@ pub mod timing;
 pub mod ula;
 pub mod ula_engine;
 
-pub use audio::BeeperAudio;
+pub use audio::{BeeperAudio, SpeakerMixer};
 pub use driver::SpectrumDriver;
 pub use error::RomImageError;
 pub use keyboard::{KeyboardMatrix, SpectrumKey};

@@ -17,7 +17,7 @@
 
 pub mod memory;
 
-use common_sinclair_zx_spectrum::audio::BeeperAudio;
+use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::snapshot::apply_z80_registers;
@@ -86,8 +86,7 @@ pub struct TimexTS2068 {
     pub model: TimexModel,
 
     pub(crate) hc: u32,
-    beeper_state: bool,
-    last_ear: bool,
+    speaker: SpeakerMixer,
 }
 
 impl TimexTS2068 {
@@ -115,8 +114,7 @@ impl TimexTS2068 {
             audio_frame: vec![0.0; samples_per_frame],
             model,
             hc: 0,
-            beeper_state: false,
-            last_ear: false,
+            speaker: SpeakerMixer::default(),
         }
     }
 
@@ -161,8 +159,7 @@ impl TimexTS2068 {
     pub fn reset(&mut self) {
         self.z80 = Z80::new();
         self.hc = 0;
-        self.beeper_state = false;
-        self.last_ear = false;
+        self.speaker = SpeakerMixer::default();
     }
 
     /// Apply a parsed `.z80` snapshot. Treats the Timex as a stock 48K
@@ -189,19 +186,11 @@ impl TimexTS2068 {
     }
 
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
-        let frame_hc = self.timing().halfcycles_per_frame;
-        for _ in 0..halfcycles {
-            self.tick_one_halfcycle();
-            if self.hc >= frame_hc {
-                self.end_frame_ula();
-                self.on_end_frame();
-                self.hc -= frame_hc;
-            }
-        }
+        <Self as SpectrumDriver>::advance_halfcycles(self, halfcycles);
     }
 
     pub fn advance_tstates(&mut self, tstates: u32) {
-        self.advance_halfcycles(self.timing().tstates_to_hc(tstates));
+        <Self as SpectrumDriver>::advance_tstates(self, tstates);
     }
 
     fn handle_bus(&mut self) {
@@ -241,10 +230,10 @@ impl TimexTS2068 {
             0xFE => {
                 self.ula.write_fe(data);
                 let beeper = data & 0x10 != 0;
-                if beeper != self.beeper_state {
-                    self.beeper_state = beeper;
+                if beeper != self.speaker.beeper {
+                    self.speaker.beeper = beeper;
                     let tstate = self.hc / 4;
-                    self.audio.set_level(tstate, self.speaker_level());
+                    self.audio.set_level(tstate, self.speaker.level());
                 }
             }
             0xF4 => self.memory.write_f4(data),
@@ -256,12 +245,6 @@ impl TimexTS2068 {
             }
             _ => {}
         }
-    }
-
-    fn speaker_level(&self) -> f32 {
-        let beeper = if self.beeper_state { 0.8 } else { 0.0 };
-        let ear = if self.last_ear { 0.2 } else { 0.0 };
-        beeper + ear
     }
 
     pub fn audio_frame(&self) -> &[f32] {
@@ -281,6 +264,10 @@ impl SpectrumDriver for TimexTS2068 {
     #[inline(always)]
     fn frame_hc(&self) -> u32 {
         self.timing().halfcycles_per_frame
+    }
+    #[inline(always)]
+    fn halfcycles_per_tstate(&self) -> u32 {
+        self.timing().cpu_divisor
     }
 
     #[inline(always)]
@@ -317,10 +304,10 @@ impl SpectrumDriver for TimexTS2068 {
             self.ay.tick();
         }
         let ear = self.tape.ear_level();
-        if ear != self.last_ear {
-            self.last_ear = ear;
+        if ear != self.speaker.ear {
+            self.speaker.ear = ear;
             let tstate = hc / 4;
-            self.audio.set_level(tstate, self.speaker_level());
+            self.audio.set_level(tstate, self.speaker.level());
         }
     }
 

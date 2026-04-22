@@ -20,7 +20,7 @@
 pub mod memory;
 
 use amstrad_ula_40077::AmstradGateArray;
-use common_sinclair_zx_spectrum::audio::BeeperAudio;
+use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
@@ -73,8 +73,7 @@ pub struct SpectrumPlus {
     pub model: Model,
 
     pub(crate) hc: u32,
-    beeper_state: bool,
-    last_ear: bool,
+    speaker: SpeakerMixer,
 }
 
 impl SpectrumPlus {
@@ -102,8 +101,7 @@ impl SpectrumPlus {
             audio_frame: vec![0.0; AUDIO_SAMPLES_PER_FRAME],
             model,
             hc: 0,
-            beeper_state: false,
-            last_ear: false,
+            speaker: SpeakerMixer::default(),
         }
     }
 
@@ -143,8 +141,7 @@ impl SpectrumPlus {
     pub fn reset(&mut self) {
         self.z80 = Z80::new();
         self.hc = 0;
-        self.beeper_state = false;
-        self.last_ear = false;
+        self.speaker = SpeakerMixer::default();
     }
 
     /// Insert a parsed DSK / EDSK image into drive 0. +3 only — has no
@@ -178,19 +175,11 @@ impl SpectrumPlus {
     }
 
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
-        let frame_hc = TIMING_PLUS2A.halfcycles_per_frame;
-        for _ in 0..halfcycles {
-            self.tick_one_halfcycle();
-            if self.hc >= frame_hc {
-                self.end_frame_ula();
-                self.on_end_frame();
-                self.hc -= frame_hc;
-            }
-        }
+        <Self as SpectrumDriver>::advance_halfcycles(self, halfcycles);
     }
 
     pub fn advance_tstates(&mut self, tstates: u32) {
-        self.advance_halfcycles(TIMING_PLUS2A.tstates_to_hc(tstates));
+        <Self as SpectrumDriver>::advance_tstates(self, tstates);
     }
 
     fn handle_bus(&mut self) {
@@ -241,10 +230,10 @@ impl SpectrumPlus {
         if port & 0x0001 == 0 {
             self.ula.write_fe(data);
             let beeper = data & 0x10 != 0;
-            if beeper != self.beeper_state {
-                self.beeper_state = beeper;
+            if beeper != self.speaker.beeper {
+                self.speaker.beeper = beeper;
                 let tstate = self.hc / 4;
-                self.audio.set_level(tstate, self.speaker_level());
+                self.audio.set_level(tstate, self.speaker.level());
             }
         }
 
@@ -267,12 +256,6 @@ impl SpectrumPlus {
         }
     }
 
-    fn speaker_level(&self) -> f32 {
-        let beeper = if self.beeper_state { 0.8 } else { 0.0 };
-        let ear = if self.last_ear { 0.2 } else { 0.0 };
-        beeper + ear
-    }
-
     pub fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
     }
@@ -290,6 +273,10 @@ impl SpectrumDriver for SpectrumPlus {
     #[inline(always)]
     fn frame_hc(&self) -> u32 {
         TIMING_PLUS2A.halfcycles_per_frame
+    }
+    #[inline(always)]
+    fn halfcycles_per_tstate(&self) -> u32 {
+        TIMING_PLUS2A.cpu_divisor
     }
 
     #[inline(always)]
@@ -327,10 +314,10 @@ impl SpectrumDriver for SpectrumPlus {
         }
         self.fdc.tick(hc);
         let ear = self.tape.ear_level();
-        if ear != self.last_ear {
-            self.last_ear = ear;
+        if ear != self.speaker.ear {
+            self.speaker.ear = ear;
             let tstate = hc / 4;
-            self.audio.set_level(tstate, self.speaker_level());
+            self.audio.set_level(tstate, self.speaker.level());
         }
     }
 

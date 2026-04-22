@@ -286,8 +286,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             firmware: (0..4)
                 .map(|i| {
                     FirmwareRequirement::new(
-                        format!("sinclair-zx-spectrum-plus3-rom-{i}").leak() as &'static str,
-                        format!("ZX Spectrum +2A/+3 ROM {i}").leak() as &'static str,
+                        format!("sinclair-zx-spectrum-plus3-rom-{i}"),
+                        format!("ZX Spectrum +2A/+3 ROM {i}"),
                         false,
                     )
                 })
@@ -310,8 +310,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             firmware: (0..4)
                 .map(|i| {
                     FirmwareRequirement::new(
-                        format!("sinclair-zx-spectrum-plus3-rom-{i}").leak() as &'static str,
-                        format!("ZX Spectrum +3 ROM {i}").leak() as &'static str,
+                        format!("sinclair-zx-spectrum-plus3-rom-{i}"),
+                        format!("ZX Spectrum +3 ROM {i}"),
                         false,
                     )
                 })
@@ -365,8 +365,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             firmware: (0..4)
                 .map(|i| {
                     FirmwareRequirement::new(
-                        format!("scorpion-rom-{i}").leak() as &'static str,
-                        format!("Scorpion ROM {i}").leak() as &'static str,
+                        format!("scorpion-rom-{i}"),
+                        format!("Scorpion ROM {i}"),
                         false,
                     )
                 })
@@ -427,8 +427,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             firmware: (0..2)
                 .map(|i| {
                     FirmwareRequirement::new(
-                        format!("timex-ts2068-rom-{i}").leak() as &'static str,
-                        format!("Timex TS2068 ROM {i}").leak() as &'static str,
+                        format!("timex-ts2068-rom-{i}"),
+                        format!("Timex TS2068 ROM {i}"),
                         false,
                     )
                 })

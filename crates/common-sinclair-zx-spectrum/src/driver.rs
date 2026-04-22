@@ -58,6 +58,13 @@ pub trait SpectrumDriver {
     /// - Pentagon: `224 × 320 × 4 = 286_720`
     fn frame_hc(&self) -> u32;
 
+    /// Half-cycles per CPU T-state — `4` on every variant whose master
+    /// crystal is divided down to the 3.5 MHz Z80, and `5` on the 128K
+    /// family whose 17.7 MHz crystal divides by 5. Used by
+    /// `advance_tstates` to translate caller-friendly T-state counts
+    /// into the half-cycle units the loop runs in.
+    fn halfcycles_per_tstate(&self) -> u32;
+
     /// Does this machine have ULA contention?
     ///
     /// Default `true` — stock Sinclair and Amstrad ULAs gate the
@@ -191,5 +198,25 @@ pub trait SpectrumDriver {
             }
         }
         *self.hc_mut() += 1;
+    }
+
+    /// Advance the machine by an exact number of master-clock
+    /// half-cycles, wrapping the frame and flushing audio when the
+    /// counter crosses `frame_hc`.
+    fn advance_halfcycles(&mut self, halfcycles: u32) {
+        let frame_hc = self.frame_hc();
+        for _ in 0..halfcycles {
+            self.tick_one_halfcycle();
+            if self.hc() >= frame_hc {
+                self.end_frame_ula();
+                self.on_end_frame();
+                *self.hc_mut() -= frame_hc;
+            }
+        }
+    }
+
+    /// Advance the machine by an exact number of CPU T-states.
+    fn advance_tstates(&mut self, tstates: u32) {
+        self.advance_halfcycles(tstates * self.halfcycles_per_tstate());
     }
 }

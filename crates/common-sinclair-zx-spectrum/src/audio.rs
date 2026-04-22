@@ -8,6 +8,31 @@
 //! EAR input through a simple resistor network. The machine reports changes in
 //! the combined speaker level at precise T-state positions, and this mixer
 //! area-averages those transitions into PCM samples for one frame.
+//!
+//! [`SpeakerMixer`] holds the two boolean lines (beeper and EAR) and produces
+//! the blended `f32` level the beeper accepts. Every Spectrum-family machine
+//! uses the same blend ratios, so they share this one struct rather than
+//! re-spelling the literal in each crate.
+
+/// Combined beeper + tape-EAR speaker line state with the canonical blend
+/// ratios (0.8 for the beeper output, 0.2 for the tape EAR input).
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SpeakerMixer {
+    /// Last value written to bit 4 of port `$FE`.
+    pub beeper: bool,
+    /// Last sampled tape EAR level on bit 6 of port `$FE`.
+    pub ear: bool,
+}
+
+impl SpeakerMixer {
+    /// Returns the blended speaker level fed to the beeper mixer.
+    #[must_use]
+    pub fn level(self) -> f32 {
+        let beeper = if self.beeper { 0.8 } else { 0.0 };
+        let ear = if self.ear { 0.2 } else { 0.0 };
+        beeper + ear
+    }
+}
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BeeperAudio {
