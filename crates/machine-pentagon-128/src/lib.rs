@@ -98,6 +98,18 @@ impl Pentagon128 {
         self.tape.play();
     }
 
+    pub fn tape_stop(&mut self) {
+        self.tape.stop();
+    }
+
+    /// Reset the CPU, timing, and audio state. Keeps ROMs and RAM intact.
+    pub fn reset(&mut self) {
+        self.z80 = Z80::new();
+        self.hc = 0;
+        self.beeper_state = false;
+        self.last_ear = false;
+    }
+
     /// Apply a parsed `.z80` snapshot. Pentagon shares the 128K page
     /// layout (8 banked RAM pages, `$7FFD` paging, AY register file) —
     /// it has no `$1FFD`.

@@ -53,10 +53,13 @@ impl std::ops::DerefMut for Bank16K {
 ///   Mode 1 ($1FFD bits 2-1 = 01): banks 4,5,6,7
 ///   Mode 2 ($1FFD bits 2-1 = 10): banks 4,5,6,3
 ///   Mode 3 ($1FFD bits 2-1 = 11): banks 4,7,6,3
+/// Banks live behind `Vec<Bank16K>` so that `serde`'s deserializer
+/// processes one 16 KB chunk at a time into heap memory rather than
+/// materialising the whole 192 KB inline-array on the caller's stack.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MemoryPlus {
-    rom: [Bank16K; 4],
-    ram: [Bank16K; 8],
+    rom: Vec<Bank16K>,
+    ram: Vec<Bank16K>,
     /// Port $7FFD value.
     paging_7ffd: u8,
     /// Port $1FFD value.
@@ -76,13 +79,8 @@ const SPECIAL_MODES: [[u8; 4]; 4] = [
 impl MemoryPlus {
     pub fn new() -> Self {
         Self {
-            rom: [Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed()],
-            ram: [
-                Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(),
-            ],
+            rom: vec![Bank16K::zeroed(); 4],
+            ram: vec![Bank16K::zeroed(); 8],
             paging_7ffd: 0,
             paging_1ffd: 0,
             locked: false,

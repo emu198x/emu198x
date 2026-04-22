@@ -46,10 +46,13 @@ impl std::ops::DerefMut for Bank16K {
 ///
 /// ROM select = ($1FFD bit 1) << 1 | ($7FFD bit 4). Four ROMs:
 ///   0 = Service monitor, 1 = TR-DOS, 2 = 128K editor, 3 = 48K BASIC
+/// Banks live behind `Vec<Bank16K>` so that `serde`'s deserializer
+/// processes one 16 KB chunk at a time into heap memory rather than
+/// materialising the whole 320 KB inline-array on the caller's stack.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MemoryScorpion {
-    rom: [Bank16K; 4],
-    ram: [Bank16K; 16],
+    rom: Vec<Bank16K>,
+    ram: Vec<Bank16K>,
     paging_7ffd: u8,
     paging_1ffd: u8,
     locked: bool,
@@ -58,13 +61,8 @@ pub struct MemoryScorpion {
 impl MemoryScorpion {
     pub fn new() -> Self {
         Self {
-            rom: [Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed()],
-            ram: [
-                Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed(), Bank16K::zeroed(),
-            ],
+            rom: vec![Bank16K::zeroed(); 4],
+            ram: vec![Bank16K::zeroed(); 16],
             paging_7ffd: 0,
             paging_1ffd: 0, // TODO: native ProfROM needs Beta disk + Scorpion hardware stubs
             locked: false,

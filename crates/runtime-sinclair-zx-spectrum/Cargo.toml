@@ -10,7 +10,13 @@ common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 emu198x-shell = { path = "../emu198x-shell" }
 format-sinclair-zx-spectrum-tap = { path = "../format-sinclair-zx-spectrum-tap" }
 format-sinclair-zx-spectrum-tzx = { path = "../format-sinclair-zx-spectrum-tzx" }
+machine-pentagon-128 = { path = "../machine-pentagon-128" }
+machine-scorpion-zs256 = { path = "../machine-scorpion-zs256" }
 machine-sinclair-zx-spectrum-48k = { path = "../machine-sinclair-zx-spectrum-48k" }
+machine-sinclair-zx-spectrum-128k = { path = "../machine-sinclair-zx-spectrum-128k" }
+machine-sinclair-zx-spectrum-plus = { path = "../machine-sinclair-zx-spectrum-plus" }
+machine-timex-tc2048 = { path = "../machine-timex-tc2048" }
+machine-timex-ts2068 = { path = "../machine-timex-ts2068" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

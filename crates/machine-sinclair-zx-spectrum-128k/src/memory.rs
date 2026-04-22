@@ -49,10 +49,14 @@ impl std::ops::DerefMut for Bank16K {
 ///   Bit 3:    Screen bank (0 = bank 5, 1 = bank 7)
 ///   Bit 4:    ROM select (0 = 128K editor, 1 = 48K BASIC)
 ///   Bit 5:    Paging lock (1 = locked until reset)
+///
+/// Banks live behind `Vec<Bank16K>` so that `serde`'s deserializer
+/// processes one 16 KB chunk at a time into heap memory rather than
+/// materialising the whole 160 KB inline-array on the caller's stack.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Memory128K {
-    rom: [Bank16K; 2],
-    ram: [Bank16K; 8],
+    rom: Vec<Bank16K>,
+    ram: Vec<Bank16K>,
     /// Current port $7FFD value.
     paging: u8,
     /// True when paging is locked (bit 5 of $7FFD).
@@ -62,13 +66,8 @@ pub struct Memory128K {
 impl Memory128K {
     pub fn new() -> Self {
         Self {
-            rom: [Bank16K::zeroed(), Bank16K::zeroed()],
-            ram: [
-                Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(),
-            ],
+            rom: vec![Bank16K::zeroed(); 2],
+            ram: vec![Bank16K::zeroed(); 8],
             paging: 0,
             locked: false,
         }

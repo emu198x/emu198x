@@ -163,6 +163,18 @@ impl TimexTS2068 {
         self.tape.play();
     }
 
+    pub fn tape_stop(&mut self) {
+        self.tape.stop();
+    }
+
+    /// Reset the CPU, timing, and audio state. Keeps ROM and RAM intact.
+    pub fn reset(&mut self) {
+        self.z80 = Z80::new();
+        self.hc = 0;
+        self.beeper_state = false;
+        self.last_ear = false;
+    }
+
     /// Apply a parsed `.z80` snapshot. Treats the Timex as a stock 48K
     /// for snapshot purposes — the page-to-base map matches the 48K
     /// convention. AY state is not carried in `.z80` v2/v3 for Timex.

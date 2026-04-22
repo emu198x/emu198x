@@ -92,6 +92,18 @@ impl TimexTC2048 {
         self.tape.play();
     }
 
+    pub fn tape_stop(&mut self) {
+        self.tape.stop();
+    }
+
+    /// Reset the CPU, timing, and audio state. Keeps ROM and RAM intact.
+    pub fn reset(&mut self) {
+        self.z80 = Z80::new();
+        self.hc = 0;
+        self.beeper_state = false;
+        self.last_ear = false;
+    }
+
     /// Apply a parsed `.z80` snapshot. TC2048 shares the 48K's flat
     /// 48K memory layout, so the page-to-base mapping is the standard
     /// 48K convention: 4 → $8000, 5 → $C000, 8 → $4000.

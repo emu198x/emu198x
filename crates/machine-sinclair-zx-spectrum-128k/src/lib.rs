@@ -130,6 +130,20 @@ impl Spectrum128K {
         self.tape.play();
     }
 
+    pub fn tape_stop(&mut self) {
+        self.tape.stop();
+    }
+
+    /// Reset the machine's CPU and audio/timing state, keeping the
+    /// loaded ROMs and RAM contents intact (matching real-hardware
+    /// power-cycle semantics).
+    pub fn reset(&mut self) {
+        self.z80 = Z80::new();
+        self.hc = 0;
+        self.beeper_state = false;
+        self.last_ear = false;
+    }
+
     /// Apply a parsed `.z80` snapshot. The 128K-family snapshot layout
     /// pages banks through `$7FFD`; the AY register file is replayed
     /// from the snapshot-captured values.

@@ -97,6 +97,18 @@ impl ScorpionZS256 {
         self.tape.play();
     }
 
+    pub fn tape_stop(&mut self) {
+        self.tape.stop();
+    }
+
+    /// Reset the CPU, timing, and audio state. Keeps ROMs and RAM intact.
+    pub fn reset(&mut self) {
+        self.z80 = Z80::new();
+        self.hc = 0;
+        self.beeper_state = false;
+        self.last_ear = false;
+    }
+
     /// Apply a parsed `.z80` snapshot. Scorpion uses 128K-style page-to-bank
     /// routing; only the first 8 banks are addressable through a snapshot.
     pub fn apply_snapshot(&mut self, snap: &Z80Snapshot) {

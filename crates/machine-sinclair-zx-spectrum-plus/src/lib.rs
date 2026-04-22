@@ -134,6 +134,19 @@ impl SpectrumPlus {
         self.tape.play();
     }
 
+    pub fn tape_stop(&mut self) {
+        self.tape.stop();
+    }
+
+    /// Reset the CPU, timing, and audio state. Keeps ROMs, RAM, and
+    /// any inserted disk image intact.
+    pub fn reset(&mut self) {
+        self.z80 = Z80::new();
+        self.hc = 0;
+        self.beeper_state = false;
+        self.last_ear = false;
+    }
+
     /// Insert a parsed DSK / EDSK image into drive 0. +3 only — has no
     /// effect on +2A / +2B because the FDC's `claims_port` returns
     /// false, but the call still succeeds so callers don't need to

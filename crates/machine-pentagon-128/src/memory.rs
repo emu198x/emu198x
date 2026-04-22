@@ -38,12 +38,16 @@ impl std::ops::DerefMut for Bank16K {
 /// The TR-DOS ROM lives in a separate slot and is paged in by the
 /// Beta disk interface (not by $7FFD), so it can replace either of
 /// the two normal ROMs transparently.
+/// Banks live behind `Vec<Bank16K>` so that `serde`'s deserializer
+/// processes one 16 KB chunk at a time into heap memory rather than
+/// materialising the whole 176 KB of inline arrays on the caller's
+/// stack.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MemoryPentagon {
-    rom: [Bank16K; 2],
+    rom: Vec<Bank16K>,
     #[serde(with = "BigArray")]
     trdos_rom: [u8; 16384],
-    ram: [Bank16K; 8],
+    ram: Vec<Bank16K>,
     paging: u8,
     locked: bool,
 }
@@ -51,14 +55,9 @@ pub struct MemoryPentagon {
 impl MemoryPentagon {
     pub fn new() -> Self {
         Self {
-            rom: [Bank16K::zeroed(), Bank16K::zeroed()],
+            rom: vec![Bank16K::zeroed(); 2],
             trdos_rom: [0; 16384],
-            ram: [
-                Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(),
-                Bank16K::zeroed(), Bank16K::zeroed(),
-            ],
+            ram: vec![Bank16K::zeroed(); 8],
             paging: 0,
             locked: false,
         }

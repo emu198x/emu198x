@@ -12,20 +12,29 @@ use emu198x_shell::{
 
 mod autoload;
 mod runtime;
+mod spectrum_runtime;
+mod variants;
 
 pub use autoload::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumAutoloadError,
     SpectrumTapeAutoloadResult, autoload_basic_tape,
 };
 pub use runtime::{Spectrum48kRuntime, SpectrumSessionQueryProvider};
+pub use spectrum_runtime::{SpectrumMachine, SpectrumRuntime};
+pub use variants::{
+    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime, SpectrumPlusRuntime,
+    TimexTC2048Runtime, TimexTS2068Runtime,
+};
 
 /// Supported Spectrum family models.
 ///
-/// Every variant in this enum has a working machine crate behind it
-/// (see the `machine-*` crates in the workspace). A subset has a
-/// `MachineCore` runtime wrapper — currently only `Spectrum48KPal`
-/// (via `Spectrum48kRuntime`); the others are reachable through their
-/// machine crates directly until per-variant runtimes are added.
+/// Every variant in this enum has both a working machine crate and a
+/// `MachineCore` runtime wrapper. The 48K runtime (`Spectrum48kRuntime`)
+/// is bespoke — it carries the rich session query provider with ROM
+/// glyph decoding and boot detection. The 128K / +2 / +2A / +2B / +3 /
+/// Pentagon / Scorpion / Timex runtimes are generic
+/// `SpectrumRuntime<M>` instantiations exposed as type aliases
+/// (e.g. `Spectrum128kRuntime`, `Pentagon128Runtime`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
     /// ZX Spectrum 48K PAL.
