@@ -1,0 +1,361 @@
+//! Timex TC2068 (PAL) / TS2068 (NTSC) machine.
+//!
+//! Source references:
+//! - `wiki/systems/spectrum/variants.md`
+//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/machine-timex-ts2068/src/lib.rs`
+//!
+//! Hardware:
+//! - Z80 — TC2068: 3.5 MHz / TS2068: 3.528 MHz (master / 4)
+//! - Timex SCLD with PAL or NTSC config
+//! - 16 KB ROM + 48 KB RAM with DOCK / EXROM paging via port `$F4`
+//! - General Instrument AY-3-8912 PSG on ports `$F5` (select / read)
+//!   and `$F6` (data write) — NOT the standard 128K `$FFFD` / `$BFFD`
+//! - Full I/O decoding (exact low-byte match)
+//!
+//! `TimexModel::TS2068` selects 14.112 MHz NTSC timing with 262 lines.
+//! `TimexModel::TC2068` reuses the standard 48K PAL timing.
+
+pub mod memory;
+
+use common_sinclair_zx_spectrum::audio::BeeperAudio;
+use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
+use common_sinclair_zx_spectrum::timing::{
+    FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH_HIRES, TIMING_48K,
+};
+use common_sinclair_zx_spectrum::ula::Ula;
+use common_sinclair_zx_spectrum::ula_engine;
+use format_sinclair_zx_spectrum_z80::Z80Snapshot;
+use gi_ay_3_8912::Ay3_8912;
+use timex_scld::TimexScld;
+use zilog_z80::Z80;
+
+use crate::memory::MemoryTimex;
+
+const AUDIO_SAMPLE_RATE: u32 = 44_100;
+
+/// TC2068 (PAL) or TS2068 (NTSC).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TimexModel {
+    /// PAL Timex (sold in Portugal as the TC2068, Poland as the Unipolbrit
+    /// Komputer 2086): 14 MHz crystal, 312 lines.
+    TC2068,
+    /// NTSC Timex (the US TS2068): 14.112 MHz crystal, 262 lines.
+    TS2068,
+}
+
+/// TS2068 NTSC frame timing. The PAL TC2068 reuses `TIMING_48K`.
+pub const TIMING_TS2068: FrameTiming = FrameTiming {
+    master_hz: 14_112_000,
+    cpu_divisor: 4,
+    tstates_per_line: 224,
+    halfcycles_per_line: 224 * 4,
+    lines_per_frame: 262,
+    halfcycles_per_frame: 224 * 4 * 262,
+    tstates_per_frame: 224 * 262,
+    first_border_line: 8,
+    first_screen_line: 35,
+    last_screen_line: 227,
+    last_border_line: 254,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 14_336,
+    contention_pattern: [6, 5, 4, 3, 2, 1, 0, 0],
+    contention_phase: 0,
+    contention_tstates_per_line: 128,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 32,
+};
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct TimexTS2068 {
+    pub z80: Z80,
+    pub ula: TimexScld,
+    pub memory: MemoryTimex,
+    pub framebuffer: Vec<u8>,
+    pub keyboard: [u8; 8],
+    pub kempston: u8,
+    pub tape: TapePlayer,
+    pub ay: Ay3_8912,
+    pub audio: BeeperAudio,
+    pub audio_frame: Vec<f32>,
+    pub model: TimexModel,
+
+    /// Frame timing for this variant. Skipped on serialise — restore
+    /// via `restore_timing()` after `load_state` because the static
+    /// reference can't be deserialised.
+    #[serde(skip, default = "default_timing")]
+    timing: &'static FrameTiming,
+
+    pub(crate) hc: u32,
+    beeper_state: bool,
+    last_ear: bool,
+}
+
+fn default_timing() -> &'static FrameTiming {
+    &TIMING_48K
+}
+
+impl TimexTS2068 {
+    #[must_use]
+    pub fn new(model: TimexModel) -> Self {
+        let (timing, config) = match model {
+            TimexModel::TC2068 => (&TIMING_48K, &ula_engine::CONFIG_48K),
+            TimexModel::TS2068 => (&TIMING_TS2068, &ula_engine::CONFIG_TS2068),
+        };
+        let cpu_hz = (timing.master_hz / u64::from(timing.cpu_divisor)) as u32;
+        // The Timex divides its AY input by 8 (not 2 like the 128K).
+        let ay_hz = cpu_hz / 8;
+        let samples_per_frame = (AUDIO_SAMPLE_RATE / 50) as usize;
+
+        Self {
+            z80: Z80::new(),
+            ula: TimexScld::with_config(config),
+            memory: MemoryTimex::new(),
+            framebuffer: vec![0u8; SCREEN_WIDTH_HIRES * SCREEN_HEIGHT],
+            keyboard: [0xFF; 8],
+            kempston: 0,
+            tape: TapePlayer::new(),
+            ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, samples_per_frame),
+            audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, timing.tstates_per_frame, cpu_hz),
+            audio_frame: vec![0.0; samples_per_frame],
+            model,
+            timing,
+            hc: 0,
+            beeper_state: false,
+            last_ear: false,
+        }
+    }
+
+    /// Re-install the static timing reference after deserialisation.
+    pub fn restore_timing(&mut self) {
+        self.timing = match self.model {
+            TimexModel::TC2068 => &TIMING_48K,
+            TimexModel::TS2068 => &TIMING_TS2068,
+        };
+    }
+
+    #[must_use]
+    pub fn model_id(&self) -> &'static str {
+        match self.model {
+            TimexModel::TC2068 => "timex-tc2068",
+            TimexModel::TS2068 => "timex-ts2068",
+        }
+    }
+
+    pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
+        self.tape.load_blocks(blocks);
+    }
+
+    pub fn load_tape_pulses(&mut self, pulses: Vec<u32>) {
+        self.tape.load_pulses(pulses);
+    }
+
+    pub fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
+        self.tape.load_stream(stream);
+    }
+
+    pub fn tape_play(&mut self) {
+        self.tape.play();
+    }
+
+    /// Apply a parsed `.z80` snapshot. Treats the Timex as a stock 48K
+    /// for snapshot purposes — the page-to-base map matches the 48K
+    /// convention. AY state is not carried in `.z80` v2/v3 for Timex.
+    pub fn apply_snapshot(&mut self, snap: &Z80Snapshot) {
+        self.z80.regs.af = snap.af;
+        self.z80.regs.bc = snap.bc;
+        self.z80.regs.de = snap.de;
+        self.z80.regs.hl = snap.hl;
+        self.z80.regs.af_alt = snap.af_alt;
+        self.z80.regs.bc_alt = snap.bc_alt;
+        self.z80.regs.de_alt = snap.de_alt;
+        self.z80.regs.hl_alt = snap.hl_alt;
+        self.z80.regs.ix = snap.ix;
+        self.z80.regs.iy = snap.iy;
+        self.z80.regs.sp = snap.sp;
+        self.z80.regs.pc = snap.pc;
+        self.z80.regs.i = snap.i;
+        self.z80.regs.r = snap.r;
+        self.z80.regs.im = snap.im;
+        self.z80.regs.iff1 = snap.iff1;
+        self.z80.regs.iff2 = snap.iff2;
+        self.ula.write_fe(snap.border);
+
+        for (page, data) in &snap.pages {
+            let base: u16 = match *page {
+                4 => 0x8000,
+                5 => 0xC000,
+                8 => 0x4000,
+                _ => continue,
+            };
+            for (i, &byte) in data.iter().enumerate() {
+                self.memory.write(base.wrapping_add(i as u16), byte);
+            }
+        }
+    }
+
+    pub fn run_frame(&mut self) {
+        let frame_hc = self.timing.halfcycles_per_frame;
+        while self.hc < frame_hc {
+            self.tick_halfcycle();
+        }
+        self.end_frame();
+    }
+
+    pub fn advance_halfcycles(&mut self, halfcycles: u32) {
+        for _ in 0..halfcycles {
+            self.tick_halfcycle();
+            if self.hc >= self.timing.halfcycles_per_frame {
+                self.end_frame();
+            }
+        }
+    }
+
+    pub fn advance_tstates(&mut self, tstates: u32) {
+        self.advance_halfcycles(self.timing.tstates_to_hc(tstates));
+    }
+
+    fn tick_halfcycle(&mut self) {
+        if self.hc & 1 == 0 {
+            self.ula.tick(
+                &self.memory,
+                self.z80.addr,
+                self.z80.mreq,
+                self.z80.iorq,
+                &mut self.framebuffer,
+            );
+
+            if self.ula.cpu_clock_active() {
+                self.z80.tick();
+                self.handle_bus();
+            }
+
+            self.z80.irq = self.ula.interrupt_active();
+
+            if self.hc % 4 == 2 {
+                self.tape.advance_tstates(1);
+                if self.hc % 8 == 2 {
+                    self.ay.tick();
+                }
+                let ear = self.tape.ear_level();
+                if ear != self.last_ear {
+                    self.last_ear = ear;
+                    let tstate = self.hc / 4;
+                    self.audio.set_level(tstate, self.speaker_level());
+                }
+            }
+        }
+
+        self.hc += 1;
+    }
+
+    fn end_frame(&mut self) {
+        self.ula.end_frame();
+        self.audio.end_frame(&mut self.audio_frame);
+        self.hc -= self.timing.halfcycles_per_frame;
+    }
+
+    fn handle_bus(&mut self) {
+        if self.z80.mreq && self.z80.rd {
+            self.z80.data_in = self.memory.read(self.z80.addr);
+        } else if self.z80.mreq && self.z80.wr {
+            self.memory.write(self.z80.addr, self.z80.data);
+        } else if self.z80.iorq && self.z80.rd && !self.z80.m1 {
+            self.z80.data_in = self.io_read(self.z80.addr);
+        } else if self.z80.iorq && self.z80.wr {
+            self.io_write(self.z80.addr, self.z80.data);
+        } else if self.z80.iorq && self.z80.m1 {
+            self.z80.data_in = 0xFF;
+        }
+    }
+
+    fn io_read(&mut self, port: u16) -> u8 {
+        // Timex uses full low-byte I/O decoding.
+        match port & 0xFF {
+            0xFE => {
+                let mut val = self.ula.read_fe(port, &self.keyboard);
+                if self.tape.is_playing() {
+                    val = (val & !0x40) | if self.tape.ear_level() { 0x40 } else { 0x00 };
+                }
+                val
+            }
+            0x1F => self.kempston,
+            0xF4 => self.memory.read_f4(),
+            0xF5 => self.ay.read_data(),
+            0xFF => self.ula.read_ff(),
+            _ => 0xFF,
+        }
+    }
+
+    fn io_write(&mut self, port: u16, data: u8) {
+        match port & 0xFF {
+            0xFE => {
+                self.ula.write_fe(data);
+                let beeper = data & 0x10 != 0;
+                if beeper != self.beeper_state {
+                    self.beeper_state = beeper;
+                    let tstate = self.hc / 4;
+                    self.audio.set_level(tstate, self.speaker_level());
+                }
+            }
+            0xF4 => self.memory.write_f4(data),
+            0xF5 => self.ay.select_register(data),
+            0xF6 => self.ay.write_data(data),
+            0xFF => {
+                self.ula.write_ff(data);
+                self.memory.set_exrom_enabled(data & 0x80 != 0);
+            }
+            _ => {}
+        }
+    }
+
+    fn speaker_level(&self) -> f32 {
+        let beeper = if self.beeper_state { 0.8 } else { 0.0 };
+        let ear = if self.last_ear { 0.2 } else { 0.0 };
+        beeper + ear
+    }
+
+    pub fn audio_frame(&self) -> &[f32] {
+        &self.audio_frame
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pal_variant_uses_48k_timing() {
+        let m = TimexTS2068::new(TimexModel::TC2068);
+        assert_eq!(m.timing.master_hz, 14_000_000);
+        assert_eq!(m.timing.lines_per_frame, 312);
+        assert_eq!(m.model_id(), "timex-tc2068");
+    }
+
+    #[test]
+    fn ntsc_variant_uses_ts2068_timing() {
+        let m = TimexTS2068::new(TimexModel::TS2068);
+        assert_eq!(m.timing.master_hz, 14_112_000);
+        assert_eq!(m.timing.lines_per_frame, 262);
+        assert_eq!(m.model_id(), "timex-ts2068");
+    }
+
+    #[test]
+    fn run_frame_returns_to_origin() {
+        let mut m = TimexTS2068::new(TimexModel::TS2068);
+        m.run_frame();
+        assert_eq!(m.hc, 0);
+    }
+
+    #[test]
+    fn write_to_port_f5_then_read_via_f5_round_trips_ay_register() {
+        let mut m = TimexTS2068::new(TimexModel::TS2068);
+        // AY register select on port $F5, data write on $F6.
+        m.io_write(0x00F5, 0x08); // select Vol A
+        m.io_write(0x00F6, 0x0A); // write
+        assert_eq!(m.io_read(0x00F5), 0x0A);
+    }
+}

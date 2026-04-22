@@ -33,6 +33,8 @@ members = [
     "crates/machine-sinclair-zx-spectrum-48k",
     "crates/machine-pentagon-128",
     "crates/machine-scorpion-zs256",
+    "crates/machine-timex-tc2048",
+    "crates/machine-timex-ts2068",
     "crates/machine-sinclair-zx-spectrum-128k",
     "crates/machine-sinclair-zx-spectrum-plus",
     "crates/mos-6502",

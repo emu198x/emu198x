@@ -1,6 +1,20 @@
 # ZX Spectrum
 
-First system implemented in the fresh start. 11 variants boot: 16K, 48K, 128K, +2, +2A, +2B, +3, Pentagon 128, Scorpion ZS-256, Timex TC2048, Timex TS2068. 23 crates.
+First system implemented in the fresh start.
+
+**Current status:** 6 machine crates with working `run_frame` exist:
+48K, 128K, +2A/+2B/+3 (one machine, three model IDs), Pentagon 128,
+Scorpion ZS-256, Timex TC2048, Timex TS2068 (one machine, two model
+IDs). 11 model IDs total in the runtime catalogue.
+
+**ROM-backed boot proven:** 48K (BASIC prompt), 128K (menu screen),
++3 (menu screen), Pentagon (menu screen). Scorpion / TC2048 / TS2068
+are unit-tested only — no ROMs in the local set.
+
+**Runtime wrappers:** only `Spectrum48kRuntime` exists today. The
+other 10 model IDs are in the `Model` enum and `profiles()` catalogue
+but reach the machine layer through their machine crates directly,
+not through a `MachineCore` impl yet.
 
 ## Architecture
 

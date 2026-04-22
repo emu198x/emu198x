@@ -1,0 +1,14 @@
+[package]
+name = "machine-timex-tc2048"
+description = "Timex TC2048 — 48K Spectrum-compatible with the SCLD chip (8 video modes, full I/O decode)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" }
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+timex-scld = { path = "../timex-scld" }
+zilog-z80 = { path = "../zilog-z80" }

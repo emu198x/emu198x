@@ -1395,6 +1395,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-timex-tc2048"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "format-sinclair-zx-spectrum-z80",
+ "serde",
+ "serde-big-array",
+ "timex-scld",
+ "zilog-z80",
+]
+
+[[package]]
+name = "machine-timex-ts2068"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "format-sinclair-zx-spectrum-z80",
+ "gi-ay-3-8912",
+ "serde",
+ "serde-big-array",
+ "timex-scld",
+ "zilog-z80",
+]
+
+[[package]]
 name = "malloc_buf"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
