@@ -47,6 +47,12 @@ fn wb13_boot_state_checkpoints() {
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     rt.machine_mut().insert_adf(adf);
 
+    // Watch trackdisk's per-unit buffer[3] (state[$4E] + 3 = $19E3),
+    // which holds the result code of the most-recent CMD_READ
+    // attempt. Captures every CPU write to that byte so we can see
+    // the sequence of validation results over the whole run.
+    rt.machine_mut().debug_watch_addr = Some((0x0000_19E3, 1));
+
     // Checkpoints at 50-frame (1-second) intervals through the 900-
     // frame settle used by the golden-matrix wb13 row.
     let checkpoints = [1u64, 50, 100, 200, 300, 500, 700, 900];
@@ -69,13 +75,23 @@ fn wb13_boot_state_checkpoints() {
     const STRAP_DOS_MAGIC_OK: u32 = 0x00FE_85AC;
     const STRAP_EXEC_BOOT: u32 = 0x00FE_85F2;
     const STRAP_ERR_EXIT: u32 = 0x00FE_867C;
+    // trackdisk validation sub-failures that all return $1B:
+    // $FEACFA = header cksum mismatch
+    // $FEAD10 = format byte (info[0]) != $FF
+    // $FEAD1C = track byte (info[1]) != expected
+    const TD_CKSUM_MISMATCH: u32 = 0x00FE_ACFA;
+    const TD_FMT_MISMATCH:   u32 = 0x00FE_AD10;
+    const TD_TRK_MISMATCH:   u32 = 0x00FE_AD1C;
     let strap_points = [
         (STRAP_POST_CMD_READ, "post-CMD_READ"),
         (STRAP_DOS_MAGIC_OK, "DOS-magic-OK"),
         (STRAP_EXEC_BOOT, "EXEC_BOOT"),
         (STRAP_ERR_EXIT, "err-exit"),
+        (TD_CKSUM_MISMATCH, "td $1B cksum-mismatch (BNE.W taken)"),
+        (TD_FMT_MISMATCH,   "td $1B fmt!=$FF (BNE.W taken)"),
+        (TD_TRK_MISMATCH,   "td $1B track-mismatch (BNE.W taken)"),
     ];
-    let mut strap_hits = [0u64; 4];
+    let mut strap_hits = [0u64; 7];
 
     // Phase A probe 2 — any PC in the bootblock / chip-RAM code
     // range. The decoded bootblock lands in the low 32 KB of chip
@@ -366,6 +382,117 @@ fn wb13_boot_state_checkpoints() {
         _ => "(unknown)",
     };
     println!("  buffer[3] (last validation result) = ${err:02X}  → {err_label}");
+
+    // Sequence of writes to buffer[3].
+    let watches = &rt.machine().debug_watch_writes;
+    println!("  buffer[3] write sequence ({} total):", watches.len());
+    for (cck, pc, addr, val, is_word) in watches.iter().take(20) {
+        println!(
+            "    cck={cck:>9} pc=${pc:06X} addr=${addr:06X} val=${val:04X} word={is_word}"
+        );
+    }
+    if watches.len() > 20 {
+        println!("    ... and {} more", watches.len() - 20);
+        // Show last few too.
+        for (cck, pc, addr, val, is_word) in watches.iter().rev().take(5).rev() {
+            println!(
+                "    cck={cck:>9} pc=${pc:06X} addr=${addr:06X} val=${val:04X} word={is_word}"
+            );
+        }
+    }
+
+    // The validation track check at $FEAD1C compares info[1] (track
+    // byte from the decoded sync header) against $4B(a3) = the
+    // expected track stored on the trackdisk unit struct (a3).
+    // We don't easily know a3, but expected track for cyl 0 head 0
+    // should be 0. Dump cyl/head and compare with what the first
+    // sync's info shows. If the encoder produced track 0 but
+    // trackdisk reads a different value, we have an encoder/decoder
+    // disagreement at the per-sector header level.
+    println!("  drive cyl={} head={}  → expected info[1] = {}",
+        m.drive().cylinder(),
+        m.drive().head(),
+        m.drive().cylinder() * 2 + m.drive().head()
+    );
+
+    // The validation reads the cksum from DMA buffer at gap_pos+8
+    // onwards (info_odd, info_even, label_odd, label_even, then
+    // hdr_cksum_odd, hdr_cksum_even). It XORs MFM longs of
+    // info+label (40 bytes), masks with $5555_5555, compares against
+    // decoded stored hdr_cksum at gap+$30.
+    //
+    // Compute this ourselves over the FIRST sync in the current DMA
+    // buffer (at offset $0162-$4 = $015E gap-pos) and compare to
+    // what we read from $015E+$30 = $018E (hdr_cksum_odd).
+    let first_sync_gap = 0x015Eu32; // sector 10's gap (end of run)
+    let info_pos = first_sync_gap + 8;
+    let cksum_pos = first_sync_gap + 0x30;
+    let mut info_label = [0u32; 10];
+    for i in 0..10u32 {
+        let mut w = 0u32;
+        for k in 0..4u32 {
+            w = (w << 8) | u32::from(
+                m.memory().read_chip_ram_byte(target + info_pos + i * 4 + k)
+            );
+        }
+        info_label[i as usize] = w;
+    }
+    let mut xor: u32 = 0;
+    for v in &info_label {
+        xor ^= *v;
+    }
+    let computed = xor & 0x5555_5555;
+    let cksum_odd = (0..4u32).fold(0u32, |a, k| (a << 8) | u32::from(
+        m.memory().read_chip_ram_byte(target + cksum_pos + k)
+    ));
+    let cksum_even = (0..4u32).fold(0u32, |a, k| (a << 8) | u32::from(
+        m.memory().read_chip_ram_byte(target + cksum_pos + 4 + k)
+    ));
+    let stored = ((cksum_odd & 0x5555_5555) << 1) | (cksum_even & 0x5555_5555);
+    println!(
+        "  hdr cksum verify (FIRST sync at end of run, gap=${first_sync_gap:04X}):"
+    );
+    println!("    info+label longs: {:08X?}", info_label);
+    println!("    computed XOR & $55555555 = ${computed:08X}");
+    println!(
+        "    stored hdr_cksum: odd_long=${cksum_odd:08X} even_long=${cksum_even:08X} decoded=${stored:08X}"
+    );
+    println!(
+        "    {}",
+        if computed == stored { "✓ MATCH (validation should pass)" }
+        else { "✗ MISMATCH (this is what triggers $1B)" }
+    );
+
+    // Verify cksum for ALL 11 syncs in the DMA buffer.
+    println!("  cksum check across all 11 syncs in DMA buffer:");
+    for sync_byte_off in &pair_starts {
+        let gap_pos = (*sync_byte_off as u32).wrapping_sub(4);
+        let info_pos = gap_pos + 8;
+        let cksum_pos = gap_pos + 0x30;
+        let mut info_label = [0u32; 10];
+        for i in 0..10u32 {
+            let mut w = 0u32;
+            for k in 0..4u32 {
+                w = (w << 8) | u32::from(
+                    m.memory().read_chip_ram_byte(target + info_pos + i * 4 + k)
+                );
+            }
+            info_label[i as usize] = w;
+        }
+        let xor: u32 = info_label.iter().fold(0u32, |a, v| a ^ v);
+        let computed = xor & 0x5555_5555;
+        let cksum_odd = (0..4u32).fold(0u32, |a, k| (a << 8) | u32::from(
+            m.memory().read_chip_ram_byte(target + cksum_pos + k)
+        ));
+        let cksum_even = (0..4u32).fold(0u32, |a, k| (a << 8) | u32::from(
+            m.memory().read_chip_ram_byte(target + cksum_pos + 4 + k)
+        ));
+        let stored = ((cksum_odd & 0x5555_5555) << 1) | (cksum_even & 0x5555_5555);
+        let mark = if computed == stored { "OK" } else { "FAIL" };
+        println!(
+            "    gap=${gap_pos:04X}: computed=${computed:08X} stored=${stored:08X}  {mark}"
+        );
+    }
 
     // KEY: The trackdisk decode buffer is at state[$4E] + $680, and
     // the DMA buffer is at state[$4E] + $684 — i.e., the decode
