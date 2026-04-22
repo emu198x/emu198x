@@ -165,6 +165,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "beta-disk-interface"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1320,6 +1328,34 @@ dependencies = [
  "mos-6502",
  "ricoh-apu-2a03",
  "ricoh-ppu-2c02",
+]
+
+[[package]]
+name = "machine-pentagon-128"
+version = "0.1.0"
+dependencies = [
+ "beta-disk-interface",
+ "common-sinclair-zx-spectrum",
+ "format-sinclair-zx-spectrum-z80",
+ "gi-ay-3-8912",
+ "pentagon-ula",
+ "serde",
+ "serde-big-array",
+ "zilog-z80",
+]
+
+[[package]]
+name = "machine-scorpion-zs256"
+version = "0.1.0"
+dependencies = [
+ "beta-disk-interface",
+ "common-sinclair-zx-spectrum",
+ "format-sinclair-zx-spectrum-z80",
+ "gi-ay-3-8912",
+ "scorpion-ula",
+ "serde",
+ "serde-big-array",
+ "zilog-z80",
 ]
 
 [[package]]

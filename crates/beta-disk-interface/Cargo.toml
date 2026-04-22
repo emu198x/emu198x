@@ -1,0 +1,10 @@
+[package]
+name = "beta-disk-interface"
+description = "Beta 128 disk interface — TR-DOS ROM paging and WD1793 stub used by Russian Spectrum clones"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+serde = { workspace = true }
