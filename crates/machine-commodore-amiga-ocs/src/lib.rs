@@ -275,6 +275,13 @@ pub struct AmigaOcs {
     /// blit). Independent of whether the blit actually touched
     /// chip RAM — just counts the "CPU kicked a blit" events.
     pub debug_blit_starts: u64,
+    /// Diagnostic: log of BLTSIZE writes that triggered a blit.
+    /// Entry is `(cck, pc, bltcon0, bltcon1, bltapt, bltbpt,
+    /// bltcpt, bltdpt, bltsize)`. Captures the parameters at the
+    /// moment the blit was kicked off — so we can replay any
+    /// suspicious blit and find issues with B→D copy paths.
+    pub debug_blit_log:
+        Vec<(u64, u32, u16, u16, u32, u32, u32, u32, u16)>,
     /// Diagnostic: log of CIA-A register writes. Entry is
     /// `(cck, pc, reg, raw_val)` where reg is 0..=$F. Lets us see
     /// how timer.device and other code start/stop the CIA-A timers.
@@ -415,6 +422,7 @@ impl AmigaOcs {
             debug_dsk_log: Vec::new(),
             debug_dmacon_log: Vec::new(),
             debug_blit_starts: 0,
+            debug_blit_log: Vec::new(),
             debug_cia_a_cr_log: Vec::new(),
             debug_cia_b_cr_log: Vec::new(),
             debug_watch_addr: None,
@@ -906,6 +914,17 @@ impl AmigaOcs {
             0x040..=0x074 if self.agnus.write_blitter_register(offset, val) => {
                 if offset == 0x058 {
                     self.debug_blit_starts += 1;
+                    self.debug_blit_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        self.agnus.bltcon0,
+                        self.agnus.bltcon1,
+                        self.agnus.blt_apt,
+                        self.agnus.blt_bpt,
+                        self.agnus.blt_cpt,
+                        self.agnus.blt_dpt,
+                        self.agnus.bltsize,
+                    ));
                     self.run_blit_to_completion();
                 }
             }

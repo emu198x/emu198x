@@ -239,6 +239,219 @@ fn wb13_boot_state_checkpoints() {
         println!("{line}");
     }
 
+    // For each $4489 sync, decode the 8-byte header immediately
+    // following it into (format, track, sector, sectors_until_gap).
+    // The pair ($4489 $4489) takes 4 bytes; header odd-half starts 4
+    // bytes after the FIRST sync word. So if a sync pair is at
+    // offsets N and N+2, odd header is at N+4, even header at N+8.
+    //
+    // Real trackdisk at $FEAC62 expects: info[0] == $FF,
+    // info[1] == track, info[3] = sectors_until_gap, and it uses
+    // sectors_until_gap to compute how much to blit. If our DMA
+    // buffer presents sectors in an unexpected order (e.g. first
+    // sync is sector 10 rather than sector 0) the blit-count path
+    // in trackdisk will double-blit into the wrong slots.
+    let decode_mfm_byte = |odd: u8, even: u8| -> u8 {
+        ((odd & 0x55) << 1) | (even & 0x55)
+    };
+    println!("Sync header decodes (pair_offset: [fmt trk sec stg]):");
+    // sync_offsets has both halves of the pair ($4489 twice); group
+    // them so we only print one header per sector.
+    let mut pair_starts = Vec::new();
+    let mut i = 0;
+    while i < sync_offsets.len() {
+        let start = sync_offsets[i];
+        pair_starts.push(start);
+        if i + 1 < sync_offsets.len() && sync_offsets[i + 1] == start + 2 {
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    for (pair_idx, sync_start) in pair_starts.iter().enumerate() {
+        // sync pair occupies bytes [sync_start..sync_start+4).
+        // Header odd at sync_start+4, even at sync_start+8.
+        let odd_off = (*sync_start as u32) + 4;
+        let even_off = (*sync_start as u32) + 8;
+        let mut info = [0u8; 4];
+        for k in 0..4u32 {
+            let o = m.memory().read_chip_ram_byte(target + odd_off + k);
+            let e = m.memory().read_chip_ram_byte(target + even_off + k);
+            info[k as usize] = decode_mfm_byte(o, e);
+        }
+        println!(
+            "  [{pair_idx:2}] @${sync_start:04X}: fmt=${:02X} trk=${:3} sec=${:2} stg=${:2}",
+            info[0], info[1], info[2], info[3]
+        );
+    }
+
+    // KS trackdisk blits from "gap_pos" = sync_pos - 4 into its internal
+    // decode buffer. That means for sector 1 (sync at $0C9E in our DMA
+    // log), Blit #2 source begins at $085A (sector 0 gap) and runs for
+    // 10*1088 bytes. We want to verify:
+    //   (a) chip RAM at sector 1's gap = $0C9A..$0C9D is all-AA (gap
+    //       filler) — proves the track format is correct at the boundary.
+    //   (b) chip RAM at sector 1's data byte 9 (odd and even halves)
+    //       are both $AA — proves the DMA wrote zeros there.
+    // If either is not $AA, our encoder or DMA is corrupt at this point.
+    let sec1_gap_off = 0x0C9Au32;
+    let sec1_sync_off = 0x0C9Eu32;
+    let sec1_data_off = sec1_gap_off + 64; // 64 = sector data offset
+    let sec1_b9_odd_off = sec1_data_off + 9;
+    let sec1_b9_even_off = sec1_data_off + 9 + 512;
+    let sec1_b9_10_11_odd = [
+        m.memory().read_chip_ram_byte(target + sec1_data_off + 9),
+        m.memory().read_chip_ram_byte(target + sec1_data_off + 10),
+        m.memory().read_chip_ram_byte(target + sec1_data_off + 11),
+    ];
+    let sec1_b9_10_11_even = [
+        m.memory().read_chip_ram_byte(target + sec1_data_off + 9 + 512),
+        m.memory().read_chip_ram_byte(target + sec1_data_off + 10 + 512),
+        m.memory().read_chip_ram_byte(target + sec1_data_off + 11 + 512),
+    ];
+    println!(
+        "sector-1 MFM in chip RAM @ ${:04X} gap, ${:04X} sync, ${:04X} data:",
+        sec1_gap_off, sec1_sync_off, sec1_data_off
+    );
+    println!(
+        "  gap bytes: {:02X} {:02X} {:02X} {:02X} (expect all $AA)",
+        m.memory().read_chip_ram_byte(target + sec1_gap_off),
+        m.memory().read_chip_ram_byte(target + sec1_gap_off + 1),
+        m.memory().read_chip_ram_byte(target + sec1_gap_off + 2),
+        m.memory().read_chip_ram_byte(target + sec1_gap_off + 3)
+    );
+    println!(
+        "  byte 9-11 odd:  {:02X} {:02X} {:02X} @${:04X} (expect all $AA)",
+        sec1_b9_10_11_odd[0], sec1_b9_10_11_odd[1], sec1_b9_10_11_odd[2],
+        sec1_b9_odd_off
+    );
+    println!(
+        "  byte 9-11 even: {:02X} {:02X} {:02X} @${:04X} (expect all $AA)",
+        sec1_b9_10_11_even[0], sec1_b9_10_11_even[1], sec1_b9_10_11_even[2],
+        sec1_b9_even_off
+    );
+
+    // KEY: The trackdisk decode buffer is at state[$4E] + $680, and
+    // the DMA buffer is at state[$4E] + $684 — i.e., the decode
+    // buffer is 4 bytes BEFORE the DMA buffer. The blits copy in-place,
+    // shifting MFM data 4 bytes earlier so each sector's gap+sync
+    // lands at the slot start. Compute decode_buf address directly
+    // and dump its key offsets:
+    let decode_buf = target - 4; // state[$4E]+$680 = DSKPT target - 4
+    println!("\nDecode buffer @ ${decode_buf:06X}:");
+    // Dump first 16 bytes (slot 0 gap + sync + info odd).
+    let mut line = format!("  slot  0: ");
+    for k in 0..16u32 {
+        line.push_str(&format!("{:02X} ", m.memory().read_chip_ram_byte(decode_buf + k)));
+    }
+    println!("{line}");
+    // Slot 2 (= sector 1's slot given first sync was sector 10):
+    let slot2 = decode_buf + 2 * 1088;
+    let mut line = format!("  slot  2: ");
+    for k in 0..16u32 {
+        line.push_str(&format!("{:02X} ", m.memory().read_chip_ram_byte(slot2 + k)));
+    }
+    println!("{line}");
+    // Dump sector 1 slot 2's data byte 9 odd/even halves.
+    let slot2_d9_odd = slot2 + 64 + 9;
+    let slot2_d9_even = slot2_d9_odd + 512;
+    println!(
+        "  slot 2 data byte 9 odd @${slot2_d9_odd:06X}: {:02X}  even @${slot2_d9_even:06X}: {:02X}",
+        m.memory().read_chip_ram_byte(slot2_d9_odd),
+        m.memory().read_chip_ram_byte(slot2_d9_even),
+    );
+    // Decode all 11 slots' info headers to confirm layout.
+    println!("  decode_buf slot info headers:");
+    for slot in 0..11u32 {
+        let slot_base = decode_buf + slot * 1088;
+        let odd = slot_base + 8;
+        let even = slot_base + 12;
+        let mut info = [0u8; 4];
+        for k in 0..4u32 {
+            let o = m.memory().read_chip_ram_byte(odd + k);
+            let e = m.memory().read_chip_ram_byte(even + k);
+            info[k as usize] = decode_mfm_byte(o, e);
+        }
+        // Also decode data bytes 9-11.
+        let data_odd_base = slot_base + 64;
+        let data_even_base = slot_base + 64 + 512;
+        let b9 = decode_mfm_byte(
+            m.memory().read_chip_ram_byte(data_odd_base + 9),
+            m.memory().read_chip_ram_byte(data_even_base + 9),
+        );
+        let b10 = decode_mfm_byte(
+            m.memory().read_chip_ram_byte(data_odd_base + 10),
+            m.memory().read_chip_ram_byte(data_even_base + 10),
+        );
+        let b11 = decode_mfm_byte(
+            m.memory().read_chip_ram_byte(data_odd_base + 11),
+            m.memory().read_chip_ram_byte(data_even_base + 11),
+        );
+        println!(
+            "    slot {slot:2} @${slot_base:06X}: fmt=${:02X} trk=${:3} sec=${:2} stg=${:2}  data[9..12]={b9:02X} {b10:02X} {b11:02X}",
+            info[0], info[1], info[2], info[3]
+        );
+    }
+
+    // Still scan chip RAM for backup — maybe trackdisk put decode_buf
+    // elsewhere for cylinders we're not currently on.
+    println!();
+    println!("Search chip RAM for OTHER decode-buf-like patterns...");
+    let mut decode_buf_candidates = Vec::new();
+    for base in (0x0000..0x080000u32).step_by(2) {
+        // Cheap screen first: look for $44894489 at base + 4.
+        let s0 = m.memory().read_chip_ram_byte(base + 4);
+        let s1 = m.memory().read_chip_ram_byte(base + 5);
+        let s2 = m.memory().read_chip_ram_byte(base + 6);
+        let s3 = m.memory().read_chip_ram_byte(base + 7);
+        if s0 != 0x44 || s1 != 0x89 || s2 != 0x44 || s3 != 0x89 {
+            continue;
+        }
+        // Second slot: sync at base + 1088 + 4 = base + 1092.
+        let t0 = m.memory().read_chip_ram_byte(base + 1092);
+        let t1 = m.memory().read_chip_ram_byte(base + 1093);
+        let t2 = m.memory().read_chip_ram_byte(base + 1094);
+        let t3 = m.memory().read_chip_ram_byte(base + 1095);
+        if t0 != 0x44 || t1 != 0x89 || t2 != 0x44 || t3 != 0x89 {
+            continue;
+        }
+        decode_buf_candidates.push(base);
+        if decode_buf_candidates.len() >= 5 {
+            break;
+        }
+    }
+    println!("  candidates: {decode_buf_candidates:X?}");
+    for buf_base in &decode_buf_candidates {
+        // Decode the info header of each slot to see which sector is
+        // in each position. If slot 2 really has sector 1, then
+        // sector 1's data extraction should give us what's in the
+        // bootblock — or reveal the corruption.
+        println!("  decode_buf @${buf_base:06X}:");
+        for slot in 0..11u32 {
+            let slot_base = buf_base + slot * 1088;
+            let odd = slot_base + 8;
+            let even = slot_base + 12;
+            let mut info = [0u8; 4];
+            for k in 0..4u32 {
+                let o = m.memory().read_chip_ram_byte(odd + k);
+                let e = m.memory().read_chip_ram_byte(even + k);
+                info[k as usize] = decode_mfm_byte(o, e);
+            }
+            // Decode data byte 9 from slot.
+            let data_odd = slot_base + 64 + 9;
+            let data_even = slot_base + 64 + 9 + 512;
+            let o = m.memory().read_chip_ram_byte(data_odd);
+            let e = m.memory().read_chip_ram_byte(data_even);
+            let byte9 = decode_mfm_byte(o, e);
+            println!(
+                "    slot {slot:2}: fmt=${:02X} trk=${:3} sec=${:2} stg=${:2}  \
+                 data[9]=${byte9:02X} (odd@${data_odd:06X}=${o:02X} \
+                 even@${data_even:06X}=${e:02X})",
+                info[0], info[1], info[2], info[3]
+            );
+        }
+    }
+
     // Feed the same chip-RAM buffer trackdisk sees through our own
     // `decode_mfm_track`. If our decoder recovers sector 1 correctly
     // but the KS trackdisk output in the bootblock buffer doesn't
@@ -589,4 +802,68 @@ fn wb13_boot_state_checkpoints() {
     println!(
         "   CIA-A ICR: status=${icr_status:02X} mask=${icr_mask:02X}"
     );
+    println!(
+        "   Blit starts (BLTSIZE writes): {}",
+        rt.machine().debug_blit_starts
+    );
+    // Look at all INTENA writes — see if BLIT (bit 6) ever gets enabled.
+    let intena_log = &rt.machine().debug_intena_log;
+    let blit_enables: Vec<_> = intena_log
+        .iter()
+        .filter(|(_, _, w, _, after)| (w & 0x8040) == 0x8040 && (after & 0x40) != 0)
+        .collect();
+    let blit_disables: Vec<_> = intena_log
+        .iter()
+        .filter(|(_, _, w, before, after)| {
+            (w & 0x0040) != 0 && (w & 0x8000) == 0 && (before & 0x40) != 0 && (after & 0x40) == 0
+        })
+        .collect();
+    println!(
+        "   INTENA BLIT-bit changes: enables={} disables={} total writes={}",
+        blit_enables.len(), blit_disables.len(), intena_log.len()
+    );
+    for (cck, pc, w, b, a) in blit_enables.iter().take(3) {
+        println!("     enable cck={cck:>9} pc=${pc:06X} w=${w:04X} b=${b:04X} a=${a:04X}");
+    }
+    println!(
+        "   Final intena=${:04X}, BLIT bit ({}): {}",
+        rt.machine().intena(),
+        if rt.machine().intena() & 0x40 != 0 { "set" } else { "CLEAR — gfx library never enabled BLITINT" },
+        if rt.machine().intena() & 0x40 != 0 { "✓" } else { "✗" }
+    );
+
+    // Show all blit logs that look like trackdisk's B→D copy
+    // (BLTCON0 = $05CC). Group by PC so we can spot the QBlit
+    // dispatcher (which calls the same blit setup repeatedly).
+    let log = &rt.machine().debug_blit_log;
+    for (label, want_c0) in [
+        ("$05CC trackdisk B→D copy", 0x05CCu16),
+        ("$1DB1 trackdisk MFM decode (A+B+D, shift 1)", 0x1DB1),
+        ("$2D8C trackdisk MFM decode (A+B+D, shift 2)", 0x2D8C),
+    ] {
+        let blits: Vec<_> = log
+            .iter()
+            .filter(|(_, _, c0, _, _, _, _, _, _)| *c0 == want_c0)
+            .collect();
+        println!("   Blits with BLTCON0={label}: {}", blits.len());
+        for (cck, pc, c0, c1, apt, bpt, _cpt, dpt, sz) in blits.iter().take(6) {
+            println!(
+                "     cck={cck:>9} pc=${pc:06X} c0=${c0:04X} c1=${c1:04X} apt=${apt:08X} bpt=${bpt:08X} dpt=${dpt:08X} size=${sz:04X}"
+            );
+        }
+        if blits.len() > 6 {
+            println!("     ... and {} more", blits.len() - 6);
+        }
+    }
+    // Also dump the unique BLTCON0 values seen across all blits.
+    let mut seen: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
+    for (_, _, c0, _, _, _, _, _, _) in log {
+        *seen.entry(*c0).or_insert(0) += 1;
+    }
+    let mut sorted: Vec<_> = seen.iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(a.1));
+    println!("   Unique BLTCON0 values (top 10):");
+    for (c0, count) in sorted.iter().take(10) {
+        println!("     ${c0:04X}: {count} times");
+    }
 }
