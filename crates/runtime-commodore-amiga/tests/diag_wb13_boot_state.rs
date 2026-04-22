@@ -82,6 +82,27 @@ fn wb13_boot_state_checkpoints() {
     const TD_CKSUM_MISMATCH: u32 = 0x00FE_ACFA;
     const TD_FMT_MISMATCH:   u32 = 0x00FE_AD10;
     const TD_TRK_MISMATCH:   u32 = 0x00FE_AD1C;
+    // graphics.library Init entry, found by walking ROM resident
+    // table — graphics.library resident @ $FC53E4, init at $FCABA2.
+    // If this PC is never sampled, gfx library was never initialized
+    // → no QBlit dispatcher, no BLITINT setup, etc.
+    const GFX_LIB_INIT: u32 = 0x00FC_ABA2;
+    // Six PCs in the gfx library code area that contain
+    // `move.w #$8040, $DFF09A.l` (= SET INTEN + INT_BLIT). If any
+    // of these is hit, gfx tried to enable BLITINT.
+    const GFX_BLIT_ENABLE_1: u32 = 0x00FC_5916;
+    const GFX_BLIT_ENABLE_2: u32 = 0x00FC_5984;
+    const GFX_BLIT_ENABLE_3: u32 = 0x00FC_641E;
+    const GFX_BLIT_ENABLE_4: u32 = 0x00FC_6508;
+    const GFX_BLIT_ENABLE_5: u32 = 0x00FC_6DE8;
+    const GFX_BLIT_ENABLE_6: u32 = 0x00FC_6F18;
+    // trackdisk decode-and-copy for READ — called once per sector
+    // after successful validation. (CMD_WRITE goes through $FEA7CA
+    // / $FEA81E — those are the WRITE side. CMD_READ uses these.)
+    const TD_READ_DECODE_CALL: u32 = 0x00FE_A552;  // bsr.w $FEA932
+    const TD_READ_DECODE_ENTRY: u32 = 0x00FE_A932; // entry point
+    const TD_READ_DECODE_CB:    u32 = 0x00FE_A970; // QBlit callback
+    const TD_READ_BLT0_WRITE:   u32 = 0x00FE_A996; // BLTCON0=$1DD8 write
     let strap_points = [
         (STRAP_POST_CMD_READ, "post-CMD_READ"),
         (STRAP_DOS_MAGIC_OK, "DOS-magic-OK"),
@@ -90,8 +111,19 @@ fn wb13_boot_state_checkpoints() {
         (TD_CKSUM_MISMATCH, "td $1B cksum-mismatch (BNE.W taken)"),
         (TD_FMT_MISMATCH,   "td $1B fmt!=$FF (BNE.W taken)"),
         (TD_TRK_MISMATCH,   "td $1B track-mismatch (BNE.W taken)"),
+        (GFX_LIB_INIT,      "graphics.library Init entry"),
+        (GFX_BLIT_ENABLE_1, "gfx SET BLITINT @ $FC5916"),
+        (GFX_BLIT_ENABLE_2, "gfx SET BLITINT @ $FC5984"),
+        (GFX_BLIT_ENABLE_3, "gfx SET BLITINT @ $FC641E"),
+        (GFX_BLIT_ENABLE_4, "gfx SET BLITINT @ $FC6508"),
+        (GFX_BLIT_ENABLE_5, "gfx SET BLITINT @ $FC6DE8"),
+        (GFX_BLIT_ENABLE_6, "gfx SET BLITINT @ $FC6F18"),
+        (TD_READ_DECODE_CALL,  "td READ-decode call site $FEA552"),
+        (TD_READ_DECODE_ENTRY, "td READ-decode entry $FEA932"),
+        (TD_READ_DECODE_CB,    "td READ-decode QBlit callback $FEA970"),
+        (TD_READ_BLT0_WRITE,   "td READ-decode BLTCON0=$1DD8 $FEA996"),
     ];
-    let mut strap_hits = [0u64; 7];
+    let mut strap_hits = [0u64; 18];
 
     // Phase A probe 2 — any PC in the bootblock / chip-RAM code
     // range. The decoded bootblock lands in the low 32 KB of chip
@@ -1025,8 +1057,9 @@ fn wb13_boot_state_checkpoints() {
     let log = &rt.machine().debug_blit_log;
     for (label, want_c0) in [
         ("$05CC trackdisk B→D copy", 0x05CCu16),
-        ("$1DB1 trackdisk MFM decode (A+B+D, shift 1)", 0x1DB1),
-        ("$2D8C trackdisk MFM decode (A+B+D, shift 2)", 0x2D8C),
+        ("$1DD8 trackdisk READ MFM decode", 0x1DD8u16),
+        ("$1DB1 trackdisk WRITE MFM decode", 0x1DB1),
+        ("$2D8C trackdisk MFM decode (alt shift)", 0x2D8C),
     ] {
         let blits: Vec<_> = log
             .iter()
