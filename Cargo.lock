@@ -427,7 +427,6 @@ dependencies = [
 name = "common-sinclair-zx-spectrum"
 version = "0.1.0"
 dependencies = [
- "emu198x-shell",
  "format-sinclair-zx-spectrum-z80",
  "gi-ay-3-8912",
  "serde",

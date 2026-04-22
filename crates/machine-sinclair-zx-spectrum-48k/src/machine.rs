@@ -15,7 +15,7 @@ use emu198x_shell::InputEvent;
 use ferranti_ula_6c001e::{BoardIssue, FerrantiUla};
 use zilog_z80::Z80;
 
-use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
+use common_sinclair_zx_spectrum::keyboard::{KeyboardMatrix, SpectrumKey};
 use crate::port::TapeInput;
 
 const AUDIO_SAMPLE_RATE: u32 = 44_100;
@@ -198,9 +198,19 @@ impl Spectrum48k {
 
     /// Applies one host input event to the keyboard matrix.
     ///
-    /// Returns `true` when the event maps to a physical key.
+    /// Returns `true` when the event maps to a physical key. The
+    /// host-boundary `InputEvent` type stays here in the machine crate
+    /// rather than in `common-sinclair-zx-spectrum`, so the shared
+    /// hardware crate keeps its dep graph free of `emu198x-shell`.
     pub fn apply_input_event(&mut self, event: &InputEvent) -> bool {
-        self.keyboard.apply_input_event(event)
+        let InputEvent::Key { name, pressed } = event else {
+            return false;
+        };
+        let Some(key) = SpectrumKey::from_name(name.as_ref()) else {
+            return false;
+        };
+        self.keyboard.set_key(key, *pressed);
+        true
     }
 
     /// Returns the current tape input line state.

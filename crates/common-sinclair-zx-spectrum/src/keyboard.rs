@@ -5,10 +5,12 @@
 //! active-low matrix laid out in eight half-rows. This module owns that shared
 //! encoding plus the stable key-name / alias mapping used by host input.
 //!
+//! Host-boundary input (emu198x-shell's `InputEvent`) is interpreted in the
+//! runtime layer, not here — this crate stays free of host-facing types so
+//! it can keep its dep graph hardware-only.
+//!
 //! Source references:
 //! - `docs/platforms/sinclair-zx-spectrum/language/ZX-SPECTRUM-MEMORY-AND-GRAPHICS-REFERENCE.md`
-
-use emu198x_shell::InputEvent;
 
 const RELEASED_ROW: u8 = 0xff;
 const ROW_MASK: u8 = 0x1f;
@@ -223,22 +225,6 @@ impl KeyboardMatrix {
 
         keys
     }
-
-    /// Applies one host input event to the matrix.
-    ///
-    /// Returns `true` when the event maps to a physical Spectrum key.
-    pub fn apply_input_event(&mut self, event: &InputEvent) -> bool {
-        match event {
-            InputEvent::Key { name, pressed } => {
-                let Some(key) = SpectrumKey::from_name(name.as_ref()) else {
-                    return false;
-                };
-                self.set_key(key, *pressed);
-                true
-            }
-            _ => false,
-        }
-    }
 }
 
 impl Default for KeyboardMatrix {
@@ -292,36 +278,4 @@ mod tests {
         assert_eq!(keyboard.scan_port(0xfafe), 0x1c);
     }
 
-    #[test]
-    fn host_key_events_update_matrix() {
-        let mut keyboard = KeyboardMatrix::new();
-
-        let pressed = InputEvent::Key {
-            name: "space".into(),
-            pressed: true,
-        };
-        let released = InputEvent::Key {
-            name: "space".into(),
-            pressed: false,
-        };
-
-        assert!(keyboard.apply_input_event(&pressed));
-        assert_eq!(keyboard.rows()[7] & 0x01, 0x00);
-
-        assert!(keyboard.apply_input_event(&released));
-        assert_eq!(keyboard.rows()[7] & 0x01, 0x01);
-    }
-
-    #[test]
-    fn non_key_events_are_not_handled() {
-        let mut keyboard = KeyboardMatrix::new();
-        let event = InputEvent::Button {
-            port: 0,
-            name: "fire".into(),
-            pressed: true,
-        };
-
-        assert!(!keyboard.apply_input_event(&event));
-        assert_eq!(keyboard.rows(), &[0xff; 8]);
-    }
 }

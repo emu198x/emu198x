@@ -13,7 +13,7 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
     PixelFormat, ResetKind, RunResult, StopReason,
 };
-use machine_sinclair_zx_spectrum_48k::KeyboardMatrix;
+use common_sinclair_zx_spectrum::keyboard::{KeyboardMatrix, SpectrumKey};
 use serde::{Deserialize, Serialize};
 
 use crate::{Model, profile_for};
@@ -220,8 +220,10 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
         for event in host.input_events {
-            if let InputEvent::Key { .. } = event {
-                self.keyboard.apply_input_event(event);
+            if let InputEvent::Key { name, pressed } = event {
+                if let Some(key) = SpectrumKey::from_name(name.as_ref()) {
+                    self.keyboard.set_key(key, *pressed);
+                }
             }
         }
         self.machine.set_keyboard_rows(self.keyboard.rows());
