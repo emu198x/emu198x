@@ -1,0 +1,14 @@
+[package]
+name = "machine-sinclair-zx-spectrum-128k"
+description = "ZX Spectrum 128K / +2 machine — Z80, Sinclair 7K010E ULA, 128K paged RAM, AY chip"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+sinclair-ula-7k010e = { path = "../sinclair-ula-7k010e" }
+zilog-z80 = { path = "../zilog-z80" }

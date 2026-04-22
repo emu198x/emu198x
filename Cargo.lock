@@ -896,6 +896,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "gi-ay-3-8912"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "gl_generator"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1294,6 +1301,18 @@ dependencies = [
  "mos-6502",
  "ricoh-apu-2a03",
  "ricoh-ppu-2c02",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-128k"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "gi-ay-3-8912",
+ "serde",
+ "serde-big-array",
+ "sinclair-ula-7k010e",
+ "zilog-z80",
 ]
 
 [[package]]
@@ -2342,6 +2361,14 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "sinclair-ula-7k010e"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "serde",
+]
 
 [[package]]
 name = "slab"

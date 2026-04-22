@@ -23,6 +23,24 @@ pub const LINES_PER_FRAME_48K: u32 = 312;
 /// Total T-states per frame.
 pub const TSTATES_PER_FRAME_48K: u32 = TSTATES_PER_LINE_48K * LINES_PER_FRAME_48K;
 
+/// Master crystal frequency in Hz for the 128K / +2 PAL machine.
+///
+/// This is 4× the PAL colour subcarrier (4.43361875 MHz × 4) and produces
+/// a CPU clock of 3.546895 MHz after divide-by-5.
+pub const MASTER_HZ_128K: u64 = 17_734_475;
+
+/// CPU clock frequency in Hz for the 128K / +2 PAL machine.
+pub const CPU_HZ_128K: u64 = MASTER_HZ_128K / 5;
+
+/// T-states per scanline on the 128K / +2.
+pub const TSTATES_PER_LINE_128K: u32 = 228;
+
+/// Total scanlines per frame on the 128K / +2.
+pub const LINES_PER_FRAME_128K: u32 = 311;
+
+/// Total T-states per frame on the 128K / +2.
+pub const TSTATES_PER_FRAME_128K: u32 = TSTATES_PER_LINE_128K * LINES_PER_FRAME_128K;
+
 /// Visible framebuffer width including border.
 pub const SCREEN_WIDTH_48K: usize = 352;
 
@@ -113,6 +131,35 @@ pub const TIMING_48K: FrameTiming = FrameTiming {
     interrupt_length_tstates: 32,
 };
 
+/// ZX Spectrum 128K / +2 (Sinclair 7K010E ULA, PAL).
+///
+/// Same contention delay pattern as the 48K but with phase offset 1 (the
+/// pattern starts one T-state later in the line) and a wider line at
+/// 228 T-states. Contention starts at T-state 14_361 instead of 14_335.
+pub const TIMING_128K: FrameTiming = FrameTiming {
+    master_hz: MASTER_HZ_128K,
+    cpu_divisor: 5,
+    tstates_per_line: TSTATES_PER_LINE_128K,
+    halfcycles_per_line: TSTATES_PER_LINE_128K * 5,
+    lines_per_frame: LINES_PER_FRAME_128K,
+    halfcycles_per_frame: TSTATES_PER_LINE_128K * 5 * LINES_PER_FRAME_128K,
+    tstates_per_frame: TSTATES_PER_FRAME_128K,
+    first_border_line: 7,
+    first_screen_line: 63,
+    last_screen_line: 255,
+    last_border_line: 303,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 14_361,
+    contention_pattern: CONTENTION_PATTERN_48K,
+    contention_phase: 1,
+    contention_tstates_per_line: 128,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 32,
+};
+
 impl FrameTiming {
     /// Converts a T-state count to half-cycles.
     #[must_use]
@@ -152,6 +199,15 @@ mod tests {
         assert_eq!(SCREEN_WIDTH_48K, 352);
         assert_eq!(SCREEN_HEIGHT_48K, 296);
         assert_eq!(TIMING_48K.halfcycles_per_frame, 279_552);
+    }
+
+    #[test]
+    fn frame_dimensions_match_documented_values_128k() {
+        assert_eq!(TSTATES_PER_FRAME_128K, 70_908);
+        assert_eq!(CPU_HZ_128K, 3_546_895);
+        assert_eq!(TIMING_128K.halfcycles_per_frame, 354_540);
+        assert_eq!(TIMING_128K.contention_start_tstate, 14_361);
+        assert_eq!(TIMING_128K.contention_phase, 1);
     }
 
     #[test]
