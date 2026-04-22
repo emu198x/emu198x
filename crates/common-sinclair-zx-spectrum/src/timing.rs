@@ -131,6 +131,11 @@ pub const TIMING_48K: FrameTiming = FrameTiming {
     interrupt_length_tstates: 32,
 };
 
+/// Per-8-T-state contention delay pattern for the Amstrad 40077 gate
+/// array (+2A/+2B/+3). Completely different from the Sinclair 6-step
+/// ramp.
+pub const CONTENTION_PATTERN_PLUS2A: [u8; 8] = [1, 0, 7, 6, 5, 4, 3, 2];
+
 /// ZX Spectrum 128K / +2 (Sinclair 7K010E ULA, PAL).
 ///
 /// Same contention delay pattern as the 48K but with phase offset 1 (the
@@ -155,6 +160,36 @@ pub const TIMING_128K: FrameTiming = FrameTiming {
     contention_start_tstate: 14_361,
     contention_pattern: CONTENTION_PATTERN_48K,
     contention_phase: 1,
+    contention_tstates_per_line: 128,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 32,
+};
+
+/// ZX Spectrum +2A / +2B / +3 (Amstrad 40077 gate array, PAL).
+///
+/// Shares the 128K's clock and line layout but uses a completely
+/// different contention pattern (`[1, 0, 7, 6, 5, 4, 3, 2]`) and has
+/// no I/O contention or internal-op contention — the gate array is
+/// MREQ-only.
+pub const TIMING_PLUS2A: FrameTiming = FrameTiming {
+    master_hz: MASTER_HZ_128K,
+    cpu_divisor: 5,
+    tstates_per_line: TSTATES_PER_LINE_128K,
+    halfcycles_per_line: TSTATES_PER_LINE_128K * 5,
+    lines_per_frame: LINES_PER_FRAME_128K,
+    halfcycles_per_frame: TSTATES_PER_LINE_128K * 5 * LINES_PER_FRAME_128K,
+    tstates_per_frame: TSTATES_PER_FRAME_128K,
+    first_border_line: 7,
+    first_screen_line: 63,
+    last_screen_line: 255,
+    last_border_line: 303,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 14_361,
+    contention_pattern: CONTENTION_PATTERN_PLUS2A,
+    contention_phase: 0,
     contention_tstates_per_line: 128,
     interrupt_start_tstate: 0,
     interrupt_length_tstates: 32,

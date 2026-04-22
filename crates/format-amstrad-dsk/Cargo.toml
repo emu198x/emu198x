@@ -1,0 +1,9 @@
+[package]
+name = "format-amstrad-dsk"
+description = "DSK and EDSK floppy image parser — used by the Amstrad CPC and ZX Spectrum +3"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+nec-upd765a = { path = "../nec-upd765a" }

@@ -75,6 +75,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "amstrad-ula-40077"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
 name = "android-activity"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -790,6 +798,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
+name = "format-amstrad-dsk"
+version = "0.1.0"
+dependencies = [
+ "nec-upd765a",
+]
+
+[[package]]
 name = "format-commodore-amiga-adf"
 version = "0.1.0"
 
@@ -1327,6 +1342,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-sinclair-zx-spectrum-plus"
+version = "0.1.0"
+dependencies = [
+ "amstrad-ula-40077",
+ "common-sinclair-zx-spectrum",
+ "gi-ay-3-8912",
+ "nec-upd765a",
+ "serde",
+ "serde-big-array",
+ "zilog-z80",
+]
+
+[[package]]
 name = "malloc_buf"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1501,6 +1529,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
 dependencies = [
  "jni-sys 0.3.1",
+]
+
+[[package]]
+name = "nec-upd765a"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "serde",
 ]
 
 [[package]]

@@ -1,0 +1,15 @@
+[package]
+name = "machine-sinclair-zx-spectrum-plus"
+description = "Sinclair ZX Spectrum +2A/+2B/+3 machine — Z80, Amstrad 40077 gate array, extended paging, AY chip, +3 NEC µPD765A floppy"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+amstrad-ula-40077 = { path = "../amstrad-ula-40077" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
+nec-upd765a = { path = "../nec-upd765a" }
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+zilog-z80 = { path = "../zilog-z80" }

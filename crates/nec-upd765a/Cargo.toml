@@ -1,0 +1,10 @@
+[package]
+name = "nec-upd765a"
+description = "NEC µPD765A floppy disk controller — used in the ZX Spectrum +3"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+serde = { workspace = true }

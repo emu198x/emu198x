@@ -1,0 +1,10 @@
+[package]
+name = "amstrad-ula-40077"
+description = "Amstrad 40077 gate array — the +2A/+2B/+3 ZX Spectrum's custom chip"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
