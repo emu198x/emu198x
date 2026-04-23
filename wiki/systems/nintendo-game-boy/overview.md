@@ -71,8 +71,15 @@ characterise → port-with-tests → integrate.
 4. `nintendo-game-boy-apu` — 4-channel mixer. Port `apu.zig`
    (783 LOC). Frame sequencer, length counters, envelopes,
    sweep, wave RAM, noise LFSR.
-5. `nintendo-game-boy-timer` — DIV / TIMA / TMA / TAC. Port
-   `timer.zig` (138 LOC).
+5. **`nintendo-game-boy-timer`** — done. 16-bit free-running
+   counter ticked at the master clock rate; DIV is the high byte,
+   TIMA increments on the falling edge of `(timer_enable AND
+   selected_counter_bit)`. Both the DIV-write and TAC-write
+   falling-edge glitches are modelled. Overflow latches a strobe
+   the machine OR's into `IF` bit 2. The 1-m-cycle reload delay
+   that mooneye-gb's `tima_reload` family verifies is deferred
+   (matching the Zig source's TODO) until the rest of the machine
+   layer exists. 17 unit tests passing.
 6. `nintendo-game-boy-mbc` — MBC1 / MBC3 / MBC5 first. Others
    as demand surfaces from tests.
 7. `format-nintendo-game-boy-cartridge` — header parse
