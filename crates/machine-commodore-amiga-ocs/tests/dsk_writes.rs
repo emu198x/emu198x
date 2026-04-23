@@ -82,7 +82,7 @@ fn run(label: &str, mut amiga: AmigaOcs, frames: u64) {
         }
     );
     let show: Vec<_> = if show_all {
-        log.iter().copied().collect()
+        log.to_vec()
     } else {
         log.iter()
             .take(30)

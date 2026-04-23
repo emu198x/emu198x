@@ -119,7 +119,7 @@ fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
         eprintln!("skipping: missing {}", path.display());
         return None;
     }
-    Some(std::fs::read(path).ok()?)
+    std::fs::read(path).ok()
 }
 
 fn read_long(amiga: &AmigaOcs, addr: u32) -> u32 {
@@ -383,7 +383,7 @@ fn run_unit44_watch_pass(rom: &[u8], adf_bytes: &[u8]) -> Unit44PassResult {
     let mut pointer_timeline = Vec::new();
     let mut later_block_ptr = 0u32;
 
-    for _ in 0..(350u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(350u64 * PAL_FRAME_TICKS) {
         amiga.tick();
         tick += 1;
 
@@ -472,7 +472,7 @@ fn run_later_request_origin_pass(
     let mut last_req = read_iostdreq_if(&amiga, later_block_ptr);
     let mut events = Vec::new();
 
-    for _ in 0..(350u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(350u64 * PAL_FRAME_TICKS) {
         amiga.tick();
         tick += 1;
 
@@ -560,7 +560,7 @@ fn run_later_block_field_watch_pass(
         "cck=0 initial block=${later_block_ptr:08X} +$20=${last_20:08X} +$24=${last_24:08X}"
     ));
 
-    for _ in 0..(350u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(350u64 * PAL_FRAME_TICKS) {
         amiga.tick();
         tick += 1;
 
@@ -637,7 +637,7 @@ fn trace_wb13_cmd_read_request_and_loop_state() {
     let mut decode_blits = Vec::new();
     let mut validation_fails = Vec::new();
 
-    for _ in 0..(350u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(350u64 * PAL_FRAME_TICKS) {
         amiga.tick();
         tick += 1;
 
@@ -647,7 +647,7 @@ fn trace_wb13_cmd_read_request_and_loop_state() {
             continue;
         }
 
-        let frame = tick / PAL_FRAME_TICKS as u64;
+        let frame = tick / PAL_FRAME_TICKS;
         let cck = tick / 2;
 
         if let Some(mut pending) = pending_exit {

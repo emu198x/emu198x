@@ -627,15 +627,16 @@ mod tests {
     #[test]
     fn dma_word_read_updates_floating_bus() {
         // read_chip_ram_word represents Agnus DMA fetches (Denise /
-        // Copper). It bypasses OVL and leaves the fetched word on
-        // the bus so subsequent unmapped CPU reads see that value.
+        // Copper). It bypasses OVL and leaves the fetched word in the
+        // tracked last-bus state, but absent devices still read back
+        // as open bus ($FFFF) rather than residual data.
         let mut mem = Memory::new(test_rom());
         mem.set_overlay(false);
         mem.write_word(0x0000_0200, 0xCAFE);
         let word = mem.read_chip_ram_word(0x0000_0200);
         assert_eq!(word, 0xCAFE);
         assert_eq!(mem.last_bus_value(), 0xCAFE);
-        assert_eq!(mem.read_word(0x00A0_0000), 0xCAFE);
+        assert_eq!(mem.read_word(0x00A0_0000), 0xFFFF);
     }
 
     #[test]

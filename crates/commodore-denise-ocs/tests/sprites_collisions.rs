@@ -335,7 +335,7 @@ fn clxcon_disables_bitplane_match_per_plane() {
     // the plane bits don't match the MVBP value.
     let mut d = DeniseOcs::new();
     d.bplcon0 = 0x2000;
-    d.clxcon = (1 << 7) | 0 /* ENBP1 clear */; // MVBP1/MVBP2=0
+    d.clxcon = 1 << 7; // ENBP1 clear, MVBP1/MVBP2=0
 
     d.begin_beam_line();
     d.bpl_data[0] = 0x8000; // plane 0 set

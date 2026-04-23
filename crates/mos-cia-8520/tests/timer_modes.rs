@@ -223,7 +223,6 @@ fn load_strobe_while_running_reloads_without_stopping() {
     );
     assert!(cia.timer_a_running(), "still running");
 }
-#[test]
 // ────────────────────────────────────────────────────────────────
 // Timer A — CNT source (CRA bit 5 = 1)
 // ────────────────────────────────────────────────────────────────

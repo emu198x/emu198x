@@ -211,8 +211,14 @@ fn intena_write_log_captures_every_write_and_rings_at_16() {
     }
     let log = p.debug_intena_writes();
     assert_eq!(log.len(), 16);
-    assert_eq!(*log.front().unwrap(), INT_SETCLR | 4);
-    assert_eq!(*log.back().unwrap(), INT_SETCLR | 19);
+    assert_eq!(
+        *log.front().expect("ring buffer should keep the oldest retained write"),
+        INT_SETCLR | 4
+    );
+    assert_eq!(
+        *log.back().expect("ring buffer should keep the newest retained write"),
+        INT_SETCLR | 19
+    );
 }
 
 #[test]

@@ -18,7 +18,6 @@
 
 use mos_cia_8520::Cia8520;
 
-const CRA: u8 = 0x0E;
 const CRB: u8 = 0x0F;
 const TODLO: u8 = 0x08;
 const TODMID: u8 = 0x09;

@@ -28,7 +28,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use commodore_agnus_ocs::{Agnus, BlitterDmaOp};
+use commodore_agnus_ocs::Agnus;
 
 // ────────────────────────────────────────────────────────────────
 // Test scaffolding

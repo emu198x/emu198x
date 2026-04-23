@@ -978,7 +978,7 @@ mod tests {
         // fires on trailing edge, so one bit per 2 Φ2 ticks → 16 ticks
         // for a full byte.
         let mut via = Via6522::new();
-        via.write(0x0B, 0b000_110_00); // ACR SR = 110, rest zero
+        via.write(0x0B, 0b0001_1000); // ACR SR = 110, rest zero
         via.write(0x0A, 0b1010_0101); // $A5 — pattern to verify MSB-first
         // Collect CB2 on each trailing-edge shift.
         let mut observed: Vec<bool> = Vec::new();
@@ -1003,7 +1003,7 @@ mod tests {
     #[test]
     fn sr_disabled_mode_clears_ifr_and_does_not_shift() {
         let mut via = Via6522::new();
-        via.write(0x0B, 0b000_110_00); // start in shift-out Φ2 mode
+        via.write(0x0B, 0b0001_1000); // start in shift-out Φ2 mode
         via.write(0x0A, 0xFF);
         // Advance a few ticks, forcing the first shift to raise IFR.
         for _ in 0..20 {
@@ -1012,7 +1012,7 @@ mod tests {
         assert_ne!(via.ifr & IRQ_SR, 0);
 
         // Disable: ACR SR = 000. Note 6 says IFR_SR must clear.
-        via.write(0x0B, 0b000_000_00);
+        via.write(0x0B, 0b0000_0000);
         assert_eq!(via.ifr & IRQ_SR, 0);
 
         // Writing/reading SR in disabled mode must not start shifting.
@@ -1031,7 +1031,7 @@ mod tests {
         // shift register contains those bits with the first-arrived bit
         // in the MSB.
         let mut via = Via6522::new();
-        via.write(0x0B, 0b000_011_00);
+        via.write(0x0B, 0b0000_1100);
         via.write(0x0A, 0x00); // start fresh; triggers sr_active
 
         let data_bits = [true, false, true, false, true, false, true, false];
