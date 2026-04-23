@@ -15,8 +15,8 @@ use emu198x_shell::InputEvent;
 use ferranti_ula_6c001e::{BoardIssue, FerrantiUla};
 use zilog_z80::Z80;
 
-use common_sinclair_zx_spectrum::keyboard::{KeyboardMatrix, SpectrumKey};
 use crate::port::TapeInput;
+use common_sinclair_zx_spectrum::keyboard::{KeyboardMatrix, SpectrumKey};
 
 const AUDIO_SAMPLE_RATE: u32 = 44_100;
 
@@ -388,7 +388,6 @@ impl Spectrum48k {
                 .set_level(self.current_tstate(), self.speaker.level());
         }
     }
-
 }
 
 impl SpectrumDriver for Spectrum48k {

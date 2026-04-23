@@ -1179,7 +1179,9 @@ impl M6502 {
             .set_flag(FLAG_V, ((!(a ^ inv) & (a ^ bin)) & 0x80) != 0);
 
         // Decimal correction for the result byte + carry.
-        let mut lo = (a & 0x0F).wrapping_sub(data & 0x0F).wrapping_sub(1 - carry_in) as i8;
+        let mut lo = (a & 0x0F)
+            .wrapping_sub(data & 0x0F)
+            .wrapping_sub(1 - carry_in) as i8;
         let mut hi = ((a >> 4) as i8).wrapping_sub((data >> 4) as i8);
         if lo < 0 {
             lo += 10;

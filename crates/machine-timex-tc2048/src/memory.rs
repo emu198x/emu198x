@@ -1,5 +1,5 @@
-use serde_big_array::BigArray;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use serde_big_array::BigArray;
 use std::path::Path;
 
 /// Timex TC2048 memory: 16K ROM + 48K RAM.

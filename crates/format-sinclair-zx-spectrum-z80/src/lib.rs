@@ -2,7 +2,6 @@
 ///
 /// Both formats produce the same `Z80Snapshot` struct, which the machine
 /// crate uses to restore state.
-
 pub mod sna;
 
 /// .z80 snapshot format parser.
@@ -116,8 +115,23 @@ pub fn parse_z80(data: &[u8]) -> Result<Z80Snapshot, String> {
         ];
 
         return Ok(Z80Snapshot {
-            af, bc, de, hl, af_alt, bc_alt, de_alt, hl_alt,
-            ix, iy, sp, pc: pc_v1, i, r, im, iff1, iff2,
+            af,
+            bc,
+            de,
+            hl,
+            af_alt,
+            bc_alt,
+            de_alt,
+            hl_alt,
+            ix,
+            iy,
+            sp,
+            pc: pc_v1,
+            i,
+            r,
+            im,
+            iff1,
+            iff2,
             border,
             model: SnapshotModel::Spectrum48K,
             port_7ffd: 0,
@@ -153,17 +167,17 @@ pub fn parse_z80(data: &[u8]) -> Result<Z80Snapshot, String> {
     let model = match (ext_len, hw_mode) {
         (23, 0) | (54.., 0) => SnapshotModel::Spectrum48K,
         (23, 1) | (54.., 1) => SnapshotModel::Spectrum48K, // 48K + IF1
-        (23, 2) => SnapshotModel::Spectrum48K, // SamRam (treat as 48K)
+        (23, 2) => SnapshotModel::Spectrum48K,             // SamRam (treat as 48K)
         (23, 3) | (54.., 3) => SnapshotModel::Spectrum128K,
         (23, 4) | (54.., 4) => SnapshotModel::Spectrum128K, // 128K + IF1
-        (54.., 5) => SnapshotModel::Spectrum128K, // +2
+        (54.., 5) => SnapshotModel::Spectrum128K,           // +2
         (54.., 6) => SnapshotModel::SpectrumPlus2A,
         (54.., 7) => SnapshotModel::SpectrumPlus2A, // +2A
         (54.., 9) => SnapshotModel::Pentagon128,
         (54.., 10) => SnapshotModel::Scorpion256,
-        (54.., 12) => SnapshotModel::SpectrumPlus2, // +2
+        (54.., 12) => SnapshotModel::SpectrumPlus2,  // +2
         (54.., 13) => SnapshotModel::SpectrumPlus2A, // +2A
-        _ => SnapshotModel::Spectrum48K, // Default fallback
+        _ => SnapshotModel::Spectrum48K,             // Default fallback
     };
 
     // Parse memory pages
@@ -193,8 +207,23 @@ pub fn parse_z80(data: &[u8]) -> Result<Z80Snapshot, String> {
     }
 
     Ok(Z80Snapshot {
-        af, bc, de, hl, af_alt, bc_alt, de_alt, hl_alt,
-        ix, iy, sp, pc, i, r, im, iff1, iff2,
+        af,
+        bc,
+        de,
+        hl,
+        af_alt,
+        bc_alt,
+        de_alt,
+        hl_alt,
+        ix,
+        iy,
+        sp,
+        pc,
+        i,
+        r,
+        im,
+        iff1,
+        iff2,
         border,
         model,
         port_7ffd,
@@ -211,8 +240,11 @@ fn decompress_v1(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut i = 0;
 
     while i < data.len() && out.len() < 49152 {
-        if i + 3 < data.len() && data[i] == 0x00 && data[i + 1] == 0xED
-            && data[i + 2] == 0xED && data[i + 3] == 0x00
+        if i + 3 < data.len()
+            && data[i] == 0x00
+            && data[i + 1] == 0xED
+            && data[i + 2] == 0xED
+            && data[i + 3] == 0x00
         {
             break; // End marker
         }

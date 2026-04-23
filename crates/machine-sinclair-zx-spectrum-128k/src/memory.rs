@@ -137,12 +137,8 @@ impl MemoryBus for Memory128K {
                 let rom = self.current_rom() as usize;
                 self.rom[rom][addr as usize]
             }
-            0x4000..=0x7FFF => {
-                self.ram[5][(addr - 0x4000) as usize]
-            }
-            0x8000..=0xBFFF => {
-                self.ram[2][(addr - 0x8000) as usize]
-            }
+            0x4000..=0x7FFF => self.ram[5][(addr - 0x4000) as usize],
+            0x8000..=0xBFFF => self.ram[2][(addr - 0x8000) as usize],
             0xC000..=0xFFFF => {
                 let bank = self.current_bank() as usize;
                 self.ram[bank][(addr - 0xC000) as usize]

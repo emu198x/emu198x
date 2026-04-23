@@ -7,13 +7,15 @@
 ///
 /// The 48K format stores PC on the stack (SP points to it). The loader
 /// must pop it to get the real PC and adjust SP += 2.
-
 use super::{SnapshotModel, Z80Snapshot};
 
 /// Parse a .SNA file.
 pub fn parse_sna(data: &[u8]) -> Result<Z80Snapshot, String> {
     if data.len() < 49179 {
-        return Err(format!(".SNA too short: {} bytes (need at least 49179)", data.len()));
+        return Err(format!(
+            ".SNA too short: {} bytes (need at least 49179)",
+            data.len()
+        ));
     }
 
     let i = data[0];
@@ -47,8 +49,8 @@ pub fn parse_sna(data: &[u8]) -> Result<Z80Snapshot, String> {
 
         // Build pages: the first 48K gives us banks 5, 2, and current_bank
         let mut pages = Vec::new();
-        pages.push((8, ram[..16384].to_vec()));       // page 8 = bank 5 ($4000)
-        pages.push((5, ram[16384..32768].to_vec()));   // page 5 = bank 2 ($8000)
+        pages.push((8, ram[..16384].to_vec())); // page 8 = bank 5 ($4000)
+        pages.push((5, ram[16384..32768].to_vec())); // page 5 = bank 2 ($8000)
         pages.push(((current_bank as u8) + 3, ram[32768..49152].to_vec())); // current bank
 
         // Remaining 5 banks follow (all except 5, 2, and current_bank)
@@ -66,8 +68,21 @@ pub fn parse_sna(data: &[u8]) -> Result<Z80Snapshot, String> {
 
         // AY registers: not stored in .SNA format
         Ok(Z80Snapshot {
-            af, bc, de, hl, af_alt, bc_alt, de_alt, hl_alt,
-            ix, iy, sp, pc, i, r, im,
+            af,
+            bc,
+            de,
+            hl,
+            af_alt,
+            bc_alt,
+            de_alt,
+            hl_alt,
+            ix,
+            iy,
+            sp,
+            pc,
+            i,
+            r,
+            im,
             iff1: iff2, // .SNA only stores IFF2
             iff2,
             border,
@@ -86,14 +101,27 @@ pub fn parse_sna(data: &[u8]) -> Result<Z80Snapshot, String> {
         sp = sp.wrapping_add(2);
 
         let pages = vec![
-            (8, ram[..16384].to_vec()),        // $4000-$7FFF
-            (4, ram[16384..32768].to_vec()),    // $8000-$BFFF
-            (5, ram[32768..49152].to_vec()),    // $C000-$FFFF
+            (8, ram[..16384].to_vec()),      // $4000-$7FFF
+            (4, ram[16384..32768].to_vec()), // $8000-$BFFF
+            (5, ram[32768..49152].to_vec()), // $C000-$FFFF
         ];
 
         Ok(Z80Snapshot {
-            af, bc, de, hl, af_alt, bc_alt, de_alt, hl_alt,
-            ix, iy, sp, pc, i, r, im,
+            af,
+            bc,
+            de,
+            hl,
+            af_alt,
+            bc_alt,
+            de_alt,
+            hl_alt,
+            ix,
+            iy,
+            sp,
+            pc,
+            i,
+            r,
+            im,
             iff1: iff2,
             iff2,
             border,

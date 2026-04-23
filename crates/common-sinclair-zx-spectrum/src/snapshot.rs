@@ -186,10 +186,22 @@ mod tests {
 
     #[test]
     fn snapshot_bank_target_maps_pages_correctly() {
-        assert_eq!(SnapshotBankTarget::for_page(8), Some(SnapshotBankTarget::Bank5At4000));
-        assert_eq!(SnapshotBankTarget::for_page(5), Some(SnapshotBankTarget::Bank2At8000));
-        assert_eq!(SnapshotBankTarget::for_page(3), Some(SnapshotBankTarget::BankedAtC000(0)));
-        assert_eq!(SnapshotBankTarget::for_page(10), Some(SnapshotBankTarget::BankedAtC000(7)));
+        assert_eq!(
+            SnapshotBankTarget::for_page(8),
+            Some(SnapshotBankTarget::Bank5At4000)
+        );
+        assert_eq!(
+            SnapshotBankTarget::for_page(5),
+            Some(SnapshotBankTarget::Bank2At8000)
+        );
+        assert_eq!(
+            SnapshotBankTarget::for_page(3),
+            Some(SnapshotBankTarget::BankedAtC000(0))
+        );
+        assert_eq!(
+            SnapshotBankTarget::for_page(10),
+            Some(SnapshotBankTarget::BankedAtC000(7))
+        );
         assert_eq!(SnapshotBankTarget::for_page(2), None); // ROM page
         assert_eq!(SnapshotBankTarget::for_page(11), None); // reserved
     }

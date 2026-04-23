@@ -7,13 +7,13 @@
 //! plumbing, and snapshot round-trips.
 
 use common_sinclair_zx_spectrum::SPECTRUM_PALETTE;
+use common_sinclair_zx_spectrum::keyboard::{KeyboardMatrix, SpectrumKey};
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, InputEvent, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
     PixelFormat, ResetKind, RunResult, StopReason,
 };
-use common_sinclair_zx_spectrum::keyboard::{KeyboardMatrix, SpectrumKey};
 use serde::{Deserialize, Serialize};
 
 use crate::{Model, profile_for};
@@ -194,12 +194,12 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
                     self.load_tape_bytes(slot, image.bytes)?;
                 }
                 MediaKind::Disk if self.machine.supports_disk_slot(slot) => {
-                    self.machine.load_disk_image(slot, image.bytes).map_err(
-                        |reason| MachineError::InvalidMedia {
+                    self.machine
+                        .load_disk_image(slot, image.bytes)
+                        .map_err(|reason| MachineError::InvalidMedia {
                             slot: slot.to_owned(),
                             reason,
-                        },
-                    )?;
+                        })?;
                 }
                 MediaKind::Tape | MediaKind::Disk => {
                     return Err(MachineError::UnknownMediaSlot {
@@ -268,11 +268,10 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
     }
 
     fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
-        let snapshot: SpectrumRuntimeSnapshotV1<M> = postcard::from_bytes(bytes).map_err(
-            |reason| MachineError::InvalidSnapshot {
+        let snapshot: SpectrumRuntimeSnapshotV1<M> =
+            postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
                 reason: format!("decode failed: {reason}"),
-            },
-        )?;
+            })?;
 
         if snapshot.version != 1 {
             return Err(MachineError::InvalidSnapshot {

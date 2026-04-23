@@ -277,5 +277,4 @@ mod tests {
         assert_eq!(keyboard.scan_port(0xfbfe), 0x1e);
         assert_eq!(keyboard.scan_port(0xfafe), 0x1c);
     }
-
 }

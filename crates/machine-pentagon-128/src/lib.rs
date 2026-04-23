@@ -21,7 +21,7 @@ use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::{
-    apply_128k_bank_pages, apply_ay_registers, apply_z80_registers, Z80Snapshot,
+    Z80Snapshot, apply_128k_bank_pages, apply_ay_registers, apply_z80_registers,
 };
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_PENTAGON};

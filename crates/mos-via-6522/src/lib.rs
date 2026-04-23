@@ -50,10 +50,7 @@ impl SrMode {
     fn is_output(self) -> bool {
         matches!(
             self,
-            Self::ShiftOutFree
-                | Self::ShiftOutT2
-                | Self::ShiftOutPhi2
-                | Self::ShiftOutExt
+            Self::ShiftOutFree | Self::ShiftOutT2 | Self::ShiftOutPhi2 | Self::ShiftOutExt
         )
     }
 
@@ -995,7 +992,10 @@ mod tests {
         }
         // Expect 8 shifts, MSB first: 1 0 1 0 0 1 0 1
         assert_eq!(observed.len(), 8);
-        assert_eq!(observed, vec![true, false, true, false, false, true, false, true]);
+        assert_eq!(
+            observed,
+            vec![true, false, true, false, false, true, false, true]
+        );
         // IFR_SR should have fired after the 8th shift.
         assert_ne!(via.ifr & IRQ_SR, 0, "SR IFR should fire after 8 shifts");
     }

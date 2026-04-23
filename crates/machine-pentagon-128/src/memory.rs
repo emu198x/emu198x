@@ -84,7 +84,9 @@ impl MemoryPentagon {
     }
 
     pub fn write_7ffd(&mut self, val: u8) {
-        if self.locked { return; }
+        if self.locked {
+            return;
+        }
         self.paging = val;
         if val & 0x20 != 0 {
             self.locked = true;

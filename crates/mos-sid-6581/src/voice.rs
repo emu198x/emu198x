@@ -175,4 +175,3 @@ impl Default for Voice {
         Self::new()
     }
 }
-

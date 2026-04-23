@@ -18,9 +18,7 @@
 /// 16 levels (0 = silent, 15 = maximum). The curve approximates
 /// the real chip's DAC output measured by various sources.
 static VOLUME: [f32; 16] = [
-    0.0000, 0.0137, 0.0205, 0.0291,
-    0.0423, 0.0618, 0.0847, 0.1369,
-    0.1691, 0.2647, 0.3527, 0.4499,
+    0.0000, 0.0137, 0.0205, 0.0291, 0.0423, 0.0618, 0.0847, 0.1369, 0.1691, 0.2647, 0.3527, 0.4499,
     0.5704, 0.6873, 0.8482, 1.0000,
 ];
 
@@ -111,10 +109,10 @@ impl Ay3_8912 {
         let reg = self.selected as usize;
         // Mask register values to their valid bit widths
         let masked = match reg {
-            1 | 3 | 5 => val & 0x0F,       // Coarse tone: 4 bits
-            6 => val & 0x1F,                // Noise period: 5 bits
-            7 => val,                        // Mixer: all 8 bits
-            8 | 9 | 10 => val & 0x1F,      // Volume + envelope mode: 5 bits
+            1 | 3 | 5 => val & 0x0F,  // Coarse tone: 4 bits
+            6 => val & 0x1F,          // Noise period: 5 bits
+            7 => val,                 // Mixer: all 8 bits
+            8 | 9 | 10 => val & 0x1F, // Volume + envelope mode: 5 bits
             13 => {
                 // Writing to envelope shape resets the envelope
                 self.env_step = 0;
@@ -191,8 +189,7 @@ impl Ay3_8912 {
         if self.sample_error >= self.ay_clock_hz {
             self.sample_error -= self.ay_clock_hz;
             if self.samples_written < self.samples.len() {
-                self.samples[self.samples_written] =
-                    self.sample_accum / self.sample_ticks as f32;
+                self.samples[self.samples_written] = self.sample_accum / self.sample_ticks as f32;
                 self.samples_written += 1;
             }
             self.sample_accum = 0.0;
@@ -207,8 +204,7 @@ impl Ay3_8912 {
         // state across frames — no discontinuity at boundaries).
         if self.sample_ticks > 0 {
             if self.samples_written < self.samples.len() {
-                self.samples[self.samples_written] =
-                    self.sample_accum / self.sample_ticks as f32;
+                self.samples[self.samples_written] = self.sample_accum / self.sample_ticks as f32;
                 self.samples_written += 1;
             }
             // Don't reset sample_accum/sample_ticks — the partial sample
@@ -391,8 +387,12 @@ mod tests {
         // Mimics what Signal Part 3 does: write to register, read back
         let mut ay = Ay3_8912::new(1_773_400, 44100, 882);
         ay.select_register(8); // Volume A register
-        ay.write_data(0x08);   // Write a value
+        ay.write_data(0x08); // Write a value
         let val = ay.read_data();
-        assert_eq!(val & 0x0F, 0x08, "AY detection should read back the written value");
+        assert_eq!(
+            val & 0x0F,
+            0x08,
+            "AY detection should read back the written value"
+        );
     }
 }

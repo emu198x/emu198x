@@ -6,13 +6,13 @@
 
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{
-    SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_WIDTH_HIRES, TIMING_128K, TIMING_48K, TIMING_PENTAGON,
+    SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_WIDTH_HIRES, TIMING_48K, TIMING_128K, TIMING_PENTAGON,
     TIMING_PLUS2A, TIMING_SCORPION,
 };
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
-use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
+use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_plus::{Model as PlusModel, SpectrumPlus};
 use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
@@ -362,14 +362,17 @@ mod tests {
         runtime
             .run_until(MachineTime::new(u64::from(frame_halfcycles)), &mut host)
             .expect("single frame should run");
-        (frame_sink.frames, audio_sink.packets, frame_sink.last_dimensions)
+        (
+            frame_sink.frames,
+            audio_sink.packets,
+            frame_sink.last_dimensions,
+        )
     }
 
     #[test]
     fn spectrum_128k_runtime_emits_frame_and_audio() {
         let runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
-        let (frames, audio, dims) =
-            run_single_frame(runtime, TIMING_128K.halfcycles_per_frame);
+        let (frames, audio, dims) = run_single_frame(runtime, TIMING_128K.halfcycles_per_frame);
         assert_eq!(frames, 1);
         assert_eq!(audio, 1);
         assert_eq!(dims, Some((SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32)));
@@ -404,18 +407,18 @@ mod tests {
 
     #[test]
     fn spectrum_128k_runtime_round_trips_through_snapshot() {
-        let mut runtime =
-            Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+        let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
         run_single_frame_by_ref(&mut runtime, TIMING_128K.halfcycles_per_frame);
         let bytes = runtime.snapshot().expect("snapshot should encode");
 
-        let mut restored =
-            Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+        let mut restored = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
         restored
             .restore(&bytes)
             .expect("snapshot should restore into a fresh runtime");
 
-        let round_trip = restored.snapshot().expect("restored snapshot should encode");
+        let round_trip = restored
+            .snapshot()
+            .expect("restored snapshot should encode");
         assert_eq!(round_trip, bytes);
     }
 
@@ -472,25 +475,24 @@ mod tests {
     fn scorpion_runtime_round_trips_through_snapshot() {
         // Scorpion has 16 RAM banks + 4 ROMs — the largest of the family
         // at ~320 KB inline. Verifies the heap-backed bank storage holds.
-        let mut runtime =
-            ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new());
+        let mut runtime = ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new());
         run_single_frame_by_ref(&mut runtime, TIMING_SCORPION.halfcycles_per_frame);
         let bytes = runtime.snapshot().expect("snapshot should encode");
 
-        let mut restored =
-            ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new());
+        let mut restored = ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new());
         restored
             .restore(&bytes)
             .expect("snapshot should restore into a fresh Scorpion runtime");
 
-        let round_trip = restored.snapshot().expect("restored snapshot should encode");
+        let round_trip = restored
+            .snapshot()
+            .expect("restored snapshot should encode");
         assert_eq!(round_trip, bytes);
     }
 
     #[test]
     fn keyboard_input_updates_machine_matrix() {
-        let mut runtime =
-            Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+        let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
         let inputs = [InputEvent::Key {
             name: "space".into(),
             pressed: true,

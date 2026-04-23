@@ -43,7 +43,10 @@ pub fn parse(data: &[u8]) -> Result<DiskImage, String> {
     let tracks_per_side = data[0x30];
     let sides = data[0x31];
     if sides == 0 || sides > 2 {
-        return Err(format!("DSK reports {} sides; only 1 or 2 supported", sides));
+        return Err(format!(
+            "DSK reports {} sides; only 1 or 2 supported",
+            sides
+        ));
     }
     if tracks_per_side == 0 {
         return Err("DSK reports zero tracks".into());
@@ -64,8 +67,7 @@ pub fn parse(data: &[u8]) -> Result<DiskImage, String> {
             track_lengths.push(data[0x34 + i] as usize * 256);
         }
     } else {
-        let standard_len =
-            u16::from_le_bytes([data[0x32], data[0x33]]) as usize;
+        let standard_len = u16::from_le_bytes([data[0x32], data[0x33]]) as usize;
         if standard_len == 0 {
             return Err("Standard DSK header reports zero-length tracks".into());
         }
@@ -74,8 +76,9 @@ pub fn parse(data: &[u8]) -> Result<DiskImage, String> {
 
     // Walk the tracks. Each present track gets parsed; absent tracks
     // (length 0 in EDSK) become empty placeholders so the indices line up.
-    let mut tracks_per_side_vec: Vec<Vec<DiskTrack>> =
-        (0..sides).map(|_| Vec::with_capacity(tracks_per_side as usize)).collect();
+    let mut tracks_per_side_vec: Vec<Vec<DiskTrack>> = (0..sides)
+        .map(|_| Vec::with_capacity(tracks_per_side as usize))
+        .collect();
 
     let mut cursor = HEADER_LEN;
     for entry in 0..entries {
@@ -96,9 +99,8 @@ pub fn parse(data: &[u8]) -> Result<DiskImage, String> {
         }
 
         let track_block = &data[cursor..cursor + length];
-        let parsed = parse_track(track_block).map_err(|e| {
-            format!("Track {} (offset {}): {}", entry, cursor, e)
-        })?;
+        let parsed = parse_track(track_block)
+            .map_err(|e| format!("Track {} (offset {}): {}", entry, cursor, e))?;
         tracks_per_side_vec[side].push(parsed);
         cursor += length;
     }
@@ -205,10 +207,10 @@ mod tests {
         buf[t + 0x15] = 9; // sector count
         for i in 0..9 {
             let off = t + 0x18 + i * SECTOR_INFO_LEN;
-            buf[off + 0] = 0;             // C
-            buf[off + 1] = 0;             // H
+            buf[off + 0] = 0; // C
+            buf[off + 1] = 0; // H
             buf[off + 2] = (i + 1) as u8; // R
-            buf[off + 3] = 2;             // N
+            buf[off + 3] = 2; // N
         }
 
         // Sector data: stamp the first byte of each sector with its ID so

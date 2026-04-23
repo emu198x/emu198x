@@ -6,8 +6,8 @@
 //! `spectrum_48k`, and `variants` — this module owns only metadata.
 
 use emu198x_shell::{
-    known_capability, CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId,
-    MachineProfile, MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy,
+    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
+    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
 };
 
 /// Supported Spectrum family models.

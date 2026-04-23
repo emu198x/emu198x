@@ -1,7 +1,7 @@
 //! Integration boot test for the Pentagon 128.
 
-use machine_pentagon_128::Pentagon128;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use machine_pentagon_128::Pentagon128;
 use std::path::PathBuf;
 
 fn rom_dir() -> Option<PathBuf> {

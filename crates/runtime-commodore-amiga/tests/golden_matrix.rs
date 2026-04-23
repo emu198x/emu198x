@@ -104,9 +104,10 @@ const MATRIX: &[GoldenRow] = &[
         model: Model::A500OcsPalA501,
         kickstart: "kick13.rom",
         disk: Some("workbench-1.3.adf"),
-        // Workbench 1.3 needs more time than the insert-disk screen
-        // to reach its prompt — picked empirically during capture.
-        settle_frames: 900,
+        // Workbench 1.3 now reaches the desktop reliably, but later
+        // than the insert-disk screen. 2500 frames is the current
+        // empirical settle point for the desktop capture.
+        settle_frames: 2500,
     },
     GoldenRow {
         name: "a1000-ks12-no-disk",
@@ -376,14 +377,7 @@ fn a500_ks13_a501_no_disk() {
 }
 
 #[test]
-#[ignore = "task #189: WB 1.3 boot stops at Exec idle loop before Intuition renders"]
 fn a500_ks13_wb13() {
-    // ADF is in place at ~/.emu198x/media/commodore-amiga/workbench-1.3.adf
-    // and the bootblock now decodes correctly (DOS\0 magic visible
-    // in chip RAM after DMA), but the CPU ends up in Kickstart's
-    // Exec scheduler idle loop at $FC0F94 — dos.library / LoadSeg
-    // isn't triggering the follow-up disk reads that build
-    // Workbench. Un-ignore once the boot reaches the desktop.
     run_row(&MATRIX[2]);
 }
 

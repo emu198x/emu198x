@@ -15,7 +15,6 @@
 /// FDC without wiring it to the bus (Spectrum +2A / +2B, which share
 /// the SpectrumPlus struct with the +3) set `enabled = false` at
 /// construction so the trait's `claims_port` always returns false.
-
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 
 /// A floppy sector parsed from a disk image.
@@ -123,7 +122,7 @@ pub struct Upd765a {
 }
 
 // Main status register bits
-const MSR_CB: u8 = 0x10;  // Controller busy
+const MSR_CB: u8 = 0x10; // Controller busy
 const MSR_EXM: u8 = 0x20; // Execution mode
 const MSR_DIO: u8 = 0x40; // Data direction (1 = FDC → CPU)
 const MSR_RQM: u8 = 0x80; // Request for master (ready for data)
@@ -245,14 +244,14 @@ impl Upd765a {
 
     fn decode_command(byte: u8) -> (Command, usize) {
         match byte & 0x1F {
-            0x06 => (Command::ReadData, 9),     // Read Data
-            0x05 => (Command::WriteData, 9),    // Write Data
-            0x0A => (Command::ReadId, 2),       // Read ID
-            0x07 => (Command::Recalibrate, 2),  // Recalibrate
+            0x06 => (Command::ReadData, 9),             // Read Data
+            0x05 => (Command::WriteData, 9),            // Write Data
+            0x0A => (Command::ReadId, 2),               // Read ID
+            0x07 => (Command::Recalibrate, 2),          // Recalibrate
             0x08 => (Command::SenseInterruptStatus, 1), // Sense Interrupt Status
-            0x03 => (Command::Specify, 3),      // Specify
-            0x0F => (Command::SeekTrack, 3),    // Seek
-            0x04 => (Command::SenseDriveStatus, 2), // Sense Drive Status
+            0x03 => (Command::Specify, 3),              // Specify
+            0x0F => (Command::SeekTrack, 3),            // Seek
+            0x04 => (Command::SenseDriveStatus, 2),     // Sense Drive Status
             _ => (Command::None, 1),
         }
     }
@@ -383,7 +382,14 @@ impl Upd765a {
     ///
     /// Returns the sector data truncated/padded to `sector_size` bytes,
     /// matching the N parameter from the read command.
-    fn read_sector(&self, drive: usize, track: u8, head: u8, sector: u8, sector_size: usize) -> Option<Vec<u8>> {
+    fn read_sector(
+        &self,
+        drive: usize,
+        track: u8,
+        head: u8,
+        sector: u8,
+        sector_size: usize,
+    ) -> Option<Vec<u8>> {
         let disk = self.disks[drive].as_ref()?;
         let sec = disk.sector(track, head, sector)?;
         let mut out = Vec::with_capacity(sector_size);
@@ -487,7 +493,10 @@ mod tests {
         sector_data[0] = 0xDE;
         sector_data[511] = 0xAD;
         let track = DiskTrack {
-            sectors: vec![DiskSector { id: 1, data: sector_data }],
+            sectors: vec![DiskSector {
+                id: 1,
+                data: sector_data,
+            }],
         };
         let image = DiskImage {
             sides: 1,
@@ -530,12 +539,18 @@ mod tests {
         let mut fdc = Upd765a::new();
         let track = DiskTrack {
             sectors: vec![
-                DiskSector { id: 0xC2, data: vec![0xAA; 512] },
-                DiskSector { id: 0xC1, data: {
-                    let mut d = vec![0xBB; 512];
-                    d[0] = 0xEE;
-                    d
-                } },
+                DiskSector {
+                    id: 0xC2,
+                    data: vec![0xAA; 512],
+                },
+                DiskSector {
+                    id: 0xC1,
+                    data: {
+                        let mut d = vec![0xBB; 512];
+                        d[0] = 0xEE;
+                        d
+                    },
+                },
             ],
         };
         let image = DiskImage {

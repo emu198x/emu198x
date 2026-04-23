@@ -1,4 +1,3 @@
-use runtime_sinclair_zx_spectrum::*;
 use common_sinclair_zx_spectrum::MemoryBus;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use emu198x_shell::{
@@ -7,6 +6,7 @@ use emu198x_shell::{
     MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
     SessionQueryProvider, read_media_asset,
 };
+use runtime_sinclair_zx_spectrum::*;
 use std::fs;
 use std::path::PathBuf;
 
@@ -336,10 +336,10 @@ fn spectrum_query_provider_detects_booted_48k_rom() {
         .value
         .as_array()
         .expect("screen text lines should be returned as a JSON array");
-    let detected_row =
-        row.value
-            .as_u64()
-            .expect("boot row should resolve to one decoded text row") as usize;
+    let detected_row = row
+        .value
+        .as_u64()
+        .expect("boot row should resolve to one decoded text row") as usize;
 
     assert_eq!(detected.value, serde_json::json!(true));
     assert_eq!(
@@ -575,11 +575,7 @@ fn spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx() {
     assert_eq!(autoload.slot, DEFAULT_TAPE_AUTOLOAD_SLOT);
 
     let loaded = session
-        .wait_for_query_text_contains(
-            "screen.text.lines",
-            "Enter Code at grid location",
-            12_000,
-        )
+        .wait_for_query_text_contains("screen.text.lines", "Enter Code at grid location", 12_000)
         .expect("Jet Set Willy should reach the copy-protection code screen");
     assert_eq!(loaded.line, Some(8));
     assert!(loaded.matched_text.contains("Enter Code at grid location"));

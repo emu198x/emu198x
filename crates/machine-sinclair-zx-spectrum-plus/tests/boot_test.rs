@@ -9,8 +9,8 @@
 //! `#[ignore]`d because not every developer has the ROMs locally — the
 //! runner prints a path hint and skips when they're missing.
 
-use machine_sinclair_zx_spectrum_plus::{Model, SpectrumPlus};
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use machine_sinclair_zx_spectrum_plus::{Model, SpectrumPlus};
 use std::path::PathBuf;
 
 fn rom_dir() -> Option<PathBuf> {

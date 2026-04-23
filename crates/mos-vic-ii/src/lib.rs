@@ -1552,7 +1552,10 @@ mod tests {
         vic.write(0x11, 0x13);
         // Continue to line 252 (another 4 full lines = 4*63 = 252 ticks).
         step_cycles(&mut vic, &memory, 4 * u32::from(CYCLES_PER_LINE));
-        assert!(!vic.border_vert_ff, "open-border trick should keep vert FF clear");
+        assert!(
+            !vic.border_vert_ff,
+            "open-border trick should keep vert FF clear"
+        );
     }
 
     #[test]
@@ -1572,10 +1575,16 @@ mod tests {
         // At this point sprite 3 should NOT yet be active (old batch
         // fetch would have activated it here).
         tick_vic(&mut vic, &memory); // cycle 0 — no fetch scheduled
-        assert!(!vic.sprite_active[3], "sprite 3 should not activate at cycle 0 anymore");
+        assert!(
+            !vic.sprite_active[3],
+            "sprite 3 should not activate at cycle 0 anymore"
+        );
         // cycle 1 is sprite 3's p-access.
         tick_vic(&mut vic, &memory);
-        assert!(vic.sprite_active[3], "sprite 3 should activate at its p-access cycle 1");
+        assert!(
+            vic.sprite_active[3],
+            "sprite 3 should activate at its p-access cycle 1"
+        );
     }
 
     #[test]

@@ -13,7 +13,6 @@
 /// methods and onto the trait, so Pentagon and Scorpion (and any
 /// future host that wires in a Beta disk) drive the interface
 /// uniformly.
-
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 
 /// TRD disk geometry.
@@ -188,8 +187,12 @@ impl BetaDisk {
             0xFF => {
                 // System register: bit 7 = INTRQ, bit 6 = DRQ
                 let mut val = 0x3F; // bits 0-5 = active drives etc.
-                if self.intrq { val |= 0x80; }
-                if self.drq { val |= 0x40; }
+                if self.intrq {
+                    val |= 0x80;
+                }
+                if self.drq {
+                    val |= 0x40;
+                }
                 val
             }
             _ => 0xFF,
@@ -221,7 +224,11 @@ impl BetaDisk {
             0x00 => {
                 self.command = CmdType::Restore;
                 self.track = 0;
-                self.status = if self.disk_ready() { ST_TRACK_0 } else { ST_NOT_READY };
+                self.status = if self.disk_ready() {
+                    ST_TRACK_0
+                } else {
+                    ST_NOT_READY
+                };
                 self.intrq = true;
             }
             // Type I: Seek
@@ -243,14 +250,18 @@ impl BetaDisk {
             // Type I: Step-In
             0x40 | 0x50 => {
                 self.command = CmdType::Step;
-                if self.track < 79 { self.track += 1; }
+                if self.track < 79 {
+                    self.track += 1;
+                }
                 self.status = 0;
                 self.intrq = true;
             }
             // Type I: Step-Out
             0x60 | 0x70 => {
                 self.command = CmdType::Step;
-                if self.track > 0 { self.track -= 1; }
+                if self.track > 0 {
+                    self.track -= 1;
+                }
                 self.status = if self.track == 0 { ST_TRACK_0 } else { 0 };
                 self.intrq = true;
             }
@@ -301,7 +312,6 @@ impl BetaDisk {
             _ => {}
         }
     }
-
 }
 
 impl Default for BetaDisk {

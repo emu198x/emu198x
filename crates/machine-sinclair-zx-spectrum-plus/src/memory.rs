@@ -42,12 +42,7 @@ pub struct MemoryPlus {
 }
 
 /// The 4 special paging configurations: [bank at $0000, $4000, $8000, $C000].
-const SPECIAL_MODES: [[u8; 4]; 4] = [
-    [0, 1, 2, 3],
-    [4, 5, 6, 7],
-    [4, 5, 6, 3],
-    [4, 7, 6, 3],
-];
+const SPECIAL_MODES: [[u8; 4]; 4] = [[0, 1, 2, 3], [4, 5, 6, 7], [4, 5, 6, 3], [4, 7, 6, 3]];
 
 impl MemoryPlus {
     pub fn new() -> Self {
@@ -92,7 +87,9 @@ impl MemoryPlus {
     }
 
     pub fn write_7ffd(&mut self, val: u8) {
-        if self.locked { return; }
+        if self.locked {
+            return;
+        }
         self.paging_7ffd = val;
         if val & 0x20 != 0 {
             self.locked = true;
@@ -100,7 +97,9 @@ impl MemoryPlus {
     }
 
     pub fn write_1ffd(&mut self, val: u8) {
-        if self.locked { return; }
+        if self.locked {
+            return;
+        }
         self.paging_1ffd = val;
     }
 

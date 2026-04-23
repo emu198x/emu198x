@@ -9,12 +9,13 @@
 //! `#[ignore]`d because not every developer has the ROMs locally — the
 //! runner prints a path hint and skips when they're missing.
 
-use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use std::path::PathBuf;
 
 fn rom_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".emu198x/roms/sinclair-zx-spectrum-128k"))
+    std::env::var_os("HOME")
+        .map(|h| PathBuf::from(h).join(".emu198x/roms/sinclair-zx-spectrum-128k"))
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::timing::{self, FrameTiming};
 use common_sinclair_zx_spectrum::ula::Ula;
-use common_sinclair_zx_spectrum::ula_engine::{self, UlaEngine, DELAY_TABLE_48K};
+use common_sinclair_zx_spectrum::ula_engine::{self, DELAY_TABLE_48K, UlaEngine};
 
 /// Timex SCLD — Semi-Custom Logic Device.
 ///
@@ -94,8 +94,7 @@ impl Ula for TimexScld {
             let mem_contention = contended_addr && e.z80_clock_high && !cpu_mreq;
 
             let io_even_port = (cpu_addr & 1) == 0;
-            let io_contention =
-                (cpu_iorq || e.z80_iorq_prev) && io_even_port && e.z80_clock_high;
+            let io_contention = (cpu_iorq || e.z80_iorq_prev) && io_even_port && e.z80_clock_high;
 
             let contention = mem_contention || io_contention;
             e.cpu_clock = !(contention && DELAY_TABLE_48K[phase]);
@@ -120,7 +119,11 @@ impl Ula for TimexScld {
     }
 
     fn floating_bus(&self) -> u8 {
-        if self.engine.idle { 0xFF } else { self.engine.bus_data }
+        if self.engine.idle {
+            0xFF
+        } else {
+            self.engine.bus_data
+        }
     }
 
     fn read_fe(&self, port: u16, keyboard: &[u8; 8]) -> u8 {
