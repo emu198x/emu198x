@@ -4,6 +4,40 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-22 — Game Boy port Phase 0 docs landed
+
+**Type:** ingest (planning)
+**Trigger:** The next family to port (Nintendo Game Boy, lifting
+from `~/Projects/Emu198x-Zig/`) had no wiki presence yet. Phase 0
+of the port is "write down the shape and the binding decisions so
+crates land against a known target".
+**Result:** four pages added:
+
+1. `wiki/decisions/sm83-abstraction-level.md` — m-cycle chosen over
+   T-cycle. Generalises [half-cycle signals](decisions/half-cycle-signals.md)
+   into the rule "match the finest-grained observation any
+   component makes of the CPU". Lists every SM83 observer (bus,
+   PPU, APU, DMA, timer, interrupts) and confirms none go below
+   m-cycle. Pin-level rule still applies at m-cycle grain.
+2. `wiki/systems/nintendo-game-boy/overview.md` — family home.
+   Phased crate plan (CPU → common → PPU → APU → timer → MBC →
+   format → machine → runtime) and the acceptance bar (Blargg
+   `cpu_instrs`, `instr_timing`, `mem_timing`; mooneye-gb
+   acceptance; `dmg-acid2`).
+3. `wiki/chips/sharp-lr35902.md` — chip stub. Instruction-set
+   deltas from Z80 / 8080, planned pin interface, m-cycle state
+   machine shape lifted from `sm83.zig`, interrupt model, test
+   coverage plan.
+4. `wiki/systems/nintendo-game-boy/timing.md` — master clock
+   (4.194304 MHz), m-cycle derivation, PPU mode splits,
+   timer / frame-sequencer rates, OAM DMA timing.
+
+`wiki/index.md` updated with links in Chips, Systems, and
+Decisions sections. No code written; `sharp-lr35902` crate and
+the Game Boy machine / runtime remain unimplemented.
+
+---
+
 ## 2026-04-16 — 68000 Harte sweep brought to green, with two invalid `ASL.b` rows quarantined
 
 **Type:** milestone

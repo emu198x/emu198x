@@ -13,6 +13,7 @@
 - [MOS 6569 / 6567 VIC-II](chips/mos-vic-ii.md) — C64 video chip, text/bitmap/sprites, badline + sprite DMA BA assertion, raster IRQ, ported with 23 tests
 - [Ricoh 2C02 PPU](chips/ricoh-ppu-2c02.md) — NES PPU, dot-level rendering, loopy scroll, sprite overflow bug, NMI timing, A12 mapper notification, ported with 20 tests
 - [Ricoh 2A03 APU](chips/ricoh-apu-2a03.md) — NES APU, two pulse + triangle + noise + DMC, non-linear mixer, 48 kHz downsample, lifted from archive with 21 tests
+- [Sharp LR35902](chips/sharp-lr35902.md) — Game Boy SoC CPU (SM83), m-cycle granularity, pin-level bus; port planned, not yet implemented
 
 ## Systems
 ### Commodore 64
@@ -28,6 +29,10 @@
 - [Port plan](decisions/amiga-port-plan.md) — the archive-to-fresh-workspace port plan this baseline came from
 - [Archive-port methodology](decisions/archive-port-methodology.md) — three-phase read-characterize / port-with-tests / integrate discipline for bringing -archive crates back in
 - [Chip-only boot failure](decisions/amiga-chip-only-boot-failure.md) — RESOLVED 2026-04-20 via copper CDANG halt; narrative kept for context
+
+### Nintendo Game Boy
+- [Overview](systems/nintendo-game-boy/overview.md) — planned port from Zig reference; DMG first, CGB as second-machine lift; phased crate plan + Blargg / mooneye-gb acceptance bar
+- [Timing](systems/nintendo-game-boy/timing.md) — 4.194304 MHz master clock, 17 556 m-cycles/frame, PPU modes per scanline, timer + APU frame sequencer, OAM DMA
 
 ### ZX Spectrum
 - [Overview](systems/spectrum/overview.md) — 11 variants (16K, 48K, 128K, +2, +2A, +2B, +3, Pentagon, Scorpion, TC2048, TS2068), ULA-drives architecture
@@ -61,6 +66,7 @@
 - [NES clock topology](decisions/nes-clock-topology.md) — master clock drives the loop, PPU every dot, CPU every 3rd dot, mapper observes CPU pins
 - [Amiga port plan](decisions/amiga-port-plan.md) — 9-phase plan, OCS (A500) first, 68000 pin conversion is the long pole, ~35K lines in archive
 - [Amiga architecture review](decisions/amiga-architecture-review.md) — five seams to tighten before the Amiga scales (disk DMA, CPU bus, byte-lane, merge latch, boot invariants); spine unchanged
+- [SM83 abstraction level](decisions/sm83-abstraction-level.md) — Game Boy CPU ticks at m-cycle, not T-cycle; general rule is "match the finest-grained observation any bus client makes of the CPU"
 
 ## Tests
 - [Spectrum](tests/spectrum.md) — Z80 100% Tom Harte, ZEXDOC/ALL pass, 11 variants boot, Signal Part 3 working
