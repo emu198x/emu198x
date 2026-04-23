@@ -116,9 +116,19 @@ characterise → port-with-tests → integrate.
    refused; MBC1/3/5 + ROM-only are accepted). `load(rom)`
    convenience builds a fully-loaded `Cartridge` from the
    `nintendo-game-boy-mbc` crate. 14 tests.
-8. `machine-nintendo-game-boy` — composes CPU + PPU + APU +
-   timer + MBC + work RAM + VRAM + OAM + HRAM. Implements
-   `pub fn run_frame()` directly.
+8. **`machine-nintendo-game-boy`** — done. `GameBoy` composes the
+   SM83 + PPU + APU + timer + cartridge + 8 KiB WRAM + 8 KiB VRAM
+   + 160 B OAM + 127 B HRAM + IF/IE + joypad + serial. Bus
+   dispatch covers the full DMG memory map (incl. `$E000-$FDFF`
+   echo RAM and `$FEA0-$FEFF` reads-as-`$FF`). Per-m-cycle
+   orchestration ticks timer / APU / PPU at T-cycle rate, OR's
+   IRQ sources from timer overflow / PPU VBlank / PPU STAT /
+   joypad rising-edge / serial-transfer-complete into IF, then
+   services the CPU's pin-level bus and ticks. Serial writes with
+   `SC = $81` capture the byte to a buffer (Blargg's reporting
+   channel) and latch the serial IRQ. OAM DMA copies
+   instantaneously; per-mode VRAM/OAM blocking and the boot ROM
+   are deferred. 20 unit tests passing.
 9. `runtime-nintendo-game-boy` — bespoke runtime over the one
    machine. `Model` enum with `Dmg` (and later `Cgb`);
    `profile_for` + `profiles()` in `profiles.rs` even with one

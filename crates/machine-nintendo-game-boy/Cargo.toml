@@ -1,0 +1,20 @@
+[package]
+name = "machine-nintendo-game-boy"
+description = "Nintendo Game Boy (DMG) machine — composes the CPU, PPU, APU, timer, MBC and DMG-side I/O"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy" }
+format-nintendo-game-boy-cartridge = { path = "../format-nintendo-game-boy-cartridge" }
+nintendo-game-boy-apu = { path = "../nintendo-game-boy-apu" }
+nintendo-game-boy-mbc = { path = "../nintendo-game-boy-mbc" }
+nintendo-game-boy-ppu = { path = "../nintendo-game-boy-ppu" }
+nintendo-game-boy-timer = { path = "../nintendo-game-boy-timer" }
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+sharp-lr35902 = { path = "../sharp-lr35902" }
+
+[lints]
+workspace = true

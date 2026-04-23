@@ -1342,6 +1342,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-nintendo-game-boy"
+version = "0.1.0"
+dependencies = [
+ "common-nintendo-game-boy",
+ "format-nintendo-game-boy-cartridge",
+ "nintendo-game-boy-apu",
+ "nintendo-game-boy-mbc",
+ "nintendo-game-boy-ppu",
+ "nintendo-game-boy-timer",
+ "serde",
+ "serde-big-array",
+ "sharp-lr35902",
+]
+
+[[package]]
 name = "machine-nintendo-nes"
 version = "0.1.0"
 dependencies = [
