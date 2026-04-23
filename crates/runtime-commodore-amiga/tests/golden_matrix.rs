@@ -52,9 +52,13 @@
 
 use std::path::{Path, PathBuf};
 
+use emu198x_shell::{
+    HeadlessScript, HeadlessSession, MediaKind, ScriptMediaKind, ScriptStep, read_media_asset,
+};
 use format_commodore_amiga_adf::Adf;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
+    A500_PAL_FRAME_TICKS, AmigaRuntime, AmigaSessionQueryProvider, DISPLAY_HEIGHT, DISPLAY_WIDTH,
+    Model,
 };
 
 /// One row in the golden matrix.
@@ -65,13 +69,32 @@ struct GoldenRow {
     model: Model,
     /// Kickstart ROM filename under `~/.emu198x/roms/commodore-amiga/`.
     kickstart: &'static str,
-    /// Optional ADF filename under `~/.emu198x/media/commodore-amiga/`.
-    /// `None` = boot with DF0 empty (insert-disk screen).
-    disk: Option<&'static str>,
-    /// PAL frames to tick before capturing the frame. For no-disk
-    /// paths this is "boot settled on the insert-disk screen"; for
-    /// disk-boot paths it's "Workbench (or game) has rendered".
-    settle_frames: u64,
+    /// Boot flow to execute before capturing the frame.
+    boot: BootFlow,
+}
+
+#[derive(Clone, Copy)]
+enum DiskAsset {
+    HomeMedia(&'static str),
+    A1000KickstartZip,
+}
+
+#[derive(Clone, Copy)]
+enum BootFlow {
+    Direct {
+        /// Optional disk image to insert before ticking.
+        disk: Option<DiskAsset>,
+        /// PAL frames to tick before capture.
+        settle_frames: u64,
+    },
+    A1000KickstartSwap {
+        /// Kickstart disk image loaded into DF0 first.
+        kickstart_disk: DiskAsset,
+        /// Workbench disk swapped into DF0 after WOM lock.
+        workbench_disk: DiskAsset,
+        /// PAL frames to run after the Workbench disk swap.
+        post_swap_frames: u64,
+    },
 }
 
 /// FS-UAE's default PAL crop — 8 px each side horizontally, 2
@@ -89,32 +112,50 @@ const MATRIX: &[GoldenRow] = &[
         name: "a500-ks13-no-disk",
         model: Model::A500OcsPal,
         kickstart: "kick13.rom",
-        disk: None,
-        settle_frames: KS13_SETTLE_FRAMES,
+        boot: BootFlow::Direct {
+            disk: None,
+            settle_frames: KS13_SETTLE_FRAMES,
+        },
     },
     GoldenRow {
         name: "a500-ks13-a501-no-disk",
         model: Model::A500OcsPalA501,
         kickstart: "kick13.rom",
-        disk: None,
-        settle_frames: KS13_SETTLE_FRAMES,
+        boot: BootFlow::Direct {
+            disk: None,
+            settle_frames: KS13_SETTLE_FRAMES,
+        },
     },
     GoldenRow {
         name: "a500-ks13-wb13",
         model: Model::A500OcsPalA501,
         kickstart: "kick13.rom",
-        disk: Some("workbench-1.3.adf"),
-        // Workbench 1.3 now reaches the desktop reliably, but later
-        // than the insert-disk screen. 2500 frames is the current
-        // empirical settle point for the desktop capture.
-        settle_frames: 2500,
+        boot: BootFlow::Direct {
+            disk: Some(DiskAsset::HomeMedia("workbench-1.3.adf")),
+            // Workbench 1.3 now reaches the desktop reliably, but later
+            // than the insert-disk screen. 2500 frames is the current
+            // empirical settle point for the desktop capture.
+            settle_frames: 2500,
+        },
     },
     GoldenRow {
-        name: "a1000-bootstrap-no-kickstart-disk",
+        name: "a1000-ks12-no-disk",
         model: Model::A1000OcsPal,
         kickstart: "a1000-bootstrap.rom",
-        disk: None,
-        settle_frames: KS13_SETTLE_FRAMES,
+        boot: BootFlow::Direct {
+            disk: None,
+            settle_frames: KS13_SETTLE_FRAMES,
+        },
+    },
+    GoldenRow {
+        name: "a1000-ks12-wb12",
+        model: Model::A1000OcsPal,
+        kickstart: "a1000-bootstrap.rom",
+        boot: BootFlow::A1000KickstartSwap {
+            kickstart_disk: DiskAsset::A1000KickstartZip,
+            workbench_disk: DiskAsset::HomeMedia("workbench-1.2.adf"),
+            post_swap_frames: 3000,
+        },
     },
 ];
 
@@ -126,6 +167,29 @@ fn roms_dir() -> Option<PathBuf> {
 fn media_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     Some(PathBuf::from(home).join(".emu198x/media/commodore-amiga"))
+}
+
+fn a1000_kickstart_disk_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("EMU198X_AMIGA_A1000_KICKSTART_DISK") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("crate dir should have repo-root parents");
+    let sibling_archive = repo_root
+        .parent()
+        .expect("repo root should have a parent")
+        .join("Emu198x-docs-archive-2026-04-19/Reference/amiga/Kickstart-Disks/Kickstart-Disk v1.2 r33.180 (1986)(Commodore)(A1000).zip");
+    if sibling_archive.exists() {
+        return Some(sibling_archive);
+    }
+
+    None
 }
 
 fn goldens_dir() -> PathBuf {
@@ -147,6 +211,40 @@ fn load_optional_artifact(path: &Path, kind: &str, row: &str) -> Option<Vec<u8>>
         return None;
     }
     Some(std::fs::read(path).unwrap_or_else(|e| panic!("read {kind} at {}: {e}", path.display())))
+}
+
+fn disk_asset_path(spec: DiskAsset, row: &str) -> Option<PathBuf> {
+    match spec {
+        DiskAsset::HomeMedia(name) => {
+            let Some(media) = media_dir() else {
+                eprintln!("skipping {row}: $HOME not set");
+                return None;
+            };
+            Some(media.join(name))
+        }
+        DiskAsset::A1000KickstartZip => {
+            let Some(path) = a1000_kickstart_disk_path() else {
+                eprintln!(
+                    "skipping {row}: A1000 Kickstart disk missing; set EMU198X_AMIGA_A1000_KICKSTART_DISK"
+                );
+                return None;
+            };
+            Some(path)
+        }
+    }
+}
+
+fn load_optional_disk_asset(spec: DiskAsset, row: &str) -> Option<Vec<u8>> {
+    let path = disk_asset_path(spec, row)?;
+    if !path.exists() {
+        eprintln!("skipping {row}: disk image missing at {}", path.display());
+        return None;
+    }
+    Some(
+        read_media_asset(&path, MediaKind::Disk)
+            .unwrap_or_else(|e| panic!("{row}: load disk {}: {e}", path.display()))
+            .bytes,
+    )
 }
 
 /// Tick the runtime for `frames` PAL frames. Uses the machine's
@@ -264,30 +362,77 @@ fn run_row(row: &GoldenRow) {
         return;
     };
 
-    let adf_bytes = if let Some(disk) = row.disk {
-        let Some(media) = media_dir() else {
-            eprintln!("skipping {}: $HOME not set", row.name);
-            return;
-        };
-        let disk_path = media.join(disk);
-        let Some(bytes) = load_optional_artifact(&disk_path, "ADF", row.name) else {
-            return;
-        };
-        Some(bytes)
-    } else {
-        None
+    let actual_rgb = match row.boot {
+        BootFlow::Direct {
+            disk,
+            settle_frames,
+        } => {
+            let mut rt = AmigaRuntime::new(row.model, rom_bytes)
+                .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
+            if let Some(spec) = disk {
+                let Some(bytes) = load_optional_disk_asset(spec, row.name) else {
+                    return;
+                };
+                let adf = Adf::from_bytes(bytes)
+                    .unwrap_or_else(|e| panic!("{}: decode ADF: {e}", row.name));
+                rt.machine_mut().insert_adf(adf);
+            }
+            tick_frames(&mut rt, settle_frames);
+            capture_fsuae_rgb(&rt)
+        }
+        BootFlow::A1000KickstartSwap {
+            kickstart_disk,
+            workbench_disk,
+            post_swap_frames,
+        } => {
+            let Some(kickstart_path) = disk_asset_path(kickstart_disk, row.name) else {
+                return;
+            };
+            let Some(workbench_path) = disk_asset_path(workbench_disk, row.name) else {
+                return;
+            };
+            let runtime = AmigaRuntime::new(row.model, rom_bytes)
+                .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
+            let mut session = HeadlessSession::new_with_query_provider(
+                runtime,
+                A500_PAL_FRAME_TICKS,
+                AmigaSessionQueryProvider,
+            );
+            let script = HeadlessScript {
+                steps: vec![
+                    ScriptStep::LoadMedia {
+                        slot: "floppy-0".to_owned(),
+                        kind: ScriptMediaKind::Disk,
+                        path: kickstart_path,
+                    },
+                    ScriptStep::WaitForQueryBool {
+                        path: "amiga.a1000.wom_locked".to_owned(),
+                        value: true,
+                        max_frames: 1800,
+                    },
+                    ScriptStep::WaitForQueryBool {
+                        path: "amiga.disk.motor_spinning".to_owned(),
+                        value: false,
+                        max_frames: 600,
+                    },
+                    ScriptStep::LoadMedia {
+                        slot: "floppy-0".to_owned(),
+                        kind: ScriptMediaKind::Disk,
+                        path: workbench_path,
+                    },
+                    ScriptStep::RunFrames {
+                        frames: post_swap_frames
+                            .try_into()
+                            .expect("post-swap frame count should fit in u32"),
+                    },
+                ],
+            };
+            script
+                .execute_collect(&mut session)
+                .unwrap_or_else(|e| panic!("{}: execute scripted boot flow: {e}", row.name));
+            capture_fsuae_rgb(session.machine())
+        }
     };
-
-    let mut rt = AmigaRuntime::new(row.model, rom_bytes)
-        .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
-    if let Some(bytes) = adf_bytes {
-        let adf =
-            Adf::from_bytes(bytes).unwrap_or_else(|e| panic!("{}: decode ADF: {e}", row.name));
-        rt.machine_mut().insert_adf(adf);
-    }
-
-    tick_frames(&mut rt, row.settle_frames);
-    let actual_rgb = capture_fsuae_rgb(&rt);
 
     let golden_path = goldens_dir().join(format!("{}.png", row.name));
     std::fs::create_dir_all(goldens_dir()).expect("create goldens dir");
@@ -360,12 +505,6 @@ fn run_row(row: &GoldenRow) {
     );
 }
 
-// The KS 1.3 insert-disk rows are pixel-exact against FS-UAE
-// captures. Real A1000 bootstrap coverage is still exploratory and
-// doesn't yet have a validated golden.
-// Run `cargo test -- --ignored` to see the A1000 diff while #188
-// is outstanding.
-
 #[test]
 fn a500_ks13_no_disk() {
     run_row(&MATRIX[0]);
@@ -382,7 +521,11 @@ fn a500_ks13_wb13() {
 }
 
 #[test]
-#[ignore = "task #188: real A1000 bootstrap row does not have a validated golden yet"]
-fn a1000_bootstrap_no_kickstart_disk() {
+fn a1000_ks12_no_disk() {
     run_row(&MATRIX[3]);
+}
+
+#[test]
+fn a1000_ks12_wb12() {
+    run_row(&MATRIX[4]);
 }

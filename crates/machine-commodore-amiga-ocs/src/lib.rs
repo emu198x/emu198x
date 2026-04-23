@@ -36,6 +36,7 @@ use rtc::Msm6242Rtc;
 
 const CUSTOM_BASE: u32 = 0x00DF_0000;
 const CUSTOM_TOP: u32 = 0x00E0_0000;
+const SLOW_RAM_BASE: u32 = 0x00C0_0000;
 /// Zorro-II autoconfig probe window — the first unconfigured board
 /// answers here until `expansion.library` writes its base-address
 /// pair to `$E80048` / `$E8004A`.
@@ -112,9 +113,12 @@ impl RamConfig {
         memory::is_valid_chip_ram_size(self.chip_kb as usize * 1024)
             && memory::is_valid_slow_ram_size(self.slow_kb as usize * 1024)
             && self.fast_kb <= 8192
-            && self.fast_kb % 64 == 0
+            && self.fast_kb.is_multiple_of(64)
     }
 }
+
+/// One entry in the diagnostic blit log.
+pub type BlitLogEntry = (u64, u32, u16, u16, u32, u32, u32, u32, u16);
 
 impl Default for RamConfig {
     fn default() -> Self {
@@ -312,7 +316,7 @@ pub struct AmigaOcs {
     /// bltcpt, bltdpt, bltsize)`. Captures the parameters at the
     /// moment the blit was kicked off — so we can replay any
     /// suspicious blit and find issues with B→D copy paths.
-    pub debug_blit_log: Vec<(u64, u32, u16, u16, u32, u32, u32, u32, u16)>,
+    pub debug_blit_log: Vec<BlitLogEntry>,
     /// Diagnostic: log of CIA-A register writes. Entry is
     /// `(cck, pc, reg, raw_val)` where reg is 0..=$F. Lets us see
     /// how timer.device and other code start/stop the CIA-A timers.
@@ -416,7 +420,7 @@ impl AmigaOcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, false)
+        Self::with_memory_config(memory, cfg, true)
     }
 
     fn with_memory_config(memory: Memory, cfg: RamConfig, slow_ram_decode: bool) -> Self {
@@ -454,9 +458,9 @@ impl AmigaOcs {
         let mut cia_a = Cia::new();
         cia_a.set_external_a(drive_pra_byte(&drive.status()));
         // Gary decode is model-shaped here, not hard-coded to the
-        // A500 path: A1000 bootstrap machines leave the slow-RAM
-        // window unmapped, while A500-family constructors may choose
-        // to decode it.
+        // A500 path: even machines without installed slow RAM still
+        // need the `Cxxxxx` aperture so KS 1.x can detect the
+        // mirrored custom-register side effects in absent blocks.
         let mut gary = Gary::new();
         gary.set_slow_ram_present(slow_ram_decode);
         gary.set_rtc_present(cfg.slow_kb > 0);
@@ -752,6 +756,38 @@ impl AmigaOcs {
         self.gary.decode(addr)
     }
 
+    /// Resolve a CPU-visible custom-register offset for `addr24`.
+    ///
+    /// Besides the normal `$DFFxxx` window, Kickstart 1.x probes
+    /// absent A500/A2000 slow-RAM blocks via addresses like
+    /// `$C0F09A` / `$C0F01C`. On real hardware those unbacked
+    /// addresses alias to the custom-register window; backed slow RAM
+    /// must still win and behave like RAM.
+    fn custom_offset_for_addr(&self, addr24: u32) -> Option<u16> {
+        if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
+            return Some((addr24 - CUSTOM_BASE) as u16 & 0x1FE);
+        }
+        self.slow_ram_hole_custom_offset(addr24)
+    }
+
+    /// On A500/A2000-style machines, the unbacked portion of the
+    /// slow-RAM aperture exposes the same low-16-bit `x?Fxxx`
+    /// custom-register mirror that KS 1.x uses for its slow-RAM
+    /// probe. Installed slow RAM must mask this completely.
+    fn slow_ram_hole_custom_offset(&self, addr24: u32) -> Option<u16> {
+        if self.gary.decode(addr24) != ChipSelect::SlowRam {
+            return None;
+        }
+        let slow_off = addr24.checked_sub(SLOW_RAM_BASE)? as usize;
+        if slow_off < self.memory.slow_ram_size() {
+            return None;
+        }
+        if (addr24 & 0x0000_F000) != 0x0000_F000 {
+            return None;
+        }
+        Some((addr24 & 0x1FE) as u16)
+    }
+
     /// Push the next MFM word from the drive's encoded track buffer
     /// into Paula's disk register. Re-encodes the track when the
     /// drive head has moved since the last word, or when no cache
@@ -931,11 +967,11 @@ impl AmigaOcs {
         if self.autoconfig_fast_ram_write_word(addr24, val) {
             return;
         }
+        if let Some(offset) = self.custom_offset_for_addr(addr24) {
+            self.dispatch_custom_write(offset, val);
+            return;
+        }
         match self.gary.decode(addr24) {
-            ChipSelect::Custom => {
-                let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
-                self.dispatch_custom_write(offset, val);
-            }
             ChipSelect::Rtc => self.rtc.write_word(addr24, val),
             _ => self.memory.write_word(addr24, val),
         }
@@ -1100,13 +1136,12 @@ impl AmigaOcs {
             if matches!(reg, 0x01 | 0x03) {
                 self.apply_df0_control_from_cia_b();
             }
-        } else if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr) {
+        } else if let Some(offset) = self.custom_offset_for_addr(addr & 0xFF_FFFF) {
             // Custom registers are word-only; byte writes pad with
             // the same byte in both halves on real hardware. For our
             // purposes a byte write just writes the byte value.
-            let offset = (addr - CUSTOM_BASE) as u16 & 0x1FE;
-            self.denise
-                .write_word(offset, u16::from(val) << 8 | u16::from(val));
+            let word = u16::from(val) << 8 | u16::from(val);
+            self.dispatch_custom_write(offset, word);
         } else if self.gary.decode(addr) == ChipSelect::Rtc {
             self.rtc.write_byte(addr, val);
         } else {
@@ -1189,8 +1224,7 @@ impl AmigaOcs {
         if self.gary.decode(addr24) == ChipSelect::Rtc {
             return self.rtc.read_word(addr24);
         }
-        if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
-            let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
+        if let Some(offset) = self.custom_offset_for_addr(addr24) {
             return match offset {
                 0x002 => self.agnus.dmacon,
                 0x004 => self.agnus.vposr(),
@@ -1634,8 +1668,7 @@ impl AmigaOcs {
         // Custom-register space dispatches to the chipset module.
         // Agnus owns the beam-position read-side registers; everything
         // else routes to Chipset.
-        if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
-            let offset = (addr24 - CUSTOM_BASE) as u16 & 0x1FE;
+        if let Some(offset) = self.custom_offset_for_addr(addr24) {
             if is_read {
                 *self.debug_reg_read_counts.entry(offset).or_insert(0) += 1;
                 // DSKBYTR read has a side effect (clears DSKBYT); use

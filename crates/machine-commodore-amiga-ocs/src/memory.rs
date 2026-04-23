@@ -343,16 +343,11 @@ impl Memory {
             return byte;
         }
 
-        // Unmapped read: no device drives the bus, so the CPU reads
-        // whatever the last transaction left on the data lines.
-        // (Byte slot selected by address parity: even → high, odd →
-        // low of the 16-bit chip bus.)
-        let bus = self.last_bus_value.get();
-        if addr & 1 == 0 {
-            (bus >> 8) as u8
-        } else {
-            bus as u8
-        }
+        // Unmapped read: no device responds, so the bus floats high.
+        // Archive parity and the current autoconfig probe expect
+        // absent devices to read back as open bus ($FF bytes / $FFFF
+        // words), not as residue from the previous transfer.
+        0xFF
     }
 
     /// Read one word (big-endian) from the active memory map.
@@ -373,36 +368,41 @@ impl Memory {
         (u32::from(hi) << 16) | u32::from(lo)
     }
 
-    /// Write one byte through the active memory map.
-    pub fn write_byte(&mut self, addr: u32, val: u8) {
+    fn write_byte_inner(&mut self, addr: u32, val: u8) -> bool {
         let addr = addr & 0xFF_FFFF;
-        self.update_bus_from_byte(addr, val);
 
         // Chip-RAM writes always land — OVL only affects reads. The
         // 19-bit address mask aliases anything in the chip-RAM
         // decode range into the installed pool.
         if (CHIP_RAM_DECODE_BASE..CHIP_RAM_DECODE_TOP).contains(&addr) {
+            self.update_bus_from_byte(addr, val);
             self.chip_ram[(addr & self.chip_ram_mask) as usize] = val;
-            return;
+            return true;
         }
 
         // Slow RAM at $C00000, up to installed size.
         if addr >= SLOW_RAM_BASE && !self.slow_ram.is_empty() {
             let off = (addr - SLOW_RAM_BASE) as usize;
             if off < self.slow_ram.len() {
+                self.update_bus_from_byte(addr, val);
                 self.slow_ram[off] = val;
-                return;
+                return true;
             }
         }
 
         if self.try_write_a1000_rom_window(addr, val) {
-            return;
+            self.update_bus_from_byte(addr, val);
+            return true;
         }
 
-        // CIA / custom register / ROM / unmapped: silently drop (the
-        // bus-value update above still records the write — real
-        // hardware drives the lines during unmapped writes too).
+        // CIA / custom register / ROM / unmapped: silently drop.
         let _ = (CIA_BASE, CIA_TOP, CUSTOM_BASE, CUSTOM_TOP, val);
+        false
+    }
+
+    /// Write one byte through the active memory map.
+    pub fn write_byte(&mut self, addr: u32, val: u8) {
+        let _ = self.write_byte_inner(addr, val);
     }
 
     /// Write one word (big-endian) through the active memory map.
@@ -411,10 +411,12 @@ impl Memory {
             self.last_bus_value.set(val);
             return;
         }
-        self.write_byte(addr, (val >> 8) as u8);
-        self.write_byte(addr.wrapping_add(1), val as u8);
-        // Full word is what the bus saw at cycle end.
-        self.last_bus_value.set(val);
+        let hi_mapped = self.write_byte_inner(addr, (val >> 8) as u8);
+        let lo_mapped = self.write_byte_inner(addr.wrapping_add(1), val as u8);
+        if hi_mapped || lo_mapped {
+            // Full word is what the bus saw at cycle end.
+            self.last_bus_value.set(val);
+        }
     }
 
     fn overlay_rom_byte(&self, addr: u32) -> u8 {
@@ -577,20 +579,19 @@ mod tests {
     }
 
     #[test]
-    fn unmapped_reads_return_last_bus_value() {
+    fn unmapped_reads_return_open_bus_ff() {
         let mut mem = Memory::new(test_rom());
-        // Initial state: bus value is 0, so unmapped reads are 0.
-        assert_eq!(mem.read_word(0xC0_0000), 0x0000);
+        assert_eq!(mem.read_word(0xC0_0000), 0xFFFF);
         // Drive the bus with a ROM read (first long of test_rom).
         let _ = mem.read_long(0x00FC_0000);
         // Last word driven onto the bus was the low word of
         // $DEAD_BEEF = $BEEF.
         assert_eq!(mem.last_bus_value(), 0xBEEF);
-        // Unmapped reads now return the lingering value.
-        assert_eq!(mem.read_word(0xA0_0000), 0xBEEF);
-        // A write drives the bus too.
-        mem.write_word(0x00_0100, 0x1234);
-        assert_eq!(mem.read_word(0xE0_0000), 0x1234);
+        // Unmapped reads stay at open bus.
+        assert_eq!(mem.read_word(0xA0_0000), 0xFFFF);
+        // Dropped writes do not change that.
+        mem.write_word(0x00E0_0000, 0x1234);
+        assert_eq!(mem.read_word(0xE0_0000), 0xFFFF);
     }
 
     #[test]
@@ -601,12 +602,26 @@ mod tests {
         // to the actual chipset. Direct Memory writes are only hit by
         // test backdoors and test that the drop path works.)
         let mut mem = Memory::new(test_rom());
+        mem.write_word(0x00_0100, 0x1234);
         mem.write_word(0x00BFE001, 0x0203);
         mem.write_word(0x00DFF09A, 0x7FFF);
-        // The floating bus still remembers what the CPU drove.
-        assert_eq!(mem.last_bus_value(), 0x7FFF);
-        // Subsequent unmapped reads see that residue.
-        assert_eq!(mem.read_word(0x00BFE000), 0x7FFF);
+        // The dropped writes must not disturb the prior mapped value.
+        assert_eq!(mem.last_bus_value(), 0x1234);
+        assert_eq!(mem.read_word(0x00BFE000), 0xFFFF);
+    }
+
+    #[test]
+    fn dropped_write_cannot_fake_extra_slow_ram() {
+        let mut mem = Memory::new_with_slow_ram(test_rom(), 512 * 1024);
+        mem.set_overlay(false);
+        mem.write_word(0x0000_0100, 0x55AA);
+        assert_eq!(mem.last_bus_value(), 0x55AA);
+
+        // A501-style 512K trapdoor ends at $C7FFFF. The next 256K
+        // probe block ($C80000+) must not read back a just-written
+        // test pattern from floating-bus residue.
+        mem.write_word(0x00C8_F09A, 0x3FFF);
+        assert_eq!(mem.read_word(0x00C8_F09A), 0xFFFF);
     }
 
     #[test]
