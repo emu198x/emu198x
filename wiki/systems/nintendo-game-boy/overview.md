@@ -57,10 +57,14 @@ characterise → port-with-tests → integrate.
    bug latch, EI one-instruction delay. Public pin fields per
    [CPU bus interface](../../decisions/cpu-bus-interface.md). 92
    unit tests + 49,600 Adam Tennant single-step tests passing.
-2. `common-nintendo-game-boy` — timing constants, `MemoryBus`
-   trait over the CPU's single bus, palette helpers (DMG four
-   shades + CGB 15-bit RGB), joypad matrix. No host-boundary
-   types; the runtime layer maps host input.
+2. **`common-nintendo-game-boy`** — done for the DMG. Timing
+   constants (master clock, m-cycles per frame / scanline, PPU
+   mode dots, OAM DMA budget, screen size), `MemoryBus` trait,
+   four-shade DMG palette helpers (`BGP`/`OBP*` decoder), joypad
+   matrix with the action / direction group multiplexing on
+   `$FF00`. Hardware-only; the runtime layer will map host events.
+   CGB-specific bits (15-bit RGB palettes, double-speed knob)
+   deferred until the second machine arrives.
 3. `nintendo-game-boy-ppu` — dot-level renderer. Port `ppu.zig`
    (471 LOC). Modes 0/1/2/3, LCDC + STAT, DMA, OAM scan. Feeds
    a 160×144 framebuffer.

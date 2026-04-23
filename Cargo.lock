@@ -424,6 +424,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-nintendo-game-boy"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "common-sinclair-zx-spectrum"
 version = "0.1.0"
 dependencies = [
