@@ -1,0 +1,14 @@
+[package]
+name = "nintendo-game-boy-ppu"
+description = "Game Boy DMG PPU — pixel FIFO, BG/window/sprite compositing, 160×144 output"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy" }
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[lints]
+workspace = true

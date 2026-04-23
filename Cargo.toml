@@ -55,6 +55,7 @@ members = [
     "crates/mos-vic-ii",
     "crates/motorola-68000",
     "crates/nec-upd765a",
+    "crates/nintendo-game-boy-ppu",
     "crates/nintendo-game-boy-timer",
     "crates/pentagon-ula",
     "crates/scorpion-ula",

@@ -65,9 +65,16 @@ characterise → port-with-tests → integrate.
    `$FF00`. Hardware-only; the runtime layer will map host events.
    CGB-specific bits (15-bit RGB palettes, double-speed knob)
    deferred until the second machine arrives.
-3. `nintendo-game-boy-ppu` — dot-level renderer. Port `ppu.zig`
-   (471 LOC). Modes 0/1/2/3, LCDC + STAT, DMA, OAM scan. Feeds
-   a 160×144 framebuffer.
+3. **`nintendo-game-boy-ppu`** — done. Pixel-FIFO renderer ticked
+   per-dot. 4-state BG/window fetcher, OAM scan with 10-sprite
+   limit and DMG X-priority sort, full LCDC / STAT / SCY / SCX /
+   LYC / BGP / OBP0 / OBP1 / WX / WY register set, 160×144
+   framebuffer of post-palette 2-bit shades. STAT IRQ rising-edge
+   detection on the OR of LYC + mode 0/1/2 enable bits; VBlank
+   IRQ latches at LY=144. LCD-off freezes timing and blanks the
+   framebuffer per hardware. 24 unit tests passing. OAM DMA
+   blocking and per-mode VRAM/OAM access blocking are deferred to
+   the machine layer (which owns the actual address decode).
 4. `nintendo-game-boy-apu` — 4-channel mixer. Port `apu.zig`
    (783 LOC). Frame sequencer, length counters, envelopes,
    sweep, wave RAM, noise LFSR.
