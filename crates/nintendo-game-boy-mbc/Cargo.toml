@@ -1,0 +1,12 @@
+[package]
+name = "nintendo-game-boy-mbc"
+description = "Game Boy memory bank controllers (MBC1 / MBC3 / MBC5 + ROM-only)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

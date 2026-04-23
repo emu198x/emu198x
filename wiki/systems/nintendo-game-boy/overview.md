@@ -95,8 +95,19 @@ characterise → port-with-tests → integrate.
    that mooneye-gb's `tima_reload` family verifies is deferred
    (matching the Zig source's TODO) until the rest of the machine
    layer exists. 17 unit tests passing.
-6. `nintendo-game-boy-mbc` — MBC1 / MBC3 / MBC5 first. Others
-   as demand surfaces from tests.
+6. **`nintendo-game-boy-mbc`** — done. ROM-only, MBC1, MBC3, and
+   MBC5 implemented end-to-end. `Cartridge` owns the ROM image and
+   external RAM and dispatches reads / writes to the chosen
+   `Mbc` enum variant. MBC1 covers the bank-zero-rewrite quirk,
+   the 2-bit secondary's dual role (ROM bits 5-6 in mode 0 / RAM
+   bank in mode 1), and large-ROM bank-0 windowing in advanced
+   mode. MBC3 handles the 7-bit ROM bank, four RAM banks, and the
+   RTC register snapshot/latch (RTC values aren't advanced yet —
+   the machine layer can drive them when it lands). MBC5 covers
+   the 9-bit bank split (low 8 bits at $2000-$2FFF, bit 9 at
+   $3000-$3FFF), 4-bit RAM bank, and crucially permits bank 0 in
+   the switchable window (no MBC1-style rewrite). 18 tests pass.
+   MBC2 is deferred.
 7. `format-nintendo-game-boy-cartridge` — header parse
    (Nintendo logo, title, cartridge type, ROM size, RAM size,
    destination, version, header checksum, global checksum),
