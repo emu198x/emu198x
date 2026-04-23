@@ -18,7 +18,9 @@ use serde_json::json;
 use crate::{A500_PAL_FRAME_TICKS, Model, profile_for};
 
 const KICKSTART_ROM_ID: &str = "commodore-amiga-kickstart-rom";
+const A1000_BOOTSTRAP_ROM_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
 const VALID_KICKSTART_SIZES: &[usize] = &[256 * 1024, 512 * 1024];
+const VALID_A1000_BOOTSTRAP_SIZES: &[usize] = &[64 * 1024];
 
 /// Machine framebuffer width (= `FB_WIDTH`). Re-exported for host
 /// integrations that size their output buffers without pulling in
@@ -36,6 +38,8 @@ const AMIGA_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
+    "amiga.a1000.boot_rom_visible",
+    "amiga.a1000.wom_locked",
     "amiga.machine.frame_count",
     "amiga.memory.overlay",
     "amiga.cpu.pc",
@@ -47,12 +51,17 @@ const AMIGA_QUERY_PATHS: &[&str] = &[
     "amiga.agnus.bplcon0",
     "amiga.paula.intena",
     "amiga.paula.intreq",
+    "amiga.debug.dsk_write_count",
+    "amiga.debug.last_dsk_write",
     "amiga.display.color00",
     "amiga.display.color01",
     "amiga.disk.inserted",
+    "amiga.disk.change_pending",
     "amiga.disk.cylinder",
     "amiga.disk.head",
+    "amiga.disk.motor_on",
     "amiga.disk.motor_spinning",
+    "amiga.disk.step_events",
     "amiga.keyboard.state",
     "amiga.keyboard.queued",
 ];
@@ -61,7 +70,7 @@ const AMIGA_QUERY_PATHS: &[&str] = &[
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AmigaSessionQueryProvider;
 
-/// Firmware-backed Amiga runtime over the A500 OCS machine.
+/// Firmware-backed Amiga runtime over the OCS machine family.
 pub struct AmigaRuntime {
     profile: MachineProfile,
     model: Model,
@@ -72,7 +81,7 @@ pub struct AmigaRuntime {
     ram_config: RamConfig,
     machine: AmigaOcs,
     time: MachineTime,
-    kickstart_rom: Vec<u8>,
+    firmware_rom: Vec<u8>,
     floppy0_bytes: Option<Vec<u8>>,
     rgba_framebuffer: Vec<u8>,
     frame_count: u64,
@@ -95,14 +104,15 @@ struct AmigaBootStatus {
 }
 
 impl AmigaRuntime {
-    /// Construct a runtime from owned Kickstart ROM bytes, using the
-    /// model's preset RAM layout.
+    /// Construct a runtime from owned model-specific firmware bytes,
+    /// using the model's preset RAM layout.
     ///
     /// # Errors
     ///
-    /// Returns an error if the ROM size is not a supported A500-era size.
-    pub fn new(model: Model, kickstart_rom: Vec<u8>) -> Result<Self, MachineError> {
-        Self::with_ram_config(model, kickstart_rom, model.ram_config())
+    /// Returns an error if the firmware size is not valid for the
+    /// selected model.
+    pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
+        Self::with_ram_config(model, firmware_rom, model.ram_config())
     }
 
     /// Construct a runtime with an explicit RAM layout, bypassing the
@@ -118,18 +128,18 @@ impl AmigaRuntime {
     /// `RamConfig::is_valid`.
     pub fn with_ram_config(
         model: Model,
-        kickstart_rom: Vec<u8>,
+        firmware_rom: Vec<u8>,
         ram_config: RamConfig,
     ) -> Result<Self, MachineError> {
-        validate_kickstart_rom(&kickstart_rom)?;
-        let machine = build_machine(ram_config, &kickstart_rom);
+        validate_firmware_rom(model, &firmware_rom)?;
+        let machine = build_machine(model, ram_config, &firmware_rom);
         let mut runtime = Self {
             profile: profile_for(model),
             model,
             ram_config,
             machine,
             time: MachineTime::default(),
-            kickstart_rom,
+            firmware_rom,
             floppy0_bytes: None,
             rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
             frame_count: 0,
@@ -149,19 +159,20 @@ impl AmigaRuntime {
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let kickstart =
-            firmware
-                .bytes(KICKSTART_ROM_ID)
-                .ok_or_else(|| MachineError::MissingFirmware {
-                    id: KICKSTART_ROM_ID.to_owned(),
-                })?;
-        Self::new(model, kickstart.to_vec())
+        let firmware_id = firmware_id_for_model(model);
+        let image = firmware
+            .bytes(firmware_id)
+            .ok_or_else(|| MachineError::MissingFirmware {
+                id: firmware_id.to_owned(),
+            })?;
+        Self::new(model, image.to_vec())
     }
 
-    /// Construct with a zero-filled placeholder Kickstart image.
+    /// Construct with a zero-filled placeholder model-specific ROM.
     #[must_use]
     pub fn blank(model: Model) -> Self {
-        Self::new(model, vec![0; 256 * 1024]).expect("blank Kickstart image should be valid")
+        Self::new(model, blank_firmware_rom(model))
+            .expect("blank model firmware image should be valid")
     }
 
     /// Read-only access to the wrapped machine.
@@ -178,8 +189,8 @@ impl AmigaRuntime {
     }
 
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {
-        validate_kickstart_rom(&self.kickstart_rom)?;
-        self.machine = build_machine(self.ram_config, &self.kickstart_rom);
+        validate_firmware_rom(self.model, &self.firmware_rom)?;
+        self.machine = build_machine(self.model, self.ram_config, &self.firmware_rom);
         if let Some(bytes) = self.floppy0_bytes.clone() {
             self.insert_floppy_bytes("floppy-0", &bytes)?;
         }
@@ -207,7 +218,11 @@ impl AmigaRuntime {
             slot: slot.to_owned(),
             reason: reason.to_string(),
         })?;
-        self.machine.insert_adf(adf);
+        if self.model == Model::A1000OcsPal {
+            self.machine.insert_adf_with_change_pending(adf);
+        } else {
+            self.machine.insert_adf(adf);
+        }
         self.floppy0_bytes = Some(bytes.to_vec());
         Ok(())
     }
@@ -308,6 +323,8 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
             "boot.detected" => json!(boot.detected),
             "boot.reason" => json!(boot.reason),
             "boot.row" => json!(boot.row),
+            "amiga.a1000.boot_rom_visible" => json!(amiga.memory().a1000_boot_rom_visible()),
+            "amiga.a1000.wom_locked" => json!(amiga.memory().a1000_wom_locked()),
             "amiga.machine.frame_count" => json!(machine.frame_count),
             "amiga.memory.overlay" => json!(amiga.memory().overlay()),
             "amiga.cpu.pc" => json!(amiga.cpu().regs.pc),
@@ -319,12 +336,26 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
             "amiga.agnus.bplcon0" => json!(amiga.bplcon0()),
             "amiga.paula.intena" => json!(amiga.intena()),
             "amiga.paula.intreq" => json!(amiga.intreq()),
+            "amiga.debug.dsk_write_count" => json!(amiga.debug_dsk_log.len()),
+            "amiga.debug.last_dsk_write" => json!(amiga.debug_dsk_log.last().map(
+                |(cck, pc, reg, val)| {
+                    json!({
+                        "cck": cck,
+                        "pc": pc,
+                        "reg": reg,
+                        "val": val,
+                    })
+                }
+            )),
             "amiga.display.color00" => json!(amiga.color(0)),
             "amiga.display.color01" => json!(amiga.color(1)),
             "amiga.disk.inserted" => json!(drive.has_disk()),
+            "amiga.disk.change_pending" => json!(drive_status.disk_change),
             "amiga.disk.cylinder" => json!(drive.cylinder()),
             "amiga.disk.head" => json!(drive.head()),
+            "amiga.disk.motor_on" => json!(drive.motor_on()),
             "amiga.disk.motor_spinning" => json!(drive_status.ready),
+            "amiga.disk.step_events" => json!(drive.step_event_counter()),
             "amiga.keyboard.state" => json!(amiga.keyboard().debug_state_name()),
             "amiga.keyboard.queued" => json!(amiga.keyboard().queued_key_count()),
             _ => return Ok(None),
@@ -431,25 +462,91 @@ impl MachineCore for AmigaRuntime {
     }
 }
 
-fn build_machine(ram_config: RamConfig, kickstart_rom: &[u8]) -> AmigaOcs {
-    // Every A500-family layout in the current `Model` catalogue
-    // routes through the same autoconfig-aware constructor. A
-    // Zorro-II fast-RAM board is attached automatically when
-    // `ram_config.fast_kb > 0`; the ROM's `expansion.library` picks
-    // it up during boot without runtime cooperation.
-    AmigaOcs::with_ram_config(kickstart_rom.to_vec(), ram_config)
+fn build_machine(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> AmigaOcs {
+    match model {
+        Model::A1000OcsPal => AmigaOcs::with_a1000_bootstrap_rom(firmware_rom.to_vec(), ram_config),
+        Model::A500OcsPal
+        | Model::A500OcsPalA501
+        | Model::A500PlusOcsPal
+        | Model::A500OcsPalMaxed => {
+            // Every A500-family layout in the current `Model`
+            // catalogue routes through the same autoconfig-aware
+            // constructor. A Zorro-II fast-RAM board is attached
+            // automatically when `ram_config.fast_kb > 0`; the ROM's
+            // `expansion.library` picks it up during boot without
+            // runtime cooperation.
+            AmigaOcs::with_ram_config(firmware_rom.to_vec(), ram_config)
+        }
+    }
 }
 
-fn validate_kickstart_rom(kickstart_rom: &[u8]) -> Result<(), MachineError> {
-    if VALID_KICKSTART_SIZES.contains(&kickstart_rom.len()) {
+fn firmware_id_for_model(model: Model) -> &'static str {
+    match model {
+        Model::A1000OcsPal => A1000_BOOTSTRAP_ROM_ID,
+        Model::A500OcsPal
+        | Model::A500OcsPalA501
+        | Model::A500PlusOcsPal
+        | Model::A500OcsPalMaxed => KICKSTART_ROM_ID,
+    }
+}
+
+fn blank_standard_kickstart_rom() -> Vec<u8> {
+    let mut kickstart = vec![0u8; 256 * 1024];
+    kickstart[0] = 0x00;
+    kickstart[1] = 0x08;
+    kickstart[2] = 0x00;
+    kickstart[3] = 0x00;
+    kickstart[4] = 0x00;
+    kickstart[5] = 0xF8;
+    kickstart[6] = 0x00;
+    kickstart[7] = 0x08;
+    kickstart[8] = 0x60;
+    kickstart[9] = 0xFE;
+    kickstart
+}
+
+fn blank_a1000_bootstrap_rom() -> Vec<u8> {
+    let mut rom = vec![0u8; 64 * 1024];
+    rom[0] = 0x11;
+    rom[1] = 0x11;
+    rom[2] = 0x4E;
+    rom[3] = 0xF9;
+    rom[4] = 0x00;
+    rom[5] = 0xF8;
+    rom[6] = 0x00;
+    rom[7] = 0x08;
+    rom[8] = 0x60;
+    rom[9] = 0xFE;
+    rom
+}
+
+fn blank_firmware_rom(model: Model) -> Vec<u8> {
+    match model {
+        Model::A1000OcsPal => blank_a1000_bootstrap_rom(),
+        Model::A500OcsPal
+        | Model::A500OcsPalA501
+        | Model::A500PlusOcsPal
+        | Model::A500OcsPalMaxed => blank_standard_kickstart_rom(),
+    }
+}
+
+fn validate_firmware_rom(model: Model, firmware_rom: &[u8]) -> Result<(), MachineError> {
+    let (valid_sizes, firmware_id) = match model {
+        Model::A1000OcsPal => (VALID_A1000_BOOTSTRAP_SIZES, A1000_BOOTSTRAP_ROM_ID),
+        Model::A500OcsPal
+        | Model::A500OcsPalA501
+        | Model::A500PlusOcsPal
+        | Model::A500OcsPalMaxed => (VALID_KICKSTART_SIZES, KICKSTART_ROM_ID),
+    };
+    if valid_sizes.contains(&firmware_rom.len()) {
         return Ok(());
     }
     Err(MachineError::InvalidFirmware {
-        id: KICKSTART_ROM_ID.to_owned(),
+        id: firmware_id.to_owned(),
         reason: format!(
             "expected one of {:?} bytes, got {}",
-            VALID_KICKSTART_SIZES,
-            kickstart_rom.len()
+            valid_sizes,
+            firmware_rom.len()
         ),
     })
 }
@@ -519,21 +616,11 @@ mod tests {
     use format_commodore_amiga_adf::ADF_SIZE_DD;
 
     fn dummy_kickstart() -> Vec<u8> {
-        let mut kickstart = vec![0u8; 256 * 1024];
-        // Initial SSP + PC: high half of a valid address so the CPU
-        // fetches a reset vector that points somewhere in-ROM.
-        kickstart[0] = 0x00;
-        kickstart[1] = 0x08;
-        kickstart[2] = 0x00;
-        kickstart[3] = 0x00;
-        kickstart[4] = 0x00;
-        kickstart[5] = 0xF8;
-        kickstart[6] = 0x00;
-        kickstart[7] = 0x08;
-        // Branch-to-self loop at the reset PC.
-        kickstart[8] = 0x60;
-        kickstart[9] = 0xFE;
-        kickstart
+        blank_standard_kickstart_rom()
+    }
+
+    fn dummy_a1000_bootstrap_rom() -> Vec<u8> {
+        blank_a1000_bootstrap_rom()
     }
 
     fn dummy_firmware() -> FirmwareSet<'static> {
@@ -544,6 +631,14 @@ mod tests {
         firmware
     }
 
+    fn dummy_a1000_firmware() -> FirmwareSet<'static> {
+        let bootstrap = dummy_a1000_bootstrap_rom().into_boxed_slice();
+        let bytes: &'static [u8] = Box::leak(bootstrap);
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new(A1000_BOOTSTRAP_ROM_ID, bytes));
+        firmware
+    }
+
     #[test]
     fn from_firmware_accepts_supported_kickstart_size() {
         let runtime = AmigaRuntime::from_firmware(Model::A500OcsPal, &dummy_firmware());
@@ -551,9 +646,26 @@ mod tests {
     }
 
     #[test]
+    fn from_firmware_accepts_supported_a1000_bootstrap_size() {
+        let runtime = AmigaRuntime::from_firmware(Model::A1000OcsPal, &dummy_a1000_firmware());
+        assert!(runtime.is_ok());
+    }
+
+    #[test]
     fn new_rejects_undersized_rom() {
         match AmigaRuntime::new(Model::A500OcsPal, vec![0; 128 * 1024]) {
             Err(MachineError::InvalidFirmware { id, .. }) => assert_eq!(id, KICKSTART_ROM_ID),
+            Err(other) => panic!("expected InvalidFirmware, got {other:?}"),
+            Ok(_) => panic!("expected InvalidFirmware, got Ok"),
+        }
+    }
+
+    #[test]
+    fn a1000_new_rejects_non_bootstrap_rom_size() {
+        match AmigaRuntime::new(Model::A1000OcsPal, vec![0; 256 * 1024]) {
+            Err(MachineError::InvalidFirmware { id, .. }) => {
+                assert_eq!(id, A1000_BOOTSTRAP_ROM_ID)
+            }
             Err(other) => panic!("expected InvalidFirmware, got {other:?}"),
             Ok(_) => panic!("expected InvalidFirmware, got Ok"),
         }
@@ -570,6 +682,24 @@ mod tests {
             .load_media(&media)
             .expect("ADF bytes should insert into DF0");
         assert!(runtime.machine().drive().has_disk());
+    }
+
+    #[test]
+    fn load_media_keeps_a1000_disk_change_pending() {
+        let mut runtime = AmigaRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
+            .expect("dummy bootstrap ROM should construct");
+        let disk = vec![0u8; ADF_SIZE_DD];
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
+        runtime
+            .load_media(&media)
+            .expect("ADF bytes should insert into DF0");
+
+        assert!(runtime.machine().drive().has_disk());
+        assert!(
+            runtime.machine().drive().status().disk_change,
+            "A1000 bootstrap expects a fresh /DSKCHANGE event when Kickstart media is loaded"
+        );
     }
 
     #[test]
@@ -607,8 +737,13 @@ mod tests {
         let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).unwrap();
         let provider = AmigaSessionQueryProvider;
         let paths = provider.query_paths(&runtime, None);
+        assert!(paths.contains(&"amiga.a1000.boot_rom_visible".to_owned()));
+        assert!(paths.contains(&"amiga.a1000.wom_locked".to_owned()));
         assert!(paths.contains(&"amiga.cpu.pc".to_owned()));
+        assert!(paths.contains(&"amiga.debug.dsk_write_count".to_owned()));
+        assert!(paths.contains(&"amiga.disk.change_pending".to_owned()));
         assert!(paths.contains(&"amiga.disk.inserted".to_owned()));
+        assert!(paths.contains(&"amiga.disk.step_events".to_owned()));
         assert!(paths.contains(&"amiga.keyboard.state".to_owned()));
     }
 
@@ -621,5 +756,21 @@ mod tests {
             .expect("path present");
         assert_eq!(result.path, "amiga.cpu.pc");
         assert_eq!(result.value, json!(0x00F8_0008u32));
+    }
+
+    #[test]
+    fn a1000_queries_report_bootstrap_state() {
+        let runtime = AmigaRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom()).unwrap();
+        let boot_rom_visible = AmigaSessionQueryProvider
+            .query(&runtime, "amiga.a1000.boot_rom_visible")
+            .expect("query succeeds")
+            .expect("path present");
+        assert_eq!(boot_rom_visible.value, json!(true));
+
+        let wom_locked = AmigaSessionQueryProvider
+            .query(&runtime, "amiga.a1000.wom_locked")
+            .expect("query succeeds")
+            .expect("path present");
+        assert_eq!(wom_locked.value, json!(false));
     }
 }

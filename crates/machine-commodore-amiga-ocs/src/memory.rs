@@ -38,7 +38,25 @@ const CUSTOM_BASE: u32 = 0x00DF_0000;
 const CUSTOM_TOP: u32 = 0x00E0_0000;
 
 const ROM_BASE: u32 = 0x00F8_0000;
+const A1000_BOOT_ROM_TOP: u32 = 0x00FC_0000;
 const ROM_TOP: u32 = 0x0100_0000;
+const A1000_WOM_SIZE: usize = 256 * 1024;
+
+#[derive(Debug)]
+enum RomRegion {
+    Standard {
+        rom: Vec<u8>,
+        rom_mask: u32,
+    },
+    A1000 {
+        boot_rom: Vec<u8>,
+        boot_rom_mask: u32,
+        wom: Vec<u8>,
+        wom_mask: u32,
+        boot_rom_visible: bool,
+        wom_locked: bool,
+    },
+}
 
 /// Default chip-RAM size used by `Memory::new` and the A500 bare
 /// factory — 512 KiB, the stock A500 config.
@@ -72,8 +90,7 @@ pub struct Memory {
     chip_ram: Vec<u8>,
     chip_ram_mask: u32,
     slow_ram: Vec<u8>,
-    kickstart: Vec<u8>,
-    rom_mask: u32,
+    rom: RomRegion,
     overlay: bool,
     /// Floating-bus state: the last 16-bit value driven on the chip
     /// bus. When the CPU reads an unmapped address, real Amiga
@@ -127,13 +144,60 @@ impl Memory {
             "slow-RAM size must be 0 / 256K / 512K / 1M / 1.5M; got {} bytes",
             slow_bytes
         );
-        let rom_mask = (kickstart.len() as u32).wrapping_sub(1);
         Self {
             chip_ram: vec![0; chip_bytes],
             chip_ram_mask: (chip_bytes as u32).wrapping_sub(1),
             slow_ram: vec![0; slow_bytes],
-            kickstart,
-            rom_mask,
+            rom: RomRegion::Standard {
+                rom_mask: (kickstart.len() as u32).wrapping_sub(1),
+                rom: kickstart,
+            },
+            overlay: true,
+            last_bus_value: std::cell::Cell::new(0x0000),
+        }
+    }
+
+    /// Construct an A1000 memory map: writable 256K WOM in the
+    /// normal Kickstart window, plus the small bootstrap ROM visible
+    /// at `$F80000-$FBFFFF` until the first write into that range.
+    ///
+    /// While the bootstrap ROM is visible, the underlying WOM is
+    /// still writable through `$FC0000-$FFFFFF`. A later write into
+    /// the lower mirror switches the bootstrap ROM out and locks the
+    /// WOM, matching the classic A1000 power-on path.
+    #[must_use]
+    pub fn new_a1000_bootstrap_with_ram(
+        boot_rom: Vec<u8>,
+        chip_bytes: usize,
+        slow_bytes: usize,
+    ) -> Self {
+        assert!(
+            boot_rom.len().is_power_of_two(),
+            "A1000 bootstrap ROM size must be a power of two; got {} bytes",
+            boot_rom.len()
+        );
+        assert!(
+            is_valid_chip_ram_size(chip_bytes),
+            "chip-RAM size must be 256K / 512K / 1M / 2M; got {} bytes",
+            chip_bytes
+        );
+        assert!(
+            is_valid_slow_ram_size(slow_bytes),
+            "slow-RAM size must be 0 / 256K / 512K / 1M / 1.5M; got {} bytes",
+            slow_bytes
+        );
+        Self {
+            chip_ram: vec![0; chip_bytes],
+            chip_ram_mask: (chip_bytes as u32).wrapping_sub(1),
+            slow_ram: vec![0; slow_bytes],
+            rom: RomRegion::A1000 {
+                boot_rom_mask: (boot_rom.len() as u32).wrapping_sub(1),
+                boot_rom,
+                wom: vec![0; A1000_WOM_SIZE],
+                wom_mask: (A1000_WOM_SIZE as u32).wrapping_sub(1),
+                boot_rom_visible: true,
+                wom_locked: false,
+            },
             overlay: true,
             last_bus_value: std::cell::Cell::new(0x0000),
         }
@@ -150,6 +214,28 @@ impl Memory {
     #[must_use]
     pub fn slow_ram_size(&self) -> usize {
         self.slow_ram.len()
+    }
+
+    /// `true` when this memory map is using the A1000 bootstrap/WOM
+    /// path and the small boot ROM is still visible at `$F80000`.
+    #[must_use]
+    pub fn a1000_boot_rom_visible(&self) -> bool {
+        match &self.rom {
+            RomRegion::A1000 {
+                boot_rom_visible, ..
+            } => *boot_rom_visible,
+            RomRegion::Standard { .. } => false,
+        }
+    }
+
+    /// `true` once the A1000 WOM has been locked and is behaving like
+    /// the machine's final Kickstart ROM image.
+    #[must_use]
+    pub fn a1000_wom_locked(&self) -> bool {
+        match &self.rom {
+            RomRegion::A1000 { wom_locked, .. } => *wom_locked,
+            RomRegion::Standard { .. } => false,
+        }
     }
 
     /// Whether the reset overlay is currently mapping ROM into low
@@ -227,7 +313,7 @@ impl Memory {
 
         // OVL routes low-memory READS to ROM when active.
         if self.overlay && (OVL_BASE..OVL_TOP).contains(&addr) {
-            let byte = self.rom_byte(addr);
+            let byte = self.overlay_rom_byte(addr);
             self.update_bus_from_byte(addr, byte);
             return byte;
         }
@@ -252,7 +338,7 @@ impl Memory {
 
         // ROM at its anchor.
         if (ROM_BASE..ROM_TOP).contains(&addr) {
-            let byte = self.rom_byte(addr);
+            let byte = self.rom_window_byte(addr);
             self.update_bus_from_byte(addr, byte);
             return byte;
         }
@@ -309,6 +395,10 @@ impl Memory {
             }
         }
 
+        if self.try_write_a1000_rom_window(addr, val) {
+            return;
+        }
+
         // CIA / custom register / ROM / unmapped: silently drop (the
         // bus-value update above still records the write — real
         // hardware drives the lines during unmapped writes too).
@@ -317,14 +407,122 @@ impl Memory {
 
     /// Write one word (big-endian) through the active memory map.
     pub fn write_word(&mut self, addr: u32, val: u16) {
+        if self.try_write_a1000_rom_window_word(addr & 0xFF_FFFF, val) {
+            self.last_bus_value.set(val);
+            return;
+        }
         self.write_byte(addr, (val >> 8) as u8);
         self.write_byte(addr.wrapping_add(1), val as u8);
         // Full word is what the bus saw at cycle end.
         self.last_bus_value.set(val);
     }
 
-    fn rom_byte(&self, addr: u32) -> u8 {
-        self.kickstart[(addr & self.rom_mask) as usize]
+    fn overlay_rom_byte(&self, addr: u32) -> u8 {
+        match &self.rom {
+            RomRegion::Standard { rom, rom_mask } => rom[(addr & rom_mask) as usize],
+            RomRegion::A1000 {
+                boot_rom,
+                boot_rom_mask,
+                wom,
+                wom_mask,
+                boot_rom_visible,
+                ..
+            } => {
+                if *boot_rom_visible {
+                    boot_rom[(addr & boot_rom_mask) as usize]
+                } else {
+                    wom[(addr & wom_mask) as usize]
+                }
+            }
+        }
+    }
+
+    fn rom_window_byte(&self, addr: u32) -> u8 {
+        match &self.rom {
+            RomRegion::Standard { rom, rom_mask } => rom[(addr & rom_mask) as usize],
+            RomRegion::A1000 {
+                boot_rom,
+                boot_rom_mask,
+                wom,
+                wom_mask,
+                boot_rom_visible,
+                ..
+            } => {
+                if *boot_rom_visible && addr < A1000_BOOT_ROM_TOP {
+                    boot_rom[(addr & boot_rom_mask) as usize]
+                } else {
+                    wom[(addr & wom_mask) as usize]
+                }
+            }
+        }
+    }
+
+    fn try_write_a1000_rom_window(&mut self, addr: u32, val: u8) -> bool {
+        let RomRegion::A1000 {
+            wom,
+            wom_mask,
+            boot_rom_visible,
+            wom_locked,
+            ..
+        } = &mut self.rom
+        else {
+            return false;
+        };
+
+        if !(ROM_BASE..ROM_TOP).contains(&addr) {
+            return false;
+        }
+
+        if *wom_locked {
+            return true;
+        }
+
+        if *boot_rom_visible && addr < A1000_BOOT_ROM_TOP {
+            *boot_rom_visible = false;
+            *wom_locked = true;
+            return true;
+        }
+
+        let wom_index = (addr & *wom_mask) as usize;
+        wom[wom_index] = val;
+
+        true
+    }
+
+    fn try_write_a1000_rom_window_word(&mut self, addr: u32, val: u16) -> bool {
+        let RomRegion::A1000 {
+            wom,
+            wom_mask,
+            boot_rom_visible,
+            wom_locked,
+            ..
+        } = &mut self.rom
+        else {
+            return false;
+        };
+
+        if !(ROM_BASE..ROM_TOP).contains(&addr)
+            || !(ROM_BASE..ROM_TOP).contains(&addr.wrapping_add(1))
+        {
+            return false;
+        }
+
+        if *wom_locked {
+            return true;
+        }
+
+        if *boot_rom_visible && addr < A1000_BOOT_ROM_TOP {
+            *boot_rom_visible = false;
+            *wom_locked = true;
+            return true;
+        }
+
+        let hi_index = (addr & *wom_mask) as usize;
+        let lo_index = (addr.wrapping_add(1) & *wom_mask) as usize;
+        wom[hi_index] = (val >> 8) as u8;
+        wom[lo_index] = val as u8;
+
+        true
     }
 }
 
@@ -499,5 +697,50 @@ mod tests {
         // Backdoor read — bus stays unchanged.
         let _ = mem.read_chip_ram_byte(0x0000_0400);
         assert_eq!(mem.last_bus_value(), 0x1111);
+    }
+
+    fn test_boot_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 64 * 1024];
+        rom[0] = 0xAA;
+        rom[1] = 0x55;
+        rom[2] = 0x12;
+        rom[3] = 0x34;
+        rom
+    }
+
+    #[test]
+    fn a1000_bootstrap_reads_boot_rom_before_switch() {
+        let mem = Memory::new_a1000_bootstrap_with_ram(test_boot_rom(), 256 * 1024, 0);
+        assert!(mem.a1000_boot_rom_visible());
+        assert!(!mem.a1000_wom_locked());
+        assert_eq!(mem.read_word(0x00F8_0000), 0xAA55);
+        assert_eq!(mem.read_word(0x00FC_0000), 0x0000);
+        assert_eq!(mem.read_word(0x0000_0000), 0xAA55);
+    }
+
+    #[test]
+    fn a1000_wom_is_writable_before_switch() {
+        let mut mem = Memory::new_a1000_bootstrap_with_ram(test_boot_rom(), 256 * 1024, 0);
+        mem.write_word(0x00FC_0000, 0xCAFE);
+        assert!(mem.a1000_boot_rom_visible());
+        assert!(!mem.a1000_wom_locked());
+        assert_eq!(mem.read_word(0x00FC_0000), 0xCAFE);
+        assert_eq!(mem.read_word(0x00F8_0000), 0xAA55);
+    }
+
+    #[test]
+    fn a1000_write_to_boot_rom_range_switches_to_locked_wom() {
+        let mut mem = Memory::new_a1000_bootstrap_with_ram(test_boot_rom(), 256 * 1024, 0);
+        mem.write_word(0x00FC_0002, 0xCAFE);
+        mem.write_word(0x00F8_0000, 0xBEEF);
+        assert!(!mem.a1000_boot_rom_visible());
+        assert!(mem.a1000_wom_locked());
+        assert_eq!(mem.read_word(0x00F8_0000), 0x0000);
+        assert_eq!(mem.read_word(0x00FC_0000), 0x0000);
+        assert_eq!(mem.read_word(0x00FC_0002), 0xCAFE);
+        assert_eq!(mem.read_word(0x0000_0000), 0x0000);
+
+        mem.write_word(0x00FC_0000, 0x1234);
+        assert_eq!(mem.read_word(0x00FC_0000), 0x0000);
     }
 }

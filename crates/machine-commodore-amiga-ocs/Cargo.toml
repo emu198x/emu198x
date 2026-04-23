@@ -19,6 +19,7 @@ format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
 
 [dev-dependencies]
 png = { workspace = true }
+zip = { workspace = true }
 
 [lints]
 workspace = true

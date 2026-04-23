@@ -46,8 +46,8 @@
 //!
 //! # Phase 1 scope
 //!
-//! OCS only — A1000 / A500 / A500+A501 with Kickstart 1.2 and 1.3,
-//! with and without a Workbench ADF inserted. Later phases extend
+//! OCS only — A1000 bootstrap + A500 / A500+A501 with Kickstart-era
+//! boot paths, with and without a Workbench ADF inserted. Later phases extend
 //! the matrix to ECS (A500+/A600), AGA (A1200/A4000), and HDD boot.
 
 use std::path::{Path, PathBuf};
@@ -110,9 +110,9 @@ const MATRIX: &[GoldenRow] = &[
         settle_frames: 2500,
     },
     GoldenRow {
-        name: "a1000-ks12-no-disk",
+        name: "a1000-bootstrap-no-kickstart-disk",
         model: Model::A1000OcsPal,
-        kickstart: "kick12.rom",
+        kickstart: "a1000-bootstrap.rom",
         disk: None,
         settle_frames: KS13_SETTLE_FRAMES,
     },
@@ -361,8 +361,8 @@ fn run_row(row: &GoldenRow) {
 }
 
 // The KS 1.3 insert-disk rows are pixel-exact against FS-UAE
-// captures. A1000 KS 1.2 still fails — that's a separate boot bug
-// (task #188, golden itself is all-black so the symptom differs).
+// captures. Real A1000 bootstrap coverage is still exploratory and
+// doesn't yet have a validated golden.
 // Run `cargo test -- --ignored` to see the A1000 diff while #188
 // is outstanding.
 
@@ -382,7 +382,7 @@ fn a500_ks13_wb13() {
 }
 
 #[test]
-#[ignore = "task #188: A1000 KS 1.2 boot produces all-black golden — separate bug"]
-fn a1000_ks12_no_disk() {
+#[ignore = "task #188: real A1000 bootstrap row does not have a validated golden yet"]
+fn a1000_bootstrap_no_kickstart_disk() {
     run_row(&MATRIX[3]);
 }

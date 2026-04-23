@@ -30,7 +30,7 @@ peripherals are present.
 | $DFF000–$DFF1FF | Custom regs | Custom regs | Custom regs | Custom regs | Custom regs | Custom regs | Custom regs | Custom regs |
 | $E80000–$EFFFFF | Autoconfig | Autoconfig | Autoconfig | Autoconfig | Autoconfig | Autoconfig | Autoconfig | Autoconfig |
 | $F00000–$F7FFFF | Unmapped | Unmapped | Unmapped | Unmapped | Unmapped | Unmapped | Diag ROM ⁶ | Unmapped |
-| $F80000–$FFFFFF | ROM 256K | ROM 256K | ROM 256K | ROM 256K | ROM 512K | ROM 512K | ROM 512K | ROM 512K |
+| $F80000–$FFFFFF | ROM 256K | Boot ROM / WOM ⁷ | ROM 256K | ROM 256K | ROM 512K | ROM 512K | ROM 512K | ROM 512K |
 
 **Notes:**
 
@@ -52,6 +52,12 @@ A4000 uses IDE via a Gayle-like mechanism on the motherboard).
 
 ⁶ A3000 diagnostic ROM at $F00000–$F7FFFF. Decoded by the motherboard. Returns
 0 when no diagnostic ROM is installed.
+
+⁷ Stock A1000 power-on starts with the small bootstrap ROM visible at
+$F80000-$FBFFFF and writable WOM behind the standard 256K Kickstart window.
+Once the bootstrap finishes loading Kickstart from floppy, a write into the
+lower mirror switches the bootstrap ROM out and locks the WOM so it behaves
+like normal 1.x Kickstart ROM.
 
 ## 32-Bit Address Space (A3000/A4000 only)
 

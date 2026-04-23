@@ -30,10 +30,9 @@ pub use runtime::{AmigaRuntime, AmigaSessionQueryProvider, DISPLAY_HEIGHT, DISPL
 /// presets are available through `AmigaRuntime::from_ram_config`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
-    /// A1000 OCS PAL (shipping config, 1985): 256 KiB chip RAM.
-    /// Shares the OCS chipset with the A500; the differences (RAM
-    /// size, expansion layout, keyboard/case) don't affect the
-    /// chipset tick path, so we reuse `AmigaOcs` as-is.
+    /// A1000 OCS PAL (shipping config, 1985): 256 KiB chip RAM,
+    /// 64 KiB bootstrap ROM, and writable WOM for Kickstart loaded
+    /// from floppy.
     A1000OcsPal,
     /// Stock A500 OCS PAL: 512 KiB chip RAM only.
     A500OcsPal,
@@ -128,6 +127,16 @@ pub fn profile_for(model: Model) -> MachineProfile {
         Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsPalMaxed => 1987,
         Model::A500PlusOcsPal => 1991,
     };
+    let (firmware_id, firmware_name) = match model {
+        Model::A1000OcsPal => (
+            "commodore-amiga-a1000-bootstrap-rom",
+            "Amiga 1000 bootstrap ROM",
+        ),
+        Model::A500OcsPal
+        | Model::A500OcsPalA501
+        | Model::A500PlusOcsPal
+        | Model::A500OcsPalMaxed => ("commodore-amiga-kickstart-rom", "Amiga Kickstart ROM"),
+    };
     MachineProfile {
         machine_id: MachineId::from("commodore-amiga"),
         profile_id: ProfileId::from(model.profile_id()),
@@ -136,13 +145,12 @@ pub fn profile_for(model: Model) -> MachineProfile {
         region: Region::Pal,
         support_tier: SupportTier::Boots,
         release_year,
-        summary: "Amiga OCS PAL — Kickstart-backed headless boot, 768x576 ARGB framebuffer, DF0 ADF insertion, keyboard input. Audio, snapshots, and broader software validation still pending.".into(),
+        summary: match model {
+            Model::A1000OcsPal => "Amiga 1000 OCS PAL — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, DF0 ADF insertion, keyboard input. Kickstart-to-Workbench disk swaps are scriptable via headless media reloads.".into(),
+            Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500PlusOcsPal | Model::A500OcsPalMaxed => "Amiga OCS PAL — Kickstart-backed headless boot, 768x576 ARGB framebuffer, DF0 ADF insertion, keyboard input. Audio, snapshots, and broader software validation still pending.".into(),
+        },
         clock: ClockDesc::new("cck", ClockRate::from_hz(A500_PAL_CCK_HZ)),
-        firmware: vec![FirmwareRequirement::new(
-            "commodore-amiga-kickstart-rom",
-            "Amiga Kickstart ROM",
-            false,
-        )],
+        firmware: vec![FirmwareRequirement::new(firmware_id, firmware_name, false)],
         media_slots: vec![MediaSlot::new(
             "floppy-0",
             "DF0:",
@@ -187,5 +195,17 @@ mod tests {
         assert_eq!(profile.media_slots.len(), 1);
         assert_eq!(profile.media_slots[0].id.as_ref(), "floppy-0");
         assert_eq!(profile.media_slots[0].kind, MediaKind::Disk);
+    }
+
+    #[test]
+    fn a1000_profile_declares_bootstrap_rom() {
+        let profile = profile_for(Model::A1000OcsPal);
+        assert_eq!(profile.firmware.len(), 1);
+        assert_eq!(
+            profile.firmware[0].id.as_ref(),
+            "commodore-amiga-a1000-bootstrap-rom"
+        );
+        assert_eq!(profile.media_slots.len(), 1);
+        assert_eq!(profile.media_slots[0].id.as_ref(), "floppy-0");
     }
 }

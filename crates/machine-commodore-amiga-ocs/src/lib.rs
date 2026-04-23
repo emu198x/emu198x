@@ -395,6 +395,31 @@ impl AmigaOcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
+        Self::with_memory_config(memory, cfg, true)
+    }
+
+    /// Build a real A1000-style machine: a small bootstrap ROM at
+    /// `$F80000` plus writable WOM behind the normal 256K Kickstart
+    /// window. The WOM remains writable through `$FC0000-$FFFFFF`
+    /// until the bootstrap writes into `$F80000-$FBFFFF`, at which
+    /// point the bootstrap ROM disappears and the WOM becomes
+    /// read-only Kickstart.
+    #[must_use]
+    pub fn with_a1000_bootstrap_rom(boot_rom: Vec<u8>, cfg: RamConfig) -> Self {
+        assert!(
+            cfg.is_valid(),
+            "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
+             slow=0/256/512/1024/1536 KiB, fast multiple-of-64 up to 8192 KiB"
+        );
+        let memory = Memory::new_a1000_bootstrap_with_ram(
+            boot_rom,
+            cfg.chip_kb as usize * 1024,
+            cfg.slow_kb as usize * 1024,
+        );
+        Self::with_memory_config(memory, cfg, false)
+    }
+
+    fn with_memory_config(memory: Memory, cfg: RamConfig, slow_ram_decode: bool) -> Self {
         // Autoconfig only supports the eight Zorro-II sizes; other
         // (still-valid) fast_kb values are rounded down to the nearest
         // supported size, dropping the remainder. In practice the
@@ -428,16 +453,12 @@ impl AmigaOcs {
         let drive = AmigaFloppyDrive::new();
         let mut cia_a = Cia::new();
         cia_a.set_external_a(drive_pra_byte(&drive.status()));
-        // Gary address decoder configured for A500 + slow RAM. The
-        // machine's Memory layer decides whether to populate the
-        // slow-RAM window based on the caller's `with_slow_ram`
-        // argument, but Gary's decode is config-fixed: any read or
-        // write to $C00000..$DFFFFF (minus CIA / custom shadows)
-        // routes to `ChipSelect::SlowRam`. When the Memory hasn't
-        // been given slow RAM, reads return 0 and writes land in
-        // the slow-RAM backing anyway (harmless for boot).
+        // Gary decode is model-shaped here, not hard-coded to the
+        // A500 path: A1000 bootstrap machines leave the slow-RAM
+        // window unmapped, while A500-family constructors may choose
+        // to decode it.
         let mut gary = Gary::new();
-        gary.set_slow_ram_present(true);
+        gary.set_slow_ram_present(slow_ram_decode);
         gary.set_rtc_present(cfg.slow_kb > 0);
         Self {
             cpu,
@@ -803,17 +824,15 @@ impl AmigaOcs {
             // until a test actually drives it.
             return;
         }
-        if runtime.wordsync_enabled {
-            if runtime.wordsync_waiting {
-                if matched_sync {
-                    runtime.wordsync_waiting = false;
-                }
-                return;
-            }
+        if runtime.wordsync_enabled && runtime.wordsync_waiting {
             if matched_sync {
-                // Resync: the sync word itself isn't written to memory.
-                return;
+                // The first matching sync word opens the DMA gate but
+                // is not itself written to RAM. Later sync words still
+                // land in memory; the A1000 bootstrap raw-track loader
+                // expects to find them there when it scans the buffer.
+                runtime.wordsync_waiting = false;
             }
+            return;
         }
         let addr = self.agnus.dsk_pt & 0x001F_FFFE;
         self.memory.write_word(addr, word);

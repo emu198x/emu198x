@@ -15,6 +15,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 const KICKSTART_ID: &str = "commodore-amiga-kickstart-rom";
+const A1000_BOOTSTRAP_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
 const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -61,7 +62,7 @@ Usage: emu198x-script-amiga [OPTIONS]
 
 Firmware:
     --rom-dir DIR             directory containing Kickstart ROM images
-    --kickstart PATH          explicit Kickstart ROM path
+    --kickstart PATH          explicit ROM path (Kickstart on A500, bootstrap on A1000)
     --model MODEL             a1000 | a500 | a500-a501 | a500-plus | a500-maxed [default: a500]
 
 Media:
@@ -85,6 +86,12 @@ ROM directory resolution (first match wins):
     4. ~/.emu198x/roms/amiga
 
 Filename resolution inside the ROM directory:
+    A1000:
+    - a1000-bootstrap.rom
+    - a1000_bootstrap.rom
+    - bootstrap.rom
+
+    Other models:
     - kick13.rom
     - kick12.rom
     - kick31.rom
@@ -208,21 +215,24 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         );
     }
 
-    let kickstart_path = resolve_kickstart_path(&cli)?;
-    let kickstart = read_firmware_asset(&kickstart_path).map_err(|err| {
+    let model = cli.model.to_model();
+    let firmware_path = resolve_firmware_path(&cli)?;
+    let firmware_bytes = read_firmware_asset(&firmware_path).map_err(|err| {
         format!(
-            "failed to read Kickstart ROM {}: {err}",
-            kickstart_path.display()
+            "failed to read Amiga firmware {}: {err}",
+            firmware_path.display()
         )
     })?;
 
     let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new(KICKSTART_ID, &kickstart.bytes));
+    firmware.push(FirmwareImage::new(
+        firmware_id_for_model_arg(cli.model),
+        &firmware_bytes.bytes,
+    ));
     let artifacts = BootArtifacts {
         firmware,
         snapshot: None,
     };
-    let model = cli.model.to_model();
 
     let machine = boot_machine(
         &artifacts,
@@ -327,7 +337,16 @@ impl ModelArg {
     }
 }
 
-fn resolve_kickstart_path(cli: &Cli) -> Result<PathBuf, String> {
+fn firmware_id_for_model_arg(model: ModelArg) -> &'static str {
+    match model {
+        ModelArg::A1000 => A1000_BOOTSTRAP_ID,
+        ModelArg::A500 | ModelArg::A500A501 | ModelArg::A500Plus | ModelArg::A500Maxed => {
+            KICKSTART_ID
+        }
+    }
+}
+
+fn resolve_firmware_path(cli: &Cli) -> Result<PathBuf, String> {
     if let Some(path) = &cli.kickstart {
         return Ok(path.clone());
     }
@@ -339,15 +358,22 @@ fn resolve_kickstart_path(cli: &Cli) -> Result<PathBuf, String> {
             "no Amiga ROM directory found; use --kickstart PATH or --rom-dir DIR".to_owned()
         })?;
 
-    const CANDIDATES: &[&str] = &[
-        "kick13.rom",
-        "kick12.rom",
-        "kick31.rom",
-        "kickstart.rom",
-        "kick.rom",
-    ];
+    let candidates: &[&str] = match cli.model {
+        ModelArg::A1000 => &[
+            "a1000-bootstrap.rom",
+            "a1000_bootstrap.rom",
+            "bootstrap.rom",
+        ],
+        ModelArg::A500 | ModelArg::A500A501 | ModelArg::A500Plus | ModelArg::A500Maxed => &[
+            "kick13.rom",
+            "kick12.rom",
+            "kick31.rom",
+            "kickstart.rom",
+            "kick.rom",
+        ],
+    };
 
-    for name in CANDIDATES {
+    for name in candidates {
         let path = rom_dir.join(name);
         if path.is_file() {
             return Ok(path);
@@ -355,9 +381,9 @@ fn resolve_kickstart_path(cli: &Cli) -> Result<PathBuf, String> {
     }
 
     Err(format!(
-        "no Kickstart ROM found in {}; tried {}",
+        "no Amiga firmware ROM found in {}; tried {}",
         rom_dir.display(),
-        CANDIDATES.join(", ")
+        candidates.join(", ")
     ))
 }
 
