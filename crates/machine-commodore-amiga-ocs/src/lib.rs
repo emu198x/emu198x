@@ -14,7 +14,8 @@ mod memory;
 mod rtc;
 
 pub use agnus::{
-    Agnus, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS, VBL_END_LINE,
+    Agnus, CckBusPlan, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS,
+    SlotOwner, VBL_END_LINE, bits,
 };
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};

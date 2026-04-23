@@ -234,16 +234,16 @@ impl LineTrace {
 struct ScenarioSummary {
     label: &'static str,
     wom_locked_frame: Option<u64>,
-    first_dsk_write_frame: Option<u64>,
-    dsk_write_count: usize,
-    step_events: u32,
-    cylinder: u32,
-    motor_on: bool,
-    motor_spinning: bool,
-    disk_change: bool,
-    boot_rom_visible: bool,
-    wom_locked: bool,
-    final_pc: u32,
+    _first_dsk_write_frame: Option<u64>,
+    _dsk_write_count: usize,
+    _step_events: u32,
+    _cylinder: u32,
+    _motor_on: bool,
+    _motor_spinning: bool,
+    _disk_change: bool,
+    _boot_rom_visible: bool,
+    _wom_locked: bool,
+    _final_pc: u32,
 }
 
 fn run_case(label: &'static str, pending_change: bool) -> Option<ScenarioSummary> {
@@ -287,16 +287,16 @@ fn run_case(label: &'static str, pending_change: bool) -> Option<ScenarioSummary
     Some(ScenarioSummary {
         label,
         wom_locked_frame,
-        first_dsk_write_frame,
-        dsk_write_count: amiga.debug_dsk_log.len(),
-        step_events: amiga.drive().step_event_counter(),
-        cylinder: amiga.drive().cylinder(),
-        motor_on: amiga.drive().motor_on(),
-        motor_spinning: amiga.drive().motor_spinning(),
-        disk_change: amiga.drive().status().disk_change,
-        boot_rom_visible: amiga.memory().a1000_boot_rom_visible(),
-        wom_locked: amiga.memory().a1000_wom_locked(),
-        final_pc: amiga.cpu().regs.pc,
+        _first_dsk_write_frame: first_dsk_write_frame,
+        _dsk_write_count: amiga.debug_dsk_log.len(),
+        _step_events: amiga.drive().step_event_counter(),
+        _cylinder: amiga.drive().cylinder(),
+        _motor_on: amiga.drive().motor_on(),
+        _motor_spinning: amiga.drive().motor_spinning(),
+        _disk_change: amiga.drive().status().disk_change,
+        _boot_rom_visible: amiga.memory().a1000_boot_rom_visible(),
+        _wom_locked: amiga.memory().a1000_wom_locked(),
+        _final_pc: amiga.cpu().regs.pc,
     })
 }
 
@@ -466,7 +466,7 @@ fn trace_a1000_boot_rom_disable_write() {
     amiga.debug_watch_addr = Some((0x00F8_0000, 0x20));
     amiga.debug_watch_writes.clear();
 
-    let cck_per_frame = PAL_FRAME_TICKS / 4;
+    let cck_per_frame = PAL_FRAME_TICKS / 2;
 
     for _ in 0..(1800 * PAL_FRAME_TICKS) {
         amiga.tick();
@@ -600,7 +600,7 @@ fn trace_a1000_kickdisk_white_phase_display_state() {
     );
     amiga.insert_adf_with_change_pending(adf);
 
-    let cck_per_frame = (PAL_FRAME_TICKS as u64) / 2;
+    let cck_per_frame = PAL_FRAME_TICKS / 2;
     let mut line_frame = 0u64;
     let mut line_vpos = 0u16;
     let mut line_bplcon0 = 0u16;
@@ -617,7 +617,7 @@ fn trace_a1000_kickdisk_white_phase_display_state() {
     let mut prev_spr_pt = [0u32; 8];
     let mut sprite_ptr_events = Vec::<String>::new();
 
-    for _ in 0..(FRAME_END * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(FRAME_END * PAL_FRAME_TICKS) {
         amiga.tick();
 
         while last_dmacon_len < amiga.debug_dmacon_log.len() {

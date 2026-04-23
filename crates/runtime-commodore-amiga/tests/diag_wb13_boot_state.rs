@@ -6,6 +6,7 @@
 //! probe run with `cargo test -- --nocapture` when the golden-
 //! matrix wb13 row is mysteriously blank.
 
+use std::error::Error;
 use std::path::PathBuf;
 
 use format_commodore_amiga_adf::Adf;
@@ -17,19 +18,19 @@ fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
         eprintln!("skipping: missing {}", path.display());
         return None;
     }
-    Some(std::fs::read(path).ok()?)
+    std::fs::read(path).ok()
 }
 
 #[test]
-fn wb13_boot_state_checkpoints() {
+fn wb13_boot_state_checkpoints() -> Result<(), Box<dyn Error>> {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        return Ok(());
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        return Ok(());
     };
 
     // Keep a copy of the first 1024 bytes of the ADF so we can
@@ -38,7 +39,7 @@ fn wb13_boot_state_checkpoints() {
     // exactly where.
     let adf_bootblock: Vec<u8> = adf_bytes[..1024].to_vec();
 
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom).expect("build runtime");
+    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     rt.machine_mut().insert_adf(adf);
 
@@ -138,7 +139,7 @@ fn wb13_boot_state_checkpoints() {
     let mut cia_a_irq_edges_total = 0u64;
     let mut cia_a_irq_edges_tail = 0u64;
 
-    let total_frames = *checkpoints.last().unwrap();
+    let total_frames = *checkpoints.last().expect("checkpoints not empty");
     for frame in 0..total_frames {
         for _ in 0..A500_PAL_FRAME_TICKS {
             rt.machine_mut().tick();
@@ -256,7 +257,8 @@ fn wb13_boot_state_checkpoints() {
     let target = 0x0000_2064u32;
     for row in 0..8u32 {
         let base = target + row * 16;
-        let mut line = format!("  ${base:06X}: ");
+        let mut line = String::from("  header: ");
+        line.push_str(&format!("${base:06X}: "));
         for off in 0..16 {
             let b = m.memory().read_chip_ram_byte(base + off);
             line.push_str(&format!("{b:02X} "));
@@ -326,8 +328,8 @@ fn wb13_boot_state_checkpoints() {
     for (pair_idx, sync_start) in pair_starts.iter().enumerate() {
         // sync pair occupies bytes [sync_start..sync_start+4).
         // Header odd at sync_start+4, even at sync_start+8.
-        let odd_off = (*sync_start as u32) + 4;
-        let even_off = (*sync_start as u32) + 8;
+        let odd_off = *sync_start + 4;
+        let even_off = *sync_start + 8;
         let mut info = [0u8; 4];
         for k in 0..4u32 {
             let o = m.memory().read_chip_ram_byte(target + odd_off + k);
@@ -404,7 +406,7 @@ fn wb13_boot_state_checkpoints() {
     // by `move.b d0, $3(a2)` at $FEA652.
     let buf_base = target - 0x684;
     println!("\nTrackdisk unit buffer header @ ${buf_base:06X} (state[$4E]):");
-    let mut line = format!("  header: ");
+    let mut line = String::from("  header: ");
     for k in 0..16u32 {
         line.push_str(&format!(
             "{:02X} ",
@@ -507,7 +509,7 @@ fn wb13_boot_state_checkpoints() {
     // Verify cksum for ALL 11 syncs in the DMA buffer.
     println!("  cksum check across all 11 syncs in DMA buffer:");
     for sync_byte_off in &pair_starts {
-        let gap_pos = (*sync_byte_off as u32).wrapping_sub(4);
+        let gap_pos = (*sync_byte_off).wrapping_sub(4);
         let info_pos = gap_pos + 8;
         let cksum_pos = gap_pos + 0x30;
         let mut info_label = [0u32; 10];
@@ -541,7 +543,7 @@ fn wb13_boot_state_checkpoints() {
     let decode_buf = target - 4; // state[$4E]+$680 = DSKPT target - 4
     println!("\nDecode buffer @ ${decode_buf:06X}:");
     // Dump first 16 bytes (slot 0 gap + sync + info odd).
-    let mut line = format!("  slot  0: ");
+    let mut line = String::from("  slot  0: ");
     for k in 0..16u32 {
         line.push_str(&format!(
             "{:02X} ",
@@ -551,7 +553,7 @@ fn wb13_boot_state_checkpoints() {
     println!("{line}");
     // Slot 2 (= sector 1's slot given first sync was sector 10):
     let slot2 = decode_buf + 2 * 1088;
-    let mut line = format!("  slot  2: ");
+    let mut line = String::from("  slot  2: ");
     for k in 0..16u32 {
         line.push_str(&format!(
             "{:02X} ",
@@ -701,9 +703,8 @@ fn wb13_boot_state_checkpoints() {
     assert_eq!(expected_mfm.len(), MFM_TRACK_BYTES);
     let mut encode_vs_dma_mismatches = 0u32;
     let mut first_mismatch: Option<(u32, u8, u8)> = None;
-    for i in 0..MFM_TRACK_BYTES {
+    for (i, &want) in expected_mfm.iter().enumerate().take(MFM_TRACK_BYTES) {
         let got = m.memory().read_chip_ram_byte(target + i as u32);
-        let want = expected_mfm[i];
         if got != want {
             encode_vs_dma_mismatches += 1;
             if first_mismatch.is_none() {
@@ -884,7 +885,7 @@ fn wb13_boot_state_checkpoints() {
             "     raw-ADF diff: {mismatches} bytes differ, first \
              at {}",
             match first_mismatch {
-                Some((o, w, g)) => format!("off=${o:03X} want=${w:02X} got=${g:02X}"),
+                Some((off, want, got)) => format!("off=${off:03X} want=${want:02X} got=${got:02X}"),
                 None => "<none — identical>".into(),
             }
         );
@@ -944,7 +945,7 @@ fn wb13_boot_state_checkpoints() {
     // Dump 64 bytes around the hottest PC so we can see the loop
     // body. Readable even without a disassembler — useful for
     // spotting STOP #$2000 / BRA.S idle waits.
-    if let Some((hot_pc, _)) = pc_sorted.first() {
+    if let Some(&(&hot_pc, _)) = pc_sorted.first() {
         let base = hot_pc.saturating_sub(40);
         println!("=== bytes around hottest PC (${hot_pc:06X}) ===");
         for row in 0..4 {
@@ -1148,4 +1149,5 @@ fn wb13_boot_state_checkpoints() {
     for (c0, count) in sorted.iter().take(10) {
         println!("     ${c0:04X}: {count} times");
     }
+    Ok(())
 }
