@@ -4,6 +4,53 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-23 — sharp-lr35902 ported and externally validated to 49,600 SM83 tests
+
+**Type:** milestone
+**Trigger:** With the sharp-lr35902 crate's full opcode table,
+interrupt dispatch, HALT bug, and EI delay all in place (92 unit
+tests), the natural next step was external validation against a
+known canonical CPU test corpus.
+**Result:** the
+[Adam Tennant SM83 single-step corpus](https://github.com/adtennant/sm83-test-data)
+at `~/Projects/Emu198x-Unclean/GameboyCPUTests/v2/` ran clean on
+first attempt — 49,600 / 49,600 tests pass (240 top-level opcodes ×
+100 tests + 25,600 CB sub-table permutations). The corpus omits
+HALT ($76), STOP ($10), DI ($F3), EI ($FB), and 11 illegal
+opcodes; all of those gaps are filled by the crate's unit tests.
+
+The harness lives at `crates/sharp-lr35902/tests/single_step_tests.rs`
+and is `#[ignore]`'d (preservation-grade test data isn't checked
+into the repo). Run with:
+
+```sh
+cargo test -p sharp-lr35902 --test single_step_tests run_all \
+  -- --ignored --nocapture
+```
+
+The test file's header comment documents the pipelined-model
+adapter: the corpus assumes a decode-execute-prefetch loop while
+our CPU is pin-level-pipelined the other way, so a one-line
+`pc += 1` synthesises the prefetch's PC-increment that the corpus
+expects in its `final.pc`.
+
+**What this validates beyond the unit tests:** every documented
+opcode gets 100 randomised tests covering exotic register / flag
+combinations, AND each test verifies the per-m-cycle bus activity
+(reads, writes, internal cycles) — not just the final register
+state. So this validates not only correctness but also the
+m-cycle-by-m-cycle pin contract from
+[`cpu-bus-interface.md`](decisions/cpu-bus-interface.md). That's a
+much stronger guarantee than Blargg cpu_instrs would have given
+(Blargg only validates final register state via a serial-output
+trick), and it doesn't need a cartridge fixture to run.
+
+`wiki/chips/sharp-lr35902.md` updated with the test status and a
+"future Blargg coverage" section deferred to once the Game Boy
+machine layer exists.
+
+---
+
 ## 2026-04-22 — Game Boy port Phase 0 docs landed
 
 **Type:** ingest (planning)

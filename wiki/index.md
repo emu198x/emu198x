@@ -13,7 +13,7 @@
 - [MOS 6569 / 6567 VIC-II](chips/mos-vic-ii.md) — C64 video chip, text/bitmap/sprites, badline + sprite DMA BA assertion, raster IRQ, ported with 23 tests
 - [Ricoh 2C02 PPU](chips/ricoh-ppu-2c02.md) — NES PPU, dot-level rendering, loopy scroll, sprite overflow bug, NMI timing, A12 mapper notification, ported with 20 tests
 - [Ricoh 2A03 APU](chips/ricoh-apu-2a03.md) — NES APU, two pulse + triangle + noise + DMC, non-linear mixer, 48 kHz downsample, lifted from archive with 21 tests
-- [Sharp LR35902](chips/sharp-lr35902.md) — Game Boy SoC CPU (SM83), m-cycle granularity, pin-level bus; port planned, not yet implemented
+- [Sharp LR35902](chips/sharp-lr35902.md) — Game Boy SoC CPU (SM83), m-cycle granularity, pin-level bus, ported with 92 unit tests + 49,600 Adam Tennant single-step tests passing
 
 ## Systems
 ### Commodore 64

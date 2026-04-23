@@ -1,9 +1,12 @@
 # Nintendo Game Boy
 
-> Status as of 2026-04-22: **not yet started in the fresh workspace.**
-> This page is the family home for the Game Boy port that's planned
-> next. The port lifts the existing Zig implementation at
-> `~/Projects/Emu198x-Zig/` into the fresh Rust tree under the
+> Status as of 2026-04-23: **CPU done, the rest of the family is
+> next.** The [Sharp LR35902](../../chips/sharp-lr35902.md) CPU crate
+> is ported and validated against the 49,600-test Adam Tennant
+> single-step corpus. PPU / APU / timer / MBC / cartridge format /
+> machine / runtime are still to come. The port lifts the existing
+> Zig implementation at `~/Projects/Emu198x-Zig/` into the fresh
+> Rust tree under the
 > [within-family layering](../../decisions/within-family-layering.md)
 > shape.
 
@@ -37,21 +40,23 @@ Lifted from the Zig implementation at `~/Projects/Emu198x-Zig/` under
 the [archive-port methodology](../../decisions/archive-port-methodology.md):
 characterise → port-with-tests → integrate.
 
-### Phase 0 — docs and shape (active)
+### Phase 0 — docs and shape (done)
 
 - [SM83 abstraction level](../../decisions/sm83-abstraction-level.md) —
   m-cycle, not T-cycle.
 - This overview.
-- [Sharp LR35902](../../chips/sharp-lr35902.md) — chip stub.
-- [Game Boy timing](timing.md) — stub; will fill with
-  master-clock constants and m-cycle derivations.
+- [Sharp LR35902](../../chips/sharp-lr35902.md) — chip page.
+- [Game Boy timing](timing.md) — master-clock constants and m-cycle
+  derivations.
 
 ### Phase 1 — family crates
 
-1. `sharp-lr35902` — port `sm83.zig` (1858 LOC) as a pin-level
-   m-cycle state machine. Registers, flags, IME/HALT,
-   interrupt dispatch, CB-prefixed opcodes. Public pin fields
-   per [CPU bus interface](../../decisions/cpu-bus-interface.md).
+1. **`sharp-lr35902`** — done. Pin-level m-cycle state machine over
+   the full opcode table (incl. CB sub-table), interrupt dispatch
+   (5 m-cycles, lowest set bit wins, cancelled-IRQ → $0000), HALT
+   bug latch, EI one-instruction delay. Public pin fields per
+   [CPU bus interface](../../decisions/cpu-bus-interface.md). 92
+   unit tests + 49,600 Adam Tennant single-step tests passing.
 2. `common-nintendo-game-boy` — timing constants, `MemoryBus`
    trait over the CPU's single bus, palette helpers (DMG four
    shades + CGB 15-bit RGB), joypad matrix. No host-boundary

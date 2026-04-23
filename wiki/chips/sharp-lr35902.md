@@ -1,11 +1,13 @@
 # Sharp LR35902 (SM83)
 
-> Status as of 2026-04-22: **not yet implemented in the fresh
-> workspace.** This page is a stub that captures the shape and
-> decisions ahead of the port. Source of truth for hardware
-> behaviour is the Zig implementation at
-> `~/Projects/Emu198x-Zig/src/sm83.zig` (1858 LOC), which we're
-> lifting per the [archive-port methodology](../decisions/archive-port-methodology.md).
+> Status as of 2026-04-23: **`sharp-lr35902` crate ported and
+> validated.** Pin-level m-cycle CPU; 92 unit tests + 49,600 Adam
+> Tennant single-step tests passing (every opcode covered by the
+> corpus, plus 25,600 CB sub-table permutations). HALT, STOP, DI,
+> EI, and 11 illegal opcodes covered by unit tests since the corpus
+> intentionally omits them. Source of truth for hardware behaviour
+> while porting was the Zig implementation at
+> `~/Projects/Emu198x-Zig/src/sm83.zig` (1858 LOC).
 
 The CPU inside the Nintendo Game Boy. Commonly called the "SM83"
 after its internal codename; the die is the Sharp LR35902, a
@@ -91,14 +93,29 @@ The "HALT bug" (HALT with IME=0 and a pending interrupt causing the
 next opcode to be read twice) is an m-cycle-visible edge case and
 will be implemented per Blargg and mooneye-gb test expectations.
 
-## Test coverage (planned)
+## Test coverage
 
-- Blargg `cpu_instrs` (11 sub-tests) — opcode correctness.
+- **Crate unit tests:** 92 tests covering reset, every opcode group,
+  HALT (with halt-bug latch), STOP, DI/EI (with the one-instruction
+  IME delay), and the full interrupt dispatch sequence (priority,
+  cancelled-IRQ, IME-clear no-op).
+- **Adam Tennant single-step corpus** (Tom Harte format) at
+  `~/Projects/Emu198x-Unclean/GameboyCPUTests/v2/` — 49,600 tests
+  total: 100 per top-level opcode + 25,600 for the CB sub-table.
+  100% pass. The corpus omits HALT/STOP/DI/EI plus the 11 illegal
+  opcodes; those gaps are filled by the unit tests above. Harness
+  lives at `crates/sharp-lr35902/tests/single_step_tests.rs` (run
+  with `--ignored`); the pipelined-model adapter is documented in
+  the test file's header comment.
+
+Planned future coverage (system-level, once the rest of the Game
+Boy stack lands):
+
+- Blargg `cpu_instrs` — full 11-sub-test ROM (overlaps Tennant).
 - Blargg `instr_timing` — m-cycle count per instruction.
 - Blargg `mem_timing` v1 + v2 — bus-access timing.
-- mooneye-gb acceptance suite — edge cases at m-cycle precision,
-  especially the IME delay, HALT bug, and the timer's
-  TIMA-reload behaviour.
+- mooneye-gb acceptance suite — IME delay, HALT bug, TIMA-reload
+  behaviour, and other edge cases at m-cycle precision.
 
 ## Related
 
