@@ -78,6 +78,11 @@ impl GameBoyRuntime {
         self.machine.as_ref()
     }
 
+    /// Mutable access to the loaded machine, when a cartridge is inserted.
+    pub fn machine_mut(&mut self) -> Option<&mut GameBoy> {
+        self.machine.as_mut()
+    }
+
     fn rebuild_machine(&mut self) {
         let Some(bytes) = self.cartridge_bytes.clone() else {
             self.machine = None;

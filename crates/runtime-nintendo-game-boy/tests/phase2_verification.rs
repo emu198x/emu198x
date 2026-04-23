@@ -1,0 +1,290 @@
+//! DMG Phase-2 verification harness.
+//!
+//! Mirrors the ordered acceptance gate list in
+//! `wiki/systems/nintendo-game-boy/overview.md`:
+//!
+//! 1. Blargg `cpu_instrs` (all 11 sub-tests)
+//! 2. Blargg `instr_timing`
+//! 3. Blargg `mem_timing` v1 + v2
+//! 4. mooneye-gb acceptance gate set
+//! 5. `dmg-acid2.gb`
+//!
+//! These tests are ignored by default because they depend on local
+//! ROM corpora outside the repository. They are intended to be the
+//! standard DMG verification harness once the core is ready.
+
+use std::path::{Path, PathBuf};
+
+use emu198x_shell::{
+    HostIo, MachineCore, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
+    NullFrameSink, NullTraceSink, StopReason,
+};
+use runtime_nintendo_game_boy::{GameBoyRuntime, Model};
+
+const DEFAULT_BLARGG_ROOT: &str = "/Users/stevehill/Projects/Emu198x-Zig/gb-test-roms-master";
+const DEFAULT_DMG_ACID2_ROM: &str = "/Users/stevehill/Projects/Emu198x-Zig/dmg-acid2.gb";
+const MAX_SERIAL_TEST_FRAMES: u32 = 1_200;
+const DMG_ACID2_FRAMES: u32 = 180;
+
+const CPU_INSTRS_SUBTESTS: &[&str] = &[
+    "cpu_instrs/individual/01-special.gb",
+    "cpu_instrs/individual/02-interrupts.gb",
+    "cpu_instrs/individual/03-op sp,hl.gb",
+    "cpu_instrs/individual/04-op r,imm.gb",
+    "cpu_instrs/individual/05-op rp.gb",
+    "cpu_instrs/individual/06-ld r,r.gb",
+    "cpu_instrs/individual/07-jr,jp,call,ret,rst.gb",
+    "cpu_instrs/individual/08-misc instrs.gb",
+    "cpu_instrs/individual/09-op r,r.gb",
+    "cpu_instrs/individual/10-bit ops.gb",
+    "cpu_instrs/individual/11-op a,(hl).gb",
+];
+
+const MOONEYE_GATE_SET: &[&str] = &[
+    "acceptance/ei_sequence.gb",
+    "acceptance/ei_timing.gb",
+    "acceptance/halt_ime0_ei.gb",
+    "acceptance/halt_ime0_nointr_timing.gb",
+    "acceptance/halt_ime1_timing.gb",
+    "acceptance/interrupts/ie_push.gb",
+    "acceptance/intr_timing.gb",
+    "acceptance/timer/tima_reload.gb",
+    "acceptance/timer/tima_write_reloading.gb",
+];
+
+#[derive(Debug)]
+struct SerialRunResult {
+    output: String,
+    frames: u32,
+}
+
+fn load_runtime(rom_path: &Path) -> Result<GameBoyRuntime, Box<dyn std::error::Error>> {
+    let bytes = std::fs::read(rom_path)?;
+    let mut runtime = GameBoyRuntime::blank(Model::Dmg);
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &bytes));
+    runtime.load_media(&media)?;
+    Ok(runtime)
+}
+
+fn run_until_serial_verdict(
+    runtime: &mut GameBoyRuntime,
+    max_frames: u32,
+) -> Result<SerialRunResult, Box<dyn std::error::Error>> {
+    let mut output = String::new();
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+
+    for frame in 1..=max_frames {
+        let target = MachineTime::new(
+            runtime.time().get() + u64::from(common_nintendo_game_boy::MCYCLES_PER_FRAME),
+        );
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+        let result = runtime.run_until(target, &mut host)?;
+        assert_eq!(result.stop_reason, StopReason::ReachedTarget);
+
+        let serial = runtime
+            .machine_mut()
+            .expect("cartridge should stay loaded")
+            .drain_serial();
+        if !serial.is_empty() {
+            output.push_str(&String::from_utf8_lossy(&serial));
+            if output.contains("Passed") || output.contains("Failed") {
+                return Ok(SerialRunResult {
+                    output,
+                    frames: frame,
+                });
+            }
+        }
+    }
+
+    Err(format!("no serial verdict after {max_frames} frames; partial output: {output:?}").into())
+}
+
+fn blargg_root() -> Option<PathBuf> {
+    let root = std::env::var_os("EMU198X_GB_BLARGG_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_BLARGG_ROOT));
+    if !root.exists() {
+        eprintln!(
+            "skipping: Game Boy Blargg ROM root missing at {}",
+            root.display()
+        );
+        return None;
+    }
+    Some(root)
+}
+
+fn dmg_acid2_rom() -> Option<PathBuf> {
+    let path = std::env::var_os("EMU198X_GB_DMG_ACID2_ROM")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_DMG_ACID2_ROM));
+    if !path.exists() {
+        eprintln!("skipping: dmg-acid2 ROM missing at {}", path.display());
+        return None;
+    }
+    Some(path)
+}
+
+fn mooneye_root() -> Option<PathBuf> {
+    let Some(root) = std::env::var_os("EMU198X_GB_MOONEYE_ROOT").map(PathBuf::from) else {
+        eprintln!("skipping: set EMU198X_GB_MOONEYE_ROOT to a mooneye-gb tests root");
+        return None;
+    };
+    if !root.exists() {
+        eprintln!("skipping: mooneye root missing at {}", root.display());
+        return None;
+    }
+    Some(root)
+}
+
+#[test]
+#[ignore = "needs local Blargg Game Boy ROMs"]
+fn blargg_cpu_instrs_passes_all_11_subtests() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(root) = blargg_root() else {
+        return Ok(());
+    };
+
+    for rel in CPU_INSTRS_SUBTESTS {
+        let path = root.join(rel);
+        let mut runtime = load_runtime(&path)?;
+        let result = run_until_serial_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
+            .map_err(|err| format!("{}: {err}", path.display()))?;
+        assert!(
+            result.output.contains("Passed"),
+            "{} failed after {} frames: {:?}",
+            path.display(),
+            result.frames,
+            result.output
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs local Blargg Game Boy ROMs"]
+fn blargg_instr_timing_passes() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(root) = blargg_root() else {
+        return Ok(());
+    };
+
+    let path = root.join("instr_timing/instr_timing.gb");
+    let mut runtime = load_runtime(&path)?;
+    let result = run_until_serial_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
+        .map_err(|err| format!("{}: {err}", path.display()))?;
+    assert!(
+        result.output.contains("Passed"),
+        "{} failed after {} frames: {:?}",
+        path.display(),
+        result.frames,
+        result.output
+    );
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs local Blargg Game Boy ROMs"]
+fn blargg_mem_timing_v1_and_v2_pass() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(root) = blargg_root() else {
+        return Ok(());
+    };
+
+    for rel in ["mem_timing/mem_timing.gb", "mem_timing-2/mem_timing.gb"] {
+        let path = root.join(rel);
+        let mut runtime = load_runtime(&path)?;
+        let result = run_until_serial_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
+            .map_err(|err| format!("{}: {err}", path.display()))?;
+        assert!(
+            result.output.contains("Passed"),
+            "{} failed after {} frames: {:?}",
+            path.display(),
+            result.frames,
+            result.output
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs local mooneye-gb acceptance ROMs"]
+fn mooneye_acceptance_gate_set_passes() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(root) = mooneye_root() else {
+        return Ok(());
+    };
+
+    for rel in MOONEYE_GATE_SET {
+        let path = root.join(rel);
+        if !path.exists() {
+            eprintln!("skipping missing mooneye ROM {}", path.display());
+            continue;
+        }
+
+        let mut runtime = load_runtime(&path)?;
+        let result = run_until_serial_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
+            .map_err(|err| format!("{}: {err}", path.display()))?;
+        assert!(
+            result.output.contains("Passed"),
+            "{} failed after {} frames: {:?}",
+            path.display(),
+            result.frames,
+            result.output
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs local dmg-acid2 ROM"]
+fn dmg_acid2_renders_non_trivial_frame() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(path) = dmg_acid2_rom() else {
+        return Ok(());
+    };
+    let mut runtime = load_runtime(&path)?;
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+
+    for _ in 0..DMG_ACID2_FRAMES {
+        let target = MachineTime::new(
+            runtime.time().get() + u64::from(common_nintendo_game_boy::MCYCLES_PER_FRAME),
+        );
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+        let result = runtime.run_until(target, &mut host)?;
+        assert_eq!(result.stop_reason, StopReason::ReachedTarget);
+    }
+
+    let frame = runtime
+        .machine()
+        .expect("cartridge should stay loaded")
+        .framebuffer();
+    let non_zero = frame.iter().filter(|&&pixel| pixel != 0).count();
+    let unique_shades = {
+        let mut shades = [false; 4];
+        for &pixel in frame {
+            if let Some(slot) = shades.get_mut(pixel as usize) {
+                *slot = true;
+            }
+        }
+        shades.into_iter().filter(|present| *present).count()
+    };
+
+    assert!(non_zero > frame.len() / 8, "frame stayed mostly blank");
+    assert!(unique_shades >= 3, "expected a non-trivial acid2 frame");
+
+    Ok(())
+}

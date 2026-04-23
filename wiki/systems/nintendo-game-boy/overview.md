@@ -162,6 +162,14 @@ Acceptance tests, in order:
   m-cycle precision.
 - `dmg-acid2.gb` — PPU rendering smoke test.
 
+The verification harness lives at
+`crates/runtime-nintendo-game-boy/tests/phase2_verification.rs`.
+It is `#[ignore]`'d by default and reads local corpora from:
+
+- `EMU198X_GB_BLARGG_ROOT`
+- `EMU198X_GB_MOONEYE_ROOT`
+- `EMU198X_GB_DMG_ACID2_ROM`
+
 ### Phase 3 — CGB (later)
 
 When DMG is green across all four Blargg tests and the
