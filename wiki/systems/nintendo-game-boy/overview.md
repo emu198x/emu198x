@@ -75,9 +75,17 @@ characterise → port-with-tests → integrate.
    framebuffer per hardware. 24 unit tests passing. OAM DMA
    blocking and per-mode VRAM/OAM access blocking are deferred to
    the machine layer (which owns the actual address decode).
-4. `nintendo-game-boy-apu` — 4-channel mixer. Port `apu.zig`
-   (783 LOC). Frame sequencer, length counters, envelopes,
-   sweep, wave RAM, noise LFSR.
+4. **`nintendo-game-boy-apu`** — done. Four channels (CH1 square
+   with sweep, CH2 square, CH3 wave-table playback, CH4 LFSR
+   noise), full register block, frame sequencer driven by the
+   timer's DIV bit 12 (length 256 Hz, sweep 128 Hz, envelope
+   64 Hz). NR50/NR51 mixer + per-channel L/R panning, NR52
+   power-off behaviour with length-counter preservation. All four
+   "first half" length-period quirks, sweep negate-clear quirk,
+   DAC-off-disables-channel, wave-RAM corruption on retrigger.
+   Stereo `f32` output at 48 kHz via fractional accumulator over
+   the real 4.194304 MHz master (the Zig was 2× off; corrected
+   here). 18 unit tests passing.
 5. **`nintendo-game-boy-timer`** — done. 16-bit free-running
    counter ticked at the master clock rate; DIV is the high byte,
    TIMA increments on the falling edge of `(timer_enable AND

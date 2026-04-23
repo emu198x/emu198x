@@ -1612,6 +1612,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nintendo-game-boy-apu"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "nintendo-game-boy-ppu"
 version = "0.1.0"
 dependencies = [
