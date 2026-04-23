@@ -5,8 +5,8 @@
 //! [within-family-layering](../../../wiki/decisions/within-family-layering.md).
 
 use emu198x_shell::{
-    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
+    ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
 };
 
 /// Supported Game Boy models.
@@ -71,16 +71,12 @@ pub fn profile_for(model: Model) -> MachineProfile {
             region: Region::Other,
             support_tier: SupportTier::Boots,
             release_year: model.release_year(),
-            summary: "Original 1989 Game Boy: SM83 CPU at 4.194 MHz, 160×144 4-shade LCD, 4-channel audio.".into(),
+            summary: "Original 1989 Game Boy: SM83 CPU at 4.194 MHz, 160×144 4-shade LCD, 4-channel audio. Current runtime enters cartridges from the documented post-boot-ROM register state; DMG boot ROM wiring will land separately.".into(),
             clock: ClockDesc::new(
                 "master-cycle",
                 ClockRate::from_hz(common_nintendo_game_boy::DMG_MASTER_HZ.into()),
             ),
-            firmware: vec![FirmwareRequirement::new(
-                "nintendo-game-boy-boot-rom-dmg",
-                "Game Boy DMG boot ROM",
-                true, // optional — runtime can boot without it
-            )],
+            firmware: vec![],
             media_slots: vec![MediaSlot::new(
                 "cartridge",
                 "Cartridge",
@@ -95,5 +91,19 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("snapshot-import"),
             ]),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dmg_profile_is_honest_about_current_boot_scope() {
+        let profile = profile_for(Model::Dmg);
+        assert!(profile.firmware.is_empty());
+        assert_eq!(profile.media_slots.len(), 1);
+        assert_eq!(profile.media_slots[0].id.as_ref(), "cartridge");
+        assert_eq!(profile.media_slots[0].kind, MediaKind::Cartridge);
     }
 }

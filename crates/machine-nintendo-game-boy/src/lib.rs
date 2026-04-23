@@ -119,6 +119,12 @@ impl GameBoy {
         self.ppu.framebuffer()
     }
 
+    /// Current CPU program counter.
+    #[must_use]
+    pub const fn cpu_pc(&self) -> u16 {
+        self.cpu.pc
+    }
+
     /// Drain APU samples (stereo interleaved `f32`).
     pub fn drain_audio(&mut self, dest: &mut [f32]) -> usize {
         self.apu.drain_samples(dest)
@@ -220,7 +226,7 @@ impl GameBoy {
             0xFF05 => self.timer.read_tima(),
             0xFF06 => self.timer.read_tma(),
             0xFF07 => self.timer.read_tac() | 0xF8, // upper bits wired high
-            0xFF0F => self.if_reg | 0xE0, // upper 3 bits wired high
+            0xFF0F => self.if_reg | 0xE0,           // upper 3 bits wired high
             0xFF10..=0xFF3F => self.apu.read(addr),
             0xFF40 => self.ppu.lcdc,
             0xFF41 => self.ppu.read_stat() | 0x80, // bit 7 wired high

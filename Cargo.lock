@@ -2335,6 +2335,7 @@ dependencies = [
  "machine-nintendo-game-boy",
  "postcard",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

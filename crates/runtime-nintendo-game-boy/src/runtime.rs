@@ -3,11 +3,12 @@
 use common_nintendo_game_boy::{DMG_GREYSCALE_RGBA, JoypadButton, SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, InputEvent, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
-    RunResult, StopReason,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError,
+    QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
 use machine_nintendo_game_boy::GameBoy;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::{Model, profile_for};
 
@@ -22,6 +23,12 @@ const APU_CHANNELS: u8 = 2;
 /// 48 kHz × 60 fps; 4 096 leaves room for a frame plus catch-up
 /// without ever resizing inside the drain loop.
 const AUDIO_DRAIN_CHUNK: usize = 4_096;
+
+const GAME_BOY_QUERY_PATHS: &[&str] = &["gameboy.cartridge.loaded", "gameboy.cpu.pc"];
+
+/// Game Boy-family query provider layered above the shared shell surface.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GameBoySessionQueryProvider;
 
 /// Family runtime for the Game Boy. Holds the loaded machine plus
 /// host-boundary scratch space (audio drain + cartridge bytes for
@@ -116,6 +123,45 @@ impl GameBoyRuntime {
     }
 }
 
+impl SessionQueryProvider<GameBoyRuntime> for GameBoySessionQueryProvider {
+    fn query_paths(&self, _machine: &GameBoyRuntime, prefix: Option<&str>) -> Vec<String> {
+        let mut paths: Vec<String> = GAME_BOY_QUERY_PATHS
+            .iter()
+            .copied()
+            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
+            .map(str::to_owned)
+            .collect();
+        paths.sort_unstable();
+        paths
+    }
+
+    fn query(
+        &self,
+        machine: &GameBoyRuntime,
+        path: &str,
+    ) -> Result<Option<QueryResult>, QueryError> {
+        let value = match path {
+            "gameboy.cartridge.loaded" => json!(machine.machine.is_some()),
+            "gameboy.cpu.pc" => json!(
+                machine
+                    .machine
+                    .as_ref()
+                    .ok_or_else(|| QueryError::UnavailablePath {
+                        path: path.to_owned(),
+                        reason: "no cartridge is loaded",
+                    })?
+                    .cpu_pc()
+            ),
+            _ => return Ok(None),
+        };
+
+        Ok(Some(QueryResult {
+            path: path.to_owned(),
+            value,
+        }))
+    }
+}
+
 impl MachineCore for GameBoyRuntime {
     fn profile(&self) -> &MachineProfile {
         &self.profile
@@ -143,12 +189,11 @@ impl MachineCore for GameBoyRuntime {
             }
 
             let bytes = image.bytes.to_vec();
-            let (_, gb) = GameBoy::from_rom(bytes.clone()).map_err(|reason| {
-                MachineError::InvalidMedia {
+            let (_, gb) =
+                GameBoy::from_rom(bytes.clone()).map_err(|reason| MachineError::InvalidMedia {
                     slot: image.slot.as_ref().to_owned(),
                     reason: reason.to_string(),
-                }
-            })?;
+                })?;
             self.machine = Some(gb);
             self.cartridge_bytes = Some(bytes);
             self.time = MachineTime::default();
@@ -276,7 +321,10 @@ mod tests {
 
     use super::*;
     use common_nintendo_game_boy::MCYCLES_PER_FRAME;
-    use emu198x_shell::{MediaImage, NullAudioSink, NullFrameSink, NullTraceSink};
+    use emu198x_shell::{
+        HeadlessSession, MediaImage, NullAudioSink, NullFrameSink, NullTraceSink,
+        SessionQueryProvider,
+    };
 
     /// Build a 32 KiB ROM that loops forever at $0100 with a valid header.
     fn loop_rom() -> Vec<u8> {
@@ -301,7 +349,10 @@ mod tests {
     #[test]
     fn blank_runtime_has_dmg_profile_and_no_machine() {
         let runtime = GameBoyRuntime::blank(Model::Dmg);
-        assert_eq!(runtime.profile().profile_id.as_str(), "nintendo-game-boy-dmg");
+        assert_eq!(
+            runtime.profile().profile_id.as_str(),
+            "nintendo-game-boy-dmg"
+        );
         assert!(runtime.machine().is_none());
         assert_eq!(runtime.time(), MachineTime::default());
     }
@@ -455,5 +506,60 @@ mod tests {
         let mut other = runtime;
         let err = other.restore(&bytes).unwrap_err();
         assert!(matches!(err, MachineError::InvalidSnapshot { .. }));
+    }
+
+    #[test]
+    fn query_provider_lists_gameboy_paths() {
+        let runtime = GameBoyRuntime::blank(Model::Dmg);
+        let provider = GameBoySessionQueryProvider;
+        assert_eq!(
+            provider.query_paths(&runtime, Some("gameboy.")),
+            vec![
+                "gameboy.cartridge.loaded".to_string(),
+                "gameboy.cpu.pc".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn query_provider_reports_loaded_state_and_cpu_pc() {
+        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
+        let rom = loop_rom();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
+        runtime.load_media(&media).unwrap();
+
+        let provider = GameBoySessionQueryProvider;
+        assert_eq!(
+            provider
+                .query(&runtime, "gameboy.cartridge.loaded")
+                .unwrap()
+                .unwrap()
+                .value,
+            json!(true)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "gameboy.cpu.pc")
+                .unwrap()
+                .unwrap()
+                .value,
+            json!(0x0100u16)
+        );
+    }
+
+    #[test]
+    fn headless_session_exposes_gameboy_queries() {
+        let runtime = GameBoyRuntime::blank(Model::Dmg);
+        let session =
+            HeadlessSession::new_with_query_provider(runtime, 1, GameBoySessionQueryProvider);
+        let paths = session.query_paths(Some("gameboy."));
+        assert_eq!(
+            paths.paths,
+            vec![
+                "gameboy.cartridge.loaded".to_string(),
+                "gameboy.cpu.pc".to_string()
+            ]
+        );
     }
 }
