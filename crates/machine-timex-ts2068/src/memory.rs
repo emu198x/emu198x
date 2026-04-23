@@ -123,6 +123,6 @@ impl MemoryBus for MemoryTimex {
 
     #[inline]
     fn is_contended(&self, addr: u16) -> bool {
-        addr >= 0x4000 && addr < 0x8000
+        (0x4000..0x8000).contains(&addr)
     }
 }

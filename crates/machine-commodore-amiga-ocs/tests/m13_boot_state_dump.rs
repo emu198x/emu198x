@@ -6,7 +6,7 @@
 //!
 //! Ignored by default — it's for investigation, not a pass/fail gate.
 
-use machine_commodore_amiga_ocs::{AmigaOcs, CiaExt, PAL_FRAME_TICKS};
+use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
@@ -49,8 +49,8 @@ fn pc_histogram_over_last_20_frames() {
     for (pc, count) in entries.iter().take(20) {
         eprintln!("  ${pc:08X}  {count:>6}");
     }
-    let min_pc = entries.iter().map(|(pc, _)| *pc).min().unwrap();
-    let max_pc = entries.iter().map(|(pc, _)| *pc).max().unwrap();
+    let min_pc = entries.iter().map(|(pc, _)| *pc).min().expect("at least one PC sampled");
+    let max_pc = entries.iter().map(|(pc, _)| *pc).max().expect("at least one PC sampled");
     eprintln!(
         "\nPC range: ${min_pc:08X} – ${max_pc:08X} (span ${:X})",
         max_pc - min_pc

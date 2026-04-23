@@ -12,6 +12,7 @@
 //! prints a skip marker and returns; CI without the ROM still runs
 //! the rest of the suite.
 
+use std::error::Error;
 use std::path::PathBuf;
 
 use runtime_commodore_amiga::{AmigaRuntime, Model, RamConfig};
@@ -40,39 +41,42 @@ fn load_kickstart_13() -> Option<Vec<u8>> {
         eprintln!("skipping: Kickstart 1.3 ROM missing at {}", path.display());
         return None;
     }
-    Some(std::fs::read(&path).expect("read Kickstart 1.3 ROM"))
+    std::fs::read(path).ok()
 }
 
 #[test]
-fn stock_a500_preset_has_no_fast_ram_board() {
-    let rt = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart()).unwrap();
+fn stock_a500_preset_has_no_fast_ram_board() -> Result<(), Box<dyn Error>> {
+    let rt = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     assert_eq!(rt.ram_config(), RamConfig::bare());
     assert_eq!(rt.machine().memory().chip_ram_size(), 512 * 1024);
     assert_eq!(rt.machine().memory().slow_ram_size(), 0);
     assert!(rt.machine().autoconfig().is_none());
+    Ok(())
 }
 
 #[test]
-fn a501_trapdoor_preset_installs_slow_ram() {
-    let rt = AmigaRuntime::new(Model::A500OcsPalA501, blank_kickstart()).unwrap();
+fn a501_trapdoor_preset_installs_slow_ram() -> Result<(), Box<dyn Error>> {
+    let rt = AmigaRuntime::new(Model::A500OcsPalA501, blank_kickstart())?;
     assert_eq!(rt.ram_config(), RamConfig::a501_trapdoor());
     assert_eq!(rt.machine().memory().chip_ram_size(), 512 * 1024);
     assert_eq!(rt.machine().memory().slow_ram_size(), 512 * 1024);
     assert!(rt.machine().autoconfig().is_none());
+    Ok(())
 }
 
 #[test]
-fn a500_plus_preset_installs_1m_chip() {
-    let rt = AmigaRuntime::new(Model::A500PlusOcsPal, blank_kickstart()).unwrap();
+fn a500_plus_preset_installs_1m_chip() -> Result<(), Box<dyn Error>> {
+    let rt = AmigaRuntime::new(Model::A500PlusOcsPal, blank_kickstart())?;
     assert_eq!(rt.ram_config(), RamConfig::a500_plus());
     assert_eq!(rt.machine().memory().chip_ram_size(), 1024 * 1024);
     assert_eq!(rt.machine().memory().slow_ram_size(), 0);
     assert!(rt.machine().autoconfig().is_none());
+    Ok(())
 }
 
 #[test]
-fn maxed_a500_preset_attaches_8m_fast_ram_board() {
-    let rt = AmigaRuntime::new(Model::A500OcsPalMaxed, blank_kickstart()).unwrap();
+fn maxed_a500_preset_attaches_8m_fast_ram_board() -> Result<(), Box<dyn Error>> {
+    let rt = AmigaRuntime::new(Model::A500OcsPalMaxed, blank_kickstart())?;
     assert_eq!(rt.ram_config(), RamConfig::a500_maxed());
     assert_eq!(rt.machine().memory().chip_ram_size(), 1024 * 1024);
     assert_eq!(rt.machine().memory().slow_ram_size(), 512 * 1024);
@@ -80,10 +84,11 @@ fn maxed_a500_preset_attaches_8m_fast_ram_board() {
     assert_eq!(board.ram_size(), 8 * 1024 * 1024);
     assert!(board.visible_in_probe_window());
     assert!(board.base().is_none());
+    Ok(())
 }
 
 #[test]
-fn with_ram_config_accepts_custom_layout() {
+fn with_ram_config_accepts_custom_layout() -> Result<(), Box<dyn Error>> {
     // Custom 2M fast-RAM layout outside the Model presets. Profile
     // metadata still tracks A500OcsPal — the model is decoupled from
     // the RAM layout when `with_ram_config` is used.
@@ -95,14 +100,14 @@ fn with_ram_config_accepts_custom_layout() {
             slow_kb: 0,
             fast_kb: 2048,
         },
-    )
-    .unwrap();
+    )?;
     assert_eq!(rt.model(), Model::A500OcsPal);
     let board = rt
         .machine()
         .autoconfig()
         .expect("2M fast-RAM board attached");
     assert_eq!(board.ram_size(), 2 * 1024 * 1024);
+    Ok(())
 }
 
 /// End-to-end integration: the maxed A500 preset boots Kickstart
@@ -119,11 +124,11 @@ fn with_ram_config_accepts_custom_layout() {
 /// `~/.emu198x/roms/commodore-amiga/kick13.rom` — same convention
 /// the machine-layer boot tests use.
 #[test]
-fn kickstart_13_configures_fast_ram_board_during_boot() {
+fn kickstart_13_configures_fast_ram_board_during_boot() -> Result<(), Box<dyn Error>> {
     let Some(rom) = load_kickstart_13() else {
-        return;
+        return Ok(());
     };
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalMaxed, rom).unwrap();
+    let mut rt = AmigaRuntime::new(Model::A500OcsPalMaxed, rom)?;
     // 300 frames mirrors the machine-level boot tests — ample time
     // for Kickstart to finish Exec init, run ExpansionInit, and
     // assign the autoconfig base.
@@ -134,13 +139,7 @@ fn kickstart_13_configures_fast_ram_board_during_boot() {
         .machine()
         .autoconfig()
         .expect("board should still be present after boot");
-    let base = board.base().unwrap_or_else(|| {
-        panic!(
-            "expansion.library should have assigned a base address; \
-             board state is still {:?}",
-            board.state()
-        )
-    });
+    let base = board.base().expect("expansion.library should have assigned a base address");
     // Zorro-II boards sit above the chip + slow + ROM region. The
     // exact slot is whatever `expansion.library` picked.
     assert!(
@@ -150,4 +149,5 @@ fn kickstart_13_configures_fast_ram_board_during_boot() {
     // Probe window has gone silent for the configured board —
     // subsequent scans see floating bus.
     assert_eq!(rt.machine().read_word(0x00E8_0000), 0xFFFF);
+    Ok(())
 }

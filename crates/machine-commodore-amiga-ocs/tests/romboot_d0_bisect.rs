@@ -48,7 +48,7 @@ fn run(label: &str, use_slow_ram: bool) {
     // (pc_idx, frame, d0) on every first hit of each point
     let mut first_hits: Vec<Option<(u64, u32)>> = vec![None; RETURN_POINTS.len()];
     let mut prev_pc = amiga.cpu().regs.pc;
-    for tick in 0..(600u64 * PAL_FRAME_TICKS as u64) {
+    for tick in 0..(600u64 * PAL_FRAME_TICKS) {
         amiga.tick();
         let pc = amiga.cpu().regs.pc;
         if pc == prev_pc {
@@ -57,7 +57,7 @@ fn run(label: &str, use_slow_ram: bool) {
         for (i, (tpc, _)) in RETURN_POINTS.iter().enumerate() {
             if pc == *tpc && first_hits[i].is_none() {
                 let d0 = amiga.cpu().regs.d[0];
-                let frame = tick / PAL_FRAME_TICKS as u64;
+                let frame = tick / PAL_FRAME_TICKS;
                 first_hits[i] = Some((frame, d0));
             }
         }

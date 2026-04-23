@@ -10,7 +10,6 @@ pub mod sna;
 /// and maps hardware types to Spectrum models.
 ///
 /// Format reference: https://worldofspectrum.org/faq/reference/z80format.htm
-
 /// Parsed .z80 snapshot — machine-agnostic representation.
 #[derive(Clone, Debug)]
 pub struct Z80Snapshot {

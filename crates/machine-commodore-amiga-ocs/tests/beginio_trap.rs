@@ -70,39 +70,6 @@ fn find_device(amiga: &AmigaOcs, exec_base: u32, target: &str) -> Option<u32> {
     None
 }
 
-fn run(amiga: &mut AmigaOcs, label: &str) {
-    eprintln!("\n########## {label} ##########");
-
-    // Phase 1: 250 frames — past strap's run, so DeviceList is set.
-    for _ in 0..(250 * PAL_FRAME_TICKS) {
-        amiga.tick();
-    }
-
-    let exec_base = read_long(amiga, 0x0000_0004);
-    let Some(td_base) = find_device(amiga, exec_base, "trackdisk.device") else {
-        eprintln!("trackdisk.device not in DeviceList — abort");
-        return;
-    };
-    eprintln!("trackdisk.device base = ${td_base:08X}");
-
-    let beginio_slot = td_base.wrapping_add(LVO_BEGIN_IO as u32);
-    let opcode = amiga.read_word(beginio_slot);
-    if opcode != 0x4EF9 {
-        eprintln!("BeginIO slot at ${beginio_slot:08X} isn't JMP (op=${opcode:04X}) — bail");
-        return;
-    }
-    let beginio = read_long(amiga, beginio_slot.wrapping_add(2));
-    eprintln!("trackdisk BeginIO = ${beginio:08X}");
-
-    // Need to also know AbortIO (LVO -36).
-    let abortio_slot = td_base.wrapping_add((-36_i32) as u32);
-    let abortio = read_long(amiga, abortio_slot.wrapping_add(2));
-    eprintln!("trackdisk AbortIO = ${abortio:08X}");
-
-    // Phase 2: run from frame 0 on a fresh emulator to catch calls
-    // during strap-time.
-}
-
 /// Because resolving the BeginIO address needs the boot to have
 /// run, we do it on a throwaway instance, then re-create and trap
 /// from frame 0.

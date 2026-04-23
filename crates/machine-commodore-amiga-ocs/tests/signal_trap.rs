@@ -30,10 +30,8 @@ use std::path::PathBuf;
 
 // ExecBase offsets.
 const EXEC_THIS_TASK: u32 = 276;
-const EXEC_LIB_LIST: u32 = 378;
 
 // Node offsets.
-const LN_SUCC: u32 = 0;
 const LN_NAME: u32 = 10;
 
 // exec.library V34 LVOs (offsets are negative from ExecBase).

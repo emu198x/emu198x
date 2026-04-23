@@ -47,7 +47,7 @@ fn decode_chip_only_execbase_as_copper() {
     let mut amiga = AmigaOcs::new(rom);
     // Run long enough that ExecBase has been populated with the
     // library struct.
-    for _ in 0..(100u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(100u64 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
 

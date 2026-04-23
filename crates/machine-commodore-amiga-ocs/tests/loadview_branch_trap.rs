@@ -45,7 +45,7 @@ fn trap(label: &str, use_slow_ram: bool) {
     let mut null_hits = 0u64;
     let mut writes = Vec::new();
     let mut prev_pc = amiga.cpu().regs.pc;
-    let end = 700u64 * PAL_FRAME_TICKS as u64;
+    let end = 700u64 * PAL_FRAME_TICKS;
     for tick in 0..end {
         amiga.tick();
         let pc = amiga.cpu().regs.pc;
@@ -62,11 +62,10 @@ fn trap(label: &str, use_slow_ram: bool) {
             let r = &amiga.cpu().regs;
             let a0 = r.a[0];
             let a1 = r.a[1];
-            let a3 = r.a[2]; // wait a3 would be r.a[2] for A2 — A3 is index 3
             // Actually a[0]=A0, a[1]=A1, a[2]=A2, a[3]=A3
             let a3 = r.a[3];
             let value = amiga.read_long(a0.wrapping_add(4));
-            let frame = tick / PAL_FRAME_TICKS as u64;
+            let frame = tick / PAL_FRAME_TICKS;
             writes.push((frame, a1, a0, a3, value));
         }
         prev_pc = pc;

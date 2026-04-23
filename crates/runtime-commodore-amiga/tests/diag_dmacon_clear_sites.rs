@@ -8,6 +8,7 @@
 //! reached via a conditional we shouldn't take, or is the clear a
 //! step of a larger routine that normally re-enables afterwards?
 
+use std::error::Error;
 use std::path::PathBuf;
 
 use runtime_commodore_amiga::{AmigaRuntime, Model};
@@ -24,11 +25,13 @@ fn load_ks13() -> Option<Vec<u8>> {
 
 #[test]
 #[ignore = "needs KS 1.3 ROM — run with --ignored"]
-fn dump_rom_around_dmacon_clear_sites() {
-    let Some(rom) = load_ks13() else { return };
+fn dump_rom_around_dmacon_clear_sites() -> Result<(), Box<dyn Error>> {
+    let Some(rom) = load_ks13() else {
+        return Ok(());
+    };
     // Use the runtime to get the ROM mapped at the right address
     // (ROM anchored at $FC0000 for 512 KiB images) via `read_word`.
-    let rt = AmigaRuntime::new(Model::A500OcsPalA501, rom).unwrap();
+    let rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
 
     // Dump a generous window around each clear site — enough to see
     // the enclosing routine's prologue / epilogue and any nearby
@@ -42,6 +45,7 @@ fn dump_rom_around_dmacon_clear_sites() {
         0x10,
         0x20,
     );
+    Ok(())
 }
 
 fn dump_window(rt: &AmigaRuntime, label: &str, center: u32, pre_bytes: u32, post_bytes: u32) {

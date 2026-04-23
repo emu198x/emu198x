@@ -54,7 +54,7 @@ fn read_cstring(amiga: &AmigaOcs, addr: u32, max: u32) -> String {
 fn inspect_slow_ram_frame_188_caller() {
     let Some(rom) = load_kickstart() else { return };
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
-    for _ in 0..(190u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(190u64 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
 
@@ -80,7 +80,7 @@ fn inspect_slow_ram_frame_188_caller() {
 fn inspect_chip_only_at_same_address() {
     let Some(rom) = load_kickstart() else { return };
     let mut amiga = AmigaOcs::new(rom);
-    for _ in 0..(190u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(190u64 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
 

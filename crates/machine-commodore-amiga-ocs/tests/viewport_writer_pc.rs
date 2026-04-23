@@ -67,7 +67,7 @@ fn count(label: &str, use_slow_ram: bool) {
     };
     let mut counts = vec![0u64; TARGETS.len()];
     let mut prev_pc = amiga.cpu().regs.pc;
-    for _ in 0..(250u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(250u64 * PAL_FRAME_TICKS) {
         amiga.tick();
         let pc = amiga.cpu().regs.pc;
         if pc == prev_pc {

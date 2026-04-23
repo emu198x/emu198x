@@ -704,17 +704,17 @@ mod tests {
 
     #[test]
     fn load_media_rejects_unknown_slot() {
-        let mut runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).unwrap();
+        let mut runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
         let disk = vec![0u8; ADF_SIZE_DD];
         let mut media = MediaSet::new();
         media.push(MediaImage::new("floppy-1", MediaKind::Disk, &disk));
-        let err = runtime.load_media(&media).unwrap_err();
+        let err = runtime.load_media(&media).expect_err("unknown slot");
         matches!(err, MachineError::UnknownMediaSlot { .. });
     }
 
     #[test]
     fn run_until_advances_time_and_emits_frame() {
-        let mut runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).unwrap();
+        let mut runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
         let target = MachineTime::new(A500_PAL_FRAME_TICKS);
         let mut frame_sink = NullFrameSink;
         let mut audio_sink = NullAudioSink;
@@ -734,7 +734,7 @@ mod tests {
 
     #[test]
     fn query_provider_returns_declared_paths() {
-        let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).unwrap();
+        let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
         let provider = AmigaSessionQueryProvider;
         let paths = provider.query_paths(&runtime, None);
         assert!(paths.contains(&"amiga.a1000.boot_rom_visible".to_owned()));
@@ -749,7 +749,7 @@ mod tests {
 
     #[test]
     fn query_cpu_pc_returns_initial_reset_vector() {
-        let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).unwrap();
+        let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
         let result = AmigaSessionQueryProvider
             .query(&runtime, "amiga.cpu.pc")
             .expect("query succeeds")
@@ -760,7 +760,7 @@ mod tests {
 
     #[test]
     fn a1000_queries_report_bootstrap_state() {
-        let runtime = AmigaRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom()).unwrap();
+        let runtime = AmigaRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom()).expect("runtime init");
         let boot_rom_visible = AmigaSessionQueryProvider
             .query(&runtime, "amiga.a1000.boot_rom_visible")
             .expect("query succeeds")

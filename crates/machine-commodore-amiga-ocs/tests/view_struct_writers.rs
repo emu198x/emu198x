@@ -33,7 +33,7 @@ fn slow_ram_view_struct_writers() {
     // Watch the full View struct range (24 bytes = three longs + two
     // words + one long) plus a bit more for safety — $5A10..$5A30.
     amiga.debug_watch_addr = Some((0x0000_5A10, 0x20));
-    for _ in 0..(200u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(200u64 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
     eprintln!(
@@ -55,7 +55,7 @@ fn chip_only_view_struct_region_writers() {
     let Some(rom) = load_kickstart() else { return };
     let mut amiga = AmigaOcs::new(rom);
     amiga.debug_watch_addr = Some((0x0000_5A10, 0x20));
-    for _ in 0..(200u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(200u64 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
     eprintln!(

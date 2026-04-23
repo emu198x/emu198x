@@ -17,8 +17,6 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 const EXEC_THIS_TASK: u32 = 276;
-const EXEC_LIB_LIST: u32 = 378;
-const LN_SUCC: u32 = 0;
 const LN_NAME: u32 = 10;
 
 // exec.library V34 LVOs (all -offset from exec base).
@@ -35,7 +33,6 @@ const IO_DEVICE: u32 = 20; // LN + MN, then io_Device (APTR)
 const IO_UNIT: u32 = 24;
 const IO_COMMAND: u32 = 28; // UWORD
 const IO_FLAGS: u32 = 30; // UBYTE
-const IO_ERROR: u32 = 31; // BYTE
 
 fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");

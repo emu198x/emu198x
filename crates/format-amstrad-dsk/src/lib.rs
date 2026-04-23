@@ -81,8 +81,7 @@ pub fn parse(data: &[u8]) -> Result<DiskImage, String> {
         .collect();
 
     let mut cursor = HEADER_LEN;
-    for entry in 0..entries {
-        let length = track_lengths[entry];
+    for (entry, &length) in track_lengths.iter().enumerate().take(entries) {
         // Sides interleave per track: track0/side0, track0/side1, track1/side0...
         let side = entry % sides as usize;
 
@@ -207,7 +206,7 @@ mod tests {
         buf[t + 0x15] = 9; // sector count
         for i in 0..9 {
             let off = t + 0x18 + i * SECTOR_INFO_LEN;
-            buf[off + 0] = 0; // C
+            buf[off] = 0; // C
             buf[off + 1] = 0; // H
             buf[off + 2] = (i + 1) as u8; // R
             buf[off + 3] = 2; // N

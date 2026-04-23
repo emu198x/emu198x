@@ -13,6 +13,7 @@
 //!   cargo test -p runtime-commodore-amiga --test diag_framebuffer_timeline \
 //!       -- --ignored --nocapture
 
+use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use runtime_commodore_amiga::{
@@ -26,14 +27,14 @@ fn load_ks13() -> Option<Vec<u8>> {
         eprintln!("skipping: KS 1.3 ROM missing at {}", path.display());
         return None;
     }
-    Some(std::fs::read(&path).expect("read KS 1.3"))
+    std::fs::read(&path).ok()
 }
 
 fn snapshot_to_png(rt: &AmigaRuntime, path: &Path) {
     let fb = rt.machine().denise().framebuffer();
     assert_eq!(fb.len(), (DISPLAY_WIDTH * DISPLAY_HEIGHT) as usize);
     let mut rgb = Vec::with_capacity(fb.len() * 3);
-    for pixel in fb {
+    for &pixel in fb {
         rgb.push(((pixel >> 16) & 0xFF) as u8);
         rgb.push(((pixel >> 8) & 0xFF) as u8);
         rgb.push((pixel & 0xFF) as u8);
@@ -66,9 +67,11 @@ fn summarise(rt: &AmigaRuntime) -> (u32, u32, u32) {
 
 #[test]
 #[ignore = "needs KS 1.3 ROM — run with --ignored"]
-fn sample_framebuffer_across_boot() {
-    let Some(rom) = load_ks13() else { return };
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom).unwrap();
+fn sample_framebuffer_across_boot() -> Result<(), Box<dyn Error>> {
+    let Some(rom) = load_ks13() else {
+        return Ok(());
+    };
+    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
     let out_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/goldens");
     std::fs::create_dir_all(&out_dir).ok();
 
@@ -86,20 +89,21 @@ fn sample_framebuffer_across_boot() {
         for _ in 0..A500_PAL_FRAME_TICKS {
             rt.machine_mut().tick();
         }
-        if let Some(&&cp) = cp_iter.peek() {
-            if frame == cp {
-                cp_iter.next();
-                let (w, b, o) = summarise(&rt);
-                let d = rt.machine().agnus().dmacon;
-                println!(
-                    "  {:>4} | {:>9} | {:>9} | {:>9} | ${:04X}",
-                    frame, w, b, o, d
-                );
-                let png_path = out_dir.join(format!("diag-frame-{frame:03}.png"));
-                snapshot_to_png(&rt, &png_path);
-            }
+        if let Some(&&cp) = cp_iter.peek()
+            && frame == cp
+        {
+            cp_iter.next();
+            let (w, b, o) = summarise(&rt);
+            let d = rt.machine().agnus().dmacon;
+            println!(
+                "  {:>4} | {:>9} | {:>9} | {:>9} | ${:04X}",
+                frame, w, b, o, d
+            );
+            let png_path = out_dir.join(format!("diag-frame-{frame:03}.png"));
+            snapshot_to_png(&rt, &png_path);
         }
     }
     println!();
     println!("PNG snapshots saved to tests/goldens/diag-frame-NNN.png");
+    Ok(())
 }

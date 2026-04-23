@@ -220,10 +220,10 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
         for event in host.input_events {
-            if let InputEvent::Key { name, pressed } = event {
-                if let Some(key) = SpectrumKey::from_name(name.as_ref()) {
-                    self.keyboard.set_key(key, *pressed);
-                }
+            if let InputEvent::Key { name, pressed } = event
+                && let Some(key) = SpectrumKey::from_name(name.as_ref())
+            {
+                self.keyboard.set_key(key, *pressed);
             }
         }
         self.machine.set_keyboard_rows(self.keyboard.rows());

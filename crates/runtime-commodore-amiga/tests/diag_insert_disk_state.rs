@@ -9,6 +9,7 @@
 //!   cargo test -p runtime-commodore-amiga --test diag_insert_disk_state \
 //!       -- --ignored --nocapture
 
+use std::error::Error;
 use std::path::PathBuf;
 
 use machine_commodore_amiga_ocs::AmigaOcs;
@@ -26,9 +27,11 @@ fn load_ks13() -> Option<Vec<u8>> {
 
 #[test]
 #[ignore = "needs KS 1.3 ROM — run with --ignored"]
-fn dump_dmacon_trajectory_from_reset() {
-    let Some(rom) = load_ks13() else { return };
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom).unwrap();
+fn dump_dmacon_trajectory_from_reset() -> Result<(), Box<dyn Error>> {
+    let Some(rom) = load_ks13() else {
+        return Ok(());
+    };
+    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
     for _ in 0..(260u64 * A500_PAL_FRAME_TICKS) {
         rt.machine_mut().tick();
     }
@@ -60,13 +63,16 @@ fn dump_dmacon_trajectory_from_reset() {
         println!("  CCK {:>10} PC=${:08X}  COP2LC=${:08X}", cck, pc, val);
     }
     println!();
+    Ok(())
 }
 
 #[test]
 #[ignore = "needs KS 1.3 ROM — run with --ignored"]
-fn dump_state_at_frame_250_a500_a501() {
-    let Some(rom) = load_ks13() else { return };
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom).unwrap();
+fn dump_state_at_frame_250_a500_a501() -> Result<(), Box<dyn Error>> {
+    let Some(rom) = load_ks13() else {
+        return Ok(());
+    };
+    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
     for _ in 0..(250u64 * A500_PAL_FRAME_TICKS) {
         rt.machine_mut().tick();
     }
@@ -319,6 +325,7 @@ fn dump_state_at_frame_250_a500_a501() {
     println!("  BLTBPT   = ${:08X}   BMOD = {}", a.blt_bpt, a.blt_bmod);
     println!("  BLTCPT   = ${:08X}   CMOD = {}", a.blt_cpt, a.blt_cmod);
     println!("  BLTDPT   = ${:08X}   DMOD = {}", a.blt_dpt, a.blt_dmod);
+    Ok(())
 }
 
 fn dump_copper_list(m: &AmigaOcs, label: &str, base: u32, len_instrs: u32) {

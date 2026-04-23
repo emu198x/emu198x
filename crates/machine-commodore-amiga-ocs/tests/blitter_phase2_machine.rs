@@ -7,7 +7,7 @@
 //! synchronously, which matches the Amiga semantics CPU code expects
 //! (BBUSY clears before the next instruction).
 
-use machine_commodore_amiga_ocs::{AmigaOcs, CiaExt, IntSource};
+use machine_commodore_amiga_ocs::{AmigaOcs, IntSource};
 
 fn zero_rom() -> Vec<u8> {
     vec![0; 512 * 1024]

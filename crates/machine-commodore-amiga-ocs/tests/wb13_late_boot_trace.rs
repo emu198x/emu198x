@@ -99,7 +99,7 @@ fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
         eprintln!("skipping: missing {}", path.display());
         return None;
     }
-    Some(std::fs::read(path).ok()?)
+    std::fs::read(path).ok()
 }
 
 fn read_long(amiga: &AmigaOcs, addr: u32) -> u32 {
@@ -1047,7 +1047,7 @@ fn trace_wb13_late_boot_tasks_and_signals() {
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     amiga.insert_adf(adf);
 
-    for _ in 0..(800u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(800u64 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
 
@@ -1519,7 +1519,7 @@ fn trace_wb13_validator_transition_window() {
     let mut discover = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
     let discover_adf = Adf::from_bytes(adf_bytes.clone()).expect("decode WB 1.3 ADF");
     discover.insert_adf(discover_adf);
-    for _ in 0..(220u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(220u64 * PAL_FRAME_TICKS) {
         discover.tick();
     }
 
@@ -4838,13 +4838,13 @@ fn trace_wb13_workbench_copper_display_build() {
         eprintln!("failed to locate COP2 display moves");
         return;
     }
-    let watch_lo = *watch_points.iter().min().unwrap() & !1;
+    let watch_lo = *watch_points.iter().min().expect("present") & !1;
     let watch_hi = watch_points
         .iter()
         .copied()
         .map(|addr| addr.wrapping_add(2))
         .max()
-        .unwrap();
+        .expect("present");
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
     amiga.debug_watch_addr = Some((watch_lo, watch_hi.wrapping_sub(watch_lo)));
@@ -5389,11 +5389,11 @@ fn trace_wb13_display_custom_byte_writes() {
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     amiga.insert_adf(adf);
 
-    for _ in 0..(430u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(430u64 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
 
-    let cck_per_frame = (PAL_FRAME_TICKS as u64) / 2;
+    let cck_per_frame = PAL_FRAME_TICKS / 2;
     let mut events = Vec::<String>::new();
     for (cck, pc, addr24, offset, raw_val, is_word) in &amiga.debug_custom_write_log {
         if *is_word {
@@ -5453,11 +5453,11 @@ fn trace_wb13_copper_bplcon0_mode_writes() {
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     amiga.insert_adf(adf);
 
-    for _ in 0..(430u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(430u64 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
 
-    let cck_per_frame = (PAL_FRAME_TICKS as u64) / 2;
+    let cck_per_frame = PAL_FRAME_TICKS / 2;
     let mut value_counts = std::collections::BTreeMap::<u16, usize>::new();
     let mut unique_positions = std::collections::BTreeSet::<(u16, u16, u16)>::new();
     let mut tail = Vec::<String>::new();
@@ -5510,13 +5510,13 @@ fn trace_wb13_hires_line_fetch_cadence() {
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     amiga.insert_adf(adf);
 
-    let cck_per_frame = (PAL_FRAME_TICKS as u64) / 2;
+    let cck_per_frame = PAL_FRAME_TICKS / 2;
     let mut collecting = false;
     let mut frame_hit = 0u64;
     let mut fetches = Vec::<String>::new();
     let mut slot_counts = BTreeMap::<&'static str, usize>::new();
 
-    for _ in 0..(430u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(430u64 * PAL_FRAME_TICKS) {
         amiga.tick();
         if amiga.tick_count() & 1 == 0 {
             continue;
@@ -5597,7 +5597,7 @@ fn trace_wb13_hires_line_actual_bitplane_fetches() {
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     amiga.insert_adf(adf);
 
-    let cck_per_frame = (PAL_FRAME_TICKS as u64) / 2;
+    let cck_per_frame = PAL_FRAME_TICKS / 2;
     let mut started = false;
     let mut frame_hit = 0u64;
     let mut start_bpl1 = 0u32;
@@ -5607,7 +5607,7 @@ fn trace_wb13_hires_line_actual_bitplane_fetches() {
     let mut bpl1_fetches = Vec::<String>::new();
     let mut bpl2_fetches = Vec::<String>::new();
 
-    for _ in 0..(430u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(430u64 * PAL_FRAME_TICKS) {
         amiga.tick();
         if amiga.tick_count() & 1 == 0 {
             continue;

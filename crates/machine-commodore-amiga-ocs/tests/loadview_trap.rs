@@ -40,7 +40,7 @@ fn trap_loadview(label: &str, use_slow_ram: bool) {
 
     let mut hits = Vec::new();
     let mut prev_pc = amiga.cpu().regs.pc;
-    let end = 700u64 * PAL_FRAME_TICKS as u64;
+    let end = 700u64 * PAL_FRAME_TICKS;
     for tick in 0..end {
         amiga.tick();
         let pc = amiga.cpu().regs.pc;
@@ -57,7 +57,7 @@ fn trap_loadview(label: &str, use_slow_ram: bool) {
             };
             let return_addr = amiga.read_long(sp);
             let view_ptr = amiga.read_long(sp.wrapping_add(4));
-            let frame = tick / PAL_FRAME_TICKS as u64;
+            let frame = tick / PAL_FRAME_TICKS;
             hits.push((frame, tick, return_addr, view_ptr));
         }
         prev_pc = pc;

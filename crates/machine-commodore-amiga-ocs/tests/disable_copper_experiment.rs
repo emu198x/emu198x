@@ -36,7 +36,7 @@ fn chip_only_with_copper_neutered() {
     let mut counts = vec![0u64; targets.len()];
     let mut prev_pc = amiga.cpu().regs.pc;
 
-    for _ in 0..(400u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(400u64 * PAL_FRAME_TICKS) {
         amiga.tick();
         // Diagnostic: force COPEN off every tick. NOT A FIX —
         // just proves the copper is the corruption source.

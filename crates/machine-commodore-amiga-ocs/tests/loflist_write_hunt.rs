@@ -20,9 +20,6 @@
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 use std::path::PathBuf;
 
-const EXEC_LIB_LIST: u32 = 378;
-const LN_SUCC: u32 = 0;
-const LN_NAME: u32 = 10;
 const GFX_LOFLIST_OFFSET: u32 = 0x32;
 
 fn load_kickstart() -> Option<Vec<u8>> {
@@ -37,47 +34,6 @@ fn load_kickstart() -> Option<Vec<u8>> {
 
 fn read_long(amiga: &AmigaOcs, addr: u32) -> u32 {
     amiga.read_long(addr)
-}
-
-fn read_byte(amiga: &AmigaOcs, addr: u32) -> u8 {
-    (amiga.read_word(addr & !1) >> (if addr & 1 == 0 { 8 } else { 0 })) as u8
-}
-
-fn read_cstring(amiga: &AmigaOcs, addr: u32, max: u32) -> String {
-    if addr == 0 {
-        return "<null>".into();
-    }
-    let mut s = String::new();
-    for i in 0..max {
-        let b = read_byte(amiga, addr.wrapping_add(i));
-        if b == 0 {
-            break;
-        }
-        if b.is_ascii() && !b.is_ascii_control() {
-            s.push(b as char);
-        } else {
-            s.push('?');
-        }
-    }
-    s
-}
-
-fn find_library(amiga: &AmigaOcs, exec_base: u32, target: &str) -> Option<u32> {
-    let list_addr = exec_base.wrapping_add(EXEC_LIB_LIST);
-    let head = read_long(amiga, list_addr);
-    let tail_sentinel = list_addr.wrapping_add(4);
-    let mut node = head;
-    for _ in 0..32 {
-        if node == 0 || node == tail_sentinel {
-            return None;
-        }
-        let name_ptr = read_long(amiga, node.wrapping_add(LN_NAME));
-        if read_cstring(amiga, name_ptr, 32) == target {
-            return Some(node);
-        }
-        node = read_long(amiga, node.wrapping_add(LN_SUCC));
-    }
-    None
 }
 
 fn hunt_loflist_writer(label: &str, use_slow_ram: bool) {
@@ -105,7 +61,7 @@ fn hunt_loflist_writer(label: &str, use_slow_ram: bool) {
     let mut last_val = read_long(&amiga, loflist_addr);
     eprintln!("Initial LOFlist value = ${last_val:08X}");
     let mut tick = 0u64;
-    let end = 700u64 * PAL_FRAME_TICKS as u64;
+    let end = 700u64 * PAL_FRAME_TICKS;
     let mut changes = Vec::new();
     while tick < end {
         amiga.tick();
@@ -113,7 +69,7 @@ fn hunt_loflist_writer(label: &str, use_slow_ram: bool) {
         let v = read_long(&amiga, loflist_addr);
         if v != last_val {
             let pc = amiga.cpu().regs.pc;
-            let frame = tick / PAL_FRAME_TICKS as u64;
+            let frame = tick / PAL_FRAME_TICKS;
             changes.push((frame, tick, pc, last_val, v));
             last_val = v;
         }

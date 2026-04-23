@@ -498,6 +498,6 @@ fn audio_dma_disabled_leaves_channel_silent() {
         0,
         "with AUD0EN clear, no audio IRQ should fire"
     );
-    let snap = amiga.paula().audio_state(0).unwrap();
+    let snap = amiga.paula().audio_state(0).expect("ch 0 exists");
     assert_eq!(snap.sample, 0, "no DMA → no sample delivered");
 }

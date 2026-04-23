@@ -30,7 +30,7 @@ fn dump(label: &str, use_slow_ram: bool) {
     // Watch GfxBase+$32 .. GfxBase+$36 (the LOFlist longword).
     amiga.debug_watch_addr = Some((gfx_base + 0x32, 4));
 
-    for _ in 0..(200u64 * PAL_FRAME_TICKS as u64) {
+    for _ in 0..(200u64 * PAL_FRAME_TICKS) {
         amiga.tick();
     }
 

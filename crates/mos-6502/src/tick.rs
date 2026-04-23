@@ -175,7 +175,7 @@ impl M6502 {
         // which the bus is held in read-only on the stack area, then
         // two reads of the reset vector at $FFFC/$FFFD.
         match self.reset_phase {
-            7 | 6 | 5 | 4 => {
+            4..=7 => {
                 // Phantom stack cycles — bus stays on SP-relative addr.
                 self.reset_phase -= 1;
                 self.addr = 0x0100u16.wrapping_add(u16::from(self.regs.sp));

@@ -29,7 +29,7 @@
 //! one instruction per 4 CCKs" until a later milestone brings in
 //! the full slot schedule.
 
-use crate::denise::{Denise, DmaClaim};
+use crate::denise::DmaClaim;
 use crate::memory::Memory;
 
 /// Copper internal state.
@@ -297,6 +297,7 @@ pub fn beam_match(target: u16, mask: u16, beam_vp: u16, beam_hp: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Denise;
 
     fn build_test_memory_with_list(list: &[(u16, u16)], at: u32) -> Memory {
         let mut mem = Memory::new(vec![0u8; 256 * 1024]);

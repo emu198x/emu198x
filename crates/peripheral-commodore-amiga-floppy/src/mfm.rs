@@ -264,21 +264,21 @@ pub fn decode_mfm_track(mfm_words: &[u16]) -> Vec<DecodedSector> {
         // (128 longs).
         let mut data_odd_longs = [0u32; 128];
         let mut data_even_longs = [0u32; 128];
-        for j in 0..128 {
-            data_odd_longs[j] = read_mfm_long(i + j * 2);
+        for (j, val) in data_odd_longs.iter_mut().enumerate() {
+            *val = read_mfm_long(i + j * 2);
         }
         i += 256;
-        for j in 0..128 {
-            data_even_longs[j] = read_mfm_long(i + j * 2);
+        for (j, val) in data_even_longs.iter_mut().enumerate() {
+            *val = read_mfm_long(i + j * 2);
         }
         i += 256;
 
         // Verify the data checksum: XOR of all data MFM longs (both
         // halves), masked to data-bit positions only.
         let mut computed_dcheck: u32 = 0;
-        for j in 0..128 {
-            computed_dcheck ^= data_odd_longs[j];
-            computed_dcheck ^= data_even_longs[j];
+        for (odd, even) in data_odd_longs.iter().zip(data_even_longs.iter()) {
+            computed_dcheck ^= odd;
+            computed_dcheck ^= even;
         }
         computed_dcheck &= 0x5555_5555;
         if computed_dcheck != stored_dcheck {

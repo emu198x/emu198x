@@ -6,6 +6,7 @@
 //!       trace_wb13_setclock_rtc_accesses -- --ignored --nocapture
 
 use std::collections::BTreeMap;
+use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use format_commodore_amiga_adf::Adf;
@@ -20,7 +21,7 @@ fn load_artifact(path: &Path) -> Option<Vec<u8>> {
         eprintln!("skipping: missing {}", path.display());
         return None;
     }
-    Some(std::fs::read(path).ok()?)
+    std::fs::read(path).ok()
 }
 
 fn snapshot_to_png(rt: &AmigaRuntime, path: &Path) {
@@ -44,18 +45,18 @@ fn snapshot_to_png(rt: &AmigaRuntime, path: &Path) {
 
 #[test]
 #[ignore = "needs local KS 1.3 ROM + WB 1.3 disk"]
-fn trace_wb13_setclock_rtc_accesses() {
+fn trace_wb13_setclock_rtc_accesses() -> Result<(), Box<dyn Error>> {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        return Ok(());
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        return Ok(());
     };
 
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom).expect("build runtime");
+    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     rt.machine_mut().insert_adf(adf);
 
@@ -71,7 +72,7 @@ fn trace_wb13_setclock_rtc_accesses() {
     println!("rtc access count: {}", rtc_log.len());
     if rtc_log.is_empty() {
         println!("no RTC accesses observed");
-        return;
+        return Ok(());
     }
 
     let mut reg_histogram = BTreeMap::<u32, usize>::new();
@@ -93,4 +94,5 @@ fn trace_wb13_setclock_rtc_accesses() {
             ((addr24 - RTC_BASE) >> 2) & 0x0F,
         );
     }
+    Ok(())
 }

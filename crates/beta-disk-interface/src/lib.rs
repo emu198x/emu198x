@@ -21,6 +21,7 @@ const SECTOR_SIZE: usize = 256;
 const SIDES: usize = 2;
 const TRACKS_PER_SIDE: usize = 80;
 const TRACK_SIZE: usize = SECTORS_PER_TRACK * SECTOR_SIZE; // 4096
+#[cfg(test)]
 const DISK_SIZE: usize = TRACKS_PER_SIDE * SIDES * TRACK_SIZE; // 655,360
 
 /// WD1793 command types.
@@ -39,11 +40,7 @@ enum CmdType {
 /// WD1793 status bits.
 const ST_BUSY: u8 = 0x01;
 const ST_DRQ: u8 = 0x02;
-const ST_LOST_DATA: u8 = 0x04;
-const ST_CRC_ERROR: u8 = 0x08;
-const ST_SEEK_ERROR: u8 = 0x10;
 const ST_RECORD_NOT_FOUND: u8 = 0x10; // Same bit, different meaning for type II/III
-const ST_HEAD_LOADED: u8 = 0x20;
 const ST_WRITE_PROTECT: u8 = 0x40;
 const ST_NOT_READY: u8 = 0x80;
 const ST_TRACK_0: u8 = 0x04; // Type I only

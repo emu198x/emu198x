@@ -262,18 +262,19 @@ impl Denise {
             // lores fetch groups even when BPLCON0 switched the line
             // into hires, which left Workbench's hires desktop area
             // fetching half as many words as it should.
-            if in_visible_line && bpl_dma_on {
-                if let Some(plane_u8) = agnus.cck_bus_plan().bitplane_dma_fetch_plane {
-                    let plane = plane_u8 as usize;
-                    let addr = agnus.bpl_pt[plane];
-                    let word = memory.read_chip_ram_word(addr);
-                    self.ocs.load_bitplane(plane, word);
-                    if plane == 0 {
-                        self.ocs.queue_shift_load_from_bpl1dat();
-                    }
-                    agnus.bpl_pt[plane] = agnus.bpl_pt[plane].wrapping_add(2);
-                    self.bytes_this_line += 2;
+            if in_visible_line
+                && bpl_dma_on
+                && let Some(plane_u8) = agnus.cck_bus_plan().bitplane_dma_fetch_plane
+            {
+                let plane = plane_u8 as usize;
+                let addr = agnus.bpl_pt[plane];
+                let word = memory.read_chip_ram_word(addr);
+                self.ocs.load_bitplane(plane, word);
+                if plane == 0 {
+                    self.ocs.queue_shift_load_from_bpl1dat();
                 }
+                agnus.bpl_pt[plane] = agnus.bpl_pt[plane].wrapping_add(2);
+                self.bytes_this_line += 2;
             }
 
             // End-of-line modulo — applied the moment hpos wraps to
@@ -376,8 +377,8 @@ impl Denise {
         const VIEWPORT_V_START_LINE: u16 = 0x19;
         const VIEWPORT_H_END_CCK: u16 = 0xEC;
         const VIEWPORT_V_END_LINE: u16 = 0x139;
-        let in_viewport_h = hpos >= VIEWPORT_H_START_CCK && hpos < VIEWPORT_H_END_CCK;
-        let in_viewport_v = vpos >= VIEWPORT_V_START_LINE && vpos < VIEWPORT_V_END_LINE;
+        let in_viewport_h = (VIEWPORT_H_START_CCK..VIEWPORT_H_END_CCK).contains(&hpos);
+        let in_viewport_v = (VIEWPORT_V_START_LINE..VIEWPORT_V_END_LINE).contains(&vpos);
         if in_viewport_h && in_viewport_v {
             let fb_y = u32::from(vpos - VIEWPORT_V_START_LINE) * 2;
             let fb_x_lores = u32::from(hpos - VIEWPORT_H_START_CCK) * 2 + u32::from(phase);
