@@ -23,6 +23,8 @@ pub enum Family {
     Nes,
     /// Commodore Amiga-family machines.
     Amiga,
+    /// Nintendo Game Boy-family machines (DMG, CGB, …).
+    GameBoy,
 }
 
 /// Region or video-standard family for a machine profile.

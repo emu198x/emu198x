@@ -4,6 +4,56 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-23 — Game Boy Phase 1 complete: runtime crate landed, family is on the host boundary
+
+**Type:** milestone
+**Trigger:** With `machine-nintendo-game-boy` orchestrating SM83 +
+PPU + APU + timer + cartridge per m-cycle, the only piece left in
+Phase 1 was the runtime — the family's seat at the
+`emu198x-shell` boundary alongside Spectrum, C64, NES, and Amiga.
+**Result:** `runtime-nintendo-game-boy` lands as the ninth and
+final Phase-1 crate. The bridge is the same shape as the other
+families' runtimes: `GameBoyRuntime` carries a `MachineProfile`,
+optionally a loaded `GameBoy`, kept-cartridge bytes for reset
+rebuilds, a `MachineTime` cursor, and an audio drain buffer.
+
+Highlights:
+
+- `Family::GameBoy` added to `emu198x-shell` so the shared
+  query surface knows the family name (`game-boy`).
+- `Model::Dmg` populates the catalogue today; the catalogue
+  already accepts a future `Cgb` model without restructuring.
+- `MachineCore::run_until` drives `GameBoy::run_frame` until the
+  requested time, pushes `Indexed8` frames against the four-shade
+  `DMG_GREYSCALE_RGBA` palette, and drains the APU's interleaved
+  stereo at 48 kHz once per frame.
+- `MachineCore::load_media` accepts a `Cartridge` image at slot
+  `cartridge`, parses it through `format-nintendo-game-boy-
+  cartridge`, and rebuilds the machine. Unknown slot or wrong
+  media kind both surface real `MachineError` variants.
+- `MachineCore::snapshot` / `restore` use a versioned, profile-
+  id-checked postcard envelope so a future CGB snapshot can't
+  silently deserialise into a DMG runtime.
+- Joypad input maps `a/b/select/start/up/down/left/right`
+  (case-insensitive) to `JoypadButton`, accepted from either
+  `InputEvent::Key` or `InputEvent::Button`.
+
+9 unit tests cover blank construction, valid load + invalid
+slot/kind, run-with-no-cartridge → `WaitingForInput`, run-with-
+cartridge → `ReachedTarget` and time advance, joypad input
+round-trip via snapshot, snapshot/restore preserving state, and
+profile-id mismatch rejection. Workspace tests stay green.
+
+The deferred items from earlier steps remain deferred: boot ROM,
+OAM DMA bus blocking, per-PPU-mode VRAM/OAM gating, 1-m-cycle
+TIMA reload delay, MBC2. Phase 2 (Blargg + mooneye + dmg-acid2)
+will pull on the ones it needs.
+
+`wiki/systems/nintendo-game-boy/overview.md` updated to mark step
+9 done with the runtime's surface called out.
+
+---
+
 ## 2026-04-23 — sharp-lr35902 ported and externally validated to 49,600 SM83 tests
 
 **Type:** milestone

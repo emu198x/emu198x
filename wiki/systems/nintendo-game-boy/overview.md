@@ -129,10 +129,26 @@ characterise → port-with-tests → integrate.
    channel) and latch the serial IRQ. OAM DMA copies
    instantaneously; per-mode VRAM/OAM blocking and the boot ROM
    are deferred. 20 unit tests passing.
-9. `runtime-nintendo-game-boy` — bespoke runtime over the one
-   machine. `Model` enum with `Dmg` (and later `Cgb`);
-   `profile_for` + `profiles()` in `profiles.rs` even with one
-   entry, per [within-family layering](../../decisions/within-family-layering.md).
+9. **`runtime-nintendo-game-boy`** — done. `GameBoyRuntime` wraps
+   the one machine behind `MachineCore`. `load_media` accepts a
+   `Cartridge` image at slot `cartridge`, parses it via
+   `format-nintendo-game-boy-cartridge`, and rebuilds the machine.
+   `run_until` ticks `GameBoy::run_frame` until the requested
+   `MachineTime` is reached, pushes `Indexed8` frames against the
+   four-shade `DMG_GREYSCALE_RGBA` palette, and drains the APU's
+   48 kHz interleaved-stereo float buffer per frame. Snapshots are
+   postcard envelopes versioned + profile-id-checked so a CGB
+   snapshot won't deserialise into a DMG runtime once that lands.
+   Joypad input maps `a/b/select/start/up/down/left/right` (case-
+   insensitive, accepted from either `Key` or `Button` events) to
+   `JoypadButton`. `Model::Dmg` populates the family catalogue;
+   the second model + family-driver lift will arrive together,
+   per [within-family layering](../../decisions/within-family-layering.md).
+   9 tests passing.
+
+Phase 1 is complete: 9 of 9 crates landed. The Game Boy now
+boots through the runtime boundary on any header-valid
+ROM-only / MBC1 / MBC3 / MBC5 cartridge.
 
 ### Phase 2 — verification
 

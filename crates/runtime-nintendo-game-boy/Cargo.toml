@@ -1,0 +1,16 @@
+[package]
+name = "runtime-nintendo-game-boy"
+description = "Nintendo Game Boy runtime — bridges machine-nintendo-game-boy with the emu198x-shell MachineCore trait"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy" }
+emu198x-shell = { path = "../emu198x-shell" }
+machine-nintendo-game-boy = { path = "../machine-nintendo-game-boy" }
+postcard = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

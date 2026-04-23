@@ -68,6 +68,7 @@ members = [
     "crates/ricoh-apu-2a03",
     "crates/ricoh-ppu-2c02",
     "crates/runtime-commodore-c64",
+    "crates/runtime-nintendo-game-boy",
     "crates/runtime-nintendo-nes",
     "crates/runtime-sinclair-zx-spectrum",
     "crates/sinclair-ula-7k010e",

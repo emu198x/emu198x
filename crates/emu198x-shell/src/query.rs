@@ -191,6 +191,7 @@ fn family_name(profile: &MachineProfile) -> &'static str {
         crate::Family::C64 => "c64",
         crate::Family::Nes => "nes",
         crate::Family::Amiga => "amiga",
+        crate::Family::GameBoy => "game-boy",
     }
 }
 

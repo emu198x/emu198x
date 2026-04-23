@@ -2327,6 +2327,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime-nintendo-game-boy"
+version = "0.1.0"
+dependencies = [
+ "common-nintendo-game-boy",
+ "emu198x-shell",
+ "machine-nintendo-game-boy",
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "runtime-nintendo-nes"
 version = "0.1.0"
 dependencies = [
