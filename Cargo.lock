@@ -858,6 +858,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-nintendo-game-boy-cartridge"
+version = "0.1.0"
+dependencies = [
+ "nintendo-game-boy-mbc",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "format-nintendo-nes-ines"
 version = "0.1.0"
 
@@ -1312,6 +1321,7 @@ dependencies = [
  "peripheral-commodore-amiga-floppy",
  "peripheral-commodore-amiga-keyboard",
  "png",
+ "zip",
 ]
 
 [[package]]

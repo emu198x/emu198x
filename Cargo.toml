@@ -22,6 +22,7 @@ members = [
     "crates/format-commodore-c64-t64",
     "crates/format-amstrad-dsk",
     "crates/format-commodore-amiga-adf",
+    "crates/format-nintendo-game-boy-cartridge",
     "crates/format-nintendo-nes-ines",
     "crates/format-sinclair-zx-spectrum-tap",
     "crates/format-sinclair-zx-spectrum-tzx",

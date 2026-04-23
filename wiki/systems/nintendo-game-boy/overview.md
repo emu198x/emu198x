@@ -108,10 +108,14 @@ characterise → port-with-tests → integrate.
    $3000-$3FFF), 4-bit RAM bank, and crucially permits bank 0 in
    the switchable window (no MBC1-style rewrite). 18 tests pass.
    MBC2 is deferred.
-7. `format-nintendo-game-boy-cartridge` — header parse
-   (Nintendo logo, title, cartridge type, ROM size, RAM size,
-   destination, version, header checksum, global checksum),
-   MBC selection, save-RAM loader.
+7. **`format-nintendo-game-boy-cartridge`** — done. `CartridgeHeader::parse`
+   decodes the $0100-$014F header, validates ROM length matches
+   the size byte, recomputes the $0134-$014C header checksum, and
+   surfaces clear errors for unknown / unsupported mapper bytes
+   (MBC2, MMM01, MBC6/7, Camera, Tama5, HuC1/3 are explicitly
+   refused; MBC1/3/5 + ROM-only are accepted). `load(rom)`
+   convenience builds a fully-loaded `Cartridge` from the
+   `nintendo-game-boy-mbc` crate. 14 tests.
 8. `machine-nintendo-game-boy` — composes CPU + PPU + APU +
    timer + MBC + work RAM + VRAM + OAM + HRAM. Implements
    `pub fn run_frame()` directly.

@@ -1,0 +1,14 @@
+[package]
+name = "format-nintendo-game-boy-cartridge"
+description = "Game Boy cartridge header parser + Cartridge construction"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+nintendo-game-boy-mbc = { path = "../nintendo-game-boy-mbc" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
