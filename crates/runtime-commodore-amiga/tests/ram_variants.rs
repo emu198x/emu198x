@@ -139,7 +139,9 @@ fn kickstart_13_configures_fast_ram_board_during_boot() -> Result<(), Box<dyn Er
         .machine()
         .autoconfig()
         .expect("board should still be present after boot");
-    let base = board.base().expect("expansion.library should have assigned a base address");
+    let base = board
+        .base()
+        .expect("expansion.library should have assigned a base address");
     // Zorro-II boards sit above the chip + slow + ROM region. The
     // exact slot is whatever `expansion.library` picked.
     assert!(

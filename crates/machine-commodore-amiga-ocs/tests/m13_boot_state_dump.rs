@@ -49,8 +49,16 @@ fn pc_histogram_over_last_20_frames() {
     for (pc, count) in entries.iter().take(20) {
         eprintln!("  ${pc:08X}  {count:>6}");
     }
-    let min_pc = entries.iter().map(|(pc, _)| *pc).min().expect("at least one PC sampled");
-    let max_pc = entries.iter().map(|(pc, _)| *pc).max().expect("at least one PC sampled");
+    let min_pc = entries
+        .iter()
+        .map(|(pc, _)| *pc)
+        .min()
+        .expect("at least one PC sampled");
+    let max_pc = entries
+        .iter()
+        .map(|(pc, _)| *pc)
+        .max()
+        .expect("at least one PC sampled");
     eprintln!(
         "\nPC range: ${min_pc:08X} – ${max_pc:08X} (span ${:X})",
         max_pc - min_pc

@@ -149,5 +149,11 @@ fn shut_up_command_silences_board_permanently() {
     // And a subsequent base-write is ignored — the board stays silent.
     amiga.poke_word(0x00E8_0048, 0x2000);
     amiga.poke_word(0x00E8_004A, 0x0000);
-    assert!(amiga.autoconfig().expect("board should exist").base().is_none());
+    assert!(
+        amiga
+            .autoconfig()
+            .expect("board should exist")
+            .base()
+            .is_none()
+    );
 }

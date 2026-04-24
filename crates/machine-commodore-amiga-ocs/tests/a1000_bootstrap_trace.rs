@@ -9,7 +9,7 @@
 //!   cargo test --manifest-path crates/machine-commodore-amiga-ocs/Cargo.toml \
 //!       --test a1000_bootstrap_trace -- --ignored --nocapture
 
-use commodore_agnus_ocs::{bits, SlotOwner};
+use commodore_agnus_ocs::{SlotOwner, bits};
 use std::path::{Path, PathBuf};
 
 use format_commodore_amiga_adf::Adf;
@@ -21,7 +21,10 @@ fn bootstrap_rom_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/a1000-bootstrap.rom");
     if !path.exists() {
-        eprintln!("skipping: A1000 bootstrap ROM missing at {}", path.display());
+        eprintln!(
+            "skipping: A1000 bootstrap ROM missing at {}",
+            path.display()
+        );
         return None;
     }
     Some(path)
@@ -50,9 +53,7 @@ fn kickstart_disk_path() -> Option<PathBuf> {
         return Some(sibling_archive);
     }
 
-    eprintln!(
-        "skipping: A1000 Kickstart disk not found; set EMU198X_AMIGA_A1000_KICKSTART_DISK"
-    );
+    eprintln!("skipping: A1000 Kickstart disk not found; set EMU198X_AMIGA_A1000_KICKSTART_DISK");
     None
 }
 
@@ -316,9 +317,7 @@ fn compare_a1000_bootstrap_disk_insert_semantics() {
     }
 
     if acknowledged.wom_locked_frame.is_none() && pending.wom_locked_frame.is_some() {
-        eprintln!(
-            "\nA1000 bootstrap only progresses when /DSKCHANGE is left pending at startup."
-        );
+        eprintln!("\nA1000 bootstrap only progresses when /DSKCHANGE is left pending at startup.");
     }
 }
 
@@ -422,7 +421,9 @@ fn compare_wom_loaded_kickstart_to_local_kick12_rom() {
 
     let mut wom = vec![0u8; kick12.len()];
     for (idx, byte) in wom.iter_mut().enumerate() {
-        *byte = amiga.memory().read_byte(0x00F8_0000u32.wrapping_add(idx as u32));
+        *byte = amiga
+            .memory()
+            .read_byte(0x00F8_0000u32.wrapping_add(idx as u32));
     }
 
     let first_diff = wom
@@ -804,9 +805,7 @@ fn trace_a1000_kickdisk_white_phase_display_state() {
         }
         if let Some(name) = display_reg_name(*offset) {
             let lane = if *is_byte { "byte" } else { "word" };
-            eprintln!(
-                "  frame={frame} cck={cck} pc=${pc:08X} {name} raw=${raw_val:04X} {lane}"
-            );
+            eprintln!("  frame={frame} cck={cck} pc=${pc:08X} {name} raw=${raw_val:04X} {lane}");
         }
     }
 
@@ -831,7 +830,10 @@ fn trace_a1000_kickdisk_white_phase_display_state() {
         }
         if sprite_copper_lines.len() > 40 {
             eprintln!("  ...");
-            for line in sprite_copper_lines.iter().skip(sprite_copper_lines.len() - 8) {
+            for line in sprite_copper_lines
+                .iter()
+                .skip(sprite_copper_lines.len() - 8)
+            {
                 eprintln!("{line}");
             }
         } else {
@@ -894,7 +896,12 @@ fn trace_a1000_kickdisk_white_phase_display_state() {
             continue;
         }
         let (dst_lo, dst_hi) = blit_dest_range(*c1, *dpt, *size);
-        if !ranges_overlap(dst_lo, dst_hi.wrapping_sub(dst_lo), 0x0000_4000, 0x0000_4000) {
+        if !ranges_overlap(
+            dst_lo,
+            dst_hi.wrapping_sub(dst_lo),
+            0x0000_4000,
+            0x0000_4000,
+        ) {
             continue;
         }
         found_overlap = true;
@@ -986,8 +993,6 @@ fn trace_a1000_kickdisk_white_phase_display_state() {
             eprintln!("    {event}");
         }
     } else {
-        eprintln!(
-            "  no per-line bitplane fetch DMA observed in frames {FRAME_START}..{FRAME_END}"
-        );
+        eprintln!("  no per-line bitplane fetch DMA observed in frames {FRAME_START}..{FRAME_END}");
     }
 }

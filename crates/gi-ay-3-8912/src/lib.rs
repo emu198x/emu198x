@@ -109,10 +109,10 @@ impl Ay3_8912 {
         let reg = self.selected as usize;
         // Mask register values to their valid bit widths
         let masked = match reg {
-            1 | 3 | 5 => val & 0x0F,  // Coarse tone: 4 bits
-            6 => val & 0x1F,          // Noise period: 5 bits
-            7 => val,                 // Mixer: all 8 bits
-            8..=10 => val & 0x1F, // Volume + envelope mode: 5 bits
+            1 | 3 | 5 => val & 0x0F, // Coarse tone: 4 bits
+            6 => val & 0x1F,         // Noise period: 5 bits
+            7 => val,                // Mixer: all 8 bits
+            8..=10 => val & 0x1F,    // Volume + envelope mode: 5 bits
             13 => {
                 // Writing to envelope shape resets the envelope
                 self.env_step = 0;

@@ -9,8 +9,8 @@
 //!   cargo test -p runtime-commodore-amiga --test diag_kick12_wb12_alert \
 //!       -- --ignored --nocapture
 
-use std::path::PathBuf;
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_ocs::{AmigaOcs, RamConfig};
@@ -256,7 +256,8 @@ fn trace_a500_kick12_chip_probe_instruction_flow() {
         let maybe_snapshot = {
             let amiga = runtime.machine();
             let cpu = amiga.cpu();
-            if cpu.instruction_starts == prev_instr_count && cpu.instr_start_pc == prev_instr_start_pc
+            if cpu.instruction_starts == prev_instr_count
+                && cpu.instr_start_pc == prev_instr_start_pc
             {
                 None
             } else {
@@ -283,7 +284,8 @@ fn trace_a500_kick12_chip_probe_instruction_flow() {
         let frame = tick / A500_PAL_FRAME_TICKS + 1;
 
         while last_watch_len < runtime.machine().debug_watch_writes.len() {
-            let (cck, pc, addr, val, is_word) = runtime.machine().debug_watch_writes[last_watch_len];
+            let (cck, pc, addr, val, is_word) =
+                runtime.machine().debug_watch_writes[last_watch_len];
             last_watch_len += 1;
             let width = if is_word { "word" } else { "byte" };
             println!(
@@ -437,7 +439,8 @@ fn trace_a500_kick12_cpu_detect_helper() {
         let frame = tick / A500_PAL_FRAME_TICKS + 1;
 
         while last_watch_len < runtime.machine().debug_watch_writes.len() {
-            let (cck, pc, addr, val, is_word) = runtime.machine().debug_watch_writes[last_watch_len];
+            let (cck, pc, addr, val, is_word) =
+                runtime.machine().debug_watch_writes[last_watch_len];
             last_watch_len += 1;
             let width = if is_word { "word" } else { "byte" };
             println!(
@@ -607,7 +610,8 @@ fn trace_kick12_slow_ram_probe_on_a500_variants() {
             let frame = tick / A500_PAL_FRAME_TICKS + 1;
 
             while last_watch_len < runtime.machine().debug_watch_writes.len() {
-                let (cck, pc, addr, val, is_word) = runtime.machine().debug_watch_writes[last_watch_len];
+                let (cck, pc, addr, val, is_word) =
+                    runtime.machine().debug_watch_writes[last_watch_len];
                 last_watch_len += 1;
                 let width = if is_word { "word" } else { "byte" };
                 println!(
@@ -618,7 +622,9 @@ fn trace_kick12_slow_ram_probe_on_a500_variants() {
 
             let amiga = runtime.machine();
             let cpu = amiga.cpu();
-            if cpu.instruction_starts == prev_instr_count && cpu.instr_start_pc == prev_instr_start_pc {
+            if cpu.instruction_starts == prev_instr_count
+                && cpu.instr_start_pc == prev_instr_start_pc
+            {
                 continue;
             }
             prev_instr_count = cpu.instruction_starts;

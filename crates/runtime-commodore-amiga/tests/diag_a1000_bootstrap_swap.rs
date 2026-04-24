@@ -17,7 +17,10 @@ fn bootstrap_rom_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/a1000-bootstrap.rom");
     if !path.exists() {
-        eprintln!("skipping: A1000 bootstrap ROM missing at {}", path.display());
+        eprintln!(
+            "skipping: A1000 bootstrap ROM missing at {}",
+            path.display()
+        );
         return None;
     }
     Some(path)
@@ -60,9 +63,7 @@ fn kickstart_disk_path() -> Option<PathBuf> {
         return Some(sibling_archive);
     }
 
-    eprintln!(
-        "skipping: A1000 Kickstart disk not found; set EMU198X_AMIGA_A1000_KICKSTART_DISK"
-    );
+    eprintln!("skipping: A1000 Kickstart disk not found; set EMU198X_AMIGA_A1000_KICKSTART_DISK");
     None
 }
 

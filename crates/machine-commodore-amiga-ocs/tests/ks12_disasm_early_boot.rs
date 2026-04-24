@@ -59,9 +59,19 @@ fn dump_region(rom: &[u8], label: &str, start: u32, end: u32) {
 fn dump_ks12_early_boot_alert_regions() {
     let Some(rom) = load_kickstart() else { return };
 
-    dump_region(&rom, "exec init tail before first alert", 0x00FC_026E, 0x00FC_02B0);
+    dump_region(
+        &rom,
+        "exec init tail before first alert",
+        0x00FC_026E,
+        0x00FC_02B0,
+    );
     dump_region(&rom, "slow RAM probe", 0x00FC_061A, 0x00FC_0690);
-    dump_region(&rom, "warm-start validation branch into alert", 0x00FC_30E0, 0x00FC_30F4);
+    dump_region(
+        &rom,
+        "warm-start validation branch into alert",
+        0x00FC_30E0,
+        0x00FC_30F4,
+    );
     dump_region(&rom, "exec init helper at FC0546", 0x00FC_0546, 0x00FC_05B4);
     dump_region(&rom, "early alert handler entry", 0x00FC_05B4, 0x00FC_05C8);
 }
