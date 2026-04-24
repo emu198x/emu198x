@@ -142,6 +142,9 @@ impl Timer {
     /// Write TMA ($FF06).
     pub fn write_tma(&mut self, value: u8) {
         self.tma = value;
+        if self.reloaded_this_t_cycle {
+            self.tima = value;
+        }
     }
 
     /// Read TAC ($FF07).
@@ -370,6 +373,22 @@ mod tests {
 
         assert_eq!(timer.tima, 0x42);
         assert!(!timer.consume_overflow());
+    }
+
+    #[test]
+    fn tma_write_on_reload_cycle_updates_visible_tima() {
+        let mut timer = Timer::new();
+        timer.tma = 0xAB;
+        timer.tima = 0xFF;
+        timer.tac = 0x05;
+        run_t(&mut timer, 20);
+
+        assert_eq!(timer.tima, 0xAB);
+        timer.write_tma(0x42);
+
+        assert_eq!(timer.tma, 0x42);
+        assert_eq!(timer.tima, 0x42);
+        assert!(timer.consume_overflow());
     }
 
     #[test]

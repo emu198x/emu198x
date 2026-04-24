@@ -265,6 +265,10 @@ fn oam_dma_copies_160_bytes_from_source_page() {
         gb.bus_write(0xC000 + i, (i & 0xFF) as u8);
     }
     gb.bus_write(0xFF46, 0xC0); // start DMA from $C000
+    assert_eq!(gb.bus_read(0xFF46), 0xC0);
+    for _ in 0..=OAM_SIZE {
+        gb.step_m_cycle();
+    }
     for i in 0..OAM_SIZE {
         assert_eq!(gb.oam[i], (i & 0xFF) as u8, "oam[{i}] mismatch");
     }

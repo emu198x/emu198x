@@ -25,6 +25,7 @@ use runtime_nintendo_game_boy::{GameBoyRuntime, Model};
 const DEFAULT_BLARGG_ROOT: &str = "/Users/stevehill/Projects/Emu198x-Zig/gb-test-roms-master";
 const DEFAULT_DMG_ACID2_ROM: &str = "/Users/stevehill/Projects/Emu198x-Zig/dmg-acid2.gb";
 const MAX_SERIAL_TEST_FRAMES: u32 = 1_200;
+const MOONEYE_SWEEP_FRAMES: u32 = 300;
 const DMG_ACID2_FRAMES: u32 = 180;
 
 const CPU_INSTRS_SUBTESTS: &[&str] = &[
@@ -74,6 +75,14 @@ struct MooneyeRunResult {
     frames: u32,
     serial: Vec<u8>,
     state: String,
+}
+
+#[derive(Default)]
+struct SweepCounts {
+    passed: usize,
+    failed: usize,
+    timed_out: usize,
+    load_errors: usize,
 }
 
 fn load_runtime(rom_path: &Path) -> Result<GameBoyRuntime, Box<dyn std::error::Error>> {
@@ -264,6 +273,74 @@ fn mooneye_root() -> Option<PathBuf> {
     Some(root)
 }
 
+fn collect_gb_files(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let mut paths = Vec::new();
+    if !dir.exists() {
+        return Ok(paths);
+    }
+
+    let mut entries = std::fs::read_dir(dir)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(std::fs::DirEntry::path);
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() {
+            paths.extend(collect_gb_files(&path)?);
+        } else if path.extension().is_some_and(|ext| ext == "gb") {
+            paths.push(path);
+        }
+    }
+    Ok(paths)
+}
+
+fn rel_path<'a>(root: &'a Path, path: &'a Path) -> &'a Path {
+    path.strip_prefix(root).unwrap_or(path)
+}
+
+fn sweep_mooneye_bucket(
+    root: &Path,
+    bucket: &str,
+) -> Result<SweepCounts, Box<dyn std::error::Error>> {
+    let paths = collect_gb_files(&root.join(bucket))?;
+    let mut counts = SweepCounts::default();
+    eprintln!("mooneye sweep: {bucket} ({} ROMs)", paths.len());
+
+    for path in paths {
+        let rel = rel_path(root, &path).display();
+        let mut runtime = match load_runtime(&path) {
+            Ok(runtime) => runtime,
+            Err(err) => {
+                counts.load_errors += 1;
+                eprintln!("  LOAD-ERR {rel}: {err}");
+                continue;
+            }
+        };
+
+        match run_until_mooneye_verdict(&mut runtime, MOONEYE_SWEEP_FRAMES) {
+            Ok(result) if result.verdict == MooneyeVerdict::Passed => {
+                counts.passed += 1;
+                eprintln!("  PASS     {rel} after {} frames", result.frames);
+            }
+            Ok(result) => {
+                counts.failed += 1;
+                eprintln!(
+                    "  FAIL     {rel} after {} frames ({})",
+                    result.frames, result.state
+                );
+            }
+            Err(err) => {
+                counts.timed_out += 1;
+                eprintln!("  TIMEOUT  {rel}: {err}");
+            }
+        }
+    }
+
+    eprintln!(
+        "mooneye sweep summary {bucket}: pass={} fail={} timeout={} load_err={}",
+        counts.passed, counts.failed, counts.timed_out, counts.load_errors
+    );
+    Ok(counts)
+}
+
 #[test]
 #[ignore = "needs local Blargg Game Boy ROMs"]
 fn blargg_cpu_instrs_passes_all_11_subtests() -> Result<(), Box<dyn std::error::Error>> {
@@ -411,5 +488,34 @@ fn dmg_acid2_renders_non_trivial_frame() -> Result<(), Box<dyn std::error::Error
     assert!(non_zero > frame.len() / 8, "frame stayed mostly blank");
     assert!(unique_shades >= 3, "expected a non-trivial acid2 frame");
 
+    Ok(())
+}
+
+#[test]
+#[ignore = "reports broad local mooneye coverage without gating CI"]
+fn mooneye_broad_acceptance_sweep_reports_baseline() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(root) = mooneye_root() else {
+        return Ok(());
+    };
+
+    let buckets = [
+        "acceptance",
+        "emulator-only/mbc1",
+        "emulator-only/mbc2",
+        "emulator-only/mbc5",
+    ];
+    let mut total = SweepCounts::default();
+    for bucket in buckets {
+        let counts = sweep_mooneye_bucket(&root, bucket)?;
+        total.passed += counts.passed;
+        total.failed += counts.failed;
+        total.timed_out += counts.timed_out;
+        total.load_errors += counts.load_errors;
+    }
+
+    eprintln!(
+        "mooneye broad sweep total: pass={} fail={} timeout={} load_err={}",
+        total.passed, total.failed, total.timed_out, total.load_errors
+    );
     Ok(())
 }

@@ -12,8 +12,8 @@
 //!   post-boot register state instead of running through the
 //!   256-byte boot ROM.
 //! - OAM DMA bus blocking. Real hardware blocks all CPU access to
-//!   non-HRAM memory for the 160 m-cycles a DMA takes; we copy
-//!   instantaneously and don't gate the CPU bus.
+//!   non-HRAM memory for the 160 m-cycles a DMA takes; the DMA transfer
+//!   itself is paced, but CPU bus gating is still deferred.
 //! - Per-PPU-mode VRAM/OAM access blocking. The CPU sees `$FF` for
 //!   reads of VRAM during mode 3 and OAM during modes 2/3 on real
 //!   hardware; we always route the read.
@@ -72,6 +72,23 @@ pub struct GameBoy {
     /// runtime layer to surface Blargg-style reporting.
     #[serde(skip)]
     serial_output: Vec<u8>,
+
+    #[serde(default = "default_oam_dma_reg")]
+    oam_dma_reg: u8,
+    #[serde(default = "default_oam_dma_reg")]
+    oam_dma_source_high: u8,
+    #[serde(default = "default_oam_dma_index")]
+    oam_dma_index: u8,
+    #[serde(default)]
+    oam_dma_start_delay: u8,
+}
+
+const fn default_oam_dma_reg() -> u8 {
+    0xFF
+}
+
+const fn default_oam_dma_index() -> u8 {
+    OAM_SIZE as u8
 }
 
 impl GameBoy {
@@ -98,6 +115,10 @@ impl GameBoy {
             serial_data: 0,
             serial_control: 0,
             serial_output: Vec::new(),
+            oam_dma_reg: 0xFF,
+            oam_dma_source_high: 0xFF,
+            oam_dma_index: OAM_SIZE as u8,
+            oam_dma_start_delay: 0,
         }
     }
 
@@ -177,6 +198,7 @@ impl GameBoy {
         self.joypad_line_prev = joypad_line;
 
         self.service_cpu();
+        self.tick_oam_dma();
     }
 
     /// Run m-cycles until the PPU latches frame-ready (≈ 17 556
@@ -234,6 +256,7 @@ impl GameBoy {
             0xFF43 => self.ppu.scx,
             0xFF44 => self.ppu.ly,
             0xFF45 => self.ppu.lyc,
+            0xFF46 => self.oam_dma_reg,
             0xFF47 => self.ppu.bgp,
             0xFF48 => self.ppu.obp0,
             0xFF49 => self.ppu.obp1,
@@ -279,17 +302,27 @@ impl GameBoy {
         }
     }
 
-    /// OAM DMA: copy 160 bytes from `(value << 8)` into OAM. Real
-    /// hardware paces this over 160 m-cycles and blocks CPU access
-    /// to non-HRAM during it; this implementation copies
-    /// instantaneously. Blargg `cpu_instrs` doesn't care; mooneye's
-    /// `oam_dma_*` tests will need the proper pacing.
     fn start_oam_dma(&mut self, page: u8) {
-        let source_base = u16::from(page) << 8;
-        for offset in 0..OAM_SIZE as u16 {
-            let value = self.read(source_base + offset);
-            self.oam[usize::from(offset)] = value;
+        self.oam_dma_reg = page;
+        self.oam_dma_source_high = page;
+        self.oam_dma_index = 0;
+        self.oam_dma_start_delay = 1;
+    }
+
+    fn tick_oam_dma(&mut self) {
+        if self.oam_dma_index >= OAM_SIZE as u8 {
+            return;
         }
+        if self.oam_dma_start_delay != 0 {
+            self.oam_dma_start_delay -= 1;
+            return;
+        }
+
+        let offset = u16::from(self.oam_dma_index);
+        let source = (u16::from(self.oam_dma_source_high) << 8) | offset;
+        let value = self.bus_read(source);
+        self.oam[usize::from(self.oam_dma_index)] = value;
+        self.oam_dma_index = self.oam_dma_index.saturating_add(1);
     }
 }
 
