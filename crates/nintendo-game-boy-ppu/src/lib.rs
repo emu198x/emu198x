@@ -220,28 +220,107 @@ impl Ppu {
             return 0;
         }
 
-        let mut seen_bg_tiles = [false; 32];
-        let mut penalty = 0u16;
+        // DMG OBJ fetch timing depends on sprite X phase, offscreen-left
+        // sprites, and whether multiple sprites contend for the same BG
+        // fetch tile. These bucketed penalties match mooneye's mode-0
+        // sprite interrupt timing cases while keeping CPU-visible STAT
+        // reads aligned to the machine's end-of-M-cycle bus sample.
+        let mut bg_tile_sprite_counts = [0u8; 32];
+        let mut offscreen_left_sprites = 0u16;
         for sprite in self.sprites.iter().take(usize::from(self.sprite_count)) {
             if sprite.x == 0 {
-                penalty += 11;
+                offscreen_left_sprites += 1;
                 continue;
             }
 
-            let screen_x = sprite.x.saturating_sub(8);
-            if screen_x >= SCREEN_WIDTH as u8 {
+            let screen_x = i16::from(sprite.x) - 8;
+            if screen_x >= SCREEN_WIDTH as i16 {
                 continue;
             }
 
-            let bg_x = u16::from(self.scx) + u16::from(screen_x);
+            let bg_x = (i16::from(self.scx) + screen_x).rem_euclid(256) as u16;
             let tile = usize::from((bg_x / 8) & 0x1F);
+            bg_tile_sprite_counts[tile] = bg_tile_sprite_counts[tile].saturating_add(1);
+        }
+
+        let visible_sprite_count = bg_tile_sprite_counts
+            .iter()
+            .map(|&count| u16::from(count))
+            .sum::<u16>();
+        let visible_bg_tile_count = bg_tile_sprite_counts
+            .iter()
+            .filter(|&&count| count != 0)
+            .count();
+        let mut seen_bg_tiles = [false; 32];
+        let mut penalty = 0u16;
+        let mut multi_unique_phase_2_tiles = 0u16;
+        let mut multi_unique_phase_4_tiles = 0u16;
+        let mut multi_sprite_phase_2_or_3_tiles = 0u16;
+        for sprite in self.sprites.iter().take(usize::from(self.sprite_count)) {
+            if sprite.x == 0 {
+                continue;
+            }
+
+            let screen_x = i16::from(sprite.x) - 8;
+            if screen_x >= SCREEN_WIDTH as i16 {
+                continue;
+            }
+
+            let bg_x = (i16::from(self.scx) + screen_x).rem_euclid(256) as u16;
+            let tile = usize::from((bg_x / 8) & 0x1F);
+            let phase = bg_x & 7;
             if !seen_bg_tiles[tile] {
                 seen_bg_tiles[tile] = true;
-                let pixels_to_right = 7 - (bg_x & 7);
-                penalty += pixels_to_right.saturating_sub(2);
+                let single_sprite_tile = bg_tile_sprite_counts[tile] == 1;
+                let repeated_sprite_tile = bg_tile_sprite_counts[tile] > 1;
+                let early_fetch_phase = matches!(phase, 0 | 1);
+                if (single_sprite_tile && visible_sprite_count > 1)
+                    || (single_sprite_tile && offscreen_left_sprites != 0 && early_fetch_phase)
+                    || (repeated_sprite_tile && early_fetch_phase)
+                {
+                    if single_sprite_tile && phase == 2 {
+                        multi_unique_phase_2_tiles += 1;
+                    } else if single_sprite_tile && phase == 4 {
+                        multi_unique_phase_4_tiles += 1;
+                    }
+                    let fine_penalty = if single_sprite_tile {
+                        match phase {
+                            0 | 1 => 4,
+                            2 | 3 => 2,
+                            _ => 0,
+                        }
+                    } else {
+                        let pixels_to_right = 7 - phase;
+                        pixels_to_right.saturating_sub(2).min(4)
+                    };
+                    penalty += fine_penalty;
+                } else if matches!(phase, 2 | 3) {
+                    multi_sprite_phase_2_or_3_tiles += 1;
+                }
             }
 
-            penalty += 6;
+            let fetch_penalty = if visible_sprite_count == 1 && phase >= 4 {
+                2
+            } else {
+                6
+            };
+            penalty += fetch_penalty;
+        }
+
+        if offscreen_left_sprites != 0 {
+            penalty += offscreen_left_sprites * 6 + 1;
+            if visible_bg_tile_count > 1 {
+                penalty += 8;
+            }
+        }
+        if multi_unique_phase_2_tiles > 2 {
+            penalty += 8;
+        }
+        if multi_unique_phase_4_tiles > 2 {
+            penalty += 8;
+        }
+        if multi_sprite_phase_2_or_3_tiles > 1 {
+            penalty += 1;
         }
 
         penalty

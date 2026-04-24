@@ -193,6 +193,9 @@ fn diagnostic_mooneye_ppu_intr_2_0_trace() {
 #[ignore = "diagnostic: traces mooneye PPU mode0 timing with sprites"]
 fn diagnostic_mooneye_ppu_intr_2_mode0_sprites_trace() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
+    let target_case = std::env::var("EMU198X_GB_MOONEYE_CASE")
+        .ok()
+        .and_then(|value| u8::from_str_radix(value.trim_start_matches('$'), 16).ok());
     let rom = std::fs::read(format!(
         "{root}/acceptance/ppu/intr_2_mode0_timing_sprites.gb"
     ))
@@ -201,11 +204,20 @@ fn diagnostic_mooneye_ppu_intr_2_mode0_sprites_trace() {
 
     let mut serial_log = Vec::new();
     let mut previous_mode = gb.ppu.mode();
-    for cycle in 0..600_000u32 {
-        if matches!(
+    for cycle in 0..4_000_000u32 {
+        let trace_window = target_case.is_none_or(|case| gb.hram[0] == case)
+            || gb.hram[0] == 0x00
+            || matches!(gb.cpu.pc, 0x0BF8 | 0x0C1D | 0x4878..=0x487B);
+        let interesting_pc = matches!(
             gb.cpu.pc,
-            0x0B5A | 0x0B8A | 0x0B9A | 0x0BF8 | 0x0C1D | 0x487B
-        ) {
+            0x0B5A
+                | 0x0B8A..=0x0B9D
+                | 0x0BA5..=0x0BAF
+                | 0x0BEF..=0x0BF8
+                | 0x0C1D
+                | 0x4878..=0x487B
+        );
+        if trace_window && interesting_pc {
             eprintln!(
                 "#{cycle} pc=${:04X} a=${:02X} b=${:02X} c=${:02X} d=${:02X} e=${:02X} hram80=${:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} lcdc=${:02X}",
                 gb.cpu.pc,
@@ -224,12 +236,25 @@ fn diagnostic_mooneye_ppu_intr_2_mode0_sprites_trace() {
                 gb.ppu.lcdc
             );
         }
-        if gb.cpu.mreq && gb.cpu.wr && matches!(gb.cpu.addr, 0xFF40 | 0xFF41 | 0xFF0F | 0xFFFF) {
+        if trace_window
+            && gb.cpu.pc < 0x0C20
+            && gb.cpu.mreq
+            && (gb.cpu.rd || gb.cpu.wr)
+            && matches!(
+                gb.cpu.addr,
+                0xFF40 | 0xFF41 | 0xFF44 | 0xFF0F | 0xFF80 | 0xFFFF
+            )
+        {
+            let op = if gb.cpu.rd { "read" } else { "write" };
+            let value = if gb.cpu.rd {
+                gb.bus_read(gb.cpu.addr)
+            } else {
+                gb.cpu.data
+            };
             eprintln!(
-                "#{cycle} pc=${:04X} write ${:04X}=${:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} lcdc=${:02X}",
+                "#{cycle} pc=${:04X} {op} ${:04X}=${value:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} lcdc=${:02X}",
                 gb.cpu.pc,
                 gb.cpu.addr,
-                gb.cpu.data,
                 gb.ppu.ly,
                 gb.ppu.dot,
                 gb.ppu.mode(),
@@ -239,7 +264,7 @@ fn diagnostic_mooneye_ppu_intr_2_mode0_sprites_trace() {
                 gb.ppu.lcdc
             );
         }
-        if gb.cpu.int_ack {
+        if trace_window && gb.cpu.int_ack {
             eprintln!(
                 "#{cycle} int_ack bit={} pc=${:04X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X}",
                 gb.cpu.int_ack_bit,
@@ -255,7 +280,7 @@ fn diagnostic_mooneye_ppu_intr_2_mode0_sprites_trace() {
 
         gb.step_m_cycle();
         let mode = gb.ppu.mode();
-        if mode != previous_mode && gb.ppu.ly == 66 {
+        if mode != previous_mode && trace_window && gb.cpu.pc < 0x0C20 {
             eprintln!(
                 "#{cycle} mode {}->{} ly={} dot={} pc=${:04X} a=${:02X} b=${:02X} c=${:02X} d=${:02X} e=${:02X} stat=${:02X}",
                 previous_mode,
@@ -505,6 +530,132 @@ fn diagnostic_mooneye_ppu_stat_lyc_onoff_trace() {
                 gb.ppu.read_stat(),
                 gb.if_reg,
                 gb.ie_reg
+            );
+            break;
+        }
+    }
+}
+
+#[test]
+#[ignore = "diagnostic: traces mooneye VBlank/STAT interrupt ordering"]
+fn diagnostic_mooneye_ppu_vblank_stat_intr_trace() {
+    let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
+    let rom = std::fs::read(format!("{root}/acceptance/ppu/vblank_stat_intr-GS.gb")).unwrap();
+    let mut gb = boot_machine(rom);
+
+    let mut serial_log = Vec::new();
+    let mut previous_mode = gb.ppu.mode();
+    for cycle in 0..420_000u32 {
+        if matches!(
+            gb.cpu.pc,
+            0x0150
+                | 0x016C
+                | 0x0181
+                | 0x01D8
+                | 0x01F6
+                | 0x024E
+                | 0x0270
+                | 0x02C7
+                | 0x02E5
+                | 0x033D
+                | 0x033F
+                | 0x4A2B
+                | 0x4AB6
+        ) {
+            eprintln!(
+                "#{cycle} pc=${:04X} op=${:02X} a=${:02X} f=${:02X} b=${:02X} c=${:02X} d=${:02X} e=${:02X} h=${:02X} l=${:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} round=[{:02X},{:02X},{:02X}]",
+                gb.cpu.pc,
+                gb.cpu.opcode,
+                gb.cpu.a,
+                gb.cpu.f,
+                gb.cpu.b,
+                gb.cpu.c,
+                gb.cpu.d,
+                gb.cpu.e,
+                gb.cpu.h,
+                gb.cpu.l,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg,
+                gb.hram[0x06],
+                gb.hram[0x07],
+                gb.hram[0x08]
+            );
+        }
+        if gb.cpu.mreq
+            && (gb.cpu.rd || gb.cpu.wr)
+            && matches!(
+                gb.cpu.addr,
+                0xFF04 | 0xFF0F | 0xFF40 | 0xFF41 | 0xFF80..=0xFF88 | 0xFFFF
+            )
+        {
+            let op = if gb.cpu.rd { "read" } else { "write" };
+            let value = if gb.cpu.rd {
+                gb.bus_read(gb.cpu.addr)
+            } else {
+                gb.cpu.data
+            };
+            eprintln!(
+                "#{cycle} pc=${:04X} op=${:02X} mc={} {op} ${:04X}=${value:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X}",
+                gb.cpu.pc,
+                gb.cpu.opcode,
+                gb.cpu.m_cycle,
+                gb.cpu.addr,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg
+            );
+        }
+        if gb.cpu.int_ack {
+            eprintln!(
+                "#{cycle} int_ack bit={} pc=${:04X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X}",
+                gb.cpu.int_ack_bit,
+                gb.cpu.pc,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg
+            );
+        }
+
+        gb.step_m_cycle();
+        let mode = gb.ppu.mode();
+        if mode != previous_mode && matches!(gb.ppu.ly, 142..=145) {
+            eprintln!(
+                "#{cycle} mode {}->{} ly={} dot={} pc=${:04X} stat=${:02X} if=${:02X} ie=${:02X}",
+                previous_mode,
+                mode,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.cpu.pc,
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg
+            );
+        }
+        previous_mode = mode;
+
+        serial_log.extend(gb.drain_serial());
+        if serial_log.windows(6).any(|window| window == [0x42; 6])
+            || serial_log
+                .windows(6)
+                .any(|window| window == [3, 5, 8, 13, 21, 34])
+        {
+            eprintln!(
+                "serial={serial_log:02X?} hram={:02X?} ly={} dot={} mode={} stat=${:02X}",
+                &gb.hram[..17],
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat()
             );
             break;
         }

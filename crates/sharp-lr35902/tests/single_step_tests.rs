@@ -159,7 +159,7 @@ fn run_test(test: &TestCase) -> Vec<String> {
     cpu.irq_pending = 0;
 
     cpu.tick(); // Warmup: consume opcode, dispatch m_cycle=1 arm,
-                // schedule the first follow-up bus op (cycles[0]).
+    // schedule the first follow-up bus op (cycles[0]).
 
     for (i, cycle) in test.cycles.iter().enumerate() {
         match cycle {
