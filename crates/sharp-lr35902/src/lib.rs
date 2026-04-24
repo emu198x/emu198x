@@ -125,6 +125,95 @@ pub struct Sm83 {
     pub irq_dispatch_mask: u8,
 }
 
+/// CPU register state produced by a Game Boy boot ROM before it
+/// jumps to cartridge entry at `$0100`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PostBootCpuState {
+    pub a: u8,
+    pub f: u8,
+    pub b: u8,
+    pub c: u8,
+    pub d: u8,
+    pub e: u8,
+    pub h: u8,
+    pub l: u8,
+    pub sp: u16,
+    pub pc: u16,
+}
+
+impl PostBootCpuState {
+    /// DMG boot ROM v1 and later, matching Pan Docs' common skipped
+    /// boot values.
+    pub const DMG_ABC: Self = Self {
+        a: 0x01,
+        f: 0xB0,
+        b: 0x00,
+        c: 0x13,
+        d: 0x00,
+        e: 0xD8,
+        h: 0x01,
+        l: 0x4D,
+        sp: 0xFFFE,
+        pc: 0x0100,
+    };
+
+    /// Original DMG0 boot ROM exit state.
+    pub const DMG0: Self = Self {
+        a: 0x01,
+        f: 0x00,
+        b: 0xFF,
+        c: 0x13,
+        d: 0x00,
+        e: 0xC1,
+        h: 0x84,
+        l: 0x03,
+        sp: 0xFFFE,
+        pc: 0x0100,
+    };
+
+    /// Game Boy Pocket boot ROM exit state.
+    pub const MGB: Self = Self {
+        a: 0xFF,
+        f: 0xB0,
+        b: 0x00,
+        c: 0x13,
+        d: 0x00,
+        e: 0xD8,
+        h: 0x01,
+        l: 0x4D,
+        sp: 0xFFFE,
+        pc: 0x0100,
+    };
+
+    /// Super Game Boy boot ROM exit state.
+    pub const SGB: Self = Self {
+        a: 0x01,
+        f: 0x00,
+        b: 0x00,
+        c: 0x14,
+        d: 0x00,
+        e: 0x00,
+        h: 0xC0,
+        l: 0x60,
+        sp: 0xFFFE,
+        pc: 0x0100,
+    };
+
+    /// Super Game Boy 2 boot ROM exit state.
+    pub const SGB2: Self = Self {
+        a: 0xFF,
+        f: 0x00,
+        b: 0x00,
+        c: 0x14,
+        d: 0x00,
+        e: 0x00,
+        h: 0xC0,
+        l: 0x60,
+        sp: 0xFFFE,
+        pc: 0x0100,
+    };
+}
+
 impl Sm83 {
     /// Creates a CPU in the post-power-on default state — every
     /// register zero, pins idle, no scheduled bus operation. Call
@@ -187,17 +276,23 @@ impl Sm83 {
     /// Values per Pan Docs §15.7: `A=$01`, `F=$B0`, `B=$00`, `C=$13`,
     /// `D=$00`, `E=$D8`, `H=$01`, `L=$4D`, `SP=$FFFE`, `PC=$0100`.
     pub fn reset_post_bootrom(&mut self) {
+        self.reset_post_bootrom_with_state(PostBootCpuState::DMG_ABC);
+    }
+
+    /// Primes the CPU for `$0100` entry with a caller-supplied boot
+    /// ROM exit state.
+    pub fn reset_post_bootrom_with_state(&mut self, state: PostBootCpuState) {
         *self = Self::new();
-        self.a = 0x01;
-        self.f = 0xB0;
-        self.b = 0x00;
-        self.c = 0x13;
-        self.d = 0x00;
-        self.e = 0xD8;
-        self.h = 0x01;
-        self.l = 0x4D;
-        self.sp = 0xFFFE;
-        self.pc = 0x0100;
+        self.a = state.a;
+        self.f = state.f;
+        self.b = state.b;
+        self.c = state.c;
+        self.d = state.d;
+        self.e = state.e;
+        self.h = state.h;
+        self.l = state.l;
+        self.sp = state.sp;
+        self.pc = state.pc;
         self.schedule_opcode_fetch(self.pc);
     }
 

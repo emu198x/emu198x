@@ -87,11 +87,29 @@ struct SweepCounts {
 
 fn load_runtime(rom_path: &Path) -> Result<GameBoyRuntime, Box<dyn std::error::Error>> {
     let bytes = std::fs::read(rom_path)?;
-    let mut runtime = GameBoyRuntime::blank(Model::Dmg);
+    let mut runtime = GameBoyRuntime::blank(model_for_mooneye_rom(rom_path));
     let mut media = MediaSet::new();
     media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &bytes));
     runtime.load_media(&media)?;
     Ok(runtime)
+}
+
+fn model_for_mooneye_rom(rom_path: &Path) -> Model {
+    let Some(name) = rom_path.file_name().and_then(|name| name.to_str()) else {
+        return Model::Dmg;
+    };
+
+    if name.contains("-dmg0") {
+        Model::Dmg0
+    } else if name.contains("-mgb") {
+        Model::Mgb
+    } else if name == "boot_div2-S.gb" || name.contains("-sgb2") {
+        Model::Sgb2
+    } else if name.contains("-sgb") || name.contains("-S.") {
+        Model::Sgb
+    } else {
+        Model::Dmg
+    }
 }
 
 fn blargg_ram_verdict(runtime: &GameBoyRuntime) -> Option<(u8, String)> {

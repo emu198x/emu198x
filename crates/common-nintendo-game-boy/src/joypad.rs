@@ -120,10 +120,17 @@ impl JoypadMatrix {
     /// used when the machine starts cartridges directly at `$0100`.
     #[must_use]
     pub const fn new_post_bootrom_dmg() -> Self {
+        Self::new_post_bootrom_with_select(0xC0)
+    }
+
+    /// Creates an all-released matrix with a model-specific boot-ROM
+    /// exit value for the P1 high nibble.
+    #[must_use]
+    pub const fn new_post_bootrom_with_select(select: u8) -> Self {
         Self {
             direction: 0,
             action: 0,
-            select: 0xC0,
+            select,
         }
     }
 

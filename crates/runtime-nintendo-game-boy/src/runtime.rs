@@ -34,6 +34,7 @@ pub struct GameBoySessionQueryProvider;
 /// host-boundary scratch space (audio drain + cartridge bytes for
 /// reset rebuilds).
 pub struct GameBoyRuntime {
+    model: Model,
     profile: MachineProfile,
     machine: Option<GameBoy>,
     cartridge_bytes: Option<Vec<u8>>,
@@ -64,6 +65,7 @@ impl GameBoyRuntime {
     #[must_use]
     pub fn blank(model: Model) -> Self {
         Self {
+            model,
             profile: profile_for(model),
             machine: None,
             cartridge_bytes: None,
@@ -88,7 +90,7 @@ impl GameBoyRuntime {
             self.machine = None;
             return;
         };
-        match GameBoy::from_rom(bytes) {
+        match GameBoy::from_rom_with_boot_profile(bytes, self.model.boot_profile()) {
             Ok((_, gb)) => self.machine = Some(gb),
             Err(_) => {
                 self.machine = None;
@@ -195,10 +197,11 @@ impl MachineCore for GameBoyRuntime {
 
             let bytes = image.bytes.to_vec();
             let (_, gb) =
-                GameBoy::from_rom(bytes.clone()).map_err(|reason| MachineError::InvalidMedia {
-                    slot: image.slot.as_ref().to_owned(),
-                    reason: reason.to_string(),
-                })?;
+                GameBoy::from_rom_with_boot_profile(bytes.clone(), self.model.boot_profile())
+                    .map_err(|reason| MachineError::InvalidMedia {
+                        slot: image.slot.as_ref().to_owned(),
+                        reason: reason.to_string(),
+                    })?;
             self.machine = Some(gb);
             self.cartridge_bytes = Some(bytes);
             self.time = MachineTime::default();

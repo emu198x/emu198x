@@ -44,46 +44,55 @@ fn boot_machine(rom: Vec<u8>) -> GameBoy {
     gb
 }
 
+fn boot_machine_with_profile(rom: Vec<u8>, boot_profile: BootProfile) -> GameBoy {
+    let (_, gb) = GameBoy::from_rom_with_boot_profile(rom, boot_profile).unwrap();
+    gb
+}
+
 #[test]
 #[ignore = "diagnostic: searches skipped-boot DIV phase against local mooneye ROMs"]
 fn diagnostic_mooneye_boot_div_counter_phase_search() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
-    let rom = std::fs::read(format!("{root}/acceptance/boot_div-dmgABCmgb.gb")).unwrap();
+    for (rom_name, boot_profile, range) in [
+        ("boot_div-dmg0.gb", BootProfile::Dmg0, 0x1828u16..=0x1833u16),
+        (
+            "boot_div-dmgABCmgb.gb",
+            BootProfile::DmgAbc,
+            0xABC4u16..=0xABCFu16,
+        ),
+        ("boot_div-S.gb", BootProfile::Sgb, 0xD858u16..=0xD863u16),
+        ("boot_div2-S.gb", BootProfile::Sgb2, 0xD848u16..=0xD853u16),
+    ] {
+        let rom = std::fs::read(format!("{root}/acceptance/{rom_name}")).unwrap();
+        for counter in range {
+            let (_, mut gb) =
+                GameBoy::from_rom_with_boot_profile(rom.clone(), boot_profile).unwrap();
+            gb.timer.counter = counter;
 
-    for counter in 0xAB00..=0xACFF {
-        let mut gb = boot_machine(rom.clone());
-        gb.timer.counter = counter;
-
-        let mut serial = Vec::new();
-        for _ in 0..20 {
-            gb.run_frame();
-            serial.extend(gb.drain_serial());
-            if serial.windows(6).any(|window| window == [0x42; 6]) {
-                break;
+            let mut serial = Vec::new();
+            for _ in 0..20 {
+                gb.run_frame();
+                serial.extend(gb.drain_serial());
+                if serial.windows(6).any(|window| window == [0x42; 6]) {
+                    break;
+                }
+                if serial
+                    .windows(6)
+                    .any(|window| window == [3, 5, 8, 13, 21, 34])
+                {
+                    break;
+                }
             }
+
             if serial
                 .windows(6)
                 .any(|window| window == [3, 5, 8, 13, 21, 34])
             {
-                break;
+                eprintln!(
+                    "{rom_name} passes with counter=${counter:04X} hram={:02X?}",
+                    &gb.hram[..17]
+                );
             }
-        }
-
-        let actual_matches = gb.hram[3] == 0xAC
-            && gb.hram[2] == 0xAD
-            && gb.hram[5] == 0xAD
-            && gb.hram[4] == 0xAE
-            && gb.hram[7] == 0xAF
-            && gb.hram[6] == 0xB1;
-        if actual_matches
-            || serial
-                .windows(6)
-                .any(|window| window == [3, 5, 8, 13, 21, 34])
-        {
-            eprintln!(
-                "candidate counter=${counter:04X} serial={serial:02X?} hram={:02X?}",
-                &gb.hram[..17]
-            );
         }
     }
 }
@@ -92,31 +101,38 @@ fn diagnostic_mooneye_boot_div_counter_phase_search() {
 #[ignore = "diagnostic: traces boot_hwio reads against local mooneye ROMs"]
 fn diagnostic_mooneye_boot_hwio_read_trace() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
-    let rom = std::fs::read(format!("{root}/acceptance/boot_hwio-dmgABCmgb.gb")).unwrap();
-    let mut gb = boot_machine(rom);
+    for (rom_name, boot_profile) in [
+        ("boot_hwio-dmg0.gb", BootProfile::Dmg0),
+        ("boot_hwio-dmgABCmgb.gb", BootProfile::DmgAbc),
+        ("boot_hwio-S.gb", BootProfile::Sgb),
+    ] {
+        eprintln!("trace {rom_name}");
+        let rom = std::fs::read(format!("{root}/acceptance/{rom_name}")).unwrap();
+        let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, boot_profile).unwrap();
 
-    let mut serial_log = Vec::new();
-    for _ in 0..250_000 {
-        if gb.cpu.mreq && gb.cpu.rd && (0xFF00..=0xFF26).contains(&gb.cpu.addr) {
-            let value = gb.bus_read(gb.cpu.addr);
-            eprintln!(
-                "pc=${:04X} read ${:04X} -> ${:02X} de=${:04X} hl=${:04X}",
-                gb.cpu.pc,
-                gb.cpu.addr,
-                value,
-                u16::from_be_bytes([gb.cpu.d, gb.cpu.e]),
-                u16::from_be_bytes([gb.cpu.h, gb.cpu.l])
-            );
-        }
-        gb.step_m_cycle();
-        serial_log.extend(gb.drain_serial());
-        if serial_log.windows(6).any(|window| window == [0x42; 6])
-            || serial_log
-                .windows(6)
-                .any(|window| window == [3, 5, 8, 13, 21, 34])
-        {
-            eprintln!("serial={serial_log:02X?} hram={:02X?}", &gb.hram[..17]);
-            break;
+        let mut serial_log = Vec::new();
+        for _ in 0..250_000 {
+            if gb.cpu.mreq && gb.cpu.rd && (0xFF00..=0xFF26).contains(&gb.cpu.addr) {
+                let value = gb.bus_read(gb.cpu.addr);
+                eprintln!(
+                    "pc=${:04X} read ${:04X} -> ${:02X} de=${:04X} hl=${:04X}",
+                    gb.cpu.pc,
+                    gb.cpu.addr,
+                    value,
+                    u16::from_be_bytes([gb.cpu.d, gb.cpu.e]),
+                    u16::from_be_bytes([gb.cpu.h, gb.cpu.l])
+                );
+            }
+            gb.step_m_cycle();
+            serial_log.extend(gb.drain_serial());
+            if serial_log.windows(6).any(|window| window == [0x42; 6])
+                || serial_log
+                    .windows(6)
+                    .any(|window| window == [3, 5, 8, 13, 21, 34])
+            {
+                eprintln!("serial={serial_log:02X?} hram={:02X?}", &gb.hram[..17]);
+                break;
+            }
         }
     }
 }
@@ -949,6 +965,38 @@ fn skipped_bootrom_sets_dmg_io_register_state() {
     assert_eq!(gb.bus_read(0xFF24), 0x77);
     assert_eq!(gb.bus_read(0xFF25), 0xF3);
     assert_eq!(gb.bus_read(0xFF26), 0xF1);
+}
+
+#[test]
+fn skipped_bootrom_profiles_set_model_specific_cpu_and_io_state() {
+    let dmg0 = boot_machine_with_profile(jr_loop_rom(), BootProfile::Dmg0);
+    assert_eq!(
+        [
+            dmg0.cpu.a, dmg0.cpu.f, dmg0.cpu.b, dmg0.cpu.c, dmg0.cpu.d, dmg0.cpu.e, dmg0.cpu.h,
+            dmg0.cpu.l,
+        ],
+        [0x01, 0x00, 0xFF, 0x13, 0x00, 0xC1, 0x84, 0x03]
+    );
+    assert_eq!(dmg0.bus_read(0xFF04), 0x18);
+    assert_eq!(dmg0.bus_read(0xFF10), 0x80);
+    assert_eq!(dmg0.bus_read(0xFF12), 0xF3);
+
+    let mgb = boot_machine_with_profile(jr_loop_rom(), BootProfile::Mgb);
+    assert_eq!(mgb.cpu.a, 0xFF);
+    assert_eq!(mgb.bus_read(0xFF04), 0xAB);
+    assert_eq!(mgb.bus_read(0xFF12), 0xF3);
+
+    let sgb = boot_machine_with_profile(jr_loop_rom(), BootProfile::Sgb);
+    assert_eq!(
+        [
+            sgb.cpu.a, sgb.cpu.f, sgb.cpu.b, sgb.cpu.c, sgb.cpu.d, sgb.cpu.e, sgb.cpu.h, sgb.cpu.l,
+        ],
+        [0x01, 0x00, 0x00, 0x14, 0x00, 0x00, 0xC0, 0x60]
+    );
+    assert_eq!(sgb.bus_read(0xFF04), 0xD8);
+    assert_eq!(sgb.bus_read(0xFF00), 0xFF);
+    assert_eq!(sgb.bus_read(0xFF12), 0xF3);
+    assert_eq!(sgb.bus_read(0xFF26), 0xF0);
 }
 
 #[test]

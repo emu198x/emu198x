@@ -109,9 +109,21 @@ impl Apu {
     /// machine starts cartridges directly at `$0100`.
     #[must_use]
     pub fn new_post_bootrom_dmg() -> Self {
+        Self::new_post_bootrom_with_ch1_regs(0x80, 0xF3, true)
+    }
+
+    /// Creates an APU in a skipped-boot state with the model-specific
+    /// CH1 sweep (`NR10`) and envelope (`NR12`) registers left by the
+    /// boot ROM.
+    #[must_use]
+    pub fn new_post_bootrom_with_ch1_regs(
+        ch1_sweep: u8,
+        ch1_envelope: u8,
+        ch1_enabled: bool,
+    ) -> Self {
         Self {
             enabled: true,
-            ch1: Square::new_post_bootrom_dmg_ch1(),
+            ch1: Square::new_post_bootrom_ch1(ch1_sweep, ch1_envelope, ch1_enabled),
             ch2: Square::new(false),
             ch3: Wave::new(),
             ch4: Noise::new(),

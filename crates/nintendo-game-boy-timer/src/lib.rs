@@ -82,8 +82,14 @@ impl Timer {
     /// machine starts cartridges directly at `$0100`.
     #[must_use]
     pub const fn new_post_bootrom_dmg() -> Self {
+        Self::new_post_bootrom_with_counter(0xABC9)
+    }
+
+    /// Create a timer with a boot-ROM exit DIV phase.
+    #[must_use]
+    pub const fn new_post_bootrom_with_counter(counter: u16) -> Self {
         Self {
-            counter: 0xABC9,
+            counter,
             tima: 0,
             tma: 0,
             tac: 0,

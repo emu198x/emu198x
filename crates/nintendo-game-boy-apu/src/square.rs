@@ -71,29 +71,29 @@ impl Square {
         }
     }
 
-    pub(crate) const fn new_post_bootrom_dmg_ch1() -> Self {
+    pub(crate) const fn new_post_bootrom_ch1(sweep: u8, envelope: u8, enabled: bool) -> Self {
         Self {
-            enabled: true,
+            enabled,
             has_sweep: true,
             duty: 0b10,
             length_timer: 0,
             length_enable: false,
-            envelope_initial: 0x0F,
-            envelope_add: false,
-            envelope_period: 0x03,
+            envelope_initial: (envelope >> 4) & 0x0F,
+            envelope_add: (envelope & 0x08) != 0,
+            envelope_period: envelope & 0x07,
             envelope_timer: 0,
             frequency: 0,
             period_timer: 0,
             duty_position: 0,
             current_volume: 0,
-            sweep_period: 0,
-            sweep_negate: false,
-            sweep_shift: 0,
+            sweep_period: (sweep >> 4) & 0x07,
+            sweep_negate: (sweep & 0x08) != 0,
+            sweep_shift: sweep & 0x07,
             sweep_timer: 0,
             sweep_enabled: false,
             shadow_frequency: 0,
             sweep_negate_used: false,
-            dac_enabled: true,
+            dac_enabled: (envelope & 0xF8) != 0,
         }
     }
 

@@ -157,9 +157,23 @@ impl Ppu {
     /// for the DMG (LCD on, BG enabled, BGP = $FC, OBP0/1 = $FF).
     #[must_use]
     pub fn new() -> Self {
+        Self::new_post_bootrom_with_dot(0)
+    }
+
+    /// Creates a PPU at the post-boot register state with a
+    /// model-specific LCD dot phase.
+    #[must_use]
+    pub fn new_post_bootrom_with_dot(dot: u16) -> Self {
+        Self::new_post_bootrom_with_phase(0, dot)
+    }
+
+    /// Creates a PPU at the post-boot register state with a
+    /// model-specific LCD scanline and dot phase.
+    #[must_use]
+    pub fn new_post_bootrom_with_phase(ly: u8, dot: u16) -> Self {
         Self {
-            dot: 0,
-            ly: 0,
+            dot: dot % DOTS_PER_LINE,
+            ly: ly % LINES_PER_FRAME,
             lcd_x: 0,
             discard_pixels: 0,
             fifo: Fifo::new(),
@@ -209,6 +223,12 @@ impl Ppu {
         } else {
             0
         }
+    }
+
+    /// Current dot within the scanline.
+    #[must_use]
+    pub const fn dot(&self) -> u16 {
+        self.dot
     }
 
     fn mode3_end_dot(&self) -> u16 {

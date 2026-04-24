@@ -26,7 +26,7 @@ use nintendo_game_boy_ppu::Ppu;
 use nintendo_game_boy_timer::Timer;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use sharp_lr35902::Sm83;
+use sharp_lr35902::{PostBootCpuState, Sm83};
 
 const WRAM_SIZE: usize = 0x2000;
 const VRAM_SIZE: usize = 0x2000;
@@ -38,6 +38,76 @@ const IF_STAT: u8 = 0x02;
 const IF_TIMER: u8 = 0x04;
 const IF_SERIAL: u8 = 0x08;
 const IF_JOYPAD: u8 = 0x10;
+
+/// Boot-ROM exit profile used when starting a cartridge directly at
+/// `$0100`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BootProfile {
+    /// Original DMG0 boot ROM.
+    Dmg0,
+    /// DMG boot ROM v1 and later.
+    DmgAbc,
+    /// Game Boy Pocket.
+    Mgb,
+    /// Super Game Boy.
+    Sgb,
+    /// Super Game Boy 2.
+    Sgb2,
+}
+
+impl BootProfile {
+    const fn cpu_state(self) -> PostBootCpuState {
+        match self {
+            Self::Dmg0 => PostBootCpuState::DMG0,
+            Self::DmgAbc => PostBootCpuState::DMG_ABC,
+            Self::Mgb => PostBootCpuState::MGB,
+            Self::Sgb => PostBootCpuState::SGB,
+            Self::Sgb2 => PostBootCpuState::SGB2,
+        }
+    }
+
+    const fn div_counter(self) -> u16 {
+        match self {
+            Self::Dmg0 => 0x182C,
+            Self::DmgAbc | Self::Mgb => 0xABC9,
+            Self::Sgb => 0xD85C,
+            Self::Sgb2 => 0xD84C,
+        }
+    }
+
+    const fn ch1_envelope(self) -> u8 {
+        match self {
+            Self::Dmg0 | Self::DmgAbc | Self::Mgb | Self::Sgb | Self::Sgb2 => 0xF3,
+        }
+    }
+
+    const fn ch1_sweep(self) -> u8 {
+        match self {
+            Self::Dmg0 | Self::DmgAbc | Self::Mgb | Self::Sgb | Self::Sgb2 => 0x80,
+        }
+    }
+
+    const fn ch1_enabled(self) -> bool {
+        match self {
+            Self::Sgb | Self::Sgb2 => false,
+            Self::Dmg0 | Self::DmgAbc | Self::Mgb => true,
+        }
+    }
+
+    const fn joypad_select(self) -> u8 {
+        match self {
+            Self::Sgb | Self::Sgb2 => 0xF0,
+            Self::Dmg0 | Self::DmgAbc | Self::Mgb => 0xC0,
+        }
+    }
+
+    const fn ppu_phase(self) -> (u8, u16) {
+        match self {
+            Self::Dmg0 => (145, 84),
+            Self::DmgAbc | Self::Mgb | Self::Sgb | Self::Sgb2 => (0, 0),
+        }
+    }
+}
 
 /// A loaded DMG.
 #[derive(Clone, Serialize, Deserialize)]
@@ -100,14 +170,27 @@ impl GameBoy {
     /// Build a Game Boy around the given parsed cartridge.
     #[must_use]
     pub fn new(cartridge: Cartridge) -> Self {
+        Self::new_with_boot_profile(cartridge, BootProfile::DmgAbc)
+    }
+
+    /// Build a Game Boy around the given parsed cartridge with a
+    /// specific skipped-boot ROM exit profile.
+    #[must_use]
+    pub fn new_with_boot_profile(cartridge: Cartridge, boot_profile: BootProfile) -> Self {
         let mut cpu = Sm83::new();
-        cpu.reset_post_bootrom();
+        cpu.reset_post_bootrom_with_state(boot_profile.cpu_state());
+
+        let (ppu_ly, ppu_dot) = boot_profile.ppu_phase();
 
         Self {
             cpu,
-            timer: Timer::new_post_bootrom_dmg(),
-            ppu: Ppu::new(),
-            apu: Apu::new_post_bootrom_dmg(),
+            timer: Timer::new_post_bootrom_with_counter(boot_profile.div_counter()),
+            ppu: Ppu::new_post_bootrom_with_phase(ppu_ly, ppu_dot),
+            apu: Apu::new_post_bootrom_with_ch1_regs(
+                boot_profile.ch1_sweep(),
+                boot_profile.ch1_envelope(),
+                boot_profile.ch1_enabled(),
+            ),
             cartridge,
             wram: [0; WRAM_SIZE],
             vram: [0; VRAM_SIZE],
@@ -115,7 +198,7 @@ impl GameBoy {
             hram: [0; HRAM_SIZE],
             if_reg: IF_VBLANK,
             ie_reg: 0,
-            joypad: JoypadMatrix::new_post_bootrom_dmg(),
+            joypad: JoypadMatrix::new_post_bootrom_with_select(boot_profile.joypad_select()),
             joypad_line_prev: false,
             serial_data: 0,
             serial_control: 0,
@@ -139,8 +222,21 @@ impl GameBoy {
     ///
     /// Forwards any [`HeaderError`] from the cartridge format crate.
     pub fn from_rom(rom: Vec<u8>) -> Result<(CartridgeHeader, Self), HeaderError> {
+        Self::from_rom_with_boot_profile(rom, BootProfile::DmgAbc)
+    }
+
+    /// Convenience: parse a ROM image and build the Game Boy with a
+    /// specific skipped-boot ROM exit profile.
+    ///
+    /// # Errors
+    ///
+    /// Forwards any [`HeaderError`] from the cartridge format crate.
+    pub fn from_rom_with_boot_profile(
+        rom: Vec<u8>,
+        boot_profile: BootProfile,
+    ) -> Result<(CartridgeHeader, Self), HeaderError> {
         let (header, cart) = load(rom)?;
-        Ok((header, Self::new(cart)))
+        Ok((header, Self::new_with_boot_profile(cart, boot_profile)))
     }
 
     /// Returns the framebuffer (160 × 144 post-palette 2-bit shades).
