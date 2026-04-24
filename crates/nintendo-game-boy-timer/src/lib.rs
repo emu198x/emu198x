@@ -78,6 +78,21 @@ impl Timer {
         }
     }
 
+    /// Create a timer in the DMG boot-ROM exit state used when the
+    /// machine starts cartridges directly at `$0100`.
+    #[must_use]
+    pub const fn new_post_bootrom_dmg() -> Self {
+        Self {
+            counter: 0xABC9,
+            tima: 0,
+            tma: 0,
+            tac: 0,
+            overflow_latched: false,
+            reload_delay: 0,
+            reloaded_this_t_cycle: false,
+        }
+    }
+
     /// Advance the timer by one T-cycle.
     pub fn tick_t(&mut self) {
         self.advance_reload_delay();

@@ -68,6 +68,10 @@ pub struct GameBoy {
 
     serial_data: u8,
     serial_control: u8,
+    #[serde(default)]
+    serial_irq_active: bool,
+    #[serde(default)]
+    serial_irq_bits_remaining: u8,
     /// Bytes "transmitted" via `SC = $81`. Drained by tests / the
     /// runtime layer to surface Blargg-style reporting.
     #[serde(skip)]
@@ -81,6 +85,10 @@ pub struct GameBoy {
     oam_dma_index: u8,
     #[serde(default)]
     oam_dma_start_delay: u8,
+    #[serde(default = "default_oam_dma_reg")]
+    oam_dma_pending_source_high: u8,
+    #[serde(default)]
+    oam_dma_pending_start_delay: u8,
 }
 
 const fn default_oam_dma_reg() -> u8 {
@@ -100,25 +108,29 @@ impl GameBoy {
 
         Self {
             cpu,
-            timer: Timer::new(),
+            timer: Timer::new_post_bootrom_dmg(),
             ppu: Ppu::new(),
-            apu: Apu::new(),
+            apu: Apu::new_post_bootrom_dmg(),
             cartridge,
             wram: [0; WRAM_SIZE],
             vram: [0; VRAM_SIZE],
             oam: [0; OAM_SIZE],
             hram: [0; HRAM_SIZE],
-            if_reg: 0,
+            if_reg: IF_VBLANK,
             ie_reg: 0,
-            joypad: JoypadMatrix::new(),
+            joypad: JoypadMatrix::new_post_bootrom_dmg(),
             joypad_line_prev: false,
             serial_data: 0,
             serial_control: 0,
+            serial_irq_active: false,
+            serial_irq_bits_remaining: 0,
             serial_output: Vec::new(),
             oam_dma_reg: 0xFF,
             oam_dma_source_high: 0xFF,
             oam_dma_index: OAM_SIZE as u8,
             oam_dma_start_delay: 0,
+            oam_dma_pending_source_high: 0xFF,
+            oam_dma_pending_start_delay: 0,
         }
     }
 
@@ -174,7 +186,10 @@ impl GameBoy {
     /// the CPU.
     pub fn step_m_cycle(&mut self) {
         for _ in 0..4 {
+            let serial_clock_before = self.serial_clock_bit();
             self.timer.tick_t();
+            let serial_clock_after = self.serial_clock_bit();
+            self.tick_serial_irq(serial_clock_before, serial_clock_after);
             self.apu.tick(self.timer.counter);
             self.ppu.tick(&self.vram, &self.oam);
         }
@@ -254,7 +269,7 @@ impl GameBoy {
             0xFF41 => self.ppu.read_stat() | 0x80, // bit 7 wired high
             0xFF42 => self.ppu.scy,
             0xFF43 => self.ppu.scx,
-            0xFF44 => self.ppu.ly,
+            0xFF44 => self.ppu.read_ly(),
             0xFF45 => self.ppu.lyc,
             0xFF46 => self.oam_dma_reg,
             0xFF47 => self.ppu.bgp,
@@ -273,11 +288,16 @@ impl GameBoy {
             0xFF02 => {
                 self.serial_control = value;
                 if (value & 0x81) == 0x81 {
-                    // Begin transfer + use internal clock — capture
-                    // the byte immediately and complete the transfer.
+                    // Keep Blargg/mooneye's emulator-reporting channel
+                    // immediate, but schedule IF.SERIAL on the real
+                    // DIV-derived serial clock.
                     self.serial_output.push(self.serial_data);
                     self.serial_control &= 0x7F;
-                    self.if_reg |= IF_SERIAL;
+                    self.serial_irq_active = true;
+                    self.serial_irq_bits_remaining = 8;
+                } else if (value & 0x80) == 0 {
+                    self.serial_irq_active = false;
+                    self.serial_irq_bits_remaining = 0;
                 }
             }
             0xFF04 => self.timer.write_div(),
@@ -291,7 +311,7 @@ impl GameBoy {
             0xFF42 => self.ppu.scy = value,
             0xFF43 => self.ppu.scx = value,
             0xFF44 => {} // LY is read-only; writes ignored
-            0xFF45 => self.ppu.lyc = value,
+            0xFF45 => self.ppu.write_lyc(value),
             0xFF46 => self.start_oam_dma(value),
             0xFF47 => self.ppu.bgp = value,
             0xFF48 => self.ppu.obp0 = value,
@@ -304,25 +324,71 @@ impl GameBoy {
 
     fn start_oam_dma(&mut self, page: u8) {
         self.oam_dma_reg = page;
+        if self.oam_dma_active() {
+            self.oam_dma_pending_source_high = page;
+            self.oam_dma_pending_start_delay = 2;
+            return;
+        }
+
         self.oam_dma_source_high = page;
         self.oam_dma_index = 0;
-        self.oam_dma_start_delay = 1;
+        self.oam_dma_start_delay = 2;
     }
 
     fn tick_oam_dma(&mut self) {
-        if self.oam_dma_index >= OAM_SIZE as u8 {
-            return;
+        let previous_dma_active = self.oam_dma_active();
+
+        if self.oam_dma_index < OAM_SIZE as u8 {
+            if self.oam_dma_start_delay != 0 {
+                self.oam_dma_start_delay -= 1;
+            } else {
+                let offset = u16::from(self.oam_dma_index);
+                let source = (u16::from(self.oam_dma_source_high) << 8) | offset;
+                let value = self.oam_dma_source_read(source);
+                self.oam[usize::from(self.oam_dma_index)] = value;
+                self.oam_dma_index = self.oam_dma_index.saturating_add(1);
+            }
         }
-        if self.oam_dma_start_delay != 0 {
-            self.oam_dma_start_delay -= 1;
+
+        if self.oam_dma_pending_start_delay != 0 {
+            self.oam_dma_pending_start_delay -= 1;
+            if self.oam_dma_pending_start_delay == 0 {
+                self.oam_dma_source_high = self.oam_dma_pending_source_high;
+                self.oam_dma_index = 0;
+                self.oam_dma_start_delay = 0;
+            }
+        } else if previous_dma_active && self.oam_dma_index >= OAM_SIZE as u8 {
+            self.oam_dma_source_high = self.oam_dma_reg;
+        }
+    }
+
+    fn oam_dma_active(&self) -> bool {
+        self.oam_dma_start_delay == 0 && self.oam_dma_index < OAM_SIZE as u8
+    }
+
+    fn oam_dma_source_read(&self, addr: u16) -> u8 {
+        let source = if addr >= 0xE000 {
+            addr.wrapping_sub(0x2000)
+        } else {
+            addr
+        };
+        self.bus_read(source)
+    }
+
+    fn serial_clock_bit(&self) -> bool {
+        ((self.timer.counter >> 8) & 1) != 0
+    }
+
+    fn tick_serial_irq(&mut self, clock_before: bool, clock_after: bool) {
+        if !self.serial_irq_active || !clock_before || clock_after {
             return;
         }
 
-        let offset = u16::from(self.oam_dma_index);
-        let source = (u16::from(self.oam_dma_source_high) << 8) | offset;
-        let value = self.bus_read(source);
-        self.oam[usize::from(self.oam_dma_index)] = value;
-        self.oam_dma_index = self.oam_dma_index.saturating_add(1);
+        self.serial_irq_bits_remaining = self.serial_irq_bits_remaining.saturating_sub(1);
+        if self.serial_irq_bits_remaining == 0 {
+            self.serial_irq_active = false;
+            self.if_reg |= IF_SERIAL;
+        }
     }
 }
 
@@ -349,6 +415,7 @@ impl GameBoy {
             0xC000..=0xDFFF => self.wram[usize::from(addr - 0xC000)],
             // Echo RAM mirrors $C000..=$DDFF.
             0xE000..=0xFDFF => self.wram[usize::from(addr - 0xE000)],
+            0xFE00..=0xFE9F if self.oam_dma_active() => 0xFF,
             0xFE00..=0xFE9F => self.oam[usize::from(addr - 0xFE00)],
             0xFEA0..=0xFEFF => 0xFF, // unusable region
             0xFF00..=0xFF7F => self.read_io(addr),
@@ -364,6 +431,7 @@ impl GameBoy {
             0xA000..=0xBFFF => self.cartridge.write_ram(addr, value),
             0xC000..=0xDFFF => self.wram[usize::from(addr - 0xC000)] = value,
             0xE000..=0xFDFF => self.wram[usize::from(addr - 0xE000)] = value,
+            0xFE00..=0xFE9F if self.oam_dma_active() => {}
             0xFE00..=0xFE9F => self.oam[usize::from(addr - 0xFE00)] = value,
             0xFEA0..=0xFEFF => {} // unusable region
             0xFF00..=0xFF7F => self.write_io(addr, value),

@@ -105,6 +105,26 @@ impl Apu {
         }
     }
 
+    /// Creates an APU in the DMG boot-ROM exit state used when the
+    /// machine starts cartridges directly at `$0100`.
+    #[must_use]
+    pub fn new_post_bootrom_dmg() -> Self {
+        Self {
+            enabled: true,
+            ch1: Square::new_post_bootrom_dmg_ch1(),
+            ch2: Square::new(false),
+            ch3: Wave::new(),
+            ch4: Noise::new(),
+            nr50: 0x77,
+            nr51: 0xF3,
+            wave_ram: [0; 16],
+            frame_step: 0,
+            prev_div_bit: false,
+            sample_counter: 0,
+            samples: VecDeque::with_capacity(8192),
+        }
+    }
+
     /// Advance the APU by one T-cycle. `div_counter` is the timer's
     /// internal 16-bit counter at this T-cycle; the frame sequencer
     /// uses bit 12 for its own clocking.
@@ -252,7 +272,8 @@ impl Apu {
             0xFF1D => self.ch3.write_freq_lo(value),
             0xFF1E => {
                 let first_half = self.first_half();
-                self.ch3.write_freq_hi(value, first_half, &mut self.wave_ram);
+                self.ch3
+                    .write_freq_hi(value, first_half, &mut self.wave_ram);
             }
             0xFF20 => self.ch4.write_length(value),
             0xFF21 => self.ch4.write_envelope(value),

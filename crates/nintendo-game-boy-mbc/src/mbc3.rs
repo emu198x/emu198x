@@ -78,11 +78,16 @@ impl Mbc3 {
     }
 
     pub(crate) fn read_rom(&self, rom: &[u8], addr: u16) -> u8 {
+        let bank_count = rom.len() / ROM_BANK_SIZE;
+        if bank_count == 0 {
+            return 0xFF;
+        }
+
         let bank = if addr < 0x4000 {
             0
         } else {
             usize::from(self.rom_bank.max(1))
-        };
+        } % bank_count;
         let offset = bank * ROM_BANK_SIZE + usize::from(addr & 0x3FFF);
         rom.get(offset).copied().unwrap_or(0xFF)
     }
@@ -111,9 +116,10 @@ impl Mbc3 {
         }
         match self.ram_bank {
             0x00..=0x03 => {
-                let offset = usize::from(self.ram_bank) * RAM_BANK_SIZE
-                    + usize::from(addr.wrapping_sub(0xA000) & 0x1FFF);
-                ram.get(offset).copied().unwrap_or(0xFF)
+                let Some(offset) = self.ram_offset(ram, addr) else {
+                    return 0xFF;
+                };
+                ram[offset]
             }
             0x08 if self.has_rtc => self.rtc_latched.seconds,
             0x09 if self.has_rtc => self.rtc_latched.minutes,
@@ -130,10 +136,8 @@ impl Mbc3 {
         }
         match self.ram_bank {
             0x00..=0x03 => {
-                let offset = usize::from(self.ram_bank) * RAM_BANK_SIZE
-                    + usize::from(addr.wrapping_sub(0xA000) & 0x1FFF);
-                if let Some(slot) = ram.get_mut(offset) {
-                    *slot = value;
+                if let Some(offset) = self.ram_offset(ram, addr) {
+                    ram[offset] = value;
                 }
             }
             0x08 if self.has_rtc => self.rtc.seconds = value & 0x3F,
@@ -143,5 +147,16 @@ impl Mbc3 {
             0x0C if self.has_rtc => self.rtc.day_high_ctrl = value & 0xC1,
             _ => {}
         }
+    }
+
+    fn ram_offset(&self, ram: &[u8], addr: u16) -> Option<usize> {
+        let bank_count = ram.len() / RAM_BANK_SIZE;
+        if bank_count == 0 {
+            return None;
+        }
+
+        let bank = usize::from(self.ram_bank & 0x03) % bank_count;
+        let local = usize::from(addr.wrapping_sub(0xA000) & 0x1FFF);
+        Some(bank * RAM_BANK_SIZE + local)
     }
 }

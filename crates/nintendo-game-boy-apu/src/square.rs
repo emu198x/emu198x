@@ -71,6 +71,32 @@ impl Square {
         }
     }
 
+    pub(crate) const fn new_post_bootrom_dmg_ch1() -> Self {
+        Self {
+            enabled: true,
+            has_sweep: true,
+            duty: 0b10,
+            length_timer: 0,
+            length_enable: false,
+            envelope_initial: 0x0F,
+            envelope_add: false,
+            envelope_period: 0x03,
+            envelope_timer: 0,
+            frequency: 0,
+            period_timer: 0,
+            duty_position: 0,
+            current_volume: 0,
+            sweep_period: 0,
+            sweep_negate: false,
+            sweep_shift: 0,
+            sweep_timer: 0,
+            sweep_enabled: false,
+            shadow_frequency: 0,
+            sweep_negate_used: false,
+            dac_enabled: true,
+        }
+    }
+
     /// Reset to power-on state but preserve the length counter (DMG
     /// behaviour when NR52 disables the APU).
     pub(crate) fn reset_preserve_length(&mut self) {
@@ -135,7 +161,11 @@ impl Square {
             self.sweep_timer -= 1;
         }
         if self.sweep_timer == 0 {
-            self.sweep_timer = if self.sweep_period == 0 { 8 } else { self.sweep_period };
+            self.sweep_timer = if self.sweep_period == 0 {
+                8
+            } else {
+                self.sweep_period
+            };
             if self.sweep_enabled && self.sweep_period > 0 {
                 if self.sweep_negate {
                     self.sweep_negate_used = true;
@@ -180,7 +210,11 @@ impl Square {
         if self.has_sweep {
             self.sweep_negate_used = false;
             self.shadow_frequency = self.frequency;
-            self.sweep_timer = if self.sweep_period == 0 { 8 } else { self.sweep_period };
+            self.sweep_timer = if self.sweep_period == 0 {
+                8
+            } else {
+                self.sweep_period
+            };
             self.sweep_enabled = self.sweep_period != 0 || self.sweep_shift != 0;
             if self.sweep_shift != 0 {
                 if self.sweep_negate {

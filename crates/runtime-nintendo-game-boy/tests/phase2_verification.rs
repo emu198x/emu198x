@@ -25,7 +25,7 @@ use runtime_nintendo_game_boy::{GameBoyRuntime, Model};
 const DEFAULT_BLARGG_ROOT: &str = "/Users/stevehill/Projects/Emu198x-Zig/gb-test-roms-master";
 const DEFAULT_DMG_ACID2_ROM: &str = "/Users/stevehill/Projects/Emu198x-Zig/dmg-acid2.gb";
 const MAX_SERIAL_TEST_FRAMES: u32 = 1_200;
-const MOONEYE_SWEEP_FRAMES: u32 = 300;
+const MOONEYE_SWEEP_FRAMES: u32 = 1_200;
 const DMG_ACID2_FRAMES: u32 = 180;
 
 const CPU_INSTRS_SUBTESTS: &[&str] = &[
@@ -216,7 +216,14 @@ fn run_until_mooneye_verdict(
                         let pc = machine.cpu_pc();
                         let if_reg = machine.read(0xFF0F);
                         let ie_reg = machine.read(0xFFFF);
-                        format!("PC=${pc:04X} IF=${if_reg:02X} IE=${ie_reg:02X}")
+                        let hram = (0xFF80..=0xFF90)
+                            .map(|addr| machine.read(addr))
+                            .collect::<Vec<_>>();
+                        let diag_addr = u16::from(hram[0]) | (u16::from(hram[1]) << 8);
+                        let diag_read = machine.read(diag_addr);
+                        format!(
+                            "PC=${pc:04X} IF=${if_reg:02X} IE=${ie_reg:02X} HRAM={hram:02X?} DIAG_READ(${diag_addr:04X})=${diag_read:02X}"
+                        )
                     })
                     .unwrap_or_else(|| "no machine loaded".to_string());
                 return Ok(MooneyeRunResult {
@@ -229,8 +236,24 @@ fn run_until_mooneye_verdict(
         }
     }
 
+    let state = runtime
+        .machine_mut()
+        .map(|machine| {
+            let pc = machine.cpu_pc();
+            let if_reg = machine.read(0xFF0F);
+            let ie_reg = machine.read(0xFFFF);
+            let hram = (0xFF80..=0xFF90)
+                .map(|addr| machine.read(addr))
+                .collect::<Vec<_>>();
+            let diag_addr = u16::from(hram[0]) | (u16::from(hram[1]) << 8);
+            let diag_read = machine.read(diag_addr);
+            format!(
+                "PC=${pc:04X} IF=${if_reg:02X} IE=${ie_reg:02X} HRAM={hram:02X?} DIAG_READ(${diag_addr:04X})=${diag_read:02X}"
+            )
+        })
+        .unwrap_or_else(|| "no machine loaded".to_string());
     Err(format!(
-        "no mooneye verdict after {max_frames} frames; serial bytes: {:02X?}",
+        "no mooneye verdict after {max_frames} frames ({state}); serial bytes: {:02X?}",
         serial_log
     )
     .into())
@@ -323,8 +346,8 @@ fn sweep_mooneye_bucket(
             Ok(result) => {
                 counts.failed += 1;
                 eprintln!(
-                    "  FAIL     {rel} after {} frames ({})",
-                    result.frames, result.state
+                    "  FAIL     {rel} after {} frames ({}) serial={:02X?}",
+                    result.frames, result.state, result.serial
                 );
             }
             Err(err) => {

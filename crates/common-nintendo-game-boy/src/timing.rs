@@ -72,7 +72,10 @@ mod tests {
     fn frame_layout_is_self_consistent() {
         assert_eq!(DOTS_PER_FRAME, 70_224);
         assert_eq!(MCYCLES_PER_FRAME, 17_556);
-        assert_eq!(MCYCLES_PER_SCANLINE * SCANLINES_PER_FRAME, MCYCLES_PER_FRAME);
+        assert_eq!(
+            MCYCLES_PER_SCANLINE * SCANLINES_PER_FRAME,
+            MCYCLES_PER_FRAME
+        );
         assert_eq!(VISIBLE_SCANLINES + VBLANK_SCANLINES, SCANLINES_PER_FRAME);
     }
 

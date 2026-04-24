@@ -52,8 +52,13 @@ const DOTS_PER_LINE: u16 = 456;
 const LINES_PER_FRAME: u8 = 154;
 const VBLANK_START: u8 = 144;
 const OAM_END: u16 = 80;
+const LCD_ENABLE_MODE0_DOTS: u16 = 16;
 
 const FRAMEBUFFER_LEN: usize = (SCREEN_WIDTH * SCREEN_HEIGHT) as usize;
+
+const fn default_lyc_match() -> bool {
+    true
+}
 
 /// LCDC bit positions. The fetcher reaches into LCDC via raw bit
 /// constants so it doesn't need to share this module; the names
@@ -108,9 +113,13 @@ pub struct Ppu {
 
     pub lcdc: u8,
     /// STAT's three writable interrupt-enable bits + the LYC-enable
-    /// bit. The mode bits and LYC coincidence flag are computed on
-    /// read rather than stored.
+    /// bit. Mode bits are computed on read; LYC coincidence is latched
+    /// because LCD-off behaviour does not simply mirror `LY == LYC`.
     stat: u8,
+    #[serde(default = "default_lyc_match")]
+    lyc_match: bool,
+    #[serde(default)]
+    lcd_enable_mode0_dots: u16,
     pub scy: u8,
     pub scx: u8,
     pub lyc: u8,
@@ -161,6 +170,8 @@ impl Ppu {
             window_triggered: false,
             lcdc: 0x91,
             stat: 0,
+            lyc_match: true,
+            lcd_enable_mode0_dots: 0,
             scy: 0,
             scx: 0,
             lyc: 0,
@@ -187,15 +198,21 @@ impl Ppu {
     /// | 3    | Pixel transfer     |
     #[must_use]
     pub fn mode(&self) -> u8 {
-        if self.ly >= VBLANK_START {
+        if (self.lcdc & lcdc::ENABLE) == 0 || self.lcd_enable_mode0_dots != 0 {
+            0
+        } else if self.ly >= VBLANK_START {
             1
         } else if self.dot < OAM_END {
             2
-        } else if self.lcd_x < SCREEN_WIDTH as u8 {
+        } else if self.dot < self.mode3_end_dot() || self.lcd_x < SCREEN_WIDTH as u8 {
             3
         } else {
             0
         }
+    }
+
+    fn mode3_end_dot(&self) -> u16 {
+        OAM_END + 172 + u16::from(self.scx & 7)
     }
 
     /// Reads STAT ($FF41). Composes the writable bits with the live
@@ -204,10 +221,21 @@ impl Ppu {
     pub fn read_stat(&self) -> u8 {
         let mut s = self.stat & stat::WRITABLE_MASK;
         s |= self.mode();
-        if self.ly == self.lyc {
+        if self.lyc_match {
             s |= 0x04;
         }
         s
+    }
+
+    /// Reads LY ($FF44). Near the end of a visible scanline, the CPU
+    /// observes the next line before the internal dot counter wraps.
+    #[must_use]
+    pub fn read_ly(&self) -> u8 {
+        if (self.lcdc & lcdc::ENABLE) != 0 && self.ly < VBLANK_START && self.dot >= 452 {
+            self.ly.wrapping_add(1)
+        } else {
+            self.ly
+        }
     }
 
     /// Writes STAT ($FF41). Only bits 3-6 are writable.
@@ -215,6 +243,16 @@ impl Ppu {
         self.stat = value & stat::WRITABLE_MASK;
         // A write that newly enables a STAT source can immediately
         // raise the line — re-evaluate edge detection.
+        self.update_stat_line();
+    }
+
+    /// Writes LYC ($FF45) and re-evaluates the coincidence STAT
+    /// source against the current LY.
+    pub fn write_lyc(&mut self, value: u8) {
+        self.lyc = value;
+        if (self.lcdc & lcdc::ENABLE) != 0 {
+            self.lyc_match = self.ly == self.lyc;
+        }
         self.update_stat_line();
     }
 
@@ -236,7 +274,11 @@ impl Ppu {
             self.fetcher.reset();
             self.framebuffer.fill(0);
             self.stat_line_prev = false;
+        } else if !was_on && now_on {
+            self.lcd_enable_mode0_dots = LCD_ENABLE_MODE0_DOTS;
+            self.lyc_match = self.ly == self.lyc;
         }
+        self.update_stat_line();
     }
 
     /// Reads the framebuffer as a flat `width * height` slice of 2-bit
@@ -368,6 +410,7 @@ impl Ppu {
     }
 
     fn advance_timing(&mut self) {
+        self.lcd_enable_mode0_dots = self.lcd_enable_mode0_dots.saturating_sub(1);
         self.dot += 1;
         if self.dot >= DOTS_PER_LINE {
             self.dot = 0;
@@ -379,6 +422,10 @@ impl Ppu {
                 self.ly = 0;
                 self.window_line = 0;
             }
+            self.lyc_match = self.ly == self.lyc;
+            if self.ly < VBLANK_START {
+                self.lcd_x = 0;
+            }
         }
     }
 
@@ -386,8 +433,7 @@ impl Ppu {
     /// on its rising edge.
     fn update_stat_line(&mut self) {
         let mode = self.mode();
-        let lyc_match = self.ly == self.lyc;
-        let line = ((self.stat & stat::LYC_ENABLE) != 0 && lyc_match)
+        let line = ((self.stat & stat::LYC_ENABLE) != 0 && self.lyc_match)
             || ((self.stat & stat::MODE2_ENABLE) != 0 && mode == 2)
             || ((self.stat & stat::MODE1_ENABLE) != 0 && mode == 1)
             || ((self.stat & stat::MODE0_ENABLE) != 0 && mode == 0);

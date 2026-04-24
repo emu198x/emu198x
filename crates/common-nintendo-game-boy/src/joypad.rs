@@ -116,6 +116,17 @@ impl JoypadMatrix {
         }
     }
 
+    /// Creates an all-released matrix in the DMG boot-ROM exit state
+    /// used when the machine starts cartridges directly at `$0100`.
+    #[must_use]
+    pub const fn new_post_bootrom_dmg() -> Self {
+        Self {
+            direction: 0,
+            action: 0,
+            select: 0xC0,
+        }
+    }
+
     /// Sets the pressed state of one button.
     pub fn set(&mut self, button: JoypadButton, pressed: bool) {
         let bit = 1u8 << button.nibble_bit();

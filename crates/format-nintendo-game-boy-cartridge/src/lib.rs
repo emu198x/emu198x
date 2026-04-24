@@ -123,8 +123,10 @@ impl CartridgeHeader {
         let cgb_flag = rom[offset::CGB_FLAG];
         let title = decode_title(&rom[offset::TITLE..offset::TITLE_END], cgb_flag);
         let new_licensee = [rom[offset::NEW_LICENSEE], rom[offset::NEW_LICENSEE + 1]];
-        let global_checksum =
-            u16::from_be_bytes([rom[offset::GLOBAL_CHECKSUM], rom[offset::GLOBAL_CHECKSUM + 1]]);
+        let global_checksum = u16::from_be_bytes([
+            rom[offset::GLOBAL_CHECKSUM],
+            rom[offset::GLOBAL_CHECKSUM + 1],
+        ]);
 
         Ok(Self {
             title,
@@ -186,9 +188,18 @@ pub enum HeaderError {
 fn decode_cart_type(byte: u8) -> Result<CartType, HeaderError> {
     match byte {
         0x00 => Ok(CartType::RomOnly),
-        0x01 => Ok(CartType::Mbc1 { ram: false, battery: false }),
-        0x02 => Ok(CartType::Mbc1 { ram: true, battery: false }),
-        0x03 => Ok(CartType::Mbc1 { ram: true, battery: true }),
+        0x01 => Ok(CartType::Mbc1 {
+            ram: false,
+            battery: false,
+        }),
+        0x02 => Ok(CartType::Mbc1 {
+            ram: true,
+            battery: false,
+        }),
+        0x03 => Ok(CartType::Mbc1 {
+            ram: true,
+            battery: true,
+        }),
         0x05 => Ok(CartType::Mbc2 { battery: false }),
         0x06 => Ok(CartType::Mbc2 { battery: true }),
         0x08 | 0x09 => {
@@ -198,17 +209,61 @@ fn decode_cart_type(byte: u8) -> Result<CartType, HeaderError> {
             // the RAM allocation.
             Ok(CartType::RomOnly)
         }
-        0x0F => Ok(CartType::Mbc3 { ram: false, battery: true, rtc: true }),
-        0x10 => Ok(CartType::Mbc3 { ram: true, battery: true, rtc: true }),
-        0x11 => Ok(CartType::Mbc3 { ram: false, battery: false, rtc: false }),
-        0x12 => Ok(CartType::Mbc3 { ram: true, battery: false, rtc: false }),
-        0x13 => Ok(CartType::Mbc3 { ram: true, battery: true, rtc: false }),
-        0x19 => Ok(CartType::Mbc5 { ram: false, battery: false, rumble: false }),
-        0x1A => Ok(CartType::Mbc5 { ram: true, battery: false, rumble: false }),
-        0x1B => Ok(CartType::Mbc5 { ram: true, battery: true, rumble: false }),
-        0x1C => Ok(CartType::Mbc5 { ram: false, battery: false, rumble: true }),
-        0x1D => Ok(CartType::Mbc5 { ram: true, battery: false, rumble: true }),
-        0x1E => Ok(CartType::Mbc5 { ram: true, battery: true, rumble: true }),
+        0x0F => Ok(CartType::Mbc3 {
+            ram: false,
+            battery: true,
+            rtc: true,
+        }),
+        0x10 => Ok(CartType::Mbc3 {
+            ram: true,
+            battery: true,
+            rtc: true,
+        }),
+        0x11 => Ok(CartType::Mbc3 {
+            ram: false,
+            battery: false,
+            rtc: false,
+        }),
+        0x12 => Ok(CartType::Mbc3 {
+            ram: true,
+            battery: false,
+            rtc: false,
+        }),
+        0x13 => Ok(CartType::Mbc3 {
+            ram: true,
+            battery: true,
+            rtc: false,
+        }),
+        0x19 => Ok(CartType::Mbc5 {
+            ram: false,
+            battery: false,
+            rumble: false,
+        }),
+        0x1A => Ok(CartType::Mbc5 {
+            ram: true,
+            battery: false,
+            rumble: false,
+        }),
+        0x1B => Ok(CartType::Mbc5 {
+            ram: true,
+            battery: true,
+            rumble: false,
+        }),
+        0x1C => Ok(CartType::Mbc5 {
+            ram: false,
+            battery: false,
+            rumble: true,
+        }),
+        0x1D => Ok(CartType::Mbc5 {
+            ram: true,
+            battery: false,
+            rumble: true,
+        }),
+        0x1E => Ok(CartType::Mbc5 {
+            ram: true,
+            battery: true,
+            rumble: true,
+        }),
         // Documented but not (yet) supported.
         0x0B..=0x0D => Err(HeaderError::UnsupportedCartType {
             byte,
@@ -244,18 +299,18 @@ fn decode_rom_size(code: u8) -> Result<usize, HeaderError> {
 }
 
 fn decode_ram_size(code: u8, cart_type: CartType) -> Result<usize, HeaderError> {
-    // MBC2's "RAM" lives on the mapper chip (256×4 bits = 256 bytes).
+    // MBC2's "RAM" lives on the mapper chip (512×4 bits = 512 bytes).
     // The header byte is conventionally `$00`.
     if matches!(cart_type, CartType::Mbc2 { .. }) {
         return Ok(0x200);
     }
     Ok(match code {
         0 => 0,
-        1 => 0x800,    // 2 KiB (rare unofficial use)
-        2 => 0x2000,   // 8 KiB
-        3 => 0x8000,   // 32 KiB (4 banks of 8 KiB)
-        4 => 0x20000,  // 128 KiB (16 banks)
-        5 => 0x10000,  // 64 KiB (8 banks)
+        1 => 0x800,   // 2 KiB (rare unofficial use)
+        2 => 0x2000,  // 8 KiB
+        3 => 0x8000,  // 32 KiB (4 banks of 8 KiB)
+        4 => 0x20000, // 128 KiB (16 banks)
+        5 => 0x10000, // 64 KiB (8 banks)
         _ => return Err(HeaderError::InvalidRamSize { code }),
     })
 }

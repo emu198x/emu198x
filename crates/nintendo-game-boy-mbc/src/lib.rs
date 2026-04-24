@@ -6,9 +6,8 @@
 //! region ($0000–$7FFF); external RAM access flows through the
 //! $A000–$BFFF window and is gated by each MBC's "RAM enable" state.
 //!
-//! Supported today: None (ROM only), MBC1, MBC3, MBC5. MBC2 is
-//! uncommon enough that we defer it until a real ROM needs it; its
-//! on-chip 256×4-bit "RAM" and address-bit-9 enable / bank split are
+//! Supported today: None (ROM only), MBC1, MBC2, MBC3, MBC5. MBC2's
+//! on-chip 512×4-bit "RAM" and address-bit-8 enable / bank split are
 //! the main deviations from MBC1.
 //!
 //! The cart-type byte lives at ROM offset `$0147`; the header parser
@@ -17,6 +16,7 @@
 //! to [`Cartridge::new`].
 
 mod mbc1;
+mod mbc2;
 mod mbc3;
 mod mbc5;
 
@@ -26,6 +26,7 @@ mod tests;
 use serde::{Deserialize, Serialize};
 
 pub use mbc1::Mbc1;
+pub use mbc2::Mbc2;
 pub use mbc3::{Mbc3, RtcRegisters};
 pub use mbc5::Mbc5;
 
@@ -34,15 +35,26 @@ pub use mbc5::Mbc5;
 pub enum CartType {
     RomOnly,
     /// `$01..=$03`. Flags carry RAM / battery presence.
-    Mbc1 { ram: bool, battery: bool },
-    /// `$05..=$06`. Not implemented yet; the header parser can still
-    /// decode it, and the machine layer will surface a clear "not
-    /// supported" error.
-    Mbc2 { battery: bool },
+    Mbc1 {
+        ram: bool,
+        battery: bool,
+    },
+    /// `$05..=$06`. MBC2 has internal 512×4-bit RAM.
+    Mbc2 {
+        battery: bool,
+    },
     /// `$0F..=$13`. RTC and battery are independent flags.
-    Mbc3 { ram: bool, battery: bool, rtc: bool },
+    Mbc3 {
+        ram: bool,
+        battery: bool,
+        rtc: bool,
+    },
     /// `$19..=$1E`.
-    Mbc5 { ram: bool, battery: bool, rumble: bool },
+    Mbc5 {
+        ram: bool,
+        battery: bool,
+        rumble: bool,
+    },
 }
 
 impl CartType {
@@ -65,6 +77,7 @@ impl CartType {
 pub enum Mbc {
     None,
     Mbc1(Mbc1),
+    Mbc2(Mbc2),
     Mbc3(Mbc3),
     Mbc5(Mbc5),
 }
@@ -93,15 +106,16 @@ impl Cartridge {
     /// ROM-only / no-RAM carts.
     #[must_use]
     pub fn new(rom: Vec<u8>, cart_type: CartType, ram_size: usize) -> Self {
+        let ram_size = if matches!(cart_type, CartType::Mbc2 { .. }) {
+            Mbc2::RAM_SIZE
+        } else {
+            ram_size
+        };
         let ram = vec![0xFF; ram_size];
         let mbc = match cart_type {
             CartType::RomOnly => Mbc::None,
-            CartType::Mbc1 { .. } => Mbc::Mbc1(Mbc1::new()),
-            CartType::Mbc2 { .. } => {
-                // Fall back to None — the machine layer will refuse
-                // to boot an MBC2 cart until we port it.
-                Mbc::None
-            }
+            CartType::Mbc1 { .. } => Mbc::Mbc1(Mbc1::new_for_rom(&rom)),
+            CartType::Mbc2 { .. } => Mbc::Mbc2(Mbc2::new()),
             CartType::Mbc3 { rtc, .. } => Mbc::Mbc3(Mbc3::new(rtc)),
             CartType::Mbc5 { .. } => Mbc::Mbc5(Mbc5::new()),
         };
@@ -142,6 +156,7 @@ impl Cartridge {
         match &self.mbc {
             Mbc::None => self.rom.get(usize::from(addr)).copied().unwrap_or(0xFF),
             Mbc::Mbc1(m) => m.read_rom(&self.rom, addr),
+            Mbc::Mbc2(m) => m.read_rom(&self.rom, addr),
             Mbc::Mbc3(m) => m.read_rom(&self.rom, addr),
             Mbc::Mbc5(m) => m.read_rom(&self.rom, addr),
         }
@@ -153,6 +168,7 @@ impl Cartridge {
         match &mut self.mbc {
             Mbc::None => {}
             Mbc::Mbc1(m) => m.write_rom(addr, value),
+            Mbc::Mbc2(m) => m.write_rom(addr, value),
             Mbc::Mbc3(m) => m.write_rom(addr, value),
             Mbc::Mbc5(m) => m.write_rom(addr, value),
         }
@@ -165,6 +181,7 @@ impl Cartridge {
         match &self.mbc {
             Mbc::None => self.ram_linear_read(addr),
             Mbc::Mbc1(m) => m.read_ram(&self.ram, addr),
+            Mbc::Mbc2(m) => m.read_ram(&self.ram, addr),
             Mbc::Mbc3(m) => m.read_ram(&self.ram, addr),
             Mbc::Mbc5(m) => m.read_ram(&self.ram, addr),
         }
@@ -175,6 +192,7 @@ impl Cartridge {
         match &mut self.mbc {
             Mbc::None => self.ram_linear_write(addr, value),
             Mbc::Mbc1(m) => m.write_ram(&mut self.ram, addr, value),
+            Mbc::Mbc2(m) => m.write_ram(&mut self.ram, addr, value),
             Mbc::Mbc3(m) => m.write_ram(&mut self.ram, addr, value),
             Mbc::Mbc5(m) => m.write_ram(&mut self.ram, addr, value),
         }

@@ -32,11 +32,16 @@ impl Mbc5 {
     }
 
     pub(crate) fn read_rom(&self, rom: &[u8], addr: u16) -> u8 {
+        let bank_count = rom.len() / ROM_BANK_SIZE;
+        if bank_count == 0 {
+            return 0xFF;
+        }
+
         let bank = if addr < 0x4000 {
             0
         } else {
             usize::from(self.rom_bank)
-        };
+        } % bank_count;
         let offset = bank * ROM_BANK_SIZE + usize::from(addr & 0x3FFF);
         rom.get(offset).copied().unwrap_or(0xFF)
     }
@@ -59,19 +64,29 @@ impl Mbc5 {
         if !self.ram_enabled {
             return 0xFF;
         }
-        let offset =
-            usize::from(self.ram_bank) * RAM_BANK_SIZE + usize::from(addr.wrapping_sub(0xA000) & 0x1FFF);
-        ram.get(offset).copied().unwrap_or(0xFF)
+        let Some(offset) = self.ram_offset(ram, addr) else {
+            return 0xFF;
+        };
+        ram[offset]
     }
 
     pub(crate) fn write_ram(&mut self, ram: &mut [u8], addr: u16, value: u8) {
         if !self.ram_enabled {
             return;
         }
-        let offset =
-            usize::from(self.ram_bank) * RAM_BANK_SIZE + usize::from(addr.wrapping_sub(0xA000) & 0x1FFF);
-        if let Some(slot) = ram.get_mut(offset) {
-            *slot = value;
+        if let Some(offset) = self.ram_offset(ram, addr) {
+            ram[offset] = value;
         }
+    }
+
+    fn ram_offset(&self, ram: &[u8], addr: u16) -> Option<usize> {
+        let bank_count = ram.len() / RAM_BANK_SIZE;
+        if bank_count == 0 {
+            return None;
+        }
+
+        let bank = usize::from(self.ram_bank & 0x0F) % bank_count;
+        let local = usize::from(addr.wrapping_sub(0xA000) & 0x1FFF);
+        Some(bank * RAM_BANK_SIZE + local)
     }
 }

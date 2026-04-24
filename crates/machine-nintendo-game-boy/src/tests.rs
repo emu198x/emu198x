@@ -44,6 +44,451 @@ fn boot_machine(rom: Vec<u8>) -> GameBoy {
     gb
 }
 
+#[test]
+#[ignore = "diagnostic: searches skipped-boot DIV phase against local mooneye ROMs"]
+fn diagnostic_mooneye_boot_div_counter_phase_search() {
+    let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
+    let rom = std::fs::read(format!("{root}/acceptance/boot_div-dmgABCmgb.gb")).unwrap();
+
+    for counter in 0xAB00..=0xACFF {
+        let mut gb = boot_machine(rom.clone());
+        gb.timer.counter = counter;
+
+        let mut serial = Vec::new();
+        for _ in 0..20 {
+            gb.run_frame();
+            serial.extend(gb.drain_serial());
+            if serial.windows(6).any(|window| window == [0x42; 6]) {
+                break;
+            }
+            if serial
+                .windows(6)
+                .any(|window| window == [3, 5, 8, 13, 21, 34])
+            {
+                break;
+            }
+        }
+
+        let actual_matches = gb.hram[3] == 0xAC
+            && gb.hram[2] == 0xAD
+            && gb.hram[5] == 0xAD
+            && gb.hram[4] == 0xAE
+            && gb.hram[7] == 0xAF
+            && gb.hram[6] == 0xB1;
+        if actual_matches
+            || serial
+                .windows(6)
+                .any(|window| window == [3, 5, 8, 13, 21, 34])
+        {
+            eprintln!(
+                "candidate counter=${counter:04X} serial={serial:02X?} hram={:02X?}",
+                &gb.hram[..17]
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "diagnostic: traces boot_hwio reads against local mooneye ROMs"]
+fn diagnostic_mooneye_boot_hwio_read_trace() {
+    let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
+    let rom = std::fs::read(format!("{root}/acceptance/boot_hwio-dmgABCmgb.gb")).unwrap();
+    let mut gb = boot_machine(rom);
+
+    let mut serial_log = Vec::new();
+    for _ in 0..250_000 {
+        if gb.cpu.mreq && gb.cpu.rd && (0xFF00..=0xFF26).contains(&gb.cpu.addr) {
+            let value = gb.bus_read(gb.cpu.addr);
+            eprintln!(
+                "pc=${:04X} read ${:04X} -> ${:02X} de=${:04X} hl=${:04X}",
+                gb.cpu.pc,
+                gb.cpu.addr,
+                value,
+                u16::from_be_bytes([gb.cpu.d, gb.cpu.e]),
+                u16::from_be_bytes([gb.cpu.h, gb.cpu.l])
+            );
+        }
+        gb.step_m_cycle();
+        serial_log.extend(gb.drain_serial());
+        if serial_log.windows(6).any(|window| window == [0x42; 6])
+            || serial_log
+                .windows(6)
+                .any(|window| window == [3, 5, 8, 13, 21, 34])
+        {
+            eprintln!("serial={serial_log:02X?} hram={:02X?}", &gb.hram[..17]);
+            break;
+        }
+    }
+}
+
+#[test]
+#[ignore = "diagnostic: traces mooneye PPU STAT interrupt timing"]
+fn diagnostic_mooneye_ppu_intr_2_0_trace() {
+    let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
+    let rom = std::fs::read(format!("{root}/acceptance/ppu/intr_2_0_timing.gb")).unwrap();
+    let mut gb = boot_machine(rom);
+
+    let mut serial_log = Vec::new();
+    let mut previous_mode = gb.ppu.mode();
+    for cycle in 0..400_000u32 {
+        let ppu = &gb.ppu;
+        if gb.cpu.mreq && gb.cpu.wr && matches!(gb.cpu.addr, 0xFF0F | 0xFF41 | 0xFFFF) {
+            eprintln!(
+                "#{cycle} pc=${:04X} write ${:04X}=${:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X}",
+                gb.cpu.pc,
+                gb.cpu.addr,
+                gb.cpu.data,
+                ppu.ly,
+                ppu.dot,
+                ppu.mode(),
+                ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg
+            );
+        }
+        if gb.cpu.int_ack {
+            eprintln!(
+                "#{cycle} pc=${:04X} int_ack bit={} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} b={} d={} e={}",
+                gb.cpu.pc,
+                gb.cpu.int_ack_bit,
+                ppu.ly,
+                ppu.dot,
+                ppu.mode(),
+                ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg,
+                gb.cpu.b,
+                gb.cpu.d,
+                gb.cpu.e
+            );
+        }
+        gb.step_m_cycle();
+        let mode = gb.ppu.mode();
+        if mode != previous_mode && (gb.ppu.ly == 67 || gb.ppu.ly == 68) {
+            eprintln!(
+                "#{cycle} mode {}->{} ly={} dot={} pc=${:04X} b={} d={} e={}",
+                previous_mode, mode, gb.ppu.ly, gb.ppu.dot, gb.cpu.pc, gb.cpu.b, gb.cpu.d, gb.cpu.e
+            );
+        }
+        previous_mode = mode;
+        serial_log.extend(gb.drain_serial());
+        if serial_log.windows(6).any(|window| window == [0x42; 6])
+            || serial_log
+                .windows(6)
+                .any(|window| window == [3, 5, 8, 13, 21, 34])
+        {
+            eprintln!(
+                "serial={serial_log:02X?} hram={:02X?} ly={} dot={} mode={}",
+                &gb.hram[..17],
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode()
+            );
+            break;
+        }
+    }
+}
+
+#[test]
+#[ignore = "diagnostic: traces mooneye HBlank LY/SCX timing"]
+fn diagnostic_mooneye_ppu_hblank_ly_scx_trace() {
+    let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
+    let rom = std::fs::read(format!("{root}/acceptance/ppu/hblank_ly_scx_timing-GS.gb")).unwrap();
+    let mut gb = boot_machine(rom);
+
+    let mut serial_log = Vec::new();
+    let mut previous_mode = gb.ppu.mode();
+    for cycle in 0..250_000u32 {
+        let ppu = &gb.ppu;
+        let pc = gb.cpu.pc;
+        let interesting_pc = (0x0160..=0x0190).contains(&pc) || (0x0416..=0x0430).contains(&pc);
+        if interesting_pc
+            && gb.cpu.mreq
+            && gb.cpu.wr
+            && matches!(gb.cpu.addr, 0xFF0F | 0xFF41 | 0xFFFF | 0xFF43)
+        {
+            eprintln!(
+                "#{cycle} pc=${:04X} write ${:04X}=${:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} scx={} b={} d={} e={}",
+                gb.cpu.pc,
+                gb.cpu.addr,
+                gb.cpu.data,
+                ppu.ly,
+                ppu.dot,
+                ppu.mode(),
+                ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg,
+                ppu.scx,
+                gb.cpu.b,
+                gb.cpu.d,
+                gb.cpu.e
+            );
+        }
+        if interesting_pc && gb.cpu.mreq && gb.cpu.rd && gb.cpu.addr == 0xFF44 {
+            eprintln!(
+                "#{cycle} pc=${:04X} read LY -> ${:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} scx={} b={} d={} e={}",
+                gb.cpu.pc,
+                gb.bus_read(0xFF44),
+                ppu.ly,
+                ppu.dot,
+                ppu.mode(),
+                ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg,
+                ppu.scx,
+                gb.cpu.b,
+                gb.cpu.d,
+                gb.cpu.e
+            );
+        }
+        if gb.cpu.int_ack {
+            eprintln!(
+                "#{cycle} pc=${:04X} int_ack bit={} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} scx={} b={} d={} e={}",
+                gb.cpu.pc,
+                gb.cpu.int_ack_bit,
+                ppu.ly,
+                ppu.dot,
+                ppu.mode(),
+                ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg,
+                ppu.scx,
+                gb.cpu.b,
+                gb.cpu.d,
+                gb.cpu.e
+            );
+        }
+        gb.step_m_cycle();
+        let mode = gb.ppu.mode();
+        if mode != previous_mode && matches!(gb.ppu.ly, 0x40..=0x43) {
+            eprintln!(
+                "#{cycle} mode {}->{} ly={} dot={} pc=${:04X} if=${:02X} ie=${:02X} scx={} b={} d={} e={}",
+                previous_mode,
+                mode,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.cpu.pc,
+                gb.if_reg,
+                gb.ie_reg,
+                gb.ppu.scx,
+                gb.cpu.b,
+                gb.cpu.d,
+                gb.cpu.e
+            );
+        }
+        previous_mode = mode;
+        serial_log.extend(gb.drain_serial());
+        if serial_log.windows(6).any(|window| window == [0x42; 6])
+            || serial_log
+                .windows(6)
+                .any(|window| window == [3, 5, 8, 13, 21, 34])
+        {
+            eprintln!(
+                "serial={serial_log:02X?} hram={:02X?} ly={} dot={} mode={}",
+                &gb.hram[..17],
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode()
+            );
+            break;
+        }
+    }
+}
+
+#[test]
+#[ignore = "diagnostic: traces mooneye STAT LYC LCD on/off behavior"]
+fn diagnostic_mooneye_ppu_stat_lyc_onoff_trace() {
+    let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
+    let rom = std::fs::read(format!("{root}/acceptance/ppu/stat_lyc_onoff.gb")).unwrap();
+    let mut gb = boot_machine(rom);
+
+    let mut serial_log = Vec::new();
+    for cycle in 0..120_000u32 {
+        if matches!(
+            gb.cpu.pc,
+            0x0182
+                | 0x01AC
+                | 0x01D6
+                | 0x0217
+                | 0x0241
+                | 0x026B
+                | 0x02AA
+                | 0x02D4
+                | 0x02FE
+                | 0x033A
+                | 0x0360
+                | 0x037A
+                | 0x0392
+                | 0x03B0
+                | 0x03CE
+        ) {
+            eprintln!(
+                "#{cycle} reached pc=${:04X} op=${:02X} mc={} a=${:02X} f=${:02X} din=${:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} lcdc=${:02X} lyc=${:02X}",
+                gb.cpu.pc,
+                gb.cpu.opcode,
+                gb.cpu.m_cycle,
+                gb.cpu.a,
+                gb.cpu.f,
+                gb.cpu.data_in,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg,
+                gb.ppu.lcdc,
+                gb.ppu.lyc
+            );
+            if gb.cpu.pc != 0x037A {
+                break;
+            }
+        }
+        if gb.cpu.mreq
+            && (gb.cpu.rd || gb.cpu.wr)
+            && matches!(gb.cpu.addr, 0xFF0F | 0xFF40 | 0xFF41 | 0xFF45 | 0xFFFF)
+        {
+            let op = if gb.cpu.rd { "read" } else { "write" };
+            let value = if gb.cpu.rd {
+                gb.bus_read(gb.cpu.addr)
+            } else {
+                gb.cpu.data
+            };
+            eprintln!(
+                "#{cycle} pc=${:04X} op=${:02X} mc={} a=${:02X} f=${:02X} din=${:02X} {op} ${:04X}=${value:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} lcdc=${:02X} lyc=${:02X}",
+                gb.cpu.pc,
+                gb.cpu.opcode,
+                gb.cpu.m_cycle,
+                gb.cpu.a,
+                gb.cpu.f,
+                gb.cpu.data_in,
+                gb.cpu.addr,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg,
+                gb.ppu.lcdc,
+                gb.ppu.lyc
+            );
+        }
+        if gb.cpu.int_ack {
+            eprintln!(
+                "#{cycle} pc=${:04X} int_ack bit={} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} lcdc=${:02X} lyc=${:02X}",
+                gb.cpu.pc,
+                gb.cpu.int_ack_bit,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg,
+                gb.ppu.lcdc,
+                gb.ppu.lyc
+            );
+        }
+        gb.step_m_cycle();
+        serial_log.extend(gb.drain_serial());
+        if serial_log.windows(6).any(|window| window == [0x42; 6])
+            || serial_log
+                .windows(6)
+                .any(|window| window == [3, 5, 8, 13, 21, 34])
+        {
+            eprintln!(
+                "serial={serial_log:02X?} hram={:02X?} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X}",
+                &gb.hram[..17],
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg
+            );
+            break;
+        }
+    }
+}
+
+#[test]
+#[ignore = "diagnostic: dumps mooneye LCD-on timing result arrays"]
+fn diagnostic_mooneye_ppu_lcdon_timing_results() {
+    let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
+    let rom = std::fs::read(format!("{root}/acceptance/ppu/lcdon_timing-GS.gb")).unwrap();
+    let mut gb = boot_machine(rom);
+
+    let mut serial_log = Vec::new();
+    for cycle in 0..300_000u32 {
+        let in_test_code = (0x47F0..=0x4BC0).contains(&gb.cpu.pc);
+        if gb.cpu.mreq
+            && gb.cpu.rd
+            && matches!(gb.cpu.addr, 0xFF41 | 0xFF44 | 0x8000 | 0xFE00)
+            && in_test_code
+        {
+            eprintln!(
+                "#{cycle} pc=${:04X} op=${:02X} mc={} read ${:04X}=${:02X} ly={} dot={} mode={} stat=${:02X} lcdc=${:02X}",
+                gb.cpu.pc,
+                gb.cpu.opcode,
+                gb.cpu.m_cycle,
+                gb.cpu.addr,
+                gb.bus_read(gb.cpu.addr),
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.ppu.lcdc
+            );
+        }
+        if gb.cpu.mreq
+            && gb.cpu.wr
+            && matches!(gb.cpu.addr, 0xFF40 | 0xFF45 | 0xFF80..=0xFF9C)
+            && (in_test_code || matches!(gb.cpu.addr, 0xFF98..=0xFF9C))
+        {
+            eprintln!(
+                "#{cycle} pc=${:04X} write ${:04X}=${:02X} ly={} dot={} mode={} stat=${:02X} lcdc=${:02X}",
+                gb.cpu.pc,
+                gb.cpu.addr,
+                gb.cpu.data,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.ppu.lcdc
+            );
+        }
+        gb.step_m_cycle();
+        serial_log.extend(gb.drain_serial());
+        if serial_log.windows(6).any(|window| window == [0x42; 6])
+            || serial_log
+                .windows(6)
+                .any(|window| window == [3, 5, 8, 13, 21, 34])
+        {
+            eprintln!("serial={serial_log:02X?}");
+            eprintln!("pass1={:02X?}", &gb.hram[0x00..0x08]);
+            eprintln!("pass2={:02X?}", &gb.hram[0x08..0x10]);
+            eprintln!("pass3={:02X?}", &gb.hram[0x10..0x18]);
+            eprintln!(
+                "fail round={} expect=${:02X} actual=${:02X} str=${:04X}",
+                gb.hram[0x18],
+                gb.hram[0x19],
+                gb.hram[0x1A],
+                u16::from_le_bytes([gb.hram[0x1B], gb.hram[0x1C]])
+            );
+            break;
+        }
+    }
+
+    eprintln!("pass1={:02X?}", &gb.hram[0x00..0x08]);
+    eprintln!("pass2={:02X?}", &gb.hram[0x08..0x10]);
+    eprintln!("pass3={:02X?}", &gb.hram[0x10..0x18]);
+    eprintln!(
+        "fail round={} expect=${:02X} actual=${:02X} str=${:04X}",
+        gb.hram[0x18],
+        gb.hram[0x19],
+        gb.hram[0x1A],
+        u16::from_le_bytes([gb.hram[0x1B], gb.hram[0x1C]])
+    );
+}
+
 // -- Construction ----------------------------------------------------
 
 #[test]
@@ -180,6 +625,20 @@ fn if_register_high_bits_read_high() {
 }
 
 #[test]
+fn skipped_bootrom_sets_dmg_io_register_state() {
+    let gb = boot_machine(jr_loop_rom());
+    assert_eq!(gb.bus_read(0xFF00), 0xCF);
+    assert_eq!(gb.bus_read(0xFF04), 0xAB);
+    assert_eq!(gb.bus_read(0xFF0F), 0xE1);
+    assert_eq!(gb.bus_read(0xFF10), 0x80);
+    assert_eq!(gb.bus_read(0xFF11), 0xBF);
+    assert_eq!(gb.bus_read(0xFF12), 0xF3);
+    assert_eq!(gb.bus_read(0xFF24), 0x77);
+    assert_eq!(gb.bus_read(0xFF25), 0xF3);
+    assert_eq!(gb.bus_read(0xFF26), 0xF1);
+}
+
+#[test]
 fn timer_div_writeable_via_bus_resets_to_zero() {
     let mut gb = boot_machine(jr_loop_rom());
     // Spin a few m-cycles to get the counter non-zero.
@@ -200,6 +659,10 @@ fn serial_transfer_with_internal_clock_captures_byte_and_latches_irq() {
     gb.bus_write(0xFF02, 0x81); // begin transfer + internal clock
     let captured = gb.drain_serial();
     assert_eq!(captured, vec![b'A']);
+    assert_eq!(gb.if_reg & IF_SERIAL, 0);
+    for _ in 0..1024 {
+        gb.step_m_cycle();
+    }
     assert_ne!(gb.if_reg & IF_SERIAL, 0);
     // Drain clears the buffer.
     assert!(gb.drain_serial().is_empty());
@@ -266,7 +729,7 @@ fn oam_dma_copies_160_bytes_from_source_page() {
     }
     gb.bus_write(0xFF46, 0xC0); // start DMA from $C000
     assert_eq!(gb.bus_read(0xFF46), 0xC0);
-    for _ in 0..=OAM_SIZE {
+    for _ in 0..OAM_SIZE + 2 {
         gb.step_m_cycle();
     }
     for i in 0..OAM_SIZE {

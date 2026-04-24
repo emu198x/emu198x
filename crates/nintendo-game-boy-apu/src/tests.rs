@@ -47,7 +47,10 @@ fn disabling_apu_preserves_length_counters() {
     apu.write(0xFF11, 0b00_010101); // length = 64 - 21 = 43
     assert_eq!(apu.ch1.length_timer, 43);
     apu.write(REG_NR52, 0x00);
-    assert_eq!(apu.ch1.length_timer, 43, "length preserved through power off");
+    assert_eq!(
+        apu.ch1.length_timer, 43,
+        "length preserved through power off"
+    );
 }
 
 #[test]

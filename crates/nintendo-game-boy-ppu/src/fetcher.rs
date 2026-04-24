@@ -94,13 +94,21 @@ impl Fetcher {
         match self.state {
             State::ReadTileId => {
                 let map_addr = if self.window_mode {
-                    let map_base: u16 = if (ctx.lcdc & 0x40) != 0 { 0x1C00 } else { 0x1800 };
+                    let map_base: u16 = if (ctx.lcdc & 0x40) != 0 {
+                        0x1C00
+                    } else {
+                        0x1800
+                    };
                     let wy_row = u16::from(ctx.window_line) / 8;
                     map_base + wy_row * 32 + u16::from(self.x)
                 } else {
                     let y = ctx.ly.wrapping_add(ctx.scy);
                     let x = (self.x as u16) * 8 + u16::from(ctx.scx);
-                    let map_base: u16 = if (ctx.lcdc & 0x08) != 0 { 0x1C00 } else { 0x1800 };
+                    let map_base: u16 = if (ctx.lcdc & 0x08) != 0 {
+                        0x1C00
+                    } else {
+                        0x1800
+                    };
                     map_base + (u16::from(y) / 8 % 32) * 32 + (x / 8 % 32)
                 };
                 self.tile_id = vram[usize::from(map_addr)];

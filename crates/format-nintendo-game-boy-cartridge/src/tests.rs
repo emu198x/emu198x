@@ -38,7 +38,10 @@ fn rejects_unsupported_mbc6() {
     let err = CartridgeHeader::parse(&rom).unwrap_err();
     assert!(matches!(
         err,
-        HeaderError::UnsupportedCartType { byte: 0x20, name: "MBC6" }
+        HeaderError::UnsupportedCartType {
+            byte: 0x20,
+            name: "MBC6"
+        }
     ));
 }
 
@@ -61,7 +64,10 @@ fn rejects_rom_length_mismatch() {
     let err = CartridgeHeader::parse(&rom).unwrap_err();
     assert!(matches!(
         err,
-        HeaderError::RomLengthMismatch { declared: 0x10000, actual: 0x8000 }
+        HeaderError::RomLengthMismatch {
+            declared: 0x10000,
+            actual: 0x8000
+        }
     ));
 }
 
@@ -98,7 +104,10 @@ fn parses_mbc1_with_ram_and_battery() {
     let header = CartridgeHeader::parse(&rom).unwrap();
     assert_eq!(
         header.cart_type,
-        CartType::Mbc1 { ram: true, battery: true }
+        CartType::Mbc1 {
+            ram: true,
+            battery: true
+        }
     );
     assert_eq!(header.ram_size, 0x2000);
 }
@@ -113,7 +122,11 @@ fn parses_mbc3_with_rtc() {
     let header = CartridgeHeader::parse(&rom).unwrap();
     assert_eq!(
         header.cart_type,
-        CartType::Mbc3 { ram: true, battery: true, rtc: true }
+        CartType::Mbc3 {
+            ram: true,
+            battery: true,
+            rtc: true
+        }
     );
     assert_eq!(header.rom_size, 0x80000);
     assert_eq!(header.ram_size, 0x8000);
@@ -129,15 +142,18 @@ fn parses_mbc5_with_rumble() {
     let header = CartridgeHeader::parse(&rom).unwrap();
     assert_eq!(
         header.cart_type,
-        CartType::Mbc5 { ram: true, battery: true, rumble: true }
+        CartType::Mbc5 {
+            ram: true,
+            battery: true,
+            rumble: true
+        }
     );
 }
 
 #[test]
 fn cgb_flag_shortens_title_to_eleven_bytes() {
     let rom = make_rom(0x8000, |r| {
-        r[offset::TITLE..offset::TITLE + 16]
-            .copy_from_slice(b"POKEMON YELLOWJP"); // 16-byte title
+        r[offset::TITLE..offset::TITLE + 16].copy_from_slice(b"POKEMON YELLOWJP"); // 16-byte title
         r[offset::CGB_FLAG] = 0x80;
     });
     let header = CartridgeHeader::parse(&rom).unwrap();
@@ -158,14 +174,14 @@ fn load_returns_cartridge_with_correct_ram_size() {
 }
 
 #[test]
-fn mbc2_ram_size_is_two_hundred_fifty_six_bytes_regardless_of_byte() {
+fn mbc2_ram_size_is_five_hundred_twelve_bytes_regardless_of_byte() {
     let rom = make_rom(0x10000, |r| {
         r[offset::ROM_SIZE] = 0x01;
         r[offset::CART_TYPE] = 0x05; // MBC2
         r[offset::RAM_SIZE] = 0x00;
     });
     let header = CartridgeHeader::parse(&rom).unwrap();
-    assert_eq!(header.ram_size, 0x200, "MBC2 has on-chip 256-byte RAM");
+    assert_eq!(header.ram_size, 0x200, "MBC2 has on-chip 512-byte RAM");
 }
 
 #[test]
