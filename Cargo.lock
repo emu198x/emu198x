@@ -688,10 +688,21 @@ name = "emu198x-game-boy"
 version = "0.1.0"
 dependencies = [
  "common-nintendo-game-boy",
+ "emu198x-native-video",
  "emu198x-shell",
- "pixels",
  "runtime-nintendo-game-boy",
  "thiserror 2.0.18",
+ "winit",
+]
+
+[[package]]
+name = "emu198x-native-video"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "pollster",
+ "thiserror 2.0.18",
+ "wgpu",
  "winit",
 ]
 

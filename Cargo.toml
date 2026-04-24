@@ -11,6 +11,7 @@ members = [
     "crates/emu198x-c64",
     "crates/emu198x-amiga",
     "crates/emu198x-game-boy",
+    "crates/emu198x-native-video",
     "crates/emu198x-nes",
     "crates/emu198x-script-game-boy",
     "crates/emu198x-script-nes",
@@ -101,12 +102,14 @@ license = "GPL-2.0-or-later"
 cpal = "0.15"
 gilrs = "0.11"
 pixels = "0.15"
+pollster = "0.3"
 png = "0.17"
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 serde = { version = "1", features = ["derive"] }
 serde-big-array = "0.5"
 serde_json = "1"
 thiserror = "2"
+wgpu = "0.19"
 winit = "0.30"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 

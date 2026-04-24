@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Shared native video presenter starts on Game Boy
+
+**Type:** architecture
+**Trigger:** CRT/LCD filters need a shared GPU presentation surface
+rather than one-off per-emulator `pixels` blitters.
+**Result:** Added `emu198x-native-video`, a shared `wgpu` presenter
+with RGBA/indexed-frame upload, nearest-neighbour sampling, centred
+integer scaling, and reusable presentation settings. `emu198x-game-boy`
+now renders through that presenter, establishing the migration seam for
+future LCD filters and for moving NES, C64, Spectrum, and Amiga onto the
+same native video path.
+
+---
+
 ## 2026-04-24 — Shared host gamepad input reaches native shells
 
 **Type:** feature

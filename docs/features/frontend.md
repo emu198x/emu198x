@@ -17,7 +17,11 @@
 > shared through `emu198x-shell`; matching stereo packets stay stereo, and
 > per-chip/per-channel mute or gain remains a system-native mixer concern.
 > The Game Boy shell exposes that via `1`-`4` channel toggles,
-> `5`-`8` channel gain cycling, and `0` audio-control reset. The NES shell
+> `5`-`8` channel gain cycling, and `0` audio-control reset. The Game Boy
+> native window now renders through the shared `emu198x-native-video`
+> `wgpu` presenter instead of its earlier one-off `pixels` path; the other
+> native windows still use their local `pixels` blitters until they migrate.
+> The NES shell
 > exposes the same host-side pattern for its five APU channels via `1`-`5`
 > toggles and `6`-`0` gain cycling. Spectrum, C64, and Amiga now expose
 > non-register host controls through numpad shortcuts so normal keyboard

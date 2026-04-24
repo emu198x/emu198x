@@ -1,0 +1,16 @@
+[package]
+name = "emu198x-native-video"
+description = "Shared native GPU video presentation for Emu198x frontends"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
+pollster.workspace = true
+thiserror.workspace = true
+wgpu.workspace = true
+winit.workspace = true
+
+[lints]
+workspace = true

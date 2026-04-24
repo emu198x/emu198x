@@ -158,6 +158,12 @@ Phase 1 is complete: 9 of 9 crates landed. The Game Boy now
 boots through the runtime boundary on any header-valid
 ROM-only / MBC1 / MBC2 / MBC3 / MBC5 cartridge.
 
+The native verifier window uses `emu198x-native-video` for shared
+`wgpu` presentation. That currently provides nearest-neighbour
+GPU presentation with centred integer scaling and is the intended seam
+for LCD filtering; raw headless captures remain runtime framebuffer
+captures.
+
 ### Phase 2 — verification (done for current DMG scope)
 
 Acceptance tests, in order:
