@@ -4,6 +4,38 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Game Boy Phase 2 gate green and docs refreshed
+
+**Type:** milestone
+**Trigger:** The Game Boy runtime now passes the local ignored
+verification harness rather than merely exposing the host boundary.
+**Result:** Phase 2 is green for the current DMG-class scope:
+Blargg `cpu_instrs`, `instr_timing`, `mem_timing` v1/v2,
+`dmg-acid2`, and the broad mooneye-gb sweep all pass locally. The
+mooneye broad sweep reports 103 passing ROMs and zero failures,
+timeouts, or load errors across `acceptance`,
+`emulator-only/mbc1`, `emulator-only/mbc2`, and
+`emulator-only/mbc5`.
+
+Docs refreshed:
+
+- `wiki/systems/nintendo-game-boy/overview.md` now reflects current
+  runtime scope, skipped-boot profiles, MBC2 support, timer reload
+  accuracy, OAM DMA status, and Phase 2 verification status.
+- `wiki/systems/nintendo-game-boy/timing.md` is no longer marked as
+  a stub and calls out the remaining OAM DMA bus-blocking gap.
+- `wiki/chips/sharp-lr35902.md` now treats the pin interface and
+  state-machine shape as implemented, with system-level Blargg /
+  mooneye coverage.
+- `wiki/index.md` now describes the Game Boy page as current DMG
+  runtime documentation rather than a planned port.
+
+The remaining major Game Boy-family work is CGB, boot-ROM execution,
+full OAM-DMA non-HRAM bus blocking, persistent battery saves,
+link cable, and long-tail cartridge hardware.
+
+---
+
 ## 2026-04-23 — Game Boy Phase 1 complete: runtime crate landed, family is on the host boundary
 
 **Type:** milestone

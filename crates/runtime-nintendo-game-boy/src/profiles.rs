@@ -1,7 +1,7 @@
 //! Game Boy family machine catalogue.
 //!
-//! One model today (`Dmg`); the structure is in place so the second
-//! variant (`Cgb`) can land alongside the family-driver lift per
+//! Exposes the DMG-class skipped-boot profiles currently supported by
+//! the runtime. CGB will land alongside the family-driver lift per
 //! [within-family-layering](../../../wiki/decisions/within-family-layering.md).
 
 use emu198x_shell::{

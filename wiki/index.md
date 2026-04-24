@@ -31,8 +31,8 @@
 - [Chip-only boot failure](decisions/amiga-chip-only-boot-failure.md) — RESOLVED 2026-04-20 via copper CDANG halt; narrative kept for context
 
 ### Nintendo Game Boy
-- [Overview](systems/nintendo-game-boy/overview.md) — planned port from Zig reference; DMG first, CGB as second-machine lift; phased crate plan + Blargg / mooneye-gb acceptance bar
-- [Timing](systems/nintendo-game-boy/timing.md) — 4.194304 MHz master clock, 17 556 m-cycles/frame, PPU modes per scanline, timer + APU frame sequencer, OAM DMA
+- [Overview](systems/nintendo-game-boy/overview.md) — DMG-class runtime port through the Phase 2 verification gate; CGB, boot-ROM execution, full OAM-DMA bus blocking, persistent battery saves, link cable, and long-tail cartridge hardware remain later work
+- [Timing](systems/nintendo-game-boy/timing.md) — implemented DMG timing constants: 4.194304 MHz master clock, 17 556 m-cycles/frame, PPU modes per scanline, timer + APU frame sequencer, and current OAM DMA status
 
 ### ZX Spectrum
 - [Overview](systems/spectrum/overview.md) — 11 variants (16K, 48K, 128K, +2, +2A, +2B, +3, Pentagon, Scorpion, TC2048, TS2068), ULA-drives architecture

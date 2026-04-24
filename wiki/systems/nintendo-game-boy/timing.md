@@ -1,10 +1,11 @@
 # Game Boy timing
 
-> Status as of 2026-04-22: **stub.** Numbers here are the target
-> constants for the upcoming `common-nintendo-game-boy` crate. Source
-> of truth while porting: the Zig implementation at
-> `~/Projects/Emu198x-Zig/src/` and the Pan Docs / mooneye-gb
-> hardware behaviour notes.
+> Status as of 2026-04-24: **implemented for DMG-class timing.**
+> These constants are now represented in `common-nintendo-game-boy`
+> and exercised through the CPU, timer, PPU, APU, machine, and
+> runtime crates. The current verification gate passes Blargg timing
+> ROMs and the local mooneye-gb acceptance sweep; CGB double-speed
+> timing remains future work.
 
 ## Master clock
 
@@ -97,9 +98,13 @@ Length at 256 Hz, envelope at 64 Hz, sweep at 128 Hz.
 
 Writing to $FF46 starts a 160-m-cycle DMA that copies $xx00–$xx9F
 to OAM ($FE00–$FE9F), one byte per m-cycle. During DMA, the CPU can
-only access HRAM ($FF80–$FFFE); all other reads return $FF. The
-machine layer tracks the in-progress DMA and gates the CPU's bus
-between ticks.
+only access HRAM ($FF80–$FFFE); all other reads return $FF on real
+hardware.
+
+Current implementation status: the machine paces the transfer one
+byte per m-cycle, handles restart timing, and blocks CPU OAM access
+while DMA is active. The remaining DMA accuracy gap is full non-HRAM
+CPU bus blocking during the transfer.
 
 ## Related
 

@@ -6,6 +6,12 @@ date: 2026-04-12
 
 # Fix Wave Channel Cycle-Accurate Access
 
+> Status as of 2026-04-24: **historical Zig-era fix plan.** The Rust
+> `nintendo-game-boy-apu` crate now models CH3 wave-RAM access quirks
+> and trigger corruption, and its unit suite is green. This document is
+> retained as background for why those behaviours matter; it is not a
+> current Rust implementation plan.
+
 ## Overview
 
 Three Blargg dmg_sound tests fail because our wave channel (CH3) wave RAM access model is too simple. We always redirect reads/writes to `wave_ram[sample_position / 2]` when CH3 is enabled. Real DMG hardware has a 1-T-cycle access window and a trigger corruption bug.

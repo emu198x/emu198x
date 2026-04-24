@@ -11,9 +11,10 @@
 //! - Boot-ROM slot. The CPU resets at PC=$0100 with the documented
 //!   post-boot register state instead of running through the
 //!   256-byte boot ROM.
-//! - OAM DMA bus blocking. Real hardware blocks all CPU access to
+//! - Full OAM DMA bus blocking. Real hardware blocks all CPU access to
 //!   non-HRAM memory for the 160 m-cycles a DMA takes; the DMA transfer
-//!   itself is paced, but CPU bus gating is still deferred.
+//!   itself is paced and OAM access is blocked, but full CPU bus gating
+//!   is still deferred.
 
 #[cfg(test)]
 mod tests;

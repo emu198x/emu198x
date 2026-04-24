@@ -50,7 +50,7 @@ any write to F masks them off.
 One `tick()` advances one 4-T-state machine cycle. The machine
 inspects pin state between ticks.
 
-## Signal interface (planned)
+## Signal Interface
 
 Output pins: `addr` (u16), `data` (u8), `rd` (bool), `wr` (bool),
 `mreq` (bool; high for bus-active m-cycles, low for internal-only).
@@ -59,7 +59,7 @@ Input pins: `data_in` (u8), `irq` (u8 bitfield of IE & IF), `halt`
 
 No Bus trait. See [CPU bus interface](../decisions/cpu-bus-interface.md).
 
-## State machine shape (planned)
+## State Machine Shape
 
 Lifted from `sm83.zig`:
 
@@ -90,8 +90,9 @@ IF ($FF0F) latches, IE ($FFFF) masks. Dispatch takes 5 m-cycles:
 internal-wait, internal-wait, push-PCH, push-PCL, set-PC-to-vector.
 
 The "HALT bug" (HALT with IME=0 and a pending interrupt causing the
-next opcode to be read twice) is an m-cycle-visible edge case and
-will be implemented per Blargg and mooneye-gb test expectations.
+next opcode to be read twice) is an m-cycle-visible edge case and is
+implemented in the CPU crate, with system-level coverage from Blargg
+and mooneye-gb.
 
 ## Test coverage
 
@@ -108,14 +109,17 @@ will be implemented per Blargg and mooneye-gb test expectations.
   with `--ignored`); the pipelined-model adapter is documented in
   the test file's header comment.
 
-Planned future coverage (system-level, once the rest of the Game
-Boy stack lands):
+System-level coverage now lives in
+`crates/runtime-nintendo-game-boy/tests/phase2_verification.rs`:
 
-- Blargg `cpu_instrs` — full 11-sub-test ROM (overlaps Tennant).
-- Blargg `instr_timing` — m-cycle count per instruction.
-- Blargg `mem_timing` v1 + v2 — bus-access timing.
+- Blargg `cpu_instrs` — full 11-sub-test ROM (overlaps Tennant),
+  passing locally.
+- Blargg `instr_timing` — m-cycle count per instruction, passing
+  locally.
+- Blargg `mem_timing` v1 + v2 — bus-access timing, passing locally.
 - mooneye-gb acceptance suite — IME delay, HALT bug, TIMA-reload
-  behaviour, and other edge cases at m-cycle precision.
+  behaviour, and other edge cases at m-cycle precision, passing
+  locally.
 
 ## Related
 

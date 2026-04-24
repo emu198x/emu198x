@@ -1,14 +1,16 @@
 # Nintendo Game Boy
 
-> Status as of 2026-04-23: **CPU done, the rest of the family is
-> next.** The [Sharp LR35902](../../chips/sharp-lr35902.md) CPU crate
-> is ported and validated against the 49,600-test Adam Tennant
-> single-step corpus. PPU / APU / timer / MBC / cartridge format /
-> machine / runtime are still to come. The port lifts the existing
-> Zig implementation at `~/Projects/Emu198x-Zig/` into the fresh
-> Rust tree under the
-> [within-family layering](../../decisions/within-family-layering.md)
-> shape.
+> Status as of 2026-04-24: **DMG core and runtime are through the
+> Phase 2 gate.** The Rust port now includes CPU, PPU, APU, timer,
+> cartridge format, MBCs, machine integration, runtime integration,
+> skipped-boot profiles for DMG0 / DMG ABC / MGB / SGB / SGB2, and
+> local verification. The ignored Phase 2 harness currently passes
+> Blargg `cpu_instrs`, `instr_timing`, `mem_timing` v1/v2,
+> `dmg-acid2`, and a broad mooneye-gb sweep of 103 ROMs
+> (`acceptance`, `emulator-only/mbc1`, `emulator-only/mbc2`,
+> `emulator-only/mbc5`). CGB, boot-ROM execution, full OAM-DMA
+> non-HRAM bus blocking, persistent battery saves, link cable, and
+> long-tail cartridge hardware remain later work.
 
 Nintendo's 8-bit handheld, released 1989 (DMG) and refreshed 1998
 (CGB). Runs on a Sharp LR35902 system-on-chip CPU — a custom core that
@@ -90,32 +92,33 @@ characterise → port-with-tests → integrate.
    counter ticked at the master clock rate; DIV is the high byte,
    TIMA increments on the falling edge of `(timer_enable AND
    selected_counter_bit)`. Both the DIV-write and TAC-write
-   falling-edge glitches are modelled. Overflow latches a strobe
-   the machine OR's into `IF` bit 2. The 1-m-cycle reload delay
-   that mooneye-gb's `tima_reload` family verifies is deferred
-   (matching the Zig source's TODO) until the rest of the machine
-   layer exists. 17 unit tests passing.
-6. **`nintendo-game-boy-mbc`** — done. ROM-only, MBC1, MBC3, and
+   falling-edge glitches are modelled. Overflow holds TIMA at
+   `$00` for one m-cycle, then reloads from TMA and latches a
+   strobe the machine OR's into `IF` bit 2; the mooneye-gb
+   `tima_reload`, `tima_write_reloading`, and `tma_write_reloading`
+   cases pass. 17 unit tests passing.
+6. **`nintendo-game-boy-mbc`** — done. ROM-only, MBC1, MBC2, MBC3, and
    MBC5 implemented end-to-end. `Cartridge` owns the ROM image and
    external RAM and dispatches reads / writes to the chosen
    `Mbc` enum variant. MBC1 covers the bank-zero-rewrite quirk,
    the 2-bit secondary's dual role (ROM bits 5-6 in mode 0 / RAM
    bank in mode 1), and large-ROM bank-0 windowing in advanced
-   mode. MBC3 handles the 7-bit ROM bank, four RAM banks, and the
-   RTC register snapshot/latch (RTC values aren't advanced yet —
-   the machine layer can drive them when it lands). MBC5 covers
-   the 9-bit bank split (low 8 bits at $2000-$2FFF, bit 9 at
-   $3000-$3FFF), 4-bit RAM bank, and crucially permits bank 0 in
-   the switchable window (no MBC1-style rewrite). 18 tests pass.
-   MBC2 is deferred.
+   mode. MBC2 covers the internal 512×4-bit RAM and address-bit-8
+   RAM-enable / ROM-bank split. MBC3 handles the 7-bit ROM bank,
+   four RAM banks, and the RTC register snapshot/latch; RTC values
+   are modelled as registers but are not yet advanced from wall-clock
+   time. MBC5 covers the 9-bit bank split (low 8 bits at
+   $2000-$2FFF, bit 9 at $3000-$3FFF), 4-bit RAM bank, and
+   crucially permits bank 0 in the switchable window (no MBC1-style
+   rewrite). 18 tests pass.
 7. **`format-nintendo-game-boy-cartridge`** — done. `CartridgeHeader::parse`
    decodes the $0100-$014F header, validates ROM length matches
    the size byte, recomputes the $0134-$014C header checksum, and
    surfaces clear errors for unknown / unsupported mapper bytes
-   (MBC2, MMM01, MBC6/7, Camera, Tama5, HuC1/3 are explicitly
-   refused; MBC1/3/5 + ROM-only are accepted). `load(rom)`
-   convenience builds a fully-loaded `Cartridge` from the
-   `nintendo-game-boy-mbc` crate. 14 tests.
+   (MMM01, MBC6/7, Camera, Tama5, HuC1/3 are explicitly refused;
+   MBC1/2/3/5 + ROM-only are accepted). `load(rom)` convenience
+   builds a fully-loaded `Cartridge` from the `nintendo-game-boy-mbc`
+   crate. 14 tests.
 8. **`machine-nintendo-game-boy`** — done. `GameBoy` composes the
    SM83 + PPU + APU + timer + cartridge + 8 KiB WRAM + 8 KiB VRAM
    + 160 B OAM + 127 B HRAM + IF/IE + joypad + serial. Bus
@@ -126,11 +129,14 @@ characterise → port-with-tests → integrate.
    joypad rising-edge / serial-transfer-complete into IF, then
    services the CPU's pin-level bus and ticks. Serial writes with
    `SC = $81` capture the byte to a buffer (Blargg's reporting
-   channel) and latch the serial IRQ. OAM DMA copies
-   instantaneously; per-mode VRAM/OAM blocking and the boot ROM
-   are deferred. 20 unit tests passing.
+   channel) and latch the serial IRQ on the DIV-derived serial
+   clock. OAM DMA is paced one byte per m-cycle with restart timing;
+   CPU access to OAM/VRAM is blocked during the relevant PPU modes.
+   The remaining DMA gap is full non-HRAM CPU bus blocking during
+   OAM DMA. Boot-ROM execution is still deferred in favour of
+   skipped-boot profiles. 22 unit tests passing.
 9. **`runtime-nintendo-game-boy`** — done. `GameBoyRuntime` wraps
-   the one machine behind `MachineCore`. `load_media` accepts a
+   the DMG-class machine behind `MachineCore`. `load_media` accepts a
    `Cartridge` image at slot `cartridge`, parses it via
    `format-nintendo-game-boy-cartridge`, and rebuilds the machine.
    `run_until` ticks `GameBoy::run_frame` until the requested
@@ -141,26 +147,27 @@ characterise → port-with-tests → integrate.
    snapshot won't deserialise into a DMG runtime once that lands.
    Joypad input maps `a/b/select/start/up/down/left/right` (case-
    insensitive, accepted from either `Key` or `Button` events) to
-   `JoypadButton`. `Model::Dmg` populates the family catalogue;
-   the second model + family-driver lift will arrive together,
-   per [within-family layering](../../decisions/within-family-layering.md).
-   9 tests passing.
+   `JoypadButton`. The family catalogue exposes skipped-boot
+   profiles for DMG0, DMG ABC, MGB, SGB, and SGB2. 13 tests passing.
 
 Phase 1 is complete: 9 of 9 crates landed. The Game Boy now
 boots through the runtime boundary on any header-valid
-ROM-only / MBC1 / MBC3 / MBC5 cartridge.
+ROM-only / MBC1 / MBC2 / MBC3 / MBC5 cartridge.
 
-### Phase 2 — verification
+### Phase 2 — verification (done for current DMG scope)
 
 Acceptance tests, in order:
 
-- Blargg `cpu_instrs` — all 11 sub-tests. Gates opcode
+- Blargg `cpu_instrs` — all 11 sub-tests passing. Gates opcode
   correctness.
-- Blargg `instr_timing` — gates m-cycle counts per instruction.
-- Blargg `mem_timing` (v1 + v2) — gates bus-access timing.
-- mooneye-gb `acceptance/` — hardware-behaviour tests at
-  m-cycle precision.
-- `dmg-acid2.gb` — PPU rendering smoke test.
+- Blargg `instr_timing` — passing. Gates m-cycle counts per
+  instruction.
+- Blargg `mem_timing` (v1 + v2) — passing. Gates bus-access timing.
+- mooneye-gb `acceptance/` — passing locally at m-cycle precision.
+- mooneye-gb broad sweep — 103/103 passing locally across
+  `acceptance`, `emulator-only/mbc1`, `emulator-only/mbc2`, and
+  `emulator-only/mbc5`.
+- `dmg-acid2.gb` — passing as a non-trivial PPU rendering smoke test.
 
 The verification harness lives at
 `crates/runtime-nintendo-game-boy/tests/phase2_verification.rs`.
@@ -172,9 +179,9 @@ It is `#[ignore]`'d by default and reads local corpora from:
 
 ### Phase 3 — CGB (later)
 
-When DMG is green across all four Blargg tests and the
-mooneye acceptance suite, the second machine arrives. That's
-the trigger for the family-driver lift called out in
+DMG is now green across the planned Phase 2 gate. The next major
+family step is CGB. That's the trigger for the family-driver lift
+called out in
 [within-family layering](../../decisions/within-family-layering.md):
 extract a `GameBoyDriver` trait, extract `GameBoyMachine`, make
 the runtime generic, add a `GameBoyCgbRuntime` type alias.
