@@ -5,14 +5,14 @@
 > `emu198x-game-boy` now provide minimal native verifier windows for the two
 > cartridge-first systems. `emu198x-amiga` now provides a native verifier
 > window with A500/A1000 firmware loading, DF0 media insertion, keyboard/mouse
-> input, reset, and live Paula audio. The script runners provide headless
+> input, port-1 joystick/gamepad input, reset, and live Paula audio. The script runners provide headless
 > launch paths for Spectrum, C64, NES, Amiga, and Game Boy. Spectrum currently
 > covers windowed video, keyboard input, tape control, launch-time autoload,
 > live audio, and cycle-faithful tape turbo; C64 currently covers windowed
 > video, keyboard input, startup snapshot/program import, tape insertion,
 > live tape start/stop, launch-time tape autoload, cycle-faithful tape turbo,
 > reset, live mono audio, physical gamepad input, and an optional host-key
-> joystick mode for C64 port 2. NES and Game Boy native windows now also use
+> joystick mode for C64 port 2. NES, Game Boy, and Amiga native windows now also use
 > the shared live host-audio path and physical gamepad input. Native host audio setup and conversion are
 > shared through `emu198x-shell`; matching stereo packets stay stereo, and
 > per-chip/per-channel mute or gain remains a system-native mixer concern.

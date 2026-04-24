@@ -155,6 +155,41 @@ fn joydat(x: u8, y: u8) -> u16 {
     (u16::from(y) << 8) | u16::from(x)
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct JoystickState {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    fire: bool,
+}
+
+impl JoystickState {
+    fn set_control(&mut self, name: &str, pressed: bool) -> bool {
+        match name.to_ascii_lowercase().as_str() {
+            "up" => self.up = pressed,
+            "down" => self.down = pressed,
+            "left" => self.left = pressed,
+            "right" => self.right = pressed,
+            "fire" | "button" | "button1" => self.fire = pressed,
+            _ => return false,
+        }
+        true
+    }
+
+    fn x_bits(self) -> u8 {
+        let left = self.left && !self.right;
+        let right = self.right && !self.left;
+        u8::from(left ^ right) | (u8::from(right) << 1)
+    }
+
+    fn y_bits(self) -> u8 {
+        let up = self.up && !self.down;
+        let down = self.down && !self.up;
+        u8::from(up ^ down) | (u8::from(down) << 1)
+    }
+}
+
 /// Decode CIA-B PRB (active-low) into DF0 control booleans for the
 /// drive's `update_control(step, dir_inward, side_upper, sel, motor)`
 /// signature.
@@ -271,6 +306,8 @@ pub struct AmigaOcs {
     /// Active-low left mouse/fire buttons sampled through CIA-A PRA.
     port0_left_button_pressed: bool,
     port1_left_button_pressed: bool,
+    /// Digital joystick state for controller port 1.
+    joystick1: JoystickState,
     agnus: Agnus,
     copper: Copper,
     denise: Denise,
@@ -512,6 +549,7 @@ impl AmigaOcs {
             joy1_y: 0,
             port0_left_button_pressed: false,
             port1_left_button_pressed: false,
+            joystick1: JoystickState::default(),
             agnus: Agnus::new(),
             copper: Copper::new(),
             denise: Denise::new(),
@@ -734,6 +772,21 @@ impl AmigaOcs {
                 .set_pot_pin_level(POTGOR_BTN_PORT0_MIDDLE, !pressed),
             _ => {}
         }
+    }
+
+    /// Set one emulated digital joystick control for controller port 1.
+    ///
+    /// Returns `false` when the port or control name is unknown. Port 0
+    /// remains reserved for the mouse in the current native verifier path.
+    pub fn set_joystick_control(&mut self, port: u8, name: &str, pressed: bool) -> bool {
+        if port != 1 || !self.joystick1.set_control(name, pressed) {
+            return false;
+        }
+        self.port1_left_button_pressed = self.joystick1.fire;
+        self.joy1_x = (self.joy1_x & 0xFC) | self.joystick1.x_bits();
+        self.joy1_y = (self.joy1_y & 0xFC) | self.joystick1.y_bits();
+        self.refresh_cia_a_external_inputs();
+        true
     }
 
     /// Read-only keyboard controller access — useful for tests

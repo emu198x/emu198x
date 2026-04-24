@@ -20,6 +20,20 @@ that same joystick path.
 
 ---
 
+## 2026-04-24 — Amiga native shell gains port-1 joystick input
+
+**Type:** feature
+**Trigger:** The Amiga native verifier had keyboard, mouse, and live
+Paula audio, but most games need joystick input on controller port 1.
+**Result:** `machine-commodore-amiga-ocs` now models a digital
+joystick on port 1, driving `JOY1DAT` direction bits and active-low
+CIA-A `FIR1` fire. `runtime-commodore-amiga` routes
+`InputEvent::Button` into that hardware path, and `emu198x-amiga`
+maps physical gamepads plus an optional host-only `Page Up`
+arrow/space mode to the same port-1 joystick events.
+
+---
+
 ## 2026-04-24 — Native shells gain host-side audio controls across current systems
 
 **Type:** feature

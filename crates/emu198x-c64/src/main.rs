@@ -1435,7 +1435,10 @@ mod tests {
 
     #[test]
     fn joystick_key_map_is_host_only_and_does_not_steal_f8() {
-        assert_eq!(map_c64_joystick_key(KeyCode::ArrowLeft), Some(HostControl::Left));
+        assert_eq!(
+            map_c64_joystick_key(KeyCode::ArrowLeft),
+            Some(HostControl::Left)
+        );
         assert_eq!(
             map_c64_joystick_key(KeyCode::Space),
             Some(HostControl::South)

@@ -627,6 +627,13 @@ fn apply_input_event(machine: &mut AmigaOcs, event: &InputEvent) {
         } if device.as_ref() == "mouse-1" => {
             machine.set_mouse_button_port0(button.as_ref(), *pressed);
         }
+        InputEvent::Button {
+            port,
+            name,
+            pressed,
+        } => {
+            let _ = machine.set_joystick_control(*port, name.as_ref(), *pressed);
+        }
         _ => {}
     }
 }
@@ -886,6 +893,40 @@ mod tests {
 
         assert_eq!(runtime.machine().read_word(0x00DF_F00A), 0x0403);
         assert_eq!(runtime.machine().read_word(0x00BF_E001) & 0x80, 0);
+    }
+
+    #[test]
+    fn run_until_applies_joystick_input_to_controller_port_one() {
+        let mut runtime =
+            AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        let input_events = [
+            InputEvent::Button {
+                port: 1,
+                name: "right".into(),
+                pressed: true,
+            },
+            InputEvent::Button {
+                port: 1,
+                name: "fire".into(),
+                pressed: true,
+            },
+        ];
+        let mut frame_sink = NullFrameSink;
+        let mut audio_sink = AudioCollector::default();
+        let mut trace_sink = NullTraceSink;
+        let mut host = HostIo {
+            input_events: &input_events,
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+
+        runtime
+            .run_until(MachineTime::new(A500_PAL_FRAME_TICKS), &mut host)
+            .expect("one frame should run");
+
+        assert_eq!(runtime.machine().read_word(0x00DF_F00C) & 0x0003, 0x0003);
+        assert_eq!(runtime.machine().read_word(0x00BF_E001) & 0x40, 0);
     }
 
     #[test]

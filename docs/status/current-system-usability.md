@@ -11,7 +11,7 @@ with it, and the shortest path to making it comfortable to use.
 | ZX Spectrum | `emu198x-spectrum`, `emu198x-script-spectrum` | Best current interactive path. Windowed video, keyboard, audio, tape loading/autoload, snapshots through the shared runtime. | Tighten model/media defaults and keep expanding verification for non-48K variants. |
 | Commodore 64 | `emu198x-c64`, `emu198x-script-c64` | Interactive verifier shell with keyboard, video, audio, PRG/BAS/T64 import, TAP autoload, optional 1541/`D64` path, physical gamepad input, and host-key joystick mode for port 2. | Make drive/tape workflows less flag-heavy and broaden software proofs. |
 | Nintendo NES | `emu198x-nes`, `emu198x-script-nes` | Native NROM verifier window plus headless cartridge runner with screenshots, live audio/audio capture, keyboard/gamepad controller input, scripts, and NROM proof via `nestest`/`Super Mario Bros.`. | Add the next mapper needed by real software. |
-| Commodore Amiga | `emu198x-amiga`, `emu198x-script-amiga` | Native OCS verifier window with keyboard/mouse input and live Paula audio, plus headless Kickstart/Workbench runner with A1000 and A500-family profiles, DF0 `ADF`, screenshots, audio capture, and scripted input. | Add joystick input and broaden software validation. |
+| Commodore Amiga | `emu198x-amiga`, `emu198x-script-amiga` | Native OCS verifier window with keyboard/mouse input, port-1 joystick/gamepad input, and live Paula audio, plus headless Kickstart/Workbench runner with A1000 and A500-family profiles, DF0 `ADF`, screenshots, audio capture, and scripted input. | Broaden game/application software validation. |
 | Nintendo Game Boy | `emu198x-game-boy`, `emu198x-script-game-boy` | Native DMG-family verifier window plus headless cartridge runner with screenshots, live audio/audio capture, keyboard/gamepad joypad input, scripts, and snapshots. | Add persistent battery-save writeback. |
 
 ## Launch Commands
@@ -57,7 +57,7 @@ The fastest route to "I can actually use every emulator" is:
 
 1. Keep Spectrum and C64 as the first interactive shells and remove obvious launch friction.
 2. Keep the new Game Boy and NES native verifier windows honest with real-ROM smoke runs before expanding their hardware scope.
-3. Add Amiga joystick input and broaden software validation now that the native shell has mouse and live audio.
+3. Broaden Amiga software validation now that the native shell has mouse, joystick, and live audio.
 4. Build a small cross-system verification matrix from these exact launch paths so usability work does not regress accuracy.
 
 ## Verification Rule

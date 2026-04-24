@@ -489,6 +489,43 @@ fn mouse_buttons_drive_cia_and_potgor_inputs() {
 }
 
 #[test]
+fn joystick_port1_drives_joy1dat_and_cia_fire() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+
+    assert!(amiga.set_joystick_control(1, "right", true));
+    assert_eq!(
+        amiga.read_word(0x00DF_F00C) & 0x0003,
+        0x0003,
+        "right sets JOY1DAT horizontal low bits per Amiga joystick encoding"
+    );
+
+    assert!(amiga.set_joystick_control(1, "right", false));
+    assert!(amiga.set_joystick_control(1, "left", true));
+    assert_eq!(
+        amiga.read_word(0x00DF_F00C) & 0x0003,
+        0x0001,
+        "left sets only the horizontal xor bit"
+    );
+
+    assert!(amiga.set_joystick_control(1, "left", false));
+    assert!(amiga.set_joystick_control(1, "down", true));
+    assert_eq!(
+        amiga.read_word(0x00DF_F00C) & 0x0300,
+        0x0300,
+        "down sets JOY1DAT vertical low bits per Amiga joystick encoding"
+    );
+
+    assert!(amiga.set_joystick_control(1, "fire", true));
+    assert_eq!(
+        amiga.read_word(0x00BF_E001) & 0x40,
+        0,
+        "port-1 fire is active-low on CIA-A FIR1"
+    );
+    assert!(amiga.set_joystick_control(1, "fire", false));
+    assert_ne!(amiga.read_word(0x00BF_E001) & 0x40, 0);
+}
+
+#[test]
 fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
     // With ADKCON.FAST set, the chip delivers the next byte 14 CCKs
     // after a word arrives. The machine's tick loop ticks Paula's

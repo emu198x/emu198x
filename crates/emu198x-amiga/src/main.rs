@@ -7,9 +7,10 @@ use std::process;
 use std::time::{Duration, Instant};
 
 use emu198x_shell::{
-    CapturedFrame, FirmwareImage, FirmwareSet, HostIo, InputEvent, LatestFrameCapture, MachineCore,
-    MachineError, MediaImage, MediaKind, MediaSet, NativeAudioError, NativeAudioOutput,
-    NullTraceSink, PixelFormat, ResetKind, RunResult, read_firmware_asset, read_media_asset,
+    ButtonInputMap, ButtonTarget, CapturedFrame, FirmwareImage, FirmwareSet, HostControl, HostIo,
+    InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
+    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat, ResetKind,
+    RunResult, read_firmware_asset, read_media_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_amiga::{
@@ -33,6 +34,16 @@ const INPUT_SLICES_PER_FRAME: u32 = 4;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
 const WINDOW_TITLE: &str = "Emu198x Amiga";
+const AMIGA_JOYSTICK_MAP: ButtonInputMap = ButtonInputMap::new(&[
+    (HostControl::Up, ButtonTarget::new(1, "up")),
+    (HostControl::Down, ButtonTarget::new(1, "down")),
+    (HostControl::Left, ButtonTarget::new(1, "left")),
+    (HostControl::Right, ButtonTarget::new(1, "right")),
+    (HostControl::South, ButtonTarget::new(1, "fire")),
+    (HostControl::East, ButtonTarget::new(1, "fire")),
+    (HostControl::West, ButtonTarget::new(1, "fire")),
+    (HostControl::North, ButtonTarget::new(1, "fire")),
+]);
 
 const USAGE: &str = "\
 Usage: emu198x-amiga [OPTIONS]
@@ -52,6 +63,8 @@ Controls:
     Numpad 5-8           cycle Paula channel 0-3 gain
     Numpad 0             reset Paula channel controls
     Mouse                port-0 Amiga mouse
+    Gamepad              port-1 Amiga joystick
+    Page Up              toggle arrow/space joystick mode for port 1
     A-Z, 0-9             Amiga keyboard
     Space, Enter, Tab    Amiga keyboard
     Backspace            Amiga keyboard
@@ -236,8 +249,11 @@ struct AmigaApp {
     next_slice_at: Instant,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, &'static str>,
+    pressed_buttons: HashMap<KeyCode, HostControl>,
     pressed_mouse_buttons: HashMap<MouseButton, &'static str>,
     last_cursor_position: Option<(f64, f64)>,
+    keyboard_joystick: bool,
+    gamepads: NativeGamepadInput,
     window: Option<std::sync::Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     fatal_error: Option<AppError>,
@@ -257,8 +273,11 @@ impl AmigaApp {
             next_slice_at: Instant::now(),
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
+            pressed_buttons: HashMap::new(),
             pressed_mouse_buttons: HashMap::new(),
             last_cursor_position: None,
+            keyboard_joystick: false,
+            gamepads: NativeGamepadInput::new(),
             window: None,
             pixels: None,
             fatal_error: None,
@@ -283,7 +302,7 @@ impl AmigaApp {
         let logical_width = f64::from(DISPLAY_WIDTH.saturating_mul(self.scale));
         let logical_height = f64::from(DISPLAY_HEIGHT.saturating_mul(self.scale));
         let attributes = WindowAttributes::default()
-            .with_title(WINDOW_TITLE)
+            .with_title(self.window_title())
             .with_inner_size(LogicalSize::new(logical_width, logical_height))
             .with_min_inner_size(LogicalSize::new(
                 f64::from(DISPLAY_WIDTH),
@@ -304,7 +323,18 @@ impl AmigaApp {
         self.window.as_ref().map(|window| window.id())
     }
 
+    fn window_title(&self) -> String {
+        let mut title = WINDOW_TITLE.to_owned();
+        if self.keyboard_joystick {
+            title.push_str(" | joy1 keys");
+        }
+        title
+    }
+
     fn advance_machine(&mut self) -> Result<bool, AppError> {
+        self.gamepads
+            .drain_events(&AMIGA_JOYSTICK_MAP, &mut self.pending_inputs);
+
         let now = Instant::now();
         if now < self.next_slice_at {
             return Ok(false);
@@ -348,6 +378,10 @@ impl AmigaApp {
     }
 
     fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
+        if self.keyboard_joystick && self.queue_joystick_key_state(code, pressed) {
+            return;
+        }
+
         let Some(name) = map_amiga_key(code) else {
             return;
         };
@@ -363,6 +397,37 @@ impl AmigaApp {
             self.pending_inputs.push(key_event(name, false));
             self.next_slice_at = Instant::now();
         }
+    }
+
+    fn queue_joystick_key_state(&mut self, code: KeyCode, pressed: bool) -> bool {
+        let Some(control) = map_amiga_joystick_key(code) else {
+            return false;
+        };
+
+        if pressed {
+            if self.pressed_buttons.contains_key(&code) {
+                return true;
+            }
+            self.pressed_buttons.insert(code, control);
+            if let Some(input) = AMIGA_JOYSTICK_MAP.event(control, true) {
+                self.pending_inputs.push(input);
+            }
+        } else if let Some(control) = self.pressed_buttons.remove(&code)
+            && let Some(input) = AMIGA_JOYSTICK_MAP.event(control, false)
+        {
+            self.pending_inputs.push(input);
+        }
+        self.next_slice_at = Instant::now();
+        true
+    }
+
+    fn set_keyboard_joystick(&mut self, enabled: bool) {
+        if self.keyboard_joystick == enabled {
+            return;
+        }
+        self.release_all_inputs();
+        self.keyboard_joystick = enabled;
+        self.next_slice_at = Instant::now();
     }
 
     fn queue_mouse_motion(&mut self, x: f64, y: f64) {
@@ -416,17 +481,35 @@ impl AmigaApp {
         }
     }
 
+    fn release_all_inputs(&mut self) {
+        self.release_all_keys();
+        self.release_all_buttons();
+        self.release_all_mouse_buttons();
+        self.last_cursor_position = None;
+        self.next_slice_at = Instant::now();
+    }
+
     fn release_all_keys(&mut self) {
         let keys = std::mem::take(&mut self.pressed_keys);
         for name in keys.into_values() {
             self.pending_inputs.push(key_event(name, false));
         }
+    }
+
+    fn release_all_buttons(&mut self) {
+        let buttons = std::mem::take(&mut self.pressed_buttons);
+        for control in buttons.into_values() {
+            if let Some(input) = AMIGA_JOYSTICK_MAP.event(control, false) {
+                self.pending_inputs.push(input);
+            }
+        }
+    }
+
+    fn release_all_mouse_buttons(&mut self) {
         let buttons = std::mem::take(&mut self.pressed_mouse_buttons);
         for name in buttons.into_values() {
             self.pending_inputs.push(pointer_button_event(name, false));
         }
-        self.last_cursor_position = None;
-        self.next_slice_at = Instant::now();
     }
 
     fn handle_shortcut(
@@ -440,6 +523,7 @@ impl AmigaApp {
                 code,
                 KeyCode::Escape
                     | KeyCode::F12
+                    | KeyCode::PageUp
                     | KeyCode::Numpad0
                     | KeyCode::Numpad1
                     | KeyCode::Numpad2
@@ -458,9 +542,25 @@ impl AmigaApp {
                 true
             }
             KeyCode::F12 => {
-                self.release_all_keys();
+                self.release_all_inputs();
                 if let Err(err) = self.runner.reset() {
                     self.fail(event_loop, err);
+                }
+                true
+            }
+            KeyCode::PageUp => {
+                self.set_keyboard_joystick(!self.keyboard_joystick);
+                eprintln!(
+                    "input: keyboard joystick {}",
+                    if self.keyboard_joystick {
+                        "enabled on port 1"
+                    } else {
+                        "disabled"
+                    }
+                );
+                if let Some(window) = &self.window {
+                    window.set_title(&self.window_title());
+                    window.request_redraw();
                 }
                 true
             }
@@ -517,7 +617,7 @@ impl ApplicationHandler for AmigaApp {
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Focused(false) => self.release_all_keys(),
+            WindowEvent::Focused(false) => self.release_all_inputs(),
             WindowEvent::Resized(size) => {
                 if let Err(err) = self.resize_surface(size.width, size.height) {
                     self.fail(event_loop, err);
@@ -586,7 +686,7 @@ fn main() {
 
 fn run(cli: Cli) -> Result<(), AppError> {
     println!(
-        "Controls: Esc quit, F12 reset, mouse port 0, A-Z/0-9/Space/Enter/Tab/Backspace keyboard, numpad 1-4 toggle Paula channels, numpad 5-8 cycle channel gain, numpad 0 reset audio."
+        "Controls: Esc quit, F12 reset, mouse port 0, gamepad joystick port 1, Page Up toggles joy1 arrows/space, A-Z/0-9/Space/Enter/Tab/Backspace keyboard, numpad 1-4 toggle Paula channels, numpad 5-8 cycle channel gain, numpad 0 reset audio."
     );
 
     let runner = AmigaRunner::from_cli(&cli)?;
@@ -777,6 +877,17 @@ fn pointer_button_event(name: &'static str, pressed: bool) -> InputEvent {
     }
 }
 
+fn map_amiga_joystick_key(code: KeyCode) -> Option<HostControl> {
+    Some(match code {
+        KeyCode::ArrowUp => HostControl::Up,
+        KeyCode::ArrowDown => HostControl::Down,
+        KeyCode::ArrowLeft => HostControl::Left,
+        KeyCode::ArrowRight => HostControl::Right,
+        KeyCode::Space => HostControl::South,
+        _ => return None,
+    })
+}
+
 fn round_f64_to_i32(value: f64) -> i32 {
     if value.is_nan() {
         0
@@ -905,6 +1016,19 @@ mod tests {
         assert_eq!(map_mouse_button(MouseButton::Right), Some("right"));
         assert_eq!(map_mouse_button(MouseButton::Middle), Some("middle"));
         assert_eq!(map_mouse_button(MouseButton::Other(1)), None);
+    }
+
+    #[test]
+    fn maps_host_keys_to_joystick_mode_controls() {
+        assert_eq!(
+            map_amiga_joystick_key(KeyCode::ArrowUp),
+            Some(HostControl::Up)
+        );
+        assert_eq!(
+            map_amiga_joystick_key(KeyCode::Space),
+            Some(HostControl::South)
+        );
+        assert_eq!(map_amiga_key(KeyCode::PageUp), None);
     }
 
     #[test]
