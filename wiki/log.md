@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Native Amiga verifier window added
+
+**Type:** feature
+**Trigger:** With Kickstart/Workbench video and Paula-backed headless
+audio in place, the largest Amiga usability gap was that the only
+fresh-workspace launch path was still headless capture.
+**Result:** Added `emu198x-amiga`, a minimal native OCS verifier shell
+over `runtime-commodore-amiga`. It supports A1000/A500-family model
+selection, ROM directory or explicit firmware loading, optional DF0
+`ADF` insertion, windowed `pixels`/`winit` video, basic keyboard
+input, and hard reset. Mouse/joystick input and live native audio
+remain the next usability work.
+
+---
+
 ## 2026-04-24 — Amiga runtime drains Paula audio
 
 **Type:** feature
