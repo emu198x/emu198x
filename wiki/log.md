@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Native verifier windows added for Game Boy and NES
+
+**Type:** feature
+**Trigger:** After adding the Game Boy headless runner, the next
+usability gap was that NES and Game Boy still lacked windowed native
+launch paths.
+**Result:** Added `emu198x-game-boy` and `emu198x-nes`. Both are
+minimal native verifier shells over the existing runtimes: ROM load,
+windowed video through `pixels`/`winit`, controller/joypad keyboard
+mapping, hard reset, and integer scaling. Live native audio is
+deliberately left for a later pass so Amiga Paula runtime audio can
+remain the next explicit audio task.
+
+---
+
 ## 2026-04-24 — Game Boy headless runner added for current-system usability
 
 **Type:** feature

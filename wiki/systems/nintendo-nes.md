@@ -4,8 +4,10 @@
 > The current system boots NROM cartridges through the shared
 > `MachineCore` boundary, passes the full `nestest` instruction-log
 > proof, renders `Super Mario Bros.`, and emits RGBA frames plus mono
-> audio through `emu198x-script-nes`. Mapper support remains limited
-> to NROM; snapshots and DMC DMA cycle stealing are still pending.
+> audio through `emu198x-script-nes`. `emu198x-nes` now provides a
+> minimal native verifier window for NROM cartridges with controller
+> input and reset. Mapper support remains limited to NROM; snapshots,
+> native-shell audio, and DMC DMA cycle stealing are still pending.
 
 ## Implementation status
 
@@ -17,6 +19,7 @@
 | APU | `ricoh-apu-2a03` | 21 | Ported and wired into the machine |
 | Machine wiring | `machine-nintendo-nes` | 12 + `nestest` | Tick loop + OAMDMA + controller I/O |
 | Runtime | `runtime-nintendo-nes` | 6 | Fresh `MachineCore` runtime over the machine crate |
+| Native shell | `emu198x-nes` | 2 | Minimal verifier window for NROM cartridges, controller input, reset |
 | Headless runner | `emu198x-script-nes` | 3 | Cartridge boot, screenshots, audio capture, scripted input |
 
 ### What works

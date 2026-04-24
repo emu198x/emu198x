@@ -8,9 +8,10 @@
 > Blargg `cpu_instrs`, `instr_timing`, `mem_timing` v1/v2,
 > `dmg-acid2`, and a broad mooneye-gb sweep of 103 ROMs
 > (`acceptance`, `emulator-only/mbc1`, `emulator-only/mbc2`,
-> `emulator-only/mbc5`). `emu198x-script-game-boy` now exposes the
-> runtime as a headless cartridge runner with screenshots, audio
-> capture, shared scripts, and snapshots. CGB, boot-ROM execution,
+> `emulator-only/mbc5`). `emu198x-game-boy` provides a minimal native
+> verifier window, and `emu198x-script-game-boy` exposes the runtime
+> as a headless cartridge runner with screenshots, audio capture,
+> shared scripts, and snapshots. CGB, boot-ROM execution,
 > full OAM-DMA non-HRAM bus blocking, persistent battery saves, link
 > cable, native UI, and long-tail cartridge hardware remain later work.
 

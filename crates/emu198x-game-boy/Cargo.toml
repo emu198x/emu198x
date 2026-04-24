@@ -1,0 +1,17 @@
+[package]
+name = "emu198x-game-boy"
+description = "Minimal native Game Boy verifier shell"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy" }
+emu198x-shell = { path = "../emu198x-shell" }
+pixels.workspace = true
+runtime-nintendo-game-boy = { path = "../runtime-nintendo-game-boy" }
+thiserror.workspace = true
+winit.workspace = true
+
+[lints]
+workspace = true

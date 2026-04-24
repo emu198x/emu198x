@@ -10,9 +10,9 @@ with it, and the shortest path to making it comfortable to use.
 |--------|---------------------|----------------------|---------------------|
 | ZX Spectrum | `emu198x-spectrum`, `emu198x-script-spectrum` | Best current interactive path. Windowed video, keyboard, audio, tape loading/autoload, snapshots through the shared runtime. | Tighten model/media defaults and keep expanding verification for non-48K variants. |
 | Commodore 64 | `emu198x-c64`, `emu198x-script-c64` | Interactive verifier shell with keyboard, video, audio, PRG/BAS/T64 import, TAP autoload, and optional 1541/`D64` path. | Make drive/tape workflows less flag-heavy and broaden software proofs. |
-| Nintendo NES | `emu198x-script-nes` | Headless cartridge runner with screenshots, audio capture, scripts, and NROM proof via `nestest`/`Super Mario Bros.`. | Add a native `emu198x-nes` window and the next mapper needed by real software. |
+| Nintendo NES | `emu198x-nes`, `emu198x-script-nes` | Native NROM verifier window plus headless cartridge runner with screenshots, audio capture, scripts, and NROM proof via `nestest`/`Super Mario Bros.`. | Add live audio to the native shell and the next mapper needed by real software. |
 | Commodore Amiga | `emu198x-script-amiga` | Headless Kickstart/Workbench runner with A1000 and A500-family profiles, DF0 `ADF`, screenshots, and scripted input. | Drain Paula audio into the runtime, then add a native window/input shell. |
-| Nintendo Game Boy | `emu198x-script-game-boy` | Headless cartridge runner with skipped-boot DMG-family profiles, screenshots, audio capture, scripts, and snapshots. | Add a native `emu198x-game-boy` window and persistent battery-save writeback. |
+| Nintendo Game Boy | `emu198x-game-boy`, `emu198x-script-game-boy` | Native DMG-family verifier window plus headless cartridge runner with screenshots, audio capture, scripts, and snapshots. | Add live audio to the native shell and persistent battery-save writeback. |
 
 ## Launch Commands
 
@@ -32,6 +32,10 @@ cargo run --release -p emu198x-script-nes -- --rom game.nes --frames 300 --scree
 ```
 
 ```sh
+cargo run --release -p emu198x-nes -- game.nes
+```
+
+```sh
 cargo run --release -p emu198x-script-amiga -- --model a500-a501 --kickstart ~/.emu198x/roms/commodore-amiga/kick13.rom --disk workbench13.adf --frames 2500 --screenshot amiga.png
 ```
 
@@ -39,12 +43,16 @@ cargo run --release -p emu198x-script-amiga -- --model a500-a501 --kickstart ~/.
 cargo run --release -p emu198x-script-game-boy -- --rom game.gb --frames 300 --screenshot gameboy.png
 ```
 
+```sh
+cargo run --release -p emu198x-game-boy -- game.gb
+```
+
 ## Immediate Product Track
 
 The fastest route to "I can actually use every emulator" is:
 
 1. Keep Spectrum and C64 as the first interactive shells and remove obvious launch friction.
-2. Add native windows for Game Boy and NES before expanding their hardware scope.
+2. Keep the new Game Boy and NES native verifier windows honest with real-ROM smoke runs before expanding their hardware scope.
 3. Fix Amiga runtime audio before building the native Amiga shell, because silent Workbench is a poor user experience even if video is correct.
 4. Build a small cross-system verification matrix from these exact launch paths so usability work does not regress accuracy.
 
