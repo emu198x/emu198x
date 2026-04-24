@@ -12,7 +12,7 @@ use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use emu198x_shell::{
     AudioPacket, AudioSink, CapturedFrame, FirmwareImage, FirmwareSet, HostIo, InputEvent,
     LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet, NullTraceSink,
-    PixelFormat, ResetKind, RunResult, read_firmware_asset, read_media_asset,
+    PixelFormat, ResetKind, RunResult, convert_audio_packet, read_firmware_asset, read_media_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_amiga::{
@@ -350,70 +350,6 @@ where
         let sample = shared.samples.pop_front().unwrap_or(0.0);
         *slot = T::from_sample(sample);
     }
-}
-
-fn convert_audio_packet(
-    samples: &[f32],
-    source_rate: u32,
-    source_channels: u8,
-    output_rate: u32,
-    output_channels: u16,
-) -> Vec<f32> {
-    if samples.is_empty() || source_rate == 0 || output_rate == 0 || output_channels == 0 {
-        return Vec::new();
-    }
-
-    let mono = interleaved_to_mono(samples, source_channels);
-    let frames_out = if source_rate == output_rate {
-        mono.len()
-    } else {
-        usize::try_from(
-            (mono.len() as u64 * u64::from(output_rate)).div_ceil(u64::from(source_rate)),
-        )
-        .unwrap_or(usize::MAX)
-    };
-    let channel_count = usize::from(output_channels);
-    let mut converted = Vec::with_capacity(frames_out.saturating_mul(channel_count));
-
-    if source_rate == output_rate {
-        for &sample in &mono {
-            for _ in 0..channel_count {
-                converted.push(sample);
-            }
-        }
-        return converted;
-    }
-
-    let step = f64::from(source_rate) / f64::from(output_rate);
-    let last = mono.len().saturating_sub(1);
-
-    for frame in 0..frames_out {
-        let position = frame as f64 * step;
-        let index = position.floor() as usize;
-        let frac = (position - index as f64) as f32;
-        let a = mono[index.min(last)];
-        let b = mono[(index + 1).min(last)];
-        let sample = a + (b - a) * frac;
-        for _ in 0..channel_count {
-            converted.push(sample);
-        }
-    }
-
-    converted
-}
-
-fn interleaved_to_mono(samples: &[f32], channels: u8) -> Vec<f32> {
-    let channel_count = usize::from(channels.max(1));
-    if channel_count == 1 {
-        return samples.to_vec();
-    }
-
-    let mut mono = Vec::with_capacity(samples.len().div_ceil(channel_count));
-    for frame in samples.chunks(channel_count) {
-        let sum: f32 = frame.iter().copied().sum();
-        mono.push(sum / frame.len() as f32);
-    }
-    mono
 }
 
 struct AmigaApp {
@@ -1039,20 +975,6 @@ mod tests {
         assert_eq!(map_mouse_button(MouseButton::Right), Some("right"));
         assert_eq!(map_mouse_button(MouseButton::Middle), Some("middle"));
         assert_eq!(map_mouse_button(MouseButton::Other(1)), None);
-    }
-
-    #[test]
-    fn audio_conversion_downmixes_stereo_at_same_rate() {
-        let converted = convert_audio_packet(&[0.25, -0.5, 0.75, -1.0], 48_000, 2, 48_000, 2);
-
-        assert_eq!(converted, vec![-0.125, -0.125, -0.125, -0.125]);
-    }
-
-    #[test]
-    fn audio_conversion_resamples_to_output_rate() {
-        let converted = convert_audio_packet(&[0.0, 0.0, 1.0, 1.0], 2, 2, 4, 1);
-
-        assert_eq!(converted, vec![0.0, 0.5, 1.0, 1.0]);
     }
 
     #[test]

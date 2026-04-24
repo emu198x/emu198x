@@ -3,14 +3,16 @@
 > **Mixed status.** `emu198x-spectrum` and `emu198x-c64` now exist as minimal
 > native verifier shells over the fresh-workspace runtimes. `emu198x-nes` and
 > `emu198x-game-boy` now provide minimal native verifier windows for the two
-> cartridge-first systems. `emu198x-script-nes`, `emu198x-script-amiga`, and
-> `emu198x-script-game-boy` provide headless launch paths for the other current
-> families. Spectrum currently
+> cartridge-first systems. `emu198x-amiga` now provides a native verifier
+> window with A500/A1000 firmware loading, DF0 media insertion, keyboard/mouse
+> input, reset, and live Paula audio. The script runners provide headless
+> launch paths for Spectrum, C64, NES, Amiga, and Game Boy. Spectrum currently
 > covers windowed video, keyboard input, tape control, launch-time autoload,
 > live audio, and cycle-faithful tape turbo; C64 currently covers windowed
 > video, keyboard input, startup snapshot/program import, tape insertion,
 > live tape start/stop, launch-time tape autoload, cycle-faithful tape turbo,
-> reset, and live mono audio.
+> reset, and live mono audio. Native host audio conversion is shared through
+> `emu198x-shell` and preserves stereo packets when the host output is stereo.
 > All native shells are still verifier tools rather than polished end-user frontends;
 > input remains a little soft subjectively even after sub-frame host stepping.
 > Everything else in this document remains design intent: launcher screens,
@@ -27,10 +29,9 @@ The intended shape is still one **separate binary per system**:
 - `emu198x-amiga`
 - `emu198x-game-boy`
 
-Today `emu198x-spectrum`, `emu198x-c64`, `emu198x-nes`, and
-`emu198x-game-boy` are real, and all are still at verifier-shell scope.
-Amiga currently has a headless script runner but no native windowed shell. The
-full target for each binary is:
+Today `emu198x-spectrum`, `emu198x-c64`, `emu198x-nes`, `emu198x-amiga`,
+and `emu198x-game-boy` are real, and all are still at verifier-shell scope.
+The full target for each binary is:
 
 - System launcher with variant/option selection
 - Visual media controls (tape deck, disk drive)

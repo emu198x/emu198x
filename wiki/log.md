@@ -4,6 +4,22 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Native audio conversion preserves stereo
+
+**Type:** refactor
+**Trigger:** The Amiga native shell could play Paula audio, but the
+host conversion path downmixed every machine packet to mono before
+duplicating it across the output device. That would erase stereo
+placement for Amiga and upcoming stereo systems.
+**Result:** Added shared `emu198x-shell` host audio conversion used by
+the Amiga, Spectrum, and C64 native verifier shells. It preserves
+matching channel layouts, duplicates mono packets to multi-channel
+host output, averages only when the host has fewer channels than the
+machine packet, and silence-fills extra host channels for non-mono
+sources.
+
+---
+
 ## 2026-04-24 — Amiga native shell plays live Paula audio
 
 **Type:** feature

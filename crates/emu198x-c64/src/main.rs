@@ -22,7 +22,8 @@ use emu198x_shell::{
     FirmwareSet, HeadlessSession, HostIo, InputEvent, LatestFrameCapture, MachineCore,
     MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
     NullTraceSink, PixelFormat, QueryError, QueryResult, ResetKind, RunResult,
-    SessionQueryProvider, boot_machine, read_firmware_asset, read_media_asset, read_program_asset,
+    SessionQueryProvider, boot_machine, convert_audio_packet, read_firmware_asset,
+    read_media_asset, read_program_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_c64::{
@@ -550,70 +551,6 @@ where
         let sample = shared.samples.pop_front().unwrap_or(0.0);
         *slot = T::from_sample(sample);
     }
-}
-
-fn convert_audio_packet(
-    samples: &[f32],
-    source_rate: u32,
-    source_channels: u8,
-    output_rate: u32,
-    output_channels: u16,
-) -> Vec<f32> {
-    if samples.is_empty() || source_rate == 0 || output_rate == 0 || output_channels == 0 {
-        return Vec::new();
-    }
-
-    let mono = interleaved_to_mono(samples, source_channels);
-    let frames_out = if source_rate == output_rate {
-        mono.len()
-    } else {
-        usize::try_from(
-            (mono.len() as u64 * u64::from(output_rate)).div_ceil(u64::from(source_rate)),
-        )
-        .unwrap_or(usize::MAX)
-    };
-    let channel_count = usize::from(output_channels);
-    let mut converted = Vec::with_capacity(frames_out.saturating_mul(channel_count));
-
-    if source_rate == output_rate {
-        for &sample in &mono {
-            for _ in 0..channel_count {
-                converted.push(sample);
-            }
-        }
-        return converted;
-    }
-
-    let step = f64::from(source_rate) / f64::from(output_rate);
-    let last = mono.len().saturating_sub(1);
-
-    for frame in 0..frames_out {
-        let position = frame as f64 * step;
-        let index = position.floor() as usize;
-        let frac = (position - index as f64) as f32;
-        let a = mono[index.min(last)];
-        let b = mono[(index + 1).min(last)];
-        let sample = a + (b - a) * frac;
-        for _ in 0..channel_count {
-            converted.push(sample);
-        }
-    }
-
-    converted
-}
-
-fn interleaved_to_mono(samples: &[f32], channels: u8) -> Vec<f32> {
-    let channel_count = usize::from(channels.max(1));
-    if channel_count == 1 {
-        return samples.to_vec();
-    }
-
-    let mut mono = Vec::with_capacity(samples.len().div_ceil(channel_count));
-    for frame in samples.chunks(channel_count) {
-        let sum: f32 = frame.iter().copied().sum();
-        mono.push(sum / frame.len() as f32);
-    }
-    mono
 }
 
 struct C64App {
