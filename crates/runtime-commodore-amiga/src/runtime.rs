@@ -15,12 +15,15 @@ use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_ocs::{AmigaOcs, FB_HEIGHT, FB_WIDTH, RamConfig};
 use serde_json::json;
 
-use crate::{A500_PAL_FRAME_TICKS, Model, profile_for};
+use crate::{A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, Model, profile_for};
 
 const KICKSTART_ROM_ID: &str = "commodore-amiga-kickstart-rom";
 const A1000_BOOTSTRAP_ROM_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
 const VALID_KICKSTART_SIZES: &[usize] = &[256 * 1024, 512 * 1024];
 const VALID_A1000_BOOTSTRAP_SIZES: &[usize] = &[64 * 1024];
+const AUDIO_SAMPLE_RATE_HZ: u32 = 48_000;
+const AUDIO_CHANNELS: u8 = 2;
+const A500_PAL_TICK_HZ: u64 = A500_PAL_CCK_HZ * 2;
 
 /// Machine framebuffer width (= `FB_WIDTH`). Re-exported for host
 /// integrations that size their output buffers without pulling in
@@ -90,6 +93,12 @@ pub struct AmigaRuntime {
     non_black_pixels: u32,
     non_white_pixels: u32,
     first_active_row: Option<u32>,
+    /// Fractional 48 kHz resampler phase. The source advances once
+    /// per machine tick (master/4); Paula output itself only changes
+    /// on CCK boundaries, but sampling at the finer runtime tick keeps
+    /// this phase stable across frame boundaries.
+    audio_sample_accumulator: u64,
+    audio_buffer: Vec<f32>,
 }
 
 /// Boot-status snapshot derived from the most recent frame. Matches
@@ -146,6 +155,8 @@ impl AmigaRuntime {
             non_black_pixels: 0,
             non_white_pixels: 0,
             first_active_row: None,
+            audio_sample_accumulator: 0,
+            audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame()),
         };
         runtime.update_rgba_framebuffer();
         Ok(runtime)
@@ -196,6 +207,8 @@ impl AmigaRuntime {
         }
         self.time = MachineTime::default();
         self.frame_count = 0;
+        self.audio_sample_accumulator = 0;
+        self.audio_buffer.clear();
         self.update_rgba_framebuffer();
         Ok(())
     }
@@ -298,6 +311,20 @@ impl AmigaRuntime {
                 reason: "no-visible-output",
                 row: None,
             }
+        }
+    }
+
+    fn tick_and_sample_audio(&mut self) {
+        self.machine.tick();
+        self.audio_sample_accumulator = self
+            .audio_sample_accumulator
+            .saturating_add(u64::from(AUDIO_SAMPLE_RATE_HZ));
+
+        while self.audio_sample_accumulator >= A500_PAL_TICK_HZ {
+            self.audio_sample_accumulator -= A500_PAL_TICK_HZ;
+            let (left, right) = self.machine.paula().mix_audio_stereo();
+            self.audio_buffer.push(left);
+            self.audio_buffer.push(right);
         }
     }
 }
@@ -410,8 +437,9 @@ impl MachineCore for AmigaRuntime {
 
         while self.time < target {
             // Run one PAL frame.
+            self.audio_buffer.clear();
             for _ in 0..A500_PAL_FRAME_TICKS {
-                self.machine.tick();
+                self.tick_and_sample_audio();
             }
             self.frame_count = self.frame_count.saturating_add(1);
             self.time = self.time.saturating_add(A500_PAL_FRAME_TICKS);
@@ -426,14 +454,11 @@ impl MachineCore for AmigaRuntime {
                 pixels: &self.rgba_framebuffer,
             })?;
 
-            // Empty-audio placeholder until the runtime grows a
-            // resample buffer sourcing Paula's mix_audio_stereo
-            // output.
             host.audio_sink.push_audio(AudioPacket {
                 timestamp: self.time,
-                sample_rate: 48_000,
-                channels: 2,
-                samples: &[],
+                sample_rate: AUDIO_SAMPLE_RATE_HZ,
+                channels: AUDIO_CHANNELS,
+                samples: &self.audio_buffer,
             })?;
         }
         Ok(RunResult::new(self.time, StopReason::ReachedTarget))
@@ -551,6 +576,17 @@ fn validate_firmware_rom(model: Model, firmware_rom: &[u8]) -> Result<(), Machin
     })
 }
 
+fn audio_sample_frames_for_ticks(ticks: u64) -> usize {
+    usize::try_from((ticks.saturating_mul(u64::from(AUDIO_SAMPLE_RATE_HZ))) / A500_PAL_TICK_HZ)
+        .unwrap_or(usize::MAX)
+}
+
+fn audio_buffer_capacity_for_frame() -> usize {
+    audio_sample_frames_for_ticks(A500_PAL_FRAME_TICKS)
+        .saturating_add(1)
+        .saturating_mul(usize::from(AUDIO_CHANNELS))
+}
+
 fn apply_input_event(machine: &mut AmigaOcs, event: &InputEvent) {
     if let InputEvent::Key { name, pressed } = event
         && let Some(code) = key_name_to_raw_code(name.as_ref())
@@ -612,8 +648,29 @@ fn key_name_to_raw_code(name: &str) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use emu198x_shell::{FirmwareImage, MediaImage, NullAudioSink, NullFrameSink, NullTraceSink};
+    use emu198x_shell::{AudioSink, FirmwareImage, MediaImage, NullFrameSink, NullTraceSink};
     use format_commodore_amiga_adf::ADF_SIZE_DD;
+
+    #[derive(Default)]
+    struct AudioCollector {
+        packets: usize,
+        last_timestamp: MachineTime,
+        last_sample_rate: u32,
+        last_channels: u8,
+        last_samples: Vec<f32>,
+    }
+
+    impl AudioSink for AudioCollector {
+        fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
+            self.packets += 1;
+            self.last_timestamp = packet.timestamp;
+            self.last_sample_rate = packet.sample_rate;
+            self.last_channels = packet.channels;
+            self.last_samples.clear();
+            self.last_samples.extend_from_slice(packet.samples);
+            Ok(())
+        }
+    }
 
     fn dummy_kickstart() -> Vec<u8> {
         blank_standard_kickstart_rom()
@@ -719,7 +776,7 @@ mod tests {
             AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
         let target = MachineTime::new(A500_PAL_FRAME_TICKS);
         let mut frame_sink = NullFrameSink;
-        let mut audio_sink = NullAudioSink;
+        let mut audio_sink = AudioCollector::default();
         let mut trace_sink = NullTraceSink;
         let mut host = HostIo {
             input_events: &[],
@@ -732,6 +789,20 @@ mod tests {
             .expect("one frame should run");
         assert_eq!(runtime.time(), target);
         assert_eq!(runtime.frame_count, 1);
+        assert_eq!(audio_sink.packets, 1);
+        assert_eq!(audio_sink.last_timestamp, target);
+        assert_eq!(audio_sink.last_sample_rate, AUDIO_SAMPLE_RATE_HZ);
+        assert_eq!(audio_sink.last_channels, AUDIO_CHANNELS);
+        assert_eq!(
+            audio_sink.last_samples.len(),
+            audio_sample_frames_for_ticks(A500_PAL_FRAME_TICKS) * usize::from(AUDIO_CHANNELS)
+        );
+        assert!(
+            audio_sink
+                .last_samples
+                .iter()
+                .all(|sample| sample.is_finite())
+        );
     }
 
     #[test]

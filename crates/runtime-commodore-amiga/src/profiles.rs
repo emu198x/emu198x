@@ -132,8 +132,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
         support_tier: SupportTier::Boots,
         release_year,
         summary: match model {
-            Model::A1000OcsPal => "Amiga 1000 OCS PAL — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, DF0 ADF insertion, keyboard input. Kickstart-to-Workbench disk swaps are scriptable via headless media reloads.".into(),
-            Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500PlusOcsPal | Model::A500OcsPalMaxed => "Amiga OCS PAL — Kickstart-backed headless boot, 768x576 ARGB framebuffer, DF0 ADF insertion, keyboard input. Audio, snapshots, and broader software validation still pending.".into(),
+            Model::A1000OcsPal => "Amiga 1000 OCS PAL — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Kickstart-to-Workbench disk swaps are scriptable via headless media reloads.".into(),
+            Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500PlusOcsPal | Model::A500OcsPalMaxed => "Amiga OCS PAL — Kickstart-backed headless boot, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Snapshots and broader software validation still pending.".into(),
         },
         clock: ClockDesc::new("cck", ClockRate::from_hz(A500_PAL_CCK_HZ)),
         firmware: vec![FirmwareRequirement::new(firmware_id, firmware_name, false)],

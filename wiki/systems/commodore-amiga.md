@@ -6,8 +6,9 @@
 > Kickstart 1.3 reaches the insert-disk screen; A500+A501 with
 > Workbench 1.3 reaches the Workbench desktop in the golden matrix.
 > The A1000 path uses the bootstrap ROM, writable WOM, Kickstart disk,
-> and scripted Workbench disk swap. Runtime audio currently emits an
-> empty stereo placeholder; snapshots and native UI remain pending.
+> and scripted Workbench disk swap. Runtime audio now drains Paula's
+> live stereo mix into 48 kHz audio packets; snapshots and native UI
+> remain pending.
 
 ## Implementation status
 
@@ -18,13 +19,13 @@
 | Gary | `commodore-gary` | Imported and wired into the machine |
 | Agnus OCS | `commodore-agnus-ocs` | Imported and driving the PAL machine timing |
 | Denise OCS | `commodore-denise-ocs` | Imported and producing the machine framebuffer |
-| Paula | `commodore-paula-8364` | Imported; register/audio-DMA path active, runtime audio drain still pending |
+| Paula | `commodore-paula-8364` | Imported; register/audio-DMA path active, runtime drains live stereo mix |
 | ADF parser | `format-commodore-amiga-adf` | Fresh-workspace disk container/media parser |
 | Floppy peripheral | `peripheral-commodore-amiga-floppy` | DF0 drive mechanics + MFM support |
 | Keyboard peripheral | `peripheral-commodore-amiga-keyboard` | Raw-key queue and serial keyboard path |
 | Machine wiring | `machine-commodore-amiga-ocs` | OCS PAL board loop with A1000 and A500-family RAM profiles |
 | Runtime | `runtime-commodore-amiga` | Fresh `MachineCore` runtime over the machine crate |
-| Headless runner | `emu198x-script-amiga` | Kickstart/bootstrap boot, DF0 media insertion, screenshots, scripted keys |
+| Headless runner | `emu198x-script-amiga` | Kickstart/bootstrap boot, DF0 media insertion, screenshots, audio capture, scripted keys |
 
 ### What works
 
@@ -32,7 +33,7 @@
 - A1000 bootstrap ROM + WOM path and A500-family Kickstart ROM validation.
 - RAM presets for stock A500, A500+A501 slow RAM, A500+ 1 MiB chip, and maxed A500 with Zorro-II fast RAM.
 - Standard-viewport RGBA framebuffer output from Denise.
-- Paula register/audio-DMA execution in the machine layer; runtime audio sink output is still an empty placeholder.
+- Paula register/audio-DMA execution in the machine layer, drained through the runtime as 48 kHz stereo audio packets.
 - `floppy-0` / DF0 media insertion with zipped or plain `ADF` images.
 - Shared scripted keyboard input routed through the Amiga keyboard peripheral.
 - Queryable machine/runtime state including CPU PC, visible-output detection, A1000 bootstrap visibility, keyboard queue state, and DF0 insertion/motor/head state.
@@ -47,9 +48,8 @@
 
 ### What doesn't work yet
 
-- **Native verifier UI** — there is no fresh-workspace `emu198x-amiga` shell yet.
+- **Native verifier UI** — there is no fresh-workspace `emu198x-amiga` shell yet; the current usable path is headless capture.
 - **Snapshots** — the fresh Amiga runtime deliberately reports snapshot import/export as unsupported.
-- **Runtime audio output** — Paula state and DMA are active in the machine layer, but the `MachineCore` runtime still pushes empty audio packets until a Paula resample/drain buffer lands.
 - **Software proof beyond the current goldens** — Workbench 1.3 and the A1000 Kickstart/Workbench route are proven locally; broader game/application boot coverage is still pending.
 - **Broader platform hardening** — joystick/mouse paths, stronger disk/software regressions, and frontend ergonomics are still pending.
 
@@ -73,7 +73,7 @@ The headless runner (`emu198x-script-amiga`) currently provides:
 
 - Kickstart discovery from the ROM directory or an explicit `--kickstart`
 - optional `--disk` insertion into DF0
-- `--wait-for-boot`, `--frames`, `--screenshot`, placeholder `--audio-capture`, and shared script playback
+- `--wait-for-boot`, `--frames`, `--screenshot`, `--audio-capture`, and shared script playback
 
 ## Related
 

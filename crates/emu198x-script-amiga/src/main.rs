@@ -526,6 +526,13 @@ mod tests {
         assert_eq!(result.query_values[0].value, Value::Bool(true));
         assert!(screenshot_path.is_file());
         assert!(audio_path.is_file());
+        let wav = fs::read(&audio_path).expect("wav should be readable");
+        assert_eq!(&wav[..4], b"RIFF");
+        assert_eq!(&wav[8..12], b"WAVE");
+        assert!(
+            wav.len() > 44,
+            "runtime audio capture should contain sample data, not only a WAV header"
+        );
 
         let _ = fs::remove_file(kickstart_path);
         let _ = fs::remove_file(disk_path);

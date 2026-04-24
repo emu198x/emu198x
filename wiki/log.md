@@ -4,6 +4,19 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Amiga runtime drains Paula audio
+
+**Type:** feature
+**Trigger:** The Amiga headless path had proven Kickstart and
+Workbench video, but `MachineCore` still emitted empty audio packets.
+**Result:** `runtime-commodore-amiga` now samples Paula's live stereo
+mix through a persistent 48 kHz phase accumulator and emits non-empty
+stereo audio packets once per runtime frame. The script runner's WAV
+capture path now receives real runtime audio data instead of an empty
+placeholder. Native Amiga UI remains the next usability step.
+
+---
+
 ## 2026-04-24 — Native verifier windows added for Game Boy and NES
 
 **Type:** feature
