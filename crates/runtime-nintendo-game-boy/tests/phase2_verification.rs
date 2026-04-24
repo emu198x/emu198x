@@ -53,9 +53,10 @@ const MOONEYE_GATE_SET: &[&str] = &[
 ];
 
 #[derive(Debug)]
-struct SerialRunResult {
+struct BlarggRunResult {
     output: String,
     frames: u32,
+    status_code: Option<u8>,
 }
 
 fn load_runtime(rom_path: &Path) -> Result<GameBoyRuntime, Box<dyn std::error::Error>> {
@@ -67,10 +68,27 @@ fn load_runtime(rom_path: &Path) -> Result<GameBoyRuntime, Box<dyn std::error::E
     Ok(runtime)
 }
 
-fn run_until_serial_verdict(
+fn blargg_ram_verdict(runtime: &GameBoyRuntime) -> Option<(u8, String)> {
+    let machine = runtime.machine()?;
+    let ram = machine.cartridge().ram();
+    if ram.len() < 4 || ram[1..4] != [0xDE, 0xB0, 0x61] {
+        return None;
+    }
+
+    let status = ram[0];
+    let text_bytes = ram[4..]
+        .iter()
+        .copied()
+        .take_while(|&byte| byte != 0)
+        .collect::<Vec<_>>();
+    let text = String::from_utf8_lossy(&text_bytes).into_owned();
+    Some((status, text))
+}
+
+fn run_until_blargg_verdict(
     runtime: &mut GameBoyRuntime,
     max_frames: u32,
-) -> Result<SerialRunResult, Box<dyn std::error::Error>> {
+) -> Result<BlarggRunResult, Box<dyn std::error::Error>> {
     let mut output = String::new();
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = NullAudioSink;
@@ -96,9 +114,23 @@ fn run_until_serial_verdict(
         if !serial.is_empty() {
             output.push_str(&String::from_utf8_lossy(&serial));
             if output.contains("Passed") || output.contains("Failed") {
-                return Ok(SerialRunResult {
+                return Ok(BlarggRunResult {
                     output,
                     frames: frame,
+                    status_code: None,
+                });
+            }
+        }
+
+        if let Some((status, ram_output)) = blargg_ram_verdict(runtime) {
+            if !ram_output.is_empty() && output.is_empty() {
+                output = ram_output;
+            }
+            if status != 0x80 {
+                return Ok(BlarggRunResult {
+                    output,
+                    frames: frame,
+                    status_code: Some(status),
                 });
             }
         }
@@ -154,13 +186,14 @@ fn blargg_cpu_instrs_passes_all_11_subtests() -> Result<(), Box<dyn std::error::
     for rel in CPU_INSTRS_SUBTESTS {
         let path = root.join(rel);
         let mut runtime = load_runtime(&path)?;
-        let result = run_until_serial_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
+        let result = run_until_blargg_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
             .map_err(|err| format!("{}: {err}", path.display()))?;
         assert!(
-            result.output.contains("Passed"),
-            "{} failed after {} frames: {:?}",
+            result.output.contains("Passed") || result.status_code == Some(0),
+            "{} failed after {} frames (status {:?}): {:?}",
             path.display(),
             result.frames,
+            result.status_code,
             result.output
         );
     }
@@ -177,13 +210,14 @@ fn blargg_instr_timing_passes() -> Result<(), Box<dyn std::error::Error>> {
 
     let path = root.join("instr_timing/instr_timing.gb");
     let mut runtime = load_runtime(&path)?;
-    let result = run_until_serial_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
+    let result = run_until_blargg_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
         .map_err(|err| format!("{}: {err}", path.display()))?;
     assert!(
-        result.output.contains("Passed"),
-        "{} failed after {} frames: {:?}",
+        result.output.contains("Passed") || result.status_code == Some(0),
+        "{} failed after {} frames (status {:?}): {:?}",
         path.display(),
         result.frames,
+        result.status_code,
         result.output
     );
 
@@ -200,13 +234,14 @@ fn blargg_mem_timing_v1_and_v2_pass() -> Result<(), Box<dyn std::error::Error>> 
     for rel in ["mem_timing/mem_timing.gb", "mem_timing-2/mem_timing.gb"] {
         let path = root.join(rel);
         let mut runtime = load_runtime(&path)?;
-        let result = run_until_serial_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
+        let result = run_until_blargg_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
             .map_err(|err| format!("{}: {err}", path.display()))?;
         assert!(
-            result.output.contains("Passed"),
-            "{} failed after {} frames: {:?}",
+            result.output.contains("Passed") || result.status_code == Some(0),
+            "{} failed after {} frames (status {:?}): {:?}",
             path.display(),
             result.frames,
+            result.status_code,
             result.output
         );
     }
@@ -229,13 +264,14 @@ fn mooneye_acceptance_gate_set_passes() -> Result<(), Box<dyn std::error::Error>
         }
 
         let mut runtime = load_runtime(&path)?;
-        let result = run_until_serial_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
+        let result = run_until_blargg_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
             .map_err(|err| format!("{}: {err}", path.display()))?;
         assert!(
-            result.output.contains("Passed"),
-            "{} failed after {} frames: {:?}",
+            result.output.contains("Passed") || result.status_code == Some(0),
+            "{} failed after {} frames (status {:?}): {:?}",
             path.display(),
             result.frames,
+            result.status_code,
             result.output
         );
     }
