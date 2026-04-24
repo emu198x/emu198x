@@ -11,8 +11,10 @@
 > live audio, and cycle-faithful tape turbo; C64 currently covers windowed
 > video, keyboard input, startup snapshot/program import, tape insertion,
 > live tape start/stop, launch-time tape autoload, cycle-faithful tape turbo,
-> reset, and live mono audio. Native host audio conversion is shared through
-> `emu198x-shell` and preserves stereo packets when the host output is stereo.
+> reset, and live mono audio. NES and Game Boy native windows now also use
+> the shared live host-audio path. Native host audio setup and conversion are
+> shared through `emu198x-shell`; matching stereo packets stay stereo, and
+> per-chip/per-channel mute or gain remains a system-native mixer concern.
 > All native shells are still verifier tools rather than polished end-user frontends;
 > input remains a little soft subjectively even after sub-frame host stepping.
 > Everything else in this document remains design intent: launcher screens,

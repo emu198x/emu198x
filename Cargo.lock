@@ -664,7 +664,6 @@ checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 name = "emu198x-amiga"
 version = "0.1.0"
 dependencies = [
- "cpal",
  "emu198x-shell",
  "pixels",
  "runtime-commodore-amiga",
@@ -677,7 +676,6 @@ name = "emu198x-c64"
 version = "0.1.0"
 dependencies = [
  "common-commodore-c64",
- "cpal",
  "emu198x-shell",
  "pixels",
  "runtime-commodore-c64",
@@ -766,6 +764,7 @@ dependencies = [
 name = "emu198x-shell"
 version = "0.1.0"
 dependencies = [
+ "cpal",
  "png",
  "postcard",
  "serde",
@@ -779,7 +778,6 @@ name = "emu198x-spectrum"
 version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
- "cpal",
  "emu198x-shell",
  "pixels",
  "runtime-sinclair-zx-spectrum",

@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 common-commodore-c64 = { path = "../common-commodore-c64" }
-cpal.workspace = true
 emu198x-shell = { path = "../emu198x-shell" }
 pixels.workspace = true
 runtime-commodore-c64 = { path = "../runtime-commodore-c64" }

@@ -4,6 +4,23 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Shared native audio output reaches NES and Game Boy
+
+**Type:** refactor
+**Trigger:** After fixing host conversion to preserve stereo, the
+native shells still duplicated CPAL setup and queueing logic, and the
+NES/Game Boy windows still discarded runtime audio packets.
+**Result:** `emu198x-shell` now owns the CPAL-backed native audio
+output sink: device setup, bounded callback buffering, stream
+callbacks, sample-rate conversion, and host channel conversion.
+`emu198x-amiga`, `emu198x-spectrum`, and `emu198x-c64` use the shared
+sink instead of frontend-local copies, while `emu198x-nes` and
+`emu198x-game-boy` now play live runtime audio. Per-chip and
+per-channel mute/gain remains intentionally below this layer in each
+system's native mixer.
+
+---
+
 ## 2026-04-24 — Native audio conversion preserves stereo
 
 **Type:** refactor

@@ -5,22 +5,20 @@
 //! verification. It sits above the existing runtime and shared shell boundary;
 //! it does not introduce a parallel emulation stack.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
-    AssetLoadError, AudioPacket, AudioSink, CapturedFrame, ControlCommand, FirmwareImage,
-    FirmwareSet, HeadlessSession, HostIo, InputEvent, LatestFrameCapture, MachineCore,
-    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    AssetLoadError, CapturedFrame, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession,
+    HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind,
+    MediaSet, MediaTransportAction, MediaTransportCommand, NativeAudioError, NativeAudioOutput,
     NullTraceSink, PixelFormat, QueryError, QueryResult, ResetKind, RunResult,
-    SessionQueryProvider, convert_audio_packet, read_firmware_asset, read_media_asset,
+    SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_sinclair_zx_spectrum::{
@@ -103,8 +101,8 @@ enum AppError {
     #[error(transparent)]
     SpectrumAutoload(#[from] runtime_sinclair_zx_spectrum::SpectrumAutoloadError),
 
-    #[error("audio backend failed: {reason}")]
-    AudioBackend { reason: String },
+    #[error(transparent)]
+    Audio(#[from] NativeAudioError),
 
     #[error(transparent)]
     Pixels(#[from] pixels::Error),
@@ -151,7 +149,7 @@ struct SpectrumRunner {
     runtime: Spectrum48kRuntime,
     query_provider: SpectrumSessionQueryProvider,
     frame_capture: LatestFrameCapture,
-    audio_output: SpectrumAudioOutput,
+    audio_output: NativeAudioOutput,
     last_run_result: Option<RunResult>,
     native_frame_ticks: u64,
 }
@@ -205,7 +203,7 @@ impl SpectrumRunner {
         }
 
         let runtime = session.into_machine();
-        let audio_output = SpectrumAudioOutput::new(runtime.machine().audio_sample_rate())?;
+        let audio_output = NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)?;
         let mut runner = Self {
             runtime,
             query_provider: SpectrumSessionQueryProvider,
@@ -320,148 +318,6 @@ impl SpectrumRunner {
 
     fn tape_playing(&self) -> bool {
         self.query_bool("spectrum.tape.playing")
-    }
-}
-
-struct SpectrumAudioOutput {
-    _stream: Stream,
-    shared: Arc<Mutex<AudioBuffer>>,
-    sample_rate: u32,
-    channels: u16,
-}
-
-impl SpectrumAudioOutput {
-    fn new(_source_rate: u32) -> Result<Self, AppError> {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| AppError::AudioBackend {
-                reason: "no default output device is available".to_owned(),
-            })?;
-        let supported = device
-            .default_output_config()
-            .map_err(|err| AppError::AudioBackend {
-                reason: format!("failed to query the default output config: {err}"),
-            })?;
-        let config = supported.config();
-        let max_samples = usize::try_from(
-            (u64::from(config.sample_rate.0)
-                * u64::from(config.channels)
-                * u64::from(MAX_AUDIO_BUFFER_MS))
-                / 1_000,
-        )
-        .unwrap_or(usize::MAX)
-        .max(1);
-        let shared = Arc::new(Mutex::new(AudioBuffer::new(max_samples)));
-        let stream = build_output_stream(&device, &config, supported.sample_format(), &shared)?;
-        stream.play().map_err(|err| AppError::AudioBackend {
-            reason: format!("failed to start the audio stream: {err}"),
-        })?;
-
-        Ok(Self {
-            _stream: stream,
-            shared,
-            sample_rate: config.sample_rate.0,
-            channels: config.channels,
-        })
-    }
-
-    fn clear(&mut self) {
-        if let Ok(mut shared) = self.shared.lock() {
-            shared.samples.clear();
-        }
-    }
-}
-
-impl AudioSink for SpectrumAudioOutput {
-    fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
-        let samples = convert_audio_packet(
-            packet.samples,
-            packet.sample_rate,
-            packet.channels,
-            self.sample_rate,
-            self.channels,
-        );
-        let mut shared = self.shared.lock().map_err(|_| MachineError::Host {
-            reason: "audio buffer lock poisoned".to_owned(),
-        })?;
-        shared.push(&samples);
-        Ok(())
-    }
-}
-
-struct AudioBuffer {
-    samples: VecDeque<f32>,
-    max_samples: usize,
-}
-
-impl AudioBuffer {
-    fn new(max_samples: usize) -> Self {
-        Self {
-            samples: VecDeque::with_capacity(max_samples),
-            max_samples,
-        }
-    }
-
-    fn push(&mut self, samples: &[f32]) {
-        self.samples.extend(samples.iter().copied());
-        while self.samples.len() > self.max_samples {
-            let _ = self.samples.pop_front();
-        }
-    }
-}
-
-fn build_output_stream(
-    device: &cpal::Device,
-    config: &StreamConfig,
-    sample_format: SampleFormat,
-    shared: &Arc<Mutex<AudioBuffer>>,
-) -> Result<Stream, AppError> {
-    match sample_format {
-        SampleFormat::F32 => build_typed_output_stream::<f32>(device, config, shared),
-        SampleFormat::I16 => build_typed_output_stream::<i16>(device, config, shared),
-        SampleFormat::U16 => build_typed_output_stream::<u16>(device, config, shared),
-        other => Err(AppError::AudioBackend {
-            reason: format!("unsupported output sample format {other:?}"),
-        }),
-    }
-}
-
-fn build_typed_output_stream<T>(
-    device: &cpal::Device,
-    config: &StreamConfig,
-    shared: &Arc<Mutex<AudioBuffer>>,
-) -> Result<Stream, AppError>
-where
-    T: SizedSample + FromSample<f32>,
-{
-    let shared = Arc::clone(shared);
-    device
-        .build_output_stream(
-            config,
-            move |data: &mut [T], _| write_output_data(data, &shared),
-            move |err| eprintln!("audio stream error: {err}"),
-            None,
-        )
-        .map_err(|err| AppError::AudioBackend {
-            reason: format!("failed to build the output stream: {err}"),
-        })
-}
-
-fn write_output_data<T>(data: &mut [T], shared: &Arc<Mutex<AudioBuffer>>)
-where
-    T: SizedSample + FromSample<f32>,
-{
-    let Ok(mut shared) = shared.lock() else {
-        for slot in data.iter_mut() {
-            *slot = T::from_sample(0.0);
-        }
-        return;
-    };
-
-    for slot in data.iter_mut() {
-        let sample = shared.samples.pop_front().unwrap_or(0.0);
-        *slot = T::from_sample(sample);
     }
 }
 

@@ -1,18 +1,15 @@
 //! `emu198x-amiga` — minimal native Amiga verifier shell.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use emu198x_shell::{
-    AudioPacket, AudioSink, CapturedFrame, FirmwareImage, FirmwareSet, HostIo, InputEvent,
-    LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet, NullTraceSink,
-    PixelFormat, ResetKind, RunResult, convert_audio_packet, read_firmware_asset, read_media_asset,
+    CapturedFrame, FirmwareImage, FirmwareSet, HostIo, InputEvent, LatestFrameCapture, MachineCore,
+    MachineError, MediaImage, MediaKind, MediaSet, NativeAudioError, NativeAudioOutput,
+    NullTraceSink, PixelFormat, ResetKind, RunResult, read_firmware_asset, read_media_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_amiga::{
@@ -34,7 +31,6 @@ const DEFAULT_SCALE: u32 = 1;
 const INPUT_SLICES_PER_FRAME: u32 = 4;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
-const PAULA_RUNTIME_AUDIO_RATE: u32 = 48_000;
 const WINDOW_TITLE: &str = "Emu198x Amiga";
 
 const USAGE: &str = "\
@@ -110,8 +106,8 @@ enum AppError {
     #[error("{reason}")]
     Setup { reason: String },
 
-    #[error("audio backend failed: {reason}")]
-    AudioBackend { reason: String },
+    #[error(transparent)]
+    Audio(#[from] NativeAudioError),
 
     #[error("frame packet used unsupported format {format:?}")]
     UnsupportedPixelFormat { format: PixelFormat },
@@ -130,7 +126,7 @@ enum AppError {
 struct AmigaRunner {
     runtime: AmigaRuntime,
     frame_capture: LatestFrameCapture,
-    audio_output: AmigaAudioOutput,
+    audio_output: NativeAudioOutput,
     last_run_result: Option<RunResult>,
 }
 
@@ -170,7 +166,7 @@ impl AmigaRunner {
         let mut runner = Self {
             runtime,
             frame_capture: LatestFrameCapture::default(),
-            audio_output: AmigaAudioOutput::new(PAULA_RUNTIME_AUDIO_RATE)?,
+            audio_output: NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)?,
             last_run_result: None,
         };
         runner.run_frame(&[])?;
@@ -207,148 +203,6 @@ impl AmigaRunner {
 
     fn frame(&self) -> Option<&CapturedFrame> {
         self.frame_capture.frame()
-    }
-}
-
-struct AmigaAudioOutput {
-    _stream: Stream,
-    shared: Arc<Mutex<AudioBuffer>>,
-    sample_rate: u32,
-    channels: u16,
-}
-
-impl AmigaAudioOutput {
-    fn new(_source_rate: u32) -> Result<Self, AppError> {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| AppError::AudioBackend {
-                reason: "no default output device is available".to_owned(),
-            })?;
-        let supported = device
-            .default_output_config()
-            .map_err(|err| AppError::AudioBackend {
-                reason: format!("failed to query the default output config: {err}"),
-            })?;
-        let config = supported.config();
-        let max_samples = usize::try_from(
-            (u64::from(config.sample_rate.0)
-                * u64::from(config.channels)
-                * u64::from(MAX_AUDIO_BUFFER_MS))
-                / 1_000,
-        )
-        .unwrap_or(usize::MAX)
-        .max(1);
-        let shared = Arc::new(Mutex::new(AudioBuffer::new(max_samples)));
-        let stream = build_output_stream(&device, &config, supported.sample_format(), &shared)?;
-        stream.play().map_err(|err| AppError::AudioBackend {
-            reason: format!("failed to start the audio stream: {err}"),
-        })?;
-
-        Ok(Self {
-            _stream: stream,
-            shared,
-            sample_rate: config.sample_rate.0,
-            channels: config.channels,
-        })
-    }
-
-    fn clear(&mut self) {
-        if let Ok(mut shared) = self.shared.lock() {
-            shared.samples.clear();
-        }
-    }
-}
-
-impl AudioSink for AmigaAudioOutput {
-    fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
-        let samples = convert_audio_packet(
-            packet.samples,
-            packet.sample_rate,
-            packet.channels,
-            self.sample_rate,
-            self.channels,
-        );
-        let mut shared = self.shared.lock().map_err(|_| MachineError::Host {
-            reason: "audio buffer lock poisoned".to_owned(),
-        })?;
-        shared.push(&samples);
-        Ok(())
-    }
-}
-
-struct AudioBuffer {
-    samples: VecDeque<f32>,
-    max_samples: usize,
-}
-
-impl AudioBuffer {
-    fn new(max_samples: usize) -> Self {
-        Self {
-            samples: VecDeque::with_capacity(max_samples),
-            max_samples,
-        }
-    }
-
-    fn push(&mut self, samples: &[f32]) {
-        self.samples.extend(samples.iter().copied());
-        while self.samples.len() > self.max_samples {
-            let _ = self.samples.pop_front();
-        }
-    }
-}
-
-fn build_output_stream(
-    device: &cpal::Device,
-    config: &StreamConfig,
-    sample_format: SampleFormat,
-    shared: &Arc<Mutex<AudioBuffer>>,
-) -> Result<Stream, AppError> {
-    match sample_format {
-        SampleFormat::F32 => build_typed_output_stream::<f32>(device, config, shared),
-        SampleFormat::I16 => build_typed_output_stream::<i16>(device, config, shared),
-        SampleFormat::U16 => build_typed_output_stream::<u16>(device, config, shared),
-        other => Err(AppError::AudioBackend {
-            reason: format!("unsupported output sample format {other:?}"),
-        }),
-    }
-}
-
-fn build_typed_output_stream<T>(
-    device: &cpal::Device,
-    config: &StreamConfig,
-    shared: &Arc<Mutex<AudioBuffer>>,
-) -> Result<Stream, AppError>
-where
-    T: SizedSample + FromSample<f32>,
-{
-    let shared = Arc::clone(shared);
-    device
-        .build_output_stream(
-            config,
-            move |data: &mut [T], _| write_output_data(data, &shared),
-            move |err| eprintln!("audio stream error: {err}"),
-            None,
-        )
-        .map_err(|err| AppError::AudioBackend {
-            reason: format!("failed to build the output stream: {err}"),
-        })
-}
-
-fn write_output_data<T>(data: &mut [T], shared: &Arc<Mutex<AudioBuffer>>)
-where
-    T: SizedSample + FromSample<f32>,
-{
-    let Ok(mut shared) = shared.lock() else {
-        for slot in data.iter_mut() {
-            *slot = T::from_sample(0.0);
-        }
-        return;
-    };
-
-    for slot in data.iter_mut() {
-        let sample = shared.samples.pop_front().unwrap_or(0.0);
-        *slot = T::from_sample(sample);
     }
 }
 

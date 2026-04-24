@@ -6,7 +6,6 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
-cpal.workspace = true
 emu198x-shell = { path = "../emu198x-shell" }
 pixels.workspace = true
 runtime-commodore-amiga = { path = "../runtime-commodore-amiga" }

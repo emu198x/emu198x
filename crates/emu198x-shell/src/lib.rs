@@ -23,7 +23,7 @@ pub mod time;
 pub use asset::{
     AssetLoadError, LoadedAsset, read_firmware_asset, read_media_asset, read_program_asset,
 };
-pub use audio::convert_audio_packet;
+pub use audio::{NativeAudioError, NativeAudioOutput, convert_audio_packet};
 pub use capability::{CapabilityId, CapabilitySet, known_capability};
 pub use capture::{AudioCapture, CaptureError, CapturedAudio, CapturedFrame, LatestFrameCapture};
 pub use control::{ControlCommand, MediaTransportAction, MediaTransportCommand};

@@ -9,8 +9,8 @@ use common_nintendo_game_boy::timing::MCYCLE_HZ;
 use common_nintendo_game_boy::{MCYCLES_PER_FRAME, SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_shell::{
     CapturedFrame, HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage,
-    MediaKind, MediaSet, NullAudioSink, NullTraceSink, PixelFormat, ResetKind, RunResult,
-    read_media_asset,
+    MediaKind, MediaSet, NativeAudioError, NativeAudioOutput, NullTraceSink, PixelFormat,
+    ResetKind, RunResult, read_media_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_nintendo_game_boy::{GameBoyRuntime, Model};
@@ -26,6 +26,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 const DEFAULT_SCALE: u32 = 4;
 const INPUT_SLICES_PER_FRAME: u32 = 4;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
+const MAX_AUDIO_BUFFER_MS: u32 = 250;
 const WINDOW_TITLE: &str = "Emu198x Game Boy";
 
 const USAGE: &str = "\
@@ -89,6 +90,9 @@ enum AppError {
     #[error(transparent)]
     Os(#[from] OsError),
 
+    #[error(transparent)]
+    Audio(#[from] NativeAudioError),
+
     #[error("invalid --scale value {value}")]
     InvalidScale { value: u32 },
 
@@ -115,7 +119,7 @@ enum AppError {
 struct GameBoyRunner {
     runtime: GameBoyRuntime,
     frame_capture: LatestFrameCapture,
-    audio_sink: NullAudioSink,
+    audio_output: NativeAudioOutput,
     last_run_result: Option<RunResult>,
     native_frame_ticks: u64,
 }
@@ -152,7 +156,7 @@ impl GameBoyRunner {
         let mut runner = Self {
             runtime,
             frame_capture: LatestFrameCapture::default(),
-            audio_sink: NullAudioSink,
+            audio_output: NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)?,
             last_run_result: None,
             native_frame_ticks: u64::from(MCYCLES_PER_FRAME),
         };
@@ -164,6 +168,7 @@ impl GameBoyRunner {
         self.runtime.reset(ResetKind::Hard);
         self.last_run_result = None;
         self.frame_capture = LatestFrameCapture::default();
+        self.audio_output.clear();
         self.run_frame(&[])?;
         Ok(())
     }
@@ -180,7 +185,7 @@ impl GameBoyRunner {
         let mut host = HostIo {
             input_events,
             frame_sink: &mut self.frame_capture,
-            audio_sink: &mut self.audio_sink,
+            audio_sink: &mut self.audio_output,
             trace_sink: &mut trace_sink,
         };
         self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);

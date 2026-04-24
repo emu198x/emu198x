@@ -6,8 +6,8 @@
 > proof, renders `Super Mario Bros.`, and emits RGBA frames plus mono
 > audio through `emu198x-script-nes`. `emu198x-nes` now provides a
 > minimal native verifier window for NROM cartridges with controller
-> input and reset. Mapper support remains limited to NROM; snapshots,
-> native-shell audio, and DMC DMA cycle stealing are still pending.
+> input, reset, and live audio. Mapper support remains limited to NROM;
+> snapshots and DMC DMA cycle stealing are still pending.
 
 ## Implementation status
 
@@ -19,7 +19,7 @@
 | APU | `ricoh-apu-2a03` | 21 | Ported and wired into the machine |
 | Machine wiring | `machine-nintendo-nes` | 12 + `nestest` | Tick loop + OAMDMA + controller I/O |
 | Runtime | `runtime-nintendo-nes` | 6 | Fresh `MachineCore` runtime over the machine crate |
-| Native shell | `emu198x-nes` | 2 | Minimal verifier window for NROM cartridges, controller input, reset |
+| Native shell | `emu198x-nes` | 2 | Minimal verifier window for NROM cartridges, controller input, reset, live audio |
 | Headless runner | `emu198x-script-nes` | 3 | Cartridge boot, screenshots, audio capture, scripted input |
 
 ### What works
@@ -32,7 +32,7 @@
 - Full NES address space: 2 KiB RAM (mirrored), PPU registers, APU registers, mapper.
 - `run_frame()` runs until the pre-render → scanline 0 transition.
 - Headless cartridge insertion through `cartridge-1` in the fresh shell path.
-- RGBA framebuffer output, mono audio capture, and shared scripted button input.
+- RGBA framebuffer output, mono audio capture/native playback, and shared scripted button input.
 
 ### Validated
 
@@ -42,7 +42,6 @@
 ### What doesn't work yet
 
 - **Mappers beyond NROM** — only mapper 0 is ported. MMC1, UxROM, CNROM, MMC3, etc. live in the archive and will be lifted when there's a game that needs them.
-- **Native verifier UI** — the fresh workspace has a headless runner but not yet a native NES shell like the current Spectrum/C64 verifiers.
 - **Save states** — the current fresh NES runtime deliberately returns unsupported for snapshot import/export.
 - **DMC DMA cycle stealing** — DMC sample bytes are fetched, but the APU does not yet steal CPU cycles for those fetches.
 

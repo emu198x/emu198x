@@ -1,5 +1,213 @@
 //! Shared host-side audio conversion helpers.
 
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
+use thiserror::Error;
+
+use crate::{AudioPacket, AudioSink, MachineError};
+
+/// Host audio output setup or callback queue failure.
+#[derive(Debug, Error)]
+pub enum NativeAudioError {
+    /// The system has no default output device.
+    #[error("no default output device is available")]
+    NoDefaultOutputDevice,
+
+    /// Querying the default output format failed.
+    #[error("failed to query the default output config: {source}")]
+    DefaultOutputConfig {
+        /// Underlying CPAL error.
+        #[source]
+        source: cpal::DefaultStreamConfigError,
+    },
+
+    /// The host output sample format is not supported by the shared path.
+    #[error("unsupported output sample format {format:?}")]
+    UnsupportedSampleFormat {
+        /// Unsupported CPAL sample format.
+        format: SampleFormat,
+    },
+
+    /// Building the output stream failed.
+    #[error("failed to build the output stream: {source}")]
+    BuildStream {
+        /// Underlying CPAL error.
+        #[source]
+        source: cpal::BuildStreamError,
+    },
+
+    /// Starting playback failed.
+    #[error("failed to start the audio stream: {source}")]
+    PlayStream {
+        /// Underlying CPAL error.
+        #[source]
+        source: cpal::PlayStreamError,
+    },
+}
+
+/// CPAL-backed host audio output for native verifier shells.
+///
+/// This is deliberately host-policy only: it handles device setup, bounded
+/// callback buffering, sample-rate conversion, and host channel conversion.
+/// Per-chip/per-voice mute and gain belong in each machine's native audio
+/// mixer before packets cross the shared shell boundary.
+pub struct NativeAudioOutput {
+    _stream: Stream,
+    shared: Arc<Mutex<AudioBuffer>>,
+    sample_rate: u32,
+    channels: u16,
+}
+
+impl NativeAudioOutput {
+    /// Creates a native host output stream with a bounded callback queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there is no default output device, the host output
+    /// format cannot be queried or built, the sample format is unsupported, or
+    /// the stream cannot be started.
+    pub fn new(max_buffer_ms: u32) -> Result<Self, NativeAudioError> {
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or(NativeAudioError::NoDefaultOutputDevice)?;
+        let supported = device
+            .default_output_config()
+            .map_err(|source| NativeAudioError::DefaultOutputConfig { source })?;
+        let config = supported.config();
+        let max_samples = usize::try_from(
+            (u64::from(config.sample_rate.0)
+                * u64::from(config.channels)
+                * u64::from(max_buffer_ms))
+                / 1_000,
+        )
+        .unwrap_or(usize::MAX)
+        .max(1);
+        let shared = Arc::new(Mutex::new(AudioBuffer::new(max_samples)));
+        let stream = build_output_stream(&device, &config, supported.sample_format(), &shared)?;
+        stream
+            .play()
+            .map_err(|source| NativeAudioError::PlayStream { source })?;
+
+        Ok(Self {
+            _stream: stream,
+            shared,
+            sample_rate: config.sample_rate.0,
+            channels: config.channels,
+        })
+    }
+
+    /// Clears queued host audio without stopping the output stream.
+    pub fn clear(&mut self) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.samples.clear();
+        }
+    }
+
+    /// Host output sample rate selected by CPAL.
+    #[must_use]
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    /// Host output channel count selected by CPAL.
+    #[must_use]
+    pub fn channels(&self) -> u16 {
+        self.channels
+    }
+}
+
+impl AudioSink for NativeAudioOutput {
+    fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
+        let samples = convert_audio_packet(
+            packet.samples,
+            packet.sample_rate,
+            packet.channels,
+            self.sample_rate,
+            self.channels,
+        );
+        let mut shared = self.shared.lock().map_err(|_| MachineError::Host {
+            reason: "audio buffer lock poisoned".to_owned(),
+        })?;
+        shared.push(&samples);
+        Ok(())
+    }
+}
+
+struct AudioBuffer {
+    samples: VecDeque<f32>,
+    max_samples: usize,
+}
+
+impl AudioBuffer {
+    fn new(max_samples: usize) -> Self {
+        Self {
+            samples: VecDeque::with_capacity(max_samples),
+            max_samples,
+        }
+    }
+
+    fn push(&mut self, samples: &[f32]) {
+        self.samples.extend(samples.iter().copied());
+        while self.samples.len() > self.max_samples {
+            let _ = self.samples.pop_front();
+        }
+    }
+}
+
+fn build_output_stream(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+    shared: &Arc<Mutex<AudioBuffer>>,
+) -> Result<Stream, NativeAudioError> {
+    match sample_format {
+        SampleFormat::F32 => build_typed_output_stream::<f32>(device, config, shared),
+        SampleFormat::I16 => build_typed_output_stream::<i16>(device, config, shared),
+        SampleFormat::U16 => build_typed_output_stream::<u16>(device, config, shared),
+        format => Err(NativeAudioError::UnsupportedSampleFormat { format }),
+    }
+}
+
+fn build_typed_output_stream<T>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    shared: &Arc<Mutex<AudioBuffer>>,
+) -> Result<Stream, NativeAudioError>
+where
+    T: SizedSample + FromSample<f32>,
+{
+    let shared = Arc::clone(shared);
+    device
+        .build_output_stream(
+            config,
+            move |data: &mut [T], _| write_output_data(data, &shared),
+            move |err| eprintln!("audio stream error: {err}"),
+            None,
+        )
+        .map_err(|source| NativeAudioError::BuildStream { source })
+}
+
+fn write_output_data<T>(data: &mut [T], shared: &Arc<Mutex<AudioBuffer>>)
+where
+    T: SizedSample + FromSample<f32>,
+{
+    let Ok(mut shared) = shared.lock() else {
+        for slot in data.iter_mut() {
+            *slot = T::from_sample(0.0);
+        }
+        return;
+    };
+
+    for slot in data.iter_mut() {
+        let sample = shared.samples.pop_front().unwrap_or(0.0);
+        *slot = T::from_sample(sample);
+    }
+}
+
 /// Converts interleaved machine audio into interleaved host-output
 /// audio, preserving channel positions when the source and output
 /// channel counts match.
@@ -198,5 +406,18 @@ mod tests {
         let converted = convert_audio_packet(&[1.0, 2.0, 3.0], 48_000, 2, 48_000, 2);
 
         assert_eq!(converted, vec![1.0, 2.0]);
+    }
+
+    #[test]
+    fn audio_buffer_drops_oldest_samples_when_full() {
+        let mut buffer = AudioBuffer::new(3);
+
+        buffer.push(&[1.0, 2.0]);
+        buffer.push(&[3.0, 4.0]);
+
+        assert_eq!(
+            buffer.samples.into_iter().collect::<Vec<_>>(),
+            vec![2.0, 3.0, 4.0]
+        );
     }
 }
