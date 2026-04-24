@@ -1,0 +1,20 @@
+[package]
+name = "emu198x-script-game-boy"
+description = "Headless Game Boy family runner for cartridge and scripted input workflows"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "emu198x-script-game-boy"
+path = "src/main.rs"
+
+[dependencies]
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy" }
+emu198x-shell = { path = "../emu198x-shell" }
+runtime-nintendo-game-boy = { path = "../runtime-nintendo-game-boy" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

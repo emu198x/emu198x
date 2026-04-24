@@ -1,13 +1,15 @@
 # Frontend
 
 > **Mixed status.** `emu198x-spectrum` and `emu198x-c64` now exist as minimal
-> native verifier shells over the fresh-workspace runtimes. Spectrum currently
+> native verifier shells over the fresh-workspace runtimes. `emu198x-script-nes`,
+> `emu198x-script-amiga`, and `emu198x-script-game-boy` provide headless launch
+> paths for the other current families. Spectrum currently
 > covers windowed video, keyboard input, tape control, launch-time autoload,
 > live audio, and cycle-faithful tape turbo; C64 currently covers windowed
 > video, keyboard input, startup snapshot/program import, tape insertion,
 > live tape start/stop, launch-time tape autoload, cycle-faithful tape turbo,
 > reset, and live mono audio.
-> Both shells are still verifier tools rather than polished end-user frontends;
+> Both native shells are still verifier tools rather than polished end-user frontends;
 > input remains a little soft subjectively even after sub-frame host stepping.
 > Everything else in this document remains design intent: launcher screens,
 > media panels, debugger layouts, web/WASM targets, and the other family
@@ -21,9 +23,11 @@ The intended shape is still one **separate binary per system**:
 - `emu198x-c64`
 - `emu198x-nes`
 - `emu198x-amiga`
+- `emu198x-game-boy`
 
 Today `emu198x-spectrum` and `emu198x-c64` are real, and both are still at
-verifier-shell scope. The full target for each binary is:
+verifier-shell scope. NES, Amiga, and Game Boy currently have headless script
+runners but no native windowed shell. The full target for each binary is:
 
 - System launcher with variant/option selection
 - Visual media controls (tape deck, disk drive)

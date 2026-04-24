@@ -695,6 +695,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-script-game-boy"
+version = "0.1.0"
+dependencies = [
+ "common-nintendo-game-boy",
+ "emu198x-shell",
+ "runtime-nintendo-game-boy",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-script-nes"
 version = "0.1.0"
 dependencies = [

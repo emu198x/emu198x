@@ -4,6 +4,25 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Game Boy headless runner added for current-system usability
+
+**Type:** feature
+**Trigger:** The current systems are close enough that the next product
+pressure is practical launchability, not only per-core accuracy.
+**Result:** Added `emu198x-script-game-boy`, giving the Game Boy
+runtime the same headless runner shape as the other current families.
+It accepts `--rom`, `--media`, `--model`, `--frames`, shared JSON
+scripts, screenshots, audio capture, and snapshot load/save. The
+current-system usability matrix now records the launch path and next
+usability step for Spectrum, C64, NES, Amiga, and Game Boy.
+
+Verification:
+
+- `cargo fmt --all --check`
+- `cargo test -p emu198x-script-game-boy`
+
+---
+
 ## 2026-04-24 — Current non-Game-Boy system docs refreshed
 
 **Type:** docs
