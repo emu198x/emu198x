@@ -47,6 +47,7 @@ use mos_6502::M6502;
 use ricoh_apu_2a03::Apu;
 use ricoh_ppu_2c02::Ppu;
 
+pub use ricoh_apu_2a03::{ApuChannel, AudioControls};
 pub use ricoh_ppu_2c02::{FB_HEIGHT, FB_WIDTH};
 
 /// NES machine.
@@ -345,6 +346,27 @@ impl Nes {
         self.apu.take_buffer()
     }
 
+    /// Current host-side APU audio controls.
+    #[must_use]
+    pub const fn audio_controls(&self) -> AudioControls {
+        self.apu.audio_controls()
+    }
+
+    /// Replace all host-side APU audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.apu.set_audio_controls(controls);
+    }
+
+    /// Enable or disable one APU channel in the host mixer.
+    pub fn set_audio_channel_enabled(&mut self, channel: ApuChannel, enabled: bool) {
+        self.apu.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Set one APU channel's host mixer gain.
+    pub fn set_audio_channel_gain(&mut self, channel: ApuChannel, gain: f32) {
+        self.apu.set_audio_channel_gain(channel, gain);
+    }
+
     /// Peek a byte of CPU-visible memory (no side effects).
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
@@ -492,6 +514,17 @@ mod tests {
             result |= (nes.cpu_read(0x4016) & 1) << i;
         }
         assert_eq!(result, 0b1010_0101);
+    }
+
+    #[test]
+    fn audio_controls_proxy_to_apu() {
+        let mut nes = nop_nes();
+
+        nes.set_audio_channel_enabled(ApuChannel::Triangle, false);
+        nes.set_audio_channel_gain(ApuChannel::Noise, 0.5);
+
+        assert!(!nes.audio_controls().channel(ApuChannel::Triangle).enabled());
+        assert_eq!(nes.audio_controls().channel(ApuChannel::Noise).gain(), 0.5);
     }
 
     #[test]

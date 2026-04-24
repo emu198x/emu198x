@@ -44,6 +44,162 @@ impl ApuRegion {
 }
 
 // ---------------------------------------------------------------------------
+// Host-side audio controls
+// ---------------------------------------------------------------------------
+
+/// Host-side NES APU channel identifier.
+///
+/// These controls are deliberately outside the emulated APU register surface:
+/// muting a channel here must not affect `$4015`, length counters, IRQs, or DMA.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
+pub enum ApuChannel {
+    /// First pulse channel.
+    Pulse1,
+    /// Second pulse channel.
+    Pulse2,
+    /// Triangle channel.
+    Triangle,
+    /// Noise channel.
+    Noise,
+    /// Delta modulation channel.
+    Dmc,
+}
+
+impl ApuChannel {
+    const fn index(self) -> usize {
+        match self {
+            Self::Pulse1 => 0,
+            Self::Pulse2 => 1,
+            Self::Triangle => 2,
+            Self::Noise => 3,
+            Self::Dmc => 4,
+        }
+    }
+
+    /// Human-readable channel label for frontend status messages.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Pulse1 => "pulse 1",
+            Self::Pulse2 => "pulse 2",
+            Self::Triangle => "triangle",
+            Self::Noise => "noise",
+            Self::Dmc => "DMC",
+        }
+    }
+}
+
+/// Per-channel host mixer control.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChannelControl {
+    enabled: bool,
+    gain: f32,
+}
+
+impl Default for ChannelControl {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            gain: 1.0,
+        }
+    }
+}
+
+impl ChannelControl {
+    /// Whether this channel contributes to host audio output.
+    #[must_use]
+    pub const fn enabled(self) -> bool {
+        self.enabled
+    }
+
+    /// Linear channel gain after sanitisation, clamped to 0.0..=1.0.
+    #[must_use]
+    pub const fn gain(self) -> f32 {
+        self.gain
+    }
+
+    fn apply(self, sample: f32) -> f32 {
+        if self.enabled {
+            sample * sanitize_gain(self.gain)
+        } else {
+            0.0
+        }
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    fn set_gain(&mut self, gain: f32) {
+        self.gain = sanitize_gain(gain);
+    }
+}
+
+/// Host-side audio controls for the NES APU mixer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AudioControls {
+    master_gain: f32,
+    channels: [ChannelControl; 5],
+}
+
+impl Default for AudioControls {
+    fn default() -> Self {
+        Self {
+            master_gain: 1.0,
+            channels: [ChannelControl::default(); 5],
+        }
+    }
+}
+
+impl AudioControls {
+    /// Master gain applied to the internal APU mix.
+    #[must_use]
+    pub const fn master_gain(self) -> f32 {
+        self.master_gain
+    }
+
+    /// Set master gain. Non-finite values become 0.0; finite values clamp to
+    /// 0.0..=1.0.
+    pub fn set_master_gain(&mut self, gain: f32) {
+        self.master_gain = sanitize_gain(gain);
+    }
+
+    /// Return control state for one channel.
+    #[must_use]
+    pub const fn channel(self, channel: ApuChannel) -> ChannelControl {
+        self.channels[channel.index()]
+    }
+
+    /// Enable or disable one channel in the host mixer.
+    pub fn set_channel_enabled(&mut self, channel: ApuChannel, enabled: bool) {
+        self.channels[channel.index()].set_enabled(enabled);
+    }
+
+    /// Set linear gain for one channel. Non-finite values become 0.0; finite
+    /// values clamp to 0.0..=1.0.
+    pub fn set_channel_gain(&mut self, channel: ApuChannel, gain: f32) {
+        self.channels[channel.index()].set_gain(gain);
+    }
+
+    fn sanitized(mut self) -> Self {
+        self.master_gain = sanitize_gain(self.master_gain);
+        for channel in &mut self.channels {
+            channel.set_gain(channel.gain);
+        }
+        self
+    }
+}
+
+fn sanitize_gain(gain: f32) -> f32 {
+    if gain.is_finite() {
+        gain.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Lookup tables
 // ---------------------------------------------------------------------------
 
@@ -683,6 +839,7 @@ pub struct Apu {
     // Per-channel downsampling (linear pre-mix levels, normalised to -1..1)
     channel_accumulators: [f32; 5],
     channel_buffers: [Vec<f32>; 5],
+    audio_controls: AudioControls,
 
     // DC-blocking high-pass filter (applied at output sample rate).
     // Removes the large DC offset inherent in the non-linear mixer.
@@ -756,10 +913,32 @@ impl Apu {
                 Vec::with_capacity(Self::SAMPLE_RATE as usize / 50 + 1),
                 Vec::with_capacity(Self::SAMPLE_RATE as usize / 50 + 1),
             ],
+            audio_controls: AudioControls::default(),
             hp_prev_in: 0.0,
             hp_prev_out: 0.0,
             expansion_audio: 0.0,
         }
+    }
+
+    /// Current host-side audio controls.
+    #[must_use]
+    pub const fn audio_controls(&self) -> AudioControls {
+        self.audio_controls
+    }
+
+    /// Replace all host-side audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.audio_controls = controls.sanitized();
+    }
+
+    /// Enable or disable one channel in the host mixer.
+    pub fn set_audio_channel_enabled(&mut self, channel: ApuChannel, enabled: bool) {
+        self.audio_controls.set_channel_enabled(channel, enabled);
+    }
+
+    /// Set linear gain for one channel in the host mixer.
+    pub fn set_audio_channel_gain(&mut self, channel: ApuChannel, gain: f32) {
+        self.audio_controls.set_channel_gain(channel, gain);
     }
 
     /// Read an APU register ($4015 is the only readable APU register).
@@ -1019,11 +1198,32 @@ impl Apu {
         // Pulse/noise envelopes output 0–15, triangle outputs 0–15,
         // DMC outputs 0–127. Scale each so full-range maps to 0..1,
         // then centre around zero (subtract 0.5, multiply by 2) to get -1..1.
-        let p1_linear = f32::from(self.pulse1.output()) / 15.0;
-        let p2_linear = f32::from(self.pulse2.output()) / 15.0;
-        let tri_linear = f32::from(self.triangle.output()) / 15.0;
-        let noi_linear = f32::from(self.noise.output()) / 15.0;
-        let dmc_linear = f32::from(self.dmc.output_level) / 127.0;
+        let p1 = self
+            .audio_controls
+            .channel(ApuChannel::Pulse1)
+            .apply(f32::from(self.pulse1.output()));
+        let p2 = self
+            .audio_controls
+            .channel(ApuChannel::Pulse2)
+            .apply(f32::from(self.pulse2.output()));
+        let tri = self
+            .audio_controls
+            .channel(ApuChannel::Triangle)
+            .apply(f32::from(self.triangle.output()));
+        let noi = self
+            .audio_controls
+            .channel(ApuChannel::Noise)
+            .apply(f32::from(self.noise.output()));
+        let dmc = self
+            .audio_controls
+            .channel(ApuChannel::Dmc)
+            .apply(f32::from(self.dmc.output_level));
+
+        let p1_linear = p1 / 15.0;
+        let p2_linear = p2 / 15.0;
+        let tri_linear = tri / 15.0;
+        let noi_linear = noi / 15.0;
+        let dmc_linear = dmc / 127.0;
 
         self.channel_accumulators[0] += p1_linear;
         self.channel_accumulators[1] += p2_linear;
@@ -1032,7 +1232,7 @@ impl Apu {
         self.channel_accumulators[4] += dmc_linear;
 
         // Mix and downsample (including expansion audio from cartridge)
-        let sample = self.mix() + self.expansion_audio;
+        let sample = self.controlled_mix() + self.expansion_audio;
         self.accumulator += sample;
         self.sample_count += 1;
 
@@ -1159,13 +1359,39 @@ impl Apu {
     }
 
     /// Non-linear mixer (nesdev formula).
+    #[cfg(test)]
     fn mix(&self) -> f32 {
-        let p1 = f32::from(self.pulse1.output());
-        let p2 = f32::from(self.pulse2.output());
-        let tri = f32::from(self.triangle.output());
-        let noi = f32::from(self.noise.output());
-        let dmc = f32::from(self.dmc.output_level);
+        self.mix_levels(
+            f32::from(self.pulse1.output()),
+            f32::from(self.pulse2.output()),
+            f32::from(self.triangle.output()),
+            f32::from(self.noise.output()),
+            f32::from(self.dmc.output_level),
+        )
+    }
 
+    fn controlled_mix(&self) -> f32 {
+        let controls = self.audio_controls;
+        self.mix_levels(
+            controls
+                .channel(ApuChannel::Pulse1)
+                .apply(f32::from(self.pulse1.output())),
+            controls
+                .channel(ApuChannel::Pulse2)
+                .apply(f32::from(self.pulse2.output())),
+            controls
+                .channel(ApuChannel::Triangle)
+                .apply(f32::from(self.triangle.output())),
+            controls
+                .channel(ApuChannel::Noise)
+                .apply(f32::from(self.noise.output())),
+            controls
+                .channel(ApuChannel::Dmc)
+                .apply(f32::from(self.dmc.output_level)),
+        ) * controls.master_gain()
+    }
+
+    fn mix_levels(&self, p1: f32, p2: f32, tri: f32, noi: f32, dmc: f32) -> f32 {
         let pulse_out = if p1 + p2 > 0.0 {
             95.88 / (8128.0 / (p1 + p2) + 100.0)
         } else {
@@ -1624,6 +1850,56 @@ mod tests {
         // Disable pulse 1
         apu.write(0x4015, 0x00);
         assert!(apu.read(0x4015) & 0x01 == 0, "Length should be cleared");
+    }
+
+    #[test]
+    fn host_audio_controls_do_not_change_status_register() {
+        let mut apu = Apu::new();
+
+        apu.write(0x4015, 0x01);
+        apu.write(0x4003, 0x01 << 3);
+        assert!(apu.read(0x4015) & 0x01 != 0);
+
+        apu.set_audio_channel_enabled(ApuChannel::Pulse1, false);
+        assert!(!apu.audio_controls().channel(ApuChannel::Pulse1).enabled());
+        assert!(
+            apu.read(0x4015) & 0x01 != 0,
+            "host muting must not clear the emulated length status"
+        );
+    }
+
+    #[test]
+    fn host_audio_controls_mute_output_only() {
+        let mut apu = Apu::new();
+        apu.write(0x4011, 0x40);
+
+        assert!(
+            apu.controlled_mix() > 0.0,
+            "DMC direct load should contribute to host output"
+        );
+        assert!(
+            apu.mix() > 0.0,
+            "raw emulated mixer should see DMC direct load"
+        );
+
+        apu.set_audio_channel_enabled(ApuChannel::Dmc, false);
+        assert_eq!(apu.controlled_mix(), 0.0);
+        assert!(
+            apu.mix() > 0.0,
+            "host muting must not change raw emulated channel state"
+        );
+    }
+
+    #[test]
+    fn host_audio_controls_clamp_gain() {
+        let mut controls = AudioControls::default();
+        controls.set_master_gain(2.0);
+        controls.set_channel_gain(ApuChannel::Noise, f32::NAN);
+        controls.set_channel_gain(ApuChannel::Dmc, -1.0);
+
+        assert_eq!(controls.master_gain(), 1.0);
+        assert_eq!(controls.channel(ApuChannel::Noise).gain(), 0.0);
+        assert_eq!(controls.channel(ApuChannel::Dmc).gain(), 0.0);
     }
 
     #[test]

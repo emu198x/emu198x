@@ -4,6 +4,21 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — NES native shell gains APU channel controls
+
+**Type:** feature
+**Trigger:** NES now uses the shared native audio output path, but
+debugging audio needs per-channel isolation without changing emulated
+APU register state.
+**Result:** `ricoh-apu-2a03` now exposes host-side `AudioControls`
+over Pulse 1, Pulse 2, Triangle, Noise, and DMC. The controls are
+kept outside `$4015` and channel length semantics, then surfaced
+through `machine-nintendo-nes`, `runtime-nintendo-nes`, and
+`emu198x-nes`. The native shell maps `1`-`5` to channel toggles and
+`6`-`0` to channel gain cycling.
+
+---
+
 ## 2026-04-24 — Game Boy native shell gains APU channel controls
 
 **Type:** feature

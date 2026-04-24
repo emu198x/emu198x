@@ -6,7 +6,7 @@ use emu198x_shell::{
     ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
 use format_nintendo_nes_ines::parse_ines;
-use machine_nintendo_nes::{FB_HEIGHT, FB_WIDTH, Nes};
+use machine_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, Nes};
 use serde_json::json;
 
 use crate::{Model, profile_for};
@@ -53,6 +53,38 @@ impl NesRuntime {
     #[must_use]
     pub fn machine(&self) -> Option<&Nes> {
         self.machine.as_ref()
+    }
+
+    /// Returns the wrapped NES machine mutably when a cartridge is loaded.
+    pub fn machine_mut(&mut self) -> Option<&mut Nes> {
+        self.machine.as_mut()
+    }
+
+    /// Current host-side APU audio controls, if a cartridge is loaded.
+    #[must_use]
+    pub fn audio_controls(&self) -> Option<AudioControls> {
+        self.machine.as_ref().map(Nes::audio_controls)
+    }
+
+    /// Replace all host-side APU audio controls when a cartridge is loaded.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        if let Some(machine) = self.machine.as_mut() {
+            machine.set_audio_controls(controls);
+        }
+    }
+
+    /// Enable or disable one APU channel in the host mixer.
+    pub fn set_audio_channel_enabled(&mut self, channel: ApuChannel, enabled: bool) {
+        if let Some(machine) = self.machine.as_mut() {
+            machine.set_audio_channel_enabled(channel, enabled);
+        }
+    }
+
+    /// Set one APU channel's host mixer gain.
+    pub fn set_audio_channel_gain(&mut self, channel: ApuChannel, gain: f32) {
+        if let Some(machine) = self.machine.as_mut() {
+            machine.set_audio_channel_gain(channel, gain);
+        }
     }
 
     fn load_cartridge_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
@@ -431,6 +463,24 @@ mod tests {
             .expect("provider should own the path");
 
         assert_eq!(loaded.value, json!(true));
+    }
+
+    #[test]
+    fn audio_controls_mutate_loaded_machine_mixer() {
+        let rom = minimal_ines();
+        let mut runtime = NesRuntime::blank(Model::NesNtsc);
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
+        runtime.load_media(&media).expect("valid iNES should load");
+
+        runtime.set_audio_channel_enabled(ApuChannel::Pulse1, false);
+        runtime.set_audio_channel_gain(ApuChannel::Dmc, 0.25);
+
+        let controls = runtime
+            .audio_controls()
+            .expect("audio controls should exist for loaded cartridge");
+        assert!(!controls.channel(ApuChannel::Pulse1).enabled());
+        assert_eq!(controls.channel(ApuChannel::Dmc).gain(), 0.25);
     }
 
     #[test]
