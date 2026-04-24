@@ -664,6 +664,7 @@ checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 name = "emu198x-amiga"
 version = "0.1.0"
 dependencies = [
+ "cpal",
  "emu198x-shell",
  "pixels",
  "runtime-commodore-amiga",

@@ -1,15 +1,18 @@
 //! `emu198x-amiga` — minimal native Amiga verifier shell.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use emu198x_shell::{
-    CapturedFrame, FirmwareImage, FirmwareSet, HostIo, InputEvent, LatestFrameCapture, MachineCore,
-    MachineError, MediaImage, MediaKind, MediaSet, NullAudioSink, NullTraceSink, PixelFormat,
-    ResetKind, RunResult, read_firmware_asset, read_media_asset,
+    AudioPacket, AudioSink, CapturedFrame, FirmwareImage, FirmwareSet, HostIo, InputEvent,
+    LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet, NullTraceSink,
+    PixelFormat, ResetKind, RunResult, read_firmware_asset, read_media_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_amiga::{
@@ -30,6 +33,8 @@ const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 const DEFAULT_SCALE: u32 = 1;
 const INPUT_SLICES_PER_FRAME: u32 = 4;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
+const MAX_AUDIO_BUFFER_MS: u32 = 250;
+const PAULA_RUNTIME_AUDIO_RATE: u32 = 48_000;
 const WINDOW_TITLE: &str = "Emu198x Amiga";
 
 const USAGE: &str = "\
@@ -105,6 +110,9 @@ enum AppError {
     #[error("{reason}")]
     Setup { reason: String },
 
+    #[error("audio backend failed: {reason}")]
+    AudioBackend { reason: String },
+
     #[error("frame packet used unsupported format {format:?}")]
     UnsupportedPixelFormat { format: PixelFormat },
 
@@ -122,7 +130,7 @@ enum AppError {
 struct AmigaRunner {
     runtime: AmigaRuntime,
     frame_capture: LatestFrameCapture,
-    audio_sink: NullAudioSink,
+    audio_output: AmigaAudioOutput,
     last_run_result: Option<RunResult>,
 }
 
@@ -162,7 +170,7 @@ impl AmigaRunner {
         let mut runner = Self {
             runtime,
             frame_capture: LatestFrameCapture::default(),
-            audio_sink: NullAudioSink,
+            audio_output: AmigaAudioOutput::new(PAULA_RUNTIME_AUDIO_RATE)?,
             last_run_result: None,
         };
         runner.run_frame(&[])?;
@@ -173,6 +181,7 @@ impl AmigaRunner {
         self.runtime.reset(ResetKind::Hard);
         self.last_run_result = None;
         self.frame_capture = LatestFrameCapture::default();
+        self.audio_output.clear();
         self.run_frame(&[])?;
         Ok(())
     }
@@ -189,7 +198,7 @@ impl AmigaRunner {
         let mut host = HostIo {
             input_events,
             frame_sink: &mut self.frame_capture,
-            audio_sink: &mut self.audio_sink,
+            audio_sink: &mut self.audio_output,
             trace_sink: &mut trace_sink,
         };
         self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
@@ -199,6 +208,212 @@ impl AmigaRunner {
     fn frame(&self) -> Option<&CapturedFrame> {
         self.frame_capture.frame()
     }
+}
+
+struct AmigaAudioOutput {
+    _stream: Stream,
+    shared: Arc<Mutex<AudioBuffer>>,
+    sample_rate: u32,
+    channels: u16,
+}
+
+impl AmigaAudioOutput {
+    fn new(_source_rate: u32) -> Result<Self, AppError> {
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or_else(|| AppError::AudioBackend {
+                reason: "no default output device is available".to_owned(),
+            })?;
+        let supported = device
+            .default_output_config()
+            .map_err(|err| AppError::AudioBackend {
+                reason: format!("failed to query the default output config: {err}"),
+            })?;
+        let config = supported.config();
+        let max_samples = usize::try_from(
+            (u64::from(config.sample_rate.0)
+                * u64::from(config.channels)
+                * u64::from(MAX_AUDIO_BUFFER_MS))
+                / 1_000,
+        )
+        .unwrap_or(usize::MAX)
+        .max(1);
+        let shared = Arc::new(Mutex::new(AudioBuffer::new(max_samples)));
+        let stream = build_output_stream(&device, &config, supported.sample_format(), &shared)?;
+        stream.play().map_err(|err| AppError::AudioBackend {
+            reason: format!("failed to start the audio stream: {err}"),
+        })?;
+
+        Ok(Self {
+            _stream: stream,
+            shared,
+            sample_rate: config.sample_rate.0,
+            channels: config.channels,
+        })
+    }
+
+    fn clear(&mut self) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.samples.clear();
+        }
+    }
+}
+
+impl AudioSink for AmigaAudioOutput {
+    fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
+        let samples = convert_audio_packet(
+            packet.samples,
+            packet.sample_rate,
+            packet.channels,
+            self.sample_rate,
+            self.channels,
+        );
+        let mut shared = self.shared.lock().map_err(|_| MachineError::Host {
+            reason: "audio buffer lock poisoned".to_owned(),
+        })?;
+        shared.push(&samples);
+        Ok(())
+    }
+}
+
+struct AudioBuffer {
+    samples: VecDeque<f32>,
+    max_samples: usize,
+}
+
+impl AudioBuffer {
+    fn new(max_samples: usize) -> Self {
+        Self {
+            samples: VecDeque::with_capacity(max_samples),
+            max_samples,
+        }
+    }
+
+    fn push(&mut self, samples: &[f32]) {
+        self.samples.extend(samples.iter().copied());
+        while self.samples.len() > self.max_samples {
+            let _ = self.samples.pop_front();
+        }
+    }
+}
+
+fn build_output_stream(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+    shared: &Arc<Mutex<AudioBuffer>>,
+) -> Result<Stream, AppError> {
+    match sample_format {
+        SampleFormat::F32 => build_typed_output_stream::<f32>(device, config, shared),
+        SampleFormat::I16 => build_typed_output_stream::<i16>(device, config, shared),
+        SampleFormat::U16 => build_typed_output_stream::<u16>(device, config, shared),
+        other => Err(AppError::AudioBackend {
+            reason: format!("unsupported output sample format {other:?}"),
+        }),
+    }
+}
+
+fn build_typed_output_stream<T>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    shared: &Arc<Mutex<AudioBuffer>>,
+) -> Result<Stream, AppError>
+where
+    T: SizedSample + FromSample<f32>,
+{
+    let shared = Arc::clone(shared);
+    device
+        .build_output_stream(
+            config,
+            move |data: &mut [T], _| write_output_data(data, &shared),
+            move |err| eprintln!("audio stream error: {err}"),
+            None,
+        )
+        .map_err(|err| AppError::AudioBackend {
+            reason: format!("failed to build the output stream: {err}"),
+        })
+}
+
+fn write_output_data<T>(data: &mut [T], shared: &Arc<Mutex<AudioBuffer>>)
+where
+    T: SizedSample + FromSample<f32>,
+{
+    let Ok(mut shared) = shared.lock() else {
+        for slot in data.iter_mut() {
+            *slot = T::from_sample(0.0);
+        }
+        return;
+    };
+
+    for slot in data.iter_mut() {
+        let sample = shared.samples.pop_front().unwrap_or(0.0);
+        *slot = T::from_sample(sample);
+    }
+}
+
+fn convert_audio_packet(
+    samples: &[f32],
+    source_rate: u32,
+    source_channels: u8,
+    output_rate: u32,
+    output_channels: u16,
+) -> Vec<f32> {
+    if samples.is_empty() || source_rate == 0 || output_rate == 0 || output_channels == 0 {
+        return Vec::new();
+    }
+
+    let mono = interleaved_to_mono(samples, source_channels);
+    let frames_out = if source_rate == output_rate {
+        mono.len()
+    } else {
+        usize::try_from(
+            (mono.len() as u64 * u64::from(output_rate)).div_ceil(u64::from(source_rate)),
+        )
+        .unwrap_or(usize::MAX)
+    };
+    let channel_count = usize::from(output_channels);
+    let mut converted = Vec::with_capacity(frames_out.saturating_mul(channel_count));
+
+    if source_rate == output_rate {
+        for &sample in &mono {
+            for _ in 0..channel_count {
+                converted.push(sample);
+            }
+        }
+        return converted;
+    }
+
+    let step = f64::from(source_rate) / f64::from(output_rate);
+    let last = mono.len().saturating_sub(1);
+
+    for frame in 0..frames_out {
+        let position = frame as f64 * step;
+        let index = position.floor() as usize;
+        let frac = (position - index as f64) as f32;
+        let a = mono[index.min(last)];
+        let b = mono[(index + 1).min(last)];
+        let sample = a + (b - a) * frac;
+        for _ in 0..channel_count {
+            converted.push(sample);
+        }
+    }
+
+    converted
+}
+
+fn interleaved_to_mono(samples: &[f32], channels: u8) -> Vec<f32> {
+    let channel_count = usize::from(channels.max(1));
+    if channel_count == 1 {
+        return samples.to_vec();
+    }
+
+    let mut mono = Vec::with_capacity(samples.len().div_ceil(channel_count));
+    for frame in samples.chunks(channel_count) {
+        let sum: f32 = frame.iter().copied().sum();
+        mono.push(sum / frame.len() as f32);
+    }
+    mono
 }
 
 struct AmigaApp {
@@ -824,6 +1039,20 @@ mod tests {
         assert_eq!(map_mouse_button(MouseButton::Right), Some("right"));
         assert_eq!(map_mouse_button(MouseButton::Middle), Some("middle"));
         assert_eq!(map_mouse_button(MouseButton::Other(1)), None);
+    }
+
+    #[test]
+    fn audio_conversion_downmixes_stereo_at_same_rate() {
+        let converted = convert_audio_packet(&[0.25, -0.5, 0.75, -1.0], 48_000, 2, 48_000, 2);
+
+        assert_eq!(converted, vec![-0.125, -0.125, -0.125, -0.125]);
+    }
+
+    #[test]
+    fn audio_conversion_resamples_to_output_rate() {
+        let converted = convert_audio_packet(&[0.0, 0.0, 1.0, 1.0], 2, 2, 4, 1);
+
+        assert_eq!(converted, vec![0.0, 0.5, 1.0, 1.0]);
     }
 
     #[test]

@@ -25,7 +25,7 @@
 - `format-nintendo-nes-ines` — iNES / NES 2.0 header parser + Mapper trait + NROM (mapper 0). Other 47 mappers deferred.
 
 ### Commodore Amiga
-- [Overview](systems/commodore-amiga.md) — OCS PAL runtime covering A1000 bootstrap/WOM and A500-family RAM profiles; Kickstart insert-disk, Workbench 1.3 desktop, native verifier window, DF0 `ADF` insertion, screenshots, Paula-backed audio capture, keyboard, and mouse input
+- [Overview](systems/commodore-amiga.md) — OCS PAL runtime covering A1000 bootstrap/WOM and A500-family RAM profiles; Kickstart insert-disk, Workbench 1.3 desktop, native verifier window, DF0 `ADF` insertion, screenshots, live Paula audio, keyboard, and mouse input
 - [Port plan](decisions/amiga-port-plan.md) — the archive-to-fresh-workspace port plan this baseline came from
 - [Archive-port methodology](decisions/archive-port-methodology.md) — three-phase read-characterize / port-with-tests / integrate discipline for bringing -archive crates back in
 - [Chip-only boot failure](decisions/amiga-chip-only-boot-failure.md) — RESOLVED 2026-04-20 via copper CDANG halt; narrative kept for context

@@ -4,6 +4,19 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Amiga native shell plays live Paula audio
+
+**Type:** feature
+**Trigger:** The Amiga runtime emitted Paula-backed audio packets, but
+the native verifier shell still discarded them.
+**Result:** `emu198x-amiga` now owns a CPAL output stream and drains
+runtime audio packets into a bounded callback buffer, matching the
+Spectrum/C64 native audio pattern. Host sample-rate/channel conversion
+is covered by unit tests. Joystick input and broader software smoke
+coverage remain pending.
+
+---
+
 ## 2026-04-24 — Amiga mouse input wired end-to-end
 
 **Type:** feature
