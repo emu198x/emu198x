@@ -65,7 +65,7 @@ No Bus trait. The machine inspects [Z80](../../chips/zilog-z80.md) signals (`add
 | `format-sinclair-zx-spectrum-tzx` | TZX tape parser (15+ block types) |
 | `format-sinclair-zx-spectrum-z80` | .Z80 (v1/v2/v3) and .SNA (48K/128K) snapshot loader |
 | `runtime-sinclair-zx-spectrum` | Shared `MachineCore` runtime layer: bespoke 48K runtime plus generic wrappers for the other variants |
-| `emu198x-spectrum` | SDL2/OpenGL runner above the shared runtime and shell boundary |
+| `emu198x-spectrum` | Native `winit` runner above the shared runtime and shell boundary, rendering through `emu198x-native-video`/`wgpu` |
 
 ## Clock tree
 

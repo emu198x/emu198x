@@ -6,13 +6,13 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 
+use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
 use emu198x_shell::{
     ButtonInputMap, ButtonTarget, CapturedFrame, FirmwareImage, FirmwareSet, HostControl, HostIo,
     InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
-    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat, ResetKind,
-    RunResult, read_firmware_asset, read_media_asset,
+    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, ResetKind, RunResult,
+    read_firmware_asset, read_media_asset,
 };
-use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_amiga::{
     A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaRuntime, AudioControls, DISPLAY_HEIGHT,
     DISPLAY_WIDTH, Model, PaulaChannel,
@@ -106,10 +106,7 @@ enum AppError {
     Machine(#[from] MachineError),
 
     #[error(transparent)]
-    Pixels(#[from] pixels::Error),
-
-    #[error(transparent)]
-    Texture(#[from] TextureError),
+    Video(#[from] VideoPresenterError),
 
     #[error(transparent)]
     EventLoop(#[from] EventLoopError),
@@ -125,19 +122,6 @@ enum AppError {
 
     #[error(transparent)]
     Audio(#[from] NativeAudioError),
-
-    #[error("frame packet used unsupported format {format:?}")]
-    UnsupportedPixelFormat { format: PixelFormat },
-
-    #[error(
-        "frame geometry {width}x{height} does not match expected {expected_width}x{expected_height}"
-    )]
-    UnexpectedFrameGeometry {
-        width: u32,
-        height: u32,
-        expected_width: u32,
-        expected_height: u32,
-    },
 }
 
 struct AmigaRunner {
@@ -255,7 +239,8 @@ struct AmigaApp {
     keyboard_joystick: bool,
     gamepads: NativeGamepadInput,
     window: Option<std::sync::Arc<Window>>,
-    pixels: Option<Pixels<'static>>,
+    video: Option<WgpuVideoPresenter>,
+    presentation: PresentationProfile,
     fatal_error: Option<AppError>,
 }
 
@@ -279,7 +264,8 @@ impl AmigaApp {
             keyboard_joystick: false,
             gamepads: NativeGamepadInput::new(),
             window: None,
-            pixels: None,
+            video: None,
+            presentation: PresentationProfile::default(),
             fatal_error: None,
         })
     }
@@ -309,12 +295,10 @@ impl AmigaApp {
                 f64::from(DISPLAY_HEIGHT),
             ));
         let window = std::sync::Arc::new(event_loop.create_window(attributes)?);
-        let size = window.inner_size();
-        let surface = SurfaceTexture::new(size.width, size.height, window.clone());
-        let pixels = Pixels::new(DISPLAY_WIDTH, DISPLAY_HEIGHT, surface)?;
+        let video = WgpuVideoPresenter::new(window.clone(), DISPLAY_WIDTH, DISPLAY_HEIGHT)?;
 
         self.window = Some(window);
-        self.pixels = Some(pixels);
+        self.video = Some(video);
         self.next_slice_at = Instant::now();
         Ok(())
     }
@@ -361,20 +345,18 @@ impl AmigaApp {
         let Some(frame) = self.runner.frame() else {
             return Ok(());
         };
-        let Some(pixels) = self.pixels.as_mut() else {
+        let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
 
-        blit_rgba_frame(frame, pixels.frame_mut())?;
-        pixels.render()?;
+        video.present(frame, &self.presentation)?;
         Ok(())
     }
 
-    fn resize_surface(&mut self, width: u32, height: u32) -> Result<(), AppError> {
-        if let Some(pixels) = self.pixels.as_mut() {
-            pixels.resize_surface(width, height)?;
+    fn resize_surface(&mut self, width: u32, height: u32) {
+        if let Some(video) = self.video.as_mut() {
+            video.resize_surface(width, height);
         }
-        Ok(())
     }
 
     fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
@@ -619,16 +601,12 @@ impl ApplicationHandler for AmigaApp {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Focused(false) => self.release_all_inputs(),
             WindowEvent::Resized(size) => {
-                if let Err(err) = self.resize_surface(size.width, size.height) {
-                    self.fail(event_loop, err);
-                }
+                self.resize_surface(size.width, size.height);
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(window) = &self.window {
                     let size = window.inner_size();
-                    if let Err(err) = self.resize_surface(size.width, size.height) {
-                        self.fail(event_loop, err);
-                    }
+                    self.resize_surface(size.width, size.height);
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -953,26 +931,6 @@ fn map_mouse_button(button: MouseButton) -> Option<&'static str> {
         MouseButton::Middle => "middle",
         _ => return None,
     })
-}
-
-fn blit_rgba_frame(frame: &CapturedFrame, target: &mut [u8]) -> Result<(), AppError> {
-    if frame.format != PixelFormat::Rgba8888 {
-        return Err(AppError::UnsupportedPixelFormat {
-            format: frame.format,
-        });
-    }
-
-    if frame.width != DISPLAY_WIDTH || frame.height != DISPLAY_HEIGHT {
-        return Err(AppError::UnexpectedFrameGeometry {
-            width: frame.width,
-            height: frame.height,
-            expected_width: DISPLAY_WIDTH,
-            expected_height: DISPLAY_HEIGHT,
-        });
-    }
-
-    target.copy_from_slice(&frame.pixels);
-    Ok(())
 }
 
 #[cfg(test)]

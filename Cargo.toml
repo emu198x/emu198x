@@ -101,7 +101,6 @@ license = "GPL-2.0-or-later"
 [workspace.dependencies]
 cpal = "0.15"
 gilrs = "0.11"
-pixels = "0.15"
 pollster = "0.3"
 png = "0.17"
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }

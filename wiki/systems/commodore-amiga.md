@@ -85,7 +85,7 @@ The native verifier (`emu198x-amiga`) currently provides:
 - A1000 and A500-family model selection
 - ROM directory discovery or explicit `--kickstart` firmware loading
 - optional `--disk` insertion into DF0
-- windowed 768x576 RGBA video through `pixels`/`winit`
+- windowed 768x576 RGBA video through the shared `emu198x-native-video` `wgpu` presenter
 - hard reset, live Paula audio, basic A-Z / 0-9 / Space / Enter / Tab / Backspace keyboard input, and port-0 mouse movement/buttons
 
 ## Related

@@ -18,6 +18,20 @@ same native video path.
 
 ---
 
+## 2026-04-24 — Shared native video presenter reaches all current windows
+
+**Type:** architecture
+**Trigger:** The Game Boy `wgpu` presenter smoke test worked, so the
+remaining native verifier windows no longer needed separate `pixels`
+blitters.
+**Result:** `emu198x-spectrum`, `emu198x-c64`, `emu198x-nes`, and
+`emu198x-amiga` now render through `emu198x-native-video`, matching
+Game Boy. The shared presenter handles both indexed and RGBA runtime
+frames, centred integer scaling, and host resize presentation for all
+current native windows.
+
+---
+
 ## 2026-04-24 — Shared host gamepad input reaches native shells
 
 **Type:** feature

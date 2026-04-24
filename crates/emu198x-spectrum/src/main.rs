@@ -12,15 +12,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
+use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
     AssetLoadError, CapturedFrame, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession,
     HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind,
     MediaSet, MediaTransportAction, MediaTransportCommand, NativeAudioError, NativeAudioOutput,
-    NullTraceSink, PixelFormat, QueryError, QueryResult, ResetKind, RunResult,
-    SessionQueryProvider, read_firmware_asset, read_media_asset,
+    NullTraceSink, QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider,
+    read_firmware_asset, read_media_asset,
 };
-use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_sinclair_zx_spectrum::{
     AudioControls, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpeakerChannel,
     Spectrum48kRuntime, SpectrumSessionQueryProvider, autoload_basic_tape,
@@ -108,10 +108,7 @@ enum AppError {
     Audio(#[from] NativeAudioError),
 
     #[error(transparent)]
-    Pixels(#[from] pixels::Error),
-
-    #[error(transparent)]
-    Texture(#[from] TextureError),
+    Video(#[from] VideoPresenterError),
 
     #[error(transparent)]
     EventLoop(#[from] EventLoopError),
@@ -130,22 +127,6 @@ enum AppError {
 
     #[error("--autoload-tape conflicts with --play-tape")]
     ConflictingTapeWorkflow,
-
-    #[error("frame packet used unsupported format {format:?}")]
-    UnsupportedPixelFormat { format: PixelFormat },
-
-    #[error("indexed frame is missing a palette")]
-    MissingPalette,
-
-    #[error(
-        "frame geometry {width}x{height} does not match expected {expected_width}x{expected_height}"
-    )]
-    UnexpectedFrameGeometry {
-        width: u32,
-        height: u32,
-        expected_width: u32,
-        expected_height: u32,
-    },
 }
 
 struct SpectrumRunner {
@@ -352,7 +333,8 @@ struct SpectrumApp {
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, Vec<&'static str>>,
     window: Option<Arc<Window>>,
-    pixels: Option<Pixels<'static>>,
+    video: Option<WgpuVideoPresenter>,
+    presentation: PresentationProfile,
     fatal_error: Option<AppError>,
 }
 
@@ -374,7 +356,8 @@ impl SpectrumApp {
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
             window: None,
-            pixels: None,
+            video: None,
+            presentation: PresentationProfile::default(),
             fatal_error: None,
         })
     }
@@ -404,12 +387,11 @@ impl SpectrumApp {
                 f64::from(SCREEN_HEIGHT as u32),
             ));
         let window = Arc::new(event_loop.create_window(attributes)?);
-        let size = window.inner_size();
-        let surface = SurfaceTexture::new(size.width, size.height, window.clone());
-        let pixels = Pixels::new(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32, surface)?;
+        let video =
+            WgpuVideoPresenter::new(window.clone(), SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32)?;
 
         self.window = Some(window);
-        self.pixels = Some(pixels);
+        self.video = Some(video);
         self.next_slice_at = Instant::now();
         Ok(())
     }
@@ -477,20 +459,18 @@ impl SpectrumApp {
         let Some(frame) = self.runner.frame() else {
             return Ok(());
         };
-        let Some(pixels) = self.pixels.as_mut() else {
+        let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
 
-        blit_indexed_frame(frame, pixels.frame_mut())?;
-        pixels.render()?;
+        video.present(frame, &self.presentation)?;
         Ok(())
     }
 
-    fn resize_surface(&mut self, width: u32, height: u32) -> Result<(), AppError> {
-        if let Some(pixels) = self.pixels.as_mut() {
-            pixels.resize_surface(width, height)?;
+    fn resize_surface(&mut self, width: u32, height: u32) {
+        if let Some(video) = self.video.as_mut() {
+            video.resize_surface(width, height);
         }
-        Ok(())
     }
 
     fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
@@ -637,16 +617,12 @@ impl ApplicationHandler for SpectrumApp {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Focused(false) => self.release_all_keys(),
             WindowEvent::Resized(size) => {
-                if let Err(err) = self.resize_surface(size.width, size.height) {
-                    self.fail(event_loop, err);
-                }
+                self.resize_surface(size.width, size.height);
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(window) = &self.window {
                     let size = window.inner_size();
-                    if let Err(err) = self.resize_surface(size.width, size.height) {
-                        self.fail(event_loop, err);
-                    }
+                    self.resize_surface(size.width, size.height);
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -880,34 +856,6 @@ fn map_spectrum_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Quote => &["symbol", "p"],
         _ => return None,
     })
-}
-
-fn blit_indexed_frame(frame: &CapturedFrame, target: &mut [u8]) -> Result<(), AppError> {
-    if frame.format != PixelFormat::Indexed8 {
-        return Err(AppError::UnsupportedPixelFormat {
-            format: frame.format,
-        });
-    }
-
-    if frame.width != SCREEN_WIDTH as u32 || frame.height != SCREEN_HEIGHT as u32 {
-        return Err(AppError::UnexpectedFrameGeometry {
-            width: frame.width,
-            height: frame.height,
-            expected_width: SCREEN_WIDTH as u32,
-            expected_height: SCREEN_HEIGHT as u32,
-        });
-    }
-
-    let palette = frame.palette.as_ref().ok_or(AppError::MissingPalette)?;
-    for (index, rgba) in frame.pixels.iter().zip(target.chunks_exact_mut(4)) {
-        let value = palette[*index as usize];
-        rgba[0] = (value >> 24) as u8;
-        rgba[1] = (value >> 16) as u8;
-        rgba[2] = (value >> 8) as u8;
-        rgba[3] = value as u8;
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

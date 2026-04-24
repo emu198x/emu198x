@@ -14,16 +14,16 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
+use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
     BootArtifacts, ButtonInputMap, ButtonTarget, CapturedFrame, ControlCommand, FirmwareImage,
     FirmwareSet, HeadlessSession, HostControl, HostIo, InputEvent, LatestFrameCapture, MachineCore,
     MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat,
-    QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider, boot_machine,
-    read_firmware_asset, read_media_asset, read_program_asset,
+    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, QueryError,
+    QueryResult, ResetKind, RunResult, SessionQueryProvider, boot_machine, read_firmware_asset,
+    read_media_asset, read_program_asset,
 };
-use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_c64::{
     AudioControls, C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
     DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
@@ -154,10 +154,7 @@ enum AppError {
     Session(#[from] emu198x_shell::SessionError),
 
     #[error(transparent)]
-    Pixels(#[from] pixels::Error),
-
-    #[error(transparent)]
-    Texture(#[from] TextureError),
+    Video(#[from] VideoPresenterError),
 
     #[error(transparent)]
     EventLoop(#[from] EventLoopError),
@@ -173,19 +170,6 @@ enum AppError {
 
     #[error("{reason}")]
     Setup { reason: String },
-
-    #[error("frame packet used unsupported format {format:?}")]
-    UnsupportedPixelFormat { format: PixelFormat },
-
-    #[error(
-        "frame geometry {width}x{height} does not match expected {expected_width}x{expected_height}"
-    )]
-    UnexpectedFrameGeometry {
-        width: u32,
-        height: u32,
-        expected_width: u32,
-        expected_height: u32,
-    },
 }
 
 struct C64Runner {
@@ -455,7 +439,8 @@ struct C64App {
     pressed_buttons: HashMap<KeyCode, HostControl>,
     gamepads: NativeGamepadInput,
     window: Option<Arc<Window>>,
-    pixels: Option<Pixels<'static>>,
+    video: Option<WgpuVideoPresenter>,
+    presentation: PresentationProfile,
     fatal_error: Option<AppError>,
 }
 
@@ -483,7 +468,8 @@ impl C64App {
             pressed_buttons: HashMap::new(),
             gamepads: NativeGamepadInput::new(),
             window: None,
-            pixels: None,
+            video: None,
+            presentation: PresentationProfile::default(),
             fatal_error: None,
         })
     }
@@ -514,12 +500,10 @@ impl C64App {
                 f64::from(frame_height),
             ));
         let window = Arc::new(event_loop.create_window(attributes)?);
-        let size = window.inner_size();
-        let surface = SurfaceTexture::new(size.width, size.height, window.clone());
-        let pixels = Pixels::new(frame_width, frame_height, surface)?;
+        let video = WgpuVideoPresenter::new(window.clone(), frame_width, frame_height)?;
 
         self.window = Some(window);
-        self.pixels = Some(pixels);
+        self.video = Some(video);
         self.next_slice_at = Instant::now();
         Ok(())
     }
@@ -593,20 +577,18 @@ impl C64App {
         let Some(frame) = self.runner.frame() else {
             return Ok(());
         };
-        let Some(pixels) = self.pixels.as_mut() else {
+        let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
 
-        blit_rgba_frame(frame, pixels.frame_mut())?;
-        pixels.render()?;
+        video.present(frame, &self.presentation)?;
         Ok(())
     }
 
-    fn resize_surface(&mut self, width: u32, height: u32) -> Result<(), AppError> {
-        if let Some(pixels) = self.pixels.as_mut() {
-            pixels.resize_surface(width, height)?;
+    fn resize_surface(&mut self, width: u32, height: u32) {
+        if let Some(video) = self.video.as_mut() {
+            video.resize_surface(width, height);
         }
-        Ok(())
     }
 
     fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
@@ -828,16 +810,12 @@ impl ApplicationHandler for C64App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Focused(false) => self.release_all_inputs(),
             WindowEvent::Resized(size) => {
-                if let Err(err) = self.resize_surface(size.width, size.height) {
-                    self.fail(event_loop, err);
-                }
+                self.resize_surface(size.width, size.height);
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(window) = &self.window {
                     let size = window.inner_size();
-                    if let Err(err) = self.resize_surface(size.width, size.height) {
-                        self.fail(event_loop, err);
-                    }
+                    self.resize_surface(size.width, size.height);
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -1251,35 +1229,6 @@ fn map_c64_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Tab => &["runstop"],
         _ => return None,
     })
-}
-
-fn blit_rgba_frame(frame: &CapturedFrame, dst: &mut [u8]) -> Result<(), AppError> {
-    if frame.format != PixelFormat::Rgba8888 {
-        return Err(AppError::UnsupportedPixelFormat {
-            format: frame.format,
-        });
-    }
-
-    let expected_len = usize::try_from(frame.width)
-        .ok()
-        .and_then(|width| {
-            usize::try_from(frame.height)
-                .ok()
-                .map(|height| width.saturating_mul(height).saturating_mul(4))
-        })
-        .unwrap_or(usize::MAX);
-
-    if frame.pixels.len() != expected_len || dst.len() != expected_len {
-        return Err(AppError::UnexpectedFrameGeometry {
-            width: frame.width,
-            height: frame.height,
-            expected_width: frame.width,
-            expected_height: frame.height,
-        });
-    }
-
-    dst.copy_from_slice(&frame.pixels);
-    Ok(())
 }
 
 impl Cli {
