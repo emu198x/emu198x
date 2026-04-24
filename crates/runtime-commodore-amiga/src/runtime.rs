@@ -588,10 +588,23 @@ fn audio_buffer_capacity_for_frame() -> usize {
 }
 
 fn apply_input_event(machine: &mut AmigaOcs, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event
-        && let Some(code) = key_name_to_raw_code(name.as_ref())
-    {
-        machine.key_event(code, *pressed);
+    match event {
+        InputEvent::Key { name, pressed } => {
+            if let Some(code) = key_name_to_raw_code(name.as_ref()) {
+                machine.key_event(code, *pressed);
+            }
+        }
+        InputEvent::PointerMotion { device, dx, dy } if device.as_ref() == "mouse-1" => {
+            machine.move_mouse_port0(*dx, *dy);
+        }
+        InputEvent::PointerButton {
+            device,
+            button,
+            pressed,
+        } if device.as_ref() == "mouse-1" => {
+            machine.set_mouse_button_port0(button.as_ref(), *pressed);
+        }
+        _ => {}
     }
 }
 
@@ -803,6 +816,40 @@ mod tests {
                 .iter()
                 .all(|sample| sample.is_finite())
         );
+    }
+
+    #[test]
+    fn run_until_applies_mouse_input_to_controller_port_zero() {
+        let mut runtime =
+            AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        let input_events = [
+            InputEvent::PointerMotion {
+                device: "mouse-1".into(),
+                dx: 3,
+                dy: 4,
+            },
+            InputEvent::PointerButton {
+                device: "mouse-1".into(),
+                button: "left".into(),
+                pressed: true,
+            },
+        ];
+        let mut frame_sink = NullFrameSink;
+        let mut audio_sink = AudioCollector::default();
+        let mut trace_sink = NullTraceSink;
+        let mut host = HostIo {
+            input_events: &input_events,
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+
+        runtime
+            .run_until(MachineTime::new(A500_PAL_FRAME_TICKS), &mut host)
+            .expect("one frame should run");
+
+        assert_eq!(runtime.machine().read_word(0x00DF_F00A), 0x0403);
+        assert_eq!(runtime.machine().read_word(0x00BF_E001) & 0x80, 0);
     }
 
     #[test]

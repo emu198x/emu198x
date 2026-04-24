@@ -19,7 +19,7 @@ use thiserror::Error;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::error::{EventLoopError, OsError};
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
@@ -46,6 +46,7 @@ Options:
 Controls:
     Esc                  quit
     F12                  hard reset
+    Mouse                port-0 Amiga mouse
     A-Z, 0-9             Amiga keyboard
     Space, Enter, Tab    Amiga keyboard
     Backspace            Amiga keyboard
@@ -208,6 +209,8 @@ struct AmigaApp {
     next_slice_at: Instant,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, &'static str>,
+    pressed_mouse_buttons: HashMap<MouseButton, &'static str>,
+    last_cursor_position: Option<(f64, f64)>,
     window: Option<std::sync::Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     fatal_error: Option<AppError>,
@@ -227,6 +230,8 @@ impl AmigaApp {
             next_slice_at: Instant::now(),
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
+            pressed_mouse_buttons: HashMap::new(),
+            last_cursor_position: None,
             window: None,
             pixels: None,
             fatal_error: None,
@@ -333,11 +338,67 @@ impl AmigaApp {
         }
     }
 
+    fn queue_mouse_motion(&mut self, x: f64, y: f64) {
+        let (x, y) = self.cursor_to_frame_position(x, y);
+        let Some((last_x, last_y)) = self.last_cursor_position.replace((x, y)) else {
+            return;
+        };
+
+        let dx = round_f64_to_i32(x - last_x);
+        let dy = round_f64_to_i32(y - last_y);
+        if dx == 0 && dy == 0 {
+            return;
+        }
+
+        self.pending_inputs.push(InputEvent::PointerMotion {
+            device: "mouse-1".into(),
+            dx,
+            dy,
+        });
+        self.next_slice_at = Instant::now();
+    }
+
+    fn cursor_to_frame_position(&self, x: f64, y: f64) -> (f64, f64) {
+        let Some(window) = &self.window else {
+            return (x, y);
+        };
+        let size = window.inner_size();
+        let width = f64::from(size.width.max(1));
+        let height = f64::from(size.height.max(1));
+        (
+            x * f64::from(DISPLAY_WIDTH) / width,
+            y * f64::from(DISPLAY_HEIGHT) / height,
+        )
+    }
+
+    fn queue_mouse_button_state(&mut self, button: MouseButton, pressed: bool) {
+        let Some(name) = map_mouse_button(button) else {
+            return;
+        };
+
+        if pressed {
+            if self.pressed_mouse_buttons.contains_key(&button) {
+                return;
+            }
+            self.pressed_mouse_buttons.insert(button, name);
+            self.pending_inputs.push(pointer_button_event(name, true));
+            self.next_slice_at = Instant::now();
+        } else if let Some(name) = self.pressed_mouse_buttons.remove(&button) {
+            self.pending_inputs.push(pointer_button_event(name, false));
+            self.next_slice_at = Instant::now();
+        }
+    }
+
     fn release_all_keys(&mut self) {
         let keys = std::mem::take(&mut self.pressed_keys);
         for name in keys.into_values() {
             self.pending_inputs.push(key_event(name, false));
         }
+        let buttons = std::mem::take(&mut self.pressed_mouse_buttons);
+        for name in buttons.into_values() {
+            self.pending_inputs.push(pointer_button_event(name, false));
+        }
+        self.last_cursor_position = None;
         self.next_slice_at = Instant::now();
     }
 
@@ -414,6 +475,12 @@ impl ApplicationHandler for AmigaApp {
                 }
                 self.queue_key_state(code, pressed);
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.queue_mouse_motion(position.x, position.y);
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                self.queue_mouse_button_state(button, state == ElementState::Pressed);
+            }
             WindowEvent::RedrawRequested => {
                 if let Err(err) = self.render() {
                     self.fail(event_loop, err);
@@ -449,7 +516,9 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
-    println!("Controls: Esc quit, F12 reset, A-Z/0-9/Space/Enter/Tab/Backspace keyboard.");
+    println!(
+        "Controls: Esc quit, F12 reset, mouse port 0, A-Z/0-9/Space/Enter/Tab/Backspace keyboard."
+    );
 
     let runner = AmigaRunner::from_cli(&cli)?;
     let mut app = AmigaApp::new(runner, cli.scale)?;
@@ -619,6 +688,26 @@ fn key_event(name: &'static str, pressed: bool) -> InputEvent {
     }
 }
 
+fn pointer_button_event(name: &'static str, pressed: bool) -> InputEvent {
+    InputEvent::PointerButton {
+        device: "mouse-1".into(),
+        button: name.into(),
+        pressed,
+    }
+}
+
+fn round_f64_to_i32(value: f64) -> i32 {
+    if value.is_nan() {
+        0
+    } else if value > f64::from(i32::MAX) {
+        i32::MAX
+    } else if value < f64::from(i32::MIN) {
+        i32::MIN
+    } else {
+        value.round() as i32
+    }
+}
+
 fn map_amiga_key(code: KeyCode) -> Option<&'static str> {
     Some(match code {
         KeyCode::Digit1 => "1",
@@ -661,6 +750,15 @@ fn map_amiga_key(code: KeyCode) -> Option<&'static str> {
         KeyCode::Backspace => "backspace",
         KeyCode::Tab => "tab",
         KeyCode::Enter | KeyCode::NumpadEnter => "enter",
+        _ => return None,
+    })
+}
+
+fn map_mouse_button(button: MouseButton) -> Option<&'static str> {
+    Some(match button {
+        MouseButton::Left => "left",
+        MouseButton::Right => "right",
+        MouseButton::Middle => "middle",
         _ => return None,
     })
 }
@@ -718,6 +816,14 @@ mod tests {
         assert_eq!(map_amiga_key(KeyCode::Digit1), Some("1"));
         assert_eq!(map_amiga_key(KeyCode::Space), Some("space"));
         assert_eq!(map_amiga_key(KeyCode::Enter), Some("enter"));
+    }
+
+    #[test]
+    fn maps_mouse_buttons() {
+        assert_eq!(map_mouse_button(MouseButton::Left), Some("left"));
+        assert_eq!(map_mouse_button(MouseButton::Right), Some("right"));
+        assert_eq!(map_mouse_button(MouseButton::Middle), Some("middle"));
+        assert_eq!(map_mouse_button(MouseButton::Other(1)), None);
     }
 
     #[test]

@@ -4,6 +4,19 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Amiga mouse input wired end-to-end
+
+**Type:** feature
+**Trigger:** The native Amiga verifier window existed, but Workbench
+was not practically usable without mouse input.
+**Result:** `emu198x-amiga` now emits host mouse movement/buttons as
+shared pointer events, `runtime-commodore-amiga` routes `mouse-1` to
+controller port 0, and `machine-commodore-amiga-ocs` exposes the
+movement through JOY0DAT plus active-low CIA/POTGOR button inputs.
+Joystick input and live native audio remain pending.
+
+---
+
 ## 2026-04-24 — Native Amiga verifier window added
 
 **Type:** feature

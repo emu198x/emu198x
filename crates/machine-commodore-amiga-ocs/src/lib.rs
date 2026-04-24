@@ -20,6 +20,7 @@ pub use agnus::{
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
 pub use commodore_gary::{ChipSelect, Gary};
+use commodore_paula_8364::bits::{POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT};
 use commodore_paula_8364::decode as paula_decode;
 pub use commodore_paula_8364::{AudioField, IntSource, Paula8364};
 pub use copper::Copper;
@@ -150,6 +151,10 @@ fn drive_pra_byte(s: &DriveStatus) -> u8 {
     v
 }
 
+fn joydat(x: u8, y: u8) -> u16 {
+    (u16::from(y) << 8) | u16::from(x)
+}
+
 /// Decode CIA-B PRB (active-low) into DF0 control booleans for the
 /// drive's `update_control(step, dir_inward, side_upper, sel, motor)`
 /// signature.
@@ -257,6 +262,15 @@ pub struct AmigaOcs {
     cia_a: Cia,
     cia_b: Cia,
     paula: Paula8364,
+    /// Mouse/joystick counter state for controller port 0 (JOY0DAT).
+    joy0_x: u8,
+    joy0_y: u8,
+    /// Mouse/joystick counter state for controller port 1 (JOY1DAT).
+    joy1_x: u8,
+    joy1_y: u8,
+    /// Active-low left mouse/fire buttons sampled through CIA-A PRA.
+    port0_left_button_pressed: bool,
+    port1_left_button_pressed: bool,
     agnus: Agnus,
     copper: Copper,
     denise: Denise,
@@ -355,6 +369,17 @@ impl AmigaOcs {
         let (step, dir_in, side_upper, sel0, motor) = decode_cia_b_prb_for_df0(prb);
         self.drive
             .update_control(step, dir_in, side_upper, sel0, motor);
+    }
+
+    fn refresh_cia_a_external_inputs(&mut self) {
+        let mut pra = drive_pra_byte(&self.drive.status());
+        if self.port1_left_button_pressed {
+            pra &= !(1 << 6);
+        }
+        if self.port0_left_button_pressed {
+            pra &= !(1 << 7);
+        }
+        self.cia_a.set_external_a(pra);
     }
 
     /// Build a new Amiga (OCS) with the given Kickstart ROM image
@@ -481,6 +506,12 @@ impl AmigaOcs {
             cia_a,
             cia_b: Cia::new(),
             paula: Paula8364::new(),
+            joy0_x: 0,
+            joy0_y: 0,
+            joy1_x: 0,
+            joy1_y: 0,
+            port0_left_button_pressed: false,
+            port1_left_button_pressed: false,
             agnus: Agnus::new(),
             copper: Copper::new(),
             denise: Denise::new(),
@@ -641,8 +672,7 @@ impl AmigaOcs {
     pub fn insert_adf(&mut self, adf: Adf) {
         self.drive.insert_disk(adf);
         self.drive.acknowledge_disk_change();
-        self.cia_a
-            .set_external_a(drive_pra_byte(&self.drive.status()));
+        self.refresh_cia_a_external_inputs();
     }
 
     /// Insert an ADF image into DF0 but leave `/DSKCHANGE` pending.
@@ -652,15 +682,37 @@ impl AmigaOcs {
     /// acknowledgement" without changing the default boot behavior.
     pub fn insert_adf_with_change_pending(&mut self, adf: Adf) {
         self.drive.insert_disk(adf);
-        self.cia_a
-            .set_external_a(drive_pra_byte(&self.drive.status()));
+        self.refresh_cia_a_external_inputs();
     }
 
     /// Eject the disk from DF0.
     pub fn eject_disk(&mut self) {
         self.drive.eject_disk();
-        self.cia_a
-            .set_external_a(drive_pra_byte(&self.drive.status()));
+        self.refresh_cia_a_external_inputs();
+    }
+
+    /// Move the emulated mouse in controller port 0. JOY0DAT stores
+    /// wrapping 8-bit relative counters; right and down increment.
+    pub fn move_mouse_port0(&mut self, dx: i32, dy: i32) {
+        self.joy0_x = self.joy0_x.wrapping_add(dx.rem_euclid(256) as u8);
+        self.joy0_y = self.joy0_y.wrapping_add(dy.rem_euclid(256) as u8);
+    }
+
+    /// Set one emulated mouse button for controller port 0.
+    pub fn set_mouse_button_port0(&mut self, button: &str, pressed: bool) {
+        match button {
+            "left" => {
+                self.port0_left_button_pressed = pressed;
+                self.refresh_cia_a_external_inputs();
+            }
+            "right" => self
+                .paula
+                .set_pot_pin_level(POTGOR_BTN_PORT0_RIGHT, !pressed),
+            "middle" => self
+                .paula
+                .set_pot_pin_level(POTGOR_BTN_PORT0_MIDDLE, !pressed),
+            _ => {}
+        }
     }
 
     /// Read-only keyboard controller access — useful for tests
@@ -1051,6 +1103,15 @@ impl AmigaOcs {
             0x032 => self.paula.write_serper(val),
             // Paula-owned POTGO (\$034).
             0x034 => self.paula.write_potgo(val),
+            // Denise JOYTEST ($036): writes the upper six bits of all
+            // four mouse counters; low two bits remain live switch
+            // state on real hardware, so leave them untouched.
+            0x036 => {
+                self.joy0_x = (self.joy0_x & 0x03) | ((val as u8) & 0xFC);
+                self.joy0_y = (self.joy0_y & 0x03) | (((val >> 8) as u8) & 0xFC);
+                self.joy1_x = (self.joy1_x & 0x03) | ((val as u8) & 0xFC);
+                self.joy1_y = (self.joy1_y & 0x03) | (((val >> 8) as u8) & 0xFC);
+            }
             // Agnus-owned blitter registers. BLTSIZE ($058) fires
             // `start_blit` inside the helper; we drive the blit to
             // completion below, raise INT_BLIT, and let the CPU see
@@ -1230,6 +1291,8 @@ impl AmigaOcs {
                 0x002 => self.agnus.dmacon,
                 0x004 => self.agnus.vposr(),
                 0x006 => self.agnus.vhposr(),
+                0x00A => joydat(self.joy0_x, self.joy0_y),
+                0x00C => joydat(self.joy1_x, self.joy1_y),
                 // Paula-owned read-side registers.
                 0x01C => self.paula.intena(),
                 0x01E => self.paula.intreq(),
@@ -1396,8 +1459,7 @@ impl AmigaOcs {
             // writes; the E-clock phase advances the mechanical drive
             // state and feeds status back onto CIA-A PRA.
             let _ = self.drive.tick();
-            self.cia_a
-                .set_external_a(drive_pra_byte(&self.drive.status()));
+            self.refresh_cia_a_external_inputs();
 
             // Keyboard controller — detect CIA-A CRA bit 6 (SPMODE)
             // rising edge as the host handshake, then tick the state
@@ -1678,6 +1740,8 @@ impl AmigaOcs {
                 let val = match offset {
                     0x004 => self.agnus.vposr(),
                     0x006 => self.agnus.vhposr(),
+                    0x00A => joydat(self.joy0_x, self.joy0_y),
+                    0x00C => joydat(self.joy1_x, self.joy1_y),
                     0x01C => self.paula.intena(),
                     0x01E => self.paula.intreq(),
                     0x010 => self.paula.adkcon(),

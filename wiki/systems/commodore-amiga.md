@@ -7,9 +7,9 @@
 > Workbench 1.3 reaches the Workbench desktop in the golden matrix.
 > The A1000 path uses the bootstrap ROM, writable WOM, Kickstart disk,
 > and scripted Workbench disk swap. `emu198x-amiga` provides a minimal
-> native verifier window. Runtime audio now drains Paula's live stereo
-> mix into 48 kHz audio packets; snapshots, mouse/joystick input, and
-> live native audio remain pending.
+> native verifier window with keyboard and mouse input. Runtime audio
+> now drains Paula's live stereo mix into 48 kHz audio packets;
+> snapshots, joystick input, and live native audio remain pending.
 
 ## Implementation status
 
@@ -26,7 +26,7 @@
 | Keyboard peripheral | `peripheral-commodore-amiga-keyboard` | Raw-key queue and serial keyboard path |
 | Machine wiring | `machine-commodore-amiga-ocs` | OCS PAL board loop with A1000 and A500-family RAM profiles |
 | Runtime | `runtime-commodore-amiga` | Fresh `MachineCore` runtime over the machine crate |
-| Native verifier | `emu198x-amiga` | Windowed OCS video, A1000/A500-family firmware loading, optional DF0 media, basic keyboard input |
+| Native verifier | `emu198x-amiga` | Windowed OCS video, A1000/A500-family firmware loading, optional DF0 media, basic keyboard and mouse input |
 | Headless runner | `emu198x-script-amiga` | Kickstart/bootstrap boot, DF0 media insertion, screenshots, audio capture, scripted keys |
 
 ### What works
@@ -37,7 +37,7 @@
 - Standard-viewport RGBA framebuffer output from Denise.
 - Paula register/audio-DMA execution in the machine layer, drained through the runtime as 48 kHz stereo audio packets.
 - `floppy-0` / DF0 media insertion with zipped or plain `ADF` images.
-- Native `emu198x-amiga` verifier window with Kickstart/bootstrap ROM loading, optional DF0 media, hard reset, and basic keyboard input.
+- Native `emu198x-amiga` verifier window with Kickstart/bootstrap ROM loading, optional DF0 media, hard reset, basic keyboard input, and port-0 mouse input.
 - Shared scripted keyboard input routed through the Amiga keyboard peripheral.
 - Queryable machine/runtime state including CPU PC, visible-output detection, A1000 bootstrap visibility, keyboard queue state, and DF0 insertion/motor/head state.
 
@@ -51,7 +51,7 @@
 
 ### What doesn't work yet
 
-- **Native verifier UI depth** — the fresh `emu198x-amiga` shell is intentionally minimal and does not yet expose mouse/joystick input or live audio playback.
+- **Native verifier UI depth** — the fresh `emu198x-amiga` shell is intentionally minimal and does not yet expose joystick input or live audio playback.
 - **Snapshots** — the fresh Amiga runtime deliberately reports snapshot import/export as unsupported.
 - **Software proof beyond the current goldens** — Workbench 1.3 and the A1000 Kickstart/Workbench route are proven locally; broader game/application boot coverage is still pending.
 - **Broader platform hardening** — joystick/mouse paths, stronger disk/software regressions, and frontend ergonomics are still pending.
@@ -84,7 +84,7 @@ The native verifier (`emu198x-amiga`) currently provides:
 - ROM directory discovery or explicit `--kickstart` firmware loading
 - optional `--disk` insertion into DF0
 - windowed 768x576 RGBA video through `pixels`/`winit`
-- hard reset and basic A-Z / 0-9 / Space / Enter / Tab / Backspace keyboard input
+- hard reset, basic A-Z / 0-9 / Space / Enter / Tab / Backspace keyboard input, and port-0 mouse movement/buttons
 
 ## Related
 

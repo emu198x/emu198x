@@ -452,6 +452,43 @@ fn set_pot_pin_level_from_peripheral_reflects_through_bus_read() {
 }
 
 #[test]
+fn mouse_motion_updates_joy0dat_counters() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+    amiga.move_mouse_port0(5, -2);
+
+    assert_eq!(
+        amiga.read_word(0x00DF_F00A),
+        0xFE05,
+        "JOY0DAT stores vertical count in the high byte and horizontal in the low byte"
+    );
+    assert_eq!(
+        amiga.read_word(0x00DF_F00C),
+        0,
+        "port-0 mouse movement does not change JOY1DAT"
+    );
+}
+
+#[test]
+fn mouse_buttons_drive_cia_and_potgor_inputs() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+
+    amiga.set_mouse_button_port0("left", true);
+    assert_eq!(
+        amiga.read_word(0x00BF_E001) & 0x80,
+        0,
+        "left mouse button is active-low on CIA-A FIR0"
+    );
+    amiga.set_mouse_button_port0("left", false);
+    assert_ne!(amiga.read_word(0x00BF_E001) & 0x80, 0);
+
+    amiga.set_mouse_button_port0("right", true);
+    amiga.set_mouse_button_port0("middle", true);
+    let potgor = amiga.read_word(0x00DF_F016);
+    assert_eq!(potgor & 0x0100, 0, "right button pulls port-0 LX low");
+    assert_eq!(potgor & 0x0400, 0, "middle button pulls port-0 RX low");
+}
+
+#[test]
 fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
     // With ADKCON.FAST set, the chip delivers the next byte 14 CCKs
     // after a word arrives. The machine's tick loop ticks Paula's
