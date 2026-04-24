@@ -4,6 +4,22 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Shared host gamepad input reaches native shells
+
+**Type:** feature
+**Trigger:** Keyboard-emulated joystick/controller input and physical
+gamepads should feed the same machine-facing event path instead of
+growing per-frontend special cases.
+**Result:** `emu198x-shell` now owns a shared host-control mapper and
+`gilrs`-backed physical gamepad poller that emit stable
+`InputEvent::Button` events. NES and Game Boy native windows map
+keyboard and gamepad controls through the same controller tables, while
+the C64 native window maps physical gamepads to joystick port 2 and
+adds a host-only `Page Up` toggle for arrow/space key emulation of
+that same joystick path.
+
+---
+
 ## 2026-04-24 — Native shells gain host-side audio controls across current systems
 
 **Type:** feature

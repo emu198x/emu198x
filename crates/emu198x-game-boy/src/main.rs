@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 use common_nintendo_game_boy::timing::MCYCLE_HZ;
 use common_nintendo_game_boy::{MCYCLES_PER_FRAME, SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_shell::{
-    CapturedFrame, HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage,
-    MediaKind, MediaSet, NativeAudioError, NativeAudioOutput, NullTraceSink, PixelFormat,
-    ResetKind, RunResult, read_media_asset,
+    ButtonInputMap, ButtonTarget, CapturedFrame, HostControl, HostIo, InputEvent,
+    LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
+    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat, ResetKind,
+    RunResult, read_media_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_nintendo_game_boy::{ApuChannel, AudioControls, GameBoyRuntime, Model};
@@ -28,6 +29,17 @@ const INPUT_SLICES_PER_FRAME: u32 = 4;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
 const WINDOW_TITLE: &str = "Emu198x Game Boy";
+const GAME_BOY_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
+    (HostControl::Up, ButtonTarget::new(1, "up")),
+    (HostControl::Down, ButtonTarget::new(1, "down")),
+    (HostControl::Left, ButtonTarget::new(1, "left")),
+    (HostControl::Right, ButtonTarget::new(1, "right")),
+    (HostControl::South, ButtonTarget::new(1, "a")),
+    (HostControl::East, ButtonTarget::new(1, "b")),
+    (HostControl::West, ButtonTarget::new(1, "b")),
+    (HostControl::Start, ButtonTarget::new(1, "start")),
+    (HostControl::Select, ButtonTarget::new(1, "select")),
+]);
 
 const USAGE: &str = "\
 Usage: emu198x-game-boy [OPTIONS] [ROM]
@@ -225,7 +237,8 @@ struct GameBoyApp {
     slice_duration: Duration,
     next_slice_at: Instant,
     pending_inputs: Vec<InputEvent>,
-    pressed_keys: HashMap<KeyCode, &'static str>,
+    pressed_keys: HashMap<KeyCode, HostControl>,
+    gamepads: NativeGamepadInput,
     window: Option<std::sync::Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     fatal_error: Option<AppError>,
@@ -245,6 +258,7 @@ impl GameBoyApp {
             next_slice_at: Instant::now(),
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
+            gamepads: NativeGamepadInput::new(),
             window: None,
             pixels: None,
             fatal_error: None,
@@ -291,6 +305,9 @@ impl GameBoyApp {
     }
 
     fn advance_machine(&mut self) -> Result<bool, AppError> {
+        self.gamepads
+            .drain_events(&GAME_BOY_BUTTON_MAP, &mut self.pending_inputs);
+
         let now = Instant::now();
         if now < self.next_slice_at {
             return Ok(false);
@@ -334,7 +351,7 @@ impl GameBoyApp {
     }
 
     fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
-        let Some(name) = map_game_boy_key(code) else {
+        let Some(control) = map_game_boy_key(code) else {
             return;
         };
 
@@ -342,19 +359,25 @@ impl GameBoyApp {
             if self.pressed_keys.contains_key(&code) {
                 return;
             }
-            self.pressed_keys.insert(code, name);
-            self.pending_inputs.push(button_event(name, true));
+            self.pressed_keys.insert(code, control);
+            if let Some(input) = GAME_BOY_BUTTON_MAP.event(control, true) {
+                self.pending_inputs.push(input);
+            }
             self.next_slice_at = Instant::now();
-        } else if let Some(name) = self.pressed_keys.remove(&code) {
-            self.pending_inputs.push(button_event(name, false));
+        } else if let Some(control) = self.pressed_keys.remove(&code) {
+            if let Some(input) = GAME_BOY_BUTTON_MAP.event(control, false) {
+                self.pending_inputs.push(input);
+            }
             self.next_slice_at = Instant::now();
         }
     }
 
     fn release_all_keys(&mut self) {
         let keys = std::mem::take(&mut self.pressed_keys);
-        for name in keys.into_values() {
-            self.pending_inputs.push(button_event(name, false));
+        for control in keys.into_values() {
+            if let Some(input) = GAME_BOY_BUTTON_MAP.event(control, false) {
+                self.pending_inputs.push(input);
+            }
         }
         self.next_slice_at = Instant::now();
     }
@@ -512,7 +535,7 @@ fn main() {
 
 fn run(cli: Cli) -> Result<(), AppError> {
     println!(
-        "Controls: Esc quit, F12 reset, arrows D-pad, Z B, X A, Shift Select, Enter Start. Audio: 1-4 toggle channels, 5-8 cycle channel gain, 0 reset audio."
+        "Controls: Esc quit, F12 reset, arrows/gamepad D-pad, Z/gamepad east B, X/gamepad south A, Shift Select, Enter Start. Audio: 1-4 toggle channels, 5-8 cycle channel gain, 0 reset audio."
     );
 
     let runner = GameBoyRunner::from_cli(&cli)?;
@@ -600,14 +623,6 @@ fn subframe_duration(frame_duration: Duration) -> Duration {
     Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(INPUT_SLICES_PER_FRAME))
 }
 
-fn button_event(name: &'static str, pressed: bool) -> InputEvent {
-    InputEvent::Button {
-        port: 1,
-        name: name.into(),
-        pressed,
-    }
-}
-
 fn next_audio_gain(gain: f32) -> f32 {
     if gain > 0.75 {
         0.5
@@ -620,16 +635,16 @@ fn next_audio_gain(gain: f32) -> f32 {
     }
 }
 
-fn map_game_boy_key(code: KeyCode) -> Option<&'static str> {
+fn map_game_boy_key(code: KeyCode) -> Option<HostControl> {
     Some(match code {
-        KeyCode::KeyX => "a",
-        KeyCode::KeyZ => "b",
-        KeyCode::ShiftRight => "select",
-        KeyCode::Enter | KeyCode::NumpadEnter => "start",
-        KeyCode::ArrowUp => "up",
-        KeyCode::ArrowDown => "down",
-        KeyCode::ArrowLeft => "left",
-        KeyCode::ArrowRight => "right",
+        KeyCode::KeyX => HostControl::South,
+        KeyCode::KeyZ => HostControl::East,
+        KeyCode::ShiftRight => HostControl::Select,
+        KeyCode::Enter | KeyCode::NumpadEnter => HostControl::Start,
+        KeyCode::ArrowUp => HostControl::Up,
+        KeyCode::ArrowDown => HostControl::Down,
+        KeyCode::ArrowLeft => HostControl::Left,
+        KeyCode::ArrowRight => HostControl::Right,
         _ => return None,
     })
 }
@@ -688,10 +703,13 @@ mod tests {
 
     #[test]
     fn maps_controls_to_joypad_buttons() {
-        assert_eq!(map_game_boy_key(KeyCode::KeyX), Some("a"));
-        assert_eq!(map_game_boy_key(KeyCode::KeyZ), Some("b"));
-        assert_eq!(map_game_boy_key(KeyCode::Enter), Some("start"));
-        assert_eq!(map_game_boy_key(KeyCode::ArrowLeft), Some("left"));
+        assert_eq!(map_game_boy_key(KeyCode::KeyX), Some(HostControl::South));
+        assert_eq!(map_game_boy_key(KeyCode::KeyZ), Some(HostControl::East));
+        assert_eq!(map_game_boy_key(KeyCode::Enter), Some(HostControl::Start));
+        assert_eq!(
+            map_game_boy_key(KeyCode::ArrowLeft),
+            Some(HostControl::Left)
+        );
     }
 
     #[test]

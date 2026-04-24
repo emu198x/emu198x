@@ -11,8 +11,9 @@
 > live audio, and cycle-faithful tape turbo; C64 currently covers windowed
 > video, keyboard input, startup snapshot/program import, tape insertion,
 > live tape start/stop, launch-time tape autoload, cycle-faithful tape turbo,
-> reset, and live mono audio. NES and Game Boy native windows now also use
-> the shared live host-audio path. Native host audio setup and conversion are
+> reset, live mono audio, physical gamepad input, and an optional host-key
+> joystick mode for C64 port 2. NES and Game Boy native windows now also use
+> the shared live host-audio path and physical gamepad input. Native host audio setup and conversion are
 > shared through `emu198x-shell`; matching stereo packets stay stereo, and
 > per-chip/per-channel mute or gain remains a system-native mixer concern.
 > The Game Boy shell exposes that via `1`-`4` channel toggles,
@@ -21,6 +22,8 @@
 > toggles and `6`-`0` gain cycling. Spectrum, C64, and Amiga now expose
 > non-register host controls through numpad shortcuts so normal keyboard
 > input remains available to the emulated machines.
+> Shared host gamepad polling lives in `emu198x-shell` and emits the same
+> `InputEvent::Button` values as host-key-emulated joystick/controller input.
 > All native shells are still verifier tools rather than polished end-user frontends;
 > input remains a little soft subjectively even after sub-frame host stepping.
 > Everything else in this document remains design intent: launcher screens,

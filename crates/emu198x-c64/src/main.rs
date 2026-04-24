@@ -16,11 +16,12 @@ use std::time::{Duration, Instant};
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
-    BootArtifacts, CapturedFrame, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession,
-    HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind,
-    MediaSet, MediaTransportAction, MediaTransportCommand, NativeAudioError, NativeAudioOutput,
-    NullTraceSink, PixelFormat, QueryError, QueryResult, ResetKind, RunResult,
-    SessionQueryProvider, boot_machine, read_firmware_asset, read_media_asset, read_program_asset,
+    BootArtifacts, ButtonInputMap, ButtonTarget, CapturedFrame, ControlCommand, FirmwareImage,
+    FirmwareSet, HeadlessSession, HostControl, HostIo, InputEvent, LatestFrameCapture, MachineCore,
+    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat,
+    QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider, boot_machine,
+    read_firmware_asset, read_media_asset, read_program_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_c64::{
@@ -48,6 +49,16 @@ const INPUT_SLICES_PER_FRAME: u32 = 8;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_TURBO_TAPE_FRAMES: u32 = 32;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
+const C64_JOYSTICK_MAP: ButtonInputMap = ButtonInputMap::new(&[
+    (HostControl::Up, ButtonTarget::new(2, "up")),
+    (HostControl::Down, ButtonTarget::new(2, "down")),
+    (HostControl::Left, ButtonTarget::new(2, "left")),
+    (HostControl::Right, ButtonTarget::new(2, "right")),
+    (HostControl::South, ButtonTarget::new(2, "fire")),
+    (HostControl::East, ButtonTarget::new(2, "fire")),
+    (HostControl::West, ButtonTarget::new(2, "fire")),
+    (HostControl::North, ButtonTarget::new(2, "fire")),
+]);
 
 const USAGE: &str = "\
 Usage: emu198x-c64 [OPTIONS]
@@ -75,10 +86,12 @@ Controls:
     F10                  stop tape
     F11                  toggle tape turbo
     F12                  hard reset
+    Page Up              toggle arrow/space joystick mode for port 2
     Numpad 1-3           toggle SID voices 1-3
     Numpad 4-6           cycle SID voice 1-3 gain
     Numpad 0             reset SID voice controls
     Arrow keys           C64 cursor keys
+    Arrow keys + Space   joystick port 2 when F8 mode is enabled
     F1-F8                C64 function keys
     Alt / Command        Commodore key
     Tab                  Run/Stop
@@ -436,8 +449,11 @@ struct C64App {
     slice_duration: Duration,
     next_slice_at: Instant,
     turbo_tape: bool,
+    keyboard_joystick: bool,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, Vec<&'static str>>,
+    pressed_buttons: HashMap<KeyCode, HostControl>,
+    gamepads: NativeGamepadInput,
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     fatal_error: Option<AppError>,
@@ -461,8 +477,11 @@ impl C64App {
             slice_duration,
             next_slice_at: Instant::now(),
             turbo_tape,
+            keyboard_joystick: false,
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
+            pressed_buttons: HashMap::new(),
+            gamepads: NativeGamepadInput::new(),
             window: None,
             pixels: None,
             fatal_error: None,
@@ -522,6 +541,9 @@ impl C64App {
                 title.push_str(" | turbo armed");
             }
         }
+        if self.keyboard_joystick {
+            title.push_str(" | joy2 keys");
+        }
         title
     }
 
@@ -531,6 +553,9 @@ impl C64App {
     }
 
     fn advance_machine(&mut self) -> Result<bool, AppError> {
+        self.gamepads
+            .drain_events(&C64_JOYSTICK_MAP, &mut self.pending_inputs);
+
         if self.turbo_tape_active() {
             let mut ran_frames = 0;
             while ran_frames < MAX_TURBO_TAPE_FRAMES && self.turbo_tape_active() {
@@ -585,6 +610,10 @@ impl C64App {
     }
 
     fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
+        if self.keyboard_joystick && self.queue_joystick_key_state(code, pressed) {
+            return;
+        }
+
         let Some(names) = map_c64_keys(code) else {
             return;
         };
@@ -604,6 +633,42 @@ impl C64App {
         }
     }
 
+    fn queue_joystick_key_state(&mut self, code: KeyCode, pressed: bool) -> bool {
+        let Some(control) = map_c64_joystick_key(code) else {
+            return false;
+        };
+
+        if pressed {
+            if self.pressed_buttons.contains_key(&code) {
+                return true;
+            }
+            self.pressed_buttons.insert(code, control);
+            if let Some(input) = C64_JOYSTICK_MAP.event(control, true) {
+                self.pending_inputs.push(input);
+            }
+        } else if let Some(control) = self.pressed_buttons.remove(&code)
+            && let Some(input) = C64_JOYSTICK_MAP.event(control, false)
+        {
+            self.pending_inputs.push(input);
+        }
+        self.next_slice_at = Instant::now();
+        true
+    }
+
+    fn set_keyboard_joystick(&mut self, enabled: bool) {
+        if self.keyboard_joystick == enabled {
+            return;
+        }
+        self.release_all_inputs();
+        self.keyboard_joystick = enabled;
+        self.next_slice_at = Instant::now();
+    }
+
+    fn release_all_inputs(&mut self) {
+        self.release_all_keys();
+        self.release_all_buttons();
+    }
+
     fn release_all_keys(&mut self) {
         let keys = std::mem::take(&mut self.pressed_keys);
         if keys.is_empty() {
@@ -612,6 +677,19 @@ impl C64App {
         for names in keys.into_values() {
             self.pending_inputs
                 .extend(names.into_iter().map(|name| c64_key_event(name, false)));
+        }
+        self.next_slice_at = Instant::now();
+    }
+
+    fn release_all_buttons(&mut self) {
+        let buttons = std::mem::take(&mut self.pressed_buttons);
+        if buttons.is_empty() {
+            return;
+        }
+        for control in buttons.into_values() {
+            if let Some(input) = C64_JOYSTICK_MAP.event(control, false) {
+                self.pending_inputs.push(input);
+            }
         }
         self.next_slice_at = Instant::now();
     }
@@ -630,6 +708,7 @@ impl C64App {
                     | KeyCode::F10
                     | KeyCode::F11
                     | KeyCode::F12
+                    | KeyCode::PageUp
                     | KeyCode::Numpad0
                     | KeyCode::Numpad1
                     | KeyCode::Numpad2
@@ -647,6 +726,22 @@ impl C64App {
             }
             KeyCode::F9 => self.runner.start_tape(),
             KeyCode::F10 => self.runner.stop_tape(),
+            KeyCode::PageUp => {
+                self.set_keyboard_joystick(!self.keyboard_joystick);
+                eprintln!(
+                    "input: keyboard joystick {}",
+                    if self.keyboard_joystick {
+                        "enabled on port 2"
+                    } else {
+                        "disabled"
+                    }
+                );
+                if let Some(window) = &self.window {
+                    window.set_title(&self.window_title());
+                    window.request_redraw();
+                }
+                return true;
+            }
             KeyCode::F11 => {
                 self.set_turbo_tape(!self.turbo_tape);
                 if let Some(window) = &self.window {
@@ -656,7 +751,7 @@ impl C64App {
                 return true;
             }
             KeyCode::F12 => {
-                self.release_all_keys();
+                self.release_all_inputs();
                 self.runner.reset()
             }
             KeyCode::Numpad0 => {
@@ -731,7 +826,7 @@ impl ApplicationHandler for C64App {
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Focused(false) => self.release_all_keys(),
+            WindowEvent::Focused(false) => self.release_all_inputs(),
             WindowEvent::Resized(size) => {
                 if let Err(err) = self.resize_surface(size.width, size.height) {
                     self.fail(event_loop, err);
@@ -800,7 +895,7 @@ fn main() {
 
 fn run(cli: Cli) -> Result<(), AppError> {
     println!(
-        "Controls: Esc quit, F9 start tape, F10 stop tape, F11 tape turbo, F12 reset, numpad 1-3 toggle SID voices, numpad 4-6 cycle voice gain, numpad 0 reset audio."
+        "Controls: Esc quit, F9 start tape, F10 stop tape, F11 tape turbo, F12 reset, Page Up toggles joy2 arrows/space, gamepad maps to joy2, numpad 1-3 toggle SID voices, numpad 4-6 cycle voice gain, numpad 0 reset audio."
     );
 
     let runner = C64Runner::from_cli(&cli)?;
@@ -1071,6 +1166,17 @@ fn c64_key_event(name: &'static str, pressed: bool) -> InputEvent {
     }
 }
 
+fn map_c64_joystick_key(code: KeyCode) -> Option<HostControl> {
+    Some(match code {
+        KeyCode::ArrowUp => HostControl::Up,
+        KeyCode::ArrowDown => HostControl::Down,
+        KeyCode::ArrowLeft => HostControl::Left,
+        KeyCode::ArrowRight => HostControl::Right,
+        KeyCode::Space => HostControl::South,
+        _ => return None,
+    })
+}
+
 fn map_c64_keys(code: KeyCode) -> Option<&'static [&'static str]> {
     Some(match code {
         KeyCode::KeyA => &["a"],
@@ -1325,6 +1431,17 @@ mod tests {
         assert_eq!(map_c64_keys(KeyCode::F8), Some(&["lshift", "f7"][..]));
         assert_eq!(map_c64_keys(KeyCode::Tab), Some(&["runstop"][..]));
         assert_eq!(map_c64_keys(KeyCode::AltLeft), Some(&["commodore"][..]));
+    }
+
+    #[test]
+    fn joystick_key_map_is_host_only_and_does_not_steal_f8() {
+        assert_eq!(map_c64_joystick_key(KeyCode::ArrowLeft), Some(HostControl::Left));
+        assert_eq!(
+            map_c64_joystick_key(KeyCode::Space),
+            Some(HostControl::South)
+        );
+        assert_eq!(map_c64_keys(KeyCode::PageUp), None);
+        assert_eq!(map_c64_keys(KeyCode::F8), Some(&["lshift", "f7"][..]));
     }
 
     #[test]
