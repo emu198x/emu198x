@@ -14,17 +14,15 @@
 //! | `10`         | 64                | 5           |
 //! | `11`         | 256               | 7           |
 //!
-//! When `TIMA` overflows it reloads from `TMA` ($FF06) and latches a
-//! timer interrupt source the machine OR's into `IF` bit 2. The
-//! falling-edge logic is what produces the documented "DIV-write
-//! glitch" (a write to DIV with the selected bit currently high
-//! triggers a TIMA increment) and the "TAC-write glitch" (a TAC
-//! change that flips the selected-bit state from 1 to 0 also
-//! triggers).
+//! When `TIMA` overflows it stays at `$00` for one m-cycle, then
+//! reloads from `TMA` ($FF06) and latches a timer interrupt source the
+//! machine OR's into `IF` bit 2. The falling-edge logic is what
+//! produces the documented "DIV-write glitch" (a write to DIV with
+//! the selected bit currently high triggers a TIMA increment) and the
+//! "TAC-write glitch" (a TAC change that flips the selected-bit state
+//! from 1 to 0 also triggers).
 //!
-//! Ported from `~/Projects/Emu198x-Zig/src/timer.zig`. The 1-m-cycle
-//! reload delay that mooneye-gb's `tima_reload` test verifies is
-//! deferred — see the `TODO` in [`Timer::increment_tima`].
+//! Ported from `~/Projects/Emu198x-Zig/src/timer.zig`.
 
 #![cfg_attr(not(test), no_std)]
 
@@ -55,6 +53,14 @@ pub struct Timer {
     /// the strobe. The machine reads via [`Timer::consume_overflow`]
     /// and OR's the bit into `IF`.
     pub overflow_latched: bool,
+    /// T-cycles remaining before an overflowed TIMA reloads from TMA.
+    /// A value of 0 means no reload is pending.
+    #[serde(default)]
+    pub reload_delay: u8,
+    /// True only for the T-cycle where the delayed reload happened.
+    /// TIMA writes on that same cycle are ignored by hardware.
+    #[serde(default)]
+    pub reloaded_this_t_cycle: bool,
 }
 
 impl Timer {
@@ -67,11 +73,15 @@ impl Timer {
             tma: 0,
             tac: 0,
             overflow_latched: false,
+            reload_delay: 0,
+            reloaded_this_t_cycle: false,
         }
     }
 
     /// Advance the timer by one T-cycle.
     pub fn tick_t(&mut self) {
+        self.advance_reload_delay();
+
         let old_bit = self.timer_bit();
         self.counter = self.counter.wrapping_add(1);
         let new_bit = self.timer_bit();
@@ -114,6 +124,12 @@ impl Timer {
 
     /// Write TIMA ($FF05).
     pub fn write_tima(&mut self, value: u8) {
+        if self.reloaded_this_t_cycle {
+            return;
+        }
+        if self.reload_delay != 0 {
+            self.reload_delay = 0;
+        }
         self.tima = value;
     }
 
@@ -174,18 +190,21 @@ impl Timer {
     fn increment_tima(&mut self) {
         self.tima = self.tima.wrapping_add(1);
         if self.tima == 0 {
-            // Overflow: reload from TMA and latch the IRQ source.
-            //
-            // TODO: real hardware delays the reload by 1 m-cycle —
-            // during that gap, reads of TIMA see $00, writes to TIMA
-            // suppress the reload, and writes to TMA take effect on
-            // both the reload and the visible value. Mooneye-gb's
-            // `tima_reload`, `tima_write_reloading`, and
-            // `tma_write_reloading` cover this. Defer until the rest
-            // of the machine layer exists and the corner cases can
-            // be exercised end-to-end.
+            self.reload_delay = 4;
+        }
+    }
+
+    fn advance_reload_delay(&mut self) {
+        self.reloaded_this_t_cycle = false;
+        if self.reload_delay == 0 {
+            return;
+        }
+
+        self.reload_delay -= 1;
+        if self.reload_delay == 0 {
             self.tima = self.tma;
             self.overflow_latched = true;
+            self.reloaded_this_t_cycle = true;
         }
     }
 }
@@ -322,16 +341,35 @@ mod tests {
     // -- Overflow latching --------------------------------------------
 
     #[test]
-    fn tima_overflow_reloads_from_tma_and_latches_irq() {
+    fn tima_overflow_reloads_from_tma_after_one_m_cycle_and_latches_irq() {
         let mut timer = Timer::new();
         timer.tma = 0xAB;
         timer.tima = 0xFF;
         timer.tac = 0x05; // enabled, bit 3
         // One full 16 T-cycle period to roll TIMA over.
         run_t(&mut timer, 16);
+        assert_eq!(timer.tima, 0x00);
+        assert_eq!(timer.reload_delay, 4);
+        assert!(!timer.consume_overflow());
+        run_t(&mut timer, 4);
         assert_eq!(timer.tima, 0xAB);
         assert!(timer.consume_overflow());
         assert!(!timer.consume_overflow(), "consume clears the latch");
+    }
+
+    #[test]
+    fn tima_write_during_reload_delay_cancels_reload() {
+        let mut timer = Timer::new();
+        timer.tma = 0xAB;
+        timer.tima = 0xFF;
+        timer.tac = 0x05;
+        run_t(&mut timer, 16);
+
+        timer.write_tima(0x42);
+        run_t(&mut timer, 4);
+
+        assert_eq!(timer.tima, 0x42);
+        assert!(!timer.consume_overflow());
     }
 
     #[test]

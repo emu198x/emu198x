@@ -15,6 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
+use common_nintendo_game_boy::MemoryBus;
 use emu198x_shell::{
     HostIo, MachineCore, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
     NullFrameSink, NullTraceSink, StopReason,
@@ -51,12 +52,28 @@ const MOONEYE_GATE_SET: &[&str] = &[
     "acceptance/timer/tima_reload.gb",
     "acceptance/timer/tima_write_reloading.gb",
 ];
+const MOONEYE_PASS_BYTES: &[u8] = &[3, 5, 8, 13, 21, 34];
+const MOONEYE_FAIL_BYTES: &[u8] = &[0x42, 0x42, 0x42, 0x42, 0x42, 0x42];
 
 #[derive(Debug)]
 struct BlarggRunResult {
     output: String,
     frames: u32,
     status_code: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MooneyeVerdict {
+    Passed,
+    Failed,
+}
+
+#[derive(Debug)]
+struct MooneyeRunResult {
+    verdict: MooneyeVerdict,
+    frames: u32,
+    serial: Vec<u8>,
+    state: String,
 }
 
 fn load_runtime(rom_path: &Path) -> Result<GameBoyRuntime, Box<dyn std::error::Error>> {
@@ -137,6 +154,77 @@ fn run_until_blargg_verdict(
     }
 
     Err(format!("no serial verdict after {max_frames} frames; partial output: {output:?}").into())
+}
+
+fn mooneye_verdict(serial: &[u8]) -> Option<MooneyeVerdict> {
+    if serial
+        .windows(MOONEYE_PASS_BYTES.len())
+        .any(|window| window == MOONEYE_PASS_BYTES)
+    {
+        return Some(MooneyeVerdict::Passed);
+    }
+    if serial
+        .windows(MOONEYE_FAIL_BYTES.len())
+        .any(|window| window == MOONEYE_FAIL_BYTES)
+    {
+        return Some(MooneyeVerdict::Failed);
+    }
+    None
+}
+
+fn run_until_mooneye_verdict(
+    runtime: &mut GameBoyRuntime,
+    max_frames: u32,
+) -> Result<MooneyeRunResult, Box<dyn std::error::Error>> {
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+    let mut serial_log = Vec::new();
+
+    for frame in 1..=max_frames {
+        let target = MachineTime::new(
+            runtime.time().get() + u64::from(common_nintendo_game_boy::MCYCLES_PER_FRAME),
+        );
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+        let result = runtime.run_until(target, &mut host)?;
+        assert_eq!(result.stop_reason, StopReason::ReachedTarget);
+
+        let serial = runtime
+            .machine_mut()
+            .expect("cartridge should stay loaded")
+            .drain_serial();
+        if !serial.is_empty() {
+            serial_log.extend_from_slice(&serial);
+            if let Some(verdict) = mooneye_verdict(&serial_log) {
+                let state = runtime
+                    .machine_mut()
+                    .map(|machine| {
+                        let pc = machine.cpu_pc();
+                        let if_reg = machine.read(0xFF0F);
+                        let ie_reg = machine.read(0xFFFF);
+                        format!("PC=${pc:04X} IF=${if_reg:02X} IE=${ie_reg:02X}")
+                    })
+                    .unwrap_or_else(|| "no machine loaded".to_string());
+                return Ok(MooneyeRunResult {
+                    verdict,
+                    frames: frame,
+                    serial: serial_log,
+                    state,
+                });
+            }
+        }
+    }
+
+    Err(format!(
+        "no mooneye verdict after {max_frames} frames; serial bytes: {:02X?}",
+        serial_log
+    )
+    .into())
 }
 
 fn blargg_root() -> Option<PathBuf> {
@@ -264,15 +352,16 @@ fn mooneye_acceptance_gate_set_passes() -> Result<(), Box<dyn std::error::Error>
         }
 
         let mut runtime = load_runtime(&path)?;
-        let result = run_until_blargg_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
+        let result = run_until_mooneye_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
             .map_err(|err| format!("{}: {err}", path.display()))?;
-        assert!(
-            result.output.contains("Passed") || result.status_code == Some(0),
-            "{} failed after {} frames (status {:?}): {:?}",
+        assert_eq!(
+            result.verdict,
+            MooneyeVerdict::Passed,
+            "{} failed after {} frames with serial {:02X?} ({})",
             path.display(),
             result.frames,
-            result.status_code,
-            result.output
+            result.serial,
+            result.state
         );
     }
 

@@ -78,6 +78,7 @@ impl Sm83 {
             // accepted pin-level / m-cycle trade-offs.
             if self.ime && self.irq_pending != 0 {
                 self.dispatching = true;
+                self.irq_dispatch_mask = 0;
                 self.m_cycle = 1;
                 self.schedule_internal();
                 return;
@@ -121,16 +122,16 @@ impl Sm83 {
     /// |---------|---------------------------------------------------|
     /// | 1       | second internal wait                              |
     /// | 2       | push PC high (SP-=1, write)                       |
-    /// | 3       | push PC low (SP-=1, write)                        |
+    /// | 3       | latch pending interrupt, push PC low (SP-=1, write) |
     /// | 4       | set PC = vector, clear IME, strobe `int_ack`,     |
     /// |         | schedule the ISR's first opcode fetch             |
     ///
     /// Priority: the lowest set bit of `irq_pending` is served first,
     /// matching VBlank → STAT → Timer → Serial → Joypad. The bit is
-    /// sampled on the final dispatch m-cycle — that's the documented
-    /// hardware behaviour: if `IE` is cleared during the push cycles
-    /// such that no bit remains pending, the dispatch jumps to
-    /// `$0000` instead of a vector.
+    /// sampled after the PC-high push has been externally serviced.
+    /// If `IE` is cleared by that write such that no bit remains
+    /// pending, the dispatch jumps to `$0000`. A later `IE` write
+    /// during the PC-low push cannot cancel the already latched vector.
     fn interrupt_dispatch(&mut self) {
         match self.m_cycle {
             1 => {
@@ -144,6 +145,7 @@ impl Sm83 {
                 self.m_cycle = 3;
             }
             3 => {
+                self.irq_dispatch_mask = self.irq_pending & 0x1F;
                 self.sp = self.sp.wrapping_sub(1);
                 let pc_lo = (self.pc & 0xFF) as u8;
                 self.schedule_write(self.sp, pc_lo);
@@ -151,7 +153,8 @@ impl Sm83 {
             }
             _ => {
                 self.ime = false;
-                let pending = self.irq_pending & 0x1F;
+                let pending = self.irq_dispatch_mask & 0x1F;
+                self.irq_dispatch_mask = 0;
                 if pending == 0 {
                     self.pc = 0x0000;
                 } else {
@@ -2231,21 +2234,42 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_with_zero_irq_after_latch_jumps_to_0000() {
+    fn dispatch_with_zero_irq_before_pc_low_push_jumps_to_0000() {
         let (mut cpu, mut bus) = boot_for_dispatch();
         cpu.ime = true;
         cpu.irq_pending = 0x01;
 
-        // Run 4 ticks: boundary + first three walker steps (push PC
-        // low completes on tick 4). The bit is sampled on tick 5.
-        bus.run(&mut cpu, 4);
+        // Run 3 ticks: boundary + first two walker steps. The PC-high
+        // write is now on the pins; the machine services it before the
+        // next CPU tick refreshes `irq_pending`.
+        bus.run(&mut cpu, 3);
         assert!(cpu.dispatching);
-        cpu.irq_pending = 0; // IE cleared in flight
+        cpu.irq_pending = 0; // IE cleared by the PC-high push.
 
-        bus.step(&mut cpu); // tick 5 — sample sees zero
+        bus.step(&mut cpu); // tick 4 — sample sees zero, then pushes PC low.
+        bus.step(&mut cpu); // tick 5 — final dispatch uses the latched zero.
         assert_eq!(cpu.pc, 0x0000);
         assert!(!cpu.int_ack, "no bit acknowledged in cancelled-IRQ case");
         assert!(!cpu.dispatching);
+    }
+
+    #[test]
+    fn dispatch_ignores_irq_changes_after_pc_low_push_is_scheduled() {
+        let (mut cpu, mut bus) = boot_for_dispatch();
+        cpu.ime = true;
+        cpu.irq_pending = 0x04;
+
+        // Tick 4 samples the pending timer interrupt, then schedules
+        // the PC-low push. Clearing `irq_pending` after this point is
+        // too late to cancel the dispatch.
+        bus.run(&mut cpu, 4);
+        assert_eq!(cpu.irq_dispatch_mask, 0x04);
+        cpu.irq_pending = 0;
+
+        bus.step(&mut cpu);
+        assert_eq!(cpu.pc, 0x0050);
+        assert!(cpu.int_ack);
+        assert_eq!(cpu.int_ack_bit, 2);
     }
 
     #[test]

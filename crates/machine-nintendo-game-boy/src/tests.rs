@@ -221,8 +221,9 @@ fn timer_overflow_sets_if_timer_bit() {
     // Force TIMA to overflow on the next bit-3 tick.
     gb.timer.tima = 0xFF;
     gb.timer.tac = 0x05; // enabled, clock select 01 (bit 3)
-    // 16 T-cycles = 4 m-cycles to roll TIMA over.
-    for _ in 0..4 {
+    // 16 T-cycles = 4 m-cycles to roll TIMA over, then one more
+    // m-cycle for the delayed reload to latch IF.
+    for _ in 0..5 {
         gb.step_m_cycle();
     }
     assert_ne!(gb.if_reg & IF_TIMER, 0);

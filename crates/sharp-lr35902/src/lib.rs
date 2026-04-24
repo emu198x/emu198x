@@ -118,6 +118,11 @@ pub struct Sm83 {
     /// this between ticks. The CPU dispatches the lowest set bit when
     /// `IME` is true and `irq_pending != 0` at an opcode boundary.
     pub irq_pending: u8,
+    /// Interrupt mask latched during the dispatch sequence, after the
+    /// PC-high push has been externally serviced. Later IE changes
+    /// during the PC-low push are too late to affect the vector.
+    #[serde(default)]
+    pub irq_dispatch_mask: u8,
 }
 
 impl Sm83 {
@@ -162,6 +167,7 @@ impl Sm83 {
 
             data_in: 0,
             irq_pending: 0,
+            irq_dispatch_mask: 0,
         }
     }
 
