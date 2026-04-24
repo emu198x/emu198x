@@ -17,15 +17,15 @@
 
 ## Systems
 ### Commodore 64
-- [Overview](systems/commodore-c64.md) — live 6502/CIA/VIC-II/SID board loop, **KERNAL boots to `READY.` prompt end-to-end**, runtime + headless CLI now ship PNG screenshots, mono audio, and runtime snapshots via the shared shell
+- [Overview](systems/commodore-c64.md) — live 6502/CIA/VIC-II/SID board loop, **KERNAL boots to `READY.` prompt end-to-end**, runtime snapshots, TAP datasette flow, and optional live 1541/`D64` drive-8 path via the shared shell
 
 ### Nintendo NES
-- [Overview](systems/nintendo-nes.md) — 2A03 CPU + 2C02 PPU + APU + Mapper wired, master-clock tick loop, **nestest 8991/8991 passing**, **Super Mario Bros. renders**, System trait integrated
+- [Overview](systems/nintendo-nes.md) — 2A03 CPU + 2C02 PPU + APU + Mapper wired, master-clock tick loop, **nestest 8991/8991 passing**, **Super Mario Bros. renders**, `MachineCore` runtime integrated
 - [Clock topology](decisions/nes-clock-topology.md) — master-clock-driven tick loop, 1 CPU : 3 PPU dot ratio, pin contracts for PPU/CPU/Mapper
 - `format-nintendo-nes-ines` — iNES / NES 2.0 header parser + Mapper trait + NROM (mapper 0). Other 47 mappers deferred.
 
 ### Commodore Amiga
-- [Overview](systems/commodore-amiga.md) — fresh A500 OCS PAL headless baseline, Kickstart-visible output, DF0 `ADF` insertion, screenshots, stereo audio, and scripted keyboard input
+- [Overview](systems/commodore-amiga.md) — OCS PAL headless runtime covering A1000 bootstrap/WOM and A500-family RAM profiles; Kickstart insert-disk, Workbench 1.3 desktop, DF0 `ADF` insertion, screenshots, and scripted keyboard input
 - [Port plan](decisions/amiga-port-plan.md) — the archive-to-fresh-workspace port plan this baseline came from
 - [Archive-port methodology](decisions/archive-port-methodology.md) — three-phase read-characterize / port-with-tests / integrate discipline for bringing -archive crates back in
 - [Chip-only boot failure](decisions/amiga-chip-only-boot-failure.md) — RESOLVED 2026-04-20 via copper CDANG halt; narrative kept for context
@@ -35,7 +35,7 @@
 - [Timing](systems/nintendo-game-boy/timing.md) — implemented DMG timing constants: 4.194304 MHz master clock, 17 556 m-cycles/frame, PPU modes per scanline, timer + APU frame sequencer, and current OAM DMA status
 
 ### ZX Spectrum
-- [Overview](systems/spectrum/overview.md) — 11 variants (16K, 48K, 128K, +2, +2A, +2B, +3, Pentagon, Scorpion, TC2048, TS2068), ULA-drives architecture
+- [Overview](systems/spectrum/overview.md) — 11 variants (16K, 48K, 128K, +2, +2A, +2B, +3, Pentagon, Scorpion, TC2048, TC2068, TS2068), ULA-drives architecture, 48K bespoke runtime plus generic runtimes for the rest
 - [Contention](systems/spectrum/contention.md) — three ULA implementations, I/O contention, internal contention
 - [Variants](systems/spectrum/variants.md) — memory maps, paging, I/O ports, ROMs, floating bus
 - [Signal Part 3](systems/spectrum/signal-part-3.md) — acid test demo, AY discovery, IM 2 vector chain

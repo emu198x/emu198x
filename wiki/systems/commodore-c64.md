@@ -1,6 +1,12 @@
 # Commodore 64
 
-> Historical note: the status sections on this page describe archived work, not the current fresh Rust workspace in this repository. Treat the hardware summary as reference material only until the new `common-commodore-c64` and `runtime-commodore-c64` crates grow into a real machine/runtime stack.
+> Status as of 2026-04-24: **live fresh Rust workspace system.**
+> The PAL breadbin profile boots real BASIC/KERNAL/CHARGEN ROMs to
+> `READY.`, exposes the shared `MachineCore` runtime, supports runtime
+> snapshots, PNG/audio capture plumbing, TAP-backed datasette media,
+> PRG/BAS/T64 import, and an optional live 1541/`D64` path through
+> drive 8. NTSC exists on the same substrate but remains a research
+> profile pending the same boot/software validation depth as PAL.
 
 The C64 is an 8-bit home computer from Commodore, released 1982. Roughly:
 
@@ -34,7 +40,7 @@ See the [C64 per-subsystem source map](../decisions/archives-as-source.md#c64) f
 
 This is the single biggest validation milestone of the whole C64 port. Every architectural decision — pin-level CPU bus (`RULES.md` item 6), `VicMemory` trait, one-op-per-tick discipline, tick ordering, IRQ routing, RDY-only-gates-reads semantics — held up under the hardest possible test: running real Commodore ROM code through to the operating-system prompt.
 
-**Phase 4 runtime + CLI: active.** `runtime-commodore-c64` is the fresh-workspace C64 runtime over `machine-commodore-c64`, and `emu198x-script-c64` is the current headless runner. In the current Rust workspace it boots ROMs, exposes snapshots/screenshots and queryable boot state, supports host-side `.prg` / `.bas` / `.t64` / `.d64` import, and now drives real TAP-backed datasette media through the shared session/control surface.
+**Runtime + CLI: live.** `runtime-commodore-c64` is the fresh-workspace C64 runtime over `machine-commodore-c64`, and `emu198x-script-c64` is the current headless runner. In the current Rust workspace it boots ROMs, exposes snapshots/screenshots and queryable boot state, supports host-side `.prg` / `.bas` / `.t64` / `.d64` import, drives real TAP-backed datasette media through the shared session/control surface, and can optionally attach a ROM-backed 1541 as `drive-8`.
 
 **🎯 2026-04-09: C64 `READY.` screenshot rendered as PNG.** Running:
 
@@ -122,21 +128,18 @@ When I/O is visible, `$D000-$DFFF` routes to a specific chip:
 
 ## Deferred (follow-up work)
 
-Known gaps from the archive that were deliberately not ported in this first pass:
+Known gaps and follow-up work:
 
 - **Cartridge support** (CRT files, EXROM/GAME lines, ROML/ROMH overlays, Ultimax mode). The memory decoder's PLA variants are wired in the archive via `cart.exrom` / `cart.game`; ours is the EXROM=1, GAME=1 case only.
-- **1541 disk drive** — the fresh workspace now has the first honest second-computer substrate: `mos-via-6522` plus `machine-commodore-1541` with 6502, 2 KB RAM, 16 KB DOS ROM decode, VIA1/VIA2 register windows, and first-pass IEC port-B/CA1 board wiring. `runtime-commodore-c64` can now optionally attach a live ROM-backed drive on the shared IEC bus, expose drive CPU/VIA queries, preserve that attached board in snapshots, mount real `D64` images into `drive-8`, and drive a real BASIC-side `LOAD"*",8,1` autoload helper over that live path. The current ROM-backed disk proofs now include `Bruce Lee (1984)(Datasoft)`, which advances through `LOADING`, reaches a title after `RUN`, and then responds to joystick input beyond that title; `Aztec Challenge (1983)(Cosmi)`, which returns to BASIC after load and reaches a readable `THE GAUNTLET` instruction screen after `RUN` and `F1`; and `Bomb Jack (1986)(Elite)`, which completes a multi-stage loader, reaches a readable title screen, and then responds to joystick port-1 fire. DOS data transfer, on-disk mechanics, and GCR are still pending. See [1541 disk bring-up notes](/Users/stevehill/Projects/Emu198x/docs/platforms/commodore-64/hardware/1541-DISK-BRINGUP-NOTES.md) for the current drive-specific debug map.
-- **IEC serial bus** — line-level C64↔1541 state now exists via `common-commodore-iec`, and the C64 CIA2 / 1541 VIA1 register views are covered by cross-board tests. Higher-level IEC protocol handling still needs drive-side ROM/command integration above those raw bus lines.
+- **1541 disk drive** — the fresh workspace now has the first honest second-computer substrate: `mos-via-6522` plus `machine-commodore-1541` with 6502, 2 KB RAM, 16 KB DOS ROM decode, VIA1/VIA2 register windows, IEC port wiring, disk insertion, GCR read state, and runtime/query/snapshot plumbing. `runtime-commodore-c64` can optionally attach a live ROM-backed drive on the shared IEC bus, mount real `D64` images into `drive-8`, and drive a real BASIC-side `LOAD"*",8,1` autoload helper over that live path. The current ROM-backed disk proofs include `Bruce Lee (1984)(Datasoft)`, `Aztec Challenge (1983)(Cosmi)`, and `Bomb Jack (1986)(Elite)` reaching readable post-load/title states. Remaining work is broader DOS compatibility, writeback, long-tail loader coverage, and drive-mechanics accuracy rather than the basic second-computer path.
+- **IEC serial bus** — line-level C64↔1541 state now exists via `common-commodore-iec`, and the C64 CIA2 / 1541 VIA1 register views are covered by cross-board tests. The ROM-backed `LOAD"*",8,1` path works for selected real titles; broader protocol coverage and error-channel behaviour are still pending.
 - **Datasette TAP loader-banner validation** — the fresh workspace now has ROM-backed real-title tape regressions for `Thinker` and `Thomas the Tank Engine`. Both titles reach stable observable KERNAL text states under the real datasette flow (`FOUND ...`, `LOADING`, and a following `READY.` line), which is useful loader pressure, but it is not yet proof that either title fully loaded, auto-started, or handed off correctly.
 - **Ghostbusters later-loader validation** — `Ghostbusters (1984)(Activision)` now goes materially beyond the earlier `FOUND MAIN` stall. After correcting the 6510 banking-bit mapping at `$0001`, the fresh workspace reaches a later graphics-heavy loader state with I/O still visible and CIA2 Timer A programmed. This is stronger than a KERNAL text-banner proof, but it is still not yet a full “title has completely loaded and started” claim.
 - **Thing on a Spring interaction validation** — `Thing on a Spring (1985)(Gremlin)` is currently the strongest real-title C64 tape proof in the fresh workspace. It reaches a stable post-load menu with readable score-table and control text (`LEFT - Z`, `RIGHT - X`, `UP - ;`, `DOWN - /`, `FIRE - SPACE`) after consuming the full TAP, and then enters a stable started state when `SPACE` is pressed through the live keyboard path.
 - **T64 pulse media** — still deferred. `T64` now exists only as a separate host-side container/import format and should not be conflated with the pulse-timed TAP datasette path.
 - **REU** — RAM Expansion Unit with DMA.
-- **Symbolic keyboard mapping** — host `KeyboardEvent.code` strings → C64 key matrix positions + shift overrides.
-- **Timed input queue** — scheduled keystrokes for the automated boot-and-type workflow.
-- **`System` / `EmulatedSystem` trait implementations** — those live in `runtime-commodore-c64` (not yet built).
-- **MCP introspection query paths** — `cpu.*`, `vic.*`, `cia1.*`, `sid.*`, `memory.*`.
-- **Save state round-trip testing** — serde derives are in place on every type but the snapshot/restore helpers + a round-trip test are a follow-up.
+- **Full symbolic keyboard mapping** — the live keyboard path exists, but complete host key-name coverage with shift overrides is still incomplete.
+- **Timed input queue polish** — autoload helpers and shared scripts cover the current automated workflows; a richer scheduled-keystroke surface is still follow-up work.
 
 ## Boot-to-READY test
 

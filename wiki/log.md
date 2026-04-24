@@ -4,6 +4,35 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Current non-Game-Boy system docs refreshed
+
+**Type:** docs
+**Trigger:** After the Game Boy documentation refresh, the other
+system pages still mixed current fresh-workspace status with older
+archive-era notes.
+**Result:** Updated the current-system documentation for C64, NES,
+Amiga, Spectrum, and the wiki index.
+
+Highlights:
+
+- `wiki/systems/commodore-c64.md` now treats the C64 as a live
+  fresh-workspace system, including runtime snapshots, TAP media,
+  PRG/BAS/T64 import, and the optional ROM-backed 1541/`D64`
+  drive-8 path.
+- `wiki/systems/nintendo-nes.md` now has a dated current-status
+  summary matching the NROM-only `MachineCore` runtime, `nestest`
+  proof, `Super Mario Bros.` rendering, and remaining snapshot /
+  DMC-DMA gaps.
+- `wiki/systems/commodore-amiga.md` now reflects the OCS PAL
+  runtime catalogue: real A1000 bootstrap/WOM support, A500-family
+  RAM profiles, Workbench 1.3 desktop golden coverage, and the
+  current empty runtime-audio placeholder.
+- `wiki/systems/spectrum/overview.md` now describes the 11-model
+  catalogue, 7 machine-crate shape, generic runtimes for non-48K
+  variants, and the current `emu198x-spectrum` runner.
+
+---
+
 ## 2026-04-24 — Game Boy Phase 2 gate green and docs refreshed
 
 **Type:** milestone

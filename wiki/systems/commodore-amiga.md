@@ -1,4 +1,13 @@
-# Commodore Amiga (A500 OCS PAL)
+# Commodore Amiga (OCS PAL)
+
+> Status as of 2026-04-24: **OCS headless runtime with A500-family
+> and real A1000 bootstrap paths.** The runtime catalogue exposes A1000,
+> stock A500, A500+A501, A500+, and maxed A500 RAM profiles. A500
+> Kickstart 1.3 reaches the insert-disk screen; A500+A501 with
+> Workbench 1.3 reaches the Workbench desktop in the golden matrix.
+> The A1000 path uses the bootstrap ROM, writable WOM, Kickstart disk,
+> and scripted Workbench disk swap. Runtime audio currently emits an
+> empty stereo placeholder; snapshots and native UI remain pending.
 
 ## Implementation status
 
@@ -9,40 +18,44 @@
 | Gary | `commodore-gary` | Imported and wired into the machine |
 | Agnus OCS | `commodore-agnus-ocs` | Imported and driving the PAL machine timing |
 | Denise OCS | `commodore-denise-ocs` | Imported and producing the machine framebuffer |
-| Paula | `commodore-paula-8364` | Imported and producing stereo audio samples |
+| Paula | `commodore-paula-8364` | Imported; register/audio-DMA path active, runtime audio drain still pending |
 | ADF parser | `format-commodore-amiga-adf` | Fresh-workspace disk container/media parser |
 | Floppy peripheral | `peripheral-commodore-amiga-floppy` | DF0 drive mechanics + MFM support |
 | Keyboard peripheral | `peripheral-commodore-amiga-keyboard` | Raw-key queue and serial keyboard path |
-| Machine wiring | `machine-commodore-amiga` | A500 OCS PAL board loop |
+| Machine wiring | `machine-commodore-amiga-ocs` | OCS PAL board loop with A1000 and A500-family RAM profiles |
 | Runtime | `runtime-commodore-amiga` | Fresh `MachineCore` runtime over the machine crate |
-| Headless runner | `emu198x-script-amiga` | Kickstart boot, DF0 media insertion, screenshots, audio capture, scripted keys |
+| Headless runner | `emu198x-script-amiga` | Kickstart/bootstrap boot, DF0 media insertion, screenshots, scripted keys |
 
 ### What works
 
-- A500 OCS PAL master-clock machine loop in the fresh workspace.
-- Kickstart ROM validation and boot through the fresh `MachineCore` runtime.
+- OCS PAL master-clock machine loop in the fresh workspace.
+- A1000 bootstrap ROM + WOM path and A500-family Kickstart ROM validation.
+- RAM presets for stock A500, A500+A501 slow RAM, A500+ 1 MiB chip, and maxed A500 with Zorro-II fast RAM.
 - Standard-viewport RGBA framebuffer output from Denise.
-- Stereo audio capture through Paula.
+- Paula register/audio-DMA execution in the machine layer; runtime audio sink output is still an empty placeholder.
 - `floppy-0` / DF0 media insertion with zipped or plain `ADF` images.
 - Shared scripted keyboard input routed through the Amiga keyboard peripheral.
-- Queryable machine/runtime state including CPU PC, visible-output detection, keyboard queue state, and DF0 insertion/motor/head state.
+- Queryable machine/runtime state including CPU PC, visible-output detection, A1000 bootstrap visibility, keyboard queue state, and DF0 insertion/motor/head state.
 
 ### Validated
 
-- **Kickstart 1.3 insert-disk proof** — the fresh `emu198x-script-amiga` path boots a real Kickstart ROM, reaches the real insert-disk screen, and matches the old blessed screen closely enough to compare visually and by palette.
-- **Workbench disk insertion smoke** — the same runner accepts a zipped Workbench 1.3 `ADF`, keeps it mounted in DF0 across a long post-boot run, and exposes the inserted-drive state through the query surface.
+- **Kickstart 1.3 insert-disk proof** — the fresh `emu198x-script-amiga` path boots a real Kickstart ROM and reaches the real insert-disk screen.
+- **Workbench 1.3 desktop proof** — the golden matrix captures A500+A501 + Kickstart 1.3 + Workbench 1.3 reaching the Workbench desktop after the long boot path.
+- **A1000 bootstrap proof** — the golden matrix covers the real A1000 bootstrap ROM path, Kickstart disk load into WOM, and scripted Workbench disk swap.
+- **RAM/autoconfig proof** — runtime RAM-variant tests cover stock, trapdoor, A500+, custom fast RAM, and Kickstart configuration of the maxed fast-RAM board.
 - **Workspace verification** — the imported Amiga crates and fresh runtime/runner pass their current unit-test slice in the active workspace.
 
 ### What doesn't work yet
 
 - **Native verifier UI** — there is no fresh-workspace `emu198x-amiga` shell yet.
 - **Snapshots** — the fresh Amiga runtime deliberately reports snapshot import/export as unsupported.
-- **Software proof beyond Kickstart insert-disk** — the current honest bar is a correct no-disk KS1.3 boot plus disk insertion, not yet a proven Workbench or game boot.
+- **Runtime audio output** — Paula state and DMA are active in the machine layer, but the `MachineCore` runtime still pushes empty audio packets until a Paula resample/drain buffer lands.
+- **Software proof beyond the current goldens** — Workbench 1.3 and the A1000 Kickstart/Workbench route are proven locally; broader game/application boot coverage is still pending.
 - **Broader platform hardening** — joystick/mouse paths, stronger disk/software regressions, and frontend ergonomics are still pending.
 
 ## Architecture
 
-The machine layer (`machine-commodore-amiga`) owns the A500 OCS PAL board:
+The machine layer (`machine-commodore-amiga-ocs`) owns the OCS PAL board:
 
 - `Cpu68000`
 - Agnus / Denise / Paula / Gary
@@ -52,7 +65,7 @@ The machine layer (`machine-commodore-amiga`) owns the A500 OCS PAL board:
 
 The fresh runtime layer (`runtime-commodore-amiga`) owns:
 
-- family/profile metadata for the A500 OCS PAL baseline
+- family/profile metadata for the A1000 and A500-family OCS PAL machines
 - `MachineCore` translation over Kickstart firmware, DF0 media, shared input events, and frame/audio sinks
 - the current query surface (`boot.detected`, `amiga.cpu.pc`, `amiga.display.non_black_pixels`, `amiga.disk.*`, `amiga.keyboard.*`)
 
@@ -60,7 +73,7 @@ The headless runner (`emu198x-script-amiga`) currently provides:
 
 - Kickstart discovery from the ROM directory or an explicit `--kickstart`
 - optional `--disk` insertion into DF0
-- `--wait-for-boot`, `--frames`, `--screenshot`, `--audio-capture`, and shared script playback
+- `--wait-for-boot`, `--frames`, `--screenshot`, placeholder `--audio-capture`, and shared script playback
 
 ## Related
 

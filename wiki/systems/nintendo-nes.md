@@ -1,5 +1,12 @@
 # Nintendo Entertainment System (NES)
 
+> Status as of 2026-04-24: **fresh NTSC NES headless runtime.**
+> The current system boots NROM cartridges through the shared
+> `MachineCore` boundary, passes the full `nestest` instruction-log
+> proof, renders `Super Mario Bros.`, and emits RGBA frames plus mono
+> audio through `emu198x-script-nes`. Mapper support remains limited
+> to NROM; snapshots and DMC DMA cycle stealing are still pending.
+
 ## Implementation status
 
 | Component | Crate | Tests | Status |

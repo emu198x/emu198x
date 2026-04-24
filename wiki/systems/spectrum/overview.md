@@ -2,19 +2,20 @@
 
 First system implemented in the fresh start.
 
-**Current status:** 6 machine crates with working `run_frame` exist:
-48K, 128K, +2A/+2B/+3 (one machine, three model IDs), Pentagon 128,
-Scorpion ZS-256, Timex TC2048, Timex TS2068 (one machine, two model
-IDs). 11 model IDs total in the runtime catalogue.
+**Current status:** 7 machine crates with working `run_frame` exist:
+48K/16K, 128K/+2, +2A/+2B/+3, Pentagon 128, Scorpion ZS-256,
+Timex TC2048, and Timex TC2068/TS2068. 11 model IDs total in the
+runtime catalogue.
 
 **ROM-backed boot proven:** 48K (BASIC prompt), 128K (menu screen),
 +3 (menu screen), Pentagon (menu screen). Scorpion / TC2048 / TS2068
 are unit-tested only — no ROMs in the local set.
 
-**Runtime wrappers:** only `Spectrum48kRuntime` exists today. The
-other 10 model IDs are in the `Model` enum and `profiles()` catalogue
-but reach the machine layer through their machine crates directly,
-not through a `MachineCore` impl yet.
+**Runtime wrappers:** `Spectrum48kRuntime` carries the richer 48K
+boot-detection and ROM-glyph query surface. The other variants now
+use the generic `SpectrumRuntime<M>` wrapper, including runtime
+snapshots, frame/audio emission, keyboard input, and variant-specific
+media slots such as +3 `disk-a`.
 
 ## Architecture
 
@@ -61,7 +62,8 @@ No Bus trait. The machine inspects [Z80](../../chips/zilog-z80.md) signals (`add
 | `format-sinclair-zx-spectrum-tap` | TAP tape parser |
 | `format-sinclair-zx-spectrum-tzx` | TZX tape parser (15+ block types) |
 | `format-sinclair-zx-spectrum-z80` | .Z80 (v1/v2/v3) and .SNA (48K/128K) snapshot loader |
-| `emu-sinclair-zx-spectrum` | SDL2/OpenGL runner with `--model` selection (11 models) |
+| `runtime-sinclair-zx-spectrum` | Shared `MachineCore` runtime layer: bespoke 48K runtime plus generic wrappers for the other variants |
+| `emu198x-spectrum` | SDL2/OpenGL runner above the shared runtime and shell boundary |
 
 ## Clock tree
 
