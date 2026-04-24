@@ -160,9 +160,11 @@ ROM-only / MBC1 / MBC2 / MBC3 / MBC5 cartridge.
 
 The native verifier window uses `emu198x-native-video` for shared
 `wgpu` presentation, matching the other current native windows. That
-currently provides nearest-neighbour GPU presentation with centred
-integer scaling and is the intended seam for LCD filtering; raw
-headless captures remain runtime framebuffer captures.
+provides nearest-neighbour GPU presentation with centred integer
+scaling and optional presentation filters via `--video raw|lcd|crt`.
+Raw remains the default and headless captures remain runtime framebuffer
+captures; the LCD mode is a host-side visual treatment, not a change to
+the emulated framebuffer.
 
 ### Phase 2 — verification (done for current DMG scope)
 

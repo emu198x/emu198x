@@ -12,7 +12,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
-use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
+use emu198x_native_video::{
+    PresentationProfile, VideoFilter, VideoPresenterError, WgpuVideoPresenter,
+};
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
     AssetLoadError, CapturedFrame, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession,
@@ -53,6 +55,7 @@ Options:
     --autoload-tape    wait for boot, type LOAD \"\", and start tape-1
     --turbo-tape       run unthrottled while the tape is playing
     --scale N          integer window scale, default 2
+    --video MODE       raw | lcd | crt [default: raw]
     --help, -h         show this help
 
 Controls:
@@ -82,6 +85,7 @@ struct Cli {
     autoload_tape: bool,
     turbo_tape: bool,
     scale: u32,
+    video: VideoFilter,
 }
 
 #[derive(Debug, Error)]
@@ -339,7 +343,12 @@ struct SpectrumApp {
 }
 
 impl SpectrumApp {
-    fn new(runner: SpectrumRunner, scale: u32, turbo_tape: bool) -> Result<Self, AppError> {
+    fn new(
+        runner: SpectrumRunner,
+        scale: u32,
+        turbo_tape: bool,
+        video: VideoFilter,
+    ) -> Result<Self, AppError> {
         if scale == 0 {
             return Err(AppError::InvalidScale { value: scale });
         }
@@ -357,7 +366,7 @@ impl SpectrumApp {
             pressed_keys: HashMap::new(),
             window: None,
             video: None,
-            presentation: PresentationProfile::default(),
+            presentation: PresentationProfile::for_filter(video),
             fatal_error: None,
         })
     }
@@ -684,7 +693,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
     );
 
     let runner = SpectrumRunner::from_cli(&cli)?;
-    let mut app = SpectrumApp::new(runner, cli.scale, cli.turbo_tape)?;
+    let mut app = SpectrumApp::new(runner, cli.scale, cli.turbo_tape, cli.video)?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
@@ -717,6 +726,9 @@ where
                     .parse()
                     .unwrap_or_else(|_| die("--scale requires a positive integer"));
             }
+            "--video" => {
+                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
+            }
             "--help" | "-h" => {
                 println!("{USAGE}");
                 process::exit(0);
@@ -733,6 +745,12 @@ where
     }
 
     cli
+}
+
+fn parse_video_arg(video: &str) -> VideoFilter {
+    video
+        .parse()
+        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
 }
 
 fn next_arg<I>(iter: &mut I, flag: &str) -> String
@@ -875,6 +893,7 @@ mod tests {
                 autoload_tape: false,
                 turbo_tape: false,
                 scale: 2,
+                video: VideoFilter::Raw,
             }
         );
     }
@@ -900,6 +919,7 @@ mod tests {
                 autoload_tape: false,
                 turbo_tape: false,
                 scale: 3,
+                video: VideoFilter::Raw,
             }
         );
     }
@@ -921,6 +941,7 @@ mod tests {
                 autoload_tape: true,
                 turbo_tape: false,
                 scale: 2,
+                video: VideoFilter::Raw,
             }
         );
     }
@@ -942,6 +963,7 @@ mod tests {
                 autoload_tape: false,
                 turbo_tape: true,
                 scale: 2,
+                video: VideoFilter::Raw,
             }
         );
     }
@@ -959,8 +981,16 @@ mod tests {
                 autoload_tape: false,
                 turbo_tape: false,
                 scale: 2,
+                video: VideoFilter::Raw,
             }
         );
+    }
+
+    #[test]
+    fn parse_cli_accepts_video_filter() {
+        let cli = parse_cli(["--video".to_owned(), "crt".to_owned()]);
+
+        assert_eq!(cli.video, VideoFilter::Crt);
     }
 
     #[test]

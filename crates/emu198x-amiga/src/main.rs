@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 
-use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
+use emu198x_native_video::{
+    PresentationProfile, VideoFilter, VideoPresenterError, WgpuVideoPresenter,
+};
 use emu198x_shell::{
     ButtonInputMap, ButtonTarget, CapturedFrame, FirmwareImage, FirmwareSet, HostControl, HostIo,
     InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
@@ -54,6 +56,7 @@ Options:
     --model MODEL        a1000 | a500 | a500-a501 | a500-plus | a500-maxed [default: a500]
     --disk PATH          insert one ADF image into DF0:
     --scale N            integer window scale, default 1
+    --video MODE         raw | lcd | crt [default: raw]
     --help, -h           show this help
 
 Controls:
@@ -88,6 +91,7 @@ struct Cli {
     kickstart: Option<PathBuf>,
     disk: Option<PathBuf>,
     scale: u32,
+    video: VideoFilter,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -245,7 +249,7 @@ struct AmigaApp {
 }
 
 impl AmigaApp {
-    fn new(runner: AmigaRunner, scale: u32) -> Result<Self, AppError> {
+    fn new(runner: AmigaRunner, scale: u32, video: VideoFilter) -> Result<Self, AppError> {
         if scale == 0 {
             return Err(AppError::InvalidScale { value: scale });
         }
@@ -265,7 +269,7 @@ impl AmigaApp {
             gamepads: NativeGamepadInput::new(),
             window: None,
             video: None,
-            presentation: PresentationProfile::default(),
+            presentation: PresentationProfile::for_filter(video),
             fatal_error: None,
         })
     }
@@ -668,7 +672,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
     );
 
     let runner = AmigaRunner::from_cli(&cli)?;
-    let mut app = AmigaApp::new(runner, cli.scale)?;
+    let mut app = AmigaApp::new(runner, cli.scale, cli.video)?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
@@ -702,6 +706,9 @@ where
                     .parse()
                     .unwrap_or_else(|_| die("--scale requires a positive integer"));
             }
+            "--video" => {
+                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
+            }
             "--help" | "-h" => {
                 println!("{USAGE}");
                 process::exit(0);
@@ -711,6 +718,12 @@ where
     }
 
     cli
+}
+
+fn parse_video_arg(video: &str) -> VideoFilter {
+    video
+        .parse()
+        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
 }
 
 fn parse_model_arg(value: &str) -> ModelArg {
@@ -956,8 +969,16 @@ mod tests {
                 kickstart: None,
                 disk: Some(PathBuf::from("workbench13.adf")),
                 scale: 2,
+                video: VideoFilter::Raw,
             }
         );
+    }
+
+    #[test]
+    fn parse_cli_accepts_video_filter() {
+        let cli = parse_cli(["--video".to_owned(), "crt".to_owned()]);
+
+        assert_eq!(cli.video, VideoFilter::Crt);
     }
 
     #[test]

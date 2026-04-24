@@ -4,6 +4,19 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Shared native video gains first filter presets
+
+**Type:** feature
+**Trigger:** Once every current native verifier shell used the shared
+`wgpu` presenter, CRT/LCD presentation could be implemented once instead
+of per emulator.
+**Result:** `emu198x-native-video` now exposes `raw`, `lcd`, and `crt`
+presentation filters. Game Boy, NES, C64, Spectrum, and Amiga native
+windows accept `--video raw|lcd|crt`; raw remains the default so
+debugging captures and existing golden comparisons stay exact.
+
+---
+
 ## 2026-04-24 — Shared native video presenter starts on Game Boy
 
 **Type:** architecture

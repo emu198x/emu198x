@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 
 use common_nintendo_game_boy::timing::MCYCLE_HZ;
 use common_nintendo_game_boy::{MCYCLES_PER_FRAME, SCREEN_HEIGHT, SCREEN_WIDTH};
-use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
+use emu198x_native_video::{
+    PresentationProfile, VideoFilter, VideoPresenterError, WgpuVideoPresenter,
+};
 use emu198x_shell::{
     ButtonInputMap, ButtonTarget, CapturedFrame, HostControl, HostIo, InputEvent,
     LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
@@ -49,6 +51,7 @@ Options:
     --model MODEL         dmg0 | dmg | mgb | sgb | sgb2 [default: dmg]
     --load-snapshot PATH  restore a runtime snapshot before starting
     --scale N             integer window scale, default 4
+    --video MODE          raw | lcd | crt [default: raw]
     --help, -h            show this help
 
 Controls:
@@ -75,6 +78,7 @@ struct Cli {
     model: Model,
     load_snapshot: Option<PathBuf>,
     scale: u32,
+    video: VideoFilter,
 }
 
 impl Default for Cli {
@@ -84,6 +88,7 @@ impl Default for Cli {
             model: Model::Dmg,
             load_snapshot: None,
             scale: DEFAULT_SCALE,
+            video: VideoFilter::Raw,
         }
     }
 }
@@ -227,7 +232,7 @@ struct GameBoyApp {
 }
 
 impl GameBoyApp {
-    fn new(runner: GameBoyRunner, scale: u32) -> Result<Self, AppError> {
+    fn new(runner: GameBoyRunner, scale: u32, video: VideoFilter) -> Result<Self, AppError> {
         if scale == 0 {
             return Err(AppError::InvalidScale { value: scale });
         }
@@ -243,7 +248,7 @@ impl GameBoyApp {
             gamepads: NativeGamepadInput::new(),
             window: None,
             video: None,
-            presentation: PresentationProfile::default(),
+            presentation: PresentationProfile::for_filter(video),
             fatal_error: None,
         })
     }
@@ -514,7 +519,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
     );
 
     let runner = GameBoyRunner::from_cli(&cli)?;
-    let mut app = GameBoyApp::new(runner, cli.scale)?;
+    let mut app = GameBoyApp::new(runner, cli.scale, cli.video)?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
@@ -544,6 +549,9 @@ where
                     .parse()
                     .unwrap_or_else(|_| die("--scale requires a positive integer"));
             }
+            "--video" => {
+                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
+            }
             "--help" | "-h" => {
                 println!("{USAGE}");
                 process::exit(0);
@@ -560,6 +568,12 @@ where
     }
 
     cli
+}
+
+fn parse_video_arg(video: &str) -> VideoFilter {
+    video
+        .parse()
+        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
 }
 
 fn parse_model_arg(model: &str) -> Model {
@@ -645,8 +659,16 @@ mod tests {
                 model: Model::Mgb,
                 load_snapshot: None,
                 scale: 5,
+                video: VideoFilter::Raw,
             }
         );
+    }
+
+    #[test]
+    fn parse_cli_accepts_video_filter() {
+        let cli = parse_cli(["--video".to_owned(), "lcd".to_owned(), "game.gb".to_owned()]);
+
+        assert_eq!(cli.video, VideoFilter::Lcd);
     }
 
     #[test]

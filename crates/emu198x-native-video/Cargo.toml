@@ -6,6 +6,7 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+bytemuck.workspace = true
 emu198x-shell = { path = "../emu198x-shell" }
 pollster.workspace = true
 thiserror.workspace = true

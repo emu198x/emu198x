@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use std::process;
 use std::time::{Duration, Instant};
 
-use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
+use emu198x_native_video::{
+    PresentationProfile, VideoFilter, VideoPresenterError, WgpuVideoPresenter,
+};
 use emu198x_shell::{
     ButtonInputMap, ButtonTarget, CapturedFrame, HostControl, HostIo, InputEvent,
     LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
@@ -48,6 +50,7 @@ Usage: emu198x-nes [OPTIONS] [ROM]
 Options:
     --rom PATH      iNES/NES 2.0 ROM image or zip containing one ROM candidate
     --scale N       integer window scale, default 3
+    --video MODE    raw | lcd | crt [default: raw]
     --help, -h      show this help
 
 Controls:
@@ -70,6 +73,7 @@ Examples:
 struct Cli {
     rom: Option<PathBuf>,
     scale: u32,
+    video: VideoFilter,
 }
 
 impl Default for Cli {
@@ -77,6 +81,7 @@ impl Default for Cli {
         Self {
             rom: None,
             scale: DEFAULT_SCALE,
+            video: VideoFilter::Raw,
         }
     }
 }
@@ -215,7 +220,7 @@ struct NesApp {
 }
 
 impl NesApp {
-    fn new(runner: NesRunner, scale: u32) -> Result<Self, AppError> {
+    fn new(runner: NesRunner, scale: u32, video: VideoFilter) -> Result<Self, AppError> {
         if scale == 0 {
             return Err(AppError::InvalidScale { value: scale });
         }
@@ -231,7 +236,7 @@ impl NesApp {
             gamepads: NativeGamepadInput::new(),
             window: None,
             video: None,
-            presentation: PresentationProfile::default(),
+            presentation: PresentationProfile::for_filter(video),
             fatal_error: None,
         })
     }
@@ -497,7 +502,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
     );
 
     let runner = NesRunner::from_cli(&cli)?;
-    let mut app = NesApp::new(runner, cli.scale)?;
+    let mut app = NesApp::new(runner, cli.scale, cli.video)?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
@@ -523,6 +528,9 @@ where
                     .parse()
                     .unwrap_or_else(|_| die("--scale requires a positive integer"));
             }
+            "--video" => {
+                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
+            }
             "--help" | "-h" => {
                 println!("{USAGE}");
                 process::exit(0);
@@ -539,6 +547,12 @@ where
     }
 
     cli
+}
+
+fn parse_video_arg(video: &str) -> VideoFilter {
+    video
+        .parse()
+        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
 }
 
 fn next_arg<I>(iter: &mut I, flag: &str) -> String
@@ -605,8 +619,20 @@ mod tests {
             Cli {
                 rom: Some(PathBuf::from("game.nes")),
                 scale: 2,
+                video: VideoFilter::Raw,
             }
         );
+    }
+
+    #[test]
+    fn parse_cli_accepts_video_filter() {
+        let cli = parse_cli([
+            "--video".to_owned(),
+            "crt".to_owned(),
+            "game.nes".to_owned(),
+        ]);
+
+        assert_eq!(cli.video, VideoFilter::Crt);
     }
 
     #[test]

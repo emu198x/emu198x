@@ -1,7 +1,10 @@
 //! Shared `wgpu` video presentation for native frontends.
 
+use std::fmt;
+use std::str::FromStr;
 use std::sync::Arc;
 
+use bytemuck::{Pod, Zeroable};
 use emu198x_shell::{CapturedFrame, PixelFormat};
 use thiserror::Error;
 use winit::window::Window;
@@ -18,6 +21,58 @@ pub enum ScalingMode {
     Stretch,
 }
 
+/// GPU presentation filter applied after the machine framebuffer is uploaded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VideoFilter {
+    /// Raw nearest-neighbour pixels for debugging and golden comparisons.
+    #[default]
+    Raw,
+    /// DMG-style LCD tint and a subtle subpixel grid.
+    Lcd,
+    /// Simple CRT-style scanline and phosphor mask.
+    Crt,
+}
+
+impl VideoFilter {
+    fn shader_value(self) -> f32 {
+        match self {
+            Self::Raw => 0.0,
+            Self::Lcd => 1.0,
+            Self::Crt => 2.0,
+        }
+    }
+}
+
+impl fmt::Display for VideoFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            Self::Raw => "raw",
+            Self::Lcd => "lcd",
+            Self::Crt => "crt",
+        };
+        f.write_str(value)
+    }
+}
+
+/// Parsing failure for a host video filter argument.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error("expected raw, lcd, or crt")]
+pub struct ParseVideoFilterError;
+
+impl FromStr for VideoFilter {
+    type Err = ParseVideoFilterError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "raw" => Ok(Self::Raw),
+            "lcd" => Ok(Self::Lcd),
+            "crt" => Ok(Self::Crt),
+            _ => Err(ParseVideoFilterError),
+        }
+    }
+}
+
 /// Presentation settings applied by the native GPU backend.
 #[derive(Clone, Copy, Debug)]
 pub struct PresentationProfile {
@@ -25,6 +80,8 @@ pub struct PresentationProfile {
     pub scaling: ScalingMode,
     /// Clear colour used for borders or letterboxing.
     pub clear_color: wgpu::Color,
+    /// GPU filter applied to the uploaded machine framebuffer.
+    pub filter: VideoFilter,
 }
 
 impl Default for PresentationProfile {
@@ -32,6 +89,63 @@ impl Default for PresentationProfile {
         Self {
             scaling: ScalingMode::Integer,
             clear_color: wgpu::Color::BLACK,
+            filter: VideoFilter::Raw,
+        }
+    }
+}
+
+impl PresentationProfile {
+    /// Raw pixel presentation with centred integer scaling.
+    #[must_use]
+    pub fn raw() -> Self {
+        Self::default()
+    }
+
+    /// DMG-style LCD presentation.
+    #[must_use]
+    pub fn lcd_dmg() -> Self {
+        Self {
+            filter: VideoFilter::Lcd,
+            ..Self::default()
+        }
+    }
+
+    /// Basic CRT presentation for TV/monitor systems.
+    #[must_use]
+    pub fn crt() -> Self {
+        Self {
+            filter: VideoFilter::Crt,
+            ..Self::default()
+        }
+    }
+
+    /// Creates the default profile for a parsed filter.
+    #[must_use]
+    pub fn for_filter(filter: VideoFilter) -> Self {
+        match filter {
+            VideoFilter::Raw => Self::raw(),
+            VideoFilter::Lcd => Self::lcd_dmg(),
+            VideoFilter::Crt => Self::crt(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct ShaderUniforms {
+    filter: f32,
+    frame_width: f32,
+    frame_height: f32,
+    _pad: f32,
+}
+
+impl ShaderUniforms {
+    fn new(filter: VideoFilter, frame_width: u32, frame_height: u32) -> Self {
+        Self {
+            filter: filter.shader_value(),
+            frame_width: frame_width as f32,
+            frame_height: frame_height as f32,
+            _pad: 0.0,
         }
     }
 }
@@ -109,6 +223,7 @@ pub struct WgpuVideoPresenter {
     frame_texture: wgpu::Texture,
     frame_view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
+    uniform_buffer: wgpu::Buffer,
     frame_width: u32,
     frame_height: u32,
     rgba_scratch: Vec<u8>,
@@ -197,6 +312,16 @@ impl WgpuVideoPresenter {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -233,10 +358,17 @@ impl WgpuVideoPresenter {
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..wgpu::SamplerDescriptor::default()
         });
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("emu198x-native-video uniforms"),
+            size: std::mem::size_of::<ShaderUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let (frame_texture, frame_view, bind_group) = create_frame_texture(
             &device,
             &bind_group_layout,
             &sampler,
+            &uniform_buffer,
             frame_width,
             frame_height,
         );
@@ -252,6 +384,7 @@ impl WgpuVideoPresenter {
             frame_texture,
             frame_view,
             bind_group,
+            uniform_buffer,
             frame_width,
             frame_height,
             rgba_scratch: Vec::new(),
@@ -290,6 +423,7 @@ impl WgpuVideoPresenter {
                 &self.device,
                 &self.bind_group_layout,
                 &self.sampler,
+                &self.uniform_buffer,
                 frame.width,
                 frame.height,
             );
@@ -334,6 +468,9 @@ impl WgpuVideoPresenter {
                 return Err(VideoPresenterError::SurfaceOutOfMemory);
             }
         };
+        let uniforms = ShaderUniforms::new(profile.filter, self.frame_width, self.frame_height);
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -394,6 +531,7 @@ fn create_frame_texture(
     device: &wgpu::Device,
     bind_group_layout: &wgpu::BindGroupLayout,
     sampler: &wgpu::Sampler,
+    uniform_buffer: &wgpu::Buffer,
     width: u32,
     height: u32,
 ) -> (wgpu::Texture, wgpu::TextureView, wgpu::BindGroup) {
@@ -423,6 +561,10 @@ fn create_frame_texture(
             wgpu::BindGroupEntry {
                 binding: 1,
                 resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: uniform_buffer.as_entire_binding(),
             },
         ],
     });
@@ -556,6 +698,30 @@ mod tests {
         let rgba = frame_rgba_pixels(&frame, &mut scratch).expect("frame should expand");
 
         assert_eq!(rgba, &[0xA0, 0xB0, 0xC0, 0xFF, 0x01, 0x02, 0x03, 0xFF]);
+    }
+
+    #[test]
+    fn video_filters_parse_from_cli_values() {
+        assert_eq!("raw".parse::<VideoFilter>(), Ok(VideoFilter::Raw));
+        assert_eq!("lcd".parse::<VideoFilter>(), Ok(VideoFilter::Lcd));
+        assert_eq!("crt".parse::<VideoFilter>(), Ok(VideoFilter::Crt));
+        assert!("bad".parse::<VideoFilter>().is_err());
+    }
+
+    #[test]
+    fn presentation_profile_uses_requested_filter() {
+        assert_eq!(
+            PresentationProfile::for_filter(VideoFilter::Raw).filter,
+            VideoFilter::Raw
+        );
+        assert_eq!(
+            PresentationProfile::for_filter(VideoFilter::Lcd).filter,
+            VideoFilter::Lcd
+        );
+        assert_eq!(
+            PresentationProfile::for_filter(VideoFilter::Crt).filter,
+            VideoFilter::Crt
+        );
     }
 
     #[test]

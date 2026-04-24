@@ -14,7 +14,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
-use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
+use emu198x_native_video::{
+    PresentationProfile, VideoFilter, VideoPresenterError, WgpuVideoPresenter,
+};
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
     BootArtifacts, ButtonInputMap, ButtonTarget, CapturedFrame, ControlCommand, FirmwareImage,
@@ -78,6 +80,7 @@ Options:
     --turbo-tape         run unthrottled while the tape is playing
     --load-snapshot PATH restore a runtime snapshot before starting
     --scale N            integer window scale, default 2
+    --video MODE         raw | lcd | crt [default: raw]
     --help, -h           show this help
 
 Controls:
@@ -121,6 +124,7 @@ struct Cli {
     turbo_tape: bool,
     load_snapshot: Option<PathBuf>,
     scale: u32,
+    video: VideoFilter,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -445,7 +449,12 @@ struct C64App {
 }
 
 impl C64App {
-    fn new(runner: C64Runner, scale: u32, turbo_tape: bool) -> Result<Self, AppError> {
+    fn new(
+        runner: C64Runner,
+        scale: u32,
+        turbo_tape: bool,
+        video: VideoFilter,
+    ) -> Result<Self, AppError> {
         if scale == 0 {
             return Err(AppError::InvalidScale { value: scale });
         }
@@ -469,7 +478,7 @@ impl C64App {
             gamepads: NativeGamepadInput::new(),
             window: None,
             video: None,
-            presentation: PresentationProfile::default(),
+            presentation: PresentationProfile::for_filter(video),
             fatal_error: None,
         })
     }
@@ -877,7 +886,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
     );
 
     let runner = C64Runner::from_cli(&cli)?;
-    let mut app = C64App::new(runner, cli.scale, cli.turbo_tape)?;
+    let mut app = C64App::new(runner, cli.scale, cli.turbo_tape, cli.video)?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
@@ -920,6 +929,9 @@ where
                     .parse()
                     .unwrap_or_else(|_| die("--scale requires a positive integer"));
             }
+            "--video" => {
+                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
+            }
             "--help" | "-h" => {
                 println!("{USAGE}");
                 process::exit(0);
@@ -929,6 +941,12 @@ where
     }
 
     cli
+}
+
+fn parse_video_arg(video: &str) -> VideoFilter {
+    video
+        .parse()
+        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
 }
 
 fn parse_model_arg(value: &str) -> ModelArg {
@@ -1292,6 +1310,7 @@ mod tests {
                 turbo_tape: false,
                 load_snapshot: Some(PathBuf::from("ready.c64.pst")),
                 scale: 3,
+                video: VideoFilter::Raw,
             }
         );
     }
@@ -1321,6 +1340,7 @@ mod tests {
                 turbo_tape: false,
                 load_snapshot: None,
                 scale: DEFAULT_SCALE,
+                video: VideoFilter::Raw,
             }
         );
     }
@@ -1346,8 +1366,16 @@ mod tests {
                 turbo_tape: true,
                 load_snapshot: None,
                 scale: DEFAULT_SCALE,
+                video: VideoFilter::Raw,
             }
         );
+    }
+
+    #[test]
+    fn parse_cli_accepts_video_filter() {
+        let cli = parse_cli(["--video".to_string(), "crt".to_string()]);
+
+        assert_eq!(cli.video, VideoFilter::Crt);
     }
 
     #[test]

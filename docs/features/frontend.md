@@ -20,7 +20,9 @@
 > `5`-`8` channel gain cycling, and `0` audio-control reset. All current
 > native verifier windows render through the shared `emu198x-native-video`
 > `wgpu` presenter, replacing the earlier per-window `pixels` blitters and
-> giving CRT/LCD filters one shared presentation seam.
+> exposing common `--video raw|lcd|crt` presentation modes. Raw nearest-neighbour
+> output remains the default for debugging and golden comparisons; LCD and CRT
+> are first-pass GPU post-process filters for interactive use.
 > The NES shell
 > exposes the same host-side pattern for its five APU channels via `1`-`5`
 > toggles and `6`-`0` gain cycling. Spectrum, C64, and Amiga now expose
@@ -60,6 +62,24 @@ Multiple frontend targets share the same interaction model:
 - **Headless** — CLI and MCP for automation
 
 A human clicking "Stop" on a tape deck and a script calling `tape_stop()` are equivalent operations.
+
+## Native Video
+
+All current native verifier windows use `emu198x-native-video`, a shared `wgpu`
+presenter. It uploads runtime `RGBA8888` or `Indexed8` frames to one GPU texture,
+preserves centred integer scaling by default, and applies an optional presentation
+filter in the final fragment pass.
+
+The shared command-line option is:
+
+```bash
+--video raw    # exact nearest-neighbour pixels, default
+--video lcd    # DMG-style LCD tint and subtle pixel grid
+--video crt    # scanline and phosphor-mask treatment
+```
+
+The filters are intentionally presentation-only. Headless screenshots and golden
+artifacts still come from the runtime framebuffer, not from the host GPU pass.
 
 ## System Launcher
 
