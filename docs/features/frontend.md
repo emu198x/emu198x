@@ -15,6 +15,8 @@
 > the shared live host-audio path. Native host audio setup and conversion are
 > shared through `emu198x-shell`; matching stereo packets stay stereo, and
 > per-chip/per-channel mute or gain remains a system-native mixer concern.
+> The Game Boy shell exposes that first via `1`-`4` channel toggles,
+> `5`-`8` channel gain cycling, and `0` audio-control reset.
 > All native shells are still verifier tools rather than polished end-user frontends;
 > input remains a little soft subjectively even after sub-frame host stepping.
 > Everything else in this document remains design intent: launcher screens,

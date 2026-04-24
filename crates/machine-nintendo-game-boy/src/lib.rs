@@ -29,6 +29,8 @@ use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use sharp_lr35902::{PostBootCpuState, Sm83};
 
+pub use nintendo_game_boy_apu::{ApuChannel, AudioControls};
+
 const WRAM_SIZE: usize = 0x2000;
 const VRAM_SIZE: usize = 0x2000;
 const OAM_SIZE: usize = 0xA0;
@@ -255,6 +257,27 @@ impl GameBoy {
     /// Drain APU samples (stereo interleaved `f32`).
     pub fn drain_audio(&mut self, dest: &mut [f32]) -> usize {
         self.apu.drain_samples(dest)
+    }
+
+    /// Returns the host-side APU mixer controls.
+    #[must_use]
+    pub const fn audio_controls(&self) -> AudioControls {
+        self.apu.audio_controls()
+    }
+
+    /// Replaces the host-side APU mixer controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.apu.set_audio_controls(controls);
+    }
+
+    /// Enables or mutes one APU channel in the host output mixer.
+    pub fn set_audio_channel_enabled(&mut self, channel: ApuChannel, enabled: bool) {
+        self.apu.set_channel_enabled(channel, enabled);
+    }
+
+    /// Sets one APU channel's host-side gain.
+    pub fn set_audio_channel_gain(&mut self, channel: ApuChannel, gain: f32) {
+        self.apu.set_channel_gain(channel, gain);
     }
 
     /// Drain bytes "transmitted" via the serial port (`SC = $81`).

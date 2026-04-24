@@ -105,6 +105,54 @@ fn nr32_volume_round_trips() {
     }
 }
 
+#[test]
+fn host_audio_controls_do_not_change_nr52_channel_state() {
+    let mut apu = Apu::new();
+    apu.write(REG_NR52, 0x80);
+    apu.write(0xFF17, 0xF0);
+    apu.write(0xFF19, 0x80);
+    assert_ne!(apu.read(REG_NR52) & 0x02, 0);
+
+    apu.set_channel_enabled(ApuChannel::Pulse2, false);
+
+    assert_ne!(apu.read(REG_NR52) & 0x02, 0);
+    assert!(!apu.audio_controls().channel(ApuChannel::Pulse2).enabled());
+}
+
+#[test]
+fn host_audio_controls_mute_channel_output_only() {
+    let mut apu = Apu::new();
+    apu.write(REG_NR52, 0x80);
+    apu.write(0xFF17, 0xF0);
+    apu.write(0xFF19, 0x80);
+    apu.write(0xFF24, 0x77);
+    apu.write(0xFF25, 0x22);
+
+    apu.emit_sample();
+    let mut audible = [0.0f32; 2];
+    assert_eq!(apu.drain_samples(&mut audible), 2);
+    assert_ne!(audible, [0.0, 0.0]);
+
+    apu.set_channel_enabled(ApuChannel::Pulse2, false);
+    apu.emit_sample();
+    let mut muted = [1.0f32; 2];
+    assert_eq!(apu.drain_samples(&mut muted), 2);
+    assert_eq!(muted, [0.0, 0.0]);
+}
+
+#[test]
+fn host_audio_controls_clamp_gain() {
+    let mut controls = AudioControls::default();
+
+    controls.set_master_gain(2.0);
+    controls.set_channel_gain(ApuChannel::Wave, f32::NAN);
+    controls.set_channel_gain(ApuChannel::Noise, -1.0);
+
+    assert_eq!(controls.master_gain(), 1.0);
+    assert_eq!(controls.channel(ApuChannel::Wave).gain(), 0.0);
+    assert_eq!(controls.channel(ApuChannel::Noise).gain(), 0.0);
+}
+
 // -- Wave RAM access ---------------------------------------------------
 
 #[test]

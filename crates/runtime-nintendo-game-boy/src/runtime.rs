@@ -6,7 +6,7 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError,
     QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
-use machine_nintendo_game_boy::GameBoy;
+use machine_nintendo_game_boy::{ApuChannel, AudioControls, GameBoy};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -83,6 +83,33 @@ impl GameBoyRuntime {
     /// Mutable access to the loaded machine, when a cartridge is inserted.
     pub fn machine_mut(&mut self) -> Option<&mut GameBoy> {
         self.machine.as_mut()
+    }
+
+    /// Returns host-side APU mixer controls for the loaded machine.
+    #[must_use]
+    pub fn audio_controls(&self) -> Option<AudioControls> {
+        self.machine.as_ref().map(GameBoy::audio_controls)
+    }
+
+    /// Replaces host-side APU mixer controls for the loaded machine.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        if let Some(machine) = self.machine.as_mut() {
+            machine.set_audio_controls(controls);
+        }
+    }
+
+    /// Enables or mutes one APU channel in host output.
+    pub fn set_audio_channel_enabled(&mut self, channel: ApuChannel, enabled: bool) {
+        if let Some(machine) = self.machine.as_mut() {
+            machine.set_audio_channel_enabled(channel, enabled);
+        }
+    }
+
+    /// Sets one APU channel's host-side gain.
+    pub fn set_audio_channel_gain(&mut self, channel: ApuChannel, gain: f32) {
+        if let Some(machine) = self.machine.as_mut() {
+            machine.set_audio_channel_gain(channel, gain);
+        }
     }
 
     fn rebuild_machine(&mut self) {
@@ -471,6 +498,22 @@ mod tests {
         reborn.restore(&snap).unwrap();
         let snap2 = reborn.snapshot().unwrap();
         assert_eq!(snap, snap2);
+    }
+
+    #[test]
+    fn audio_controls_mutate_loaded_machine_mixer() {
+        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
+        let rom = loop_rom();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
+        runtime.load_media(&media).unwrap();
+
+        runtime.set_audio_channel_enabled(ApuChannel::Noise, false);
+        runtime.set_audio_channel_gain(ApuChannel::Wave, 0.25);
+
+        let controls = runtime.audio_controls().unwrap();
+        assert!(!controls.channel(ApuChannel::Noise).enabled());
+        assert_eq!(controls.channel(ApuChannel::Wave).gain(), 0.25);
     }
 
     #[test]

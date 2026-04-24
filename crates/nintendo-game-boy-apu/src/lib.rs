@@ -46,6 +46,163 @@ pub const MASTER_HZ: u32 = 4_194_304;
 /// Output sample rate per channel.
 pub const SAMPLE_RATE_HZ: u32 = 48_000;
 
+/// Game Boy APU channel identifier for host-side mixer controls.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ApuChannel {
+    /// CH1: square wave with frequency sweep.
+    Pulse1,
+    /// CH2: square wave without frequency sweep.
+    Pulse2,
+    /// CH3: wave-table channel.
+    Wave,
+    /// CH4: noise channel.
+    Noise,
+}
+
+impl ApuChannel {
+    const fn index(self) -> usize {
+        match self {
+            Self::Pulse1 => 0,
+            Self::Pulse2 => 1,
+            Self::Wave => 2,
+            Self::Noise => 3,
+        }
+    }
+
+    /// Stable user-facing channel label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Pulse1 => "pulse 1",
+            Self::Pulse2 => "pulse 2",
+            Self::Wave => "wave",
+            Self::Noise => "noise",
+        }
+    }
+}
+
+/// Host-side gain and mute for one APU channel.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChannelControl {
+    enabled: bool,
+    gain: f32,
+}
+
+impl Default for ChannelControl {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            gain: 1.0,
+        }
+    }
+}
+
+impl ChannelControl {
+    /// Returns whether this channel contributes to host output.
+    #[must_use]
+    pub const fn enabled(self) -> bool {
+        self.enabled
+    }
+
+    /// Returns the host-side gain multiplier for this channel.
+    #[must_use]
+    pub const fn gain(self) -> f32 {
+        self.gain
+    }
+
+    fn apply(self, sample: f32) -> f32 {
+        if self.enabled {
+            sample * sanitize_gain(self.gain)
+        } else {
+            0.0
+        }
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    fn set_gain(&mut self, gain: f32) {
+        self.gain = sanitize_gain(gain);
+    }
+}
+
+/// Host-side APU mixer controls.
+///
+/// These controls are intentionally outside the Game Boy's MMIO-visible
+/// NR50/NR51 mixer registers: they affect only emulator output monitoring and
+/// do not change emulated software state.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AudioControls {
+    master_gain: f32,
+    channels: [ChannelControl; 4],
+}
+
+impl Default for AudioControls {
+    fn default() -> Self {
+        Self {
+            master_gain: 1.0,
+            channels: [ChannelControl::default(); 4],
+        }
+    }
+}
+
+impl AudioControls {
+    /// Returns the host-side master gain multiplier.
+    #[must_use]
+    pub const fn master_gain(self) -> f32 {
+        self.master_gain
+    }
+
+    /// Sets the host-side master gain multiplier, clamped to `0.0..=1.0`.
+    pub fn set_master_gain(&mut self, gain: f32) {
+        self.master_gain = sanitize_gain(gain);
+    }
+
+    /// Returns controls for one channel.
+    #[must_use]
+    pub const fn channel(self, channel: ApuChannel) -> ChannelControl {
+        self.channels[channel.index()]
+    }
+
+    /// Enables or mutes one channel in the host output mixer.
+    pub fn set_channel_enabled(&mut self, channel: ApuChannel, enabled: bool) {
+        self.channels[channel.index()].set_enabled(enabled);
+    }
+
+    /// Sets one channel's host-side gain, clamped to `0.0..=1.0`.
+    pub fn set_channel_gain(&mut self, channel: ApuChannel, gain: f32) {
+        self.channels[channel.index()].set_gain(gain);
+    }
+
+    fn sanitized(mut self) -> Self {
+        self.master_gain = sanitize_gain(self.master_gain);
+        for channel in &mut self.channels {
+            channel.set_gain(channel.gain);
+        }
+        self
+    }
+}
+
+const fn default_audio_controls() -> AudioControls {
+    AudioControls {
+        master_gain: 1.0,
+        channels: [ChannelControl {
+            enabled: true,
+            gain: 1.0,
+        }; 4],
+    }
+}
+
+fn sanitize_gain(gain: f32) -> f32 {
+    if gain.is_finite() {
+        gain.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
 /// Game Boy DMG APU.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Apu {
@@ -60,6 +217,10 @@ pub struct Apu {
     nr50: u8,
     /// NR51: per-channel left/right routing.
     nr51: u8,
+
+    /// Host-side mixer controls. Not visible to emulated software.
+    #[serde(default = "default_audio_controls")]
+    audio_controls: AudioControls,
 
     wave_ram: [u8; 16],
 
@@ -97,6 +258,7 @@ impl Apu {
             ch4: Noise::new(),
             nr50: 0,
             nr51: 0,
+            audio_controls: AudioControls::default(),
             wave_ram: [0; 16],
             frame_step: 0,
             prev_div_bit: false,
@@ -129,6 +291,7 @@ impl Apu {
             ch4: Noise::new(),
             nr50: 0x77,
             nr51: 0xF3,
+            audio_controls: AudioControls::default(),
             wave_ram: [0; 16],
             frame_step: 0,
             prev_div_bit: false,
@@ -193,6 +356,27 @@ impl Apu {
     #[must_use]
     pub fn samples_buffered(&self) -> usize {
         self.samples.len()
+    }
+
+    /// Returns the current host-side mixer controls.
+    #[must_use]
+    pub const fn audio_controls(&self) -> AudioControls {
+        self.audio_controls
+    }
+
+    /// Replaces the host-side mixer controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.audio_controls = controls.sanitized();
+    }
+
+    /// Enables or mutes one channel in the host output mixer.
+    pub fn set_channel_enabled(&mut self, channel: ApuChannel, enabled: bool) {
+        self.audio_controls.set_channel_enabled(channel, enabled);
+    }
+
+    /// Sets one channel's host-side gain, clamped to `0.0..=1.0`.
+    pub fn set_channel_gain(&mut self, channel: ApuChannel, gain: f32) {
+        self.audio_controls.set_channel_gain(channel, gain);
     }
 
     /// Reads an APU register or wave-RAM byte.
@@ -366,10 +550,22 @@ impl Apu {
     }
 
     fn emit_sample(&mut self) {
-        let s1 = self.ch1.sample();
-        let s2 = self.ch2.sample();
-        let s3 = self.ch3.sample();
-        let s4 = self.ch4.sample();
+        let s1 = self
+            .audio_controls
+            .channel(ApuChannel::Pulse1)
+            .apply(self.ch1.sample());
+        let s2 = self
+            .audio_controls
+            .channel(ApuChannel::Pulse2)
+            .apply(self.ch2.sample());
+        let s3 = self
+            .audio_controls
+            .channel(ApuChannel::Wave)
+            .apply(self.ch3.sample());
+        let s4 = self
+            .audio_controls
+            .channel(ApuChannel::Noise)
+            .apply(self.ch4.sample());
 
         let mut left = 0.0f32;
         let mut right = 0.0f32;
@@ -403,8 +599,9 @@ impl Apu {
 
         // Each channel ranges -1..+1; sum of 4 is -4..+4. Scale by
         // master volume (0..7) and divide by 32 to leave headroom.
-        left = left * (left_vol + 1.0) / 32.0;
-        right = right * (right_vol + 1.0) / 32.0;
+        let master_gain = sanitize_gain(self.audio_controls.master_gain());
+        left = left * (left_vol + 1.0) / 32.0 * master_gain;
+        right = right * (right_vol + 1.0) / 32.0 * master_gain;
 
         // Cap the buffer so a runaway emitter doesn't grow unbounded
         // — drop the oldest pair when full. Keeps headroom for the

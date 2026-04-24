@@ -4,6 +4,23 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Game Boy native shell gains APU channel controls
+
+**Type:** feature
+**Trigger:** The shared host audio layer now preserves stereo and
+plays Game Boy audio, but usability needs per-channel inspection
+without pushing chip-specific mute/gain policy into the generic host
+output path.
+**Result:** `nintendo-game-boy-apu` now has serializable host-side
+`AudioControls` over the four APU channels: pulse 1, pulse 2, wave,
+and noise. The controls are explicitly outside ROM-visible NR50/NR51
+and NR52 state. `machine-nintendo-game-boy` and
+`runtime-nintendo-game-boy` expose the same controls, and
+`emu198x-game-boy` maps them to `1`-`4` channel toggles, `5`-`8`
+channel gain cycling, and `0` reset.
+
+---
+
 ## 2026-04-24 — Shared native audio output reaches NES and Game Boy
 
 **Type:** refactor

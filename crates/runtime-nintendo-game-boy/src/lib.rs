@@ -14,5 +14,6 @@
 mod profiles;
 mod runtime;
 
+pub use machine_nintendo_game_boy::{ApuChannel, AudioControls};
 pub use profiles::{Model, profile_for, profiles};
 pub use runtime::{GameBoyRuntime, GameBoySessionQueryProvider};

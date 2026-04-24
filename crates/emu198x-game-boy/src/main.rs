@@ -13,7 +13,7 @@ use emu198x_shell::{
     ResetKind, RunResult, read_media_asset,
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
-use runtime_nintendo_game_boy::{GameBoyRuntime, Model};
+use runtime_nintendo_game_boy::{ApuChannel, AudioControls, GameBoyRuntime, Model};
 use thiserror::Error;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -42,6 +42,9 @@ Options:
 Controls:
     Esc                   quit
     F12                   hard reset
+    1-4                   toggle audio channels: pulse1, pulse2, wave, noise
+    5-8                   cycle channel gain: 100%, 50%, 25%, muted
+    0                     reset audio channel controls
     Arrow keys            D-pad
     Z                     B
     X                     A
@@ -195,6 +198,24 @@ impl GameBoyRunner {
     fn frame(&self) -> Option<&CapturedFrame> {
         self.frame_capture.frame()
     }
+
+    fn toggle_audio_channel(&mut self, channel: ApuChannel) -> Option<bool> {
+        let controls = self.runtime.audio_controls()?;
+        let enabled = !controls.channel(channel).enabled();
+        self.runtime.set_audio_channel_enabled(channel, enabled);
+        Some(enabled)
+    }
+
+    fn cycle_audio_channel_gain(&mut self, channel: ApuChannel) -> Option<f32> {
+        let controls = self.runtime.audio_controls()?;
+        let next = next_audio_gain(controls.channel(channel).gain());
+        self.runtime.set_audio_channel_gain(channel, next);
+        Some(next)
+    }
+
+    fn reset_audio_controls(&mut self) {
+        self.runtime.set_audio_controls(AudioControls::default());
+    }
 }
 
 struct GameBoyApp {
@@ -345,7 +366,20 @@ impl GameBoyApp {
         pressed: bool,
     ) -> bool {
         if !pressed {
-            return matches!(code, KeyCode::Escape | KeyCode::F12);
+            return matches!(
+                code,
+                KeyCode::Escape
+                    | KeyCode::F12
+                    | KeyCode::Digit0
+                    | KeyCode::Digit1
+                    | KeyCode::Digit2
+                    | KeyCode::Digit3
+                    | KeyCode::Digit4
+                    | KeyCode::Digit5
+                    | KeyCode::Digit6
+                    | KeyCode::Digit7
+                    | KeyCode::Digit8
+            );
         }
 
         match code {
@@ -360,8 +394,39 @@ impl GameBoyApp {
                 }
                 true
             }
+            KeyCode::Digit0 => {
+                self.runner.reset_audio_controls();
+                eprintln!("audio: reset channel controls");
+                true
+            }
+            KeyCode::Digit1 => self.toggle_audio_channel_shortcut(ApuChannel::Pulse1),
+            KeyCode::Digit2 => self.toggle_audio_channel_shortcut(ApuChannel::Pulse2),
+            KeyCode::Digit3 => self.toggle_audio_channel_shortcut(ApuChannel::Wave),
+            KeyCode::Digit4 => self.toggle_audio_channel_shortcut(ApuChannel::Noise),
+            KeyCode::Digit5 => self.cycle_audio_channel_gain_shortcut(ApuChannel::Pulse1),
+            KeyCode::Digit6 => self.cycle_audio_channel_gain_shortcut(ApuChannel::Pulse2),
+            KeyCode::Digit7 => self.cycle_audio_channel_gain_shortcut(ApuChannel::Wave),
+            KeyCode::Digit8 => self.cycle_audio_channel_gain_shortcut(ApuChannel::Noise),
             _ => false,
         }
+    }
+
+    fn toggle_audio_channel_shortcut(&mut self, channel: ApuChannel) -> bool {
+        if let Some(enabled) = self.runner.toggle_audio_channel(channel) {
+            eprintln!(
+                "audio: {} {}",
+                channel.label(),
+                if enabled { "enabled" } else { "muted" }
+            );
+        }
+        true
+    }
+
+    fn cycle_audio_channel_gain_shortcut(&mut self, channel: ApuChannel) -> bool {
+        if let Some(gain) = self.runner.cycle_audio_channel_gain(channel) {
+            eprintln!("audio: {} gain {:.0}%", channel.label(), gain * 100.0);
+        }
+        true
     }
 }
 
@@ -446,7 +511,9 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
-    println!("Controls: Esc quit, F12 reset, arrows D-pad, Z B, X A, Shift Select, Enter Start.");
+    println!(
+        "Controls: Esc quit, F12 reset, arrows D-pad, Z B, X A, Shift Select, Enter Start. Audio: 1-4 toggle channels, 5-8 cycle channel gain, 0 reset audio."
+    );
 
     let runner = GameBoyRunner::from_cli(&cli)?;
     let mut app = GameBoyApp::new(runner, cli.scale)?;
@@ -541,6 +608,18 @@ fn button_event(name: &'static str, pressed: bool) -> InputEvent {
     }
 }
 
+fn next_audio_gain(gain: f32) -> f32 {
+    if gain > 0.75 {
+        0.5
+    } else if gain > 0.375 {
+        0.25
+    } else if gain > 0.0 {
+        0.0
+    } else {
+        1.0
+    }
+}
+
 fn map_game_boy_key(code: KeyCode) -> Option<&'static str> {
     Some(match code {
         KeyCode::KeyX => "a",
@@ -613,5 +692,13 @@ mod tests {
         assert_eq!(map_game_boy_key(KeyCode::KeyZ), Some("b"));
         assert_eq!(map_game_boy_key(KeyCode::Enter), Some("start"));
         assert_eq!(map_game_boy_key(KeyCode::ArrowLeft), Some("left"));
+    }
+
+    #[test]
+    fn audio_gain_shortcut_cycles_down_then_restores() {
+        assert_eq!(next_audio_gain(1.0), 0.5);
+        assert_eq!(next_audio_gain(0.5), 0.25);
+        assert_eq!(next_audio_gain(0.25), 0.0);
+        assert_eq!(next_audio_gain(0.0), 1.0);
     }
 }
