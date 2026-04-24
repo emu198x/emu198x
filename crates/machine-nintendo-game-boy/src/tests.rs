@@ -190,6 +190,108 @@ fn diagnostic_mooneye_ppu_intr_2_0_trace() {
 }
 
 #[test]
+#[ignore = "diagnostic: traces mooneye PPU mode0 timing with sprites"]
+fn diagnostic_mooneye_ppu_intr_2_mode0_sprites_trace() {
+    let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
+    let rom = std::fs::read(format!(
+        "{root}/acceptance/ppu/intr_2_mode0_timing_sprites.gb"
+    ))
+    .unwrap();
+    let mut gb = boot_machine(rom);
+
+    let mut serial_log = Vec::new();
+    let mut previous_mode = gb.ppu.mode();
+    for cycle in 0..600_000u32 {
+        if matches!(
+            gb.cpu.pc,
+            0x0B5A | 0x0B8A | 0x0B9A | 0x0BF8 | 0x0C1D | 0x487B
+        ) {
+            eprintln!(
+                "#{cycle} pc=${:04X} a=${:02X} b=${:02X} c=${:02X} d=${:02X} e=${:02X} hram80=${:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} lcdc=${:02X}",
+                gb.cpu.pc,
+                gb.cpu.a,
+                gb.cpu.b,
+                gb.cpu.c,
+                gb.cpu.d,
+                gb.cpu.e,
+                gb.hram[0],
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg,
+                gb.ppu.lcdc
+            );
+        }
+        if gb.cpu.mreq && gb.cpu.wr && matches!(gb.cpu.addr, 0xFF40 | 0xFF41 | 0xFF0F | 0xFFFF) {
+            eprintln!(
+                "#{cycle} pc=${:04X} write ${:04X}=${:02X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X} lcdc=${:02X}",
+                gb.cpu.pc,
+                gb.cpu.addr,
+                gb.cpu.data,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg,
+                gb.ppu.lcdc
+            );
+        }
+        if gb.cpu.int_ack {
+            eprintln!(
+                "#{cycle} int_ack bit={} pc=${:04X} ly={} dot={} mode={} stat=${:02X} if=${:02X} ie=${:02X}",
+                gb.cpu.int_ack_bit,
+                gb.cpu.pc,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.if_reg,
+                gb.ie_reg
+            );
+        }
+
+        gb.step_m_cycle();
+        let mode = gb.ppu.mode();
+        if mode != previous_mode && gb.ppu.ly == 66 {
+            eprintln!(
+                "#{cycle} mode {}->{} ly={} dot={} pc=${:04X} a=${:02X} b=${:02X} c=${:02X} d=${:02X} e=${:02X} stat=${:02X}",
+                previous_mode,
+                mode,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.cpu.pc,
+                gb.cpu.a,
+                gb.cpu.b,
+                gb.cpu.c,
+                gb.cpu.d,
+                gb.cpu.e,
+                gb.ppu.read_stat()
+            );
+        }
+        previous_mode = mode;
+
+        serial_log.extend(gb.drain_serial());
+        if serial_log.windows(6).any(|window| window == [0x42; 6])
+            || serial_log
+                .windows(6)
+                .any(|window| window == [3, 5, 8, 13, 21, 34])
+        {
+            eprintln!(
+                "serial={serial_log:02X?} hram={:02X?} ly={} dot={} mode={}",
+                &gb.hram[..17],
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode()
+            );
+            break;
+        }
+    }
+}
+
+#[test]
 #[ignore = "diagnostic: traces mooneye HBlank LY/SCX timing"]
 fn diagnostic_mooneye_ppu_hblank_ly_scx_trace() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
@@ -417,7 +519,7 @@ fn diagnostic_mooneye_ppu_lcdon_timing_results() {
     let mut gb = boot_machine(rom);
 
     let mut serial_log = Vec::new();
-    for cycle in 0..300_000u32 {
+    for cycle in 0..420_000u32 {
         let in_test_code = (0x47F0..=0x4BC0).contains(&gb.cpu.pc);
         if gb.cpu.mreq
             && gb.cpu.rd
@@ -487,6 +589,66 @@ fn diagnostic_mooneye_ppu_lcdon_timing_results() {
         gb.hram[0x1A],
         u16::from_le_bytes([gb.hram[0x1B], gb.hram[0x1C]])
     );
+}
+
+#[test]
+#[ignore = "diagnostic: dumps mooneye LCD-on write timing result table"]
+fn diagnostic_mooneye_ppu_lcdon_write_timing_results() {
+    let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
+    let rom = std::fs::read(format!("{root}/acceptance/ppu/lcdon_write_timing-GS.gb")).unwrap();
+    let mut gb = boot_machine(rom);
+
+    let mut serial_log = Vec::new();
+    for cycle in 0..840_000u32 {
+        let in_test_driver = (0x4978..=0x49CB).contains(&gb.cpu.pc);
+        let in_generated_test = (0xC000..=0xC12B).contains(&gb.cpu.pc);
+        if gb.cpu.mreq
+            && (gb.cpu.rd || gb.cpu.wr)
+            && (matches!(
+                gb.cpu.addr,
+                0x8000 | 0xFE00 | 0xFF40 | 0xC12C..=0xC13E | 0xFF80..=0xFF84
+            ))
+            && (in_test_driver || in_generated_test || matches!(gb.cpu.addr, 0xFF80..=0xFF84))
+        {
+            let op = if gb.cpu.rd { "read" } else { "write" };
+            let value = if gb.cpu.rd {
+                gb.bus_read(gb.cpu.addr)
+            } else {
+                gb.cpu.data
+            };
+            eprintln!(
+                "#{cycle} pc=${:04X} op=${:02X} mc={} {op} ${:04X}=${value:02X} ly={} dot={} mode={} stat=${:02X} lcdc=${:02X}",
+                gb.cpu.pc,
+                gb.cpu.opcode,
+                gb.cpu.m_cycle,
+                gb.cpu.addr,
+                gb.ppu.ly,
+                gb.ppu.dot,
+                gb.ppu.mode(),
+                gb.ppu.read_stat(),
+                gb.ppu.lcdc
+            );
+        }
+
+        gb.step_m_cycle();
+        serial_log.extend(gb.drain_serial());
+        if serial_log.windows(6).any(|window| window == [0x42; 6])
+            || serial_log
+                .windows(6)
+                .any(|window| window == [3, 5, 8, 13, 21, 34])
+        {
+            eprintln!("serial={serial_log:02X?}");
+            eprintln!("results={:02X?}", &gb.wram[0x12C..0x13F]);
+            eprintln!(
+                "fail round={} expect=${:02X} actual=${:02X} str=${:04X}",
+                gb.hram[0x00],
+                gb.hram[0x01],
+                gb.hram[0x02],
+                u16::from_le_bytes([gb.hram[0x03], gb.hram[0x04]])
+            );
+            break;
+        }
+    }
 }
 
 // -- Construction ----------------------------------------------------

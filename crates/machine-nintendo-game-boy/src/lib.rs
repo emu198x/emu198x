@@ -14,9 +14,6 @@
 //! - OAM DMA bus blocking. Real hardware blocks all CPU access to
 //!   non-HRAM memory for the 160 m-cycles a DMA takes; the DMA transfer
 //!   itself is paced, but CPU bus gating is still deferred.
-//! - Per-PPU-mode VRAM/OAM access blocking. The CPU sees `$FF` for
-//!   reads of VRAM during mode 3 and OAM during modes 2/3 on real
-//!   hardware; we always route the read.
 
 #[cfg(test)]
 mod tests;
@@ -410,12 +407,13 @@ impl GameBoy {
     fn bus_read(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => self.cartridge.read_rom(addr),
+            0x8000..=0x9FFF if self.ppu.cpu_blocks_vram_read() => 0xFF,
             0x8000..=0x9FFF => self.vram[usize::from(addr - 0x8000)],
             0xA000..=0xBFFF => self.cartridge.read_ram(addr),
             0xC000..=0xDFFF => self.wram[usize::from(addr - 0xC000)],
             // Echo RAM mirrors $C000..=$DDFF.
             0xE000..=0xFDFF => self.wram[usize::from(addr - 0xE000)],
-            0xFE00..=0xFE9F if self.oam_dma_active() => 0xFF,
+            0xFE00..=0xFE9F if self.oam_dma_active() || self.ppu.cpu_blocks_oam_read() => 0xFF,
             0xFE00..=0xFE9F => self.oam[usize::from(addr - 0xFE00)],
             0xFEA0..=0xFEFF => 0xFF, // unusable region
             0xFF00..=0xFF7F => self.read_io(addr),
@@ -427,11 +425,12 @@ impl GameBoy {
     fn bus_write(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..=0x7FFF => self.cartridge.write_rom(addr, value),
+            0x8000..=0x9FFF if self.ppu.cpu_blocks_vram_write() => {}
             0x8000..=0x9FFF => self.vram[usize::from(addr - 0x8000)] = value,
             0xA000..=0xBFFF => self.cartridge.write_ram(addr, value),
             0xC000..=0xDFFF => self.wram[usize::from(addr - 0xC000)] = value,
             0xE000..=0xFDFF => self.wram[usize::from(addr - 0xE000)] = value,
-            0xFE00..=0xFE9F if self.oam_dma_active() => {}
+            0xFE00..=0xFE9F if self.oam_dma_active() || self.ppu.cpu_blocks_oam_write() => {}
             0xFE00..=0xFE9F => self.oam[usize::from(addr - 0xFE00)] = value,
             0xFEA0..=0xFEFF => {} // unusable region
             0xFF00..=0xFF7F => self.write_io(addr, value),

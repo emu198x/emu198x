@@ -52,7 +52,7 @@ const DOTS_PER_LINE: u16 = 456;
 const LINES_PER_FRAME: u8 = 154;
 const VBLANK_START: u8 = 144;
 const OAM_END: u16 = 80;
-const LCD_ENABLE_MODE0_DOTS: u16 = 16;
+const LCD_ENABLE_MODE0_DOTS: u16 = 80;
 
 const FRAMEBUFFER_LEN: usize = (SCREEN_WIDTH * SCREEN_HEIGHT) as usize;
 
@@ -212,7 +212,39 @@ impl Ppu {
     }
 
     fn mode3_end_dot(&self) -> u16 {
-        OAM_END + 172 + u16::from(self.scx & 7)
+        OAM_END + 172 + u16::from(self.scx & 7) + self.obj_mode3_penalty()
+    }
+
+    fn obj_mode3_penalty(&self) -> u16 {
+        if (self.lcdc & lcdc::SPRITES_ENABLE) == 0 {
+            return 0;
+        }
+
+        let mut seen_bg_tiles = [false; 32];
+        let mut penalty = 0u16;
+        for sprite in self.sprites.iter().take(usize::from(self.sprite_count)) {
+            if sprite.x == 0 {
+                penalty += 11;
+                continue;
+            }
+
+            let screen_x = sprite.x.saturating_sub(8);
+            if screen_x >= SCREEN_WIDTH as u8 {
+                continue;
+            }
+
+            let bg_x = u16::from(self.scx) + u16::from(screen_x);
+            let tile = usize::from((bg_x / 8) & 0x1F);
+            if !seen_bg_tiles[tile] {
+                seen_bg_tiles[tile] = true;
+                let pixels_to_right = 7 - (bg_x & 7);
+                penalty += pixels_to_right.saturating_sub(2);
+            }
+
+            penalty += 6;
+        }
+
+        penalty
     }
 
     /// Reads STAT ($FF41). Composes the writable bits with the live
@@ -221,7 +253,7 @@ impl Ppu {
     pub fn read_stat(&self) -> u8 {
         let mut s = self.stat & stat::WRITABLE_MASK;
         s |= self.mode();
-        if self.lyc_match {
+        if self.effective_lyc_match() {
             s |= 0x04;
         }
         s
@@ -231,11 +263,57 @@ impl Ppu {
     /// observes the next line before the internal dot counter wraps.
     #[must_use]
     pub fn read_ly(&self) -> u8 {
-        if (self.lcdc & lcdc::ENABLE) != 0 && self.ly < VBLANK_START && self.dot >= 452 {
+        if self.cpu_visible_next_ly() {
             self.ly.wrapping_add(1)
         } else {
             self.ly
         }
+    }
+
+    /// Returns whether CPU reads from VRAM are blocked by the PPU.
+    #[must_use]
+    pub fn cpu_blocks_vram_read(&self) -> bool {
+        (self.lcdc & lcdc::ENABLE) != 0
+            && self.ly < VBLANK_START
+            && self.lcd_enable_mode0_dots == 0
+            && self.dot >= OAM_END - 4
+            && self.dot < self.mode3_end_dot()
+    }
+
+    /// Returns whether CPU writes to VRAM are blocked by the PPU.
+    #[must_use]
+    pub fn cpu_blocks_vram_write(&self) -> bool {
+        (self.lcdc & lcdc::ENABLE) != 0
+            && self.ly < VBLANK_START
+            && self.dot >= OAM_END
+            && self.dot < self.mode3_end_dot()
+    }
+
+    /// Returns whether CPU reads from OAM are blocked by the PPU.
+    #[must_use]
+    pub fn cpu_blocks_oam_read(&self) -> bool {
+        matches!(self.mode(), 2 | 3) || self.cpu_visible_next_ly()
+    }
+
+    /// Returns whether CPU writes to OAM are blocked by the PPU.
+    #[must_use]
+    pub fn cpu_blocks_oam_write(&self) -> bool {
+        (self.lcdc & lcdc::ENABLE) != 0
+            && self.ly < VBLANK_START
+            && ((self.lcd_enable_mode0_dots == 0 && self.dot < OAM_END - 4)
+                || (self.dot >= OAM_END && self.dot < self.mode3_end_dot()))
+    }
+
+    fn effective_lyc_match(&self) -> bool {
+        if self.cpu_visible_next_ly() {
+            false
+        } else {
+            self.lyc_match
+        }
+    }
+
+    fn cpu_visible_next_ly(&self) -> bool {
+        (self.lcdc & lcdc::ENABLE) != 0 && self.ly < VBLANK_START && self.dot >= 452
     }
 
     /// Writes STAT ($FF41). Only bits 3-6 are writable.
@@ -433,7 +511,7 @@ impl Ppu {
     /// on its rising edge.
     fn update_stat_line(&mut self) {
         let mode = self.mode();
-        let line = ((self.stat & stat::LYC_ENABLE) != 0 && self.lyc_match)
+        let line = ((self.stat & stat::LYC_ENABLE) != 0 && self.effective_lyc_match())
             || ((self.stat & stat::MODE2_ENABLE) != 0 && mode == 2)
             || ((self.stat & stat::MODE1_ENABLE) != 0 && mode == 1)
             || ((self.stat & stat::MODE0_ENABLE) != 0 && mode == 0);
