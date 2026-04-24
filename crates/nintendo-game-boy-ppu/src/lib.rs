@@ -512,13 +512,17 @@ impl Ppu {
     fn update_stat_line(&mut self) {
         let mode = self.mode();
         let line = ((self.stat & stat::LYC_ENABLE) != 0 && self.effective_lyc_match())
-            || ((self.stat & stat::MODE2_ENABLE) != 0 && mode == 2)
+            || ((self.stat & stat::MODE2_ENABLE) != 0 && self.mode2_stat_active(mode))
             || ((self.stat & stat::MODE1_ENABLE) != 0 && mode == 1)
             || ((self.stat & stat::MODE0_ENABLE) != 0 && mode == 0);
         if line && !self.stat_line_prev {
             self.stat_irq_latched = true;
         }
         self.stat_line_prev = line;
+    }
+
+    fn mode2_stat_active(&self, mode: u8) -> bool {
+        mode == 2 || (mode == 1 && self.ly == VBLANK_START && self.dot != 0)
     }
 
     /// Scan OAM for sprites visible on the current scanline. Decodes
