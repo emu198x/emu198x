@@ -5,7 +5,7 @@ use common_commodore_iec::IecBus;
 use format_commodore_c64_tap::{TapParseError, TapSystem, parse_tap};
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
-use mos_sid_6581::{Sid6581, SidModel};
+use mos_sid_6581::{AudioControls, Sid6581, SidChannel, SidModel};
 use mos_vic_ii::{Vic, VicModel};
 
 use crate::config::{C64Config, C64Model};
@@ -297,6 +297,27 @@ impl C64 {
     #[must_use]
     pub fn take_audio_buffer(&mut self) -> Vec<f32> {
         self.sid.take_buffer()
+    }
+
+    /// Current host-side SID audio controls.
+    #[must_use]
+    pub const fn audio_controls(&self) -> AudioControls {
+        self.sid.audio_controls()
+    }
+
+    /// Replace all host-side SID audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.sid.set_audio_controls(controls);
+    }
+
+    /// Enable or disable one SID voice in the host mixer.
+    pub fn set_audio_channel_enabled(&mut self, channel: SidChannel, enabled: bool) {
+        self.sid.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Set one SID voice's host mixer gain.
+    pub fn set_audio_channel_gain(&mut self, channel: SidChannel, gain: f32) {
+        self.sid.set_audio_channel_gain(channel, gain);
     }
 
     /// Borrow the VIC-II framebuffer.
@@ -1211,6 +1232,25 @@ mod tests {
         machine.cpu_write_with_iec_bus(0xDD00, 0x00, &mut bus);
 
         assert_eq!(bus.drive_port() & 0x85, 0x85);
+    }
+
+    #[test]
+    fn audio_controls_proxy_to_sid() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+
+        machine.set_audio_channel_enabled(SidChannel::Voice2, false);
+        machine.set_audio_channel_gain(SidChannel::Voice3, 0.5);
+
+        assert!(
+            !machine
+                .audio_controls()
+                .channel(SidChannel::Voice2)
+                .enabled()
+        );
+        assert_eq!(
+            machine.audio_controls().channel(SidChannel::Voice3).gain(),
+            0.5
+        );
     }
 
     #[test]

@@ -15,7 +15,9 @@ are unit-tested only — no ROMs in the local set.
 boot-detection and ROM-glyph query surface. The other variants now
 use the generic `SpectrumRuntime<M>` wrapper, including runtime
 snapshots, frame/audio emission, keyboard input, and variant-specific
-media slots such as +3 `disk-a`.
+media slots such as +3 `disk-a`. The 48K native verifier exposes
+host-side speaker mute/gain on the numpad without changing ULA port
+or tape EAR state.
 
 ## Architecture
 

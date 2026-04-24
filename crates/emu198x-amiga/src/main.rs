@@ -13,7 +13,8 @@ use emu198x_shell::{
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_amiga::{
-    A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
+    A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaRuntime, AudioControls, DISPLAY_HEIGHT,
+    DISPLAY_WIDTH, Model, PaulaChannel,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -47,6 +48,9 @@ Options:
 Controls:
     Esc                  quit
     F12                  hard reset
+    Numpad 1-4           toggle Paula channels 0-3
+    Numpad 5-8           cycle Paula channel 0-3 gain
+    Numpad 0             reset Paula channel controls
     Mouse                port-0 Amiga mouse
     A-Z, 0-9             Amiga keyboard
     Space, Enter, Tab    Amiga keyboard
@@ -203,6 +207,24 @@ impl AmigaRunner {
 
     fn frame(&self) -> Option<&CapturedFrame> {
         self.frame_capture.frame()
+    }
+
+    fn toggle_audio_channel(&mut self, channel: PaulaChannel) -> bool {
+        let controls = self.runtime.audio_controls();
+        let enabled = !controls.channel(channel).enabled();
+        self.runtime.set_audio_channel_enabled(channel, enabled);
+        enabled
+    }
+
+    fn cycle_audio_channel_gain(&mut self, channel: PaulaChannel) -> f32 {
+        let controls = self.runtime.audio_controls();
+        let next = next_audio_gain(controls.channel(channel).gain());
+        self.runtime.set_audio_channel_gain(channel, next);
+        next
+    }
+
+    fn reset_audio_controls(&mut self) {
+        self.runtime.set_audio_controls(AudioControls::default());
     }
 }
 
@@ -414,7 +436,20 @@ impl AmigaApp {
         pressed: bool,
     ) -> bool {
         if !pressed {
-            return matches!(code, KeyCode::Escape | KeyCode::F12);
+            return matches!(
+                code,
+                KeyCode::Escape
+                    | KeyCode::F12
+                    | KeyCode::Numpad0
+                    | KeyCode::Numpad1
+                    | KeyCode::Numpad2
+                    | KeyCode::Numpad3
+                    | KeyCode::Numpad4
+                    | KeyCode::Numpad5
+                    | KeyCode::Numpad6
+                    | KeyCode::Numpad7
+                    | KeyCode::Numpad8
+            );
         }
 
         match code {
@@ -429,8 +464,37 @@ impl AmigaApp {
                 }
                 true
             }
+            KeyCode::Numpad0 => {
+                self.runner.reset_audio_controls();
+                eprintln!("audio: reset Paula channel controls");
+                true
+            }
+            KeyCode::Numpad1 => self.toggle_audio_channel_shortcut(PaulaChannel::Channel0),
+            KeyCode::Numpad2 => self.toggle_audio_channel_shortcut(PaulaChannel::Channel1),
+            KeyCode::Numpad3 => self.toggle_audio_channel_shortcut(PaulaChannel::Channel2),
+            KeyCode::Numpad4 => self.toggle_audio_channel_shortcut(PaulaChannel::Channel3),
+            KeyCode::Numpad5 => self.cycle_audio_channel_gain_shortcut(PaulaChannel::Channel0),
+            KeyCode::Numpad6 => self.cycle_audio_channel_gain_shortcut(PaulaChannel::Channel1),
+            KeyCode::Numpad7 => self.cycle_audio_channel_gain_shortcut(PaulaChannel::Channel2),
+            KeyCode::Numpad8 => self.cycle_audio_channel_gain_shortcut(PaulaChannel::Channel3),
             _ => false,
         }
+    }
+
+    fn toggle_audio_channel_shortcut(&mut self, channel: PaulaChannel) -> bool {
+        let enabled = self.runner.toggle_audio_channel(channel);
+        eprintln!(
+            "audio: {} {}",
+            channel.label(),
+            if enabled { "enabled" } else { "muted" }
+        );
+        true
+    }
+
+    fn cycle_audio_channel_gain_shortcut(&mut self, channel: PaulaChannel) -> bool {
+        let gain = self.runner.cycle_audio_channel_gain(channel);
+        eprintln!("audio: {} gain {:.0}%", channel.label(), gain * 100.0);
+        true
     }
 }
 
@@ -522,7 +586,7 @@ fn main() {
 
 fn run(cli: Cli) -> Result<(), AppError> {
     println!(
-        "Controls: Esc quit, F12 reset, mouse port 0, A-Z/0-9/Space/Enter/Tab/Backspace keyboard."
+        "Controls: Esc quit, F12 reset, mouse port 0, A-Z/0-9/Space/Enter/Tab/Backspace keyboard, numpad 1-4 toggle Paula channels, numpad 5-8 cycle channel gain, numpad 0 reset audio."
     );
 
     let runner = AmigaRunner::from_cli(&cli)?;
@@ -686,6 +750,18 @@ fn subframe_duration(frame_duration: Duration) -> Duration {
     Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(INPUT_SLICES_PER_FRAME))
 }
 
+fn next_audio_gain(gain: f32) -> f32 {
+    if gain > 0.75 {
+        0.5
+    } else if gain > 0.375 {
+        0.25
+    } else if gain > 0.0 {
+        0.0
+    } else {
+        1.0
+    }
+}
+
 fn key_event(name: &'static str, pressed: bool) -> InputEvent {
     InputEvent::Key {
         name: name.into(),
@@ -829,6 +905,14 @@ mod tests {
         assert_eq!(map_mouse_button(MouseButton::Right), Some("right"));
         assert_eq!(map_mouse_button(MouseButton::Middle), Some("middle"));
         assert_eq!(map_mouse_button(MouseButton::Other(1)), None);
+    }
+
+    #[test]
+    fn audio_gain_cycles_through_debug_levels() {
+        assert_eq!(next_audio_gain(1.0), 0.5);
+        assert_eq!(next_audio_gain(0.5), 0.25);
+        assert_eq!(next_audio_gain(0.25), 0.0);
+        assert_eq!(next_audio_gain(0.0), 1.0);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 mod profiles;
 mod runtime;
-pub use machine_commodore_amiga_ocs::RamConfig;
+pub use machine_commodore_amiga_ocs::{AudioControls, PaulaChannel, RamConfig};
 pub use profiles::{
     A500_PAL_CCK_HZ, A500_PAL_FRAME_CCKS, A500_PAL_FRAME_TICKS, Model, profile_for, profiles,
 };

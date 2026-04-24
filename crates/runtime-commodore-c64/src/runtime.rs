@@ -10,7 +10,7 @@ use emu198x_shell::{
     StopReason, TraceEvent,
 };
 use machine_commodore_1541::{DRIVE1541_CPU_HZ, Drive1541, Drive1541Config, Drive1541Snapshot};
-use machine_commodore_c64::{C64, C64Config, C64Model, C64Snapshot};
+use machine_commodore_c64::{AudioControls, C64, C64Config, C64Model, C64Snapshot, SidChannel};
 use serde::Serialize;
 use serde_json::json;
 
@@ -371,6 +371,27 @@ impl C64Runtime {
     #[must_use]
     pub fn machine_mut(&mut self) -> &mut C64 {
         &mut self.machine
+    }
+
+    /// Current host-side SID audio controls.
+    #[must_use]
+    pub fn audio_controls(&self) -> AudioControls {
+        self.machine.audio_controls()
+    }
+
+    /// Replace all host-side SID audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.machine.set_audio_controls(controls);
+    }
+
+    /// Enable or disable one SID voice in host output.
+    pub fn set_audio_channel_enabled(&mut self, channel: SidChannel, enabled: bool) {
+        self.machine.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Set one SID voice's host-side gain.
+    pub fn set_audio_channel_gain(&mut self, channel: SidChannel, gain: f32) {
+        self.machine.set_audio_channel_gain(channel, gain);
     }
 
     #[must_use]
@@ -1533,6 +1554,19 @@ mod tests {
     fn runtime_can_build_from_declared_firmware() {
         let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware());
         assert!(runtime.is_ok(), "blank C64 firmware set should construct");
+    }
+
+    #[test]
+    fn audio_controls_mutate_machine_sid_mixer() {
+        let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+            .expect("blank C64 firmware should construct a runtime");
+
+        runtime.set_audio_channel_enabled(SidChannel::Voice1, false);
+        runtime.set_audio_channel_gain(SidChannel::Voice3, 0.25);
+
+        let controls = runtime.audio_controls();
+        assert!(!controls.channel(SidChannel::Voice1).enabled());
+        assert_eq!(controls.channel(SidChannel::Voice3).gain(), 0.25);
     }
 
     #[test]

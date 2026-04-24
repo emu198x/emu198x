@@ -5,7 +5,9 @@
 > `READY.`, exposes the shared `MachineCore` runtime, supports runtime
 > snapshots, PNG/audio capture plumbing, TAP-backed datasette media,
 > PRG/BAS/T64 import, and an optional live 1541/`D64` path through
-> drive 8. NTSC exists on the same substrate but remains a research
+> drive 8. The native verifier exposes host-side SID voice mute/gain
+> controls on the numpad without changing SID register state. NTSC
+> exists on the same substrate but remains a research
 > profile pending the same boot/software validation depth as PAL.
 
 The C64 is an 8-bit home computer from Commodore, released 1982. Roughly:
@@ -31,7 +33,7 @@ See the [C64 per-subsystem source map](../decisions/archives-as-source.md#c64) f
 |---|---|---|
 | [mos-6502](../chips/mos-6502.md) | 16 | Pipelined pin bus, foundation commit `25cd870`, tick commit `2d42f8b` |
 | [mos-cia-6526](../chips/mos-cia-6526.md) | 23 | Commit `cf7d0e7` |
-| [mos-sid-6581](../chips/mos-sid-6581.md) | 9 | Commit `49128bf` |
+| [mos-sid-6581](../chips/mos-sid-6581.md) | 12 | Commit `49128bf` |
 | [mos-vic-ii](../chips/mos-vic-ii.md) | 23 | Commit `7ac5a65` |
 
 **Phase 3 machine wiring: complete and end-to-end validated.** `machine-commodore-c64` ties the four chips together (commit `a398d4c`). 24 unit + integration tests passing.

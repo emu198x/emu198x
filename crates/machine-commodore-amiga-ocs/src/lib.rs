@@ -22,7 +22,7 @@ pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
 pub use commodore_gary::{ChipSelect, Gary};
 use commodore_paula_8364::bits::{POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT};
 use commodore_paula_8364::decode as paula_decode;
-pub use commodore_paula_8364::{AudioField, IntSource, Paula8364};
+pub use commodore_paula_8364::{AudioControls, AudioField, IntSource, Paula8364, PaulaChannel};
 pub use copper::Copper;
 pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
 pub use format_commodore_amiga_adf::Adf;
@@ -659,6 +659,27 @@ impl AmigaOcs {
     /// across this boundary.
     pub fn paula_mut(&mut self) -> &mut Paula8364 {
         &mut self.paula
+    }
+
+    /// Current host-side Paula audio controls.
+    #[must_use]
+    pub const fn audio_controls(&self) -> AudioControls {
+        self.paula.audio_controls()
+    }
+
+    /// Replace all host-side Paula audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.paula.set_audio_controls(controls);
+    }
+
+    /// Enable or disable one Paula channel in the host mixer.
+    pub fn set_audio_channel_enabled(&mut self, channel: PaulaChannel, enabled: bool) {
+        self.paula.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Set one Paula channel's host mixer gain.
+    pub fn set_audio_channel_gain(&mut self, channel: PaulaChannel, gain: f32) {
+        self.paula.set_audio_channel_gain(channel, gain);
     }
 
     /// Read-only DF0 drive access.

@@ -18,7 +18,9 @@
 > The Game Boy shell exposes that via `1`-`4` channel toggles,
 > `5`-`8` channel gain cycling, and `0` audio-control reset. The NES shell
 > exposes the same host-side pattern for its five APU channels via `1`-`5`
-> toggles and `6`-`0` gain cycling.
+> toggles and `6`-`0` gain cycling. Spectrum, C64, and Amiga now expose
+> non-register host controls through numpad shortcuts so normal keyboard
+> input remains available to the emulated machines.
 > All native shells are still verifier tools rather than polished end-user frontends;
 > input remains a little soft subjectively even after sub-frame host stepping.
 > Everything else in this document remains design intent: launcher screens,

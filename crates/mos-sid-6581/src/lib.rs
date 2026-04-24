@@ -21,6 +21,161 @@ pub enum SidModel {
     Mos8580,
 }
 
+/// Host-side SID voice identifier.
+///
+/// These controls are outside the emulated SID register surface: muting a
+/// voice here does not change gate bits, oscillator state, envelope state, or
+/// `$D418`.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum SidChannel {
+    /// SID voice 1.
+    Voice1,
+    /// SID voice 2.
+    Voice2,
+    /// SID voice 3.
+    Voice3,
+}
+
+impl SidChannel {
+    const fn index(self) -> usize {
+        match self {
+            Self::Voice1 => 0,
+            Self::Voice2 => 1,
+            Self::Voice3 => 2,
+        }
+    }
+
+    /// Human-readable channel label for frontend status messages.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Voice1 => "voice 1",
+            Self::Voice2 => "voice 2",
+            Self::Voice3 => "voice 3",
+        }
+    }
+}
+
+/// Per-voice host mixer control.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChannelControl {
+    enabled: bool,
+    gain: f32,
+}
+
+impl Default for ChannelControl {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            gain: 1.0,
+        }
+    }
+}
+
+impl ChannelControl {
+    /// Whether this voice contributes to host audio output.
+    #[must_use]
+    pub const fn enabled(self) -> bool {
+        self.enabled
+    }
+
+    /// Linear voice gain after sanitisation, clamped to 0.0..=1.0.
+    #[must_use]
+    pub const fn gain(self) -> f32 {
+        self.gain
+    }
+
+    fn apply(self, sample: f32) -> f32 {
+        if self.enabled {
+            sample * sanitize_gain(self.gain)
+        } else {
+            0.0
+        }
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    fn set_gain(&mut self, gain: f32) {
+        self.gain = sanitize_gain(gain);
+    }
+}
+
+/// Host-side audio controls for the SID mixer.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AudioControls {
+    master_gain: f32,
+    channels: [ChannelControl; 3],
+}
+
+impl Default for AudioControls {
+    fn default() -> Self {
+        Self {
+            master_gain: 1.0,
+            channels: [ChannelControl::default(); 3],
+        }
+    }
+}
+
+impl AudioControls {
+    /// Master gain applied to the SID host output.
+    #[must_use]
+    pub const fn master_gain(self) -> f32 {
+        self.master_gain
+    }
+
+    /// Set master gain. Non-finite values become 0.0; finite values clamp to
+    /// 0.0..=1.0.
+    pub fn set_master_gain(&mut self, gain: f32) {
+        self.master_gain = sanitize_gain(gain);
+    }
+
+    /// Return control state for one SID voice.
+    #[must_use]
+    pub const fn channel(self, channel: SidChannel) -> ChannelControl {
+        self.channels[channel.index()]
+    }
+
+    /// Enable or disable one SID voice in the host mixer.
+    pub fn set_channel_enabled(&mut self, channel: SidChannel, enabled: bool) {
+        self.channels[channel.index()].set_enabled(enabled);
+    }
+
+    /// Set one SID voice gain. Non-finite values become 0.0; finite values
+    /// clamp to 0.0..=1.0.
+    pub fn set_channel_gain(&mut self, channel: SidChannel, gain: f32) {
+        self.channels[channel.index()].set_gain(gain);
+    }
+
+    fn sanitized(mut self) -> Self {
+        self.master_gain = sanitize_gain(self.master_gain);
+        for channel in &mut self.channels {
+            channel.set_gain(channel.gain);
+        }
+        self
+    }
+}
+
+const fn default_audio_controls() -> AudioControls {
+    AudioControls {
+        master_gain: 1.0,
+        channels: [ChannelControl {
+            enabled: true,
+            gain: 1.0,
+        }; 3],
+    }
+}
+
+fn sanitize_gain(gain: f32) -> f32 {
+    if gain.is_finite() {
+        gain.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Sid6581 {
     pub model: SidModel,
@@ -37,6 +192,8 @@ pub struct Sid6581 {
     ticks_per_sample: f32,
     cpu_freq: u64,
     output_sample_rate: u32,
+    #[serde(default = "default_audio_controls")]
+    audio_controls: AudioControls,
     #[serde(skip)]
     buffer: Vec<f32>,
     #[serde(skip)]
@@ -66,11 +223,33 @@ impl Sid6581 {
             ticks_per_sample: cpu_frequency as f32 / output_sample_rate as f32,
             cpu_freq: cpu_frequency,
             output_sample_rate,
+            audio_controls: AudioControls::default(),
             buffer: Vec::with_capacity(output_sample_rate as usize / 50 + 1),
             channel_buffers: std::array::from_fn(|_| {
                 Vec::with_capacity(output_sample_rate as usize / 50 + 1)
             }),
         }
+    }
+
+    /// Current host-side audio controls.
+    #[must_use]
+    pub const fn audio_controls(&self) -> AudioControls {
+        self.audio_controls
+    }
+
+    /// Replace all host-side audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.audio_controls = controls.sanitized();
+    }
+
+    /// Enable or disable one SID voice in the host mixer.
+    pub fn set_audio_channel_enabled(&mut self, channel: SidChannel, enabled: bool) {
+        self.audio_controls.set_channel_enabled(channel, enabled);
+    }
+
+    /// Set one SID voice's host mixer gain.
+    pub fn set_audio_channel_gain(&mut self, channel: SidChannel, gain: f32) {
+        self.audio_controls.set_channel_gain(channel, gain);
     }
 
     #[must_use]
@@ -227,7 +406,8 @@ impl Sid6581 {
             let waveform = self.voices[index].waveform_output(ring_mod_msb[index], self.model);
             let envelope = self.envelopes[index].level;
             let centred = f32::from(waveform as i16 - 2048);
-            let amplitude = centred * f32::from(envelope) / 255.0;
+            let raw_amplitude = centred * f32::from(envelope) / 255.0;
+            let amplitude = self.audio_controls.channels[index].apply(raw_amplitude);
             voice_normalised[index] = amplitude / 2048.0;
 
             if index == 2 && self.voice3_off {
@@ -243,7 +423,7 @@ impl Sid6581 {
 
         let filter_output = self.filter.clock(filtered_sum);
         let mixed = (filter_output + direct_sum) * f32::from(self.volume) / 15.0;
-        let normalised = mixed / 6144.0;
+        let normalised = mixed / 6144.0 * self.audio_controls.master_gain();
 
         self.accumulator += normalised;
         for (index, sample) in voice_normalised.iter().copied().enumerate() {
@@ -435,6 +615,59 @@ mod tests {
         let buffer = sid.take_buffer();
         assert!(!buffer.is_empty());
         assert_eq!(sid.buffer_len(), 0);
+    }
+
+    #[test]
+    fn host_audio_controls_do_not_change_voice_registers() {
+        let mut sid = Sid6581::new(985_248, 48_000);
+        sid.write(0x04, 0x21);
+        sid.write(0x18, 0x0F);
+
+        sid.set_audio_channel_enabled(SidChannel::Voice1, false);
+
+        assert!(!sid.audio_controls().channel(SidChannel::Voice1).enabled());
+        assert_eq!(sid.voices[0].control, 0x21);
+        assert_eq!(sid.volume, 0x0F);
+    }
+
+    #[test]
+    fn host_audio_controls_mute_voice_output_only() {
+        let render_peak = |mut sid: Sid6581| -> f32 {
+            for _ in 0..40_000 {
+                sid.tick();
+            }
+            sid.take_buffer()
+                .into_iter()
+                .map(f32::abs)
+                .fold(0.0, f32::max)
+        };
+
+        let mut audible = Sid6581::new(985_248, 48_000);
+        let freq: u16 = 7_479;
+        audible.write(0x00, (freq & 0xFF) as u8);
+        audible.write(0x01, (freq >> 8) as u8);
+        audible.write(0x04, 0x21);
+        audible.write(0x05, 0x00);
+        audible.write(0x06, 0xF0);
+        audible.write(0x18, 0x0F);
+
+        let mut muted = audible.clone();
+        muted.set_audio_channel_enabled(SidChannel::Voice1, false);
+
+        assert!(render_peak(audible) > 0.01);
+        assert!(render_peak(muted) < 0.001);
+    }
+
+    #[test]
+    fn host_audio_controls_clamp_gain() {
+        let mut controls = AudioControls::default();
+        controls.set_master_gain(2.0);
+        controls.set_channel_gain(SidChannel::Voice2, f32::NAN);
+        controls.set_channel_gain(SidChannel::Voice3, -1.0);
+
+        assert_eq!(controls.master_gain(), 1.0);
+        assert_eq!(controls.channel(SidChannel::Voice2).gain(), 0.0);
+        assert_eq!(controls.channel(SidChannel::Voice3).gain(), 0.0);
     }
 
     #[test]

@@ -18,6 +18,7 @@ pub use autoload::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumAutoloadError,
     SpectrumTapeAutoloadResult, autoload_basic_tape,
 };
+pub use common_sinclair_zx_spectrum::{AudioControls, SpeakerChannel};
 pub use profiles::{Model, profile_for, profiles};
 pub use spectrum_48k::SpectrumSessionQueryProvider;
 pub use spectrum_runtime::{SpectrumMachine, SpectrumRuntime};

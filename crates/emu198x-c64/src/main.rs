@@ -24,10 +24,10 @@ use emu198x_shell::{
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
+    AudioControls, C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
     DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_disk,
-    autoload_basic_tape, file_loader::load_host_file,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, SidChannel,
+    autoload_basic_disk, autoload_basic_tape, file_loader::load_host_file,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -75,6 +75,9 @@ Controls:
     F10                  stop tape
     F11                  toggle tape turbo
     F12                  hard reset
+    Numpad 1-3           toggle SID voices 1-3
+    Numpad 4-6           cycle SID voice 1-3 gain
+    Numpad 0             reset SID voice controls
     Arrow keys           C64 cursor keys
     F1-F8                C64 function keys
     Alt / Command        Commodore key
@@ -327,6 +330,24 @@ impl C64Runner {
 
     fn frame_size(&self) -> (u32, u32) {
         (self.frame_width, self.frame_height)
+    }
+
+    fn toggle_audio_channel(&mut self, channel: SidChannel) -> bool {
+        let controls = self.runtime.audio_controls();
+        let enabled = !controls.channel(channel).enabled();
+        self.runtime.set_audio_channel_enabled(channel, enabled);
+        enabled
+    }
+
+    fn cycle_audio_channel_gain(&mut self, channel: SidChannel) -> f32 {
+        let controls = self.runtime.audio_controls();
+        let next = next_audio_gain(controls.channel(channel).gain());
+        self.runtime.set_audio_channel_gain(channel, next);
+        next
+    }
+
+    fn reset_audio_controls(&mut self) {
+        self.runtime.set_audio_controls(AudioControls::default());
     }
 
     fn query(&self, path: &str) -> Result<QueryResult, AppError> {
@@ -604,7 +625,18 @@ impl C64App {
         if !pressed {
             return matches!(
                 code,
-                KeyCode::Escape | KeyCode::F9 | KeyCode::F10 | KeyCode::F11 | KeyCode::F12
+                KeyCode::Escape
+                    | KeyCode::F9
+                    | KeyCode::F10
+                    | KeyCode::F11
+                    | KeyCode::F12
+                    | KeyCode::Numpad0
+                    | KeyCode::Numpad1
+                    | KeyCode::Numpad2
+                    | KeyCode::Numpad3
+                    | KeyCode::Numpad4
+                    | KeyCode::Numpad5
+                    | KeyCode::Numpad6
             );
         }
 
@@ -627,6 +659,35 @@ impl C64App {
                 self.release_all_keys();
                 self.runner.reset()
             }
+            KeyCode::Numpad0 => {
+                self.runner.reset_audio_controls();
+                eprintln!("audio: reset SID voice controls");
+                return true;
+            }
+            KeyCode::Numpad1 => {
+                self.toggle_audio_channel_shortcut(SidChannel::Voice1);
+                return true;
+            }
+            KeyCode::Numpad2 => {
+                self.toggle_audio_channel_shortcut(SidChannel::Voice2);
+                return true;
+            }
+            KeyCode::Numpad3 => {
+                self.toggle_audio_channel_shortcut(SidChannel::Voice3);
+                return true;
+            }
+            KeyCode::Numpad4 => {
+                self.cycle_audio_channel_gain_shortcut(SidChannel::Voice1);
+                return true;
+            }
+            KeyCode::Numpad5 => {
+                self.cycle_audio_channel_gain_shortcut(SidChannel::Voice2);
+                return true;
+            }
+            KeyCode::Numpad6 => {
+                self.cycle_audio_channel_gain_shortcut(SidChannel::Voice3);
+                return true;
+            }
             _ => return false,
         };
 
@@ -634,6 +695,20 @@ impl C64App {
             self.fail(event_loop, err);
         }
         true
+    }
+
+    fn toggle_audio_channel_shortcut(&mut self, channel: SidChannel) {
+        let enabled = self.runner.toggle_audio_channel(channel);
+        eprintln!(
+            "audio: {} {}",
+            channel.label(),
+            if enabled { "enabled" } else { "muted" }
+        );
+    }
+
+    fn cycle_audio_channel_gain_shortcut(&mut self, channel: SidChannel) {
+        let gain = self.runner.cycle_audio_channel_gain(channel);
+        eprintln!("audio: {} gain {:.0}%", channel.label(), gain * 100.0);
     }
 }
 
@@ -724,7 +799,9 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
-    println!("Controls: Esc quit, F9 start tape, F10 stop tape, F11 tape turbo, F12 reset.");
+    println!(
+        "Controls: Esc quit, F9 start tape, F10 stop tape, F11 tape turbo, F12 reset, numpad 1-3 toggle SID voices, numpad 4-6 cycle voice gain, numpad 0 reset audio."
+    );
 
     let runner = C64Runner::from_cli(&cli)?;
     let mut app = C64App::new(runner, cli.scale, cli.turbo_tape)?;
@@ -973,6 +1050,18 @@ fn subframe_ticks(frame_ticks: u64) -> u64 {
 
 fn subframe_duration(frame_duration: Duration) -> Duration {
     Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(INPUT_SLICES_PER_FRAME))
+}
+
+fn next_audio_gain(gain: f32) -> f32 {
+    if gain > 0.75 {
+        0.5
+    } else if gain > 0.375 {
+        0.25
+    } else if gain > 0.0 {
+        0.0
+    } else {
+        1.0
+    }
 }
 
 fn c64_key_event(name: &'static str, pressed: bool) -> InputEvent {
@@ -1236,6 +1325,14 @@ mod tests {
         assert_eq!(map_c64_keys(KeyCode::F8), Some(&["lshift", "f7"][..]));
         assert_eq!(map_c64_keys(KeyCode::Tab), Some(&["runstop"][..]));
         assert_eq!(map_c64_keys(KeyCode::AltLeft), Some(&["commodore"][..]));
+    }
+
+    #[test]
+    fn audio_gain_cycles_through_debug_levels() {
+        assert_eq!(next_audio_gain(1.0), 0.5);
+        assert_eq!(next_audio_gain(0.5), 0.25);
+        assert_eq!(next_audio_gain(0.25), 0.0);
+        assert_eq!(next_audio_gain(0.0), 1.0);
     }
 
     #[test]

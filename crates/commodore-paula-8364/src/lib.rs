@@ -218,6 +218,155 @@ pub mod decode {
     }
 }
 
+/// Host-side Paula audio channel identifier.
+///
+/// These controls are deliberately outside the emulated register surface:
+/// muting a channel here does not change AUDxVOL, AUDxDAT, DMA, IRQs, or
+/// ADKCON modulation state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum PaulaChannel {
+    /// Audio channel 0, routed left on OCS.
+    Channel0,
+    /// Audio channel 1, routed right on OCS.
+    Channel1,
+    /// Audio channel 2, routed right on OCS.
+    Channel2,
+    /// Audio channel 3, routed left on OCS.
+    Channel3,
+}
+
+impl PaulaChannel {
+    const fn index(self) -> usize {
+        match self {
+            Self::Channel0 => 0,
+            Self::Channel1 => 1,
+            Self::Channel2 => 2,
+            Self::Channel3 => 3,
+        }
+    }
+
+    /// Human-readable channel label for frontend status messages.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Channel0 => "channel 0",
+            Self::Channel1 => "channel 1",
+            Self::Channel2 => "channel 2",
+            Self::Channel3 => "channel 3",
+        }
+    }
+}
+
+/// Per-channel host mixer control.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChannelControl {
+    enabled: bool,
+    gain: f32,
+}
+
+impl Default for ChannelControl {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            gain: 1.0,
+        }
+    }
+}
+
+impl ChannelControl {
+    /// Whether this channel contributes to host audio output.
+    #[must_use]
+    pub const fn enabled(self) -> bool {
+        self.enabled
+    }
+
+    /// Linear channel gain after sanitisation, clamped to 0.0..=1.0.
+    #[must_use]
+    pub const fn gain(self) -> f32 {
+        self.gain
+    }
+
+    fn apply(self, sample: f32) -> f32 {
+        if self.enabled {
+            sample * sanitize_gain(self.gain)
+        } else {
+            0.0
+        }
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    fn set_gain(&mut self, gain: f32) {
+        self.gain = sanitize_gain(gain);
+    }
+}
+
+/// Host-side audio controls for Paula output.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AudioControls {
+    master_gain: f32,
+    channels: [ChannelControl; 4],
+}
+
+impl Default for AudioControls {
+    fn default() -> Self {
+        Self {
+            master_gain: 1.0,
+            channels: [ChannelControl::default(); 4],
+        }
+    }
+}
+
+impl AudioControls {
+    /// Master gain applied to Paula's host output.
+    #[must_use]
+    pub const fn master_gain(self) -> f32 {
+        self.master_gain
+    }
+
+    /// Set master gain. Non-finite values become 0.0; finite values clamp to
+    /// 0.0..=1.0.
+    pub fn set_master_gain(&mut self, gain: f32) {
+        self.master_gain = sanitize_gain(gain);
+    }
+
+    /// Return control state for one Paula channel.
+    #[must_use]
+    pub const fn channel(self, channel: PaulaChannel) -> ChannelControl {
+        self.channels[channel.index()]
+    }
+
+    /// Enable or disable one Paula channel in the host mixer.
+    pub fn set_channel_enabled(&mut self, channel: PaulaChannel, enabled: bool) {
+        self.channels[channel.index()].set_enabled(enabled);
+    }
+
+    /// Set one Paula channel gain. Non-finite values become 0.0; finite values
+    /// clamp to 0.0..=1.0.
+    pub fn set_channel_gain(&mut self, channel: PaulaChannel, gain: f32) {
+        self.channels[channel.index()].set_gain(gain);
+    }
+
+    fn sanitized(mut self) -> Self {
+        self.master_gain = sanitize_gain(self.master_gain);
+        for channel in &mut self.channels {
+            channel.set_gain(channel.gain);
+        }
+        self
+    }
+}
+
+fn sanitize_gain(gain: f32) -> f32 {
+    if gain.is_finite() {
+        gain.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // DAC lookup table
 // ─────────────────────────────────────────────────────────────────────
@@ -542,6 +691,7 @@ pub struct Paula8364 {
     disk_pll_variable_rate: bool,
 
     audio: [AudioChannel; 4],
+    audio_controls: AudioControls,
 
     // ── Serial (UART) ─────────────────────────────────────────────
     // Per HRM §6. Paula owns a byte-level UART with programmable baud
@@ -609,6 +759,7 @@ impl Paula8364 {
             disk_pll_phase: 0,
             disk_pll_variable_rate: false,
             audio: [AudioChannel::default(); 4],
+            audio_controls: AudioControls::default(),
             serdat: 0,
             serper: 0,
             serial_rx_byte: 0,
@@ -752,6 +903,27 @@ impl Paula8364 {
         })
     }
 
+    /// Current host-side audio controls.
+    #[must_use]
+    pub const fn audio_controls(&self) -> AudioControls {
+        self.audio_controls
+    }
+
+    /// Replace all host-side audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.audio_controls = controls.sanitized();
+    }
+
+    /// Enable or disable one Paula channel in the host mixer.
+    pub fn set_audio_channel_enabled(&mut self, channel: PaulaChannel, enabled: bool) {
+        self.audio_controls.set_channel_enabled(channel, enabled);
+    }
+
+    /// Set one Paula channel's host mixer gain.
+    pub fn set_audio_channel_gain(&mut self, channel: PaulaChannel, gain: f32) {
+        self.audio_controls.set_channel_gain(channel, gain);
+    }
+
     // ─── Audio tick ───────────────────────────────────────────────────
 
     /// Advance Paula's audio path one colour clock (CCK).
@@ -819,11 +991,12 @@ impl Paula8364 {
             if self.audio_channel_is_modulator(i) {
                 0.0
             } else {
-                self.audio[i].mix_sample()
+                self.audio_controls.channels[i].apply(self.audio[i].mix_sample())
             }
         };
-        let left = (s(0) + s(3)) * 0.5;
-        let right = (s(1) + s(2)) * 0.5;
+        let master_gain = self.audio_controls.master_gain();
+        let left = (s(0) + s(3)) * 0.5 * master_gain;
+        let right = (s(1) + s(2)) * 0.5 * master_gain;
         (left.clamp(-1.0, 1.0), right.clamp(-1.0, 1.0))
     }
 
@@ -1285,5 +1458,48 @@ mod tests {
         assert_eq!(p.intreq(), INT_COPER);
         p.raise(IntSource::Vertb);
         assert_eq!(p.intreq(), INT_COPER | INT_VERTB);
+    }
+
+    #[test]
+    fn host_audio_controls_do_not_change_audio_registers() {
+        let mut p = Paula8364::new();
+        p.write_audio(0, AudioField::Vol, 64);
+        p.write_audio(0, AudioField::Dat, 0x7F00);
+
+        p.set_audio_channel_enabled(PaulaChannel::Channel0, false);
+
+        assert!(!p.audio_controls().channel(PaulaChannel::Channel0).enabled());
+        assert_eq!(p.read_audio(0, AudioField::Vol), 64);
+        assert_eq!(p.read_audio(0, AudioField::Dat), 0x7F00);
+    }
+
+    #[test]
+    fn host_audio_controls_mute_channel_output_only() {
+        let mut p = Paula8364::new();
+        p.audio[0].output_sample = 127;
+        p.audio[0].vol = 64;
+
+        let (left, right) = p.mix_audio_stereo();
+        assert!(left > 0.4);
+        assert_eq!(right, 0.0);
+
+        p.set_audio_channel_enabled(PaulaChannel::Channel0, false);
+        let (muted_left, muted_right) = p.mix_audio_stereo();
+        assert_eq!(muted_left, 0.0);
+        assert_eq!(muted_right, 0.0);
+        assert_eq!(p.audio[0].output_sample, 127);
+        assert_eq!(p.audio[0].vol, 64);
+    }
+
+    #[test]
+    fn host_audio_controls_clamp_gain() {
+        let mut controls = AudioControls::default();
+        controls.set_master_gain(2.0);
+        controls.set_channel_gain(PaulaChannel::Channel2, f32::NAN);
+        controls.set_channel_gain(PaulaChannel::Channel3, -1.0);
+
+        assert_eq!(controls.master_gain(), 1.0);
+        assert_eq!(controls.channel(PaulaChannel::Channel2).gain(), 0.0);
+        assert_eq!(controls.channel(PaulaChannel::Channel3).gain(), 0.0);
     }
 }

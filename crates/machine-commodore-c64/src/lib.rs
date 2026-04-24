@@ -18,3 +18,4 @@ pub use config::{C64Config, C64Model};
 pub use keyboard::KeyboardMatrix;
 pub use machine::{C64, C64Snapshot};
 pub use memory::{C64Memory, MemoryInitError};
+pub use mos_sid_6581::{AudioControls, SidChannel};

@@ -8,7 +8,10 @@
 pub mod machine;
 pub mod port;
 
-pub use common_sinclair_zx_spectrum::keyboard::{KeyboardMatrix, SpectrumKey};
+pub use common_sinclair_zx_spectrum::{
+    AudioControls, SpeakerChannel,
+    keyboard::{KeyboardMatrix, SpectrumKey},
+};
 pub use ferranti_ula_6c001e::BoardIssue;
 pub use machine::Spectrum48k;
 pub use port::TapeInput;

@@ -11,5 +11,6 @@ pub use autoload::{
     DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_disk,
     autoload_basic_disk_with_trace_sink, autoload_basic_tape, autoload_basic_tape_with_trace_sink,
 };
+pub use machine_commodore_c64::{AudioControls, SidChannel};
 pub use profiles::{Model, profile_for, profiles};
 pub use runtime::{C64Runtime, C64SessionQueryProvider};

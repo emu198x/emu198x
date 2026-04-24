@@ -4,7 +4,9 @@
 //! ULA are wired together against the 48K memory map, keyboard matrix, tape
 //! path, and beeper/EAR audio path.
 
-use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
+use common_sinclair_zx_spectrum::audio::{
+    AudioControls, BeeperAudio, SpeakerChannel, SpeakerMixer,
+};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
@@ -161,6 +163,27 @@ impl Spectrum48k {
     #[must_use]
     pub fn audio_samples_per_frame(&self) -> usize {
         self.audio_frame.len()
+    }
+
+    /// Current host-side speaker audio controls.
+    #[must_use]
+    pub const fn audio_controls(&self) -> AudioControls {
+        self.audio.audio_controls()
+    }
+
+    /// Replace all host-side speaker audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.audio.set_audio_controls(controls);
+    }
+
+    /// Enable or disable the speaker in the host mixer.
+    pub fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        self.audio.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Set speaker host mixer gain.
+    pub fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        self.audio.set_audio_channel_gain(channel, gain);
     }
 
     /// Returns the current half-cycle counter.
@@ -787,6 +810,18 @@ mod tests {
         assert_eq!(machine.audio_sample_rate(), AUDIO_SAMPLE_RATE);
         assert!(machine.audio_samples_per_frame() > 0);
         assert!(machine.audio_frame().iter().any(|&sample| sample > 0.0));
+    }
+
+    #[test]
+    fn audio_controls_proxy_to_beeper() {
+        let mut machine = Spectrum48k::new();
+
+        machine.set_audio_channel_enabled(SpeakerChannel::Speaker, false);
+        machine.set_audio_channel_gain(SpeakerChannel::Speaker, 0.25);
+
+        let controls = machine.audio_controls();
+        assert!(!controls.channel(SpeakerChannel::Speaker).enabled());
+        assert_eq!(controls.channel(SpeakerChannel::Speaker).gain(), 0.25);
     }
 
     #[test]

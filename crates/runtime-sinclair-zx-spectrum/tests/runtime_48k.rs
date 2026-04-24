@@ -45,6 +45,19 @@ fn runtime_can_boot_from_declared_firmware_set() {
 }
 
 #[test]
+fn audio_controls_mutate_machine_speaker_mixer() {
+    let mut runtime =
+        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+
+    runtime.set_audio_channel_enabled(SpeakerChannel::Speaker, false);
+    runtime.set_audio_channel_gain(SpeakerChannel::Speaker, 0.25);
+
+    let controls = runtime.audio_controls();
+    assert!(!controls.channel(SpeakerChannel::Speaker).enabled());
+    assert_eq!(controls.channel(SpeakerChannel::Speaker).gain(), 0.25);
+}
+
+#[test]
 fn runtime_rejects_unknown_media_slot() {
     let mut runtime =
         Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");

@@ -7,6 +7,7 @@
 //! everything below builds on that, not around it.
 
 use common_sinclair_zx_spectrum::MemoryBus;
+use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::error::RomImageError;
 use emu198x_shell::{
     CapabilitySet, FirmwareSet, MachineError, MachineProfile, QueryError, QueryResult,
@@ -106,6 +107,28 @@ impl SpectrumRuntime<Spectrum48k> {
     #[must_use]
     pub fn blank() -> Self {
         Self::new_48k([0; 16 * 1024])
+    }
+
+    /// Current host-side speaker audio controls.
+    #[must_use]
+    pub fn audio_controls(&self) -> AudioControls {
+        self.machine().audio_controls()
+    }
+
+    /// Replace all host-side speaker audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.machine_mut().set_audio_controls(controls);
+    }
+
+    /// Enable or disable the speaker in host output.
+    pub fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        self.machine_mut()
+            .set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Set speaker host-side gain.
+    pub fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        self.machine_mut().set_audio_channel_gain(channel, gain);
     }
 }
 

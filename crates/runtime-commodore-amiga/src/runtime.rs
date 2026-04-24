@@ -12,7 +12,9 @@ use emu198x_shell::{
     QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
 use format_commodore_amiga_adf::Adf;
-use machine_commodore_amiga_ocs::{AmigaOcs, FB_HEIGHT, FB_WIDTH, RamConfig};
+use machine_commodore_amiga_ocs::{
+    AmigaOcs, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
+};
 use serde_json::json;
 
 use crate::{A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, Model, profile_for};
@@ -197,6 +199,27 @@ impl AmigaRuntime {
     /// autoconfig boot tests that run the machine outside `run_until`).
     pub fn machine_mut(&mut self) -> &mut AmigaOcs {
         &mut self.machine
+    }
+
+    /// Current host-side Paula audio controls.
+    #[must_use]
+    pub fn audio_controls(&self) -> AudioControls {
+        self.machine.audio_controls()
+    }
+
+    /// Replace all host-side Paula audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.machine.set_audio_controls(controls);
+    }
+
+    /// Enable or disable one Paula channel in host output.
+    pub fn set_audio_channel_enabled(&mut self, channel: PaulaChannel, enabled: bool) {
+        self.machine.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Set one Paula channel's host-side gain.
+    pub fn set_audio_channel_gain(&mut self, channel: PaulaChannel, gain: f32) {
+        self.machine.set_audio_channel_gain(channel, gain);
     }
 
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {
@@ -713,6 +736,19 @@ mod tests {
     fn from_firmware_accepts_supported_kickstart_size() {
         let runtime = AmigaRuntime::from_firmware(Model::A500OcsPal, &dummy_firmware());
         assert!(runtime.is_ok());
+    }
+
+    #[test]
+    fn audio_controls_mutate_machine_paula_mixer() {
+        let mut runtime =
+            AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+
+        runtime.set_audio_channel_enabled(PaulaChannel::Channel1, false);
+        runtime.set_audio_channel_gain(PaulaChannel::Channel3, 0.25);
+
+        let controls = runtime.audio_controls();
+        assert!(!controls.channel(PaulaChannel::Channel1).enabled());
+        assert_eq!(controls.channel(PaulaChannel::Channel3).gain(), 0.25);
     }
 
     #[test]

@@ -22,8 +22,8 @@ use emu198x_shell::{
 };
 use pixels::{Pixels, SurfaceTexture, TextureError};
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, Spectrum48kRuntime,
-    SpectrumSessionQueryProvider, autoload_basic_tape,
+    AudioControls, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpeakerChannel,
+    Spectrum48kRuntime, SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -61,6 +61,9 @@ Controls:
     F10                stop tape
     F11                toggle tape turbo
     F12                hard reset
+    Numpad 1           toggle speaker output
+    Numpad 2           cycle speaker gain
+    Numpad 0           reset speaker controls
     Left/Down/Up/Right host aliases for Spectrum 5/6/7/8 game keys
     Alt                Symbol Shift
 
@@ -251,6 +254,24 @@ impl SpectrumRunner {
 
     fn frame(&self) -> Option<&CapturedFrame> {
         self.frame_capture.frame()
+    }
+
+    fn toggle_audio_channel(&mut self, channel: SpeakerChannel) -> bool {
+        let controls = self.runtime.audio_controls();
+        let enabled = !controls.channel(channel).enabled();
+        self.runtime.set_audio_channel_enabled(channel, enabled);
+        enabled
+    }
+
+    fn cycle_audio_channel_gain(&mut self, channel: SpeakerChannel) -> f32 {
+        let controls = self.runtime.audio_controls();
+        let next = next_audio_gain(controls.channel(channel).gain());
+        self.runtime.set_audio_channel_gain(channel, next);
+        next
+    }
+
+    fn reset_audio_controls(&mut self) {
+        self.runtime.set_audio_controls(AudioControls::default());
     }
 
     fn query(&self, path: &str) -> Result<QueryResult, AppError> {
@@ -523,7 +544,14 @@ impl SpectrumApp {
         if !pressed {
             return matches!(
                 code,
-                KeyCode::Escape | KeyCode::F9 | KeyCode::F10 | KeyCode::F11 | KeyCode::F12
+                KeyCode::Escape
+                    | KeyCode::F9
+                    | KeyCode::F10
+                    | KeyCode::F11
+                    | KeyCode::F12
+                    | KeyCode::Numpad0
+                    | KeyCode::Numpad1
+                    | KeyCode::Numpad2
             );
         }
 
@@ -551,6 +579,19 @@ impl SpectrumApp {
                     self.release_all_keys();
                     self.runner.reset()
                 }
+                KeyCode::Numpad0 => {
+                    self.runner.reset_audio_controls();
+                    eprintln!("audio: reset speaker controls");
+                    return true;
+                }
+                KeyCode::Numpad1 => {
+                    self.toggle_audio_channel_shortcut(SpeakerChannel::Speaker);
+                    return true;
+                }
+                KeyCode::Numpad2 => {
+                    self.cycle_audio_channel_gain_shortcut(SpeakerChannel::Speaker);
+                    return true;
+                }
                 _ => return false,
             };
 
@@ -558,6 +599,20 @@ impl SpectrumApp {
             self.fail(event_loop, err);
         }
         true
+    }
+
+    fn toggle_audio_channel_shortcut(&mut self, channel: SpeakerChannel) {
+        let enabled = self.runner.toggle_audio_channel(channel);
+        eprintln!(
+            "audio: {} {}",
+            channel.label(),
+            if enabled { "enabled" } else { "muted" }
+        );
+    }
+
+    fn cycle_audio_channel_gain_shortcut(&mut self, channel: SpeakerChannel) {
+        let gain = self.runner.cycle_audio_channel_gain(channel);
+        eprintln!("audio: {} gain {:.0}%", channel.label(), gain * 100.0);
     }
 }
 
@@ -648,7 +703,9 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
-    println!("Controls: Esc quit, F9 start tape, F10 stop tape, F11 tape turbo, F12 reset.");
+    println!(
+        "Controls: Esc quit, F9 start tape, F10 stop tape, F11 tape turbo, F12 reset, numpad 1 toggle speaker, numpad 2 cycle speaker gain, numpad 0 reset audio."
+    );
 
     let runner = SpectrumRunner::from_cli(&cli)?;
     let mut app = SpectrumApp::new(runner, cli.scale, cli.turbo_tape)?;
@@ -749,6 +806,18 @@ fn subframe_ticks(frame_ticks: u64) -> u64 {
 
 fn subframe_duration(frame_duration: Duration) -> Duration {
     Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(INPUT_SLICES_PER_FRAME))
+}
+
+fn next_audio_gain(gain: f32) -> f32 {
+    if gain > 0.75 {
+        0.5
+    } else if gain > 0.375 {
+        0.25
+    } else if gain > 0.0 {
+        0.0
+    } else {
+        1.0
+    }
 }
 
 fn spectrum_key_event(name: &'static str, pressed: bool) -> InputEvent {
@@ -961,6 +1030,14 @@ mod tests {
             map_spectrum_keys(KeyCode::NumpadEnter),
             Some(&["enter"][..])
         );
+    }
+
+    #[test]
+    fn audio_gain_cycles_through_debug_levels() {
+        assert_eq!(next_audio_gain(1.0), 0.5);
+        assert_eq!(next_audio_gain(0.5), 0.25);
+        assert_eq!(next_audio_gain(0.25), 0.0);
+        assert_eq!(next_audio_gain(0.0), 1.0);
     }
 
     #[test]

@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Native shells gain host-side audio controls across current systems
+
+**Type:** feature
+**Trigger:** Game Boy and NES had per-channel host controls, but the
+other live native verifier shells still exposed only raw audio output.
+**Result:** C64 SID, Amiga Paula, and Spectrum speaker output now have
+host-side mute/gain controls surfaced through their machine/runtime
+layers and native windows. C64 and Amiga use numpad shortcuts for
+voice/channel toggles and gain cycling, while Spectrum 48K exposes
+speaker mute/gain on the numpad. The controls are explicitly outside
+emulated chip register state.
+
+---
+
 ## 2026-04-24 — NES native shell gains APU channel controls
 
 **Type:** feature

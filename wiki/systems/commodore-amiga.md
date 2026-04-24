@@ -9,7 +9,9 @@
 > and scripted Workbench disk swap. `emu198x-amiga` provides a minimal
 > native verifier window with keyboard, mouse input, and live Paula
 > audio. Runtime audio drains Paula's live stereo mix into 48 kHz
-> audio packets; snapshots and joystick input remain pending.
+> audio packets; host-side Paula channel mute/gain is available from
+> the native verifier without changing AUDx registers. Snapshots and
+> joystick input remain pending.
 
 ## Implementation status
 
@@ -20,7 +22,7 @@
 | Gary | `commodore-gary` | Imported and wired into the machine |
 | Agnus OCS | `commodore-agnus-ocs` | Imported and driving the PAL machine timing |
 | Denise OCS | `commodore-denise-ocs` | Imported and producing the machine framebuffer |
-| Paula | `commodore-paula-8364` | Imported; register/audio-DMA path active, runtime drains live stereo mix |
+| Paula | `commodore-paula-8364` | Imported; register/audio-DMA path active, runtime drains live stereo mix and exposes host channel controls |
 | ADF parser | `format-commodore-amiga-adf` | Fresh-workspace disk container/media parser |
 | Floppy peripheral | `peripheral-commodore-amiga-floppy` | DF0 drive mechanics + MFM support |
 | Keyboard peripheral | `peripheral-commodore-amiga-keyboard` | Raw-key queue and serial keyboard path |
@@ -37,7 +39,7 @@
 - Standard-viewport RGBA framebuffer output from Denise.
 - Paula register/audio-DMA execution in the machine layer, drained through the runtime as 48 kHz stereo audio packets.
 - `floppy-0` / DF0 media insertion with zipped or plain `ADF` images.
-- Native `emu198x-amiga` verifier window with Kickstart/bootstrap ROM loading, optional DF0 media, hard reset, live Paula audio, basic keyboard input, and port-0 mouse input.
+- Native `emu198x-amiga` verifier window with Kickstart/bootstrap ROM loading, optional DF0 media, hard reset, live Paula audio, host-side Paula channel controls, basic keyboard input, and port-0 mouse input.
 - Shared scripted keyboard input routed through the Amiga keyboard peripheral.
 - Queryable machine/runtime state including CPU PC, visible-output detection, A1000 bootstrap visibility, keyboard queue state, and DF0 insertion/motor/head state.
 
