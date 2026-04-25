@@ -5,10 +5,10 @@
 //! The archive crate
 //! (`Emu198x-archive/crates/format-nintendo-nes-ines`) implemented 48
 //! mapper variants covering virtually every licensed NES/Famicom
-//! game. This port carries only **Mapper 0 (NROM)** — the trait, the
-//! header parser, and the one mapper needed to boot a `nestest.nes`
-//! or any other flat-layout test ROM against the freshly ported
-//! 2A03 CPU.
+//! game. This port currently carries **Mapper 0 (NROM)** and
+//! **Mapper 2 (UxROM)** — the trait, the header parser, and the
+//! first mappers needed to boot flat-layout test ROMs plus common
+//! PRG-bank-switched cartridges.
 //!
 //! The other 47 mappers are archive-provenance (see
 //! [archives-as-source.md](../../wiki/decisions/archives-as-source.md))
@@ -76,7 +76,7 @@ pub enum Mirroring {
 /// Implementations are per-mapper-number. The parser in
 /// [`parse_ines`] inspects the iNES header's mapper field and
 /// constructs the right concrete type. This port carries [`Nrom`]
-/// (mapper 0) only.
+/// (mapper 0) and [`UxRom`] (mapper 2).
 ///
 /// ## Design notes
 ///
@@ -235,6 +235,92 @@ impl Mapper for Nrom {
     }
 }
 
+// ─── UxROM (Mapper 2) ──────────────────────────────────────────────
+
+/// UxROM (Mapper 2): one switchable 16 KiB PRG bank and one fixed
+/// 16 KiB PRG bank.
+///
+/// This common discrete-logic board family maps `$8000-$BFFF` to a
+/// CPU-selected PRG bank and `$C000-$FFFF` to the final PRG bank.
+/// Most UxROM cartridges use 8 KiB of CHR RAM; CHR ROM is also accepted
+/// because the mapper trait can serve either layout.
+pub struct UxRom {
+    prg_rom: Vec<u8>,
+    chr: Vec<u8>,
+    chr_is_ram: bool,
+    mirroring: Mirroring,
+    prg_bank: u8,
+}
+
+impl UxRom {
+    /// Construct UxROM from parsed iNES payloads.
+    ///
+    /// `chr_data` is empty for CHR-RAM cartridges; in that case this
+    /// allocates the standard 8 KiB CHR RAM window.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr = if chr_is_ram {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr,
+            chr_is_ram,
+            mirroring,
+            prg_bank: 0,
+        }
+    }
+
+    fn prg_bank_count(&self) -> usize {
+        (self.prg_rom.len() / 16384).max(1)
+    }
+}
+
+impl Mapper for UxRom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => {
+                let bank = usize::from(self.prg_bank) % self.prg_bank_count();
+                let offset = usize::from(addr - 0x8000);
+                self.prg_rom[bank * 16384 + offset]
+            }
+            0xC000..=0xFFFF => {
+                let bank = self.prg_bank_count() - 1;
+                let offset = usize::from(addr - 0xC000);
+                self.prg_rom[bank * 16384 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            // Discrete UxROM boards have bus conflicts: the value
+            // latched by the bank-select register is the CPU value
+            // AND the ROM byte simultaneously driving the bus.
+            let rom_byte = self.cpu_read(addr);
+            self.prg_bank = value & rom_byte;
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[usize::from(addr) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            self.chr[usize::from(addr) & 0x1FFF] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 // ─── iNES header + parser ──────────────────────────────────────────
 
 /// Parsed iNES header fields. Both iNES 1.0 and NES 2.0 files map
@@ -286,8 +372,7 @@ pub struct ParsedCartridge {
 /// - The magic bytes are not `NES\x1A`.
 /// - The declared PRG/CHR size exceeds the file's actual length.
 /// - The mapper number is not supported by this port — see the
-///   crate-level doc comment for the scope statement. Non-NROM
-///   mappers return `Err("Unsupported mapper: N")`.
+///   crate-level doc comment for the current scope.
 pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
     if data.len() < 16 {
         return Err("iNES file too short (< 16 bytes)".to_string());
@@ -369,11 +454,12 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
 
     let mapper: Box<dyn Mapper> = match header.mapper_number {
         0 => Box::new(Nrom::new(prg_rom, chr_data, mirroring)),
+        2 => Box::new(UxRom::new(prg_rom, chr_data, mirroring)),
         n => {
             return Err(format!(
-                "Unsupported mapper: {n} — this port only carries Mapper 0 \
-                 (NROM). The other 47 mappers will land once the PPU crate \
-                 is back online."
+                "Unsupported mapper: {n} — this port currently carries Mapper 0 \
+                 (NROM) and Mapper 2 (UxROM). Additional mappers will land \
+                 as compatibility expands."
             ));
         }
     };
@@ -487,6 +573,44 @@ mod tests {
     }
 
     #[test]
+    fn parse_valid_uxrom() {
+        let data = make_ines(8, 0, 0x20);
+        let parsed = parse_ines(&data).expect("parse failed");
+
+        assert_eq!(parsed.header.mapper_number, 2);
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn uxrom_switches_low_prg_bank_and_fixes_high_bank() {
+        let mut prg = vec![0u8; 8 * 16384];
+        for bank in 0..8usize {
+            for byte in &mut prg[bank * 16384..(bank + 1) * 16384] {
+                *byte = bank as u8;
+            }
+            prg[bank * 16384] = 0xFF; // bus-conflict-safe write target
+        }
+        let mut mapper = UxRom::new(prg, Vec::new(), Mirroring::Vertical);
+
+        assert_eq!(mapper.cpu_read(0x8001), 0);
+        assert_eq!(mapper.cpu_read(0xC001), 7);
+
+        mapper.cpu_write(0x8000, 3);
+
+        assert_eq!(mapper.cpu_read(0x8001), 3);
+        assert_eq!(mapper.cpu_read(0xC001), 7);
+    }
+
+    #[test]
+    fn uxrom_chr_ram_roundtrip() {
+        let mut mapper = UxRom::new(vec![0u8; 16384], Vec::new(), Mirroring::Horizontal);
+
+        mapper.chr_write(0x1000, 0xAB);
+
+        assert_eq!(mapper.chr_read(0x1000), 0xAB);
+    }
+
+    #[test]
     fn parse_rejects_short_file() {
         let data = vec![0u8; 8];
         assert!(parse_ines(&data).is_err());
@@ -511,12 +635,12 @@ mod tests {
 
     #[test]
     fn parse_rejects_unsupported_mapper() {
-        // Put mapper number 1 in the high nibble of flags6.
-        let mut data = make_ines(1, 1, 0x10);
+        // Put mapper number 15 in the high nibble of flags6.
+        let mut data = make_ines(1, 1, 0xF0);
         // Ensure flags7 high nibble is zero.
         data[7] = 0;
-        let err = expect_err(parse_ines(&data), "mapper 1 should be rejected");
-        assert!(err.contains("Unsupported mapper: 1"), "got: {err}");
+        let err = expect_err(parse_ines(&data), "mapper 15 should be rejected");
+        assert!(err.contains("Unsupported mapper: 15"), "got: {err}");
     }
 
     #[test]
