@@ -20,9 +20,18 @@ const NES_QUERY_PATHS: &[&str] = &[
     "nes.machine.master_clock",
     "nes.ppu.dot",
     "nes.ppu.scanline",
+    "nes.test.blargg.signature",
+    "nes.test.blargg.status",
+    "nes.test.blargg.text",
+    "nes.test.blargg.valid",
 ];
 
 const SNAPSHOT_VERSION: u16 = 1;
+const BLARGG_STATUS_ADDR: u16 = 0x6000;
+const BLARGG_SIGNATURE_ADDR: u16 = 0x6001;
+const BLARGG_TEXT_ADDR: u16 = 0x6004;
+const BLARGG_SIGNATURE: [u8; 3] = [0xDE, 0xB0, 0x61];
+const BLARGG_MAX_TEXT_BYTES: u16 = 0x2000 - 4;
 
 #[derive(Serialize)]
 struct NesRuntimeSnapshotRefV1<'a> {
@@ -254,6 +263,18 @@ impl SessionQueryProvider<NesRuntime> for NesSessionQueryProvider {
                     .ppu
                     .dot()
             ),
+            "nes.test.blargg.status" => {
+                json!(loaded_machine(machine, path)?.peek(BLARGG_STATUS_ADDR))
+            }
+            "nes.test.blargg.signature" => {
+                json!(blargg_signature(loaded_machine(machine, path)?))
+            }
+            "nes.test.blargg.valid" => {
+                json!(blargg_signature(loaded_machine(machine, path)?) == BLARGG_SIGNATURE)
+            }
+            "nes.test.blargg.text" => {
+                json!(blargg_text(loaded_machine(machine, path)?))
+            }
             _ => return Ok(None),
         };
 
@@ -262,6 +283,40 @@ impl SessionQueryProvider<NesRuntime> for NesSessionQueryProvider {
             value,
         }))
     }
+}
+
+fn loaded_machine<'a>(runtime: &'a NesRuntime, path: &str) -> Result<&'a Nes, QueryError> {
+    runtime
+        .machine
+        .as_ref()
+        .ok_or_else(|| QueryError::UnavailablePath {
+            path: path.to_owned(),
+            reason: "no cartridge is loaded",
+        })
+}
+
+fn blargg_signature(machine: &Nes) -> [u8; 3] {
+    [
+        machine.peek(BLARGG_SIGNATURE_ADDR),
+        machine.peek(BLARGG_SIGNATURE_ADDR + 1),
+        machine.peek(BLARGG_SIGNATURE_ADDR + 2),
+    ]
+}
+
+fn blargg_text(machine: &Nes) -> String {
+    let mut text = String::new();
+    for offset in 0..BLARGG_MAX_TEXT_BYTES {
+        let byte = machine.peek(BLARGG_TEXT_ADDR + offset);
+        if byte == 0 {
+            break;
+        }
+        text.push(match byte {
+            b'\n' | b'\r' | b'\t' => char::from(byte),
+            0x20..=0x7E => char::from(byte),
+            _ => '.',
+        });
+    }
+    text
 }
 
 impl MachineCore for NesRuntime {
@@ -421,6 +476,47 @@ mod tests {
         data
     }
 
+    fn blargg_ines(status: u8, text: &[u8]) -> Vec<u8> {
+        let mut prg = vec![0xea; 16 * 1024];
+        let mut cursor = 0usize;
+        for (addr, value) in [
+            (0x6001, 0xDE),
+            (0x6002, 0xB0),
+            (0x6003, 0x61),
+            (0x6000, status),
+        ] {
+            emit_store(&mut prg, &mut cursor, addr, value);
+        }
+        for (index, &byte) in text.iter().enumerate() {
+            emit_store(&mut prg, &mut cursor, 0x6004 + index as u16, byte);
+        }
+        emit_store(&mut prg, &mut cursor, 0x6004 + text.len() as u16, 0);
+        let loop_addr = 0x8000 + cursor as u16;
+        prg[cursor] = 0x4C;
+        prg[cursor + 1] = (loop_addr & 0x00FF) as u8;
+        prg[cursor + 2] = (loop_addr >> 8) as u8;
+
+        prg[0x3ffc] = 0x00;
+        prg[0x3ffd] = 0x80;
+        let chr = vec![0u8; 8 * 1024];
+        let mut data = vec![0u8; 16 + prg.len() + chr.len()];
+        data[0..4].copy_from_slice(b"NES\x1a");
+        data[4] = 1;
+        data[5] = 1;
+        data[16..16 + prg.len()].copy_from_slice(&prg);
+        data[16 + prg.len()..].copy_from_slice(&chr);
+        data
+    }
+
+    fn emit_store(prg: &mut [u8], cursor: &mut usize, addr: u16, value: u8) {
+        prg[*cursor] = 0xA9;
+        prg[*cursor + 1] = value;
+        prg[*cursor + 2] = 0x8D;
+        prg[*cursor + 3] = (addr & 0x00FF) as u8;
+        prg[*cursor + 4] = (addr >> 8) as u8;
+        *cursor += 5;
+    }
+
     #[test]
     fn runtime_loads_cartridge_and_runs_one_frame() {
         const FRAME_TICKS: u64 = 341 * 262;
@@ -505,6 +601,63 @@ mod tests {
             .expect("provider should own the path");
 
         assert_eq!(loaded.value, json!(true));
+    }
+
+    #[test]
+    fn query_provider_reports_blargg_result_block() {
+        const FRAME_TICKS: u64 = 341 * 262;
+        let rom = blargg_ines(0, b"ok\n");
+        let mut runtime = NesRuntime::blank(Model::NesNtsc);
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
+        runtime.load_media(&media).expect("valid iNES should load");
+
+        let mut frame_sink = NullFrameSink;
+        let mut audio_sink = NullAudioSink;
+        let mut trace_sink = NullTraceSink;
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+        runtime
+            .run_until(MachineTime::new(FRAME_TICKS), &mut host)
+            .expect("one frame should run");
+
+        let provider = NesSessionQueryProvider;
+        assert_eq!(
+            provider
+                .query(&runtime, "nes.test.blargg.valid")
+                .expect("query should succeed")
+                .expect("provider should own the path")
+                .value,
+            json!(true)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "nes.test.blargg.status")
+                .expect("query should succeed")
+                .expect("provider should own the path")
+                .value,
+            json!(0)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "nes.test.blargg.signature")
+                .expect("query should succeed")
+                .expect("provider should own the path")
+                .value,
+            json!([0xDE, 0xB0, 0x61])
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "nes.test.blargg.text")
+                .expect("query should succeed")
+                .expect("provider should own the path")
+                .value,
+            json!("ok\n")
+        );
     }
 
     #[test]

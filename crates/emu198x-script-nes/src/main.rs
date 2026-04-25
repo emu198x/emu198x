@@ -21,6 +21,7 @@ struct Cli {
     audio_capture: Option<PathBuf>,
     script: Option<PathBuf>,
     frames: u32,
+    assert_blargg: bool,
     smoke_root: Option<PathBuf>,
     smoke_report: Option<PathBuf>,
     smoke_screenshot_dir: Option<PathBuf>,
@@ -45,6 +46,17 @@ struct RunnerReport {
     observations: Vec<ScriptObservation>,
     time: u64,
     cartridge_loaded: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    test_result: Option<BlarggTestResult>,
+}
+
+#[derive(Debug, Serialize)]
+struct BlarggTestResult {
+    kind: &'static str,
+    status: u8,
+    signature: [u8; 3],
+    text: String,
+    passed: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -62,6 +74,8 @@ struct SmokeMatrixRow {
     result: String,
     time: Option<u64>,
     screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    test_result: Option<BlarggTestResult>,
     error: Option<String>,
 }
 
@@ -82,6 +96,7 @@ Media:
 Automation:
     --script PATH              execute shared JSON session steps
     --frames N                 number of native NES video frames to run
+    --assert-blargg            assert Blargg-style status output at $6000
     --screenshot PATH          write the last emitted frame as PNG
     --audio-capture PATH       write emitted audio as 16-bit PCM WAV
     --smoke-root PATH          recursively smoke every .nes ROM under PATH
@@ -94,6 +109,7 @@ Other:
 
 Examples:
     emu198x-script-nes --rom nestest.nes --frames 60 --screenshot frame.png
+    emu198x-script-nes --rom apu_test.nes --frames 600 --assert-blargg
     emu198x-script-nes --rom smb.nes --script steps.json
 ";
 
@@ -122,10 +138,10 @@ fn main() {
         }
         return;
     }
-    let script_mode = cli.script.is_some();
+    let json_mode = cli.script.is_some() || cli.assert_blargg;
     match run(cli) {
         Ok(report) => {
-            if script_mode {
+            if json_mode {
                 let json = serde_json::to_string(&report).unwrap_or_else(|err| {
                     eprintln!("error: failed to serialize runner report: {err}");
                     process::exit(1);
@@ -175,6 +191,9 @@ where
                 cli.frames = next_arg(&mut iter, "--frames")
                     .parse()
                     .unwrap_or_else(|_| die("--frames requires a non-negative integer"));
+            }
+            "--assert-blargg" => {
+                cli.assert_blargg = true;
             }
             "--smoke-root" => {
                 cli.smoke_root = Some(PathBuf::from(next_arg(&mut iter, "--smoke-root")));
@@ -304,11 +323,129 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
             .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     }
 
+    let test_result = if cli.assert_blargg {
+        Some(assert_blargg_result(&session)?)
+    } else {
+        None
+    };
+
     Ok(RunnerReport {
         observations,
         time: session.time().get(),
         cartridge_loaded: session.machine().machine().is_some(),
+        test_result,
     })
+}
+
+fn assert_blargg_result(
+    session: &HeadlessSession<NesRuntime, NesSessionQueryProvider>,
+) -> Result<BlarggTestResult, String> {
+    let result = read_blargg_result(session)?;
+    match result.status {
+        0 => Ok(result),
+        0x80 => Err(format!(
+            "Blargg test is still running after the requested frames: {}",
+            result.text.trim()
+        )),
+        0x81 => Err(format!(
+            "Blargg test requested reset after the requested frames: {}",
+            result.text.trim()
+        )),
+        status => Err(format!(
+            "Blargg test failed with status {status}: {}",
+            result.text.trim()
+        )),
+    }
+}
+
+fn read_blargg_result(
+    session: &HeadlessSession<NesRuntime, NesSessionQueryProvider>,
+) -> Result<BlarggTestResult, String> {
+    let signature = query_u8_array3(session, "nes.test.blargg.signature")?;
+    let valid = query_bool(session, "nes.test.blargg.valid")?;
+    if !valid {
+        return Err(format!(
+            "Blargg signature missing at $6001-$6003: {:02X} {:02X} {:02X}",
+            signature[0], signature[1], signature[2]
+        ));
+    }
+
+    let status = query_u8(session, "nes.test.blargg.status")?;
+    let text = query_string(session, "nes.test.blargg.text")?;
+    Ok(BlarggTestResult {
+        kind: "blargg",
+        status,
+        signature,
+        text,
+        passed: status == 0,
+    })
+}
+
+fn query_bool(
+    session: &HeadlessSession<NesRuntime, NesSessionQueryProvider>,
+    path: &str,
+) -> Result<bool, String> {
+    session
+        .query(path)
+        .map_err(|err| format!("failed to query {path}: {err}"))?
+        .value
+        .as_bool()
+        .ok_or_else(|| format!("query {path} did not return a boolean"))
+}
+
+fn query_u8(
+    session: &HeadlessSession<NesRuntime, NesSessionQueryProvider>,
+    path: &str,
+) -> Result<u8, String> {
+    let value = session
+        .query(path)
+        .map_err(|err| format!("failed to query {path}: {err}"))?
+        .value
+        .as_u64()
+        .ok_or_else(|| format!("query {path} did not return an integer"))?;
+    u8::try_from(value).map_err(|_| format!("query {path} returned out-of-range byte {value}"))
+}
+
+fn query_u8_array3(
+    session: &HeadlessSession<NesRuntime, NesSessionQueryProvider>,
+    path: &str,
+) -> Result<[u8; 3], String> {
+    let value = session
+        .query(path)
+        .map_err(|err| format!("failed to query {path}: {err}"))?
+        .value;
+    let array = value
+        .as_array()
+        .ok_or_else(|| format!("query {path} did not return an array"))?;
+    if array.len() != 3 {
+        return Err(format!(
+            "query {path} returned {} bytes, expected 3",
+            array.len()
+        ));
+    }
+
+    let mut bytes = [0; 3];
+    for (index, value) in array.iter().enumerate() {
+        let byte = value
+            .as_u64()
+            .ok_or_else(|| format!("query {path} byte {index} was not an integer"))?;
+        bytes[index] = u8::try_from(byte)
+            .map_err(|_| format!("query {path} byte {index} was out of range: {byte}"))?;
+    }
+    Ok(bytes)
+}
+
+fn query_string(
+    session: &HeadlessSession<NesRuntime, NesSessionQueryProvider>,
+    path: &str,
+) -> Result<String, String> {
+    session
+        .query(path)
+        .map_err(|err| format!("failed to query {path}: {err}"))?
+        .value
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("query {path} did not return a string"))
 }
 
 fn run_smoke_matrix(cli: &Cli) -> Result<SmokeMatrixReport, String> {
@@ -343,6 +480,7 @@ fn run_smoke_matrix(cli: &Cli) -> Result<SmokeMatrixReport, String> {
             audio_capture: None,
             script: None,
             frames,
+            assert_blargg: cli.assert_blargg,
             smoke_root: None,
             smoke_report: None,
             smoke_screenshot_dir: None,
@@ -357,6 +495,7 @@ fn run_smoke_matrix(cli: &Cli) -> Result<SmokeMatrixReport, String> {
                 result: "ok".to_string(),
                 time: Some(report.time),
                 screenshot: screenshot.map(|path| path.display().to_string()),
+                test_result: report.test_result,
                 error: None,
             }),
             Err(error) => rows.push(SmokeMatrixRow {
@@ -367,6 +506,7 @@ fn run_smoke_matrix(cli: &Cli) -> Result<SmokeMatrixReport, String> {
                 result: "error".to_string(),
                 time: None,
                 screenshot: None,
+                test_result: None,
                 error: Some(error),
             }),
         }
@@ -471,6 +611,47 @@ mod tests {
         data
     }
 
+    fn blargg_ines(status: u8, text: &[u8]) -> Vec<u8> {
+        let mut prg = vec![0xea; 16 * 1024];
+        let mut cursor = 0usize;
+        for (addr, value) in [
+            (0x6001, 0xDE),
+            (0x6002, 0xB0),
+            (0x6003, 0x61),
+            (0x6000, status),
+        ] {
+            emit_store(&mut prg, &mut cursor, addr, value);
+        }
+        for (index, &byte) in text.iter().enumerate() {
+            emit_store(&mut prg, &mut cursor, 0x6004 + index as u16, byte);
+        }
+        emit_store(&mut prg, &mut cursor, 0x6004 + text.len() as u16, 0);
+        let loop_addr = 0x8000 + cursor as u16;
+        prg[cursor] = 0x4C;
+        prg[cursor + 1] = (loop_addr & 0x00FF) as u8;
+        prg[cursor + 2] = (loop_addr >> 8) as u8;
+
+        prg[0x3ffc] = 0x00;
+        prg[0x3ffd] = 0x80;
+        let chr = vec![0u8; 8 * 1024];
+        let mut data = vec![0u8; 16 + prg.len() + chr.len()];
+        data[0..4].copy_from_slice(b"NES\x1a");
+        data[4] = 1;
+        data[5] = 1;
+        data[16..16 + prg.len()].copy_from_slice(&prg);
+        data[16 + prg.len()..].copy_from_slice(&chr);
+        data
+    }
+
+    fn emit_store(prg: &mut [u8], cursor: &mut usize, addr: u16, value: u8) {
+        prg[*cursor] = 0xA9;
+        prg[*cursor + 1] = value;
+        prg[*cursor + 2] = 0x8D;
+        prg[*cursor + 3] = (addr & 0x00FF) as u8;
+        prg[*cursor + 4] = (addr >> 8) as u8;
+        *cursor += 5;
+    }
+
     #[test]
     fn parse_cli_accepts_rom_and_capture_flags() {
         let cli = parse_cli([
@@ -496,6 +677,7 @@ mod tests {
                 audio_capture: Some(PathBuf::from("audio.wav")),
                 script: None,
                 frames: 12,
+                assert_blargg: false,
                 smoke_root: None,
                 smoke_report: None,
                 smoke_screenshot_dir: None,
@@ -531,6 +713,7 @@ mod tests {
             audio_capture: Some(audio_path.clone()),
             script: None,
             frames: 1,
+            assert_blargg: false,
             smoke_root: None,
             smoke_report: None,
             smoke_screenshot_dir: None,
@@ -582,6 +765,7 @@ mod tests {
             audio_capture: None,
             script: Some(script_path.clone()),
             frames: 0,
+            assert_blargg: false,
             smoke_root: None,
             smoke_report: None,
             smoke_screenshot_dir: None,
@@ -609,6 +793,7 @@ mod tests {
             audio_capture: None,
             script: None,
             frames: 1,
+            assert_blargg: false,
             smoke_root: Some(temp_dir.clone()),
             smoke_report: None,
             smoke_screenshot_dir: None,
@@ -621,5 +806,39 @@ mod tests {
 
         let _ = fs::remove_file(rom_path);
         let _ = fs::remove_dir(temp_dir);
+    }
+
+    #[test]
+    fn run_can_assert_blargg_success() {
+        let temp_dir = std::env::temp_dir();
+        let rom_path = temp_dir.join(format!(
+            "emu198x-script-nes-{}-blargg.nes",
+            std::process::id()
+        ));
+        fs::write(&rom_path, blargg_ines(0, b"ok\n")).expect("temporary ROM write should succeed");
+
+        let report = run(Cli {
+            media: vec![MediaArg {
+                slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),
+                kind: MediaKind::Cartridge,
+                path: rom_path.clone(),
+            }],
+            screenshot: None,
+            audio_capture: None,
+            script: None,
+            frames: 1,
+            assert_blargg: true,
+            smoke_root: None,
+            smoke_report: None,
+            smoke_screenshot_dir: None,
+        })
+        .expect("Blargg assertion should pass");
+
+        let result = report.test_result.expect("test result should be reported");
+        assert_eq!(result.status, 0);
+        assert!(result.passed);
+        assert_eq!(result.text, "ok\n");
+
+        let _ = fs::remove_file(rom_path);
     }
 }

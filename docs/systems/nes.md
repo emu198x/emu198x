@@ -2,7 +2,7 @@
 
 ## Status: Usable native/headless baseline
 
-The NES path now has a usable NTSC machine/runtime/native baseline. It runs through the shared shell, passes the `nestest` CPU/machine proof, renders mapper-supported cartridges, and exposes screenshots, audio capture/playback, keyboard/gamepad input, reset, snapshots, local smoke-matrix reporting, and video filter modes. Mapper coverage is still the main compatibility limiter.
+The NES path now has a usable NTSC machine/runtime/native baseline. It runs through the shared shell, passes the `nestest` CPU/machine proof, renders mapper-supported cartridges, and exposes screenshots, audio capture/playback, keyboard/gamepad input, reset, snapshots, local smoke-matrix reporting, Blargg-style `$6000` test ROM assertions, and video filter modes. Mapper coverage is still the main compatibility limiter.
 
 ## Hardware overview
 
@@ -20,6 +20,15 @@ The NES path now has a usable NTSC machine/runtime/native baseline. It runs thro
 - **APU** — 5-channel 2A03 audio with host-side channel controls
 - **Mapper system** — NROM, MMC1, UxROM, CNROM, MMC3, MMC5, AxROM, Color Dreams, VRC2a, Action 53, BxROM/BNROM, NINA-001, Sunsoft-4, and Camerica/Codemasters are implemented; the remaining long-tail mappers are compatibility-driven
 - **iNES/NES 2.0** — ROM format parsing with mapper detection
+
+## Automated test ROM checks
+
+`emu198x-script-nes` can assert Blargg-style test ROM output written at `$6000`. A passing ROM exits successfully and includes `test_result` in the JSON report; running, reset-requested, failed, or non-Blargg ROMs return a non-zero exit code.
+
+```sh
+cargo run --release -p emu198x-script-nes -- --rom apu_test.nes --frames 3000 --assert-blargg
+cargo run --release -p emu198x-script-nes -- --smoke-root path/to/blargg/rom_singles --frames 1200 --assert-blargg --smoke-report tmp/nes-apu-blargg-report.json
+```
 
 ## Crates
 
