@@ -1,8 +1,8 @@
 # Nintendo Entertainment System (NES)
 
-## Status: Not started
+## Status: Usable native/headless baseline
 
-Depends on the 6502 CPU core (built for C64). The NES has simpler hardware than the C64 but the PPU (Picture Processing Unit) has complex scroll and sprite timing that many games exploit.
+The NES path now has a usable NTSC machine/runtime/native baseline. It runs through the shared shell, passes the `nestest` CPU/machine proof, renders mapper-supported cartridges, and exposes screenshots, audio capture/playback, keyboard/gamepad input, reset, and video filter modes. Mapper coverage is still the main compatibility limiter.
 
 ## Hardware overview
 
@@ -15,17 +15,20 @@ Depends on the 6502 CPU core (built for C64). The NES has simpler hardware than 
 
 ## Work needed
 
-- **6502 CPU** — **Done** (shared with C64, `cpu-6502`; BCD flag needs disabling for 2A03 variant)
-- **PPU** — tile-based renderer, sprite evaluation, scroll registers, nametable mirroring
-- **APU** — 5-channel audio with frame counter
-- **Mapper system** — cartridge mappers (NROM, MMC1, MMC3, etc. — dozens exist)
+- **6502 CPU / 2A03 variant** — done and validated by `nestest`
+- **PPU** — dot-driven 2C02 path with nametable mirroring and frame output
+- **APU** — 5-channel 2A03 audio with host-side channel controls
+- **Mapper system** — NROM, MMC1, UxROM, and CNROM are implemented; MMC3 is the next major compatibility target
 - **iNES/NES 2.0** — ROM format parsing with mapper detection
 
 ## Crates
 
 | Crate | Role | Status |
 |-------|------|--------|
-| `cpu-6502` | Shared with C64 | Done |
-| `nintendo-ppu` | NES PPU |
-| `machine-nintendo-nes` | NES machine wiring |
-| `emu198x-nintendo-nes` | GUI shell |
+| `mos-6502` | Shared 6502 core with 2A03 mode | Done |
+| `ricoh-ppu-2c02` | NES PPU | Ported |
+| `ricoh-apu-2a03` | NES APU | Ported |
+| `format-nintendo-nes-ines` | iNES parser + NROM/MMC1/UxROM/CNROM mappers | Active |
+| `machine-nintendo-nes` | NES machine wiring | Active |
+| `runtime-nintendo-nes` | Shared shell runtime | Active |
+| `emu198x-nes` | Native verifier shell | Active |

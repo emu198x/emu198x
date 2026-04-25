@@ -1,7 +1,7 @@
 # Nintendo Entertainment System (NES)
 
 > Status as of 2026-04-25: **fresh NTSC NES headless/runtime/native path.**
-> The current system boots NROM, MMC1, and UxROM cartridges through the shared
+> The current system boots NROM, MMC1, UxROM, and CNROM cartridges through the shared
 > `MachineCore` boundary, passes the full `nestest` instruction-log
 > proof, renders `Super Mario Bros.`, and emits RGBA frames plus mono
 > audio through `emu198x-script-nes`. `emu198x-nes` now provides a
@@ -16,7 +16,7 @@
 |-----------|-------|-------|--------|
 | 2A03 CPU (6502, BCD disabled) | `mos-6502` | 7 smoke + 2×2.47M Tom Harte | Validated |
 | 2C02 PPU | `ricoh-ppu-2c02` | 20 | Ported, interface rewritten |
-| iNES parser + NROM/MMC1/UxROM mappers | `format-nintendo-nes-ines` | 31 | Validated |
+| iNES parser + NROM/MMC1/UxROM/CNROM mappers | `format-nintendo-nes-ines` | 37 | Validated |
 | APU | `ricoh-apu-2a03` | 24 | Ported and wired into the machine |
 | Machine wiring | `machine-nintendo-nes` | 13 + `nestest` | Tick loop + OAMDMA + controller I/O |
 | Runtime | `runtime-nintendo-nes` | 7 | Fresh `MachineCore` runtime over the machine crate |
@@ -39,11 +39,11 @@
 
 - **nestest.nes** — 8,991 / 8,991 instructions match the golden log (PC, A, X, Y, P, SP at every instruction fetch). `$02` (official opcodes) = `0x00`, `$03` (unofficial opcodes) = `0x00` — all tests pass. This validates the tick loop, address space routing, PPU register bus, and CPU instruction correctness in the context of a real NES machine.
 - **Headless runner smoke** — the fresh `emu198x-script-nes` path now runs local `nestest.nes` and `Super Mario Bros.` ROMs and emits PNG screenshots through the shared shell capture pipeline.
-- **Mapper unit coverage** — NROM, MMC1, and UxROM parser/banking behaviour is covered in `format-nintendo-nes-ines`.
+- **Mapper unit coverage** — NROM, MMC1, UxROM, and CNROM parser/banking behaviour is covered in `format-nintendo-nes-ines`.
 
 ### What doesn't work yet
 
-- **Mappers beyond NROM/MMC1/UxROM** — CNROM, MMC3, and the longer tail still live in the archive and will be lifted when the real-game matrix needs them.
+- **Mappers beyond NROM/MMC1/UxROM/CNROM** — MMC3 and the longer tail still live in the archive and will be lifted when the real-game matrix needs them.
 - **Save states** — the current fresh NES runtime deliberately returns unsupported for snapshot import/export.
 - **DMC DMA cycle stealing** — DMC sample bytes are fetched, but the APU does not yet steal CPU cycles for those fetches.
 

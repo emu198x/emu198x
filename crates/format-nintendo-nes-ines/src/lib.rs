@@ -5,10 +5,11 @@
 //! The archive crate
 //! (`Emu198x-archive/crates/format-nintendo-nes-ines`) implemented 48
 //! mapper variants covering virtually every licensed NES/Famicom
-//! game. This port currently carries **Mapper 0 (NROM)** and
-//! **Mapper 1 (MMC1)** and **Mapper 2 (UxROM)** — the trait, the
-//! header parser, and the first mappers needed to boot flat-layout
-//! test ROMs plus common PRG-bank-switched cartridges.
+//! game. This port currently carries **Mapper 0 (NROM)**,
+//! **Mapper 1 (MMC1)**, **Mapper 2 (UxROM)**, and
+//! **Mapper 3 (CNROM)** — the trait, the header parser, and the
+//! first mappers needed to boot flat-layout test ROMs plus common
+//! PRG/CHR-bank-switched cartridges.
 //!
 //! The other 47 mappers are archive-provenance (see
 //! [archives-as-source.md](../../wiki/decisions/archives-as-source.md))
@@ -76,7 +77,8 @@ pub enum Mirroring {
 /// Implementations are per-mapper-number. The parser in
 /// [`parse_ines`] inspects the iNES header's mapper field and
 /// constructs the right concrete type. This port carries [`Nrom`]
-/// (mapper 0), [`Mmc1`] (mapper 1), and [`UxRom`] (mapper 2).
+/// (mapper 0), [`Mmc1`] (mapper 1), [`UxRom`] (mapper 2), and
+/// [`CnRom`] (mapper 3).
 ///
 /// ## Design notes
 ///
@@ -480,6 +482,76 @@ impl Mapper for UxRom {
     }
 }
 
+// ─── CNROM (Mapper 3) ──────────────────────────────────────────────
+
+/// CNROM (Mapper 3): fixed PRG ROM with switchable 8 KiB CHR ROM.
+///
+/// CNROM keeps PRG ROM unbanked at `$8000-$FFFF` and uses writes to
+/// `$8000-$FFFF` to select the 8 KiB CHR bank visible to the PPU at
+/// `$0000-$1FFF`. Most boards have bus conflicts, so the latched bank
+/// value is the CPU value AND the ROM byte driving the bus.
+pub struct CnRom {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    mirroring: Mirroring,
+    chr_bank: u8,
+}
+
+impl CnRom {
+    /// Construct CNROM from parsed iNES payloads.
+    ///
+    /// CNROM is a CHR-ROM board. If a malformed image declares no CHR
+    /// ROM, this allocates a zeroed 8 KiB bank so reads remain defined
+    /// rather than panicking.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring) -> Self {
+        let chr_rom = if chr_data.is_empty() {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr_rom,
+            mirroring,
+            chr_bank: 0,
+        }
+    }
+}
+
+impl Mapper for CnRom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xFFFF => {
+                let offset = usize::from(addr - 0x8000);
+                self.prg_rom[offset % self.prg_rom.len()]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            let rom_byte = self.cpu_read(addr);
+            self.chr_bank = value & rom_byte;
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let bank_offset = usize::from(self.chr_bank) * 8192;
+        let offset = usize::from(addr) & 0x1FFF;
+        self.chr_rom[(bank_offset + offset) % self.chr_rom.len()]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {
+        // CNROM has CHR ROM, not CHR RAM.
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 // ─── iNES header + parser ──────────────────────────────────────────
 
 /// Parsed iNES header fields. Both iNES 1.0 and NES 2.0 files map
@@ -615,11 +687,12 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         0 => Box::new(Nrom::new(prg_rom, chr_data, mirroring)),
         1 => Box::new(Mmc1::new(prg_rom, chr_data)),
         2 => Box::new(UxRom::new(prg_rom, chr_data, mirroring)),
+        3 => Box::new(CnRom::new(prg_rom, chr_data, mirroring)),
         n => {
             return Err(format!(
                 "Unsupported mapper: {n} — this port currently carries Mapper 0 \
-                 (NROM), Mapper 1 (MMC1), and Mapper 2 (UxROM). Additional \
-                 mappers will land as compatibility expands."
+                 (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
+                 (CNROM). Additional mappers will land as compatibility expands."
             ));
         }
     };
@@ -924,6 +997,84 @@ mod tests {
         mapper.chr_write(0x1000, 0xAB);
 
         assert_eq!(mapper.chr_read(0x1000), 0xAB);
+    }
+
+    #[test]
+    fn parse_valid_cnrom() {
+        let data = make_ines(2, 4, 0x30);
+        let parsed = parse_ines(&data).expect("parse failed");
+
+        assert_eq!(parsed.header.mapper_number, 3);
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn cnrom_prg_is_unbanked_and_16k_mirrors_high_half() {
+        let mut prg = vec![0u8; 16384];
+        prg[0] = 0xCC;
+        prg[1] = 0xDD;
+        let mapper = CnRom::new(prg, vec![0u8; 8192], Mirroring::Horizontal);
+
+        assert_eq!(mapper.cpu_read(0x8000), 0xCC);
+        assert_eq!(mapper.cpu_read(0xC000), 0xCC);
+        assert_eq!(mapper.cpu_read(0x8001), 0xDD);
+        assert_eq!(mapper.cpu_read(0xC001), 0xDD);
+    }
+
+    #[test]
+    fn cnrom_prg_is_unbanked_32k() {
+        let mut prg = vec![0u8; 32768];
+        prg[0] = 0xAA;
+        prg[0x4000] = 0xBB;
+        let mapper = CnRom::new(prg, vec![0u8; 8192], Mirroring::Vertical);
+
+        assert_eq!(mapper.cpu_read(0x8000), 0xAA);
+        assert_eq!(mapper.cpu_read(0xC000), 0xBB);
+    }
+
+    #[test]
+    fn cnrom_switches_8k_chr_banks() {
+        let mut chr = vec![0u8; 4 * 8192];
+        for bank in 0..4usize {
+            for byte in &mut chr[bank * 8192..(bank + 1) * 8192] {
+                *byte = bank as u8;
+            }
+        }
+        let mut mapper = CnRom::new(vec![0xFFu8; 32768], chr, Mirroring::Vertical);
+
+        assert_eq!(mapper.chr_read(0x0000), 0);
+
+        mapper.cpu_write(0x8000, 2);
+        assert_eq!(mapper.chr_read(0x0000), 2);
+
+        mapper.cpu_write(0xFFFF, 3);
+        assert_eq!(mapper.chr_read(0x1FFF), 3);
+    }
+
+    #[test]
+    fn cnrom_chr_bank_write_obeys_bus_conflict() {
+        let mut chr = vec![0u8; 4 * 8192];
+        for bank in 0..4usize {
+            for byte in &mut chr[bank * 8192..(bank + 1) * 8192] {
+                *byte = bank as u8;
+            }
+        }
+        let mut prg = vec![0xFFu8; 32768];
+        prg[0] = 0x01;
+        let mut mapper = CnRom::new(prg, chr, Mirroring::Vertical);
+
+        mapper.cpu_write(0x8000, 3);
+
+        assert_eq!(mapper.chr_read(0x0000), 1);
+    }
+
+    #[test]
+    fn cnrom_chr_rom_not_writable() {
+        let mut mapper = CnRom::new(vec![0xFFu8; 32768], vec![0x44u8; 8192], Mirroring::Vertical);
+
+        mapper.chr_write(0x0000, 0xAB);
+
+        assert_eq!(mapper.chr_read(0x0000), 0x44);
     }
 
     #[test]
