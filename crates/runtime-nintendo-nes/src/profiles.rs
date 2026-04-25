@@ -54,7 +54,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             region: Region::Ntsc,
             support_tier: SupportTier::Boots,
             release_year: 1985,
-            summary: "NTSC NES baseline with headless cartridge boot, NROM/MMC1/UxROM/CNROM/MMC3/AxROM mapper support, live 2A03/2C02/APU execution, RGBA frame output, mono audio, and controller input.".into(),
+            summary: "NTSC NES baseline with headless cartridge boot, NROM/MMC1/UxROM/CNROM/MMC3/AxROM/BxROM mapper support, live 2A03/2C02/APU execution, RGBA frame output, mono audio, and controller input.".into(),
             clock: ClockDesc::new("ppu-dot", ClockRate::from_hz(5_369_318)),
             firmware: vec![],
             media_slots: vec![MediaSlot::new(

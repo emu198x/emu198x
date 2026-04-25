@@ -8,9 +8,10 @@
 //! game. This port currently carries **Mapper 0 (NROM)**,
 //! **Mapper 1 (MMC1)**, **Mapper 2 (UxROM)**,
 //! **Mapper 3 (CNROM)**, **Mapper 4 (MMC3)**, and
-//! **Mapper 7 (AxROM)** — the trait, the header parser, and the
-//! first mappers needed to boot flat-layout test ROMs plus common
-//! PRG/CHR-bank-switched cartridges.
+//! **Mapper 7 (AxROM)**, plus **Mapper 34 (BxROM/BNROM)** — the
+//! trait, the header parser, and the first mappers needed to boot
+//! flat-layout test ROMs plus common PRG/CHR-bank-switched
+//! cartridges.
 //!
 //! The remaining mappers are archive-provenance (see
 //! [archives-as-source.md](../../wiki/decisions/archives-as-source.md))
@@ -80,7 +81,7 @@ pub enum Mirroring {
 /// constructs the right concrete type. This port carries [`Nrom`]
 /// (mapper 0), [`Mmc1`] (mapper 1), [`UxRom`] (mapper 2),
 /// [`CnRom`] (mapper 3), [`Mmc3`] (mapper 4), and [`AxRom`]
-/// (mapper 7).
+/// (mapper 7), plus [`BxRom`] (mapper 34).
 ///
 /// ## Design notes
 ///
@@ -855,6 +856,68 @@ impl Mapper for AxRom {
     }
 }
 
+// ─── BxROM / BNROM (Mapper 34) ─────────────────────────────────────
+
+/// BxROM / BNROM (Mapper 34): switchable 32 KiB PRG bank with CHR RAM.
+///
+/// The iNES mapper 34 assignment is historically ambiguous; this
+/// implementation covers the common BNROM/BxROM layout, not the
+/// NINA-001 CHR-ROM banking variant.
+pub struct BxRom {
+    prg_rom: Vec<u8>,
+    chr_ram: [u8; 8192],
+    mirroring: Mirroring,
+    prg_bank: u8,
+}
+
+impl BxRom {
+    /// Construct BxROM from parsed PRG ROM and fixed header mirroring.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self {
+            prg_rom,
+            chr_ram: [0; 8192],
+            mirroring,
+            prg_bank: 0,
+        }
+    }
+
+    fn prg_bank_count(&self) -> usize {
+        (self.prg_rom.len() / 32768).max(1)
+    }
+}
+
+impl Mapper for BxRom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xFFFF => {
+                let bank = usize::from(self.prg_bank) % self.prg_bank_count();
+                let offset = usize::from(addr - 0x8000);
+                self.prg_rom[bank * 32768 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.prg_bank = value & self.cpu_read(addr);
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_ram[usize::from(addr) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        self.chr_ram[usize::from(addr) & 0x1FFF] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 // ─── iNES header + parser ──────────────────────────────────────────
 
 /// Parsed iNES header fields. Both iNES 1.0 and NES 2.0 files map
@@ -993,12 +1056,14 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         3 => Box::new(CnRom::new(prg_rom, chr_data, mirroring)),
         4 => Box::new(Mmc3::new(prg_rom, chr_data)),
         7 => Box::new(AxRom::new(prg_rom)),
+        34 => Box::new(BxRom::new(prg_rom, mirroring)),
         n => {
             return Err(format!(
                 "Unsupported mapper: {n} — this port currently carries Mapper 0 \
                  (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
-                 (CNROM), Mapper 4 (MMC3), and Mapper 7 (AxROM). Additional \
-                 mappers will land as compatibility expands."
+                 (CNROM), Mapper 4 (MMC3), Mapper 7 (AxROM), and Mapper 34 \
+                 (BxROM/BNROM). Additional mappers will land as compatibility \
+                 expands."
             ));
         }
     };
@@ -1641,6 +1706,63 @@ mod tests {
     #[test]
     fn axrom_chr_ram_roundtrip() {
         let mut mapper = AxRom::new(vec![0u8; 32768]);
+
+        mapper.chr_write(0x0000, 0xAB);
+        mapper.chr_write(0x1FFF, 0xCD);
+
+        assert_eq!(mapper.chr_read(0x0000), 0xAB);
+        assert_eq!(mapper.chr_read(0x1FFF), 0xCD);
+    }
+
+    #[test]
+    fn parse_valid_bxrom() {
+        let data = make_ines(4, 0, 0x20 | 0x01);
+        let mut data = data;
+        data[7] = 0x20; // mapper 34 high nibble
+        let parsed = parse_ines(&data).expect("parse failed");
+
+        assert_eq!(parsed.header.mapper_number, 34);
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Vertical);
+    }
+
+    #[test]
+    fn bxrom_switches_32k_prg_bank() {
+        let mut prg = vec![0u8; 4 * 32768];
+        for bank in 0..4usize {
+            for byte in &mut prg[bank * 32768..(bank + 1) * 32768] {
+                *byte = bank as u8;
+            }
+            prg[bank * 32768] = 0xFF;
+        }
+        let mut mapper = BxRom::new(prg, Mirroring::Horizontal);
+
+        assert_eq!(mapper.cpu_read(0x8001), 0);
+
+        mapper.cpu_write(0x8000, 2);
+
+        assert_eq!(mapper.cpu_read(0x8001), 2);
+        assert_eq!(mapper.cpu_read(0xC001), 2);
+    }
+
+    #[test]
+    fn bxrom_bank_write_obeys_bus_conflict() {
+        let mut prg = vec![0xFFu8; 4 * 32768];
+        for bank in 0..4usize {
+            for byte in &mut prg[bank * 32768..(bank + 1) * 32768] {
+                *byte = bank as u8;
+            }
+        }
+        prg[0] = 0x01;
+        let mut mapper = BxRom::new(prg, Mirroring::Horizontal);
+
+        mapper.cpu_write(0x8000, 3);
+
+        assert_eq!(mapper.cpu_read(0x8001), 1);
+    }
+
+    #[test]
+    fn bxrom_chr_ram_roundtrip() {
+        let mut mapper = BxRom::new(vec![0u8; 32768], Mirroring::Horizontal);
 
         mapper.chr_write(0x0000, 0xAB);
         mapper.chr_write(0x1FFF, 0xCD);
