@@ -8,8 +8,8 @@
 //! game. This port currently carries **Mapper 0 (NROM)**,
 //! **Mapper 1 (MMC1)**, **Mapper 2 (UxROM)**,
 //! **Mapper 3 (CNROM)**, **Mapper 4 (MMC3)**, and
-//! **Mapper 7 (AxROM)**, **Mapper 34 (BxROM/BNROM)**, and
-//! **Mapper 71 (Camerica/Codemasters)** — the trait, the header
+//! **Mapper 7 (AxROM)**, **Mapper 34 (BxROM/BNROM and NINA-001)**,
+//! and **Mapper 71 (Camerica/Codemasters)** — the trait, the header
 //! parser, and the first mappers needed to boot flat-layout test ROMs
 //! plus common PRG/CHR-bank-switched cartridges.
 //!
@@ -81,7 +81,8 @@ pub enum Mirroring {
 /// constructs the right concrete type. This port carries [`Nrom`]
 /// (mapper 0), [`Mmc1`] (mapper 1), [`UxRom`] (mapper 2),
 /// [`CnRom`] (mapper 3), [`Mmc3`] (mapper 4), and [`AxRom`]
-/// (mapper 7), [`BxRom`] (mapper 34), and [`Camerica`] (mapper 71).
+/// (mapper 7), [`BxRom`] / [`Nina001`] (mapper 34), and
+/// [`Camerica`] (mapper 71).
 ///
 /// ## Design notes
 ///
@@ -860,9 +861,9 @@ impl Mapper for AxRom {
 
 /// BxROM / BNROM (Mapper 34): switchable 32 KiB PRG bank with CHR RAM.
 ///
-/// The iNES mapper 34 assignment is historically ambiguous; this
-/// implementation covers the common BNROM/BxROM layout, not the
-/// NINA-001 CHR-ROM banking variant.
+/// The iNES mapper 34 assignment is historically ambiguous. The parser
+/// chooses this variant for CHR-RAM images (`CHR=0`) and [`Nina001`]
+/// for CHR-ROM images.
 pub struct BxRom {
     prg_rom: Vec<u8>,
     chr_ram: [u8; 8192],
@@ -911,6 +912,94 @@ impl Mapper for BxRom {
 
     fn chr_write(&mut self, addr: u16, value: u8) {
         self.chr_ram[usize::from(addr) & 0x1FFF] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
+/// NINA-001 / NINA-002 (Mapper 34): 32 KiB PRG banking plus two
+/// switchable 4 KiB CHR-ROM windows.
+///
+/// The bank registers live at `$7FFD-$7FFF`, overlaid on the
+/// cartridge's 8 KiB PRG RAM window. Reads return the RAM byte, while
+/// writes update both RAM and the corresponding register.
+pub struct Nina001 {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    prg_ram: [u8; 8192],
+    mirroring: Mirroring,
+    prg_bank: u8,
+    chr_bank_0: u8,
+    chr_bank_1: u8,
+}
+
+impl Nina001 {
+    /// Construct NINA-001 from parsed PRG/CHR ROM and fixed header
+    /// mirroring.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self {
+            prg_rom,
+            chr_rom,
+            prg_ram: [0; 8192],
+            mirroring,
+            prg_bank: 0,
+            chr_bank_0: 0,
+            chr_bank_1: 1,
+        }
+    }
+
+    fn prg_bank_count(&self) -> usize {
+        (self.prg_rom.len() / 32768).max(1)
+    }
+
+    fn chr_4k_count(&self) -> usize {
+        (self.chr_rom.len() / 4096).max(1)
+    }
+}
+
+impl Mapper for Nina001 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF => self.prg_ram[usize::from(addr - 0x6000)],
+            0x8000..=0xFFFF => {
+                let bank = usize::from(self.prg_bank & 0x03) % self.prg_bank_count();
+                let offset = usize::from(addr - 0x8000);
+                self.prg_rom[bank * 32768 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if (0x6000..=0x7FFF).contains(&addr) {
+            self.prg_ram[usize::from(addr - 0x6000)] = value;
+        }
+
+        match addr {
+            0x7FFD => self.prg_bank = value & 0x03,
+            0x7FFE => self.chr_bank_0 = value & 0x0F,
+            0x7FFF => self.chr_bank_1 = value & 0x0F,
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let addr = usize::from(addr) & 0x1FFF;
+        let bank = if addr < 0x1000 {
+            self.chr_bank_0
+        } else {
+            self.chr_bank_1
+        };
+        let offset = addr & 0x0FFF;
+        let bank = usize::from(bank) % self.chr_4k_count();
+        self.chr_rom[bank * 4096 + offset]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {
+        // NINA-001 has CHR ROM, not CHR RAM.
     }
 
     fn mirroring(&self) -> Mirroring {
@@ -1128,15 +1217,16 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         3 => Box::new(CnRom::new(prg_rom, chr_data, mirroring)),
         4 => Box::new(Mmc3::new(prg_rom, chr_data)),
         7 => Box::new(AxRom::new(prg_rom)),
-        34 => Box::new(BxRom::new(prg_rom, mirroring)),
+        34 if chr_data.is_empty() => Box::new(BxRom::new(prg_rom, mirroring)),
+        34 => Box::new(Nina001::new(prg_rom, chr_data, mirroring)),
         71 => Box::new(Camerica::new(prg_rom, mirroring)),
         n => {
             return Err(format!(
                 "Unsupported mapper: {n} — this port currently carries Mapper 0 \
                  (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
                  (CNROM), Mapper 4 (MMC3), Mapper 7 (AxROM), and Mapper 34 \
-                 (BxROM/BNROM), and Mapper 71 (Camerica). Additional mappers \
-                 will land as compatibility expands."
+                 (BxROM/BNROM and NINA-001), and Mapper 71 (Camerica). \
+                 Additional mappers will land as compatibility expands."
             ));
         }
     };
@@ -1842,6 +1932,78 @@ mod tests {
 
         assert_eq!(mapper.chr_read(0x0000), 0xAB);
         assert_eq!(mapper.chr_read(0x1FFF), 0xCD);
+    }
+
+    #[test]
+    fn parse_mapper_34_with_chr_rom_selects_nina001() {
+        let mut data = make_ines(4, 8, 0x20 | 0x01);
+        data[7] = 0x20;
+        let mut mapper = parse_ines(&data).expect("parse failed").mapper;
+
+        assert_eq!(mapper.chr_read(0x0000), 0x80);
+
+        mapper.cpu_write(0x7FFE, 2);
+
+        assert_eq!(mapper.chr_read(0x0000), 0x80);
+    }
+
+    #[test]
+    fn nina001_switches_32k_prg_bank_via_7ffd() {
+        let mut prg = vec![0u8; 4 * 32768];
+        for bank in 0..4usize {
+            for byte in &mut prg[bank * 32768..(bank + 1) * 32768] {
+                *byte = bank as u8;
+            }
+        }
+        let mut mapper = Nina001::new(prg, vec![0u8; 8192], Mirroring::Horizontal);
+
+        assert_eq!(mapper.cpu_read(0x8000), 0);
+
+        mapper.cpu_write(0x7FFD, 2);
+
+        assert_eq!(mapper.cpu_read(0x8000), 2);
+    }
+
+    #[test]
+    fn nina001_switches_two_4k_chr_banks() {
+        let mut chr = vec![0u8; 16 * 4096];
+        for bank in 0..16usize {
+            for byte in &mut chr[bank * 4096..(bank + 1) * 4096] {
+                *byte = bank as u8;
+            }
+        }
+        let mut mapper = Nina001::new(vec![0u8; 32768], chr, Mirroring::Horizontal);
+
+        assert_eq!(mapper.chr_read(0x0000), 0);
+        assert_eq!(mapper.chr_read(0x1000), 1);
+
+        mapper.cpu_write(0x7FFE, 3);
+        mapper.cpu_write(0x7FFF, 7);
+
+        assert_eq!(mapper.chr_read(0x0000), 3);
+        assert_eq!(mapper.chr_read(0x1000), 7);
+    }
+
+    #[test]
+    fn nina001_register_writes_are_prg_ram_writes_too() {
+        let mut mapper = Nina001::new(vec![0u8; 32768], vec![0u8; 8192], Mirroring::Horizontal);
+
+        mapper.cpu_write(0x7FFD, 0xA5);
+        mapper.cpu_write(0x7FFE, 0x5A);
+        mapper.cpu_write(0x7FFF, 0xC3);
+
+        assert_eq!(mapper.cpu_read(0x7FFD), 0xA5);
+        assert_eq!(mapper.cpu_read(0x7FFE), 0x5A);
+        assert_eq!(mapper.cpu_read(0x7FFF), 0xC3);
+    }
+
+    #[test]
+    fn nina001_chr_rom_not_writable() {
+        let mut mapper = Nina001::new(vec![0u8; 32768], vec![0x44u8; 8192], Mirroring::Horizontal);
+
+        mapper.chr_write(0x0000, 0xAB);
+
+        assert_eq!(mapper.chr_read(0x0000), 0x44);
     }
 
     #[test]
