@@ -9,6 +9,7 @@
 //! **Mapper 1 (MMC1)**, **Mapper 2 (UxROM)**,
 //! **Mapper 3 (CNROM)**, **Mapper 4 (MMC3)**, and
 //! **Mapper 7 (AxROM)**, **Mapper 11 (Color Dreams)**,
+//! **Mapper 22 (VRC2a)**, **Mapper 28 (Action 53)**,
 //! **Mapper 34 (BxROM/BNROM and NINA-001)**,
 //! **Mapper 68 (Sunsoft-4)**, and **Mapper 71 (Camerica/Codemasters)** —
 //! the trait, the header parser, and the first mappers needed to boot
@@ -85,8 +86,9 @@ pub enum Mirroring {
 /// constructs the right concrete type. This port carries [`Nrom`]
 /// (mapper 0), [`Mmc1`] (mapper 1), [`UxRom`] (mapper 2),
 /// [`CnRom`] (mapper 3), [`Mmc3`] (mapper 4), and [`AxRom`]
-/// (mapper 7), [`ColorDreams`] (mapper 11), [`BxRom`] / [`Nina001`]
-/// (mapper 34), [`Sunsoft4`] (mapper 68), and [`Camerica`] (mapper 71).
+/// (mapper 7), [`ColorDreams`] (mapper 11), [`Vrc2a`] (mapper 22),
+/// [`Action53`] (mapper 28), [`BxRom`] / [`Nina001`] (mapper 34),
+/// [`Sunsoft4`] (mapper 68), and [`Camerica`] (mapper 71).
 ///
 /// ## Design notes
 ///
@@ -184,6 +186,10 @@ pub enum MapperSnapshot {
     AxRom(AxRom),
     /// Mapper 11.
     ColorDreams(ColorDreams),
+    /// Mapper 22.
+    Vrc2a(Vrc2a),
+    /// Mapper 28.
+    Action53(Action53),
     /// Mapper 34, CHR-RAM variant.
     BxRom(BxRom),
     /// Mapper 34, NINA-001 variant.
@@ -205,6 +211,8 @@ pub fn mapper_from_snapshot(snapshot: MapperSnapshot) -> Box<dyn Mapper> {
         MapperSnapshot::Mmc3(mapper) => Box::new(mapper),
         MapperSnapshot::AxRom(mapper) => Box::new(mapper),
         MapperSnapshot::ColorDreams(mapper) => Box::new(mapper),
+        MapperSnapshot::Vrc2a(mapper) => Box::new(mapper),
+        MapperSnapshot::Action53(mapper) => Box::new(mapper),
         MapperSnapshot::BxRom(mapper) => Box::new(mapper),
         MapperSnapshot::Nina001(mapper) => Box::new(mapper),
         MapperSnapshot::Sunsoft4(mapper) => Box::new(mapper),
@@ -1039,6 +1047,284 @@ impl Mapper for ColorDreams {
     }
 }
 
+// ─── Konami VRC2a (Mapper 22) ─────────────────────────────────────
+
+/// Konami VRC2a (Mapper 22): two switchable 8 KiB PRG banks, fixed
+/// final 16 KiB PRG window, 1 KiB CHR banking, and H/V mirroring.
+///
+/// Mapper 22 is the VRC2a board wiring, where the two low register
+/// address bits are wired as A1/A0 rather than A0/A1. VRC2a also
+/// ignores the low CHR bank bit, so the effective 1 KiB CHR bank is
+/// the 8-bit register value shifted right by one.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Vrc2a {
+    prg_rom: Vec<u8>,
+    chr: Vec<u8>,
+    chr_is_ram: bool,
+    prg_banks: [u8; 2],
+    chr_regs: [u8; 8],
+    mirroring: Mirroring,
+    latch_6000: u8,
+}
+
+impl Vrc2a {
+    /// Construct mapper 22 from parsed PRG/CHR payloads.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr = if chr_is_ram {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr,
+            chr_is_ram,
+            prg_banks: [0, 1],
+            chr_regs: [0; 8],
+            mirroring: Mirroring::Vertical,
+            latch_6000: 0,
+        }
+    }
+
+    fn prg_8k_count(&self) -> usize {
+        (self.prg_rom.len() / 8192).max(1)
+    }
+
+    fn read_prg_8k(&self, bank: usize, offset: u16) -> u8 {
+        let bank = bank % self.prg_8k_count();
+        self.prg_rom[bank * 8192 + usize::from(offset)]
+    }
+
+    fn register_index(addr: u16) -> u16 {
+        ((addr >> 1) & 0x01) | ((addr & 0x01) << 1)
+    }
+
+    fn chr_slot(addr: u16) -> Option<usize> {
+        let region = match addr & 0xF000 {
+            0xB000 => 0,
+            0xC000 => 2,
+            0xD000 => 4,
+            0xE000 => 6,
+            _ => return None,
+        };
+        Some(region + usize::from(Self::register_index(addr) / 2))
+    }
+
+    fn chr_bank(&self, slot: usize) -> usize {
+        usize::from(self.chr_regs[slot] >> 1)
+    }
+}
+
+impl Mapper for Vrc2a {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x6FFF => (addr >> 8) as u8 & 0xFE | (self.latch_6000 & 1),
+            0x8000..=0x9FFF => self.read_prg_8k(usize::from(self.prg_banks[0]), addr - 0x8000),
+            0xA000..=0xBFFF => self.read_prg_8k(usize::from(self.prg_banks[1]), addr - 0xA000),
+            0xC000..=0xDFFF => {
+                self.read_prg_8k(self.prg_8k_count().saturating_sub(2), addr - 0xC000)
+            }
+            0xE000..=0xFFFF => self.read_prg_8k(self.prg_8k_count() - 1, addr - 0xE000),
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x6000..=0x6FFF => self.latch_6000 = value & 1,
+            0x8000..=0x8FFF => self.prg_banks[0] = value & 0x1F,
+            0x9000..=0x9FFF => {
+                self.mirroring = if value & 1 == 0 {
+                    Mirroring::Vertical
+                } else {
+                    Mirroring::Horizontal
+                };
+            }
+            0xA000..=0xAFFF => self.prg_banks[1] = value & 0x1F,
+            0xB000..=0xEFFF => {
+                if let Some(slot) = Self::chr_slot(addr) {
+                    if Self::register_index(addr) & 1 == 0 {
+                        self.chr_regs[slot] = (self.chr_regs[slot] & 0xF0) | (value & 0x0F);
+                    } else {
+                        self.chr_regs[slot] = (self.chr_regs[slot] & 0x0F) | ((value & 0x0F) << 4);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let slot = usize::from((addr & 0x1FFF) / 0x0400);
+        let offset = usize::from(addr & 0x03FF);
+        let index = self.chr_bank(slot) * 1024 + offset;
+        self.chr[index % self.chr.len()]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            let slot = usize::from((addr & 0x1FFF) / 0x0400);
+            let offset = usize::from(addr & 0x03FF);
+            let index = (self.chr_bank(slot) * 1024 + offset) % self.chr.len();
+            self.chr[index] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::Vrc2a(self.clone())
+    }
+}
+
+// ─── Action 53 (Mapper 28) ────────────────────────────────────────
+
+/// Action 53 (Mapper 28): multicart mapper with switchable 16/32 KiB
+/// PRG modes, 8 KiB CHR RAM banking, and mapper-controlled mirroring.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Action53 {
+    prg_rom: Vec<u8>,
+    chr: Vec<u8>,
+    register_select: u8,
+    chr_bank: u8,
+    inner_bank: u8,
+    mode: u8,
+    outer_bank: u8,
+}
+
+impl Action53 {
+    /// Construct mapper 28 from parsed payloads.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>) -> Self {
+        let chr = if chr_data.is_empty() {
+            vec![0u8; 32768]
+        } else {
+            chr_data
+        };
+        let last_16k_bank = (prg_rom.len() / 16384).saturating_sub(1);
+        Self {
+            prg_rom,
+            chr,
+            register_select: 0,
+            chr_bank: 0,
+            inner_bank: 0,
+            mode: 0x0C,
+            outer_bank: (last_16k_bank / 2) as u8,
+        }
+    }
+
+    fn prg_16k_count(&self) -> usize {
+        (self.prg_rom.len() / 16384).max(1)
+    }
+
+    fn replace_outer_low_bits(outer: u8, inner: u8, bits: u8) -> usize {
+        if bits == 0 {
+            usize::from(outer)
+        } else {
+            let mask = (1u8 << bits) - 1;
+            usize::from((outer & !mask) | (inner & mask))
+        }
+    }
+
+    fn prg_bank_for_window(&self, high_window: bool) -> usize {
+        let prg_mode = (self.mode >> 2) & 0x03;
+        let outer_size = (self.mode >> 4) & 0x03;
+        let outer = self.outer_bank;
+        let inner = self.inner_bank & 0x0F;
+
+        let bank = match prg_mode {
+            0 | 1 => {
+                (Self::replace_outer_low_bits(outer, inner, outer_size) << 1)
+                    | usize::from(high_window)
+            }
+            2 if high_window => Self::replace_outer_low_bits(outer, inner, outer_size + 1),
+            2 => usize::from(outer) << 1,
+            3 if high_window => (usize::from(outer) << 1) | 1,
+            3 => Self::replace_outer_low_bits(outer, inner, outer_size + 1),
+            _ => unreachable!(),
+        };
+        bank % self.prg_16k_count()
+    }
+
+    fn chr_bank_count(&self) -> usize {
+        (self.chr.len() / 8192).max(1)
+    }
+
+    fn update_onescreen_bit(&mut self, value: u8) {
+        if self.mode & 0x03 <= 1 {
+            self.mode = (self.mode & !1) | ((value >> 4) & 1);
+        }
+    }
+}
+
+impl Mapper for Action53 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => {
+                let bank = self.prg_bank_for_window(false);
+                let offset = usize::from(addr - 0x8000);
+                self.prg_rom[bank * 16384 + offset]
+            }
+            0xC000..=0xFFFF => {
+                let bank = self.prg_bank_for_window(true);
+                let offset = usize::from(addr - 0xC000);
+                self.prg_rom[bank * 16384 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x5000..=0x5FFF => self.register_select = value & 0x81,
+            0x8000..=0xFFFF => match self.register_select {
+                0x00 => {
+                    self.chr_bank = value & 0x03;
+                    self.update_onescreen_bit(value);
+                }
+                0x01 => {
+                    self.inner_bank = value & 0x0F;
+                    self.update_onescreen_bit(value);
+                }
+                0x80 => self.mode = value & 0x3F,
+                0x81 => self.outer_bank = value,
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let bank = usize::from(self.chr_bank) % self.chr_bank_count();
+        let offset = usize::from(addr) & 0x1FFF;
+        self.chr[bank * 8192 + offset]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        let bank = usize::from(self.chr_bank) % self.chr_bank_count();
+        let offset = usize::from(addr) & 0x1FFF;
+        self.chr[bank * 8192 + offset] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        match self.mode & 0x03 {
+            0 => Mirroring::SingleScreenLower,
+            1 => Mirroring::SingleScreenUpper,
+            2 => Mirroring::Vertical,
+            3 => Mirroring::Horizontal,
+            _ => unreachable!(),
+        }
+    }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::Action53(self.clone())
+    }
+}
+
 // ─── BxROM / BNROM (Mapper 34) ─────────────────────────────────────
 
 /// BxROM / BNROM (Mapper 34): switchable 32 KiB PRG bank with CHR RAM.
@@ -1562,6 +1848,8 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         4 => Box::new(Mmc3::new(prg_rom, chr_data)),
         7 => Box::new(AxRom::new(prg_rom)),
         11 => Box::new(ColorDreams::new(prg_rom, chr_data, mirroring)),
+        22 => Box::new(Vrc2a::new(prg_rom, chr_data)),
+        28 => Box::new(Action53::new(prg_rom, chr_data)),
         34 if chr_data.is_empty() => Box::new(BxRom::new(prg_rom, mirroring)),
         34 => Box::new(Nina001::new(prg_rom, chr_data, mirroring)),
         68 => Box::new(Sunsoft4::new(prg_rom, chr_data, mirroring)),
@@ -1571,9 +1859,10 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
                 "Unsupported mapper: {n} — this port currently carries Mapper 0 \
                  (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
                  (CNROM), Mapper 4 (MMC3), Mapper 7 (AxROM), Mapper 11 \
-                 (Color Dreams), Mapper 34 (BxROM/BNROM and NINA-001), \
-                 Mapper 68 (Sunsoft-4), and Mapper 71 (Camerica). \
-                 Additional mappers will land as compatibility expands."
+                 (Color Dreams), Mapper 22 (VRC2a), Mapper 28 (Action 53), \
+                 Mapper 34 (BxROM/BNROM and NINA-001), Mapper 68 \
+                 (Sunsoft-4), and Mapper 71 (Camerica). Additional mappers \
+                 will land as compatibility expands."
             ));
         }
     };
@@ -2502,6 +2791,134 @@ mod tests {
 
         assert_eq!(mapper.cpu_read(0x8001), 1);
         assert_eq!(mapper.chr_read(0x0000), 0x55);
+    }
+
+    #[test]
+    fn parse_valid_vrc2a_mapper_22() {
+        let mut data = make_ines(8, 8, 0x60);
+        data[7] = 0x10;
+        let parsed = parse_ines(&data).expect("mapper 22 should parse");
+
+        assert_eq!(parsed.header.mapper_number, 22);
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Vertical);
+    }
+
+    #[test]
+    fn vrc2a_switches_two_prg_banks_and_fixes_last_16k() {
+        let mut prg = vec![0u8; 8 * 8192];
+        for bank in 0..8usize {
+            for byte in &mut prg[bank * 8192..(bank + 1) * 8192] {
+                *byte = bank as u8;
+            }
+        }
+        let mut mapper = Vrc2a::new(prg, vec![0u8; 8192]);
+
+        mapper.cpu_write(0x8000, 2);
+        mapper.cpu_write(0xA000, 4);
+
+        assert_eq!(mapper.cpu_read(0x8000), 2);
+        assert_eq!(mapper.cpu_read(0xA000), 4);
+        assert_eq!(mapper.cpu_read(0xC000), 6);
+        assert_eq!(mapper.cpu_read(0xE000), 7);
+    }
+
+    #[test]
+    fn vrc2a_switches_1k_chr_banks_with_a1_a0_register_order() {
+        let prg = vec![0u8; 4 * 8192];
+        let mut chr = vec![0u8; 64 * 1024];
+        for bank in 0..64usize {
+            chr[bank * 1024] = bank as u8;
+        }
+        let mut mapper = Vrc2a::new(prg, chr);
+
+        mapper.cpu_write(0xB000, 0x06);
+        mapper.cpu_write(0xB002, 0x00);
+        mapper.cpu_write(0xB001, 0x0A);
+        mapper.cpu_write(0xB003, 0x00);
+
+        assert_eq!(mapper.chr_read(0x0000), 3);
+        assert_eq!(mapper.chr_read(0x0400), 5);
+    }
+
+    #[test]
+    fn vrc2a_mirroring_and_latch_are_writable() {
+        let mut mapper = Vrc2a::new(vec![0u8; 4 * 8192], Vec::new());
+
+        assert_eq!(mapper.mirroring(), Mirroring::Vertical);
+        mapper.cpu_write(0x9000, 0xFF);
+        assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
+
+        mapper.cpu_write(0x6000, 1);
+        assert_eq!(mapper.cpu_read(0x6100), 0x61);
+        mapper.cpu_write(0x6000, 0);
+        assert_eq!(mapper.cpu_read(0x6100), 0x60);
+    }
+
+    #[test]
+    fn parse_valid_action53_mapper_28() {
+        let mut data = make_ines(8, 0, 0xC0);
+        data[7] = 0x10;
+        let parsed = parse_ines(&data).expect("mapper 28 should parse");
+
+        assert_eq!(parsed.header.mapper_number, 28);
+    }
+
+    #[test]
+    fn action53_switches_32k_prg_banks() {
+        let mut prg = vec![0u8; 8 * 16384];
+        for bank in 0..8usize {
+            for byte in &mut prg[bank * 16384..(bank + 1) * 16384] {
+                *byte = bank as u8;
+            }
+        }
+        let mut mapper = Action53::new(prg, Vec::new());
+
+        mapper.cpu_write(0x5000, 0x80);
+        mapper.cpu_write(0x8000, 0x10);
+        mapper.cpu_write(0x5000, 0x81);
+        mapper.cpu_write(0x8000, 0x02);
+        mapper.cpu_write(0x5000, 0x01);
+        mapper.cpu_write(0x8000, 0x01);
+
+        assert_eq!(mapper.cpu_read(0x8000), 6);
+        assert_eq!(mapper.cpu_read(0xC000), 7);
+    }
+
+    #[test]
+    fn action53_supports_unrom_fixed_high_mode_and_mirroring() {
+        let mut prg = vec![0u8; 8 * 16384];
+        for bank in 0..8usize {
+            for byte in &mut prg[bank * 16384..(bank + 1) * 16384] {
+                *byte = bank as u8;
+            }
+        }
+        let mut mapper = Action53::new(prg, Vec::new());
+
+        mapper.cpu_write(0x5000, 0x80);
+        mapper.cpu_write(0x8000, 0x1F);
+        assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
+        mapper.cpu_write(0x5000, 0x81);
+        mapper.cpu_write(0x8000, 0x02);
+        mapper.cpu_write(0x5000, 0x01);
+        mapper.cpu_write(0x8000, 0x02);
+
+        assert_eq!(mapper.cpu_read(0x8000), 2);
+        assert_eq!(mapper.cpu_read(0xC000), 5);
+    }
+
+    #[test]
+    fn action53_switches_chr_ram_banks() {
+        let prg = vec![0u8; 4 * 16384];
+        let mut mapper = Action53::new(prg, Vec::new());
+
+        mapper.chr_write(0x0000, 0x11);
+        mapper.cpu_write(0x5000, 0x00);
+        mapper.cpu_write(0x8000, 0x01);
+        mapper.chr_write(0x0000, 0x22);
+
+        assert_eq!(mapper.chr_read(0x0000), 0x22);
+        mapper.cpu_write(0x8000, 0x00);
+        assert_eq!(mapper.chr_read(0x0000), 0x11);
     }
 
     #[test]

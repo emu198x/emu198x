@@ -4,6 +4,25 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-25 — NES adds VRC2a and Action 53 mappers
+
+**Type:** feature
+**Trigger:** The local NES smoke matrix had narrowed the easy
+compatibility failures to unsupported mapper 22 and mapper 28 rows,
+leaving MMC5 as the only large mapper family in the local failure set.
+**Result:** `format-nintendo-nes-ines` now supports mapper 22
+(Konami VRC2a) and mapper 28 (Action 53). VRC2a covers two switchable
+8 KiB PRG banks, fixed final 16 KiB PRG, 1 KiB CHR banking, H/V
+mirroring, and the VRC2 `$6000-$6FFF` latch behavior. Action 53
+covers register-selected CHR RAM, inner/outer PRG banking in 16/32 KiB
+modes, and switchable H/V/1-screen mirroring. The mapper unit suite is
+now 79 tests. The 300-frame local smoke matrix scanned 629 `.nes`
+files: 619 ran successfully, with mapper 22 at 2/2, mapper 28 at 4/4,
+and the remaining expected failures limited to unsupported MMC5 rows
+plus two invalid-header files.
+
+---
+
 ## 2026-04-25 — NES smoke matrix, snapshots, DMC DMA, and mapper 11/68
 
 **Type:** feature

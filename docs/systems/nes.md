@@ -18,7 +18,7 @@ The NES path now has a usable NTSC machine/runtime/native baseline. It runs thro
 - **6502 CPU / 2A03 variant** — done and validated by `nestest`
 - **PPU** — dot-driven 2C02 path with nametable mirroring and frame output
 - **APU** — 5-channel 2A03 audio with host-side channel controls
-- **Mapper system** — NROM, MMC1, UxROM, CNROM, MMC3, AxROM, Color Dreams, BxROM/BNROM, NINA-001, Sunsoft-4, and Camerica/Codemasters are implemented; the remaining long-tail mappers are compatibility-driven
+- **Mapper system** — NROM, MMC1, UxROM, CNROM, MMC3, AxROM, Color Dreams, VRC2a, Action 53, BxROM/BNROM, NINA-001, Sunsoft-4, and Camerica/Codemasters are implemented; the remaining long-tail mappers are compatibility-driven
 - **iNES/NES 2.0** — ROM format parsing with mapper detection
 
 ## Crates
@@ -28,7 +28,7 @@ The NES path now has a usable NTSC machine/runtime/native baseline. It runs thro
 | `mos-6502` | Shared 6502 core with 2A03 mode | Done |
 | `ricoh-ppu-2c02` | NES PPU | Ported |
 | `ricoh-apu-2a03` | NES APU | Ported |
-| `format-nintendo-nes-ines` | iNES parser + NROM/MMC1/UxROM/CNROM/MMC3/AxROM/Color Dreams/BxROM/NINA-001/Sunsoft-4/Camerica mappers | Active |
+| `format-nintendo-nes-ines` | iNES parser + NROM/MMC1/UxROM/CNROM/MMC3/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica mappers | Active |
 | `machine-nintendo-nes` | NES machine wiring | Active |
 | `runtime-nintendo-nes` | Shared shell runtime | Active |
 | `emu198x-nes` | Native verifier shell | Active |

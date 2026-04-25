@@ -2,7 +2,7 @@
 
 > Status as of 2026-04-25: **fresh NTSC NES headless/runtime/native path.**
 > The current system boots NROM, MMC1, UxROM, CNROM, MMC3, AxROM,
-> Color Dreams, BxROM/BNROM, NINA-001, Sunsoft-4, and
+> Color Dreams, VRC2a, Action 53, BxROM/BNROM, NINA-001, Sunsoft-4, and
 > Camerica/Codemasters cartridges through the shared
 > `MachineCore` boundary, passes the full `nestest` instruction-log
 > proof, renders `Super Mario Bros.`, and emits RGBA frames plus mono
@@ -18,7 +18,7 @@
 |-----------|-------|-------|--------|
 | 2A03 CPU (6502, BCD disabled) | `mos-6502` | 7 smoke + 2×2.47M Tom Harte | Validated |
 | 2C02 PPU | `ricoh-ppu-2c02` | 21 | Ported, interface rewritten |
-| iNES parser + NROM/MMC1/UxROM/CNROM/MMC3/AxROM/Color Dreams/BxROM/NINA-001/Sunsoft-4/Camerica mappers | `format-nintendo-nes-ines` | 71 | Validated |
+| iNES parser + NROM/MMC1/UxROM/CNROM/MMC3/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica mappers | `format-nintendo-nes-ines` | 79 | Validated |
 | APU | `ricoh-apu-2a03` | 24 | Ported and wired into the machine |
 | Machine wiring | `machine-nintendo-nes` | 14 + `nestest` | Tick loop + OAMDMA + DMC DMA cycle stealing + controller I/O |
 | Runtime | `runtime-nintendo-nes` | 8 | Fresh `MachineCore` runtime over the machine crate with snapshot import/export |
@@ -43,12 +43,12 @@
 
 - **nestest.nes** — 8,991 / 8,991 instructions match the golden log (PC, A, X, Y, P, SP at every instruction fetch). `$02` (official opcodes) = `0x00`, `$03` (unofficial opcodes) = `0x00` — all tests pass. This validates the tick loop, address space routing, PPU register bus, and CPU instruction correctness in the context of a real NES machine.
 - **Headless runner smoke** — the fresh `emu198x-script-nes` path now runs local `nestest.nes`, `Super Mario Bros.`, and mapper-specific ROMs such as `After Burner`, and emits PNG screenshots through the shared shell capture pipeline.
-- **Local smoke matrix** — `emu198x-script-nes --smoke-root ... --frames 1 --smoke-report ...` scanned 629 local `.nes` files: 613 reached at least one frame; the expected remaining failures are unsupported mapper 5/22/28 rows plus two invalid-header files.
-- **Mapper unit coverage** — NROM, MMC1, UxROM, CNROM, MMC3, AxROM, Color Dreams, BxROM, NINA-001, Sunsoft-4, and Camerica parser/banking behaviour is covered in `format-nintendo-nes-ines`.
+- **Local smoke matrix** — `emu198x-script-nes --smoke-root ... --frames 300 --smoke-report ...` scanned 629 local `.nes` files: 619 ran for 300 frames. Mapper 22 is 2/2 and mapper 28 is 4/4; the expected remaining failures are unsupported mapper 5 rows plus two invalid-header files.
+- **Mapper unit coverage** — NROM, MMC1, UxROM, CNROM, MMC3, AxROM, Color Dreams, VRC2a, Action 53, BxROM, NINA-001, Sunsoft-4, and Camerica parser/banking behaviour is covered in `format-nintendo-nes-ines`.
 
 ### What doesn't work yet
 
-- **Mappers beyond NROM/MMC1/UxROM/CNROM/MMC3/AxROM/Color Dreams/BxROM/NINA-001/Sunsoft-4/Camerica** — the longer tail still lives in the archive and will be lifted when the real-game matrix needs it.
+- **Mappers beyond NROM/MMC1/UxROM/CNROM/MMC3/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica** — the longer tail still lives in the archive and will be lifted when the real-game matrix needs it. MMC5 is the largest obvious remaining local gap.
 - **Mapper 34 ambiguity** — mapper 34 currently selects BxROM/BNROM for CHR-RAM images and NINA-001 for CHR-ROM images. NES 2.0 submapper handling would be a cleaner long-term discriminator if we add ROMs that need it.
 - **Snapshot format stability** — NES snapshots exist now, but they should be treated as version-1 internal snapshots until broader compatibility policy lands for mapper-specific state.
 
