@@ -6,12 +6,12 @@
 //! (`Emu198x-archive/crates/format-nintendo-nes-ines`) implemented 48
 //! mapper variants covering virtually every licensed NES/Famicom
 //! game. This port currently carries **Mapper 0 (NROM)**,
-//! **Mapper 1 (MMC1)**, **Mapper 2 (UxROM)**, and
-//! **Mapper 3 (CNROM)** — the trait, the header parser, and the
-//! first mappers needed to boot flat-layout test ROMs plus common
-//! PRG/CHR-bank-switched cartridges.
+//! **Mapper 1 (MMC1)**, **Mapper 2 (UxROM)**,
+//! **Mapper 3 (CNROM)**, and **Mapper 4 (MMC3)** — the trait, the
+//! header parser, and the first mappers needed to boot flat-layout
+//! test ROMs plus common PRG/CHR-bank-switched cartridges.
 //!
-//! The other 47 mappers are archive-provenance (see
+//! The remaining mappers are archive-provenance (see
 //! [archives-as-source.md](../../wiki/decisions/archives-as-source.md))
 //! and will be lifted one at a time *once the PPU crate is back
 //! online*, because there is no point porting address-translation
@@ -77,8 +77,8 @@ pub enum Mirroring {
 /// Implementations are per-mapper-number. The parser in
 /// [`parse_ines`] inspects the iNES header's mapper field and
 /// constructs the right concrete type. This port carries [`Nrom`]
-/// (mapper 0), [`Mmc1`] (mapper 1), [`UxRom`] (mapper 2), and
-/// [`CnRom`] (mapper 3).
+/// (mapper 0), [`Mmc1`] (mapper 1), [`UxRom`] (mapper 2),
+/// [`CnRom`] (mapper 3), and [`Mmc3`] (mapper 4).
 ///
 /// ## Design notes
 ///
@@ -552,6 +552,238 @@ impl Mapper for CnRom {
     }
 }
 
+// ─── MMC3 (Mapper 4) ───────────────────────────────────────────────
+
+/// MMC3 (Mapper 4, TxROM): 8 KiB PRG banking, 1 KiB CHR banking,
+/// PRG RAM protection, dynamic mirroring, and scanline IRQs.
+///
+/// MMC3 is used by a large part of the later NES library, including
+/// *Super Mario Bros. 3*. The IRQ counter is clocked by debounced PPU
+/// A12 rising edges reported through [`Mapper::notify_a12_rendering`].
+pub struct Mmc3 {
+    prg_rom: Vec<u8>,
+    chr: Vec<u8>,
+    chr_is_ram: bool,
+    prg_ram: [u8; 8192],
+    bank_select: u8,
+    registers: [u8; 8],
+    mirroring: Mirroring,
+    prg_ram_enable: bool,
+    prg_ram_write_protect: bool,
+    irq_latch: u8,
+    irq_counter: u8,
+    irq_reload_flag: bool,
+    irq_enabled: bool,
+    irq_pending: bool,
+    last_a12: bool,
+    dots_since_last_a12_rise: u16,
+}
+
+impl Mmc3 {
+    /// Construct MMC3 from parsed iNES payloads.
+    ///
+    /// Empty CHR data means CHR RAM, allocated as an 8 KiB window.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr = if chr_is_ram {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr,
+            chr_is_ram,
+            prg_ram: [0; 8192],
+            bank_select: 0,
+            registers: [0; 8],
+            mirroring: Mirroring::Vertical,
+            prg_ram_enable: true,
+            prg_ram_write_protect: false,
+            irq_latch: 0,
+            irq_counter: 0,
+            irq_reload_flag: false,
+            irq_enabled: false,
+            irq_pending: false,
+            last_a12: false,
+            dots_since_last_a12_rise: 0,
+        }
+    }
+
+    fn prg_8k_count(&self) -> usize {
+        (self.prg_rom.len() / 8192).max(1)
+    }
+
+    fn second_last_prg_bank(&self) -> usize {
+        self.prg_8k_count().saturating_sub(2)
+    }
+
+    fn last_prg_bank(&self) -> usize {
+        self.prg_8k_count() - 1
+    }
+
+    fn read_prg_8k(&self, bank: usize, offset: usize) -> u8 {
+        let bank = bank % self.prg_8k_count();
+        self.prg_rom[bank * 8192 + offset]
+    }
+
+    fn chr_1k_bank(&self, addr: u16) -> usize {
+        let slot = (usize::from(addr) & 0x1FFF) >> 10;
+        if self.bank_select & 0x80 != 0 {
+            match slot {
+                0 => usize::from(self.registers[2]),
+                1 => usize::from(self.registers[3]),
+                2 => usize::from(self.registers[4]),
+                3 => usize::from(self.registers[5]),
+                4 => usize::from(self.registers[0] & 0xFE),
+                5 => usize::from(self.registers[0] | 1),
+                6 => usize::from(self.registers[1] & 0xFE),
+                7 => usize::from(self.registers[1] | 1),
+                _ => unreachable!(),
+            }
+        } else {
+            match slot {
+                0 => usize::from(self.registers[0] & 0xFE),
+                1 => usize::from(self.registers[0] | 1),
+                2 => usize::from(self.registers[1] & 0xFE),
+                3 => usize::from(self.registers[1] | 1),
+                4 => usize::from(self.registers[2]),
+                5 => usize::from(self.registers[3]),
+                6 => usize::from(self.registers[4]),
+                7 => usize::from(self.registers[5]),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    fn chr_index(&self, addr: u16) -> usize {
+        let offset = usize::from(addr) & 0x03FF;
+        (self.chr_1k_bank(addr) * 1024 + offset) % self.chr.len()
+    }
+
+    fn update_a12(&mut self, a12_high: bool) {
+        if a12_high && !self.last_a12 {
+            if self.dots_since_last_a12_rise >= 15 {
+                self.clock_irq_counter();
+            }
+            self.dots_since_last_a12_rise = 0;
+        } else {
+            self.dots_since_last_a12_rise = self.dots_since_last_a12_rise.saturating_add(1);
+        }
+        self.last_a12 = a12_high;
+    }
+
+    fn clock_irq_counter(&mut self) {
+        if self.irq_counter == 0 || self.irq_reload_flag {
+            self.irq_counter = self.irq_latch;
+            self.irq_reload_flag = false;
+        } else {
+            self.irq_counter -= 1;
+        }
+
+        if self.irq_counter == 0 && self.irq_enabled {
+            self.irq_pending = true;
+        }
+    }
+}
+
+impl Mapper for Mmc3 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF => {
+                if self.prg_ram_enable {
+                    self.prg_ram[usize::from(addr - 0x6000)]
+                } else {
+                    0
+                }
+            }
+            0x8000..=0x9FFF => {
+                let offset = usize::from(addr - 0x8000);
+                if self.bank_select & 0x40 == 0 {
+                    self.read_prg_8k(usize::from(self.registers[6] & 0x3F), offset)
+                } else {
+                    self.read_prg_8k(self.second_last_prg_bank(), offset)
+                }
+            }
+            0xA000..=0xBFFF => {
+                let offset = usize::from(addr - 0xA000);
+                self.read_prg_8k(usize::from(self.registers[7] & 0x3F), offset)
+            }
+            0xC000..=0xDFFF => {
+                let offset = usize::from(addr - 0xC000);
+                if self.bank_select & 0x40 == 0 {
+                    self.read_prg_8k(self.second_last_prg_bank(), offset)
+                } else {
+                    self.read_prg_8k(usize::from(self.registers[6] & 0x3F), offset)
+                }
+            }
+            0xE000..=0xFFFF => {
+                let offset = usize::from(addr - 0xE000);
+                self.read_prg_8k(self.last_prg_bank(), offset)
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x6000..=0x7FFF => {
+                if self.prg_ram_enable && !self.prg_ram_write_protect {
+                    self.prg_ram[usize::from(addr - 0x6000)] = value;
+                }
+            }
+            0x8000..=0x9FFF if addr & 1 == 0 => self.bank_select = value,
+            0x8000..=0x9FFF => {
+                let register = usize::from(self.bank_select & 0x07);
+                self.registers[register] = value;
+            }
+            0xA000..=0xBFFF if addr & 1 == 0 => {
+                self.mirroring = if value & 1 == 0 {
+                    Mirroring::Vertical
+                } else {
+                    Mirroring::Horizontal
+                };
+            }
+            0xA000..=0xBFFF => {
+                self.prg_ram_write_protect = value & 0x40 != 0;
+                self.prg_ram_enable = value & 0x80 != 0;
+            }
+            0xC000..=0xDFFF if addr & 1 == 0 => self.irq_latch = value,
+            0xC000..=0xDFFF => self.irq_reload_flag = true,
+            0xE000..=0xFFFF if addr & 1 == 0 => {
+                self.irq_enabled = false;
+                self.irq_pending = false;
+            }
+            0xE000..=0xFFFF => self.irq_enabled = true,
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[self.chr_index(addr)]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            let index = self.chr_index(addr);
+            self.chr[index] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
+
+    fn notify_a12_rendering(&mut self, a12_high: bool) {
+        self.update_a12(a12_high);
+    }
+}
+
 // ─── iNES header + parser ──────────────────────────────────────────
 
 /// Parsed iNES header fields. Both iNES 1.0 and NES 2.0 files map
@@ -688,11 +920,13 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         1 => Box::new(Mmc1::new(prg_rom, chr_data)),
         2 => Box::new(UxRom::new(prg_rom, chr_data, mirroring)),
         3 => Box::new(CnRom::new(prg_rom, chr_data, mirroring)),
+        4 => Box::new(Mmc3::new(prg_rom, chr_data)),
         n => {
             return Err(format!(
                 "Unsupported mapper: {n} — this port currently carries Mapper 0 \
                  (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
-                 (CNROM). Additional mappers will land as compatibility expands."
+                 (CNROM), and Mapper 4 (MMC3). Additional mappers will land \
+                 as compatibility expands."
             ));
         }
     };
@@ -1075,6 +1309,205 @@ mod tests {
         mapper.chr_write(0x0000, 0xAB);
 
         assert_eq!(mapper.chr_read(0x0000), 0x44);
+    }
+
+    fn make_mmc3(prg_8k_banks: usize, chr_1k_pages: usize) -> Mmc3 {
+        let mut prg_rom = vec![0u8; prg_8k_banks * 8192];
+        for bank in 0..prg_8k_banks {
+            for byte in &mut prg_rom[bank * 8192..(bank + 1) * 8192] {
+                *byte = bank as u8;
+            }
+        }
+
+        let chr_data = if chr_1k_pages == 0 {
+            Vec::new()
+        } else {
+            let mut chr = vec![0u8; chr_1k_pages * 1024];
+            for page in 0..chr_1k_pages {
+                for byte in &mut chr[page * 1024..(page + 1) * 1024] {
+                    *byte = page as u8;
+                }
+            }
+            chr
+        };
+
+        Mmc3::new(prg_rom, chr_data)
+    }
+
+    #[test]
+    fn parse_valid_mmc3() {
+        let data = make_ines(4, 4, 0x40);
+        let parsed = parse_ines(&data).expect("parse failed");
+
+        assert_eq!(parsed.header.mapper_number, 4);
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Vertical);
+    }
+
+    #[test]
+    fn mmc3_prg_mode_0_maps_r6_r7_second_last_last() {
+        let mut mapper = make_mmc3(32, 8);
+
+        mapper.cpu_write(0x8000, 6);
+        mapper.cpu_write(0x8001, 5);
+        mapper.cpu_write(0x8000, 7);
+        mapper.cpu_write(0x8001, 10);
+
+        assert_eq!(mapper.cpu_read(0x8000), 5);
+        assert_eq!(mapper.cpu_read(0xA000), 10);
+        assert_eq!(mapper.cpu_read(0xC000), 30);
+        assert_eq!(mapper.cpu_read(0xE000), 31);
+    }
+
+    #[test]
+    fn mmc3_prg_mode_1_swaps_r6_with_second_last() {
+        let mut mapper = make_mmc3(32, 8);
+
+        mapper.cpu_write(0x8000, 0x46);
+        mapper.cpu_write(0x8001, 5);
+        mapper.cpu_write(0x8000, 0x47);
+        mapper.cpu_write(0x8001, 10);
+
+        assert_eq!(mapper.cpu_read(0x8000), 30);
+        assert_eq!(mapper.cpu_read(0xA000), 10);
+        assert_eq!(mapper.cpu_read(0xC000), 5);
+        assert_eq!(mapper.cpu_read(0xE000), 31);
+    }
+
+    #[test]
+    fn mmc3_chr_mode_0_maps_two_2k_then_four_1k_banks() {
+        let mut mapper = make_mmc3(4, 256);
+
+        mapper.cpu_write(0x8000, 0);
+        mapper.cpu_write(0x8001, 4);
+        mapper.cpu_write(0x8000, 1);
+        mapper.cpu_write(0x8001, 8);
+        mapper.cpu_write(0x8000, 2);
+        mapper.cpu_write(0x8001, 20);
+        mapper.cpu_write(0x8000, 3);
+        mapper.cpu_write(0x8001, 21);
+        mapper.cpu_write(0x8000, 4);
+        mapper.cpu_write(0x8001, 22);
+        mapper.cpu_write(0x8000, 5);
+        mapper.cpu_write(0x8001, 23);
+
+        assert_eq!(mapper.chr_read(0x0000), 4);
+        assert_eq!(mapper.chr_read(0x0400), 5);
+        assert_eq!(mapper.chr_read(0x0800), 8);
+        assert_eq!(mapper.chr_read(0x0C00), 9);
+        assert_eq!(mapper.chr_read(0x1000), 20);
+        assert_eq!(mapper.chr_read(0x1400), 21);
+        assert_eq!(mapper.chr_read(0x1800), 22);
+        assert_eq!(mapper.chr_read(0x1C00), 23);
+    }
+
+    #[test]
+    fn mmc3_chr_mode_1_inverts_chr_windows() {
+        let mut mapper = make_mmc3(4, 256);
+
+        mapper.cpu_write(0x8000, 0x80);
+        mapper.cpu_write(0x8001, 4);
+        mapper.cpu_write(0x8000, 0x81);
+        mapper.cpu_write(0x8001, 8);
+        mapper.cpu_write(0x8000, 0x82);
+        mapper.cpu_write(0x8001, 20);
+        mapper.cpu_write(0x8000, 0x83);
+        mapper.cpu_write(0x8001, 21);
+        mapper.cpu_write(0x8000, 0x84);
+        mapper.cpu_write(0x8001, 22);
+        mapper.cpu_write(0x8000, 0x85);
+        mapper.cpu_write(0x8001, 23);
+
+        assert_eq!(mapper.chr_read(0x0000), 20);
+        assert_eq!(mapper.chr_read(0x0400), 21);
+        assert_eq!(mapper.chr_read(0x0800), 22);
+        assert_eq!(mapper.chr_read(0x0C00), 23);
+        assert_eq!(mapper.chr_read(0x1000), 4);
+        assert_eq!(mapper.chr_read(0x1400), 5);
+        assert_eq!(mapper.chr_read(0x1800), 8);
+        assert_eq!(mapper.chr_read(0x1C00), 9);
+    }
+
+    #[test]
+    fn mmc3_prg_ram_respects_enable_and_write_protect() {
+        let mut mapper = make_mmc3(4, 8);
+
+        mapper.cpu_write(0x6000, 0x42);
+        assert_eq!(mapper.cpu_read(0x6000), 0x42);
+
+        mapper.cpu_write(0xA001, 0xC0);
+        mapper.cpu_write(0x6000, 0x99);
+        assert_eq!(mapper.cpu_read(0x6000), 0x42);
+
+        mapper.cpu_write(0xA001, 0x00);
+        assert_eq!(mapper.cpu_read(0x6000), 0x00);
+        mapper.cpu_write(0x6000, 0xAB);
+        assert_eq!(mapper.cpu_read(0x6000), 0x00);
+
+        mapper.cpu_write(0xA001, 0x80);
+        mapper.cpu_write(0x6000, 0xAB);
+        assert_eq!(mapper.cpu_read(0x6000), 0xAB);
+    }
+
+    #[test]
+    fn mmc3_mirroring_is_dynamic() {
+        let mut mapper = make_mmc3(4, 8);
+
+        assert_eq!(mapper.mirroring(), Mirroring::Vertical);
+        mapper.cpu_write(0xA000, 1);
+        assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
+        mapper.cpu_write(0xA000, 0);
+        assert_eq!(mapper.mirroring(), Mirroring::Vertical);
+    }
+
+    #[test]
+    fn mmc3_chr_ram_writes_through_selected_bank() {
+        let mut mapper = make_mmc3(4, 0);
+
+        mapper.cpu_write(0x8000, 0);
+        mapper.cpu_write(0x8001, 4);
+        mapper.chr_write(0x0002, 0x5A);
+
+        assert_eq!(mapper.chr_read(0x0002), 0x5A);
+    }
+
+    fn mmc3_a12_edge(mapper: &mut Mmc3) {
+        for _ in 0..16 {
+            mapper.notify_a12_rendering(false);
+        }
+        mapper.notify_a12_rendering(true);
+    }
+
+    #[test]
+    fn mmc3_irq_counter_clocks_on_debounced_a12_edges() {
+        let mut mapper = make_mmc3(4, 8);
+
+        mapper.cpu_write(0xC000, 3);
+        mapper.cpu_write(0xC001, 0);
+        mapper.cpu_write(0xE001, 0);
+
+        mmc3_a12_edge(&mut mapper);
+        assert!(!mapper.irq_pending());
+        mmc3_a12_edge(&mut mapper);
+        assert!(!mapper.irq_pending());
+        mmc3_a12_edge(&mut mapper);
+        assert!(!mapper.irq_pending());
+        mmc3_a12_edge(&mut mapper);
+        assert!(mapper.irq_pending());
+    }
+
+    #[test]
+    fn mmc3_irq_disable_acknowledges_pending_irq() {
+        let mut mapper = make_mmc3(4, 8);
+
+        mapper.cpu_write(0xC000, 0);
+        mapper.cpu_write(0xC001, 0);
+        mapper.cpu_write(0xE001, 0);
+        mmc3_a12_edge(&mut mapper);
+        assert!(mapper.irq_pending());
+
+        mapper.cpu_write(0xE000, 0);
+
+        assert!(!mapper.irq_pending());
     }
 
     #[test]

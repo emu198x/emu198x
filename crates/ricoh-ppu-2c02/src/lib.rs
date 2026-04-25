@@ -628,10 +628,10 @@ impl Ppu {
             let mut r = self.scanline.wrapping_sub(sprite_y);
             if sprite_height == 16 {
                 if flip_v {
-                    r = 15 - r;
+                    r = 15u16.wrapping_sub(r);
                 }
             } else if flip_v {
-                r = 7 - r;
+                r = 7u16.wrapping_sub(r);
             }
             r
         } else {
@@ -651,9 +651,11 @@ impl Ppu {
             (table, tile_index, row)
         };
 
-        let mut addr = table + u16::from(tile) * 16 + sprite_row;
+        let mut addr = table
+            .wrapping_add(u16::from(tile).wrapping_mul(16))
+            .wrapping_add(sprite_row);
         if high_byte {
-            addr += 8;
+            addr = addr.wrapping_add(8);
         }
         addr
     }
@@ -1227,6 +1229,21 @@ mod tests {
             0,
             "overflow flag not set on false positive"
         );
+    }
+
+    #[test]
+    fn sprite_fetch_address_wraps_invalid_flipped_rows() {
+        let mut ppu = Ppu::new();
+        ppu.ctrl = 0x20; // 8x16 sprites
+        ppu.scanline = 0;
+        ppu.sprite_count = 1;
+        ppu.secondary_oam[0] = 0xFF; // invalid/out-of-range Y from secondary OAM
+        ppu.secondary_oam[1] = 0xFF;
+        ppu.secondary_oam[2] = 0x80; // vertical flip
+
+        let addr = ppu.sprite_fetch_addr(0, true);
+
+        assert_eq!(addr, 0x20FE);
     }
 
     #[test]

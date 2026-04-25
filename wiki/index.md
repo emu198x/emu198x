@@ -20,9 +20,9 @@
 - [Overview](systems/commodore-c64.md) — live 6502/CIA/VIC-II/SID board loop, **KERNAL boots to `READY.` prompt end-to-end**, runtime snapshots, TAP datasette flow, and optional live 1541/`D64` drive-8 path via the shared shell
 
 ### Nintendo NES
-- [Overview](systems/nintendo-nes.md) — 2A03 CPU + 2C02 PPU + APU + Mapper wired, NROM/MMC1/UxROM/CNROM support, master-clock tick loop, **nestest 8991/8991 passing**, **Super Mario Bros. renders**, `MachineCore` runtime integrated, `emu198x-nes` native verifier window available
+- [Overview](systems/nintendo-nes.md) — 2A03 CPU + 2C02 PPU + APU + Mapper wired, NROM/MMC1/UxROM/CNROM/MMC3 support, master-clock tick loop, **nestest 8991/8991 passing**, **Super Mario Bros. renders**, `MachineCore` runtime integrated, `emu198x-nes` native verifier window available
 - [Clock topology](decisions/nes-clock-topology.md) — master-clock-driven tick loop, 1 CPU : 3 PPU dot ratio, pin contracts for PPU/CPU/Mapper
-- `format-nintendo-nes-ines` — iNES / NES 2.0 header parser + Mapper trait + NROM, MMC1, UxROM, and CNROM.
+- `format-nintendo-nes-ines` — iNES / NES 2.0 header parser + Mapper trait + NROM, MMC1, UxROM, CNROM, and MMC3.
 
 ### Commodore Amiga
 - [Overview](systems/commodore-amiga.md) — OCS PAL runtime covering A1000 bootstrap/WOM and A500-family RAM profiles; Kickstart insert-disk, Workbench 1.3 desktop, native verifier window, DF0 `ADF` insertion, screenshots, live Paula audio, keyboard, and mouse input
