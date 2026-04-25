@@ -7,9 +7,10 @@
 //! mapper variants covering virtually every licensed NES/Famicom
 //! game. This port currently carries **Mapper 0 (NROM)**,
 //! **Mapper 1 (MMC1)**, **Mapper 2 (UxROM)**,
-//! **Mapper 3 (CNROM)**, and **Mapper 4 (MMC3)** — the trait, the
-//! header parser, and the first mappers needed to boot flat-layout
-//! test ROMs plus common PRG/CHR-bank-switched cartridges.
+//! **Mapper 3 (CNROM)**, **Mapper 4 (MMC3)**, and
+//! **Mapper 7 (AxROM)** — the trait, the header parser, and the
+//! first mappers needed to boot flat-layout test ROMs plus common
+//! PRG/CHR-bank-switched cartridges.
 //!
 //! The remaining mappers are archive-provenance (see
 //! [archives-as-source.md](../../wiki/decisions/archives-as-source.md))
@@ -78,7 +79,8 @@ pub enum Mirroring {
 /// [`parse_ines`] inspects the iNES header's mapper field and
 /// constructs the right concrete type. This port carries [`Nrom`]
 /// (mapper 0), [`Mmc1`] (mapper 1), [`UxRom`] (mapper 2),
-/// [`CnRom`] (mapper 3), and [`Mmc3`] (mapper 4).
+/// [`CnRom`] (mapper 3), [`Mmc3`] (mapper 4), and [`AxRom`]
+/// (mapper 7).
 ///
 /// ## Design notes
 ///
@@ -784,6 +786,75 @@ impl Mapper for Mmc3 {
     }
 }
 
+// ─── AxROM (Mapper 7) ──────────────────────────────────────────────
+
+/// AxROM (Mapper 7): switchable 32 KiB PRG bank with single-screen
+/// mirroring.
+///
+/// AxROM boards use CHR RAM and switch the whole CPU `$8000-$FFFF`
+/// PRG window at once. Bit 4 of the latched bank register selects
+/// lower vs upper single-screen nametable mirroring.
+pub struct AxRom {
+    prg_rom: Vec<u8>,
+    chr_ram: [u8; 8192],
+    bank: u8,
+    mirroring: Mirroring,
+}
+
+impl AxRom {
+    /// Construct AxROM from parsed PRG ROM. CHR is always 8 KiB RAM.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>) -> Self {
+        Self {
+            prg_rom,
+            chr_ram: [0; 8192],
+            bank: 0,
+            mirroring: Mirroring::SingleScreenLower,
+        }
+    }
+
+    fn prg_bank_count(&self) -> usize {
+        (self.prg_rom.len() / 32768).max(1)
+    }
+}
+
+impl Mapper for AxRom {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xFFFF => {
+                let bank = (usize::from(self.bank) & 0x07) % self.prg_bank_count();
+                let offset = usize::from(addr - 0x8000);
+                self.prg_rom[bank * 32768 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            let effective = value & self.cpu_read(addr);
+            self.bank = effective & 0x07;
+            self.mirroring = if effective & 0x10 != 0 {
+                Mirroring::SingleScreenUpper
+            } else {
+                Mirroring::SingleScreenLower
+            };
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_ram[usize::from(addr) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        self.chr_ram[usize::from(addr) & 0x1FFF] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 // ─── iNES header + parser ──────────────────────────────────────────
 
 /// Parsed iNES header fields. Both iNES 1.0 and NES 2.0 files map
@@ -921,12 +992,13 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         2 => Box::new(UxRom::new(prg_rom, chr_data, mirroring)),
         3 => Box::new(CnRom::new(prg_rom, chr_data, mirroring)),
         4 => Box::new(Mmc3::new(prg_rom, chr_data)),
+        7 => Box::new(AxRom::new(prg_rom)),
         n => {
             return Err(format!(
                 "Unsupported mapper: {n} — this port currently carries Mapper 0 \
                  (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
-                 (CNROM), and Mapper 4 (MMC3). Additional mappers will land \
-                 as compatibility expands."
+                 (CNROM), Mapper 4 (MMC3), and Mapper 7 (AxROM). Additional \
+                 mappers will land as compatibility expands."
             ));
         }
     };
@@ -1508,6 +1580,73 @@ mod tests {
         mapper.cpu_write(0xE000, 0);
 
         assert!(!mapper.irq_pending());
+    }
+
+    #[test]
+    fn parse_valid_axrom() {
+        let data = make_ines(2, 0, 0x70);
+        let parsed = parse_ines(&data).expect("parse failed");
+
+        assert_eq!(parsed.header.mapper_number, 7);
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::SingleScreenLower);
+    }
+
+    #[test]
+    fn axrom_switches_32k_prg_bank() {
+        let mut prg = vec![0u8; 8 * 32768];
+        for bank in 0..8usize {
+            for byte in &mut prg[bank * 32768..(bank + 1) * 32768] {
+                *byte = bank as u8;
+            }
+            prg[bank * 32768] = 0xFF;
+        }
+        let mut mapper = AxRom::new(prg);
+
+        assert_eq!(mapper.cpu_read(0x8001), 0);
+        assert_eq!(mapper.cpu_read(0xC001), 0);
+
+        mapper.cpu_write(0x8000, 3);
+
+        assert_eq!(mapper.cpu_read(0x8001), 3);
+        assert_eq!(mapper.cpu_read(0xC001), 3);
+    }
+
+    #[test]
+    fn axrom_bank_write_obeys_bus_conflict() {
+        let mut prg = vec![0xFFu8; 8 * 32768];
+        for bank in 0..8usize {
+            for byte in &mut prg[bank * 32768..(bank + 1) * 32768] {
+                *byte = bank as u8;
+            }
+        }
+        prg[0] = 0x01;
+        let mut mapper = AxRom::new(prg);
+
+        mapper.cpu_write(0x8000, 3);
+
+        assert_eq!(mapper.cpu_read(0x8001), 1);
+    }
+
+    #[test]
+    fn axrom_selects_single_screen_mirroring() {
+        let mut mapper = AxRom::new(vec![0xFFu8; 32768]);
+
+        assert_eq!(mapper.mirroring(), Mirroring::SingleScreenLower);
+        mapper.cpu_write(0x8000, 0x10);
+        assert_eq!(mapper.mirroring(), Mirroring::SingleScreenUpper);
+        mapper.cpu_write(0x8000, 0x02);
+        assert_eq!(mapper.mirroring(), Mirroring::SingleScreenLower);
+    }
+
+    #[test]
+    fn axrom_chr_ram_roundtrip() {
+        let mut mapper = AxRom::new(vec![0u8; 32768]);
+
+        mapper.chr_write(0x0000, 0xAB);
+        mapper.chr_write(0x1FFF, 0xCD);
+
+        assert_eq!(mapper.chr_read(0x0000), 0xAB);
+        assert_eq!(mapper.chr_read(0x1FFF), 0xCD);
     }
 
     #[test]
