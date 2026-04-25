@@ -1,6 +1,6 @@
 //! `emu198x-script-game-boy` — minimal headless Game Boy runner.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use common_nintendo_game_boy::MCYCLES_PER_FRAME;
@@ -21,6 +21,8 @@ struct Cli {
     save_snapshot: Option<PathBuf>,
     screenshot: Option<PathBuf>,
     audio_capture: Option<PathBuf>,
+    battery_save: Option<PathBuf>,
+    no_battery_save: bool,
     script: Option<PathBuf>,
     frames: u32,
 }
@@ -34,6 +36,8 @@ impl Default for Cli {
             save_snapshot: None,
             screenshot: None,
             audio_capture: None,
+            battery_save: None,
+            no_battery_save: false,
             script: None,
             frames: 0,
         }
@@ -78,6 +82,8 @@ Automation:
     --save-snapshot PATH       write a runtime snapshot after running
     --screenshot PATH          write the last emitted frame as PNG
     --audio-capture PATH       write emitted audio as 16-bit PCM WAV
+    --battery-save PATH        load/write cartridge battery RAM sidecar
+    --no-battery-save          disable automatic .sav load/write
 
 Other:
     --help, -h                 show this help
@@ -147,6 +153,12 @@ where
             }
             "--audio-capture" => {
                 cli.audio_capture = Some(PathBuf::from(next_arg(&mut iter, "--audio-capture")));
+            }
+            "--battery-save" => {
+                cli.battery_save = Some(PathBuf::from(next_arg(&mut iter, "--battery-save")));
+            }
+            "--no-battery-save" => {
+                cli.no_battery_save = true;
             }
             "--frames" => {
                 cli.frames = next_arg(&mut iter, "--frames")
@@ -220,6 +232,9 @@ fn die(message: &str) -> ! {
 }
 
 fn run(cli: Cli) -> Result<RunnerReport, String> {
+    if cli.no_battery_save && cli.battery_save.is_some() {
+        return Err("--battery-save conflicts with --no-battery-save".into());
+    }
     if cli.media.is_empty() && cli.load_snapshot.is_none() {
         return Err("a cartridge image or snapshot is required; use --rom, --media cartridge:cartridge=PATH, or --load-snapshot".into());
     }
@@ -263,6 +278,11 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
         .prepare(&media, &[])
         .map_err(|err| format!("machine preparation failed: {err}"))?;
 
+    let battery_save_path = resolve_battery_save_path(&cli);
+    if let Some(path) = &battery_save_path {
+        load_battery_save(session.machine_mut(), path, cli.battery_save.is_some())?;
+    }
+
     let mut observations = Vec::new();
     if let Some(path) = &cli.script {
         let script = HeadlessScript::from_path(path)
@@ -298,11 +318,70 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
             .map_err(|err| format!("failed to write snapshot {}: {err}", path.display()))?;
     }
 
+    if let Some(path) = &battery_save_path {
+        write_battery_save(session.machine(), path)?;
+    }
+
     Ok(RunnerReport {
         observations,
         time: session.time().get(),
         cartridge_loaded: session.machine().machine().is_some(),
     })
+}
+
+fn resolve_battery_save_path(cli: &Cli) -> Option<PathBuf> {
+    if cli.no_battery_save {
+        return None;
+    }
+    cli.battery_save.clone().or_else(|| {
+        cli.media
+            .iter()
+            .find(|entry| {
+                entry.slot == DEFAULT_CARTRIDGE_SLOT && entry.kind == MediaKind::Cartridge
+            })
+            .map(|entry| default_battery_save_path(&entry.path))
+    })
+}
+
+fn default_battery_save_path(rom_path: &Path) -> PathBuf {
+    let mut path = rom_path.to_path_buf();
+    path.set_extension("sav");
+    path
+}
+
+fn load_battery_save(
+    runtime: &mut GameBoyRuntime,
+    path: &Path,
+    explicit: bool,
+) -> Result<(), String> {
+    if !runtime.has_battery_backed_ram() {
+        if explicit {
+            return Err("loaded cartridge does not have battery-backed RAM".to_owned());
+        }
+        return Ok(());
+    }
+
+    match std::fs::read(path) {
+        Ok(bytes) => runtime
+            .restore_cartridge_ram(&bytes)
+            .map_err(|err| format!("failed to restore battery save {}: {err}", path.display())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!(
+            "failed to read battery save {}: {err}",
+            path.display()
+        )),
+    }
+}
+
+fn write_battery_save(runtime: &GameBoyRuntime, path: &Path) -> Result<(), String> {
+    if !runtime.has_battery_backed_ram() {
+        return Ok(());
+    }
+    let Some(ram) = runtime.cartridge_ram() else {
+        return Ok(());
+    };
+    std::fs::write(path, ram)
+        .map_err(|err| format!("failed to write battery save {}: {err}", path.display()))
 }
 
 fn load_media_bytes(entries: &[MediaArg]) -> Result<Vec<LoadedMedia>, String> {
@@ -346,6 +425,18 @@ mod tests {
         rom
     }
 
+    fn battery_ram_rom() -> Vec<u8> {
+        let mut rom = loop_rom();
+        rom[0x0147] = 0x03; // MBC1 + RAM + battery
+        rom[0x0149] = 0x02; // 8 KiB RAM
+        let mut checksum: u8 = 0;
+        for &byte in &rom[0x0134..=0x014C] {
+            checksum = checksum.wrapping_sub(byte).wrapping_sub(1);
+        }
+        rom[0x014D] = checksum;
+        rom
+    }
+
     #[test]
     fn parse_cli_accepts_model_rom_and_capture_flags() {
         let cli = parse_cli([
@@ -374,10 +465,44 @@ mod tests {
                 save_snapshot: None,
                 screenshot: Some(PathBuf::from("frame.png")),
                 audio_capture: Some(PathBuf::from("audio.wav")),
+                battery_save: None,
+                no_battery_save: false,
                 script: None,
                 frames: 12,
             }
         );
+    }
+
+    #[test]
+    fn default_battery_save_path_replaces_rom_extension() {
+        assert_eq!(
+            default_battery_save_path(Path::new("game.gb")),
+            PathBuf::from("game.sav")
+        );
+    }
+
+    #[test]
+    fn parse_cli_accepts_battery_save_controls() {
+        let cli = parse_cli([
+            "--rom".to_string(),
+            "demo.gb".to_string(),
+            "--battery-save".to_string(),
+            "demo-state.sav".to_string(),
+        ]);
+
+        assert_eq!(cli.battery_save, Some(PathBuf::from("demo-state.sav")));
+        assert_eq!(
+            resolve_battery_save_path(&cli),
+            Some(PathBuf::from("demo-state.sav"))
+        );
+
+        let cli = parse_cli([
+            "--rom".to_string(),
+            "demo.gb".to_string(),
+            "--no-battery-save".to_string(),
+        ]);
+        assert!(cli.no_battery_save);
+        assert_eq!(resolve_battery_save_path(&cli), None);
     }
 
     #[test]
@@ -413,6 +538,8 @@ mod tests {
             save_snapshot: Some(snapshot_path.clone()),
             screenshot: Some(screenshot_path.clone()),
             audio_capture: Some(audio_path.clone()),
+            battery_save: None,
+            no_battery_save: false,
             script: None,
             frames: 1,
         });
@@ -429,6 +556,52 @@ mod tests {
         let _ = fs::remove_file(screenshot_path);
         let _ = fs::remove_file(audio_path);
         let _ = fs::remove_file(snapshot_path);
+    }
+
+    #[test]
+    fn run_loads_and_writes_battery_save() {
+        let temp_dir = std::env::temp_dir();
+        let rom_path = temp_dir.join(format!(
+            "emu198x-script-game-boy-{}-battery.gb",
+            std::process::id()
+        ));
+        let save_path = temp_dir.join(format!(
+            "emu198x-script-game-boy-{}-battery.sav",
+            std::process::id()
+        ));
+        let save = vec![0x5A; 0x2000];
+
+        fs::write(&rom_path, battery_ram_rom()).expect("temporary ROM write should succeed");
+        fs::write(&save_path, &save).expect("temporary save write should succeed");
+
+        let result = run(Cli {
+            model: Model::Dmg,
+            media: vec![MediaArg {
+                slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),
+                kind: MediaKind::Cartridge,
+                path: rom_path.clone(),
+            }],
+            load_snapshot: None,
+            save_snapshot: None,
+            screenshot: None,
+            audio_capture: None,
+            battery_save: Some(save_path.clone()),
+            no_battery_save: false,
+            script: None,
+            frames: 0,
+        });
+
+        assert!(
+            result.is_ok(),
+            "runner should preserve battery save: {result:?}"
+        );
+        assert_eq!(
+            fs::read(&save_path).expect("battery save should be readable"),
+            save
+        );
+
+        let _ = fs::remove_file(rom_path);
+        let _ = fs::remove_file(save_path);
     }
 
     #[test]
@@ -466,6 +639,8 @@ mod tests {
             save_snapshot: None,
             screenshot: None,
             audio_capture: None,
+            battery_save: None,
+            no_battery_save: false,
             script: Some(script_path.clone()),
             frames: 0,
         });

@@ -1,7 +1,7 @@
 //! `emu198x-game-boy` — minimal native Game Boy verifier shell.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 
@@ -50,6 +50,8 @@ Options:
     --rom PATH            Game Boy ROM image or zip containing one ROM candidate
     --model MODEL         dmg0 | dmg | mgb | sgb | sgb2 [default: dmg]
     --load-snapshot PATH  restore a runtime snapshot before starting
+    --battery-save PATH   load/write cartridge battery RAM sidecar
+    --no-battery-save     disable automatic .sav load/write
     --scale N             integer window scale, default 4
     --video MODE          raw | lcd | crt [default: raw]
     --help, -h            show this help
@@ -77,6 +79,8 @@ struct Cli {
     rom: Option<PathBuf>,
     model: Model,
     load_snapshot: Option<PathBuf>,
+    battery_save: Option<PathBuf>,
+    no_battery_save: bool,
     scale: u32,
     video: VideoFilter,
 }
@@ -87,6 +91,8 @@ impl Default for Cli {
             rom: None,
             model: Model::Dmg,
             load_snapshot: None,
+            battery_save: None,
+            no_battery_save: false,
             scale: DEFAULT_SCALE,
             video: VideoFilter::Raw,
         }
@@ -123,10 +129,16 @@ struct GameBoyRunner {
     audio_output: NativeAudioOutput,
     last_run_result: Option<RunResult>,
     native_frame_ticks: u64,
+    battery_save_path: Option<PathBuf>,
 }
 
 impl GameBoyRunner {
     fn from_cli(cli: &Cli) -> Result<Self, AppError> {
+        if cli.no_battery_save && cli.battery_save.is_some() {
+            return Err(AppError::Setup {
+                reason: "--battery-save conflicts with --no-battery-save".to_owned(),
+            });
+        }
         if cli.rom.is_none() && cli.load_snapshot.is_none() {
             return Err(AppError::Setup {
                 reason: "provide a ROM path or --load-snapshot PATH".to_owned(),
@@ -134,6 +146,7 @@ impl GameBoyRunner {
         }
 
         let mut runtime = GameBoyRuntime::blank(cli.model);
+        let battery_save_path = resolve_battery_save_path(cli);
         if let Some(path) = &cli.load_snapshot {
             let bytes = std::fs::read(path).map_err(|err| AppError::Setup {
                 reason: format!("failed to read snapshot {}: {err}", path.display()),
@@ -153,6 +166,9 @@ impl GameBoyRunner {
             ));
             runtime.load_media(&media)?;
         }
+        if let Some(path) = &battery_save_path {
+            load_battery_save(&mut runtime, path, cli.battery_save.is_some())?;
+        }
 
         let mut runner = Self {
             runtime,
@@ -160,9 +176,25 @@ impl GameBoyRunner {
             audio_output: NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)?,
             last_run_result: None,
             native_frame_ticks: u64::from(MCYCLES_PER_FRAME),
+            battery_save_path,
         };
         runner.run_frame(&[])?;
         Ok(runner)
+    }
+
+    fn flush_battery_save(&self) -> Result<(), AppError> {
+        let Some(path) = &self.battery_save_path else {
+            return Ok(());
+        };
+        let Some(ram) = self.runtime.cartridge_ram() else {
+            return Ok(());
+        };
+        if !self.runtime.has_battery_backed_ram() {
+            return Ok(());
+        }
+        std::fs::write(path, ram).map_err(|err| AppError::Setup {
+            reason: format!("failed to write battery save {}: {err}", path.display()),
+        })
     }
 
     fn reset(&mut self) -> Result<(), AppError> {
@@ -523,7 +555,15 @@ fn run(cli: Cli) -> Result<(), AppError> {
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
-    if let Some(err) = app.take_error() {
+    let fatal_error = app.take_error();
+    if let Err(err) = app.runner.flush_battery_save() {
+        if fatal_error.is_none() {
+            return Err(err);
+        }
+        eprintln!("error: {err}");
+    }
+
+    if let Some(err) = fatal_error {
         return Err(err);
     }
 
@@ -543,6 +583,12 @@ where
             "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
+            }
+            "--battery-save" => {
+                cli.battery_save = Some(PathBuf::from(next_arg(&mut iter, "--battery-save")));
+            }
+            "--no-battery-save" => {
+                cli.no_battery_save = true;
             }
             "--scale" => {
                 cli.scale = next_arg(&mut iter, "--scale")
@@ -568,6 +614,46 @@ where
     }
 
     cli
+}
+
+fn resolve_battery_save_path(cli: &Cli) -> Option<PathBuf> {
+    if cli.no_battery_save {
+        return None;
+    }
+    cli.battery_save
+        .clone()
+        .or_else(|| cli.rom.as_deref().map(default_battery_save_path))
+}
+
+fn default_battery_save_path(rom_path: &Path) -> PathBuf {
+    let mut path = rom_path.to_path_buf();
+    path.set_extension("sav");
+    path
+}
+
+fn load_battery_save(
+    runtime: &mut GameBoyRuntime,
+    path: &Path,
+    explicit: bool,
+) -> Result<(), AppError> {
+    if !runtime.has_battery_backed_ram() {
+        if explicit {
+            return Err(AppError::Setup {
+                reason: "loaded cartridge does not have battery-backed RAM".to_owned(),
+            });
+        }
+        return Ok(());
+    }
+
+    match std::fs::read(path) {
+        Ok(bytes) => runtime
+            .restore_cartridge_ram(&bytes)
+            .map_err(AppError::Machine),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(AppError::Setup {
+            reason: format!("failed to read battery save {}: {err}", path.display()),
+        }),
+    }
 }
 
 fn parse_video_arg(video: &str) -> VideoFilter {
@@ -658,6 +744,8 @@ mod tests {
                 rom: Some(PathBuf::from("game.gb")),
                 model: Model::Mgb,
                 load_snapshot: None,
+                battery_save: None,
+                no_battery_save: false,
                 scale: 5,
                 video: VideoFilter::Raw,
             }
@@ -669,6 +757,33 @@ mod tests {
         let cli = parse_cli(["--video".to_owned(), "lcd".to_owned(), "game.gb".to_owned()]);
 
         assert_eq!(cli.video, VideoFilter::Lcd);
+    }
+
+    #[test]
+    fn default_battery_save_path_replaces_rom_extension() {
+        assert_eq!(
+            default_battery_save_path(Path::new("game.gb")),
+            PathBuf::from("game.sav")
+        );
+    }
+
+    #[test]
+    fn parse_cli_accepts_battery_save_controls() {
+        let cli = parse_cli([
+            "--battery-save".to_owned(),
+            "slot.sav".to_owned(),
+            "game.gb".to_owned(),
+        ]);
+
+        assert_eq!(cli.battery_save, Some(PathBuf::from("slot.sav")));
+        assert_eq!(
+            resolve_battery_save_path(&cli),
+            Some(PathBuf::from("slot.sav"))
+        );
+
+        let cli = parse_cli(["--no-battery-save".to_owned(), "game.gb".to_owned()]);
+        assert!(cli.no_battery_save);
+        assert_eq!(resolve_battery_save_path(&cli), None);
     }
 
     #[test]

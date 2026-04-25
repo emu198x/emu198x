@@ -69,6 +69,19 @@ impl CartType {
             Self::Mbc5 { .. } => "MBC5",
         }
     }
+
+    /// Returns whether this cartridge type includes a battery-backed
+    /// persistent component.
+    #[must_use]
+    pub const fn has_battery(self) -> bool {
+        match self {
+            Self::RomOnly => false,
+            Self::Mbc1 { battery, .. }
+            | Self::Mbc2 { battery }
+            | Self::Mbc3 { battery, .. }
+            | Self::Mbc5 { battery, .. } => battery,
+        }
+    }
 }
 
 /// Active MBC state. Each variant holds its own bank / enable /
@@ -131,6 +144,12 @@ impl Cartridge {
     #[must_use]
     pub const fn cart_type(&self) -> CartType {
         self.cart_type
+    }
+
+    /// Returns whether this cartridge has battery-backed external RAM.
+    #[must_use]
+    pub fn has_battery_backed_ram(&self) -> bool {
+        self.cart_type.has_battery() && !self.ram.is_empty()
     }
 
     /// ROM image (for the machine's direct reads, e.g. the header

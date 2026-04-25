@@ -4,6 +4,19 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-24 — Game Boy gains battery-save sidecars
+
+**Type:** feature
+**Trigger:** The Game Boy native window is now usable enough that
+cartridge progress should survive emulator sessions.
+**Result:** `GameBoyRuntime` can import/export cartridge external RAM
+and preserves it across runtime reset. `emu198x-game-boy` and
+`emu198x-script-game-boy` now load/write `.sav` sidecars for
+battery-backed RAM by default, with explicit `--battery-save PATH` and
+`--no-battery-save` controls.
+
+---
+
 ## 2026-04-24 — Shared native video gains first filter presets
 
 **Type:** feature

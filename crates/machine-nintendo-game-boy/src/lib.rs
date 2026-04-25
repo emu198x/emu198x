@@ -298,6 +298,11 @@ impl GameBoy {
         &self.cartridge
     }
 
+    /// Mutable access to the parsed cartridge state.
+    pub fn cartridge_mut(&mut self) -> &mut Cartridge {
+        &mut self.cartridge
+    }
+
     /// One CPU m-cycle (4 T-cycles): tick the per-T-cycle components,
     /// collect IRQ sources, service the CPU's bus pins, then tick
     /// the CPU.

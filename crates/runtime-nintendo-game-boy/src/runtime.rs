@@ -112,13 +112,74 @@ impl GameBoyRuntime {
         }
     }
 
+    /// Returns whether the loaded cartridge has battery-backed external RAM.
+    #[must_use]
+    pub fn has_battery_backed_ram(&self) -> bool {
+        self.machine
+            .as_ref()
+            .is_some_and(|machine| machine.cartridge().has_battery_backed_ram())
+    }
+
+    /// Returns the loaded cartridge's external RAM, if present.
+    #[must_use]
+    pub fn cartridge_ram(&self) -> Option<&[u8]> {
+        self.machine
+            .as_ref()
+            .map(|machine| machine.cartridge().ram())
+            .filter(|ram| !ram.is_empty())
+    }
+
+    /// Replaces the loaded cartridge's external RAM from a sidecar save image.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MachineError::InvalidMedia`] when no cartridge RAM is loaded or
+    /// when the supplied save length does not match the cartridge RAM size.
+    pub fn restore_cartridge_ram(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        let Some(machine) = self.machine.as_mut() else {
+            return Err(MachineError::InvalidMedia {
+                slot: "cartridge".to_owned(),
+                reason: "no cartridge is loaded".to_owned(),
+            });
+        };
+        let ram = machine.cartridge_mut().ram_mut();
+        if ram.is_empty() {
+            return Err(MachineError::InvalidMedia {
+                slot: "cartridge".to_owned(),
+                reason: "loaded cartridge has no external RAM".to_owned(),
+            });
+        }
+        if bytes.len() != ram.len() {
+            return Err(MachineError::InvalidMedia {
+                slot: "cartridge".to_owned(),
+                reason: format!(
+                    "save RAM length {} does not match cartridge RAM length {}",
+                    bytes.len(),
+                    ram.len()
+                ),
+            });
+        }
+
+        ram.copy_from_slice(bytes);
+        Ok(())
+    }
+
     fn rebuild_machine(&mut self) {
+        let preserved_ram = self.cartridge_ram().map(|ram| ram.to_vec());
         let Some(bytes) = self.cartridge_bytes.clone() else {
             self.machine = None;
             return;
         };
         match GameBoy::from_rom_with_boot_profile(bytes, self.model.boot_profile()) {
-            Ok((_, gb)) => self.machine = Some(gb),
+            Ok((_, mut gb)) => {
+                if let Some(preserved_ram) = preserved_ram {
+                    let ram = gb.cartridge_mut().ram_mut();
+                    if ram.len() == preserved_ram.len() {
+                        ram.copy_from_slice(&preserved_ram);
+                    }
+                }
+                self.machine = Some(gb);
+            }
             Err(_) => {
                 self.machine = None;
                 self.cartridge_bytes = None;
@@ -400,6 +461,50 @@ mod tests {
         media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
         runtime.load_media(&media).unwrap();
         assert!(runtime.machine().is_some());
+    }
+
+    fn battery_ram_rom() -> Vec<u8> {
+        let mut rom = loop_rom();
+        rom[0x0147] = 0x03; // MBC1 + RAM + battery
+        rom[0x0149] = 0x02; // 8 KiB RAM
+        let mut checksum: u8 = 0;
+        for &byte in &rom[0x0134..=0x014C] {
+            checksum = checksum.wrapping_sub(byte).wrapping_sub(1);
+        }
+        rom[0x014D] = checksum;
+        rom
+    }
+
+    #[test]
+    fn battery_backed_ram_can_be_restored_and_exported() {
+        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
+        let rom = battery_ram_rom();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
+        runtime.load_media(&media).unwrap();
+
+        assert!(runtime.has_battery_backed_ram());
+        let save = vec![0x5A; 0x2000];
+        runtime.restore_cartridge_ram(&save).unwrap();
+
+        assert_eq!(runtime.cartridge_ram(), Some(save.as_slice()));
+    }
+
+    #[test]
+    fn reset_preserves_external_ram() {
+        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
+        let rom = battery_ram_rom();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
+        runtime.load_media(&media).unwrap();
+
+        let mut save = vec![0xFF; 0x2000];
+        save[0] = 0xC0;
+        save[0x1FFF] = 0xDE;
+        runtime.restore_cartridge_ram(&save).unwrap();
+        runtime.reset(ResetKind::Hard);
+
+        assert_eq!(runtime.cartridge_ram(), Some(save.as_slice()));
     }
 
     #[test]

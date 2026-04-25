@@ -10,11 +10,12 @@
 > (`acceptance`, `emulator-only/mbc1`, `emulator-only/mbc2`,
 > `emulator-only/mbc5`). `emu198x-game-boy` provides a minimal native
 > verifier window with live stereo audio plus host-side APU channel
-> toggles/gain controls, and `emu198x-script-game-boy` exposes the
-> runtime as a headless cartridge runner with screenshots, audio
-> capture, shared scripts, and snapshots. CGB, boot-ROM execution,
-> full OAM-DMA non-HRAM bus blocking, persistent battery saves, link
-> cable, native UI, and long-tail cartridge hardware remain later work.
+> toggles/gain controls, `.sav` sidecar persistence for battery-backed
+> cartridge RAM, and `emu198x-script-game-boy` exposes the runtime as a
+> headless cartridge runner with screenshots, audio capture, shared
+> scripts, snapshots, and the same `.sav` sidecar convention. CGB,
+> boot-ROM execution, full OAM-DMA non-HRAM bus blocking, link cable,
+> native UI, and long-tail cartridge hardware remain later work.
 
 Nintendo's 8-bit handheld, released 1989 (DMG) and refreshed 1998
 (CGB). Runs on a Sharp LR35902 system-on-chip CPU — a custom core that
