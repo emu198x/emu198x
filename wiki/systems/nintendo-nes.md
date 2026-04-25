@@ -49,7 +49,7 @@
 ### What doesn't work yet
 
 - **Mappers beyond NROM/MMC1/UxROM/CNROM/MMC3/MMC5/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica** — the longer tail still lives in the archive and will be lifted when the real-game matrix needs it.
-- **MMC5 accuracy** — first-pass MMC5 memory mapping is present, including PRG/CHR banking, ExRAM, nametable fill mode, and multiplier registers. Expansion audio and scanline IRQ precision are still pending.
+- **MMC5 accuracy** — MMC5 now covers PRG/CHR banking, ExRAM, nametable fill mode, multiplier registers, pulse/PCM expansion audio, and scanline IRQ detection via the PPU nametable-read pattern. Further hardware-test comparison would still be useful for edge-case timing.
 - **Mapper 34 ambiguity** — mapper 34 currently selects BxROM/BNROM for CHR-RAM images and NINA-001 for CHR-ROM images. NES 2.0 submapper handling would be a cleaner long-term discriminator if we add ROMs that need it.
 - **Snapshot format stability** — NES snapshots exist now, but they should be treated as version-1 internal snapshots until broader compatibility policy lands for mapper-specific state.
 

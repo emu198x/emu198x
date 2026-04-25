@@ -114,6 +114,15 @@ pub trait Mapper: Send {
     /// cartridge would drive onto the CPU data bus.
     fn cpu_read(&self, addr: u16) -> u8;
 
+    /// CPU-side bus read with mapper-visible side effects.
+    ///
+    /// Most mappers are pure on reads, so the default delegates to
+    /// [`Self::cpu_read`]. Mappers with readable status registers or
+    /// read-triggered audio modes override this method.
+    fn cpu_read_side_effect(&mut self, addr: u16) -> u8 {
+        self.cpu_read(addr)
+    }
+
     /// CPU-side bus write. Called by the machine layer's
     /// `cpu_write` for addresses in `$4020-$FFFF`. The mapper
     /// decides whether to latch the value (bank switching), write
@@ -150,6 +159,19 @@ pub trait Mapper: Send {
     ///
     /// Default: no-op. NROM has no IRQ counter.
     fn notify_a12_rendering(&mut self, _a12_high: bool) {}
+
+    /// Notify the mapper of one PPU read. MMC5 uses the sequence of
+    /// nametable reads to detect scanlines; other mappers ignore it.
+    fn notify_ppu_read(&mut self, _addr: u16, _rendering: bool) {}
+
+    /// Advance mapper-local CPU-cycle state such as expansion audio or
+    /// no-PPU-read timers.
+    fn cpu_tick(&mut self) {}
+
+    /// Current expansion-audio contribution, mixed additively by the APU.
+    fn expansion_audio_sample(&self) -> f32 {
+        0.0
+    }
 
     /// Mapper-owned nametable read override for cartridges that map
     /// ROM/RAM into `$2000-$2FFF` instead of ordinary CIRAM.
@@ -897,12 +919,152 @@ impl Mapper for Mmc3 {
 
 // ─── MMC5 (Mapper 5) ───────────────────────────────────────────────
 
+const MMC5_LENGTH_TABLE: [u8; 32] = [
+    10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
+    192, 24, 72, 26, 16, 28, 32, 30,
+];
+const MMC5_PULSE_DUTY: [[bool; 8]; 4] = [
+    [false, true, false, false, false, false, false, false],
+    [false, true, true, false, false, false, false, false],
+    [false, true, true, true, true, false, false, false],
+    [true, false, false, true, true, true, true, true],
+];
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Mmc5Envelope {
+    start_flag: bool,
+    divider: u8,
+    decay_level: u8,
+    volume: u8,
+    constant_volume: bool,
+    loop_flag: bool,
+}
+
+impl Mmc5Envelope {
+    fn new() -> Self {
+        Self {
+            start_flag: false,
+            divider: 0,
+            decay_level: 0,
+            volume: 0,
+            constant_volume: false,
+            loop_flag: false,
+        }
+    }
+
+    fn clock(&mut self) {
+        if self.start_flag {
+            self.start_flag = false;
+            self.decay_level = 15;
+            self.divider = self.volume;
+        } else if self.divider == 0 {
+            self.divider = self.volume;
+            if self.decay_level > 0 {
+                self.decay_level -= 1;
+            } else if self.loop_flag {
+                self.decay_level = 15;
+            }
+        } else {
+            self.divider -= 1;
+        }
+    }
+
+    fn output(&self) -> u8 {
+        if self.constant_volume {
+            self.volume
+        } else {
+            self.decay_level
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Mmc5Pulse {
+    timer_period: u16,
+    timer: u16,
+    duty_pos: u8,
+    duty: u8,
+    envelope: Mmc5Envelope,
+    length_counter: u8,
+    length_halt: bool,
+    enabled: bool,
+}
+
+impl Mmc5Pulse {
+    fn new() -> Self {
+        Self {
+            timer_period: 0,
+            timer: 0,
+            duty_pos: 0,
+            duty: 0,
+            envelope: Mmc5Envelope::new(),
+            length_counter: 0,
+            length_halt: false,
+            enabled: false,
+        }
+    }
+
+    fn write_control(&mut self, value: u8) {
+        self.duty = (value >> 6) & 0x03;
+        self.length_halt = value & 0x20 != 0;
+        self.envelope.loop_flag = self.length_halt;
+        self.envelope.constant_volume = value & 0x10 != 0;
+        self.envelope.volume = value & 0x0F;
+    }
+
+    fn write_timer_low(&mut self, value: u8) {
+        self.timer_period = (self.timer_period & 0x0700) | u16::from(value);
+    }
+
+    fn write_timer_high(&mut self, value: u8) {
+        self.timer_period = (self.timer_period & 0x00FF) | (u16::from(value & 0x07) << 8);
+        self.duty_pos = 0;
+        self.envelope.start_flag = true;
+        if self.enabled {
+            self.length_counter = MMC5_LENGTH_TABLE[usize::from(value >> 3)];
+        }
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        if !enabled {
+            self.length_counter = 0;
+        }
+    }
+
+    fn clock_timer(&mut self) {
+        if self.timer == 0 {
+            self.timer = self.timer_period;
+            self.duty_pos = (self.duty_pos + 1) & 0x07;
+        } else {
+            self.timer -= 1;
+        }
+    }
+
+    fn clock_envelope_and_length(&mut self) {
+        self.envelope.clock();
+        if !self.length_halt && self.length_counter > 0 {
+            self.length_counter -= 1;
+        }
+    }
+
+    fn output(&self) -> u8 {
+        if self.length_counter == 0 || self.timer_period < 8 {
+            return 0;
+        }
+        if !MMC5_PULSE_DUTY[self.duty as usize][self.duty_pos as usize] {
+            return 0;
+        }
+        self.envelope.output()
+    }
+}
+
 /// MMC5 / ExROM (Mapper 5): PRG/CHR banking, extended RAM, MMC5
 /// nametable mapping, fill mode, and multiplier registers.
 ///
-/// This implementation deliberately starts with the memory-management
-/// behaviours needed by ordinary cartridge execution and the local MMC5
-/// smoke ROMs. Expansion audio and scanline IRQ timing are not modeled yet.
+/// This implementation covers the memory-management behaviours needed by
+/// ordinary cartridge execution, plus MMC5 pulse/PCM expansion audio and
+/// scanline IRQ detection from the PPU nametable-read pattern.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Mmc5 {
     prg_rom: Vec<u8>,
@@ -927,8 +1089,21 @@ pub struct Mmc5 {
     irq_scanline: u8,
     irq_enabled: bool,
     irq_pending: bool,
+    in_frame: bool,
+    scanline_counter: u8,
+    no_ppu_read_cpu_cycles: u8,
+    last_nt_read: u16,
+    same_nt_read_count: u8,
+    pending_scanline_detect: bool,
     multiplicand: u8,
     multiplier: u8,
+    audio_pulses: [Mmc5Pulse; 2],
+    audio_odd_cycle: bool,
+    audio_frame_divider: u16,
+    pcm_mode_read: bool,
+    pcm_irq_enabled: bool,
+    pcm_irq_pending: bool,
+    pcm_output: u8,
 }
 
 impl Mmc5 {
@@ -964,8 +1139,21 @@ impl Mmc5 {
             irq_scanline: 0,
             irq_enabled: false,
             irq_pending: false,
+            in_frame: false,
+            scanline_counter: 0,
+            no_ppu_read_cpu_cycles: 0,
+            last_nt_read: 0xFFFF,
+            same_nt_read_count: 0,
+            pending_scanline_detect: false,
             multiplicand: 0xFF,
             multiplier: 0xFF,
+            audio_pulses: [Mmc5Pulse::new(), Mmc5Pulse::new()],
+            audio_odd_cycle: false,
+            audio_frame_divider: 0,
+            pcm_mode_read: true,
+            pcm_irq_enabled: false,
+            pcm_irq_pending: false,
+            pcm_output: 0xFF,
         }
     }
 
@@ -1097,15 +1285,86 @@ impl Mmc5 {
     fn multiplier_product(&self) -> u16 {
         u16::from(self.multiplicand) * u16::from(self.multiplier)
     }
+
+    fn write_pcm(&mut self, value: u8) {
+        if value == 0 {
+            self.pcm_irq_pending = true;
+        } else {
+            self.pcm_irq_pending = false;
+            self.pcm_output = value;
+        }
+    }
+
+    fn read_with_side_effect(&mut self, addr: u16) -> u8 {
+        let value = self.cpu_read(addr);
+        match addr {
+            0x5010 => {
+                self.pcm_irq_pending = false;
+            }
+            0x5204 => {
+                self.irq_pending = false;
+            }
+            0x8000..=0xBFFF if self.pcm_mode_read => self.write_pcm(value),
+            _ => {}
+        }
+        value
+    }
+
+    fn detect_scanline(&mut self) {
+        self.no_ppu_read_cpu_cycles = 0;
+        if !self.in_frame {
+            self.in_frame = true;
+            self.scanline_counter = 0;
+            self.irq_pending = false;
+            return;
+        }
+
+        self.scanline_counter = self.scanline_counter.wrapping_add(1);
+        if self.irq_scanline != 0 && self.scanline_counter == self.irq_scanline {
+            self.irq_pending = true;
+        }
+    }
+
+    fn clock_audio(&mut self) {
+        if self.audio_odd_cycle {
+            self.audio_pulses[0].clock_timer();
+            self.audio_pulses[1].clock_timer();
+        }
+        self.audio_odd_cycle = !self.audio_odd_cycle;
+
+        self.audio_frame_divider += 1;
+        if self.audio_frame_divider >= 7457 {
+            self.audio_frame_divider = 0;
+            self.audio_pulses[0].clock_envelope_and_length();
+            self.audio_pulses[1].clock_envelope_and_length();
+        }
+    }
+
+    fn expansion_audio_level(&self) -> f32 {
+        let pulse_sum =
+            f32::from(self.audio_pulses[0].output()) + f32::from(self.audio_pulses[1].output());
+        let pulse = if pulse_sum > 0.0 {
+            95.88 / (8128.0 / pulse_sum + 100.0)
+        } else {
+            0.0
+        };
+        let pcm = (f32::from(self.pcm_output) / 255.0) * 0.08;
+        pulse + pcm
+    }
 }
 
 impl Mapper for Mmc5 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
-            0x5015 => 0,
-            0x5204 => {
-                (u8::from(self.irq_pending) << 7) | (if self.irq_scanline == 0 { 0 } else { 0x40 })
+            0x5010 => {
+                (u8::from(self.pcm_irq_pending && self.pcm_irq_enabled) << 7)
+                    | u8::from(self.pcm_mode_read)
             }
+            0x5015 => {
+                u8::from(self.audio_pulses[0].length_counter > 0)
+                    | (u8::from(self.audio_pulses[1].length_counter > 0) << 1)
+            }
+            0x5204 => (u8::from(self.irq_pending) << 7) | (u8::from(self.in_frame) << 6),
             0x5205 => self.multiplier_product() as u8,
             0x5206 => (self.multiplier_product() >> 8) as u8,
             0x5C00..=0x5FFF => self.exram[usize::from(addr - 0x5C00)],
@@ -1121,9 +1380,31 @@ impl Mapper for Mmc5 {
         }
     }
 
+    fn cpu_read_side_effect(&mut self, addr: u16) -> u8 {
+        self.read_with_side_effect(addr)
+    }
+
     fn cpu_write(&mut self, addr: u16, value: u8) {
         match addr {
-            0x5000..=0x5015 => {}
+            0x5000 => self.audio_pulses[0].write_control(value),
+            0x5002 => self.audio_pulses[0].write_timer_low(value),
+            0x5003 => self.audio_pulses[0].write_timer_high(value),
+            0x5004 => self.audio_pulses[1].write_control(value),
+            0x5006 => self.audio_pulses[1].write_timer_low(value),
+            0x5007 => self.audio_pulses[1].write_timer_high(value),
+            0x5010 => {
+                self.pcm_irq_enabled = value & 0x80 != 0;
+                self.pcm_mode_read = value & 1 != 0;
+            }
+            0x5011 => {
+                if !self.pcm_mode_read {
+                    self.write_pcm(value);
+                }
+            }
+            0x5015 => {
+                self.audio_pulses[0].set_enabled(value & 0x01 != 0);
+                self.audio_pulses[1].set_enabled(value & 0x02 != 0);
+            }
             0x5100 => self.prg_mode = value & 0x03,
             0x5101 => self.chr_mode = value & 0x03,
             0x5102 => self.prg_ram_protect_1 = value & 0x03,
@@ -1180,7 +1461,53 @@ impl Mapper for Mmc5 {
     }
 
     fn irq_pending(&self) -> bool {
-        self.irq_enabled && self.irq_pending
+        (self.irq_enabled && self.irq_pending) || (self.pcm_irq_enabled && self.pcm_irq_pending)
+    }
+
+    fn notify_ppu_read(&mut self, addr: u16, rendering: bool) {
+        self.no_ppu_read_cpu_cycles = 0;
+        if !rendering {
+            return;
+        }
+
+        if self.pending_scanline_detect {
+            self.pending_scanline_detect = false;
+            self.detect_scanline();
+        }
+
+        if (0x2000..=0x2FFF).contains(&addr) {
+            if addr == self.last_nt_read {
+                self.same_nt_read_count = self.same_nt_read_count.saturating_add(1);
+            } else {
+                self.last_nt_read = addr;
+                self.same_nt_read_count = 1;
+            }
+
+            if self.same_nt_read_count >= 3 {
+                self.pending_scanline_detect = true;
+                self.same_nt_read_count = 0;
+            }
+        } else {
+            self.same_nt_read_count = 0;
+            self.last_nt_read = 0xFFFF;
+        }
+    }
+
+    fn cpu_tick(&mut self) {
+        self.clock_audio();
+        self.no_ppu_read_cpu_cycles = self.no_ppu_read_cpu_cycles.saturating_add(1);
+        if self.no_ppu_read_cpu_cycles >= 3 {
+            self.in_frame = false;
+            self.scanline_counter = 0;
+            self.irq_pending = false;
+            self.pending_scanline_detect = false;
+            self.same_nt_read_count = 0;
+            self.last_nt_read = 0xFFFF;
+        }
+    }
+
+    fn expansion_audio_sample(&self) -> f32 {
+        self.expansion_audio_level()
     }
 
     fn nametable_read(&mut self, addr: u16) -> Option<u8> {
@@ -2876,6 +3203,86 @@ mod tests {
 
         assert_eq!(mapper.cpu_read(0x5205), 221);
         assert_eq!(mapper.cpu_read(0x5206), 0);
+    }
+
+    #[test]
+    fn mmc5_scanline_irq_detects_three_matching_nametable_reads_then_next_read() {
+        let mut mapper = Mmc5::new(vec![0u8; 4 * 8192], Vec::new());
+        mapper.cpu_write(0x5203, 1);
+        mapper.cpu_write(0x5204, 0x80);
+
+        for _ in 0..3 {
+            mapper.notify_ppu_read(0x2000, true);
+        }
+        mapper.notify_ppu_read(0x23C0, true);
+        assert_eq!(mapper.cpu_read(0x5204) & 0x40, 0x40);
+        assert!(!mapper.irq_pending());
+
+        for _ in 0..3 {
+            mapper.notify_ppu_read(0x2008, true);
+        }
+        mapper.notify_ppu_read(0x23C0, true);
+
+        assert!(mapper.irq_pending());
+        assert_eq!(mapper.cpu_read_side_effect(0x5204) & 0x80, 0x80);
+        assert!(!mapper.irq_pending());
+    }
+
+    #[test]
+    fn mmc5_cpu_tick_clears_in_frame_after_ppu_read_gap() {
+        let mut mapper = Mmc5::new(vec![0u8; 4 * 8192], Vec::new());
+
+        for _ in 0..3 {
+            mapper.notify_ppu_read(0x2000, true);
+        }
+        mapper.notify_ppu_read(0x23C0, true);
+        assert_eq!(mapper.cpu_read(0x5204) & 0x40, 0x40);
+
+        mapper.cpu_tick();
+        mapper.cpu_tick();
+        mapper.cpu_tick();
+
+        assert_eq!(mapper.cpu_read(0x5204) & 0x40, 0x00);
+    }
+
+    #[test]
+    fn mmc5_pcm_write_mode_outputs_audio_and_irq_on_zero() {
+        let mut mapper = Mmc5::new(vec![0u8; 4 * 8192], Vec::new());
+
+        mapper.cpu_write(0x5010, 0x80);
+        mapper.cpu_write(0x5011, 0x40);
+        assert!(mapper.expansion_audio_sample() > 0.0);
+        assert!(!mapper.irq_pending());
+
+        mapper.cpu_write(0x5011, 0x00);
+        assert!(mapper.irq_pending());
+        assert_eq!(mapper.cpu_read_side_effect(0x5010) & 0x80, 0x80);
+        assert!(!mapper.irq_pending());
+    }
+
+    #[test]
+    fn mmc5_pulse_expansion_audio_produces_samples_when_enabled() {
+        let mut mapper = Mmc5::new(vec![0u8; 4 * 8192], Vec::new());
+
+        mapper.cpu_write(0x5010, 0x00);
+        mapper.cpu_write(0x5011, 0x01);
+        let pcm_baseline = mapper.expansion_audio_sample();
+        mapper.cpu_write(0x5015, 0x01);
+        mapper.cpu_write(0x5000, 0b0101_1111);
+        mapper.cpu_write(0x5002, 8);
+        mapper.cpu_write(0x5003, 0x08);
+
+        let mut max = 0.0f32;
+        for _ in 0..128 {
+            mapper.cpu_tick();
+            max = max.max(mapper.expansion_audio_sample());
+        }
+
+        assert!(
+            max > pcm_baseline,
+            "expected pulse contribution above baseline {pcm_baseline}, got {max}"
+        );
+        assert_eq!(mapper.cpu_read(0x5015) & 1, 1);
     }
 
     #[test]

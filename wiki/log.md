@@ -20,6 +20,22 @@ only remaining errors are two invalid-header `LINUSMUS.NES` duplicates.
 
 ---
 
+## 2026-04-25 — NES MMC5 audio and scanline IRQs land
+
+**Type:** feature
+**Trigger:** The first MMC5 slice made valid mapper-5 ROMs boot, but
+left the two main hardware behaviours explicitly unfinished: expansion
+audio and MMC5's PPU-read-pattern scanline IRQ.
+**Result:** The mapper boundary now exposes narrow default hooks for
+CPU-cycle mapper ticking, expansion-audio sampling, side-effecting CPU
+reads, and PPU read observation. MMC5 uses those hooks for two
+pulse-style expansion channels, raw PCM write/read mode with IRQ
+acknowledge behavior, `$5204` scanline IRQ status acknowledge, and
+scanline detection from three matching nametable reads followed by the
+next PPU read. The mapper unit suite is now 90 tests.
+
+---
+
 ## 2026-04-25 — NES adds VRC2a and Action 53 mappers
 
 **Type:** feature

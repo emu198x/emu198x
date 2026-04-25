@@ -821,6 +821,7 @@ impl Ppu {
     fn ppu_read(&mut self, addr: u16, mapper: &mut dyn Mapper) -> u8 {
         let addr = addr & 0x3FFF;
         self.bus_address = addr;
+        mapper.notify_ppu_read(addr, self.rendering_active());
         match addr {
             0x0000..=0x1FFF => mapper.chr_read(addr),
             0x2000..=0x3EFF => {

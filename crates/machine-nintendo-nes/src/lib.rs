@@ -190,7 +190,10 @@ impl Nes {
                 self.cpu.tick();
             }
 
-            // APU ticks once per CPU cycle.
+            // Mapper and APU tick once per CPU cycle. Mapper expansion
+            // audio is sampled just before the APU downsampler runs.
+            self.mapper.cpu_tick();
+            self.apu.expansion_audio = self.mapper.expansion_audio_sample();
             self.apu.tick();
 
             // Flush deferred $2000 NMI enable — after all 3 PPU
@@ -303,7 +306,7 @@ impl Nes {
             0x4018..=0x401F => 0,
 
             // $4020-$FFFF: cartridge space.
-            0x4020..=0xFFFF => self.mapper.cpu_read(addr),
+            0x4020..=0xFFFF => self.mapper.cpu_read_side_effect(addr),
         }
     }
 
