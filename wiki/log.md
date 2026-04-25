@@ -4,6 +4,20 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-25 — NES gains UxROM and MMC1 mapper support
+
+**Type:** feature
+**Trigger:** The NES native/headless paths needed the first real
+bank-switching mappers to move beyond NROM-only software.
+**Result:** `format-nintendo-nes-ines` now parses and instantiates
+Mapper 2 (UxROM) and Mapper 1 (MMC1) alongside NROM. UxROM covers
+switchable low 16 KiB PRG plus fixed high PRG and CHR RAM; MMC1 covers
+serial-register writes, PRG 16/32 KiB modes, CHR 4/8 KiB modes,
+dynamic mirroring, PRG RAM, and CHR RAM. NES runtime and native shell
+paths inherit support through the existing boxed mapper boundary.
+
+---
+
 ## 2026-04-24 — Game Boy gains battery-save sidecars
 
 **Type:** feature

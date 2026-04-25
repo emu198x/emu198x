@@ -1,6 +1,6 @@
 [package]
 name = "format-nintendo-nes-ines"
-description = "iNES / NES 2.0 cartridge header parser + Mapper trait. Current mapper support includes NROM and UxROM, with additional archive-proven mappers landing as compatibility expands."
+description = "iNES / NES 2.0 cartridge header parser + Mapper trait. Current mapper support includes NROM, MMC1, and UxROM, with additional archive-proven mappers landing as compatibility expands."
 edition.workspace = true
 version.workspace = true
 license.workspace = true
