@@ -4,6 +4,22 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-25 — NES gains first-pass MMC5 support
+
+**Type:** feature
+**Trigger:** After VRC2a and Action 53 landed, the only valid ROMs
+still failing the local NES smoke matrix were mapper 5 / MMC5 rows.
+**Result:** `format-nintendo-nes-ines` now supports mapper 5 (MMC5)
+well enough for ordinary memory execution: PRG modes 0-3, CHR modes
+0-3, PRG RAM write-protection, internal ExRAM, mapper-owned nametable
+mapping with fill mode, and `$5205/$5206` multiplication. Expansion
+audio and scanline IRQ precision are explicitly still pending. The
+mapper unit suite is now 86 tests. The 300-frame local smoke matrix
+now runs every valid local `.nes` file: 627/629 entries pass, and the
+only remaining errors are two invalid-header `LINUSMUS.NES` duplicates.
+
+---
+
 ## 2026-04-25 — NES adds VRC2a and Action 53 mappers
 
 **Type:** feature

@@ -10,7 +10,7 @@
 //! **Mapper 3 (CNROM)**, **Mapper 4 (MMC3)**, and
 //! **Mapper 7 (AxROM)**, **Mapper 11 (Color Dreams)**,
 //! **Mapper 22 (VRC2a)**, **Mapper 28 (Action 53)**,
-//! **Mapper 34 (BxROM/BNROM and NINA-001)**,
+//! **Mapper 5 (MMC5)**, **Mapper 34 (BxROM/BNROM and NINA-001)**,
 //! **Mapper 68 (Sunsoft-4)**, and **Mapper 71 (Camerica/Codemasters)** —
 //! the trait, the header parser, and the first mappers needed to boot
 //! flat-layout test ROMs plus common PRG/CHR-bank-switched cartridges.
@@ -87,8 +87,9 @@ pub enum Mirroring {
 /// (mapper 0), [`Mmc1`] (mapper 1), [`UxRom`] (mapper 2),
 /// [`CnRom`] (mapper 3), [`Mmc3`] (mapper 4), and [`AxRom`]
 /// (mapper 7), [`ColorDreams`] (mapper 11), [`Vrc2a`] (mapper 22),
-/// [`Action53`] (mapper 28), [`BxRom`] / [`Nina001`] (mapper 34),
-/// [`Sunsoft4`] (mapper 68), and [`Camerica`] (mapper 71).
+/// [`Action53`] (mapper 28), [`Mmc5`] (mapper 5), [`BxRom`] /
+/// [`Nina001`] (mapper 34), [`Sunsoft4`] (mapper 68), and [`Camerica`]
+/// (mapper 71).
 ///
 /// ## Design notes
 ///
@@ -182,6 +183,8 @@ pub enum MapperSnapshot {
     CnRom(CnRom),
     /// Mapper 4.
     Mmc3(Mmc3),
+    /// Mapper 5.
+    Mmc5(Mmc5),
     /// Mapper 7.
     AxRom(AxRom),
     /// Mapper 11.
@@ -209,6 +212,7 @@ pub fn mapper_from_snapshot(snapshot: MapperSnapshot) -> Box<dyn Mapper> {
         MapperSnapshot::UxRom(mapper) => Box::new(mapper),
         MapperSnapshot::CnRom(mapper) => Box::new(mapper),
         MapperSnapshot::Mmc3(mapper) => Box::new(mapper),
+        MapperSnapshot::Mmc5(mapper) => Box::new(mapper),
         MapperSnapshot::AxRom(mapper) => Box::new(mapper),
         MapperSnapshot::ColorDreams(mapper) => Box::new(mapper),
         MapperSnapshot::Vrc2a(mapper) => Box::new(mapper),
@@ -888,6 +892,324 @@ impl Mapper for Mmc3 {
 
     fn snapshot(&self) -> MapperSnapshot {
         MapperSnapshot::Mmc3(self.clone())
+    }
+}
+
+// ─── MMC5 (Mapper 5) ───────────────────────────────────────────────
+
+/// MMC5 / ExROM (Mapper 5): PRG/CHR banking, extended RAM, MMC5
+/// nametable mapping, fill mode, and multiplier registers.
+///
+/// This implementation deliberately starts with the memory-management
+/// behaviours needed by ordinary cartridge execution and the local MMC5
+/// smoke ROMs. Expansion audio and scanline IRQ timing are not modeled yet.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Mmc5 {
+    prg_rom: Vec<u8>,
+    chr: Vec<u8>,
+    chr_is_ram: bool,
+    prg_ram: Vec<u8>,
+    exram: Vec<u8>,
+    nt_ram: Vec<u8>,
+    prg_mode: u8,
+    chr_mode: u8,
+    prg_ram_protect_1: u8,
+    prg_ram_protect_2: u8,
+    exram_mode: u8,
+    nametable_mapping: u8,
+    fill_tile: u8,
+    fill_attr: u8,
+    prg_ram_bank: u8,
+    prg_banks: [u8; 4],
+    chr_banks: [u16; 12],
+    chr_bank_high: u8,
+    use_background_chr_regs: bool,
+    irq_scanline: u8,
+    irq_enabled: bool,
+    irq_pending: bool,
+    multiplicand: u8,
+    multiplier: u8,
+}
+
+impl Mmc5 {
+    /// Construct MMC5 from parsed iNES payloads.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>) -> Self {
+        let chr_is_ram = chr_data.is_empty();
+        let chr = if chr_is_ram {
+            vec![0; 1024 * 1024]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr,
+            chr_is_ram,
+            prg_ram: vec![0; 128 * 1024],
+            exram: vec![0; 1024],
+            nt_ram: vec![0; 2048],
+            prg_mode: 3,
+            chr_mode: 3,
+            prg_ram_protect_1: 0,
+            prg_ram_protect_2: 0,
+            exram_mode: 0,
+            nametable_mapping: 0,
+            fill_tile: 0,
+            fill_attr: 0,
+            prg_ram_bank: 0,
+            prg_banks: [0, 1, 2, 0xFF],
+            chr_banks: [0; 12],
+            chr_bank_high: 0,
+            use_background_chr_regs: false,
+            irq_scanline: 0,
+            irq_enabled: false,
+            irq_pending: false,
+            multiplicand: 0xFF,
+            multiplier: 0xFF,
+        }
+    }
+
+    fn prg_8k_count(&self) -> usize {
+        (self.prg_rom.len() / 8192).max(1)
+    }
+
+    fn prg_ram_8k_count(&self) -> usize {
+        (self.prg_ram.len() / 8192).max(1)
+    }
+
+    fn prg_ram_writable(&self) -> bool {
+        self.prg_ram_protect_1 == 0x02 && self.prg_ram_protect_2 == 0x01
+    }
+
+    fn read_prg_rom_8k(&self, bank: usize, offset: usize) -> u8 {
+        let bank = bank % self.prg_8k_count();
+        self.prg_rom[bank * 8192 + offset]
+    }
+
+    fn read_prg_ram_8k(&self, bank: usize, offset: usize) -> u8 {
+        let bank = bank % self.prg_ram_8k_count();
+        self.prg_ram[bank * 8192 + offset]
+    }
+
+    fn write_prg_ram_8k(&mut self, bank: usize, offset: usize, value: u8) {
+        if self.prg_ram_writable() {
+            let bank = bank % self.prg_ram_8k_count();
+            self.prg_ram[bank * 8192 + offset] = value;
+        }
+    }
+
+    fn read_prg_reg_8k(&self, reg: u8, offset: usize, force_rom: bool) -> u8 {
+        if force_rom || reg & 0x80 != 0 {
+            self.read_prg_rom_8k(usize::from(reg & 0x7F), offset)
+        } else {
+            self.read_prg_ram_8k(usize::from(reg & 0x7F), offset)
+        }
+    }
+
+    fn write_prg_reg_8k(&mut self, reg: u8, offset: usize, value: u8) {
+        if reg & 0x80 == 0 {
+            self.write_prg_ram_8k(usize::from(reg & 0x7F), offset, value);
+        }
+    }
+
+    fn prg_reg_for_addr(&self, addr: u16) -> (u8, usize, bool) {
+        let offset = usize::from(addr & 0x1FFF);
+        match self.prg_mode & 0x03 {
+            0 => (
+                (self.prg_banks[3] & 0xFC).wrapping_add(((addr - 0x8000) / 0x2000) as u8),
+                offset,
+                true,
+            ),
+            1 => {
+                if addr < 0xC000 {
+                    let bank = (self.prg_banks[1] & 0xFE).wrapping_add(((addr >> 13) & 1) as u8);
+                    (bank, offset, false)
+                } else {
+                    let bank = (self.prg_banks[3] & 0xFE).wrapping_add(((addr >> 13) & 1) as u8);
+                    (bank, offset, true)
+                }
+            }
+            2 => {
+                if addr < 0xC000 {
+                    let bank = (self.prg_banks[1] & 0xFE).wrapping_add(((addr >> 13) & 1) as u8);
+                    (bank, offset, false)
+                } else if addr < 0xE000 {
+                    (self.prg_banks[2], offset, false)
+                } else {
+                    (self.prg_banks[3], offset, true)
+                }
+            }
+            3 => match addr {
+                0x8000..=0x9FFF => (self.prg_banks[0], offset, false),
+                0xA000..=0xBFFF => (self.prg_banks[1], offset, false),
+                0xC000..=0xDFFF => (self.prg_banks[2], offset, false),
+                _ => (self.prg_banks[3], offset, true),
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn chr_reg_for_addr(&self, addr: u16) -> u16 {
+        let addr = addr & 0x1FFF;
+        let use_bg = self.use_background_chr_regs;
+        match self.chr_mode & 0x03 {
+            0 => self.chr_banks[if use_bg { 11 } else { 7 }] & !0x07,
+            1 => {
+                if addr < 0x1000 {
+                    self.chr_banks[if use_bg { 11 } else { 3 }] & !0x03
+                } else {
+                    self.chr_banks[if use_bg { 11 } else { 7 }] & !0x03
+                }
+            }
+            2 => {
+                let slot = usize::from(addr / 0x0800);
+                if use_bg {
+                    self.chr_banks[9 + (slot & 1) * 2] & !0x01
+                } else {
+                    self.chr_banks[[1, 3, 5, 7][slot]] & !0x01
+                }
+            }
+            3 if use_bg => self.chr_banks[8 + usize::from((addr & 0x0FFF) / 0x0400)],
+            3 => self.chr_banks[usize::from(addr / 0x0400)],
+            _ => unreachable!(),
+        }
+    }
+
+    fn chr_index(&self, addr: u16) -> usize {
+        let unit_size = match self.chr_mode & 0x03 {
+            0 => 8192,
+            1 => 4096,
+            2 => 2048,
+            3 => 1024,
+            _ => unreachable!(),
+        };
+        let offset = usize::from(addr) & (unit_size - 1);
+        let bank_count = (self.chr.len() / unit_size).max(1);
+        let bank = usize::from(self.chr_reg_for_addr(addr)) % bank_count;
+        bank * unit_size + offset
+    }
+
+    fn nt_page_kind(&self, addr: u16) -> u8 {
+        let page = ((addr - 0x2000) & 0x0FFF) / 0x0400;
+        (self.nametable_mapping >> (page * 2)) & 0x03
+    }
+
+    fn multiplier_product(&self) -> u16 {
+        u16::from(self.multiplicand) * u16::from(self.multiplier)
+    }
+}
+
+impl Mapper for Mmc5 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x5015 => 0,
+            0x5204 => {
+                (u8::from(self.irq_pending) << 7) | (if self.irq_scanline == 0 { 0 } else { 0x40 })
+            }
+            0x5205 => self.multiplier_product() as u8,
+            0x5206 => (self.multiplier_product() >> 8) as u8,
+            0x5C00..=0x5FFF => self.exram[usize::from(addr - 0x5C00)],
+            0x6000..=0x7FFF => {
+                let bank = usize::from(self.prg_ram_bank & 0x7F);
+                self.read_prg_ram_8k(bank, usize::from(addr - 0x6000))
+            }
+            0x8000..=0xFFFF => {
+                let (reg, offset, force_rom) = self.prg_reg_for_addr(addr);
+                self.read_prg_reg_8k(reg, offset, force_rom)
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x5000..=0x5015 => {}
+            0x5100 => self.prg_mode = value & 0x03,
+            0x5101 => self.chr_mode = value & 0x03,
+            0x5102 => self.prg_ram_protect_1 = value & 0x03,
+            0x5103 => self.prg_ram_protect_2 = value & 0x03,
+            0x5104 => self.exram_mode = value & 0x03,
+            0x5105 => self.nametable_mapping = value,
+            0x5106 => self.fill_tile = value,
+            0x5107 => self.fill_attr = value & 0x03,
+            0x5113 => self.prg_ram_bank = value & 0x7F,
+            0x5114..=0x5117 => self.prg_banks[usize::from(addr - 0x5114)] = value,
+            0x5120..=0x5127 => {
+                self.use_background_chr_regs = false;
+                self.chr_banks[usize::from(addr - 0x5120)] =
+                    (u16::from(self.chr_bank_high) << 8) | u16::from(value);
+            }
+            0x5128..=0x512B => {
+                self.use_background_chr_regs = true;
+                self.chr_banks[usize::from(addr - 0x5120)] =
+                    (u16::from(self.chr_bank_high) << 8) | u16::from(value);
+            }
+            0x5130 => self.chr_bank_high = value & 0x03,
+            0x5203 => self.irq_scanline = value,
+            0x5204 => self.irq_enabled = value & 0x80 != 0,
+            0x5205 => self.multiplicand = value,
+            0x5206 => self.multiplier = value,
+            0x5C00..=0x5FFF => self.exram[usize::from(addr - 0x5C00)] = value,
+            0x6000..=0x7FFF => {
+                let bank = usize::from(self.prg_ram_bank & 0x7F);
+                self.write_prg_ram_8k(bank, usize::from(addr - 0x6000), value);
+            }
+            0x8000..=0xFFFF => {
+                let (reg, offset, force_rom) = self.prg_reg_for_addr(addr);
+                if !force_rom {
+                    self.write_prg_reg_8k(reg, offset, value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[self.chr_index(addr)]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            let index = self.chr_index(addr);
+            self.chr[index] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        Mirroring::Vertical
+    }
+
+    fn irq_pending(&self) -> bool {
+        self.irq_enabled && self.irq_pending
+    }
+
+    fn nametable_read(&mut self, addr: u16) -> Option<u8> {
+        let offset = usize::from((addr - 0x2000) & 0x03FF);
+        let value = match self.nt_page_kind(addr) {
+            0 => self.nt_ram[offset],
+            1 => self.nt_ram[1024 + offset],
+            2 => self.exram[offset],
+            3 if offset < 0x03C0 => self.fill_tile,
+            3 => self.fill_attr * 0x55,
+            _ => unreachable!(),
+        };
+        Some(value)
+    }
+
+    fn nametable_write(&mut self, addr: u16, value: u8) -> bool {
+        let offset = usize::from((addr - 0x2000) & 0x03FF);
+        match self.nt_page_kind(addr) {
+            0 => self.nt_ram[offset] = value,
+            1 => self.nt_ram[1024 + offset] = value,
+            2 => self.exram[offset] = value,
+            3 => {}
+            _ => unreachable!(),
+        }
+        true
+    }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::Mmc5(self.clone())
     }
 }
 
@@ -1846,6 +2168,7 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         2 => Box::new(UxRom::new(prg_rom, chr_data, mirroring)),
         3 => Box::new(CnRom::new(prg_rom, chr_data, mirroring)),
         4 => Box::new(Mmc3::new(prg_rom, chr_data)),
+        5 => Box::new(Mmc5::new(prg_rom, chr_data)),
         7 => Box::new(AxRom::new(prg_rom)),
         11 => Box::new(ColorDreams::new(prg_rom, chr_data, mirroring)),
         22 => Box::new(Vrc2a::new(prg_rom, chr_data)),
@@ -1858,9 +2181,9 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
             return Err(format!(
                 "Unsupported mapper: {n} — this port currently carries Mapper 0 \
                  (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
-                 (CNROM), Mapper 4 (MMC3), Mapper 7 (AxROM), Mapper 11 \
-                 (Color Dreams), Mapper 22 (VRC2a), Mapper 28 (Action 53), \
-                 Mapper 34 (BxROM/BNROM and NINA-001), Mapper 68 \
+                 (CNROM), Mapper 4 (MMC3), Mapper 5 (MMC5), Mapper 7 \
+                 (AxROM), Mapper 11 (Color Dreams), Mapper 22 (VRC2a), \
+                 Mapper 28 (Action 53), Mapper 34 (BxROM/BNROM and NINA-001), Mapper 68 \
                  (Sunsoft-4), and Mapper 71 (Camerica). Additional mappers \
                  will land as compatibility expands."
             ));
@@ -2444,6 +2767,115 @@ mod tests {
         mapper.cpu_write(0xE000, 0);
 
         assert!(!mapper.irq_pending());
+    }
+
+    fn make_mmc5(prg_8k_banks: usize, chr_1k_pages: usize) -> Mmc5 {
+        let mut prg_rom = vec![0u8; prg_8k_banks * 8192];
+        for bank in 0..prg_8k_banks {
+            for byte in &mut prg_rom[bank * 8192..(bank + 1) * 8192] {
+                *byte = bank as u8;
+            }
+        }
+        let mut chr = vec![0u8; chr_1k_pages * 1024];
+        for bank in 0..chr_1k_pages {
+            for byte in &mut chr[bank * 1024..(bank + 1) * 1024] {
+                *byte = bank as u8;
+            }
+        }
+        Mmc5::new(prg_rom, chr)
+    }
+
+    #[test]
+    fn parse_valid_mmc5() {
+        let data = make_ines(8, 8, 0x50);
+        let parsed = parse_ines(&data).expect("mapper 5 should parse");
+
+        assert_eq!(parsed.header.mapper_number, 5);
+    }
+
+    #[test]
+    fn mmc5_prg_mode_3_maps_four_8k_windows() {
+        let mut mapper = make_mmc5(16, 8);
+
+        mapper.cpu_write(0x5100, 3);
+        mapper.cpu_write(0x5114, 0x82);
+        mapper.cpu_write(0x5115, 0x84);
+        mapper.cpu_write(0x5116, 0x86);
+        mapper.cpu_write(0x5117, 0x88);
+
+        assert_eq!(mapper.cpu_read(0x8000), 2);
+        assert_eq!(mapper.cpu_read(0xA000), 4);
+        assert_eq!(mapper.cpu_read(0xC000), 6);
+        assert_eq!(mapper.cpu_read(0xE000), 8);
+    }
+
+    #[test]
+    fn mmc5_prg_mode_0_maps_one_32k_rom_window() {
+        let mut mapper = make_mmc5(16, 8);
+
+        mapper.cpu_write(0x5100, 0);
+        mapper.cpu_write(0x5117, 0x84);
+
+        assert_eq!(mapper.cpu_read(0x8000), 4);
+        assert_eq!(mapper.cpu_read(0xA000), 5);
+        assert_eq!(mapper.cpu_read(0xC000), 6);
+        assert_eq!(mapper.cpu_read(0xE000), 7);
+    }
+
+    #[test]
+    fn mmc5_prg_ram_requires_protection_sequence() {
+        let mut mapper = Mmc5::new(vec![0u8; 4 * 8192], Vec::new());
+
+        mapper.cpu_write(0x6000, 0x11);
+        assert_eq!(mapper.cpu_read(0x6000), 0);
+
+        mapper.cpu_write(0x5102, 0x02);
+        mapper.cpu_write(0x5103, 0x01);
+        mapper.cpu_write(0x6000, 0x22);
+
+        assert_eq!(mapper.cpu_read(0x6000), 0x22);
+    }
+
+    #[test]
+    fn mmc5_chr_mode_3_maps_1k_banks() {
+        let mut mapper = make_mmc5(4, 32);
+
+        mapper.cpu_write(0x5101, 3);
+        mapper.cpu_write(0x5120, 3);
+        mapper.cpu_write(0x5121, 5);
+
+        assert_eq!(mapper.chr_read(0x0000), 3);
+        assert_eq!(mapper.chr_read(0x0400), 5);
+    }
+
+    #[test]
+    fn mmc5_nametables_can_map_exram_and_fill_mode() {
+        let mut mapper = Mmc5::new(vec![0u8; 4 * 8192], Vec::new());
+
+        mapper.cpu_write(0x5105, 0b11_10_01_00);
+        mapper.cpu_write(0x5106, 0x44);
+        mapper.cpu_write(0x5107, 0x02);
+
+        assert!(mapper.nametable_write(0x2000, 0x11));
+        assert!(mapper.nametable_write(0x2400, 0x22));
+        assert!(mapper.nametable_write(0x2800, 0x33));
+
+        assert_eq!(mapper.nametable_read(0x2000), Some(0x11));
+        assert_eq!(mapper.nametable_read(0x2400), Some(0x22));
+        assert_eq!(mapper.nametable_read(0x2800), Some(0x33));
+        assert_eq!(mapper.nametable_read(0x2C00), Some(0x44));
+        assert_eq!(mapper.nametable_read(0x2FC0), Some(0xAA));
+    }
+
+    #[test]
+    fn mmc5_multiplier_reports_product() {
+        let mut mapper = Mmc5::new(vec![0u8; 4 * 8192], Vec::new());
+
+        mapper.cpu_write(0x5205, 13);
+        mapper.cpu_write(0x5206, 17);
+
+        assert_eq!(mapper.cpu_read(0x5205), 221);
+        assert_eq!(mapper.cpu_read(0x5206), 0);
     }
 
     #[test]
