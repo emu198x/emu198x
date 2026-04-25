@@ -8,10 +8,10 @@
 //! game. This port currently carries **Mapper 0 (NROM)**,
 //! **Mapper 1 (MMC1)**, **Mapper 2 (UxROM)**,
 //! **Mapper 3 (CNROM)**, **Mapper 4 (MMC3)**, and
-//! **Mapper 7 (AxROM)**, plus **Mapper 34 (BxROM/BNROM)** — the
-//! trait, the header parser, and the first mappers needed to boot
-//! flat-layout test ROMs plus common PRG/CHR-bank-switched
-//! cartridges.
+//! **Mapper 7 (AxROM)**, **Mapper 34 (BxROM/BNROM)**, and
+//! **Mapper 71 (Camerica/Codemasters)** — the trait, the header
+//! parser, and the first mappers needed to boot flat-layout test ROMs
+//! plus common PRG/CHR-bank-switched cartridges.
 //!
 //! The remaining mappers are archive-provenance (see
 //! [archives-as-source.md](../../wiki/decisions/archives-as-source.md))
@@ -81,7 +81,7 @@ pub enum Mirroring {
 /// constructs the right concrete type. This port carries [`Nrom`]
 /// (mapper 0), [`Mmc1`] (mapper 1), [`UxRom`] (mapper 2),
 /// [`CnRom`] (mapper 3), [`Mmc3`] (mapper 4), and [`AxRom`]
-/// (mapper 7), plus [`BxRom`] (mapper 34).
+/// (mapper 7), [`BxRom`] (mapper 34), and [`Camerica`] (mapper 71).
 ///
 /// ## Design notes
 ///
@@ -918,6 +918,78 @@ impl Mapper for BxRom {
     }
 }
 
+// ─── Camerica / Codemasters (Mapper 71) ────────────────────────────
+
+/// Camerica / Codemasters (Mapper 71): switchable 16 KiB low PRG
+/// bank with a fixed final high bank and CHR RAM.
+pub struct Camerica {
+    prg_rom: Vec<u8>,
+    chr_ram: [u8; 8192],
+    mirroring: Mirroring,
+    prg_bank: u8,
+}
+
+impl Camerica {
+    /// Construct mapper 71 from parsed PRG ROM and fixed header mirroring.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self {
+            prg_rom,
+            chr_ram: [0; 8192],
+            mirroring,
+            prg_bank: 0,
+        }
+    }
+
+    fn prg_16k_count(&self) -> usize {
+        (self.prg_rom.len() / 16384).max(1)
+    }
+}
+
+impl Mapper for Camerica {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xBFFF => {
+                let bank = usize::from(self.prg_bank) % self.prg_16k_count();
+                let offset = usize::from(addr - 0x8000);
+                self.prg_rom[bank * 16384 + offset]
+            }
+            0xC000..=0xFFFF => {
+                let bank = self.prg_16k_count() - 1;
+                let offset = usize::from(addr - 0xC000);
+                self.prg_rom[bank * 16384 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x9000..=0x9FFF => {
+                self.mirroring = if value & 0x10 != 0 {
+                    Mirroring::SingleScreenUpper
+                } else {
+                    Mirroring::SingleScreenLower
+                };
+            }
+            0xC000..=0xFFFF => self.prg_bank = value,
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_ram[usize::from(addr) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        self.chr_ram[usize::from(addr) & 0x1FFF] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 // ─── iNES header + parser ──────────────────────────────────────────
 
 /// Parsed iNES header fields. Both iNES 1.0 and NES 2.0 files map
@@ -1057,13 +1129,14 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         4 => Box::new(Mmc3::new(prg_rom, chr_data)),
         7 => Box::new(AxRom::new(prg_rom)),
         34 => Box::new(BxRom::new(prg_rom, mirroring)),
+        71 => Box::new(Camerica::new(prg_rom, mirroring)),
         n => {
             return Err(format!(
                 "Unsupported mapper: {n} — this port currently carries Mapper 0 \
                  (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
                  (CNROM), Mapper 4 (MMC3), Mapper 7 (AxROM), and Mapper 34 \
-                 (BxROM/BNROM). Additional mappers will land as compatibility \
-                 expands."
+                 (BxROM/BNROM), and Mapper 71 (Camerica). Additional mappers \
+                 will land as compatibility expands."
             ));
         }
     };
@@ -1763,6 +1836,57 @@ mod tests {
     #[test]
     fn bxrom_chr_ram_roundtrip() {
         let mut mapper = BxRom::new(vec![0u8; 32768], Mirroring::Horizontal);
+
+        mapper.chr_write(0x0000, 0xAB);
+        mapper.chr_write(0x1FFF, 0xCD);
+
+        assert_eq!(mapper.chr_read(0x0000), 0xAB);
+        assert_eq!(mapper.chr_read(0x1FFF), 0xCD);
+    }
+
+    #[test]
+    fn parse_valid_camerica() {
+        let mut data = make_ines(4, 0, 0x70 | 0x01);
+        data[7] = 0x40;
+        let parsed = parse_ines(&data).expect("parse failed");
+
+        assert_eq!(parsed.header.mapper_number, 71);
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Vertical);
+    }
+
+    #[test]
+    fn camerica_switches_low_16k_prg_bank_and_fixes_last() {
+        let mut prg = vec![0u8; 4 * 16384];
+        for bank in 0..4usize {
+            for byte in &mut prg[bank * 16384..(bank + 1) * 16384] {
+                *byte = bank as u8;
+            }
+        }
+        let mut mapper = Camerica::new(prg, Mirroring::Vertical);
+
+        assert_eq!(mapper.cpu_read(0x8000), 0);
+        assert_eq!(mapper.cpu_read(0xC000), 3);
+
+        mapper.cpu_write(0xC000, 2);
+
+        assert_eq!(mapper.cpu_read(0x8000), 2);
+        assert_eq!(mapper.cpu_read(0xC000), 3);
+    }
+
+    #[test]
+    fn camerica_mirroring_control_selects_single_screen() {
+        let mut mapper = Camerica::new(vec![0u8; 32768], Mirroring::Vertical);
+
+        assert_eq!(mapper.mirroring(), Mirroring::Vertical);
+        mapper.cpu_write(0x9000, 0x10);
+        assert_eq!(mapper.mirroring(), Mirroring::SingleScreenUpper);
+        mapper.cpu_write(0x9000, 0x00);
+        assert_eq!(mapper.mirroring(), Mirroring::SingleScreenLower);
+    }
+
+    #[test]
+    fn camerica_chr_ram_roundtrip() {
+        let mut mapper = Camerica::new(vec![0u8; 32768], Mirroring::Horizontal);
 
         mapper.chr_write(0x0000, 0xAB);
         mapper.chr_write(0x1FFF, 0xCD);
