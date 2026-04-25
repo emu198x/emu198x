@@ -18,12 +18,14 @@
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::cast_sign_loss)]
 
+use serde::{Deserialize, Serialize};
+
 // ---------------------------------------------------------------------------
 // Region
 // ---------------------------------------------------------------------------
 
 /// APU region — selects NTSC or PAL timing tables.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ApuRegion {
     /// NTSC: 1,789,773 Hz CPU clock.
     #[default]
@@ -51,7 +53,7 @@ impl ApuRegion {
 ///
 /// These controls are deliberately outside the emulated APU register surface:
 /// muting a channel here must not affect `$4015`, length counters, IRQs, or DMA.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ApuChannel {
     /// First pulse channel.
@@ -91,7 +93,7 @@ impl ApuChannel {
 }
 
 /// Per-channel host mixer control.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChannelControl {
     enabled: bool,
     gain: f32,
@@ -137,7 +139,7 @@ impl ChannelControl {
 }
 
 /// Host-side audio controls for the NES APU mixer.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AudioControls {
     master_gain: f32,
     channels: [ChannelControl; 5],
@@ -252,6 +254,7 @@ const PULSE_DUTY: [[bool; 8]; 4] = [
 ///
 /// When the loop flag is clear, the envelope counts down from 15 to 0 and
 /// stays there. When loop is set, it wraps from 0 back to 15.
+#[derive(Clone, Serialize, Deserialize)]
 struct Envelope {
     start_flag: bool,
     divider: u8,
@@ -310,6 +313,7 @@ impl Envelope {
 
 /// Length counter — counts down at half-frame rate. When it reaches zero
 /// the channel is silenced.
+#[derive(Clone, Serialize, Deserialize)]
 struct LengthCounter {
     counter: u8,
     halt: bool,
@@ -361,6 +365,7 @@ impl LengthCounter {
 /// down over time. Pulse 1 uses one's-complement negation (period =
 /// period - (period >> shift) - 1). Pulse 2 uses two's-complement
 /// (period = period - (period >> shift)).
+#[derive(Clone, Serialize, Deserialize)]
 struct Sweep {
     enabled: bool,
     negate: bool,
@@ -431,6 +436,7 @@ impl Sweep {
 // ---------------------------------------------------------------------------
 
 /// Pulse wave channel (two instances: pulse 1 and pulse 2).
+#[derive(Clone, Serialize, Deserialize)]
 struct Pulse {
     /// 11-bit timer period (from registers).
     timer_period: u16,
@@ -490,6 +496,7 @@ impl Pulse {
 /// Triangle wave channel. The timer ticks at CPU rate (not APU rate).
 /// Uses a 32-step sequence and has both a length counter and a linear
 /// counter.
+#[derive(Clone, Serialize, Deserialize)]
 struct Triangle {
     timer_period: u16,
     timer: u16,
@@ -563,6 +570,7 @@ impl Triangle {
 
 /// Noise channel. Uses a 15-bit LFSR with selectable feedback tap
 /// (bit 1 for long mode, bit 6 for short mode).
+#[derive(Clone, Serialize, Deserialize)]
 struct Noise {
     timer_period: u16,
     timer: u16,
@@ -622,6 +630,7 @@ impl Noise {
 /// the output shift register; when the shift register is exhausted, the
 /// sample buffer is loaded. When the sample buffer is empty and bytes
 /// remain, `dma_pending` signals the tick loop to steal a CPU cycle.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Dmc {
     /// 7-bit output level (0–127), written directly by $4011.
     pub output_level: u8,
@@ -763,7 +772,7 @@ impl Dmc {
 // ---------------------------------------------------------------------------
 
 /// Frame counter mode.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum FrameCounterMode {
     /// 4-step: generates IRQ, 4 quarter-frame events per sequence.
     FourStep,
@@ -783,11 +792,28 @@ const FIVE_STEP_SEQUENCE_NTSC: [u16; 5] = [7457, 14913, 22371, 29829, 37281];
 const FOUR_STEP_SEQUENCE_PAL: [u16; 4] = [8313, 16627, 24939, 33253];
 const FIVE_STEP_SEQUENCE_PAL: [u16; 5] = [8313, 16627, 24939, 33253, 41565];
 
+fn default_noise_period_table() -> &'static [u16; 16] {
+    &NOISE_PERIOD_TABLE_NTSC
+}
+
+fn default_dmc_rate_table() -> &'static [u16; 16] {
+    &DMC_RATE_TABLE_NTSC
+}
+
+fn default_four_step_seq() -> &'static [u16; 4] {
+    &FOUR_STEP_SEQUENCE_NTSC
+}
+
+fn default_five_step_seq() -> &'static [u16; 5] {
+    &FIVE_STEP_SEQUENCE_NTSC
+}
+
 // ---------------------------------------------------------------------------
 // APU
 // ---------------------------------------------------------------------------
 
 /// Ricoh 2A03 APU.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Apu {
     pulse1: Pulse,
     pulse2: Pulse,
@@ -825,9 +851,13 @@ pub struct Apu {
     pending_frame_clock: u8,
 
     // Region-dependent tables
+    #[serde(skip, default = "default_noise_period_table")]
     noise_period_table: &'static [u16; 16],
+    #[serde(skip, default = "default_dmc_rate_table")]
     dmc_rate_table: &'static [u16; 16],
+    #[serde(skip, default = "default_four_step_seq")]
     four_step_seq: &'static [u16; 4],
+    #[serde(skip, default = "default_five_step_seq")]
     five_step_seq: &'static [u16; 5],
 
     // Downsampling

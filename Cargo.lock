@@ -947,6 +947,10 @@ dependencies = [
 [[package]]
 name = "format-nintendo-nes-ines"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
 
 [[package]]
 name = "format-sinclair-zx-spectrum-tap"
@@ -1506,6 +1510,8 @@ dependencies = [
  "mos-6502",
  "ricoh-apu-2a03",
  "ricoh-ppu-2c02",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -2447,12 +2453,17 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 [[package]]
 name = "ricoh-apu-2a03"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "ricoh-ppu-2c02"
 version = "0.1.0"
 dependencies = [
  "format-nintendo-nes-ines",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -2505,6 +2516,8 @@ dependencies = [
  "emu198x-shell",
  "format-nintendo-nes-ines",
  "machine-nintendo-nes",
+ "postcard",
+ "serde",
  "serde_json",
 ]
 

@@ -8,10 +8,11 @@
 //! game. This port currently carries **Mapper 0 (NROM)**,
 //! **Mapper 1 (MMC1)**, **Mapper 2 (UxROM)**,
 //! **Mapper 3 (CNROM)**, **Mapper 4 (MMC3)**, and
-//! **Mapper 7 (AxROM)**, **Mapper 34 (BxROM/BNROM and NINA-001)**,
-//! and **Mapper 71 (Camerica/Codemasters)** — the trait, the header
-//! parser, and the first mappers needed to boot flat-layout test ROMs
-//! plus common PRG/CHR-bank-switched cartridges.
+//! **Mapper 7 (AxROM)**, **Mapper 11 (Color Dreams)**,
+//! **Mapper 34 (BxROM/BNROM and NINA-001)**,
+//! **Mapper 68 (Sunsoft-4)**, and **Mapper 71 (Camerica/Codemasters)** —
+//! the trait, the header parser, and the first mappers needed to boot
+//! flat-layout test ROMs plus common PRG/CHR-bank-switched cartridges.
 //!
 //! The remaining mappers are archive-provenance (see
 //! [archives-as-source.md](../../wiki/decisions/archives-as-source.md))
@@ -44,6 +45,9 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
 // ─── Mirroring ─────────────────────────────────────────────────────
 
 /// Nametable mirroring mode.
@@ -51,7 +55,7 @@
 /// Determined by the cartridge, not the PPU. The PPU queries the
 /// mapper on every nametable access (`$2000-$2FFF`) to find which
 /// physical nametable a given logical address should route to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Mirroring {
     /// A-A / B-B — both horizontal strips share a nametable. Games
     /// with vertical scrolling (e.g. *Ice Climber*) use this.
@@ -81,8 +85,8 @@ pub enum Mirroring {
 /// constructs the right concrete type. This port carries [`Nrom`]
 /// (mapper 0), [`Mmc1`] (mapper 1), [`UxRom`] (mapper 2),
 /// [`CnRom`] (mapper 3), [`Mmc3`] (mapper 4), and [`AxRom`]
-/// (mapper 7), [`BxRom`] / [`Nina001`] (mapper 34), and
-/// [`Camerica`] (mapper 71).
+/// (mapper 7), [`ColorDreams`] (mapper 11), [`BxRom`] / [`Nina001`]
+/// (mapper 34), [`Sunsoft4`] (mapper 68), and [`Camerica`] (mapper 71).
 ///
 /// ## Design notes
 ///
@@ -143,6 +147,69 @@ pub trait Mapper: Send {
     ///
     /// Default: no-op. NROM has no IRQ counter.
     fn notify_a12_rendering(&mut self, _a12_high: bool) {}
+
+    /// Mapper-owned nametable read override for cartridges that map
+    /// ROM/RAM into `$2000-$2FFF` instead of ordinary CIRAM.
+    ///
+    /// Default returns `None`, meaning the PPU should use its internal
+    /// nametable RAM with the mapper's [`Mirroring`] mode.
+    fn nametable_read(&mut self, _addr: u16) -> Option<u8> {
+        None
+    }
+
+    /// Mapper-owned nametable write override. Returning `true` means
+    /// the mapper consumed the write and the PPU must not write CIRAM.
+    fn nametable_write(&mut self, _addr: u16, _value: u8) -> bool {
+        false
+    }
+
+    /// Capture concrete mapper state for save-state export.
+    fn snapshot(&self) -> MapperSnapshot;
+}
+
+/// Serializable state for every mapper currently supported by this crate.
+#[derive(Clone, Serialize, Deserialize)]
+pub enum MapperSnapshot {
+    /// Mapper 0.
+    Nrom(Nrom),
+    /// Mapper 1.
+    Mmc1(Mmc1),
+    /// Mapper 2.
+    UxRom(UxRom),
+    /// Mapper 3.
+    CnRom(CnRom),
+    /// Mapper 4.
+    Mmc3(Mmc3),
+    /// Mapper 7.
+    AxRom(AxRom),
+    /// Mapper 11.
+    ColorDreams(ColorDreams),
+    /// Mapper 34, CHR-RAM variant.
+    BxRom(BxRom),
+    /// Mapper 34, NINA-001 variant.
+    Nina001(Nina001),
+    /// Mapper 68.
+    Sunsoft4(Sunsoft4),
+    /// Mapper 71.
+    Camerica(Camerica),
+}
+
+/// Rebuild a boxed mapper from a previously exported mapper snapshot.
+#[must_use]
+pub fn mapper_from_snapshot(snapshot: MapperSnapshot) -> Box<dyn Mapper> {
+    match snapshot {
+        MapperSnapshot::Nrom(mapper) => Box::new(mapper),
+        MapperSnapshot::Mmc1(mapper) => Box::new(mapper),
+        MapperSnapshot::UxRom(mapper) => Box::new(mapper),
+        MapperSnapshot::CnRom(mapper) => Box::new(mapper),
+        MapperSnapshot::Mmc3(mapper) => Box::new(mapper),
+        MapperSnapshot::AxRom(mapper) => Box::new(mapper),
+        MapperSnapshot::ColorDreams(mapper) => Box::new(mapper),
+        MapperSnapshot::BxRom(mapper) => Box::new(mapper),
+        MapperSnapshot::Nina001(mapper) => Box::new(mapper),
+        MapperSnapshot::Sunsoft4(mapper) => Box::new(mapper),
+        MapperSnapshot::Camerica(mapper) => Box::new(mapper),
+    }
 }
 
 // ─── NROM (Mapper 0) ───────────────────────────────────────────────
@@ -166,11 +233,13 @@ pub trait Mapper: Send {
 ///   a mirror of `$8000-$BFFF` for 16 KiB carts.
 /// - PPU `$0000-$1FFF` — 8 KiB CHR ROM, or 8 KiB CHR RAM if the
 ///   iNES header reports zero CHR banks.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Nrom {
     prg_rom: Vec<u8>,
     chr: Vec<u8>,
     chr_is_ram: bool,
     mirroring: Mirroring,
+    #[serde(with = "BigArray")]
     prg_ram: [u8; 8192],
 }
 
@@ -239,6 +308,10 @@ impl Mapper for Nrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::Nrom(self.clone())
+    }
 }
 
 // ─── MMC1 (Mapper 1) ───────────────────────────────────────────────
@@ -250,10 +323,12 @@ impl Mapper for Nrom {
 /// control, CHR bank 0, CHR bank 1, or PRG bank. This supports MMC1's
 /// 16 KiB and 32 KiB PRG modes, 4 KiB and 8 KiB CHR modes, dynamic
 /// nametable mirroring, and the standard 8 KiB PRG-RAM window.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Mmc1 {
     prg_rom: Vec<u8>,
     chr: Vec<u8>,
     chr_is_ram: bool,
+    #[serde(with = "BigArray")]
     prg_ram: [u8; 8192],
     shift_register: u8,
     shift_count: u8,
@@ -398,6 +473,10 @@ impl Mapper for Mmc1 {
             _ => unreachable!(),
         }
     }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::Mmc1(self.clone())
+    }
 }
 
 // ─── UxROM (Mapper 2) ──────────────────────────────────────────────
@@ -409,6 +488,7 @@ impl Mapper for Mmc1 {
 /// CPU-selected PRG bank and `$C000-$FFFF` to the final PRG bank.
 /// Most UxROM cartridges use 8 KiB of CHR RAM; CHR ROM is also accepted
 /// because the mapper trait can serve either layout.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct UxRom {
     prg_rom: Vec<u8>,
     chr: Vec<u8>,
@@ -484,6 +564,10 @@ impl Mapper for UxRom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::UxRom(self.clone())
+    }
 }
 
 // ─── CNROM (Mapper 3) ──────────────────────────────────────────────
@@ -494,6 +578,7 @@ impl Mapper for UxRom {
 /// `$8000-$FFFF` to select the 8 KiB CHR bank visible to the PPU at
 /// `$0000-$1FFF`. Most boards have bus conflicts, so the latched bank
 /// value is the CPU value AND the ROM byte driving the bus.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CnRom {
     prg_rom: Vec<u8>,
     chr_rom: Vec<u8>,
@@ -554,6 +639,10 @@ impl Mapper for CnRom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::CnRom(self.clone())
+    }
 }
 
 // ─── MMC3 (Mapper 4) ───────────────────────────────────────────────
@@ -564,10 +653,12 @@ impl Mapper for CnRom {
 /// MMC3 is used by a large part of the later NES library, including
 /// *Super Mario Bros. 3*. The IRQ counter is clocked by debounced PPU
 /// A12 rising edges reported through [`Mapper::notify_a12_rendering`].
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Mmc3 {
     prg_rom: Vec<u8>,
     chr: Vec<u8>,
     chr_is_ram: bool,
+    #[serde(with = "BigArray")]
     prg_ram: [u8; 8192],
     bank_select: u8,
     registers: [u8; 8],
@@ -786,6 +877,10 @@ impl Mapper for Mmc3 {
     fn notify_a12_rendering(&mut self, a12_high: bool) {
         self.update_a12(a12_high);
     }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::Mmc3(self.clone())
+    }
 }
 
 // ─── AxROM (Mapper 7) ──────────────────────────────────────────────
@@ -796,8 +891,10 @@ impl Mapper for Mmc3 {
 /// AxROM boards use CHR RAM and switch the whole CPU `$8000-$FFFF`
 /// PRG window at once. Bit 4 of the latched bank register selects
 /// lower vs upper single-screen nametable mirroring.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AxRom {
     prg_rom: Vec<u8>,
+    #[serde(with = "BigArray")]
     chr_ram: [u8; 8192],
     bank: u8,
     mirroring: Mirroring,
@@ -826,7 +923,7 @@ impl Mapper for AxRom {
             0x8000..=0xFFFF => {
                 let bank = (usize::from(self.bank) & 0x07) % self.prg_bank_count();
                 let offset = usize::from(addr - 0x8000);
-                self.prg_rom[bank * 32768 + offset]
+                self.prg_rom[(bank * 32768 + offset) % self.prg_rom.len()]
             }
             _ => 0,
         }
@@ -855,6 +952,91 @@ impl Mapper for AxRom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::AxRom(self.clone())
+    }
+}
+
+// ─── Color Dreams (Mapper 11) ─────────────────────────────────────
+
+/// Color Dreams (Mapper 11): switchable 32 KiB PRG plus 8 KiB CHR ROM.
+///
+/// The latch format is `CCCC LLPP`: bits 0-1 select the 32 KiB PRG
+/// bank, bits 4-7 select the 8 KiB CHR bank, and bits 2-3 are lockout
+/// defeat lines with no emulation-visible effect. The board has bus
+/// conflicts, so writes latch `CPU value & ROM byte`.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ColorDreams {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    mirroring: Mirroring,
+    prg_bank: u8,
+    chr_bank: u8,
+}
+
+impl ColorDreams {
+    /// Construct mapper 11 from parsed PRG/CHR ROM and fixed mirroring.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring) -> Self {
+        let chr_rom = if chr_data.is_empty() {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr_rom,
+            mirroring,
+            prg_bank: 0,
+            chr_bank: 0,
+        }
+    }
+
+    fn prg_bank_count(&self) -> usize {
+        (self.prg_rom.len() / 32768).max(1)
+    }
+
+    fn chr_bank_count(&self) -> usize {
+        (self.chr_rom.len() / 8192).max(1)
+    }
+}
+
+impl Mapper for ColorDreams {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x8000..=0xFFFF => {
+                let bank = usize::from(self.prg_bank) % self.prg_bank_count();
+                let offset = usize::from(addr - 0x8000);
+                self.prg_rom[bank * 32768 + offset]
+            }
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            let effective = value & self.cpu_read(addr);
+            self.prg_bank = effective & 0x03;
+            self.chr_bank = (effective >> 4) & 0x0F;
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let bank = usize::from(self.chr_bank) % self.chr_bank_count();
+        let offset = usize::from(addr) & 0x1FFF;
+        self.chr_rom[bank * 8192 + offset]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {}
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::ColorDreams(self.clone())
+    }
 }
 
 // ─── BxROM / BNROM (Mapper 34) ─────────────────────────────────────
@@ -864,8 +1046,10 @@ impl Mapper for AxRom {
 /// The iNES mapper 34 assignment is historically ambiguous. The parser
 /// chooses this variant for CHR-RAM images (`CHR=0`) and [`Nina001`]
 /// for CHR-ROM images.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BxRom {
     prg_rom: Vec<u8>,
+    #[serde(with = "BigArray")]
     chr_ram: [u8; 8192],
     mirroring: Mirroring,
     prg_bank: u8,
@@ -917,6 +1101,10 @@ impl Mapper for BxRom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::BxRom(self.clone())
+    }
 }
 
 /// NINA-001 / NINA-002 (Mapper 34): 32 KiB PRG banking plus two
@@ -925,9 +1113,11 @@ impl Mapper for BxRom {
 /// The bank registers live at `$7FFD-$7FFF`, overlaid on the
 /// cartridge's 8 KiB PRG RAM window. Reads return the RAM byte, while
 /// writes update both RAM and the corresponding register.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Nina001 {
     prg_rom: Vec<u8>,
     chr_rom: Vec<u8>,
+    #[serde(with = "BigArray")]
     prg_ram: [u8; 8192],
     mirroring: Mirroring,
     prg_bank: u8,
@@ -1005,14 +1195,164 @@ impl Mapper for Nina001 {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::Nina001(self.clone())
+    }
+}
+
+// ─── Sunsoft-4 (Mapper 68) ─────────────────────────────────────────
+
+/// Sunsoft-4 (Mapper 68): 16 KiB PRG banking, 2 KiB CHR banking,
+/// and optional CHR-ROM nametable banking.
+///
+/// Used by *After Burner*. When CHR-ROM nametable mode is enabled,
+/// the mapper supplies reads for `$2000-$2FFF`; writes are consumed
+/// and ignored because the backing store is ROM.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Sunsoft4 {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    #[serde(with = "BigArray")]
+    prg_ram: [u8; 8192],
+    mirroring: Mirroring,
+    prg_bank: u8,
+    chr_banks: [u8; 4],
+    nt_banks: [u8; 2],
+    nt_rom_mode: bool,
+    prg_ram_enabled: bool,
+}
+
+impl Sunsoft4 {
+    /// Construct mapper 68 from parsed ROM data and header mirroring.
+    #[must_use]
+    pub fn new(prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring) -> Self {
+        let chr_rom = if chr_data.is_empty() {
+            vec![0u8; 8192]
+        } else {
+            chr_data
+        };
+        Self {
+            prg_rom,
+            chr_rom,
+            prg_ram: [0; 8192],
+            mirroring,
+            prg_bank: 0,
+            chr_banks: [0; 4],
+            nt_banks: [0x80; 2],
+            nt_rom_mode: false,
+            prg_ram_enabled: false,
+        }
+    }
+
+    fn prg_bank_count(&self) -> usize {
+        (self.prg_rom.len() / 16384).max(1)
+    }
+
+    fn read_prg_16k(&self, bank: usize, offset: u16) -> u8 {
+        let bank = bank % self.prg_bank_count();
+        self.prg_rom[bank * 16384 + usize::from(offset)]
+    }
+
+    fn chr_2k_bank_count(&self) -> usize {
+        (self.chr_rom.len() / 2048).max(1)
+    }
+
+    fn chr_1k_bank_count(&self) -> usize {
+        (self.chr_rom.len() / 1024).max(1)
+    }
+
+    fn nametable_slot(&self, addr: u16) -> usize {
+        let page = ((addr - 0x2000) & 0x0FFF) / 0x0400;
+        match self.mirroring {
+            Mirroring::Vertical => usize::from(page & 1),
+            Mirroring::Horizontal => usize::from(page / 2),
+            Mirroring::SingleScreenLower => 0,
+            Mirroring::SingleScreenUpper => 1,
+            Mirroring::FourScreen => usize::from(page & 1),
+        }
+    }
+}
+
+impl Mapper for Sunsoft4 {
+    fn cpu_read(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF if self.prg_ram_enabled => self.prg_ram[usize::from(addr - 0x6000)],
+            0x8000..=0xBFFF => self.read_prg_16k(usize::from(self.prg_bank), addr - 0x8000),
+            0xC000..=0xFFFF => self.read_prg_16k(self.prg_bank_count() - 1, addr - 0xC000),
+            _ => 0,
+        }
+    }
+
+    fn cpu_write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x6000..=0x7FFF if self.prg_ram_enabled => {
+                self.prg_ram[usize::from(addr - 0x6000)] = value;
+            }
+            0x8000..=0x8FFF => self.chr_banks[0] = value,
+            0x9000..=0x9FFF => self.chr_banks[1] = value,
+            0xA000..=0xAFFF => self.chr_banks[2] = value,
+            0xB000..=0xBFFF => self.chr_banks[3] = value,
+            0xC000..=0xCFFF => self.nt_banks[0] = 0x80 | (value & 0x7F),
+            0xD000..=0xDFFF => self.nt_banks[1] = 0x80 | (value & 0x7F),
+            0xE000..=0xEFFF => {
+                self.nt_rom_mode = value & 0x10 != 0;
+                self.mirroring = match value & 0x03 {
+                    0 => Mirroring::Vertical,
+                    1 => Mirroring::Horizontal,
+                    2 => Mirroring::SingleScreenLower,
+                    3 => Mirroring::SingleScreenUpper,
+                    _ => unreachable!(),
+                };
+            }
+            0xF000..=0xFFFF => {
+                self.prg_bank = value & 0x0F;
+                self.prg_ram_enabled = value & 0x10 != 0;
+            }
+            _ => {}
+        }
+    }
+
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let slot = usize::from((addr & 0x1FFF) / 0x0800);
+        let bank = usize::from(self.chr_banks[slot]) % self.chr_2k_bank_count();
+        let offset = usize::from(addr & 0x07FF);
+        self.chr_rom[bank * 2048 + offset]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {}
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn nametable_read(&mut self, addr: u16) -> Option<u8> {
+        if !self.nt_rom_mode {
+            return None;
+        }
+        let slot = self.nametable_slot(addr);
+        let bank = usize::from(self.nt_banks[slot]) % self.chr_1k_bank_count();
+        let offset = usize::from(addr & 0x03FF);
+        Some(self.chr_rom[bank * 1024 + offset])
+    }
+
+    fn nametable_write(&mut self, _addr: u16, _value: u8) -> bool {
+        self.nt_rom_mode
+    }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::Sunsoft4(self.clone())
+    }
 }
 
 // ─── Camerica / Codemasters (Mapper 71) ────────────────────────────
 
 /// Camerica / Codemasters (Mapper 71): switchable 16 KiB low PRG
 /// bank with a fixed final high bank and CHR RAM.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Camerica {
     prg_rom: Vec<u8>,
+    #[serde(with = "BigArray")]
     chr_ram: [u8; 8192],
     mirroring: Mirroring,
     prg_bank: u8,
@@ -1076,6 +1416,10 @@ impl Mapper for Camerica {
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring
+    }
+
+    fn snapshot(&self) -> MapperSnapshot {
+        MapperSnapshot::Camerica(self.clone())
     }
 }
 
@@ -1217,15 +1561,18 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         3 => Box::new(CnRom::new(prg_rom, chr_data, mirroring)),
         4 => Box::new(Mmc3::new(prg_rom, chr_data)),
         7 => Box::new(AxRom::new(prg_rom)),
+        11 => Box::new(ColorDreams::new(prg_rom, chr_data, mirroring)),
         34 if chr_data.is_empty() => Box::new(BxRom::new(prg_rom, mirroring)),
         34 => Box::new(Nina001::new(prg_rom, chr_data, mirroring)),
+        68 => Box::new(Sunsoft4::new(prg_rom, chr_data, mirroring)),
         71 => Box::new(Camerica::new(prg_rom, mirroring)),
         n => {
             return Err(format!(
                 "Unsupported mapper: {n} — this port currently carries Mapper 0 \
                  (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
-                 (CNROM), Mapper 4 (MMC3), Mapper 7 (AxROM), and Mapper 34 \
-                 (BxROM/BNROM and NINA-001), and Mapper 71 (Camerica). \
+                 (CNROM), Mapper 4 (MMC3), Mapper 7 (AxROM), Mapper 11 \
+                 (Color Dreams), Mapper 34 (BxROM/BNROM and NINA-001), \
+                 Mapper 68 (Sunsoft-4), and Mapper 71 (Camerica). \
                  Additional mappers will land as compatibility expands."
             ));
         }
@@ -2112,6 +2459,99 @@ mod tests {
         let data = make_ines(1, 1, 0x08);
         let parsed = parse_ines(&data).expect("parse failed");
         assert_eq!(parsed.mapper.mirroring(), Mirroring::FourScreen);
+    }
+
+    #[test]
+    fn parse_valid_color_dreams_mapper_11() {
+        let data = make_ines(4, 8, 0xB0);
+        let parsed = parse_ines(&data).expect("mapper 11 should parse");
+
+        assert_eq!(parsed.header.mapper_number, 11);
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn color_dreams_switches_32k_prg_and_8k_chr() {
+        let mut prg = vec![0u8; 4 * 32768];
+        for bank in 0..4usize {
+            prg[bank * 32768] = 0xFF;
+            prg[bank * 32768 + 1] = bank as u8;
+        }
+        let mut chr = vec![0u8; 4 * 8192];
+        for bank in 0..4usize {
+            chr[bank * 8192] = (0xA0 + bank) as u8;
+        }
+        let mut mapper = ColorDreams::new(prg, chr, Mirroring::Vertical);
+
+        mapper.cpu_write(0x8000, 0x21);
+
+        assert_eq!(mapper.cpu_read(0x8001), 1);
+        assert_eq!(mapper.chr_read(0x0000), 0xA2);
+    }
+
+    #[test]
+    fn color_dreams_bank_write_obeys_bus_conflict() {
+        let mut prg = vec![0xFFu8; 4 * 32768];
+        prg[0] = 0x11;
+        prg[32768 + 1] = 1;
+        let mut chr = vec![0u8; 2 * 8192];
+        chr[8192] = 0x55;
+        let mut mapper = ColorDreams::new(prg, chr, Mirroring::Horizontal);
+
+        mapper.cpu_write(0x8000, 0x33);
+
+        assert_eq!(mapper.cpu_read(0x8001), 1);
+        assert_eq!(mapper.chr_read(0x0000), 0x55);
+    }
+
+    #[test]
+    fn parse_valid_sunsoft4_mapper_68() {
+        let mut data = make_ines(8, 32, 0x40);
+        data[7] = 0x40;
+        let parsed = parse_ines(&data).expect("mapper 68 should parse");
+
+        assert_eq!(parsed.header.mapper_number, 68);
+        assert_eq!(parsed.mapper.mirroring(), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn sunsoft4_switches_prg_and_chr_banks() {
+        let mut prg = vec![0u8; 8 * 16384];
+        for bank in 0..8usize {
+            prg[bank * 16384] = bank as u8;
+        }
+        let mut chr = vec![0u8; 8 * 2048];
+        for bank in 0..8usize {
+            chr[bank * 2048] = (0x80 + bank) as u8;
+        }
+        let mut mapper = Sunsoft4::new(prg, chr, Mirroring::Vertical);
+
+        mapper.cpu_write(0xF000, 3);
+        mapper.cpu_write(0x8000, 4);
+        mapper.cpu_write(0x9000, 5);
+
+        assert_eq!(mapper.cpu_read(0x8000), 3);
+        assert_eq!(mapper.cpu_read(0xC000), 7);
+        assert_eq!(mapper.chr_read(0x0000), 0x84);
+        assert_eq!(mapper.chr_read(0x0800), 0x85);
+    }
+
+    #[test]
+    fn sunsoft4_can_source_nametables_from_chr_rom() {
+        let prg = vec![0u8; 2 * 16384];
+        let mut chr = vec![0u8; 132 * 1024];
+        chr[0x80 * 1024] = 0x41;
+        chr[0x81 * 1024] = 0x42;
+        let mut mapper = Sunsoft4::new(prg, chr, Mirroring::Horizontal);
+
+        assert_eq!(mapper.nametable_read(0x2000), None);
+        mapper.cpu_write(0xC000, 0x00);
+        mapper.cpu_write(0xD000, 0x01);
+        mapper.cpu_write(0xE000, 0x11);
+
+        assert_eq!(mapper.nametable_read(0x2000), Some(0x41));
+        assert_eq!(mapper.nametable_read(0x2800), Some(0x42));
+        assert!(mapper.nametable_write(0x2000, 0x99));
     }
 
     // ─── NES 2.0 header tests ──────────────────────────────────────

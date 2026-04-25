@@ -4,6 +4,24 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-25 — NES smoke matrix, snapshots, DMC DMA, and mapper 11/68
+
+**Type:** feature
+**Trigger:** The NES path had enough mapper breadth that the next
+compatibility work needed structured local ROM feedback instead of
+single-ROM guessing.
+**Result:** `format-nintendo-nes-ines` now supports mapper 11
+(Color Dreams) and mapper 68 (Sunsoft-4, including CHR-ROM nametable
+reads for `After Burner`). Mapper state is serializable through an
+explicit snapshot enum, the NES runtime now exports/imports version-1
+snapshots, DMC sample fetches steal a CPU cycle, and
+`emu198x-script-nes --smoke-root` emits a JSON compatibility matrix.
+The local one-frame matrix scanned 629 `.nes` files: 613 reached a
+frame, with remaining expected failures in unsupported mapper 5/22/28
+or invalid headers.
+
+---
+
 ## 2026-04-25 — NES gains UxROM and MMC1 mapper support
 
 **Type:** feature

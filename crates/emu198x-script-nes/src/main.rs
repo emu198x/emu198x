@@ -1,6 +1,7 @@
 //! `emu198x-script-nes` — minimal headless NES runner.
 
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use emu198x_shell::{
@@ -20,6 +21,9 @@ struct Cli {
     audio_capture: Option<PathBuf>,
     script: Option<PathBuf>,
     frames: u32,
+    smoke_root: Option<PathBuf>,
+    smoke_report: Option<PathBuf>,
+    smoke_screenshot_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -43,6 +47,31 @@ struct RunnerReport {
     cartridge_loaded: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct SmokeMatrixReport {
+    rom_count: usize,
+    rows: Vec<SmokeMatrixRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct SmokeMatrixRow {
+    path: String,
+    mapper: Option<u16>,
+    prg_banks: Option<u8>,
+    chr_banks: Option<u8>,
+    result: String,
+    time: Option<u64>,
+    screenshot: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct InesHeaderSummary {
+    mapper: Option<u16>,
+    prg_banks: Option<u8>,
+    chr_banks: Option<u8>,
+}
+
 const USAGE: &str = "\
 Usage: emu198x-script-nes [OPTIONS]
 
@@ -55,6 +84,10 @@ Automation:
     --frames N                 number of native NES video frames to run
     --screenshot PATH          write the last emitted frame as PNG
     --audio-capture PATH       write emitted audio as 16-bit PCM WAV
+    --smoke-root PATH          recursively smoke every .nes ROM under PATH
+    --smoke-report PATH        write smoke matrix JSON to PATH
+    --smoke-screenshot-dir PATH
+                               write one PNG per successful smoke row
 
 Other:
     --help, -h                 show this help
@@ -66,6 +99,29 @@ Examples:
 
 fn main() {
     let cli = parse_cli(std::env::args().skip(1));
+    if cli.smoke_root.is_some() {
+        match run_smoke_matrix(&cli) {
+            Ok(report) => {
+                let json = serde_json::to_string_pretty(&report).unwrap_or_else(|err| {
+                    eprintln!("error: failed to serialize smoke matrix report: {err}");
+                    process::exit(1);
+                });
+                if let Some(path) = &cli.smoke_report {
+                    if let Err(err) = fs::write(path, json.as_bytes()) {
+                        eprintln!("error: failed to write {}: {err}", path.display());
+                        process::exit(1);
+                    }
+                } else {
+                    println!("{json}");
+                }
+            }
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        }
+        return;
+    }
     let script_mode = cli.script.is_some();
     match run(cli) {
         Ok(report) => {
@@ -119,6 +175,16 @@ where
                 cli.frames = next_arg(&mut iter, "--frames")
                     .parse()
                     .unwrap_or_else(|_| die("--frames requires a non-negative integer"));
+            }
+            "--smoke-root" => {
+                cli.smoke_root = Some(PathBuf::from(next_arg(&mut iter, "--smoke-root")));
+            }
+            "--smoke-report" => {
+                cli.smoke_report = Some(PathBuf::from(next_arg(&mut iter, "--smoke-report")));
+            }
+            "--smoke-screenshot-dir" => {
+                cli.smoke_screenshot_dir =
+                    Some(PathBuf::from(next_arg(&mut iter, "--smoke-screenshot-dir")));
             }
             "--help" | "-h" => {
                 println!("{USAGE}");
@@ -245,6 +311,126 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
     })
 }
 
+fn run_smoke_matrix(cli: &Cli) -> Result<SmokeMatrixReport, String> {
+    let root = cli
+        .smoke_root
+        .as_deref()
+        .ok_or_else(|| "--smoke-root is required".to_string())?;
+    let frames = if cli.frames == 0 { 300 } else { cli.frames };
+    let mut roms = Vec::new();
+    collect_nes_roms(root, &mut roms)?;
+    roms.sort();
+
+    if let Some(dir) = &cli.smoke_screenshot_dir {
+        fs::create_dir_all(dir)
+            .map_err(|err| format!("failed to create {}: {err}", dir.display()))?;
+    }
+
+    let mut rows = Vec::with_capacity(roms.len());
+    for (index, rom) in roms.iter().enumerate() {
+        let header = read_ines_header(rom).unwrap_or_default();
+        let screenshot = cli
+            .smoke_screenshot_dir
+            .as_ref()
+            .map(|dir| dir.join(format!("{index:04}-{}.png", safe_stem(rom))));
+        let result = run(Cli {
+            media: vec![MediaArg {
+                slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),
+                kind: MediaKind::Cartridge,
+                path: rom.clone(),
+            }],
+            screenshot: screenshot.clone(),
+            audio_capture: None,
+            script: None,
+            frames,
+            smoke_root: None,
+            smoke_report: None,
+            smoke_screenshot_dir: None,
+        });
+
+        match result {
+            Ok(report) => rows.push(SmokeMatrixRow {
+                path: rom.display().to_string(),
+                mapper: header.mapper,
+                prg_banks: header.prg_banks,
+                chr_banks: header.chr_banks,
+                result: "ok".to_string(),
+                time: Some(report.time),
+                screenshot: screenshot.map(|path| path.display().to_string()),
+                error: None,
+            }),
+            Err(error) => rows.push(SmokeMatrixRow {
+                path: rom.display().to_string(),
+                mapper: header.mapper,
+                prg_banks: header.prg_banks,
+                chr_banks: header.chr_banks,
+                result: "error".to_string(),
+                time: None,
+                screenshot: None,
+                error: Some(error),
+            }),
+        }
+    }
+
+    Ok(SmokeMatrixReport {
+        rom_count: rows.len(),
+        rows,
+    })
+}
+
+fn collect_nes_roms(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    if path.is_file() {
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("nes"))
+        {
+            out.push(path.to_owned());
+        }
+        return Ok(());
+    }
+
+    for entry in
+        fs::read_dir(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?
+    {
+        let entry =
+            entry.map_err(|err| format!("failed to read entry under {}: {err}", path.display()))?;
+        collect_nes_roms(&entry.path(), out)?;
+    }
+    Ok(())
+}
+
+fn read_ines_header(path: &Path) -> Result<InesHeaderSummary, String> {
+    let bytes =
+        fs::read(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    if bytes.len() < 16 || &bytes[0..4] != b"NES\x1a" {
+        return Ok(InesHeaderSummary::default());
+    }
+    let flags6 = bytes[6];
+    let flags7 = bytes[7];
+    let mapper = u16::from((flags7 & 0xF0) | (flags6 >> 4));
+    Ok(InesHeaderSummary {
+        mapper: Some(mapper),
+        prg_banks: Some(bytes[4]),
+        chr_banks: Some(bytes[5]),
+    })
+}
+
+fn safe_stem(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("rom")
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 fn load_media_bytes(entries: &[MediaArg]) -> Result<Vec<LoadedMedia>, String> {
     entries
         .iter()
@@ -310,6 +496,9 @@ mod tests {
                 audio_capture: Some(PathBuf::from("audio.wav")),
                 script: None,
                 frames: 12,
+                smoke_root: None,
+                smoke_report: None,
+                smoke_screenshot_dir: None,
             }
         );
     }
@@ -342,6 +531,9 @@ mod tests {
             audio_capture: Some(audio_path.clone()),
             script: None,
             frames: 1,
+            smoke_root: None,
+            smoke_report: None,
+            smoke_screenshot_dir: None,
         });
 
         assert!(result.is_ok(), "runner should capture outputs: {result:?}");
@@ -390,6 +582,9 @@ mod tests {
             audio_capture: None,
             script: Some(script_path.clone()),
             frames: 0,
+            smoke_root: None,
+            smoke_report: None,
+            smoke_screenshot_dir: None,
         });
 
         assert!(result.is_ok(), "runner should execute script: {result:?}");
@@ -398,5 +593,33 @@ mod tests {
 
         let _ = fs::remove_file(rom_path);
         let _ = fs::remove_file(script_path);
+    }
+
+    #[test]
+    fn run_smoke_matrix_reports_successful_rom() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("emu198x-script-nes-{}-smoke", std::process::id()));
+        fs::create_dir_all(&temp_dir).expect("temporary smoke dir should be created");
+        let rom_path = temp_dir.join("demo.nes");
+        fs::write(&rom_path, minimal_ines()).expect("temporary ROM write should succeed");
+
+        let report = run_smoke_matrix(&Cli {
+            media: Vec::new(),
+            screenshot: None,
+            audio_capture: None,
+            script: None,
+            frames: 1,
+            smoke_root: Some(temp_dir.clone()),
+            smoke_report: None,
+            smoke_screenshot_dir: None,
+        })
+        .expect("smoke matrix should run");
+
+        assert_eq!(report.rom_count, 1);
+        assert_eq!(report.rows[0].mapper, Some(0));
+        assert_eq!(report.rows[0].result, "ok");
+
+        let _ = fs::remove_file(rom_path);
+        let _ = fs::remove_dir(temp_dir);
     }
 }

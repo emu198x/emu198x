@@ -7,3 +7,5 @@ license.workspace = true
 
 [dependencies]
 format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines" }
+serde = { workspace = true }
+serde-big-array = { workspace = true }

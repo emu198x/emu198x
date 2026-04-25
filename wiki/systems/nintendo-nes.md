@@ -1,27 +1,29 @@
 # Nintendo Entertainment System (NES)
 
 > Status as of 2026-04-25: **fresh NTSC NES headless/runtime/native path.**
-> The current system boots NROM, MMC1, UxROM, CNROM, MMC3, AxROM, BxROM/BNROM, NINA-001, and Camerica/Codemasters cartridges through the shared
+> The current system boots NROM, MMC1, UxROM, CNROM, MMC3, AxROM,
+> Color Dreams, BxROM/BNROM, NINA-001, Sunsoft-4, and
+> Camerica/Codemasters cartridges through the shared
 > `MachineCore` boundary, passes the full `nestest` instruction-log
 > proof, renders `Super Mario Bros.`, and emits RGBA frames plus mono
 > audio through `emu198x-script-nes`. `emu198x-nes` now provides a
 > minimal native verifier window for those cartridge mappers with controller
-> input, reset, live audio, and host-side APU channel controls. Mapper
-> support now covers the first wave-1 bank-switching targets;
-> snapshots and DMC DMA cycle stealing are still pending.
+> input, reset, live audio, and host-side APU channel controls.
+> The headless runner can also produce a local ROM smoke matrix, and
+> runtime snapshots now round-trip the active machine state.
 
 ## Implementation status
 
 | Component | Crate | Tests | Status |
 |-----------|-------|-------|--------|
 | 2A03 CPU (6502, BCD disabled) | `mos-6502` | 7 smoke + 2×2.47M Tom Harte | Validated |
-| 2C02 PPU | `ricoh-ppu-2c02` | 20 | Ported, interface rewritten |
-| iNES parser + NROM/MMC1/UxROM/CNROM/MMC3/AxROM/BxROM/NINA-001/Camerica mappers | `format-nintendo-nes-ines` | 65 | Validated |
+| 2C02 PPU | `ricoh-ppu-2c02` | 21 | Ported, interface rewritten |
+| iNES parser + NROM/MMC1/UxROM/CNROM/MMC3/AxROM/Color Dreams/BxROM/NINA-001/Sunsoft-4/Camerica mappers | `format-nintendo-nes-ines` | 71 | Validated |
 | APU | `ricoh-apu-2a03` | 24 | Ported and wired into the machine |
-| Machine wiring | `machine-nintendo-nes` | 13 + `nestest` | Tick loop + OAMDMA + controller I/O |
-| Runtime | `runtime-nintendo-nes` | 7 | Fresh `MachineCore` runtime over the machine crate |
+| Machine wiring | `machine-nintendo-nes` | 14 + `nestest` | Tick loop + OAMDMA + DMC DMA cycle stealing + controller I/O |
+| Runtime | `runtime-nintendo-nes` | 8 | Fresh `MachineCore` runtime over the machine crate with snapshot import/export |
 | Native shell | `emu198x-nes` | 3 | Minimal verifier window for mapper-supported cartridges, controller input, reset, live audio, APU channel controls |
-| Headless runner | `emu198x-script-nes` | 3 | Cartridge boot, screenshots, audio capture, scripted input |
+| Headless runner | `emu198x-script-nes` | 4 | Cartridge boot, screenshots, audio capture, scripted input, local smoke matrix |
 
 ### What works
 
@@ -29,24 +31,26 @@
 - NMI routed from PPU → CPU at (241, 3) with 2-dot pipeline delay.
 - IRQ routed from mapper/APU → CPU.
 - OAMDMA at `$4014` stalls CPU for 514 cycles.
+- DMC sample fetch DMA steals a CPU cycle and feeds the DMC reader.
 - Controller 1 serial shift register at `$4016`.
 - Full NES address space: 2 KiB RAM (mirrored), PPU registers, APU registers, mapper.
 - `run_frame()` runs until the pre-render → scanline 0 transition.
 - Headless cartridge insertion through `cartridge-1` in the fresh shell path.
 - RGBA framebuffer output, mono audio capture/native playback, host-side APU channel toggles/gain, and shared scripted button input.
+- Runtime snapshots serialize CPU, PPU, APU, RAM, DMA/controller state, cartridge bytes, and concrete mapper state.
 
 ### Validated
 
 - **nestest.nes** — 8,991 / 8,991 instructions match the golden log (PC, A, X, Y, P, SP at every instruction fetch). `$02` (official opcodes) = `0x00`, `$03` (unofficial opcodes) = `0x00` — all tests pass. This validates the tick loop, address space routing, PPU register bus, and CPU instruction correctness in the context of a real NES machine.
-- **Headless runner smoke** — the fresh `emu198x-script-nes` path now runs local `nestest.nes` and `Super Mario Bros.` ROMs and emits PNG screenshots through the shared shell capture pipeline.
-- **Mapper unit coverage** — NROM, MMC1, UxROM, CNROM, MMC3, AxROM, BxROM, NINA-001, and Camerica parser/banking behaviour is covered in `format-nintendo-nes-ines`.
+- **Headless runner smoke** — the fresh `emu198x-script-nes` path now runs local `nestest.nes`, `Super Mario Bros.`, and mapper-specific ROMs such as `After Burner`, and emits PNG screenshots through the shared shell capture pipeline.
+- **Local smoke matrix** — `emu198x-script-nes --smoke-root ... --frames 1 --smoke-report ...` scanned 629 local `.nes` files: 613 reached at least one frame; the expected remaining failures are unsupported mapper 5/22/28 rows plus two invalid-header files.
+- **Mapper unit coverage** — NROM, MMC1, UxROM, CNROM, MMC3, AxROM, Color Dreams, BxROM, NINA-001, Sunsoft-4, and Camerica parser/banking behaviour is covered in `format-nintendo-nes-ines`.
 
 ### What doesn't work yet
 
-- **Mappers beyond NROM/MMC1/UxROM/CNROM/MMC3/AxROM/BxROM/NINA-001/Camerica** — the longer tail still lives in the archive and will be lifted when the real-game matrix needs it.
+- **Mappers beyond NROM/MMC1/UxROM/CNROM/MMC3/AxROM/Color Dreams/BxROM/NINA-001/Sunsoft-4/Camerica** — the longer tail still lives in the archive and will be lifted when the real-game matrix needs it.
 - **Mapper 34 ambiguity** — mapper 34 currently selects BxROM/BNROM for CHR-RAM images and NINA-001 for CHR-ROM images. NES 2.0 submapper handling would be a cleaner long-term discriminator if we add ROMs that need it.
-- **Save states** — the current fresh NES runtime deliberately returns unsupported for snapshot import/export.
-- **DMC DMA cycle stealing** — DMC sample bytes are fetched, but the APU does not yet steal CPU cycles for those fetches.
+- **Snapshot format stability** — NES snapshots exist now, but they should be treated as version-1 internal snapshots until broader compatibility policy lands for mapper-specific state.
 
 ## Architecture
 
@@ -73,7 +77,7 @@ fn tick(&mut self) {
     if self.cpu_divider == 0 {
         self.cpu.nmi = self.ppu.nmi;
         self.cpu.irq = self.mapper.irq_pending() || self.apu.irq_pending();
-        // bus op + cpu.tick() or DMA cycle
+        // bus op + cpu.tick(), OAMDMA cycle, or DMC DMA stolen cycle
         self.apu.tick();
         self.ppu.flush_nmi_line();
     }

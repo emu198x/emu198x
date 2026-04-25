@@ -9,6 +9,8 @@ license.workspace = true
 emu198x-shell = { path = "../emu198x-shell" }
 format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines" }
 machine-nintendo-nes = { path = "../machine-nintendo-nes" }
+postcard = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

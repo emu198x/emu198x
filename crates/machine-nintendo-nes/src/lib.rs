@@ -22,10 +22,7 @@
 //! CPU + PPU + APU + OAMDMA + controller I/O. Deliberately out of
 //! scope:
 //!
-//! - DMC DMA cycle stealing (the APU signals `dma_pending` but we
-//!   don't yet steal CPU cycles to feed it — DMC samples will be
-//!   silent until this is wired).
-//! - Save states, serde derives.
+//! - Sub-cycle-accurate OAMDMA/DMC DMA overlap arbitration.
 //! - Runtime / `System` trait integration.
 //! - Turbo / fast-forward / rewind.
 //!
@@ -42,13 +39,36 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use format_nintendo_nes_ines::Mapper;
+use format_nintendo_nes_ines::{Mapper, MapperSnapshot, mapper_from_snapshot};
 use mos_6502::M6502;
 use ricoh_apu_2a03::Apu;
 use ricoh_ppu_2c02::Ppu;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 pub use ricoh_apu_2a03::{ApuChannel, AudioControls};
 pub use ricoh_ppu_2c02::{FB_HEIGHT, FB_WIDTH};
+
+/// Serializable NES machine state.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct NesSnapshot {
+    cpu: M6502,
+    ppu: Ppu,
+    apu: Apu,
+    mapper: MapperSnapshot,
+    #[serde(with = "BigArray")]
+    ram: [u8; 2048],
+    cpu_divider: u8,
+    master_clock: u64,
+    frame_count: u64,
+    dma_cycles_remaining: u16,
+    dma_page: u8,
+    dma_offset: u8,
+    dma_alignment_done: bool,
+    controller1_shift: u8,
+    controller1_state: u8,
+    controller_strobe: bool,
+}
 
 /// NES machine.
 pub struct Nes {
@@ -154,6 +174,12 @@ impl Nes {
 
             if self.dma_cycles_remaining > 0 {
                 self.tick_dma();
+            } else if self.apu.dmc.dma_pending {
+                // DMC sample DMA steals a CPU cycle. The APU keeps
+                // ticking, but the CPU does not advance this cycle.
+                let addr = self.apu.dmc.current_address;
+                let byte = self.cpu_read(addr);
+                self.apu.dmc.receive_dma_byte(byte);
             } else {
                 // Normal CPU cycle: perform bus op then tick.
                 if self.cpu.rw {
@@ -166,14 +192,6 @@ impl Nes {
 
             // APU ticks once per CPU cycle.
             self.apu.tick();
-
-            // Handle DMC DMA requests — the APU signals
-            // dma_pending when the DMC needs a new sample byte.
-            if self.apu.dmc.dma_pending {
-                let addr = self.apu.dmc.current_address;
-                let byte = self.mapper.cpu_read(addr);
-                self.apu.dmc.receive_dma_byte(byte);
-            }
 
             // Flush deferred $2000 NMI enable — after all 3 PPU
             // dots in this CPU cycle have run.
@@ -394,6 +412,69 @@ impl Nes {
     pub fn set_controller1(&mut self, state: u8) {
         self.controller1_state = state;
     }
+
+    /// Capture complete machine state for save-state export.
+    #[must_use]
+    pub fn snapshot(&self) -> NesSnapshot {
+        NesSnapshot {
+            cpu: self.cpu.clone(),
+            ppu: self.ppu.clone(),
+            apu: self.apu.clone(),
+            mapper: self.mapper.snapshot(),
+            ram: self.ram,
+            cpu_divider: self.cpu_divider,
+            master_clock: self.master_clock,
+            frame_count: self.frame_count,
+            dma_cycles_remaining: self.dma_cycles_remaining,
+            dma_page: self.dma_page,
+            dma_offset: self.dma_offset,
+            dma_alignment_done: self.dma_alignment_done,
+            controller1_shift: self.controller1_shift,
+            controller1_state: self.controller1_state,
+            controller_strobe: self.controller_strobe,
+        }
+    }
+
+    /// Restore complete machine state captured by [`Self::snapshot`].
+    pub fn restore_snapshot(&mut self, snapshot: NesSnapshot) {
+        self.cpu = snapshot.cpu;
+        self.ppu = snapshot.ppu;
+        self.apu = snapshot.apu;
+        self.mapper = mapper_from_snapshot(snapshot.mapper);
+        self.ram = snapshot.ram;
+        self.cpu_divider = snapshot.cpu_divider;
+        self.master_clock = snapshot.master_clock;
+        self.frame_count = snapshot.frame_count;
+        self.dma_cycles_remaining = snapshot.dma_cycles_remaining;
+        self.dma_page = snapshot.dma_page;
+        self.dma_offset = snapshot.dma_offset;
+        self.dma_alignment_done = snapshot.dma_alignment_done;
+        self.controller1_shift = snapshot.controller1_shift;
+        self.controller1_state = snapshot.controller1_state;
+        self.controller_strobe = snapshot.controller_strobe;
+    }
+
+    /// Reconstruct a machine directly from a snapshot.
+    #[must_use]
+    pub fn from_snapshot(snapshot: NesSnapshot) -> Self {
+        Self {
+            cpu: snapshot.cpu,
+            ppu: snapshot.ppu,
+            apu: snapshot.apu,
+            mapper: mapper_from_snapshot(snapshot.mapper),
+            ram: snapshot.ram,
+            cpu_divider: snapshot.cpu_divider,
+            master_clock: snapshot.master_clock,
+            frame_count: snapshot.frame_count,
+            dma_cycles_remaining: snapshot.dma_cycles_remaining,
+            dma_page: snapshot.dma_page,
+            dma_offset: snapshot.dma_offset,
+            dma_alignment_done: snapshot.dma_alignment_done,
+            controller1_shift: snapshot.controller1_shift,
+            controller1_state: snapshot.controller1_state,
+            controller_strobe: snapshot.controller_strobe,
+        }
+    }
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────
@@ -525,6 +606,31 @@ mod tests {
 
         assert!(!nes.audio_controls().channel(ApuChannel::Triangle).enabled());
         assert_eq!(nes.audio_controls().channel(ApuChannel::Noise).gain(), 0.5);
+    }
+
+    #[test]
+    fn dmc_dma_request_steals_cpu_cycle_and_fetches_sample_byte() {
+        let mut prg = vec![0xEA; 16384];
+        prg[0] = 0xAB;
+        prg[0x3FFC] = 0x00;
+        prg[0x3FFD] = 0x80;
+        let mapper = Box::new(Nrom::new(prg, Vec::new(), Mirroring::Horizontal));
+        let mut nes = Nes::new(mapper);
+        nes.apu.dmc.current_address = 0xC000;
+        nes.apu.dmc.bytes_remaining = 1;
+        nes.apu.dmc.dma_pending = true;
+        let cpu_cycles = nes.cpu.total_cycles;
+
+        nes.tick();
+        nes.tick();
+        nes.tick();
+
+        assert_eq!(
+            nes.cpu.total_cycles, cpu_cycles,
+            "DMC DMA should stall CPU for this CPU cycle"
+        );
+        assert!(!nes.apu.dmc.dma_pending);
+        assert_eq!(nes.apu.dmc.current_address, 0xC001);
     }
 
     #[test]

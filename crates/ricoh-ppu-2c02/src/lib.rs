@@ -42,16 +42,21 @@ pub mod palette;
 use format_nintendo_nes_ines::Mapper;
 pub use format_nintendo_nes_ines::Mirroring;
 use palette::PALETTE;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 /// Framebuffer dimensions.
 pub const FB_WIDTH: u32 = 256;
 pub const FB_HEIGHT: u32 = 240;
 
 /// PPU 2C02.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Ppu {
     // ── VRAM ────────────────────────────────────────────────────
+    #[serde(with = "BigArray")]
     nametable_ram: [u8; 2048],
     palette_ram: [u8; 32],
+    #[serde(with = "BigArray")]
     oam: [u8; 256],
 
     // ── Registers ───────────────────────────────────────────────
@@ -819,6 +824,9 @@ impl Ppu {
         match addr {
             0x0000..=0x1FFF => mapper.chr_read(addr),
             0x2000..=0x3EFF => {
+                if let Some(value) = mapper.nametable_read(addr) {
+                    return value;
+                }
                 let mirrored = self.mirror_nametable_addr(addr, mapper.mirroring());
                 self.nametable_ram[mirrored as usize]
             }
@@ -835,6 +843,9 @@ impl Ppu {
         match addr {
             0x0000..=0x1FFF => mapper.chr_write(addr, val),
             0x2000..=0x3EFF => {
+                if mapper.nametable_write(addr, val) {
+                    return;
+                }
                 let mirrored = self.mirror_nametable_addr(addr, mapper.mirroring());
                 self.nametable_ram[mirrored as usize] = val;
             }

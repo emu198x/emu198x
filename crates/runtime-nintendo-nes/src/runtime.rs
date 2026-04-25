@@ -6,7 +6,8 @@ use emu198x_shell::{
     ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
 use format_nintendo_nes_ines::parse_ines;
-use machine_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, Nes};
+use machine_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, Nes, NesSnapshot};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{Model, profile_for};
@@ -20,6 +21,26 @@ const NES_QUERY_PATHS: &[&str] = &[
     "nes.ppu.dot",
     "nes.ppu.scanline",
 ];
+
+const SNAPSHOT_VERSION: u16 = 1;
+
+#[derive(Serialize)]
+struct NesRuntimeSnapshotRefV1<'a> {
+    version: u16,
+    time: u64,
+    cartridge_mapper: Option<u16>,
+    cartridge_bytes: Option<&'a [u8]>,
+    machine: Option<NesSnapshot>,
+}
+
+#[derive(Deserialize)]
+struct NesRuntimeSnapshotV1 {
+    version: u16,
+    time: u64,
+    cartridge_mapper: Option<u16>,
+    cartridge_bytes: Option<Vec<u8>>,
+    machine: Option<NesSnapshot>,
+}
 
 /// NES-family query provider layered above the shared shell surface.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -323,15 +344,36 @@ impl MachineCore for NesRuntime {
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: "snapshot-export",
+        postcard::to_allocvec(&NesRuntimeSnapshotRefV1 {
+            version: SNAPSHOT_VERSION,
+            time: self.time.get(),
+            cartridge_mapper: self.cartridge_mapper,
+            cartridge_bytes: self.cartridge_bytes.as_deref(),
+            machine: self.machine.as_ref().map(Nes::snapshot),
+        })
+        .map_err(|reason| MachineError::InvalidSnapshot {
+            reason: format!("encode failed: {reason}"),
         })
     }
 
-    fn restore(&mut self, _bytes: &[u8]) -> Result<(), MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: "snapshot-import",
-        })
+    fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        let snapshot: NesRuntimeSnapshotV1 =
+            postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
+                reason: format!("decode failed: {reason}"),
+            })?;
+
+        if snapshot.version != SNAPSHOT_VERSION {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!("unsupported NES snapshot version {}", snapshot.version),
+            });
+        }
+
+        self.time = MachineTime::new(snapshot.time);
+        self.cartridge_bytes = snapshot.cartridge_bytes;
+        self.cartridge_mapper = snapshot.cartridge_mapper;
+        self.machine = snapshot.machine.map(Nes::from_snapshot);
+        self.update_rgba_framebuffer();
+        Ok(())
     }
 
     fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
@@ -481,6 +523,52 @@ mod tests {
             .expect("audio controls should exist for loaded cartridge");
         assert!(!controls.channel(ApuChannel::Pulse1).enabled());
         assert_eq!(controls.channel(ApuChannel::Dmc).gain(), 0.25);
+    }
+
+    #[test]
+    fn runtime_snapshot_round_trips_loaded_machine_state() {
+        const FRAME_TICKS: u64 = 341 * 262;
+        let rom = minimal_ines();
+        let mut runtime = NesRuntime::blank(Model::NesNtsc);
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
+        runtime.load_media(&media).expect("valid iNES should load");
+        runtime
+            .machine_mut()
+            .expect("cartridge loaded")
+            .set_controller1(0b0000_1000);
+
+        let mut frame_sink = NullFrameSink;
+        let mut audio_sink = NullAudioSink;
+        let mut trace_sink = NullTraceSink;
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+        runtime
+            .run_until(MachineTime::new(FRAME_TICKS), &mut host)
+            .expect("one frame should run");
+
+        let snapshot = runtime.snapshot().expect("snapshot should encode");
+        let mut restored = NesRuntime::blank(Model::NesNtsc);
+        restored
+            .restore(&snapshot)
+            .expect("snapshot should restore");
+
+        assert_eq!(restored.time(), runtime.time());
+        assert_eq!(
+            restored.machine().expect("machine restored").frame_count(),
+            runtime.machine().expect("machine present").frame_count()
+        );
+        assert_eq!(
+            restored
+                .machine()
+                .expect("machine restored")
+                .controller1_state,
+            0b0000_1000
+        );
     }
 
     #[test]
