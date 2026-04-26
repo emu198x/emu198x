@@ -1,12 +1,18 @@
 # Dragon 32/64
 
-## Status: Fully functional — cassette loading, joystick, all graphics modes
+## Status: Bring-up started
 
-The Dragon 32 boots the BASIC ROM, loads software from .CAS cassette files (via PIA at the correct baud rate) and .BIN binary files, accepts keyboard and joystick input, and plays sound via the SOUND command. SG4 semigraphics and all 8 PMODE graphics modes working.
+The Dragon 32/64 is the next expansion target after the initial Spectrum, C64,
+NES, Amiga, and Game Boy set. The current repository now has the first reusable
+`motorola-6809` CPU foundation crate; the full Dragon machine/runtime/native
+path still needs to be ported or rebuilt.
+
+The archived notes below describe the previous target state and remain the
+compatibility goal, not the current implementation state.
 
 ## What works
 
-- **CPU:** Motorola 6809 — full instruction set (3 opcode pages), all indexed addressing modes. 2,550,000 custom single-step tests passing (10,000 per opcode).
+- **CPU:** Motorola 6809 — foundation crate started; full instruction execution is the next prerequisite.
 - **Video:** MC6847 VDG — text mode (32×16) with real character ROM, SG4 semigraphics (SET/RESET/POINT), all 8 graphics modes (CG1-CG6, RG1-RG6), border rendering, CSS colour set switching via PIA1.
 - **Cassette:** Bus-level tape loading via emu-tape. CAS bytes converted to nanosecond-accurate pulse durations (1200/2400 Hz FSK). Signal fed through PIA0 port A bit 0 per CPU cycle. ROM's CLOAD/CLOADM reads tape naturally. Motor control via tape transport.
 - **I/O:** MC6821 PIA x 2 — DDR/data/control registers, IRQ flags, keyboard matrix (PIA0), VDG mode control (PIA1), cassette data input.
@@ -18,6 +24,14 @@ The Dragon 32 boots the BASIC ROM, loads software from .CAS cassette files (via 
 - **Shell:** Save states (F3/F4), rewind (Tab), PNG screenshots (F5), auto-CLOAD/CLOADM for .cas files, auto-EXEC for .bin files.
 
 ## Remaining
+
+### Bring-up sequence
+
+1. Complete `motorola-6809` instruction execution and external interrupt/reset behavior.
+2. Add PIA 6821, MC6883 SAM, and MC6847 VDG crates with isolated tests.
+3. Wire `machine-dragon-32` with ROM/RAM map, keyboard matrix, PIA/SAM/VDG, and a framebuffer.
+4. Add `runtime-dragon` and `emu198x-script-dragon` with boot detection and screenshot capture.
+5. Add cassette and `.BIN` loading after the BASIC boot screen is stable.
 
 ### Nice to have
 - **Floppy controller** (WD2797) — for DragonDOS disk images

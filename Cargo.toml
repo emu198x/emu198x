@@ -60,6 +60,7 @@ members = [
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
     "crates/mos-vic-ii",
+    "crates/motorola-6809",
     "crates/motorola-68000",
     "crates/nec-upd765a",
     "crates/nintendo-game-boy-apu",

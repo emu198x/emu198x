@@ -1704,6 +1704,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "motorola-6809"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "naga"
 version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
