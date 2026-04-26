@@ -7,7 +7,7 @@
 
 pub mod registers;
 
-use registers::{FLAG_C, FLAG_F, FLAG_I, FLAG_N, FLAG_V, FLAG_Z, Registers};
+use registers::{FLAG_C, FLAG_F, FLAG_H, FLAG_I, FLAG_N, FLAG_V, FLAG_Z, Registers};
 use serde::{Deserialize, Serialize};
 
 const MAX_STACK_BYTES: usize = 12;
@@ -57,6 +57,8 @@ enum Imm8Op {
     Ldb,
     Cmpa,
     Cmpb,
+    AluA(Alu8Op),
+    AluB(Alu8Op),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -98,6 +100,20 @@ enum Mem8Op {
     Ldb,
     Cmpa,
     Cmpb,
+    AluA(Alu8Op),
+    AluB(Alu8Op),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum Alu8Op {
+    Add,
+    AddCarry,
+    Sub,
+    SubCarry,
+    And,
+    Bit,
+    Eor,
+    Or,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -369,48 +385,184 @@ impl Mc6809 {
                     }
                     0x6E => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Jmp)),
                     0x7E => self.read_next(CpuState::ReadExtendedHi(ExtOp::Jmp)),
+                    0x80 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::Sub))),
                     0x81 => self.read_next(CpuState::ReadImm8(Imm8Op::Cmpa)),
+                    0x82 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::SubCarry))),
+                    0x84 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::And))),
+                    0x85 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::Bit))),
                     0x86 => self.read_next(CpuState::ReadImm8(Imm8Op::Lda)),
+                    0x88 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::Eor))),
+                    0x89 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::AddCarry))),
+                    0x8A => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::Or))),
+                    0x8B => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::Add))),
                     0x8D => self.read_next(CpuState::ReadRel8(Rel8Op::Bsr)),
                     0x8E => self.read_next(CpuState::ReadImm16Hi(Imm16Op::Ldx)),
+                    0x90 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::Sub))),
                     0x91 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Cmpa)),
+                    0x92 => {
+                        self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::SubCarry)));
+                    }
+                    0x94 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::And))),
+                    0x95 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::Bit))),
                     0x96 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Lda)),
                     0x97 => self.read_next(CpuState::WriteDirectOperand(Store8Op::Sta)),
+                    0x98 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::Eor))),
+                    0x99 => {
+                        self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::AddCarry)));
+                    }
+                    0x9A => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::Or))),
+                    0x9B => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::Add))),
+                    0xA0 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluA(Alu8Op::Sub),
+                    ))),
                     0xA1 => {
                         self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
                             Mem8Op::Cmpa,
                         )));
                     }
+                    0xA2 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluA(Alu8Op::SubCarry),
+                    ))),
+                    0xA4 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluA(Alu8Op::And),
+                    ))),
+                    0xA5 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluA(Alu8Op::Bit),
+                    ))),
                     0xA6 => {
                         self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(Mem8Op::Lda)));
                     }
                     0xA7 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Store(
                         Store8Op::Sta,
                     ))),
+                    0xA8 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluA(Alu8Op::Eor),
+                    ))),
+                    0xA9 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluA(Alu8Op::AddCarry),
+                    ))),
+                    0xAA => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluA(Alu8Op::Or),
+                    ))),
+                    0xAB => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluA(Alu8Op::Add),
+                    ))),
                     0xAD => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Jsr)),
+                    0xB0 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluA(
+                        Alu8Op::Sub,
+                    )))),
                     0xB1 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Cmpa))),
+                    0xB2 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluA(
+                        Alu8Op::SubCarry,
+                    )))),
+                    0xB4 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluA(
+                        Alu8Op::And,
+                    )))),
+                    0xB5 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluA(
+                        Alu8Op::Bit,
+                    )))),
                     0xB6 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Lda))),
                     0xB7 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Store(Store8Op::Sta))),
+                    0xB8 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluA(
+                        Alu8Op::Eor,
+                    )))),
+                    0xB9 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluA(
+                        Alu8Op::AddCarry,
+                    )))),
+                    0xBA => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluA(
+                        Alu8Op::Or,
+                    )))),
+                    0xBB => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluA(
+                        Alu8Op::Add,
+                    )))),
                     0xBD => self.read_next(CpuState::ReadExtendedHi(ExtOp::Jsr)),
+                    0xC0 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::Sub))),
                     0xC1 => self.read_next(CpuState::ReadImm8(Imm8Op::Cmpb)),
+                    0xC2 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::SubCarry))),
+                    0xC4 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::And))),
+                    0xC5 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::Bit))),
                     0xC6 => self.read_next(CpuState::ReadImm8(Imm8Op::Ldb)),
+                    0xC8 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::Eor))),
+                    0xC9 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::AddCarry))),
+                    0xCA => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::Or))),
+                    0xCB => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::Add))),
                     0xCE => self.read_next(CpuState::ReadImm16Hi(Imm16Op::Ldu)),
+                    0xD0 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::Sub))),
                     0xD1 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Cmpb)),
+                    0xD2 => {
+                        self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::SubCarry)));
+                    }
+                    0xD4 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::And))),
+                    0xD5 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::Bit))),
                     0xD6 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Ldb)),
                     0xD7 => self.read_next(CpuState::WriteDirectOperand(Store8Op::Stb)),
+                    0xD8 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::Eor))),
+                    0xD9 => {
+                        self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::AddCarry)));
+                    }
+                    0xDA => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::Or))),
+                    0xDB => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::Add))),
+                    0xE0 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluB(Alu8Op::Sub),
+                    ))),
                     0xE1 => {
                         self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
                             Mem8Op::Cmpb,
                         )));
                     }
+                    0xE2 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluB(Alu8Op::SubCarry),
+                    ))),
+                    0xE4 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluB(Alu8Op::And),
+                    ))),
+                    0xE5 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluB(Alu8Op::Bit),
+                    ))),
                     0xE6 => {
                         self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(Mem8Op::Ldb)));
                     }
                     0xE7 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Store(
                         Store8Op::Stb,
                     ))),
+                    0xE8 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluB(Alu8Op::Eor),
+                    ))),
+                    0xE9 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluB(Alu8Op::AddCarry),
+                    ))),
+                    0xEA => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluB(Alu8Op::Or),
+                    ))),
+                    0xEB => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                        Mem8Op::AluB(Alu8Op::Add),
+                    ))),
+                    0xF0 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluB(
+                        Alu8Op::Sub,
+                    )))),
                     0xF1 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Cmpb))),
+                    0xF2 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluB(
+                        Alu8Op::SubCarry,
+                    )))),
+                    0xF4 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluB(
+                        Alu8Op::And,
+                    )))),
+                    0xF5 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluB(
+                        Alu8Op::Bit,
+                    )))),
                     0xF6 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Ldb))),
+                    0xF8 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluB(
+                        Alu8Op::Eor,
+                    )))),
+                    0xF9 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluB(
+                        Alu8Op::AddCarry,
+                    )))),
+                    0xFA => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluB(
+                        Alu8Op::Or,
+                    )))),
+                    0xFB => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluB(
+                        Alu8Op::Add,
+                    )))),
                     0xF7 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Store(Store8Op::Stb))),
                     _ => self.trap_illegal(opcode),
                 }
@@ -642,6 +794,8 @@ impl Mc6809 {
             }
             Imm8Op::Cmpa => self.compare8(self.regs.a, value),
             Imm8Op::Cmpb => self.compare8(self.regs.b, value),
+            Imm8Op::AluA(op) => self.alu_a(op, value),
+            Imm8Op::AluB(op) => self.alu_b(op, value),
         }
     }
 
@@ -657,6 +811,8 @@ impl Mc6809 {
             }
             Mem8Op::Cmpa => self.compare8(self.regs.a, value),
             Mem8Op::Cmpb => self.compare8(self.regs.b, value),
+            Mem8Op::AluA(op) => self.alu_a(op, value),
+            Mem8Op::AluB(op) => self.alu_b(op, value),
         }
     }
 
@@ -1121,6 +1277,68 @@ impl Mc6809 {
             AfterPush::SetPc(pc) => self.regs.pc = pc,
         }
         self.next_fetch();
+    }
+
+    fn alu_a(&mut self, op: Alu8Op, rhs: u8) {
+        if let Some(value) = self.alu8(op, self.regs.a, rhs) {
+            self.regs.a = value;
+        }
+    }
+
+    fn alu_b(&mut self, op: Alu8Op, rhs: u8) {
+        if let Some(value) = self.alu8(op, self.regs.b, rhs) {
+            self.regs.b = value;
+        }
+    }
+
+    fn alu8(&mut self, op: Alu8Op, lhs: u8, rhs: u8) -> Option<u8> {
+        match op {
+            Alu8Op::Add => Some(self.add8(lhs, rhs, 0)),
+            Alu8Op::AddCarry => {
+                let carry = u8::from(self.regs.flag(FLAG_C));
+                Some(self.add8(lhs, rhs, carry))
+            }
+            Alu8Op::Sub => Some(self.sub8(lhs, rhs, 0)),
+            Alu8Op::SubCarry => {
+                let carry = u8::from(self.regs.flag(FLAG_C));
+                Some(self.sub8(lhs, rhs, carry))
+            }
+            Alu8Op::And => Some(self.logical8(lhs & rhs)),
+            Alu8Op::Bit => {
+                self.logical8(lhs & rhs);
+                None
+            }
+            Alu8Op::Eor => Some(self.logical8(lhs ^ rhs)),
+            Alu8Op::Or => Some(self.logical8(lhs | rhs)),
+        }
+    }
+
+    fn add8(&mut self, lhs: u8, rhs: u8, carry: u8) -> u8 {
+        let wide = u16::from(lhs) + u16::from(rhs) + u16::from(carry);
+        let result = wide as u8;
+        self.set_nz8(result);
+        self.regs
+            .set_flag(FLAG_H, ((lhs & 0x0F) + (rhs & 0x0F) + carry) & 0x10 != 0);
+        self.regs
+            .set_flag(FLAG_V, (!(lhs ^ rhs) & (lhs ^ result) & 0x80) != 0);
+        self.regs.set_flag(FLAG_C, wide > 0xFF);
+        result
+    }
+
+    fn sub8(&mut self, lhs: u8, rhs: u8, carry: u8) -> u8 {
+        let subtrahend = u16::from(rhs) + u16::from(carry);
+        let result = lhs.wrapping_sub(rhs).wrapping_sub(carry);
+        self.set_nz8(result);
+        self.regs
+            .set_flag(FLAG_V, ((lhs ^ rhs) & (lhs ^ result) & 0x80) != 0);
+        self.regs.set_flag(FLAG_C, u16::from(lhs) < subtrahend);
+        result
+    }
+
+    fn logical8(&mut self, value: u8) -> u8 {
+        self.set_nz8(value);
+        self.regs.set_flag(FLAG_V, false);
+        value
     }
 
     fn set_load_flags8(&mut self, value: u8) {
@@ -1708,5 +1926,113 @@ mod tests {
         assert!(!cpu.regs.flag(FLAG_C));
         assert_eq!(cpu.regs.a, 0x42);
         assert_eq!(cpu.regs.b, 0x40);
+    }
+
+    #[test]
+    fn add_subtract_and_carry_update_arithmetic_flags() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x8B; // ADDA #$01
+        memory[0x4001] = 0x01;
+        memory[0x4002] = 0x89; // ADCA #$7F
+        memory[0x4003] = 0x7F;
+        memory[0x4004] = 0xC0; // SUBB #$20
+        memory[0x4005] = 0x20;
+        memory[0x4006] = 0xC2; // SBCB #$0F
+        memory[0x4007] = 0x0F;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.a = 0x7F;
+        cpu.regs.b = 0x10;
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x80);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_Z));
+        assert!(cpu.regs.flag(FLAG_V));
+        assert!(cpu.regs.flag(FLAG_H));
+        assert!(!cpu.regs.flag(FLAG_C));
+
+        cpu.regs.set_flag(FLAG_C, true);
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x00);
+        assert!(cpu.regs.flag(FLAG_Z));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.b, 0xF0);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.b, 0xE0);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_Z));
+    }
+
+    #[test]
+    fn logical_operations_update_nzv_and_preserve_destination_for_bit() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x84; // ANDA #$0F
+        memory[0x4001] = 0x0F;
+        memory[0x4002] = 0x8A; // ORA #$80
+        memory[0x4003] = 0x80;
+        memory[0x4004] = 0x88; // EORA #$FF
+        memory[0x4005] = 0xFF;
+        memory[0x4006] = 0xC5; // BITB #$0F
+        memory[0x4007] = 0x0F;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.a = 0xF3;
+        cpu.regs.b = 0xF0;
+        cpu.regs.set_flag(FLAG_C, true);
+        cpu.regs.set_flag(FLAG_V, true);
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x03);
+        assert!(!cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_Z));
+        assert!(!cpu.regs.flag(FLAG_V));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x83);
+        assert!(cpu.regs.flag(FLAG_N));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x7C);
+        assert!(!cpu.regs.flag(FLAG_N));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.b, 0xF0);
+        assert!(cpu.regs.flag(FLAG_Z));
+        assert!(cpu.regs.flag(FLAG_C));
+    }
+
+    #[test]
+    fn alu_direct_indexed_and_extended_share_memory_read_path() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x9B; // ADDA <$10
+        memory[0x4001] = 0x10;
+        memory[0x1210] = 0x05;
+        memory[0x4002] = 0xE4; // ANDB ,X
+        memory[0x4003] = 0x84;
+        memory[0x2200] = 0x0F;
+        memory[0x4004] = 0xBA; // ORA $3300
+        memory[0x4005] = 0x33;
+        memory[0x4006] = 0x00;
+        memory[0x3300] = 0x80;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.dp = 0x12;
+        cpu.regs.x = 0x2200;
+        cpu.regs.a = 0x10;
+        cpu.regs.b = 0xF3;
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(cpu.regs.a, 0x15);
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(cpu.regs.b, 0x03);
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(cpu.regs.a, 0x95);
+        assert!(cpu.regs.flag(FLAG_N));
     }
 }
