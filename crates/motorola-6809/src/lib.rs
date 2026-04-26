@@ -17,6 +17,7 @@ enum CpuState {
     NopInternal,
     ClrAInternal,
     ClrBInternal,
+    ReadCcImm(CcOp),
     ReadImm8(Imm8Op),
     ReadImm16Hi(Imm16Op),
     ReadImm16Lo { op: Imm16Op, hi: u8 },
@@ -28,7 +29,17 @@ enum CpuState {
     ReadExtendedValue(Mem8Op),
     WriteDirectOperand(Store8Op),
     WriteValue,
+    PushWordHi { hi: u8, after: AfterPush },
+    PushDone(AfterPush),
+    PullWordHi(Pull16Op),
+    PullWordLo { op: Pull16Op, hi: u8 },
     IllegalOpcode(u8),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum CcOp {
+    And,
+    Or,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -47,6 +58,7 @@ enum Imm16Op {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum Rel8Op {
     Bra,
+    Bsr,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -66,6 +78,17 @@ enum ExtOp {
     Load(Mem8Op),
     Store(Store8Op),
     Jmp,
+    Jsr,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum AfterPush {
+    SetPc(u16),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum Pull16Op {
+    Pc,
 }
 
 /// Motorola MC6809 CPU state exposed to machine crates.
@@ -173,7 +196,10 @@ impl Mc6809 {
                         self.addr = self.regs.pc;
                         self.rw = true;
                     }
+                    0x1A => self.read_next(CpuState::ReadCcImm(CcOp::Or)),
+                    0x1C => self.read_next(CpuState::ReadCcImm(CcOp::And)),
                     0x20 => self.read_next(CpuState::ReadRel8(Rel8Op::Bra)),
+                    0x39 => self.prepare_pull_word(Pull16Op::Pc),
                     0x4F => {
                         self.clear_a();
                         self.read_next(CpuState::ClrAInternal);
@@ -184,11 +210,13 @@ impl Mc6809 {
                     }
                     0x7E => self.read_next(CpuState::ReadExtendedHi(ExtOp::Jmp)),
                     0x86 => self.read_next(CpuState::ReadImm8(Imm8Op::Lda)),
+                    0x8D => self.read_next(CpuState::ReadRel8(Rel8Op::Bsr)),
                     0x8E => self.read_next(CpuState::ReadImm16Hi(Imm16Op::Ldx)),
                     0x96 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Lda)),
                     0x97 => self.read_next(CpuState::WriteDirectOperand(Store8Op::Sta)),
                     0xB6 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Lda))),
                     0xB7 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Store(Store8Op::Sta))),
+                    0xBD => self.read_next(CpuState::ReadExtendedHi(ExtOp::Jsr)),
                     0xC6 => self.read_next(CpuState::ReadImm8(Imm8Op::Ldb)),
                     0xCE => self.read_next(CpuState::ReadImm16Hi(Imm16Op::Ldu)),
                     0xD6 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Ldb)),
@@ -212,6 +240,15 @@ impl Mc6809 {
             CpuState::ClrAInternal | CpuState::ClrBInternal => {
                 self.next_fetch();
             }
+            CpuState::ReadCcImm(op) => {
+                let value = self.data_in;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                match op {
+                    CcOp::And => self.regs.cc &= value,
+                    CcOp::Or => self.regs.cc |= value,
+                }
+                self.next_fetch();
+            }
             CpuState::ReadImm8(op) => {
                 let value = self.data_in;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
@@ -229,11 +266,17 @@ impl Mc6809 {
                 self.load_imm16(op, value);
                 self.next_fetch();
             }
-            CpuState::ReadRel8(Rel8Op::Bra) => {
+            CpuState::ReadRel8(op) => {
                 let offset = self.data_in as i8;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
-                self.regs.pc = self.regs.pc.wrapping_add_signed(i16::from(offset));
-                self.next_fetch();
+                let target = self.regs.pc.wrapping_add_signed(i16::from(offset));
+                match op {
+                    Rel8Op::Bra => {
+                        self.regs.pc = target;
+                        self.next_fetch();
+                    }
+                    Rel8Op::Bsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(target)),
+                }
             }
             CpuState::ReadDirectOperand(op) => {
                 let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
@@ -267,6 +310,7 @@ impl Mc6809 {
                         self.regs.pc = addr;
                         self.next_fetch();
                     }
+                    ExtOp::Jsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(addr)),
                 }
             }
             CpuState::ReadExtendedValue(op) => {
@@ -279,6 +323,33 @@ impl Mc6809 {
                 self.prepare_store(op, addr);
             }
             CpuState::WriteValue => {
+                self.next_fetch();
+            }
+            CpuState::PushWordHi { hi, after } => {
+                self.regs.s = self.regs.s.wrapping_sub(1);
+                self.state = CpuState::PushDone(after);
+                self.addr = self.regs.s;
+                self.data = hi;
+                self.rw = false;
+                self.sync = false;
+            }
+            CpuState::PushDone(after) => {
+                self.after_push(after);
+            }
+            CpuState::PullWordHi(op) => {
+                let hi = self.data_in;
+                self.regs.s = self.regs.s.wrapping_add(1);
+                self.state = CpuState::PullWordLo { op, hi };
+                self.addr = self.regs.s;
+                self.rw = true;
+                self.sync = false;
+            }
+            CpuState::PullWordLo { op, hi } => {
+                let value = u16::from_be_bytes([hi, self.data_in]);
+                self.regs.s = self.regs.s.wrapping_add(1);
+                match op {
+                    Pull16Op::Pc => self.regs.pc = value,
+                }
                 self.next_fetch();
             }
             CpuState::IllegalOpcode(_) => {
@@ -362,6 +433,30 @@ impl Mc6809 {
         self.sync = false;
     }
 
+    fn prepare_push_word(&mut self, value: u16, after: AfterPush) {
+        let [hi, lo] = value.to_be_bytes();
+        self.regs.s = self.regs.s.wrapping_sub(1);
+        self.state = CpuState::PushWordHi { hi, after };
+        self.addr = self.regs.s;
+        self.data = lo;
+        self.rw = false;
+        self.sync = false;
+    }
+
+    fn prepare_pull_word(&mut self, op: Pull16Op) {
+        self.state = CpuState::PullWordHi(op);
+        self.addr = self.regs.s;
+        self.rw = true;
+        self.sync = false;
+    }
+
+    fn after_push(&mut self, after: AfterPush) {
+        match after {
+            AfterPush::SetPc(pc) => self.regs.pc = pc,
+        }
+        self.next_fetch();
+    }
+
     fn set_load_flags8(&mut self, value: u8) {
         self.set_nz8(value);
         self.regs.set_flag(FLAG_V, false);
@@ -387,7 +482,7 @@ impl Default for Mc6809 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registers::{FLAG_C, FLAG_I};
+    use crate::registers::{FLAG_C, FLAG_F, FLAG_I};
 
     fn run_cycle(cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
         if cpu.rw {
@@ -641,5 +736,65 @@ mod tests {
         assert_eq!(cpu.regs.b, 0);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
+    }
+
+    #[test]
+    fn condition_code_immediates_mask_and_set_cc() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x1A; // ORCC #$01
+        memory[0x4001] = FLAG_C;
+        memory[0x4002] = 0x1C; // ANDCC #!$10
+        memory[0x4003] = !FLAG_I;
+        let mut cpu = cpu_at(0x4000);
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert!(cpu.regs.flag(FLAG_C));
+        assert!(cpu.regs.flag(FLAG_I));
+        assert!(cpu.regs.flag(FLAG_F));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert!(cpu.regs.flag(FLAG_C));
+        assert!(!cpu.regs.flag(FLAG_I));
+        assert!(cpu.regs.flag(FLAG_F));
+    }
+
+    #[test]
+    fn bsr_pushes_return_pc_and_branches_relative() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x8D; // BSR +2
+        memory[0x4001] = 0x02;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+
+        run_cycles(&mut cpu, &mut memory, 4);
+
+        assert_eq!(cpu.regs.pc, 0x4004);
+        assert_eq!(cpu.regs.s, 0x7FFE);
+        assert_eq!(memory[0x7FFE], 0x40);
+        assert_eq!(memory[0x7FFF], 0x02);
+        assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn jsr_extended_and_rts_round_trip_via_s_stack() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xBD; // JSR $4500
+        memory[0x4001] = 0x45;
+        memory[0x4002] = 0x00;
+        memory[0x4500] = 0x39; // RTS
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+
+        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(cpu.regs.pc, 0x4500);
+        assert_eq!(cpu.regs.s, 0x7FFE);
+        assert_eq!(memory[0x7FFE], 0x40);
+        assert_eq!(memory[0x7FFF], 0x03);
+        assert!(cpu.instruction_boundary());
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(cpu.regs.pc, 0x4003);
+        assert_eq!(cpu.regs.s, 0x8000);
+        assert!(cpu.instruction_boundary());
     }
 }
