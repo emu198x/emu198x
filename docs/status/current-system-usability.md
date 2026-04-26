@@ -59,11 +59,16 @@ cargo run --release -p emu198x-game-boy -- game.gb
 
 The fastest route to "I can actually use every emulator" is:
 
-1. Keep Spectrum and C64 as the first interactive shells and remove obvious launch friction.
-2. Keep the new Game Boy and NES native verifier windows honest with real-ROM smoke runs before expanding their hardware scope.
-3. Broaden Amiga software validation now that the native shell has mouse, joystick, and live audio.
-4. Tune the first shared `wgpu` filter presets against hardware references: LCD for Game Boy, CRT for the TV/monitor systems.
-5. Build a small cross-system verification matrix from these exact launch paths so usability work does not regress accuracy.
+1. Keep the current-system verification gate green:
+
+```sh
+scripts/verify-current-systems.sh
+```
+
+2. Keep Spectrum and C64 as the first interactive shells and remove obvious launch friction.
+3. Keep the new Game Boy and NES native verifier windows honest with real-ROM smoke runs before expanding their hardware scope.
+4. Broaden Amiga software validation now that the native shell has mouse, joystick, and live audio.
+5. Tune the first shared `wgpu` filter presets against hardware references: LCD for Game Boy, CRT for the TV/monitor systems.
 
 ## Verification Rule
 
@@ -73,3 +78,9 @@ Every row above should eventually have:
 - one automated test or ignored local harness that proves the claim
 - one screenshot/audio/query artifact when visual or audio output is part of the claim
 - explicit notes for required ROMs/media that cannot be checked into the repository
+
+`scripts/verify-current-systems.sh` is the shared entry point for that rule. It
+always runs in-repository unit/integration checks for the five current systems,
+then conditionally runs local ROM/media smoke checks when the configured assets
+exist. Missing local assets are recorded as `skip`, not `fail`, so the same
+command is useful on fresh machines and on the full reference workstation.
