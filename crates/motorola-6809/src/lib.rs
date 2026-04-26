@@ -55,6 +55,8 @@ enum CcOp {
 enum Imm8Op {
     Lda,
     Ldb,
+    Cmpa,
+    Cmpb,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -94,6 +96,8 @@ enum BranchCondition {
 enum Mem8Op {
     Lda,
     Ldb,
+    Cmpa,
+    Cmpb,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -365,11 +369,18 @@ impl Mc6809 {
                     }
                     0x6E => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Jmp)),
                     0x7E => self.read_next(CpuState::ReadExtendedHi(ExtOp::Jmp)),
+                    0x81 => self.read_next(CpuState::ReadImm8(Imm8Op::Cmpa)),
                     0x86 => self.read_next(CpuState::ReadImm8(Imm8Op::Lda)),
                     0x8D => self.read_next(CpuState::ReadRel8(Rel8Op::Bsr)),
                     0x8E => self.read_next(CpuState::ReadImm16Hi(Imm16Op::Ldx)),
+                    0x91 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Cmpa)),
                     0x96 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Lda)),
                     0x97 => self.read_next(CpuState::WriteDirectOperand(Store8Op::Sta)),
+                    0xA1 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                            Mem8Op::Cmpa,
+                        )));
+                    }
                     0xA6 => {
                         self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(Mem8Op::Lda)));
                     }
@@ -377,19 +388,28 @@ impl Mc6809 {
                         Store8Op::Sta,
                     ))),
                     0xAD => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Jsr)),
+                    0xB1 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Cmpa))),
                     0xB6 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Lda))),
                     0xB7 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Store(Store8Op::Sta))),
                     0xBD => self.read_next(CpuState::ReadExtendedHi(ExtOp::Jsr)),
+                    0xC1 => self.read_next(CpuState::ReadImm8(Imm8Op::Cmpb)),
                     0xC6 => self.read_next(CpuState::ReadImm8(Imm8Op::Ldb)),
                     0xCE => self.read_next(CpuState::ReadImm16Hi(Imm16Op::Ldu)),
+                    0xD1 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Cmpb)),
                     0xD6 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Ldb)),
                     0xD7 => self.read_next(CpuState::WriteDirectOperand(Store8Op::Stb)),
+                    0xE1 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
+                            Mem8Op::Cmpb,
+                        )));
+                    }
                     0xE6 => {
                         self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(Mem8Op::Ldb)));
                     }
                     0xE7 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Store(
                         Store8Op::Stb,
                     ))),
+                    0xF1 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Cmpb))),
                     0xF6 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Ldb))),
                     0xF7 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Store(Store8Op::Stb))),
                     _ => self.trap_illegal(opcode),
@@ -612,18 +632,32 @@ impl Mc6809 {
 
     fn load_imm8(&mut self, op: Imm8Op, value: u8) {
         match op {
-            Imm8Op::Lda => self.regs.a = value,
-            Imm8Op::Ldb => self.regs.b = value,
+            Imm8Op::Lda => {
+                self.regs.a = value;
+                self.set_load_flags8(value);
+            }
+            Imm8Op::Ldb => {
+                self.regs.b = value;
+                self.set_load_flags8(value);
+            }
+            Imm8Op::Cmpa => self.compare8(self.regs.a, value),
+            Imm8Op::Cmpb => self.compare8(self.regs.b, value),
         }
-        self.set_load_flags8(value);
     }
 
     fn load_mem8(&mut self, op: Mem8Op, value: u8) {
         match op {
-            Mem8Op::Lda => self.regs.a = value,
-            Mem8Op::Ldb => self.regs.b = value,
+            Mem8Op::Lda => {
+                self.regs.a = value;
+                self.set_load_flags8(value);
+            }
+            Mem8Op::Ldb => {
+                self.regs.b = value;
+                self.set_load_flags8(value);
+            }
+            Mem8Op::Cmpa => self.compare8(self.regs.a, value),
+            Mem8Op::Cmpb => self.compare8(self.regs.b, value),
         }
-        self.set_load_flags8(value);
     }
 
     fn load_imm16(&mut self, op: Imm16Op, value: u16) {
@@ -1092,6 +1126,14 @@ impl Mc6809 {
     fn set_load_flags8(&mut self, value: u8) {
         self.set_nz8(value);
         self.regs.set_flag(FLAG_V, false);
+    }
+
+    fn compare8(&mut self, lhs: u8, rhs: u8) {
+        let result = lhs.wrapping_sub(rhs);
+        self.set_nz8(result);
+        self.regs
+            .set_flag(FLAG_V, ((lhs ^ rhs) & (lhs ^ result) & 0x80) != 0);
+        self.regs.set_flag(FLAG_C, lhs < rhs);
     }
 
     fn set_nz8(&mut self, value: u8) {
@@ -1606,5 +1648,65 @@ mod tests {
         assert_eq!(cpu.regs.pc, 0x4006);
         assert_eq!(cpu.addr, 0x4006);
         assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn compare_immediate_updates_subtraction_flags_without_mutating_registers() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x81; // CMPA #$20
+        memory[0x4001] = 0x20;
+        memory[0x4002] = 0xC1; // CMPB #$01
+        memory[0x4003] = 0x01;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.a = 0x10;
+        cpu.regs.b = 0x80;
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x10);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_Z));
+        assert!(!cpu.regs.flag(FLAG_V));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.b, 0x80);
+        assert!(!cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_Z));
+        assert!(cpu.regs.flag(FLAG_V));
+        assert!(!cpu.regs.flag(FLAG_C));
+    }
+
+    #[test]
+    fn compare_direct_indexed_and_extended_share_memory_read_path() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x91; // CMPA <$10
+        memory[0x4001] = 0x10;
+        memory[0x1210] = 0x42;
+        memory[0x4002] = 0xE1; // CMPB ,X
+        memory[0x4003] = 0x84;
+        memory[0x2200] = 0x42;
+        memory[0x4004] = 0xB1; // CMPA $3300
+        memory[0x4005] = 0x33;
+        memory[0x4006] = 0x00;
+        memory[0x3300] = 0x40;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.dp = 0x12;
+        cpu.regs.x = 0x2200;
+        cpu.regs.a = 0x42;
+        cpu.regs.b = 0x40;
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert!(cpu.regs.flag(FLAG_Z));
+        assert!(!cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert!(!cpu.regs.flag(FLAG_Z));
+        assert!(!cpu.regs.flag(FLAG_C));
+        assert_eq!(cpu.regs.a, 0x42);
+        assert_eq!(cpu.regs.b, 0x40);
     }
 }
