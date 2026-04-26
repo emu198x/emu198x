@@ -66,8 +66,28 @@ enum Imm16Op {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum Rel8Op {
-    Bra,
+    Branch(BranchCondition),
     Bsr,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum BranchCondition {
+    Always,
+    Never,
+    Hi,
+    Ls,
+    Cc,
+    Cs,
+    Ne,
+    Eq,
+    Vc,
+    Vs,
+    Pl,
+    Mi,
+    Ge,
+    Lt,
+    Gt,
+    Le,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -278,7 +298,54 @@ impl Mc6809 {
                     }
                     0x1A => self.read_next(CpuState::ReadCcImm(CcOp::Or)),
                     0x1C => self.read_next(CpuState::ReadCcImm(CcOp::And)),
-                    0x20 => self.read_next(CpuState::ReadRel8(Rel8Op::Bra)),
+                    0x20 => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Always)))
+                    }
+                    0x21 => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Never)))
+                    }
+                    0x22 => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Hi)));
+                    }
+                    0x23 => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Ls)));
+                    }
+                    0x24 => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Cc)));
+                    }
+                    0x25 => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Cs)));
+                    }
+                    0x26 => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Ne)));
+                    }
+                    0x27 => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Eq)));
+                    }
+                    0x28 => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Vc)));
+                    }
+                    0x29 => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Vs)));
+                    }
+                    0x2A => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Pl)));
+                    }
+                    0x2B => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Mi)));
+                    }
+                    0x2C => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Ge)));
+                    }
+                    0x2D => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Lt)));
+                    }
+                    0x2E => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Gt)));
+                    }
+                    0x2F => {
+                        self.read_next(CpuState::ReadRel8(Rel8Op::Branch(BranchCondition::Le)));
+                    }
                     0x30 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Lea(Reg16::X))),
                     0x31 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Lea(Reg16::Y))),
                     0x32 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Lea(Reg16::S))),
@@ -373,8 +440,10 @@ impl Mc6809 {
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let target = self.regs.pc.wrapping_add_signed(i16::from(offset));
                 match op {
-                    Rel8Op::Bra => {
-                        self.regs.pc = target;
+                    Rel8Op::Branch(condition) => {
+                        if self.branch_condition(condition) {
+                            self.regs.pc = target;
+                        }
                         self.next_fetch();
                     }
                     Rel8Op::Bsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(target)),
@@ -677,6 +746,32 @@ impl Mc6809 {
             Reg16::Y => self.regs.y = value,
             Reg16::U => self.regs.u = value,
             Reg16::S => self.regs.s = value,
+        }
+    }
+
+    fn branch_condition(&self, condition: BranchCondition) -> bool {
+        let c = self.regs.flag(FLAG_C);
+        let n = self.regs.flag(FLAG_N);
+        let z = self.regs.flag(FLAG_Z);
+        let v = self.regs.flag(FLAG_V);
+
+        match condition {
+            BranchCondition::Always => true,
+            BranchCondition::Never => false,
+            BranchCondition::Hi => !c && !z,
+            BranchCondition::Ls => c || z,
+            BranchCondition::Cc => !c,
+            BranchCondition::Cs => c,
+            BranchCondition::Ne => !z,
+            BranchCondition::Eq => z,
+            BranchCondition::Vc => !v,
+            BranchCondition::Vs => v,
+            BranchCondition::Pl => !n,
+            BranchCondition::Mi => n,
+            BranchCondition::Ge => n == v,
+            BranchCondition::Lt => n != v,
+            BranchCondition::Gt => !z && n == v,
+            BranchCondition::Le => z || n != v,
         }
     }
 
@@ -1248,6 +1343,40 @@ mod tests {
         assert_eq!(cpu.regs.pc, 0x4567);
         assert_eq!(cpu.addr, 0x4567);
         assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn short_conditional_branches_follow_condition_codes() {
+        fn branch_target(opcode: u8, cc: u8) -> u16 {
+            let mut memory = [0; 0x10000];
+            memory[0x4000] = opcode;
+            memory[0x4001] = 0x05;
+            let mut cpu = cpu_at(0x4000);
+            cpu.regs.cc = cc;
+
+            run_cycles(&mut cpu, &mut memory, 2);
+
+            cpu.regs.pc
+        }
+
+        assert_eq!(branch_target(0x20, 0), 0x4007); // BRA
+        assert_eq!(branch_target(0x21, 0), 0x4002); // BRN
+        assert_eq!(branch_target(0x22, 0), 0x4007); // BHI
+        assert_eq!(branch_target(0x22, FLAG_Z), 0x4002);
+        assert_eq!(branch_target(0x23, FLAG_C), 0x4007); // BLS
+        assert_eq!(branch_target(0x24, 0), 0x4007); // BCC
+        assert_eq!(branch_target(0x25, FLAG_C), 0x4007); // BCS
+        assert_eq!(branch_target(0x26, 0), 0x4007); // BNE
+        assert_eq!(branch_target(0x27, FLAG_Z), 0x4007); // BEQ
+        assert_eq!(branch_target(0x28, 0), 0x4007); // BVC
+        assert_eq!(branch_target(0x29, FLAG_V), 0x4007); // BVS
+        assert_eq!(branch_target(0x2A, 0), 0x4007); // BPL
+        assert_eq!(branch_target(0x2B, FLAG_N), 0x4007); // BMI
+        assert_eq!(branch_target(0x2C, FLAG_N | FLAG_V), 0x4007); // BGE
+        assert_eq!(branch_target(0x2D, FLAG_N), 0x4007); // BLT
+        assert_eq!(branch_target(0x2E, 0), 0x4007); // BGT
+        assert_eq!(branch_target(0x2E, FLAG_Z), 0x4002);
+        assert_eq!(branch_target(0x2F, FLAG_Z), 0x4007); // BLE
     }
 
     #[test]
