@@ -28,6 +28,8 @@ enum CpuState {
     ReadIndexedOffset8 { op: IndexedOp, post: u8 },
     ReadIndexedOffset16Hi { op: IndexedOp, post: u8 },
     ReadIndexedOffset16Lo { op: IndexedOp, post: u8, hi: u8 },
+    ReadIndexedIndirectHi { op: IndexedOp, ptr: u16 },
+    ReadIndexedIndirectLo { op: IndexedOp, hi: u8 },
     ReadStackPostbyte(StackOp),
     ReadDirectOperand(Mem8Op),
     ReadDirectValue(Mem8Op),
@@ -629,15 +631,18 @@ impl Mc6809 {
             CpuState::ReadIndexedOffset8 { op, post } => {
                 let offset = self.data_in as i8;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
-                let base = if Self::indexed_low5(post) == 0x0C {
+                let low5 = Self::indexed_low5(post);
+                let base = if low5 == 0x0C || low5 == 0x1C {
                     self.regs.pc
                 } else {
                     self.index_base(post)
                 };
-                self.apply_indexed_effective_address(
-                    op,
-                    base.wrapping_add_signed(i16::from(offset)),
-                );
+                let addr = base.wrapping_add_signed(i16::from(offset));
+                if matches!(low5, 0x18 | 0x1C) {
+                    self.start_indexed_indirect(op, addr);
+                } else {
+                    self.apply_indexed_effective_address(op, addr);
+                }
             }
             CpuState::ReadIndexedOffset16Hi { op, post } => {
                 let hi = self.data_in;
@@ -647,12 +652,33 @@ impl Mc6809 {
             CpuState::ReadIndexedOffset16Lo { op, post, hi } => {
                 let offset = u16::from_be_bytes([hi, self.data_in]);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
-                let base = if Self::indexed_low5(post) == 0x0D {
+                let low5 = Self::indexed_low5(post);
+                let base = if low5 == 0x0D || low5 == 0x1D {
                     self.regs.pc
                 } else {
                     self.index_base(post)
                 };
-                self.apply_indexed_effective_address(op, base.wrapping_add(offset));
+                let addr = if low5 == 0x1F {
+                    offset
+                } else {
+                    base.wrapping_add(offset)
+                };
+                if matches!(low5, 0x19 | 0x1D | 0x1F) {
+                    self.start_indexed_indirect(op, addr);
+                } else {
+                    self.apply_indexed_effective_address(op, addr);
+                }
+            }
+            CpuState::ReadIndexedIndirectHi { op, ptr } => {
+                let hi = self.data_in;
+                self.state = CpuState::ReadIndexedIndirectLo { op, hi };
+                self.addr = ptr.wrapping_add(1);
+                self.rw = true;
+                self.sync = false;
+            }
+            CpuState::ReadIndexedIndirectLo { op, hi } => {
+                let addr = u16::from_be_bytes([hi, self.data_in]);
+                self.apply_indexed_effective_address(op, addr);
             }
             CpuState::ReadStackPostbyte(op) => {
                 let mask = self.data_in;
@@ -880,8 +906,41 @@ impl Mc6809 {
                 op,
                 self.index_base(post).wrapping_add(self.regs.d()),
             ),
+            0x11 => {
+                let ptr = self.index_base(post);
+                self.set_index_base(post, ptr.wrapping_add(2));
+                self.start_indexed_indirect(op, ptr);
+            }
+            0x13 => {
+                let ptr = self.index_base(post).wrapping_sub(2);
+                self.set_index_base(post, ptr);
+                self.start_indexed_indirect(op, ptr);
+            }
+            0x14 => self.start_indexed_indirect(op, self.index_base(post)),
+            0x15 => {
+                let offset = i16::from(self.regs.b as i8);
+                self.start_indexed_indirect(op, self.index_base(post).wrapping_add_signed(offset));
+            }
+            0x16 => {
+                let offset = i16::from(self.regs.a as i8);
+                self.start_indexed_indirect(op, self.index_base(post).wrapping_add_signed(offset));
+            }
+            0x18 | 0x1C => self.read_next(CpuState::ReadIndexedOffset8 { op, post }),
+            0x19 | 0x1D | 0x1F => {
+                self.read_next(CpuState::ReadIndexedOffset16Hi { op, post });
+            }
+            0x1B => {
+                self.start_indexed_indirect(op, self.index_base(post).wrapping_add(self.regs.d()))
+            }
             _ => self.trap_illegal(post),
         }
+    }
+
+    fn start_indexed_indirect(&mut self, op: IndexedOp, ptr: u16) {
+        self.state = CpuState::ReadIndexedIndirectHi { op, ptr };
+        self.addr = ptr;
+        self.rw = true;
+        self.sync = false;
     }
 
     fn apply_indexed_effective_address(&mut self, op: IndexedOp, addr: u16) {
@@ -2034,5 +2093,42 @@ mod tests {
         run_cycles(&mut cpu, &mut memory, 4);
         assert_eq!(cpu.regs.a, 0x95);
         assert!(cpu.regs.flag(FLAG_N));
+    }
+
+    #[test]
+    fn indirect_indexed_load_reads_pointer_then_effective_address() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xA6; // LDA [,X++]
+        memory[0x4001] = 0x91;
+        memory[0x2000] = 0x34;
+        memory[0x2001] = 0x56;
+        memory[0x3456] = 0xA5;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.x = 0x2000;
+
+        run_cycles(&mut cpu, &mut memory, 5);
+
+        assert_eq!(cpu.regs.a, 0xA5);
+        assert_eq!(cpu.regs.x, 0x2002);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn indirect_pc_relative_store_writes_resolved_effective_address() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xE7; // STB [2,PC]
+        memory[0x4001] = 0x9C;
+        memory[0x4002] = 0x02;
+        memory[0x4005] = 0x45;
+        memory[0x4006] = 0x67;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.b = 0x5A;
+
+        run_cycles(&mut cpu, &mut memory, 6);
+
+        assert_eq!(memory[0x4567], 0x5A);
+        assert_eq!(cpu.regs.pc, 0x4003);
+        assert!(cpu.instruction_boundary());
     }
 }
