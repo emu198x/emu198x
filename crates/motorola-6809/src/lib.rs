@@ -24,6 +24,10 @@ enum CpuState {
     ReadImm16Hi(Imm16Op),
     ReadImm16Lo { op: Imm16Op, hi: u8 },
     ReadRel8(Rel8Op),
+    ReadIndexedPostbyte(IndexedOp),
+    ReadIndexedOffset8 { op: IndexedOp, post: u8 },
+    ReadIndexedOffset16Hi { op: IndexedOp, post: u8 },
+    ReadIndexedOffset16Lo { op: IndexedOp, post: u8, hi: u8 },
     ReadStackPostbyte(StackOp),
     ReadDirectOperand(Mem8Op),
     ReadDirectValue(Mem8Op),
@@ -80,6 +84,23 @@ enum Store8Op {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum ExtOp {
+    Load(Mem8Op),
+    Store(Store8Op),
+    Jmp,
+    Jsr,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum Reg16 {
+    X,
+    Y,
+    U,
+    S,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum IndexedOp {
+    Lea(Reg16),
     Load(Mem8Op),
     Store(Store8Op),
     Jmp,
@@ -258,6 +279,10 @@ impl Mc6809 {
                     0x1A => self.read_next(CpuState::ReadCcImm(CcOp::Or)),
                     0x1C => self.read_next(CpuState::ReadCcImm(CcOp::And)),
                     0x20 => self.read_next(CpuState::ReadRel8(Rel8Op::Bra)),
+                    0x30 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Lea(Reg16::X))),
+                    0x31 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Lea(Reg16::Y))),
+                    0x32 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Lea(Reg16::S))),
+                    0x33 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Lea(Reg16::U))),
                     0x34 => self.read_next(CpuState::ReadStackPostbyte(StackOp::PushS)),
                     0x35 => self.read_next(CpuState::ReadStackPostbyte(StackOp::PullS)),
                     0x36 => self.read_next(CpuState::ReadStackPostbyte(StackOp::PushU)),
@@ -271,12 +296,20 @@ impl Mc6809 {
                         self.clear_b();
                         self.read_next(CpuState::ClrBInternal);
                     }
+                    0x6E => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Jmp)),
                     0x7E => self.read_next(CpuState::ReadExtendedHi(ExtOp::Jmp)),
                     0x86 => self.read_next(CpuState::ReadImm8(Imm8Op::Lda)),
                     0x8D => self.read_next(CpuState::ReadRel8(Rel8Op::Bsr)),
                     0x8E => self.read_next(CpuState::ReadImm16Hi(Imm16Op::Ldx)),
                     0x96 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Lda)),
                     0x97 => self.read_next(CpuState::WriteDirectOperand(Store8Op::Sta)),
+                    0xA6 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(Mem8Op::Lda)));
+                    }
+                    0xA7 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Store(
+                        Store8Op::Sta,
+                    ))),
+                    0xAD => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Jsr)),
                     0xB6 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Lda))),
                     0xB7 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Store(Store8Op::Sta))),
                     0xBD => self.read_next(CpuState::ReadExtendedHi(ExtOp::Jsr)),
@@ -284,6 +317,12 @@ impl Mc6809 {
                     0xCE => self.read_next(CpuState::ReadImm16Hi(Imm16Op::Ldu)),
                     0xD6 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Ldb)),
                     0xD7 => self.read_next(CpuState::WriteDirectOperand(Store8Op::Stb)),
+                    0xE6 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(Mem8Op::Ldb)));
+                    }
+                    0xE7 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Store(
+                        Store8Op::Stb,
+                    ))),
                     0xF6 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Ldb))),
                     0xF7 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Store(Store8Op::Stb))),
                     _ => self.trap_illegal(opcode),
@@ -340,6 +379,39 @@ impl Mc6809 {
                     }
                     Rel8Op::Bsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(target)),
                 }
+            }
+            CpuState::ReadIndexedPostbyte(op) => {
+                let post = self.data_in;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.resolve_indexed_postbyte(op, post);
+            }
+            CpuState::ReadIndexedOffset8 { op, post } => {
+                let offset = self.data_in as i8;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                let base = if Self::indexed_low5(post) == 0x0C {
+                    self.regs.pc
+                } else {
+                    self.index_base(post)
+                };
+                self.apply_indexed_effective_address(
+                    op,
+                    base.wrapping_add_signed(i16::from(offset)),
+                );
+            }
+            CpuState::ReadIndexedOffset16Hi { op, post } => {
+                let hi = self.data_in;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.read_next(CpuState::ReadIndexedOffset16Lo { op, post, hi });
+            }
+            CpuState::ReadIndexedOffset16Lo { op, post, hi } => {
+                let offset = u16::from_be_bytes([hi, self.data_in]);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                let base = if Self::indexed_low5(post) == 0x0D {
+                    self.regs.pc
+                } else {
+                    self.index_base(post)
+                };
+                self.apply_indexed_effective_address(op, base.wrapping_add(offset));
             }
             CpuState::ReadStackPostbyte(op) => {
                 let mask = self.data_in;
@@ -493,6 +565,119 @@ impl Mc6809 {
         }
         self.set_nz16(value);
         self.regs.set_flag(FLAG_V, false);
+    }
+
+    fn resolve_indexed_postbyte(&mut self, op: IndexedOp, post: u8) {
+        if post & 0x80 == 0 {
+            let offset = if post & 0x10 != 0 {
+                i16::from((post | 0xE0) as i8)
+            } else {
+                i16::from((post & 0x1F) as i8)
+            };
+            let addr = self.index_base(post).wrapping_add_signed(offset);
+            self.apply_indexed_effective_address(op, addr);
+            return;
+        }
+
+        match Self::indexed_low5(post) {
+            0x00 => {
+                let addr = self.index_base(post);
+                self.set_index_base(post, addr.wrapping_add(1));
+                self.apply_indexed_effective_address(op, addr);
+            }
+            0x01 => {
+                let addr = self.index_base(post);
+                self.set_index_base(post, addr.wrapping_add(2));
+                self.apply_indexed_effective_address(op, addr);
+            }
+            0x02 => {
+                let addr = self.index_base(post).wrapping_sub(1);
+                self.set_index_base(post, addr);
+                self.apply_indexed_effective_address(op, addr);
+            }
+            0x03 => {
+                let addr = self.index_base(post).wrapping_sub(2);
+                self.set_index_base(post, addr);
+                self.apply_indexed_effective_address(op, addr);
+            }
+            0x04 => self.apply_indexed_effective_address(op, self.index_base(post)),
+            0x05 => {
+                let offset = i16::from(self.regs.b as i8);
+                self.apply_indexed_effective_address(
+                    op,
+                    self.index_base(post).wrapping_add_signed(offset),
+                );
+            }
+            0x06 => {
+                let offset = i16::from(self.regs.a as i8);
+                self.apply_indexed_effective_address(
+                    op,
+                    self.index_base(post).wrapping_add_signed(offset),
+                );
+            }
+            0x08 | 0x0C => self.read_next(CpuState::ReadIndexedOffset8 { op, post }),
+            0x09 | 0x0D => self.read_next(CpuState::ReadIndexedOffset16Hi { op, post }),
+            0x0B => self.apply_indexed_effective_address(
+                op,
+                self.index_base(post).wrapping_add(self.regs.d()),
+            ),
+            _ => self.trap_illegal(post),
+        }
+    }
+
+    fn apply_indexed_effective_address(&mut self, op: IndexedOp, addr: u16) {
+        match op {
+            IndexedOp::Lea(reg) => {
+                self.set_reg16(reg, addr);
+                if matches!(reg, Reg16::X | Reg16::Y) {
+                    self.regs.set_flag(FLAG_Z, addr == 0);
+                }
+                self.next_fetch();
+            }
+            IndexedOp::Load(op) => {
+                self.state = CpuState::ReadExtendedValue(op);
+                self.addr = addr;
+                self.rw = true;
+                self.sync = false;
+            }
+            IndexedOp::Store(op) => self.prepare_store(op, addr),
+            IndexedOp::Jmp => {
+                self.regs.pc = addr;
+                self.next_fetch();
+            }
+            IndexedOp::Jsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(addr)),
+        }
+    }
+
+    fn indexed_low5(post: u8) -> u8 {
+        post & 0x1F
+    }
+
+    fn index_base(&self, post: u8) -> u16 {
+        match (post >> 5) & 0x03 {
+            0 => self.regs.x,
+            1 => self.regs.y,
+            2 => self.regs.u,
+            _ => self.regs.s,
+        }
+    }
+
+    fn set_index_base(&mut self, post: u8, value: u16) {
+        match (post >> 5) & 0x03 {
+            0 => self.regs.x = value,
+            1 => self.regs.y = value,
+            2 => self.regs.u = value,
+            _ => self.regs.s = value,
+        }
+    }
+
+    fn set_reg16(&mut self, reg: Reg16, value: u16) {
+        match reg {
+            Reg16::X => self.regs.x = value,
+            Reg16::Y => self.regs.y = value,
+            Reg16::U => self.regs.u = value,
+            Reg16::S => self.regs.s = value,
+        }
     }
 
     fn prepare_store(&mut self, op: Store8Op, addr: u16) {
@@ -1224,6 +1409,73 @@ mod tests {
 
         assert_eq!(cpu.regs.s, 0x1234);
         assert_eq!(cpu.regs.u, 0x9000);
+        assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn lea_indexed_updates_target_registers_and_x_y_zero_flags() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x30; // LEAX 5,X
+        memory[0x4001] = 0x05;
+        memory[0x4002] = 0x31; // LEAY -16,Y
+        memory[0x4003] = 0x30;
+        memory[0x4004] = 0x32; // LEAS $0010,S
+        memory[0x4005] = 0xE9;
+        memory[0x4006] = 0x00;
+        memory[0x4007] = 0x10;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.x = 0x1000;
+        cpu.regs.y = 0x0010;
+        cpu.regs.s = 0x8000;
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.x, 0x1005);
+        assert!(!cpu.regs.flag(FLAG_Z));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.y, 0x0000);
+        assert!(cpu.regs.flag(FLAG_Z));
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(cpu.regs.s, 0x8010);
+        assert!(cpu.regs.flag(FLAG_Z), "LEAS does not update Z");
+        assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn indexed_load_store_and_auto_increment_use_effective_address() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xA6; // LDA ,X+
+        memory[0x4001] = 0x80;
+        memory[0x2000] = 0x7E;
+        memory[0x4002] = 0xE7; // STB B,X
+        memory[0x4003] = 0x85;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.x = 0x2000;
+        cpu.regs.b = 0x05;
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(cpu.regs.a, 0x7E);
+        assert_eq!(cpu.regs.x, 0x2001);
+        assert!(cpu.instruction_boundary());
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(memory[0x2006], 0x05);
+        assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn indexed_pc_relative_jmp_uses_pc_after_offset_operand() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x6E; // JMP 3,PC
+        memory[0x4001] = 0x8C;
+        memory[0x4002] = 0x03;
+        let mut cpu = cpu_at(0x4000);
+
+        run_cycles(&mut cpu, &mut memory, 3);
+
+        assert_eq!(cpu.regs.pc, 0x4006);
+        assert_eq!(cpu.addr, 0x4006);
         assert!(cpu.instruction_boundary());
     }
 }
