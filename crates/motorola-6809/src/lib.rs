@@ -10,6 +10,8 @@ pub mod registers;
 use registers::{FLAG_C, FLAG_F, FLAG_I, FLAG_N, FLAG_V, FLAG_Z, Registers};
 use serde::{Deserialize, Serialize};
 
+const MAX_STACK_BYTES: usize = 12;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum CpuState {
     Fetch,
@@ -22,6 +24,7 @@ enum CpuState {
     ReadImm16Hi(Imm16Op),
     ReadImm16Lo { op: Imm16Op, hi: u8 },
     ReadRel8(Rel8Op),
+    ReadStackPostbyte(StackOp),
     ReadDirectOperand(Mem8Op),
     ReadDirectValue(Mem8Op),
     ReadExtendedHi(ExtOp),
@@ -29,6 +32,8 @@ enum CpuState {
     ReadExtendedValue(Mem8Op),
     WriteDirectOperand(Store8Op),
     WriteValue,
+    StackRead,
+    StackWrite,
     PushWordHi { hi: u8, after: AfterPush },
     PushDone(AfterPush),
     PullWordHi(Pull16Op),
@@ -91,6 +96,57 @@ enum Pull16Op {
     Pc,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum StackOp {
+    PushS,
+    PullS,
+    PushU,
+    PullU,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum StackPointer {
+    S,
+    U,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum StackTarget {
+    None,
+    Cc,
+    A,
+    B,
+    Dp,
+    XHi,
+    XLo,
+    YHi,
+    YLo,
+    UHi,
+    ULo,
+    SHi,
+    SLo,
+    PcHi,
+    PcLo,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum StackWork {
+    None,
+    Push {
+        ptr: StackPointer,
+        bytes: [u8; MAX_STACK_BYTES],
+        len: u8,
+        index: u8,
+    },
+    Pull {
+        ptr: StackPointer,
+        targets: [StackTarget; MAX_STACK_BYTES],
+        len: u8,
+        index: u8,
+        hi: u8,
+    },
+}
+
 /// Motorola MC6809 CPU state exposed to machine crates.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Mc6809 {
@@ -108,6 +164,7 @@ pub struct Mc6809 {
     pub reset_phase: u8,
     vector_hi: u8,
     state: CpuState,
+    stack_work: StackWork,
 }
 
 impl Mc6809 {
@@ -128,6 +185,7 @@ impl Mc6809 {
             reset_phase: 0,
             vector_hi: 0,
             state: CpuState::Fetch,
+            stack_work: StackWork::None,
         }
     }
 
@@ -147,6 +205,7 @@ impl Mc6809 {
         self.reset_phase = 2;
         self.vector_hi = 0;
         self.state = CpuState::Fetch;
+        self.stack_work = StackWork::None;
     }
 
     /// Advance one bus-visible CPU cycle.
@@ -199,6 +258,10 @@ impl Mc6809 {
                     0x1A => self.read_next(CpuState::ReadCcImm(CcOp::Or)),
                     0x1C => self.read_next(CpuState::ReadCcImm(CcOp::And)),
                     0x20 => self.read_next(CpuState::ReadRel8(Rel8Op::Bra)),
+                    0x34 => self.read_next(CpuState::ReadStackPostbyte(StackOp::PushS)),
+                    0x35 => self.read_next(CpuState::ReadStackPostbyte(StackOp::PullS)),
+                    0x36 => self.read_next(CpuState::ReadStackPostbyte(StackOp::PushU)),
+                    0x37 => self.read_next(CpuState::ReadStackPostbyte(StackOp::PullU)),
                     0x39 => self.prepare_pull_word(Pull16Op::Pc),
                     0x4F => {
                         self.clear_a();
@@ -278,6 +341,11 @@ impl Mc6809 {
                     Rel8Op::Bsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(target)),
                 }
             }
+            CpuState::ReadStackPostbyte(op) => {
+                let mask = self.data_in;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.start_stack_op(op, mask);
+            }
             CpuState::ReadDirectOperand(op) => {
                 let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
@@ -325,6 +393,12 @@ impl Mc6809 {
             CpuState::WriteValue => {
                 self.next_fetch();
             }
+            CpuState::StackRead => {
+                self.finish_stack_read();
+            }
+            CpuState::StackWrite => {
+                self.finish_stack_write();
+            }
             CpuState::PushWordHi { hi, after } => {
                 self.regs.s = self.regs.s.wrapping_sub(1);
                 self.state = CpuState::PushDone(after);
@@ -367,6 +441,7 @@ impl Mc6809 {
 
     fn next_fetch(&mut self) {
         self.state = CpuState::Fetch;
+        self.stack_work = StackWork::None;
         self.addr = self.regs.pc;
         self.rw = true;
         self.sync = true;
@@ -431,6 +506,283 @@ impl Mc6809 {
         self.data = value;
         self.rw = false;
         self.sync = false;
+    }
+
+    fn start_stack_op(&mut self, op: StackOp, mask: u8) {
+        match op {
+            StackOp::PushS => self.start_stack_push(StackPointer::S, mask),
+            StackOp::PullS => self.start_stack_pull(StackPointer::S, mask),
+            StackOp::PushU => self.start_stack_push(StackPointer::U, mask),
+            StackOp::PullU => self.start_stack_pull(StackPointer::U, mask),
+        }
+    }
+
+    fn start_stack_push(&mut self, ptr: StackPointer, mask: u8) {
+        let mut bytes = [0; MAX_STACK_BYTES];
+        let mut len = 0;
+
+        if mask & 0x80 != 0 {
+            len = Self::append_stack_word(&mut bytes, len, self.regs.pc);
+        }
+        if mask & 0x40 != 0 {
+            let value = match ptr {
+                StackPointer::S => self.regs.u,
+                StackPointer::U => self.regs.s,
+            };
+            len = Self::append_stack_word(&mut bytes, len, value);
+        }
+        if mask & 0x20 != 0 {
+            len = Self::append_stack_word(&mut bytes, len, self.regs.y);
+        }
+        if mask & 0x10 != 0 {
+            len = Self::append_stack_word(&mut bytes, len, self.regs.x);
+        }
+        if mask & 0x08 != 0 {
+            len = Self::append_stack_byte(&mut bytes, len, self.regs.dp);
+        }
+        if mask & 0x04 != 0 {
+            len = Self::append_stack_byte(&mut bytes, len, self.regs.b);
+        }
+        if mask & 0x02 != 0 {
+            len = Self::append_stack_byte(&mut bytes, len, self.regs.a);
+        }
+        if mask & 0x01 != 0 {
+            len = Self::append_stack_byte(&mut bytes, len, self.regs.cc);
+        }
+
+        self.stack_work = StackWork::Push {
+            ptr,
+            bytes,
+            len: len as u8,
+            index: 0,
+        };
+        self.schedule_stack_work();
+    }
+
+    fn start_stack_pull(&mut self, ptr: StackPointer, mask: u8) {
+        let mut targets = [StackTarget::None; MAX_STACK_BYTES];
+        let mut len = 0;
+
+        if mask & 0x01 != 0 {
+            len = Self::append_stack_target(&mut targets, len, StackTarget::Cc);
+        }
+        if mask & 0x02 != 0 {
+            len = Self::append_stack_target(&mut targets, len, StackTarget::A);
+        }
+        if mask & 0x04 != 0 {
+            len = Self::append_stack_target(&mut targets, len, StackTarget::B);
+        }
+        if mask & 0x08 != 0 {
+            len = Self::append_stack_target(&mut targets, len, StackTarget::Dp);
+        }
+        if mask & 0x10 != 0 {
+            len = Self::append_stack_target_pair(
+                &mut targets,
+                len,
+                StackTarget::XHi,
+                StackTarget::XLo,
+            );
+        }
+        if mask & 0x20 != 0 {
+            len = Self::append_stack_target_pair(
+                &mut targets,
+                len,
+                StackTarget::YHi,
+                StackTarget::YLo,
+            );
+        }
+        if mask & 0x40 != 0 {
+            let (hi, lo) = match ptr {
+                StackPointer::S => (StackTarget::UHi, StackTarget::ULo),
+                StackPointer::U => (StackTarget::SHi, StackTarget::SLo),
+            };
+            len = Self::append_stack_target_pair(&mut targets, len, hi, lo);
+        }
+        if mask & 0x80 != 0 {
+            len = Self::append_stack_target_pair(
+                &mut targets,
+                len,
+                StackTarget::PcHi,
+                StackTarget::PcLo,
+            );
+        }
+
+        self.stack_work = StackWork::Pull {
+            ptr,
+            targets,
+            len: len as u8,
+            index: 0,
+            hi: 0,
+        };
+        self.schedule_stack_work();
+    }
+
+    fn append_stack_word(bytes: &mut [u8; MAX_STACK_BYTES], len: usize, value: u16) -> usize {
+        let [hi, lo] = value.to_be_bytes();
+        let next = Self::append_stack_byte(bytes, len, lo);
+        Self::append_stack_byte(bytes, next, hi)
+    }
+
+    fn append_stack_byte(bytes: &mut [u8; MAX_STACK_BYTES], len: usize, value: u8) -> usize {
+        bytes[len] = value;
+        len + 1
+    }
+
+    fn append_stack_target(
+        targets: &mut [StackTarget; MAX_STACK_BYTES],
+        len: usize,
+        target: StackTarget,
+    ) -> usize {
+        targets[len] = target;
+        len + 1
+    }
+
+    fn append_stack_target_pair(
+        targets: &mut [StackTarget; MAX_STACK_BYTES],
+        len: usize,
+        hi: StackTarget,
+        lo: StackTarget,
+    ) -> usize {
+        let next = Self::append_stack_target(targets, len, hi);
+        Self::append_stack_target(targets, next, lo)
+    }
+
+    fn schedule_stack_work(&mut self) {
+        match self.stack_work {
+            StackWork::None => self.next_fetch(),
+            StackWork::Push {
+                ptr,
+                bytes,
+                len,
+                index,
+            } => {
+                if index >= len {
+                    self.next_fetch();
+                } else {
+                    let addr = self.stack_pointer(ptr).wrapping_sub(1);
+                    self.set_stack_pointer(ptr, addr);
+                    self.addr = addr;
+                    self.data = bytes[index as usize];
+                    self.rw = false;
+                    self.sync = false;
+                    self.state = CpuState::StackWrite;
+                }
+            }
+            StackWork::Pull {
+                ptr, len, index, ..
+            } => {
+                if index >= len {
+                    self.next_fetch();
+                } else {
+                    self.addr = self.stack_pointer(ptr);
+                    self.rw = true;
+                    self.sync = false;
+                    self.state = CpuState::StackRead;
+                }
+            }
+        }
+    }
+
+    fn finish_stack_write(&mut self) {
+        if let StackWork::Push {
+            ptr,
+            bytes,
+            len,
+            index,
+        } = self.stack_work
+        {
+            self.stack_work = StackWork::Push {
+                ptr,
+                bytes,
+                len,
+                index: index + 1,
+            };
+        }
+        self.schedule_stack_work();
+    }
+
+    fn finish_stack_read(&mut self) {
+        if let StackWork::Pull {
+            ptr,
+            targets,
+            len,
+            index,
+            hi,
+        } = self.stack_work
+        {
+            let next_hi = self.apply_stack_target(targets[index as usize], hi, self.data_in);
+            let next_ptr = self.stack_pointer(ptr).wrapping_add(1);
+            self.set_stack_pointer(ptr, next_ptr);
+            self.stack_work = StackWork::Pull {
+                ptr,
+                targets,
+                len,
+                index: index + 1,
+                hi: next_hi,
+            };
+        }
+        self.schedule_stack_work();
+    }
+
+    fn stack_pointer(&self, ptr: StackPointer) -> u16 {
+        match ptr {
+            StackPointer::S => self.regs.s,
+            StackPointer::U => self.regs.u,
+        }
+    }
+
+    fn set_stack_pointer(&mut self, ptr: StackPointer, value: u16) {
+        match ptr {
+            StackPointer::S => self.regs.s = value,
+            StackPointer::U => self.regs.u = value,
+        }
+    }
+
+    fn apply_stack_target(&mut self, target: StackTarget, hi: u8, value: u8) -> u8 {
+        match target {
+            StackTarget::None => hi,
+            StackTarget::Cc => {
+                self.regs.cc = value;
+                hi
+            }
+            StackTarget::A => {
+                self.regs.a = value;
+                hi
+            }
+            StackTarget::B => {
+                self.regs.b = value;
+                hi
+            }
+            StackTarget::Dp => {
+                self.regs.dp = value;
+                hi
+            }
+            StackTarget::XHi
+            | StackTarget::YHi
+            | StackTarget::UHi
+            | StackTarget::SHi
+            | StackTarget::PcHi => value,
+            StackTarget::XLo => {
+                self.regs.x = u16::from_be_bytes([hi, value]);
+                hi
+            }
+            StackTarget::YLo => {
+                self.regs.y = u16::from_be_bytes([hi, value]);
+                hi
+            }
+            StackTarget::ULo => {
+                self.regs.u = u16::from_be_bytes([hi, value]);
+                hi
+            }
+            StackTarget::SLo => {
+                self.regs.s = u16::from_be_bytes([hi, value]);
+                hi
+            }
+            StackTarget::PcLo => {
+                self.regs.pc = u16::from_be_bytes([hi, value]);
+                hi
+            }
+        }
     }
 
     fn prepare_push_word(&mut self, value: u16, after: AfterPush) {
@@ -795,6 +1147,83 @@ mod tests {
         run_cycles(&mut cpu, &mut memory, 3);
         assert_eq!(cpu.regs.pc, 0x4003);
         assert_eq!(cpu.regs.s, 0x8000);
+        assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn pshs_and_puls_round_trip_full_register_set() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x34; // PSHS all
+        memory[0x4001] = 0xFF;
+        memory[0x4002] = 0x35; // PULS all
+        memory[0x4003] = 0xFF;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.u = 0xA0B0;
+        cpu.regs.y = 0xC0D0;
+        cpu.regs.x = 0x1234;
+        cpu.regs.dp = 0x56;
+        cpu.regs.b = 0x78;
+        cpu.regs.a = 0x9A;
+        cpu.regs.cc = 0xA5;
+
+        run_cycles(&mut cpu, &mut memory, 14);
+
+        assert_eq!(cpu.regs.s, 0x7FF4);
+        assert_eq!(
+            &memory[0x7FF4..=0x7FFF],
+            &[
+                0xA5, 0x9A, 0x78, 0x56, 0x12, 0x34, 0xC0, 0xD0, 0xA0, 0xB0, 0x40, 0x02
+            ]
+        );
+        assert!(cpu.instruction_boundary());
+
+        cpu.regs.u = 0;
+        cpu.regs.y = 0;
+        cpu.regs.x = 0;
+        cpu.regs.dp = 0;
+        cpu.regs.b = 0;
+        cpu.regs.a = 0;
+        cpu.regs.cc = 0;
+
+        run_cycles(&mut cpu, &mut memory, 14);
+
+        assert_eq!(cpu.regs.s, 0x8000);
+        assert_eq!(cpu.regs.u, 0xA0B0);
+        assert_eq!(cpu.regs.y, 0xC0D0);
+        assert_eq!(cpu.regs.x, 0x1234);
+        assert_eq!(cpu.regs.dp, 0x56);
+        assert_eq!(cpu.regs.b, 0x78);
+        assert_eq!(cpu.regs.a, 0x9A);
+        assert_eq!(cpu.regs.cc, 0xA5);
+        assert_eq!(cpu.regs.pc, 0x4002);
+        assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn pshu_and_pulu_transfer_s_on_u_stack() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x36; // PSHU S
+        memory[0x4001] = 0x40;
+        memory[0x4002] = 0x37; // PULU S
+        memory[0x4003] = 0x40;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x1234;
+        cpu.regs.u = 0x9000;
+
+        run_cycles(&mut cpu, &mut memory, 4);
+
+        assert_eq!(cpu.regs.u, 0x8FFE);
+        assert_eq!(memory[0x8FFE], 0x12);
+        assert_eq!(memory[0x8FFF], 0x34);
+        assert!(cpu.instruction_boundary());
+
+        cpu.regs.s = 0;
+
+        run_cycles(&mut cpu, &mut memory, 4);
+
+        assert_eq!(cpu.regs.s, 0x1234);
+        assert_eq!(cpu.regs.u, 0x9000);
         assert!(cpu.instruction_boundary());
     }
 }
