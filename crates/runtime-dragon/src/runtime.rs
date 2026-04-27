@@ -30,6 +30,10 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "dragon.pia1.cb2",
     "dragon.pia1.control_a",
     "dragon.pia1.control_b",
+    "dragon.pia1.ddr_b",
+    "dragon.pia1.output_b",
+    "dragon.sam.display_offset",
+    "dragon.sam.video_mode",
     "dragon.tape.blocks",
     "dragon.tape.checksums_valid",
     "dragon.tape.finished",
@@ -42,6 +46,7 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "dragon.tape.motor_on",
     "dragon.tape.position_bits",
     "dragon.text.base",
+    "dragon.video.display_base",
 ];
 
 const MIN_INITIAL_LEADER_BYTES: usize = 128;
@@ -327,6 +332,10 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
             "dragon.pia1.cb2" => json!(machine.machine.pia1_cb2()),
             "dragon.pia1.control_a" => json!(machine.machine.pia1_control_a()),
             "dragon.pia1.control_b" => json!(machine.machine.pia1_control_b()),
+            "dragon.pia1.ddr_b" => json!(machine.machine.pia1_ddr_b()),
+            "dragon.pia1.output_b" => json!(machine.machine.pia1_output_b()),
+            "dragon.sam.display_offset" => json!(machine.machine.sam_display_offset()),
+            "dragon.sam.video_mode" => json!(machine.machine.sam_video_mode()),
             "dragon.tape.loaded" => json!(machine.tape.is_some()),
             "dragon.tape.blocks" => json!(machine.tape.as_ref().map(|tape| tape.blocks.len())),
             "dragon.tape.checksums_valid" => {
@@ -360,7 +369,9 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                         .map(|header| cas_file_type_label(header.file_type))
                 )
             }
-            "dragon.text.base" => json!(machine.machine.text_screen_base()),
+            "dragon.text.base" | "dragon.video.display_base" => {
+                json!(machine.machine.text_screen_base())
+            }
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -510,11 +521,16 @@ mod tests {
         let provider = DragonSessionQueryProvider;
 
         let query = provider
+            .query(&runtime, "dragon.video.display_base")
+            .expect("query should not fail")
+            .expect("query should be owned");
+        let legacy_query = provider
             .query(&runtime, "dragon.text.base")
             .expect("query should not fail")
             .expect("query should be owned");
 
         assert_eq!(query.value, json!(0));
+        assert_eq!(legacy_query.value, query.value);
     }
 
     #[test]

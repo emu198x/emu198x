@@ -973,6 +973,30 @@ impl Dragon32 {
         self.memory.pia1.control(PiaPort::B)
     }
 
+    /// Current PIA1 port B data-direction register.
+    #[must_use]
+    pub fn pia1_ddr_b(&self) -> u8 {
+        self.memory.pia1.ddr(PiaPort::B)
+    }
+
+    /// Current PIA1 port B output latch.
+    #[must_use]
+    pub fn pia1_output_b(&self) -> u8 {
+        self.memory.pia1.output_latch(PiaPort::B)
+    }
+
+    /// Current SAM VDG mode latch bits V0..V2.
+    #[must_use]
+    pub fn sam_video_mode(&self) -> u8 {
+        self.memory.sam.video_mode()
+    }
+
+    /// Current SAM display-offset latch bits F0..F6.
+    #[must_use]
+    pub fn sam_display_offset(&self) -> u8 {
+        self.memory.sam.display_offset()
+    }
+
     /// Current SAM-selected text screen base.
     #[must_use]
     pub fn text_screen_base(&self) -> u16 {

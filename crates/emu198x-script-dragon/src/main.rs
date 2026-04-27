@@ -50,6 +50,8 @@ Execution:
     --smoke-run-limit N
                        run real-ROM CLOAD/CLOADM smoke for first N parsed tapes [default: 8]
     --smoke-report P   write smoke matrix JSON to PATH
+    --smoke-screenshot-dir PATH
+                       write load/start screenshots for runtime-smoked tapes
 
 Other:
     --help             print this help text
@@ -66,6 +68,7 @@ struct Cli {
     smoke_root: Option<PathBuf>,
     smoke_run_limit: usize,
     smoke_report: Option<PathBuf>,
+    smoke_screenshot_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +141,8 @@ struct CasRuntimeSmoke {
     load_pc_before: u16,
     load_pc_after: u16,
     start_pc_after: u16,
+    load_video: DragonVideoState,
+    start_video: DragonVideoState,
     tape_position_bits: u64,
     tape_length_bits: u64,
     tape_finished: bool,
@@ -147,6 +152,21 @@ struct CasRuntimeSmoke {
     screen_text: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    load_screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_screenshot: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct DragonVideoState {
+    sam_video_mode: u8,
+    sam_display_offset: u8,
+    display_base: u16,
+    pia1_output_b: u8,
+    pia1_ddr_b: u8,
+    pia1_control_b: u8,
+    pia1_cb2: bool,
 }
 
 fn main() {
@@ -213,6 +233,7 @@ where
     let mut smoke_root = None;
     let mut smoke_run_limit = DEFAULT_SMOKE_RUN_LIMIT;
     let mut smoke_report = None;
+    let mut smoke_screenshot_dir = None;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -252,6 +273,12 @@ where
             "--smoke-report" => {
                 smoke_report = Some(PathBuf::from(next_value(&mut iter, "--smoke-report")?));
             }
+            "--smoke-screenshot-dir" => {
+                smoke_screenshot_dir = Some(PathBuf::from(next_value(
+                    &mut iter,
+                    "--smoke-screenshot-dir",
+                )?));
+            }
             "--help" | "-h" => return Err(USAGE.to_owned()),
             _ => return Err(format!("unknown argument: {arg}\n\n{USAGE}")),
         }
@@ -267,6 +294,7 @@ where
         smoke_root,
         smoke_run_limit,
         smoke_report,
+        smoke_screenshot_dir,
     })
 }
 
@@ -322,11 +350,25 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
     let mut tapes = Vec::new();
     collect_tape_candidates(root, &mut tapes)?;
     tapes.sort();
+    if let Some(dir) = &cli.smoke_screenshot_dir {
+        fs::create_dir_all(dir)
+            .map_err(|err| format!("failed to create {}: {err}", dir.display()))?;
+    }
 
     let mut rows = Vec::with_capacity(tapes.len());
     let mut runtime_smokes = 0usize;
-    for tape_path in tapes {
-        let row = scan_tape_candidate(&tape_path, rom, &mut runtime_smokes, cli.smoke_run_limit);
+    for (index, tape_path) in tapes.iter().enumerate() {
+        let screenshot_stem = cli
+            .smoke_screenshot_dir
+            .as_ref()
+            .map(|dir| dir.join(format!("{index:04}-{}", safe_stem(tape_path))));
+        let row = scan_tape_candidate(
+            tape_path,
+            rom,
+            &mut runtime_smokes,
+            cli.smoke_run_limit,
+            screenshot_stem.as_deref(),
+        );
         rows.push(row);
     }
 
@@ -366,6 +408,7 @@ fn scan_tape_candidate(
     rom: &[u8; ROM_SIZE],
     runtime_smokes: &mut usize,
     smoke_run_limit: usize,
+    screenshot_stem: Option<&Path>,
 ) -> SmokeMatrixRow {
     let loaded = match read_media_asset(path, MediaKind::Tape) {
         Ok(loaded) => loaded,
@@ -414,7 +457,12 @@ fn scan_tape_candidate(
         && *runtime_smokes < smoke_run_limit;
     let runtime = if should_smoke {
         *runtime_smokes += 1;
-        Some(run_runtime_smoke(rom, &loaded.bytes, &parsed))
+        Some(run_runtime_smoke(
+            rom,
+            &loaded.bytes,
+            &parsed,
+            screenshot_stem,
+        ))
     } else {
         None
     };
@@ -437,7 +485,12 @@ fn scan_tape_candidate(
     }
 }
 
-fn run_runtime_smoke(rom: &[u8; ROM_SIZE], tape_bytes: &[u8], tape: &CasImage) -> CasRuntimeSmoke {
+fn run_runtime_smoke(
+    rom: &[u8; ROM_SIZE],
+    tape_bytes: &[u8],
+    tape: &CasImage,
+    screenshot_stem: Option<&Path>,
+) -> CasRuntimeSmoke {
     let command = tape
         .first_header()
         .map(|header| match header.file_type {
@@ -450,7 +503,7 @@ fn run_runtime_smoke(rom: &[u8; ROM_SIZE], tape_bytes: &[u8], tape: &CasImage) -
         return failed_runtime_smoke("", "unsupported tape file type");
     }
 
-    match run_runtime_smoke_inner(rom, tape_bytes, command) {
+    match run_runtime_smoke_inner(rom, tape_bytes, command, screenshot_stem) {
         Ok(smoke) => smoke,
         Err(error) => failed_runtime_smoke(command, &error),
     }
@@ -460,6 +513,7 @@ fn run_runtime_smoke_inner(
     rom: &[u8; ROM_SIZE],
     tape_bytes: &[u8],
     command: &str,
+    screenshot_stem: Option<&Path>,
 ) -> Result<CasRuntimeSmoke, String> {
     let mut session = boot_runtime_session(rom)?;
     let mut media = MediaSet::new();
@@ -493,6 +547,8 @@ fn run_runtime_smoke_inner(
         .map_err(|err| format!("failed to capture post-load frame: {err}"))?;
     let load_visible_change = after_load != before_load;
     let load_pc_after = query_u16(&session, "dragon.cpu.pc")?;
+    let load_video = video_state(&session)?;
+    let load_screenshot = write_smoke_screenshot(&session, screenshot_stem, "load")?;
     let load_error = lines_after_load.iter().any(|line| line.contains("ERROR"));
     let load_result = if load_error { "basic-error" } else { "ok" }.to_owned();
     let start_command = if command == "CLOAD" { "RUN" } else { "EXEC" };
@@ -521,6 +577,8 @@ fn run_runtime_smoke_inner(
     };
     let basic_error = screen_text.iter().any(|line| line.contains("ERROR"));
     let start_pc_after = query_u16(&session, "dragon.cpu.pc")?;
+    let start_video = video_state(&session)?;
+    let start_screenshot = write_smoke_screenshot(&session, screenshot_stem, "start")?;
 
     Ok(CasRuntimeSmoke {
         command: command.to_owned(),
@@ -536,6 +594,8 @@ fn run_runtime_smoke_inner(
         load_pc_before,
         load_pc_after,
         start_pc_after,
+        load_video,
+        start_video,
         tape_position_bits: query_u64(&session, "dragon.tape.position_bits")?,
         tape_length_bits,
         tape_finished: query_bool(&session, "dragon.tape.finished")?,
@@ -544,6 +604,8 @@ fn run_runtime_smoke_inner(
         load_screen_text: lines_after_load,
         screen_text,
         error: None,
+        load_screenshot,
+        start_screenshot,
     })
 }
 
@@ -565,6 +627,36 @@ fn skipped_start_result(
     }
 }
 
+fn video_state(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+) -> Result<DragonVideoState, String> {
+    Ok(DragonVideoState {
+        sam_video_mode: query_u8(session, "dragon.sam.video_mode")?,
+        sam_display_offset: query_u8(session, "dragon.sam.display_offset")?,
+        display_base: query_u16(session, "dragon.video.display_base")?,
+        pia1_output_b: query_u8(session, "dragon.pia1.output_b")?,
+        pia1_ddr_b: query_u8(session, "dragon.pia1.ddr_b")?,
+        pia1_control_b: query_u8(session, "dragon.pia1.control_b")?,
+        pia1_cb2: query_bool(session, "dragon.pia1.cb2")?,
+    })
+}
+
+fn write_smoke_screenshot(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    stem: Option<&Path>,
+    suffix: &str,
+) -> Result<Option<String>, String> {
+    let Some(stem) = stem else {
+        return Ok(None);
+    };
+    let path = stem.with_extension(format!("{suffix}.png"));
+    let png = session
+        .screenshot_png_bytes()
+        .map_err(|err| format!("failed to capture {suffix} screenshot: {err}"))?;
+    fs::write(&path, png).map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    Ok(Some(path.display().to_string()))
+}
+
 fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
     let start_command = if command == "CLOAD" {
         "RUN"
@@ -583,6 +675,8 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         load_pc_before: 0,
         load_pc_after: 0,
         start_pc_after: 0,
+        load_video: DragonVideoState::default(),
+        start_video: DragonVideoState::default(),
         tape_position_bits: 0,
         tape_length_bits: 0,
         tape_finished: false,
@@ -591,6 +685,8 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         load_screen_text: Vec::new(),
         screen_text: Vec::new(),
         error: Some(error.to_owned()),
+        load_screenshot: None,
+        start_screenshot: None,
     }
 }
 
@@ -727,6 +823,14 @@ fn query_u16(
     u16::try_from(value).map_err(|err| format!("{path} query value {value} is not u16: {err}"))
 }
 
+fn query_u8(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    path: &str,
+) -> Result<u8, String> {
+    let value = query_u64(session, path)?;
+    u8::try_from(value).map_err(|err| format!("{path} query value {value} is not u8: {err}"))
+}
+
 fn query_bool(
     session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
     path: &str,
@@ -737,6 +841,21 @@ fn query_bool(
         .value
         .as_bool()
         .ok_or_else(|| format!("{path} query was not a boolean"))
+}
+
+fn safe_stem(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("tape")
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn matches_ignore_ascii_case(value: &str, expected: &[&str]) -> bool {
@@ -1134,12 +1253,15 @@ mod tests {
             "3".to_owned(),
             "--smoke-report".to_owned(),
             "report.json".to_owned(),
+            "--smoke-screenshot-dir".to_owned(),
+            "screens".to_owned(),
         ])
         .expect("valid CLI should parse");
 
         assert_eq!(cli.smoke_root, Some(PathBuf::from("tapes")));
         assert_eq!(cli.smoke_run_limit, 3);
         assert_eq!(cli.smoke_report, Some(PathBuf::from("report.json")));
+        assert_eq!(cli.smoke_screenshot_dir, Some(PathBuf::from("screens")));
     }
 
     #[test]
