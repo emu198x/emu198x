@@ -4,11 +4,8 @@
 
 The Dragon 32/64 is the next expansion target after the initial Spectrum, C64,
 NES, Amiga, and Game Boy set. The current repository now has the first reusable
-`motorola-6809` CPU foundation crate; the full Dragon machine/runtime/native
-path still needs to be ported or rebuilt.
-
-The archived notes below describe the previous target state and remain the
-compatibility goal, not the current implementation state.
+`motorola-6809` CPU foundation crate, a first `machine-dragon-32` substrate,
+an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
 
 ## What works
 
@@ -40,15 +37,16 @@ compatibility goal, not the current implementation state.
   documented by World of Dragon. The default state is no key pressed (`$FF` on
   the input side). `--press KEY` holds semantic Dragon keys closed, and
   `--press-matrix R,C` remains available for raw ROM-level probing.
-- **Video:** MC6847 VDG — text mode (32×16) with real character ROM, SG4 semigraphics (SET/RESET/POINT), all 8 graphics modes (CG1-CG6, RG1-RG6), border rendering, CSS colour set switching via PIA1.
-- **Cassette:** Bus-level tape loading via emu-tape. CAS bytes converted to nanosecond-accurate pulse durations (1200/2400 Hz FSK). Signal fed through PIA0 port A bit 0 per CPU cycle. ROM's CLOAD/CLOADM reads tape naturally. Motor control via tape transport.
-- **I/O:** MC6821 PIA x 2 — DDR/data/control registers, IRQ flags, keyboard matrix (PIA0), VDG mode control (PIA1), cassette data input.
-- **Memory:** MC6883 SAM — video offset, VDG mode bits, CPU rate, memory size, all-RAM mode (P1 register rebuilds page table). 32KB RAM + 16KB ROM at $8000-$BFFF with vector mirroring.
-- **Audio:** 6-bit DAC from PIA1 port A (single-bit + DAC blend), 48kHz output via cpal. SOUND command works with correct duration timing via PIA0 CB1 frame IRQ.
-- **Keyboard:** Full matrix with shift-aware PC-to-Dragon mapping. BREAK (Escape) via matrix polling.
-- **Joystick:** Analogue joystick via DAC/comparator on PIA0 port A bit 7. Digital press/release API with axis mapping (0-63, centre 31). Numpad 8/2/4/6 + Numpad0/RAlt.
-- **Dragon 64:** SAM all-RAM mode implemented — page table rebuilt when P1 register changes, ROM area becomes writable RAM.
-- **Shell:** Save states (F3/F4), rewind (Tab), PNG screenshots (F5), auto-CLOAD/CLOADM for .cas files, auto-EXEC for .bin files.
+- **Machine crate:** `machine-dragon-32` now owns the reusable board-level
+  substrate that was proven in the harness: CPU, RAM/ROM map, PIAs, SAM,
+  keyboard matrix, bounded run reporting, and VDG text capture/rendering.
+- **Runtime crate:** `runtime-dragon` builds from profile-declared Dragon 32
+  BASIC firmware, implements the shared `MachineCore` boundary, emits the
+  current MC6847 text-mode framebuffer as RGBA8888, and exposes early Dragon
+  state and boot-detection queries.
+- **Native shell:** `emu198x-dragon` opens a WGPU window from a Dragon 32 BASIC
+  ROM, presents the runtime text framebuffer, and maps host keyboard/gamepad
+  controls into Dragon key events.
 
 ## Remaining
 
@@ -57,11 +55,25 @@ compatibility goal, not the current implementation state.
 1. Continue `motorola-6809` instruction execution validation against real Dragon ROM paths.
 2. Expand `motorola-vdg-6847` beyond alphanumeric text rendering into
    semigraphics and graphics modes.
-3. Wire `machine-dragon-32` with ROM/RAM map, keyboard matrix, PIA/SAM/VDG, and a framebuffer.
-4. Add `runtime-dragon` with boot detection and screenshot capture.
+3. Add screenshot/golden capture around `runtime-dragon`.
+4. Add shifted character synthesis for host text input.
 5. Add cassette and `.BIN` loading after the BASIC boot screen is stable.
-6. Move the named Dragon key mapping from the harness into the eventual runtime
-   input layer, including shifted character synthesis for host text input.
+
+### Archived Target State
+
+The previous codebase aimed at a fuller Dragon/CoCo implementation. These
+features remain useful targets, but are not yet present in the current fresh
+workspace:
+
+- **Video:** SG4 semigraphics, all 8 graphics modes, CSS colour-set switching,
+  and per-display-mode border behaviour.
+- **Cassette:** CAS pulse decoding, motor control, and ROM-level
+  `CLOAD`/`CLOADM`.
+- **Audio:** PIA-driven DAC/cassette/cartridge audio routing and host output.
+- **Joystick:** Analogue joystick comparator/DAC behaviour and host mapping.
+- **Dragon 64:** SAM all-RAM mode and 64K memory map.
+- **Shell:** Save states, rewind, screenshots, auto-CLOAD/CLOADM, and `.BIN`
+  auto-EXEC.
 
 ### Nice to have
 - **Floppy controller** (WD2797) — for DragonDOS disk images
@@ -74,13 +86,13 @@ compatibility goal, not the current implementation state.
 
 | Component | Tests |
 |-----------|-------|
-| Machine | 7 (create, ROM mapping, keyboard, ROM readonly, all-RAM mode) |
+| Machine | 13 (ROM mapping, device access reporting, keyboard, SAM text base, text framebuffer) |
 | PIA | 5 (DDR, control, IRQ, input pins, mixed I/O) |
 | SAM | 4 (defaults, set/clear, video offset, all-RAM) |
-| VDG | 4 (modes, rendering, text mode) |
-| Cassette | 3 (parsing, bitstream encoding, transport playback) |
-| Variants | 3 (Dragon 32, Dragon 64, registration) |
-| **Total** | **25** |
+| VDG | 5 (text decode and text rendering) |
+| Harness | 8 (CLI, ROM loading, keyboard labels, text dumps) |
+| Runtime | 6 (profile metadata, firmware construction, text framebuffer emission, queries, boot status) |
+| Native | 2 (CLI and host key mapping) |
 
 ## ROMs
 

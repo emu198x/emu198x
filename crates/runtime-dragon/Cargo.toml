@@ -1,19 +1,15 @@
 [package]
-name = "emu198x-script-dragon"
-description = "Headless Dragon 32 bring-up harness for ROM and MC6809 debugging"
+name = "runtime-dragon"
+description = "Dragon 32 runtime bridge from machine-dragon-32 to the shared emu198x shell"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
-[[bin]]
-name = "emu198x-script-dragon"
-path = "src/main.rs"
-
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-dragon-32 = { path = "../machine-dragon-32" }
 motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
-png = { workspace = true }
-zip = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

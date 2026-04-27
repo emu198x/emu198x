@@ -698,6 +698,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-dragon"
+version = "0.1.0"
+dependencies = [
+ "emu198x-native-video",
+ "emu198x-shell",
+ "motorola-vdg-6847",
+ "runtime-dragon",
+ "thiserror 2.0.18",
+ "winit",
+]
+
+[[package]]
 name = "emu198x-game-boy"
 version = "0.1.0"
 dependencies = [
@@ -758,9 +770,7 @@ dependencies = [
 name = "emu198x-script-dragon"
 version = "0.1.0"
 dependencies = [
- "motorola-6809",
- "motorola-pia-6821",
- "motorola-sam-6883",
+ "machine-dragon-32",
  "motorola-vdg-6847",
  "png",
  "zip",
@@ -1497,6 +1507,16 @@ dependencies = [
  "mos-vic-ii",
  "serde",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "machine-dragon-32"
+version = "0.1.0"
+dependencies = [
+ "motorola-6809",
+ "motorola-pia-6821",
+ "motorola-sam-6883",
+ "motorola-vdg-6847",
 ]
 
 [[package]]
@@ -2532,6 +2552,16 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "runtime-dragon"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-dragon-32",
+ "motorola-vdg-6847",
+ "serde_json",
 ]
 
 [[package]]

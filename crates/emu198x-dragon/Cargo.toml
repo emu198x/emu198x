@@ -1,0 +1,17 @@
+[package]
+name = "emu198x-dragon"
+description = "Minimal native Dragon 32 verifier shell"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+emu198x-native-video = { path = "../emu198x-native-video" }
+emu198x-shell = { path = "../emu198x-shell" }
+motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
+runtime-dragon = { path = "../runtime-dragon" }
+thiserror.workspace = true
+winit.workspace = true
+
+[lints]
+workspace = true

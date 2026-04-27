@@ -1,0 +1,15 @@
+[package]
+name = "machine-dragon-32"
+description = "Dragon 32 machine substrate: MC6809, RAM/ROM map, PIA, SAM, keyboard, and VDG text capture"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+motorola-6809 = { path = "../motorola-6809" }
+motorola-pia-6821 = { path = "../motorola-pia-6821" }
+motorola-sam-6883 = { path = "../motorola-sam-6883" }
+motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
+
+[lints]
+workspace = true

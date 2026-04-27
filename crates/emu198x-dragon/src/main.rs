@@ -1,0 +1,580 @@
+//! `emu198x-dragon` — minimal native Dragon 32 verifier shell.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::process;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use emu198x_native_video::{
+    PresentationProfile, VideoFilter, VideoPresenterError, WgpuVideoPresenter,
+};
+use emu198x_shell::{
+    ButtonInputMap, ButtonTarget, CapturedFrame, FirmwareImage, FirmwareSet, HostControl, HostIo,
+    InputEvent, LatestFrameCapture, MachineCore, MachineError, NativeGamepadInput, NullAudioSink,
+    NullTraceSink, ResetKind, RunResult, read_firmware_asset,
+};
+use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
+use runtime_dragon::{DragonRuntime, Model};
+use thiserror::Error;
+use winit::application::ApplicationHandler;
+use winit::dpi::LogicalSize;
+use winit::error::{EventLoopError, OsError};
+use winit::event::{ElementState, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::{Window, WindowAttributes, WindowId};
+
+const DEFAULT_SCALE: u32 = 2;
+const DRAGON_CPU_HZ: u64 = 894_886;
+const DRAGON_FRAME_HZ: u64 = 50;
+const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
+const INPUT_SLICES_PER_FRAME: u32 = 4;
+const MAX_CATCH_UP_FRAMES: u32 = 4;
+const WINDOW_TITLE: &str = "Emu198x Dragon 32";
+const DRAGON_GAMEPAD_MAP: ButtonInputMap = ButtonInputMap::new(&[
+    (HostControl::Up, ButtonTarget::new(1, "up")),
+    (HostControl::Down, ButtonTarget::new(1, "down")),
+    (HostControl::Left, ButtonTarget::new(1, "left")),
+    (HostControl::Right, ButtonTarget::new(1, "right")),
+    (HostControl::South, ButtonTarget::new(1, "space")),
+    (HostControl::East, ButtonTarget::new(1, "enter")),
+    (HostControl::Start, ButtonTarget::new(1, "enter")),
+    (HostControl::Select, ButtonTarget::new(1, "clear")),
+]);
+
+const USAGE: &str = "\
+Usage: emu198x-dragon [OPTIONS] --rom PATH
+
+Options:
+    --rom PATH       Dragon 32 BASIC ROM, or zip containing one ROM/bin candidate
+    --scale N        integer window scale, default 2
+    --video MODE     raw | lcd | crt [default: crt]
+    --help, -h       show this help
+
+Controls:
+    Esc              quit
+    F12              hard reset
+    A-Z, 0-9         Dragon keyboard keys
+    Arrows           Dragon arrow keys
+    Enter            Dragon Enter
+    Space            Dragon Space
+    Right Shift      Dragon Shift
+    Backspace        Dragon Clear
+    F1               Dragon Break
+";
+
+#[derive(Debug, PartialEq, Eq)]
+struct Cli {
+    rom: Option<PathBuf>,
+    scale: u32,
+    video: VideoFilter,
+}
+
+impl Default for Cli {
+    fn default() -> Self {
+        Self {
+            rom: None,
+            scale: DEFAULT_SCALE,
+            video: VideoFilter::Crt,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+enum AppError {
+    #[error(transparent)]
+    Machine(#[from] MachineError),
+
+    #[error(transparent)]
+    Video(#[from] VideoPresenterError),
+
+    #[error(transparent)]
+    EventLoop(#[from] EventLoopError),
+
+    #[error(transparent)]
+    Os(#[from] OsError),
+
+    #[error("invalid --scale value {value}")]
+    InvalidScale { value: u32 },
+
+    #[error("{reason}")]
+    Setup { reason: String },
+}
+
+struct DragonRunner {
+    runtime: DragonRuntime,
+    frame_capture: LatestFrameCapture,
+    last_run_result: Option<RunResult>,
+    native_frame_ticks: u64,
+}
+
+impl DragonRunner {
+    fn from_cli(cli: &Cli) -> Result<Self, AppError> {
+        let rom = cli.rom.as_ref().ok_or_else(|| AppError::Setup {
+            reason: "provide --rom PATH".to_owned(),
+        })?;
+        let loaded = read_firmware_asset(rom).map_err(|err| AppError::Setup {
+            reason: format!("failed to load Dragon ROM {}: {err}", rom.display()),
+        })?;
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
+        let runtime = DragonRuntime::from_firmware(Model::Dragon32Pal, &firmware)?;
+        let mut runner = Self {
+            runtime,
+            frame_capture: LatestFrameCapture::default(),
+            last_run_result: None,
+            native_frame_ticks: DRAGON_FRAME_CYCLES,
+        };
+        runner.run_frame(&[])?;
+        Ok(runner)
+    }
+
+    fn reset(&mut self) -> Result<(), AppError> {
+        self.runtime.reset(ResetKind::Hard);
+        self.last_run_result = None;
+        self.frame_capture = LatestFrameCapture::default();
+        self.run_frame(&[])?;
+        Ok(())
+    }
+
+    fn run_frame(&mut self, input_events: &[InputEvent]) -> Result<(), AppError> {
+        let _ = self.run_ticks(input_events, self.native_frame_ticks)?;
+        Ok(())
+    }
+
+    fn run_ticks(&mut self, input_events: &[InputEvent], ticks: u64) -> Result<bool, AppError> {
+        let previous_frame_timestamp = self.frame().map(|frame| frame.timestamp);
+        let target = self.runtime.time().saturating_add(ticks);
+        let mut audio_sink = NullAudioSink;
+        let mut trace_sink = NullTraceSink;
+        let mut host = HostIo {
+            input_events,
+            frame_sink: &mut self.frame_capture,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+        self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
+        Ok(self.frame().map(|frame| frame.timestamp) != previous_frame_timestamp)
+    }
+
+    fn frame(&self) -> Option<&CapturedFrame> {
+        self.frame_capture.frame()
+    }
+}
+
+struct DragonApp {
+    runner: DragonRunner,
+    scale: u32,
+    slice_ticks: u64,
+    slice_duration: Duration,
+    next_slice_at: Instant,
+    pending_inputs: Vec<InputEvent>,
+    pressed_keys: HashMap<KeyCode, String>,
+    gamepads: NativeGamepadInput,
+    window: Option<Arc<Window>>,
+    video: Option<WgpuVideoPresenter>,
+    presentation: PresentationProfile,
+    fatal_error: Option<AppError>,
+}
+
+impl DragonApp {
+    fn new(runner: DragonRunner, scale: u32, video: VideoFilter) -> Result<Self, AppError> {
+        if scale == 0 {
+            return Err(AppError::InvalidScale { value: scale });
+        }
+
+        Ok(Self {
+            runner,
+            scale,
+            slice_ticks: DRAGON_FRAME_CYCLES.div_ceil(u64::from(INPUT_SLICES_PER_FRAME)),
+            slice_duration: Duration::from_secs_f64(
+                1.0 / DRAGON_FRAME_HZ as f64 / f64::from(INPUT_SLICES_PER_FRAME),
+            ),
+            next_slice_at: Instant::now(),
+            pending_inputs: Vec::new(),
+            pressed_keys: HashMap::new(),
+            gamepads: NativeGamepadInput::new(),
+            window: None,
+            video: None,
+            presentation: PresentationProfile::for_filter(video),
+            fatal_error: None,
+        })
+    }
+
+    fn take_error(&mut self) -> Option<AppError> {
+        self.fatal_error.take()
+    }
+
+    fn fail(&mut self, event_loop: &ActiveEventLoop, err: AppError) {
+        eprintln!("error: {err}");
+        self.fatal_error = Some(err);
+        event_loop.exit();
+    }
+
+    fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), AppError> {
+        if self.window.is_some() {
+            return Ok(());
+        }
+
+        let frame_width = TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32;
+        let frame_height = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32;
+        let attributes = WindowAttributes::default()
+            .with_title(WINDOW_TITLE)
+            .with_inner_size(LogicalSize::new(
+                f64::from(frame_width.saturating_mul(self.scale)),
+                f64::from(frame_height.saturating_mul(self.scale)),
+            ))
+            .with_min_inner_size(LogicalSize::new(
+                f64::from(frame_width),
+                f64::from(frame_height),
+            ));
+        let window = Arc::new(event_loop.create_window(attributes)?);
+        let video = WgpuVideoPresenter::new(window.clone(), frame_width, frame_height)?;
+
+        self.window = Some(window);
+        self.video = Some(video);
+        self.next_slice_at = Instant::now();
+        Ok(())
+    }
+
+    fn window_id(&self) -> Option<WindowId> {
+        self.window.as_ref().map(|window| window.id())
+    }
+
+    fn advance_machine(&mut self) -> Result<bool, AppError> {
+        self.gamepads
+            .drain_events(&DRAGON_GAMEPAD_MAP, &mut self.pending_inputs);
+
+        let now = Instant::now();
+        if now < self.next_slice_at {
+            return Ok(false);
+        }
+
+        let max_catch_up_slices = MAX_CATCH_UP_FRAMES.saturating_mul(INPUT_SLICES_PER_FRAME);
+        let mut ran_slices = 0;
+        let mut frame_completed = false;
+        while Instant::now() >= self.next_slice_at && ran_slices < max_catch_up_slices {
+            let inputs = std::mem::take(&mut self.pending_inputs);
+            frame_completed |= self.runner.run_ticks(&inputs, self.slice_ticks)?;
+            self.next_slice_at += self.slice_duration;
+            ran_slices += 1;
+        }
+
+        if ran_slices == max_catch_up_slices && Instant::now() >= self.next_slice_at {
+            self.next_slice_at = Instant::now() + self.slice_duration;
+        }
+
+        Ok(frame_completed)
+    }
+
+    fn render(&mut self) -> Result<(), AppError> {
+        let Some(frame) = self.runner.frame() else {
+            return Ok(());
+        };
+        let Some(video) = self.video.as_mut() else {
+            return Ok(());
+        };
+
+        video.present(frame, &self.presentation)?;
+        Ok(())
+    }
+
+    fn resize_surface(&mut self, width: u32, height: u32) {
+        if let Some(video) = self.video.as_mut() {
+            video.resize_surface(width, height);
+        }
+    }
+
+    fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
+        let Some(name) = map_dragon_key(code) else {
+            return;
+        };
+
+        if pressed {
+            if self.pressed_keys.contains_key(&code) {
+                return;
+            }
+            self.pressed_keys.insert(code, name.to_owned());
+            self.pending_inputs.push(InputEvent::Key {
+                name: name.into(),
+                pressed: true,
+            });
+            self.next_slice_at = Instant::now();
+        } else if let Some(name) = self.pressed_keys.remove(&code) {
+            self.pending_inputs.push(InputEvent::Key {
+                name: name.into(),
+                pressed: false,
+            });
+            self.next_slice_at = Instant::now();
+        }
+    }
+
+    fn release_all_keys(&mut self) {
+        let keys = std::mem::take(&mut self.pressed_keys);
+        for name in keys.into_values() {
+            self.pending_inputs.push(InputEvent::Key {
+                name: name.into(),
+                pressed: false,
+            });
+        }
+        self.next_slice_at = Instant::now();
+    }
+
+    fn handle_shortcut(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        code: KeyCode,
+        pressed: bool,
+    ) -> bool {
+        if !pressed {
+            return matches!(code, KeyCode::Escape | KeyCode::F12);
+        }
+
+        match code {
+            KeyCode::Escape => {
+                event_loop.exit();
+                true
+            }
+            KeyCode::F12 => {
+                self.release_all_keys();
+                if let Err(err) = self.runner.reset() {
+                    self.fail(event_loop, err);
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+impl ApplicationHandler for DragonApp {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if let Err(err) = self.create_window(event_loop) {
+            self.fail(event_loop, err);
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        if self.window_id() != Some(window_id) {
+            return;
+        }
+
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Focused(false) => self.release_all_keys(),
+            WindowEvent::Resized(size) => {
+                self.resize_surface(size.width, size.height);
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                if let Some(window) = &self.window {
+                    let size = window.inner_size();
+                    self.resize_surface(size.width, size.height);
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.repeat {
+                    return;
+                }
+                let PhysicalKey::Code(code) = event.physical_key else {
+                    return;
+                };
+                let pressed = event.state == ElementState::Pressed;
+                if self.handle_shortcut(event_loop, code, pressed) {
+                    return;
+                }
+                self.queue_key_state(code, pressed);
+            }
+            WindowEvent::RedrawRequested => {
+                if let Err(err) = self.render() {
+                    self.fail(event_loop, err);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        match self.advance_machine() {
+            Ok(true) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            Ok(false) => {}
+            Err(err) => {
+                self.fail(event_loop, err);
+                return;
+            }
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
+    }
+}
+
+fn main() {
+    let cli = parse_cli(std::env::args().skip(1));
+    if let Err(err) = run(cli) {
+        eprintln!("error: {err}");
+        process::exit(1);
+    }
+}
+
+fn run(cli: Cli) -> Result<(), AppError> {
+    println!("Controls: Esc quit, F12 reset, Dragon keyboard: A-Z, 0-9, arrows, Enter, Space.");
+
+    let runner = DragonRunner::from_cli(&cli)?;
+    let mut app = DragonApp::new(runner, cli.scale, cli.video)?;
+    let event_loop = EventLoop::new()?;
+    event_loop.run_app(&mut app)?;
+
+    if let Some(err) = app.take_error() {
+        return Err(err);
+    }
+    Ok(())
+}
+
+fn parse_cli<I>(args: I) -> Cli
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut cli = Cli::default();
+    let mut iter = args.into_iter();
+
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
+            "--scale" => {
+                cli.scale = next_arg(&mut iter, "--scale")
+                    .parse()
+                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
+            }
+            "--video" => {
+                cli.video = next_arg(&mut iter, "--video")
+                    .parse()
+                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
+            }
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                process::exit(0);
+            }
+            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
+            _ => {
+                if cli.rom.is_none() {
+                    cli.rom = Some(PathBuf::from(arg));
+                } else {
+                    die("only one positional ROM path is supported");
+                }
+            }
+        }
+    }
+
+    cli
+}
+
+fn next_arg<I>(iter: &mut I, flag: &str) -> String
+where
+    I: Iterator<Item = String>,
+{
+    iter.next()
+        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
+}
+
+fn die(message: &str) -> ! {
+    eprintln!("error: {message}");
+    process::exit(1);
+}
+
+fn map_dragon_key(code: KeyCode) -> Option<&'static str> {
+    Some(match code {
+        KeyCode::Digit0 => "0",
+        KeyCode::Digit1 => "1",
+        KeyCode::Digit2 => "2",
+        KeyCode::Digit3 => "3",
+        KeyCode::Digit4 => "4",
+        KeyCode::Digit5 => "5",
+        KeyCode::Digit6 => "6",
+        KeyCode::Digit7 => "7",
+        KeyCode::Digit8 => "8",
+        KeyCode::Digit9 => "9",
+        KeyCode::KeyA => "a",
+        KeyCode::KeyB => "b",
+        KeyCode::KeyC => "c",
+        KeyCode::KeyD => "d",
+        KeyCode::KeyE => "e",
+        KeyCode::KeyF => "f",
+        KeyCode::KeyG => "g",
+        KeyCode::KeyH => "h",
+        KeyCode::KeyI => "i",
+        KeyCode::KeyJ => "j",
+        KeyCode::KeyK => "k",
+        KeyCode::KeyL => "l",
+        KeyCode::KeyM => "m",
+        KeyCode::KeyN => "n",
+        KeyCode::KeyO => "o",
+        KeyCode::KeyP => "p",
+        KeyCode::KeyQ => "q",
+        KeyCode::KeyR => "r",
+        KeyCode::KeyS => "s",
+        KeyCode::KeyT => "t",
+        KeyCode::KeyU => "u",
+        KeyCode::KeyV => "v",
+        KeyCode::KeyW => "w",
+        KeyCode::KeyX => "x",
+        KeyCode::KeyY => "y",
+        KeyCode::KeyZ => "z",
+        KeyCode::ArrowUp => "up",
+        KeyCode::ArrowDown => "down",
+        KeyCode::ArrowLeft => "left",
+        KeyCode::ArrowRight => "right",
+        KeyCode::Space => "space",
+        KeyCode::Enter | KeyCode::NumpadEnter => "enter",
+        KeyCode::Backspace => "clear",
+        KeyCode::F1 => "break",
+        KeyCode::ShiftRight => "shift",
+        KeyCode::Comma => ",",
+        KeyCode::Minus | KeyCode::NumpadSubtract => "-",
+        KeyCode::Period => ".",
+        KeyCode::Slash | KeyCode::NumpadDivide => "/",
+        KeyCode::Semicolon => ";",
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_cli_accepts_positional_rom_and_video() {
+        let cli = parse_cli([
+            "--scale".to_owned(),
+            "3".to_owned(),
+            "--video".to_owned(),
+            "raw".to_owned(),
+            "dragon32.rom".to_owned(),
+        ]);
+
+        assert_eq!(
+            cli,
+            Cli {
+                rom: Some(PathBuf::from("dragon32.rom")),
+                scale: 3,
+                video: VideoFilter::Raw,
+            }
+        );
+    }
+
+    #[test]
+    fn maps_common_host_keys_to_dragon_labels() {
+        assert_eq!(map_dragon_key(KeyCode::KeyA), Some("a"));
+        assert_eq!(map_dragon_key(KeyCode::Digit1), Some("1"));
+        assert_eq!(map_dragon_key(KeyCode::ArrowLeft), Some("left"));
+        assert_eq!(map_dragon_key(KeyCode::Enter), Some("enter"));
+        assert_eq!(map_dragon_key(KeyCode::Backspace), Some("clear"));
+    }
+}

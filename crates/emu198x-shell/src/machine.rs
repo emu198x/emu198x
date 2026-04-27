@@ -25,6 +25,8 @@ pub enum Family {
     Amiga,
     /// Nintendo Game Boy-family machines (DMG, CGB, …).
     GameBoy,
+    /// Dragon Data Dragon-family machines.
+    Dragon,
 }
 
 /// Region or video-standard family for a machine profile.
