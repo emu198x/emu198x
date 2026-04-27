@@ -27,6 +27,7 @@ members = [
     "crates/format-commodore-c64-prg",
     "crates/format-commodore-c64-tap",
     "crates/format-commodore-c64-t64",
+    "crates/format-dragon-cas",
     "crates/format-amstrad-dsk",
     "crates/format-commodore-amiga-adf",
     "crates/format-nintendo-game-boy-cartridge",

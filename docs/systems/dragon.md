@@ -52,6 +52,10 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
   controls into Dragon key events. Printable host keys now use logical
   character input rather than physical key positions, and shifted printable
   symbols synthesize Dragon `SHIFT` plus the matching matrix key.
+- **CAS format:** `format-dragon-cas` parses Dragon CAS cassette images as
+  framed byte-level blocks, exposes checksum validity, and decodes the standard
+  15-byte namefile header. Cassette timing and ROM-level playback are still the
+  next layer.
 
 ## Remaining
 
@@ -61,8 +65,9 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
 2. Expand `motorola-vdg-6847` beyond alphanumeric text rendering into
    semigraphics and graphics modes.
 3. Capture and verify an external reference golden for the Dragon BASIC screen.
-4. Add shifted character synthesis for host text input.
-5. Add cassette and `.BIN` loading after the BASIC boot screen is stable.
+4. Build a machine cassette peripheral on top of `format-dragon-cas` so ROM
+   `CLOAD`/`CLOADM` sees real cassette input.
+5. Add `.BIN` loading after cassette playback is stable.
 
 ### Archived Target State
 
@@ -72,7 +77,7 @@ workspace:
 
 - **Video:** SG4 semigraphics, all 8 graphics modes, CSS colour-set switching,
   and per-display-mode border behaviour.
-- **Cassette:** CAS pulse decoding, motor control, and ROM-level
+- **Cassette:** CAS pulse playback, motor control, and ROM-level
   `CLOAD`/`CLOADM`.
 - **Audio:** PIA-driven DAC/cassette/cartridge audio routing and host output.
 - **Joystick:** Analogue joystick comparator/DAC behaviour and host mapping.
@@ -98,6 +103,7 @@ workspace:
 | Harness | 8 (CLI, ROM loading, keyboard labels, text dumps) |
 | Runtime | 9 (profile metadata, firmware construction, text framebuffer emission, queries, boot status, real-ROM headless screenshot and keyboard echo smoke) |
 | Native | 2 (CLI and host key mapping) |
+| CAS format | 7 (block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors) |
 
 ## ROMs
 
