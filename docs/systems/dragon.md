@@ -43,7 +43,9 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
 - **Runtime crate:** `runtime-dragon` builds from profile-declared Dragon 32
   BASIC firmware, implements the shared `MachineCore` boundary, emits the
   current MC6847 text-mode framebuffer as RGBA8888, and exposes early Dragon
-  state and boot-detection queries.
+  state and boot-detection queries. It also has a real-ROM headless smoke test
+  that waits for the BASIC `OK` prompt, captures a PNG, and compares or updates
+  a local golden when one is present.
 - **Native shell:** `emu198x-dragon` opens a WGPU window from a Dragon 32 BASIC
   ROM, presents the runtime text framebuffer, and maps host keyboard/gamepad
   controls into Dragon key events.
@@ -55,7 +57,7 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
 1. Continue `motorola-6809` instruction execution validation against real Dragon ROM paths.
 2. Expand `motorola-vdg-6847` beyond alphanumeric text rendering into
    semigraphics and graphics modes.
-3. Add screenshot/golden capture around `runtime-dragon`.
+3. Capture and verify an external reference golden for the Dragon BASIC screen.
 4. Add shifted character synthesis for host text input.
 5. Add cassette and `.BIN` loading after the BASIC boot screen is stable.
 
@@ -91,7 +93,7 @@ workspace:
 | SAM | 4 (defaults, set/clear, video offset, all-RAM) |
 | VDG | 5 (text decode and text rendering) |
 | Harness | 8 (CLI, ROM loading, keyboard labels, text dumps) |
-| Runtime | 6 (profile metadata, firmware construction, text framebuffer emission, queries, boot status) |
+| Runtime | 7 (profile metadata, firmware construction, text framebuffer emission, queries, boot status, real-ROM headless screenshot smoke) |
 | Native | 2 (CLI and host key mapping) |
 
 ## ROMs

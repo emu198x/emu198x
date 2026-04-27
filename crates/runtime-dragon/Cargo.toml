@@ -11,5 +11,8 @@ machine-dragon-32 = { path = "../machine-dragon-32" }
 motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+png = { workspace = true }
+
 [lints]
 workspace = true

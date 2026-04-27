@@ -2561,6 +2561,7 @@ dependencies = [
  "emu198x-shell",
  "machine-dragon-32",
  "motorola-vdg-6847",
+ "png",
  "serde_json",
 ]
 
