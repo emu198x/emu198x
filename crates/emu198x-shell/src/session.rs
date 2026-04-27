@@ -4,7 +4,7 @@ use std::path::Path;
 
 use thiserror::Error;
 
-use crate::capture::{AudioCapture, CaptureError, LatestFrameCapture};
+use crate::capture::{AudioCapture, CaptureError, CapturedFrame, LatestFrameCapture};
 use crate::control::ControlCommand;
 use crate::error::MachineError;
 use crate::headless::prepare_machine;
@@ -200,6 +200,12 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     #[must_use]
     pub const fn last_run_result(&self) -> Option<RunResult> {
         self.last_run_result
+    }
+
+    /// Returns the most recently captured video frame, when one has been emitted.
+    #[must_use]
+    pub fn latest_frame(&self) -> Option<&CapturedFrame> {
+        self.frame_capture.frame()
     }
 
     /// Returns the supported shared query paths, optionally filtered by prefix.

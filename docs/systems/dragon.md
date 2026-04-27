@@ -26,12 +26,13 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
   alphanumeric diagnostic text snapshot and renders text, SG4/SG6
   semigraphics, and the standard MC6847 full-graphics modes into a 256x192
   active-area ARGB framebuffer, or a 372x243 visible framebuffer with the
-  current coarse MC6847 border. The diagnostic palette starts from XRoar's
+  current coarse MC6847 border. That 372x243 output is diagnostic only: it is
+  not a PAL beam/overscan model. The diagnostic palette starts from XRoar's
   default ideal VDG voltage palette for Dragon alpha text, with approximate
   chroma colours for graphics modes. The Dragon harness `--dump-text` path now
   shows the Dragon 32 BASIC banner and `OK` prompt from real ROM execution,
-  while `--dump-text-png PATH` writes the border-inclusive text framebuffer as
-  a PNG for visual comparison.
+  while `--dump-text-png PATH` writes the diagnostic border-inclusive text
+  framebuffer as a PNG for visual comparison.
 - **Harness keyboard:** PIA0 is wired to the confirmed Dragon 32 keyboard matrix:
   PB0-PB7 drive columns via `$FF02`, and PA0-PA6 read rows via `$FF00`. The
   default state is no key pressed (`$FF` on the input side). `--press KEY`
@@ -58,18 +59,33 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
   cassette slot, mounts CAS media via the shared `MediaSet` path, converts CAS
   blocks into a motor-gated PIA1 cassette input stream, and verifies real-ROM
   `CLOAD` plus `RUN` with Textstar.
+- **CAS smoke classification:** `emu198x-script-dragon --smoke-root` classifies
+  runtime smoke outcomes as load errors, BASIC errors, visible text changes,
+  machine-code auto-runs, video-control changes, blank graphics screens, or
+  graphics that continue drawing after the post-start settle window. Reports
+  include load/start VDG state and optional screenshots. The
+  `--smoke-screenshot-format xroar-zoomed` option writes our active 256x192
+  snapshot expanded to XRoar's 512x384 zoomed PNG shape without downscaling;
+  this is a temporary validation bridge, not a substitute for proper
+  scanline/beam rendering. When supplied with a patched XRoar binary via
+  `--xroar-bin` plus `--xroar-reference-dir`, the same smoke run also writes
+  deterministic headless XRoar `-vo-picture zoomed` reference PNGs for
+  runtime-smoked tapes.
 
 ## Remaining
 
 ### Bring-up sequence
 
 1. Continue `motorola-6809` instruction execution validation against real Dragon ROM paths.
-2. Validate MC6847 graphics and semigraphics rendering against external Dragon
-   or XRoar/XRoar-compatible reference captures.
-3. Capture and verify an external reference golden for the Dragon BASIC screen.
-4. Extend cassette coverage beyond BASIC `CLOAD`: `CLOADM`, alternate CAS
-   timing/leader cases, and more real tapes.
-5. Add `.BIN` loading after cassette machine-code loading is stable.
+2. Validate MC6847 graphics and semigraphics rendering against patched-XRoar
+   headless reference captures.
+3. Replace the current snapshot VDG renderer with proper scanline/beam support:
+   HS/FS cadence, active-area placement, borders, mid-frame display changes,
+   and reference presentation geometry.
+4. Capture and verify an external reference golden for the Dragon BASIC screen.
+5. Extend cassette coverage beyond BASIC `CLOAD`: alternate CAS timing/leader
+   cases, more real tapes, and better per-title start/input scripts.
+6. Add `.BIN` loading after cassette machine-code loading is stable.
 
 ### Archived Target State
 
@@ -102,7 +118,7 @@ workspace:
 | PIA | 5 (DDR, control, IRQ, input pins, mixed I/O) |
 | SAM | 4 (defaults, set/clear, video offset, all-RAM) |
 | VDG | 8 (text decode, text rendering, SG4, RG6, and CG6 rendering) |
-| Harness | 9 (CLI, ROM loading, keyboard labels, text dumps, smoke options) |
+| Harness | 15 (CLI, ROM loading, keyboard labels, text dumps, smoke options, XRoar-compatible screenshots, XRoar reference options, smoke classification) |
 | Runtime | 18 (profile metadata, firmware construction, framebuffer emission, queries, boot status, CAS mounting/playback, real-ROM headless screenshot, real-CAS mount smoke, Textstar CLOAD/RUN smoke, machine-code CAS smoke, and keyboard echo smoke) |
 | Native | 3 (CLI, CAS tape argument, and host key mapping) |
 | CAS format | 7 (block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors) |

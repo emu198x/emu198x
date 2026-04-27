@@ -7,10 +7,12 @@ use std::env;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process;
+use std::process::{self, Command};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use emu198x_shell::{
-    HeadlessSession, InputEvent, MediaImage, MediaKind, MediaSet, read_media_asset,
+    CapturedFrame, HeadlessSession, InputEvent, MediaImage, MediaKind, MediaSet, PixelFormat,
+    read_media_asset,
 };
 use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
 use machine_dragon_32::{
@@ -27,6 +29,10 @@ use zip::ZipArchive;
 const DEFAULT_CYCLES: u64 = 100_000;
 const DEFAULT_TRACE_LIMIT: usize = 64;
 const DEFAULT_SMOKE_RUN_LIMIT: usize = 8;
+const DEFAULT_XROAR_SETTLE_SECONDS: f32 = 3.0;
+const DEFAULT_XROAR_TIMEOUT_SECONDS: f32 = 45.0;
+const XROAR_ZOOMED_WIDTH: u32 = 512;
+const XROAR_ZOOMED_HEIGHT: u32 = 384;
 const DRAGON_CPU_HZ: u64 = 894_886;
 const DRAGON_FRAME_HZ: u64 = 50;
 const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
@@ -53,12 +59,22 @@ Execution:
     --smoke-report P   write smoke matrix JSON to PATH
     --smoke-screenshot-dir PATH
                        write load/start screenshots for runtime-smoked tapes
+    --smoke-screenshot-format FORMAT
+                       screenshot format: diagnostic | xroar-zoomed [default: diagnostic]
+    --xroar-bin PATH   patched XRoar binary used to write reference PNGs
+    --xroar-reference-dir PATH
+                       write patched-XRoar reference PNGs for runtime-smoked tapes
+    --xroar-motoroff N capture on the Nth tape motor-off [default: auto]
+    --xroar-settle-seconds N
+                       wait N emulated seconds after the motor-off trap before reference capture [default: 3]
+    --xroar-timeout-seconds N
+                       hard XRoar run timeout in emulated seconds [default: 45]
 
 Other:
     --help             print this help text
 ";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Cli {
     rom: PathBuf,
     cycles: u64,
@@ -70,6 +86,12 @@ struct Cli {
     smoke_run_limit: usize,
     smoke_report: Option<PathBuf>,
     smoke_screenshot_dir: Option<PathBuf>,
+    smoke_screenshot_format: SmokeScreenshotFormat,
+    xroar_bin: Option<PathBuf>,
+    xroar_reference_dir: Option<PathBuf>,
+    xroar_motoroff: Option<usize>,
+    xroar_settle_seconds: f32,
+    xroar_timeout_seconds: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,6 +156,7 @@ struct CasHeaderSummary {
 #[derive(Debug, Serialize)]
 struct CasRuntimeSmoke {
     command: String,
+    classification: RuntimeSmokeClassification,
     load_result: String,
     start_command: String,
     start_result: String,
@@ -148,6 +171,8 @@ struct CasRuntimeSmoke {
     tape_length_bits: u64,
     tape_finished: bool,
     visible_change_after_start: bool,
+    start_video_changed: bool,
+    start_settle_visible_change: bool,
     basic_error: bool,
     load_screen_text: Vec<String>,
     screen_text: Vec<String>,
@@ -157,9 +182,29 @@ struct CasRuntimeSmoke {
     load_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     start_screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_error: Option<String>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum RuntimeSmokeClassification {
+    Error,
+    LoadBasicError,
+    LoadedNoVisibleChange,
+    LoadedVisibleChange,
+    MachineCodeRunningAfterLoad,
+    StartedBasicError,
+    StartedNoVisibleChange,
+    StartedTextDrawing,
+    StartedVideoControlChanged,
+    StartedGraphicsBlank,
+    StartedGraphicsDrawing,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 struct DragonVideoState {
     sam_video_mode: u8,
     sam_display_offset: u8,
@@ -168,6 +213,30 @@ struct DragonVideoState {
     pia1_ddr_b: u8,
     pia1_control_b: u8,
     pia1_cb2: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct XroarReferenceConfig {
+    bin: PathBuf,
+    output_dir: PathBuf,
+    motoroff: Option<usize>,
+    settle_seconds: f32,
+    timeout_seconds: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SmokeScreenshotFormat {
+    Diagnostic,
+    XroarZoomed,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RuntimeSmokeOptions<'a> {
+    run_limit: usize,
+    screenshot_stem: Option<&'a Path>,
+    screenshot_format: SmokeScreenshotFormat,
+    xroar: Option<&'a XroarReferenceConfig>,
+    xroar_stem: Option<&'a Path>,
 }
 
 fn main() {
@@ -235,6 +304,12 @@ where
     let mut smoke_run_limit = DEFAULT_SMOKE_RUN_LIMIT;
     let mut smoke_report = None;
     let mut smoke_screenshot_dir = None;
+    let mut smoke_screenshot_format = SmokeScreenshotFormat::Diagnostic;
+    let mut xroar_bin = None;
+    let mut xroar_reference_dir = None;
+    let mut xroar_motoroff = None;
+    let mut xroar_settle_seconds = DEFAULT_XROAR_SETTLE_SECONDS;
+    let mut xroar_timeout_seconds = DEFAULT_XROAR_TIMEOUT_SECONDS;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -280,6 +355,39 @@ where
                     "--smoke-screenshot-dir",
                 )?));
             }
+            "--smoke-screenshot-format" => {
+                smoke_screenshot_format = parse_smoke_screenshot_format(&next_value(
+                    &mut iter,
+                    "--smoke-screenshot-format",
+                )?)?;
+            }
+            "--xroar-bin" => {
+                xroar_bin = Some(PathBuf::from(next_value(&mut iter, "--xroar-bin")?));
+            }
+            "--xroar-reference-dir" => {
+                xroar_reference_dir = Some(PathBuf::from(next_value(
+                    &mut iter,
+                    "--xroar-reference-dir",
+                )?));
+            }
+            "--xroar-motoroff" => {
+                xroar_motoroff = Some(parse_usize(
+                    &next_value(&mut iter, "--xroar-motoroff")?,
+                    "--xroar-motoroff",
+                )?);
+            }
+            "--xroar-settle-seconds" => {
+                xroar_settle_seconds = parse_f32(
+                    &next_value(&mut iter, "--xroar-settle-seconds")?,
+                    "--xroar-settle-seconds",
+                )?;
+            }
+            "--xroar-timeout-seconds" => {
+                xroar_timeout_seconds = parse_f32(
+                    &next_value(&mut iter, "--xroar-timeout-seconds")?,
+                    "--xroar-timeout-seconds",
+                )?;
+            }
             "--help" | "-h" => return Err(USAGE.to_owned()),
             _ => return Err(format!("unknown argument: {arg}\n\n{USAGE}")),
         }
@@ -296,6 +404,12 @@ where
         smoke_run_limit,
         smoke_report,
         smoke_screenshot_dir,
+        smoke_screenshot_format,
+        xroar_bin,
+        xroar_reference_dir,
+        xroar_motoroff,
+        xroar_settle_seconds,
+        xroar_timeout_seconds,
     })
 }
 
@@ -325,6 +439,28 @@ fn parse_usize(value: &str, flag: &str) -> Result<usize, String> {
     usize::try_from(parsed).map_err(|err| format!("{flag} value {value} is too large: {err}"))
 }
 
+fn parse_f32(value: &str, flag: &str) -> Result<f32, String> {
+    let parsed: f32 = value
+        .parse()
+        .map_err(|err| format!("invalid {flag} value {value}: {err}"))?;
+    if !parsed.is_finite() || parsed < 0.0 {
+        return Err(format!(
+            "{flag} value {value} must be a non-negative finite number"
+        ));
+    }
+    Ok(parsed)
+}
+
+fn parse_smoke_screenshot_format(value: &str) -> Result<SmokeScreenshotFormat, String> {
+    match value {
+        "diagnostic" => Ok(SmokeScreenshotFormat::Diagnostic),
+        "xroar-zoomed" => Ok(SmokeScreenshotFormat::XroarZoomed),
+        _ => Err(format!(
+            "invalid --smoke-screenshot-format value {value}; expected diagnostic or xroar-zoomed"
+        )),
+    }
+}
+
 fn parse_matrix_key(value: &str) -> Result<MatrixKey, String> {
     let (row, column) = value
         .split_once(',')
@@ -348,12 +484,21 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
         .smoke_root
         .as_deref()
         .ok_or_else(|| "--smoke-root is required".to_owned())?;
+    let xroar = xroar_reference_config(cli)?;
     let mut tapes = Vec::new();
     collect_tape_candidates(root, &mut tapes)?;
     tapes.sort();
     if let Some(dir) = &cli.smoke_screenshot_dir {
         fs::create_dir_all(dir)
             .map_err(|err| format!("failed to create {}: {err}", dir.display()))?;
+    }
+    if let Some(config) = &xroar {
+        fs::create_dir_all(&config.output_dir).map_err(|err| {
+            format!(
+                "failed to create XRoar reference dir {}: {err}",
+                config.output_dir.display()
+            )
+        })?;
     }
 
     let mut rows = Vec::with_capacity(tapes.len());
@@ -363,12 +508,22 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
             .smoke_screenshot_dir
             .as_ref()
             .map(|dir| dir.join(format!("{index:04}-{}", safe_stem(tape_path))));
+        let xroar_stem = xroar.as_ref().map(|config| {
+            config
+                .output_dir
+                .join(format!("{index:04}-{}", safe_stem(tape_path)))
+        });
         let row = scan_tape_candidate(
             tape_path,
             rom,
             &mut runtime_smokes,
-            cli.smoke_run_limit,
-            screenshot_stem.as_deref(),
+            RuntimeSmokeOptions {
+                run_limit: cli.smoke_run_limit,
+                screenshot_stem: screenshot_stem.as_deref(),
+                screenshot_format: cli.smoke_screenshot_format,
+                xroar: xroar.as_ref(),
+                xroar_stem: xroar_stem.as_deref(),
+            },
         );
         rows.push(row);
     }
@@ -378,6 +533,21 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
         runtime_smokes,
         rows,
     })
+}
+
+fn xroar_reference_config(cli: &Cli) -> Result<Option<XroarReferenceConfig>, String> {
+    match (&cli.xroar_bin, &cli.xroar_reference_dir) {
+        (None, None) => Ok(None),
+        (Some(bin), Some(output_dir)) => Ok(Some(XroarReferenceConfig {
+            bin: bin.clone(),
+            output_dir: output_dir.clone(),
+            motoroff: cli.xroar_motoroff,
+            settle_seconds: cli.xroar_settle_seconds,
+            timeout_seconds: cli.xroar_timeout_seconds,
+        })),
+        (Some(_), None) => Err("--xroar-reference-dir is required with --xroar-bin".to_owned()),
+        (None, Some(_)) => Err("--xroar-bin is required with --xroar-reference-dir".to_owned()),
+    }
 }
 
 fn collect_tape_candidates(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
@@ -408,8 +578,7 @@ fn scan_tape_candidate(
     path: &Path,
     rom: &[u8; ROM_SIZE],
     runtime_smokes: &mut usize,
-    smoke_run_limit: usize,
-    screenshot_stem: Option<&Path>,
+    smoke: RuntimeSmokeOptions<'_>,
 ) -> SmokeMatrixRow {
     let loaded = match read_media_asset(path, MediaKind::Tape) {
         Ok(loaded) => loaded,
@@ -455,14 +624,17 @@ fn scan_tape_candidate(
         )
     }) && !parsed.has_ignored_bytes()
         && parsed.checksums_valid()
-        && *runtime_smokes < smoke_run_limit;
+        && *runtime_smokes < smoke.run_limit;
     let runtime = if should_smoke {
         *runtime_smokes += 1;
         Some(run_runtime_smoke(
             rom,
             &loaded.bytes,
             &parsed,
-            screenshot_stem,
+            smoke.screenshot_stem,
+            smoke.screenshot_format,
+            smoke.xroar,
+            smoke.xroar_stem,
         ))
     } else {
         None
@@ -491,6 +663,9 @@ fn run_runtime_smoke(
     tape_bytes: &[u8],
     tape: &CasImage,
     screenshot_stem: Option<&Path>,
+    screenshot_format: SmokeScreenshotFormat,
+    xroar: Option<&XroarReferenceConfig>,
+    xroar_stem: Option<&Path>,
 ) -> CasRuntimeSmoke {
     let command = tape
         .first_header()
@@ -504,8 +679,16 @@ fn run_runtime_smoke(
         return failed_runtime_smoke("", "unsupported tape file type");
     }
 
-    match run_runtime_smoke_inner(rom, tape_bytes, command, screenshot_stem) {
-        Ok(smoke) => smoke,
+    match run_runtime_smoke_inner(rom, tape_bytes, command, screenshot_stem, screenshot_format) {
+        Ok(mut smoke) => {
+            if let (Some(config), Some(stem)) = (xroar, xroar_stem) {
+                match capture_xroar_reference(config, rom, tape_bytes, command, stem) {
+                    Ok(path) => smoke.xroar_reference_screenshot = Some(path.display().to_string()),
+                    Err(err) => smoke.xroar_reference_error = Some(err),
+                }
+            }
+            smoke
+        }
         Err(error) => failed_runtime_smoke(command, &error),
     }
 }
@@ -515,6 +698,7 @@ fn run_runtime_smoke_inner(
     tape_bytes: &[u8],
     command: &str,
     screenshot_stem: Option<&Path>,
+    screenshot_format: SmokeScreenshotFormat,
 ) -> Result<CasRuntimeSmoke, String> {
     let mut session = boot_runtime_session(rom)?;
     let mut media = MediaSet::new();
@@ -549,20 +733,32 @@ fn run_runtime_smoke_inner(
     let load_visible_change = after_load != before_load;
     let load_pc_after = query_u16(&session, "dragon.cpu.pc")?;
     let load_video = video_state(&session)?;
-    let load_screenshot = write_smoke_screenshot(&session, screenshot_stem, "load")?;
+    let load_screenshot = write_smoke_screenshot(
+        screenshot_stem,
+        "load",
+        screenshot_format,
+        &session,
+        &after_load,
+    )?;
     let load_error = lines_after_load.iter().any(|line| line.contains("ERROR"));
     let load_result = if load_error { "basic-error" } else { "ok" }.to_owned();
     let start_command = if command == "CLOAD" { "RUN" } else { "EXEC" };
     let should_start = should_issue_start_command(command, load_error, load_visible_change);
 
+    let mut start_settle_visible_change = false;
     let (start_result, visible_change_after_start, screen_text) = if should_start {
         type_basic_command(&mut session, start_command)?;
-        let visible_change = wait_for_screenshot_change(&mut session, &after_load, 500)?;
-        if visible_change {
+        let changed_frame = wait_for_screenshot_change(&mut session, &after_load, 500)?;
+        if let Some(changed_frame) = &changed_frame {
             session
                 .run_frames(SMOKE_START_SETTLE_FRAMES)
                 .map_err(|err| format!("runtime failed while settling after start: {err}"))?;
+            let settled_frame = session
+                .screenshot_png_bytes()
+                .map_err(|err| format!("failed to capture settled start frame: {err}"))?;
+            start_settle_visible_change = settled_frame != *changed_frame;
         }
+        let visible_change = changed_frame.is_some();
         let screen_text = screen_text_lines(&session)?;
         let basic_error = screen_text.iter().any(|line| line.contains("ERROR"));
         let start_result = if basic_error {
@@ -584,10 +780,33 @@ fn run_runtime_smoke_inner(
     let basic_error = screen_text.iter().any(|line| line.contains("ERROR"));
     let start_pc_after = query_u16(&session, "dragon.cpu.pc")?;
     let start_video = video_state(&session)?;
-    let start_screenshot = write_smoke_screenshot(&session, screenshot_stem, "start")?;
+    let start_screenshot_frame = session
+        .screenshot_png_bytes()
+        .map_err(|err| format!("failed to capture post-start frame: {err}"))?;
+    let start_screenshot = write_smoke_screenshot(
+        screenshot_stem,
+        "start",
+        screenshot_format,
+        &session,
+        &start_screenshot_frame,
+    )?;
+    let start_video_changed = load_video != start_video;
+    let classification = classify_runtime_smoke(RuntimeSmokeClassificationInput {
+        command,
+        load_result: &load_result,
+        start_result: &start_result,
+        load_visible_change,
+        visible_change_after_start,
+        start_video_changed,
+        start_settle_visible_change,
+        basic_error,
+        load_video,
+        start_video,
+    });
 
     Ok(CasRuntimeSmoke {
         command: command.to_owned(),
+        classification,
         load_result,
         start_command: if should_start {
             start_command.to_owned()
@@ -606,12 +825,16 @@ fn run_runtime_smoke_inner(
         tape_length_bits,
         tape_finished: query_bool(&session, "dragon.tape.finished")?,
         visible_change_after_start,
+        start_video_changed,
+        start_settle_visible_change,
         basic_error,
         load_screen_text: lines_after_load,
         screen_text,
         error: None,
         load_screenshot,
         start_screenshot,
+        xroar_reference_screenshot: None,
+        xroar_reference_error: None,
     })
 }
 
@@ -633,6 +856,70 @@ fn skipped_start_result(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RuntimeSmokeClassificationInput<'a> {
+    command: &'a str,
+    load_result: &'a str,
+    start_result: &'a str,
+    load_visible_change: bool,
+    visible_change_after_start: bool,
+    start_video_changed: bool,
+    start_settle_visible_change: bool,
+    basic_error: bool,
+    load_video: DragonVideoState,
+    start_video: DragonVideoState,
+}
+
+fn classify_runtime_smoke(
+    input: RuntimeSmokeClassificationInput<'_>,
+) -> RuntimeSmokeClassification {
+    if input.load_result == "error" {
+        return RuntimeSmokeClassification::Error;
+    }
+    if input.load_result == "basic-error" {
+        return RuntimeSmokeClassification::LoadBasicError;
+    }
+    if input.basic_error || input.start_result == "basic-error" {
+        return RuntimeSmokeClassification::StartedBasicError;
+    }
+
+    let start_uses_graphics = video_state_uses_graphics(input.start_video);
+    if input.visible_change_after_start && start_uses_graphics {
+        return if input.start_settle_visible_change {
+            RuntimeSmokeClassification::StartedGraphicsDrawing
+        } else {
+            RuntimeSmokeClassification::StartedGraphicsBlank
+        };
+    }
+    if input.start_video_changed {
+        return RuntimeSmokeClassification::StartedVideoControlChanged;
+    }
+    if input.visible_change_after_start {
+        return RuntimeSmokeClassification::StartedTextDrawing;
+    }
+    if input.start_result == "no-visible-change" {
+        return RuntimeSmokeClassification::StartedNoVisibleChange;
+    }
+    if input.command == "CLOADM"
+        && input.start_result == "already-running-after-load"
+        && input.load_visible_change
+    {
+        return RuntimeSmokeClassification::MachineCodeRunningAfterLoad;
+    }
+    if video_state_uses_graphics(input.load_video) {
+        return RuntimeSmokeClassification::StartedGraphicsBlank;
+    }
+    if input.load_visible_change {
+        RuntimeSmokeClassification::LoadedVisibleChange
+    } else {
+        RuntimeSmokeClassification::LoadedNoVisibleChange
+    }
+}
+
+fn video_state_uses_graphics(video: DragonVideoState) -> bool {
+    video.sam_video_mode != 0 || video.pia1_output_b & 0x80 != 0
+}
+
 fn video_state(
     session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
 ) -> Result<DragonVideoState, String> {
@@ -648,19 +935,203 @@ fn video_state(
 }
 
 fn write_smoke_screenshot(
-    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
     stem: Option<&Path>,
     suffix: &str,
+    format: SmokeScreenshotFormat,
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    diagnostic_png: &[u8],
 ) -> Result<Option<String>, String> {
     let Some(stem) = stem else {
         return Ok(None);
     };
     let path = stem.with_extension(format!("{suffix}.png"));
-    let png = session
-        .screenshot_png_bytes()
-        .map_err(|err| format!("failed to capture {suffix} screenshot: {err}"))?;
+    let png = match format {
+        SmokeScreenshotFormat::Diagnostic => diagnostic_png.to_vec(),
+        SmokeScreenshotFormat::XroarZoomed => {
+            xroar_zoomed_png_bytes(session.latest_frame().ok_or_else(|| {
+                "cannot write xroar-zoomed smoke screenshot before a frame has been captured"
+                    .to_owned()
+            })?)?
+        }
+    };
     fs::write(&path, png).map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     Ok(Some(path.display().to_string()))
+}
+
+fn xroar_zoomed_png_bytes(frame: &CapturedFrame) -> Result<Vec<u8>, String> {
+    if frame.format != PixelFormat::Rgba8888
+        || frame.width != TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32
+        || frame.height != TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32
+    {
+        return Err(format!(
+            "xroar-zoomed smoke screenshots require diagnostic RGBA frames of {}x{}; got {:?} {}x{}",
+            TEXT_VISIBLE_FRAMEBUFFER_WIDTH,
+            TEXT_VISIBLE_FRAMEBUFFER_HEIGHT,
+            frame.format,
+            frame.width,
+            frame.height
+        ));
+    }
+
+    let mut rgba = Vec::with_capacity((XROAR_ZOOMED_WIDTH * XROAR_ZOOMED_HEIGHT * 4) as usize);
+    let source_width = TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
+    let source_x_origin = motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS;
+    let source_y_origin = motorola_vdg_6847::TEXT_TOP_BORDER_LINES;
+    for y in 0..motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT {
+        for _ in 0..2 {
+            for x in 0..motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH {
+                let offset = ((source_y_origin + y) * source_width + source_x_origin + x) * 4;
+                let pixel = &frame.pixels[offset..offset + 4];
+                rgba.extend_from_slice(pixel);
+                rgba.extend_from_slice(pixel);
+            }
+        }
+    }
+
+    encode_rgba_png(XROAR_ZOOMED_WIDTH, XROAR_ZOOMED_HEIGHT, &rgba)
+}
+
+fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    let expected = (width as usize) * (height as usize) * 4;
+    if rgba.len() != expected {
+        return Err(format!(
+            "RGBA buffer has {} bytes; expected {expected} for {width}x{height}",
+            rgba.len()
+        ));
+    }
+
+    let mut png = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|err| format!("failed to write PNG header: {err}"))?;
+        writer
+            .write_image_data(rgba)
+            .map_err(|err| format!("failed to write PNG data: {err}"))?;
+        writer
+            .finish()
+            .map_err(|err| format!("failed to finish PNG: {err}"))?;
+    }
+    Ok(png)
+}
+
+fn capture_xroar_reference(
+    config: &XroarReferenceConfig,
+    rom: &[u8; ROM_SIZE],
+    tape_bytes: &[u8],
+    command: &str,
+    stem: &Path,
+) -> Result<PathBuf, String> {
+    let rom_path = write_temp_bytes("rom", "rom", rom)?;
+    let tape_path = write_temp_bytes("tape", "cas", tape_bytes)?;
+    let output_path = stem.with_extension("xroar.png");
+    let result = run_xroar_reference_command(config, command, &rom_path, &tape_path, &output_path);
+    let _ = fs::remove_file(&rom_path);
+    let _ = fs::remove_file(&tape_path);
+    result
+}
+
+fn run_xroar_reference_command(
+    config: &XroarReferenceConfig,
+    command: &str,
+    rom_path: &Path,
+    tape_path: &Path,
+    output_path: &Path,
+) -> Result<PathBuf, String> {
+    let motoroff = config
+        .motoroff
+        .unwrap_or_else(|| default_xroar_motoroff(command));
+    if motoroff == 0 {
+        return Err("--xroar-motoroff must be greater than zero".to_owned());
+    }
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
+
+    let trap_range = format!("{motoroff}-{motoroff}");
+    let type_text = xroar_type_text(command)?;
+    let output = Command::new(&config.bin)
+        .arg("-ui")
+        .arg("null")
+        .arg("-ao")
+        .arg("null")
+        .arg("-no-ratelimit")
+        .arg("-vo-picture")
+        .arg("zoomed")
+        .arg("-machine")
+        .arg("dragon32")
+        .arg("-extbas")
+        .arg(rom_path)
+        .arg("-load-tape")
+        .arg(tape_path)
+        .arg("-type")
+        .arg(type_text)
+        .arg("-trap")
+        .arg("tape-motor-off")
+        .arg("-trap-range")
+        .arg(trap_range)
+        .arg("-trap-timeout")
+        .arg(format_seconds(config.settle_seconds))
+        .arg("-trap-timeout-screenshot")
+        .arg(output_path)
+        .arg("-timeout")
+        .arg(format_seconds(config.timeout_seconds))
+        .arg("-q")
+        .output()
+        .map_err(|err| format!("failed to run {}: {err}", config.bin.display()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "XRoar exited with status {}: {}",
+            output.status,
+            stderr.trim()
+        ));
+    }
+    if !output_path.is_file() {
+        return Err(format!(
+            "XRoar did not write reference screenshot {}",
+            output_path.display()
+        ));
+    }
+    Ok(output_path.to_owned())
+}
+
+fn write_temp_bytes(kind: &str, extension: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| format!("system clock was before UNIX epoch: {err}"))?
+        .as_nanos();
+    let path = env::temp_dir().join(format!(
+        "emu198x-xroar-{}-{unique}-{kind}.{extension}",
+        process::id()
+    ));
+    fs::write(&path, bytes).map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    Ok(path)
+}
+
+fn xroar_type_text(command: &str) -> Result<&'static str, String> {
+    match command {
+        "CLOAD" => Ok("CLOAD\rRUN\r"),
+        "CLOADM" => Ok("CLOADM\rEXEC\r"),
+        _ => Err(format!("unsupported XRoar reference command {command:?}")),
+    }
+}
+
+fn default_xroar_motoroff(command: &str) -> usize {
+    if command == "CLOADM" { 1 } else { 2 }
+}
+
+fn format_seconds(seconds: f32) -> String {
+    if seconds.fract() == 0.0 {
+        format!("{seconds:.0}")
+    } else {
+        seconds.to_string()
+    }
 }
 
 fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
@@ -673,6 +1144,7 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
     };
     CasRuntimeSmoke {
         command: command.to_owned(),
+        classification: RuntimeSmokeClassification::Error,
         load_result: "error".to_owned(),
         start_command: start_command.to_owned(),
         start_result: "not-run".to_owned(),
@@ -687,12 +1159,16 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         tape_length_bits: 0,
         tape_finished: false,
         visible_change_after_start: false,
+        start_video_changed: false,
+        start_settle_visible_change: false,
         basic_error: false,
         load_screen_text: Vec::new(),
         screen_text: Vec::new(),
         error: Some(error.to_owned()),
         load_screenshot: None,
         start_screenshot: None,
+        xroar_reference_screenshot: None,
+        xroar_reference_error: None,
     }
 }
 
@@ -774,19 +1250,19 @@ fn wait_for_screenshot_change(
     session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
     before: &[u8],
     max_frames: u32,
-) -> Result<bool, String> {
+) -> Result<Option<Vec<u8>>, String> {
     for _ in 0..=max_frames {
         let current = session
             .screenshot_png_bytes()
             .map_err(|err| format!("failed to capture frame: {err}"))?;
         if current != before {
-            return Ok(true);
+            return Ok(Some(current));
         }
         session
             .run_frames(1)
             .map_err(|err| format!("runtime failed while waiting for frame change: {err}"))?;
     }
-    Ok(false)
+    Ok(None)
 }
 
 fn screen_text_lines(
@@ -1261,6 +1737,8 @@ mod tests {
             "report.json".to_owned(),
             "--smoke-screenshot-dir".to_owned(),
             "screens".to_owned(),
+            "--smoke-screenshot-format".to_owned(),
+            "xroar-zoomed".to_owned(),
         ])
         .expect("valid CLI should parse");
 
@@ -1268,6 +1746,166 @@ mod tests {
         assert_eq!(cli.smoke_run_limit, 3);
         assert_eq!(cli.smoke_report, Some(PathBuf::from("report.json")));
         assert_eq!(cli.smoke_screenshot_dir, Some(PathBuf::from("screens")));
+        assert_eq!(
+            cli.smoke_screenshot_format,
+            SmokeScreenshotFormat::XroarZoomed
+        );
+    }
+
+    #[test]
+    fn cli_parses_xroar_reference_options() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--smoke-root".to_owned(),
+            "tapes".to_owned(),
+            "--xroar-bin".to_owned(),
+            "xroar/src/xroar".to_owned(),
+            "--xroar-reference-dir".to_owned(),
+            "refs".to_owned(),
+            "--xroar-motoroff".to_owned(),
+            "2".to_owned(),
+            "--xroar-settle-seconds".to_owned(),
+            "2.5".to_owned(),
+            "--xroar-timeout-seconds".to_owned(),
+            "30".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.xroar_bin, Some(PathBuf::from("xroar/src/xroar")));
+        assert_eq!(cli.xroar_reference_dir, Some(PathBuf::from("refs")));
+        assert_eq!(cli.xroar_motoroff, Some(2));
+        assert_eq!(cli.xroar_settle_seconds, 2.5);
+        assert_eq!(cli.xroar_timeout_seconds, 30.0);
+    }
+
+    #[test]
+    fn xroar_reference_config_requires_bin_and_output_dir() {
+        let missing_dir = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--xroar-bin".to_owned(),
+            "xroar".to_owned(),
+        ])
+        .expect("CLI parsing should allow validation later");
+
+        assert_eq!(
+            xroar_reference_config(&missing_dir),
+            Err("--xroar-reference-dir is required with --xroar-bin".to_owned())
+        );
+    }
+
+    #[test]
+    fn xroar_type_text_matches_dragon_load_command() {
+        assert_eq!(xroar_type_text("CLOAD"), Ok("CLOAD\rRUN\r"));
+        assert_eq!(xroar_type_text("CLOADM"), Ok("CLOADM\rEXEC\r"));
+        assert_eq!(default_xroar_motoroff("CLOAD"), 2);
+        assert_eq!(default_xroar_motoroff("CLOADM"), 1);
+    }
+
+    #[test]
+    fn xroar_zoomed_screenshot_scales_active_area_without_downscaling() {
+        let mut pixels =
+            vec![0; TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT * 4];
+        let active_offset = (motorola_vdg_6847::TEXT_TOP_BORDER_LINES
+            * TEXT_VISIBLE_FRAMEBUFFER_WIDTH
+            + motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS)
+            * 4;
+        pixels[active_offset..active_offset + 4].copy_from_slice(&[0x12, 0x34, 0x56, 0xFF]);
+        let frame = CapturedFrame {
+            timestamp: emu198x_shell::MachineTime(0),
+            format: PixelFormat::Rgba8888,
+            width: TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
+            height: TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32,
+            palette: None,
+            pixels,
+        };
+
+        let png = xroar_zoomed_png_bytes(&frame).expect("zoomed PNG should encode");
+        let decoder = png::Decoder::new(std::io::Cursor::new(png));
+        let mut reader = decoder
+            .read_info()
+            .expect("zoomed screenshot should decode");
+        assert_eq!(reader.info().width, XROAR_ZOOMED_WIDTH);
+        assert_eq!(reader.info().height, XROAR_ZOOMED_HEIGHT);
+        let mut output = vec![0; reader.output_buffer_size()];
+        let info = reader
+            .next_frame(&mut output)
+            .expect("zoomed screenshot should contain one frame");
+        assert_eq!(&output[..4], &[0x12, 0x34, 0x56, 0xFF]);
+        assert_eq!(&output[4..8], &[0x12, 0x34, 0x56, 0xFF]);
+        assert_eq!(info.color_type, png::ColorType::Rgba);
+    }
+
+    #[test]
+    fn classifies_started_graphics_that_draws_after_settle() {
+        let text_video = DragonVideoState {
+            sam_video_mode: 0,
+            sam_display_offset: 2,
+            display_base: 0x0400,
+            pia1_output_b: 0x07,
+            pia1_ddr_b: 0xF8,
+            pia1_control_b: 0x37,
+            pia1_cb2: false,
+        };
+        let graphics_video = DragonVideoState {
+            sam_video_mode: 6,
+            sam_display_offset: 3,
+            display_base: 0x0600,
+            pia1_output_b: 0xE7,
+            pia1_ddr_b: 0xF8,
+            pia1_control_b: 0x37,
+            pia1_cb2: false,
+        };
+
+        let classification = classify_runtime_smoke(RuntimeSmokeClassificationInput {
+            command: "CLOAD",
+            load_result: "ok",
+            start_result: "visible-change",
+            load_visible_change: true,
+            visible_change_after_start: true,
+            start_video_changed: true,
+            start_settle_visible_change: true,
+            basic_error: false,
+            load_video: text_video,
+            start_video: graphics_video,
+        });
+
+        assert_eq!(
+            classification,
+            RuntimeSmokeClassification::StartedGraphicsDrawing
+        );
+    }
+
+    #[test]
+    fn classifies_machine_code_autorun_after_load() {
+        let video = DragonVideoState {
+            sam_video_mode: 0,
+            sam_display_offset: 2,
+            display_base: 0x0400,
+            pia1_output_b: 0x07,
+            pia1_ddr_b: 0xF8,
+            pia1_control_b: 0x37,
+            pia1_cb2: false,
+        };
+
+        let classification = classify_runtime_smoke(RuntimeSmokeClassificationInput {
+            command: "CLOADM",
+            load_result: "ok",
+            start_result: "already-running-after-load",
+            load_visible_change: true,
+            visible_change_after_start: false,
+            start_video_changed: false,
+            start_settle_visible_change: false,
+            basic_error: false,
+            load_video: video,
+            start_video: video,
+        });
+
+        assert_eq!(
+            classification,
+            RuntimeSmokeClassification::MachineCodeRunningAfterLoad
+        );
     }
 
     #[test]
