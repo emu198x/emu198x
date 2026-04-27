@@ -27,12 +27,12 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
   semigraphics, and the standard MC6847 full-graphics modes into a 256x192
   active-area ARGB framebuffer, or a 372x243 visible framebuffer with the
   current coarse MC6847 border. That 372x243 output is diagnostic only: it is
-  not a PAL beam/overscan model. The diagnostic palette starts from XRoar's
-  default ideal VDG voltage palette for Dragon alpha text, with approximate
-  chroma colours for graphics modes. The Dragon harness `--dump-text` path now
-  shows the Dragon 32 BASIC banner and `OK` prompt from real ROM execution,
-  while `--dump-text-png PATH` writes the diagnostic border-inclusive text
-  framebuffer as a PNG for visual comparison.
+  not a PAL beam/overscan model. The diagnostic palette, alpha inverse-video
+  handling, MC6847 font alignment, and SG4/SG6 bit ordering are matched against
+  patched XRoar's zoomed Dragon output for the exercised modes. The Dragon
+  harness `--dump-text` path now shows the Dragon 32 BASIC banner and `OK`
+  prompt from real ROM execution, while `--dump-text-png PATH` writes the
+  diagnostic border-inclusive text framebuffer as a PNG for visual comparison.
 - **Harness keyboard:** PIA0 is wired to the confirmed Dragon 32 keyboard matrix:
   PB0-PB7 drive columns via `$FF02`, and PA0-PA6 read rows via `$FF00`. The
   default state is no key pressed (`$FF` on the input side). `--press KEY`
@@ -117,7 +117,7 @@ workspace:
 | Machine | 17 (ROM mapping, device access reporting, keyboard, SAM text base, text framebuffer, graphics rendering) |
 | PIA | 5 (DDR, control, IRQ, input pins, mixed I/O) |
 | SAM | 4 (defaults, set/clear, video offset, all-RAM) |
-| VDG | 8 (text decode, text rendering, SG4, RG6, and CG6 rendering) |
+| VDG | 9 (text decode, text rendering, inverse text, SG4, RG6, and CG6 rendering) |
 | Harness | 16 (CLI, ROM loading, keyboard labels, text dumps, smoke options, XRoar-compatible screenshots, XRoar reference comparison, XRoar reference options, smoke classification) |
 | Runtime | 18 (profile metadata, firmware construction, framebuffer emission, queries, boot status, CAS mounting/playback, real-ROM headless screenshot, real-CAS mount smoke, Textstar CLOAD/RUN smoke, machine-code CAS smoke, and keyboard echo smoke) |
 | Native | 3 (CLI, CAS tape argument, and host key mapping) |

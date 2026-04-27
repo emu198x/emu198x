@@ -42,15 +42,15 @@ pub const TEXT_SCREEN_BYTES: usize = TEXT_COLUMNS * TEXT_ROWS;
 ///
 /// This is MC6847 `VDG_BLACK` through XRoar's default "ideal" VDG voltage
 /// palette and PAL display conversion. It is intentionally not pure black.
-pub const DEFAULT_TEXT_BORDER: u32 = 0xFF03_0303;
+pub const DEFAULT_TEXT_BORDER: u32 = 0xFF05_0505;
 /// Default Dragon alpha-mode background colour, ARGB8888.
 ///
 /// This is MC6847 `VDG_DARK_GREEN` through the same reference conversion.
-pub const DEFAULT_TEXT_BACKGROUND: u32 = 0xFF00_0B00;
+pub const DEFAULT_TEXT_BACKGROUND: u32 = 0xFF00_1000;
 /// Default Dragon alpha-mode foreground colour, ARGB8888.
 ///
 /// This is MC6847 `VDG_GREEN` through the same reference conversion.
-pub const DEFAULT_TEXT_FOREGROUND: u32 = 0xFF15_8815;
+pub const DEFAULT_TEXT_FOREGROUND: u32 = 0xFF1D_AA1D;
 
 /// Decoded MC6847 text cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -193,7 +193,7 @@ impl Default for TextPalette {
 }
 
 /// Default MC6847 yellow colour, ARGB8888.
-pub const DEFAULT_VDG_YELLOW: u32 = 0xFFE5_D34A;
+pub const DEFAULT_VDG_YELLOW: u32 = 0xFFFF_FF83;
 /// Default MC6847 blue colour, ARGB8888.
 pub const DEFAULT_VDG_BLUE: u32 = 0xFF24_3FA8;
 /// Default MC6847 red colour, ARGB8888.
@@ -372,17 +372,18 @@ fn render_cell(
 ) {
     let glyph_index = usize::from(cell.raw & 0x3F);
     let glyph_base = glyph_index * TEXT_CELL_HEIGHT;
+    let (background, foreground) = if cell.inverse {
+        (palette.foreground, palette.background)
+    } else {
+        (palette.background, palette.foreground)
+    };
 
     for y in 0..TEXT_CELL_HEIGHT {
         let bits = FONT_6847[glyph_base + y];
         let framebuffer_y = target.y_origin + row * TEXT_CELL_HEIGHT + y;
         for x in 0..TEXT_CELL_WIDTH {
             let lit = glyph_pixel(bits, x);
-            let colour = if lit {
-                palette.foreground
-            } else {
-                palette.background
-            };
+            let colour = if lit { foreground } else { background };
             let framebuffer_x = target.x_origin + column * TEXT_CELL_WIDTH + x;
             target.framebuffer[framebuffer_y * target.width + framebuffer_x] = colour;
         }
@@ -390,11 +391,7 @@ fn render_cell(
 }
 
 fn glyph_pixel(bits: u8, x: usize) -> bool {
-    if !(1..=6).contains(&x) {
-        return false;
-    }
-    let bit = 6 - x;
-    bits & (1 << bit) != 0
+    bits & (0x80 >> x) != 0
 }
 
 fn render_alpha_semigraphics_into(
@@ -443,7 +440,7 @@ fn render_semigraphics4_cell(
     let colour = palette.colours[usize::from((raw >> 4) & 0x07)];
     for sub_y in 0..2 {
         for sub_x in 0..2 {
-            let bit = sub_y * 2 + sub_x;
+            let bit = semigraphics_bit(sub_y, sub_x, 2);
             let lit = raw & (1 << bit) != 0;
             let fill = if lit { colour } else { palette.black };
             fill_rect(
@@ -475,7 +472,7 @@ fn render_semigraphics6_cell(
     let colour = palette.colours[colour_index];
     for sub_y in 0..3 {
         for sub_x in 0..2 {
-            let bit = sub_y * 2 + sub_x;
+            let bit = semigraphics_bit(sub_y, sub_x, 3);
             let lit = raw & (1 << bit) != 0;
             let fill = if lit { colour } else { palette.black };
             fill_rect(
@@ -488,6 +485,10 @@ fn render_semigraphics6_cell(
             );
         }
     }
+}
+
+fn semigraphics_bit(sub_y: usize, sub_x: usize, rows: usize) -> usize {
+    (rows - 1 - sub_y) * 2 + (1 - sub_x)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -750,8 +751,20 @@ mod tests {
         assert_eq!(framebuffer.len(), TEXT_FRAMEBUFFER_PIXELS);
         assert_eq!(framebuffer[0], DEFAULT_TEXT_BACKGROUND);
         assert_eq!(
-            framebuffer[3 * TEXT_FRAMEBUFFER_WIDTH + 3],
+            framebuffer[3 * TEXT_FRAMEBUFFER_WIDTH + 4],
             DEFAULT_TEXT_FOREGROUND
+        );
+    }
+
+    #[test]
+    fn renders_inverse_text_by_swapping_foreground_and_background() {
+        let screen = TextScreen::capture(|index| if index == 0 { 0x41 } else { 0x20 });
+        let framebuffer = screen.render_argb(TextPalette::default());
+
+        assert_eq!(framebuffer[0], DEFAULT_TEXT_FOREGROUND);
+        assert_eq!(
+            framebuffer[3 * TEXT_FRAMEBUFFER_WIDTH + 4],
+            DEFAULT_TEXT_BACKGROUND
         );
     }
 
@@ -770,7 +783,7 @@ mod tests {
         assert_eq!(
             framebuffer[(TEXT_TOP_BORDER_LINES + 3) * TEXT_VISIBLE_FRAMEBUFFER_WIDTH
                 + TEXT_LEFT_BORDER_PIXELS
-                + 3],
+                + 4],
             DEFAULT_TEXT_FOREGROUND
         );
     }
@@ -778,7 +791,7 @@ mod tests {
     #[test]
     fn renders_semigraphics4_cells_from_alpha_memory() {
         let framebuffer = render_visible_argb(
-            |index| if index == 0 { 0x92 } else { 0x20 },
+            |index| if index == 0 { 0x94 } else { 0x20 },
             VdgControl::default(),
             VdgPalette::default(),
         );
