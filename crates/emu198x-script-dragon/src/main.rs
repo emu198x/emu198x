@@ -32,6 +32,7 @@ const DRAGON_FRAME_HZ: u64 = 50;
 const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
 const BOOT_FRAME_BUDGET: u32 = 100;
 const KEY_EDGE_FRAMES: u32 = 4;
+const SMOKE_START_SETTLE_FRAMES: u32 = 60;
 
 const USAGE: &str = "\
 Usage: emu198x-script-dragon --rom PATH [OPTIONS]
@@ -557,6 +558,11 @@ fn run_runtime_smoke_inner(
     let (start_result, visible_change_after_start, screen_text) = if should_start {
         type_basic_command(&mut session, start_command)?;
         let visible_change = wait_for_screenshot_change(&mut session, &after_load, 500)?;
+        if visible_change {
+            session
+                .run_frames(SMOKE_START_SETTLE_FRAMES)
+                .map_err(|err| format!("runtime failed while settling after start: {err}"))?;
+        }
         let screen_text = screen_text_lines(&session)?;
         let basic_error = screen_text.iter().any(|line| line.contains("ERROR"));
         let start_result = if basic_error {

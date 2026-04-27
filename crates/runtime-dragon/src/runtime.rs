@@ -8,7 +8,7 @@ use emu198x_shell::{
 use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
 use machine_dragon_32::{Dragon32, DragonKey, MatrixKey, ROM_SIZE};
 use motorola_vdg_6847::{
-    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
+    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, VdgPalette,
 };
 use serde_json::json;
 
@@ -196,9 +196,7 @@ impl DragonRuntime {
     }
 
     fn update_framebuffer(&mut self) {
-        let argb = self
-            .machine
-            .render_visible_text_argb(TextPalette::default());
+        let argb = self.machine.render_visible_argb(VdgPalette::default());
         self.rgba_framebuffer.clear();
         self.rgba_framebuffer.reserve(argb.len() * 4);
         for pixel in argb {

@@ -13,7 +13,7 @@ use std::fmt;
 use motorola_6809::Mc6809;
 use motorola_pia_6821::{Pia6821, PiaPort};
 use motorola_sam_6883::Sam6883;
-use motorola_vdg_6847::{TextPalette, TextScreen};
+use motorola_vdg_6847::{TextPalette, TextScreen, VdgControl, VdgPalette};
 
 /// Dragon 32 RAM size.
 pub const RAM_SIZE: usize = 0x8000;
@@ -735,6 +735,11 @@ impl DragonMemory {
         let base = usize::from(self.text_screen_base());
         TextScreen::capture(|offset| self.ram[(base + offset) & (RAM_SIZE - 1)])
     }
+
+    fn display_byte(&self, offset: usize) -> u8 {
+        let base = usize::from(self.text_screen_base());
+        self.ram[(base + offset) & (RAM_SIZE - 1)]
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1015,6 +1020,17 @@ impl Dragon32 {
         self.capture_text_screen().render_visible_argb(palette)
     }
 
+    /// Render the current MC6847 output plus border as ARGB8888.
+    #[must_use]
+    pub fn render_visible_argb(&self, palette: VdgPalette) -> Vec<u32> {
+        let control = VdgControl::from_dragon_pia1_port_b(self.pia1_output_b());
+        motorola_vdg_6847::render_visible_argb(
+            |offset| self.memory.display_byte(offset),
+            control,
+            palette,
+        )
+    }
+
     /// Execute one bus cycle and return any observed memory/device event.
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
         self.memory.advance_cassette();
@@ -1209,7 +1225,10 @@ fn decode_device_write(addr: u16) -> Option<DeviceRegion> {
 
 #[cfg(test)]
 mod tests {
-    use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
+    use motorola_vdg_6847::{
+        DEFAULT_VDG_BLUE, TEXT_LEFT_BORDER_PIXELS, TEXT_TOP_BORDER_LINES,
+        TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, VdgPalette,
+    };
 
     use super::*;
 
@@ -1488,6 +1507,23 @@ mod tests {
                 .len(),
             TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT
         );
+    }
+
+    #[test]
+    fn machine_renders_pia_selected_graphics_mode() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine.memory.sam.write(0xFFC9); // Display base $0400.
+        machine.memory.ram[0x0400] = 0b01_10_11_00;
+        machine.memory.pia1.write(0x02, 0xF8); // PIA1 port B DDR.
+        machine.memory.pia1.write(0x03, 0x04); // PIA1 port B data selected.
+        machine.memory.pia1.write(0x02, 0xE0); // CG6, CSS 0.
+
+        let framebuffer = machine.render_visible_argb(VdgPalette::default());
+        let active_origin =
+            TEXT_TOP_BORDER_LINES * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
+
+        assert_eq!(framebuffer[active_origin + 2], DEFAULT_VDG_BLUE);
     }
 
     #[test]
