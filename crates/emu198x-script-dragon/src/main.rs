@@ -186,6 +186,24 @@ struct CasRuntimeSmoke {
     xroar_reference_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_comparison: Option<ImageComparison>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_comparison_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct ImageComparison {
+    emu_width: u32,
+    emu_height: u32,
+    reference_width: u32,
+    reference_height: u32,
+    dimensions_match: bool,
+    compared_pixels: u64,
+    differing_pixels: u64,
+    differing_pixel_percent: f64,
+    max_channel_delta: u8,
+    mean_abs_channel_delta: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -683,7 +701,19 @@ fn run_runtime_smoke(
         Ok(mut smoke) => {
             if let (Some(config), Some(stem)) = (xroar, xroar_stem) {
                 match capture_xroar_reference(config, rom, tape_bytes, command, stem) {
-                    Ok(path) => smoke.xroar_reference_screenshot = Some(path.display().to_string()),
+                    Ok(path) => {
+                        if let Some(start_screenshot) = &smoke.start_screenshot {
+                            match compare_png_files(Path::new(start_screenshot), &path) {
+                                Ok(comparison) => {
+                                    smoke.xroar_reference_comparison = Some(comparison);
+                                }
+                                Err(err) => {
+                                    smoke.xroar_reference_comparison_error = Some(err);
+                                }
+                            }
+                        }
+                        smoke.xroar_reference_screenshot = Some(path.display().to_string());
+                    }
                     Err(err) => smoke.xroar_reference_error = Some(err),
                 }
             }
@@ -835,6 +865,8 @@ fn run_runtime_smoke_inner(
         start_screenshot,
         xroar_reference_screenshot: None,
         xroar_reference_error: None,
+        xroar_reference_comparison: None,
+        xroar_reference_comparison_error: None,
     })
 }
 
@@ -1018,6 +1050,110 @@ fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, Stri
     Ok(png)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DecodedImage {
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+}
+
+fn compare_png_files(emu_path: &Path, reference_path: &Path) -> Result<ImageComparison, String> {
+    let emu_bytes = fs::read(emu_path)
+        .map_err(|err| format!("failed to read {}: {err}", emu_path.display()))?;
+    let reference_bytes = fs::read(reference_path)
+        .map_err(|err| format!("failed to read {}: {err}", reference_path.display()))?;
+    let emu = decode_png_rgba(&emu_bytes)?;
+    let reference = decode_png_rgba(&reference_bytes)?;
+    Ok(compare_images(&emu, &reference))
+}
+
+fn decode_png_rgba(bytes: &[u8]) -> Result<DecodedImage, String> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    let mut reader = decoder
+        .read_info()
+        .map_err(|err| format!("failed to read PNG header: {err}"))?;
+    let mut buffer = vec![0; reader.output_buffer_size()];
+    let info = reader
+        .next_frame(&mut buffer)
+        .map_err(|err| format!("failed to read PNG frame: {err}"))?;
+    let data = &buffer[..info.buffer_size()];
+    let rgba = match info.color_type {
+        png::ColorType::Rgb => {
+            let mut out = Vec::with_capacity((info.width * info.height * 4) as usize);
+            for chunk in data.chunks_exact(3) {
+                out.extend_from_slice(chunk);
+                out.push(0xFF);
+            }
+            out
+        }
+        png::ColorType::Rgba => data.to_vec(),
+        other => {
+            return Err(format!(
+                "unsupported PNG colour type {other:?}; expected RGB or RGBA"
+            ));
+        }
+    };
+    Ok(DecodedImage {
+        width: info.width,
+        height: info.height,
+        rgba,
+    })
+}
+
+fn compare_images(emu: &DecodedImage, reference: &DecodedImage) -> ImageComparison {
+    let dimensions_match = emu.width == reference.width && emu.height == reference.height;
+    let compared_pixels = if dimensions_match {
+        u64::from(emu.width) * u64::from(emu.height)
+    } else {
+        0
+    };
+    if !dimensions_match {
+        return ImageComparison {
+            emu_width: emu.width,
+            emu_height: emu.height,
+            reference_width: reference.width,
+            reference_height: reference.height,
+            dimensions_match,
+            compared_pixels,
+            differing_pixels: 0,
+            differing_pixel_percent: 0.0,
+            max_channel_delta: 0,
+            mean_abs_channel_delta: 0.0,
+        };
+    }
+
+    let mut differing_pixels = 0u64;
+    let mut max_channel_delta = 0u8;
+    let mut total_abs_channel_delta = 0u64;
+    for (emu_pixel, reference_pixel) in emu.rgba.chunks_exact(4).zip(reference.rgba.chunks_exact(4))
+    {
+        let mut pixel_differs = false;
+        for channel in 0..3 {
+            let delta = emu_pixel[channel].abs_diff(reference_pixel[channel]);
+            pixel_differs |= delta != 0;
+            max_channel_delta = max_channel_delta.max(delta);
+            total_abs_channel_delta += u64::from(delta);
+        }
+        if pixel_differs {
+            differing_pixels += 1;
+        }
+    }
+
+    let compared_channels = compared_pixels * 3;
+    ImageComparison {
+        emu_width: emu.width,
+        emu_height: emu.height,
+        reference_width: reference.width,
+        reference_height: reference.height,
+        dimensions_match,
+        compared_pixels,
+        differing_pixels,
+        differing_pixel_percent: (differing_pixels as f64 / compared_pixels as f64) * 100.0,
+        max_channel_delta,
+        mean_abs_channel_delta: total_abs_channel_delta as f64 / compared_channels as f64,
+    }
+}
+
 fn capture_xroar_reference(
     config: &XroarReferenceConfig,
     rom: &[u8; ROM_SIZE],
@@ -1169,6 +1305,8 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         start_screenshot: None,
         xroar_reference_screenshot: None,
         xroar_reference_error: None,
+        xroar_reference_comparison: None,
+        xroar_reference_comparison_error: None,
     }
 }
 
@@ -1835,6 +1973,29 @@ mod tests {
         assert_eq!(&output[..4], &[0x12, 0x34, 0x56, 0xFF]);
         assert_eq!(&output[4..8], &[0x12, 0x34, 0x56, 0xFF]);
         assert_eq!(info.color_type, png::ColorType::Rgba);
+    }
+
+    #[test]
+    fn image_comparison_reports_dimension_and_pixel_differences() {
+        let emu = DecodedImage {
+            width: 2,
+            height: 1,
+            rgba: vec![0, 0, 0, 0xFF, 10, 20, 30, 0xFF],
+        };
+        let reference = DecodedImage {
+            width: 2,
+            height: 1,
+            rgba: vec![0, 0, 0, 0xFF, 20, 10, 30, 0xFF],
+        };
+
+        let comparison = compare_images(&emu, &reference);
+
+        assert!(comparison.dimensions_match);
+        assert_eq!(comparison.compared_pixels, 2);
+        assert_eq!(comparison.differing_pixels, 1);
+        assert_eq!(comparison.differing_pixel_percent, 50.0);
+        assert_eq!(comparison.max_channel_delta, 10);
+        assert!((comparison.mean_abs_channel_delta - (20.0 / 6.0)).abs() < f64::EPSILON);
     }
 
     #[test]

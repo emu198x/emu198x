@@ -69,8 +69,8 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
   this is a temporary validation bridge, not a substitute for proper
   scanline/beam rendering. When supplied with a patched XRoar binary via
   `--xroar-bin` plus `--xroar-reference-dir`, the same smoke run also writes
-  deterministic headless XRoar `-vo-picture zoomed` reference PNGs for
-  runtime-smoked tapes.
+  deterministic headless XRoar `-vo-picture zoomed` reference PNGs and records
+  dimension and pixel-difference summaries for runtime-smoked tapes.
 
 ## Remaining
 
@@ -118,7 +118,7 @@ workspace:
 | PIA | 5 (DDR, control, IRQ, input pins, mixed I/O) |
 | SAM | 4 (defaults, set/clear, video offset, all-RAM) |
 | VDG | 8 (text decode, text rendering, SG4, RG6, and CG6 rendering) |
-| Harness | 15 (CLI, ROM loading, keyboard labels, text dumps, smoke options, XRoar-compatible screenshots, XRoar reference options, smoke classification) |
+| Harness | 16 (CLI, ROM loading, keyboard labels, text dumps, smoke options, XRoar-compatible screenshots, XRoar reference comparison, XRoar reference options, smoke classification) |
 | Runtime | 18 (profile metadata, firmware construction, framebuffer emission, queries, boot status, CAS mounting/playback, real-ROM headless screenshot, real-CAS mount smoke, Textstar CLOAD/RUN smoke, machine-code CAS smoke, and keyboard echo smoke) |
 | Native | 3 (CLI, CAS tape argument, and host key mapping) |
 | CAS format | 7 (block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors) |
