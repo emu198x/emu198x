@@ -57,7 +57,7 @@ Controls:
     F12              hard reset
     A-Z, 0-9         Dragon keyboard keys
     @ : ; , - . /    Dragon punctuation keys
-    ! \" # $ % & ' ( ) £ * + < = > ?
+    ! \" # $ % & ' ( ) * + < = > ?
                      Dragon shifted symbols
     Arrows           Dragon arrow keys
     Enter            Dragon Enter
@@ -582,7 +582,6 @@ fn map_dragon_character(text: &str) -> Option<Vec<&'static str>> {
         '\'' => vec!["shift", "7"],
         '(' => vec!["shift", "8"],
         ')' => vec!["shift", "9"],
-        '£' => vec!["shift", "0"],
         '*' => vec!["shift", ":"],
         '+' => vec!["shift", ";"],
         '<' => vec!["shift", ","],
@@ -794,7 +793,6 @@ mod tests {
             ("'", &["shift", "7"]),
             ("(", &["shift", "8"]),
             (")", &["shift", "9"]),
-            ("£", &["shift", "0"]),
             ("*", &["shift", ":"]),
             ("+", &["shift", ";"]),
             ("<", &["shift", ","]),
