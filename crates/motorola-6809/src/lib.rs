@@ -7,7 +7,7 @@
 
 pub mod registers;
 
-use registers::{FLAG_C, FLAG_F, FLAG_H, FLAG_I, FLAG_N, FLAG_V, FLAG_Z, Registers};
+use registers::{FLAG_C, FLAG_E, FLAG_F, FLAG_H, FLAG_I, FLAG_N, FLAG_V, FLAG_Z, Registers};
 use serde::{Deserialize, Serialize};
 
 const MAX_STACK_BYTES: usize = 12;
@@ -27,6 +27,8 @@ enum CpuState {
     ReadImm16Hi(Imm16Op),
     ReadImm16Lo { op: Imm16Op, hi: u8 },
     ReadRel8(Rel8Op),
+    ReadRel16Hi(Rel16Op),
+    ReadRel16Lo { op: Rel16Op, hi: u8 },
     ReadIndexedPostbyte(IndexedOp),
     ReadIndexedOffset8 { op: IndexedOp, post: u8 },
     ReadIndexedOffset16Hi { op: IndexedOp, post: u8 },
@@ -54,6 +56,12 @@ enum CpuState {
     PushDone(AfterPush),
     PullWordHi(Pull16Op),
     PullWordLo { op: Pull16Op, hi: u8 },
+    RtiReadCc,
+    ReadDirectJmpOperand,
+    ReadCwaiMask,
+    WaitForInterrupt { stacked: bool },
+    ReadVectorHi(Vector),
+    ReadVectorLo { vector: Vector, hi: u8 },
     IllegalOpcode(u8),
 }
 
@@ -90,6 +98,12 @@ enum Imm16Op {
 enum Rel8Op {
     Branch(BranchCondition),
     Bsr,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum Rel16Op {
+    Branch(BranchCondition),
+    Lbsr,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -233,6 +247,36 @@ enum AfterPush {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum AfterStack {
+    Fetch,
+    ReadVector(Vector),
+    WaitForInterrupt,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum Vector {
+    Swi3,
+    Swi2,
+    Firq,
+    Irq,
+    Swi,
+    Nmi,
+}
+
+impl Vector {
+    const fn addr(self) -> u16 {
+        match self {
+            Self::Swi3 => 0xFFF2,
+            Self::Swi2 => 0xFFF4,
+            Self::Firq => 0xFFF6,
+            Self::Irq => 0xFFF8,
+            Self::Swi => 0xFFFA,
+            Self::Nmi => 0xFFFC,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum Pull16Op {
     Pc,
 }
@@ -278,6 +322,7 @@ enum StackWork {
         bytes: [u8; MAX_STACK_BYTES],
         len: u8,
         index: u8,
+        after: AfterStack,
     },
     Pull {
         ptr: StackPointer,
@@ -384,6 +429,10 @@ impl Mc6809 {
     fn tick_instruction(&mut self) {
         match self.state {
             CpuState::Fetch => {
+                if let Some(vector) = self.pending_interrupt() {
+                    self.start_interrupt(vector);
+                    return;
+                }
                 let opcode = self.data_in;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.sync = false;
@@ -398,6 +447,7 @@ impl Mc6809 {
                     0x0A => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Dec)),
                     0x0C => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Inc)),
                     0x0D => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Tst)),
+                    0x0E => self.read_next(CpuState::ReadDirectJmpOperand),
                     0x0F => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Clr)),
                     0x10 => self.read_next(CpuState::Prefix10),
                     0x11 => self.read_next(CpuState::Prefix11),
@@ -407,6 +457,22 @@ impl Mc6809 {
                         self.state = CpuState::NopInternal;
                         self.addr = self.regs.pc;
                         self.rw = true;
+                    }
+                    0x13 => {
+                        self.state = CpuState::WaitForInterrupt { stacked: false };
+                        self.addr = self.regs.pc;
+                        self.rw = true;
+                        self.sync = false;
+                    }
+                    0x16 => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(
+                            BranchCondition::Always,
+                        )));
+                    }
+                    0x17 => self.read_next(CpuState::ReadRel16Hi(Rel16Op::Lbsr)),
+                    0x19 => {
+                        self.daa();
+                        self.start_internal_cycles(1);
                     }
                     0x1A => self.read_next(CpuState::ReadCcImm(CcOp::Or)),
                     0x1C => self.read_next(CpuState::ReadCcImm(CcOp::And)),
@@ -472,6 +538,13 @@ impl Mc6809 {
                     0x35 => self.read_next(CpuState::ReadStackPostbyte(StackOp::PullS)),
                     0x36 => self.read_next(CpuState::ReadStackPostbyte(StackOp::PushU)),
                     0x37 => self.read_next(CpuState::ReadStackPostbyte(StackOp::PullU)),
+                    0x3B => {
+                        self.state = CpuState::RtiReadCc;
+                        self.addr = self.regs.s;
+                        self.rw = true;
+                        self.sync = false;
+                    }
+                    0x3C => self.read_next(CpuState::ReadCwaiMask),
                     0x39 => self.prepare_pull_word(Pull16Op::Pc),
                     0x3A => {
                         self.abx();
@@ -481,6 +554,7 @@ impl Mc6809 {
                         self.mul();
                         self.start_internal_cycles(10);
                     }
+                    0x3F => self.start_software_interrupt(Vector::Swi),
                     0x40 => {
                         self.regs.a = self.rmw8(Rmw8Op::Neg, self.regs.a).unwrap_or(self.regs.a);
                         self.start_internal_cycles(1);
@@ -898,6 +972,52 @@ impl Mc6809 {
                 let opcode = self.data_in;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 match opcode {
+                    0x21 => self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(
+                        BranchCondition::Never,
+                    ))),
+                    0x22 => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Hi)))
+                    }
+                    0x23 => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Ls)))
+                    }
+                    0x24 => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Cc)))
+                    }
+                    0x25 => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Cs)))
+                    }
+                    0x26 => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Ne)))
+                    }
+                    0x27 => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Eq)))
+                    }
+                    0x28 => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Vc)))
+                    }
+                    0x29 => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Vs)))
+                    }
+                    0x2A => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Pl)))
+                    }
+                    0x2B => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Mi)))
+                    }
+                    0x2C => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Ge)))
+                    }
+                    0x2D => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Lt)))
+                    }
+                    0x2E => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Gt)))
+                    }
+                    0x2F => {
+                        self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(BranchCondition::Le)))
+                    }
+                    0x3F => self.start_software_interrupt(Vector::Swi2),
                     0x83 => {
                         self.read_next(CpuState::ReadImm16Hi(Imm16Op::Compare(WordReg::D)));
                     }
@@ -975,6 +1095,7 @@ impl Mc6809 {
                 let opcode = self.data_in;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 match opcode {
+                    0x3F => self.start_software_interrupt(Vector::Swi3),
                     0x83 => {
                         self.read_next(CpuState::ReadImm16Hi(Imm16Op::Compare(WordReg::U)));
                     }
@@ -1074,6 +1195,25 @@ impl Mc6809 {
                     Rel8Op::Bsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(target)),
                 }
             }
+            CpuState::ReadRel16Hi(op) => {
+                let hi = self.data_in;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.read_next(CpuState::ReadRel16Lo { op, hi });
+            }
+            CpuState::ReadRel16Lo { op, hi } => {
+                let offset = i16::from_be_bytes([hi, self.data_in]);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                let target = self.regs.pc.wrapping_add_signed(offset);
+                match op {
+                    Rel16Op::Branch(condition) => {
+                        if self.branch_condition(condition) {
+                            self.regs.pc = target;
+                        }
+                        self.next_fetch();
+                    }
+                    Rel16Op::Lbsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(target)),
+                }
+            }
             CpuState::ReadIndexedPostbyte(op) => {
                 let post = self.data_in;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
@@ -1140,6 +1280,10 @@ impl Mc6809 {
                 let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.prepare_rmw(op, addr);
+            }
+            CpuState::ReadDirectJmpOperand => {
+                self.regs.pc = u16::from_be_bytes([self.regs.dp, self.data_in]);
+                self.next_fetch();
             }
             CpuState::ReadDirectOperand(op) => {
                 let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
@@ -1263,6 +1407,46 @@ impl Mc6809 {
                 }
                 self.next_fetch();
             }
+            CpuState::RtiReadCc => {
+                self.regs.cc = self.data_in;
+                self.regs.s = self.regs.s.wrapping_add(1);
+                if self.regs.flag(FLAG_E) {
+                    self.start_stack_pull(StackPointer::S, 0xFE);
+                } else {
+                    self.prepare_pull_word(Pull16Op::Pc);
+                }
+            }
+            CpuState::ReadCwaiMask => {
+                self.regs.cc &= self.data_in;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.regs.set_flag(FLAG_E, true);
+                self.start_stack_push(StackPointer::S, 0xFF, AfterStack::WaitForInterrupt);
+            }
+            CpuState::WaitForInterrupt { stacked } => {
+                if let Some(vector) = self.pending_interrupt() {
+                    if stacked {
+                        self.apply_interrupt_post_stack_flags(vector);
+                        self.read_vector(vector);
+                    } else {
+                        self.start_interrupt(vector);
+                    }
+                } else {
+                    self.addr = self.regs.pc;
+                    self.rw = true;
+                    self.sync = false;
+                }
+            }
+            CpuState::ReadVectorHi(vector) => {
+                let hi = self.data_in;
+                self.state = CpuState::ReadVectorLo { vector, hi };
+                self.addr = vector.addr().wrapping_add(1);
+                self.rw = true;
+                self.sync = false;
+            }
+            CpuState::ReadVectorLo { hi, .. } => {
+                self.regs.pc = u16::from_be_bytes([hi, self.data_in]);
+                self.next_fetch();
+            }
             CpuState::IllegalOpcode(_) => {
                 self.halt = true;
             }
@@ -1292,6 +1476,87 @@ impl Mc6809 {
             self.addr = self.regs.pc;
             self.rw = true;
             self.sync = false;
+        }
+    }
+
+    fn pending_interrupt(&mut self) -> Option<Vector> {
+        if self.nmi {
+            self.nmi = false;
+            Some(Vector::Nmi)
+        } else if self.firq && !self.regs.firq_masked() {
+            Some(Vector::Firq)
+        } else if self.irq && !self.regs.irq_masked() {
+            Some(Vector::Irq)
+        } else {
+            None
+        }
+    }
+
+    fn start_interrupt(&mut self, vector: Vector) {
+        self.apply_interrupt_pre_stack_flags(vector);
+        let mask = match vector {
+            Vector::Firq => 0x81,
+            Vector::Irq | Vector::Nmi => 0xFF,
+            Vector::Swi | Vector::Swi2 | Vector::Swi3 => unreachable!(),
+        };
+        self.start_stack_push(StackPointer::S, mask, AfterStack::ReadVector(vector));
+    }
+
+    fn start_software_interrupt(&mut self, vector: Vector) {
+        self.regs.set_flag(FLAG_E, true);
+        self.start_stack_push(StackPointer::S, 0xFF, AfterStack::ReadVector(vector));
+    }
+
+    fn apply_interrupt_pre_stack_flags(&mut self, vector: Vector) {
+        match vector {
+            Vector::Firq => {
+                self.regs.set_flag(FLAG_E, false);
+            }
+            Vector::Irq | Vector::Nmi => {
+                self.regs.set_flag(FLAG_E, true);
+            }
+            Vector::Swi | Vector::Swi2 | Vector::Swi3 => {}
+        }
+    }
+
+    fn apply_interrupt_post_stack_flags(&mut self, vector: Vector) {
+        match vector {
+            Vector::Firq | Vector::Swi => {
+                self.regs.set_flag(FLAG_I, true);
+                self.regs.set_flag(FLAG_F, true);
+            }
+            Vector::Irq | Vector::Nmi => {
+                self.regs.set_flag(FLAG_I, true);
+            }
+            Vector::Swi2 | Vector::Swi3 => {}
+        }
+    }
+
+    fn read_vector(&mut self, vector: Vector) {
+        self.state = CpuState::ReadVectorHi(vector);
+        self.addr = vector.addr();
+        self.rw = true;
+        self.sync = false;
+    }
+
+    fn after_stack(&mut self, after: AfterStack) {
+        match after {
+            AfterStack::Fetch => self.next_fetch(),
+            AfterStack::ReadVector(vector) => {
+                self.apply_interrupt_post_stack_flags(vector);
+                self.read_vector(vector);
+            }
+            AfterStack::WaitForInterrupt => {
+                if let Some(vector) = self.pending_interrupt() {
+                    self.apply_interrupt_post_stack_flags(vector);
+                    self.read_vector(vector);
+                } else {
+                    self.state = CpuState::WaitForInterrupt { stacked: true };
+                    self.addr = self.regs.pc;
+                    self.rw = true;
+                    self.sync = false;
+                }
+            }
         }
     }
 
@@ -1661,6 +1926,25 @@ impl Mc6809 {
         self.regs.set_flag(FLAG_C, result & 0x0080 != 0);
     }
 
+    fn daa(&mut self) {
+        let value = self.regs.a;
+        let msn = value & 0xF0;
+        let lsn = value & 0x0F;
+        let mut result = u16::from(value);
+
+        if lsn > 0x09 || self.regs.flag(FLAG_H) {
+            result = result.wrapping_add(0x06);
+        }
+        if msn > 0x90 || self.regs.flag(FLAG_C) || (msn > 0x80 && lsn > 0x09) {
+            result = result.wrapping_add(0x60);
+        }
+
+        self.regs.a = result as u8;
+        self.set_nz8(self.regs.a);
+        self.regs
+            .set_flag(FLAG_C, self.regs.flag(FLAG_C) || result & 0x100 != 0);
+    }
+
     fn branch_condition(&self, condition: BranchCondition) -> bool {
         let c = self.regs.flag(FLAG_C);
         let n = self.regs.flag(FLAG_N);
@@ -1728,14 +2012,14 @@ impl Mc6809 {
 
     fn start_stack_op(&mut self, op: StackOp, mask: u8) {
         match op {
-            StackOp::PushS => self.start_stack_push(StackPointer::S, mask),
+            StackOp::PushS => self.start_stack_push(StackPointer::S, mask, AfterStack::Fetch),
             StackOp::PullS => self.start_stack_pull(StackPointer::S, mask),
-            StackOp::PushU => self.start_stack_push(StackPointer::U, mask),
+            StackOp::PushU => self.start_stack_push(StackPointer::U, mask, AfterStack::Fetch),
             StackOp::PullU => self.start_stack_pull(StackPointer::U, mask),
         }
     }
 
-    fn start_stack_push(&mut self, ptr: StackPointer, mask: u8) {
+    fn start_stack_push(&mut self, ptr: StackPointer, mask: u8, after: AfterStack) {
         let mut bytes = [0; MAX_STACK_BYTES];
         let mut len = 0;
 
@@ -1773,6 +2057,7 @@ impl Mc6809 {
             bytes,
             len: len as u8,
             index: 0,
+            after,
         };
         self.schedule_stack_work();
     }
@@ -1873,9 +2158,10 @@ impl Mc6809 {
                 bytes,
                 len,
                 index,
+                after,
             } => {
                 if index >= len {
-                    self.next_fetch();
+                    self.after_stack(after);
                 } else {
                     let addr = self.stack_pointer(ptr).wrapping_sub(1);
                     self.set_stack_pointer(ptr, addr);
@@ -1907,6 +2193,7 @@ impl Mc6809 {
             bytes,
             len,
             index,
+            after,
         } = self.stack_work
         {
             self.stack_work = StackWork::Push {
@@ -1914,6 +2201,7 @@ impl Mc6809 {
                 bytes,
                 len,
                 index: index + 1,
+                after,
             };
         }
         self.schedule_stack_work();
@@ -2257,6 +2545,17 @@ mod tests {
         for _ in 0..count {
             run_cycle(cpu, memory);
         }
+    }
+
+    fn run_until_boundary(cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
+        run_cycle(cpu, memory);
+        for _ in 0..64 {
+            if cpu.instruction_boundary() {
+                return;
+            }
+            run_cycle(cpu, memory);
+        }
+        panic!("instruction did not reach boundary");
     }
 
     fn cpu_at(pc: u16) -> Mc6809 {
@@ -2715,6 +3014,51 @@ mod tests {
     }
 
     #[test]
+    fn direct_jmp_and_long_branches_change_pc() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x0E; // JMP <$34
+        memory[0x4001] = 0x34;
+        memory[0x1234] = 0x16; // LBRA +$0010
+        memory[0x1235] = 0x00;
+        memory[0x1236] = 0x10;
+        memory[0x1247] = 0x10; // LBEQ -$0008
+        memory[0x1248] = 0x27;
+        memory[0x1249] = 0xFF;
+        memory[0x124A] = 0xF8;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.dp = 0x12;
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.pc, 0x1234);
+        assert!(cpu.instruction_boundary());
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(cpu.regs.pc, 0x1247);
+
+        cpu.regs.set_flag(FLAG_Z, true);
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(cpu.regs.pc, 0x1243);
+    }
+
+    #[test]
+    fn lbsr_pushes_return_pc_and_branches_relative() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x17; // LBSR +$0010
+        memory[0x4001] = 0x00;
+        memory[0x4002] = 0x10;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+
+        run_cycles(&mut cpu, &mut memory, 5);
+
+        assert_eq!(cpu.regs.pc, 0x4013);
+        assert_eq!(cpu.regs.s, 0x7FFE);
+        assert_eq!(memory[0x7FFE], 0x40);
+        assert_eq!(memory[0x7FFF], 0x03);
+        assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
     fn short_conditional_branches_follow_condition_codes() {
         fn branch_target(opcode: u8, cc: u8) -> u16 {
             let mut memory = [0; 0x10000];
@@ -2931,6 +3275,28 @@ mod tests {
     }
 
     #[test]
+    fn daa_adjusts_accumulator_after_bcd_add() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x19; // DAA
+        memory[0x4001] = 0x19; // DAA
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.a = 0x3C;
+        cpu.regs.set_flag(FLAG_H, true);
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x42);
+        assert!(!cpu.regs.flag(FLAG_Z));
+        assert!(!cpu.regs.flag(FLAG_C));
+
+        cpu.regs.a = 0x9A;
+        cpu.regs.set_flag(FLAG_H, false);
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x00);
+        assert!(cpu.regs.flag(FLAG_Z));
+        assert!(cpu.regs.flag(FLAG_C));
+    }
+
+    #[test]
     fn bsr_pushes_return_pc_and_branches_relative() {
         let mut memory = [0; 0x10000];
         memory[0x4000] = 0x8D; // BSR +2
@@ -2968,6 +3334,161 @@ mod tests {
         assert_eq!(cpu.regs.pc, 0x4003);
         assert_eq!(cpu.regs.s, 0x8000);
         assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn swi_stacks_full_frame_and_rti_restores_it() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x3F; // SWI
+        memory[0x4500] = 0x3B; // RTI
+        memory[0xFFFA] = 0x45;
+        memory[0xFFFB] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.u = 0xA0B0;
+        cpu.regs.y = 0xC0D0;
+        cpu.regs.x = 0x1234;
+        cpu.regs.dp = 0x56;
+        cpu.regs.b = 0x78;
+        cpu.regs.a = 0x9A;
+        cpu.regs.cc = 0;
+
+        run_until_boundary(&mut cpu, &mut memory);
+
+        assert_eq!(cpu.regs.pc, 0x4500);
+        assert_eq!(cpu.regs.s, 0x7FF4);
+        assert_eq!(
+            &memory[0x7FF4..=0x7FFF],
+            &[
+                FLAG_E, 0x9A, 0x78, 0x56, 0x12, 0x34, 0xC0, 0xD0, 0xA0, 0xB0, 0x40, 0x01
+            ]
+        );
+        assert!(cpu.regs.flag(FLAG_I));
+        assert!(cpu.regs.flag(FLAG_F));
+
+        cpu.regs.u = 0;
+        cpu.regs.y = 0;
+        cpu.regs.x = 0;
+        cpu.regs.dp = 0;
+        cpu.regs.b = 0;
+        cpu.regs.a = 0;
+        run_until_boundary(&mut cpu, &mut memory);
+
+        assert_eq!(cpu.regs.pc, 0x4001);
+        assert_eq!(cpu.regs.s, 0x8000);
+        assert_eq!(cpu.regs.u, 0xA0B0);
+        assert_eq!(cpu.regs.y, 0xC0D0);
+        assert_eq!(cpu.regs.x, 0x1234);
+        assert_eq!(cpu.regs.dp, 0x56);
+        assert_eq!(cpu.regs.b, 0x78);
+        assert_eq!(cpu.regs.a, 0x9A);
+        assert_eq!(cpu.regs.cc, FLAG_E);
+    }
+
+    #[test]
+    fn external_irq_and_firq_enter_via_vectors_with_expected_stack_frames() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x12; // would be fetched if IRQ were not taken first
+        memory[0xFFF8] = 0x45;
+        memory[0xFFF9] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.cc = 0;
+        cpu.irq = true;
+
+        run_until_boundary(&mut cpu, &mut memory);
+
+        assert_eq!(cpu.regs.pc, 0x4500);
+        assert_eq!(cpu.regs.s, 0x7FF4);
+        assert_eq!(memory[0x7FF4], FLAG_E);
+        assert_eq!(&memory[0x7FFE..=0x7FFF], &[0x40, 0x00]);
+        assert!(cpu.regs.flag(FLAG_I));
+
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x12;
+        memory[0xFFF6] = 0x46;
+        memory[0xFFF7] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.cc = 0;
+        cpu.firq = true;
+
+        run_until_boundary(&mut cpu, &mut memory);
+
+        assert_eq!(cpu.regs.pc, 0x4600);
+        assert_eq!(cpu.regs.s, 0x7FFD);
+        assert_eq!(&memory[0x7FFD..=0x7FFF], &[0x00, 0x40, 0x00]);
+        assert!(cpu.regs.flag(FLAG_I));
+        assert!(cpu.regs.flag(FLAG_F));
+        assert!(!cpu.regs.flag(FLAG_E));
+    }
+
+    #[test]
+    fn prefixed_software_interrupts_use_separate_vectors_without_masking() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x10; // SWI2
+        memory[0x4001] = 0x3F;
+        memory[0xFFF4] = 0x48;
+        memory[0xFFF5] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.cc = FLAG_C;
+
+        run_until_boundary(&mut cpu, &mut memory);
+
+        assert_eq!(cpu.regs.pc, 0x4800);
+        assert_eq!(memory[0x7FF4], FLAG_E | FLAG_C);
+        assert_eq!(&memory[0x7FFE..=0x7FFF], &[0x40, 0x02]);
+        assert!(!cpu.regs.flag(FLAG_I));
+        assert!(!cpu.regs.flag(FLAG_F));
+    }
+
+    #[test]
+    fn sync_waits_for_interrupt_without_consuming_next_opcode() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x13; // SYNC
+        memory[0x4001] = 0x12; // must remain unfetched until after interrupt
+        memory[0xFFFC] = 0x49;
+        memory[0xFFFD] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.cc = 0;
+
+        run_cycle(&mut cpu, &mut memory);
+        assert_eq!(cpu.regs.pc, 0x4001);
+        assert!(!cpu.instruction_boundary());
+
+        cpu.nmi = true;
+        run_until_boundary(&mut cpu, &mut memory);
+
+        assert_eq!(cpu.regs.pc, 0x4900);
+        assert_eq!(cpu.regs.s, 0x7FF4);
+        assert_eq!(&memory[0x7FFE..=0x7FFF], &[0x40, 0x01]);
+        assert!(cpu.regs.flag(FLAG_I));
+    }
+
+    #[test]
+    fn cwai_stacks_then_vectors_when_interrupt_arrives() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x3C; // CWAI #$EF
+        memory[0x4001] = 0xEF;
+        memory[0xFFF8] = 0x47;
+        memory[0xFFF9] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.cc = FLAG_I | FLAG_C;
+
+        run_cycles(&mut cpu, &mut memory, 14);
+        assert_eq!(cpu.regs.s, 0x7FF4);
+        assert_eq!(memory[0x7FF4], FLAG_E | FLAG_C);
+        assert!(!cpu.instruction_boundary());
+
+        cpu.irq = true;
+        run_until_boundary(&mut cpu, &mut memory);
+
+        assert_eq!(cpu.regs.pc, 0x4700);
+        assert_eq!(cpu.regs.s, 0x7FF4);
+        assert!(cpu.regs.flag(FLAG_I));
     }
 
     #[test]
