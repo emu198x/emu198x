@@ -5,7 +5,7 @@ use emu198x_shell::{
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError, QueryResult,
     ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
-use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas};
+use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
 use machine_dragon_32::{Dragon32, DragonKey, MatrixKey, ROM_SIZE};
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
@@ -35,6 +35,8 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "dragon.tape.finished",
     "dragon.tape.header.file_type",
     "dragon.tape.header.name",
+    "dragon.tape.ignored_bytes",
+    "dragon.tape.ignored_segments",
     "dragon.tape.length_bits",
     "dragon.tape.loaded",
     "dragon.tape.motor_on",
@@ -51,6 +53,10 @@ pub struct DragonTapeSummary {
     pub blocks: usize,
     /// `true` when every block checksum matches.
     pub checksums_valid: bool,
+    /// Number of non-CAS byte ranges skipped by tolerant parsing.
+    pub ignored_segments: usize,
+    /// Total number of non-CAS bytes skipped by tolerant parsing.
+    pub ignored_bytes: usize,
     /// First standard header filename, if present.
     pub header_name: Option<String>,
     /// First standard header file type, if present.
@@ -147,6 +153,8 @@ impl DragonRuntime {
             DragonTapeSummary {
                 blocks: tape.blocks.len(),
                 checksums_valid: tape.checksums_valid(),
+                ignored_segments: tape.ignored_ranges.len(),
+                ignored_bytes: tape.ignored_byte_count(),
                 header_name: header.map(|header| header.name.clone()),
                 header_file_type: header.map(|header| cas_file_type_label(header.file_type)),
             }
@@ -215,11 +223,12 @@ impl MachineCore for DragonRuntime {
             let slot = image.slot.as_ref();
             match image.kind {
                 MediaKind::Tape if slot == "tape-1" => {
-                    let tape =
-                        parse_cas(image.bytes).map_err(|reason| MachineError::InvalidMedia {
+                    let tape = parse_cas_tolerant(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
                             slot: slot.to_owned(),
                             reason: reason.to_string(),
-                        })?;
+                        }
+                    })?;
                     let tape_bytes = cassette_bytes_from_cas(&tape);
                     self.machine.load_cassette_bytes(tape_bytes.clone());
                     self.tape = Some(tape);
@@ -322,6 +331,12 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
             "dragon.tape.blocks" => json!(machine.tape.as_ref().map(|tape| tape.blocks.len())),
             "dragon.tape.checksums_valid" => {
                 json!(machine.tape.as_ref().map(CasImage::checksums_valid))
+            }
+            "dragon.tape.ignored_segments" => {
+                json!(machine.tape.as_ref().map(|tape| tape.ignored_ranges.len()))
+            }
+            "dragon.tape.ignored_bytes" => {
+                json!(machine.tape.as_ref().map(CasImage::ignored_byte_count))
             }
             "dragon.tape.finished" => json!(machine.machine.cassette_finished()),
             "dragon.tape.length_bits" => json!(machine.machine.cassette_len_bits()),

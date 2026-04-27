@@ -9,6 +9,10 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process;
 
+use emu198x_shell::{
+    HeadlessSession, InputEvent, MediaImage, MediaKind, MediaSet, read_media_asset,
+};
+use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
 use machine_dragon_32::{
     DeviceAccess, DeviceRegion, Dragon32, DragonKey, DragonKeyboard, FetchTrace, MatrixKey,
     ROM_SIZE, ReadonlyWrite, RunReport, StopReason,
@@ -16,10 +20,18 @@ use machine_dragon_32::{
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
 };
+use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
+use serde::Serialize;
 use zip::ZipArchive;
 
 const DEFAULT_CYCLES: u64 = 100_000;
 const DEFAULT_TRACE_LIMIT: usize = 64;
+const DEFAULT_SMOKE_RUN_LIMIT: usize = 8;
+const DRAGON_CPU_HZ: u64 = 894_886;
+const DRAGON_FRAME_HZ: u64 = 50;
+const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
+const BOOT_FRAME_BUDGET: u32 = 100;
+const KEY_EDGE_FRAMES: u32 = 4;
 
 const USAGE: &str = "\
 Usage: emu198x-script-dragon --rom PATH [OPTIONS]
@@ -34,6 +46,10 @@ Execution:
     --press-matrix R,C hold a raw keyboard matrix switch closed; may be repeated
     --dump-text        print the current 32x16 MC6847 text snapshot
     --dump-text-png P  write the current border-inclusive MC6847 text framebuffer as a PNG
+    --smoke-root PATH  recursively scan .cas/.zip Dragon tape images
+    --smoke-run-limit N
+                       run real-ROM CLOAD/CLOADM smoke for first N parsed tapes [default: 8]
+    --smoke-report P   write smoke matrix JSON to PATH
 
 Other:
     --help             print this help text
@@ -47,6 +63,9 @@ struct Cli {
     pressed_keys: Vec<MatrixKey>,
     dump_text: bool,
     dump_text_png: Option<PathBuf>,
+    smoke_root: Option<PathBuf>,
+    smoke_run_limit: usize,
+    smoke_report: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +88,61 @@ struct HarnessReport {
     text_framebuffer: Option<Vec<u32>>,
 }
 
+#[derive(Debug, Serialize)]
+struct SmokeMatrixReport {
+    tape_count: usize,
+    runtime_smokes: usize,
+    rows: Vec<SmokeMatrixRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct SmokeMatrixRow {
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    archive_member: Option<String>,
+    parse_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocks: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    checksums_valid: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ignored_segments: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ignored_bytes: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    header: Option<CasHeaderSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime: Option<CasRuntimeSmoke>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CasHeaderSummary {
+    name: String,
+    file_type: String,
+    ascii_flag: u8,
+    gap_flag: u8,
+    first_address: u16,
+    second_address: u16,
+}
+
+#[derive(Debug, Serialize)]
+struct CasRuntimeSmoke {
+    command: String,
+    load_result: String,
+    start_command: String,
+    start_result: String,
+    tape_position_bits: u64,
+    tape_length_bits: u64,
+    tape_finished: bool,
+    visible_change_after_start: bool,
+    basic_error: bool,
+    screen_text: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 fn main() {
     if let Err(err) = run_main() {
         eprintln!("{err}");
@@ -85,6 +159,19 @@ fn run_main() -> Result<(), String> {
 
     let cli = parse_cli(args)?;
     let rom = load_rom(&cli.rom)?;
+    if cli.smoke_root.is_some() {
+        let report = run_smoke_matrix(&cli, &rom)?;
+        let json = serde_json::to_string_pretty(&report)
+            .map_err(|err| format!("failed to serialize smoke matrix report: {err}"))?;
+        if let Some(path) = &cli.smoke_report {
+            fs::write(path, json.as_bytes())
+                .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+        } else {
+            println!("{json}");
+        }
+        return Ok(());
+    }
+
     let keyboard =
         DragonKeyboard::with_pressed_keys(&cli.pressed_keys).map_err(|err| err.to_string())?;
     let report = run_harness_with_keyboard(
@@ -117,6 +204,9 @@ where
     let mut pressed_keys = Vec::new();
     let mut dump_text = false;
     let mut dump_text_png = None;
+    let mut smoke_root = None;
+    let mut smoke_run_limit = DEFAULT_SMOKE_RUN_LIMIT;
+    let mut smoke_report = None;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -144,6 +234,18 @@ where
             "--dump-text-png" => {
                 dump_text_png = Some(PathBuf::from(next_value(&mut iter, "--dump-text-png")?));
             }
+            "--smoke-root" => {
+                smoke_root = Some(PathBuf::from(next_value(&mut iter, "--smoke-root")?));
+            }
+            "--smoke-run-limit" => {
+                smoke_run_limit = parse_usize(
+                    &next_value(&mut iter, "--smoke-run-limit")?,
+                    "--smoke-run-limit",
+                )?;
+            }
+            "--smoke-report" => {
+                smoke_report = Some(PathBuf::from(next_value(&mut iter, "--smoke-report")?));
+            }
             "--help" | "-h" => return Err(USAGE.to_owned()),
             _ => return Err(format!("unknown argument: {arg}\n\n{USAGE}")),
         }
@@ -156,6 +258,9 @@ where
         pressed_keys,
         dump_text,
         dump_text_png,
+        smoke_root,
+        smoke_run_limit,
+        smoke_report,
     })
 }
 
@@ -201,6 +306,399 @@ fn parse_dragon_key(value: &str) -> Result<DragonKey, String> {
             "unknown Dragon key {value:?}; use a Dragon key label such as A, 1, @, enter, clear, break, shift, space, up, down, left, or right"
         )
     })
+}
+
+fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport, String> {
+    let root = cli
+        .smoke_root
+        .as_deref()
+        .ok_or_else(|| "--smoke-root is required".to_owned())?;
+    let mut tapes = Vec::new();
+    collect_tape_candidates(root, &mut tapes)?;
+    tapes.sort();
+
+    let mut rows = Vec::with_capacity(tapes.len());
+    let mut runtime_smokes = 0usize;
+    for tape_path in tapes {
+        let row = scan_tape_candidate(&tape_path, rom, &mut runtime_smokes, cli.smoke_run_limit);
+        rows.push(row);
+    }
+
+    Ok(SmokeMatrixReport {
+        tape_count: rows.len(),
+        runtime_smokes,
+        rows,
+    })
+}
+
+fn collect_tape_candidates(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    if path.is_file() {
+        if is_tape_candidate_path(path) {
+            out.push(path.to_owned());
+        }
+        return Ok(());
+    }
+
+    for entry in
+        fs::read_dir(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?
+    {
+        let entry =
+            entry.map_err(|err| format!("failed to read entry under {}: {err}", path.display()))?;
+        collect_tape_candidates(&entry.path(), out)?;
+    }
+    Ok(())
+}
+
+fn is_tape_candidate_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| matches_ignore_ascii_case(ext, &["cas", "zip"]))
+}
+
+fn scan_tape_candidate(
+    path: &Path,
+    rom: &[u8; ROM_SIZE],
+    runtime_smokes: &mut usize,
+    smoke_run_limit: usize,
+) -> SmokeMatrixRow {
+    let loaded = match read_media_asset(path, MediaKind::Tape) {
+        Ok(loaded) => loaded,
+        Err(err) => {
+            return SmokeMatrixRow {
+                path: path.display().to_string(),
+                archive_member: None,
+                parse_status: "read-error".to_owned(),
+                blocks: None,
+                checksums_valid: None,
+                ignored_segments: None,
+                ignored_bytes: None,
+                header: None,
+                runtime: None,
+                error: Some(err.to_string()),
+            };
+        }
+    };
+
+    let parsed = match parse_cas_tolerant(&loaded.bytes) {
+        Ok(image) => image,
+        Err(err) => {
+            return SmokeMatrixRow {
+                path: path.display().to_string(),
+                archive_member: loaded.archive_member,
+                parse_status: "parse-error".to_owned(),
+                blocks: None,
+                checksums_valid: None,
+                ignored_segments: None,
+                ignored_bytes: None,
+                header: None,
+                runtime: None,
+                error: Some(err.to_string()),
+            };
+        }
+    };
+
+    let header = parsed.first_header().map(CasHeaderSummary::from);
+    let should_smoke = parsed.first_header().is_some_and(|header| {
+        matches!(
+            header.file_type,
+            CasFileType::Basic | CasFileType::MachineCode
+        )
+    }) && !parsed.has_ignored_bytes()
+        && parsed.checksums_valid()
+        && *runtime_smokes < smoke_run_limit;
+    let runtime = if should_smoke {
+        *runtime_smokes += 1;
+        Some(run_runtime_smoke(rom, &loaded.bytes, &parsed))
+    } else {
+        None
+    };
+
+    SmokeMatrixRow {
+        path: path.display().to_string(),
+        archive_member: loaded.archive_member,
+        parse_status: if parsed.has_ignored_bytes() {
+            "ok-with-ignored-bytes".to_owned()
+        } else {
+            "ok".to_owned()
+        },
+        blocks: Some(parsed.blocks.len()),
+        checksums_valid: Some(parsed.checksums_valid()),
+        ignored_segments: Some(parsed.ignored_ranges.len()),
+        ignored_bytes: Some(parsed.ignored_byte_count()),
+        header,
+        runtime,
+        error: None,
+    }
+}
+
+fn run_runtime_smoke(rom: &[u8; ROM_SIZE], tape_bytes: &[u8], tape: &CasImage) -> CasRuntimeSmoke {
+    let command = tape
+        .first_header()
+        .map(|header| match header.file_type {
+            CasFileType::Basic => "CLOAD",
+            CasFileType::MachineCode => "CLOADM",
+            CasFileType::Data | CasFileType::Unknown(_) => "",
+        })
+        .unwrap_or("");
+    if command.is_empty() {
+        return failed_runtime_smoke("", "unsupported tape file type");
+    }
+
+    match run_runtime_smoke_inner(rom, tape_bytes, command) {
+        Ok(smoke) => smoke,
+        Err(error) => failed_runtime_smoke(command, &error),
+    }
+}
+
+fn run_runtime_smoke_inner(
+    rom: &[u8; ROM_SIZE],
+    tape_bytes: &[u8],
+    command: &str,
+) -> Result<CasRuntimeSmoke, String> {
+    let mut session = boot_runtime_session(rom)?;
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("tape-1", MediaKind::Tape, tape_bytes));
+    session
+        .load_media(&media)
+        .map_err(|err| format!("failed to load tape into runtime: {err}"))?;
+    let tape_length_bits = query_u64(&session, "dragon.tape.length_bits")?;
+
+    type_basic_command(&mut session, command)?;
+    let moved_to = wait_for_tape_position_above(&mut session, 0, 180)?;
+    if moved_to == 0 {
+        return Err("ROM did not start consuming cassette bits".to_owned());
+    }
+    let load_wait_frames = load_wait_frame_budget(tape_length_bits);
+    session
+        .wait_for_query_bool("dragon.tape.motor_on", false, load_wait_frames)
+        .map_err(|err| {
+            format!(
+                "cassette motor did not turn off within {load_wait_frames} frames for {tape_length_bits} tape bits: {err}"
+            )
+        })?;
+
+    let lines_after_load = screen_text_lines(&session)?;
+    let load_error = lines_after_load.iter().any(|line| line.contains("ERROR"));
+    let load_result = if load_error { "basic-error" } else { "ok" }.to_owned();
+    let start_command = if command == "CLOAD" { "RUN" } else { "EXEC" };
+
+    let before_start = session
+        .screenshot_png_bytes()
+        .map_err(|err| format!("failed to capture pre-start frame: {err}"))?;
+    type_basic_command(&mut session, start_command)?;
+    let visible_change_after_start = wait_for_screenshot_change(&mut session, &before_start, 500)?;
+    let screen_text = screen_text_lines(&session)?;
+    let basic_error = screen_text.iter().any(|line| line.contains("ERROR"));
+    let start_result = if basic_error {
+        "basic-error"
+    } else if visible_change_after_start {
+        "visible-change"
+    } else {
+        "no-visible-change"
+    }
+    .to_owned();
+
+    Ok(CasRuntimeSmoke {
+        command: command.to_owned(),
+        load_result,
+        start_command: start_command.to_owned(),
+        start_result,
+        tape_position_bits: query_u64(&session, "dragon.tape.position_bits")?,
+        tape_length_bits,
+        tape_finished: query_bool(&session, "dragon.tape.finished")?,
+        visible_change_after_start,
+        basic_error,
+        screen_text,
+        error: None,
+    })
+}
+
+fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
+    let start_command = if command == "CLOAD" {
+        "RUN"
+    } else if command == "CLOADM" {
+        "EXEC"
+    } else {
+        ""
+    };
+    CasRuntimeSmoke {
+        command: command.to_owned(),
+        load_result: "error".to_owned(),
+        start_command: start_command.to_owned(),
+        start_result: "not-run".to_owned(),
+        tape_position_bits: 0,
+        tape_length_bits: 0,
+        tape_finished: false,
+        visible_change_after_start: false,
+        basic_error: false,
+        screen_text: Vec::new(),
+        error: Some(error.to_owned()),
+    }
+}
+
+fn load_wait_frame_budget(tape_length_bits: u64) -> u32 {
+    let scaled = tape_length_bits / 16;
+    u32::try_from(scaled.clamp(4_500, 20_000)).map_or(20_000, |frames| frames)
+}
+
+fn boot_runtime_session(
+    rom: &[u8; ROM_SIZE],
+) -> Result<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>, String> {
+    let runtime = DragonRuntime::new(Model::Dragon32Pal, rom)?;
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        DRAGON_FRAME_CYCLES,
+        DragonSessionQueryProvider,
+    );
+    let boot = session
+        .wait_for_boot(BOOT_FRAME_BUDGET)
+        .map_err(|err| format!("Dragon BASIC boot did not complete: {err}"))?;
+    if boot.reason != "basic-ok-prompt" {
+        return Err(format!("unexpected boot reason {}", boot.reason));
+    }
+    session
+        .run_frames(30)
+        .map_err(|err| format!("Dragon runtime did not idle after boot: {err}"))?;
+    Ok(session)
+}
+
+fn type_basic_command(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    command: &str,
+) -> Result<(), String> {
+    for ch in command.chars() {
+        tap_key(session, &ch.to_ascii_lowercase().to_string())?;
+    }
+    tap_key(session, "enter")
+}
+
+fn tap_key(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    name: &str,
+) -> Result<(), String> {
+    session.queue_input(InputEvent::Key {
+        name: name.to_owned().into(),
+        pressed: true,
+    });
+    session
+        .run_frames(KEY_EDGE_FRAMES)
+        .map_err(|err| format!("key press {name} failed: {err}"))?;
+    session.queue_input(InputEvent::Key {
+        name: name.to_owned().into(),
+        pressed: false,
+    });
+    session
+        .run_frames(KEY_EDGE_FRAMES)
+        .map_err(|err| format!("key release {name} failed: {err}"))?;
+    Ok(())
+}
+
+fn wait_for_tape_position_above(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    threshold: u64,
+    max_frames: u32,
+) -> Result<u64, String> {
+    for _ in 0..=max_frames {
+        let position = query_u64(session, "dragon.tape.position_bits")?;
+        if position > threshold {
+            return Ok(position);
+        }
+        session
+            .run_frames(1)
+            .map_err(|err| format!("runtime failed while waiting for tape movement: {err}"))?;
+    }
+    query_u64(session, "dragon.tape.position_bits")
+}
+
+fn wait_for_screenshot_change(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    before: &[u8],
+    max_frames: u32,
+) -> Result<bool, String> {
+    for _ in 0..=max_frames {
+        let current = session
+            .screenshot_png_bytes()
+            .map_err(|err| format!("failed to capture frame: {err}"))?;
+        if current != before {
+            return Ok(true);
+        }
+        session
+            .run_frames(1)
+            .map_err(|err| format!("runtime failed while waiting for frame change: {err}"))?;
+    }
+    Ok(false)
+}
+
+fn screen_text_lines(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+) -> Result<Vec<String>, String> {
+    let result = session
+        .query("screen.text.lines")
+        .map_err(|err| format!("screen.text.lines query failed: {err}"))?;
+    result
+        .value
+        .as_array()
+        .ok_or_else(|| "screen.text.lines was not an array".to_owned())?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| "screen.text.lines entry was not a string".to_owned())
+        })
+        .collect()
+}
+
+fn query_u64(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    path: &str,
+) -> Result<u64, String> {
+    session
+        .query(path)
+        .map_err(|err| format!("{path} query failed: {err}"))?
+        .value
+        .as_u64()
+        .ok_or_else(|| format!("{path} query was not an unsigned integer"))
+}
+
+fn query_bool(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    path: &str,
+) -> Result<bool, String> {
+    session
+        .query(path)
+        .map_err(|err| format!("{path} query failed: {err}"))?
+        .value
+        .as_bool()
+        .ok_or_else(|| format!("{path} query was not a boolean"))
+}
+
+fn matches_ignore_ascii_case(value: &str, expected: &[&str]) -> bool {
+    expected
+        .iter()
+        .any(|candidate| value.eq_ignore_ascii_case(candidate))
+}
+
+impl From<&CasHeader> for CasHeaderSummary {
+    fn from(header: &CasHeader) -> Self {
+        Self {
+            name: header.name.clone(),
+            file_type: cas_file_type_label(header.file_type).to_owned(),
+            ascii_flag: header.ascii_flag,
+            gap_flag: header.gap_flag,
+            first_address: header.first_address,
+            second_address: header.second_address,
+        }
+    }
+}
+
+fn cas_file_type_label(file_type: CasFileType) -> &'static str {
+    match file_type {
+        CasFileType::Basic => "basic",
+        CasFileType::Data => "data",
+        CasFileType::MachineCode => "machine-code",
+        CasFileType::Unknown(_) => "unknown",
+    }
 }
 
 fn load_rom(path: &Path) -> Result<[u8; ROM_SIZE], String> {
@@ -557,6 +1055,25 @@ mod tests {
             cli.pressed_keys,
             vec![MatrixKey::new(2, 3), MatrixKey::new(4, 5),]
         );
+    }
+
+    #[test]
+    fn cli_parses_smoke_matrix_options() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--smoke-root".to_owned(),
+            "tapes".to_owned(),
+            "--smoke-run-limit".to_owned(),
+            "3".to_owned(),
+            "--smoke-report".to_owned(),
+            "report.json".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.smoke_root, Some(PathBuf::from("tapes")));
+        assert_eq!(cli.smoke_run_limit, 3);
+        assert_eq!(cli.smoke_report, Some(PathBuf::from("report.json")));
     }
 
     #[test]

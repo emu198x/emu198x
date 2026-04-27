@@ -771,9 +771,14 @@ dependencies = [
 name = "emu198x-script-dragon"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
+ "format-dragon-cas",
  "machine-dragon-32",
  "motorola-vdg-6847",
  "png",
+ "runtime-dragon",
+ "serde",
+ "serde_json",
  "zip",
 ]
 

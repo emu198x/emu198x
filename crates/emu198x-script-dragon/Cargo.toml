@@ -10,9 +10,14 @@ name = "emu198x-script-dragon"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
+format-dragon-cas = { path = "../format-dragon-cas" }
 machine-dragon-32 = { path = "../machine-dragon-32" }
 motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
 png = { workspace = true }
+runtime-dragon = { path = "../runtime-dragon" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 zip = { workspace = true }
 
 [lints]

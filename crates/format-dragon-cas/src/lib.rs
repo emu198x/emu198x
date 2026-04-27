@@ -22,6 +22,8 @@ pub const SYNC_BYTE: u8 = 0x3c;
 pub struct CasImage {
     /// Blocks in tape order.
     pub blocks: Vec<CasBlock>,
+    /// Non-CAS byte ranges skipped by tolerant parsing.
+    pub ignored_ranges: Vec<CasIgnoredBytes>,
 }
 
 impl CasImage {
@@ -35,6 +37,18 @@ impl CasImage {
     #[must_use]
     pub fn checksums_valid(&self) -> bool {
         self.blocks.iter().all(|block| block.checksum_valid)
+    }
+
+    /// Returns the total number of non-CAS bytes skipped while parsing.
+    #[must_use]
+    pub fn ignored_byte_count(&self) -> usize {
+        self.ignored_ranges.iter().map(|range| range.len).sum()
+    }
+
+    /// Returns `true` when tolerant parsing had to skip non-CAS bytes.
+    #[must_use]
+    pub fn has_ignored_bytes(&self) -> bool {
+        !self.ignored_ranges.is_empty()
     }
 }
 
@@ -61,6 +75,15 @@ pub struct CasBlock {
     pub checksum_valid: bool,
     /// Decoded namefile header for standard type-0, length-15 blocks.
     pub header: Option<CasHeader>,
+}
+
+/// One non-CAS byte range skipped by tolerant parsing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CasIgnoredBytes {
+    /// Offset of the first ignored byte.
+    pub offset: usize,
+    /// Number of ignored bytes.
+    pub len: usize,
 }
 
 /// CAS block type.
@@ -180,7 +203,38 @@ pub enum CasParseError {
 /// Returns an error when a block is truncated or unexpected bytes appear
 /// outside block framing.
 pub fn parse_cas(bytes: &[u8]) -> Result<CasImage, CasParseError> {
+    parse_cas_inner(bytes, ParseMode::Strict)
+}
+
+/// Parses a Dragon CAS image, skipping non-CAS bytes between framed blocks.
+///
+/// Some archive dumps include loader notes, raw bytes, or trailing junk around
+/// otherwise standard CAS blocks. This tolerant parser keeps the recovered
+/// blocks and records skipped ranges in [`CasImage::ignored_ranges`].
+///
+/// # Errors
+///
+/// Returns an error only when no recoverable CAS block can be found.
+pub fn parse_cas_tolerant(bytes: &[u8]) -> Result<CasImage, CasParseError> {
+    let image = parse_cas_inner(bytes, ParseMode::Tolerant)?;
+    if image.blocks.is_empty() && !bytes.is_empty() {
+        return Err(CasParseError::UnexpectedByte {
+            offset: 0,
+            actual: bytes[0],
+        });
+    }
+    Ok(image)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParseMode {
+    Strict,
+    Tolerant,
+}
+
+fn parse_cas_inner(bytes: &[u8], mode: ParseMode) -> Result<CasImage, CasParseError> {
     let mut blocks = Vec::new();
+    let mut ignored_ranges = Vec::new();
     let mut pos = 0usize;
 
     while pos < bytes.len() {
@@ -196,6 +250,15 @@ pub fn parse_cas(bytes: &[u8]) -> Result<CasImage, CasParseError> {
         }
 
         if bytes[pos] != SYNC_BYTE {
+            if matches!(mode, ParseMode::Tolerant) {
+                let next = find_next_plausible_block(bytes, pos + 1).unwrap_or(bytes.len());
+                ignored_ranges.push(CasIgnoredBytes {
+                    offset: pos,
+                    len: next - pos,
+                });
+                pos = next;
+                continue;
+            }
             return Err(CasParseError::UnexpectedByte {
                 offset: pos,
                 actual: bytes[pos],
@@ -206,6 +269,13 @@ pub fn parse_cas(bytes: &[u8]) -> Result<CasImage, CasParseError> {
         pos += 1;
 
         if pos + 2 > bytes.len() {
+            if matches!(mode, ParseMode::Tolerant) {
+                ignored_ranges.push(CasIgnoredBytes {
+                    offset: sync_offset,
+                    len: bytes.len() - sync_offset,
+                });
+                break;
+            }
             return Err(CasParseError::TruncatedBlockHeader {
                 offset: sync_offset,
             });
@@ -217,6 +287,21 @@ pub fn parse_cas(bytes: &[u8]) -> Result<CasImage, CasParseError> {
         pos += 2;
 
         if pos + payload_len + 1 > bytes.len() {
+            if matches!(mode, ParseMode::Tolerant) {
+                if let Some(next) = find_next_plausible_block(bytes, sync_offset + 1) {
+                    ignored_ranges.push(CasIgnoredBytes {
+                        offset: sync_offset,
+                        len: next - sync_offset,
+                    });
+                    pos = next;
+                    continue;
+                }
+                ignored_ranges.push(CasIgnoredBytes {
+                    offset: sync_offset,
+                    len: bytes.len() - sync_offset,
+                });
+                break;
+            }
             return Err(CasParseError::TruncatedBlockPayload {
                 offset: sync_offset,
                 declared: payload_len,
@@ -250,7 +335,10 @@ pub fn parse_cas(bytes: &[u8]) -> Result<CasImage, CasParseError> {
         });
     }
 
-    Ok(CasImage { blocks })
+    Ok(CasImage {
+        blocks,
+        ignored_ranges,
+    })
 }
 
 /// Computes a CAS block checksum.
@@ -261,6 +349,37 @@ pub fn checksum_for(block_type: u8, length: u8, payload: &[u8]) -> u8 {
         .fold(block_type.wrapping_add(length), |sum, byte| {
             sum.wrapping_add(*byte)
         })
+}
+
+fn find_next_plausible_block(bytes: &[u8], mut pos: usize) -> Option<usize> {
+    while pos < bytes.len() {
+        if bytes[pos] == LEADER_BYTE {
+            let candidate = pos;
+            while pos < bytes.len() && bytes[pos] == LEADER_BYTE {
+                pos += 1;
+            }
+            if is_plausible_sync_at(bytes, pos) {
+                return Some(candidate);
+            }
+            continue;
+        }
+
+        if is_plausible_sync_at(bytes, pos) {
+            return Some(pos);
+        }
+        pos += 1;
+    }
+    None
+}
+
+fn is_plausible_sync_at(bytes: &[u8], pos: usize) -> bool {
+    if pos + 3 > bytes.len() || bytes[pos] != SYNC_BYTE {
+        return false;
+    }
+
+    let block_type = bytes[pos + 1];
+    let length = usize::from(bytes[pos + 2]);
+    matches!(block_type, 0x00 | 0x01 | 0xff) && pos + 4 + length <= bytes.len()
 }
 
 #[cfg(test)]
@@ -352,6 +471,43 @@ mod tests {
             CasParseError::UnexpectedByte {
                 offset: 0,
                 actual: 0x00,
+            }
+        );
+    }
+
+    #[test]
+    fn tolerant_parser_records_leading_interblock_and_trailing_junk() {
+        let header_payload = [
+            b'T', b'E', b'S', b'T', b' ', b' ', b' ', b' ', 0x00, 0x00, 0x00, 0x12, 0x34, 0x56,
+            0x78,
+        ];
+        let mut cas = vec![0xde, 0xad];
+        cas.extend(block(0x00, &header_payload));
+        cas.extend([0xbe, 0xef, 0x00]);
+        cas.extend(block(0xff, &[]));
+        cas.extend([0xca, 0xfe]);
+
+        let image = parse_cas_tolerant(&cas).expect("tolerant parse should recover blocks");
+
+        assert_eq!(image.blocks.len(), 2);
+        assert_eq!(image.ignored_ranges.len(), 3);
+        assert_eq!(image.ignored_byte_count(), 7);
+        assert!(image.has_ignored_bytes());
+        assert_eq!(
+            image.first_header().expect("header should decode").name,
+            "TEST"
+        );
+    }
+
+    #[test]
+    fn tolerant_parser_rejects_images_without_any_cas_blocks() {
+        let err = parse_cas_tolerant(&[0xde, 0xad]).expect_err("no blocks should fail");
+
+        assert_eq!(
+            err,
+            CasParseError::UnexpectedByte {
+                offset: 0,
+                actual: 0xde,
             }
         );
     }
