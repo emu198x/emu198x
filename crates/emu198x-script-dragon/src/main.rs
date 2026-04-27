@@ -133,11 +133,17 @@ struct CasRuntimeSmoke {
     load_result: String,
     start_command: String,
     start_result: String,
+    load_visible_change: bool,
+    load_basic_error: bool,
+    load_pc_before: u16,
+    load_pc_after: u16,
+    start_pc_after: u16,
     tape_position_bits: u64,
     tape_length_bits: u64,
     tape_finished: bool,
     visible_change_after_start: bool,
     basic_error: bool,
+    load_screen_text: Vec<String>,
     screen_text: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -463,7 +469,11 @@ fn run_runtime_smoke_inner(
         .map_err(|err| format!("failed to load tape into runtime: {err}"))?;
     let tape_length_bits = query_u64(&session, "dragon.tape.length_bits")?;
 
+    let load_pc_before = query_u16(&session, "dragon.cpu.pc")?;
     type_basic_command(&mut session, command)?;
+    let before_load = session
+        .screenshot_png_bytes()
+        .map_err(|err| format!("failed to capture submitted-load frame: {err}"))?;
     let moved_to = wait_for_tape_position_above(&mut session, 0, 180)?;
     if moved_to == 0 {
         return Err("ROM did not start consuming cassette bits".to_owned());
@@ -478,39 +488,81 @@ fn run_runtime_smoke_inner(
         })?;
 
     let lines_after_load = screen_text_lines(&session)?;
+    let after_load = session
+        .screenshot_png_bytes()
+        .map_err(|err| format!("failed to capture post-load frame: {err}"))?;
+    let load_visible_change = after_load != before_load;
+    let load_pc_after = query_u16(&session, "dragon.cpu.pc")?;
     let load_error = lines_after_load.iter().any(|line| line.contains("ERROR"));
     let load_result = if load_error { "basic-error" } else { "ok" }.to_owned();
     let start_command = if command == "CLOAD" { "RUN" } else { "EXEC" };
+    let should_start = should_issue_start_command(command, load_error, load_visible_change);
 
-    let before_start = session
-        .screenshot_png_bytes()
-        .map_err(|err| format!("failed to capture pre-start frame: {err}"))?;
-    type_basic_command(&mut session, start_command)?;
-    let visible_change_after_start = wait_for_screenshot_change(&mut session, &before_start, 500)?;
-    let screen_text = screen_text_lines(&session)?;
-    let basic_error = screen_text.iter().any(|line| line.contains("ERROR"));
-    let start_result = if basic_error {
-        "basic-error"
-    } else if visible_change_after_start {
-        "visible-change"
+    let (start_result, visible_change_after_start, screen_text) = if should_start {
+        type_basic_command(&mut session, start_command)?;
+        let visible_change = wait_for_screenshot_change(&mut session, &after_load, 500)?;
+        let screen_text = screen_text_lines(&session)?;
+        let basic_error = screen_text.iter().any(|line| line.contains("ERROR"));
+        let start_result = if basic_error {
+            "basic-error"
+        } else if visible_change {
+            "visible-change"
+        } else {
+            "no-visible-change"
+        }
+        .to_owned();
+        (start_result, visible_change, screen_text)
     } else {
-        "no-visible-change"
-    }
-    .to_owned();
+        (
+            skipped_start_result(command, load_visible_change, load_pc_after).to_owned(),
+            false,
+            lines_after_load.clone(),
+        )
+    };
+    let basic_error = screen_text.iter().any(|line| line.contains("ERROR"));
+    let start_pc_after = query_u16(&session, "dragon.cpu.pc")?;
 
     Ok(CasRuntimeSmoke {
         command: command.to_owned(),
         load_result,
-        start_command: start_command.to_owned(),
+        start_command: if should_start {
+            start_command.to_owned()
+        } else {
+            String::new()
+        },
         start_result,
+        load_visible_change,
+        load_basic_error: load_error,
+        load_pc_before,
+        load_pc_after,
+        start_pc_after,
         tape_position_bits: query_u64(&session, "dragon.tape.position_bits")?,
         tape_length_bits,
         tape_finished: query_bool(&session, "dragon.tape.finished")?,
         visible_change_after_start,
         basic_error,
+        load_screen_text: lines_after_load,
         screen_text,
         error: None,
     })
+}
+
+fn should_issue_start_command(command: &str, load_error: bool, load_visible_change: bool) -> bool {
+    !load_error && (command == "CLOAD" || !load_visible_change)
+}
+
+fn skipped_start_result(
+    command: &str,
+    load_visible_change: bool,
+    load_pc_after: u16,
+) -> &'static str {
+    if command == "CLOADM" && load_visible_change && load_pc_after < 0x8000 {
+        "already-running-after-load"
+    } else if command == "CLOADM" && load_visible_change {
+        "start-skipped-load-screen-changed"
+    } else {
+        "start-skipped"
+    }
 }
 
 fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
@@ -526,11 +578,17 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         load_result: "error".to_owned(),
         start_command: start_command.to_owned(),
         start_result: "not-run".to_owned(),
+        load_visible_change: false,
+        load_basic_error: false,
+        load_pc_before: 0,
+        load_pc_after: 0,
+        start_pc_after: 0,
         tape_position_bits: 0,
         tape_length_bits: 0,
         tape_finished: false,
         visible_change_after_start: false,
         basic_error: false,
+        load_screen_text: Vec::new(),
         screen_text: Vec::new(),
         error: Some(error.to_owned()),
     }
@@ -659,6 +717,14 @@ fn query_u64(
         .value
         .as_u64()
         .ok_or_else(|| format!("{path} query was not an unsigned integer"))
+}
+
+fn query_u16(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    path: &str,
+) -> Result<u16, String> {
+    let value = query_u64(session, path)?;
+    u16::try_from(value).map_err(|err| format!("{path} query value {value} is not u16: {err}"))
 }
 
 fn query_bool(
