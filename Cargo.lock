@@ -762,6 +762,7 @@ dependencies = [
  "motorola-pia-6821",
  "motorola-sam-6883",
  "motorola-vdg-6847",
+ "png",
  "zip",
 ]
 

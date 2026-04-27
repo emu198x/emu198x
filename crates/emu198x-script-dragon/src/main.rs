@@ -12,7 +12,9 @@ use std::process;
 use motorola_6809::Mc6809;
 use motorola_pia_6821::{Pia6821, PiaPort};
 use motorola_sam_6883::Sam6883;
-use motorola_vdg_6847::TextScreen;
+use motorola_vdg_6847::{
+    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette, TextScreen,
+};
 use zip::ZipArchive;
 
 const RAM_SIZE: usize = 0x8000;
@@ -32,6 +34,7 @@ Execution:
     --press KEY        hold a named Dragon key closed; may be repeated
     --press-matrix R,C hold a raw keyboard matrix switch closed; may be repeated
     --dump-text        print the current 32x16 MC6847 text snapshot
+    --dump-text-png P  write the current border-inclusive MC6847 text framebuffer as a PNG
 
 Other:
     --help             print this help text
@@ -44,6 +47,7 @@ struct Cli {
     trace_limit: usize,
     pressed_keys: Vec<MatrixKey>,
     dump_text: bool,
+    dump_text_png: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,6 +183,7 @@ struct HarnessReport {
     dropped_readonly_writes: usize,
     text_screen_base: u16,
     text_screen: Option<String>,
+    text_framebuffer: Option<Vec<u32>>,
 }
 
 #[derive(Debug, Clone)]
@@ -353,9 +358,23 @@ fn run_main() -> Result<(), String> {
     let cli = parse_cli(args)?;
     let rom = load_rom(&cli.rom)?;
     let keyboard = DragonKeyboard::with_pressed_keys(&cli.pressed_keys)?;
-    let report =
-        run_harness_with_keyboard(&rom, cli.cycles, cli.trace_limit, keyboard, cli.dump_text);
+    let report = run_harness_with_keyboard(
+        &rom,
+        cli.cycles,
+        cli.trace_limit,
+        keyboard,
+        cli.dump_text,
+        cli.dump_text_png.is_some(),
+    );
     print_report(&report);
+    if let Some(path) = &cli.dump_text_png {
+        let framebuffer = report
+            .text_framebuffer
+            .as_deref()
+            .ok_or_else(|| "text framebuffer was not captured".to_owned())?;
+        write_text_png(path, framebuffer)?;
+        println!("text png: {}", path.display());
+    }
     Ok(())
 }
 
@@ -368,6 +387,7 @@ where
     let mut trace_limit = DEFAULT_TRACE_LIMIT;
     let mut pressed_keys = Vec::new();
     let mut dump_text = false;
+    let mut dump_text_png = None;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -392,6 +412,9 @@ where
             "--dump-text" => {
                 dump_text = true;
             }
+            "--dump-text-png" => {
+                dump_text_png = Some(PathBuf::from(next_value(&mut iter, "--dump-text-png")?));
+            }
             "--help" | "-h" => return Err(USAGE.to_owned()),
             _ => return Err(format!("unknown argument: {arg}\n\n{USAGE}")),
         }
@@ -403,6 +426,7 @@ where
         trace_limit,
         pressed_keys,
         dump_text,
+        dump_text_png,
     })
 }
 
@@ -640,7 +664,14 @@ fn exact_rom_from_bytes(path: &Path, bytes: Vec<u8>) -> Result<[u8; ROM_SIZE], S
 
 #[cfg(test)]
 fn run_harness(rom: &[u8; ROM_SIZE], cycle_limit: u64, trace_limit: usize) -> HarnessReport {
-    run_harness_with_keyboard(rom, cycle_limit, trace_limit, DragonKeyboard::new(), false)
+    run_harness_with_keyboard(
+        rom,
+        cycle_limit,
+        trace_limit,
+        DragonKeyboard::new(),
+        false,
+        false,
+    )
 }
 
 fn run_harness_with_keyboard(
@@ -649,6 +680,7 @@ fn run_harness_with_keyboard(
     trace_limit: usize,
     keyboard: DragonKeyboard,
     dump_text: bool,
+    dump_text_framebuffer: bool,
 ) -> HarnessReport {
     let mut cpu = Mc6809::new();
     let mut memory = DragonMemory::new_with_keyboard(rom, keyboard);
@@ -734,6 +766,16 @@ fn run_harness_with_keyboard(
         }
     }
 
+    let text_screen = (dump_text || dump_text_framebuffer).then(|| memory.capture_text_screen());
+    let text_screen_text = text_screen
+        .as_ref()
+        .filter(|_| dump_text)
+        .map(TextScreen::to_plain_text);
+    let text_framebuffer = text_screen
+        .as_ref()
+        .filter(|_| dump_text_framebuffer)
+        .map(|screen| screen.render_visible_argb(TextPalette::default()));
+
     HarnessReport {
         stop_reason,
         cycles,
@@ -749,7 +791,8 @@ fn run_harness_with_keyboard(
         readonly_writes,
         dropped_readonly_writes,
         text_screen_base: memory.text_screen_base(),
-        text_screen: dump_text.then(|| memory.capture_text_screen().to_plain_text()),
+        text_screen: text_screen_text,
+        text_framebuffer,
     }
 }
 
@@ -891,6 +934,16 @@ fn print_report(report: &HarnessReport) {
             println!("  |{line}|");
         }
     }
+    if let Some(framebuffer) = &report.text_framebuffer {
+        let foreground_pixels = framebuffer
+            .iter()
+            .filter(|&&pixel| pixel == TextPalette::default().foreground)
+            .count();
+        println!(
+            "text framebuffer: {}x{} foreground-pixels={}",
+            TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, foreground_pixels
+        );
+    }
     println!("trace:");
     for fetch in &report.trace {
         println!(
@@ -898,6 +951,45 @@ fn print_report(report: &HarnessReport) {
             fetch.cycle, fetch.pc, fetch.opcode
         );
     }
+}
+
+fn write_text_png(path: &Path, framebuffer: &[u32]) -> Result<(), String> {
+    if framebuffer.len() != TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT {
+        return Err(format!(
+            "text framebuffer has {} pixels; expected {}",
+            framebuffer.len(),
+            TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT
+        ));
+    }
+
+    let file = fs::File::create(path)
+        .map_err(|err| format!("failed to create {}: {err}", path.display()))?;
+    let writer = std::io::BufWriter::new(file);
+    let mut encoder = png::Encoder::new(
+        writer,
+        TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
+        TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32,
+    );
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut png_writer = encoder
+        .write_header()
+        .map_err(|err| format!("failed to write PNG header for {}: {err}", path.display()))?;
+
+    let mut rgba = Vec::with_capacity(framebuffer.len() * 4);
+    for &argb in framebuffer {
+        rgba.push(((argb >> 16) & 0xFF) as u8);
+        rgba.push(((argb >> 8) & 0xFF) as u8);
+        rgba.push((argb & 0xFF) as u8);
+        rgba.push(((argb >> 24) & 0xFF) as u8);
+    }
+    png_writer
+        .write_image_data(&rgba)
+        .map_err(|err| format!("failed to write PNG data for {}: {err}", path.display()))?;
+    png_writer
+        .finish()
+        .map_err(|err| format!("failed to finish PNG {}: {err}", path.display()))?;
+    Ok(())
 }
 
 fn format_stop_reason(reason: StopReason) -> String {
@@ -1125,7 +1217,7 @@ mod tests {
         rom[0x000C] = 0x01;
         rom[0x000D] = 0x01;
 
-        let report = run_harness_with_keyboard(&rom, 128, 8, DragonKeyboard::new(), true);
+        let report = run_harness_with_keyboard(&rom, 128, 8, DragonKeyboard::new(), true, true);
 
         assert_eq!(report.stop_reason, StopReason::CpuHalted);
         assert_eq!(report.text_screen_base, 0x0400);
@@ -1137,6 +1229,14 @@ mod tests {
                 .lines()
                 .next(),
             Some("AB@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+        );
+        assert_eq!(
+            report
+                .text_framebuffer
+                .as_ref()
+                .expect("text framebuffer should be captured")
+                .len(),
+            TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT
         );
     }
 

@@ -26,8 +26,16 @@ compatibility goal, not the current implementation state.
   set/reset latches needed for bring-up, including VDG mode bits and the F0-F6
   display offset. The Dragon 32 ROM selects text base `$0400` by setting F1.
 - **VDG text:** MC6847 — reusable `motorola-vdg-6847` crate captures a 32x16
-  alphanumeric diagnostic text snapshot. The Dragon harness `--dump-text` path
-  now shows the Dragon 32 BASIC banner and `OK` prompt from real ROM execution.
+  alphanumeric diagnostic text snapshot and renders it through the real 6-bit
+  MC6847 character font into a 256x192 active-area ARGB framebuffer, or a
+  372x243 visible framebuffer with the current coarse MC6847 border. The
+  diagnostic palette uses XRoar's default ideal VDG voltage palette for Dragon
+  alpha text: green on dark green with a near-black border. This is a stable
+  reference palette for diagnostics, not yet an attempt to reproduce the warmer
+  appearance of a real Dragon through a consumer display. The Dragon harness
+  `--dump-text` path now shows the Dragon 32 BASIC banner and `OK` prompt from
+  real ROM execution, while `--dump-text-png PATH` writes the border-inclusive
+  text framebuffer as a PNG for visual comparison.
 - **Harness keyboard:** PIA0 is wired to the confirmed Dragon 32 keyboard matrix
   documented by World of Dragon. The default state is no key pressed (`$FF` on
   the input side). `--press KEY` holds semantic Dragon keys closed, and
@@ -47,8 +55,8 @@ compatibility goal, not the current implementation state.
 ### Bring-up sequence
 
 1. Continue `motorola-6809` instruction execution validation against real Dragon ROM paths.
-2. Expand `motorola-vdg-6847` from text snapshots into pixel rendering and add
-   the initial green/black text framebuffer path.
+2. Expand `motorola-vdg-6847` beyond alphanumeric text rendering into
+   semigraphics and graphics modes.
 3. Wire `machine-dragon-32` with ROM/RAM map, keyboard matrix, PIA/SAM/VDG, and a framebuffer.
 4. Add `runtime-dragon` with boot detection and screenshot capture.
 5. Add cassette and `.BIN` loading after the BASIC boot screen is stable.

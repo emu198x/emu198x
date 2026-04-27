@@ -14,6 +14,7 @@ motorola-pia-6821 = { path = "../motorola-pia-6821" }
 motorola-6809 = { path = "../motorola-6809" }
 motorola-sam-6883 = { path = "../motorola-sam-6883" }
 motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
+png = { workspace = true }
 zip = { workspace = true }
 
 [lints]
