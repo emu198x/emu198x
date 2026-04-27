@@ -27,6 +27,7 @@ Firmware:
 Execution:
     --cycles N         maximum MC6809 bus cycles to run [default: 100000]
     --trace-limit N    number of recent instruction fetches to retain [default: 64]
+    --press KEY        hold a named Dragon key closed; may be repeated
     --press-matrix R,C hold a raw keyboard matrix switch closed; may be repeated
 
 Other:
@@ -45,6 +46,62 @@ struct Cli {
 struct MatrixKey {
     row: usize,
     column: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DragonKey {
+    Digit0,
+    Digit1,
+    Digit2,
+    Digit3,
+    Digit4,
+    Digit5,
+    Digit6,
+    Digit7,
+    Digit8,
+    Digit9,
+    Colon,
+    Semicolon,
+    Comma,
+    Minus,
+    Period,
+    Slash,
+    At,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Up,
+    Down,
+    Left,
+    Right,
+    Space,
+    Enter,
+    Clear,
+    Break,
+    Shift,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -303,6 +360,10 @@ where
                 trace_limit =
                     parse_usize(&next_value(&mut iter, "--trace-limit")?, "--trace-limit")?;
             }
+            "--press" => {
+                let key = parse_dragon_key(&next_value(&mut iter, "--press")?)?;
+                pressed_keys.push(matrix_key_for_dragon_key(key));
+            }
             "--press-matrix" => {
                 pressed_keys.push(parse_matrix_key(&next_value(&mut iter, "--press-matrix")?)?);
             }
@@ -353,6 +414,131 @@ fn parse_matrix_key(value: &str) -> Result<MatrixKey, String> {
         row: parse_usize(row, "--press-matrix row")?,
         column: parse_usize(column, "--press-matrix column")?,
     })
+}
+
+fn parse_dragon_key(value: &str) -> Result<DragonKey, String> {
+    match value {
+        "0" => Ok(DragonKey::Digit0),
+        "1" => Ok(DragonKey::Digit1),
+        "2" => Ok(DragonKey::Digit2),
+        "3" => Ok(DragonKey::Digit3),
+        "4" => Ok(DragonKey::Digit4),
+        "5" => Ok(DragonKey::Digit5),
+        "6" => Ok(DragonKey::Digit6),
+        "7" => Ok(DragonKey::Digit7),
+        "8" => Ok(DragonKey::Digit8),
+        "9" => Ok(DragonKey::Digit9),
+        ":" => Ok(DragonKey::Colon),
+        ";" => Ok(DragonKey::Semicolon),
+        "," => Ok(DragonKey::Comma),
+        "-" => Ok(DragonKey::Minus),
+        "." => Ok(DragonKey::Period),
+        "/" => Ok(DragonKey::Slash),
+        "@" => Ok(DragonKey::At),
+        " " => Ok(DragonKey::Space),
+        _ if value.eq_ignore_ascii_case("a") => Ok(DragonKey::A),
+        _ if value.eq_ignore_ascii_case("b") => Ok(DragonKey::B),
+        _ if value.eq_ignore_ascii_case("c") => Ok(DragonKey::C),
+        _ if value.eq_ignore_ascii_case("d") => Ok(DragonKey::D),
+        _ if value.eq_ignore_ascii_case("e") => Ok(DragonKey::E),
+        _ if value.eq_ignore_ascii_case("f") => Ok(DragonKey::F),
+        _ if value.eq_ignore_ascii_case("g") => Ok(DragonKey::G),
+        _ if value.eq_ignore_ascii_case("h") => Ok(DragonKey::H),
+        _ if value.eq_ignore_ascii_case("i") => Ok(DragonKey::I),
+        _ if value.eq_ignore_ascii_case("j") => Ok(DragonKey::J),
+        _ if value.eq_ignore_ascii_case("k") => Ok(DragonKey::K),
+        _ if value.eq_ignore_ascii_case("l") => Ok(DragonKey::L),
+        _ if value.eq_ignore_ascii_case("m") => Ok(DragonKey::M),
+        _ if value.eq_ignore_ascii_case("n") => Ok(DragonKey::N),
+        _ if value.eq_ignore_ascii_case("o") => Ok(DragonKey::O),
+        _ if value.eq_ignore_ascii_case("p") => Ok(DragonKey::P),
+        _ if value.eq_ignore_ascii_case("q") => Ok(DragonKey::Q),
+        _ if value.eq_ignore_ascii_case("r") => Ok(DragonKey::R),
+        _ if value.eq_ignore_ascii_case("s") => Ok(DragonKey::S),
+        _ if value.eq_ignore_ascii_case("t") => Ok(DragonKey::T),
+        _ if value.eq_ignore_ascii_case("u") => Ok(DragonKey::U),
+        _ if value.eq_ignore_ascii_case("v") => Ok(DragonKey::V),
+        _ if value.eq_ignore_ascii_case("w") => Ok(DragonKey::W),
+        _ if value.eq_ignore_ascii_case("x") => Ok(DragonKey::X),
+        _ if value.eq_ignore_ascii_case("y") => Ok(DragonKey::Y),
+        _ if value.eq_ignore_ascii_case("z") => Ok(DragonKey::Z),
+        _ if value.eq_ignore_ascii_case("up") => Ok(DragonKey::Up),
+        _ if value.eq_ignore_ascii_case("down") => Ok(DragonKey::Down),
+        _ if value.eq_ignore_ascii_case("left") => Ok(DragonKey::Left),
+        _ if value.eq_ignore_ascii_case("right") => Ok(DragonKey::Right),
+        _ if value.eq_ignore_ascii_case("space") => Ok(DragonKey::Space),
+        _ if value.eq_ignore_ascii_case("enter") || value.eq_ignore_ascii_case("return") => {
+            Ok(DragonKey::Enter)
+        }
+        _ if value.eq_ignore_ascii_case("clear") || value.eq_ignore_ascii_case("clr") => {
+            Ok(DragonKey::Clear)
+        }
+        _ if value.eq_ignore_ascii_case("break") || value.eq_ignore_ascii_case("brk") => {
+            Ok(DragonKey::Break)
+        }
+        _ if value.eq_ignore_ascii_case("shift") => Ok(DragonKey::Shift),
+        _ => Err(format!(
+            "unknown Dragon key {value:?}; use a Dragon key label such as A, 1, @, enter, clear, break, shift, space, up, down, left, or right"
+        )),
+    }
+}
+
+fn matrix_key_for_dragon_key(key: DragonKey) -> MatrixKey {
+    let (row, column) = match key {
+        DragonKey::Digit0 => (0, 0),
+        DragonKey::Digit1 => (0, 1),
+        DragonKey::Digit2 => (0, 2),
+        DragonKey::Digit3 => (0, 3),
+        DragonKey::Digit4 => (0, 4),
+        DragonKey::Digit5 => (0, 5),
+        DragonKey::Digit6 => (0, 6),
+        DragonKey::Digit7 => (0, 7),
+        DragonKey::Digit8 => (1, 0),
+        DragonKey::Digit9 => (1, 1),
+        DragonKey::Colon => (1, 2),
+        DragonKey::Semicolon => (1, 3),
+        DragonKey::Comma => (1, 4),
+        DragonKey::Minus => (1, 5),
+        DragonKey::Period => (1, 6),
+        DragonKey::Slash => (1, 7),
+        DragonKey::At => (2, 0),
+        DragonKey::A => (2, 1),
+        DragonKey::B => (2, 2),
+        DragonKey::C => (2, 3),
+        DragonKey::D => (2, 4),
+        DragonKey::E => (2, 5),
+        DragonKey::F => (2, 6),
+        DragonKey::G => (2, 7),
+        DragonKey::H => (3, 0),
+        DragonKey::I => (3, 1),
+        DragonKey::J => (3, 2),
+        DragonKey::K => (3, 3),
+        DragonKey::L => (3, 4),
+        DragonKey::M => (3, 5),
+        DragonKey::N => (3, 6),
+        DragonKey::O => (3, 7),
+        DragonKey::P => (4, 0),
+        DragonKey::Q => (4, 1),
+        DragonKey::R => (4, 2),
+        DragonKey::S => (4, 3),
+        DragonKey::T => (4, 4),
+        DragonKey::U => (4, 5),
+        DragonKey::V => (4, 6),
+        DragonKey::W => (4, 7),
+        DragonKey::X => (5, 0),
+        DragonKey::Y => (5, 1),
+        DragonKey::Z => (5, 2),
+        DragonKey::Up => (5, 3),
+        DragonKey::Down => (5, 4),
+        DragonKey::Left => (5, 5),
+        DragonKey::Right => (5, 6),
+        DragonKey::Space => (5, 7),
+        DragonKey::Enter => (6, 0),
+        DragonKey::Clear => (6, 1),
+        DragonKey::Break => (6, 2),
+        DragonKey::Shift => (6, 7),
+    };
+    MatrixKey { row, column }
 }
 
 fn load_rom(path: &Path) -> Result<[u8; ROM_SIZE], String> {
@@ -927,6 +1113,61 @@ mod tests {
             vec![
                 MatrixKey { row: 2, column: 3 },
                 MatrixKey { row: 4, column: 5 },
+            ]
+        );
+    }
+
+    #[test]
+    fn dragon_key_labels_map_to_confirmed_matrix_positions() {
+        assert_eq!(
+            matrix_key_for_dragon_key(parse_dragon_key("a").expect("A should parse")),
+            MatrixKey { row: 2, column: 1 }
+        );
+        assert_eq!(
+            matrix_key_for_dragon_key(parse_dragon_key("A").expect("A should parse")),
+            MatrixKey { row: 2, column: 1 }
+        );
+        assert_eq!(
+            matrix_key_for_dragon_key(parse_dragon_key("@").expect("@ should parse")),
+            MatrixKey { row: 2, column: 0 }
+        );
+        assert_eq!(
+            matrix_key_for_dragon_key(parse_dragon_key("space").expect("space should parse")),
+            MatrixKey { row: 5, column: 7 }
+        );
+        assert_eq!(
+            matrix_key_for_dragon_key(parse_dragon_key("right").expect("right should parse")),
+            MatrixKey { row: 5, column: 6 }
+        );
+    }
+
+    #[test]
+    fn dragon_key_parser_accepts_control_key_aliases() {
+        assert_eq!(parse_dragon_key("return"), Ok(DragonKey::Enter));
+        assert_eq!(parse_dragon_key("clr"), Ok(DragonKey::Clear));
+        assert_eq!(parse_dragon_key("brk"), Ok(DragonKey::Break));
+    }
+
+    #[test]
+    fn cli_parses_named_dragon_key_presses_semantically() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--press".to_owned(),
+            "A".to_owned(),
+            "--press".to_owned(),
+            "@".to_owned(),
+            "--press".to_owned(),
+            "enter".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(
+            cli.pressed_keys,
+            vec![
+                MatrixKey { row: 2, column: 1 },
+                MatrixKey { row: 2, column: 0 },
+                MatrixKey { row: 6, column: 0 },
             ]
         );
     }
