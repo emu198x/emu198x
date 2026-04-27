@@ -760,6 +760,8 @@ version = "0.1.0"
 dependencies = [
  "motorola-6809",
  "motorola-pia-6821",
+ "motorola-sam-6883",
+ "motorola-vdg-6847",
  "zip",
 ]
 
@@ -1725,6 +1727,17 @@ version = "0.1.0"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "motorola-sam-6883"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "motorola-vdg-6847"
+version = "0.1.0"
 
 [[package]]
 name = "naga"

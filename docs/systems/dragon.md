@@ -22,6 +22,12 @@ compatibility goal, not the current implementation state.
   PIA/SAM activity and readonly ROM writes are recorded for bring-up analysis.
   Plain `.bin` ROMs and single-ROM `.zip` archives are accepted; the Dragon 32
   BIOS now runs past early PIA/SAM setup into ROM polling/delay loops.
+- **SAM:** MC6883 — reusable `motorola-sam-6883` crate tracks the write-only
+  set/reset latches needed for bring-up, including VDG mode bits and the F0-F6
+  display offset. The Dragon 32 ROM selects text base `$0400` by setting F1.
+- **VDG text:** MC6847 — reusable `motorola-vdg-6847` crate captures a 32x16
+  alphanumeric diagnostic text snapshot. The Dragon harness `--dump-text` path
+  now shows the Dragon 32 BASIC banner and `OK` prompt from real ROM execution.
 - **Harness keyboard:** PIA0 is wired to the confirmed Dragon 32 keyboard matrix
   documented by World of Dragon. The default state is no key pressed (`$FF` on
   the input side). `--press KEY` holds semantic Dragon keys closed, and
@@ -41,9 +47,10 @@ compatibility goal, not the current implementation state.
 ### Bring-up sequence
 
 1. Continue `motorola-6809` instruction execution validation against real Dragon ROM paths.
-2. Add MC6883 SAM and MC6847 VDG crates with isolated tests.
+2. Expand `motorola-vdg-6847` from text snapshots into pixel rendering and add
+   the initial green/black text framebuffer path.
 3. Wire `machine-dragon-32` with ROM/RAM map, keyboard matrix, PIA/SAM/VDG, and a framebuffer.
-4. Expand `emu198x-script-dragon`, then add `runtime-dragon` with boot detection and screenshot capture.
+4. Add `runtime-dragon` with boot detection and screenshot capture.
 5. Add cassette and `.BIN` loading after the BASIC boot screen is stable.
 6. Move the named Dragon key mapping from the harness into the eventual runtime
    input layer, including shifted character synthesis for host text input.

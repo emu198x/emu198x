@@ -11,6 +11,8 @@ use std::process;
 
 use motorola_6809::Mc6809;
 use motorola_pia_6821::{Pia6821, PiaPort};
+use motorola_sam_6883::Sam6883;
+use motorola_vdg_6847::TextScreen;
 use zip::ZipArchive;
 
 const RAM_SIZE: usize = 0x8000;
@@ -29,6 +31,7 @@ Execution:
     --trace-limit N    number of recent instruction fetches to retain [default: 64]
     --press KEY        hold a named Dragon key closed; may be repeated
     --press-matrix R,C hold a raw keyboard matrix switch closed; may be repeated
+    --dump-text        print the current 32x16 MC6847 text snapshot
 
 Other:
     --help             print this help text
@@ -40,6 +43,7 @@ struct Cli {
     cycles: u64,
     trace_limit: usize,
     pressed_keys: Vec<MatrixKey>,
+    dump_text: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,6 +177,8 @@ struct HarnessReport {
     dropped_device_accesses: usize,
     readonly_writes: Vec<ReadonlyWrite>,
     dropped_readonly_writes: usize,
+    text_screen_base: u16,
+    text_screen: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -181,6 +187,7 @@ struct DragonMemory {
     rom: Box<[u8; ROM_SIZE]>,
     pia0: Pia6821,
     pia1: Pia6821,
+    sam: Sam6883,
     keyboard: DragonKeyboard,
 }
 
@@ -196,6 +203,7 @@ impl DragonMemory {
             rom: Box::new(*rom),
             pia0: Pia6821::new(),
             pia1: Pia6821::new(),
+            sam: Sam6883::new(),
             keyboard,
         }
     }
@@ -250,6 +258,9 @@ impl DragonMemory {
                 value,
             })
         } else if let Some(device) = decode_device_write(addr) {
+            if device == DeviceRegion::Sam {
+                self.sam.write(addr);
+            }
             Some(MemoryEvent::DeviceWrite {
                 device,
                 addr,
@@ -267,6 +278,15 @@ impl DragonMemory {
         self.pia0.set_input(PiaPort::B, 0xFF);
         self.pia1.set_input(PiaPort::A, 0xFF);
         self.pia1.set_input(PiaPort::B, 0xFF);
+    }
+
+    fn text_screen_base(&self) -> u16 {
+        self.sam.display_base()
+    }
+
+    fn capture_text_screen(&self) -> TextScreen {
+        let base = usize::from(self.text_screen_base());
+        TextScreen::capture(|offset| self.ram[(base + offset) & (RAM_SIZE - 1)])
     }
 }
 
@@ -333,7 +353,8 @@ fn run_main() -> Result<(), String> {
     let cli = parse_cli(args)?;
     let rom = load_rom(&cli.rom)?;
     let keyboard = DragonKeyboard::with_pressed_keys(&cli.pressed_keys)?;
-    let report = run_harness_with_keyboard(&rom, cli.cycles, cli.trace_limit, keyboard);
+    let report =
+        run_harness_with_keyboard(&rom, cli.cycles, cli.trace_limit, keyboard, cli.dump_text);
     print_report(&report);
     Ok(())
 }
@@ -346,6 +367,7 @@ where
     let mut cycles = DEFAULT_CYCLES;
     let mut trace_limit = DEFAULT_TRACE_LIMIT;
     let mut pressed_keys = Vec::new();
+    let mut dump_text = false;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -367,6 +389,9 @@ where
             "--press-matrix" => {
                 pressed_keys.push(parse_matrix_key(&next_value(&mut iter, "--press-matrix")?)?);
             }
+            "--dump-text" => {
+                dump_text = true;
+            }
             "--help" | "-h" => return Err(USAGE.to_owned()),
             _ => return Err(format!("unknown argument: {arg}\n\n{USAGE}")),
         }
@@ -377,6 +402,7 @@ where
         cycles,
         trace_limit,
         pressed_keys,
+        dump_text,
     })
 }
 
@@ -614,7 +640,7 @@ fn exact_rom_from_bytes(path: &Path, bytes: Vec<u8>) -> Result<[u8; ROM_SIZE], S
 
 #[cfg(test)]
 fn run_harness(rom: &[u8; ROM_SIZE], cycle_limit: u64, trace_limit: usize) -> HarnessReport {
-    run_harness_with_keyboard(rom, cycle_limit, trace_limit, DragonKeyboard::new())
+    run_harness_with_keyboard(rom, cycle_limit, trace_limit, DragonKeyboard::new(), false)
 }
 
 fn run_harness_with_keyboard(
@@ -622,6 +648,7 @@ fn run_harness_with_keyboard(
     cycle_limit: u64,
     trace_limit: usize,
     keyboard: DragonKeyboard,
+    dump_text: bool,
 ) -> HarnessReport {
     let mut cpu = Mc6809::new();
     let mut memory = DragonMemory::new_with_keyboard(rom, keyboard);
@@ -721,6 +748,8 @@ fn run_harness_with_keyboard(
         dropped_device_accesses,
         readonly_writes,
         dropped_readonly_writes,
+        text_screen_base: memory.text_screen_base(),
+        text_screen: dump_text.then(|| memory.capture_text_screen().to_plain_text()),
     }
 }
 
@@ -811,6 +840,7 @@ fn print_report(report: &HarnessReport) {
     println!("cycles: {}", report.cycles);
     println!("instructions: {}", report.instructions);
     println!("pc: ${:04X}", report.pc);
+    println!("text screen base: ${:04X}", report.text_screen_base);
     println!(
         "bus: addr=${:04X} rw={}",
         report.addr,
@@ -854,6 +884,12 @@ fn print_report(report: &HarnessReport) {
             "  cycle={} addr=${:04X} value=${:02X}",
             write.cycle, write.addr, write.value
         );
+    }
+    if let Some(text_screen) = &report.text_screen {
+        println!("text screen:");
+        for line in text_screen.lines() {
+            println!("  |{line}|");
+        }
     }
     println!("trace:");
     for fetch in &report.trace {
@@ -1072,6 +1108,39 @@ mod tests {
     }
 
     #[test]
+    fn harness_can_dump_sam_selected_text_screen() {
+        let mut rom = rom_with_reset_vector(0x8000);
+        rom[0x0000] = 0x86; // LDA #$01
+        rom[0x0001] = 0x01;
+        rom[0x0002] = 0xB7; // STA $FFC9: set SAM F1, selecting text base $0400.
+        rom[0x0003] = 0xFF;
+        rom[0x0004] = 0xC9;
+        rom[0x0005] = 0xB7; // STA $0400: MC6847 diagnostic 'A'.
+        rom[0x0006] = 0x04;
+        rom[0x0007] = 0x00;
+        rom[0x0008] = 0x86; // LDA #$02
+        rom[0x0009] = 0x02;
+        rom[0x000A] = 0xB7; // STA $0401: MC6847 diagnostic 'B'.
+        rom[0x000B] = 0x04;
+        rom[0x000C] = 0x01;
+        rom[0x000D] = 0x01;
+
+        let report = run_harness_with_keyboard(&rom, 128, 8, DragonKeyboard::new(), true);
+
+        assert_eq!(report.stop_reason, StopReason::CpuHalted);
+        assert_eq!(report.text_screen_base, 0x0400);
+        assert_eq!(
+            report
+                .text_screen
+                .as_deref()
+                .expect("text dump should be captured")
+                .lines()
+                .next(),
+            Some("AB@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+        );
+    }
+
+    #[test]
     fn cli_requires_rom_path() {
         let err = parse_cli(Vec::<String>::new()).expect_err("missing ROM should fail");
 
@@ -1087,6 +1156,7 @@ mod tests {
             "0x20".to_owned(),
             "--trace-limit".to_owned(),
             "3".to_owned(),
+            "--dump-text".to_owned(),
         ])
         .expect("valid CLI should parse");
 
@@ -1094,6 +1164,7 @@ mod tests {
         assert_eq!(cli.cycles, 32);
         assert_eq!(cli.trace_limit, 3);
         assert_eq!(cli.pressed_keys, Vec::new());
+        assert!(cli.dump_text);
     }
 
     #[test]

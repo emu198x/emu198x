@@ -64,6 +64,8 @@ members = [
     "crates/mos-vic-ii",
     "crates/motorola-6809",
     "crates/motorola-68000",
+    "crates/motorola-sam-6883",
+    "crates/motorola-vdg-6847",
     "crates/nec-upd765a",
     "crates/nintendo-game-boy-apu",
     "crates/nintendo-game-boy-mbc",
