@@ -16,6 +16,7 @@ use crate::{Model, profile_for};
 const DRAGON_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
+    "screen.text.lines",
     "dragon.cpu.cycles",
     "dragon.cpu.instructions",
     "dragon.cpu.pc",
@@ -231,6 +232,7 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
         let value = match path {
             "boot.detected" => json!(machine.boot_status().detected),
             "boot.reason" => json!(machine.boot_status().reason),
+            "screen.text.lines" => json!(machine.screen_text_lines()),
             "dragon.cpu.cycles" => json!(machine.machine.cycles()),
             "dragon.cpu.instructions" => json!(machine.machine.instructions()),
             "dragon.cpu.pc" => json!(machine.machine.pc()),
@@ -251,9 +253,21 @@ struct BootStatus {
 }
 
 impl DragonRuntime {
+    fn screen_text_lines(&self) -> Vec<String> {
+        self.machine
+            .capture_text_screen()
+            .to_plain_text()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
     fn boot_status(&self) -> BootStatus {
-        let text = self.machine.capture_text_screen().to_plain_text();
-        if text.lines().any(|line| line.trim() == "OK") {
+        if self
+            .screen_text_lines()
+            .iter()
+            .any(|line| line.trim() == "OK")
+        {
             BootStatus {
                 detected: true,
                 reason: "basic-ok-prompt",
@@ -273,6 +287,7 @@ mod tests {
         FirmwareImage, FirmwareSet, FramePacket, FrameSink, HostIo, MachineCore, MachineTime,
         NullAudioSink, NullTraceSink, PixelFormat,
     };
+    use motorola_vdg_6847::TEXT_ROWS;
 
     use super::*;
 
@@ -370,5 +385,22 @@ mod tests {
 
         assert_eq!(detected.value, json!(false));
         assert_eq!(reason.value, json!("waiting-for-basic-ok-prompt"));
+    }
+
+    #[test]
+    fn query_provider_reports_screen_text_lines() {
+        let runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let provider = DragonSessionQueryProvider;
+
+        let lines = provider
+            .query(&runtime, "screen.text.lines")
+            .expect("query should not fail")
+            .expect("query should be owned");
+
+        let lines = lines
+            .value
+            .as_array()
+            .expect("screen text lines should be an array");
+        assert_eq!(lines.len(), TEXT_ROWS);
     }
 }

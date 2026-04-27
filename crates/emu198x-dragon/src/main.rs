@@ -22,7 +22,7 @@ use winit::dpi::LogicalSize;
 use winit::error::{EventLoopError, OsError};
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_SCALE: u32 = 2;
@@ -56,10 +56,13 @@ Controls:
     Esc              quit
     F12              hard reset
     A-Z, 0-9         Dragon keyboard keys
+    @ : ; , - . /    Dragon punctuation keys
+    ! \" # $ % & ' ( ) £ * + < = > ?
+                     Dragon shifted symbols
     Arrows           Dragon arrow keys
     Enter            Dragon Enter
     Space            Dragon Space
-    Right Shift      Dragon Shift
+    Shift            Dragon Shift
     Backspace        Dragon Clear
     F1               Dragon Break
 ";
@@ -170,7 +173,7 @@ struct DragonApp {
     slice_duration: Duration,
     next_slice_at: Instant,
     pending_inputs: Vec<InputEvent>,
-    pressed_keys: HashMap<KeyCode, String>,
+    pressed_keys: HashMap<PhysicalKey, Vec<String>>,
     gamepads: NativeGamepadInput,
     window: Option<Arc<Window>>,
     video: Option<WgpuVideoPresenter>,
@@ -286,37 +289,42 @@ impl DragonApp {
         }
     }
 
-    fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
-        let Some(name) = map_dragon_key(code) else {
-            return;
-        };
-
+    fn queue_key_state(&mut self, physical_key: PhysicalKey, logical_key: &Key, pressed: bool) {
         if pressed {
-            if self.pressed_keys.contains_key(&code) {
+            if self.pressed_keys.contains_key(&physical_key) {
                 return;
             }
-            self.pressed_keys.insert(code, name.to_owned());
-            self.pending_inputs.push(InputEvent::Key {
-                name: name.into(),
-                pressed: true,
-            });
+            let Some(names) = map_dragon_keys(logical_key, physical_key) else {
+                return;
+            };
+            for name in &names {
+                self.pending_inputs.push(InputEvent::Key {
+                    name: name.clone().into(),
+                    pressed: true,
+                });
+            }
+            self.pressed_keys.insert(physical_key, names);
             self.next_slice_at = Instant::now();
-        } else if let Some(name) = self.pressed_keys.remove(&code) {
-            self.pending_inputs.push(InputEvent::Key {
-                name: name.into(),
-                pressed: false,
-            });
+        } else if let Some(names) = self.pressed_keys.remove(&physical_key) {
+            for name in names.into_iter().rev() {
+                self.pending_inputs.push(InputEvent::Key {
+                    name: name.into(),
+                    pressed: false,
+                });
+            }
             self.next_slice_at = Instant::now();
         }
     }
 
     fn release_all_keys(&mut self) {
         let keys = std::mem::take(&mut self.pressed_keys);
-        for name in keys.into_values() {
-            self.pending_inputs.push(InputEvent::Key {
-                name: name.into(),
-                pressed: false,
-            });
+        for names in keys.into_values() {
+            for name in names.into_iter().rev() {
+                self.pending_inputs.push(InputEvent::Key {
+                    name: name.into(),
+                    pressed: false,
+                });
+            }
         }
         self.next_slice_at = Instant::now();
     }
@@ -381,14 +389,13 @@ impl ApplicationHandler for DragonApp {
                 if event.repeat {
                     return;
                 }
-                let PhysicalKey::Code(code) = event.physical_key else {
-                    return;
-                };
                 let pressed = event.state == ElementState::Pressed;
-                if self.handle_shortcut(event_loop, code, pressed) {
+                if let PhysicalKey::Code(code) = event.physical_key
+                    && self.handle_shortcut(event_loop, code, pressed)
+                {
                     return;
                 }
-                self.queue_key_state(code, pressed);
+                self.queue_key_state(event.physical_key, &event.logical_key, pressed);
             }
             WindowEvent::RedrawRequested => {
                 if let Err(err) = self.render() {
@@ -425,7 +432,9 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
-    println!("Controls: Esc quit, F12 reset, Dragon keyboard: A-Z, 0-9, arrows, Enter, Space.");
+    println!(
+        "Controls: Esc quit, F12 reset, Dragon keys: A-Z, 0-9, punctuation, shifted symbols, arrows, Enter, Clear, Break, Shift, Space."
+    );
 
     let runner = DragonRunner::from_cli(&cli)?;
     let mut app = DragonApp::new(runner, cli.scale, cli.video)?;
@@ -489,18 +498,128 @@ fn die(message: &str) -> ! {
     process::exit(1);
 }
 
-fn map_dragon_key(code: KeyCode) -> Option<&'static str> {
+fn map_dragon_keys(logical_key: &Key, physical_key: PhysicalKey) -> Option<Vec<String>> {
+    if let Some(names) = map_dragon_logical_keys(logical_key) {
+        return Some(names);
+    }
+
+    let PhysicalKey::Code(code) = physical_key else {
+        return None;
+    };
+    map_dragon_physical_fallback(code).map(|name| vec![name.to_owned()])
+}
+
+fn map_dragon_logical_keys(key: &Key) -> Option<Vec<String>> {
+    match key {
+        Key::Character(text) => map_dragon_character(text.as_str()).map(labels_to_names),
+        Key::Named(named) => map_dragon_named_key(*named).map(|name| vec![name.to_owned()]),
+        Key::Unidentified(_) | Key::Dead(_) => None,
+    }
+}
+
+fn labels_to_names(labels: Vec<&'static str>) -> Vec<String> {
+    labels.into_iter().map(str::to_owned).collect()
+}
+
+fn map_dragon_character(text: &str) -> Option<Vec<&'static str>> {
+    let mut chars = text.chars();
+    let ch = chars.next()?;
+    if chars.next().is_some() {
+        return None;
+    }
+
+    Some(match ch {
+        '0' => vec!["0"],
+        '1' => vec!["1"],
+        '2' => vec!["2"],
+        '3' => vec!["3"],
+        '4' => vec!["4"],
+        '5' => vec!["5"],
+        '6' => vec!["6"],
+        '7' => vec!["7"],
+        '8' => vec!["8"],
+        '9' => vec!["9"],
+        'a' | 'A' => vec!["a"],
+        'b' | 'B' => vec!["b"],
+        'c' | 'C' => vec!["c"],
+        'd' | 'D' => vec!["d"],
+        'e' | 'E' => vec!["e"],
+        'f' | 'F' => vec!["f"],
+        'g' | 'G' => vec!["g"],
+        'h' | 'H' => vec!["h"],
+        'i' | 'I' => vec!["i"],
+        'j' | 'J' => vec!["j"],
+        'k' | 'K' => vec!["k"],
+        'l' | 'L' => vec!["l"],
+        'm' | 'M' => vec!["m"],
+        'n' | 'N' => vec!["n"],
+        'o' | 'O' => vec!["o"],
+        'p' | 'P' => vec!["p"],
+        'q' | 'Q' => vec!["q"],
+        'r' | 'R' => vec!["r"],
+        's' | 'S' => vec!["s"],
+        't' | 'T' => vec!["t"],
+        'u' | 'U' => vec!["u"],
+        'v' | 'V' => vec!["v"],
+        'w' | 'W' => vec!["w"],
+        'x' | 'X' => vec!["x"],
+        'y' | 'Y' => vec!["y"],
+        'z' | 'Z' => vec!["z"],
+        ' ' => vec!["space"],
+        '@' => vec!["@"],
+        ':' => vec![":"],
+        ';' => vec![";"],
+        ',' => vec![","],
+        '-' => vec!["-"],
+        '.' => vec!["."],
+        '/' => vec!["/"],
+        '!' => vec!["shift", "1"],
+        '"' => vec!["shift", "2"],
+        '#' => vec!["shift", "3"],
+        '$' => vec!["shift", "4"],
+        '%' => vec!["shift", "5"],
+        '&' => vec!["shift", "6"],
+        '\'' => vec!["shift", "7"],
+        '(' => vec!["shift", "8"],
+        ')' => vec!["shift", "9"],
+        '£' => vec!["shift", "0"],
+        '*' => vec!["shift", ":"],
+        '+' => vec!["shift", ";"],
+        '<' => vec!["shift", ","],
+        '=' => vec!["shift", "-"],
+        '>' => vec!["shift", "."],
+        '?' => vec!["shift", "/"],
+        _ => return None,
+    })
+}
+
+fn map_dragon_named_key(key: NamedKey) -> Option<&'static str> {
+    Some(match key {
+        NamedKey::ArrowUp => "up",
+        NamedKey::ArrowDown => "down",
+        NamedKey::ArrowLeft => "left",
+        NamedKey::ArrowRight => "right",
+        NamedKey::Space => "space",
+        NamedKey::Enter => "enter",
+        NamedKey::Backspace | NamedKey::Clear => "clear",
+        NamedKey::F1 => "break",
+        NamedKey::Shift => "shift",
+        _ => return None,
+    })
+}
+
+fn map_dragon_physical_fallback(code: KeyCode) -> Option<&'static str> {
     Some(match code {
-        KeyCode::Digit0 => "0",
-        KeyCode::Digit1 => "1",
-        KeyCode::Digit2 => "2",
-        KeyCode::Digit3 => "3",
-        KeyCode::Digit4 => "4",
-        KeyCode::Digit5 => "5",
-        KeyCode::Digit6 => "6",
-        KeyCode::Digit7 => "7",
-        KeyCode::Digit8 => "8",
-        KeyCode::Digit9 => "9",
+        KeyCode::Digit0 | KeyCode::Numpad0 => "0",
+        KeyCode::Digit1 | KeyCode::Numpad1 => "1",
+        KeyCode::Digit2 | KeyCode::Numpad2 => "2",
+        KeyCode::Digit3 | KeyCode::Numpad3 => "3",
+        KeyCode::Digit4 | KeyCode::Numpad4 => "4",
+        KeyCode::Digit5 | KeyCode::Numpad5 => "5",
+        KeyCode::Digit6 | KeyCode::Numpad6 => "6",
+        KeyCode::Digit7 | KeyCode::Numpad7 => "7",
+        KeyCode::Digit8 | KeyCode::Numpad8 => "8",
+        KeyCode::Digit9 | KeyCode::Numpad9 => "9",
         KeyCode::KeyA => "a",
         KeyCode::KeyB => "b",
         KeyCode::KeyC => "c",
@@ -533,12 +652,14 @@ fn map_dragon_key(code: KeyCode) -> Option<&'static str> {
         KeyCode::ArrowRight => "right",
         KeyCode::Space => "space",
         KeyCode::Enter | KeyCode::NumpadEnter => "enter",
-        KeyCode::Backspace => "clear",
+        KeyCode::Backspace | KeyCode::Delete | KeyCode::NumpadBackspace | KeyCode::NumpadClear => {
+            "clear"
+        }
         KeyCode::F1 => "break",
-        KeyCode::ShiftRight => "shift",
-        KeyCode::Comma => ",",
+        KeyCode::ShiftLeft | KeyCode::ShiftRight => "shift",
+        KeyCode::Comma | KeyCode::NumpadComma => ",",
         KeyCode::Minus | KeyCode::NumpadSubtract => "-",
-        KeyCode::Period => ".",
+        KeyCode::Period | KeyCode::NumpadDecimal => ".",
         KeyCode::Slash | KeyCode::NumpadDivide => "/",
         KeyCode::Semicolon => ";",
         _ => return None,
@@ -547,6 +668,8 @@ fn map_dragon_key(code: KeyCode) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use machine_dragon_32::DragonKey;
+
     use super::*;
 
     #[test]
@@ -570,11 +693,190 @@ mod tests {
     }
 
     #[test]
-    fn maps_common_host_keys_to_dragon_labels() {
-        assert_eq!(map_dragon_key(KeyCode::KeyA), Some("a"));
-        assert_eq!(map_dragon_key(KeyCode::Digit1), Some("1"));
-        assert_eq!(map_dragon_key(KeyCode::ArrowLeft), Some("left"));
-        assert_eq!(map_dragon_key(KeyCode::Enter), Some("enter"));
-        assert_eq!(map_dragon_key(KeyCode::Backspace), Some("clear"));
+    fn maps_common_logical_keys_to_dragon_labels() {
+        assert_eq!(
+            map_dragon_keys(
+                &Key::Character("a".into()),
+                PhysicalKey::Code(KeyCode::KeyA)
+            ),
+            Some(vec!["a".to_owned()])
+        );
+        assert_eq!(
+            map_dragon_keys(
+                &Key::Character("A".into()),
+                PhysicalKey::Code(KeyCode::KeyA)
+            ),
+            Some(vec!["a".to_owned()])
+        );
+        assert_eq!(
+            map_dragon_keys(
+                &Key::Character("1".into()),
+                PhysicalKey::Code(KeyCode::Digit1)
+            ),
+            Some(vec!["1".to_owned()])
+        );
+        assert_eq!(
+            map_dragon_keys(
+                &Key::Character("@".into()),
+                PhysicalKey::Code(KeyCode::Quote)
+            ),
+            Some(vec!["@".to_owned()])
+        );
+        assert_eq!(
+            map_dragon_keys(
+                &Key::Named(NamedKey::ArrowLeft),
+                PhysicalKey::Code(KeyCode::ArrowLeft)
+            ),
+            Some(vec!["left".to_owned()])
+        );
+        assert_eq!(
+            map_dragon_keys(
+                &Key::Named(NamedKey::Enter),
+                PhysicalKey::Code(KeyCode::Enter)
+            ),
+            Some(vec!["enter".to_owned()])
+        );
+        assert_eq!(
+            map_dragon_keys(
+                &Key::Named(NamedKey::Backspace),
+                PhysicalKey::Code(KeyCode::Backspace)
+            ),
+            Some(vec!["clear".to_owned()])
+        );
+    }
+
+    #[test]
+    fn maps_every_dragon_key_to_a_host_event() {
+        for key in DragonKey::ALL {
+            let (logical, physical) = host_event_for_dragon_key(key);
+            assert_eq!(
+                map_dragon_keys(&logical, physical),
+                Some(vec![key.label().to_owned()]),
+                "missing native host mapping for Dragon key {key:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn physical_fallback_covers_numpad_and_platform_keys() {
+        assert_eq!(
+            map_dragon_keys(
+                &Key::Unidentified(winit::keyboard::NativeKey::Unidentified),
+                PhysicalKey::Code(KeyCode::Numpad1),
+            ),
+            Some(vec!["1".to_owned()])
+        );
+        assert_eq!(
+            map_dragon_keys(
+                &Key::Unidentified(winit::keyboard::NativeKey::Unidentified),
+                PhysicalKey::Code(KeyCode::NumpadEnter),
+            ),
+            Some(vec!["enter".to_owned()])
+        );
+        assert_eq!(
+            map_dragon_keys(
+                &Key::Unidentified(winit::keyboard::NativeKey::Unidentified),
+                PhysicalKey::Code(KeyCode::Delete),
+            ),
+            Some(vec!["clear".to_owned()])
+        );
+    }
+
+    #[test]
+    fn maps_shifted_printable_symbols_to_dragon_shift_combos() {
+        let cases = [
+            ("!", &["shift", "1"][..]),
+            ("\"", &["shift", "2"]),
+            ("#", &["shift", "3"]),
+            ("$", &["shift", "4"]),
+            ("%", &["shift", "5"]),
+            ("&", &["shift", "6"]),
+            ("'", &["shift", "7"]),
+            ("(", &["shift", "8"]),
+            (")", &["shift", "9"]),
+            ("£", &["shift", "0"]),
+            ("*", &["shift", ":"]),
+            ("+", &["shift", ";"]),
+            ("<", &["shift", ","]),
+            ("=", &["shift", "-"]),
+            (">", &["shift", "."]),
+            ("?", &["shift", "/"]),
+        ];
+
+        for (text, expected) in cases {
+            assert_eq!(
+                map_dragon_keys(
+                    &Key::Character(text.into()),
+                    PhysicalKey::Code(KeyCode::ShiftLeft),
+                ),
+                Some(expected.iter().map(ToString::to_string).collect()),
+                "missing shifted symbol mapping for {text:?}",
+            );
+        }
+    }
+
+    fn host_event_for_dragon_key(key: DragonKey) -> (Key, PhysicalKey) {
+        match key {
+            DragonKey::Digit0 => character("0", KeyCode::Digit0),
+            DragonKey::Digit1 => character("1", KeyCode::Digit1),
+            DragonKey::Digit2 => character("2", KeyCode::Digit2),
+            DragonKey::Digit3 => character("3", KeyCode::Digit3),
+            DragonKey::Digit4 => character("4", KeyCode::Digit4),
+            DragonKey::Digit5 => character("5", KeyCode::Digit5),
+            DragonKey::Digit6 => character("6", KeyCode::Digit6),
+            DragonKey::Digit7 => character("7", KeyCode::Digit7),
+            DragonKey::Digit8 => character("8", KeyCode::Digit8),
+            DragonKey::Digit9 => character("9", KeyCode::Digit9),
+            DragonKey::Colon => character(":", KeyCode::Semicolon),
+            DragonKey::Semicolon => character(";", KeyCode::Semicolon),
+            DragonKey::Comma => character(",", KeyCode::Comma),
+            DragonKey::Minus => character("-", KeyCode::Minus),
+            DragonKey::Period => character(".", KeyCode::Period),
+            DragonKey::Slash => character("/", KeyCode::Slash),
+            DragonKey::At => character("@", KeyCode::Quote),
+            DragonKey::A => character("a", KeyCode::KeyA),
+            DragonKey::B => character("b", KeyCode::KeyB),
+            DragonKey::C => character("c", KeyCode::KeyC),
+            DragonKey::D => character("d", KeyCode::KeyD),
+            DragonKey::E => character("e", KeyCode::KeyE),
+            DragonKey::F => character("f", KeyCode::KeyF),
+            DragonKey::G => character("g", KeyCode::KeyG),
+            DragonKey::H => character("h", KeyCode::KeyH),
+            DragonKey::I => character("i", KeyCode::KeyI),
+            DragonKey::J => character("j", KeyCode::KeyJ),
+            DragonKey::K => character("k", KeyCode::KeyK),
+            DragonKey::L => character("l", KeyCode::KeyL),
+            DragonKey::M => character("m", KeyCode::KeyM),
+            DragonKey::N => character("n", KeyCode::KeyN),
+            DragonKey::O => character("o", KeyCode::KeyO),
+            DragonKey::P => character("p", KeyCode::KeyP),
+            DragonKey::Q => character("q", KeyCode::KeyQ),
+            DragonKey::R => character("r", KeyCode::KeyR),
+            DragonKey::S => character("s", KeyCode::KeyS),
+            DragonKey::T => character("t", KeyCode::KeyT),
+            DragonKey::U => character("u", KeyCode::KeyU),
+            DragonKey::V => character("v", KeyCode::KeyV),
+            DragonKey::W => character("w", KeyCode::KeyW),
+            DragonKey::X => character("x", KeyCode::KeyX),
+            DragonKey::Y => character("y", KeyCode::KeyY),
+            DragonKey::Z => character("z", KeyCode::KeyZ),
+            DragonKey::Up => named(NamedKey::ArrowUp, KeyCode::ArrowUp),
+            DragonKey::Down => named(NamedKey::ArrowDown, KeyCode::ArrowDown),
+            DragonKey::Left => named(NamedKey::ArrowLeft, KeyCode::ArrowLeft),
+            DragonKey::Right => named(NamedKey::ArrowRight, KeyCode::ArrowRight),
+            DragonKey::Space => named(NamedKey::Space, KeyCode::Space),
+            DragonKey::Enter => named(NamedKey::Enter, KeyCode::Enter),
+            DragonKey::Clear => named(NamedKey::Backspace, KeyCode::Backspace),
+            DragonKey::Break => named(NamedKey::F1, KeyCode::F1),
+            DragonKey::Shift => named(NamedKey::Shift, KeyCode::ShiftLeft),
+        }
+    }
+
+    fn character(text: &'static str, code: KeyCode) -> (Key, PhysicalKey) {
+        (Key::Character(text.into()), PhysicalKey::Code(code))
+    }
+
+    fn named(key: NamedKey, code: KeyCode) -> (Key, PhysicalKey) {
+        (Key::Named(key), PhysicalKey::Code(code))
     }
 }

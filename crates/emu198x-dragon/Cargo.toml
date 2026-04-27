@@ -13,5 +13,8 @@ runtime-dragon = { path = "../runtime-dragon" }
 thiserror.workspace = true
 winit.workspace = true
 
+[dev-dependencies]
+machine-dragon-32 = { path = "../machine-dragon-32" }
+
 [lints]
 workspace = true

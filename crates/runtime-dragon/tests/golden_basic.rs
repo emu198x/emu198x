@@ -1,7 +1,7 @@
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-use emu198x_shell::{FirmwareImage, FirmwareSet, HeadlessSession, read_firmware_asset};
+use emu198x_shell::{FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, read_firmware_asset};
 use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 
@@ -9,13 +9,68 @@ const DRAGON_CPU_HZ: u64 = 894_886;
 const DRAGON_FRAME_HZ: u64 = 50;
 const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
 const BOOT_FRAME_BUDGET: u32 = 100;
+const KEY_EDGE_FRAMES: u32 = 4;
 const GOLDEN_NAME: &str = "dragon32-basic";
 
 #[test]
 fn dragon32_real_rom_reaches_basic_prompt_and_captures_frame() {
-    let Some(rom_path) = dragon32_rom_path() else {
-        eprintln!("skipping Dragon 32 golden smoke: set EMU198X_DRAGON32_ROM");
+    let Some(session) = booted_dragon_session() else {
         return;
+    };
+
+    assert_eq!(
+        session
+            .query("dragon.text.base")
+            .expect("text base query should work")
+            .value,
+        serde_json::json!(0x400)
+    );
+
+    let png = session
+        .screenshot_png_bytes()
+        .expect("booted Dragon runtime should have emitted a frame");
+    assert_png_dimensions(
+        &png,
+        TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
+        TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32,
+    );
+
+    compare_or_update_golden(GOLDEN_NAME, &png);
+}
+
+#[test]
+fn dragon32_real_rom_echoes_basic_keyboard_input() {
+    let Some(mut session) = booted_dragon_session() else {
+        return;
+    };
+
+    tap_key(&mut session, "a");
+    tap_key(&mut session, "b");
+    tap_key(&mut session, "c");
+    tap_key(&mut session, "1");
+    tap_key(&mut session, "2");
+    tap_key(&mut session, "3");
+
+    if let Err(err) = session.wait_for_query_text_contains("screen.text.lines", "ABC123", 30) {
+        panic!(
+            "Dragon BASIC should echo typed keys: {err}\n{}",
+            screen_text_lines(&session).join("\n")
+        );
+    }
+
+    tap_key_combo(&mut session, &["shift", "2"]);
+    if let Err(err) = session.wait_for_query_text_contains("screen.text.lines", "ABC123\"", 30) {
+        panic!(
+            "Dragon BASIC should echo shifted quote: {err}\n{}",
+            screen_text_lines(&session).join("\n")
+        );
+    }
+}
+
+fn booted_dragon_session() -> Option<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>> {
+    let Some(rom_path) = dragon32_rom_path() else {
+        eprintln!("skipping Dragon 32 real-ROM smoke: set EMU198X_DRAGON32_ROM");
+        return None;
     };
 
     let loaded = read_firmware_asset(&rom_path)
@@ -36,24 +91,7 @@ fn dragon32_real_rom_reaches_basic_prompt_and_captures_frame() {
 
     assert_eq!(boot.reason, "basic-ok-prompt");
     assert!(boot.frames <= BOOT_FRAME_BUDGET);
-    assert_eq!(
-        session
-            .query("dragon.text.base")
-            .expect("text base query should work")
-            .value,
-        serde_json::json!(0x400)
-    );
-
-    let png = session
-        .screenshot_png_bytes()
-        .expect("booted Dragon runtime should have emitted a frame");
-    assert_png_dimensions(
-        &png,
-        TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
-        TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32,
-    );
-
-    compare_or_update_golden(GOLDEN_NAME, &png);
+    Some(session)
 }
 
 fn dragon32_rom_path() -> Option<PathBuf> {
@@ -139,4 +177,68 @@ fn assert_png_dimensions(png: &[u8], expected_width: u32, expected_height: u32) 
 
     assert_eq!(info.width, expected_width);
     assert_eq!(info.height, expected_height);
+}
+
+fn screen_text_lines(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+) -> Vec<String> {
+    let result = session
+        .query("screen.text.lines")
+        .expect("screen.text.lines query should work");
+    result
+        .value
+        .as_array()
+        .expect("screen.text.lines should be an array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("screen.text.lines entries should be strings")
+                .to_owned()
+        })
+        .collect()
+}
+
+fn tap_key(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    name: &'static str,
+) {
+    session.queue_input(InputEvent::Key {
+        name: name.into(),
+        pressed: true,
+    });
+    session
+        .run_frames(KEY_EDGE_FRAMES)
+        .expect("key press should advance Dragon runtime");
+    session.queue_input(InputEvent::Key {
+        name: name.into(),
+        pressed: false,
+    });
+    session
+        .run_frames(KEY_EDGE_FRAMES)
+        .expect("key release should advance Dragon runtime");
+}
+
+fn tap_key_combo(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    names: &[&'static str],
+) {
+    for name in names {
+        session.queue_input(InputEvent::Key {
+            name: (*name).into(),
+            pressed: true,
+        });
+    }
+    session
+        .run_frames(KEY_EDGE_FRAMES)
+        .expect("key combo press should advance Dragon runtime");
+    for name in names.iter().rev() {
+        session.queue_input(InputEvent::Key {
+            name: (*name).into(),
+            pressed: false,
+        });
+    }
+    session
+        .run_frames(KEY_EDGE_FRAMES)
+        .expect("key combo release should advance Dragon runtime");
 }

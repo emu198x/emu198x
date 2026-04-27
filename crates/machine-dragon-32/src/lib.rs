@@ -207,6 +207,121 @@ pub enum DragonKey {
 }
 
 impl DragonKey {
+    /// Every physical Dragon keyboard key represented by the 8x8 matrix.
+    pub const ALL: [Self; 52] = [
+        Self::Digit0,
+        Self::Digit1,
+        Self::Digit2,
+        Self::Digit3,
+        Self::Digit4,
+        Self::Digit5,
+        Self::Digit6,
+        Self::Digit7,
+        Self::Digit8,
+        Self::Digit9,
+        Self::Colon,
+        Self::Semicolon,
+        Self::Comma,
+        Self::Minus,
+        Self::Period,
+        Self::Slash,
+        Self::At,
+        Self::A,
+        Self::B,
+        Self::C,
+        Self::D,
+        Self::E,
+        Self::F,
+        Self::G,
+        Self::H,
+        Self::I,
+        Self::J,
+        Self::K,
+        Self::L,
+        Self::M,
+        Self::N,
+        Self::O,
+        Self::P,
+        Self::Q,
+        Self::R,
+        Self::S,
+        Self::T,
+        Self::U,
+        Self::V,
+        Self::W,
+        Self::X,
+        Self::Y,
+        Self::Z,
+        Self::Up,
+        Self::Down,
+        Self::Left,
+        Self::Right,
+        Self::Space,
+        Self::Enter,
+        Self::Clear,
+        Self::Break,
+        Self::Shift,
+    ];
+
+    /// Return the canonical host/runtime label for this Dragon key.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Digit0 => "0",
+            Self::Digit1 => "1",
+            Self::Digit2 => "2",
+            Self::Digit3 => "3",
+            Self::Digit4 => "4",
+            Self::Digit5 => "5",
+            Self::Digit6 => "6",
+            Self::Digit7 => "7",
+            Self::Digit8 => "8",
+            Self::Digit9 => "9",
+            Self::Colon => ":",
+            Self::Semicolon => ";",
+            Self::Comma => ",",
+            Self::Minus => "-",
+            Self::Period => ".",
+            Self::Slash => "/",
+            Self::At => "@",
+            Self::A => "a",
+            Self::B => "b",
+            Self::C => "c",
+            Self::D => "d",
+            Self::E => "e",
+            Self::F => "f",
+            Self::G => "g",
+            Self::H => "h",
+            Self::I => "i",
+            Self::J => "j",
+            Self::K => "k",
+            Self::L => "l",
+            Self::M => "m",
+            Self::N => "n",
+            Self::O => "o",
+            Self::P => "p",
+            Self::Q => "q",
+            Self::R => "r",
+            Self::S => "s",
+            Self::T => "t",
+            Self::U => "u",
+            Self::V => "v",
+            Self::W => "w",
+            Self::X => "x",
+            Self::Y => "y",
+            Self::Z => "z",
+            Self::Up => "up",
+            Self::Down => "down",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Space => "space",
+            Self::Enter => "enter",
+            Self::Clear => "clear",
+            Self::Break => "break",
+            Self::Shift => "shift",
+        }
+    }
+
     /// Parse a semantic key label used by host-side input and harnesses.
     #[must_use]
     pub fn from_label(value: &str) -> Option<Self> {
@@ -356,18 +471,19 @@ impl DragonKeyboard {
         Ok(())
     }
 
-    /// Return PIA0 port A input for the current row-select output.
+    /// Return PIA0 port A row input for the current PIA0 port B column output.
     #[must_use]
-    pub fn port_a_input(&self, row_select: u8) -> u8 {
-        let selected_rows = !row_select;
-        if selected_rows == 0 {
+    pub fn port_a_input(&self, column_output: u8) -> u8 {
+        let selected_columns = !column_output;
+        if selected_columns == 0 {
             return 0xFF;
         }
 
         let mut input = 0xFF;
-        for (row, columns) in self.rows.iter().enumerate() {
-            if selected_rows & (1 << row) != 0 {
-                input &= columns;
+        for (row, columns) in self.rows.iter().take(7).enumerate() {
+            let pressed_columns = !columns;
+            if pressed_columns & selected_columns != 0 {
+                input &= !(1 << row);
             }
         }
         input
@@ -586,9 +702,9 @@ impl DragonMemory {
     }
 
     fn refresh_pia_inputs(&mut self) {
-        let row_select = self.pia0.output_latch(PiaPort::B) | !self.pia0.ddr(PiaPort::B);
+        let column_output = self.pia0.output_latch(PiaPort::B) | !self.pia0.ddr(PiaPort::B);
         self.pia0
-            .set_input(PiaPort::A, self.keyboard.port_a_input(row_select));
+            .set_input(PiaPort::A, self.keyboard.port_a_input(column_output));
         self.pia0.set_input(PiaPort::B, 0xFF);
         self.pia1.set_input(PiaPort::A, 0xFF);
         self.pia1.set_input(PiaPort::B, 0xFF);
@@ -1004,7 +1120,7 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_returns_high_when_no_rows_are_selected() {
+    fn keyboard_returns_high_when_no_columns_are_selected() {
         let mut keyboard = DragonKeyboard::new();
         keyboard
             .press(MatrixKey::new(2, 3))
@@ -1014,22 +1130,22 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_pulls_column_low_when_selected_row_has_pressed_key() {
+    fn keyboard_pulls_row_low_when_selected_column_has_pressed_key() {
         let mut keyboard = DragonKeyboard::new();
         keyboard
             .press(MatrixKey::new(2, 3))
             .expect("matrix key should be valid");
 
-        assert_eq!(keyboard.port_a_input(0xFB), 0xF7);
+        assert_eq!(keyboard.port_a_input(0xF7), 0xFB);
     }
 
     #[test]
-    fn keyboard_ands_multiple_selected_rows() {
+    fn keyboard_ands_multiple_selected_columns() {
         let keyboard =
             DragonKeyboard::with_pressed_keys(&[MatrixKey::new(1, 2), MatrixKey::new(3, 5)])
                 .expect("matrix keys should be valid");
 
-        assert_eq!(keyboard.port_a_input(0xF5), 0xDB);
+        assert_eq!(keyboard.port_a_input(0xDB), 0xF5);
     }
 
     #[test]
@@ -1047,20 +1163,20 @@ mod tests {
             .expect("matrix key should be valid");
         let mut memory = DragonMemory::new_with_keyboard(&rom, keyboard);
 
-        memory.write(0xFF02, 0xFF); // PIA0 port B DDR: all row-drive bits output.
+        memory.write(0xFF02, 0xFF); // PIA0 port B DDR: all column-drive bits output.
         memory.write(0xFF03, 0x04); // PIA0 port B data register selected.
-        memory.write(0xFF02, 0xFE); // Drive row 0 low.
+        memory.write(0xFF02, 0xFD); // Drive column 1 low.
         memory.write(0xFF01, 0x04); // PIA0 port A data register selected.
 
         let (value, event) = memory.read_bus(0xFF00);
 
-        assert_eq!(value, 0xFD);
+        assert_eq!(value, 0xFE);
         assert_eq!(
             event,
             Some(MemoryEvent::DeviceRead {
                 device: DeviceRegion::Pia0,
                 addr: 0xFF00,
-                value: 0xFD,
+                value: 0xFE,
             })
         );
     }
@@ -1122,6 +1238,7 @@ mod tests {
 
     #[test]
     fn dragon_key_labels_map_to_confirmed_matrix_positions() {
+        assert_eq!(DragonKey::ALL.len(), 52);
         assert_eq!(
             MatrixKey::from_dragon_key(DragonKey::from_label("a").expect("A should parse")),
             MatrixKey::new(2, 1)
@@ -1142,6 +1259,10 @@ mod tests {
             MatrixKey::from_dragon_key(DragonKey::from_label("right").expect("right should parse")),
             MatrixKey::new(5, 6)
         );
+
+        for key in DragonKey::ALL {
+            assert_eq!(DragonKey::from_label(key.label()), Some(key));
+        }
     }
 
     #[test]

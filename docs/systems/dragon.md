@@ -33,22 +33,25 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
   `--dump-text` path now shows the Dragon 32 BASIC banner and `OK` prompt from
   real ROM execution, while `--dump-text-png PATH` writes the border-inclusive
   text framebuffer as a PNG for visual comparison.
-- **Harness keyboard:** PIA0 is wired to the confirmed Dragon 32 keyboard matrix
-  documented by World of Dragon. The default state is no key pressed (`$FF` on
-  the input side). `--press KEY` holds semantic Dragon keys closed, and
-  `--press-matrix R,C` remains available for raw ROM-level probing.
+- **Harness keyboard:** PIA0 is wired to the confirmed Dragon 32 keyboard matrix:
+  PB0-PB7 drive columns via `$FF02`, and PA0-PA6 read rows via `$FF00`. The
+  default state is no key pressed (`$FF` on the input side). `--press KEY`
+  holds semantic Dragon keys closed, and `--press-matrix R,C` remains available
+  for raw ROM-level probing.
 - **Machine crate:** `machine-dragon-32` now owns the reusable board-level
   substrate that was proven in the harness: CPU, RAM/ROM map, PIAs, SAM,
   keyboard matrix, bounded run reporting, and VDG text capture/rendering.
 - **Runtime crate:** `runtime-dragon` builds from profile-declared Dragon 32
   BASIC firmware, implements the shared `MachineCore` boundary, emits the
   current MC6847 text-mode framebuffer as RGBA8888, and exposes early Dragon
-  state and boot-detection queries. It also has a real-ROM headless smoke test
-  that waits for the BASIC `OK` prompt, captures a PNG, and compares or updates
-  a local golden when one is present.
+  state, text-screen, and boot-detection queries. It also has real-ROM headless
+  tests that wait for the BASIC `OK` prompt, capture a PNG, and verify BASIC
+  keyboard echo.
 - **Native shell:** `emu198x-dragon` opens a WGPU window from a Dragon 32 BASIC
   ROM, presents the runtime text framebuffer, and maps host keyboard/gamepad
-  controls into Dragon key events.
+  controls into Dragon key events. Printable host keys now use logical
+  character input rather than physical key positions, and shifted printable
+  symbols synthesize Dragon `SHIFT` plus the matching matrix key.
 
 ## Remaining
 
@@ -93,7 +96,7 @@ workspace:
 | SAM | 4 (defaults, set/clear, video offset, all-RAM) |
 | VDG | 5 (text decode and text rendering) |
 | Harness | 8 (CLI, ROM loading, keyboard labels, text dumps) |
-| Runtime | 7 (profile metadata, firmware construction, text framebuffer emission, queries, boot status, real-ROM headless screenshot smoke) |
+| Runtime | 9 (profile metadata, firmware construction, text framebuffer emission, queries, boot status, real-ROM headless screenshot and keyboard echo smoke) |
 | Native | 2 (CLI and host key mapping) |
 
 ## ROMs
