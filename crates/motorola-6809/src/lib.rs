@@ -34,9 +34,11 @@ enum CpuState {
     ReadIndexedIndirectHi { op: IndexedOp, ptr: u16 },
     ReadIndexedIndirectLo { op: IndexedOp, hi: u8 },
     ReadStackPostbyte(StackOp),
+    ReadDirectRmwOperand(Rmw8Op),
     ReadDirectOperand(Mem8Op),
     ReadDirectOperand16(Mem16Op),
     ReadDirectValue(Mem8Op),
+    ReadRmwValue { op: Rmw8Op, addr: u16 },
     ReadMem16Hi { op: Mem16Op, addr: u16 },
     ReadMem16Lo { op: Mem16Op, hi: u8 },
     ReadExtendedHi(ExtOp),
@@ -139,6 +141,21 @@ enum Alu16Op {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum Rmw8Op {
+    Neg,
+    Com,
+    Lsr,
+    Ror,
+    Asr,
+    Asl,
+    Rol,
+    Dec,
+    Inc,
+    Tst,
+    Clr,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum Store8Op {
     Sta,
     Stb,
@@ -160,6 +177,7 @@ enum Store16Op {
 enum ExtOp {
     Load(Mem8Op),
     Store(Store8Op),
+    Rmw(Rmw8Op),
     Load16(Mem16Op),
     Store16(Store16Op),
     Jmp,
@@ -202,6 +220,7 @@ enum IndexedOp {
     Lea(Reg16),
     Load(Mem8Op),
     Store(Store8Op),
+    Rmw(Rmw8Op),
     Load16(Mem16Op),
     Store16(Store16Op),
     Jmp,
@@ -369,6 +388,17 @@ impl Mc6809 {
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.sync = false;
                 match opcode {
+                    0x00 => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Neg)),
+                    0x03 => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Com)),
+                    0x04 => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Lsr)),
+                    0x06 => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Ror)),
+                    0x07 => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Asr)),
+                    0x08 => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Asl)),
+                    0x09 => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Rol)),
+                    0x0A => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Dec)),
+                    0x0C => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Inc)),
+                    0x0D => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Tst)),
+                    0x0F => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Clr)),
                     0x10 => self.read_next(CpuState::Prefix10),
                     0x11 => self.read_next(CpuState::Prefix11),
                     0x12 => {
@@ -451,16 +481,140 @@ impl Mc6809 {
                         self.mul();
                         self.start_internal_cycles(10);
                     }
+                    0x40 => {
+                        self.regs.a = self.rmw8(Rmw8Op::Neg, self.regs.a).unwrap_or(self.regs.a);
+                        self.start_internal_cycles(1);
+                    }
+                    0x43 => {
+                        self.regs.a = self.rmw8(Rmw8Op::Com, self.regs.a).unwrap_or(self.regs.a);
+                        self.start_internal_cycles(1);
+                    }
+                    0x44 => {
+                        self.regs.a = self.rmw8(Rmw8Op::Lsr, self.regs.a).unwrap_or(self.regs.a);
+                        self.start_internal_cycles(1);
+                    }
+                    0x46 => {
+                        self.regs.a = self.rmw8(Rmw8Op::Ror, self.regs.a).unwrap_or(self.regs.a);
+                        self.start_internal_cycles(1);
+                    }
+                    0x47 => {
+                        self.regs.a = self.rmw8(Rmw8Op::Asr, self.regs.a).unwrap_or(self.regs.a);
+                        self.start_internal_cycles(1);
+                    }
+                    0x48 => {
+                        self.regs.a = self.rmw8(Rmw8Op::Asl, self.regs.a).unwrap_or(self.regs.a);
+                        self.start_internal_cycles(1);
+                    }
+                    0x49 => {
+                        self.regs.a = self.rmw8(Rmw8Op::Rol, self.regs.a).unwrap_or(self.regs.a);
+                        self.start_internal_cycles(1);
+                    }
+                    0x4A => {
+                        self.regs.a = self.rmw8(Rmw8Op::Dec, self.regs.a).unwrap_or(self.regs.a);
+                        self.start_internal_cycles(1);
+                    }
+                    0x4C => {
+                        self.regs.a = self.rmw8(Rmw8Op::Inc, self.regs.a).unwrap_or(self.regs.a);
+                        self.start_internal_cycles(1);
+                    }
+                    0x4D => {
+                        self.rmw8(Rmw8Op::Tst, self.regs.a);
+                        self.start_internal_cycles(1);
+                    }
                     0x4F => {
                         self.clear_a();
                         self.read_next(CpuState::ClrAInternal);
+                    }
+                    0x50 => {
+                        self.regs.b = self.rmw8(Rmw8Op::Neg, self.regs.b).unwrap_or(self.regs.b);
+                        self.start_internal_cycles(1);
+                    }
+                    0x53 => {
+                        self.regs.b = self.rmw8(Rmw8Op::Com, self.regs.b).unwrap_or(self.regs.b);
+                        self.start_internal_cycles(1);
+                    }
+                    0x54 => {
+                        self.regs.b = self.rmw8(Rmw8Op::Lsr, self.regs.b).unwrap_or(self.regs.b);
+                        self.start_internal_cycles(1);
+                    }
+                    0x56 => {
+                        self.regs.b = self.rmw8(Rmw8Op::Ror, self.regs.b).unwrap_or(self.regs.b);
+                        self.start_internal_cycles(1);
+                    }
+                    0x57 => {
+                        self.regs.b = self.rmw8(Rmw8Op::Asr, self.regs.b).unwrap_or(self.regs.b);
+                        self.start_internal_cycles(1);
+                    }
+                    0x58 => {
+                        self.regs.b = self.rmw8(Rmw8Op::Asl, self.regs.b).unwrap_or(self.regs.b);
+                        self.start_internal_cycles(1);
+                    }
+                    0x59 => {
+                        self.regs.b = self.rmw8(Rmw8Op::Rol, self.regs.b).unwrap_or(self.regs.b);
+                        self.start_internal_cycles(1);
+                    }
+                    0x5A => {
+                        self.regs.b = self.rmw8(Rmw8Op::Dec, self.regs.b).unwrap_or(self.regs.b);
+                        self.start_internal_cycles(1);
+                    }
+                    0x5C => {
+                        self.regs.b = self.rmw8(Rmw8Op::Inc, self.regs.b).unwrap_or(self.regs.b);
+                        self.start_internal_cycles(1);
+                    }
+                    0x5D => {
+                        self.rmw8(Rmw8Op::Tst, self.regs.b);
+                        self.start_internal_cycles(1);
                     }
                     0x5F => {
                         self.clear_b();
                         self.read_next(CpuState::ClrBInternal);
                     }
+                    0x60 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Neg)))
+                    }
+                    0x63 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Com)))
+                    }
+                    0x64 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Lsr)))
+                    }
+                    0x66 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Ror)))
+                    }
+                    0x67 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Asr)))
+                    }
+                    0x68 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Asl)))
+                    }
+                    0x69 => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Rol)))
+                    }
+                    0x6A => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Dec)))
+                    }
+                    0x6C => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Inc)))
+                    }
+                    0x6D => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Tst)))
+                    }
                     0x6E => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Jmp)),
+                    0x6F => {
+                        self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Clr)))
+                    }
+                    0x70 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Neg))),
+                    0x73 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Com))),
+                    0x74 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Lsr))),
+                    0x76 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Ror))),
+                    0x77 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Asr))),
+                    0x78 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Asl))),
+                    0x79 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Rol))),
+                    0x7A => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Dec))),
+                    0x7C => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Inc))),
+                    0x7D => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Tst))),
                     0x7E => self.read_next(CpuState::ReadExtendedHi(ExtOp::Jmp)),
+                    0x7F => self.read_next(CpuState::ReadExtendedHi(ExtOp::Rmw(Rmw8Op::Clr))),
                     0x80 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::Sub))),
                     0x81 => self.read_next(CpuState::ReadImm8(Imm8Op::Cmpa)),
                     0x82 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::SubCarry))),
@@ -982,6 +1136,11 @@ impl Mc6809 {
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.start_stack_op(op, mask);
             }
+            CpuState::ReadDirectRmwOperand(op) => {
+                let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.prepare_rmw(op, addr);
+            }
             CpuState::ReadDirectOperand(op) => {
                 let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
@@ -999,6 +1158,16 @@ impl Mc6809 {
                 self.load_mem8(op, self.data_in);
                 self.next_fetch();
             }
+            CpuState::ReadRmwValue { op, addr } => match self.rmw8(op, self.data_in) {
+                Some(value) => {
+                    self.state = CpuState::WriteValue;
+                    self.addr = addr;
+                    self.data = value;
+                    self.rw = false;
+                    self.sync = false;
+                }
+                None => self.next_fetch(),
+            },
             CpuState::ReadMem16Hi { op, addr } => {
                 let hi = self.data_in;
                 self.state = CpuState::ReadMem16Lo { op, hi };
@@ -1027,6 +1196,7 @@ impl Mc6809 {
                         self.sync = false;
                     }
                     ExtOp::Store(op) => self.prepare_store(op, addr),
+                    ExtOp::Rmw(op) => self.prepare_rmw(op, addr),
                     ExtOp::Load16(op) => self.prepare_read16(op, addr),
                     ExtOp::Store16(op) => self.prepare_store16(op, addr),
                     ExtOp::Jmp => {
@@ -1310,6 +1480,7 @@ impl Mc6809 {
                 self.sync = false;
             }
             IndexedOp::Store(op) => self.prepare_store(op, addr),
+            IndexedOp::Rmw(op) => self.prepare_rmw(op, addr),
             IndexedOp::Load16(op) => self.prepare_read16(op, addr),
             IndexedOp::Store16(op) => self.prepare_store16(op, addr),
             IndexedOp::Jmp => {
@@ -1526,6 +1697,13 @@ impl Mc6809 {
         self.addr = addr;
         self.data = value;
         self.rw = false;
+        self.sync = false;
+    }
+
+    fn prepare_rmw(&mut self, op: Rmw8Op, addr: u16) {
+        self.state = CpuState::ReadRmwValue { op, addr };
+        self.addr = addr;
+        self.rw = true;
         self.sync = false;
     }
 
@@ -1871,6 +2049,84 @@ impl Mc6809 {
         self.regs.b = lo;
     }
 
+    fn rmw8(&mut self, op: Rmw8Op, value: u8) -> Option<u8> {
+        match op {
+            Rmw8Op::Neg => {
+                let result = 0u8.wrapping_sub(value);
+                self.set_nz8(result);
+                self.regs.set_flag(FLAG_V, value == 0x80);
+                self.regs.set_flag(FLAG_C, result != 0);
+                Some(result)
+            }
+            Rmw8Op::Com => {
+                let result = !value;
+                self.set_nz8(result);
+                self.regs.set_flag(FLAG_V, false);
+                self.regs.set_flag(FLAG_C, true);
+                Some(result)
+            }
+            Rmw8Op::Lsr => {
+                let result = value >> 1;
+                self.regs.set_flag(FLAG_N, false);
+                self.regs.set_flag(FLAG_Z, result == 0);
+                self.regs.set_flag(FLAG_C, value & 0x01 != 0);
+                Some(result)
+            }
+            Rmw8Op::Ror => {
+                let carry_in = if self.regs.flag(FLAG_C) { 0x80 } else { 0x00 };
+                let result = (value >> 1) | carry_in;
+                self.set_nz8(result);
+                self.regs.set_flag(FLAG_C, value & 0x01 != 0);
+                Some(result)
+            }
+            Rmw8Op::Asr => {
+                let result = (value >> 1) | (value & 0x80);
+                self.set_nz8(result);
+                self.regs.set_flag(FLAG_C, value & 0x01 != 0);
+                Some(result)
+            }
+            Rmw8Op::Asl => {
+                let result = value << 1;
+                self.set_nz8(result);
+                self.regs.set_flag(FLAG_V, (value ^ result) & 0x80 != 0);
+                self.regs.set_flag(FLAG_C, value & 0x80 != 0);
+                Some(result)
+            }
+            Rmw8Op::Rol => {
+                let carry_in = u8::from(self.regs.flag(FLAG_C));
+                let result = (value << 1) | carry_in;
+                self.set_nz8(result);
+                self.regs.set_flag(FLAG_V, (value ^ result) & 0x80 != 0);
+                self.regs.set_flag(FLAG_C, value & 0x80 != 0);
+                Some(result)
+            }
+            Rmw8Op::Dec => {
+                let result = value.wrapping_sub(1);
+                self.set_nz8(result);
+                self.regs.set_flag(FLAG_V, value == 0x80);
+                Some(result)
+            }
+            Rmw8Op::Inc => {
+                let result = value.wrapping_add(1);
+                self.set_nz8(result);
+                self.regs.set_flag(FLAG_V, value == 0x7F);
+                Some(result)
+            }
+            Rmw8Op::Tst => {
+                self.set_nz8(value);
+                self.regs.set_flag(FLAG_V, false);
+                None
+            }
+            Rmw8Op::Clr => {
+                self.regs.set_flag(FLAG_N, false);
+                self.regs.set_flag(FLAG_Z, true);
+                self.regs.set_flag(FLAG_V, false);
+                self.regs.set_flag(FLAG_C, false);
+                Some(0)
+            }
+        }
+    }
+
     fn alu8(&mut self, op: Alu8Op, lhs: u8, rhs: u8) -> Option<u8> {
         match op {
             Alu8Op::Add => Some(self.add8(lhs, rhs, 0)),
@@ -2058,6 +2314,7 @@ mod tests {
         let mut cpu = Mc6809::new();
         cpu.regs.pc = 0x1234;
         cpu.sync = true;
+        cpu.data_in = 0x01;
         cpu.tick();
 
         assert!(cpu.halt);
@@ -2517,6 +2774,85 @@ mod tests {
     }
 
     #[test]
+    fn accumulator_rmw_ops_update_values_and_flags() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x40; // NEGA
+        memory[0x4001] = 0x43; // COMA
+        memory[0x4002] = 0x44; // LSRA
+        memory[0x4003] = 0x56; // RORB
+        memory[0x4004] = 0x48; // ASLA
+        memory[0x4005] = 0x4D; // TSTA
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.a = 0x80;
+        cpu.regs.b = 0x02;
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x80);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_V));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x7F);
+        assert!(!cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_V));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x3F);
+        assert!(!cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.b, 0x81);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x7E);
+        assert!(!cpu.regs.flag(FLAG_C));
+        assert!(!cpu.regs.flag(FLAG_V));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x7E);
+        assert!(!cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_Z));
+        assert!(!cpu.regs.flag(FLAG_V));
+    }
+
+    #[test]
+    fn increment_decrement_and_rotate_accumulators_cover_edge_flags() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x4C; // INCA
+        memory[0x4001] = 0x5A; // DECB
+        memory[0x4002] = 0x49; // ROLA
+        memory[0x4003] = 0x57; // ASRB
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.a = 0x7F;
+        cpu.regs.b = 0x80;
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x80);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_V));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.b, 0x7F);
+        assert!(!cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_V));
+
+        cpu.regs.set_flag(FLAG_C, true);
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x01);
+        assert!(cpu.regs.flag(FLAG_C));
+        assert!(cpu.regs.flag(FLAG_V));
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.b, 0x3F);
+        assert!(cpu.regs.flag(FLAG_C));
+    }
+
+    #[test]
     fn condition_code_immediates_mask_and_set_cc() {
         let mut memory = [0; 0x10000];
         memory[0x4000] = 0x1A; // ORCC #$01
@@ -2761,6 +3097,94 @@ mod tests {
         run_cycles(&mut cpu, &mut memory, 3);
         assert_eq!(memory[0x2006], 0x05);
         assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn direct_indexed_and_extended_rmw_ops_use_bus_cycles() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x00; // NEG <$10
+        memory[0x4001] = 0x10;
+        memory[0x1210] = 0x01;
+        memory[0x4002] = 0x6C; // INC ,X
+        memory[0x4003] = 0x84;
+        memory[0x2200] = 0x7F;
+        memory[0x4004] = 0x7F; // CLR $3300
+        memory[0x4005] = 0x33;
+        memory[0x4006] = 0x00;
+        memory[0x3300] = 0x55;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.dp = 0x12;
+        cpu.regs.x = 0x2200;
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(memory[0x1210], 0xFF);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(memory[0x2200], 0x80);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_V));
+
+        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(memory[0x3300], 0x00);
+        assert!(!cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_Z));
+        assert!(!cpu.regs.flag(FLAG_C));
+    }
+
+    #[test]
+    fn memory_tst_reads_without_writing_back() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x0D; // TST <$10
+        memory[0x4001] = 0x10;
+        memory[0x1210] = 0x80;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.dp = 0x12;
+        cpu.regs.set_flag(FLAG_C, true);
+
+        run_cycles(&mut cpu, &mut memory, 3);
+
+        assert_eq!(memory[0x1210], 0x80);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_Z));
+        assert!(!cpu.regs.flag(FLAG_V));
+        assert!(cpu.regs.flag(FLAG_C), "TST does not affect C");
+        assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn memory_shift_and_rotate_ops_cover_flags() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x74; // LSR $3000
+        memory[0x4001] = 0x30;
+        memory[0x4002] = 0x00;
+        memory[0x3000] = 0x01;
+        memory[0x4003] = 0x68; // ASL ,X
+        memory[0x4004] = 0x84;
+        memory[0x2200] = 0x80;
+        memory[0x4005] = 0x09; // ROL <$20
+        memory[0x4006] = 0x20;
+        memory[0x1220] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.dp = 0x12;
+        cpu.regs.x = 0x2200;
+
+        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(memory[0x3000], 0x00);
+        assert!(cpu.regs.flag(FLAG_Z));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(memory[0x2200], 0x00);
+        assert!(cpu.regs.flag(FLAG_Z));
+        assert!(cpu.regs.flag(FLAG_C));
+        assert!(cpu.regs.flag(FLAG_V));
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(memory[0x1220], 0x01);
+        assert!(!cpu.regs.flag(FLAG_Z));
+        assert!(!cpu.regs.flag(FLAG_C));
     }
 
     #[test]
