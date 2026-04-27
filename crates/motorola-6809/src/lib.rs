@@ -81,6 +81,7 @@ enum Imm8Op {
 enum Imm16Op {
     Load(WordReg),
     Compare(WordReg),
+    AluD(Alu16Op),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -132,6 +133,12 @@ enum Alu8Op {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+enum Alu16Op {
+    Add,
+    Sub,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum Store8Op {
     Sta,
     Stb,
@@ -141,6 +148,7 @@ enum Store8Op {
 enum Mem16Op {
     Load(WordReg),
     Compare(WordReg),
+    AluD(Alu16Op),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -456,6 +464,7 @@ impl Mc6809 {
                     0x80 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::Sub))),
                     0x81 => self.read_next(CpuState::ReadImm8(Imm8Op::Cmpa)),
                     0x82 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::SubCarry))),
+                    0x83 => self.read_next(CpuState::ReadImm16Hi(Imm16Op::AluD(Alu16Op::Sub))),
                     0x84 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::And))),
                     0x85 => self.read_next(CpuState::ReadImm8(Imm8Op::AluA(Alu8Op::Bit))),
                     0x86 => self.read_next(CpuState::ReadImm8(Imm8Op::Lda)),
@@ -472,6 +481,9 @@ impl Mc6809 {
                     0x91 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Cmpa)),
                     0x92 => {
                         self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::SubCarry)));
+                    }
+                    0x93 => {
+                        self.read_next(CpuState::ReadDirectOperand16(Mem16Op::AluD(Alu16Op::Sub)))
                     }
                     0x94 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::And))),
                     0x95 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluA(Alu8Op::Bit))),
@@ -504,6 +516,9 @@ impl Mc6809 {
                     }
                     0xA2 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
                         Mem8Op::AluA(Alu8Op::SubCarry),
+                    ))),
+                    0xA3 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load16(
+                        Mem16Op::AluD(Alu16Op::Sub),
                     ))),
                     0xA4 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
                         Mem8Op::AluA(Alu8Op::And),
@@ -546,6 +561,9 @@ impl Mc6809 {
                     0xB2 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluA(
                         Alu8Op::SubCarry,
                     )))),
+                    0xB3 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load16(Mem16Op::AluD(
+                        Alu16Op::Sub,
+                    )))),
                     0xB4 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluA(
                         Alu8Op::And,
                     )))),
@@ -581,6 +599,7 @@ impl Mc6809 {
                     0xC0 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::Sub))),
                     0xC1 => self.read_next(CpuState::ReadImm8(Imm8Op::Cmpb)),
                     0xC2 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::SubCarry))),
+                    0xC3 => self.read_next(CpuState::ReadImm16Hi(Imm16Op::AluD(Alu16Op::Add))),
                     0xC4 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::And))),
                     0xC5 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::Bit))),
                     0xC6 => self.read_next(CpuState::ReadImm8(Imm8Op::Ldb)),
@@ -588,11 +607,15 @@ impl Mc6809 {
                     0xC9 => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::AddCarry))),
                     0xCA => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::Or))),
                     0xCB => self.read_next(CpuState::ReadImm8(Imm8Op::AluB(Alu8Op::Add))),
+                    0xCC => self.read_next(CpuState::ReadImm16Hi(Imm16Op::Load(WordReg::D))),
                     0xCE => self.read_next(CpuState::ReadImm16Hi(Imm16Op::Load(WordReg::U))),
                     0xD0 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::Sub))),
                     0xD1 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::Cmpb)),
                     0xD2 => {
                         self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::SubCarry)));
+                    }
+                    0xD3 => {
+                        self.read_next(CpuState::ReadDirectOperand16(Mem16Op::AluD(Alu16Op::Add)))
                     }
                     0xD4 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::And))),
                     0xD5 => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::Bit))),
@@ -604,6 +627,14 @@ impl Mc6809 {
                     }
                     0xDA => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::Or))),
                     0xDB => self.read_next(CpuState::ReadDirectOperand(Mem8Op::AluB(Alu8Op::Add))),
+                    0xDC => {
+                        self.read_next(CpuState::ReadDirectOperand16(Mem16Op::Load(WordReg::D)));
+                    }
+                    0xDD => {
+                        self.read_next(CpuState::WriteDirectOperand16(Store16Op::Store(
+                            WordReg::D,
+                        )));
+                    }
                     0xDE => {
                         self.read_next(CpuState::ReadDirectOperand16(Mem16Op::Load(WordReg::U)));
                     }
@@ -622,6 +653,9 @@ impl Mc6809 {
                     }
                     0xE2 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
                         Mem8Op::AluB(Alu8Op::SubCarry),
+                    ))),
+                    0xE3 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load16(
+                        Mem16Op::AluD(Alu16Op::Add),
                     ))),
                     0xE4 => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
                         Mem8Op::AluB(Alu8Op::And),
@@ -647,6 +681,12 @@ impl Mc6809 {
                     0xEB => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load(
                         Mem8Op::AluB(Alu8Op::Add),
                     ))),
+                    0xEC => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load16(
+                        Mem16Op::Load(WordReg::D),
+                    ))),
+                    0xED => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Store16(
+                        Store16Op::Store(WordReg::D),
+                    ))),
                     0xEE => self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Load16(
                         Mem16Op::Load(WordReg::U),
                     ))),
@@ -659,6 +699,9 @@ impl Mc6809 {
                     0xF1 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::Cmpb))),
                     0xF2 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluB(
                         Alu8Op::SubCarry,
+                    )))),
+                    0xF3 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load16(Mem16Op::AluD(
+                        Alu16Op::Add,
                     )))),
                     0xF4 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load(Mem8Op::AluB(
                         Alu8Op::And,
@@ -680,6 +723,12 @@ impl Mc6809 {
                         Alu8Op::Add,
                     )))),
                     0xF7 => self.read_next(CpuState::ReadExtendedHi(ExtOp::Store(Store8Op::Stb))),
+                    0xFC => self.read_next(CpuState::ReadExtendedHi(ExtOp::Load16(Mem16Op::Load(
+                        WordReg::D,
+                    )))),
+                    0xFD => self.read_next(CpuState::ReadExtendedHi(ExtOp::Store16(
+                        Store16Op::Store(WordReg::D),
+                    ))),
                     0xFE => {
                         self.read_next(CpuState::ReadExtendedHi(ExtOp::Load16(Mem16Op::Load(
                             WordReg::U,
@@ -1139,6 +1188,7 @@ impl Mc6809 {
                 self.set_load_flags16(value);
             }
             Imm16Op::Compare(reg) => self.compare16(self.read_word_reg(reg), value),
+            Imm16Op::AluD(op) => self.alu_d(op, value),
         }
     }
 
@@ -1149,6 +1199,7 @@ impl Mc6809 {
                 self.set_load_flags16(value);
             }
             Mem16Op::Compare(reg) => self.compare16(self.read_word_reg(reg), value),
+            Mem16Op::AluD(op) => self.alu_d(op, value),
         }
     }
 
@@ -1810,6 +1861,16 @@ impl Mc6809 {
         }
     }
 
+    fn alu_d(&mut self, op: Alu16Op, rhs: u16) {
+        let result = match op {
+            Alu16Op::Add => self.add16(self.regs.d(), rhs),
+            Alu16Op::Sub => self.sub16(self.regs.d(), rhs),
+        };
+        let [hi, lo] = result.to_be_bytes();
+        self.regs.a = hi;
+        self.regs.b = lo;
+    }
+
     fn alu8(&mut self, op: Alu8Op, lhs: u8, rhs: u8) -> Option<u8> {
         match op {
             Alu8Op::Add => Some(self.add8(lhs, rhs, 0)),
@@ -1851,6 +1912,25 @@ impl Mc6809 {
         self.regs
             .set_flag(FLAG_V, ((lhs ^ rhs) & (lhs ^ result) & 0x80) != 0);
         self.regs.set_flag(FLAG_C, u16::from(lhs) < subtrahend);
+        result
+    }
+
+    fn add16(&mut self, lhs: u16, rhs: u16) -> u16 {
+        let wide = u32::from(lhs) + u32::from(rhs);
+        let result = wide as u16;
+        self.set_nz16(result);
+        self.regs
+            .set_flag(FLAG_V, (!(lhs ^ rhs) & (lhs ^ result) & 0x8000) != 0);
+        self.regs.set_flag(FLAG_C, wide > 0xFFFF);
+        result
+    }
+
+    fn sub16(&mut self, lhs: u16, rhs: u16) -> u16 {
+        let result = lhs.wrapping_sub(rhs);
+        self.set_nz16(result);
+        self.regs
+            .set_flag(FLAG_V, ((lhs ^ rhs) & (lhs ^ result) & 0x8000) != 0);
+        self.regs.set_flag(FLAG_C, lhs < rhs);
         result
     }
 
@@ -2192,6 +2272,123 @@ mod tests {
         run_cycles(&mut cpu, &mut memory, 5);
         assert!(!cpu.regs.flag(FLAG_N));
         assert!(!cpu.regs.flag(FLAG_Z));
+        assert!(!cpu.regs.flag(FLAG_C));
+    }
+
+    #[test]
+    fn ldd_and_std_cover_immediate_direct_indexed_and_extended() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xCC; // LDD #$1234
+        memory[0x4001] = 0x12;
+        memory[0x4002] = 0x34;
+        memory[0x4003] = 0xDD; // STD <$20
+        memory[0x4004] = 0x20;
+        memory[0x4005] = 0xEC; // LDD ,X
+        memory[0x4006] = 0x84;
+        memory[0x2200] = 0x80;
+        memory[0x2201] = 0x01;
+        memory[0x4007] = 0xFD; // STD $3000
+        memory[0x4008] = 0x30;
+        memory[0x4009] = 0x00;
+        memory[0x400A] = 0xFC; // LDD $3000
+        memory[0x400B] = 0x30;
+        memory[0x400C] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.dp = 0x12;
+        cpu.regs.x = 0x2200;
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(cpu.regs.d(), 0x1234);
+        assert!(!cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_Z));
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(&memory[0x1220..=0x1221], &[0x12, 0x34]);
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(cpu.regs.d(), 0x8001);
+        assert!(cpu.regs.flag(FLAG_N));
+
+        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(&memory[0x3000..=0x3001], &[0x80, 0x01]);
+
+        cpu.regs.a = 0;
+        cpu.regs.b = 0;
+        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(cpu.regs.d(), 0x8001);
+        assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn addd_and_subd_update_sixteen_bit_arithmetic_flags() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xC3; // ADDD #$0001
+        memory[0x4001] = 0x00;
+        memory[0x4002] = 0x01;
+        memory[0x4003] = 0xD3; // ADDD <$20
+        memory[0x4004] = 0x20;
+        memory[0x1220] = 0x7F;
+        memory[0x1221] = 0xFF;
+        memory[0x4005] = 0x83; // SUBD #$0002
+        memory[0x4006] = 0x00;
+        memory[0x4007] = 0x02;
+        memory[0x4008] = 0xB3; // SUBD $3000
+        memory[0x4009] = 0x30;
+        memory[0x400A] = 0x00;
+        memory[0x3000] = 0x7F;
+        memory[0x3001] = 0xFF;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.dp = 0x12;
+        cpu.regs.a = 0x7F;
+        cpu.regs.b = 0xFF;
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(cpu.regs.d(), 0x8000);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_V));
+        assert!(!cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(cpu.regs.d(), 0xFFFF);
+        assert!(cpu.regs.flag(FLAG_N));
+        assert!(!cpu.regs.flag(FLAG_V));
+        assert!(!cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(cpu.regs.d(), 0xFFFD);
+        assert!(!cpu.regs.flag(FLAG_C));
+
+        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(cpu.regs.d(), 0x7FFE);
+        assert!(!cpu.regs.flag(FLAG_N));
+        assert!(cpu.regs.flag(FLAG_V));
+        assert!(!cpu.regs.flag(FLAG_C));
+    }
+
+    #[test]
+    fn addd_indexed_and_subd_indexed_share_sixteen_bit_memory_path() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xE3; // ADDD ,X
+        memory[0x4001] = 0x84;
+        memory[0x2200] = 0x00;
+        memory[0x2201] = 0x01;
+        memory[0x4002] = 0xA3; // SUBD ,X+
+        memory[0x4003] = 0x80;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.x = 0x2200;
+        cpu.regs.a = 0xFF;
+        cpu.regs.b = 0xFF;
+
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(cpu.regs.d(), 0x0000);
+        assert!(cpu.regs.flag(FLAG_Z));
+        assert!(cpu.regs.flag(FLAG_C));
+
+        cpu.regs.a = 0x00;
+        cpu.regs.b = 0x02;
+        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(cpu.regs.d(), 0x0001);
+        assert_eq!(cpu.regs.x, 0x2201);
         assert!(!cpu.regs.flag(FLAG_C));
     }
 
