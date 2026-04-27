@@ -12,7 +12,21 @@ compatibility goal, not the current implementation state.
 
 ## What works
 
-- **CPU:** Motorola 6809 — foundation crate started; full instruction execution is the next prerequisite.
+- **CPU:** Motorola 6809 — foundation crate started and now executes far enough
+  through the Dragon 32 BIOS to reach ROM polling/delay loops.
+- **PIA:** MC6821 — reusable `motorola-pia-6821` crate ported from the VICE
+  core shape; DDR/data selection, input/output mixing, control registers, IRQ
+  flags, and CA2/CB2 output state are implemented.
+- **Harness:** `emu198x-script-dragon` can load a 16KB Dragon ROM, run it against
+  the MC6809 core with 32KB RAM, 16KB mirrored ROM mapping, and two MC6821 PIAs.
+  PIA/SAM activity and readonly ROM writes are recorded for bring-up analysis.
+  Plain `.bin` ROMs and single-ROM `.zip` archives are accepted; the Dragon 32
+  BIOS now runs past early PIA/SAM setup into ROM polling/delay loops.
+- **Harness keyboard:** PIA0 is wired to a raw 8x8 keyboard matrix model. The
+  default state is no key pressed (`$FF` on the input side), and
+  `--press-matrix R,C` can hold matrix switches closed for ROM-level probing.
+  Physical key labels still need to be mapped from a confirmed Dragon keyboard
+  table.
 - **Video:** MC6847 VDG — text mode (32×16) with real character ROM, SG4 semigraphics (SET/RESET/POINT), all 8 graphics modes (CG1-CG6, RG1-RG6), border rendering, CSS colour set switching via PIA1.
 - **Cassette:** Bus-level tape loading via emu-tape. CAS bytes converted to nanosecond-accurate pulse durations (1200/2400 Hz FSK). Signal fed through PIA0 port A bit 0 per CPU cycle. ROM's CLOAD/CLOADM reads tape naturally. Motor control via tape transport.
 - **I/O:** MC6821 PIA x 2 — DDR/data/control registers, IRQ flags, keyboard matrix (PIA0), VDG mode control (PIA1), cassette data input.
@@ -27,11 +41,13 @@ compatibility goal, not the current implementation state.
 
 ### Bring-up sequence
 
-1. Complete `motorola-6809` instruction execution and external interrupt/reset behavior.
-2. Add PIA 6821, MC6883 SAM, and MC6847 VDG crates with isolated tests.
+1. Continue `motorola-6809` instruction execution validation against real Dragon ROM paths.
+2. Add MC6883 SAM and MC6847 VDG crates with isolated tests.
 3. Wire `machine-dragon-32` with ROM/RAM map, keyboard matrix, PIA/SAM/VDG, and a framebuffer.
-4. Add `runtime-dragon` and `emu198x-script-dragon` with boot detection and screenshot capture.
+4. Expand `emu198x-script-dragon`, then add `runtime-dragon` with boot detection and screenshot capture.
 5. Add cassette and `.BIN` loading after the BASIC boot screen is stable.
+6. Replace raw `--press-matrix R,C` harness input with named Dragon keys once
+   the matrix table is verified.
 
 ### Nice to have
 - **Floppy controller** (WD2797) — for DragonDOS disk images

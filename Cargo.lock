@@ -755,6 +755,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-script-dragon"
+version = "0.1.0"
+dependencies = [
+ "motorola-6809",
+ "motorola-pia-6821",
+ "zip",
+]
+
+[[package]]
 name = "emu198x-script-game-boy"
 version = "0.1.0"
 dependencies = [
@@ -1705,6 +1714,13 @@ dependencies = [
 
 [[package]]
 name = "motorola-6809"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "motorola-pia-6821"
 version = "0.1.0"
 dependencies = [
  "serde",

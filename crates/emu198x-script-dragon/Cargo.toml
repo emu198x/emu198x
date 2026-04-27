@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-script-dragon"
+description = "Headless Dragon 32 bring-up harness for ROM and MC6809 debugging"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "emu198x-script-dragon"
+path = "src/main.rs"
+
+[dependencies]
+motorola-pia-6821 = { path = "../motorola-pia-6821" }
+motorola-6809 = { path = "../motorola-6809" }
+zip = { workspace = true }
+
+[lints]
+workspace = true
