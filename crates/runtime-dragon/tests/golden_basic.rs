@@ -260,6 +260,77 @@ fn dragon_runtime_runs_real_textstar_after_cload_when_available() {
     );
 }
 
+#[test]
+fn dragon_runtime_loads_and_executes_real_machine_code_cas_when_available() {
+    let Some(mut session) = booted_dragon_session() else {
+        return;
+    };
+    let Some(cas_path) = dragon_machine_code_cas_path() else {
+        eprintln!("skipping Dragon CLOADM smoke: local machine-code CAS archive not found");
+        return;
+    };
+
+    let loaded = read_media_asset(&cas_path, MediaKind::Tape)
+        .unwrap_or_else(|err| panic!("read Dragon CAS at {}: {err}", cas_path.display()));
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
+    session
+        .load_media(&media)
+        .expect("real Dragon machine-code CAS should mount into the booted runtime");
+
+    assert_eq!(
+        session
+            .query("dragon.tape.header.file_type")
+            .expect("dragon.tape.header.file_type query should work")
+            .value,
+        serde_json::json!("machine-code")
+    );
+
+    for name in ["c", "l", "o", "a", "d", "m", "enter"] {
+        tap_key(&mut session, name);
+    }
+    let moved_to = wait_for_tape_position_above(&mut session, 0, 180);
+    assert!(
+        moved_to > 0,
+        "Dragon ROM should start consuming machine-code tape bits after CLOADM"
+    );
+    session
+        .wait_for_query_bool("dragon.tape.motor_on", false, 4_500)
+        .expect("Dragon ROM should turn the cassette motor off after loading machine-code CAS");
+
+    let lines = screen_text_lines(&session);
+    let prompt_count = ok_prompt_count(&lines);
+    assert!(
+        prompt_count >= 1 && !lines.iter().any(|line| line.contains("ERROR")),
+        "Dragon BASIC should return to OK after CLOADM; prompts={prompt_count} position={}/{} finished={} motor={}\n{}",
+        query_u64(&session, "dragon.tape.position_bits"),
+        query_u64(&session, "dragon.tape.length_bits"),
+        session
+            .query("dragon.tape.finished")
+            .expect("dragon.tape.finished query should work")
+            .value,
+        session
+            .query("dragon.tape.motor_on")
+            .expect("dragon.tape.motor_on query should work")
+            .value,
+        lines.join("\n")
+    );
+
+    let before_exec = session
+        .screenshot_png_bytes()
+        .expect("Dragon runtime should capture a frame before EXEC");
+    for name in ["e", "x", "e", "c", "enter"] {
+        tap_key(&mut session, name);
+    }
+    let changed = wait_for_screenshot_change(&mut session, &before_exec, 500);
+    let lines = screen_text_lines(&session);
+    assert!(
+        changed && !lines.iter().any(|line| line.contains("ERROR")),
+        "Dragon machine-code program should visibly start after EXEC\n{}",
+        lines.join("\n")
+    );
+}
+
 fn booted_dragon_session() -> Option<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>> {
     let Some(rom_path) = dragon32_rom_path() else {
         eprintln!("skipping Dragon 32 real-ROM smoke: set EMU198X_DRAGON32_ROM");
@@ -301,6 +372,24 @@ fn dragon_textstar_cas_path() -> Option<PathBuf> {
     let sibling_archive = repo_root
         .parent()?
         .join("Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Applications/[CAS]/Textstar (1982)(Personal Software Services).zip");
+    if sibling_archive.exists() {
+        return Some(sibling_archive);
+    }
+
+    None
+}
+
+fn dragon_machine_code_cas_path() -> Option<PathBuf> {
+    if let Some(path) = existing_env_path("EMU198X_DRAGON_MACHINE_CAS") {
+        return Some(path);
+    }
+
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)?;
+    let sibling_archive = repo_root
+        .parent()?
+        .join("Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Games/[CAS]/Color Invaders (1982)(Microdeal).zip");
     if sibling_archive.exists() {
         return Some(sibling_archive);
     }
@@ -495,6 +584,26 @@ fn wait_for_screen_text_change(
         session
             .run_frames(1)
             .expect("Dragon runtime should advance while waiting for screen change");
+    }
+    false
+}
+
+fn wait_for_screenshot_change(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    before: &[u8],
+    max_frames: u32,
+) -> bool {
+    for _ in 0..=max_frames {
+        if session
+            .screenshot_png_bytes()
+            .expect("Dragon runtime should capture frames while waiting for screenshot change")
+            != before
+        {
+            return true;
+        }
+        session
+            .run_frames(1)
+            .expect("Dragon runtime should advance while waiting for screenshot change");
     }
     false
 }
