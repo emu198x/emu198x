@@ -52,10 +52,12 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
   controls into Dragon key events. Printable host keys now use logical
   character input rather than physical key positions, and shifted printable
   symbols synthesize Dragon `SHIFT` plus the matching matrix key.
-- **CAS format:** `format-dragon-cas` parses Dragon CAS cassette images as
-  framed byte-level blocks, exposes checksum validity, and decodes the standard
-  15-byte namefile header. Cassette timing and ROM-level playback are still the
-  next layer.
+- **CAS format/media/playback:** `format-dragon-cas` parses Dragon CAS cassette
+  images as framed byte-level blocks, exposes checksum validity, and decodes the
+  standard 15-byte namefile header. `runtime-dragon` declares a `tape-1`
+  cassette slot, mounts CAS media via the shared `MediaSet` path, converts CAS
+  blocks into a motor-gated PIA1 cassette input stream, and verifies real-ROM
+  `CLOAD` plus `RUN` with Textstar.
 
 ## Remaining
 
@@ -65,9 +67,9 @@ an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
 2. Expand `motorola-vdg-6847` beyond alphanumeric text rendering into
    semigraphics and graphics modes.
 3. Capture and verify an external reference golden for the Dragon BASIC screen.
-4. Build a machine cassette peripheral on top of `format-dragon-cas` so ROM
-   `CLOAD`/`CLOADM` sees real cassette input.
-5. Add `.BIN` loading after cassette playback is stable.
+4. Extend cassette coverage beyond BASIC `CLOAD`: `CLOADM`, alternate CAS
+   timing/leader cases, and more real tapes.
+5. Add `.BIN` loading after cassette machine-code loading is stable.
 
 ### Archived Target State
 
@@ -101,8 +103,8 @@ workspace:
 | SAM | 4 (defaults, set/clear, video offset, all-RAM) |
 | VDG | 5 (text decode and text rendering) |
 | Harness | 8 (CLI, ROM loading, keyboard labels, text dumps) |
-| Runtime | 9 (profile metadata, firmware construction, text framebuffer emission, queries, boot status, real-ROM headless screenshot and keyboard echo smoke) |
-| Native | 2 (CLI and host key mapping) |
+| Runtime | 17 (profile metadata, firmware construction, text framebuffer emission, queries, boot status, CAS mounting/playback, real-ROM headless screenshot, real-CAS mount smoke, Textstar CLOAD/RUN smoke, and keyboard echo smoke) |
+| Native | 3 (CLI, CAS tape argument, and host key mapping) |
 | CAS format | 7 (block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors) |
 
 ## ROMs

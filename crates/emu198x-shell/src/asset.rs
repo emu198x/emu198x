@@ -204,7 +204,7 @@ fn entry_name_matches(name: &str, extensions: &[&str]) -> bool {
 
 fn archive_match_rules(kind: MediaKind) -> (&'static str, &'static [&'static str]) {
     match kind {
-        MediaKind::Tape => ("tape image", &["tap", "tzx"]),
+        MediaKind::Tape => ("tape image", &["cas", "tap", "tzx"]),
         MediaKind::Disk => (
             "disk image",
             &[

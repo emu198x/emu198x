@@ -11,8 +11,9 @@ use emu198x_native_video::{
 };
 use emu198x_shell::{
     ButtonInputMap, ButtonTarget, CapturedFrame, FirmwareImage, FirmwareSet, HostControl, HostIo,
-    InputEvent, LatestFrameCapture, MachineCore, MachineError, NativeGamepadInput, NullAudioSink,
-    NullTraceSink, ResetKind, RunResult, read_firmware_asset,
+    InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
+    NativeGamepadInput, NullAudioSink, NullTraceSink, ResetKind, RunResult, read_firmware_asset,
+    read_media_asset,
 };
 use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
 use runtime_dragon::{DragonRuntime, Model};
@@ -48,6 +49,7 @@ Usage: emu198x-dragon [OPTIONS] --rom PATH
 
 Options:
     --rom PATH       Dragon 32 BASIC ROM, or zip containing one ROM/bin candidate
+    --tape PATH      Dragon CAS tape image, or zip containing one .cas member
     --scale N        integer window scale, default 2
     --video MODE     raw | lcd | crt [default: crt]
     --help, -h       show this help
@@ -70,6 +72,7 @@ Controls:
 #[derive(Debug, PartialEq, Eq)]
 struct Cli {
     rom: Option<PathBuf>,
+    tape: Option<PathBuf>,
     scale: u32,
     video: VideoFilter,
 }
@@ -78,6 +81,7 @@ impl Default for Cli {
     fn default() -> Self {
         Self {
             rom: None,
+            tape: None,
             scale: DEFAULT_SCALE,
             video: VideoFilter::Crt,
         }
@@ -122,7 +126,30 @@ impl DragonRunner {
         })?;
         let mut firmware = FirmwareSet::new();
         firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
-        let runtime = DragonRuntime::from_firmware(Model::Dragon32Pal, &firmware)?;
+        let mut runtime = DragonRuntime::from_firmware(Model::Dragon32Pal, &firmware)?;
+
+        if let Some(tape) = &cli.tape {
+            let loaded =
+                read_media_asset(tape, MediaKind::Tape).map_err(|err| AppError::Setup {
+                    reason: format!("failed to load Dragon tape {}: {err}", tape.display()),
+                })?;
+            let mut media = MediaSet::new();
+            media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
+            runtime.load_media(&media)?;
+            if let Some(summary) = runtime.tape_summary() {
+                let name = summary.header_name.as_deref().unwrap_or("<no header>");
+                println!(
+                    "Loaded tape: {name}, {} CAS blocks, checksums {}",
+                    summary.blocks,
+                    if summary.checksums_valid {
+                        "valid"
+                    } else {
+                        "invalid"
+                    }
+                );
+            }
+        }
+
         let mut runner = Self {
             runtime,
             frame_capture: LatestFrameCapture::default(),
@@ -457,6 +484,7 @@ where
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
+            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--scale" => {
                 cli.scale = next_arg(&mut iter, "--scale")
                     .parse()
@@ -685,10 +713,24 @@ mod tests {
             cli,
             Cli {
                 rom: Some(PathBuf::from("dragon32.rom")),
+                tape: None,
                 scale: 3,
                 video: VideoFilter::Raw,
             }
         );
+    }
+
+    #[test]
+    fn parse_cli_accepts_tape_path() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--tape".to_owned(),
+            "program.cas".to_owned(),
+        ]);
+
+        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
+        assert_eq!(cli.tape, Some(PathBuf::from("program.cas")));
     }
 
     #[test]

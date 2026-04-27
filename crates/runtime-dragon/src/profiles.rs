@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    ProfileId, Region, SupportTier, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
 };
 
 /// Dragon family model.
@@ -55,8 +55,15 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 "Dragon 32 BASIC ROM",
                 false,
             )],
-            media_slots: Vec::new(),
+            media_slots: vec![MediaSlot::new(
+                "tape-1",
+                "Cassette",
+                MediaKind::Tape,
+                false,
+                WritebackPolicy::InMemoryOnly,
+            )],
             capabilities: CapabilitySet::with_all([
+                known_capability("cassette-media"),
                 known_capability("keyboard-matrix"),
                 known_capability("scripted-input"),
                 known_capability("video-framebuffer"),
@@ -88,5 +95,8 @@ mod tests {
         assert_eq!(profile.region, Region::Pal);
         assert_eq!(profile.firmware.len(), 1);
         assert_eq!(profile.firmware[0].id.as_ref(), "dragon32-basic-rom");
+        assert_eq!(profile.media_slots.len(), 1);
+        assert_eq!(profile.media_slots[0].id.as_ref(), "tape-1");
+        assert_eq!(profile.media_slots[0].kind, MediaKind::Tape);
     }
 }

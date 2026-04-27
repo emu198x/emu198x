@@ -2,9 +2,10 @@
 
 use emu198x_shell::{
     CapabilitySet, FirmwareSet, FramePacket, HostIo, InputEvent, MachineCore, MachineError,
-    MachineProfile, MachineTime, MediaSet, PixelFormat, QueryError, QueryResult, ResetKind,
-    RunResult, SessionQueryProvider, StopReason,
+    MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError, QueryResult,
+    ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
+use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas};
 use machine_dragon_32::{Dragon32, DragonKey, MatrixKey, ROM_SIZE};
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
@@ -21,8 +22,40 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "dragon.cpu.instructions",
     "dragon.cpu.pc",
     "dragon.machine.halted",
+    "dragon.pia0.control_a",
+    "dragon.pia0.control_b",
+    "dragon.pia0.ddr_a",
+    "dragon.pia0.ddr_b",
+    "dragon.pia1.ca2",
+    "dragon.pia1.cb2",
+    "dragon.pia1.control_a",
+    "dragon.pia1.control_b",
+    "dragon.tape.blocks",
+    "dragon.tape.checksums_valid",
+    "dragon.tape.finished",
+    "dragon.tape.header.file_type",
+    "dragon.tape.header.name",
+    "dragon.tape.length_bits",
+    "dragon.tape.loaded",
+    "dragon.tape.motor_on",
+    "dragon.tape.position_bits",
     "dragon.text.base",
 ];
+
+const MIN_INITIAL_LEADER_BYTES: usize = 128;
+
+/// Summary of the currently mounted Dragon cassette image.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DragonTapeSummary {
+    /// Number of parsed CAS blocks.
+    pub blocks: usize,
+    /// `true` when every block checksum matches.
+    pub checksums_valid: bool,
+    /// First standard header filename, if present.
+    pub header_name: Option<String>,
+    /// First standard header file type, if present.
+    pub header_file_type: Option<&'static str>,
+}
 
 /// Dragon-family query provider layered above the shared shell surface.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,6 +68,8 @@ pub struct DragonRuntime {
     machine: Dragon32,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
+    tape: Option<CasImage>,
+    tape_bytes: Vec<u8>,
 }
 
 impl DragonRuntime {
@@ -76,6 +111,8 @@ impl DragonRuntime {
             rgba_framebuffer: Vec::with_capacity(
                 TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT * 4,
             ),
+            tape: None,
+            tape_bytes: Vec::new(),
         })
     }
 
@@ -91,6 +128,8 @@ impl DragonRuntime {
             rgba_framebuffer: Vec::with_capacity(
                 TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT * 4,
             ),
+            tape: None,
+            tape_bytes: Vec::new(),
         }
     }
 
@@ -100,8 +139,25 @@ impl DragonRuntime {
         &self.machine
     }
 
+    /// Returns a summary of the currently mounted cassette image.
+    #[must_use]
+    pub fn tape_summary(&self) -> Option<DragonTapeSummary> {
+        self.tape.as_ref().map(|tape| {
+            let header = tape.first_header();
+            DragonTapeSummary {
+                blocks: tape.blocks.len(),
+                checksums_valid: tape.checksums_valid(),
+                header_name: header.map(|header| header.name.clone()),
+                header_file_type: header.map(|header| cas_file_type_label(header.file_type)),
+            }
+        })
+    }
+
     fn rebuild_machine(&mut self) {
         self.machine = Dragon32::new(&self.firmware_rom);
+        if !self.tape_bytes.is_empty() {
+            self.machine.load_cassette_bytes(self.tape_bytes.clone());
+        }
         self.time = MachineTime::default();
         self.rgba_framebuffer.clear();
     }
@@ -155,12 +211,29 @@ impl MachineCore for DragonRuntime {
     }
 
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
-        if media.is_empty() {
-            return Ok(());
+        for image in &media.images {
+            let slot = image.slot.as_ref();
+            match image.kind {
+                MediaKind::Tape if slot == "tape-1" => {
+                    let tape =
+                        parse_cas(image.bytes).map_err(|reason| MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        })?;
+                    let tape_bytes = cassette_bytes_from_cas(&tape);
+                    self.machine.load_cassette_bytes(tape_bytes.clone());
+                    self.tape = Some(tape);
+                    self.tape_bytes = tape_bytes;
+                }
+                MediaKind::Tape => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+                _ => return Err(MachineError::UnsupportedMediaKind { kind: image.kind }),
+            }
         }
-        Err(MachineError::UnsupportedMediaKind {
-            kind: media.images[0].kind,
-        })
+        Ok(())
     }
 
     fn run_until(
@@ -237,6 +310,41 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
             "dragon.cpu.instructions" => json!(machine.machine.instructions()),
             "dragon.cpu.pc" => json!(machine.machine.pc()),
             "dragon.machine.halted" => json!(machine.machine.is_halted()),
+            "dragon.pia0.control_a" => json!(machine.machine.pia0_control_a()),
+            "dragon.pia0.control_b" => json!(machine.machine.pia0_control_b()),
+            "dragon.pia0.ddr_a" => json!(machine.machine.pia0_ddr_a()),
+            "dragon.pia0.ddr_b" => json!(machine.machine.pia0_ddr_b()),
+            "dragon.pia1.ca2" => json!(machine.machine.pia1_ca2()),
+            "dragon.pia1.cb2" => json!(machine.machine.pia1_cb2()),
+            "dragon.pia1.control_a" => json!(machine.machine.pia1_control_a()),
+            "dragon.pia1.control_b" => json!(machine.machine.pia1_control_b()),
+            "dragon.tape.loaded" => json!(machine.tape.is_some()),
+            "dragon.tape.blocks" => json!(machine.tape.as_ref().map(|tape| tape.blocks.len())),
+            "dragon.tape.checksums_valid" => {
+                json!(machine.tape.as_ref().map(CasImage::checksums_valid))
+            }
+            "dragon.tape.finished" => json!(machine.machine.cassette_finished()),
+            "dragon.tape.length_bits" => json!(machine.machine.cassette_len_bits()),
+            "dragon.tape.motor_on" => json!(machine.machine.cassette_motor_on()),
+            "dragon.tape.position_bits" => json!(machine.machine.cassette_position_bits()),
+            "dragon.tape.header.name" => {
+                json!(
+                    machine
+                        .tape
+                        .as_ref()
+                        .and_then(CasImage::first_header)
+                        .map(|header| header.name.as_str())
+                )
+            }
+            "dragon.tape.header.file_type" => {
+                json!(
+                    machine
+                        .tape
+                        .as_ref()
+                        .and_then(CasImage::first_header)
+                        .map(|header| cas_file_type_label(header.file_type))
+                )
+            }
             "dragon.text.base" => json!(machine.machine.text_screen_base()),
             _ => return Ok(None),
         };
@@ -244,6 +352,30 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
             path: path.to_owned(),
             value,
         }))
+    }
+}
+
+fn cassette_bytes_from_cas(tape: &CasImage) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for block in &tape.blocks {
+        let leader_len = block.leader_len.max(MIN_INITIAL_LEADER_BYTES);
+        bytes.extend(std::iter::repeat_n(LEADER_BYTE, leader_len));
+        bytes.push(SYNC_BYTE);
+        bytes.push(block.block_type);
+        bytes.push(block.data.len() as u8);
+        bytes.extend_from_slice(&block.data);
+        bytes.push(block.checksum);
+        bytes.push(LEADER_BYTE);
+    }
+    bytes
+}
+
+const fn cas_file_type_label(file_type: CasFileType) -> &'static str {
+    match file_type {
+        CasFileType::Basic => "basic",
+        CasFileType::Data => "data",
+        CasFileType::MachineCode => "machine-code",
+        CasFileType::Unknown(_) => "unknown",
     }
 }
 
@@ -285,8 +417,9 @@ impl DragonRuntime {
 mod tests {
     use emu198x_shell::{
         FirmwareImage, FirmwareSet, FramePacket, FrameSink, HostIo, MachineCore, MachineTime,
-        NullAudioSink, NullTraceSink, PixelFormat,
+        MediaImage, MediaKind, MediaSet, NullAudioSink, NullTraceSink, PixelFormat,
     };
+    use format_dragon_cas::{LEADER_BYTE, SYNC_BYTE, checksum_for};
     use motorola_vdg_6847::TEXT_ROWS;
 
     use super::*;
@@ -402,5 +535,118 @@ mod tests {
             .as_array()
             .expect("screen text lines should be an array");
         assert_eq!(lines.len(), TEXT_ROWS);
+    }
+
+    fn cas_with_header(name: &[u8; 8], file_type: u8) -> Vec<u8> {
+        let payload = [
+            name[0], name[1], name[2], name[3], name[4], name[5], name[6], name[7], file_type,
+            0x00, 0x00, 0x12, 0x34, 0x56, 0x78,
+        ];
+        let mut cas = vec![
+            LEADER_BYTE,
+            LEADER_BYTE,
+            SYNC_BYTE,
+            0x00,
+            payload.len() as u8,
+        ];
+        cas.extend_from_slice(&payload);
+        cas.push(checksum_for(0x00, payload.len() as u8, &payload));
+        cas.extend_from_slice(&[
+            LEADER_BYTE,
+            SYNC_BYTE,
+            0x01,
+            0x02,
+            0xaa,
+            0xbb,
+            checksum_for(0x01, 0x02, &[0xaa, 0xbb]),
+            LEADER_BYTE,
+            SYNC_BYTE,
+            0xff,
+            0x00,
+            0xff,
+        ]);
+        cas
+    }
+
+    #[test]
+    fn load_media_accepts_dragon_cas_tape() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let cas = cas_with_header(b"TEST    ", 0x02);
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &cas));
+
+        runtime.load_media(&media).expect("CAS tape should load");
+
+        let summary = runtime.tape_summary().expect("tape should be mounted");
+        assert_eq!(summary.blocks, 3);
+        assert!(summary.checksums_valid);
+        assert_eq!(summary.header_name.as_deref(), Some("TEST"));
+        assert_eq!(summary.header_file_type, Some("machine-code"));
+
+        let provider = DragonSessionQueryProvider;
+        assert_eq!(
+            provider
+                .query(&runtime, "dragon.tape.header.name")
+                .expect("query should not fail")
+                .expect("query should be owned")
+                .value,
+            json!("TEST")
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "dragon.tape.loaded")
+                .expect("query should not fail")
+                .expect("query should be owned")
+                .value,
+            json!(true)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "dragon.tape.position_bits")
+                .expect("query should not fail")
+                .expect("query should be owned")
+                .value,
+            json!(0)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "dragon.tape.length_bits")
+                .expect("query should not fail")
+                .expect("query should be owned")
+                .value,
+            json!(runtime.machine.cassette_len_bits())
+        );
+    }
+
+    #[test]
+    fn load_media_rejects_unknown_tape_slot() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let cas = cas_with_header(b"TEST    ", 0x00);
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-2", MediaKind::Tape, &cas));
+
+        let err = runtime.load_media(&media).expect_err("unknown slot");
+
+        match err {
+            MachineError::UnknownMediaSlot { slot } => assert_eq!(slot, "tape-2"),
+            other => panic!("expected UnknownMediaSlot, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_media_rejects_malformed_cas() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &[0x00]));
+
+        let err = runtime.load_media(&media).expect_err("malformed CAS");
+
+        match err {
+            MachineError::InvalidMedia { slot, reason } => {
+                assert_eq!(slot, "tape-1");
+                assert!(reason.contains("unexpected byte"));
+            }
+            other => panic!("expected InvalidMedia, got {other:?}"),
+        }
     }
 }

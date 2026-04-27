@@ -1,7 +1,10 @@
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-use emu198x_shell::{FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, read_firmware_asset};
+use emu198x_shell::{
+    FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineCore, MediaImage, MediaKind,
+    MediaSet, read_firmware_asset, read_media_asset,
+};
 use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 
@@ -47,24 +50,214 @@ fn dragon32_real_rom_echoes_basic_keyboard_input() {
     tap_key(&mut session, "a");
     tap_key(&mut session, "b");
     tap_key(&mut session, "c");
+    tap_key(&mut session, "p");
     tap_key(&mut session, "1");
     tap_key(&mut session, "2");
     tap_key(&mut session, "3");
 
-    if let Err(err) = session.wait_for_query_text_contains("screen.text.lines", "ABC123", 30) {
+    if let Err(err) = session.wait_for_query_text_contains("screen.text.lines", "ABCP123", 30) {
         panic!(
-            "Dragon BASIC should echo typed keys: {err}\n{}",
+            "Dragon BASIC should echo typed keys, including column-0 P: {err}\n{}",
             screen_text_lines(&session).join("\n")
         );
     }
 
     tap_key_combo(&mut session, &["shift", "2"]);
-    if let Err(err) = session.wait_for_query_text_contains("screen.text.lines", "ABC123\"", 30) {
+    if let Err(err) = session.wait_for_query_text_contains("screen.text.lines", "ABCP123\"", 30) {
         panic!(
             "Dragon BASIC should echo shifted quote: {err}\n{}",
             screen_text_lines(&session).join("\n")
         );
     }
+}
+
+#[test]
+fn dragon32_real_rom_accepts_enter_key() {
+    let Some(mut session) = booted_dragon_session() else {
+        return;
+    };
+
+    for name in ["p", "r", "i", "n", "t", "space", "1"] {
+        tap_key(&mut session, name);
+    }
+    tap_key_for_frames(&mut session, "enter", 30);
+    session
+        .run_frames(300)
+        .expect("Dragon runtime should advance after enter");
+
+    let lines = screen_text_lines(&session);
+    assert!(
+        lines.iter().any(|line| line.trim() == "1"),
+        "Dragon BASIC should accept Enter and execute PRINT 1; PC=${:04X} halted={}; PIA0 CRA=${:02X} CRB=${:02X} DDRA=${:02X} DDRB=${:02X}\n{}",
+        query_u64(&session, "dragon.cpu.pc"),
+        session
+            .query("dragon.machine.halted")
+            .expect("dragon.machine.halted query should work")
+            .value,
+        query_u64(&session, "dragon.pia0.control_a"),
+        query_u64(&session, "dragon.pia0.control_b"),
+        query_u64(&session, "dragon.pia0.ddr_a"),
+        query_u64(&session, "dragon.pia0.ddr_b"),
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn dragon_runtime_mounts_real_textstar_cas_zip_when_available() {
+    let Some(cas_path) = dragon_textstar_cas_path() else {
+        eprintln!("skipping Dragon CAS smoke: local Textstar CAS archive not found");
+        return;
+    };
+
+    let loaded = read_media_asset(&cas_path, MediaKind::Tape)
+        .unwrap_or_else(|err| panic!("read Dragon CAS at {}: {err}", cas_path.display()));
+    let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
+
+    runtime
+        .load_media(&media)
+        .expect("real Dragon CAS should mount");
+
+    let summary = runtime
+        .tape_summary()
+        .expect("mounted CAS should produce a summary");
+    assert!(
+        summary.blocks > 2,
+        "Textstar should have multiple CAS blocks"
+    );
+    assert!(
+        summary.checksums_valid,
+        "Textstar CAS checksums should pass"
+    );
+    assert_eq!(summary.header_name.as_deref(), Some("TEXTSTAR"));
+    assert_eq!(summary.header_file_type, Some("basic"));
+}
+
+#[test]
+fn dragon_runtime_starts_real_textstar_cas_after_cload_when_available() {
+    let Some(mut session) = booted_dragon_session() else {
+        return;
+    };
+    let Some(cas_path) = dragon_textstar_cas_path() else {
+        eprintln!("skipping Dragon CLOAD smoke: local Textstar CAS archive not found");
+        return;
+    };
+
+    let loaded = read_media_asset(&cas_path, MediaKind::Tape)
+        .unwrap_or_else(|err| panic!("read Dragon CAS at {}: {err}", cas_path.display()));
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
+    session
+        .load_media(&media)
+        .expect("real Dragon CAS should mount into the booted runtime");
+
+    for name in ["c", "l", "o", "a", "d", "enter"] {
+        tap_key(&mut session, name);
+    }
+
+    let position = wait_for_tape_position_above(&mut session, 0, 180);
+    assert!(
+        position > 0,
+        "Dragon ROM did not consume tape bits after CLOAD; PIA1 control A=${:02X} CA2={}\n{}",
+        query_u64(&session, "dragon.pia1.control_a"),
+        session
+            .query("dragon.pia1.ca2")
+            .expect("dragon.pia1.ca2 query should work")
+            .value,
+        screen_text_lines(&session).join("\n")
+    );
+}
+
+#[test]
+fn dragon_runtime_loads_real_textstar_cas_to_basic_prompt_when_available() {
+    let Some(mut session) = booted_dragon_session() else {
+        return;
+    };
+    let Some(cas_path) = dragon_textstar_cas_path() else {
+        eprintln!("skipping Dragon CLOAD completion smoke: local Textstar CAS archive not found");
+        return;
+    };
+
+    let loaded = read_media_asset(&cas_path, MediaKind::Tape)
+        .unwrap_or_else(|err| panic!("read Dragon CAS at {}: {err}", cas_path.display()));
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
+    session
+        .load_media(&media)
+        .expect("real Dragon CAS should mount into the booted runtime");
+
+    for name in ["c", "l", "o", "a", "d", "enter"] {
+        tap_key(&mut session, name);
+    }
+
+    let moved_to = wait_for_tape_position_above(&mut session, 0, 180);
+    assert!(
+        moved_to > 0,
+        "Dragon ROM should start consuming Textstar tape bits"
+    );
+    session
+        .wait_for_query_bool("dragon.tape.motor_on", false, 3_500)
+        .expect("Dragon ROM should turn the cassette motor off after loading Textstar");
+    let lines = screen_text_lines(&session);
+    let prompt_count = ok_prompt_count(&lines);
+    assert!(
+        prompt_count >= 1 && !lines.iter().any(|line| line.contains("ERROR")),
+        "Dragon BASIC should return to OK after loading Textstar; prompts={prompt_count} position={}/{} finished={} motor={}\n{}",
+        query_u64(&session, "dragon.tape.position_bits"),
+        query_u64(&session, "dragon.tape.length_bits"),
+        session
+            .query("dragon.tape.finished")
+            .expect("dragon.tape.finished query should work")
+            .value,
+        session
+            .query("dragon.tape.motor_on")
+            .expect("dragon.tape.motor_on query should work")
+            .value,
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn dragon_runtime_runs_real_textstar_after_cload_when_available() {
+    let Some(mut session) = booted_dragon_session() else {
+        return;
+    };
+    let Some(cas_path) = dragon_textstar_cas_path() else {
+        eprintln!("skipping Dragon RUN smoke: local Textstar CAS archive not found");
+        return;
+    };
+
+    let loaded = read_media_asset(&cas_path, MediaKind::Tape)
+        .unwrap_or_else(|err| panic!("read Dragon CAS at {}: {err}", cas_path.display()));
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
+    session
+        .load_media(&media)
+        .expect("real Dragon CAS should mount into the booted runtime");
+
+    for name in ["c", "l", "o", "a", "d", "enter"] {
+        tap_key(&mut session, name);
+    }
+    let moved_to = wait_for_tape_position_above(&mut session, 0, 180);
+    assert!(moved_to > 0);
+    session
+        .wait_for_query_bool("dragon.tape.motor_on", false, 3_500)
+        .expect("Dragon ROM should turn the cassette motor off after loading Textstar");
+
+    for name in ["r", "u", "n"] {
+        tap_key(&mut session, name);
+    }
+    let before_enter = screen_text_lines(&session);
+    tap_key(&mut session, "enter");
+    let changed = wait_for_screen_text_change(&mut session, &before_enter, 300);
+    let lines = screen_text_lines(&session);
+
+    assert!(
+        changed && !lines.iter().any(|line| line.contains("ERROR")),
+        "Dragon BASIC should run Textstar after CLOAD/RUN\n{}",
+        lines.join("\n")
+    );
 }
 
 fn booted_dragon_session() -> Option<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>> {
@@ -91,7 +284,28 @@ fn booted_dragon_session() -> Option<HeadlessSession<DragonRuntime, DragonSessio
 
     assert_eq!(boot.reason, "basic-ok-prompt");
     assert!(boot.frames <= BOOT_FRAME_BUDGET);
+    session
+        .run_frames(30)
+        .expect("Dragon 32 ROM should idle after reaching BASIC prompt");
     Some(session)
+}
+
+fn dragon_textstar_cas_path() -> Option<PathBuf> {
+    if let Some(path) = existing_env_path("EMU198X_DRAGON_CAS") {
+        return Some(path);
+    }
+
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)?;
+    let sibling_archive = repo_root
+        .parent()?
+        .join("Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Applications/[CAS]/Textstar (1982)(Personal Software Services).zip");
+    if sibling_archive.exists() {
+        return Some(sibling_archive);
+    }
+
+    None
 }
 
 fn dragon32_rom_path() -> Option<PathBuf> {
@@ -199,19 +413,24 @@ fn screen_text_lines(
         .collect()
 }
 
-fn tap_key(
+fn tap_key(session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>, name: &str) {
+    tap_key_for_frames(session, name, KEY_EDGE_FRAMES);
+}
+
+fn tap_key_for_frames(
     session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
-    name: &'static str,
+    name: &str,
+    frames: u32,
 ) {
     session.queue_input(InputEvent::Key {
-        name: name.into(),
+        name: name.to_owned().into(),
         pressed: true,
     });
     session
-        .run_frames(KEY_EDGE_FRAMES)
+        .run_frames(frames)
         .expect("key press should advance Dragon runtime");
     session.queue_input(InputEvent::Key {
-        name: name.into(),
+        name: name.to_owned().into(),
         pressed: false,
     });
     session
@@ -241,4 +460,53 @@ fn tap_key_combo(
     session
         .run_frames(KEY_EDGE_FRAMES)
         .expect("key combo release should advance Dragon runtime");
+}
+
+fn wait_for_tape_position_above(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    threshold: u64,
+    max_frames: u32,
+) -> u64 {
+    for _ in 0..=max_frames {
+        let position = query_u64(session, "dragon.tape.position_bits");
+        if position > threshold {
+            return position;
+        }
+        session
+            .run_frames(1)
+            .expect("Dragon runtime should advance while waiting for tape movement");
+    }
+    query_u64(session, "dragon.tape.position_bits")
+}
+
+fn ok_prompt_count(lines: &[String]) -> usize {
+    lines.iter().filter(|line| line.trim_end() == "OK").count()
+}
+
+fn wait_for_screen_text_change(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    before: &[String],
+    max_frames: u32,
+) -> bool {
+    for _ in 0..=max_frames {
+        if screen_text_lines(session) != before {
+            return true;
+        }
+        session
+            .run_frames(1)
+            .expect("Dragon runtime should advance while waiting for screen change");
+    }
+    false
+}
+
+fn query_u64(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    path: &str,
+) -> u64 {
+    session
+        .query(path)
+        .unwrap_or_else(|err| panic!("{path} query should work: {err}"))
+        .value
+        .as_u64()
+        .unwrap_or_else(|| panic!("{path} query should be an unsigned integer"))
 }

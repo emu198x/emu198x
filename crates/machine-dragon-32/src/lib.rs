@@ -19,6 +19,9 @@ use motorola_vdg_6847::{TextPalette, TextScreen};
 pub const RAM_SIZE: usize = 0x8000;
 /// Dragon 32 BASIC ROM size.
 pub const ROM_SIZE: usize = 0x4000;
+const CASSETTE_ZERO_HALF_PERIOD_CYCLES: u32 = 373;
+const CASSETTE_ONE_HALF_PERIOD_CYCLES: u32 = 186;
+const CASSETTE_BITS_PER_BYTE: usize = 8;
 
 /// A raw Dragon keyboard matrix switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -624,6 +627,7 @@ struct DragonMemory {
     pia1: Pia6821,
     sam: Sam6883,
     keyboard: DragonKeyboard,
+    cassette: CassettePlayback,
 }
 
 impl DragonMemory {
@@ -635,6 +639,7 @@ impl DragonMemory {
             pia1: Pia6821::new(),
             sam: Sam6883::new(),
             keyboard,
+            cassette: CassettePlayback::default(),
         }
     }
 
@@ -706,8 +711,20 @@ impl DragonMemory {
         self.pia0
             .set_input(PiaPort::A, self.keyboard.port_a_input(column_output));
         self.pia0.set_input(PiaPort::B, 0xFF);
-        self.pia1.set_input(PiaPort::A, 0xFF);
+        let pia1_pa = if self.cassette.line_level() {
+            0xFF
+        } else {
+            0xFE
+        };
+        self.pia1.set_input(PiaPort::A, pia1_pa);
         self.pia1.set_input(PiaPort::B, 0xFF);
+    }
+
+    fn advance_cassette(&mut self) {
+        if self.pia1.ca2 {
+            self.cassette.advance_cycle();
+            self.refresh_pia_inputs();
+        }
     }
 
     fn text_screen_base(&self) -> u16 {
@@ -717,6 +734,76 @@ impl DragonMemory {
     fn capture_text_screen(&self) -> TextScreen {
         let base = usize::from(self.text_screen_base());
         TextScreen::capture(|offset| self.ram[(base + offset) & (RAM_SIZE - 1)])
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct CassettePlayback {
+    bytes: Vec<u8>,
+    bit_index: usize,
+    half_cycles_remaining: u32,
+    level: bool,
+}
+
+impl CassettePlayback {
+    fn load(&mut self, bytes: Vec<u8>) {
+        self.bytes = bytes;
+        self.bit_index = 0;
+        self.half_cycles_remaining = self.current_half_period();
+        self.level = false;
+    }
+
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    fn advance_cycle(&mut self) {
+        if self.finished() {
+            return;
+        }
+
+        self.half_cycles_remaining = self.half_cycles_remaining.saturating_sub(1);
+        if self.half_cycles_remaining != 0 {
+            return;
+        }
+
+        self.level = !self.level;
+        if !self.level {
+            self.bit_index = self.bit_index.saturating_add(1);
+        }
+        self.half_cycles_remaining = self.current_half_period();
+    }
+
+    fn line_level(&self) -> bool {
+        self.level
+    }
+
+    fn finished(&self) -> bool {
+        self.bit_index >= self.bytes.len().saturating_mul(CASSETTE_BITS_PER_BYTE)
+    }
+
+    fn position_bits(&self) -> usize {
+        self.bit_index
+    }
+
+    fn len_bits(&self) -> usize {
+        self.bytes.len().saturating_mul(CASSETTE_BITS_PER_BYTE)
+    }
+
+    fn current_half_period(&self) -> u32 {
+        if self.current_bit() {
+            CASSETTE_ONE_HALF_PERIOD_CYCLES
+        } else {
+            CASSETTE_ZERO_HALF_PERIOD_CYCLES
+        }
+    }
+
+    fn current_bit(&self) -> bool {
+        let byte_index = self.bit_index / CASSETTE_BITS_PER_BYTE;
+        let bit_index = self.bit_index % CASSETTE_BITS_PER_BYTE;
+        self.bytes
+            .get(byte_index)
+            .is_some_and(|byte| byte & (1 << bit_index) != 0)
     }
 }
 
@@ -796,6 +883,96 @@ impl Dragon32 {
         &mut self.memory.keyboard
     }
 
+    /// Load a byte stream into the emulated cassette input.
+    pub fn load_cassette_bytes(&mut self, bytes: Vec<u8>) {
+        self.memory.cassette.load(bytes);
+        self.memory.refresh_pia_inputs();
+    }
+
+    /// Remove the emulated cassette input.
+    pub fn clear_cassette(&mut self) {
+        self.memory.cassette.clear();
+        self.memory.refresh_pia_inputs();
+    }
+
+    /// Returns whether the cassette motor relay line is on.
+    #[must_use]
+    pub fn cassette_motor_on(&self) -> bool {
+        self.memory.pia1.ca2
+    }
+
+    /// Returns whether the cassette playback stream has finished.
+    #[must_use]
+    pub fn cassette_finished(&self) -> bool {
+        self.memory.cassette.finished()
+    }
+
+    /// Returns the current cassette bit position.
+    #[must_use]
+    pub fn cassette_position_bits(&self) -> usize {
+        self.memory.cassette.position_bits()
+    }
+
+    /// Returns the cassette stream length in bits.
+    #[must_use]
+    pub fn cassette_len_bits(&self) -> usize {
+        self.memory.cassette.len_bits()
+    }
+
+    /// Returns the current cassette input level exposed on PIA1 PA0.
+    #[must_use]
+    pub fn cassette_line_level(&self) -> bool {
+        self.memory.cassette.line_level()
+    }
+
+    /// Current PIA1 CA2 level, used by the Dragon cassette relay.
+    #[must_use]
+    pub fn pia1_ca2(&self) -> bool {
+        self.memory.pia1.ca2
+    }
+
+    /// Current PIA0 port A data-direction register.
+    #[must_use]
+    pub fn pia0_ddr_a(&self) -> u8 {
+        self.memory.pia0.ddr(PiaPort::A)
+    }
+
+    /// Current PIA0 port B data-direction register.
+    #[must_use]
+    pub fn pia0_ddr_b(&self) -> u8 {
+        self.memory.pia0.ddr(PiaPort::B)
+    }
+
+    /// Current PIA0 port A control register.
+    #[must_use]
+    pub fn pia0_control_a(&self) -> u8 {
+        self.memory.pia0.control(PiaPort::A)
+    }
+
+    /// Current PIA0 port B control register.
+    #[must_use]
+    pub fn pia0_control_b(&self) -> u8 {
+        self.memory.pia0.control(PiaPort::B)
+    }
+
+    /// Current PIA1 CB2 level.
+    #[must_use]
+    pub fn pia1_cb2(&self) -> bool {
+        self.memory.pia1.cb2
+    }
+
+    /// Current PIA1 port A control register.
+    #[must_use]
+    pub fn pia1_control_a(&self) -> u8 {
+        self.memory.pia1.control(PiaPort::A)
+    }
+
+    /// Current PIA1 port B control register.
+    #[must_use]
+    pub fn pia1_control_b(&self) -> u8 {
+        self.memory.pia1.control(PiaPort::B)
+    }
+
     /// Current SAM-selected text screen base.
     #[must_use]
     pub fn text_screen_base(&self) -> u16 {
@@ -816,6 +993,7 @@ impl Dragon32 {
 
     /// Execute one bus cycle and return any observed memory/device event.
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
+        self.memory.advance_cassette();
         let event = if self.cpu.rw {
             let (value, event) = self.memory.read_bus(self.cpu.addr);
             self.cpu.data_in = value;
@@ -1149,6 +1327,15 @@ mod tests {
     }
 
     #[test]
+    fn keyboard_enter_pulls_row_six_low_when_column_zero_is_selected() {
+        let keyboard = DragonKeyboard::with_pressed_keys(&[MatrixKey::new(6, 0)])
+            .expect("enter matrix key should be valid");
+
+        assert_eq!(keyboard.port_a_input(0xFE), 0xBF);
+        assert_eq!(keyboard.port_a_input(0xFD), 0xFF);
+    }
+
+    #[test]
     fn keyboard_rejects_out_of_range_matrix_keys() {
         let err = DragonKeyboard::with_pressed_keys(&[MatrixKey::new(8, 0)])
             .expect_err("row 8 should be invalid");
@@ -1179,6 +1366,49 @@ mod tests {
                 value: 0xFE,
             })
         );
+    }
+
+    #[test]
+    fn cassette_playback_advances_only_when_motor_relay_is_on() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.cassette.load(vec![0x01]);
+
+        memory.advance_cassette();
+        assert_eq!(memory.cassette.position_bits(), 0);
+        assert!(!memory.cassette.line_level());
+
+        memory.pia1.write(0x01, 0x3C); // PIA1 CA2 high, port A data selected.
+        for _ in 0..CASSETTE_ONE_HALF_PERIOD_CYCLES {
+            memory.advance_cassette();
+        }
+        assert_eq!(memory.cassette.position_bits(), 0);
+        assert!(memory.cassette.line_level());
+
+        for _ in 0..CASSETTE_ONE_HALF_PERIOD_CYCLES {
+            memory.advance_cassette();
+        }
+        assert_eq!(memory.cassette.position_bits(), 1);
+        assert!(!memory.cassette.line_level());
+    }
+
+    #[test]
+    fn cassette_input_drives_pia1_port_a_bit_zero() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.cassette.load(vec![0x01]);
+        memory.pia1.write(0x01, 0x04); // PIA1 port A data register selected.
+
+        memory.refresh_pia_inputs();
+        let (low_value, _) = memory.read_bus(0xFF20);
+        assert_eq!(low_value & 0x01, 0);
+
+        memory.pia1.write(0x01, 0x3C); // PIA1 CA2 high, port A data selected.
+        for _ in 0..CASSETTE_ONE_HALF_PERIOD_CYCLES {
+            memory.advance_cassette();
+        }
+        let (high_value, _) = memory.read_bus(0xFF20);
+        assert_eq!(high_value & 0x01, 1);
     }
 
     #[test]
