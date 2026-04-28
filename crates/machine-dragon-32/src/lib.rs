@@ -22,6 +22,8 @@ use motorola_vdg_6847::{
 pub const RAM_SIZE: usize = 0x8000;
 /// Dragon 32 BASIC ROM size.
 pub const ROM_SIZE: usize = 0x4000;
+/// Host audio sample rate for Dragon mono output.
+pub const DRAGON_AUDIO_SAMPLE_RATE: u32 = 48_000;
 const CASSETTE_ZERO_HALF_PERIOD_CYCLES: u32 = 373;
 const CASSETTE_ONE_HALF_PERIOD_CYCLES: u32 = 186;
 const CASSETTE_BITS_PER_BYTE: usize = 8;
@@ -746,6 +748,42 @@ impl DragonMemory {
         let base = usize::from(self.text_screen_base());
         self.ram[(base + offset) & (RAM_SIZE - 1)]
     }
+
+    fn audio_sample(&self) -> f32 {
+        const DAC_GAIN: f32 = 0.35;
+        const TAPE_GAIN: f32 = 0.12;
+        const SINGLE_BIT_GAIN: f32 = 0.25;
+
+        let mux_source = (u8::from(self.pia0.cb2) << 1) | u8::from(self.pia0.ca2);
+        let mut sample = if self.pia1.cb2 {
+            match mux_source {
+                0 => ((f32::from(self.pia1.pa & 0xfc) / 252.0) * 2.0 - 1.0) * DAC_GAIN,
+                1 => {
+                    let level = if self.cassette.line_level() {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    level * TAPE_GAIN
+                }
+                _ => 0.0,
+            }
+        } else {
+            0.0
+        };
+
+        let port_b_outputs = self.pia1.ddr(PiaPort::B);
+        if port_b_outputs & 0x02 != 0 {
+            let level = if self.pia1.output_latch(PiaPort::B) & 0x02 != 0 {
+                1.0
+            } else {
+                -1.0
+            };
+            sample += level * SINGLE_BIT_GAIN;
+        }
+
+        sample.clamp(-1.0, 1.0)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -936,12 +974,44 @@ impl CassettePlayback {
     }
 }
 
+#[derive(Debug, Clone)]
+struct DragonAudio {
+    cycle_accumulator: u64,
+    samples: Vec<f32>,
+}
+
+impl DragonAudio {
+    fn new() -> Self {
+        Self {
+            cycle_accumulator: 0,
+            samples: Vec::with_capacity(
+                (u64::from(DRAGON_AUDIO_SAMPLE_RATE) / DRAGON_FRAME_HZ) as usize,
+            ),
+        }
+    }
+
+    fn tick(&mut self, memory: &DragonMemory) {
+        self.cycle_accumulator = self
+            .cycle_accumulator
+            .saturating_add(u64::from(DRAGON_AUDIO_SAMPLE_RATE));
+        while self.cycle_accumulator >= DRAGON_CPU_HZ {
+            self.cycle_accumulator -= DRAGON_CPU_HZ;
+            self.samples.push(memory.audio_sample());
+        }
+    }
+
+    fn drain_into(&mut self, dest: &mut Vec<f32>) {
+        dest.append(&mut self.samples);
+    }
+}
+
 /// Tickable Dragon 32 machine.
 #[derive(Debug, Clone)]
 pub struct Dragon32 {
     cpu: Mc6809,
     memory: DragonMemory,
     video: BeamVideo,
+    audio: DragonAudio,
     cycles: u64,
     instructions: u64,
 }
@@ -960,6 +1030,7 @@ impl Dragon32 {
             cpu: Mc6809::new(),
             memory: DragonMemory::new_with_keyboard(rom, keyboard),
             video: BeamVideo::new(),
+            audio: DragonAudio::new(),
             cycles: 0,
             instructions: 0,
         };
@@ -1169,6 +1240,17 @@ impl Dragon32 {
         self.video.frame()
     }
 
+    /// Return the Dragon mono audio output sample rate.
+    #[must_use]
+    pub const fn audio_sample_rate(&self) -> u32 {
+        DRAGON_AUDIO_SAMPLE_RATE
+    }
+
+    /// Drain host-bound audio samples accumulated since the last call.
+    pub fn drain_audio_samples(&mut self, dest: &mut Vec<f32>) {
+        self.audio.drain_into(dest);
+    }
+
     /// Execute one bus cycle and return any observed memory/device event.
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
         self.video.tick(&self.memory);
@@ -1181,6 +1263,7 @@ impl Dragon32 {
             self.memory.write(self.cpu.addr, self.cpu.data)
         };
         self.cpu.tick();
+        self.audio.tick(&self.memory);
         self.cycles = self.cycles.saturating_add(1);
         event
     }
@@ -1591,6 +1674,30 @@ mod tests {
         }
         let (high_value, _) = memory.read_bus(0xFF20);
         assert_eq!(high_value & 0x01, 1);
+    }
+
+    #[test]
+    fn audio_samples_follow_pia1_dac_when_mux_selects_dac() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine.memory.pia1.write(0x00, 0xFC); // PIA1 PA2-PA7 drive the DAC.
+        machine.memory.pia1.write(0x01, 0x04); // PIA1 port A data selected.
+        machine.memory.pia1.write(0x03, 0x3C); // PIA1 CB2 high: enable sound mux.
+
+        machine.memory.pia1.write(0x00, 0x00);
+        let _ = machine.run_cycles(128, 0);
+        let mut low_samples = Vec::new();
+        machine.drain_audio_samples(&mut low_samples);
+
+        machine.memory.pia1.write(0x00, 0xFC);
+        let _ = machine.run_cycles(128, 0);
+        let mut high_samples = Vec::new();
+        machine.drain_audio_samples(&mut high_samples);
+
+        assert!(!low_samples.is_empty());
+        assert!(!high_samples.is_empty());
+        assert!(low_samples.iter().all(|sample| *sample < 0.0));
+        assert!(high_samples.iter().all(|sample| *sample > 0.0));
     }
 
     #[test]

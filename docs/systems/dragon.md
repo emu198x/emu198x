@@ -9,8 +9,8 @@ BASIC and machine-code tapes, opens a native `wgpu` verifier window, and has
 native CAS autoload plus patched-XRoar screenshot comparison coverage for
 cassette smoke runs.
 
-Dragon 64, CoCo variants, audio, analogue joystick hardware, cartridges, and
-DragonDOS disk support are still future work.
+Dragon 64, CoCo variants, analogue joystick hardware, cartridges, and DragonDOS
+disk support are still future work.
 
 ## What Works
 
@@ -34,14 +34,18 @@ DragonDOS disk support are still future work.
   scanline, and byte-position renderers, and `machine-dragon-32` maintains a
   persistent beam-updated framebuffer that samples display memory and PIA1
   VDG-control pins as emulated time advances.
+- **Audio:** `machine-dragon-32` now derives 48 kHz mono audio from the Dragon
+  PIA sound wiring: PIA1 PA2-PA7 DAC level, PIA0 CA2/CB2 mux source, PIA1 CB2
+  mux enable, PIA1 PB1 single-bit sound, and cassette input when the mux selects
+  tape. Cartridge/AY sources are silent until those expansions exist.
 - **Runtime:** `runtime-dragon` implements the shared `MachineCore` boundary,
-  builds from profile-declared Dragon 32 BASIC firmware, emits RGBA8888 frames,
-  exposes boot/video/PIA/SAM/tape queries, and mounts CAS media in slot
-  `tape-1`.
+  builds from profile-declared Dragon 32 BASIC firmware, emits RGBA8888 frames
+  and mono audio packets, exposes boot/video/PIA/SAM/tape queries, and mounts
+  CAS media in slot `tape-1`.
 - **Native shell:** `emu198x-dragon` opens a native window, presents the Dragon
   framebuffer through the shared `wgpu` presenter with `raw`/`lcd`/`crt`
-  filters, accepts `--rom`, accepts `--tape`, supports `--autoload`, and maps
-  keyboard/gamepad input into Dragon key events.
+  filters, emits live host audio, accepts `--rom`, accepts `--tape`, supports
+  `--autoload`, and maps keyboard/gamepad input into Dragon key events.
 - **CAS format/media/playback:** `format-dragon-cas` parses framed Dragon CAS
   blocks, exposes checksum validity, and decodes the standard 15-byte namefile
   header. Runtime playback converts CAS blocks into motor-gated cassette input
@@ -96,8 +100,9 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 ## Current Gaps
 
-1. Audio is not implemented. The next useful hardware chunk is PIA/SAM sound
-   routing, DAC output, cassette audio, and host audio emission.
+1. Audio now follows the Dragon PIA DAC/mux/single-bit/cassette signal path, but
+   it is still an uncalibrated first pass. It does not yet model exact analogue
+   output levels, filtering, cartridge audio, or AY expansion audio.
 2. Analogue joystick hardware is not implemented. Gamepad input currently maps
    to keyboard-style controls in the native shell, not to Dragon joystick
    comparator/DAC behavior.
@@ -109,8 +114,8 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 ## Near-Term Plan
 
-1. Implement Dragon audio through the real PIA/SAM signal path rather than a
-   host-side shortcut.
+1. Validate Dragon audio levels and mux behavior against XRoar or hardware
+   captures, then add audio capture to the script harness if useful.
 2. Add analogue joystick support and host mapping once audio/media usability is
    stable.
 3. Revisit PAL geometry and external video reference captures after the current
@@ -120,12 +125,12 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 | Component | Tests |
 |-----------|-------|
-| Machine | 17: ROM mapping, device access reporting, keyboard, cassette input, SAM text base, text framebuffer, graphics rendering |
+| Machine | 18: ROM mapping, device access reporting, keyboard, cassette input, SAM text base, text framebuffer, graphics rendering, PIA DAC audio |
 | PIA | 5: DDR, control, IRQ, input pins, mixed I/O |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 13: text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
 | Harness | 16: CLI, ROM loading, keyboard labels, text dumps, smoke options, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
-| Runtime | 18: profile metadata, firmware construction, framebuffer emission, queries, boot status, CAS mounting/playback, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
+| Runtime | 19: profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
 | Native | 9: CLI, CAS tape argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping |
 | CAS format | 7: block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors |
 

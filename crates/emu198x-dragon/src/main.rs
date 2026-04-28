@@ -12,8 +12,8 @@ use emu198x_native_video::{
 use emu198x_shell::{
     ButtonInputMap, ButtonTarget, CapturedFrame, FirmwareImage, FirmwareSet, HostControl, HostIo,
     InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
-    NativeGamepadInput, NullAudioSink, NullTraceSink, ResetKind, RunResult, read_firmware_asset,
-    read_media_asset,
+    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, ResetKind, RunResult,
+    read_firmware_asset, read_media_asset,
 };
 use emu198x_shell::{HeadlessSession, SessionError};
 use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
@@ -33,6 +33,7 @@ const DRAGON_FRAME_HZ: u64 = 50;
 const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
 const INPUT_SLICES_PER_FRAME: u32 = 4;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
+const MAX_AUDIO_BUFFER_MS: u32 = 250;
 const AUTOLOAD_BOOT_FRAMES: u32 = 100;
 const AUTOLOAD_KEY_EDGE_FRAMES: u32 = 4;
 const AUTOLOAD_START_SETTLE_FRAMES: u32 = 60;
@@ -107,6 +108,9 @@ enum AppError {
     Video(#[from] VideoPresenterError),
 
     #[error(transparent)]
+    Audio(#[from] NativeAudioError),
+
+    #[error(transparent)]
     EventLoop(#[from] EventLoopError),
 
     #[error(transparent)]
@@ -121,6 +125,7 @@ enum AppError {
 
 struct DragonRunner {
     runtime: DragonRuntime,
+    audio_output: NativeAudioOutput,
     frame_capture: LatestFrameCapture,
     last_run_result: Option<RunResult>,
     native_frame_ticks: u64,
@@ -128,56 +133,10 @@ struct DragonRunner {
 
 impl DragonRunner {
     fn from_cli(cli: &Cli) -> Result<Self, AppError> {
-        if cli.autoload && cli.tape.is_none() {
-            return Err(AppError::Setup {
-                reason: "--autoload requires --tape PATH".to_owned(),
-            });
-        }
-
-        let rom = cli.rom.as_ref().ok_or_else(|| AppError::Setup {
-            reason: "provide --rom PATH".to_owned(),
-        })?;
-        let loaded = read_firmware_asset(rom).map_err(|err| AppError::Setup {
-            reason: format!("failed to load Dragon ROM {}: {err}", rom.display()),
-        })?;
-        let mut firmware = FirmwareSet::new();
-        firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
-        let runtime = DragonRuntime::from_firmware(Model::Dragon32Pal, &firmware)?;
-        let mut session = HeadlessSession::new_with_query_provider(
-            runtime,
-            DRAGON_FRAME_CYCLES,
-            DragonSessionQueryProvider,
-        );
-
-        if let Some(tape) = &cli.tape {
-            let loaded =
-                read_media_asset(tape, MediaKind::Tape).map_err(|err| AppError::Setup {
-                    reason: format!("failed to load Dragon tape {}: {err}", tape.display()),
-                })?;
-            let mut media = MediaSet::new();
-            media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
-            session.load_media(&media)?;
-            if let Some(summary) = session.machine().tape_summary() {
-                let name = summary.header_name.as_deref().unwrap_or("<no header>");
-                println!(
-                    "Loaded tape: {name}, {} CAS blocks, checksums {}",
-                    summary.blocks,
-                    if summary.checksums_valid {
-                        "valid"
-                    } else {
-                        "invalid"
-                    }
-                );
-            }
-        }
-
-        if cli.autoload {
-            autoload_tape(&mut session)?;
-        }
-
-        let runtime = session.into_machine();
+        let runtime = runtime_from_cli(cli)?;
         let mut runner = Self {
             runtime,
+            audio_output: NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)?,
             frame_capture: LatestFrameCapture::default(),
             last_run_result: None,
             native_frame_ticks: DRAGON_FRAME_CYCLES,
@@ -188,6 +147,7 @@ impl DragonRunner {
 
     fn reset(&mut self) -> Result<(), AppError> {
         self.runtime.reset(ResetKind::Hard);
+        self.audio_output.clear();
         self.last_run_result = None;
         self.frame_capture = LatestFrameCapture::default();
         self.run_frame(&[])?;
@@ -202,12 +162,11 @@ impl DragonRunner {
     fn run_ticks(&mut self, input_events: &[InputEvent], ticks: u64) -> Result<bool, AppError> {
         let previous_frame_timestamp = self.frame().map(|frame| frame.timestamp);
         let target = self.runtime.time().saturating_add(ticks);
-        let mut audio_sink = NullAudioSink;
         let mut trace_sink = NullTraceSink;
         let mut host = HostIo {
             input_events,
             frame_sink: &mut self.frame_capture,
-            audio_sink: &mut audio_sink,
+            audio_sink: &mut self.audio_output,
             trace_sink: &mut trace_sink,
         };
         self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
@@ -217,6 +176,56 @@ impl DragonRunner {
     fn frame(&self) -> Option<&CapturedFrame> {
         self.frame_capture.frame()
     }
+}
+
+fn runtime_from_cli(cli: &Cli) -> Result<DragonRuntime, AppError> {
+    if cli.autoload && cli.tape.is_none() {
+        return Err(AppError::Setup {
+            reason: "--autoload requires --tape PATH".to_owned(),
+        });
+    }
+
+    let rom = cli.rom.as_ref().ok_or_else(|| AppError::Setup {
+        reason: "provide --rom PATH".to_owned(),
+    })?;
+    let loaded = read_firmware_asset(rom).map_err(|err| AppError::Setup {
+        reason: format!("failed to load Dragon ROM {}: {err}", rom.display()),
+    })?;
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
+    let runtime = DragonRuntime::from_firmware(Model::Dragon32Pal, &firmware)?;
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        DRAGON_FRAME_CYCLES,
+        DragonSessionQueryProvider,
+    );
+
+    if let Some(tape) = &cli.tape {
+        let loaded = read_media_asset(tape, MediaKind::Tape).map_err(|err| AppError::Setup {
+            reason: format!("failed to load Dragon tape {}: {err}", tape.display()),
+        })?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
+        session.load_media(&media)?;
+        if let Some(summary) = session.machine().tape_summary() {
+            let name = summary.header_name.as_deref().unwrap_or("<no header>");
+            println!(
+                "Loaded tape: {name}, {} CAS blocks, checksums {}",
+                summary.blocks,
+                if summary.checksums_valid {
+                    "valid"
+                } else {
+                    "invalid"
+                }
+            );
+        }
+    }
+
+    if cli.autoload {
+        autoload_tape(&mut session)?;
+    }
+
+    Ok(session.into_machine())
 }
 
 struct DragonApp {
@@ -919,7 +928,7 @@ mod tests {
             return;
         };
 
-        let runner = DragonRunner::from_cli(&Cli {
+        let runtime = runtime_from_cli(&Cli {
             rom: Some(rom),
             tape: Some(tape),
             autoload: true,
@@ -929,13 +938,10 @@ mod tests {
         .expect("native Dragon autoload should run Textstar");
 
         assert!(
-            runner.runtime.machine().cassette_position_bits() > 0,
+            runtime.machine().cassette_position_bits() > 0,
             "autoload should have consumed tape data"
         );
-        assert!(
-            runner.frame().is_some(),
-            "autoloaded native runner should have a captured frame"
-        );
+        assert!(runtime.time().0 > 0, "autoload should have advanced time");
     }
 
     #[test]

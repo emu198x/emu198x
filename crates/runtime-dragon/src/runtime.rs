@@ -1,12 +1,12 @@
 //! Runtime wrapper for the Dragon 32.
 
 use emu198x_shell::{
-    CapabilitySet, FirmwareSet, FramePacket, HostIo, InputEvent, MachineCore, MachineError,
-    MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError, QueryResult,
-    ResetKind, RunResult, SessionQueryProvider, StopReason,
+    AudioPacket, CapabilitySet, FirmwareSet, FramePacket, HostIo, InputEvent, MachineCore,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError,
+    QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
 use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
-use machine_dragon_32::{Dragon32, DragonKey, MatrixKey, ROM_SIZE};
+use machine_dragon_32::{DRAGON_AUDIO_SAMPLE_RATE, Dragon32, DragonKey, MatrixKey, ROM_SIZE};
 use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
 use serde_json::json;
 
@@ -77,6 +77,7 @@ pub struct DragonRuntime {
     machine: Dragon32,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
+    audio_buffer: Vec<f32>,
     tape: Option<CasImage>,
     tape_bytes: Vec<u8>,
 }
@@ -120,6 +121,7 @@ impl DragonRuntime {
             rgba_framebuffer: Vec::with_capacity(
                 TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT * 4,
             ),
+            audio_buffer: Vec::with_capacity(DRAGON_AUDIO_SAMPLE_RATE as usize / 50),
             tape: None,
             tape_bytes: Vec::new(),
         })
@@ -137,6 +139,7 @@ impl DragonRuntime {
             rgba_framebuffer: Vec::with_capacity(
                 TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT * 4,
             ),
+            audio_buffer: Vec::with_capacity(DRAGON_AUDIO_SAMPLE_RATE as usize / 50),
             tape: None,
             tape_bytes: Vec::new(),
         }
@@ -171,6 +174,7 @@ impl DragonRuntime {
         }
         self.time = MachineTime::default();
         self.rgba_framebuffer.clear();
+        self.audio_buffer.clear();
     }
 
     fn apply_input_event(&mut self, event: &InputEvent) -> Result<(), MachineError> {
@@ -263,6 +267,8 @@ impl MachineCore for DragonRuntime {
         let report = self.machine.run_cycles(cycles_to_run, 0);
         self.time = self.time.saturating_add(report.cycles);
         self.update_framebuffer();
+        self.audio_buffer.clear();
+        self.machine.drain_audio_samples(&mut self.audio_buffer);
         host.frame_sink.push_frame(FramePacket {
             timestamp: self.time,
             format: PixelFormat::Rgba8888,
@@ -270,6 +276,12 @@ impl MachineCore for DragonRuntime {
             height: TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32,
             palette: None,
             pixels: &self.rgba_framebuffer,
+        })?;
+        host.audio_sink.push_audio(AudioPacket {
+            timestamp: self.time,
+            sample_rate: self.machine.audio_sample_rate(),
+            channels: 1,
+            samples: &self.audio_buffer,
         })?;
 
         let stop_reason = if report.stop_reason == machine_dragon_32::StopReason::CpuHalted {
@@ -439,8 +451,8 @@ impl DragonRuntime {
 #[cfg(test)]
 mod tests {
     use emu198x_shell::{
-        FirmwareImage, FirmwareSet, FramePacket, FrameSink, HostIo, MachineCore, MachineTime,
-        MediaImage, MediaKind, MediaSet, NullAudioSink, NullTraceSink, PixelFormat,
+        AudioCapture, FirmwareImage, FirmwareSet, FramePacket, FrameSink, HostIo, MachineCore,
+        MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink, NullTraceSink, PixelFormat,
     };
     use format_dragon_cas::{LEADER_BYTE, SYNC_BYTE, checksum_for};
     use motorola_vdg_6847::TEXT_ROWS;
@@ -510,6 +522,29 @@ mod tests {
             ))
         );
         assert_eq!(frame_sink.last_format, Some(PixelFormat::Rgba8888));
+    }
+
+    #[test]
+    fn runtime_emits_mono_audio() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let mut frame_sink = CaptureFrameSink::default();
+        let mut audio_sink = AudioCapture::default();
+        let mut trace_sink = NullTraceSink;
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+
+        runtime
+            .run_until(MachineTime(1_000), &mut host)
+            .expect("runtime should run");
+
+        let audio = audio_sink.audio().expect("audio should be captured");
+        assert_eq!(audio.sample_rate, DRAGON_AUDIO_SAMPLE_RATE);
+        assert_eq!(audio.channels, 1);
+        assert!(!audio.samples.is_empty());
     }
 
     #[test]
