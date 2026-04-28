@@ -11,8 +11,8 @@ use std::process::{self, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use emu198x_shell::{
-    CapturedFrame, HeadlessSession, InputEvent, MediaImage, MediaKind, MediaSet, PixelFormat,
-    read_media_asset,
+    CapturedFrame, HeadlessSession, InputEvent, MachineTime, MediaImage, MediaKind, MediaSet,
+    PixelFormat, read_media_asset,
 };
 use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
 use format_dragon_pak::{
@@ -59,6 +59,9 @@ Execution:
     --press-matrix R,C hold a raw keyboard matrix switch closed; may be repeated
     --dump-text        print the current 32x16 MC6847 text snapshot
     --dump-text-png P  write the current border-inclusive MC6847 text framebuffer as a PNG
+    --screenshot P     write the current border-inclusive MC6847 framebuffer as a PNG
+    --screenshot-format FORMAT
+                       screenshot format: diagnostic | xroar-zoomed [default: diagnostic]
     --smoke-root PATH  recursively scan .cas/.zip Dragon tape images
     --smoke-run-limit N
                        run real-ROM CLOAD/CLOADM smoke for first N parsed tapes [default: 8]
@@ -97,6 +100,8 @@ struct Cli {
     pressed_keys: Vec<MatrixKey>,
     dump_text: bool,
     dump_text_png: Option<PathBuf>,
+    screenshot: Option<PathBuf>,
+    screenshot_format: SmokeScreenshotFormat,
     smoke_root: Option<PathBuf>,
     smoke_run_limit: usize,
     smoke_report: Option<PathBuf>,
@@ -130,6 +135,7 @@ struct HarnessReport {
     text_screen_base: u16,
     text_screen: Option<String>,
     text_framebuffer: Option<Vec<u32>>,
+    framebuffer: Option<Vec<u32>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -379,6 +385,7 @@ fn run_main() -> Result<(), String> {
             trace_limit: cli.trace_limit,
             dump_text: cli.dump_text,
             dump_text_framebuffer: cli.dump_text_png.is_some(),
+            capture_framebuffer: cli.screenshot.is_some(),
         },
     );
     print_report(&report);
@@ -389,6 +396,14 @@ fn run_main() -> Result<(), String> {
             .ok_or_else(|| "text framebuffer was not captured".to_owned())?;
         write_text_png(path, framebuffer)?;
         println!("text png: {}", path.display());
+    }
+    if let Some(path) = &cli.screenshot {
+        let framebuffer = report
+            .framebuffer
+            .as_deref()
+            .ok_or_else(|| "framebuffer was not captured".to_owned())?;
+        write_screenshot_png(path, framebuffer, cli.screenshot_format, report.cycles)?;
+        println!("screenshot: {}", path.display());
     }
     Ok(())
 }
@@ -405,6 +420,8 @@ where
     let mut pressed_keys = Vec::new();
     let mut dump_text = false;
     let mut dump_text_png = None;
+    let mut screenshot = None;
+    let mut screenshot_format = SmokeScreenshotFormat::Diagnostic;
     let mut smoke_root = None;
     let mut smoke_run_limit = DEFAULT_SMOKE_RUN_LIMIT;
     let mut smoke_report = None;
@@ -451,6 +468,15 @@ where
             "--dump-text-png" => {
                 dump_text_png = Some(PathBuf::from(next_value(&mut iter, "--dump-text-png")?));
             }
+            "--screenshot" => {
+                screenshot = Some(PathBuf::from(next_value(&mut iter, "--screenshot")?));
+            }
+            "--screenshot-format" => {
+                screenshot_format = parse_screenshot_format(
+                    &next_value(&mut iter, "--screenshot-format")?,
+                    "--screenshot-format",
+                )?;
+            }
             "--smoke-root" => {
                 smoke_root = Some(PathBuf::from(next_value(&mut iter, "--smoke-root")?));
             }
@@ -470,10 +496,10 @@ where
                 )?));
             }
             "--smoke-screenshot-format" => {
-                smoke_screenshot_format = parse_smoke_screenshot_format(&next_value(
-                    &mut iter,
+                smoke_screenshot_format = parse_screenshot_format(
+                    &next_value(&mut iter, "--smoke-screenshot-format")?,
                     "--smoke-screenshot-format",
-                )?)?;
+                )?;
             }
             "--smoke-audio-dir" => {
                 smoke_audio_dir = Some(PathBuf::from(next_value(&mut iter, "--smoke-audio-dir")?));
@@ -531,6 +557,8 @@ where
         pressed_keys,
         dump_text,
         dump_text_png,
+        screenshot,
+        screenshot_format,
         smoke_root,
         smoke_run_limit,
         smoke_report,
@@ -595,12 +623,12 @@ fn parse_f32(value: &str, flag: &str) -> Result<f32, String> {
     Ok(parsed)
 }
 
-fn parse_smoke_screenshot_format(value: &str) -> Result<SmokeScreenshotFormat, String> {
+fn parse_screenshot_format(value: &str, flag: &str) -> Result<SmokeScreenshotFormat, String> {
     match value {
         "diagnostic" => Ok(SmokeScreenshotFormat::Diagnostic),
         "xroar-zoomed" => Ok(SmokeScreenshotFormat::XroarZoomed),
         _ => Err(format!(
-            "invalid --smoke-screenshot-format value {value}; expected diagnostic or xroar-zoomed"
+            "invalid {flag} value {value}; expected diagnostic or xroar-zoomed"
         )),
     }
 }
@@ -2067,6 +2095,7 @@ struct HarnessRunOptions<'a> {
     trace_limit: usize,
     dump_text: bool,
     dump_text_framebuffer: bool,
+    capture_framebuffer: bool,
 }
 
 fn run_harness_with_keyboard(
@@ -2113,8 +2142,11 @@ fn run_harness_with_keyboard(
     let text_framebuffer = options
         .dump_text_framebuffer
         .then(|| machine.render_visible_text_argb(TextPalette::default()));
+    let framebuffer = options
+        .capture_framebuffer
+        .then(|| machine.beam_visible_argb().to_vec());
 
-    report.into_harness_report(text_screen_text, text_framebuffer)
+    report.into_harness_report(text_screen_text, text_framebuffer, framebuffer)
 }
 
 trait IntoHarnessReport {
@@ -2122,6 +2154,7 @@ trait IntoHarnessReport {
         self,
         text_screen: Option<String>,
         text_framebuffer: Option<Vec<u32>>,
+        framebuffer: Option<Vec<u32>>,
     ) -> HarnessReport;
 }
 
@@ -2130,6 +2163,7 @@ impl IntoHarnessReport for RunReport {
         self,
         text_screen: Option<String>,
         text_framebuffer: Option<Vec<u32>>,
+        framebuffer: Option<Vec<u32>>,
     ) -> HarnessReport {
         HarnessReport {
             stop_reason: self.stop_reason,
@@ -2148,6 +2182,7 @@ impl IntoHarnessReport for RunReport {
             text_screen_base: self.text_screen_base,
             text_screen,
             text_framebuffer,
+            framebuffer,
         }
     }
 }
@@ -2219,6 +2254,14 @@ fn print_report(report: &HarnessReport) {
             TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, foreground_pixels
         );
     }
+    if let Some(framebuffer) = &report.framebuffer {
+        println!(
+            "framebuffer: {}x{} pixels={}",
+            TEXT_VISIBLE_FRAMEBUFFER_WIDTH,
+            TEXT_VISIBLE_FRAMEBUFFER_HEIGHT,
+            framebuffer.len()
+        );
+    }
     println!("trace:");
     for fetch in &report.trace {
         println!(
@@ -2265,6 +2308,53 @@ fn write_text_png(path: &Path, framebuffer: &[u32]) -> Result<(), String> {
         .finish()
         .map_err(|err| format!("failed to finish PNG {}: {err}", path.display()))?;
     Ok(())
+}
+
+fn write_screenshot_png(
+    path: &Path,
+    framebuffer: &[u32],
+    format: SmokeScreenshotFormat,
+    cycles: u64,
+) -> Result<(), String> {
+    let rgba = argb_to_rgba(framebuffer)?;
+    let png = match format {
+        SmokeScreenshotFormat::Diagnostic => encode_rgba_png(
+            TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
+            TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32,
+            &rgba,
+        )?,
+        SmokeScreenshotFormat::XroarZoomed => {
+            let frame = CapturedFrame {
+                timestamp: MachineTime::new(cycles),
+                format: PixelFormat::Rgba8888,
+                width: TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
+                height: TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32,
+                palette: None,
+                pixels: rgba,
+            };
+            xroar_zoomed_png_bytes(&frame)?
+        }
+    };
+    fs::write(path, png).map_err(|err| format!("failed to write {}: {err}", path.display()))
+}
+
+fn argb_to_rgba(framebuffer: &[u32]) -> Result<Vec<u8>, String> {
+    if framebuffer.len() != TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT {
+        return Err(format!(
+            "framebuffer has {} pixels; expected {}",
+            framebuffer.len(),
+            TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT
+        ));
+    }
+
+    let mut rgba = Vec::with_capacity(framebuffer.len() * 4);
+    for &argb in framebuffer {
+        rgba.push(((argb >> 16) & 0xFF) as u8);
+        rgba.push(((argb >> 8) & 0xFF) as u8);
+        rgba.push((argb & 0xFF) as u8);
+        rgba.push(((argb >> 24) & 0xFF) as u8);
+    }
+    Ok(rgba)
 }
 
 fn format_stop_reason(reason: StopReason) -> String {
@@ -2324,6 +2414,7 @@ mod tests {
                 trace_limit: 8,
                 dump_text: true,
                 dump_text_framebuffer: true,
+                capture_framebuffer: true,
             },
         );
 
@@ -2343,6 +2434,14 @@ mod tests {
                 .text_framebuffer
                 .as_ref()
                 .expect("text framebuffer should be captured")
+                .len(),
+            TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT
+        );
+        assert_eq!(
+            report
+                .framebuffer
+                .as_ref()
+                .expect("framebuffer should be captured")
                 .len(),
             TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT
         );
@@ -2399,6 +2498,22 @@ mod tests {
         .expect("valid CLI should parse");
 
         assert_eq!(cli.snapshot, Some(PathBuf::from("game.pak")));
+    }
+
+    #[test]
+    fn cli_parses_direct_screenshot_options() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--screenshot".to_owned(),
+            "screen.png".to_owned(),
+            "--screenshot-format".to_owned(),
+            "xroar-zoomed".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.screenshot, Some(PathBuf::from("screen.png")));
+        assert_eq!(cli.screenshot_format, SmokeScreenshotFormat::XroarZoomed);
     }
 
     #[test]
