@@ -33,6 +33,7 @@ Environment:
     EMU198X_DRAGON32_ROM         Dragon 32 BASIC ROM or zip archive
     EMU198X_DRAGON_TEXTSTAR_CAS  Dragon Textstar CAS or zip archive
     EMU198X_DRAGON_CLOADM_CAS    Dragon machine-code CAS or zip archive
+    EMU198X_DRAGON_AUDIO_CAS     Dragon CAS expected to produce non-silent audio
     EMU198X_XROAR_BIN            patched XRoar binary for optional Dragon reference
 
 Missing local ROM/media assets are reported as skipped, not failed.
@@ -156,6 +157,59 @@ first_existing_file() {
         fi
     done
     return 1
+}
+
+run_dragon_audio_smoke() {
+    local rom="$1"
+    local cas="$2"
+    local smoke_report="$3"
+    local artifact_root="$4"
+    local audio_dir
+    local screen_dir
+
+    mkdir -p "${artifact_root}"
+    audio_dir="$(mktemp -d "${artifact_root}/dragon-backgammon-audio.XXXXXX")"
+    screen_dir="$(mktemp -d "${artifact_root}/dragon-backgammon-screens.XXXXXX")"
+    cargo run -q -p emu198x-script-dragon -- \
+        --rom "${rom}" \
+        --smoke-root "${cas}" \
+        --smoke-run-limit 1 \
+        --smoke-report "${smoke_report}" \
+        --smoke-audio-dir "${audio_dir}" \
+        --smoke-screenshot-dir "${screen_dir}" \
+        --smoke-screenshot-format xroar-zoomed
+
+    python3 - "${smoke_report}" <<'PY'
+import json
+import struct
+import sys
+import wave
+
+report_path = sys.argv[1]
+with open(report_path, "r", encoding="utf-8") as handle:
+    report = json.load(handle)
+
+try:
+    runtime = report["rows"][0]["runtime"]
+    wav_path = runtime["start_audio"]
+except (KeyError, IndexError, TypeError) as exc:
+    raise SystemExit(f"missing runtime start_audio in {report_path}: {exc}") from exc
+
+with wave.open(wav_path, "rb") as wav:
+    if wav.getnchannels() != 1 or wav.getframerate() != 48_000:
+        raise SystemExit(
+            f"unexpected WAV format in {wav_path}: {wav.getnchannels()} ch {wav.getframerate()} Hz"
+        )
+    data = wav.readframes(wav.getnframes())
+
+samples = struct.unpack("<" + "h" * (len(data) // 2), data) if data else ()
+nonzero = sum(1 for sample in samples if sample != 0)
+peak = max((abs(sample) for sample in samples), default=0)
+if nonzero == 0 or peak == 0:
+    raise SystemExit(f"silent Dragon audio capture: {wav_path}")
+
+print(f"non-silent Dragon audio: {wav_path} nonzero={nonzero} peak={peak}")
+PY
 }
 
 write_boot_script() {
@@ -305,6 +359,13 @@ if [[ "${mode}" != "unit" ]]; then
             || true)"
     fi
 
+    dragon_audio_cas="${EMU198X_DRAGON_AUDIO_CAS:-}"
+    if [[ -z "${dragon_audio_cas}" ]]; then
+        dragon_audio_cas="$(first_existing_file \
+            "${reference_root}/dragon/Dragon/Games/[CAS]/Backgammon (1983)(Oasis).zip" \
+            || true)"
+    fi
+
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" ]]; then
         run_step "dragon-real-rom-runtime" \
             env EMU198X_DRAGON32_ROM="${dragon_rom}" \
@@ -342,6 +403,17 @@ if [[ "${mode}" != "unit" ]]; then
                 --smoke-screenshot-format xroar-zoomed
     else
         skip_step "dragon-cloadm-exec" "missing Dragon ROM or machine-code CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_CLOADM_CAS"
+    fi
+
+    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_audio_cas}" && -f "${dragon_audio_cas}" ]]; then
+        run_step "dragon-backgammon-audio" \
+            run_dragon_audio_smoke \
+                "${dragon_rom}" \
+                "${dragon_audio_cas}" \
+                "${out_dir}/dragon-backgammon-audio-smoke.json" \
+                "${out_dir}"
+    else
+        skip_step "dragon-backgammon-audio" "missing Dragon ROM or audio CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_AUDIO_CAS"
     fi
 
     xroar_bin="${EMU198X_XROAR_BIN:-}"
