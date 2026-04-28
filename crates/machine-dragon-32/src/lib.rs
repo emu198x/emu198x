@@ -1056,6 +1056,7 @@ impl DragonMemory {
         self.pia0.write(0x02, 0xff);
         self.pia0.write(0x03, peripherals.ff03);
         self.pia0.write(0x02, peripherals.ff02);
+        self.pia0.restore_control(PiaPort::B, peripherals.ff03);
 
         self.pia1.write(0x03, 0x00);
         self.pia1.write(0x02, 0xff);
@@ -1068,7 +1069,7 @@ impl DragonMemory {
         if let Some(cartridge) = &mut self.cartridge
             && cartridge.should_signal_autorun(cycles)
         {
-            self.pia1.set_signal(PiaSignal::Cb1);
+            self.pia1.strobe_signal(PiaSignal::Cb1);
         }
     }
 
@@ -1173,6 +1174,8 @@ struct BeamVideo {
     next_line: usize,
     line_border_rendered: bool,
     next_byte: usize,
+    hsync_level: bool,
+    fsync_level: bool,
 }
 
 impl BeamVideo {
@@ -1183,6 +1186,8 @@ impl BeamVideo {
             next_line: 0,
             line_border_rendered: false,
             next_byte: 0,
+            hsync_level: false,
+            fsync_level: false,
         }
     }
 
@@ -1191,6 +1196,17 @@ impl BeamVideo {
     }
 
     fn tick(&mut self, memory: &DragonMemory) -> BeamVideoTick {
+        let mut tick = BeamVideoTick::default();
+        if self.hsync_level {
+            self.hsync_level = false;
+            tick.hsync = Some(false);
+        }
+        if self.fsync_level {
+            self.fsync_level = false;
+            tick.frame_sync = Some(false);
+        }
+
+        let previous = self.cycle_in_frame;
         let target = self.cycle_in_frame.saturating_add(1);
         self.render_until(memory, target);
         self.cycle_in_frame = target;
@@ -1200,9 +1216,18 @@ impl BeamVideo {
             self.next_line = 0;
             self.line_border_rendered = false;
             self.next_byte = 0;
-            return BeamVideoTick { frame_sync: true };
+            self.fsync_level = true;
+            tick.frame_sync = Some(true);
+            return tick;
         }
-        BeamVideoTick { frame_sync: false }
+
+        let previous_line = video_line_for_cycle(previous);
+        let current_line = video_line_for_cycle(self.cycle_in_frame);
+        if current_line != previous_line {
+            self.hsync_level = true;
+            tick.hsync = Some(true);
+        }
+        tick
     }
 
     fn render_until(&mut self, memory: &DragonMemory, target_cycle: u64) {
@@ -1263,11 +1288,23 @@ impl BeamVideo {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct BeamVideoTick {
-    frame_sync: bool,
+    hsync: Option<bool>,
+    frame_sync: Option<bool>,
 }
 
 fn line_start_cycle(line: usize) -> u64 {
     DRAGON_FRAME_CYCLES.saturating_mul(line as u64) / TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64
+}
+
+fn video_line_for_cycle(cycle: u64) -> usize {
+    let line = cycle
+        .saturating_add(1)
+        .saturating_mul(TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64)
+        .div_ceil(DRAGON_FRAME_CYCLES)
+        .saturating_sub(1);
+    usize::try_from(line).map_or(TEXT_VISIBLE_FRAMEBUFFER_HEIGHT - 1, |line| {
+        line.min(TEXT_VISIBLE_FRAMEBUFFER_HEIGHT - 1)
+    })
 }
 
 fn line_end_cycle(line: usize) -> u64 {
@@ -1729,8 +1766,11 @@ impl Dragon32 {
     /// Execute one bus cycle and return any observed memory/device event.
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
         let video_tick = self.video.tick(&self.memory);
-        if video_tick.frame_sync {
-            self.memory.pia0.set_signal(PiaSignal::Cb1);
+        if let Some(level) = video_tick.hsync {
+            self.memory.pia0.set_signal_level(PiaSignal::Ca1, level);
+        }
+        if let Some(level) = video_tick.frame_sync {
+            self.memory.pia0.set_signal_level(PiaSignal::Cb1, level);
         }
         self.memory.advance_cassette();
         self.memory.tick_cartridge_autorun(self.cycles);
@@ -2122,7 +2162,7 @@ mod tests {
         let rom = rom_with_reset_vector(0x8000);
         let mut machine = Dragon32::new(&rom);
 
-        machine.memory.pia0.write(0x03, 0x05); // PIA0 CB1 IRQ enabled, port B data selected.
+        machine.memory.pia0.write(0x03, 0x07); // PIA0 CB1 rising-edge IRQ enabled.
         machine.video.cycle_in_frame = DRAGON_FRAME_CYCLES - 1;
         machine.video.next_line = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
 
@@ -2132,6 +2172,23 @@ mod tests {
         assert!(machine.memory.pia0.irq_b());
         assert_eq!(machine.memory.pia0.read(0x02), 0xff);
         assert_eq!(machine.memory.pia0.control(PiaPort::B) & 0x80, 0);
+    }
+
+    #[test]
+    fn visible_line_wrap_raises_pia0_ca1_hsync() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        machine.memory.pia0.write(0x01, 0x07); // PIA0 CA1 rising-edge IRQ enabled.
+        machine.video.cycle_in_frame = line_start_cycle(1) - 1;
+        machine.video.next_line = 1;
+
+        machine.step_cycle();
+
+        assert_eq!(machine.memory.pia0.control(PiaPort::A) & 0x80, 0x80);
+        assert!(machine.memory.pia0.irq_a());
+        assert_eq!(machine.memory.pia0.read(0x00), 0xff);
+        assert_eq!(machine.memory.pia0.control(PiaPort::A) & 0x80, 0);
     }
 
     #[test]

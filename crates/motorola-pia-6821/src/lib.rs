@@ -8,8 +8,11 @@ use serde::{Deserialize, Serialize};
 const CTRL_IRQ1: u8 = 0x80;
 const CTRL_IRQ2: u8 = 0x40;
 const CTRL_C2_DDR: u8 = 0x20;
+const CTRL_C2_ACTIVE_HIGH: u8 = 0x10;
 const CTRL_C2_MODE: u8 = 0x18;
 const CTRL_REG_SELECT: u8 = 0x04;
+const CTRL_C1_ACTIVE_HIGH: u8 = 0x02;
+const CTRL_IRQ1_ENABLE: u8 = 0x01;
 
 const C2_RESET: u8 = 0x10;
 const C2_SET: u8 = 0x18;
@@ -58,6 +61,8 @@ pub struct Pia6821 {
     data_b: u8,
     ddr_a: u8,
     ddr_b: u8,
+    ca1: bool,
+    cb1: bool,
     ca2_strobe_e: bool,
     cb2_strobe_e: bool,
 }
@@ -79,6 +84,8 @@ impl Pia6821 {
             data_b: 0,
             ddr_a: 0,
             ddr_b: 0,
+            ca1: false,
+            cb1: false,
             ca2_strobe_e: false,
             cb2_strobe_e: false,
         };
@@ -137,6 +144,23 @@ impl Pia6821 {
         }
     }
 
+    /// Restore a serialized control register, including pending IRQ flags.
+    ///
+    /// Normal CPU writes cannot directly set bits 6-7; snapshot loaders need
+    /// this path to preserve captured edge flags.
+    pub fn restore_control(&mut self, port: PiaPort, value: u8) {
+        match port {
+            PiaPort::A => {
+                self.ctrl_a = value;
+                self.update_c2(PiaPort::A, value);
+            }
+            PiaPort::B => {
+                self.ctrl_b = value;
+                self.update_c2(PiaPort::B, value);
+            }
+        }
+    }
+
     /// Set external input bits for a port.
     pub fn set_input(&mut self, port: PiaPort, value: u8) {
         match port {
@@ -173,7 +197,31 @@ impl Pia6821 {
         }
     }
 
-    /// Raise one of the edge-sensitive control-line interrupt flags.
+    /// Drive one of the edge-sensitive control lines to a new external level.
+    ///
+    /// Cx1 active-edge polarity is selected by control bit 1. Cx2 input
+    /// active-edge polarity is selected by control bit 4 and only applies
+    /// while Cx2 is configured as an input.
+    pub fn set_signal_level(&mut self, signal: PiaSignal, level: bool) {
+        match signal {
+            PiaSignal::Ca1 => self.set_c1_level(PiaPort::A, level),
+            PiaSignal::Cb1 => self.set_c1_level(PiaPort::B, level),
+            PiaSignal::Ca2 => self.set_c2_level(PiaPort::A, level),
+            PiaSignal::Cb2 => self.set_c2_level(PiaPort::B, level),
+        }
+    }
+
+    /// Strobe one control line through its currently configured active edge.
+    pub fn strobe_signal(&mut self, signal: PiaSignal) {
+        let active_level = self.active_signal_level(signal);
+        self.set_signal_level(signal, !active_level);
+        self.set_signal_level(signal, active_level);
+    }
+
+    /// Directly latch one interrupt flag.
+    ///
+    /// Prefer [`Self::set_signal_level`] for hardware lines. This helper is
+    /// retained for callers that model an already-detected edge.
     pub fn set_signal(&mut self, signal: PiaSignal) {
         match signal {
             PiaSignal::Ca1 => self.ctrl_a |= CTRL_IRQ1,
@@ -249,11 +297,11 @@ impl Pia6821 {
     fn write_control(&mut self, port: PiaPort, value: u8) {
         match port {
             PiaPort::A => {
-                self.ctrl_a = value;
+                self.ctrl_a = control_after_write(self.ctrl_a, value);
                 self.update_c2(PiaPort::A, value);
             }
             PiaPort::B => {
-                self.ctrl_b = value;
+                self.ctrl_b = control_after_write(self.ctrl_b, value);
                 self.update_c2(PiaPort::B, value);
             }
         }
@@ -292,6 +340,73 @@ impl Pia6821 {
                 self.cb2 = value;
                 self.cb2_strobe_e = false;
             }
+        }
+    }
+
+    fn set_c1_level(&mut self, port: PiaPort, level: bool) {
+        let previous = match port {
+            PiaPort::A => &mut self.ca1,
+            PiaPort::B => &mut self.cb1,
+        };
+        if *previous == level {
+            return;
+        }
+        *previous = level;
+
+        let control = self.control(port);
+        if c1_active_level(control) == level {
+            self.latch_irq1(port);
+        }
+    }
+
+    fn set_c2_level(&mut self, port: PiaPort, level: bool) {
+        if self.control(port) & CTRL_C2_DDR != 0 {
+            self.clear_irq2(port);
+            return;
+        }
+
+        let previous = match port {
+            PiaPort::A => &mut self.ca2,
+            PiaPort::B => &mut self.cb2,
+        };
+        if *previous == level {
+            return;
+        }
+        *previous = level;
+
+        let control = self.control(port);
+        if c2_active_level(control) == level {
+            self.latch_irq2(port);
+        }
+    }
+
+    fn latch_irq1(&mut self, port: PiaPort) {
+        match port {
+            PiaPort::A => self.ctrl_a |= CTRL_IRQ1,
+            PiaPort::B => self.ctrl_b |= CTRL_IRQ1,
+        }
+    }
+
+    fn latch_irq2(&mut self, port: PiaPort) {
+        match port {
+            PiaPort::A => self.ctrl_a |= CTRL_IRQ2,
+            PiaPort::B => self.ctrl_b |= CTRL_IRQ2,
+        }
+    }
+
+    fn clear_irq2(&mut self, port: PiaPort) {
+        match port {
+            PiaPort::A => self.ctrl_a &= !CTRL_IRQ2,
+            PiaPort::B => self.ctrl_b &= !CTRL_IRQ2,
+        }
+    }
+
+    fn active_signal_level(&self, signal: PiaSignal) -> bool {
+        match signal {
+            PiaSignal::Ca1 => c1_active_level(self.ctrl_a),
+            PiaSignal::Cb1 => c1_active_level(self.ctrl_b),
+            PiaSignal::Ca2 => c2_active_level(self.ctrl_a),
+            PiaSignal::Cb2 => c2_active_level(self.ctrl_b),
         }
     }
 
@@ -335,11 +450,27 @@ fn decode_register(addr: u8) -> Register {
 }
 
 fn irq_active(control: u8) -> bool {
-    let ca1_enabled = control & 0x01 != 0;
-    let ca2_enabled = control & 0x08 != 0;
+    let ca1_enabled = control & CTRL_IRQ1_ENABLE != 0;
+    let ca2_enabled = control & 0x28 == 0x08;
     let ca1_active = control & CTRL_IRQ1 != 0;
     let ca2_active = control & CTRL_IRQ2 != 0;
     (ca1_enabled && ca1_active) || (ca2_enabled && ca2_active)
+}
+
+fn control_after_write(previous: u8, value: u8) -> u8 {
+    let mut flags = previous & (CTRL_IRQ1 | CTRL_IRQ2);
+    if value & CTRL_C2_DDR != 0 {
+        flags &= !CTRL_IRQ2;
+    }
+    (value & 0x3f) | flags
+}
+
+fn c1_active_level(control: u8) -> bool {
+    control & CTRL_C1_ACTIVE_HIGH != 0
+}
+
+fn c2_active_level(control: u8) -> bool {
+    control & CTRL_C2_ACTIVE_HIGH != 0
 }
 
 #[cfg(test)]
@@ -387,13 +518,70 @@ mod tests {
     #[test]
     fn reading_data_port_clears_irq_flags() {
         let mut pia = Pia6821::new();
-        pia.write(1, 0x05);
-        pia.set_signal(PiaSignal::Ca1);
-        pia.set_signal(PiaSignal::Ca2);
+        pia.write(1, 0x1f);
+        pia.set_signal_level(PiaSignal::Ca1, true);
+        pia.set_signal_level(PiaSignal::Ca2, true);
 
         assert_eq!(pia.control(PiaPort::A) & 0xC0, 0xC0);
         assert_eq!(pia.read(0), 0xFF);
         assert_eq!(pia.control(PiaPort::A) & 0xC0, 0);
+    }
+
+    #[test]
+    fn c1_input_latches_only_the_configured_edge() {
+        let mut pia = Pia6821::new();
+
+        pia.write(1, 0x05); // CA1 falling-edge IRQ enabled, port A data selected.
+        pia.set_signal_level(PiaSignal::Ca1, true);
+        assert_eq!(pia.control(PiaPort::A) & CTRL_IRQ1, 0);
+        pia.set_signal_level(PiaSignal::Ca1, false);
+        assert_eq!(pia.control(PiaPort::A) & CTRL_IRQ1, CTRL_IRQ1);
+
+        assert_eq!(pia.read(0), 0xff);
+        pia.write(1, 0x07); // CA1 rising-edge IRQ enabled.
+        pia.set_signal_level(PiaSignal::Ca1, false);
+        assert_eq!(pia.control(PiaPort::A) & CTRL_IRQ1, 0);
+        pia.set_signal_level(PiaSignal::Ca1, true);
+        assert_eq!(pia.control(PiaPort::A) & CTRL_IRQ1, CTRL_IRQ1);
+    }
+
+    #[test]
+    fn control_write_preserves_pending_c1_flag() {
+        let mut pia = Pia6821::new();
+
+        pia.write(1, 0x06); // CA1 rising-edge, IRQ disabled, port A data selected.
+        pia.set_signal_level(PiaSignal::Ca1, true);
+        assert_eq!(pia.control(PiaPort::A) & CTRL_IRQ1, CTRL_IRQ1);
+        assert!(!pia.irq_a());
+
+        pia.write(1, 0x07); // Enable CA1 IRQ after the edge was received.
+
+        assert_eq!(pia.control(PiaPort::A) & CTRL_IRQ1, CTRL_IRQ1);
+        assert!(pia.irq_a());
+    }
+
+    #[test]
+    fn restore_control_keeps_serialized_irq_flags() {
+        let mut pia = Pia6821::new();
+
+        pia.restore_control(PiaPort::B, 0xb5);
+
+        assert_eq!(pia.control(PiaPort::B), 0xb5);
+        assert!(pia.irq_b());
+    }
+
+    #[test]
+    fn c2_output_mode_clears_pending_c2_flag() {
+        let mut pia = Pia6821::new();
+
+        pia.write(1, 0x1c); // CA2 rising-edge IRQ enabled, port A data selected.
+        pia.set_signal_level(PiaSignal::Ca2, true);
+        assert_eq!(pia.control(PiaPort::A) & CTRL_IRQ2, CTRL_IRQ2);
+
+        pia.write(1, 0x3c); // Configure CA2 as output.
+
+        assert_eq!(pia.control(PiaPort::A) & CTRL_IRQ2, 0);
+        assert!(!pia.irq_a());
     }
 
     #[test]
