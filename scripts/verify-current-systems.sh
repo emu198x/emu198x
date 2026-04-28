@@ -34,6 +34,7 @@ Environment:
     EMU198X_DRAGON_TEXTSTAR_CAS  Dragon Textstar CAS or zip archive
     EMU198X_DRAGON_CLOADM_CAS    Dragon machine-code CAS or zip archive
     EMU198X_DRAGON_AUDIO_CAS     Dragon CAS expected to produce non-silent audio
+    EMU198X_DRAGON_JOYSTICK_CAS  Dragon CAS used for scripted joystick smoke
     EMU198X_XROAR_BIN            patched XRoar binary for optional Dragon reference
 
 Missing local ROM/media assets are reported as skipped, not failed.
@@ -366,6 +367,13 @@ if [[ "${mode}" != "unit" ]]; then
             || true)"
     fi
 
+    dragon_joystick_cas="${EMU198X_DRAGON_JOYSTICK_CAS:-}"
+    if [[ -z "${dragon_joystick_cas}" ]]; then
+        dragon_joystick_cas="$(first_existing_file \
+            "${reference_root}/dragon/Dragon/Applications/[CAS]/Joystick Test (198x)(-).zip" \
+            || true)"
+    fi
+
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" ]]; then
         run_step "dragon-real-rom-runtime" \
             env EMU198X_DRAGON32_ROM="${dragon_rom}" \
@@ -414,6 +422,23 @@ if [[ "${mode}" != "unit" ]]; then
                 "${out_dir}"
     else
         skip_step "dragon-backgammon-audio" "missing Dragon ROM or audio CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_AUDIO_CAS"
+    fi
+
+    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_joystick_cas}" && -f "${dragon_joystick_cas}" ]]; then
+        run_step_expect_file "dragon-joystick-scripted-input" \
+            "${out_dir}/dragon-joystick-smoke.json" \
+            '"joystick_visible_change": true' \
+            cargo run -q -p emu198x-script-dragon -- \
+                --rom "${dragon_rom}" \
+                --smoke-root "${dragon_joystick_cas}" \
+                --smoke-run-limit 1 \
+                --smoke-report "${out_dir}/dragon-joystick-smoke.json" \
+                --smoke-screenshot-dir "${out_dir}/dragon-joystick-screens" \
+                --smoke-screenshot-format xroar-zoomed \
+                --smoke-joystick 2,fire,300 \
+                --smoke-joystick 2,right,300
+    else
+        skip_step "dragon-joystick-scripted-input" "missing Dragon ROM or joystick CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_JOYSTICK_CAS"
     fi
 
     xroar_bin="${EMU198X_XROAR_BIN:-}"

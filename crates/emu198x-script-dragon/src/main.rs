@@ -63,6 +63,9 @@ Execution:
                        screenshot format: diagnostic | xroar-zoomed [default: diagnostic]
     --smoke-audio-dir PATH
                        write load/start WAV audio captures for runtime-smoked tapes
+    --smoke-joystick PORT,CONTROL,FRAMES
+                       after start, hold joystick control on port 1/2 for N frames;
+                       CONTROL is up, down, left, right, or fire; may be repeated
     --xroar-bin PATH   patched XRoar binary used to write reference PNGs
     --xroar-reference-dir PATH
                        write patched-XRoar reference PNGs for runtime-smoked tapes
@@ -90,6 +93,7 @@ struct Cli {
     smoke_screenshot_dir: Option<PathBuf>,
     smoke_screenshot_format: SmokeScreenshotFormat,
     smoke_audio_dir: Option<PathBuf>,
+    smoke_joystick: Vec<SmokeJoystickStep>,
     xroar_bin: Option<PathBuf>,
     xroar_reference_dir: Option<PathBuf>,
     xroar_motoroff: Option<usize>,
@@ -189,6 +193,13 @@ struct CasRuntimeSmoke {
     start_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     start_audio: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    joystick_steps: Vec<SmokeJoystickStep>,
+    joystick_visible_change: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    joystick_screen_text: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    joystick_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -257,12 +268,42 @@ enum SmokeScreenshotFormat {
     XroarZoomed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+struct SmokeJoystickStep {
+    port: u8,
+    control: SmokeJoystickControl,
+    frames: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum SmokeJoystickControl {
+    Up,
+    Down,
+    Left,
+    Right,
+    Fire,
+}
+
+impl SmokeJoystickControl {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Up => "up",
+            Self::Down => "down",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Fire => "fire",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct RuntimeSmokeOptions<'a> {
     run_limit: usize,
     screenshot_stem: Option<&'a Path>,
     screenshot_format: SmokeScreenshotFormat,
     audio_stem: Option<&'a Path>,
+    joystick: &'a [SmokeJoystickStep],
     xroar: Option<&'a XroarReferenceConfig>,
     xroar_stem: Option<&'a Path>,
 }
@@ -334,6 +375,7 @@ where
     let mut smoke_screenshot_dir = None;
     let mut smoke_screenshot_format = SmokeScreenshotFormat::Diagnostic;
     let mut smoke_audio_dir = None;
+    let mut smoke_joystick = Vec::new();
     let mut xroar_bin = None;
     let mut xroar_reference_dir = None;
     let mut xroar_motoroff = None;
@@ -393,6 +435,12 @@ where
             "--smoke-audio-dir" => {
                 smoke_audio_dir = Some(PathBuf::from(next_value(&mut iter, "--smoke-audio-dir")?));
             }
+            "--smoke-joystick" => {
+                smoke_joystick.push(parse_smoke_joystick_step(&next_value(
+                    &mut iter,
+                    "--smoke-joystick",
+                )?)?);
+            }
             "--xroar-bin" => {
                 xroar_bin = Some(PathBuf::from(next_value(&mut iter, "--xroar-bin")?));
             }
@@ -438,6 +486,7 @@ where
         smoke_screenshot_dir,
         smoke_screenshot_format,
         smoke_audio_dir,
+        smoke_joystick,
         xroar_bin,
         xroar_reference_dir,
         xroar_motoroff,
@@ -472,6 +521,16 @@ fn parse_usize(value: &str, flag: &str) -> Result<usize, String> {
     usize::try_from(parsed).map_err(|err| format!("{flag} value {value} is too large: {err}"))
 }
 
+fn parse_u8(value: &str, flag: &str) -> Result<u8, String> {
+    let parsed = parse_u64(value, flag)?;
+    u8::try_from(parsed).map_err(|err| format!("{flag} value {value} is too large: {err}"))
+}
+
+fn parse_u32(value: &str, flag: &str) -> Result<u32, String> {
+    let parsed = parse_u64(value, flag)?;
+    u32::try_from(parsed).map_err(|err| format!("{flag} value {value} is too large: {err}"))
+}
+
 fn parse_f32(value: &str, flag: &str) -> Result<f32, String> {
     let parsed: f32 = value
         .parse()
@@ -490,6 +549,55 @@ fn parse_smoke_screenshot_format(value: &str) -> Result<SmokeScreenshotFormat, S
         "xroar-zoomed" => Ok(SmokeScreenshotFormat::XroarZoomed),
         _ => Err(format!(
             "invalid --smoke-screenshot-format value {value}; expected diagnostic or xroar-zoomed"
+        )),
+    }
+}
+
+fn parse_smoke_joystick_step(value: &str) -> Result<SmokeJoystickStep, String> {
+    let mut parts = value.split(',');
+    let port = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_value(value))?;
+    let control = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_value(value))?;
+    let frames = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_value(value))?;
+    if parts.next().is_some() {
+        return Err(invalid_smoke_joystick_value(value));
+    }
+
+    let port = parse_u8(port, "--smoke-joystick port")?;
+    if !matches!(port, 1 | 2) {
+        return Err(format!(
+            "invalid --smoke-joystick port {port}; expected 1 or 2"
+        ));
+    }
+    let frames = parse_u32(frames, "--smoke-joystick frames")?;
+    if frames == 0 {
+        return Err("--smoke-joystick frames must be greater than zero".to_owned());
+    }
+    Ok(SmokeJoystickStep {
+        port,
+        control: parse_smoke_joystick_control(control)?,
+        frames,
+    })
+}
+
+fn invalid_smoke_joystick_value(value: &str) -> String {
+    format!("invalid --smoke-joystick value {value}; expected PORT,CONTROL,FRAMES")
+}
+
+fn parse_smoke_joystick_control(value: &str) -> Result<SmokeJoystickControl, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "up" => Ok(SmokeJoystickControl::Up),
+        "down" => Ok(SmokeJoystickControl::Down),
+        "left" => Ok(SmokeJoystickControl::Left),
+        "right" => Ok(SmokeJoystickControl::Right),
+        "fire" => Ok(SmokeJoystickControl::Fire),
+        _ => Err(format!(
+            "invalid --smoke-joystick control {value}; expected up, down, left, right, or fire"
         )),
     }
 }
@@ -563,6 +671,7 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
                 screenshot_stem: screenshot_stem.as_deref(),
                 screenshot_format: cli.smoke_screenshot_format,
                 audio_stem: audio_stem.as_deref(),
+                joystick: &cli.smoke_joystick,
                 xroar: xroar.as_ref(),
                 xroar_stem: xroar_stem.as_deref(),
             },
@@ -717,6 +826,7 @@ fn run_runtime_smoke(
         smoke_options.screenshot_stem,
         smoke_options.screenshot_format,
         smoke_options.audio_stem,
+        smoke_options.joystick,
     ) {
         Ok(mut smoke) => {
             if let (Some(config), Some(stem)) = (smoke_options.xroar, smoke_options.xroar_stem) {
@@ -755,6 +865,7 @@ fn run_runtime_smoke_inner(
     screenshot_stem: Option<&Path>,
     screenshot_format: SmokeScreenshotFormat,
     audio_stem: Option<&Path>,
+    joystick_steps: &[SmokeJoystickStep],
 ) -> Result<CasRuntimeSmoke, String> {
     let mut session = boot_runtime_session(rom)?;
     let mut media = MediaSet::new();
@@ -850,6 +961,28 @@ fn run_runtime_smoke_inner(
         &session,
         &start_screenshot_frame,
     )?;
+    let (joystick_visible_change, joystick_screen_text, joystick_screenshot) =
+        if joystick_steps.is_empty() {
+            (false, None, None)
+        } else {
+            apply_smoke_joystick_steps(&mut session, joystick_steps)?;
+            let joystick_frame = session
+                .screenshot_png_bytes()
+                .map_err(|err| format!("failed to capture post-joystick frame: {err}"))?;
+            let joystick_screen_text = screen_text_lines(&session)?;
+            let joystick_screenshot = write_smoke_screenshot(
+                screenshot_stem,
+                "joystick",
+                screenshot_format,
+                &session,
+                &joystick_frame,
+            )?;
+            (
+                joystick_frame != start_screenshot_frame,
+                Some(joystick_screen_text),
+                joystick_screenshot,
+            )
+        };
     let start_video_changed = load_video != start_video;
     let classification = classify_runtime_smoke(RuntimeSmokeClassificationInput {
         command,
@@ -895,6 +1028,10 @@ fn run_runtime_smoke_inner(
         load_audio,
         start_screenshot,
         start_audio,
+        joystick_steps: joystick_steps.to_vec(),
+        joystick_visible_change,
+        joystick_screen_text,
+        joystick_screenshot,
         xroar_reference_screenshot: None,
         xroar_reference_motoroff: None,
         xroar_reference_error: None,
@@ -1483,6 +1620,10 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         load_audio: None,
         start_screenshot: None,
         start_audio: None,
+        joystick_steps: Vec::new(),
+        joystick_visible_change: false,
+        joystick_screen_text: None,
+        joystick_screenshot: None,
         xroar_reference_screenshot: None,
         xroar_reference_motoroff: None,
         xroar_reference_error: None,
@@ -1570,6 +1711,35 @@ fn tap_key(
     session
         .run_frames(KEY_EDGE_FRAMES)
         .map_err(|err| format!("key release {name} failed: {err}"))?;
+    Ok(())
+}
+
+fn apply_smoke_joystick_steps(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    steps: &[SmokeJoystickStep],
+) -> Result<(), String> {
+    for step in steps {
+        let name = step.control.name();
+        session.queue_input(InputEvent::Button {
+            port: step.port,
+            name: name.into(),
+            pressed: true,
+        });
+        session.run_frames(step.frames).map_err(|err| {
+            format!(
+                "joystick press port {} {name} for {} frames failed: {err}",
+                step.port, step.frames
+            )
+        })?;
+        session.queue_input(InputEvent::Button {
+            port: step.port,
+            name: name.into(),
+            pressed: false,
+        });
+        session
+            .run_frames(KEY_EDGE_FRAMES)
+            .map_err(|err| format!("joystick release port {} {name} failed: {err}", step.port))?;
+    }
     Ok(())
 }
 
@@ -2085,6 +2255,10 @@ mod tests {
             "xroar-zoomed".to_owned(),
             "--smoke-audio-dir".to_owned(),
             "audio".to_owned(),
+            "--smoke-joystick".to_owned(),
+            "1,fire,20".to_owned(),
+            "--smoke-joystick".to_owned(),
+            "1,right,30".to_owned(),
         ])
         .expect("valid CLI should parse");
 
@@ -2094,9 +2268,45 @@ mod tests {
         assert_eq!(cli.smoke_screenshot_dir, Some(PathBuf::from("screens")));
         assert_eq!(cli.smoke_audio_dir, Some(PathBuf::from("audio")));
         assert_eq!(
+            cli.smoke_joystick,
+            vec![
+                SmokeJoystickStep {
+                    port: 1,
+                    control: SmokeJoystickControl::Fire,
+                    frames: 20,
+                },
+                SmokeJoystickStep {
+                    port: 1,
+                    control: SmokeJoystickControl::Right,
+                    frames: 30,
+                },
+            ]
+        );
+        assert_eq!(
             cli.smoke_screenshot_format,
             SmokeScreenshotFormat::XroarZoomed
         );
+    }
+
+    #[test]
+    fn cli_rejects_invalid_smoke_joystick_options() {
+        let bad_port = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--smoke-joystick".to_owned(),
+            "3,fire,20".to_owned(),
+        ])
+        .expect_err("invalid joystick port should fail");
+        assert!(bad_port.contains("expected 1 or 2"));
+
+        let bad_control = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--smoke-joystick".to_owned(),
+            "1,button,20".to_owned(),
+        ])
+        .expect_err("invalid joystick control should fail");
+        assert!(bad_control.contains("expected up, down, left, right, or fire"));
     }
 
     #[test]
