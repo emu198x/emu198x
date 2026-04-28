@@ -30,6 +30,79 @@ const CASSETTE_BITS_PER_BYTE: usize = 8;
 const DRAGON_CPU_HZ: u64 = 894_886;
 const DRAGON_FRAME_HZ: u64 = 50;
 const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
+const XROAR_AUDIO_MAX_V: f32 = 4.70;
+const XROAR_AUDIO_OUTPUT_GAIN: f32 = 0.7;
+const XROAR_AUDIO_SOURCE_GAIN: [[f32; 3]; 6] = [
+    [
+        4.50 / XROAR_AUDIO_MAX_V,
+        2.84 / XROAR_AUDIO_MAX_V,
+        3.40 / XROAR_AUDIO_MAX_V,
+    ],
+    [
+        0.50 / XROAR_AUDIO_MAX_V,
+        0.40 / XROAR_AUDIO_MAX_V,
+        0.50 / XROAR_AUDIO_MAX_V,
+    ],
+    [
+        4.70 / XROAR_AUDIO_MAX_V,
+        2.84 / XROAR_AUDIO_MAX_V,
+        3.40 / XROAR_AUDIO_MAX_V,
+    ],
+    [
+        4.70 / XROAR_AUDIO_MAX_V,
+        2.84 / XROAR_AUDIO_MAX_V,
+        3.40 / XROAR_AUDIO_MAX_V,
+    ],
+    [0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0],
+];
+const XROAR_AUDIO_SOURCE_OFFSET: [[f32; 3]; 6] = [
+    [
+        0.20 / XROAR_AUDIO_MAX_V,
+        0.18 / XROAR_AUDIO_MAX_V,
+        1.30 / XROAR_AUDIO_MAX_V,
+    ],
+    [
+        2.05 / XROAR_AUDIO_MAX_V,
+        1.60 / XROAR_AUDIO_MAX_V,
+        2.35 / XROAR_AUDIO_MAX_V,
+    ],
+    [
+        0.00 / XROAR_AUDIO_MAX_V,
+        0.18 / XROAR_AUDIO_MAX_V,
+        1.30 / XROAR_AUDIO_MAX_V,
+    ],
+    [
+        0.00 / XROAR_AUDIO_MAX_V,
+        0.18 / XROAR_AUDIO_MAX_V,
+        1.30 / XROAR_AUDIO_MAX_V,
+    ],
+    [0.0, 0.0, 0.0],
+    [0.0, 0.0, 3.90 / XROAR_AUDIO_MAX_V],
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DragonAudioSource {
+    Dac,
+    Tape,
+    Cart,
+    Ay,
+    None,
+    SingleBit,
+}
+
+impl DragonAudioSource {
+    const fn index(self) -> usize {
+        match self {
+            Self::Dac => 0,
+            Self::Tape => 1,
+            Self::Cart => 2,
+            Self::Ay => 3,
+            Self::None => 4,
+            Self::SingleBit => 5,
+        }
+    }
+}
 
 /// A raw Dragon keyboard matrix switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -750,39 +823,44 @@ impl DragonMemory {
     }
 
     fn audio_sample(&self) -> f32 {
-        const DAC_GAIN: f32 = 0.35;
-        const TAPE_GAIN: f32 = 0.12;
-        const SINGLE_BIT_GAIN: f32 = 0.25;
-
-        let mux_source = (u8::from(self.pia0.cb2) << 1) | u8::from(self.pia0.ca2);
-        let mut sample = if self.pia1.cb2 {
-            match mux_source {
-                0 => ((f32::from(self.pia1.pa & 0xfc) / 252.0) * 2.0 - 1.0) * DAC_GAIN,
-                1 => {
-                    let level = if self.cassette.line_level() {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    level * TAPE_GAIN
-                }
-                _ => 0.0,
-            }
+        let sbs_index = self.single_bit_sound_index();
+        let (source, input) = if self.pia1.cb2 {
+            self.muxed_audio_source()
+        } else if sbs_index == 0 {
+            (DragonAudioSource::None, 0.0)
         } else {
-            0.0
+            (DragonAudioSource::SingleBit, 0.0)
         };
 
-        let port_b_outputs = self.pia1.ddr(PiaPort::B);
-        if port_b_outputs & 0x02 != 0 {
-            let level = if self.pia1.output_latch(PiaPort::B) & 0x02 != 0 {
-                1.0
-            } else {
-                -1.0
-            };
-            sample += level * SINGLE_BIT_GAIN;
-        }
+        let index = source.index();
+        let sample = input * XROAR_AUDIO_SOURCE_GAIN[index][sbs_index]
+            + XROAR_AUDIO_SOURCE_OFFSET[index][sbs_index];
+        (sample * XROAR_AUDIO_OUTPUT_GAIN).clamp(-1.0, 1.0)
+    }
 
-        sample.clamp(-1.0, 1.0)
+    fn muxed_audio_source(&self) -> (DragonAudioSource, f32) {
+        match (u8::from(self.pia0.cb2) << 1) | u8::from(self.pia0.ca2) {
+            0 => (
+                DragonAudioSource::Dac,
+                f32::from(self.pia1.pa & 0xfc) / 252.0,
+            ),
+            1 => (
+                DragonAudioSource::Tape,
+                if self.cassette.line_level() { 1.0 } else { 0.0 },
+            ),
+            2 => (DragonAudioSource::Cart, 0.0),
+            _ => (DragonAudioSource::Ay, 0.0),
+        }
+    }
+
+    fn single_bit_sound_index(&self) -> usize {
+        if self.pia1.ddr(PiaPort::B) & 0x02 == 0 {
+            0
+        } else if self.pia1.output_latch(PiaPort::B) & 0x02 == 0 {
+            1
+        } else {
+            2
+        }
     }
 }
 
@@ -1462,6 +1540,13 @@ mod tests {
         rom
     }
 
+    fn assert_sample_near(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.000_001,
+            "expected {actual} to be within tolerance of {expected}"
+        );
+    }
+
     #[test]
     fn memory_maps_rom_and_vector_mirror() {
         let mut rom = rom_with_reset_vector(0x8000);
@@ -1696,8 +1781,54 @@ mod tests {
 
         assert!(!low_samples.is_empty());
         assert!(!high_samples.is_empty());
-        assert!(low_samples.iter().all(|sample| *sample < 0.0));
-        assert!(high_samples.iter().all(|sample| *sample > 0.0));
+        assert!(low_samples.iter().all(|sample| *sample < 0.04));
+        assert!(high_samples.iter().all(|sample| *sample > 0.69));
+    }
+
+    #[test]
+    fn audio_dac_levels_match_xroar_voltage_model() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.pia1.write(0x00, 0xFC); // PIA1 PA2-PA7 drive the DAC.
+        memory.pia1.write(0x01, 0x04); // PIA1 port A data selected.
+        memory.pia1.write(0x03, 0x3C); // PIA1 CB2 high: enable sound mux.
+
+        memory.pia1.write(0x00, 0x00);
+        assert_sample_near(memory.audio_sample(), (0.20 / 4.70) * 0.7);
+
+        memory.pia1.write(0x00, 0xFC);
+        assert_sample_near(memory.audio_sample(), ((4.50 + 0.20) / 4.70) * 0.7);
+    }
+
+    #[test]
+    fn audio_tape_mux_levels_match_xroar_voltage_model() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.pia0.write(0x01, 0x3C); // PIA0 CA2 high: select tape mux source.
+        memory.pia1.write(0x03, 0x3C); // PIA1 CB2 high: enable sound mux.
+
+        assert_sample_near(memory.audio_sample(), (2.05 / 4.70) * 0.7);
+
+        memory.cassette.load(vec![0x01]);
+        memory.pia1.write(0x01, 0x3C); // PIA1 CA2 high: advance cassette to high half-cycle.
+        for _ in 0..CASSETTE_ONE_HALF_PERIOD_CYCLES {
+            memory.advance_cassette();
+        }
+        assert_sample_near(memory.audio_sample(), ((0.50 + 2.05) / 4.70) * 0.7);
+    }
+
+    #[test]
+    fn audio_single_bit_levels_match_xroar_voltage_model() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.pia1.write(0x02, 0x02); // PIA1 PB1 drives single-bit sound.
+        memory.pia1.write(0x03, 0x04); // PIA1 port B data selected, sound mux disabled.
+
+        memory.pia1.write(0x02, 0x00);
+        assert_sample_near(memory.audio_sample(), 0.0);
+
+        memory.pia1.write(0x02, 0x02);
+        assert_sample_near(memory.audio_sample(), (3.90 / 4.70) * 0.7);
     }
 
     #[test]

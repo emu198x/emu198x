@@ -37,7 +37,9 @@ disk support are still future work.
 - **Audio:** `machine-dragon-32` now derives 48 kHz mono audio from the Dragon
   PIA sound wiring: PIA1 PA2-PA7 DAC level, PIA0 CA2/CB2 mux source, PIA1 CB2
   mux enable, PIA1 PB1 single-bit sound, and cassette input when the mux selects
-  tape. Cartridge/AY sources are silent until those expansions exist.
+  tape. DAC, tape, and single-bit levels are pinned to XRoar's measured-voltage
+  gain/offset model; cartridge/AY sources are silent until those expansions
+  exist.
 - **Runtime:** `runtime-dragon` implements the shared `MachineCore` boundary,
   builds from profile-declared Dragon 32 BASIC firmware, emits RGBA8888 frames
   and mono audio packets, exposes boot/video/PIA/SAM/tape queries, and mounts
@@ -81,7 +83,8 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --smoke-run-limit 12 \
   --smoke-report target/dragon-smoke.json \
   --smoke-screenshot-dir target/dragon-smoke-screens \
-  --smoke-screenshot-format xroar-zoomed
+  --smoke-screenshot-format xroar-zoomed \
+  --smoke-audio-dir target/dragon-smoke-audio
 ```
 
 Patched-XRoar comparison, when the local patched XRoar binary is available:
@@ -100,9 +103,9 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 ## Current Gaps
 
-1. Audio now follows the Dragon PIA DAC/mux/single-bit/cassette signal path, but
-   it is still an uncalibrated first pass. It does not yet model exact analogue
-   output levels, filtering, cartridge audio, or AY expansion audio.
+1. Audio now follows the Dragon PIA DAC/mux/single-bit/cassette signal path and
+   uses XRoar's measured level model, but it does not yet model analogue
+   filtering, cartridge audio, or AY expansion audio.
 2. Analogue joystick hardware is not implemented. Gamepad input currently maps
    to keyboard-style controls in the native shell, not to Dragon joystick
    comparator/DAC behavior.
@@ -114,8 +117,8 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 ## Near-Term Plan
 
-1. Validate Dragon audio levels and mux behavior against XRoar or hardware
-   captures, then add audio capture to the script harness if useful.
+1. Validate Dragon audio filtering and audible software behavior against XRoar
+   or hardware captures once we have sound-producing CAS fixtures.
 2. Add analogue joystick support and host mapping once audio/media usability is
    stable.
 3. Revisit PAL geometry and external video reference captures after the current
@@ -125,7 +128,7 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 | Component | Tests |
 |-----------|-------|
-| Machine | 18: ROM mapping, device access reporting, keyboard, cassette input, SAM text base, text framebuffer, graphics rendering, PIA DAC audio |
+| Machine | 21: ROM mapping, device access reporting, keyboard, cassette input, SAM text base, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
 | PIA | 5: DDR, control, IRQ, input pins, mixed I/O |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 13: text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |

@@ -61,6 +61,8 @@ Execution:
                        write load/start screenshots for runtime-smoked tapes
     --smoke-screenshot-format FORMAT
                        screenshot format: diagnostic | xroar-zoomed [default: diagnostic]
+    --smoke-audio-dir PATH
+                       write load/start WAV audio captures for runtime-smoked tapes
     --xroar-bin PATH   patched XRoar binary used to write reference PNGs
     --xroar-reference-dir PATH
                        write patched-XRoar reference PNGs for runtime-smoked tapes
@@ -87,6 +89,7 @@ struct Cli {
     smoke_report: Option<PathBuf>,
     smoke_screenshot_dir: Option<PathBuf>,
     smoke_screenshot_format: SmokeScreenshotFormat,
+    smoke_audio_dir: Option<PathBuf>,
     xroar_bin: Option<PathBuf>,
     xroar_reference_dir: Option<PathBuf>,
     xroar_motoroff: Option<usize>,
@@ -181,7 +184,11 @@ struct CasRuntimeSmoke {
     #[serde(skip_serializing_if = "Option::is_none")]
     load_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    load_audio: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     start_screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_audio: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -255,6 +262,7 @@ struct RuntimeSmokeOptions<'a> {
     run_limit: usize,
     screenshot_stem: Option<&'a Path>,
     screenshot_format: SmokeScreenshotFormat,
+    audio_stem: Option<&'a Path>,
     xroar: Option<&'a XroarReferenceConfig>,
     xroar_stem: Option<&'a Path>,
 }
@@ -325,6 +333,7 @@ where
     let mut smoke_report = None;
     let mut smoke_screenshot_dir = None;
     let mut smoke_screenshot_format = SmokeScreenshotFormat::Diagnostic;
+    let mut smoke_audio_dir = None;
     let mut xroar_bin = None;
     let mut xroar_reference_dir = None;
     let mut xroar_motoroff = None;
@@ -381,6 +390,9 @@ where
                     "--smoke-screenshot-format",
                 )?)?;
             }
+            "--smoke-audio-dir" => {
+                smoke_audio_dir = Some(PathBuf::from(next_value(&mut iter, "--smoke-audio-dir")?));
+            }
             "--xroar-bin" => {
                 xroar_bin = Some(PathBuf::from(next_value(&mut iter, "--xroar-bin")?));
             }
@@ -425,6 +437,7 @@ where
         smoke_report,
         smoke_screenshot_dir,
         smoke_screenshot_format,
+        smoke_audio_dir,
         xroar_bin,
         xroar_reference_dir,
         xroar_motoroff,
@@ -512,6 +525,10 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
         fs::create_dir_all(dir)
             .map_err(|err| format!("failed to create {}: {err}", dir.display()))?;
     }
+    if let Some(dir) = &cli.smoke_audio_dir {
+        fs::create_dir_all(dir)
+            .map_err(|err| format!("failed to create {}: {err}", dir.display()))?;
+    }
     if let Some(config) = &xroar {
         fs::create_dir_all(&config.output_dir).map_err(|err| {
             format!(
@@ -533,6 +550,10 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
                 .output_dir
                 .join(format!("{index:04}-{}", safe_stem(tape_path)))
         });
+        let audio_stem = cli
+            .smoke_audio_dir
+            .as_ref()
+            .map(|dir| dir.join(format!("{index:04}-{}", safe_stem(tape_path))));
         let row = scan_tape_candidate(
             tape_path,
             rom,
@@ -541,6 +562,7 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
                 run_limit: cli.smoke_run_limit,
                 screenshot_stem: screenshot_stem.as_deref(),
                 screenshot_format: cli.smoke_screenshot_format,
+                audio_stem: audio_stem.as_deref(),
                 xroar: xroar.as_ref(),
                 xroar_stem: xroar_stem.as_deref(),
             },
@@ -647,15 +669,7 @@ fn scan_tape_candidate(
         && *runtime_smokes < smoke.run_limit;
     let runtime = if should_smoke {
         *runtime_smokes += 1;
-        Some(run_runtime_smoke(
-            rom,
-            &loaded.bytes,
-            &parsed,
-            smoke.screenshot_stem,
-            smoke.screenshot_format,
-            smoke.xroar,
-            smoke.xroar_stem,
-        ))
+        Some(run_runtime_smoke(rom, &loaded.bytes, &parsed, smoke))
     } else {
         None
     };
@@ -682,10 +696,7 @@ fn run_runtime_smoke(
     rom: &[u8; ROM_SIZE],
     tape_bytes: &[u8],
     tape: &CasImage,
-    screenshot_stem: Option<&Path>,
-    screenshot_format: SmokeScreenshotFormat,
-    xroar: Option<&XroarReferenceConfig>,
-    xroar_stem: Option<&Path>,
+    smoke_options: RuntimeSmokeOptions<'_>,
 ) -> CasRuntimeSmoke {
     let command = tape
         .first_header()
@@ -699,9 +710,16 @@ fn run_runtime_smoke(
         return failed_runtime_smoke("", "unsupported tape file type");
     }
 
-    match run_runtime_smoke_inner(rom, tape_bytes, command, screenshot_stem, screenshot_format) {
+    match run_runtime_smoke_inner(
+        rom,
+        tape_bytes,
+        command,
+        smoke_options.screenshot_stem,
+        smoke_options.screenshot_format,
+        smoke_options.audio_stem,
+    ) {
         Ok(mut smoke) => {
-            if let (Some(config), Some(stem)) = (xroar, xroar_stem) {
+            if let (Some(config), Some(stem)) = (smoke_options.xroar, smoke_options.xroar_stem) {
                 let comparison_screenshot = smoke
                     .start_screenshot
                     .as_ref()
@@ -736,6 +754,7 @@ fn run_runtime_smoke_inner(
     command: &str,
     screenshot_stem: Option<&Path>,
     screenshot_format: SmokeScreenshotFormat,
+    audio_stem: Option<&Path>,
 ) -> Result<CasRuntimeSmoke, String> {
     let mut session = boot_runtime_session(rom)?;
     let mut media = MediaSet::new();
@@ -745,6 +764,7 @@ fn run_runtime_smoke_inner(
         .map_err(|err| format!("failed to load tape into runtime: {err}"))?;
     let tape_length_bits = query_u64(&session, "dragon.tape.length_bits")?;
 
+    session.clear_audio_capture();
     let load_pc_before = query_u16(&session, "dragon.cpu.pc")?;
     type_basic_command(&mut session, command)?;
     let before_load = session
@@ -775,6 +795,7 @@ fn run_runtime_smoke_inner(
         &session,
         &after_load,
     )?;
+    let load_audio = write_smoke_audio(audio_stem, "load", &session)?;
     let load_error = lines_after_load.iter().any(|line| line.contains("ERROR"));
     let load_result = if load_error { "basic-error" } else { "ok" }.to_owned();
     let start_command = if command == "CLOAD" { "RUN" } else { "EXEC" };
@@ -782,7 +803,8 @@ fn run_runtime_smoke_inner(
         should_issue_start_command(command, load_error, load_visible_change, load_pc_after);
 
     let mut start_settle_visible_change = false;
-    let (start_result, visible_change_after_start, screen_text) = if should_start {
+    let (start_result, visible_change_after_start, screen_text, start_audio) = if should_start {
+        session.clear_audio_capture();
         type_basic_command(&mut session, start_command)?;
         let changed_frame = wait_for_screenshot_change(&mut session, &after_load, 500)?;
         if let Some(changed_frame) = &changed_frame {
@@ -805,12 +827,14 @@ fn run_runtime_smoke_inner(
             "no-visible-change"
         }
         .to_owned();
-        (start_result, visible_change, screen_text)
+        let start_audio = write_smoke_audio(audio_stem, "start", &session)?;
+        (start_result, visible_change, screen_text, start_audio)
     } else {
         (
             skipped_start_result(command, load_visible_change, load_pc_after).to_owned(),
             false,
             lines_after_load.clone(),
+            None,
         )
     };
     let basic_error = screen_text.iter().any(|line| line.contains("ERROR"));
@@ -868,7 +892,9 @@ fn run_runtime_smoke_inner(
         screen_text,
         error: None,
         load_screenshot,
+        load_audio,
         start_screenshot,
+        start_audio,
         xroar_reference_screenshot: None,
         xroar_reference_motoroff: None,
         xroar_reference_error: None,
@@ -999,6 +1025,21 @@ fn write_smoke_screenshot(
         }
     };
     fs::write(&path, png).map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    Ok(Some(path.display().to_string()))
+}
+
+fn write_smoke_audio(
+    stem: Option<&Path>,
+    suffix: &str,
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+) -> Result<Option<String>, String> {
+    let Some(stem) = stem else {
+        return Ok(None);
+    };
+    let path = stem.with_extension(format!("{suffix}.wav"));
+    session
+        .save_audio_capture(&path)
+        .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     Ok(Some(path.display().to_string()))
 }
 
@@ -1439,7 +1480,9 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         screen_text: Vec::new(),
         error: Some(error.to_owned()),
         load_screenshot: None,
+        load_audio: None,
         start_screenshot: None,
+        start_audio: None,
         xroar_reference_screenshot: None,
         xroar_reference_motoroff: None,
         xroar_reference_error: None,
@@ -2040,6 +2083,8 @@ mod tests {
             "screens".to_owned(),
             "--smoke-screenshot-format".to_owned(),
             "xroar-zoomed".to_owned(),
+            "--smoke-audio-dir".to_owned(),
+            "audio".to_owned(),
         ])
         .expect("valid CLI should parse");
 
@@ -2047,6 +2092,7 @@ mod tests {
         assert_eq!(cli.smoke_run_limit, 3);
         assert_eq!(cli.smoke_report, Some(PathBuf::from("report.json")));
         assert_eq!(cli.smoke_screenshot_dir, Some(PathBuf::from("screens")));
+        assert_eq!(cli.smoke_audio_dir, Some(PathBuf::from("audio")));
         assert_eq!(
             cli.smoke_screenshot_format,
             SmokeScreenshotFormat::XroarZoomed
