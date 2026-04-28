@@ -1,132 +1,141 @@
 # Dragon 32/64
 
-## Status: Bring-up started
+## Status: Early Dragon 32 Usability
 
-The Dragon 32/64 is the next expansion target after the initial Spectrum, C64,
-NES, Amiga, and Game Boy set. The current repository now has the first reusable
-`motorola-6809` CPU foundation crate, a first `machine-dragon-32` substrate,
-an initial `runtime-dragon` shell bridge, and a minimal native Dragon 32 window.
+Dragon 32 is now a usable early system in the fresh Rust workspace. It boots a
+real Dragon 32 BASIC ROM, accepts keyboard input, mounts Dragon CAS cassette
+images through the shared runtime media path, can load and start representative
+BASIC and machine-code tapes, opens a native `wgpu` verifier window, and has
+native CAS autoload plus patched-XRoar screenshot comparison coverage for
+cassette smoke runs.
 
-## What works
+Dragon 64, CoCo variants, audio, analogue joystick hardware, cartridges, and
+DragonDOS disk support are still future work.
 
-- **CPU:** Motorola 6809 — foundation crate started and now executes far enough
-  through the Dragon 32 BIOS to reach ROM polling/delay loops.
-- **PIA:** MC6821 — reusable `motorola-pia-6821` crate ported from the VICE
-  core shape; DDR/data selection, input/output mixing, control registers, IRQ
-  flags, and CA2/CB2 output state are implemented.
-- **Harness:** `emu198x-script-dragon` can load a 16KB Dragon ROM, run it against
-  the MC6809 core with 32KB RAM, 16KB mirrored ROM mapping, and two MC6821 PIAs.
-  PIA/SAM activity and readonly ROM writes are recorded for bring-up analysis.
-  Plain `.bin` ROMs and single-ROM `.zip` archives are accepted; the Dragon 32
-  BIOS now runs past early PIA/SAM setup into ROM polling/delay loops.
-- **SAM:** MC6883 — reusable `motorola-sam-6883` crate tracks the write-only
-  set/reset latches needed for bring-up, including VDG mode bits and the F0-F6
-  display offset. The Dragon 32 ROM selects text base `$0400` by setting F1.
-- **VDG:** MC6847 — reusable `motorola-vdg-6847` crate captures a 32x16
-  alphanumeric diagnostic text snapshot and renders text, SG4/SG6
-  semigraphics, and the standard MC6847 full-graphics modes into a 256x192
-  active-area ARGB framebuffer, or a 372x243 visible framebuffer with the
-  current coarse MC6847 border. That 372x243 output is diagnostic only: it is
-  not a PAL beam/overscan model. The diagnostic palette, alpha inverse-video
-  handling, MC6847 font alignment, and SG4/SG6 bit ordering are matched against
-  patched XRoar's zoomed Dragon output for the exercised modes. The Dragon
-  harness `--dump-text` path now shows the Dragon 32 BASIC banner and `OK`
-  prompt from real ROM execution, while `--dump-text-png PATH` writes the
-  diagnostic border-inclusive text framebuffer as a PNG for visual comparison.
-- **Harness keyboard:** PIA0 is wired to the confirmed Dragon 32 keyboard matrix:
-  PB0-PB7 drive columns via `$FF02`, and PA0-PA6 read rows via `$FF00`. The
-  default state is no key pressed (`$FF` on the input side). `--press KEY`
-  holds semantic Dragon keys closed, and `--press-matrix R,C` remains available
-  for raw ROM-level probing.
-- **Machine crate:** `machine-dragon-32` now owns the reusable board-level
-  substrate that was proven in the harness: CPU, RAM/ROM map, PIAs, SAM,
-  keyboard matrix, bounded run reporting, VDG text capture, and mode-aware VDG
-  rendering.
-- **Runtime crate:** `runtime-dragon` builds from profile-declared Dragon 32
-  BASIC firmware, implements the shared `MachineCore` boundary, emits the
-  current MC6847 framebuffer as RGBA8888, and exposes early Dragon state,
-  text-screen, video-state, and boot-detection queries. It also has real-ROM
-  headless tests that wait for the BASIC `OK` prompt, capture a PNG, and verify
-  BASIC keyboard echo.
-- **Native shell:** `emu198x-dragon` opens a WGPU window from a Dragon 32 BASIC
-  ROM, presents the runtime text framebuffer, and maps host keyboard/gamepad
-  controls into Dragon key events. Printable host keys now use logical
-  character input rather than physical key positions, and shifted printable
-  symbols synthesize Dragon `SHIFT` plus the matching matrix key.
-- **CAS format/media/playback:** `format-dragon-cas` parses Dragon CAS cassette
-  images as framed byte-level blocks, exposes checksum validity, and decodes the
-  standard 15-byte namefile header. `runtime-dragon` declares a `tape-1`
-  cassette slot, mounts CAS media via the shared `MediaSet` path, converts CAS
-  blocks into a motor-gated PIA1 cassette input stream, and verifies real-ROM
-  `CLOAD` plus `RUN` with Textstar.
-- **CAS smoke classification:** `emu198x-script-dragon --smoke-root` classifies
-  runtime smoke outcomes as load errors, BASIC errors, visible text changes,
-  machine-code auto-runs, video-control changes, blank graphics screens, or
-  graphics that continue drawing after the post-start settle window. Reports
-  include load/start VDG state and optional screenshots. The
-  `--smoke-screenshot-format xroar-zoomed` option writes our active 256x192
-  snapshot expanded to XRoar's 512x384 zoomed PNG shape without downscaling;
-  this is a temporary validation bridge, not a substitute for proper
-  scanline/beam rendering. When supplied with a patched XRoar binary via
-  `--xroar-bin` plus `--xroar-reference-dir`, the same smoke run also writes
-  deterministic headless XRoar `-vo-picture zoomed` reference PNGs and records
-  dimension and pixel-difference summaries for runtime-smoked tapes.
+## What Works
 
-## Remaining
+- **CPU:** `motorola-6809` executes real Dragon 32 ROM and cassette loader paths
+  far enough to boot BASIC, load Textstar with `CLOAD`/`RUN`, and start
+  machine-code CAS titles with `CLOADM`/`EXEC`.
+- **PIA:** `motorola-pia-6821` models DDR/data selection, mixed external pin
+  levels, control registers, interrupt flags, and CA2/CB2 output state. Dragon
+  PIA0 is wired to the keyboard matrix; PIA1 is wired to cassette input and VDG
+  control signals.
+- **SAM:** `motorola-sam-6883` tracks the write-only SAM latches used by the
+  Dragon ROM and software: VDG mode bits, display offset F0-F6, page mode, MPU
+  rate, and all-RAM state.
+- **Keyboard:** PIA0 uses the confirmed Dragon 32 keyboard matrix: PB0-PB7
+  select columns via `$FF02`, and PA0-PA6 read rows via `$FF00`. The native
+  shell maps printable host text semantically, including shifted symbols by
+  synthesizing Dragon `SHIFT` plus the matching matrix key. `Backspace` maps to
+  `CLEAR`; `F1` maps to `BREAK`.
+- **VDG:** `motorola-vdg-6847` renders text, inverse text, SG4/SG6
+  semigraphics, and standard MC6847 graphics modes. It now exposes full-frame,
+  scanline, and byte-position renderers, and `machine-dragon-32` maintains a
+  persistent beam-updated framebuffer that samples display memory and PIA1
+  VDG-control pins as emulated time advances.
+- **Runtime:** `runtime-dragon` implements the shared `MachineCore` boundary,
+  builds from profile-declared Dragon 32 BASIC firmware, emits RGBA8888 frames,
+  exposes boot/video/PIA/SAM/tape queries, and mounts CAS media in slot
+  `tape-1`.
+- **Native shell:** `emu198x-dragon` opens a native window, presents the Dragon
+  framebuffer through the shared `wgpu` presenter with `raw`/`lcd`/`crt`
+  filters, accepts `--rom`, accepts `--tape`, supports `--autoload`, and maps
+  keyboard/gamepad input into Dragon key events.
+- **CAS format/media/playback:** `format-dragon-cas` parses framed Dragon CAS
+  blocks, exposes checksum validity, and decodes the standard 15-byte namefile
+  header. Runtime playback converts CAS blocks into motor-gated cassette input
+  pulses consumed by the real ROM loader path.
+- **Smoke harness:** `emu198x-script-dragon --smoke-root` classifies real CAS
+  loads as load errors, BASIC errors, visible text changes, machine-code
+  auto-runs, video-control changes, blank graphics screens, or graphics that
+  continue drawing after the post-start settle window. It can write local
+  screenshots and patched-XRoar references, then record pixel-difference
+  summaries.
+- **XRoar comparison:** the current 12-title application smoke batch is 11/12
+  exact against patched XRoar. The remaining non-exact case, Dragon Composer,
+  differs by capture/timing phase rather than by a static VDG decode error.
 
-### Bring-up sequence
+## Launch Commands
 
-1. Continue `motorola-6809` instruction execution validation against real Dragon ROM paths.
-2. Validate MC6847 graphics and semigraphics rendering against patched-XRoar
-   headless reference captures.
-3. Replace the current snapshot VDG renderer with proper scanline/beam support:
-   HS/FS cadence, active-area placement, borders, mid-frame display changes,
-   and reference presentation geometry.
-4. Capture and verify an external reference golden for the Dragon BASIC screen.
-5. Extend cassette coverage beyond BASIC `CLOAD`: alternate CAS timing/leader
-   cases, more real tapes, and better per-title start/input scripts.
-6. Add `.BIN` loading after cassette machine-code loading is stable.
+Native window:
 
-### Archived Target State
+```sh
+cargo run --release -p emu198x-dragon -- \
+  --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --tape game.cas \
+  --autoload \
+  --video crt
+```
 
-The previous codebase aimed at a fuller Dragon/CoCo implementation. These
-features remain useful targets, but are not yet present in the current fresh
-workspace:
+Headless smoke over one cassette tree:
 
-- **Video:** external-reference validation, warmer PAL colour tuning, and
-  per-display-mode border behaviour.
-- **Cassette:** CAS pulse playback, motor control, and ROM-level
-  `CLOAD`/`CLOADM`.
-- **Audio:** PIA-driven DAC/cassette/cartridge audio routing and host output.
-- **Joystick:** Analogue joystick comparator/DAC behaviour and host mapping.
-- **Dragon 64:** SAM all-RAM mode and 64K memory map.
-- **Shell:** Save states, rewind, screenshots, auto-CLOAD/CLOADM, and `.BIN`
-  auto-EXEC.
+```sh
+cargo run --release -q -p emu198x-script-dragon -- \
+  --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --smoke-root '/path/to/Dragon/Applications/[CAS]' \
+  --smoke-run-limit 12 \
+  --smoke-report target/dragon-smoke.json \
+  --smoke-screenshot-dir target/dragon-smoke-screens \
+  --smoke-screenshot-format xroar-zoomed
+```
 
-### Nice to have
-- **Floppy controller** (WD2797) — for DragonDOS disk images
-- **SG6/SG8/SG12/SG24** — higher semigraphics modes (require external A/S signal control not wired on Dragon hardware — only SG4 is accessible)
-- **Cartridge port** — auto-start ROMs
-- **Per-cycle VDG rendering** — current renderer is per-scanline
-- **Sound MUX** — PIA0 CA2/CB2 select between DAC, cassette, and cartridge audio sources
+Patched-XRoar comparison, when the local patched XRoar binary is available:
 
-## Test coverage
+```sh
+cargo run --release -q -p emu198x-script-dragon -- \
+  --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --smoke-root '/path/to/Dragon/Applications/[CAS]' \
+  --smoke-run-limit 12 \
+  --smoke-report target/dragon-xroar-smoke.json \
+  --smoke-screenshot-dir target/dragon-xroar-smoke \
+  --smoke-screenshot-format xroar-zoomed \
+  --xroar-bin ../Emu198x-Unclean/xroar/src/xroar \
+  --xroar-reference-dir target/dragon-xroar-reference
+```
+
+## Current Gaps
+
+1. Audio is not implemented. The next useful hardware chunk is PIA/SAM sound
+   routing, DAC output, cassette audio, and host audio emission.
+2. Analogue joystick hardware is not implemented. Gamepad input currently maps
+   to keyboard-style controls in the native shell, not to Dragon joystick
+   comparator/DAC behavior.
+3. The beam framebuffer is in place, but the display model is still calibrated
+   to the current 372x243 diagnostic visible area and XRoar zoomed comparison
+   bridge. A fuller PAL timing/overscan model can come later.
+4. Dragon 64 memory mode, cartridge ROMs, `.BIN` convenience loading, and
+   DragonDOS/WD2797 disk support are not implemented.
+
+## Near-Term Plan
+
+1. Implement Dragon audio through the real PIA/SAM signal path rather than a
+   host-side shortcut.
+2. Add analogue joystick support and host mapping once audio/media usability is
+   stable.
+3. Revisit PAL geometry and external video reference captures after the current
+   practical usability loop is smoother.
+
+## Test Coverage
 
 | Component | Tests |
 |-----------|-------|
-| Machine | 17 (ROM mapping, device access reporting, keyboard, SAM text base, text framebuffer, graphics rendering) |
-| PIA | 5 (DDR, control, IRQ, input pins, mixed I/O) |
-| SAM | 4 (defaults, set/clear, video offset, all-RAM) |
-| VDG | 9 (text decode, text rendering, inverse text, SG4, RG6, and CG6 rendering) |
-| Harness | 16 (CLI, ROM loading, keyboard labels, text dumps, smoke options, XRoar-compatible screenshots, XRoar reference comparison, XRoar reference options, smoke classification) |
-| Runtime | 18 (profile metadata, firmware construction, framebuffer emission, queries, boot status, CAS mounting/playback, real-ROM headless screenshot, real-CAS mount smoke, Textstar CLOAD/RUN smoke, machine-code CAS smoke, and keyboard echo smoke) |
-| Native | 3 (CLI, CAS tape argument, and host key mapping) |
-| CAS format | 7 (block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors) |
+| Machine | 17: ROM mapping, device access reporting, keyboard, cassette input, SAM text base, text framebuffer, graphics rendering |
+| PIA | 5: DDR, control, IRQ, input pins, mixed I/O |
+| SAM | 4: defaults, set/clear, video offset, all-RAM |
+| VDG | 13: text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
+| Harness | 16: CLI, ROM loading, keyboard labels, text dumps, smoke options, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
+| Runtime | 18: profile metadata, firmware construction, framebuffer emission, queries, boot status, CAS mounting/playback, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
+| Native | 9: CLI, CAS tape argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping |
+| CAS format | 7: block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors |
 
 ## ROMs
 
-Place in `roms/dragon/`:
+Place the Dragon 32 BASIC ROM at:
 
 | File | Size | Description |
 |------|------|-------------|
-| `dragon32.rom` | 16KB | Dragon 32 BASIC ROM (required) |
+| `~/.emu198x/roms/dragon/dragon32.rom` | 16KB | Dragon 32 BASIC ROM |
+
+The native and script runners also accept a zip containing one suitable
+ROM/bin candidate.

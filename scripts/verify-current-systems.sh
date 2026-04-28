@@ -13,8 +13,8 @@ usage() {
     cat <<'USAGE'
 Usage: scripts/verify-current-systems.sh [OPTIONS]
 
-Runs the current-system verification gate for Spectrum, C64, NES, Amiga, and
-Game Boy.
+Runs the current-system verification gate for Spectrum, C64, NES, Amiga,
+Game Boy, and Dragon.
 
 Options:
     --unit-only       run only in-repository unit/integration checks
@@ -30,6 +30,10 @@ Environment:
     EMU198X_NES_APU_TEST_ROOT    NES Blargg APU rom_singles directory
     EMU198X_GB_BLARGG_ROOT       Game Boy Blargg test ROM root
     EMU198X_GB_MOONEYE_ROOT      Game Boy mooneye-gb test ROM root
+    EMU198X_DRAGON32_ROM         Dragon 32 BASIC ROM or zip archive
+    EMU198X_DRAGON_TEXTSTAR_CAS  Dragon Textstar CAS or zip archive
+    EMU198X_DRAGON_CLOADM_CAS    Dragon machine-code CAS or zip archive
+    EMU198X_XROAR_BIN            patched XRoar binary for optional Dragon reference
 
 Missing local ROM/media assets are reported as skipped, not failed.
 USAGE
@@ -108,6 +112,25 @@ run_step_expect_log() {
     fi
 }
 
+run_step_expect_file() {
+    local name="$1"
+    local file="$2"
+    local needle="$3"
+    shift 3
+    local log="${out_dir}/$(printf '%s' "${name}" | tr -cs 'A-Za-z0-9._-' '_').log"
+
+    printf '== %s ==\n' "${name}"
+    rm -f "${file}"
+    if "$@" > "${log}" 2>&1 && [[ -f "${file}" ]] && grep -q "${needle}" "${file}"; then
+        record "${name}" "pass" "${log}" "matched ${needle} in ${file}"
+        printf 'PASS %s\n' "${name}"
+    else
+        record "${name}" "fail" "${log}" "missing ${needle} in ${file}"
+        printf 'FAIL %s (see %s)\n' "${name}" "${log}" >&2
+        return 1
+    fi
+}
+
 skip_step() {
     local name="$1"
     local detail="$2"
@@ -158,7 +181,8 @@ if [[ "${mode}" != "local" ]]; then
             -p emu198x-script-c64 \
             -p emu198x-script-nes \
             -p emu198x-script-amiga \
-            -p emu198x-script-game-boy
+            -p emu198x-script-game-boy \
+            -p emu198x-script-dragon
 
     run_step "current-runtime-lib-tests" \
         cargo test \
@@ -167,6 +191,7 @@ if [[ "${mode}" != "local" ]]; then
             -p runtime-nintendo-nes \
             -p runtime-commodore-amiga \
             -p runtime-nintendo-game-boy \
+            -p runtime-dragon \
             --lib
 fi
 
@@ -255,6 +280,91 @@ if [[ "${mode}" != "unit" ]]; then
                 mooneye_acceptance_gate_set_passes -- --ignored --exact
     else
         skip_step "game-boy-mooneye-gate" "missing mooneye root; set EMU198X_GB_MOONEYE_ROOT"
+    fi
+
+    dragon_rom="${EMU198X_DRAGON32_ROM:-}"
+    if [[ -z "${dragon_rom}" ]]; then
+        dragon_rom="$(first_existing_file \
+            "${HOME}/.emu198x/roms/dragon/dragon32.rom" \
+            "${reference_root}/dragon/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)(Dragon Data).zip" \
+            || true)"
+    fi
+
+    dragon_textstar_cas="${EMU198X_DRAGON_TEXTSTAR_CAS:-}"
+    if [[ -z "${dragon_textstar_cas}" ]]; then
+        dragon_textstar_cas="$(first_existing_file \
+            "${reference_root}/dragon/Dragon/Applications/[CAS]/Textstar (1982)(Personal Software Services).zip" \
+            || true)"
+    fi
+
+    dragon_cloadm_cas="${EMU198X_DRAGON_CLOADM_CAS:-}"
+    if [[ -z "${dragon_cloadm_cas}" ]]; then
+        dragon_cloadm_cas="$(first_existing_file \
+            "${reference_root}/dragon/Dragon/Games/[CAS]/Color Invaders (1982)(Microdeal).zip" \
+            "${reference_root}/dragon/Dragon/Games/[CAS]/Color Invaders (1982)(Microdeal)[a].zip" \
+            || true)"
+    fi
+
+    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" ]]; then
+        run_step "dragon-real-rom-runtime" \
+            env EMU198X_DRAGON32_ROM="${dragon_rom}" \
+            cargo test -p runtime-dragon --test golden_basic \
+                dragon32_real_rom_reaches_basic_prompt_and_captures_frame -- --exact
+    else
+        skip_step "dragon-real-rom-runtime" "missing Dragon 32 ROM; set EMU198X_DRAGON32_ROM"
+    fi
+
+    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_textstar_cas}" && -f "${dragon_textstar_cas}" ]]; then
+        run_step_expect_file "dragon-textstar-cload-run" \
+            "${out_dir}/dragon-textstar-smoke.json" \
+            '"classification": "started-text-drawing"' \
+            cargo run -q -p emu198x-script-dragon -- \
+                --rom "${dragon_rom}" \
+                --smoke-root "${dragon_textstar_cas}" \
+                --smoke-run-limit 1 \
+                --smoke-report "${out_dir}/dragon-textstar-smoke.json" \
+                --smoke-screenshot-dir "${out_dir}/dragon-textstar-screens" \
+                --smoke-screenshot-format xroar-zoomed
+    else
+        skip_step "dragon-textstar-cload-run" "missing Dragon ROM or Textstar CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_TEXTSTAR_CAS"
+    fi
+
+    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_cloadm_cas}" && -f "${dragon_cloadm_cas}" ]]; then
+        run_step_expect_file "dragon-cloadm-exec" \
+            "${out_dir}/dragon-cloadm-smoke.json" \
+            '"start_command": "EXEC"' \
+            cargo run -q -p emu198x-script-dragon -- \
+                --rom "${dragon_rom}" \
+                --smoke-root "${dragon_cloadm_cas}" \
+                --smoke-run-limit 1 \
+                --smoke-report "${out_dir}/dragon-cloadm-smoke.json" \
+                --smoke-screenshot-dir "${out_dir}/dragon-cloadm-screens" \
+                --smoke-screenshot-format xroar-zoomed
+    else
+        skip_step "dragon-cloadm-exec" "missing Dragon ROM or machine-code CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_CLOADM_CAS"
+    fi
+
+    xroar_bin="${EMU198X_XROAR_BIN:-}"
+    if [[ -z "${xroar_bin}" ]]; then
+        xroar_bin="$(first_existing_file \
+            "${repo_root}/../Emu198x-Unclean/xroar/src/xroar" \
+            || true)"
+    fi
+    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_textstar_cas}" && -f "${dragon_textstar_cas}" && -n "${xroar_bin}" && -x "${xroar_bin}" ]]; then
+        run_step_expect_file "dragon-xroar-textstar-reference" \
+            "${out_dir}/dragon-xroar-textstar-smoke.json" \
+            '"differing_pixels": 0' \
+            cargo run -q -p emu198x-script-dragon -- \
+                --rom "${dragon_rom}" \
+                --smoke-root "${dragon_textstar_cas}" \
+                --smoke-run-limit 1 \
+                --smoke-report "${out_dir}/dragon-xroar-textstar-smoke.json" \
+                --smoke-screenshot-dir "${out_dir}/dragon-xroar-textstar-screens" \
+                --smoke-screenshot-format xroar-zoomed \
+                --xroar-bin "${xroar_bin}" \
+                --xroar-reference-dir "${out_dir}/dragon-xroar-textstar-reference"
+    else
+        skip_step "dragon-xroar-textstar-reference" "missing Dragon ROM, Textstar CAS, or patched XRoar; set EMU198X_DRAGON32_ROM, EMU198X_DRAGON_TEXTSTAR_CAS, and EMU198X_XROAR_BIN"
     fi
 fi
 

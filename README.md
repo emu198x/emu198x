@@ -9,6 +9,8 @@ The current implementation focus is:
 - Commodore 64
 - Nintendo Entertainment System
 - Commodore Amiga (A500 OCS PAL baseline)
+- Nintendo Game Boy
+- Dragon 32
 
 This repository also contains older research and planning material from previous
 attempts. Treat the fresh Rust workspace as the implementation truth, and treat
@@ -28,7 +30,7 @@ stay incomplete rather than faking the missing behavior.
 
 ## Current Fresh-Workspace State
 
-As of April 15, 2026, the fresh Rust workspace currently provides:
+As of April 28, 2026, the fresh Rust workspace currently provides:
 
 - **Spectrum 48K**
   - real Z80 + ULA-driven machine loop
@@ -60,28 +62,49 @@ As of April 15, 2026, the fresh Rust workspace currently provides:
 
 - **Nintendo NES**
   - live 2A03/2C02/APU machine loop
-  - iNES cartridge loading with NROM mapper support
-  - headless runner, screenshots, mono audio capture, and scripted controller
-    input
-  - `nestest.nes` smoke coverage plus local headless ROM smokes for
-    `nestest.nes` and `Super Mario Bros.`
-  - native verifier UI and mapper coverage beyond NROM are still pending
+  - iNES cartridge loading with NROM, MMC1, UxROM, CNROM, MMC3, MMC5, AxROM,
+    Color Dreams, VRC2a, Action 53, BxROM, NINA-001, Sunsoft-4, and Camerica
+    mapper support
+  - native verifier UI, headless runner, screenshots, live audio/audio capture,
+    scripts, snapshots, keyboard/gamepad controller input, and local smoke
+    matrix reporting
+  - `nestest.nes`, Blargg-style `$6000` assertions, and local real-ROM smoke
+    coverage are used to steer mapper and timing work
 
 - **Commodore Amiga**
   - live A500 OCS PAL board loop over `motorola-68000`, Agnus, Denise, Paula,
     Gary, dual `8520` CIAs, keyboard, and DF0 floppy
-  - headless runner, screenshots, stereo audio capture, shared scripted
-    keyboard input, and queryable boot/disk state
-  - Kickstart 1.3 now reaches the real insert-disk screen in the fresh workspace
-  - DF0 accepts zipped/unzipped `ADF` media through the shared shell path
-  - native verifier UI, snapshots, and stronger software proofs are still
-    pending
+  - native verifier UI with shared `wgpu` video, keyboard/mouse input,
+    port-1 joystick/gamepad input, and live Paula audio
+  - headless runner, screenshots, audio capture, shared scripted keyboard
+    input, A1000 and A500-family profiles, queryable boot/disk state, and DF0
+    `ADF` media insertion
+  - Kickstart and Workbench paths now have local headless smoke coverage
+
+- **Nintendo Game Boy**
+  - live DMG-family CPU/PPU/APU machine loop
+  - native verifier UI using the shared `wgpu` video presenter with
+    `raw`/`lcd`/`crt` modes
+  - headless cartridge runner with screenshots, live audio/audio capture,
+    scripts, snapshots, keyboard/gamepad joypad input, and `.sav`
+    battery-RAM sidecars
+  - Blargg and mooneye-style verification gates are used for CPU/timing work
+
+- **Dragon 32**
+  - real Dragon 32 BASIC ROM boot over `motorola-6809`, dual MC6821 PIAs,
+    MC6883 SAM, and MC6847 VDG
+  - native verifier UI using the shared `wgpu` presenter, semantic keyboard
+    input, gamepad-to-keyboard controls, CAS media mounting, native
+    `--autoload`, and beam-updated MC6847 framebuffer
+  - headless CAS smoke harness that loads BASIC and machine-code tapes through
+    the real ROM `CLOAD`/`CLOADM` paths and can compare screenshots against a
+    patched XRoar reference
 
 Notably not claimed yet:
 
-- no fresh-workspace NES native verifier UI
-- no fresh-workspace Amiga native verifier UI
 - no fresh-workspace Amiga snapshot support
+- no Dragon audio, analogue joystick hardware, Dragon 64, cartridge, or disk
+  support
 - no claim that disk/tape/cartridge support exists unless the corresponding
   hardware path is actually modeled
 
@@ -115,6 +138,9 @@ Examples:
 - `--load demo.t64` for the current C64 runner is a host-side container import
   path that extracts the first loadable entry; it is not pulse-timed datasette
   playback.
+- `--tape game.cas` for the current Dragon runner mounts real CAS cassette
+  media; the ROM still performs the `CLOAD`/`CLOADM` load over the emulated
+  cassette input path.
 
 ## Building
 
@@ -270,6 +296,26 @@ cargo run -p emu198x-script-amiga -- \
   --screenshot amiga-workbench.png
 ```
 
+### Dragon 32 native verifier shell
+
+```bash
+cargo run -p emu198x-dragon -- \
+  --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --tape game.cas \
+  --autoload \
+  --video crt
+```
+
+### Dragon 32 headless smoke runner
+
+```bash
+cargo run -q -p emu198x-script-dragon -- \
+  --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --smoke-root '/path/to/Dragon/Applications/[CAS]' \
+  --smoke-run-limit 12 \
+  --smoke-report dragon-smoke.json
+```
+
 ## Verification Strategy
 
 This repo does not treat “boots one thing” as sufficient proof.
@@ -313,6 +359,10 @@ Current examples include:
   and `F1`; `Bomb Jack` now completes a multi-stage loader, reaches a readable
   title screen, and responds to joystick port-1 fire on the same live 1541
   path
+- Dragon ROM/runtime tests boot to BASIC, verify keyboard echo, mount real CAS
+  tapes, load Textstar with `CLOAD`/`RUN`, start machine-code CAS titles with
+  `CLOADM`/`EXEC`, and compare a 12-title application smoke set against patched
+  XRoar screenshots with 11/12 exact matches
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 

@@ -15,8 +15,9 @@ use emu198x_shell::{
     NativeGamepadInput, NullAudioSink, NullTraceSink, ResetKind, RunResult, read_firmware_asset,
     read_media_asset,
 };
+use emu198x_shell::{HeadlessSession, SessionError};
 use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
-use runtime_dragon::{DragonRuntime, Model};
+use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 use thiserror::Error;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -32,6 +33,9 @@ const DRAGON_FRAME_HZ: u64 = 50;
 const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
 const INPUT_SLICES_PER_FRAME: u32 = 4;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
+const AUTOLOAD_BOOT_FRAMES: u32 = 100;
+const AUTOLOAD_KEY_EDGE_FRAMES: u32 = 4;
+const AUTOLOAD_START_SETTLE_FRAMES: u32 = 60;
 const WINDOW_TITLE: &str = "Emu198x Dragon 32";
 const DRAGON_GAMEPAD_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Up, ButtonTarget::new(1, "up")),
@@ -50,6 +54,7 @@ Usage: emu198x-dragon [OPTIONS] --rom PATH
 Options:
     --rom PATH       Dragon 32 BASIC ROM, or zip containing one ROM/bin candidate
     --tape PATH      Dragon CAS tape image, or zip containing one .cas member
+    --autoload       type CLOAD/CLOADM, wait for load, then type RUN/EXEC
     --scale N        integer window scale, default 2
     --video MODE     raw | lcd | crt [default: crt]
     --help, -h       show this help
@@ -73,6 +78,7 @@ Controls:
 struct Cli {
     rom: Option<PathBuf>,
     tape: Option<PathBuf>,
+    autoload: bool,
     scale: u32,
     video: VideoFilter,
 }
@@ -82,6 +88,7 @@ impl Default for Cli {
         Self {
             rom: None,
             tape: None,
+            autoload: false,
             scale: DEFAULT_SCALE,
             video: VideoFilter::Crt,
         }
@@ -92,6 +99,9 @@ impl Default for Cli {
 enum AppError {
     #[error(transparent)]
     Machine(#[from] MachineError),
+
+    #[error(transparent)]
+    Session(#[from] SessionError),
 
     #[error(transparent)]
     Video(#[from] VideoPresenterError),
@@ -118,6 +128,12 @@ struct DragonRunner {
 
 impl DragonRunner {
     fn from_cli(cli: &Cli) -> Result<Self, AppError> {
+        if cli.autoload && cli.tape.is_none() {
+            return Err(AppError::Setup {
+                reason: "--autoload requires --tape PATH".to_owned(),
+            });
+        }
+
         let rom = cli.rom.as_ref().ok_or_else(|| AppError::Setup {
             reason: "provide --rom PATH".to_owned(),
         })?;
@@ -126,7 +142,12 @@ impl DragonRunner {
         })?;
         let mut firmware = FirmwareSet::new();
         firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
-        let mut runtime = DragonRuntime::from_firmware(Model::Dragon32Pal, &firmware)?;
+        let runtime = DragonRuntime::from_firmware(Model::Dragon32Pal, &firmware)?;
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            DRAGON_FRAME_CYCLES,
+            DragonSessionQueryProvider,
+        );
 
         if let Some(tape) = &cli.tape {
             let loaded =
@@ -135,8 +156,8 @@ impl DragonRunner {
                 })?;
             let mut media = MediaSet::new();
             media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
-            runtime.load_media(&media)?;
-            if let Some(summary) = runtime.tape_summary() {
+            session.load_media(&media)?;
+            if let Some(summary) = session.machine().tape_summary() {
                 let name = summary.header_name.as_deref().unwrap_or("<no header>");
                 println!(
                     "Loaded tape: {name}, {} CAS blocks, checksums {}",
@@ -150,6 +171,11 @@ impl DragonRunner {
             }
         }
 
+        if cli.autoload {
+            autoload_tape(&mut session)?;
+        }
+
+        let runtime = session.into_machine();
         let mut runner = Self {
             runtime,
             frame_capture: LatestFrameCapture::default(),
@@ -485,6 +511,7 @@ where
         match arg.as_str() {
             "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
+            "--autoload" => cli.autoload = true,
             "--scale" => {
                 cli.scale = next_arg(&mut iter, "--scale")
                     .parse()
@@ -511,6 +538,128 @@ where
     }
 
     cli
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DragonAutoloadKind {
+    Basic,
+    MachineCode,
+}
+
+impl DragonAutoloadKind {
+    fn load_command(self) -> &'static str {
+        match self {
+            Self::Basic => "CLOAD",
+            Self::MachineCode => "CLOADM",
+        }
+    }
+
+    fn start_command(self) -> &'static str {
+        match self {
+            Self::Basic => "RUN",
+            Self::MachineCode => "EXEC",
+        }
+    }
+}
+
+fn autoload_kind(runtime: &DragonRuntime) -> Result<DragonAutoloadKind, AppError> {
+    let summary = runtime.tape_summary().ok_or_else(|| AppError::Setup {
+        reason: "--autoload requires a mounted CAS tape".to_owned(),
+    })?;
+    match summary.header_file_type {
+        Some("basic") => Ok(DragonAutoloadKind::Basic),
+        Some("machine-code") => Ok(DragonAutoloadKind::MachineCode),
+        Some(file_type) => Err(AppError::Setup {
+            reason: format!("--autoload does not support Dragon CAS file type {file_type}"),
+        }),
+        None => Err(AppError::Setup {
+            reason: "--autoload requires a Dragon CAS namefile header".to_owned(),
+        }),
+    }
+}
+
+fn autoload_tape(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+) -> Result<(), AppError> {
+    let kind = autoload_kind(session.machine())?;
+    let boot = session.wait_for_boot(AUTOLOAD_BOOT_FRAMES)?;
+
+    println!("Autoload: typing {}", kind.load_command());
+    type_basic_command(session, kind.load_command())?;
+    wait_for_tape_position_above(session, 0, 180)?;
+    let load_wait_frames =
+        load_wait_frame_budget(session.machine().machine().cassette_len_bits() as u64);
+    wait_for_tape_load_stop(session, load_wait_frames)?;
+
+    println!("Autoload: typing {}", kind.start_command());
+    type_basic_command(session, kind.start_command())?;
+    session.run_frames(AUTOLOAD_START_SETTLE_FRAMES)?;
+    println!("Autoload complete after BASIC boot: {}", boot.reason);
+    Ok(())
+}
+
+fn load_wait_frame_budget(tape_length_bits: u64) -> u32 {
+    let scaled = tape_length_bits / 16;
+    u32::try_from(scaled.clamp(4_500, 20_000)).map_or(20_000, |frames| frames)
+}
+
+fn wait_for_tape_position_above(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    position_bits: usize,
+    max_frames: u32,
+) -> Result<(), AppError> {
+    for _ in 0..=max_frames {
+        if session.machine().machine().cassette_position_bits() > position_bits {
+            return Ok(());
+        }
+        session.run_frames(1)?;
+    }
+    Err(AppError::Setup {
+        reason: format!("Dragon autoload did not start consuming tape within {max_frames} frames"),
+    })
+}
+
+fn wait_for_tape_load_stop(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    max_frames: u32,
+) -> Result<(), AppError> {
+    for _ in 0..=max_frames {
+        let machine = session.machine().machine();
+        if !machine.cassette_motor_on() || machine.cassette_finished() {
+            return Ok(());
+        }
+        session.run_frames(1)?;
+    }
+    Err(AppError::Setup {
+        reason: format!("Dragon autoload did not finish loading within {max_frames} frames"),
+    })
+}
+
+fn type_basic_command(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    command: &str,
+) -> Result<(), AppError> {
+    for ch in command.chars() {
+        tap_key(session, &ch.to_ascii_lowercase().to_string())?;
+    }
+    tap_key(session, "enter")
+}
+
+fn tap_key(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    name: &str,
+) -> Result<(), AppError> {
+    session.queue_input(InputEvent::Key {
+        name: name.to_owned().into(),
+        pressed: true,
+    });
+    session.run_frames(AUTOLOAD_KEY_EDGE_FRAMES)?;
+    session.queue_input(InputEvent::Key {
+        name: name.to_owned().into(),
+        pressed: false,
+    });
+    session.run_frames(AUTOLOAD_KEY_EDGE_FRAMES)?;
+    Ok(())
 }
 
 fn next_arg<I>(iter: &mut I, flag: &str) -> String
@@ -696,6 +845,7 @@ fn map_dragon_physical_fallback(code: KeyCode) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use machine_dragon_32::DragonKey;
+    use std::env;
 
     use super::*;
 
@@ -714,6 +864,7 @@ mod tests {
             Cli {
                 rom: Some(PathBuf::from("dragon32.rom")),
                 tape: None,
+                autoload: false,
                 scale: 3,
                 video: VideoFilter::Raw,
             }
@@ -731,6 +882,60 @@ mod tests {
 
         assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
         assert_eq!(cli.tape, Some(PathBuf::from("program.cas")));
+        assert!(!cli.autoload);
+    }
+
+    #[test]
+    fn parse_cli_accepts_autoload_flag() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--tape".to_owned(),
+            "program.cas".to_owned(),
+            "--autoload".to_owned(),
+        ]);
+
+        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
+        assert_eq!(cli.tape, Some(PathBuf::from("program.cas")));
+        assert!(cli.autoload);
+    }
+
+    #[test]
+    fn autoload_kind_commands_match_dragon_basic() {
+        assert_eq!(DragonAutoloadKind::Basic.load_command(), "CLOAD");
+        assert_eq!(DragonAutoloadKind::Basic.start_command(), "RUN");
+        assert_eq!(DragonAutoloadKind::MachineCode.load_command(), "CLOADM");
+        assert_eq!(DragonAutoloadKind::MachineCode.start_command(), "EXEC");
+    }
+
+    #[test]
+    fn native_autoload_runs_real_textstar_when_available() {
+        let Some(rom) = dragon32_rom_path() else {
+            eprintln!("skipping native Dragon autoload smoke: missing Dragon 32 ROM");
+            return;
+        };
+        let Some(tape) = dragon_textstar_cas_path() else {
+            eprintln!("skipping native Dragon autoload smoke: missing Textstar CAS");
+            return;
+        };
+
+        let runner = DragonRunner::from_cli(&Cli {
+            rom: Some(rom),
+            tape: Some(tape),
+            autoload: true,
+            scale: DEFAULT_SCALE,
+            video: VideoFilter::Crt,
+        })
+        .expect("native Dragon autoload should run Textstar");
+
+        assert!(
+            runner.runtime.machine().cassette_position_bits() > 0,
+            "autoload should have consumed tape data"
+        );
+        assert!(
+            runner.frame().is_some(),
+            "autoloaded native runner should have a captured frame"
+        );
     }
 
     #[test]
@@ -918,5 +1123,34 @@ mod tests {
 
     fn named(key: NamedKey, code: KeyCode) -> (Key, PhysicalKey) {
         (Key::Named(key), PhysicalKey::Code(code))
+    }
+
+    fn dragon32_rom_path() -> Option<PathBuf> {
+        if let Ok(path) = env::var("EMU198X_DRAGON32_ROM") {
+            return existing_file(path);
+        }
+        existing_file(home_path(".emu198x/roms/dragon/dragon32.rom")?).or_else(|| {
+            existing_file(
+                home_path("Projects/Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)(Dragon Data).zip")?,
+            )
+        })
+    }
+
+    fn dragon_textstar_cas_path() -> Option<PathBuf> {
+        if let Ok(path) = env::var("EMU198X_DRAGON_TEXTSTAR_CAS") {
+            return existing_file(path);
+        }
+        existing_file(home_path(
+            "Projects/Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Applications/[CAS]/Textstar (1982)(Personal Software Services).zip",
+        )?)
+    }
+
+    fn home_path(relative: &str) -> Option<PathBuf> {
+        Some(PathBuf::from(env::var("HOME").ok()?).join(relative))
+    }
+
+    fn existing_file(path: impl Into<PathBuf>) -> Option<PathBuf> {
+        let path = path.into();
+        path.is_file().then_some(path)
     }
 }

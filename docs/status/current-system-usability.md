@@ -1,6 +1,6 @@
 # Current System Usability Matrix
 
-Status as of 2026-04-25. This page is deliberately practical: it records how a
+Status as of 2026-04-28. This page is deliberately practical: it records how a
 developer can launch each current system today, what a user can reasonably do
 with it, and the shortest path to making it comfortable to use.
 
@@ -13,6 +13,7 @@ with it, and the shortest path to making it comfortable to use.
 | Nintendo NES | `emu198x-nes`, `emu198x-script-nes` | Native verifier window with shared `wgpu` video and `raw`/`lcd`/`crt` modes plus headless cartridge runner with screenshots, live audio/audio capture, keyboard/gamepad controller input, scripts, snapshots, local smoke-matrix reporting, Blargg-style `$6000` test ROM assertions, and NROM/MMC1/UxROM/CNROM/MMC3/MMC5/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica mapper support. | Use the smoke matrix and automated Blargg assertions to choose the next mapper or accuracy target; MMC5 now has memory mapping, expansion audio, and scanline IRQ coverage, but more hardware-test comparison would still be useful. |
 | Commodore Amiga | `emu198x-amiga`, `emu198x-script-amiga` | Native OCS verifier window with shared `wgpu` video with `raw`/`lcd`/`crt` modes, keyboard/mouse input, port-1 joystick/gamepad input, and live Paula audio, plus headless Kickstart/Workbench runner with A1000 and A500-family profiles, DF0 `ADF`, screenshots, audio capture, and scripted input. | Broaden game/application software validation. |
 | Nintendo Game Boy | `emu198x-game-boy`, `emu198x-script-game-boy` | Native DMG-family verifier window using the shared `wgpu` video presenter with `raw`/`lcd`/`crt` modes, plus headless cartridge runner with screenshots, live audio/audio capture, keyboard/gamepad joypad input, scripts, snapshots, and `.sav` battery-RAM sidecars. | Tune LCD presentation against hardware references and broaden real-game smoke coverage. |
+| Dragon 32 | `emu198x-dragon`, `emu198x-script-dragon` | Early native verifier window with shared `wgpu` video, real Dragon 32 BASIC ROM boot, semantic keyboard input, CAS media mounting, native `--autoload` over ROM-level `CLOAD`/`CLOADM`, beam-updated MC6847 framebuffer, and optional patched-XRoar screenshot comparisons. | Add Dragon audio, then analogue joystick hardware. |
 
 ## Launch Commands
 
@@ -55,6 +56,14 @@ cargo run --release -p emu198x-script-game-boy -- --rom game.gb --frames 300 --s
 cargo run --release -p emu198x-game-boy -- game.gb
 ```
 
+```sh
+cargo run --release -p emu198x-dragon -- --rom ~/.emu198x/roms/dragon/dragon32.rom --tape game.cas --autoload --video crt
+```
+
+```sh
+cargo run --release -q -p emu198x-script-dragon -- --rom ~/.emu198x/roms/dragon/dragon32.rom --smoke-root '/path/to/Dragon/Applications/[CAS]' --smoke-run-limit 12 --smoke-report dragon-smoke.json
+```
+
 ## Immediate Product Track
 
 The fastest route to "I can actually use every emulator" is:
@@ -65,8 +74,8 @@ The fastest route to "I can actually use every emulator" is:
 scripts/verify-current-systems.sh
 ```
 
-2. Keep Spectrum and C64 as the first interactive shells and remove obvious launch friction.
-3. Keep the new Game Boy and NES native verifier windows honest with real-ROM smoke runs before expanding their hardware scope.
+2. Keep Spectrum and C64 as the most polished interactive shells and remove obvious launch friction.
+3. Keep the Game Boy, NES, and Dragon native verifier windows honest with real-ROM smoke runs before expanding their hardware scope.
 4. Broaden Amiga software validation now that the native shell has mouse, joystick, and live audio.
 5. Tune the first shared `wgpu` filter presets against hardware references: LCD for Game Boy, CRT for the TV/monitor systems.
 
@@ -80,7 +89,7 @@ Every row above should eventually have:
 - explicit notes for required ROMs/media that cannot be checked into the repository
 
 `scripts/verify-current-systems.sh` is the shared entry point for that rule. It
-always runs in-repository unit/integration checks for the five current systems,
+currently runs in-repository unit/integration checks for the current systems,
 then conditionally runs local ROM/media smoke checks when the configured assets
 exist. Missing local assets are recorded as `skip`, not `fail`, so the same
 command is useful on fresh machines and on the full reference workstation.
