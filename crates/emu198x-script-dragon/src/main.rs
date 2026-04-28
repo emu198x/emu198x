@@ -1866,29 +1866,40 @@ fn capture_xroar_snapshot_reference(
     stem: &Path,
 ) -> Result<XroarReferenceCapture, String> {
     let rom_path = write_temp_bytes("rom", "rom", rom)?;
-    let xroar_snapshot = xroar_v1_snapshot_bytes(snapshot);
-    let snapshot_path = write_temp_bytes("snapshot", "sn", &xroar_snapshot)?;
+    let template_path = write_temp_path("snapshot-template", "sna")?;
+    let template_result = run_xroar_snapshot_template_command(config, &rom_path, &template_path)
+        .and_then(|()| {
+            fs::read(&template_path)
+                .map_err(|err| format!("failed to read {}: {err}", template_path.display()))
+        });
+    let snapshot_path = template_result
+        .and_then(|template| xroar_v2_snapshot_bytes(&template, snapshot))
+        .and_then(|bytes| write_temp_bytes("snapshot", "sna", &bytes));
     let output_path = stem.with_extension("xroar.png");
     let trap_condition = xroar_snapshot_trap_condition(snapshot);
-    let result = run_xroar_snapshot_reference_command(
-        config,
-        &rom_path,
-        &snapshot_path,
-        &trap_condition,
-        &output_path,
-    )
-    .and_then(|path| {
-        let comparison = comparison_screenshot
-            .map(|screenshot| compare_png_files(screenshot, &path))
-            .transpose()?;
-        Ok(XroarReferenceCapture {
-            path,
-            motoroff: 0,
-            comparison,
-        })
+    let result = snapshot_path.and_then(|snapshot_path| {
+        let result = run_xroar_snapshot_reference_command(
+            config,
+            &rom_path,
+            &snapshot_path,
+            &trap_condition,
+            &output_path,
+        )
+        .and_then(|path| {
+            let comparison = comparison_screenshot
+                .map(|screenshot| compare_png_files(screenshot, &path))
+                .transpose()?;
+            Ok(XroarReferenceCapture {
+                path,
+                motoroff: 0,
+                comparison,
+            })
+        });
+        let _ = fs::remove_file(&snapshot_path);
+        result
     });
     let _ = fs::remove_file(&rom_path);
-    let _ = fs::remove_file(&snapshot_path);
+    let _ = fs::remove_file(&template_path);
     result
 }
 
@@ -2005,6 +2016,52 @@ fn run_xroar_snapshot_reference_command(
     Ok(output_path.to_owned())
 }
 
+fn run_xroar_snapshot_template_command(
+    config: &XroarReferenceConfig,
+    rom_path: &Path,
+    output_path: &Path,
+) -> Result<(), String> {
+    let _ = fs::remove_file(output_path);
+
+    let output = Command::new(&config.bin)
+        .arg("-ui")
+        .arg("null")
+        .arg("-ao")
+        .arg("null")
+        .arg("-no-ratelimit")
+        .arg("-machine")
+        .arg("dragon32")
+        .arg("-extbas")
+        .arg(rom_path)
+        .arg("-trap")
+        .arg("immediate")
+        .arg("-trap-snap")
+        .arg(output_path)
+        .arg("-trap-timeout")
+        .arg("0.01")
+        .arg("-timeout")
+        .arg(format_seconds(config.timeout_seconds))
+        .arg("-q")
+        .output()
+        .map_err(|err| format!("failed to run {}: {err}", config.bin.display()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "XRoar exited with status {} while creating v2 snapshot template: {}",
+            output.status,
+            stderr.trim()
+        ));
+    }
+    if !output_path.is_file() {
+        return Err(format!(
+            "XRoar did not write v2 snapshot template {}",
+            output_path.display()
+        ));
+    }
+    Ok(())
+}
+
 fn xroar_snapshot_trap_condition(snapshot: &PcDragonSnapshot) -> String {
     format!("pc=0x{:04x}", snapshot.registers.pc)
 }
@@ -2077,6 +2134,12 @@ fn run_xroar_reference_command(
 }
 
 fn write_temp_bytes(kind: &str, extension: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    let path = write_temp_path(kind, extension)?;
+    fs::write(&path, bytes).map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    Ok(path)
+}
+
+fn write_temp_path(kind: &str, extension: &str) -> Result<PathBuf, String> {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|err| format!("system clock was before UNIX epoch: {err}"))?
@@ -2085,10 +2148,518 @@ fn write_temp_bytes(kind: &str, extension: &str, bytes: &[u8]) -> Result<PathBuf
         "emu198x-xroar-{}-{unique}-{kind}.{extension}",
         process::id()
     ));
-    fs::write(&path, bytes).map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     Ok(path)
 }
 
+fn xroar_v2_snapshot_bytes(
+    template: &[u8],
+    snapshot: &PcDragonSnapshot,
+) -> Result<Vec<u8>, String> {
+    let mut bytes = template.to_vec();
+    let ram = xroar_snapshot_ram(snapshot);
+    patch_xroar_v2_ram(&mut bytes, &ram)?;
+    patch_xroar_v2_pias(&mut bytes, snapshot)?;
+    patch_xroar_v2_vdg(&mut bytes, snapshot)?;
+    patch_xroar_v2_cpu(&mut bytes, snapshot)?;
+    patch_xroar_v2_sam(&mut bytes, snapshot)?;
+    Ok(bytes)
+}
+
+fn patch_xroar_v2_ram(bytes: &mut [u8], ram: &[u8]) -> Result<(), String> {
+    let range = xroar_v2_component_range(bytes, b"RAM", Some(b"VDG"))?;
+    let bank = xroar_v2_find_tag_payload(bytes, range.start, range.end, 7)
+        .ok_or_else(|| "XRoar v2 RAM bank tag not found".to_owned())?;
+    let data = xroar_v2_find_tag_payload(bytes, bank.payload_start, range.end, 1)
+        .ok_or_else(|| "XRoar v2 RAM payload tag not found".to_owned())?;
+    if data.payload_end - data.payload_start != ram.len() {
+        return Err(format!(
+            "XRoar v2 RAM payload size mismatch: template has {}, snapshot has {}",
+            data.payload_end - data.payload_start,
+            ram.len()
+        ));
+    }
+    bytes[data.payload_start..data.payload_end].copy_from_slice(ram);
+    Ok(())
+}
+
+fn patch_xroar_v2_pias(bytes: &mut Vec<u8>, snapshot: &PcDragonSnapshot) -> Result<(), String> {
+    let peripherals = snapshot.peripherals.unwrap_or(PcDragonPeripherals {
+        ff02: 0,
+        ff03: 0,
+        ff22: 0,
+    });
+
+    patch_xroar_v2_pia(
+        bytes,
+        b"PIA0",
+        Some(b"CPU"),
+        XroarV2PiaPortB {
+            control: peripherals.ff03,
+            ddr: 0xff,
+            output: peripherals.ff02,
+            irq1: peripherals.ff03 & 0x80,
+            irq2: peripherals.ff03 & 0x40,
+        },
+    )?;
+    patch_xroar_v2_pia(
+        bytes,
+        b"PIA1",
+        Some(b"PIA0"),
+        XroarV2PiaPortB {
+            control: 0x04,
+            ddr: 0xff,
+            output: peripherals.ff22,
+            irq1: 0,
+            irq2: 0,
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+struct XroarV2PiaPortB {
+    control: u8,
+    ddr: u8,
+    output: u8,
+    irq1: u8,
+    irq2: u8,
+}
+
+fn patch_xroar_v2_pia(
+    bytes: &mut Vec<u8>,
+    component: &[u8],
+    next_component: Option<&[u8]>,
+    port_b: XroarV2PiaPortB,
+) -> Result<(), String> {
+    let range = xroar_v2_component_range(bytes, component, next_component)?;
+    let side_b = xroar_v2_find_side_b(bytes, range.start, range.end).ok_or_else(|| {
+        format!(
+            "XRoar v2 {} port B tag not found",
+            String::from_utf8_lossy(component)
+        )
+    })? + 2;
+    let mut side_end = range.end;
+    let out_source = port_b.output & port_b.ddr;
+    let out_sink = port_b.output | !port_b.ddr;
+    let irq = xroar_v2_pia_irq(port_b.control, port_b.irq1, port_b.irq2);
+
+    patch_xroar_v2_vuint_field_in_range(
+        bytes,
+        side_b,
+        &mut side_end,
+        1,
+        u32::from(port_b.control & 0x3f),
+    )?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 2, u32::from(port_b.ddr))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 3, u32::from(port_b.output))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 5, u32::from(port_b.irq1))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 13, u32::from(port_b.irq2))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 6, u32::from(irq))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 8, u32::from(out_source))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 9, u32::from(out_sink))?;
+    Ok(())
+}
+
+fn xroar_v2_pia_irq(control: u8, irq1: u8, irq2: u8) -> u8 {
+    let irq1_active = if control & 0x01 != 0 { irq1 } else { 0 };
+    let irq2_active = if control & 0x28 == 0x08 { irq2 } else { 0 };
+    irq1_active | irq2_active
+}
+
+fn patch_xroar_v2_vdg(bytes: &mut Vec<u8>, snapshot: &PcDragonSnapshot) -> Result<(), String> {
+    const VDG_GREEN: u32 = 0;
+    const VDG_WHITE: u32 = 4;
+    const VDG_BLACK: u32 = 8;
+    const VDG_DARK_GREEN: u32 = 9;
+    const VDG_RENDER_CG: u32 = 1;
+    const VDG_RENDER_RG: u32 = 2;
+    const VDG_TLB: u32 = 120;
+    const VDG_TRB: u32 = 112;
+    const VDG_LEFT_BORDER_START: u32 = 134;
+    const VDG_HS_FALL_DELTA: u32 = 902;
+    const GM_NLPR: [u32; 8] = [3, 3, 3, 2, 2, 1, 1, 1];
+
+    let range = xroar_v2_component_range(bytes, b"VDG", Some(b"PIA1"))?;
+    let start = find_bytes_from_until(bytes, b"MC6847", range.start, range.end)
+        .map(|offset| offset + b"MC6847".len())
+        .ok_or_else(|| "XRoar v2 VDG part payload not found".to_owned())?;
+    let mut end = range.end;
+    let mode = snapshot
+        .peripherals
+        .map(|peripherals| peripherals.ff22 & 0xf8)
+        .unwrap_or(0);
+    let gm = u32::from((mode >> 4) & 0x07);
+    let gm0 = gm & 1;
+    let css = u32::from(mode & 0x08 != 0);
+    let graphics = u32::from(mode & 0x80 != 0);
+    let is_32byte = u32::from(graphics == 0 || !(gm == 0 || (gm0 != 0 && gm != 7)));
+    let cg_colours = if css != 0 { VDG_WHITE } else { VDG_GREEN };
+    let fg_colour = if css != 0 { VDG_WHITE } else { VDG_GREEN };
+    let bg_colour = if css != 0 { VDG_BLACK } else { VDG_DARK_GREEN };
+    let render_mode = if gm0 != 0 {
+        VDG_RENDER_RG
+    } else {
+        VDG_RENDER_CG
+    };
+
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 6, gm)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 8, graphics)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 10, css)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 11, css)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 12, css)?;
+    upsert_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 14, VDG_HS_FALL_DELTA)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 16, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 17, VDG_LEFT_BORDER_START)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 18, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 21, is_32byte)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 22, gm0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 25, fg_colour)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 26, bg_colour)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 27, cg_colours)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 28, cg_colours)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 30, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 31, render_mode)?;
+    patch_xroar_v2_vuint_field_in_range(
+        bytes,
+        start,
+        &mut end,
+        33,
+        u32::from(!(graphics != 0 && css != 0 && gm0 != 0)),
+    )?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 35, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 36, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 37, VDG_TLB)?;
+    patch_xroar_v2_vuint_field_in_range(
+        bytes,
+        start,
+        &mut end,
+        38,
+        if is_32byte != 0 { 32 } else { 16 },
+    )?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 39, VDG_TRB)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 40, GM_NLPR[gm as usize])
+}
+
+fn patch_xroar_v2_cpu(bytes: &mut Vec<u8>, snapshot: &PcDragonSnapshot) -> Result<(), String> {
+    let range = xroar_v2_component_range(bytes, b"CPU", Some(b"SAM"))?;
+    let start = find_bytes_from_until(bytes, b"MC6809", range.start, range.end)
+        .map(|offset| offset + b"MC6809".len())
+        .ok_or_else(|| "XRoar v2 CPU part payload not found".to_owned())?;
+    let mut end = range.end;
+    let registers = &snapshot.registers;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 1, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 2, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 3, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 4, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 5, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 6, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 7, 1)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 8, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 9, u32::from(registers.cc))?;
+    patch_xroar_v2_vuint_field_in_range(
+        bytes,
+        start,
+        &mut end,
+        10,
+        u32::from(u16::from_be_bytes([registers.a, registers.b])),
+    )?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 11, u32::from(registers.dp))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 12, u32::from(registers.x))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 13, u32::from(registers.y))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 14, u32::from(registers.u))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 15, u32::from(registers.s))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 16, u32::from(registers.pc))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 17, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 18, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 19, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 20, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 21, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 22, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 23, 0)
+}
+
+fn patch_xroar_v2_sam(bytes: &mut Vec<u8>, snapshot: &PcDragonSnapshot) -> Result<(), String> {
+    let range = xroar_v2_component_range(bytes, b"SAM", None)?;
+    let start = find_bytes_from_until(bytes, b"SN74LS783", range.start, range.end)
+        .map(|offset| offset + b"SN74LS783".len())
+        .ok_or_else(|| "XRoar v2 SAM part payload not found".to_owned())?;
+    let mut end = range.end;
+    let sam = u16::from_be_bytes(xroar_snapshot_sam(snapshot));
+    upsert_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 5, u32::from(sam))?;
+    let v = u32::from(sam & 0x0007);
+    let f = u32::from((sam << 6) & 0xfe00);
+    let p = u32::from((sam >> 10) & 0x0001);
+    let r = u32::from((sam >> 11) & 0x0003);
+    let m = u32::from((sam >> 13) & 0x0003);
+    let ty = u32::from((sam >> 15) & 0x0001);
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 6, ty)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 13, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 14, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 15, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 16, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 17, v)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 18, f)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 19, xroar_v2_sam_clr_mode(v))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 28, p)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 29, r)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 30, m)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 36, v)?;
+    patch_xroar_v2_sam_vcounters(bytes, start, end, f >> 5)
+}
+
+fn patch_xroar_v2_sam_vcounters(
+    bytes: &mut Vec<u8>,
+    start: usize,
+    end: usize,
+    b15_5: u32,
+) -> Result<(), String> {
+    for tag in 20..=27 {
+        let value = if tag == 20 { b15_5 } else { 0 };
+        patch_xroar_v2_sam_vcounter(bytes, start, end, tag, value)?;
+    }
+    Ok(())
+}
+
+fn patch_xroar_v2_sam_vcounter(
+    bytes: &mut Vec<u8>,
+    start: usize,
+    component_end: usize,
+    tag: u32,
+    value: u32,
+) -> Result<(), String> {
+    let vcounter = xroar_v2_find_tag_payload(bytes, start, component_end, tag)
+        .ok_or_else(|| format!("XRoar v2 SAM video counter {tag} not found"))?;
+    let mut end = xroar_v2_find_tag_payload(bytes, vcounter.payload_end, component_end, tag + 1)
+        .map_or(component_end, |next| next.tag_start);
+    patch_xroar_v2_vuint_field_in_range(bytes, vcounter.payload_end, &mut end, 1, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, vcounter.payload_end, &mut end, 2, value)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, vcounter.payload_end, &mut end, 3, 0)
+}
+
+fn xroar_v2_sam_clr_mode(video_mode: u32) -> u32 {
+    const CLR_N: u32 = 0;
+    const CLR_3: u32 = 1;
+    const CLR_4: u32 = 2;
+    match video_mode {
+        1 | 3 | 5 => CLR_3,
+        7 => CLR_N,
+        _ => CLR_4,
+    }
+}
+
+fn patch_xroar_v2_vuint_field_in_range(
+    bytes: &mut Vec<u8>,
+    start: usize,
+    end: &mut usize,
+    tag: u32,
+    value: u32,
+) -> Result<(), String> {
+    let delta = patch_xroar_v2_vuint_field(bytes, start, *end, tag, value)?;
+    if delta.is_negative() {
+        *end = end
+            .checked_sub(delta.unsigned_abs())
+            .ok_or_else(|| "XRoar v2 component range underflowed while patching".to_owned())?;
+    } else {
+        *end = end
+            .checked_add(delta as usize)
+            .ok_or_else(|| "XRoar v2 component range overflowed while patching".to_owned())?;
+    }
+    Ok(())
+}
+
+fn upsert_xroar_v2_vuint_field_in_range(
+    bytes: &mut Vec<u8>,
+    start: usize,
+    end: &mut usize,
+    tag: u32,
+    value: u32,
+) -> Result<(), String> {
+    if xroar_v2_find_tag_payload(bytes, start, *end, tag).is_some() {
+        patch_xroar_v2_vuint_field_in_range(bytes, start, end, tag, value)
+    } else {
+        let delta = insert_xroar_v2_vuint_field(bytes, start, tag, value);
+        *end = end
+            .checked_add(delta)
+            .ok_or_else(|| "XRoar v2 component range overflowed while inserting".to_owned())?;
+        Ok(())
+    }
+}
+
+fn insert_xroar_v2_vuint_field(bytes: &mut Vec<u8>, offset: usize, tag: u32, value: u32) -> usize {
+    let mut field = xroar_v2_vuint(tag);
+    field.extend_from_slice(&xroar_v2_vuint(xroar_v2_vuint(value).len() as u32));
+    field.extend_from_slice(&xroar_v2_vuint(value));
+    field.push(0);
+    let len = field.len();
+    bytes.splice(offset..offset, field);
+    len
+}
+
+fn patch_xroar_v2_vuint_field(
+    bytes: &mut Vec<u8>,
+    start: usize,
+    end: usize,
+    tag: u32,
+    value: u32,
+) -> Result<isize, String> {
+    let field = xroar_v2_find_tag_payload(bytes, start, end, tag)
+        .ok_or_else(|| format!("XRoar v2 tag {tag} not found"))?;
+    let original_len = field.payload_end - field.tag_start;
+    let mut replacement = xroar_v2_vuint(tag);
+    replacement.extend_from_slice(&xroar_v2_vuint(xroar_v2_vuint(value).len() as u32));
+    replacement.extend_from_slice(&xroar_v2_vuint(value));
+    let replacement_len = replacement.len();
+    bytes.splice(field.tag_start..field.payload_end, replacement);
+    Ok(replacement_len as isize - original_len as isize)
+}
+
+#[derive(Clone, Copy)]
+struct XroarV2Field {
+    tag_start: usize,
+    payload_start: usize,
+    payload_end: usize,
+}
+
+fn xroar_v2_find_tag_payload(
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+    expected_tag: u32,
+) -> Option<XroarV2Field> {
+    let mut offset = start;
+    while offset < end {
+        if bytes[offset] == 0 {
+            offset += 1;
+            continue;
+        }
+        let tag_start = offset;
+        let (tag, next) = xroar_v2_read_vuint(bytes, offset)?;
+        offset = next;
+        let (len, next) = xroar_v2_read_vuint(bytes, offset)?;
+        offset = next;
+        let len = usize::try_from(len).ok()?;
+        let payload_end = offset.checked_add(len)?;
+        if payload_end > end || payload_end > bytes.len() {
+            return None;
+        }
+        if tag == expected_tag {
+            return Some(XroarV2Field {
+                tag_start,
+                payload_start: offset,
+                payload_end,
+            });
+        }
+        offset = payload_end;
+    }
+    None
+}
+
+fn xroar_v2_read_vuint(bytes: &[u8], start: usize) -> Option<(u32, usize)> {
+    let mut offset = start;
+    let byte0 = *bytes.get(offset)?;
+    offset += 1;
+    let mut value = u32::from(byte0);
+    let mut mask = 0x7f;
+    let mut marker = byte0;
+    for _ in 1..5 {
+        if marker & 0x80 == 0 {
+            break;
+        }
+        marker <<= 1;
+        let byte = *bytes.get(offset)?;
+        offset += 1;
+        mask = (mask << 7) | 0x7f;
+        value = (value << 8) | u32::from(byte);
+    }
+    Some((value & mask, offset))
+}
+
+fn xroar_v2_vuint(value: u32) -> Vec<u8> {
+    if value <= 0x7f {
+        vec![value as u8]
+    } else if value <= 0x3fff {
+        ((value | 0x8000) as u16).to_be_bytes().to_vec()
+    } else if value <= 0x1f_ffff {
+        let mut bytes = Vec::with_capacity(3);
+        bytes.push(0xc0 | ((value >> 16) as u8));
+        bytes.extend_from_slice(&(value as u16).to_be_bytes());
+        bytes
+    } else if value <= 0x0fff_ffff {
+        let mut bytes = Vec::with_capacity(4);
+        bytes.extend_from_slice(&((0xe000 | (value >> 16)) as u16).to_be_bytes());
+        bytes.extend_from_slice(&(value as u16).to_be_bytes());
+        bytes
+    } else {
+        let mut bytes = Vec::with_capacity(5);
+        bytes.push(0xf0);
+        bytes.extend_from_slice(&((value >> 16) as u16).to_be_bytes());
+        bytes.extend_from_slice(&(value as u16).to_be_bytes());
+        bytes
+    }
+}
+
+fn xroar_v2_component_range(
+    bytes: &[u8],
+    component: &[u8],
+    next_component: Option<&[u8]>,
+) -> Result<std::ops::Range<usize>, String> {
+    let marker = xroar_v2_component_marker(component);
+    let start = find_bytes(bytes, &marker).ok_or_else(|| {
+        format!(
+            "XRoar v2 component {} not found",
+            String::from_utf8_lossy(component)
+        )
+    })?;
+    let end = match next_component {
+        Some(next) => {
+            let next_marker = xroar_v2_component_marker(next);
+            find_bytes_from(bytes, &next_marker, start + marker.len()).ok_or_else(|| {
+                format!(
+                    "XRoar v2 component {} terminator {} not found",
+                    String::from_utf8_lossy(component),
+                    String::from_utf8_lossy(next)
+                )
+            })?
+        }
+        None => bytes.len(),
+    };
+    Ok(start..end)
+}
+
+fn xroar_v2_component_marker(component: &[u8]) -> Vec<u8> {
+    let mut marker = xroar_v2_vuint(1);
+    marker.extend_from_slice(&xroar_v2_vuint(component.len() as u32));
+    marker.extend_from_slice(component);
+    marker
+}
+
+fn xroar_v2_find_side_b(bytes: &[u8], start: usize, end: usize) -> Option<usize> {
+    find_bytes_from_until(bytes, &[2, 0], start, end)
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    find_bytes_from(haystack, needle, 0)
+}
+
+fn find_bytes_from(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
+    find_bytes_from_until(haystack, needle, start, haystack.len())
+}
+
+fn find_bytes_from_until(
+    haystack: &[u8],
+    needle: &[u8],
+    start: usize,
+    end: usize,
+) -> Option<usize> {
+    if needle.is_empty() || start >= end || end > haystack.len() {
+        return None;
+    }
+    haystack[start..end]
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|offset| start + offset)
+}
+
+#[cfg(test)]
 fn xroar_v1_snapshot_bytes(snapshot: &PcDragonSnapshot) -> Vec<u8> {
     const ID_RAM_PAGE0: u8 = 1;
     const ID_PIA_REGISTERS: u8 = 2;
@@ -2108,6 +2679,7 @@ fn xroar_v1_snapshot_bytes(snapshot: &PcDragonSnapshot) -> Vec<u8> {
     bytes
 }
 
+#[cfg(test)]
 fn push_xroar_v1_chunk(bytes: &mut Vec<u8>, section: u8, payload: &[u8]) {
     bytes.push(section);
     push_be_u16(bytes, payload.len() as u16);
@@ -2124,6 +2696,7 @@ fn xroar_snapshot_ram(snapshot: &PcDragonSnapshot) -> Vec<u8> {
     ram
 }
 
+#[cfg(test)]
 fn xroar_snapshot_pias(snapshot: &PcDragonSnapshot) -> [u8; 12] {
     let peripherals = snapshot.peripherals.unwrap_or(PcDragonPeripherals {
         ff02: 0,
@@ -2153,14 +2726,33 @@ fn xroar_snapshot_sam(snapshot: &PcDragonSnapshot) -> [u8; 2] {
         .display_base
         .map(|base| (base >> 6) & 0x03f8)
         .unwrap_or(0);
-    let video_mode = snapshot
-        .peripherals
-        .map(|peripherals| (u16::from(peripherals.ff22) >> 4) & 0x0007)
-        .unwrap_or(0);
+    let video_mode = xroar_snapshot_sam_video_mode(
+        snapshot
+            .peripherals
+            .map(|peripherals| peripherals.ff22 & 0xf8)
+            .unwrap_or(0),
+    );
     let register = DRAGON32_MEMORY_SIZE_BITS | display_register | video_mode;
     register.to_be_bytes()
 }
 
+fn xroar_snapshot_sam_video_mode(vdg_mode: u8) -> u16 {
+    if vdg_mode & 0x80 == 0 {
+        return 0;
+    }
+
+    match (vdg_mode >> 4) & 0x07 {
+        0 | 1 => 1,
+        2 => 2,
+        3 => 3,
+        4 => 4,
+        5 => 5,
+        6 | 7 => 6,
+        _ => unreachable!("masked VDG GM bits are always 0..=7"),
+    }
+}
+
+#[cfg(test)]
 fn xroar_snapshot_cpu(snapshot: &PcDragonSnapshot) -> Vec<u8> {
     let mut cpu = Vec::with_capacity(20);
     cpu.push(snapshot.registers.cc);
@@ -2176,6 +2768,7 @@ fn xroar_snapshot_cpu(snapshot: &PcDragonSnapshot) -> Vec<u8> {
     cpu
 }
 
+#[cfg(test)]
 fn push_be_u16(bytes: &mut Vec<u8>, value: u16) {
     bytes.extend_from_slice(&value.to_be_bytes());
 }
@@ -3238,7 +3831,7 @@ mod tests {
         let bytes = xroar_v1_snapshot_bytes(&snapshot);
 
         assert!(bytes.starts_with(b"XRoar snapshot.\n\0"));
-        assert_eq!(xroar_v1_chunk(&bytes, 3), Some(&[0x40, 0x1f][..]));
+        assert_eq!(xroar_v1_chunk(&bytes, 3), Some(&[0x40, 0x1e][..]));
         assert_eq!(
             xroar_v1_chunk(&bytes, 4).map(|chunk| &chunk[..14]),
             Some(
@@ -3251,6 +3844,65 @@ mod tests {
         let ram = xroar_v1_chunk(&bytes, 1).expect("RAM chunk should exist");
         assert_eq!(ram[0x2000], 0xaa);
         assert_eq!(ram[0x2001], 0xbb);
+    }
+
+    #[test]
+    fn xroar_sam_video_mode_uses_sam_counter_modes_not_vdg_gm_bits() {
+        assert_eq!(xroar_snapshot_sam_video_mode(0x00), 0);
+        assert_eq!(xroar_snapshot_sam_video_mode(0x80), 1);
+        assert_eq!(xroar_snapshot_sam_video_mode(0x90), 1);
+        assert_eq!(xroar_snapshot_sam_video_mode(0xa0), 2);
+        assert_eq!(xroar_snapshot_sam_video_mode(0xb0), 3);
+        assert_eq!(xroar_snapshot_sam_video_mode(0xc0), 4);
+        assert_eq!(xroar_snapshot_sam_video_mode(0xd0), 5);
+        assert_eq!(xroar_snapshot_sam_video_mode(0xe0), 6);
+        assert_eq!(xroar_snapshot_sam_video_mode(0xf0), 6);
+    }
+
+    #[test]
+    fn xroar_v2_vuint_round_trips_boundary_values() {
+        for value in [
+            0,
+            0x7f,
+            0x80,
+            0x3fff,
+            0x4000,
+            0x1f_ffff,
+            0x20_0000,
+            0x0fff_ffff,
+            0x1000_0000,
+            0x7fff_ffff,
+        ] {
+            let encoded = xroar_v2_vuint(value);
+            assert_eq!(
+                xroar_v2_read_vuint(&encoded, 0),
+                Some((value, encoded.len()))
+            );
+        }
+    }
+
+    #[test]
+    fn xroar_v2_vuint_fields_can_be_patched_and_upserted() {
+        let mut bytes = xroar_v2_vuint(1);
+        bytes.extend_from_slice(&xroar_v2_vuint(1));
+        bytes.extend_from_slice(&xroar_v2_vuint(5));
+        let mut end = bytes.len();
+
+        patch_xroar_v2_vuint_field_in_range(&mut bytes, 0, &mut end, 1, 0x4000)
+            .expect("existing field should be patchable");
+        let field = xroar_v2_find_tag_payload(&bytes, 0, end, 1).expect("field should remain");
+        assert_eq!(
+            xroar_v2_read_vuint(&bytes, field.payload_start),
+            Some((0x4000, field.payload_end))
+        );
+
+        upsert_xroar_v2_vuint_field_in_range(&mut bytes, 0, &mut end, 2, 7)
+            .expect("missing field should be inserted");
+        let field = xroar_v2_find_tag_payload(&bytes, 0, end, 2).expect("field should be added");
+        assert_eq!(
+            xroar_v2_read_vuint(&bytes, field.payload_start),
+            Some((7, field.payload_end))
+        );
     }
 
     #[test]
