@@ -194,6 +194,8 @@ impl Default for TextPalette {
 
 /// Default MC6847 yellow colour, ARGB8888.
 pub const DEFAULT_VDG_YELLOW: u32 = 0xFFFF_FF83;
+/// Default MC6847 alpha CSS dark colour, ARGB8888.
+pub const DEFAULT_VDG_CSS_BLACK: u32 = 0xFF2E_0300;
 /// Default MC6847 blue colour, ARGB8888.
 pub const DEFAULT_VDG_BLUE: u32 = 0xFF1B_166B;
 /// Default MC6847 red colour, ARGB8888.
@@ -496,11 +498,7 @@ fn render_alpha_semigraphics_into(
     palette: VdgPalette,
     framebuffer: &mut [u32],
 ) {
-    let text_palette = TextPalette {
-        border: palette.border,
-        background: palette.text_background,
-        foreground: palette.text_foreground,
-    };
+    let text_palette = alpha_text_palette(control, palette);
     for row in 0..TEXT_ROWS {
         for column in 0..TEXT_COLUMNS {
             let raw = read_byte(row * TEXT_COLUMNS + column);
@@ -535,11 +533,7 @@ fn render_alpha_semigraphics_line_into(
 ) {
     let row = active_y / TEXT_CELL_HEIGHT;
     let line_y = active_y % TEXT_CELL_HEIGHT;
-    let text_palette = TextPalette {
-        border: palette.border,
-        background: palette.text_background,
-        foreground: palette.text_foreground,
-    };
+    let text_palette = alpha_text_palette(control, palette);
     for column in 0..TEXT_COLUMNS {
         let raw = read_byte(row * TEXT_COLUMNS + column);
         if raw & 0x80 == 0 {
@@ -574,11 +568,7 @@ fn render_alpha_semigraphics_byte_line_into(
 ) {
     let row = active_y / TEXT_CELL_HEIGHT;
     let line_y = active_y % TEXT_CELL_HEIGHT;
-    let text_palette = TextPalette {
-        border: palette.border,
-        background: palette.text_background,
-        foreground: palette.text_foreground,
-    };
+    let text_palette = alpha_text_palette(control, palette);
     let raw = read_byte(row * TEXT_COLUMNS + column);
     if raw & 0x80 == 0 {
         render_cell_line(
@@ -598,6 +588,22 @@ fn render_alpha_semigraphics_byte_line_into(
         render_semigraphics6_cell_line(row, column, line_y, raw, control, palette, framebuffer);
     } else {
         render_semigraphics4_cell_line(row, column, line_y, raw, palette, framebuffer);
+    }
+}
+
+fn alpha_text_palette(control: VdgControl, palette: VdgPalette) -> TextPalette {
+    if control.css {
+        TextPalette {
+            border: palette.border,
+            background: DEFAULT_VDG_CSS_BLACK,
+            foreground: palette.colours[1],
+        }
+    } else {
+        TextPalette {
+            border: palette.border,
+            background: palette.text_background,
+            foreground: palette.text_foreground,
+        }
     }
 }
 
@@ -1134,6 +1140,23 @@ mod tests {
                 + TEXT_LEFT_BORDER_PIXELS
                 + 4],
             DEFAULT_TEXT_FOREGROUND
+        );
+    }
+
+    #[test]
+    fn renders_css_alpha_text_with_alternate_colour_set() {
+        let framebuffer = render_visible_argb(
+            |index| if index == 0 { 0x41 } else { 0x20 },
+            VdgControl::from_dragon_pia1_port_b(0x0c),
+            VdgPalette::default(),
+        );
+
+        let active_origin =
+            TEXT_TOP_BORDER_LINES * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
+        assert_eq!(framebuffer[active_origin], DEFAULT_VDG_YELLOW);
+        assert_eq!(
+            framebuffer[active_origin + 3 * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + 4],
+            DEFAULT_VDG_CSS_BLACK
         );
     }
 
