@@ -36,7 +36,8 @@ future work.
   pull PIA0 PA0/PA1 low. Native gamepad D-pad/left-stick events currently map
   to joystick 1 axis extremes and South/East maps to fire; true host analogue
   axis values are still pending in the shared input layer. The script runner can
-  inject post-start smoke actions with `--smoke-joystick PORT,CONTROL,FRAMES`.
+  inject post-start smoke actions with `--smoke-joystick PORT,CONTROL,FRAMES`
+  and can capture same-duration idle baselines with `--smoke-idle-after-start`.
 - **VDG:** `motorola-vdg-6847` renders text, inverse text, SG4/SG6
   semigraphics, and standard MC6847 graphics modes. It now exposes full-frame,
   scanline, and byte-position renderers, and `machine-dragon-32` maintains a
@@ -94,7 +95,8 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --smoke-screenshot-dir target/dragon-smoke-screens \
   --smoke-screenshot-format xroar-zoomed \
   --smoke-audio-dir target/dragon-smoke-audio \
-  --smoke-joystick 2,fire,300
+  --smoke-joystick 2,fire,300 \
+  --smoke-idle-after-start 300
 ```
 
 Patched-XRoar comparison, when the local patched XRoar binary is available:

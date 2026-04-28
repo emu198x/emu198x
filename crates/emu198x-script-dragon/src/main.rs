@@ -65,7 +65,9 @@ Execution:
                        write load/start WAV audio captures for runtime-smoked tapes
     --smoke-joystick PORT,CONTROL,FRAMES
                        after start, hold joystick control on port 1/2 for N frames;
-                       CONTROL is up, down, left, right, or fire; may be repeated
+                       CONTROL is up, down, left, right, fire, or idle; may be repeated
+    --smoke-idle-after-start FRAMES
+                       after start, run N frames without extra input and capture idle output
     --xroar-bin PATH   patched XRoar binary used to write reference PNGs
     --xroar-reference-dir PATH
                        write patched-XRoar reference PNGs for runtime-smoked tapes
@@ -94,6 +96,7 @@ struct Cli {
     smoke_screenshot_format: SmokeScreenshotFormat,
     smoke_audio_dir: Option<PathBuf>,
     smoke_joystick: Vec<SmokeJoystickStep>,
+    smoke_idle_after_start: u32,
     xroar_bin: Option<PathBuf>,
     xroar_reference_dir: Option<PathBuf>,
     xroar_motoroff: Option<usize>,
@@ -193,6 +196,12 @@ struct CasRuntimeSmoke {
     start_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     start_audio: Option<String>,
+    idle_after_start_frames: u32,
+    idle_visible_change: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    idle_screen_text: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    idle_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     joystick_steps: Vec<SmokeJoystickStep>,
     joystick_visible_change: bool,
@@ -283,6 +292,7 @@ enum SmokeJoystickControl {
     Left,
     Right,
     Fire,
+    Idle,
 }
 
 impl SmokeJoystickControl {
@@ -293,6 +303,7 @@ impl SmokeJoystickControl {
             Self::Left => "left",
             Self::Right => "right",
             Self::Fire => "fire",
+            Self::Idle => "idle",
         }
     }
 }
@@ -304,6 +315,7 @@ struct RuntimeSmokeOptions<'a> {
     screenshot_format: SmokeScreenshotFormat,
     audio_stem: Option<&'a Path>,
     joystick: &'a [SmokeJoystickStep],
+    idle_after_start_frames: u32,
     xroar: Option<&'a XroarReferenceConfig>,
     xroar_stem: Option<&'a Path>,
 }
@@ -376,6 +388,7 @@ where
     let mut smoke_screenshot_format = SmokeScreenshotFormat::Diagnostic;
     let mut smoke_audio_dir = None;
     let mut smoke_joystick = Vec::new();
+    let mut smoke_idle_after_start = 0;
     let mut xroar_bin = None;
     let mut xroar_reference_dir = None;
     let mut xroar_motoroff = None;
@@ -441,6 +454,12 @@ where
                     "--smoke-joystick",
                 )?)?);
             }
+            "--smoke-idle-after-start" => {
+                smoke_idle_after_start = parse_u32(
+                    &next_value(&mut iter, "--smoke-idle-after-start")?,
+                    "--smoke-idle-after-start",
+                )?;
+            }
             "--xroar-bin" => {
                 xroar_bin = Some(PathBuf::from(next_value(&mut iter, "--xroar-bin")?));
             }
@@ -487,6 +506,7 @@ where
         smoke_screenshot_format,
         smoke_audio_dir,
         smoke_joystick,
+        smoke_idle_after_start,
         xroar_bin,
         xroar_reference_dir,
         xroar_motoroff,
@@ -596,8 +616,9 @@ fn parse_smoke_joystick_control(value: &str) -> Result<SmokeJoystickControl, Str
         "left" => Ok(SmokeJoystickControl::Left),
         "right" => Ok(SmokeJoystickControl::Right),
         "fire" => Ok(SmokeJoystickControl::Fire),
+        "idle" => Ok(SmokeJoystickControl::Idle),
         _ => Err(format!(
-            "invalid --smoke-joystick control {value}; expected up, down, left, right, or fire"
+            "invalid --smoke-joystick control {value}; expected up, down, left, right, fire, or idle"
         )),
     }
 }
@@ -672,6 +693,7 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
                 screenshot_format: cli.smoke_screenshot_format,
                 audio_stem: audio_stem.as_deref(),
                 joystick: &cli.smoke_joystick,
+                idle_after_start_frames: cli.smoke_idle_after_start,
                 xroar: xroar.as_ref(),
                 xroar_stem: xroar_stem.as_deref(),
             },
@@ -819,15 +841,7 @@ fn run_runtime_smoke(
         return failed_runtime_smoke("", "unsupported tape file type");
     }
 
-    match run_runtime_smoke_inner(
-        rom,
-        tape_bytes,
-        command,
-        smoke_options.screenshot_stem,
-        smoke_options.screenshot_format,
-        smoke_options.audio_stem,
-        smoke_options.joystick,
-    ) {
+    match run_runtime_smoke_inner(rom, tape_bytes, command, smoke_options) {
         Ok(mut smoke) => {
             if let (Some(config), Some(stem)) = (smoke_options.xroar, smoke_options.xroar_stem) {
                 let comparison_screenshot = smoke
@@ -862,11 +876,13 @@ fn run_runtime_smoke_inner(
     rom: &[u8; ROM_SIZE],
     tape_bytes: &[u8],
     command: &str,
-    screenshot_stem: Option<&Path>,
-    screenshot_format: SmokeScreenshotFormat,
-    audio_stem: Option<&Path>,
-    joystick_steps: &[SmokeJoystickStep],
+    smoke_options: RuntimeSmokeOptions<'_>,
 ) -> Result<CasRuntimeSmoke, String> {
+    let screenshot_stem = smoke_options.screenshot_stem;
+    let screenshot_format = smoke_options.screenshot_format;
+    let audio_stem = smoke_options.audio_stem;
+    let joystick_steps = smoke_options.joystick;
+    let idle_after_start_frames = smoke_options.idle_after_start_frames;
     let mut session = boot_runtime_session(rom)?;
     let mut media = MediaSet::new();
     media.push(MediaImage::new("tape-1", MediaKind::Tape, tape_bytes));
@@ -961,6 +977,29 @@ fn run_runtime_smoke_inner(
         &session,
         &start_screenshot_frame,
     )?;
+    let (idle_visible_change, idle_screen_text, idle_screenshot) = if idle_after_start_frames == 0 {
+        (false, None, None)
+    } else {
+        session.run_frames(idle_after_start_frames).map_err(|err| {
+            format!("runtime failed while idling after start for {idle_after_start_frames} frames: {err}")
+        })?;
+        let idle_frame = session
+            .screenshot_png_bytes()
+            .map_err(|err| format!("failed to capture post-idle frame: {err}"))?;
+        let idle_screen_text = screen_text_lines(&session)?;
+        let idle_screenshot = write_smoke_screenshot(
+            screenshot_stem,
+            "idle",
+            screenshot_format,
+            &session,
+            &idle_frame,
+        )?;
+        (
+            idle_frame != start_screenshot_frame,
+            Some(idle_screen_text),
+            idle_screenshot,
+        )
+    };
     let (joystick_visible_change, joystick_screen_text, joystick_screenshot) =
         if joystick_steps.is_empty() {
             (false, None, None)
@@ -1028,6 +1067,10 @@ fn run_runtime_smoke_inner(
         load_audio,
         start_screenshot,
         start_audio,
+        idle_after_start_frames,
+        idle_visible_change,
+        idle_screen_text,
+        idle_screenshot,
         joystick_steps: joystick_steps.to_vec(),
         joystick_visible_change,
         joystick_screen_text,
@@ -1620,6 +1663,10 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         load_audio: None,
         start_screenshot: None,
         start_audio: None,
+        idle_after_start_frames: 0,
+        idle_visible_change: false,
+        idle_screen_text: None,
+        idle_screenshot: None,
         joystick_steps: Vec::new(),
         joystick_visible_change: false,
         joystick_screen_text: None,
@@ -1720,6 +1767,12 @@ fn apply_smoke_joystick_steps(
 ) -> Result<(), String> {
     for step in steps {
         let name = step.control.name();
+        if step.control == SmokeJoystickControl::Idle {
+            session
+                .run_frames(step.frames)
+                .map_err(|err| format!("joystick idle for {} frames failed: {err}", step.frames))?;
+            continue;
+        }
         session.queue_input(InputEvent::Button {
             port: step.port,
             name: name.into(),
@@ -2259,6 +2312,8 @@ mod tests {
             "1,fire,20".to_owned(),
             "--smoke-joystick".to_owned(),
             "1,right,30".to_owned(),
+            "--smoke-idle-after-start".to_owned(),
+            "492".to_owned(),
         ])
         .expect("valid CLI should parse");
 
@@ -2267,6 +2322,7 @@ mod tests {
         assert_eq!(cli.smoke_report, Some(PathBuf::from("report.json")));
         assert_eq!(cli.smoke_screenshot_dir, Some(PathBuf::from("screens")));
         assert_eq!(cli.smoke_audio_dir, Some(PathBuf::from("audio")));
+        assert_eq!(cli.smoke_idle_after_start, 492);
         assert_eq!(
             cli.smoke_joystick,
             vec![
@@ -2306,7 +2362,7 @@ mod tests {
             "1,button,20".to_owned(),
         ])
         .expect_err("invalid joystick control should fail");
-        assert!(bad_control.contains("expected up, down, left, right, or fire"));
+        assert!(bad_control.contains("expected up, down, left, right, fire, or idle"));
     }
 
     #[test]

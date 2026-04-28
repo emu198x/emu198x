@@ -35,6 +35,8 @@ Environment:
     EMU198X_DRAGON_CLOADM_CAS    Dragon machine-code CAS or zip archive
     EMU198X_DRAGON_AUDIO_CAS     Dragon CAS expected to produce non-silent audio
     EMU198X_DRAGON_JOYSTICK_CAS  Dragon CAS used for scripted joystick smoke
+    EMU198X_DRAGON_JOYSTICK_GAME_CAS
+                                  Dragon game CAS used for joystick-vs-idle smoke
     EMU198X_XROAR_BIN            patched XRoar binary for optional Dragon reference
 
 Missing local ROM/media assets are reported as skipped, not failed.
@@ -213,6 +215,69 @@ print(f"non-silent Dragon audio: {wav_path} nonzero={nonzero} peak={peak}")
 PY
 }
 
+run_dragon_joystick_game_smoke() {
+    local rom="$1"
+    local cas="$2"
+    local idle_report="$3"
+    local input_report="$4"
+    local artifact_root="$5"
+    local idle_screen_dir
+    local input_screen_dir
+
+    mkdir -p "${artifact_root}"
+    idle_screen_dir="$(mktemp -d "${artifact_root}/dragon-joystick-game-idle.XXXXXX")"
+    input_screen_dir="$(mktemp -d "${artifact_root}/dragon-joystick-game-input.XXXXXX")"
+
+    cargo run -q -p emu198x-script-dragon -- \
+        --rom "${rom}" \
+        --smoke-root "${cas}" \
+        --smoke-run-limit 1 \
+        --smoke-report "${idle_report}" \
+        --smoke-screenshot-dir "${idle_screen_dir}" \
+        --smoke-screenshot-format xroar-zoomed \
+        --smoke-idle-after-start 492
+
+    cargo run -q -p emu198x-script-dragon -- \
+        --rom "${rom}" \
+        --smoke-root "${cas}" \
+        --smoke-run-limit 1 \
+        --smoke-report "${input_report}" \
+        --smoke-screenshot-dir "${input_screen_dir}" \
+        --smoke-screenshot-format xroar-zoomed \
+        --smoke-joystick 2,up,492
+
+    python3 - "${idle_report}" "${input_report}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+idle_report, input_report = sys.argv[1:3]
+
+def runtime(path):
+    with open(path, "r", encoding="utf-8") as handle:
+        report = json.load(handle)
+    try:
+        return report["rows"][0]["runtime"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise SystemExit(f"missing runtime in {path}: {exc}") from exc
+
+idle = runtime(idle_report)
+scripted = runtime(input_report)
+if scripted.get("joystick_visible_change") is not True:
+    raise SystemExit("scripted joystick input did not visibly change the game")
+
+idle_path = Path(idle.get("idle_screenshot", ""))
+input_path = Path(scripted.get("joystick_screenshot", ""))
+if not idle_path.is_file() or not input_path.is_file():
+    raise SystemExit(f"missing idle/input screenshots: {idle_path} {input_path}")
+
+if idle_path.read_bytes() == input_path.read_bytes():
+    raise SystemExit("scripted joystick screenshot matches no-input idle baseline")
+
+print(f"Dragon joystick game input differs from idle baseline: {input_path}")
+PY
+}
+
 write_boot_script() {
     local path="$1"
     local max_frames="$2"
@@ -374,6 +439,13 @@ if [[ "${mode}" != "unit" ]]; then
             || true)"
     fi
 
+    dragon_joystick_game_cas="${EMU198X_DRAGON_JOYSTICK_GAME_CAS:-}"
+    if [[ -z "${dragon_joystick_game_cas}" ]]; then
+        dragon_joystick_game_cas="$(first_existing_file \
+            "${reference_root}/dragon/Dragon/Games/[CAS]/Frogger (1983)(Cornsoft).zip" \
+            || true)"
+    fi
+
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" ]]; then
         run_step "dragon-real-rom-runtime" \
             env EMU198X_DRAGON32_ROM="${dragon_rom}" \
@@ -439,6 +511,18 @@ if [[ "${mode}" != "unit" ]]; then
                 --smoke-joystick 2,right,300
     else
         skip_step "dragon-joystick-scripted-input" "missing Dragon ROM or joystick CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_JOYSTICK_CAS"
+    fi
+
+    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_joystick_game_cas}" && -f "${dragon_joystick_game_cas}" ]]; then
+        run_step "dragon-joystick-game-input" \
+            run_dragon_joystick_game_smoke \
+                "${dragon_rom}" \
+                "${dragon_joystick_game_cas}" \
+                "${out_dir}/dragon-joystick-game-idle-smoke.json" \
+                "${out_dir}/dragon-joystick-game-input-smoke.json" \
+                "${out_dir}"
+    else
+        skip_step "dragon-joystick-game-input" "missing Dragon ROM or joystick game CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_JOYSTICK_GAME_CAS"
     fi
 
     xroar_bin="${EMU198X_XROAR_BIN:-}"
