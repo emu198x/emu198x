@@ -881,12 +881,9 @@ fn should_issue_start_command(
     command: &str,
     load_error: bool,
     load_visible_change: bool,
-    load_pc_after: u16,
+    _load_pc_after: u16,
 ) -> bool {
-    !load_error
-        && (command == "CLOAD"
-            || !load_visible_change
-            || (command == "CLOADM" && load_pc_after >= 0x8000))
+    !load_error && (matches!(command, "CLOAD" | "CLOADM") || !load_visible_change)
 }
 
 fn skipped_start_result(
