@@ -1869,18 +1869,24 @@ fn capture_xroar_snapshot_reference(
     let xroar_snapshot = xroar_v1_snapshot_bytes(snapshot);
     let snapshot_path = write_temp_bytes("snapshot", "sn", &xroar_snapshot)?;
     let output_path = stem.with_extension("xroar.png");
-    let result =
-        run_xroar_snapshot_reference_command(config, &rom_path, &snapshot_path, &output_path)
-            .and_then(|path| {
-                let comparison = comparison_screenshot
-                    .map(|screenshot| compare_png_files(screenshot, &path))
-                    .transpose()?;
-                Ok(XroarReferenceCapture {
-                    path,
-                    motoroff: 0,
-                    comparison,
-                })
-            });
+    let trap_condition = xroar_snapshot_trap_condition(snapshot);
+    let result = run_xroar_snapshot_reference_command(
+        config,
+        &rom_path,
+        &snapshot_path,
+        &trap_condition,
+        &output_path,
+    )
+    .and_then(|path| {
+        let comparison = comparison_screenshot
+            .map(|screenshot| compare_png_files(screenshot, &path))
+            .transpose()?;
+        Ok(XroarReferenceCapture {
+            path,
+            motoroff: 0,
+            comparison,
+        })
+    });
     let _ = fs::remove_file(&rom_path);
     let _ = fs::remove_file(&snapshot_path);
     result
@@ -1947,6 +1953,7 @@ fn run_xroar_snapshot_reference_command(
     config: &XroarReferenceConfig,
     rom_path: &Path,
     snapshot_path: &Path,
+    trap_condition: &str,
     output_path: &Path,
 ) -> Result<PathBuf, String> {
     if let Some(parent) = output_path.parent() {
@@ -1970,7 +1977,7 @@ fn run_xroar_snapshot_reference_command(
         .arg("-load")
         .arg(snapshot_path)
         .arg("-trap")
-        .arg("immediate")
+        .arg(trap_condition)
         .arg("-trap-timeout")
         .arg(format_seconds(config.settle_seconds))
         .arg("-trap-timeout-screenshot")
@@ -1996,6 +2003,10 @@ fn run_xroar_snapshot_reference_command(
         ));
     }
     Ok(output_path.to_owned())
+}
+
+fn xroar_snapshot_trap_condition(snapshot: &PcDragonSnapshot) -> String {
+    format!("pc=0x{:04x}", snapshot.registers.pc)
 }
 
 fn run_xroar_reference_command(
@@ -2136,6 +2147,8 @@ fn xroar_snapshot_pias(snapshot: &PcDragonSnapshot) -> [u8; 12] {
 }
 
 fn xroar_snapshot_sam(snapshot: &PcDragonSnapshot) -> [u8; 2] {
+    const DRAGON32_MEMORY_SIZE_BITS: u16 = 2 << 13;
+
     let display_register = snapshot
         .display_base
         .map(|base| (base >> 6) & 0x03f8)
@@ -2144,7 +2157,7 @@ fn xroar_snapshot_sam(snapshot: &PcDragonSnapshot) -> [u8; 2] {
         .peripherals
         .map(|peripherals| (u16::from(peripherals.ff22) >> 4) & 0x0007)
         .unwrap_or(0);
-    let register = display_register | video_mode;
+    let register = DRAGON32_MEMORY_SIZE_BITS | display_register | video_mode;
     register.to_be_bytes()
 }
 
@@ -3225,15 +3238,42 @@ mod tests {
         let bytes = xroar_v1_snapshot_bytes(&snapshot);
 
         assert!(bytes.starts_with(b"XRoar snapshot.\n\0"));
-        assert!(bytes.windows(3).any(|chunk| chunk == [3, 0, 2]));
-        assert!(bytes.windows(2).any(|chunk| chunk == [0x00, 0x1f]));
-        assert!(
-            bytes
-                .windows(4)
-                .any(|chunk| chunk == [0x87, 0x56, 0x34, 0x12])
+        assert_eq!(xroar_v1_chunk(&bytes, 3), Some(&[0x40, 0x1f][..]));
+        assert_eq!(
+            xroar_v1_chunk(&bytes, 4).map(|chunk| &chunk[..14]),
+            Some(
+                &[
+                    0x87, 0x56, 0x34, 0x12, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24, 0x68, 0x12,
+                    0x34,
+                ][..]
+            )
         );
-        assert_eq!(bytes[0x2000 + 37], 0xaa);
-        assert_eq!(bytes[0x2001 + 37], 0xbb);
+        let ram = xroar_v1_chunk(&bytes, 1).expect("RAM chunk should exist");
+        assert_eq!(ram[0x2000], 0xaa);
+        assert_eq!(ram[0x2001], 0xbb);
+    }
+
+    #[test]
+    fn xroar_snapshot_reference_traps_at_snapshot_pc() {
+        let snapshot = PcDragonSnapshot {
+            ram: Box::new([]),
+            load_address: 0,
+            registers: format_dragon_pak::PcDragonRegisters {
+                pc: 0x1234,
+                x: 0,
+                y: 0,
+                u: 0,
+                s: 0,
+                dp: 0,
+                b: 0,
+                a: 0,
+                cc: 0,
+            },
+            peripherals: None,
+            display_base: None,
+        };
+
+        assert_eq!(xroar_snapshot_trap_condition(&snapshot), "pc=0x1234");
     }
 
     #[test]
@@ -3520,5 +3560,23 @@ mod tests {
         fs::remove_file(&path).expect("test zip should be removable");
 
         assert_eq!(loaded, rom);
+    }
+
+    fn xroar_v1_chunk(bytes: &[u8], section: u8) -> Option<&[u8]> {
+        let mut offset = b"XRoar snapshot.\n\0".len();
+        while offset + 3 <= bytes.len() {
+            let chunk_section = bytes[offset];
+            let len = u16::from_be_bytes([bytes[offset + 1], bytes[offset + 2]]) as usize;
+            offset += 3;
+            let end = offset.checked_add(len)?;
+            if end > bytes.len() {
+                return None;
+            }
+            if chunk_section == section {
+                return Some(&bytes[offset..end]);
+            }
+            offset = end;
+        }
+        None
     }
 }
