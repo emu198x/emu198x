@@ -43,8 +43,8 @@ const DRAGON_GAMEPAD_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Down, ButtonTarget::new(1, "down")),
     (HostControl::Left, ButtonTarget::new(1, "left")),
     (HostControl::Right, ButtonTarget::new(1, "right")),
-    (HostControl::South, ButtonTarget::new(1, "space")),
-    (HostControl::East, ButtonTarget::new(1, "enter")),
+    (HostControl::South, ButtonTarget::new(1, "fire")),
+    (HostControl::East, ButtonTarget::new(1, "fire")),
     (HostControl::Start, ButtonTarget::new(1, "enter")),
     (HostControl::Select, ButtonTarget::new(1, "clear")),
 ]);
@@ -73,6 +73,10 @@ Controls:
     Shift            Dragon Shift
     Backspace        Dragon Clear
     F1               Dragon Break
+    Gamepad D-pad/left stick
+                     Dragon joystick 1 axes
+    Gamepad South/East
+                     Dragon joystick 1 fire
 ";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -915,6 +919,26 @@ mod tests {
         assert_eq!(DragonAutoloadKind::Basic.start_command(), "RUN");
         assert_eq!(DragonAutoloadKind::MachineCode.load_command(), "CLOADM");
         assert_eq!(DragonAutoloadKind::MachineCode.start_command(), "EXEC");
+    }
+
+    #[test]
+    fn gamepad_map_targets_dragon_joystick_fire() {
+        assert_eq!(
+            DRAGON_GAMEPAD_MAP.event(HostControl::South, true),
+            Some(InputEvent::Button {
+                port: 1,
+                name: "fire".into(),
+                pressed: true,
+            })
+        );
+        assert_eq!(
+            DRAGON_GAMEPAD_MAP.event(HostControl::Right, true),
+            Some(InputEvent::Button {
+                port: 1,
+                name: "right".into(),
+                pressed: true,
+            })
+        );
     }
 
     #[test]

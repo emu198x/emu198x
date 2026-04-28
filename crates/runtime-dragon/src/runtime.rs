@@ -6,7 +6,10 @@ use emu198x_shell::{
     QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
 use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
-use machine_dragon_32::{DRAGON_AUDIO_SAMPLE_RATE, Dragon32, DragonKey, MatrixKey, ROM_SIZE};
+use machine_dragon_32::{
+    DRAGON_AUDIO_SAMPLE_RATE, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX, DRAGON_JOYSTICK_MIN,
+    Dragon32, DragonJoystickAxis, DragonKey, MatrixKey, ROM_SIZE,
+};
 use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
 use serde_json::json;
 
@@ -75,6 +78,7 @@ pub struct DragonRuntime {
     profile: MachineProfile,
     firmware_rom: [u8; ROM_SIZE],
     machine: Dragon32,
+    joystick: DragonJoystickInputState,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     audio_buffer: Vec<f32>,
@@ -117,6 +121,7 @@ impl DragonRuntime {
             profile: profile_for(model),
             firmware_rom,
             machine: Dragon32::new(&firmware_rom),
+            joystick: DragonJoystickInputState::default(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::with_capacity(
                 TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT * 4,
@@ -135,6 +140,7 @@ impl DragonRuntime {
             profile: profile_for(model),
             firmware_rom,
             machine: Dragon32::new(&firmware_rom),
+            joystick: DragonJoystickInputState::default(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::with_capacity(
                 TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT * 4,
@@ -169,6 +175,7 @@ impl DragonRuntime {
 
     fn rebuild_machine(&mut self) {
         self.machine = Dragon32::new(&self.firmware_rom);
+        self.joystick = DragonJoystickInputState::default();
         if !self.tape_bytes.is_empty() {
             self.machine.load_cassette_bytes(self.tape_bytes.clone());
         }
@@ -180,7 +187,19 @@ impl DragonRuntime {
     fn apply_input_event(&mut self, event: &InputEvent) -> Result<(), MachineError> {
         let (name, pressed) = match event {
             InputEvent::Key { name, pressed } => (name.as_ref(), *pressed),
-            InputEvent::Button { name, pressed, .. } => (name.as_ref(), *pressed),
+            InputEvent::Button {
+                port,
+                name,
+                pressed,
+            } => {
+                if self
+                    .joystick
+                    .apply_button(*port, name.as_ref(), *pressed, &mut self.machine)?
+                {
+                    return Ok(());
+                }
+                (name.as_ref(), *pressed)
+            }
             _ => return Ok(()),
         };
         let Some(key) = DragonKey::from_label(name) else {
@@ -207,6 +226,104 @@ impl DragonRuntime {
             self.rgba_framebuffer.push((pixel & 0xFF) as u8);
             self.rgba_framebuffer.push(((pixel >> 24) & 0xFF) as u8);
         }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct DragonJoystickInputState {
+    ports: [DragonJoystickPortState; 2],
+}
+
+impl DragonJoystickInputState {
+    fn apply_button(
+        &mut self,
+        port: u8,
+        name: &str,
+        pressed: bool,
+        machine: &mut Dragon32,
+    ) -> Result<bool, MachineError> {
+        let Some(dragon_port) = dragon_joystick_port(port) else {
+            return Ok(false);
+        };
+        let state = &mut self.ports[usize::from(dragon_port)];
+        let handled = match name {
+            "left" => {
+                state.left = pressed;
+                true
+            }
+            "right" => {
+                state.right = pressed;
+                true
+            }
+            "up" => {
+                state.up = pressed;
+                true
+            }
+            "down" => {
+                state.down = pressed;
+                true
+            }
+            "fire" => {
+                state.fire = pressed;
+                true
+            }
+            _ => false,
+        };
+        if !handled {
+            return Ok(false);
+        }
+
+        machine
+            .set_joystick_axis(dragon_port, DragonJoystickAxis::X, state.x_value())
+            .map_err(|reason| MachineError::InvalidRequest {
+                reason: reason.to_string(),
+            })?;
+        machine
+            .set_joystick_axis(dragon_port, DragonJoystickAxis::Y, state.y_value())
+            .map_err(|reason| MachineError::InvalidRequest {
+                reason: reason.to_string(),
+            })?;
+        machine
+            .set_joystick_button(dragon_port, state.fire)
+            .map_err(|reason| MachineError::InvalidRequest {
+                reason: reason.to_string(),
+            })?;
+        Ok(true)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct DragonJoystickPortState {
+    left: bool,
+    right: bool,
+    up: bool,
+    down: bool,
+    fire: bool,
+}
+
+impl DragonJoystickPortState {
+    const fn x_value(self) -> u16 {
+        match (self.left, self.right) {
+            (true, false) => DRAGON_JOYSTICK_MIN,
+            (false, true) => DRAGON_JOYSTICK_MAX,
+            _ => DRAGON_JOYSTICK_CENTER,
+        }
+    }
+
+    const fn y_value(self) -> u16 {
+        match (self.up, self.down) {
+            (true, false) => DRAGON_JOYSTICK_MIN,
+            (false, true) => DRAGON_JOYSTICK_MAX,
+            _ => DRAGON_JOYSTICK_CENTER,
+        }
+    }
+}
+
+const fn dragon_joystick_port(port: u8) -> Option<u8> {
+    match port {
+        1 => Some(0),
+        2 => Some(1),
+        _ => None,
     }
 }
 
@@ -522,6 +639,55 @@ mod tests {
             ))
         );
         assert_eq!(frame_sink.last_format, Some(PixelFormat::Rgba8888));
+    }
+
+    #[test]
+    fn runtime_maps_button_events_to_dragon_joystick_hardware() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+
+        runtime
+            .apply_input_event(&InputEvent::Button {
+                port: 1,
+                name: "right".into(),
+                pressed: true,
+            })
+            .expect("joystick right press should apply");
+        assert_eq!(
+            runtime
+                .machine()
+                .joystick_axis(0, DragonJoystickAxis::X)
+                .expect("joystick port 0 X should exist"),
+            DRAGON_JOYSTICK_MAX
+        );
+
+        runtime
+            .apply_input_event(&InputEvent::Button {
+                port: 1,
+                name: "right".into(),
+                pressed: false,
+            })
+            .expect("joystick right release should apply");
+        assert_eq!(
+            runtime
+                .machine()
+                .joystick_axis(0, DragonJoystickAxis::X)
+                .expect("joystick port 0 X should exist"),
+            DRAGON_JOYSTICK_CENTER
+        );
+
+        runtime
+            .apply_input_event(&InputEvent::Button {
+                port: 2,
+                name: "fire".into(),
+                pressed: true,
+            })
+            .expect("joystick fire press should apply");
+        assert!(
+            runtime
+                .machine()
+                .joystick_button(1)
+                .expect("joystick fire button 1 should exist")
+        );
     }
 
     #[test]

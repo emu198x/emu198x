@@ -7,10 +7,11 @@ real Dragon 32 BASIC ROM, accepts keyboard input, mounts Dragon CAS cassette
 images through the shared runtime media path, can load and start representative
 BASIC and machine-code tapes, opens a native `wgpu` verifier window, and has
 native CAS autoload plus patched-XRoar screenshot comparison coverage for
-cassette smoke runs.
+cassette smoke runs, and now routes native gamepad input through the Dragon's
+analogue joystick comparator path.
 
-Dragon 64, CoCo variants, analogue joystick hardware, cartridges, and DragonDOS
-disk support are still future work.
+Dragon 64, CoCo variants, cartridges, and DragonDOS disk support are still
+future work.
 
 ## What Works
 
@@ -29,6 +30,12 @@ disk support are still future work.
   shell maps printable host text semantically, including shifted symbols by
   synthesizing Dragon `SHIFT` plus the matching matrix key. `Backspace` maps to
   `CLEAR`; `F1` maps to `BREAK`.
+- **Joystick:** Dragon analogue joystick hardware is wired through PIA0/PIA1:
+  PIA0 CB2 selects the port, PIA0 CA2 selects X/Y, PIA1 PA2-PA7 supplies the
+  DAC threshold, and the comparator result drives PIA0 PA7. The two fire lines
+  pull PIA0 PA0/PA1 low. Native gamepad D-pad/left-stick events currently map
+  to joystick 1 axis extremes and South/East maps to fire; true host analogue
+  axis values are still pending in the shared input layer.
 - **VDG:** `motorola-vdg-6847` renders text, inverse text, SG4/SG6
   semigraphics, and standard MC6847 graphics modes. It now exposes full-frame,
   scanline, and byte-position renderers, and `machine-dragon-32` maintains a
@@ -47,7 +54,8 @@ disk support are still future work.
 - **Native shell:** `emu198x-dragon` opens a native window, presents the Dragon
   framebuffer through the shared `wgpu` presenter with `raw`/`lcd`/`crt`
   filters, emits live host audio, accepts `--rom`, accepts `--tape`, supports
-  `--autoload`, and maps keyboard/gamepad input into Dragon key events.
+  `--autoload`, maps keyboard input into Dragon key events, and maps gamepad
+  input into Dragon joystick 1.
 - **CAS format/media/playback:** `format-dragon-cas` parses framed Dragon CAS
   blocks, exposes checksum validity, and decodes the standard 15-byte namefile
   header. Runtime playback converts CAS blocks into motor-gated cassette input
@@ -106,9 +114,9 @@ cargo run --release -q -p emu198x-script-dragon -- \
 1. Audio now follows the Dragon PIA DAC/mux/single-bit/cassette signal path and
    uses XRoar's measured level model, but it does not yet model analogue
    filtering, cartridge audio, or AY expansion audio.
-2. Analogue joystick hardware is not implemented. Gamepad input currently maps
-   to keyboard-style controls in the native shell, not to Dragon joystick
-   comparator/DAC behavior.
+2. Joystick hardware now follows the Dragon comparator/DAC behavior, but the
+   host input surface still only exposes thresholded gamepad directions rather
+   than continuous analogue axis values.
 3. The beam framebuffer is in place, but the display model is still calibrated
    to the current 372x243 diagnostic visible area and XRoar zoomed comparison
    bridge. A fuller PAL timing/overscan model can come later.
@@ -119,8 +127,9 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 1. Validate Dragon audio filtering and audible software behavior against XRoar
    or hardware captures once we have sound-producing CAS fixtures.
-2. Add analogue joystick support and host mapping once audio/media usability is
-   stable.
+2. Extend the shared input layer with true analogue axis events so Dragon
+   joysticks can receive continuous gamepad stick positions instead of only
+   digital extremes.
 3. Revisit PAL geometry and external video reference captures after the current
    practical usability loop is smoother.
 
@@ -128,13 +137,13 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 | Component | Tests |
 |-----------|-------|
-| Machine | 21: ROM mapping, device access reporting, keyboard, cassette input, SAM text base, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
+| Machine | ROM mapping, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
 | PIA | 5: DDR, control, IRQ, input pins, mixed I/O |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 13: text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
 | Harness | 16: CLI, ROM loading, keyboard labels, text dumps, smoke options, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
-| Runtime | 19: profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
-| Native | 9: CLI, CAS tape argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping |
+| Runtime | Profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, joystick button-to-hardware mapping, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
+| Native | CLI, CAS tape argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping, gamepad-to-joystick mapping |
 | CAS format | 7: block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors |
 
 ## ROMs

@@ -80,6 +80,130 @@ const XROAR_AUDIO_SOURCE_OFFSET: [[f32; 3]; 6] = [
     [0.0, 0.0, 0.0],
     [0.0, 0.0, 3.90 / XROAR_AUDIO_MAX_V],
 ];
+/// Minimum Dragon analogue joystick axis value.
+pub const DRAGON_JOYSTICK_MIN: u16 = 0x0000;
+/// Centre Dragon analogue joystick axis value.
+pub const DRAGON_JOYSTICK_CENTER: u16 = 0x8000;
+/// Maximum Dragon analogue joystick axis value.
+pub const DRAGON_JOYSTICK_MAX: u16 = 0xFFFF;
+
+/// Dragon analogue joystick axis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DragonJoystickAxis {
+    /// Horizontal axis.
+    X,
+    /// Vertical axis.
+    Y,
+}
+
+impl DragonJoystickAxis {
+    const fn index(self) -> usize {
+        match self {
+            Self::X => 0,
+            Self::Y => 1,
+        }
+    }
+}
+
+/// Error returned when addressing a non-existent Dragon joystick input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DragonJoystickError {
+    /// Requested joystick port.
+    pub port: u8,
+    /// Requested button, when the error was for a button line.
+    pub button: Option<u8>,
+}
+
+impl fmt::Display for DragonJoystickError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(button) = self.button {
+            write!(
+                f,
+                "Dragon joystick button {button} on port {} is out of range",
+                self.port
+            )
+        } else {
+            write!(f, "Dragon joystick port {} is out of range", self.port)
+        }
+    }
+}
+
+impl Error for DragonJoystickError {}
+
+#[derive(Debug, Clone)]
+struct DragonJoystick {
+    axes: [[u16; 2]; 2],
+    buttons: u8,
+}
+
+impl DragonJoystick {
+    fn new() -> Self {
+        Self {
+            axes: [[DRAGON_JOYSTICK_CENTER; 2]; 2],
+            buttons: 0,
+        }
+    }
+
+    fn axis(&self, port: usize, axis: DragonJoystickAxis) -> u16 {
+        self.axes[port & 0x01][axis.index()]
+    }
+
+    fn checked_axis(&self, port: u8, axis: DragonJoystickAxis) -> Result<u16, DragonJoystickError> {
+        let Some(port_axes) = self.axes.get(usize::from(port)) else {
+            return Err(DragonJoystickError { port, button: None });
+        };
+        Ok(port_axes[axis.index()])
+    }
+
+    fn set_axis(
+        &mut self,
+        port: u8,
+        axis: DragonJoystickAxis,
+        value: u16,
+    ) -> Result<(), DragonJoystickError> {
+        let Some(port_axes) = self.axes.get_mut(usize::from(port)) else {
+            return Err(DragonJoystickError { port, button: None });
+        };
+        port_axes[axis.index()] = value;
+        Ok(())
+    }
+
+    fn set_button(&mut self, button: u8, pressed: bool) -> Result<(), DragonJoystickError> {
+        if button >= 2 {
+            return Err(DragonJoystickError {
+                port: 0,
+                button: Some(button),
+            });
+        }
+        let mask = 1 << button;
+        if pressed {
+            self.buttons |= mask;
+        } else {
+            self.buttons &= !mask;
+        }
+        Ok(())
+    }
+
+    fn button_mask_low(&self) -> u8 {
+        !self.buttons
+    }
+
+    fn button(&self, button: u8) -> Result<bool, DragonJoystickError> {
+        if button >= 2 {
+            return Err(DragonJoystickError {
+                port: 0,
+                button: Some(button),
+            });
+        }
+        Ok(self.buttons & (1 << button) != 0)
+    }
+}
+
+impl Default for DragonJoystick {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DragonAudioSource {
@@ -708,6 +832,7 @@ struct DragonMemory {
     pia1: Pia6821,
     sam: Sam6883,
     keyboard: DragonKeyboard,
+    joystick: DragonJoystick,
     cassette: CassettePlayback,
 }
 
@@ -720,6 +845,7 @@ impl DragonMemory {
             pia1: Pia6821::new(),
             sam: Sam6883::new(),
             keyboard,
+            joystick: DragonJoystick::new(),
             cassette: CassettePlayback::default(),
         }
     }
@@ -765,7 +891,10 @@ impl DragonMemory {
                     self.pia0.write(offset, value);
                     self.refresh_pia_inputs();
                 }
-                DeviceRegion::Pia1 => self.pia1.write(offset, value),
+                DeviceRegion::Pia1 => {
+                    self.pia1.write(offset, value);
+                    self.refresh_pia_inputs();
+                }
                 DeviceRegion::Sam => unreachable!("SAM is not a PIA"),
             }
             Some(MemoryEvent::DeviceWrite {
@@ -789,8 +918,14 @@ impl DragonMemory {
 
     fn refresh_pia_inputs(&mut self) {
         let column_output = self.pia0.output_latch(PiaPort::B) | !self.pia0.ddr(PiaPort::B);
-        self.pia0
-            .set_input(PiaPort::A, self.keyboard.port_a_input(column_output));
+        let mut pia0_pa = self.keyboard.port_a_input(column_output);
+        pia0_pa &= self.joystick.button_mask_low();
+        if self.joystick_comparator_high() {
+            pia0_pa |= 0x80;
+        } else {
+            pia0_pa &= !0x80;
+        }
+        self.pia0.set_input(PiaPort::A, pia0_pa);
         self.pia0.set_input(PiaPort::B, 0xFF);
         let pia1_pa = if self.cassette.line_level() {
             0xFF
@@ -799,6 +934,17 @@ impl DragonMemory {
         };
         self.pia1.set_input(PiaPort::A, pia1_pa);
         self.pia1.set_input(PiaPort::B, 0xFF);
+    }
+
+    fn joystick_comparator_high(&self) -> bool {
+        let port = usize::from(self.pia0.cb2);
+        let axis = if self.pia0.ca2 {
+            DragonJoystickAxis::Y
+        } else {
+            DragonJoystickAxis::X
+        };
+        let threshold = u16::from((self.pia1.output_latch(PiaPort::A) & 0xFC) | 0x02) << 8;
+        self.joystick.axis(port, axis) >= threshold
     }
 
     fn advance_cassette(&mut self) {
@@ -1161,6 +1307,47 @@ impl Dragon32 {
     /// Mutable access to keyboard matrix state.
     pub fn keyboard_mut(&mut self) -> &mut DragonKeyboard {
         &mut self.memory.keyboard
+    }
+
+    /// Set one Dragon analogue joystick axis.
+    ///
+    /// Ports are zero-based and match the two states selected by PIA0 CB2.
+    pub fn set_joystick_axis(
+        &mut self,
+        port: u8,
+        axis: DragonJoystickAxis,
+        value: u16,
+    ) -> Result<(), DragonJoystickError> {
+        self.memory.joystick.set_axis(port, axis, value)?;
+        self.memory.refresh_pia_inputs();
+        Ok(())
+    }
+
+    /// Set one Dragon joystick fire line.
+    ///
+    /// The Dragon exposes two active-low fire inputs on PIA0 PA0 and PA1.
+    pub fn set_joystick_button(
+        &mut self,
+        button: u8,
+        pressed: bool,
+    ) -> Result<(), DragonJoystickError> {
+        self.memory.joystick.set_button(button, pressed)?;
+        self.memory.refresh_pia_inputs();
+        Ok(())
+    }
+
+    /// Return one Dragon analogue joystick axis value.
+    pub fn joystick_axis(
+        &self,
+        port: u8,
+        axis: DragonJoystickAxis,
+    ) -> Result<u16, DragonJoystickError> {
+        self.memory.joystick.checked_axis(port, axis)
+    }
+
+    /// Return whether one Dragon joystick fire line is pressed.
+    pub fn joystick_button(&self, button: u8) -> Result<bool, DragonJoystickError> {
+        self.memory.joystick.button(button)
     }
 
     /// Load a byte stream into the emulated cassette input.
@@ -1716,6 +1903,88 @@ mod tests {
                 value: 0xFE,
             })
         );
+    }
+
+    #[test]
+    fn joystick_axis_comparator_drives_pia0_port_a_bit_seven() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.pia0.write(0x01, 0x34); // PIA0 CA2 low: X axis, data register selected.
+        memory.pia0.write(0x03, 0x34); // PIA0 CB2 low: joystick port 0, data register selected.
+        memory.pia1.write(0x00, 0xFC); // PIA1 PA2-PA7 are DAC outputs.
+        memory.pia1.write(0x01, 0x04); // PIA1 port A data register selected.
+        memory.pia1.write(0x00, 0x80); // Comparator threshold around centre.
+
+        memory
+            .joystick
+            .set_axis(0, DragonJoystickAxis::X, DRAGON_JOYSTICK_MIN)
+            .expect("port 0 X axis should exist");
+        memory.refresh_pia_inputs();
+        let (low_value, _) = memory.read_bus(0xFF00);
+        assert_eq!(low_value & 0x80, 0);
+
+        memory
+            .joystick
+            .set_axis(0, DragonJoystickAxis::X, DRAGON_JOYSTICK_MAX)
+            .expect("port 0 X axis should exist");
+        memory.refresh_pia_inputs();
+        let (high_value, _) = memory.read_bus(0xFF00);
+        assert_eq!(high_value & 0x80, 0x80);
+    }
+
+    #[test]
+    fn joystick_axis_comparator_honours_pia0_axis_and_port_selects() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.pia0.write(0x01, 0x3C); // PIA0 CA2 high: Y axis, data register selected.
+        memory.pia0.write(0x03, 0x3C); // PIA0 CB2 high: joystick port 1, data register selected.
+        memory.pia1.write(0x00, 0xFC);
+        memory.pia1.write(0x01, 0x04);
+        memory.pia1.write(0x00, 0x80);
+        memory
+            .joystick
+            .set_axis(0, DragonJoystickAxis::Y, DRAGON_JOYSTICK_MAX)
+            .expect("port 0 Y axis should exist");
+        memory
+            .joystick
+            .set_axis(1, DragonJoystickAxis::X, DRAGON_JOYSTICK_MAX)
+            .expect("port 1 X axis should exist");
+        memory
+            .joystick
+            .set_axis(1, DragonJoystickAxis::Y, DRAGON_JOYSTICK_MIN)
+            .expect("port 1 Y axis should exist");
+
+        memory.refresh_pia_inputs();
+        let (selected_value, _) = memory.read_bus(0xFF00);
+
+        assert_eq!(selected_value & 0x80, 0);
+    }
+
+    #[test]
+    fn joystick_buttons_pull_pia0_port_a_low_bits_low() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.pia0.write(0x01, 0x04); // PIA0 port A data register selected.
+        memory
+            .joystick
+            .set_button(0, true)
+            .expect("fire button 0 should exist");
+        memory
+            .joystick
+            .set_button(1, true)
+            .expect("fire button 1 should exist");
+
+        memory.refresh_pia_inputs();
+        let (pressed_value, _) = memory.read_bus(0xFF00);
+        assert_eq!(pressed_value & 0x03, 0);
+
+        memory
+            .joystick
+            .set_button(0, false)
+            .expect("fire button 0 should exist");
+        memory.refresh_pia_inputs();
+        let (released_value, _) = memory.read_bus(0xFF00);
+        assert_eq!(released_value & 0x03, 0x01);
     }
 
     #[test]
