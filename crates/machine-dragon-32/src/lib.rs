@@ -884,6 +884,64 @@ pub struct DeviceAccess {
     pub value: u8,
 }
 
+/// PIA control-line signal trace entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PiaSignalTrace {
+    /// Bus cycle.
+    pub cycle: u64,
+    /// PIA receiving the signal.
+    pub device: DeviceRegion,
+    /// Signal line.
+    pub signal: PiaSignal,
+    /// External line level.
+    pub level: bool,
+    /// Port A control register after applying the signal.
+    pub control_a: u8,
+    /// Port B control register after applying the signal.
+    pub control_b: u8,
+    /// Whether PIA port A IRQ output is active after applying the signal.
+    pub irq_a: bool,
+    /// Whether PIA port B IRQ output is active after applying the signal.
+    pub irq_b: bool,
+}
+
+/// CPU interrupt input kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CpuInterruptKind {
+    /// Standard IRQ input.
+    Irq,
+    /// Fast IRQ input.
+    Firq,
+}
+
+/// CPU interrupt-line transition trace entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuInterruptLineTrace {
+    /// Bus cycle.
+    pub cycle: u64,
+    /// Interrupt input line.
+    pub kind: CpuInterruptKind,
+    /// New line level.
+    pub level: bool,
+    /// CPU PC at the transition.
+    pub pc: u16,
+    /// CPU condition-code register at the transition.
+    pub cc: u8,
+}
+
+/// CPU interrupt acceptance trace entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuInterruptAcceptTrace {
+    /// Bus cycle.
+    pub cycle: u64,
+    /// Accepted interrupt type.
+    pub kind: CpuInterruptKind,
+    /// PC about to be stacked.
+    pub pc: u16,
+    /// Condition-code register before entry.
+    pub cc: u8,
+}
+
 /// Reason a bounded machine run stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
@@ -922,6 +980,18 @@ pub struct RunReport {
     pub readonly_writes: Vec<ReadonlyWrite>,
     /// Number of read-only write entries dropped due to the trace limit.
     pub dropped_readonly_writes: usize,
+    /// Retained PIA signal transitions.
+    pub pia_signals: Vec<PiaSignalTrace>,
+    /// Number of PIA signal entries dropped due to the trace limit.
+    pub dropped_pia_signals: usize,
+    /// Retained CPU interrupt-line transitions.
+    pub interrupt_lines: Vec<CpuInterruptLineTrace>,
+    /// Number of CPU interrupt-line entries dropped due to the trace limit.
+    pub dropped_interrupt_lines: usize,
+    /// Retained CPU interrupt acceptances.
+    pub interrupt_accepts: Vec<CpuInterruptAcceptTrace>,
+    /// Number of CPU interrupt acceptance entries dropped due to the trace limit.
+    pub dropped_interrupt_accepts: usize,
     /// SAM-selected text screen base at the end of the run.
     pub text_screen_base: u16,
 }
@@ -1772,6 +1842,10 @@ impl Dragon32 {
         if let Some(level) = video_tick.frame_sync {
             self.memory.pia0.set_signal_level(PiaSignal::Cb1, level);
         }
+        self.step_cycle_after_video()
+    }
+
+    fn step_cycle_after_video(&mut self) -> Option<MemoryEvent> {
         self.memory.advance_cassette();
         self.memory.tick_cartridge_autorun(self.cycles);
         self.cpu.irq = self.memory.pia0.irq_a() || self.memory.pia0.irq_b();
@@ -1799,13 +1873,46 @@ impl Dragon32 {
         let mut dropped_device_accesses = 0usize;
         let mut readonly_writes = Vec::new();
         let mut dropped_readonly_writes = 0usize;
+        let mut pia_signals = Vec::new();
+        let mut dropped_pia_signals = 0usize;
+        let mut interrupt_lines = Vec::new();
+        let mut dropped_interrupt_lines = 0usize;
+        let mut interrupt_accepts = Vec::new();
+        let mut dropped_interrupt_accepts = 0usize;
         let mut last_fetch = None;
+        let mut last_irq = self.cpu.irq;
+        let mut last_firq = self.cpu.firq;
         let mut run_instructions = 0u64;
         let mut run_cycles = 0u64;
         let mut stop_reason = StopReason::CycleLimit;
 
         for run_cycle in 0..cycle_limit {
             if self.cpu.instruction_boundary() && self.cpu.rw {
+                if self.cpu.firq && !self.cpu.regs.firq_masked() {
+                    retain_interrupt_accept(
+                        &mut interrupt_accepts,
+                        &mut dropped_interrupt_accepts,
+                        trace_limit,
+                        CpuInterruptAcceptTrace {
+                            cycle: run_cycle,
+                            kind: CpuInterruptKind::Firq,
+                            pc: self.cpu.regs.pc,
+                            cc: self.cpu.regs.cc,
+                        },
+                    );
+                } else if self.cpu.irq && !self.cpu.regs.irq_masked() {
+                    retain_interrupt_accept(
+                        &mut interrupt_accepts,
+                        &mut dropped_interrupt_accepts,
+                        trace_limit,
+                        CpuInterruptAcceptTrace {
+                            cycle: run_cycle,
+                            kind: CpuInterruptKind::Irq,
+                            pc: self.cpu.regs.pc,
+                            cc: self.cpu.regs.cc,
+                        },
+                    );
+                }
                 let fetch = FetchTrace {
                     cycle: run_cycle,
                     pc: self.cpu.addr,
@@ -1817,8 +1924,44 @@ impl Dragon32 {
                 retain_trace(&mut trace, &mut dropped_trace, trace_limit, fetch);
             }
 
-            let event = self.step_cycle();
+            let event = self.step_cycle_with_diagnostic_trace(
+                run_cycle,
+                &mut pia_signals,
+                &mut dropped_pia_signals,
+                trace_limit,
+            );
             run_cycles = run_cycle.saturating_add(1);
+
+            if self.cpu.irq != last_irq {
+                last_irq = self.cpu.irq;
+                retain_interrupt_line(
+                    &mut interrupt_lines,
+                    &mut dropped_interrupt_lines,
+                    trace_limit,
+                    CpuInterruptLineTrace {
+                        cycle: run_cycle,
+                        kind: CpuInterruptKind::Irq,
+                        level: self.cpu.irq,
+                        pc: self.cpu.regs.pc,
+                        cc: self.cpu.regs.cc,
+                    },
+                );
+            }
+            if self.cpu.firq != last_firq {
+                last_firq = self.cpu.firq;
+                retain_interrupt_line(
+                    &mut interrupt_lines,
+                    &mut dropped_interrupt_lines,
+                    trace_limit,
+                    CpuInterruptLineTrace {
+                        cycle: run_cycle,
+                        kind: CpuInterruptKind::Firq,
+                        level: self.cpu.firq,
+                        pc: self.cpu.regs.pc,
+                        cc: self.cpu.regs.cc,
+                    },
+                );
+            }
 
             match event {
                 Some(MemoryEvent::DeviceRead {
@@ -1892,8 +2035,55 @@ impl Dragon32 {
             dropped_device_accesses,
             readonly_writes,
             dropped_readonly_writes,
+            pia_signals,
+            dropped_pia_signals,
+            interrupt_lines,
+            dropped_interrupt_lines,
+            interrupt_accepts,
+            dropped_interrupt_accepts,
             text_screen_base: self.text_screen_base(),
         }
+    }
+
+    fn step_cycle_with_diagnostic_trace(
+        &mut self,
+        cycle: u64,
+        pia_signals: &mut Vec<PiaSignalTrace>,
+        dropped_pia_signals: &mut usize,
+        trace_limit: usize,
+    ) -> Option<MemoryEvent> {
+        let video_tick = self.video.tick(&self.memory);
+        if let Some(level) = video_tick.hsync {
+            self.memory.pia0.set_signal_level(PiaSignal::Ca1, level);
+            retain_pia_signal(
+                pia_signals,
+                dropped_pia_signals,
+                trace_limit,
+                pia_signal_trace(
+                    cycle,
+                    DeviceRegion::Pia0,
+                    PiaSignal::Ca1,
+                    level,
+                    &self.memory.pia0,
+                ),
+            );
+        }
+        if let Some(level) = video_tick.frame_sync {
+            self.memory.pia0.set_signal_level(PiaSignal::Cb1, level);
+            retain_pia_signal(
+                pia_signals,
+                dropped_pia_signals,
+                trace_limit,
+                pia_signal_trace(
+                    cycle,
+                    DeviceRegion::Pia0,
+                    PiaSignal::Cb1,
+                    level,
+                    &self.memory.pia0,
+                ),
+            );
+        }
+        self.step_cycle_after_video()
     }
 }
 
@@ -1949,6 +2139,79 @@ fn retain_readonly_write(
         *dropped_writes = dropped_writes.saturating_add(1);
     }
     writes.push(write);
+}
+
+fn retain_pia_signal(
+    signals: &mut Vec<PiaSignalTrace>,
+    dropped_signals: &mut usize,
+    trace_limit: usize,
+    signal: PiaSignalTrace,
+) {
+    if trace_limit == 0 {
+        *dropped_signals = dropped_signals.saturating_add(1);
+        return;
+    }
+
+    if signals.len() == trace_limit {
+        signals.remove(0);
+        *dropped_signals = dropped_signals.saturating_add(1);
+    }
+    signals.push(signal);
+}
+
+fn retain_interrupt_line(
+    lines: &mut Vec<CpuInterruptLineTrace>,
+    dropped_lines: &mut usize,
+    trace_limit: usize,
+    line: CpuInterruptLineTrace,
+) {
+    if trace_limit == 0 {
+        *dropped_lines = dropped_lines.saturating_add(1);
+        return;
+    }
+
+    if lines.len() == trace_limit {
+        lines.remove(0);
+        *dropped_lines = dropped_lines.saturating_add(1);
+    }
+    lines.push(line);
+}
+
+fn retain_interrupt_accept(
+    accepts: &mut Vec<CpuInterruptAcceptTrace>,
+    dropped_accepts: &mut usize,
+    trace_limit: usize,
+    accept: CpuInterruptAcceptTrace,
+) {
+    if trace_limit == 0 {
+        *dropped_accepts = dropped_accepts.saturating_add(1);
+        return;
+    }
+
+    if accepts.len() == trace_limit {
+        accepts.remove(0);
+        *dropped_accepts = dropped_accepts.saturating_add(1);
+    }
+    accepts.push(accept);
+}
+
+fn pia_signal_trace(
+    cycle: u64,
+    device: DeviceRegion,
+    signal: PiaSignal,
+    level: bool,
+    pia: &Pia6821,
+) -> PiaSignalTrace {
+    PiaSignalTrace {
+        cycle,
+        device,
+        signal,
+        level,
+        control_a: pia.control(PiaPort::A),
+        control_b: pia.control(PiaPort::B),
+        irq_a: pia.irq_a(),
+        irq_b: pia.irq_b(),
+    }
 }
 
 fn decode_pia(addr: u16) -> Option<(DeviceRegion, u8)> {

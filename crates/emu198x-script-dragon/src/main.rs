@@ -20,8 +20,9 @@ use format_dragon_pak::{
     PcDragonSnapshot, parse_dragon_pak, parse_pcdragon_snapshot,
 };
 use machine_dragon_32::{
-    DeviceAccess, DeviceRegion, Dragon32, DragonCartridgeKind, DragonKey, DragonKeyboard,
-    FetchTrace, MatrixKey, ROM_SIZE, ReadonlyWrite, RunReport, StopReason,
+    CpuInterruptAcceptTrace, CpuInterruptKind, CpuInterruptLineTrace, DeviceAccess, DeviceRegion,
+    Dragon32, DragonCartridgeKind, DragonKey, DragonKeyboard, FetchTrace, MatrixKey,
+    PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunReport, StopReason,
 };
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
@@ -82,6 +83,8 @@ Execution:
     --xroar-bin PATH   patched XRoar binary used to write reference PNGs
     --xroar-reference-dir PATH
                        write patched-XRoar reference PNGs for runtime-smoked media
+    --xroar-snapshot-out PATH
+                       write the synthetic XRoar v2 snapshot used for reference comparison
     --xroar-motoroff N capture CAS reference on the Nth tape motor-off [default: auto]
     --xroar-settle-seconds N
                        wait N emulated seconds after the reference trap before capture [default: 3]
@@ -115,6 +118,7 @@ struct Cli {
     smoke_idle_after_start: u32,
     xroar_bin: Option<PathBuf>,
     xroar_reference_dir: Option<PathBuf>,
+    xroar_snapshot_out: Option<PathBuf>,
     xroar_motoroff: Option<usize>,
     xroar_settle_seconds: f32,
     xroar_timeout_seconds: f32,
@@ -135,6 +139,12 @@ struct HarnessReport {
     dropped_device_accesses: usize,
     readonly_writes: Vec<ReadonlyWrite>,
     dropped_readonly_writes: usize,
+    pia_signals: Vec<PiaSignalTrace>,
+    dropped_pia_signals: usize,
+    interrupt_lines: Vec<CpuInterruptLineTrace>,
+    dropped_interrupt_lines: usize,
+    interrupt_accepts: Vec<CpuInterruptAcceptTrace>,
+    dropped_interrupt_accepts: usize,
     text_screen_base: u16,
     text_screen: Option<String>,
     text_framebuffer: Option<Vec<u32>>,
@@ -430,6 +440,13 @@ fn run_main() -> Result<(), String> {
         .as_ref()
         .map(|path| load_snapshot(path))
         .transpose()?;
+    if let Some(path) = &cli.xroar_snapshot_out {
+        let snapshot = snapshot
+            .as_ref()
+            .ok_or_else(|| "--xroar-snapshot-out requires --snapshot".to_owned())?;
+        write_xroar_snapshot_out(&cli, snapshot, path)?;
+        println!("xroar snapshot: {}", path.display());
+    }
     if cli.smoke_root.is_some() {
         let report = run_smoke_matrix(&cli, &rom)?;
         let json = serde_json::to_string_pretty(&report)
@@ -515,6 +532,7 @@ where
     let mut smoke_idle_after_start = 0;
     let mut xroar_bin = None;
     let mut xroar_reference_dir = None;
+    let mut xroar_snapshot_out = None;
     let mut xroar_motoroff = None;
     let mut xroar_settle_seconds = DEFAULT_XROAR_SETTLE_SECONDS;
     let mut xroar_timeout_seconds = DEFAULT_XROAR_TIMEOUT_SECONDS;
@@ -614,6 +632,12 @@ where
                     "--xroar-reference-dir",
                 )?));
             }
+            "--xroar-snapshot-out" => {
+                xroar_snapshot_out = Some(PathBuf::from(next_value(
+                    &mut iter,
+                    "--xroar-snapshot-out",
+                )?));
+            }
             "--xroar-motoroff" => {
                 xroar_motoroff = Some(parse_usize(
                     &next_value(&mut iter, "--xroar-motoroff")?,
@@ -663,6 +687,7 @@ where
         smoke_idle_after_start,
         xroar_bin,
         xroar_reference_dir,
+        xroar_snapshot_out,
         xroar_motoroff,
         xroar_settle_seconds,
         xroar_timeout_seconds,
@@ -1903,6 +1928,48 @@ fn capture_xroar_snapshot_reference(
     result
 }
 
+fn write_xroar_snapshot_out(
+    cli: &Cli,
+    snapshot: &PcDragonSnapshot,
+    output_path: &Path,
+) -> Result<(), String> {
+    let xroar_bin = cli
+        .xroar_bin
+        .as_ref()
+        .ok_or_else(|| "--xroar-snapshot-out requires --xroar-bin".to_owned())?;
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
+    let config = XroarReferenceConfig {
+        bin: xroar_bin.clone(),
+        output_dir: output_path
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf),
+        motoroff: None,
+        settle_seconds: DEFAULT_XROAR_SETTLE_SECONDS,
+        timeout_seconds: DEFAULT_XROAR_TIMEOUT_SECONDS,
+    };
+
+    let rom_path = output_path.with_extension("rom");
+    fs::write(&rom_path, load_rom(&cli.rom)?)
+        .map_err(|err| format!("failed to write {}: {err}", rom_path.display()))?;
+    let template_path = write_temp_path("snapshot-template", "sna")?;
+    let template_result = run_xroar_snapshot_template_command(&config, &rom_path, &template_path)
+        .and_then(|()| {
+            fs::read(&template_path)
+                .map_err(|err| format!("failed to read {}: {err}", template_path.display()))
+        });
+    let result = template_result
+        .and_then(|template| xroar_v2_snapshot_bytes(&template, snapshot))
+        .and_then(|bytes| {
+            fs::write(output_path, bytes)
+                .map_err(|err| format!("failed to write {}: {err}", output_path.display()))
+        });
+    let _ = fs::remove_file(&template_path);
+    result
+}
+
 fn capture_best_xroar_reference_inner(
     config: &XroarReferenceConfig,
     command: &str,
@@ -1973,7 +2040,8 @@ fn run_xroar_snapshot_reference_command(
     }
     let _ = fs::remove_file(output_path);
 
-    let output = Command::new(&config.bin)
+    let mut command = Command::new(&config.bin);
+    command
         .arg("-ui")
         .arg("null")
         .arg("-ao")
@@ -1982,9 +2050,9 @@ fn run_xroar_snapshot_reference_command(
         .arg("-vo-picture")
         .arg("zoomed")
         .arg("-machine")
-        .arg("dragon32")
-        .arg("-extbas")
-        .arg(rom_path)
+        .arg("dragon32");
+    append_xroar_rom_args(&mut command, rom_path)?;
+    let output = command
         .arg("-load")
         .arg(snapshot_path)
         .arg("-trap")
@@ -2023,16 +2091,17 @@ fn run_xroar_snapshot_template_command(
 ) -> Result<(), String> {
     let _ = fs::remove_file(output_path);
 
-    let output = Command::new(&config.bin)
+    let mut command = Command::new(&config.bin);
+    command
         .arg("-ui")
         .arg("null")
         .arg("-ao")
         .arg("null")
         .arg("-no-ratelimit")
         .arg("-machine")
-        .arg("dragon32")
-        .arg("-extbas")
-        .arg(rom_path)
+        .arg("dragon32");
+    append_xroar_rom_args(&mut command, rom_path)?;
+    let output = command
         .arg("-trap")
         .arg("immediate")
         .arg("-trap-snap")
@@ -2059,6 +2128,21 @@ fn run_xroar_snapshot_template_command(
             output_path.display()
         ));
     }
+    Ok(())
+}
+
+fn append_xroar_rom_args(command: &mut Command, rom_path: &Path) -> Result<(), String> {
+    let parent = rom_path
+        .parent()
+        .ok_or_else(|| format!("XRoar ROM path {} has no parent", rom_path.display()))?;
+    let filename = rom_path
+        .file_name()
+        .ok_or_else(|| format!("XRoar ROM path {} has no filename", rom_path.display()))?;
+    command
+        .arg("-rompath")
+        .arg(parent)
+        .arg("-extbas")
+        .arg(filename);
     Ok(())
 }
 
@@ -2665,20 +2749,68 @@ fn xroar_v2_component_range(
             String::from_utf8_lossy(component)
         )
     })?;
+    let structural_end = xroar_v2_open_tag_end(bytes, start + marker.len(), bytes.len())
+        .ok_or_else(|| {
+            format!(
+                "XRoar v2 component {} terminator not found",
+                String::from_utf8_lossy(component)
+            )
+        })?;
     let end = match next_component {
         Some(next) => {
             let next_marker = xroar_v2_component_marker(next);
-            find_bytes_from(bytes, &next_marker, start + marker.len()).ok_or_else(|| {
-                format!(
-                    "XRoar v2 component {} terminator {} not found",
+            let next_start = find_bytes_from(bytes, &next_marker, start + marker.len())
+                .ok_or_else(|| {
+                    format!(
+                        "XRoar v2 component {} terminator {} not found",
+                        String::from_utf8_lossy(component),
+                        String::from_utf8_lossy(next)
+                    )
+                })?;
+            if next_start > structural_end {
+                return Err(format!(
+                    "XRoar v2 component {} terminator {} is outside the component tree",
                     String::from_utf8_lossy(component),
                     String::from_utf8_lossy(next)
-                )
-            })?
+                ));
+            }
+            next_start
         }
-        None => bytes.len(),
+        None => structural_end,
     };
     Ok(start..end)
+}
+
+fn xroar_v2_open_tag_end(bytes: &[u8], mut offset: usize, end: usize) -> Option<usize> {
+    let mut open_tags = 1usize;
+    let mut tag_open = false;
+    while offset < end {
+        let (tag, next) = xroar_v2_read_vuint(bytes, offset)?;
+        offset = next;
+        if tag == 0 {
+            if tag_open {
+                tag_open = false;
+                continue;
+            }
+            open_tags = open_tags.checked_sub(1)?;
+            if open_tags == 0 {
+                return Some(offset);
+            }
+            continue;
+        }
+        if tag_open {
+            open_tags = open_tags.checked_add(1)?;
+        }
+        tag_open = true;
+        let (len, next) = xroar_v2_read_vuint(bytes, offset)?;
+        offset = next;
+        let len = usize::try_from(len).ok()?;
+        offset = offset.checked_add(len)?;
+        if offset > end || offset > bytes.len() {
+            return None;
+        }
+    }
+    None
 }
 
 fn xroar_v2_component_marker(component: &[u8]) -> Vec<u8> {
@@ -3388,6 +3520,12 @@ impl IntoHarnessReport for RunReport {
             dropped_device_accesses: self.dropped_device_accesses,
             readonly_writes: self.readonly_writes,
             dropped_readonly_writes: self.dropped_readonly_writes,
+            pia_signals: self.pia_signals,
+            dropped_pia_signals: self.dropped_pia_signals,
+            interrupt_lines: self.interrupt_lines,
+            dropped_interrupt_lines: self.dropped_interrupt_lines,
+            interrupt_accepts: self.interrupt_accepts,
+            dropped_interrupt_accepts: self.dropped_interrupt_accepts,
             text_screen_base: self.text_screen_base,
             text_screen,
             text_framebuffer,
@@ -3447,6 +3585,56 @@ fn print_report(report: &HarnessReport) {
             write.cycle, write.addr, write.value
         );
     }
+    if report.dropped_pia_signals != 0 {
+        println!("pia signals dropped: {}", report.dropped_pia_signals);
+    }
+    println!("pia signals:");
+    for signal in &report.pia_signals {
+        println!(
+            "  cycle={} {} {:?} level={} cra=${:02X} crb=${:02X} irq_a={} irq_b={}",
+            signal.cycle,
+            format_device_region(signal.device),
+            signal.signal,
+            signal.level,
+            signal.control_a,
+            signal.control_b,
+            signal.irq_a,
+            signal.irq_b
+        );
+    }
+    if report.dropped_interrupt_lines != 0 {
+        println!(
+            "interrupt lines dropped: {}",
+            report.dropped_interrupt_lines
+        );
+    }
+    println!("interrupt lines:");
+    for line in &report.interrupt_lines {
+        println!(
+            "  cycle={} {} level={} pc=${:04X} cc=${:02X}",
+            line.cycle,
+            format_interrupt_kind(line.kind),
+            line.level,
+            line.pc,
+            line.cc
+        );
+    }
+    if report.dropped_interrupt_accepts != 0 {
+        println!(
+            "interrupt accepts dropped: {}",
+            report.dropped_interrupt_accepts
+        );
+    }
+    println!("interrupt accepts:");
+    for accept in &report.interrupt_accepts {
+        println!(
+            "  cycle={} {} pc=${:04X} cc=${:02X}",
+            accept.cycle,
+            format_interrupt_kind(accept.kind),
+            accept.pc,
+            accept.cc
+        );
+    }
     if let Some(text_screen) = &report.text_screen {
         println!("text screen:");
         for line in text_screen.lines() {
@@ -3477,6 +3665,13 @@ fn print_report(report: &HarnessReport) {
             "  cycle={} pc=${:04X} opcode=${:02X}",
             fetch.cycle, fetch.pc, fetch.opcode
         );
+    }
+}
+
+fn format_interrupt_kind(kind: CpuInterruptKind) -> &'static str {
+    match kind {
+        CpuInterruptKind::Irq => "irq",
+        CpuInterruptKind::Firq => "firq",
     }
 }
 
@@ -3958,6 +4153,28 @@ mod tests {
     }
 
     #[test]
+    fn xroar_v2_component_range_stops_at_structural_close_tag() {
+        let mut bytes = xroar_v2_component_marker(b"SAM");
+        push_xroar_v2_test_field(&mut bytes, 5, 0x1234);
+        bytes.push(0);
+        let vdrive_start = bytes.len();
+        bytes.extend_from_slice(&xroar_v2_component_marker(b"vdrive"));
+        push_xroar_v2_test_field(&mut bytes, 5, 0x56);
+        bytes.push(0);
+
+        let range = xroar_v2_component_range(&bytes, b"SAM", None)
+            .expect("SAM component should be structurally bounded");
+        assert_eq!(range.end, vdrive_start);
+
+        let field = xroar_v2_find_tag_payload(&bytes, range.start, range.end, 5)
+            .expect("SAM tag 5 should remain findable");
+        assert_eq!(
+            xroar_v2_read_vuint(&bytes, field.payload_start),
+            Some((0x1234, field.payload_end))
+        );
+    }
+
+    #[test]
     fn xroar_v2_pia_side_a_is_patched_to_inactive_input_state() {
         let mut bytes = Vec::new();
         for tag in [1, 2, 3, 5, 13, 6, 8, 9, 10, 11] {
@@ -4051,6 +4268,8 @@ mod tests {
             "xroar/src/xroar".to_owned(),
             "--xroar-reference-dir".to_owned(),
             "refs".to_owned(),
+            "--xroar-snapshot-out".to_owned(),
+            "snapshot.sna".to_owned(),
             "--xroar-motoroff".to_owned(),
             "2".to_owned(),
             "--xroar-settle-seconds".to_owned(),
@@ -4062,6 +4281,7 @@ mod tests {
 
         assert_eq!(cli.xroar_bin, Some(PathBuf::from("xroar/src/xroar")));
         assert_eq!(cli.xroar_reference_dir, Some(PathBuf::from("refs")));
+        assert_eq!(cli.xroar_snapshot_out, Some(PathBuf::from("snapshot.sna")));
         assert_eq!(cli.xroar_motoroff, Some(2));
         assert_eq!(cli.xroar_settle_seconds, 2.5);
         assert_eq!(cli.xroar_timeout_seconds, 30.0);
