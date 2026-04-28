@@ -328,7 +328,9 @@ cargo run -q -p emu198x-script-dragon -- \
   --smoke-run-limit 32 \
   --smoke-report dragon-pak-smoke.json \
   --smoke-screenshot-dir dragon-pak-screens \
-  --smoke-screenshot-format xroar-zoomed
+  --smoke-screenshot-format xroar-zoomed \
+  --xroar-bin ../Emu198x-Unclean/xroar/src/xroar \
+  --xroar-reference-dir dragon-pak-xroar-reference
 ```
 
 ## Verification Strategy

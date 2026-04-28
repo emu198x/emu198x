@@ -16,8 +16,8 @@ use emu198x_shell::{
 };
 use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
 use format_dragon_pak::{
-    DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
-    parse_dragon_pak, parse_pcdragon_snapshot,
+    DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonPeripherals,
+    PcDragonSnapshot, parse_dragon_pak, parse_pcdragon_snapshot,
 };
 use machine_dragon_32::{
     DeviceAccess, DeviceRegion, Dragon32, DragonCartridgeKind, DragonKey, DragonKeyboard,
@@ -81,10 +81,10 @@ Execution:
                        after start, run N frames without extra input and capture idle output
     --xroar-bin PATH   patched XRoar binary used to write reference PNGs
     --xroar-reference-dir PATH
-                       write patched-XRoar reference PNGs for runtime-smoked tapes
-    --xroar-motoroff N capture on the Nth tape motor-off [default: auto]
+                       write patched-XRoar reference PNGs for runtime-smoked media
+    --xroar-motoroff N capture CAS reference on the Nth tape motor-off [default: auto]
     --xroar-settle-seconds N
-                       wait N emulated seconds after the motor-off trap before reference capture [default: 3]
+                       wait N emulated seconds after the reference trap before capture [default: 3]
     --xroar-timeout-seconds N
                        hard XRoar run timeout in emulated seconds [default: 45]
 
@@ -204,6 +204,14 @@ struct SnapshotRuntimeSmoke {
     screen_text: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_comparison: Option<ImageComparison>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_comparison_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -392,6 +400,8 @@ struct SnapshotSmokeOptions<'a> {
     screenshot_format: SmokeScreenshotFormat,
     cycle_limit: u64,
     trace_limit: usize,
+    xroar: Option<&'a XroarReferenceConfig>,
+    xroar_stem: Option<&'a Path>,
 }
 
 fn main() {
@@ -860,12 +870,21 @@ fn run_snapshot_smoke_matrix(
         .snapshot_smoke_root
         .as_deref()
         .ok_or_else(|| "--snapshot-smoke-root is required".to_owned())?;
+    let xroar = xroar_reference_config(cli)?;
     let mut snapshots = Vec::new();
     collect_snapshot_candidates(root, &mut snapshots)?;
     snapshots.sort();
     if let Some(dir) = &cli.smoke_screenshot_dir {
         fs::create_dir_all(dir)
             .map_err(|err| format!("failed to create {}: {err}", dir.display()))?;
+    }
+    if let Some(config) = &xroar {
+        fs::create_dir_all(&config.output_dir).map_err(|err| {
+            format!(
+                "failed to create XRoar reference dir {}: {err}",
+                config.output_dir.display()
+            )
+        })?;
     }
 
     let mut rows = Vec::with_capacity(snapshots.len());
@@ -875,6 +894,11 @@ fn run_snapshot_smoke_matrix(
             .smoke_screenshot_dir
             .as_ref()
             .map(|dir| dir.join(format!("{index:04}-{}.png", safe_stem(snapshot_path))));
+        let xroar_stem = xroar.as_ref().map(|config| {
+            config
+                .output_dir
+                .join(format!("{index:04}-{}", safe_stem(snapshot_path)))
+        });
         let row = scan_snapshot_candidate(
             snapshot_path,
             rom,
@@ -885,6 +909,8 @@ fn run_snapshot_smoke_matrix(
                 screenshot_format: cli.smoke_screenshot_format,
                 cycle_limit: cli.cycles,
                 trace_limit: cli.trace_limit,
+                xroar: xroar.as_ref(),
+                xroar_stem: xroar_stem.as_deref(),
             },
         );
         rows.push(row);
@@ -994,14 +1020,7 @@ fn scan_snapshot_candidate(
 
     let runtime = if *runtime_smokes < smoke.run_limit {
         *runtime_smokes += 1;
-        Some(run_snapshot_smoke(
-            rom,
-            &snapshot,
-            smoke.screenshot_path,
-            smoke.screenshot_format,
-            smoke.cycle_limit,
-            smoke.trace_limit,
-        ))
+        Some(run_snapshot_smoke(rom, &snapshot, smoke))
     } else {
         None
     };
@@ -1018,10 +1037,7 @@ fn scan_snapshot_candidate(
 fn run_snapshot_smoke(
     rom: &[u8; ROM_SIZE],
     snapshot: &PcDragonSnapshot,
-    screenshot_path: Option<&Path>,
-    screenshot_format: SmokeScreenshotFormat,
-    cycle_limit: u64,
-    trace_limit: usize,
+    smoke: SnapshotSmokeOptions<'_>,
 ) -> SnapshotRuntimeSmoke {
     let report = run_harness_with_keyboard(
         rom,
@@ -1029,8 +1045,8 @@ fn run_snapshot_smoke(
         HarnessRunOptions {
             cartridge: None,
             snapshot: Some(snapshot),
-            cycle_limit,
-            trace_limit,
+            cycle_limit: smoke.cycle_limit,
+            trace_limit: smoke.trace_limit,
             dump_text: true,
             dump_text_framebuffer: false,
             capture_framebuffer: true,
@@ -1038,10 +1054,10 @@ fn run_snapshot_smoke(
     );
     let framebuffer = report.framebuffer.as_deref().unwrap_or(&[]);
     let (distinct_colors, non_background_pixels) = framebuffer_stats(framebuffer);
-    let screenshot = match (screenshot_path, report.framebuffer.as_deref()) {
+    let screenshot = match (smoke.screenshot_path, report.framebuffer.as_deref()) {
         (Some(path), Some(framebuffer)) => {
             if let Err(err) =
-                write_screenshot_png(path, framebuffer, screenshot_format, report.cycles)
+                write_screenshot_png(path, framebuffer, smoke.screenshot_format, report.cycles)
             {
                 return failed_snapshot_smoke(
                     snapshot,
@@ -1057,6 +1073,30 @@ fn run_snapshot_smoke(
     };
     let classification =
         classify_snapshot_smoke(report.stop_reason, distinct_colors, non_background_pixels);
+    let comparison_screenshot =
+        if matches!(smoke.screenshot_format, SmokeScreenshotFormat::XroarZoomed) {
+            screenshot.as_deref().map(Path::new)
+        } else {
+            None
+        };
+    let (xroar_reference_screenshot, xroar_reference_error, xroar_reference_comparison) =
+        match (smoke.xroar, smoke.xroar_stem) {
+            (Some(config), Some(stem)) => match capture_xroar_snapshot_reference(
+                config,
+                rom,
+                snapshot,
+                comparison_screenshot,
+                stem,
+            ) {
+                Ok(reference) => (
+                    Some(reference.path.display().to_string()),
+                    None,
+                    reference.comparison,
+                ),
+                Err(err) => (None, Some(err), None),
+            },
+            _ => (None, None, None),
+        };
 
     SnapshotRuntimeSmoke {
         classification,
@@ -1075,6 +1115,10 @@ fn run_snapshot_smoke(
             .map(|text| text.lines().map(str::to_owned).collect())
             .unwrap_or_default(),
         screenshot,
+        xroar_reference_screenshot,
+        xroar_reference_error,
+        xroar_reference_comparison,
+        xroar_reference_comparison_error: None,
         error: None,
     }
 }
@@ -1103,6 +1147,10 @@ fn failed_snapshot_smoke(
             .map(|text| text.lines().map(str::to_owned).collect())
             .unwrap_or_default(),
         screenshot: None,
+        xroar_reference_screenshot: None,
+        xroar_reference_error: None,
+        xroar_reference_comparison: None,
+        xroar_reference_comparison_error: None,
         error: Some(error),
     }
 }
@@ -1810,6 +1858,34 @@ fn capture_best_xroar_reference(
     result
 }
 
+fn capture_xroar_snapshot_reference(
+    config: &XroarReferenceConfig,
+    rom: &[u8; ROM_SIZE],
+    snapshot: &PcDragonSnapshot,
+    comparison_screenshot: Option<&Path>,
+    stem: &Path,
+) -> Result<XroarReferenceCapture, String> {
+    let rom_path = write_temp_bytes("rom", "rom", rom)?;
+    let xroar_snapshot = xroar_v1_snapshot_bytes(snapshot);
+    let snapshot_path = write_temp_bytes("snapshot", "sn", &xroar_snapshot)?;
+    let output_path = stem.with_extension("xroar.png");
+    let result =
+        run_xroar_snapshot_reference_command(config, &rom_path, &snapshot_path, &output_path)
+            .and_then(|path| {
+                let comparison = comparison_screenshot
+                    .map(|screenshot| compare_png_files(screenshot, &path))
+                    .transpose()?;
+                Ok(XroarReferenceCapture {
+                    path,
+                    motoroff: 0,
+                    comparison,
+                })
+            });
+    let _ = fs::remove_file(&rom_path);
+    let _ = fs::remove_file(&snapshot_path);
+    result
+}
+
 fn capture_best_xroar_reference_inner(
     config: &XroarReferenceConfig,
     command: &str,
@@ -1865,6 +1941,61 @@ fn capture_best_xroar_reference_inner(
             errors.join("; ")
         }
     })
+}
+
+fn run_xroar_snapshot_reference_command(
+    config: &XroarReferenceConfig,
+    rom_path: &Path,
+    snapshot_path: &Path,
+    output_path: &Path,
+) -> Result<PathBuf, String> {
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
+    let _ = fs::remove_file(output_path);
+
+    let output = Command::new(&config.bin)
+        .arg("-ui")
+        .arg("null")
+        .arg("-ao")
+        .arg("null")
+        .arg("-no-ratelimit")
+        .arg("-vo-picture")
+        .arg("zoomed")
+        .arg("-machine")
+        .arg("dragon32")
+        .arg("-extbas")
+        .arg(rom_path)
+        .arg("-load")
+        .arg(snapshot_path)
+        .arg("-trap")
+        .arg("immediate")
+        .arg("-trap-timeout")
+        .arg(format_seconds(config.settle_seconds))
+        .arg("-trap-timeout-screenshot")
+        .arg(output_path)
+        .arg("-timeout")
+        .arg(format_seconds(config.timeout_seconds))
+        .arg("-q")
+        .output()
+        .map_err(|err| format!("failed to run {}: {err}", config.bin.display()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "XRoar exited with status {}: {}",
+            output.status,
+            stderr.trim()
+        ));
+    }
+    if !output_path.is_file() {
+        return Err(format!(
+            "XRoar did not write reference screenshot {}",
+            output_path.display()
+        ));
+    }
+    Ok(output_path.to_owned())
 }
 
 fn run_xroar_reference_command(
@@ -1945,6 +2076,90 @@ fn write_temp_bytes(kind: &str, extension: &str, bytes: &[u8]) -> Result<PathBuf
     ));
     fs::write(&path, bytes).map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     Ok(path)
+}
+
+fn xroar_v1_snapshot_bytes(snapshot: &PcDragonSnapshot) -> Vec<u8> {
+    const ID_RAM_PAGE0: u8 = 1;
+    const ID_PIA_REGISTERS: u8 = 2;
+    const ID_SAM_REGISTERS: u8 = 3;
+    const ID_MC6809_STATE: u8 = 4;
+    const ID_MACHINECONFIG: u8 = 8;
+    const ID_SNAPVERSION: u8 = 9;
+
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"XRoar snapshot.\n\0");
+    push_xroar_v1_chunk(&mut bytes, ID_SNAPVERSION, &[1, 0, 8]);
+    push_xroar_v1_chunk(&mut bytes, ID_MACHINECONFIG, &[0, 0, 0, 0, 0, 32, 0, 0]);
+    push_xroar_v1_chunk(&mut bytes, ID_RAM_PAGE0, &xroar_snapshot_ram(snapshot));
+    push_xroar_v1_chunk(&mut bytes, ID_PIA_REGISTERS, &xroar_snapshot_pias(snapshot));
+    push_xroar_v1_chunk(&mut bytes, ID_SAM_REGISTERS, &xroar_snapshot_sam(snapshot));
+    push_xroar_v1_chunk(&mut bytes, ID_MC6809_STATE, &xroar_snapshot_cpu(snapshot));
+    bytes
+}
+
+fn push_xroar_v1_chunk(bytes: &mut Vec<u8>, section: u8, payload: &[u8]) {
+    bytes.push(section);
+    push_be_u16(bytes, payload.len() as u16);
+    bytes.extend_from_slice(payload);
+}
+
+fn xroar_snapshot_ram(snapshot: &PcDragonSnapshot) -> Vec<u8> {
+    let mut ram = vec![0; 0x8000];
+    let start = usize::from(snapshot.load_address);
+    if start < ram.len() {
+        let len = snapshot.ram.len().min(ram.len() - start);
+        ram[start..start + len].copy_from_slice(&snapshot.ram[..len]);
+    }
+    ram
+}
+
+fn xroar_snapshot_pias(snapshot: &PcDragonSnapshot) -> [u8; 12] {
+    let peripherals = snapshot.peripherals.unwrap_or(PcDragonPeripherals {
+        ff02: 0,
+        ff03: 0,
+        ff22: 0,
+    });
+    [
+        0,
+        0,
+        0,
+        0xff,
+        peripherals.ff02,
+        peripherals.ff03,
+        0,
+        0,
+        0,
+        0xff,
+        peripherals.ff22,
+        0x04,
+    ]
+}
+
+fn xroar_snapshot_sam(snapshot: &PcDragonSnapshot) -> [u8; 2] {
+    let register = snapshot
+        .display_base
+        .map(|base| (base >> 6) & 0x03f8)
+        .unwrap_or(0);
+    register.to_be_bytes()
+}
+
+fn xroar_snapshot_cpu(snapshot: &PcDragonSnapshot) -> Vec<u8> {
+    let mut cpu = Vec::with_capacity(20);
+    cpu.push(snapshot.registers.cc);
+    cpu.push(snapshot.registers.a);
+    cpu.push(snapshot.registers.b);
+    cpu.push(snapshot.registers.dp);
+    push_be_u16(&mut cpu, snapshot.registers.x);
+    push_be_u16(&mut cpu, snapshot.registers.y);
+    push_be_u16(&mut cpu, snapshot.registers.u);
+    push_be_u16(&mut cpu, snapshot.registers.s);
+    push_be_u16(&mut cpu, snapshot.registers.pc);
+    cpu.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+    cpu
+}
+
+fn push_be_u16(bytes: &mut Vec<u8>, value: u16) {
+    bytes.extend_from_slice(&value.to_be_bytes());
 }
 
 fn xroar_start_command(smoke: &CasRuntimeSmoke) -> Option<&str> {
@@ -2976,6 +3191,44 @@ mod tests {
             framebuffer_stats(&[0xff00_0000, 0xff00_0000, 0xffff_ffff]),
             (2, 1)
         );
+    }
+
+    #[test]
+    fn pcdragon_snapshot_can_be_converted_to_xroar_v1_snapshot() {
+        let snapshot = PcDragonSnapshot {
+            ram: vec![0xaa, 0xbb].into_boxed_slice(),
+            load_address: 0x2000,
+            registers: format_dragon_pak::PcDragonRegisters {
+                pc: 0x1234,
+                x: 0x5678,
+                y: 0x9abc,
+                u: 0xdef0,
+                s: 0x2468,
+                dp: 0x12,
+                b: 0x34,
+                a: 0x56,
+                cc: 0x87,
+            },
+            peripherals: Some(PcDragonPeripherals {
+                ff02: 0xde,
+                ff03: 0xb5,
+                ff22: 0xfc,
+            }),
+            display_base: Some(0x0600),
+        };
+
+        let bytes = xroar_v1_snapshot_bytes(&snapshot);
+
+        assert!(bytes.starts_with(b"XRoar snapshot.\n\0"));
+        assert!(bytes.windows(3).any(|chunk| chunk == [3, 0, 2]));
+        assert!(bytes.windows(2).any(|chunk| chunk == [0x00, 0x18]));
+        assert!(
+            bytes
+                .windows(4)
+                .any(|chunk| chunk == [0x87, 0x56, 0x34, 0x12])
+        );
+        assert_eq!(bytes[0x2000 + 37], 0xaa);
+        assert_eq!(bytes[0x2001 + 37], 0xbb);
     }
 
     #[test]

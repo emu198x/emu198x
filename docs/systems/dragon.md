@@ -77,8 +77,10 @@ future work.
   continue drawing after the post-start settle window. `--snapshot-smoke-root`
   scans PC-Dragon PAK snapshots, resumes each selected snapshot, classifies
   running/halting and visible/blank output, and can write diagnostic or
-  XRoar-zoomed screenshots. CAS smoke can also write patched-XRoar references
-  and pixel-difference summaries.
+  XRoar-zoomed screenshots. CAS smoke can write patched-XRoar references after
+  ROM tape-load traps; PAK smoke converts PC-Dragon snapshots into temporary
+  XRoar v1 snapshots, captures patched-XRoar reference PNGs, and records
+  pixel-difference summaries.
 - **XRoar comparison:** the current 12-title application smoke batch is 11/12
   exact against patched XRoar. The remaining non-exact case, Dragon Composer,
   differs by capture/timing phase rather than by a static VDG decode error.
@@ -122,7 +124,10 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --cycles 200000 \
   --smoke-report target/dragon-pak-smoke.json \
   --smoke-screenshot-dir target/dragon-pak-smoke-screens \
-  --smoke-screenshot-format xroar-zoomed
+  --smoke-screenshot-format xroar-zoomed \
+  --xroar-bin ../Emu198x-Unclean/xroar/src/xroar \
+  --xroar-reference-dir target/dragon-pak-xroar-reference \
+  --xroar-settle-seconds 0.2
 ```
 
 Patched-XRoar comparison, when the local patched XRoar binary is available:
