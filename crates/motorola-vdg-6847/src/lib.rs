@@ -195,17 +195,17 @@ impl Default for TextPalette {
 /// Default MC6847 yellow colour, ARGB8888.
 pub const DEFAULT_VDG_YELLOW: u32 = 0xFFFF_FF83;
 /// Default MC6847 blue colour, ARGB8888.
-pub const DEFAULT_VDG_BLUE: u32 = 0xFF24_3FA8;
+pub const DEFAULT_VDG_BLUE: u32 = 0xFF1B_166B;
 /// Default MC6847 red colour, ARGB8888.
-pub const DEFAULT_VDG_RED: u32 = 0xFFB8_2B25;
+pub const DEFAULT_VDG_RED: u32 = 0xFF6B_0F1B;
 /// Default MC6847 buff colour, ARGB8888.
-pub const DEFAULT_VDG_BUFF: u32 = 0xFFFF_DF91;
+pub const DEFAULT_VDG_BUFF: u32 = 0xFFFF_FFFF;
 /// Default MC6847 cyan colour, ARGB8888.
-pub const DEFAULT_VDG_CYAN: u32 = 0xFF46_BFC2;
+pub const DEFAULT_VDG_CYAN: u32 = 0xFF1D_9871;
 /// Default MC6847 magenta colour, ARGB8888.
-pub const DEFAULT_VDG_MAGENTA: u32 = 0xFFB0_4CC0;
+pub const DEFAULT_VDG_MAGENTA: u32 = 0xFFFF_46FF;
 /// Default MC6847 orange colour, ARGB8888.
-pub const DEFAULT_VDG_ORANGE: u32 = 0xFFE6_7F2E;
+pub const DEFAULT_VDG_ORANGE: u32 = 0xFFFF_5C1D;
 
 /// Full MC6847 render palette.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

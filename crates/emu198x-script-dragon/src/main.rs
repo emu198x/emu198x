@@ -185,6 +185,8 @@ struct CasRuntimeSmoke {
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_motoroff: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_comparison: Option<ImageComparison>,
@@ -700,19 +702,24 @@ fn run_runtime_smoke(
     match run_runtime_smoke_inner(rom, tape_bytes, command, screenshot_stem, screenshot_format) {
         Ok(mut smoke) => {
             if let (Some(config), Some(stem)) = (xroar, xroar_stem) {
-                match capture_xroar_reference(config, rom, tape_bytes, command, stem) {
-                    Ok(path) => {
-                        if let Some(start_screenshot) = &smoke.start_screenshot {
-                            match compare_png_files(Path::new(start_screenshot), &path) {
-                                Ok(comparison) => {
-                                    smoke.xroar_reference_comparison = Some(comparison);
-                                }
-                                Err(err) => {
-                                    smoke.xroar_reference_comparison_error = Some(err);
-                                }
-                            }
-                        }
-                        smoke.xroar_reference_screenshot = Some(path.display().to_string());
+                let comparison_screenshot = smoke
+                    .start_screenshot
+                    .as_ref()
+                    .or(smoke.load_screenshot.as_ref());
+                match capture_best_xroar_reference(
+                    config,
+                    rom,
+                    tape_bytes,
+                    command,
+                    xroar_start_command(&smoke),
+                    comparison_screenshot.map(Path::new),
+                    stem,
+                ) {
+                    Ok(reference) => {
+                        smoke.xroar_reference_screenshot =
+                            Some(reference.path.display().to_string());
+                        smoke.xroar_reference_motoroff = Some(reference.motoroff);
+                        smoke.xroar_reference_comparison = reference.comparison;
                     }
                     Err(err) => smoke.xroar_reference_error = Some(err),
                 }
@@ -748,14 +755,12 @@ fn run_runtime_smoke_inner(
         return Err("ROM did not start consuming cassette bits".to_owned());
     }
     let load_wait_frames = load_wait_frame_budget(tape_length_bits);
-    session
-        .wait_for_query_bool("dragon.tape.motor_on", false, load_wait_frames)
-        .map_err(|err| {
-            format!(
-                "cassette motor did not turn off within {load_wait_frames} frames for {tape_length_bits} tape bits: {err}"
-            )
-        })?;
-
+    let load_stop = wait_for_tape_load_stop(&mut session, load_wait_frames)?;
+    if load_stop == TapeLoadStop::FrameLimit {
+        return Err(format!(
+            "cassette load did not stop within {load_wait_frames} frames for {tape_length_bits} tape bits"
+        ));
+    }
     let lines_after_load = screen_text_lines(&session)?;
     let after_load = session
         .screenshot_png_bytes()
@@ -773,7 +778,8 @@ fn run_runtime_smoke_inner(
     let load_error = lines_after_load.iter().any(|line| line.contains("ERROR"));
     let load_result = if load_error { "basic-error" } else { "ok" }.to_owned();
     let start_command = if command == "CLOAD" { "RUN" } else { "EXEC" };
-    let should_start = should_issue_start_command(command, load_error, load_visible_change);
+    let should_start =
+        should_issue_start_command(command, load_error, load_visible_change, load_pc_after);
 
     let mut start_settle_visible_change = false;
     let (start_result, visible_change_after_start, screen_text) = if should_start {
@@ -864,14 +870,23 @@ fn run_runtime_smoke_inner(
         load_screenshot,
         start_screenshot,
         xroar_reference_screenshot: None,
+        xroar_reference_motoroff: None,
         xroar_reference_error: None,
         xroar_reference_comparison: None,
         xroar_reference_comparison_error: None,
     })
 }
 
-fn should_issue_start_command(command: &str, load_error: bool, load_visible_change: bool) -> bool {
-    !load_error && (command == "CLOAD" || !load_visible_change)
+fn should_issue_start_command(
+    command: &str,
+    load_error: bool,
+    load_visible_change: bool,
+    load_pc_after: u16,
+) -> bool {
+    !load_error
+        && (command == "CLOAD"
+            || !load_visible_change
+            || (command == "CLOADM" && load_pc_after >= 0x8000))
 }
 
 fn skipped_start_result(
@@ -1154,32 +1169,104 @@ fn compare_images(emu: &DecodedImage, reference: &DecodedImage) -> ImageComparis
     }
 }
 
-fn capture_xroar_reference(
+#[derive(Debug)]
+struct XroarReferenceCapture {
+    path: PathBuf,
+    motoroff: usize,
+    comparison: Option<ImageComparison>,
+}
+
+fn capture_best_xroar_reference(
     config: &XroarReferenceConfig,
     rom: &[u8; ROM_SIZE],
     tape_bytes: &[u8],
     command: &str,
+    start_command: Option<&str>,
+    comparison_screenshot: Option<&Path>,
     stem: &Path,
-) -> Result<PathBuf, String> {
+) -> Result<XroarReferenceCapture, String> {
     let rom_path = write_temp_bytes("rom", "rom", rom)?;
     let tape_path = write_temp_bytes("tape", "cas", tape_bytes)?;
-    let output_path = stem.with_extension("xroar.png");
-    let result = run_xroar_reference_command(config, command, &rom_path, &tape_path, &output_path);
+    let result = capture_best_xroar_reference_inner(
+        config,
+        command,
+        start_command,
+        comparison_screenshot,
+        stem,
+        &rom_path,
+        &tape_path,
+    );
     let _ = fs::remove_file(&rom_path);
     let _ = fs::remove_file(&tape_path);
     result
 }
 
+fn capture_best_xroar_reference_inner(
+    config: &XroarReferenceConfig,
+    command: &str,
+    start_command: Option<&str>,
+    comparison_screenshot: Option<&Path>,
+    stem: &Path,
+    rom_path: &Path,
+    tape_path: &Path,
+) -> Result<XroarReferenceCapture, String> {
+    let candidates = xroar_motoroff_candidates(config.motoroff, command, start_command);
+    let mut best: Option<XroarReferenceCapture> = None;
+    let mut errors = Vec::new();
+
+    for motoroff in candidates {
+        let output_path = if config.motoroff.is_some() {
+            stem.with_extension("xroar.png")
+        } else {
+            stem.with_extension(format!("xroar-{motoroff}.png"))
+        };
+        match run_xroar_reference_command(
+            config,
+            command,
+            start_command,
+            motoroff,
+            rom_path,
+            tape_path,
+            &output_path,
+        ) {
+            Ok(path) => {
+                let comparison = comparison_screenshot
+                    .map(|screenshot| compare_png_files(screenshot, &path))
+                    .transpose()?;
+                let candidate = XroarReferenceCapture {
+                    path,
+                    motoroff,
+                    comparison,
+                };
+                if best
+                    .as_ref()
+                    .is_none_or(|current| xroar_capture_is_better(&candidate, current))
+                {
+                    best = Some(candidate);
+                }
+            }
+            Err(err) => errors.push(format!("motoroff {motoroff}: {err}")),
+        }
+    }
+
+    best.ok_or_else(|| {
+        if errors.is_empty() {
+            "XRoar reference capture had no motor-off candidates".to_owned()
+        } else {
+            errors.join("; ")
+        }
+    })
+}
+
 fn run_xroar_reference_command(
     config: &XroarReferenceConfig,
     command: &str,
+    start_command: Option<&str>,
+    motoroff: usize,
     rom_path: &Path,
     tape_path: &Path,
     output_path: &Path,
 ) -> Result<PathBuf, String> {
-    let motoroff = config
-        .motoroff
-        .unwrap_or_else(|| default_xroar_motoroff(command));
     if motoroff == 0 {
         return Err("--xroar-motoroff must be greater than zero".to_owned());
     }
@@ -1187,9 +1274,10 @@ fn run_xroar_reference_command(
         fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
     }
+    let _ = fs::remove_file(output_path);
 
     let trap_range = format!("{motoroff}-{motoroff}");
-    let type_text = xroar_type_text(command)?;
+    let type_text = xroar_type_text(command, start_command)?;
     let output = Command::new(&config.bin)
         .arg("-ui")
         .arg("null")
@@ -1250,16 +1338,68 @@ fn write_temp_bytes(kind: &str, extension: &str, bytes: &[u8]) -> Result<PathBuf
     Ok(path)
 }
 
-fn xroar_type_text(command: &str) -> Result<&'static str, String> {
-    match command {
-        "CLOAD" => Ok("CLOAD\rRUN\r"),
-        "CLOADM" => Ok("CLOADM\rEXEC\r"),
-        _ => Err(format!("unsupported XRoar reference command {command:?}")),
+fn xroar_start_command(smoke: &CasRuntimeSmoke) -> Option<&str> {
+    if smoke.start_command.is_empty() {
+        None
+    } else {
+        Some(smoke.start_command.as_str())
     }
 }
 
-fn default_xroar_motoroff(command: &str) -> usize {
-    if command == "CLOADM" { 1 } else { 2 }
+fn xroar_type_text(command: &str, start_command: Option<&str>) -> Result<String, String> {
+    match (command, start_command) {
+        ("CLOAD", Some("RUN")) => Ok("CLOAD\rRUN\r".to_owned()),
+        ("CLOAD", None) => Ok("CLOAD\r".to_owned()),
+        ("CLOADM", Some("EXEC")) => Ok("CLOADM\rEXEC\r".to_owned()),
+        ("CLOADM", None) => Ok("CLOADM\r".to_owned()),
+        _ => Err(format!(
+            "unsupported XRoar reference command {command:?} with start {start_command:?}"
+        )),
+    }
+}
+
+fn default_xroar_motoroff(command: &str, start_command: Option<&str>) -> usize {
+    match (command, start_command) {
+        ("CLOAD", None) => 3,
+        _ => 2,
+    }
+}
+
+fn xroar_motoroff_candidates(
+    configured: Option<usize>,
+    command: &str,
+    start_command: Option<&str>,
+) -> Vec<usize> {
+    if let Some(motoroff) = configured {
+        return vec![motoroff];
+    }
+
+    let mut candidates = vec![default_xroar_motoroff(command, start_command), 2, 3];
+    candidates.sort_unstable();
+    candidates.dedup();
+    candidates
+}
+
+fn xroar_capture_is_better(
+    candidate: &XroarReferenceCapture,
+    current: &XroarReferenceCapture,
+) -> bool {
+    match (&candidate.comparison, &current.comparison) {
+        (Some(candidate), Some(current)) => {
+            (
+                candidate.differing_pixels,
+                candidate.max_channel_delta,
+                candidate.mean_abs_channel_delta.to_bits(),
+            ) < (
+                current.differing_pixels,
+                current.max_channel_delta,
+                current.mean_abs_channel_delta.to_bits(),
+            )
+        }
+        (Some(_), None) => true,
+        (None, Some(_)) => false,
+        (None, None) => false,
+    }
 }
 
 fn format_seconds(seconds: f32) -> String {
@@ -1304,6 +1444,7 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         load_screenshot: None,
         start_screenshot: None,
         xroar_reference_screenshot: None,
+        xroar_reference_motoroff: None,
         xroar_reference_error: None,
         xroar_reference_comparison: None,
         xroar_reference_comparison_error: None,
@@ -1313,6 +1454,31 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
 fn load_wait_frame_budget(tape_length_bits: u64) -> u32 {
     let scaled = tape_length_bits / 16;
     u32::try_from(scaled.clamp(4_500, 20_000)).map_or(20_000, |frames| frames)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TapeLoadStop {
+    MotorOff,
+    TapeFinished,
+    FrameLimit,
+}
+
+fn wait_for_tape_load_stop(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    max_frames: u32,
+) -> Result<TapeLoadStop, String> {
+    for _ in 0..=max_frames {
+        if !query_bool(session, "dragon.tape.motor_on")? {
+            return Ok(TapeLoadStop::MotorOff);
+        }
+        if query_bool(session, "dragon.tape.finished")? {
+            return Ok(TapeLoadStop::TapeFinished);
+        }
+        session
+            .run_frames(1)
+            .map_err(|err| format!("runtime failed while waiting for tape load stop: {err}"))?;
+    }
+    Ok(TapeLoadStop::FrameLimit)
 }
 
 fn boot_runtime_session(
@@ -1935,10 +2101,20 @@ mod tests {
 
     #[test]
     fn xroar_type_text_matches_dragon_load_command() {
-        assert_eq!(xroar_type_text("CLOAD"), Ok("CLOAD\rRUN\r"));
-        assert_eq!(xroar_type_text("CLOADM"), Ok("CLOADM\rEXEC\r"));
-        assert_eq!(default_xroar_motoroff("CLOAD"), 2);
-        assert_eq!(default_xroar_motoroff("CLOADM"), 1);
+        assert_eq!(
+            xroar_type_text("CLOAD", Some("RUN")),
+            Ok("CLOAD\rRUN\r".to_owned())
+        );
+        assert_eq!(xroar_type_text("CLOAD", None), Ok("CLOAD\r".to_owned()));
+        assert_eq!(
+            xroar_type_text("CLOADM", Some("EXEC")),
+            Ok("CLOADM\rEXEC\r".to_owned())
+        );
+        assert_eq!(xroar_type_text("CLOADM", None), Ok("CLOADM\r".to_owned()));
+        assert_eq!(default_xroar_motoroff("CLOAD", Some("RUN")), 2);
+        assert_eq!(default_xroar_motoroff("CLOAD", None), 3);
+        assert_eq!(default_xroar_motoroff("CLOADM", Some("EXEC")), 2);
+        assert_eq!(default_xroar_motoroff("CLOADM", None), 2);
     }
 
     #[test]
