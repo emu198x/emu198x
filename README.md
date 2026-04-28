@@ -79,6 +79,10 @@ As of April 28, 2026, the fresh Rust workspace currently provides:
   - headless runner, screenshots, audio capture, shared scripted keyboard
     input, A1000 and A500-family profiles, queryable boot/disk state, and DF0
     `ADF` media insertion
+  - postcard-encoded snapshot envelope across the full chip stack (CPU, Agnus,
+    Copper, Denise, Paula, both CIAs, Gary, autoconfig, Memory, Floppy,
+    Keyboard, RTC) with version + model validation; disk media is referenced
+    by inserted ADF bytes rather than embedded MFM
   - Kickstart and Workbench paths now have local headless smoke coverage
 
 - **Nintendo Game Boy**
@@ -103,7 +107,6 @@ As of April 28, 2026, the fresh Rust workspace currently provides:
 
 Notably not claimed yet:
 
-- no fresh-workspace Amiga snapshot support
 - no Dragon 64, cartridge audio, or disk
   support
 - no claim that disk/tape/cartridge support exists unless the corresponding

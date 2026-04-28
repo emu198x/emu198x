@@ -2,8 +2,10 @@
 //!
 //! The base 68000 has 12 addressing modes.
 
+use serde::{Deserialize, Serialize};
+
 /// Addressing mode for 68000 instructions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AddrMode {
     /// Data register direct: Dn
     DataReg(u8),

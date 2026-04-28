@@ -8,13 +8,14 @@
 //! (ITT0/ITT1 for instruction, DTT0/DTT1 for data).
 
 use crate::model::{CpuModel, TimingClass};
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // MMU mode
 // ---------------------------------------------------------------------------
 
 /// MMU operating mode, determined by CPU model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MmuMode {
     /// No MMU — EC variants or 68000/68010.
     Disabled,
@@ -55,7 +56,7 @@ impl MmuMode {
 /// - Bits 11–8: TIB
 /// - Bits 7–4: TIC
 /// - Bits 3–0: TID
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tc030 {
     pub enabled: bool,
     pub sre: bool,
@@ -115,7 +116,7 @@ impl Tc030 {
 /// Layout (16-bit effective):
 /// - Bit 15: Enable
 /// - Bit 14: Page size (0 = 4KB, 1 = 8KB)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tc040 {
     pub enabled: bool,
     pub page_8k: bool,
@@ -155,7 +156,7 @@ impl Tc040 {
 // ---------------------------------------------------------------------------
 
 /// Result of a successful transparent translation match.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct TtMatchResult {
     /// Page is cache-inhibited.
     pub cache_inhibit: bool,
@@ -294,7 +295,7 @@ const ATC_040_SETS: usize = 16;
 const ATC_040_WAYS: usize = 4;
 
 /// A single ATC entry.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct AtcEntry {
     /// Logical page address (page-aligned, offset bits zeroed).
     pub logical_page: u32,
@@ -328,7 +329,7 @@ impl AtcEntry {
 }
 
 /// 68030 ATC: 22-entry fully associative with FIFO replacement.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Atc030 {
     entries: [AtcEntry; ATC_030_SIZE],
     next_slot: usize,
@@ -407,7 +408,7 @@ impl Atc030 {
 }
 
 /// One bank of the 68040 ATC (16 sets × 4 ways = 64 entries).
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Atc040Bank {
     entries: [[AtcEntry; ATC_040_WAYS]; ATC_040_SETS],
     next_way: [u8; ATC_040_SETS],
@@ -491,7 +492,7 @@ impl Atc040Bank {
 }
 
 /// 68040 ATC: dual banks (instruction + data).
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Atc040 {
     pub instruction: Atc040Bank,
     pub data: Atc040Bank,
@@ -542,7 +543,7 @@ impl Atc040 {
 // Top-level MMU
 // ---------------------------------------------------------------------------
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 enum AtcStorage {
     None,
     M030(Box<Atc030>),
@@ -550,7 +551,7 @@ enum AtcStorage {
 }
 
 /// Top-level MMU state.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Mmu {
     mode: MmuMode,
     atc: AtcStorage,
@@ -681,7 +682,7 @@ use crate::registers::Registers;
 /// `translate_fast` checks TT registers and the ATC without doing any bus
 /// reads. If the address misses the ATC, the caller must enter
 /// `State::TableWalk` to read page table descriptors from memory.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum TranslateResult {
     /// MMU disabled — address passes through unchanged.
     Passthrough(u32),
@@ -694,7 +695,7 @@ pub enum TranslateResult {
 }
 
 /// The original bus operation suspended while a table walk is in progress.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingBusCycle {
     /// Original micro-op that triggered the bus cycle.
     pub op: MicroOp,
@@ -715,7 +716,7 @@ pub struct PendingBusCycle {
 /// Stored inside `State::TableWalk` while the CPU reads descriptors from
 /// memory. Each descriptor read is a real bus cycle, so the walk may span
 /// many ticks.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TableWalkContext {
     /// The original bus operation suspended during this walk.
     pub pending: PendingBusCycle,
@@ -748,7 +749,7 @@ pub struct TableWalkContext {
 }
 
 /// Result of processing a single descriptor during a table walk.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum WalkStep {
     /// Need to read the next level descriptor at this physical address.
     NextLevel(u32),
@@ -1156,7 +1157,7 @@ impl Mmu {
 // ---------------------------------------------------------------------------
 
 /// Descriptor type field (DT, bits 1–0) in 68030 table/page descriptors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DescriptorType030 {
     /// DT = 0: Invalid.
     Invalid,
@@ -1181,7 +1182,7 @@ impl DescriptorType030 {
 }
 
 /// Result of a 68030 table walk.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum WalkResult030 {
     /// Walk succeeded — physical address + protection bits.
     Ok {
@@ -1375,7 +1376,7 @@ pub fn select_root_pointer_030(
 // ---------------------------------------------------------------------------
 
 /// Result of a 68040 table walk.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum WalkResult040 {
     /// Walk succeeded.
     Ok {

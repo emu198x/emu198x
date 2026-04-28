@@ -54,6 +54,8 @@
 
 #![forbid(unsafe_code)]
 
+use serde::{Deserialize, Serialize};
+
 /// `ER_TYPE` bit 7: board class MSB. `11` = Zorro-II, `10` =
 /// Zorro-III (not modelled here), `01` = reserved, `00` = no board
 /// (floating bus).
@@ -92,7 +94,7 @@ pub const fn size_code_for_kib(size_kib: u32) -> Option<u8> {
 }
 
 /// Configuration state of a Zorro-II board.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AutoconfigState {
     /// Board is unconfigured — reads answer at `$E80000` and the
     /// host hasn't assigned a base address yet.
@@ -110,7 +112,7 @@ pub enum AutoconfigState {
 }
 
 /// Board-specific payload held by an `AutoconfigBoard`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 enum Payload {
     /// Plain Zorro-II fast RAM with the given byte-size backing.
     FastRam { bytes: Vec<u8> },
@@ -122,7 +124,7 @@ enum Payload {
 /// other Zorro-II peripherals by extending `Payload` and the
 /// `ER_TYPE` computation. Chained multi-board configs are a later
 /// milestone.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutoconfigBoard {
     manufacturer: u16,
     product: u8,

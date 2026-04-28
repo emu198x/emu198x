@@ -10,6 +10,8 @@ commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
 emu198x-shell = { path = "../emu198x-shell" }
 format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
 machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs" }
+postcard = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]

@@ -56,6 +56,7 @@ pub mod bits {
 }
 
 use bits::*;
+use serde::{Deserialize, Serialize};
 
 /// Register offsets within the 16-register CIA decode space.
 mod reg {
@@ -77,6 +78,7 @@ mod reg {
 }
 
 /// MOS 8520 Complex Interface Adapter.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cia8520 {
     port_a: u8,
     port_b: u8,

@@ -16,6 +16,7 @@ peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-ke
 commodore-gary = { path = "../commodore-gary" }
 commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig" }
 format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
+serde = { workspace = true }
 
 [dev-dependencies]
 png = { workspace = true }

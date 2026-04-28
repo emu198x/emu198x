@@ -10,8 +10,9 @@
 > native verifier window with keyboard, mouse input, and live Paula
 > audio plus port-1 joystick/gamepad input. Runtime audio drains Paula's live stereo mix into 48 kHz
 > audio packets; host-side Paula channel mute/gain is available from
-> the native verifier without changing AUDx registers. Snapshots and
-> broader software coverage remain pending.
+> the native verifier without changing AUDx registers. The runtime now
+> takes postcard-encoded snapshots across the full chip stack with
+> version + model validation; broader software coverage remains pending.
 
 ## Implementation status
 
@@ -50,11 +51,11 @@
 - **A1000 bootstrap proof** — the golden matrix covers the real A1000 bootstrap ROM path, Kickstart disk load into WOM, and scripted Workbench disk swap.
 - **RAM/autoconfig proof** — runtime RAM-variant tests cover stock, trapdoor, A500+, custom fast RAM, and Kickstart configuration of the maxed fast-RAM board.
 - **Workspace verification** — the imported Amiga crates and fresh runtime/runner pass their current unit-test slice in the active workspace.
+- **Snapshot round-trip** — `runtime-commodore-amiga/tests/snapshot_roundtrip.rs` proves snapshot → restore → snapshot is a fixed point and that two runtimes diverge by zero bytes after a synchronised forward run, plus rejects mismatched models and unknown versions.
 
 ### What doesn't work yet
 
 - **Native verifier UI depth** — the fresh `emu198x-amiga` shell is intentionally minimal; joystick/gamepad input is present, but there is no in-app mapper or device UI yet.
-- **Snapshots** — the fresh Amiga runtime deliberately reports snapshot import/export as unsupported.
 - **Software proof beyond the current goldens** — Workbench 1.3 and the A1000 Kickstart/Workbench route are proven locally; broader game/application boot coverage is still pending.
 - **Broader platform hardening** — stronger disk/software regressions and frontend ergonomics are still pending.
 

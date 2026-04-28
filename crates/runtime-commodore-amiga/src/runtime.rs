@@ -13,8 +13,9 @@ use emu198x_shell::{
 };
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_ocs::{
-    AmigaOcs, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
+    AmigaOcs, AmigaOcsSnapshot, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, Model, profile_for};
@@ -74,6 +75,28 @@ const AMIGA_QUERY_PATHS: &[&str] = &[
 /// Amiga-family query provider layered above the shared shell surface.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AmigaSessionQueryProvider;
+
+/// Persistable Amiga runtime envelope. Wraps an `AmigaOcsSnapshot`
+/// with the surrounding runtime context (model, time, frame counters,
+/// audio accumulator, and the inserted DF0 bytes for re-mount on
+/// restore). Versioned so future snapshot extensions can bump the
+/// major version cleanly.
+#[derive(Serialize, Deserialize)]
+struct SnapshotEnvelopeV1 {
+    version: u32,
+    model: Model,
+    ram_config: RamConfig,
+    time: MachineTime,
+    machine: AmigaOcsSnapshot,
+    floppy0_bytes: Option<Vec<u8>>,
+    frame_count: u64,
+    non_black_pixels: u32,
+    non_white_pixels: u32,
+    first_active_row: Option<u32>,
+    audio_sample_accumulator: u64,
+}
+
+const SNAPSHOT_VERSION: u32 = 1;
 
 /// Firmware-backed Amiga runtime over the OCS machine family.
 pub struct AmigaRuntime {
@@ -488,15 +511,60 @@ impl MachineCore for AmigaRuntime {
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: "snapshot-export",
+        let envelope = SnapshotEnvelopeV1 {
+            version: SNAPSHOT_VERSION,
+            model: self.model,
+            ram_config: self.ram_config,
+            time: self.time,
+            machine: self.machine.snapshot_state(),
+            floppy0_bytes: self.floppy0_bytes.clone(),
+            frame_count: self.frame_count,
+            non_black_pixels: self.non_black_pixels,
+            non_white_pixels: self.non_white_pixels,
+            first_active_row: self.first_active_row,
+            audio_sample_accumulator: self.audio_sample_accumulator,
+        };
+        postcard::to_allocvec(&envelope).map_err(|reason| MachineError::InvalidSnapshot {
+            reason: reason.to_string(),
         })
     }
 
-    fn restore(&mut self, _bytes: &[u8]) -> Result<(), MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: "snapshot-import",
-        })
+    fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        let envelope: SnapshotEnvelopeV1 =
+            postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
+                reason: reason.to_string(),
+            })?;
+        if envelope.version != SNAPSHOT_VERSION {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!(
+                    "unsupported snapshot version {}; expected {SNAPSHOT_VERSION}",
+                    envelope.version
+                ),
+            });
+        }
+        if envelope.model != self.model {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!(
+                    "model mismatch: snapshot was {:?}, runtime is {:?}",
+                    envelope.model, self.model
+                ),
+            });
+        }
+        self.ram_config = envelope.ram_config;
+        self.time = envelope.time;
+        self.machine.restore_snapshot_state(envelope.machine);
+        self.floppy0_bytes = None;
+        if let Some(bytes) = envelope.floppy0_bytes {
+            self.insert_floppy_bytes("floppy-0", &bytes)?;
+        }
+        self.frame_count = envelope.frame_count;
+        self.non_black_pixels = envelope.non_black_pixels;
+        self.non_white_pixels = envelope.non_white_pixels;
+        self.first_active_row = envelope.first_active_row;
+        self.audio_sample_accumulator = envelope.audio_sample_accumulator;
+        self.audio_buffer.clear();
+        self.update_rgba_framebuffer();
+        Ok(())
     }
 
     fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {

@@ -7,8 +7,10 @@
 //! - PC: Program counter (32-bit, 24-bit on 68000)
 //! - SR: Status register (16-bit)
 
+use serde::{Deserialize, Serialize};
+
 /// FPU register value — wraps f64 with bit-exact Eq for emulation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FpReg(pub f64);
 
 impl FpReg {
@@ -23,7 +25,7 @@ impl PartialEq for FpReg {
 impl Eq for FpReg {}
 
 /// 68000 CPU register set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Registers {
     /// Data registers D0-D7.
     pub d: [u32; 8],

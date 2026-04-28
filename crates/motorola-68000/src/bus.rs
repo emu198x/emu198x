@@ -9,8 +9,10 @@
 //! and drives the input pins with the result, same shape as the
 //! 6502 and Z80 ports.
 
+use serde::{Deserialize, Serialize};
+
 /// Function code values from the 68000's FC0-FC2 pins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionCode {
     UserData = 1,
     UserProgram = 2,
@@ -34,7 +36,7 @@ impl FunctionCode {
 /// - `Ready` = DTACK asserted, data valid on the bus.
 /// - `Wait` = DTACK not asserted, CPU holds in BusCycle state.
 /// - `Error` = BERR asserted, CPU enters bus error exception.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BusStatus {
     /// The bus cycle is complete. For reads, contains the data word.
     Ready(u16),

@@ -34,6 +34,7 @@ use crate::bus::{BusStatus, FunctionCode};
 use crate::microcode::{MicroOp, MicroOpQueue};
 use crate::model::{CpuCapabilities, CpuModel};
 use crate::registers::Registers;
+use serde::{Deserialize, Serialize};
 
 // --- Follow-up tag constants ---
 //
@@ -185,6 +186,7 @@ pub const TAG_BE_PUSH_EXTRA: u8 = 56;
 pub const TAG_BE_FETCH_VECTOR_68K: u8 = 57;
 
 /// CPU state machine state.
+#[derive(Clone, Serialize, Deserialize)]
 pub enum State {
     /// Ready to process the next micro-op.
     Idle,
@@ -225,7 +227,7 @@ pub enum State {
 }
 
 /// ALU operation type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AluOp {
     Add,
     Sub,
@@ -236,7 +238,7 @@ pub enum AluOp {
 }
 
 /// Bit manipulation operation type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BitOp {
     Btst,
     Bset,
@@ -253,7 +255,7 @@ const ICACHE_WORDS_PER_LINE: usize = 8;
 ///
 /// Tag includes function code bits so supervisor and user fetches are
 /// cached separately, matching the real 68030.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 struct ICacheLine {
     tag: u32,
     words: [u16; ICACHE_WORDS_PER_LINE],
@@ -271,6 +273,7 @@ impl ICacheLine {
 }
 
 /// 68030-style direct-mapped instruction cache: 16 lines × 8 words = 256 bytes.
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct ICache {
     lines: [ICacheLine; ICACHE_LINES],
 }
@@ -316,7 +319,7 @@ const DCACHE_WORDS_PER_LINE: usize = 8;
 ///
 /// Identical structure to [`ICacheLine`] — tag includes function code bits
 /// so supervisor/user data accesses are cached separately.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 struct DCacheLine {
     tag: u32,
     words: [u16; DCACHE_WORDS_PER_LINE],
@@ -338,6 +341,7 @@ impl DCacheLine {
 /// Write-through, write-no-allocate policy: writes always go to the bus
 /// and update the cache only on a tag hit. Reads fill the cache on a miss
 /// (unless frozen).
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct DCache {
     lines: [DCacheLine; DCACHE_LINES],
 }
@@ -378,6 +382,7 @@ impl DCache {
 ///
 /// Call [`tick`](Cpu68000::tick) every crystal clock cycle. The CPU only
 /// acts on 4-clock boundaries (matching the 68000's minimum bus cycle).
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Cpu68000 {
     /// Configured CPU model/capability profile.
     pub model: CpuModel,

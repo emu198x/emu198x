@@ -409,22 +409,38 @@ dependencies = [
 [[package]]
 name = "commodore-agnus-ocs"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "commodore-amiga-autoconfig"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "commodore-denise-ocs"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
 
 [[package]]
 name = "commodore-gary"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "commodore-paula-8364"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "common-commodore-c64"
@@ -1510,6 +1526,7 @@ dependencies = [
  "peripheral-commodore-amiga-floppy",
  "peripheral-commodore-amiga-keyboard",
  "png",
+ "serde",
  "zip",
 ]
 
@@ -1725,6 +1742,9 @@ dependencies = [
 [[package]]
 name = "mos-cia-8520"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "mos-sid-6581"
@@ -1753,6 +1773,7 @@ name = "motorola-68000"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "serde",
  "serde_json",
 ]
 
@@ -2300,11 +2321,15 @@ name = "peripheral-commodore-amiga-floppy"
 version = "0.1.0"
 dependencies = [
  "format-commodore-amiga-adf",
+ "serde",
 ]
 
 [[package]]
 name = "peripheral-commodore-amiga-keyboard"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "pin-project"
@@ -2554,6 +2579,8 @@ dependencies = [
  "machine-commodore-amiga-ocs",
  "peripheral-commodore-amiga-floppy",
  "png",
+ "postcard",
+ "serde",
  "serde_json",
 ]
 

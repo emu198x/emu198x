@@ -8,6 +8,7 @@
 //! Power-up sequence: the keyboard sends $FD (init power-up) then $FE
 //! (terminate power-up), each requiring a handshake from the host.
 
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 /// E-clock ticks before power-up sequence begins (~200ms at 709 kHz).
@@ -19,7 +20,7 @@ const BYTE_INTERVAL_TICKS: u32 = 700;
 /// E-clock ticks to wait for handshake before resending (~143ms).
 const HANDSHAKE_TIMEOUT_TICKS: u32 = 100_000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum State {
     /// Waiting for initial power-up delay.
     PowerUpDelay,
@@ -37,6 +38,7 @@ enum State {
     WaitHandshakeKey,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AmigaKeyboard {
     state: State,
     timer: u32,

@@ -3,6 +3,9 @@
 //! Denise receives bitplane data from Agnus DMA and shifts it out pixel by
 //! pixel, combining with the colour palette to produce the final framebuffer.
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
 /// Raster framebuffer width: 227 CCKs × 8 superhires pixels.
 pub const RASTER_FB_WIDTH: u32 = 1816;
 /// PAL raster framebuffer height: 312 lines x 2 (interlace double-height).
@@ -10,14 +13,14 @@ pub const PAL_RASTER_FB_HEIGHT: u32 = 624;
 /// NTSC raster framebuffer height: 262 lines x 2 (interlace double-height).
 pub const NTSC_RASTER_FB_HEIGHT: u32 = 524;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeniseSourcePixelDebug {
     pub raw_color_idx: u8,
     pub pf1_code: u8,
     pub pf2_code: u8,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeniseOutputPixelDebug {
     pub called: bool,
     pub beam_x: u32,
@@ -40,7 +43,7 @@ pub struct DeniseOutputPixelDebug {
     pub playfield_visible_gate: bool,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeniseShiftLoadPlaneDebug {
     pub raw: u16,
     pub prev: u16,
@@ -50,7 +53,7 @@ pub struct DeniseShiftLoadPlaneDebug {
     pub shift_loaded: u16,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeniseShiftLoadDebug {
     pub hires: bool,
     pub odd_scroll: u8,
@@ -59,9 +62,11 @@ pub struct DeniseShiftLoadDebug {
     pub planes: [DeniseShiftLoadPlaneDebug; 3],
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DeniseOcs {
     pub palette: [u16; 32],
     /// AGA 256-entry 24-bit palette (0x00RRGGBB).
+    #[serde(with = "BigArray")]
     pub palette_24: [u32; 256],
     /// Full-raster framebuffer at superhires resolution, double-height for interlace.
     /// Indexed as `[vpos * 2 + field_row] * RASTER_FB_WIDTH + hpos * 8 + sub`.
@@ -127,19 +132,19 @@ pub struct DeniseOcs {
     bpl_fifo_len: [u8; 8],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct SpritePixel {
     palette_idx: usize,
     sprite_group: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum PlayfieldId {
     Pf1,
     Pf2,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct PlayfieldPixel {
     visible_color_idx: usize,
     front_playfield: Option<PlayfieldId>,
@@ -1301,7 +1306,7 @@ impl DeniseOcs {
 }
 
 /// Viewport presets for cropping the raster framebuffer to displayable area.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewportPreset {
     /// Standard visible area for 4:3 display output.
     ///
@@ -1317,7 +1322,7 @@ pub enum ViewportPreset {
 }
 
 /// Region-specific viewport bounds in CCK and line units.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ViewportBounds {
     pub h_start_cck: u16,
     pub h_end_cck: u16,
@@ -1378,6 +1383,7 @@ impl ViewportPreset {
 }
 
 /// Extracted viewport image from the raster framebuffer.
+#[derive(Serialize, Deserialize)]
 pub struct ViewportImage {
     pub pixels: Vec<u32>,
     pub width: u32,

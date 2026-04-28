@@ -9,10 +9,12 @@
 //! same tick, bus ops enter the `BusCycle` state, internal delays enter
 //! the `Internal` state.
 
+use serde::{Deserialize, Serialize};
+
 const QUEUE_CAPACITY: usize = 32;
 
 /// A single micro-operation in the CPU pipeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MicroOp {
     // --- Bus operations (4+ clock cycles each) ---
     /// Fetch the next instruction word into IRC.
@@ -88,7 +90,7 @@ impl MicroOp {
 /// The 68000 never needs more than ~20 pending micro-ops for any single
 /// instruction, so 32 slots is generous. Uses a circular buffer to avoid
 /// allocation.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MicroOpQueue {
     ops: [MicroOp; QUEUE_CAPACITY],
     head: u8,

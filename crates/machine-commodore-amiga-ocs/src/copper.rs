@@ -31,9 +31,10 @@
 
 use crate::denise::DmaClaim;
 use crate::memory::Memory;
+use serde::{Deserialize, Serialize};
 
 /// Copper internal state.
-#[derive(Default)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Copper {
     /// COP1LC ($DFF080/$082) — first copper-list pointer.
     pub cop1lc: u32,

@@ -8,6 +8,7 @@ pub mod mfm;
 
 use format_commodore_amiga_adf::Adf;
 use mfm::{decode_mfm_track, encode_mfm_track};
+use serde::{Deserialize, Serialize};
 
 /// Trait abstracting the disk data source.
 ///
@@ -77,6 +78,7 @@ const MOTOR_SPINUP_TICKS: u32 = 350_000;
 const INDEX_PULSE_TICKS: u32 = 141_876;
 
 /// Drive status bits for CIA-A PRA (active-low: 0 = asserted).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct DriveStatus {
     /// PA2: /DSKCHANGE — low when disk has been removed since last step.
     pub disk_change: bool,
@@ -88,7 +90,13 @@ pub struct DriveStatus {
     pub ready: bool,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct AmigaFloppyDrive {
+    /// Inserted disk image, if any. Not serialised — disk media is
+    /// re-mounted by the runtime envelope on snapshot restore so that
+    /// snapshots stay small and reference disks by source path rather
+    /// than embedded bytes.
+    #[serde(skip)]
     disk: Option<Box<dyn DiskImage>>,
     cylinder: u32,
     head: u32,
@@ -116,6 +124,34 @@ pub struct AmigaFloppyDrive {
     id_bit: u8,
     /// Latched /DSKRDY output bit — 0 = asserted (ready/id-0), 1 = deasserted.
     id_ready_bit: bool,
+}
+
+impl Clone for AmigaFloppyDrive {
+    /// Cloning drops the inserted disk — matching the `#[serde(skip)]`
+    /// snapshot semantics. Disk media is re-mounted at the runtime
+    /// layer after snapshot restore (or after clone, where applicable);
+    /// the drive's persistable mechanical state — head, motor, MFM
+    /// capture, ID shift register — copies bit-for-bit.
+    fn clone(&self) -> Self {
+        Self {
+            disk: None,
+            cylinder: self.cylinder,
+            head: self.head,
+            motor_on: self.motor_on,
+            motor_spinning: self.motor_spinning,
+            spin_timer: self.spin_timer,
+            index_timer: self.index_timer,
+            selected: self.selected,
+            disk_changed: self.disk_changed,
+            prev_step: self.prev_step,
+            step_event_counter: self.step_event_counter,
+            write_mfm_capture: self.write_mfm_capture.clone(),
+            write_mfm_pending: self.write_mfm_pending.clone(),
+            id_shift_register: self.id_shift_register,
+            id_bit: self.id_bit,
+            id_ready_bit: self.id_ready_bit,
+        }
+    }
 }
 
 impl AmigaFloppyDrive {

@@ -16,6 +16,7 @@
 //! be folded in alongside the floppy port — flagged in the Paula
 //! Phase 1 gap-list doc).
 
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 // ─────────────────────────────────────────────────────────────────────
@@ -147,7 +148,7 @@ use bits::*;
 
 /// An INTREQ source. Indexes the 14 interrupt-request bits by name so
 /// callers don't use raw bit numbers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum IntSource {
     Tbe = 0,
@@ -174,7 +175,7 @@ impl IntSource {
 }
 
 /// One of the six per-channel audio registers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum AudioField {
     LcHi = 0,
@@ -223,7 +224,7 @@ pub mod decode {
 /// These controls are deliberately outside the emulated register surface:
 /// muting a channel here does not change AUDxVOL, AUDxDAT, DMA, IRQs, or
 /// ADKCON modulation state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum PaulaChannel {
     /// Audio channel 0, routed left on OCS.
@@ -259,7 +260,7 @@ impl PaulaChannel {
 }
 
 /// Per-channel host mixer control.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ChannelControl {
     enabled: bool,
     gain: f32,
@@ -305,7 +306,7 @@ impl ChannelControl {
 }
 
 /// Host-side audio controls for Paula output.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AudioControls {
     master_gain: f32,
     channels: [ChannelControl; 4],
@@ -391,7 +392,7 @@ static DAC_TABLE: std::sync::LazyLock<[f32; 256]> = std::sync::LazyLock::new(bui
 // Audio channel
 // ─────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum AudioOutputEvent {
     HighByte(u16),
     LowByte(u16),
@@ -409,7 +410,7 @@ impl AudioOutputEvent {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct AudioChannel {
     lc: u32,
     ptr: u32,
@@ -653,7 +654,7 @@ impl AudioChannel {
 
 /// Snapshot view of one audio channel's live output state. Returned
 /// from [`Paula8364::audio_state`] for debuggers/level meters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioChannelSnapshot {
     pub period: u16,
     pub volume: u8,
@@ -664,6 +665,7 @@ pub struct AudioChannelSnapshot {
 // Paula8364 — main type
 // ─────────────────────────────────────────────────────────────────────
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Paula8364 {
     intena: u16,
     intreq: u16,

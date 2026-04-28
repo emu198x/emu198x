@@ -7,7 +7,17 @@
 //! access patterns Amiga code uses, the machine routes any byte/word
 //! access within a 4-byte slot to the same nibble register.
 
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Default for the non-serialised `host_reference` field. Restoring a
+/// snapshot anchors the elapsed-time counter at the moment of restore;
+/// software that has the CD_HOLD bit set sees the same `unix_seconds`
+/// regardless. Software that lets the clock free-run will see no jump
+/// because elapsed-since-anchor is what advances the counter.
+fn default_host_reference() -> SystemTime {
+    SystemTime::now()
+}
 
 pub const RTC_BASE: u32 = 0x00DC_0000;
 
@@ -50,9 +60,12 @@ struct CalendarTime {
     weekday: u8, // Sunday = 0
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Msm6242Rtc {
     unix_seconds: i64,
+    /// Host-side anchor for elapsed-time computation. Re-anchored on
+    /// snapshot restore — see `default_host_reference` for rationale.
+    #[serde(skip, default = "default_host_reference")]
     host_reference: SystemTime,
     control_d: u8,
     control_e: u8,

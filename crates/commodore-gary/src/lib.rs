@@ -9,6 +9,8 @@
 //! This crate centralises the address decode that was previously an
 //! inline if-chain in `machine-amiga`'s `poll_cycle()`.
 
+use serde::{Deserialize, Serialize};
+
 // ---------------------------------------------------------------------------
 // Chip select output
 // ---------------------------------------------------------------------------
@@ -17,7 +19,7 @@
 ///
 /// The variants are ordered by decode priority — higher-priority chip
 /// selects shadow lower-priority ranges when both would match.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChipSelect {
     /// CIA-A: $BFExxx (accent on low byte, D0-D7).
     CiaA,
@@ -60,7 +62,7 @@ pub enum ChipSelect {
 /// active. Every Amiga has CIA-A, CIA-B, custom registers, chip RAM,
 /// and ROM. Model-dependent peripherals (DMAC, resource registers,
 /// Gayle, slow RAM) are enabled at construction time.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Gary {
     slow_ram_present: bool,
     gayle_present: bool,

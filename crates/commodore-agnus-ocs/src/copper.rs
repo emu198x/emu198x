@@ -1,6 +1,8 @@
 //! Copper - Coprocessor for synchronized register updates.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum State {
     Idle,
     Fetch1, // Fetch first word
@@ -8,6 +10,7 @@ pub enum State {
     Wait,   // Waiting for beam position
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Copper {
     pub state: State,
     pub cop1lc: u32,

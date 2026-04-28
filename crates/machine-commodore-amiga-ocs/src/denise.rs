@@ -88,7 +88,7 @@ pub fn lores_fetch_plane(slot_in_block: u16, bpu: u8) -> Option<usize> {
 /// DMA arbitration claim for a given CCK. Currently only bitplane
 /// DMA is modelled — refresh / audio / sprites / disk land in later
 /// milestones with their own features.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DmaClaim {
     /// CCK is free — copper, blitter, or CPU can use the chip bus.
     Free,
@@ -131,6 +131,7 @@ pub fn dma_claim(hpos: u16, dmacon: u16, bplcon0: u16, ddfstrt: u16, ddfstop: u1
     }
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Denise {
     /// Archive pixel pipeline — owns BPLCON1/2, COLOR palette, sprite
     /// registers, shift registers, HAM prev-RGB, collision state.

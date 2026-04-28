@@ -56,7 +56,7 @@ const AUTOCONFIG_TOP: u32 = 0x00E8_0080;
 /// Sizes are in kilobytes. Only the sizes listed in
 /// `memory::is_valid_chip_ram_size` / `is_valid_slow_ram_size` are
 /// accepted by `AmigaOcs::with_ram_config`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RamConfig {
     /// Chip RAM in KiB. One of 256, 512, 1024, 2048.
     pub chip_kb: u32,
@@ -155,7 +155,7 @@ fn joydat(x: u8, y: u8) -> u16 {
     (u16::from(y) << 8) | u16::from(x)
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 struct JoystickState {
     up: bool,
     down: bool,
@@ -227,7 +227,7 @@ const DEBUG_RTC_LOG_LIMIT: usize = 4096;
 /// modulo chip RAM). After `words_remaining` reaches zero Paula
 /// clears its pending flag and raises DSKBLK — trackdisk's wait
 /// returns and the bootblock read can complete.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct DiskDmaRuntime {
     /// Word count remaining (copied from DSKLEN bits 13:0 at arm).
     words_remaining: u32,
@@ -398,6 +398,49 @@ pub struct AmigaOcs {
     /// is the delivered word/byte payload. Used to trace KS 1.3's
     /// direct old-address clock probes at `$DC0000`.
     pub debug_rtc_log: Vec<(u64, u32, u32, bool, bool, u16)>,
+}
+
+/// Persistable Amiga (OCS) machine state.
+///
+/// Captures every chip + every machine-level field whose value affects
+/// future behaviour. Diagnostic logs (`debug_*`) are deliberately
+/// excluded — they are observability, not state. Disk media is also
+/// excluded; the runtime envelope re-mounts disks separately so
+/// snapshots reference disks by source rather than embedding ~1 MiB of
+/// MFM bytes per inserted floppy.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct AmigaOcsSnapshot {
+    cpu: Cpu68000,
+    memory: Memory,
+    drive: AmigaFloppyDrive,
+    track_cache: Option<(u32, u32, Vec<u8>)>,
+    track_word_cursor: usize,
+    track_pacer: u16,
+    disk_dma_runtime: Option<DiskDmaRuntime>,
+    keyboard: AmigaKeyboard,
+    prev_cia_a_spmode: bool,
+    gary: Gary,
+    rtc: Msm6242Rtc,
+    autoconfig: Option<AutoconfigBoard>,
+    cia_a: Cia,
+    cia_b: Cia,
+    paula: Paula8364,
+    joy0_x: u8,
+    joy0_y: u8,
+    joy1_x: u8,
+    joy1_y: u8,
+    port0_left_button_pressed: bool,
+    port1_left_button_pressed: bool,
+    joystick1: JoystickState,
+    agnus: Agnus,
+    copper: Copper,
+    denise: Denise,
+    tick_count: u64,
+    cck_phase: u8,
+    prev_vertb_level: bool,
+    prev_cia_a_irq: bool,
+    prev_cia_b_irq: bool,
+    e_clock_phase: u64,
 }
 
 impl AmigaOcs {
@@ -1902,5 +1945,104 @@ impl AmigaOcs {
             }
             self.cpu.bus_status = BusStatus::Ready(0);
         }
+    }
+
+    /// Build a persistable snapshot of the live machine state.
+    ///
+    /// Diagnostic logs (`debug_*` fields) are intentionally excluded —
+    /// they are observability, not state. The inserted disk is also
+    /// excluded; the runtime envelope is responsible for re-inserting
+    /// disk media on restore.
+    #[must_use]
+    pub fn snapshot_state(&self) -> AmigaOcsSnapshot {
+        AmigaOcsSnapshot {
+            cpu: self.cpu.clone(),
+            memory: self.memory.clone(),
+            drive: self.drive.clone(),
+            track_cache: self.track_cache.clone(),
+            track_word_cursor: self.track_word_cursor,
+            track_pacer: self.track_pacer,
+            disk_dma_runtime: self.disk_dma_runtime.clone(),
+            keyboard: self.keyboard.clone(),
+            prev_cia_a_spmode: self.prev_cia_a_spmode,
+            gary: self.gary.clone(),
+            rtc: self.rtc.clone(),
+            autoconfig: self.autoconfig.clone(),
+            cia_a: self.cia_a.clone(),
+            cia_b: self.cia_b.clone(),
+            paula: self.paula.clone(),
+            joy0_x: self.joy0_x,
+            joy0_y: self.joy0_y,
+            joy1_x: self.joy1_x,
+            joy1_y: self.joy1_y,
+            port0_left_button_pressed: self.port0_left_button_pressed,
+            port1_left_button_pressed: self.port1_left_button_pressed,
+            joystick1: self.joystick1,
+            agnus: self.agnus.clone(),
+            copper: self.copper.clone(),
+            denise: self.denise.clone(),
+            tick_count: self.tick_count,
+            cck_phase: self.cck_phase,
+            prev_vertb_level: self.prev_vertb_level,
+            prev_cia_a_irq: self.prev_cia_a_irq,
+            prev_cia_b_irq: self.prev_cia_b_irq,
+            e_clock_phase: self.e_clock_phase,
+        }
+    }
+
+    /// Restore machine state from a snapshot. Diagnostic logs are
+    /// cleared (snapshots do not preserve observability state). Disk
+    /// media is not restored here — re-mount via `insert_disk` after
+    /// restore.
+    pub fn restore_snapshot_state(&mut self, snap: AmigaOcsSnapshot) {
+        self.cpu = snap.cpu;
+        self.memory = snap.memory;
+        self.drive = snap.drive;
+        self.track_cache = snap.track_cache;
+        self.track_word_cursor = snap.track_word_cursor;
+        self.track_pacer = snap.track_pacer;
+        self.disk_dma_runtime = snap.disk_dma_runtime;
+        self.keyboard = snap.keyboard;
+        self.prev_cia_a_spmode = snap.prev_cia_a_spmode;
+        self.gary = snap.gary;
+        self.rtc = snap.rtc;
+        self.autoconfig = snap.autoconfig;
+        self.cia_a = snap.cia_a;
+        self.cia_b = snap.cia_b;
+        self.paula = snap.paula;
+        self.joy0_x = snap.joy0_x;
+        self.joy0_y = snap.joy0_y;
+        self.joy1_x = snap.joy1_x;
+        self.joy1_y = snap.joy1_y;
+        self.port0_left_button_pressed = snap.port0_left_button_pressed;
+        self.port1_left_button_pressed = snap.port1_left_button_pressed;
+        self.joystick1 = snap.joystick1;
+        self.agnus = snap.agnus;
+        self.copper = snap.copper;
+        self.denise = snap.denise;
+        self.tick_count = snap.tick_count;
+        self.cck_phase = snap.cck_phase;
+        self.prev_vertb_level = snap.prev_vertb_level;
+        self.prev_cia_a_irq = snap.prev_cia_a_irq;
+        self.prev_cia_b_irq = snap.prev_cia_b_irq;
+        self.e_clock_phase = snap.e_clock_phase;
+
+        self.debug_reg_read_counts.clear();
+        self.debug_peak_intena = 0;
+        self.debug_intena_writes = 0;
+        self.debug_intena_log.clear();
+        self.debug_cop1lc_log.clear();
+        self.debug_cop2lc_log.clear();
+        self.debug_dsk_log.clear();
+        self.debug_dmacon_log.clear();
+        self.debug_blit_starts = 0;
+        self.debug_blit_log.clear();
+        self.debug_cia_a_cr_log.clear();
+        self.debug_cia_b_cr_log.clear();
+        self.debug_copper_move_log.clear();
+        self.debug_custom_write_log.clear();
+        self.debug_watch_addr = None;
+        self.debug_watch_writes.clear();
+        self.debug_rtc_log.clear();
     }
 }

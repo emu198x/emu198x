@@ -14,7 +14,7 @@ use machine_commodore_amiga_ocs::RamConfig;
 /// trapdoor, the A500+ chip bump, and a maxed-out A500 with both
 /// trapdoor and Zorro-II fast RAM. Custom layouts outside these
 /// presets are available through `AmigaRuntime::from_ram_config`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Model {
     /// A1000 OCS PAL (shipping config, 1985): 256 KiB chip RAM,
     /// 64 KiB bootstrap ROM, and writable WOM for Kickstart loaded

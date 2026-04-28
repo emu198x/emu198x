@@ -4,6 +4,33 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-28 — Amiga snapshots — postcard round-trip across the full chip stack
+
+**Type:** milestone (Phase A.1 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md))
+**Trigger:** The Amiga was the only anchor family without snapshot support — explicitly called out in the README's "Notably not claimed yet" list and breaking the [`save-state-format.md`](decisions/save-state-format.md) rule "derive on everything from day one". Phase A.1 closed the gap.
+**Result:** `Serialize` / `Deserialize` derived across every Amiga chip and the machine + runtime layers, with a versioned postcard envelope and a hermetic round-trip test:
+
+- **Chip stack (8 crates, ~70 derive sites):**
+  - `mos-cia-8520`, `commodore-gary`, `commodore-amiga-autoconfig`, `peripheral-commodore-amiga-keyboard`: flat structs, single derive each.
+  - `peripheral-commodore-amiga-floppy`: `#[serde(skip)]` on the trait-object disk plus a manual `Clone` impl matching the skip semantics. Disk media is re-mounted by the runtime envelope on restore.
+  - `commodore-paula-8364`: 9 types (IntSource, AudioField, PaulaChannel, ChannelControl, AudioControls, AudioOutputEvent, AudioChannel, AudioChannelSnapshot, Paula8364).
+  - `commodore-agnus-ocs`: 13 types (Agnus + Copper + Blitter + slot/state enums); no skips, no big-array.
+  - `commodore-denise-ocs`: 10 types; the 256-entry `palette_24` needed `serde-big-array`.
+  - `motorola-68000`: 37 types across `cpu`, `alu`, `bus`, `microcode`, `mmu`, `model`, `registers`, `addressing`, `fpu`. No skips needed; modern serde supports `[T; 32]` via const generics.
+- **Machine layer (`machine-commodore-amiga-ocs`):** derived on `Memory`, `RomRegion`, `Copper`, `Denise`, `DmaClaim`, `RamConfig`, `JoystickState`, `DiskDmaRuntime`. The RTC's `host_reference: SystemTime` is `#[serde(skip, default = "default_host_reference")]` — re-anchored to `SystemTime::now()` on restore. New `pub struct AmigaOcsSnapshot` aggregates chip + machine state; new `snapshot_state()` / `restore_snapshot_state()` methods on `AmigaOcs`. Diagnostic logs (`debug_*` fields) are explicitly **not** snapshotted — they are observability, not state, and clear on restore.
+- **Runtime envelope (`runtime-commodore-amiga`):** `SnapshotEnvelopeV1 { version, model, ram_config, time, machine, floppy0_bytes, frame_count, ... }` replaces the previous `UnsupportedOperation` returns. Restore validates version + model and re-mounts DF0 from the captured ADF bytes.
+
+**Verification:**
+- `cargo test -p runtime-commodore-amiga --test snapshot_roundtrip` — 4 tests pass: snapshot-restore-snapshot is a fixed point; restored runtime + 8000 ticks matches original + 8000 ticks bit-for-bit; wrong model rejected; garbage bytes rejected.
+- `cargo test --workspace --lib` — green; no regressions.
+- `cargo clippy --workspace --lib --tests -- -D warnings` — clean.
+
+**Consequence:** the Amiga is now first-class for snapshots alongside Spectrum, C64, NES, and Game Boy. The READE disclaimer is gone; the [`commodore-amiga.md`](systems/commodore-amiga.md) overview lists the round-trip test as `Validated`. With snapshots in place, Phase A.2 (boot-invariant test suites) can use them as one of the regression vectors. Phase B.4 (native verifier UI snapshot save/load) is now unblocked.
+
+**Files touched:** 11 chip + machine + runtime crates, 1 new test file, README, wiki overview. Single milestone commit per the plan's exit criteria.
+
+---
+
 ## 2026-04-26 to 2026-04-28 — Dragon 32 family stood up (Codex-owned summary)
 
 **Type:** ingest (summary; Codex owns detail)

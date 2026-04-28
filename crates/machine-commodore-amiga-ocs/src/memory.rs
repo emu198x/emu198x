@@ -19,6 +19,8 @@
 //! is **not** modelled yet — it lands in M3/M4 when the chip-RAM probe
 //! demands it.
 
+use serde::{Deserialize, Serialize};
+
 const OVL_BASE: u32 = 0x00_0000;
 const OVL_TOP: u32 = 0x40_0000;
 
@@ -42,7 +44,7 @@ const A1000_BOOT_ROM_TOP: u32 = 0x00FC_0000;
 const ROM_TOP: u32 = 0x0100_0000;
 const A1000_WOM_SIZE: usize = 256 * 1024;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 enum RomRegion {
     Standard {
         rom: Vec<u8>,
@@ -86,6 +88,7 @@ pub fn is_valid_slow_ram_size(bytes: usize) -> bool {
 }
 
 /// Memory subsystem for the Amiga (OCS).
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Memory {
     chip_ram: Vec<u8>,
     chip_ram_mask: u32,

@@ -6,12 +6,13 @@
 //! Extended's 64-bit mantissa with 53 bits).
 
 use crate::registers::Registers;
+use serde::{Deserialize, Serialize};
 
 // --- FP data formats ---
 
 /// FPU source/destination data format, encoded in bits 12-10 of the
 /// coprocessor extension word.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FpFormat {
     /// 32-bit integer (longword).
     Long = 0,

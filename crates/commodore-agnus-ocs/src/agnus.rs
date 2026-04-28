@@ -1,5 +1,7 @@
 //! Agnus - Beam counter and DMA slot allocation.
 
+use serde::{Deserialize, Serialize};
+
 /// Named bit masks for the DMACON register (HRM Appendix A.3 +
 /// Chapter 6). These describe DMA-channel enables; Paula reads the
 /// same bits for its own slot gating.
@@ -47,7 +49,7 @@ pub const NTSC_CCKS_PER_LINE: u16 = NTSC_CCKS_PER_LINE_SHORT;
 #[allow(dead_code)]
 pub const NTSC_LINES_PER_FRAME: u16 = 262;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlotOwner {
     Cpu,
     Refresh,
@@ -59,7 +61,7 @@ pub enum SlotOwner {
 }
 
 /// How Paula audio DMA return-latency timing should behave for this CCK slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PaulaReturnProgressPolicy {
     /// Return latency advances normally this CCK.
     Advance,
@@ -77,7 +79,7 @@ pub enum PaulaReturnProgressPolicy {
 /// This is the machine-facing API for consumers that need to react to Agnus DMA
 /// arbitration (e.g. Paula DMA service/return progress) without duplicating the
 /// slot decoding rules.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CckBusPlan {
     /// Raw slot owner for debugging/inspection. Prefer the explicit grant fields
     /// below for machine behavior.
@@ -153,7 +155,7 @@ pub const HIRES_DDF_TO_PLANE: [Option<u8>; 4] = [
     Some(0), // BPL1 (triggers shift register load)
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlitterDmaOp {
     ReadA,
     ReadB,
@@ -166,7 +168,7 @@ pub enum BlitterDmaOp {
 /// servicing for the current word. Replaces the pre-built VecDeque queue so
 /// that individual channel accesses can be granted in any order (with the
 /// constraint that WriteD must wait until all reads are done).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct BlitterWordState {
     need_a: bool,
     need_b: bool,
@@ -214,7 +216,7 @@ impl BlitterWordState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct BlitterLineRuntime {
     steps_remaining: u32,
     error: i16,
@@ -235,7 +237,7 @@ struct BlitterLineRuntime {
     have_c_word: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct BlitterAreaRuntime {
     rows_remaining: u32,
     width_words: u32,
@@ -270,7 +272,7 @@ struct BlitterAreaRuntime {
     c_val: u16,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Agnus {
     pub vpos: u16,
     pub hpos: u16, // in CCKs

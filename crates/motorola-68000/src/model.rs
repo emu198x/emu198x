@@ -5,8 +5,10 @@
 //! groups models that share the same instruction execution timing, while
 //! [`CpuCapabilities`] tracks which optional features are present.
 
+use serde::{Deserialize, Serialize};
+
 /// Selected Motorola 680x0 CPU model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CpuModel {
     /// MC68000 — original 16/32-bit CPU.
     M68000,
@@ -52,7 +54,7 @@ impl CpuModel {
 /// Instruction timing class. Models within a class share the same
 /// instruction execution timing (clock counts), even though they may
 /// differ in FPU/MMU availability.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TimingClass {
     /// 68000/68010: 4-clock minimum bus cycle, 16-bit ALU, no pipeline.
     M68000,
@@ -65,7 +67,7 @@ pub enum TimingClass {
 }
 
 /// Capability flags for a specific CPU model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CpuCapabilities {
     /// `MOVEC` instruction family is available.
     pub movec: bool,

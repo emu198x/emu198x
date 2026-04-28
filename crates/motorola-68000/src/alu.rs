@@ -4,9 +4,10 @@
 //! along with the updated status register flags.
 
 use crate::flags::{C, N, V, X, Z};
+use serde::{Deserialize, Serialize};
 
 /// Operation size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Size {
     /// 8-bit byte.
     Byte,
