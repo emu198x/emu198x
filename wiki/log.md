@@ -4,6 +4,31 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-28 — Boot-invariant test suites land for all four anchors
+
+**Type:** milestone (Phase A.2 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md))
+**Trigger:** Each anchor family's known-good waypoints lived in scattered diagnostic tests that ran with `#[ignore]`, machine-layer unit tests that depended on real ROMs, or one-off scripts. Phase A.2 promotes them into a single named regression gate per family so future refactors land on a green bar instead of a hand-rolled diagnostic.
+**Result:** new `tests/boot_invariants.rs` in each of the four anchor runtime crates. Each file follows the same pattern: a hermetic block that runs on every `cargo test --workspace`, and a `#[ignore]`'d ROM-backed block that resolves assets from `~/.emu198x/`.
+
+| Anchor | Hermetic | ROM-backed |
+|---|---|---|
+| Amiga (`runtime-commodore-amiga`) | RAM presets construct, runtime ticks past first frame, snapshot fixed point, RAM defaults stable | Kickstart 1.3 → insert-disk; Workbench 1.3 → desktop |
+| Spectrum 48K (`runtime-sinclair-zx-spectrum`) | Dummy ROM constructs, runtime advances, snapshot fixed point | Real 48K ROM runs 30 frames |
+| C64 (`runtime-commodore-c64`) | Dummy ROMs construct, runtime advances, snapshot fixed point | Real KERNAL → `READY.` (screen-RAM scan) |
+| NES (`runtime-nintendo-nes`) | Minimal iNES loads, runs one frame, snapshot fixed point | nestest.nes loads + runs |
+
+**Workspace effect:** `cargo test --workspace --test boot_invariants` now runs **13 hermetic invariants** across the four anchors, plus **5 ROM-backed waypoints** that activate when local fixtures are present.
+
+**Verification:**
+- `cargo test --workspace --test boot_invariants` — 4 suites, 13 passed / 0 failed / 5 ignored.
+- `cargo clippy -p runtime-* --tests -- -D warnings` — clean across all four runtimes.
+
+**Consequence:** Phase A.3 and A.4 (the Amiga seam refactors) now have a regression net. Any change to `service_cpu_bus`, the disk DMA path, the byte-lane conventions, or the chip stack will fail loudly here before it can break Workbench boot. Future bugs that get fixed get one more test added to the relevant anchor's `boot_invariants.rs`; the file is the canonical promotion target.
+
+The plan's per-anchor waypoint list has more entries than this initial commit covers (Manic Miner, Bruce Lee, SMB, MMC1 Zelda etc.). Those add over time as their dependencies land — for now the file shape is in place and the cheapest hermetic invariants are wired.
+
+---
+
 ## 2026-04-28 — Amiga snapshots — postcard round-trip across the full chip stack
 
 **Type:** milestone (Phase A.1 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md))
