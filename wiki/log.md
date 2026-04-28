@@ -4,6 +4,26 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-26 to 2026-04-28 — Dragon 32 family stood up (Codex-owned summary)
+
+**Type:** ingest (summary; Codex owns detail)
+**Trigger:** With the chip-only Amiga KS 1.3 boot resolved and the four-anchor stack stable, the project added a sixth implementation family: Dragon 32. The line of work is owned by Codex while in flight; this entry summarises from outside so the wiki at least records the family's existence.
+**Result:** Dragon 32 now reaches BASIC, accepts CAS tape media (BASIC + machine-code paths via `CLOAD`/`CLOADM`), mounts ROM/DGN cartridges, restores PC-Dragon PAK snapshots as machine state, plays PIA-driven audio, accepts joystick input (validated with Frogger), and compares smoke-screenshots against patched XRoar with 11/12 exact matches across a 12-title application set. Crates landed: `motorola-6809`, `motorola-pia-6821`, `motorola-sam-6883`, `motorola-vdg-6847`, `format-dragon-cas`, `format-dragon-pak`, `machine-dragon-32`, `runtime-dragon`, `emu198x-dragon`, `emu198x-script-dragon`. The MC6809 instruction core is built across roughly 14 commits (`690227e` through `327122f`); the cassette / video / audio / joystick / cartridge / PAK paths follow.
+**Why this entry exists.** Until Codex completes the Dragon line, the wiki records the family's existence and the high-level shape rather than duplicating Codex's detailed commit work. When Dragon stabilises, this entry should be replaced with proper milestone summaries per chip and per port.
+**Status at end of this period:** Dragon is the sixth supported family. It is not in the October launch scope but shapes the 6809 family for Wave 3 (Dragon 64, CoCo, Vectrex). Codex's current focus is PC-Dragon PAK XRoar reference comparison precision.
+
+---
+
+## 2026-04-26 — Current-system verification gate
+
+**Type:** infrastructure
+**Trigger:** With six families implemented (Spectrum, C64, NES, Amiga, Game Boy, Dragon), running each family's regression suite by hand had become impractical and the failure modes had drifted apart across `cargo test`, headless smoke runs, ROM-backed integration tests, Blargg / mooneye-gb assertions, and XRoar comparison runs.
+**Result:** `scripts/verify-current-systems.sh` lands as a single entry-point that runs both in-repository unit/integration checks and local ROM/media smoke checks across all six families, with `--unit-only` and `--local-only` modes for tight iteration. Output is a per-system JSONL report under `target/current-system-verification/`. Missing local ROMs are reported as `skipped`, not `failed`, so the script runs cleanly without environment-specific assets.
+**Coverage:** Spectrum 48K (ROM + Manic Miner + Jet Set Willy); C64 (KERNAL + tape + 1541 disks); NES (Blargg APU `rom_singles` + nestest); Amiga (Kickstart 1.3 + Workbench 1.3); Game Boy (Blargg + mooneye-gb); Dragon (CAS + machine-code CAS + audio + joystick + optional XRoar reference). Configurable via the `EMU198X_*` environment variables documented in the script's usage block.
+**Consequence:** the project now has one command that says "are the current-system claims still true?", with a machine-readable answer ready for CI integration and PR-comment automation.
+
+---
+
 ## 2026-04-25 — NES gains first-pass MMC5 support
 
 **Type:** feature
@@ -527,6 +547,136 @@ crates land against a known target".
 `wiki/index.md` updated with links in Chips, Systems, and
 Decisions sections. No code written; `sharp-lr35902` crate and
 the Game Boy machine / runtime remain unimplemented.
+
+---
+
+## 2026-04-22 — Spectrum family expansion: 11 variants on the workspace floor
+
+**Type:** milestone (multi-port wave)
+**Trigger:** Spectrum 48K had been the only Spectrum on the fresh-workspace floor, yet the [product roadmap](decisions/product-roadmap.md) treats "Spectrum" as a family of eleven variants. The October curriculum needs 48K, 128K, +2/+2A/+3, and Pentagon at minimum. The day before Game Boy Phase 0, the family was finished in a single push.
+**Result:** the workspace gained the full Spectrum line in one day:
+1. **128K stack:** `sinclair-ula-7k010e` (17.7 MHz crystal, phase-1 contention) and `gi-ay-3-8912` (PSG, /8 prescaler, Bresenham downsampling).
+2. **+2A/+3 stack:** `amstrad-ula-40077` (gate array, MREQ-only contention, no floating bus), `nec-upd765a` (FDC), `format-amstrad-dsk` (DSK + EDSK loader).
+3. **Snapshot format:** `format-sinclair-zx-spectrum-z80` for `.z80` v1/v2/v3 and `.sna`.
+4. **Eastern Bloc + Timex variants:** `pentagon-ula`, `scorpion-ula`, `timex-scld`, `beta-disk-interface` (Russian disk interface).
+5. **Variant machines:** `machine-pentagon-128`, `machine-scorpion-zs256`, `machine-timex-tc2048`, `machine-timex-ts2068`.
+6. **128K and +2/+2A/+3 machines:** `machine-sinclair-zx-spectrum-128k`, `machine-sinclair-zx-spectrum-plus`.
+7. **Generic runtime:** `runtime-sinclair-zx-spectrum` wraps every variant in a `MachineCore` shape; the `SpectrumDriver` trait (designed 2026-04-08) is finally implemented across all seven machines.
+8. **Family decision:** [`wiki/decisions/within-family-layering.md`](decisions/within-family-layering.md) — five-piece structure (common / chip / format / machine / runtime) the family follows. Future families inherit this template; Game Boy validates it the next day.
+
+**Verification:** all 11 Spectrum variants boot in headless and native shells. ZEXDOC / ZEXALL / FUSE stay green on the shared Z80 core.
+**Consequence:** Spectrum is the first family to fully realise the within-family-layering pattern. The shape is now copy-pasteable for any Z80, 6502, 68000, or 6809 family — and within hours, was reused for the Game Boy port.
+
+---
+
+## 2026-04-21 — Amiga archive-port wave + Workbench MFM investigation
+
+**Type:** milestone (multi-port wave + investigation)
+**Trigger:** The chip-only KS 1.3 restart (M0–M9) had rebuilt the Amiga from a clean spine. Before pursuing Workbench boot, the broken-out chip crates (`commodore-agnus-ocs-archive`, `commodore-paula-8364-archive`, `commodore-denise-ocs-archive`, etc.) needed to be ported into the live machine using the codified [archive-port methodology](decisions/archive-port-methodology.md).
+**Result:** in a single day, the live Amiga absorbed seven peripheral and chip archives:
+1. **`commodore-agnus-ocs` + Blitter** — bits module, machine-facing register writers, full DMA arbitration ported.
+2. **`commodore-paula-8364`** — INTENA/INTREQ/ADKCON, audio register storage, audio DMA + AUDx IRQs, disk register storage, disk-completion + MFM-sync IRQ paths, Paula serial UART (SERDAT/SERPER/SERDATR + TBE/RBF), POTGO + POTxDAT + POTGOR analog inputs.
+3. **`commodore-denise-ocs`** — BPLCON1/2 + colour palette absorbed, pixel pipeline delegated, LACE + sprite DMA wired (Phases 2a–2c).
+4. **`peripheral-commodore-amiga-floppy`** — 18 characterisation tests; DF0 drive wired into the machine.
+5. **`peripheral-commodore-amiga-keyboard`** — 7 characterisation tests; controller wired.
+6. **`commodore-gary`** — 7 tests; address decoder wired.
+7. **`runtime-commodore-amiga` + `emu198x-script-amiga`** — retargeted at `machine-commodore-amiga-ocs`; `boot.*` queries restored.
+
+The seven `*-archive` crates retire in the same wave. Cross-cutting boot integration tests landed (task #180). Configurable chip + slow RAM sizes shipped as a 3-step plan: chip RAM size → Zorro-II autoconfig fast RAM → runtime presets.
+
+**Workbench investigation.** With the chip stack live, the focus moved to Workbench 1.3 boot. The day's golden-image matrix at PAL-cropped 752×572 against FS-UAE showed the chain reaching `trackdisk` but stalling at MFM compatibility. Specific fixes landed:
+- `DMACONR` byte-read upper-byte semantics on even addresses (regression from earlier OCS work).
+- Copper MOVEs route through the machine-wide custom-register dispatch (so the 2-CCK pipeline applies).
+- Denise: trailing DDF block fetched, framebuffer origin follows the Standard viewport, `COLOR00` paints the full border.
+- Disk DMA transfers complete so `trackdisk`'s DSKBLK fires.
+- MFM encoder boundary clock bits + post-track gap-fill (later partially reverted; KS trackdisk wants the wrap).
+- Several diagnostic examples (`bootblock_writers`, `validation_trace`, `every_blit_in_bootblock`) chase the residual silent failure.
+
+**Status at end of period:** the Amiga reaches Kickstart insert-disk reliably. Workbench boot is closer but still failing on what the diagnostics describe as "chained QBlits never run" — a residual MFM/blitter issue, picked up later as Phase A.4 (architecture-review seam 2: Paula owns disk read DMA) in [`docs/plans/2026-04-28-october-runup-plan.md`](../../docs/plans/2026-04-28-october-runup-plan.md).
+
+---
+
+## 2026-04-20 — Archive-port methodology codified
+
+**Type:** decision (process)
+**Trigger:** The chip-only KS 1.3 restart wave (M0–M9) was completing, and the next wave was a multi-archive port across `commodore-paula-8364-archive`, `commodore-agnus-ocs-archive`, `commodore-denise-ocs-archive`, `peripheral-commodore-amiga-floppy-archive`, and several others. Without a documented process, the same shape would be reinvented per chip.
+**Result:** [`wiki/decisions/archive-port-methodology.md`](decisions/archive-port-methodology.md) lands. Three phases per archive crate:
+1. **Phase 1 — characterise.** Read the archive crate. Write characterisation tests against the *archive's* current behaviour (gap list, register-by-register coverage). The tests live in the *live* crate from the start.
+2. **Phase 2 — port-with-tests.** Re-author the archive's API in the live crate against the post-rewrite rules (pin-level CPU bus, no Bus trait, named bits, typed audio fields, private state). The Phase 1 tests become Phase 2's regression net.
+3. **Phase 3 — integrate.** Wire the live crate into the machine. Retire the `*-archive` crate in the same commit so the workspace never has both.
+
+The methodology is the parent of the 2026-04-21 archive cleanup wave that retired seven archive crates in a single day.
+**Consequence:** the methodology turned multi-week archive-port projects into single-day shipping events. Wave 2 systems (BBC Micro, Atari 2600) and the remaining Amiga work (Blitter scheduling improvements, Akiko, AGA chips) inherit the same shape.
+
+---
+
+## 2026-04-19 to 2026-04-20 — Amiga restart M0–M9 (chip-only KS 1.3 boot resolved)
+
+**Type:** milestone (extended investigation + rebuild)
+**Trigger:** The fresh-workspace Amiga was reaching the Kickstart insert-disk screen but had a long-running corruption issue: ExecBase's free-list was being mangled by something. Diagnostics (`bootblock_writers`, `freetwice_trace`, `cop1lc_write_log`, CPU `watch_range` instrumentation) traced the corruption to the copper writing into ExecBase as if it were a copper list. The root cause was eventually confirmed against WinUAE: COP2LC was being seeded with `GfxBase->LOFlist`, which still pointed to chip-RAM ExecBase between the two `LoadView` calls KS 1.3 makes during boot — and *the copper happily executed it*.
+**Result (the fix):** copper MOVE to a register address `< $80` while CDANG (COPCON bit 1) is clear must halt the copper, per WinUAE `custom.cpp::test_copper_dangerous` and vAmiga `Copper.cpp::isIllegalAddress`. KS 1.3 leaves CDANG = 0 by default, so the protection rescues real chip-only A500s from this exact toxicity. Commit `9270a9b` adds the halt; the chip-only boot now reaches WAITBLIT.
+
+**Restart M0–M9.** With the root cause understood, the Amiga was rebuilt from the chip up under the [archive-port methodology](decisions/archive-port-methodology.md) on a milestone-by-milestone schedule:
+- **M0** — CPU + ROM + OVL: bare minimum that runs the reset vector.
+- **M1** — chip RAM + CPU bus integration.
+- **M2** — custom-register storage.
+- **M3** — OVL clear via CIA-A.
+- **M4** — chip-RAM aliasing for the size probe.
+- **M5** — bootstrap ExecBase placement.
+- **M6** — beam counter + VBL interrupt.
+- **M7** — chipset read fidelity (VPOS / VHPOS + CIA-A inputs).
+- **M8** — CIA-A timers + ICR + CIA→Paula IRQ.
+- **M9** — CIA-B basics + 8520 one-shot auto-start on TxHI write.
+- **+ copper CDANG halt** — the fix described above.
+
+**Consequence:** the Amiga has a clean spine from CPU through chipset that passes Phase 0/3/5/9 boot-invariant checks against `Emu198x-Older` golden frames. Workbench boot becomes the next focus (see 2026-04-21 entry).
+**Wiki updates:** [`amiga-chip-only-boot-failure.md`](decisions/amiga-chip-only-boot-failure.md) marked **resolved**; [`amiga-restart-plan.md`](decisions/amiga-restart-plan.md) tracks M0–M9 status.
+
+---
+
+## 2026-04-19 — Amiga architecture review identifies five seams to tighten
+
+**Type:** decision (proposed)
+**Trigger:** After two weeks of repeated boot-blocking bugs in the Amiga (CIA double-read, byte-lane conventions, MFM compatibility, free-list corruption), the project needed an honest review of *where* the friction was concentrated. The architectural spine ([CPU bus interface](decisions/cpu-bus-interface.md), [No Bus trait](decisions/no-bus-trait.md), [System-specific run loops](decisions/system-specific-run-loops.md)) had proven correct on Spectrum / C64 / NES; the question was whether the Amiga implementation needed re-foundation or only seam-level tightening.
+**Result:** [`wiki/decisions/amiga-architecture-review.md`](decisions/amiga-architecture-review.md) lands, status **Proposed (draft for review)**. The verdict: the spine stays; five implementation seams need work:
+1. **`service_cpu_bus`** in `machine-commodore-amiga` — restructure into a `BusTransaction` / `BusResponse` shape; the function is currently a 3000-line traffic cop with four byte-lane conventions in flight.
+2. **Disk DMA path** straddles four crates — Paula should own the read state machine end-to-end (WORDSYNC, sync-stripping, DSKBYTR, DSKBLK IRQ).
+3. **Custom register byte-write merge latch** is hand-maintained machine-side — chip-owned `read_register_word` instead.
+4. **Byte-lane response conventions** — four conventions in flight; need a single canonical `BusResponse::{Byte, Word, Float}` shape.
+5. **No standing per-system boot-invariant suite** — diagnostic examples are append-only, never promoted to regressions; add `tests/boot_invariants.rs` per anchor runtime.
+
+The order of work is sized for leverage: seam 2 first (actual boot blocker), seams 1+4 together (touch the same file), seam 5 (cheapest defensive value), seam 3 last (lowest urgency).
+**Consequence:** the review is the source document for several Phase A items in [`docs/plans/2026-04-28-october-runup-plan.md`](../../docs/plans/2026-04-28-october-runup-plan.md). It also confirms the spine holds — the Amiga is the first system to stress multi-master bus arbitration and DMA-driven I/O, and the answer is "the architecture is correct; the implementation has growing pains".
+
+---
+
+## 2026-04-18 — Project relicensed to GPL-2.0-or-later
+
+**Type:** decision (legal)
+**Trigger:** The Amiga port consumes structural and behavioural information from vAmiga (GPL-3.0-or-later); the NES port from Mesen2 (GPL-2.0-or-later). The original MIT licence created a one-way licence-incompatibility risk if any port crossed from "idea-level" into "derivative work" territory.
+**Result:** workspace relicensed to **GPL-2.0-or-later** via `9254c3e`. `LICENSE`, every member crate's `Cargo.toml`, and the workspace `[workspace.package] license` field now read `GPL-2.0-or-later`. The "or-later" clause keeps GPL-3 reference material (vAmiga) consumable — GPL-2.0-or-later code can be relicensed forward.
+**Verification:** `cargo metadata --format-version 1` confirms every member crate declares `GPL-2.0-or-later`. README updated.
+**Consequence:** the project can now consume GPL-2 and GPL-3 reference code without licence-compatibility worry. Reverse-direction copy from this project must respect GPL terms; `wiki/decisions/archives-as-source.md` records the source provenance for every archive port.
+
+---
+
+## 2026-04-17 to 2026-04-18 — Chip-fix wave from the chip-only Amiga investigation
+
+**Type:** milestone (multi-chip fixes)
+**Trigger:** While debugging the chip-only A500 KS 1.3 boot, the diagnostics (`signal_watch`, `cia_a_timer_b_trace`, `microhz_handler_trace`, etc.) repeatedly fingered chip-level inaccuracies that had been good enough for Spectrum / C64 / NES but broke under the Amiga's denser bus traffic. Rather than localising the fixes to the Amiga, the chips were corrected at source so every system benefits.
+**Result:** chip-level fixes landed across nine crates in two days:
+- **`mos-6502`:** RDY stall halts at the right cycle boundary; reset is a real **7-cycle** sequence (was 4); IRQ/NMI sample on the **penultimate** cycle of every instruction (was last); CLI/SEI/PLP introduce the documented one-instruction interrupt-latency delay; BCD ADC/SBC flag semantics fixed against Oxyron's reference. Test fixtures regenerated for the 7-cycle reset; `reset_phase` exposed for testability.
+- **`mos-cia-6526`:** SP rate fixed; alarm semantics tightened; 50/60 Hz selector exposed; SP ↔ TOD interaction corrected.
+- **`mos-cia-8520`:** 8520-specific TOD halt behaviour separated from 6526; `/DSKRDY` handling brought into line with the floppy ID stream.
+- **`mos-via-6522`:** ORA-alt write decoded; IER bit 7 (set/clear flag) implemented; shift register all 7 modes implemented; external CB1 driver wired.
+- **`mos-sid-6581`:** noise taps corrected; ADSR rates calibrated; TEST bit semantics; envelope gate-bug; **4096-entry combined waveform ROM tables imported from reSID** for the OSC3 read.
+- **`mos-vic-ii`:** unused-bit read mask; sprite fetch spread across the designated p-access cycles (was bunched); independent border flip-flops for the open-border trick.
+- **`commodore-agnus-ocs`:** NTSC short/long line constants; `DMACONR` byte-read upper-byte semantics on even addresses.
+- **`commodore-paula-8364`:** DSKLEN arming flip-flop; Copper HP full resolution.
+- **`motorola-68000`:** several cycle-count fixes uncovered alongside the chip-only work; the Tom Harte sweep was brought back to green at 1,000,058 / 1,000,058 — see the separate 2026-04-16 entry below.
+
+**Verification:** Tom Harte regressions stay green on Z80, 6502, 68000 (and SM83, when it lands the next week). C64 KERNAL → READY stays green. NES nestest stays green. Spectrum boot tests stay green. Amiga chip-only KS 1.3 advances to WAITBLIT.
+**Consequence:** the chip stack reached its "Amiga-grade" accuracy bar — not because the Amiga is special, but because the Amiga is the first system to actually exercise these edges. Every other system inherits the fixes for free.
 
 ---
 
