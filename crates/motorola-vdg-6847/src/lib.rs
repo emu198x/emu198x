@@ -955,9 +955,10 @@ fn render_resolution_graphics_byte(
     } else {
         palette.colours[0]
     };
+    let background = resolution_graphics_background(control, palette);
     for bit in 0..8 {
         let lit = raw & (0x80 >> bit) != 0;
-        let colour = if lit { foreground } else { palette.black };
+        let colour = if lit { foreground } else { background };
         fill_rect(
             framebuffer,
             TEXT_LEFT_BORDER_PIXELS + (byte_x * 8 + bit) * spec.x_scale,
@@ -983,9 +984,10 @@ fn render_resolution_graphics_byte_line(
     } else {
         palette.colours[0]
     };
+    let background = resolution_graphics_background(control, palette);
     for bit in 0..8 {
         let lit = raw & (0x80 >> bit) != 0;
-        let colour = if lit { foreground } else { palette.black };
+        let colour = if lit { foreground } else { background };
         fill_rect(
             framebuffer,
             TEXT_LEFT_BORDER_PIXELS + (byte_x * 8 + bit) * spec.x_scale,
@@ -994,6 +996,14 @@ fn render_resolution_graphics_byte_line(
             1,
             colour,
         );
+    }
+}
+
+fn resolution_graphics_background(control: VdgControl, palette: VdgPalette) -> u32 {
+    if control.css {
+        palette.black
+    } else {
+        palette.text_background
     }
 }
 
@@ -1185,7 +1195,7 @@ mod tests {
         let active_origin =
             TEXT_TOP_BORDER_LINES * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
         assert_eq!(framebuffer[active_origin], DEFAULT_TEXT_FOREGROUND);
-        assert_eq!(framebuffer[active_origin + 1], DEFAULT_TEXT_BORDER);
+        assert_eq!(framebuffer[active_origin + 1], DEFAULT_TEXT_BACKGROUND);
     }
 
     #[test]
