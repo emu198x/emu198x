@@ -2231,13 +2231,69 @@ fn patch_xroar_v2_pia(
     port_b: XroarV2PiaPortB,
 ) -> Result<(), String> {
     let range = xroar_v2_component_range(bytes, component, next_component)?;
-    let side_b = xroar_v2_find_side_b(bytes, range.start, range.end).ok_or_else(|| {
-        format!(
-            "XRoar v2 {} port B tag not found",
-            String::from_utf8_lossy(component)
-        )
-    })? + 2;
-    let mut side_end = range.end;
+    let part_start = find_bytes_from_until(bytes, b"MC6821", range.start, range.end)
+        .map(|offset| offset + b"MC6821".len())
+        .ok_or_else(|| {
+            format!(
+                "XRoar v2 {} MC6821 part payload not found",
+                String::from_utf8_lossy(component)
+            )
+        })?;
+    let side_a_marker =
+        find_bytes_from_until(bytes, &[1, 0], part_start, range.end).ok_or_else(|| {
+            format!(
+                "XRoar v2 {} port A tag not found",
+                String::from_utf8_lossy(component)
+            )
+        })?;
+    let side_b_marker = find_bytes_from_until(bytes, &[2, 0], side_a_marker + 2, range.end)
+        .ok_or_else(|| {
+            format!(
+                "XRoar v2 {} port B tag not found",
+                String::from_utf8_lossy(component)
+            )
+        })?;
+    let side_a = side_a_marker + 2;
+    let mut side_a_end = side_b_marker;
+    patch_xroar_v2_pia_side_a(bytes, side_a, &mut side_a_end)?;
+    let side_b_delta = side_a_end
+        .checked_sub(side_b_marker)
+        .ok_or_else(|| "XRoar v2 PIA side range underflowed".to_owned())?;
+    let side_b = side_b_marker + side_b_delta + 2;
+    let mut side_b_end = range.end + side_b_delta;
+    patch_xroar_v2_pia_side_b(bytes, side_b, &mut side_b_end, port_b)
+}
+
+fn patch_xroar_v2_pia_side_a(
+    bytes: &mut Vec<u8>,
+    side_a: usize,
+    side_end: &mut usize,
+) -> Result<(), String> {
+    patch_xroar_v2_vuint_field_in_range(bytes, side_a, side_end, 1, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_a, side_end, 2, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_a, side_end, 3, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_a, side_end, 5, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_a, side_end, 13, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_a, side_end, 6, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_a, side_end, 8, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_a, side_end, 9, 0xff)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_a, side_end, 10, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_a, side_end, 11, 0xff)?;
+    Ok(())
+}
+
+fn patch_xroar_v2_pia_side_b(
+    bytes: &mut Vec<u8>,
+    side_b: usize,
+    side_end: &mut usize,
+    port_b: XroarV2PiaPortB,
+) -> Result<(), String> {
+    if side_b >= *side_end {
+        return Err(format!(
+            "XRoar v2 PIA port B range is empty: {side_b}..{}",
+            *side_end
+        ));
+    }
     let out_source = port_b.output & port_b.ddr;
     let out_sink = port_b.output | !port_b.ddr;
     let irq = xroar_v2_pia_irq(port_b.control, port_b.irq1, port_b.irq2);
@@ -2245,17 +2301,17 @@ fn patch_xroar_v2_pia(
     patch_xroar_v2_vuint_field_in_range(
         bytes,
         side_b,
-        &mut side_end,
+        side_end,
         1,
         u32::from(port_b.control & 0x3f),
     )?;
-    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 2, u32::from(port_b.ddr))?;
-    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 3, u32::from(port_b.output))?;
-    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 5, u32::from(port_b.irq1))?;
-    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 13, u32::from(port_b.irq2))?;
-    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 6, u32::from(irq))?;
-    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 8, u32::from(out_source))?;
-    patch_xroar_v2_vuint_field_in_range(bytes, side_b, &mut side_end, 9, u32::from(out_sink))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, side_end, 2, u32::from(port_b.ddr))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, side_end, 3, u32::from(port_b.output))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, side_end, 5, u32::from(port_b.irq1))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, side_end, 13, u32::from(port_b.irq2))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, side_end, 6, u32::from(irq))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, side_end, 8, u32::from(out_source))?;
+    patch_xroar_v2_vuint_field_in_range(bytes, side_b, side_end, 9, u32::from(out_sink))?;
     Ok(())
 }
 
@@ -2630,10 +2686,6 @@ fn xroar_v2_component_marker(component: &[u8]) -> Vec<u8> {
     marker.extend_from_slice(&xroar_v2_vuint(component.len() as u32));
     marker.extend_from_slice(component);
     marker
-}
-
-fn xroar_v2_find_side_b(bytes: &[u8], start: usize, end: usize) -> Option<usize> {
-    find_bytes_from_until(bytes, &[2, 0], start, end)
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -3903,6 +3955,45 @@ mod tests {
             xroar_v2_read_vuint(&bytes, field.payload_start),
             Some((7, field.payload_end))
         );
+    }
+
+    #[test]
+    fn xroar_v2_pia_side_a_is_patched_to_inactive_input_state() {
+        let mut bytes = Vec::new();
+        for tag in [1, 2, 3, 5, 13, 6, 8, 9, 10, 11] {
+            push_xroar_v2_test_field(&mut bytes, tag, 1);
+        }
+        let mut end = bytes.len();
+
+        patch_xroar_v2_pia_side_a(&mut bytes, 0, &mut end).expect("PIA side A should be patchable");
+
+        for (tag, expected) in [
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (5, 0),
+            (13, 0),
+            (6, 0),
+            (8, 0),
+            (9, 0xff),
+            (10, 0),
+            (11, 0xff),
+        ] {
+            let field =
+                xroar_v2_find_tag_payload(&bytes, 0, end, tag).expect("field should remain");
+            assert_eq!(
+                xroar_v2_read_vuint(&bytes, field.payload_start),
+                Some((expected, field.payload_end))
+            );
+        }
+    }
+
+    fn push_xroar_v2_test_field(bytes: &mut Vec<u8>, tag: u32, value: u32) {
+        let payload = xroar_v2_vuint(value);
+        bytes.extend_from_slice(&xroar_v2_vuint(tag));
+        bytes.extend_from_slice(&xroar_v2_vuint(payload.len() as u32));
+        bytes.extend_from_slice(&payload);
+        bytes.push(0);
     }
 
     #[test]

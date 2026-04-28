@@ -1190,7 +1190,7 @@ impl BeamVideo {
         &self.frame
     }
 
-    fn tick(&mut self, memory: &DragonMemory) {
+    fn tick(&mut self, memory: &DragonMemory) -> BeamVideoTick {
         let target = self.cycle_in_frame.saturating_add(1);
         self.render_until(memory, target);
         self.cycle_in_frame = target;
@@ -1200,7 +1200,9 @@ impl BeamVideo {
             self.next_line = 0;
             self.line_border_rendered = false;
             self.next_byte = 0;
+            return BeamVideoTick { frame_sync: true };
         }
+        BeamVideoTick { frame_sync: false }
     }
 
     fn render_until(&mut self, memory: &DragonMemory, target_cycle: u64) {
@@ -1257,6 +1259,11 @@ impl BeamVideo {
         self.line_border_rendered = false;
         self.next_byte = 0;
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct BeamVideoTick {
+    frame_sync: bool,
 }
 
 fn line_start_cycle(line: usize) -> u64 {
@@ -1721,7 +1728,10 @@ impl Dragon32 {
 
     /// Execute one bus cycle and return any observed memory/device event.
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
-        self.video.tick(&self.memory);
+        let video_tick = self.video.tick(&self.memory);
+        if video_tick.frame_sync {
+            self.memory.pia0.set_signal(PiaSignal::Cb1);
+        }
         self.memory.advance_cassette();
         self.memory.tick_cartridge_autorun(self.cycles);
         self.cpu.irq = self.memory.pia0.irq_a() || self.memory.pia0.irq_b();
@@ -2105,6 +2115,23 @@ mod tests {
                 value: 0x55,
             }
         );
+    }
+
+    #[test]
+    fn frame_wrap_raises_pia0_cb1_frame_sync() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        machine.memory.pia0.write(0x03, 0x05); // PIA0 CB1 IRQ enabled, port B data selected.
+        machine.video.cycle_in_frame = DRAGON_FRAME_CYCLES - 1;
+        machine.video.next_line = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
+
+        machine.step_cycle();
+
+        assert_eq!(machine.memory.pia0.control(PiaPort::B) & 0x80, 0x80);
+        assert!(machine.memory.pia0.irq_b());
+        assert_eq!(machine.memory.pia0.read(0x02), 0xff);
+        assert_eq!(machine.memory.pia0.control(PiaPort::B) & 0x80, 0);
     }
 
     #[test]
