@@ -74,9 +74,11 @@ future work.
 - **Smoke harness:** `emu198x-script-dragon --smoke-root` classifies real CAS
   loads as load errors, BASIC errors, visible text changes, machine-code
   auto-runs, video-control changes, blank graphics screens, or graphics that
-  continue drawing after the post-start settle window. It can write local
-  screenshots and patched-XRoar references, then record pixel-difference
-  summaries.
+  continue drawing after the post-start settle window. `--snapshot-smoke-root`
+  scans PC-Dragon PAK snapshots, resumes each selected snapshot, classifies
+  running/halting and visible/blank output, and can write diagnostic or
+  XRoar-zoomed screenshots. CAS smoke can also write patched-XRoar references
+  and pixel-difference summaries.
 - **XRoar comparison:** the current 12-title application smoke batch is 11/12
   exact against patched XRoar. The remaining non-exact case, Dragon Composer,
   differs by capture/timing phase rather than by a static VDG decode error.
@@ -108,6 +110,19 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --smoke-audio-dir target/dragon-smoke-audio \
   --smoke-joystick 2,fire,300 \
   --smoke-idle-after-start 300
+```
+
+Headless smoke over one PC-Dragon PAK snapshot tree:
+
+```sh
+cargo run --release -q -p emu198x-script-dragon -- \
+  --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --snapshot-smoke-root '/path/to/Dragon/Games/[PAK]' \
+  --smoke-run-limit 32 \
+  --cycles 200000 \
+  --smoke-report target/dragon-pak-smoke.json \
+  --smoke-screenshot-dir target/dragon-pak-smoke-screens \
+  --smoke-screenshot-format xroar-zoomed
 ```
 
 Patched-XRoar comparison, when the local patched XRoar binary is available:
@@ -156,7 +171,7 @@ cargo run --release -q -p emu198x-script-dragon -- \
 | PIA | 5: DDR, control, IRQ, input pins, mixed I/O |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 13: text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
-| Harness | 16: CLI, ROM loading, keyboard labels, text dumps, smoke options, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
+| Harness | 23: CLI, ROM loading, keyboard labels, text dumps, direct screenshots, CAS smoke options, PAK snapshot smoke, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
 | Runtime | Profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, cartridge mounting, PAK snapshot mounting, joystick button-to-hardware mapping, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
 | Native | CLI, CAS tape argument, cartridge argument, snapshot argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping, gamepad-to-joystick mapping |
 | CAS format | 7: block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors |

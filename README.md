@@ -321,6 +321,16 @@ cargo run -q -p emu198x-script-dragon -- \
   --smoke-report dragon-smoke.json
 ```
 
+```bash
+cargo run -q -p emu198x-script-dragon -- \
+  --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --snapshot-smoke-root '/path/to/Dragon/Games/[PAK]' \
+  --smoke-run-limit 32 \
+  --smoke-report dragon-pak-smoke.json \
+  --smoke-screenshot-dir dragon-pak-screens \
+  --smoke-screenshot-format xroar-zoomed
+```
+
 ## Verification Strategy
 
 This repo does not treat “boots one thing” as sufficient proof.

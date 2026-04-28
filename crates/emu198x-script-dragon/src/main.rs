@@ -63,8 +63,10 @@ Execution:
     --screenshot-format FORMAT
                        screenshot format: diagnostic | xroar-zoomed [default: diagnostic]
     --smoke-root PATH  recursively scan .cas/.zip Dragon tape images
+    --snapshot-smoke-root PATH
+                       recursively scan .pak/.zip PC-Dragon snapshots
     --smoke-run-limit N
-                       run real-ROM CLOAD/CLOADM smoke for first N parsed tapes [default: 8]
+                       run real-ROM CLOAD/CLOADM or snapshot smoke for first N parsed media [default: 8]
     --smoke-report P   write smoke matrix JSON to PATH
     --smoke-screenshot-dir PATH
                        write load/start screenshots for runtime-smoked tapes
@@ -103,6 +105,7 @@ struct Cli {
     screenshot: Option<PathBuf>,
     screenshot_format: SmokeScreenshotFormat,
     smoke_root: Option<PathBuf>,
+    snapshot_smoke_root: Option<PathBuf>,
     smoke_run_limit: usize,
     smoke_report: Option<PathBuf>,
     smoke_screenshot_dir: Option<PathBuf>,
@@ -165,6 +168,54 @@ struct SmokeMatrixRow {
     runtime: Option<CasRuntimeSmoke>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SnapshotSmokeMatrixReport {
+    snapshot_count: usize,
+    runtime_smokes: usize,
+    rows: Vec<SnapshotSmokeRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct SnapshotSmokeRow {
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    archive_member: Option<String>,
+    parse_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime: Option<SnapshotRuntimeSmoke>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SnapshotRuntimeSmoke {
+    classification: SnapshotSmokeClassification,
+    stop_reason: String,
+    cycles: u64,
+    instructions: u64,
+    pc: u16,
+    load_address: u16,
+    ram_len: usize,
+    text_screen_base: u16,
+    distinct_colors: usize,
+    non_background_pixels: usize,
+    screen_text: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum SnapshotSmokeClassification {
+    RunningVisible,
+    RunningBlank,
+    HaltedVisible,
+    HaltedBlank,
+    Error,
 }
 
 #[derive(Debug, Serialize)]
@@ -334,6 +385,15 @@ struct RuntimeSmokeOptions<'a> {
     xroar_stem: Option<&'a Path>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct SnapshotSmokeOptions<'a> {
+    run_limit: usize,
+    screenshot_path: Option<&'a Path>,
+    screenshot_format: SmokeScreenshotFormat,
+    cycle_limit: u64,
+    trace_limit: usize,
+}
+
 fn main() {
     if let Err(err) = run_main() {
         eprintln!("{err}");
@@ -364,6 +424,18 @@ fn run_main() -> Result<(), String> {
         let report = run_smoke_matrix(&cli, &rom)?;
         let json = serde_json::to_string_pretty(&report)
             .map_err(|err| format!("failed to serialize smoke matrix report: {err}"))?;
+        if let Some(path) = &cli.smoke_report {
+            fs::write(path, json.as_bytes())
+                .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+        } else {
+            println!("{json}");
+        }
+        return Ok(());
+    }
+    if cli.snapshot_smoke_root.is_some() {
+        let report = run_snapshot_smoke_matrix(&cli, &rom)?;
+        let json = serde_json::to_string_pretty(&report)
+            .map_err(|err| format!("failed to serialize snapshot smoke report: {err}"))?;
         if let Some(path) = &cli.smoke_report {
             fs::write(path, json.as_bytes())
                 .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
@@ -423,6 +495,7 @@ where
     let mut screenshot = None;
     let mut screenshot_format = SmokeScreenshotFormat::Diagnostic;
     let mut smoke_root = None;
+    let mut snapshot_smoke_root = None;
     let mut smoke_run_limit = DEFAULT_SMOKE_RUN_LIMIT;
     let mut smoke_report = None;
     let mut smoke_screenshot_dir = None;
@@ -479,6 +552,12 @@ where
             }
             "--smoke-root" => {
                 smoke_root = Some(PathBuf::from(next_value(&mut iter, "--smoke-root")?));
+            }
+            "--snapshot-smoke-root" => {
+                snapshot_smoke_root = Some(PathBuf::from(next_value(
+                    &mut iter,
+                    "--snapshot-smoke-root",
+                )?));
             }
             "--smoke-run-limit" => {
                 smoke_run_limit = parse_usize(
@@ -548,6 +627,10 @@ where
         }
     }
 
+    if smoke_root.is_some() && snapshot_smoke_root.is_some() {
+        return Err("--smoke-root and --snapshot-smoke-root cannot be used together".to_owned());
+    }
+
     Ok(Cli {
         rom: rom.ok_or_else(|| format!("missing required --rom PATH\n\n{USAGE}"))?,
         cart,
@@ -560,6 +643,7 @@ where
         screenshot,
         screenshot_format,
         smoke_root,
+        snapshot_smoke_root,
         smoke_run_limit,
         smoke_report,
         smoke_screenshot_dir,
@@ -768,6 +852,51 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
     })
 }
 
+fn run_snapshot_smoke_matrix(
+    cli: &Cli,
+    rom: &[u8; ROM_SIZE],
+) -> Result<SnapshotSmokeMatrixReport, String> {
+    let root = cli
+        .snapshot_smoke_root
+        .as_deref()
+        .ok_or_else(|| "--snapshot-smoke-root is required".to_owned())?;
+    let mut snapshots = Vec::new();
+    collect_snapshot_candidates(root, &mut snapshots)?;
+    snapshots.sort();
+    if let Some(dir) = &cli.smoke_screenshot_dir {
+        fs::create_dir_all(dir)
+            .map_err(|err| format!("failed to create {}: {err}", dir.display()))?;
+    }
+
+    let mut rows = Vec::with_capacity(snapshots.len());
+    let mut runtime_smokes = 0usize;
+    for (index, snapshot_path) in snapshots.iter().enumerate() {
+        let screenshot_path = cli
+            .smoke_screenshot_dir
+            .as_ref()
+            .map(|dir| dir.join(format!("{index:04}-{}.png", safe_stem(snapshot_path))));
+        let row = scan_snapshot_candidate(
+            snapshot_path,
+            rom,
+            &mut runtime_smokes,
+            SnapshotSmokeOptions {
+                run_limit: cli.smoke_run_limit,
+                screenshot_path: screenshot_path.as_deref(),
+                screenshot_format: cli.smoke_screenshot_format,
+                cycle_limit: cli.cycles,
+                trace_limit: cli.trace_limit,
+            },
+        );
+        rows.push(row);
+    }
+
+    Ok(SnapshotSmokeMatrixReport {
+        snapshot_count: rows.len(),
+        runtime_smokes,
+        rows,
+    })
+}
+
 fn xroar_reference_config(cli: &Cli) -> Result<Option<XroarReferenceConfig>, String> {
     match (&cli.xroar_bin, &cli.xroar_reference_dir) {
         (None, None) => Ok(None),
@@ -781,6 +910,24 @@ fn xroar_reference_config(cli: &Cli) -> Result<Option<XroarReferenceConfig>, Str
         (Some(_), None) => Err("--xroar-reference-dir is required with --xroar-bin".to_owned()),
         (None, Some(_)) => Err("--xroar-bin is required with --xroar-reference-dir".to_owned()),
     }
+}
+
+fn collect_snapshot_candidates(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    if path.is_file() {
+        if is_snapshot_candidate_path(path) {
+            out.push(path.to_owned());
+        }
+        return Ok(());
+    }
+
+    for entry in
+        fs::read_dir(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?
+    {
+        let entry =
+            entry.map_err(|err| format!("failed to read entry under {}: {err}", path.display()))?;
+        collect_snapshot_candidates(&entry.path(), out)?;
+    }
+    Ok(())
 }
 
 fn collect_tape_candidates(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
@@ -801,10 +948,194 @@ fn collect_tape_candidates(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), St
     Ok(())
 }
 
+fn is_snapshot_candidate_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| matches_ignore_ascii_case(ext, &["pak", "zip"]))
+}
+
 fn is_tape_candidate_path(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| matches_ignore_ascii_case(ext, &["cas", "zip"]))
+}
+
+fn scan_snapshot_candidate(
+    path: &Path,
+    rom: &[u8; ROM_SIZE],
+    runtime_smokes: &mut usize,
+    smoke: SnapshotSmokeOptions<'_>,
+) -> SnapshotSmokeRow {
+    let loaded = match read_media_asset(path, MediaKind::Snapshot) {
+        Ok(loaded) => loaded,
+        Err(err) => {
+            return SnapshotSmokeRow {
+                path: path.display().to_string(),
+                archive_member: None,
+                parse_status: "read-error".to_owned(),
+                runtime: None,
+                error: Some(err.to_string()),
+            };
+        }
+    };
+
+    let snapshot = match parse_pcdragon_snapshot(&loaded.bytes) {
+        Ok(snapshot) => snapshot,
+        Err(err) => {
+            return SnapshotSmokeRow {
+                path: path.display().to_string(),
+                archive_member: loaded.archive_member,
+                parse_status: "parse-error".to_owned(),
+                runtime: None,
+                error: Some(err.to_string()),
+            };
+        }
+    };
+
+    let runtime = if *runtime_smokes < smoke.run_limit {
+        *runtime_smokes += 1;
+        Some(run_snapshot_smoke(
+            rom,
+            &snapshot,
+            smoke.screenshot_path,
+            smoke.screenshot_format,
+            smoke.cycle_limit,
+            smoke.trace_limit,
+        ))
+    } else {
+        None
+    };
+
+    SnapshotSmokeRow {
+        path: path.display().to_string(),
+        archive_member: loaded.archive_member,
+        parse_status: "ok".to_owned(),
+        runtime,
+        error: None,
+    }
+}
+
+fn run_snapshot_smoke(
+    rom: &[u8; ROM_SIZE],
+    snapshot: &PcDragonSnapshot,
+    screenshot_path: Option<&Path>,
+    screenshot_format: SmokeScreenshotFormat,
+    cycle_limit: u64,
+    trace_limit: usize,
+) -> SnapshotRuntimeSmoke {
+    let report = run_harness_with_keyboard(
+        rom,
+        DragonKeyboard::new(),
+        HarnessRunOptions {
+            cartridge: None,
+            snapshot: Some(snapshot),
+            cycle_limit,
+            trace_limit,
+            dump_text: true,
+            dump_text_framebuffer: false,
+            capture_framebuffer: true,
+        },
+    );
+    let framebuffer = report.framebuffer.as_deref().unwrap_or(&[]);
+    let (distinct_colors, non_background_pixels) = framebuffer_stats(framebuffer);
+    let screenshot = match (screenshot_path, report.framebuffer.as_deref()) {
+        (Some(path), Some(framebuffer)) => {
+            if let Err(err) =
+                write_screenshot_png(path, framebuffer, screenshot_format, report.cycles)
+            {
+                return failed_snapshot_smoke(
+                    snapshot,
+                    report,
+                    distinct_colors,
+                    non_background_pixels,
+                    err,
+                );
+            }
+            Some(path.display().to_string())
+        }
+        _ => None,
+    };
+    let classification =
+        classify_snapshot_smoke(report.stop_reason, distinct_colors, non_background_pixels);
+
+    SnapshotRuntimeSmoke {
+        classification,
+        stop_reason: format_stop_reason(report.stop_reason),
+        cycles: report.cycles,
+        instructions: report.instructions,
+        pc: report.pc,
+        load_address: snapshot.load_address,
+        ram_len: snapshot.ram.len(),
+        text_screen_base: report.text_screen_base,
+        distinct_colors,
+        non_background_pixels,
+        screen_text: report
+            .text_screen
+            .as_deref()
+            .map(|text| text.lines().map(str::to_owned).collect())
+            .unwrap_or_default(),
+        screenshot,
+        error: None,
+    }
+}
+
+fn failed_snapshot_smoke(
+    snapshot: &PcDragonSnapshot,
+    report: HarnessReport,
+    distinct_colors: usize,
+    non_background_pixels: usize,
+    error: String,
+) -> SnapshotRuntimeSmoke {
+    SnapshotRuntimeSmoke {
+        classification: SnapshotSmokeClassification::Error,
+        stop_reason: format_stop_reason(report.stop_reason),
+        cycles: report.cycles,
+        instructions: report.instructions,
+        pc: report.pc,
+        load_address: snapshot.load_address,
+        ram_len: snapshot.ram.len(),
+        text_screen_base: report.text_screen_base,
+        distinct_colors,
+        non_background_pixels,
+        screen_text: report
+            .text_screen
+            .as_deref()
+            .map(|text| text.lines().map(str::to_owned).collect())
+            .unwrap_or_default(),
+        screenshot: None,
+        error: Some(error),
+    }
+}
+
+fn classify_snapshot_smoke(
+    stop_reason: StopReason,
+    distinct_colors: usize,
+    non_background_pixels: usize,
+) -> SnapshotSmokeClassification {
+    let visible = distinct_colors > 1 && non_background_pixels > 0;
+    match (stop_reason, visible) {
+        (StopReason::CycleLimit, true) => SnapshotSmokeClassification::RunningVisible,
+        (StopReason::CycleLimit, false) => SnapshotSmokeClassification::RunningBlank,
+        (StopReason::CpuHalted, true) => SnapshotSmokeClassification::HaltedVisible,
+        (StopReason::CpuHalted, false) => SnapshotSmokeClassification::HaltedBlank,
+    }
+}
+
+fn framebuffer_stats(framebuffer: &[u32]) -> (usize, usize) {
+    let Some(&background) = framebuffer.first() else {
+        return (0, 0);
+    };
+    let mut colors = Vec::new();
+    let mut non_background_pixels = 0usize;
+    for &pixel in framebuffer {
+        if pixel != background {
+            non_background_pixels += 1;
+        }
+        if !colors.contains(&pixel) {
+            colors.push(pixel);
+        }
+    }
+    (colors.len(), non_background_pixels)
 }
 
 fn scan_tape_candidate(
@@ -2584,6 +2915,66 @@ mod tests {
         assert_eq!(
             cli.smoke_screenshot_format,
             SmokeScreenshotFormat::XroarZoomed
+        );
+    }
+
+    #[test]
+    fn cli_parses_snapshot_smoke_root() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--snapshot-smoke-root".to_owned(),
+            "paks".to_owned(),
+            "--smoke-run-limit".to_owned(),
+            "5".to_owned(),
+            "--smoke-screenshot-dir".to_owned(),
+            "screens".to_owned(),
+            "--smoke-screenshot-format".to_owned(),
+            "xroar-zoomed".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.snapshot_smoke_root, Some(PathBuf::from("paks")));
+        assert_eq!(cli.smoke_run_limit, 5);
+        assert_eq!(cli.smoke_screenshot_dir, Some(PathBuf::from("screens")));
+        assert_eq!(
+            cli.smoke_screenshot_format,
+            SmokeScreenshotFormat::XroarZoomed
+        );
+    }
+
+    #[test]
+    fn cli_rejects_mixed_tape_and_snapshot_smoke_roots() {
+        let err = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--smoke-root".to_owned(),
+            "tapes".to_owned(),
+            "--snapshot-smoke-root".to_owned(),
+            "paks".to_owned(),
+        ])
+        .expect_err("mixed smoke roots should fail");
+
+        assert!(err.contains("cannot be used together"));
+    }
+
+    #[test]
+    fn snapshot_smoke_classification_uses_stop_and_visible_pixels() {
+        assert_eq!(
+            classify_snapshot_smoke(StopReason::CycleLimit, 2, 1),
+            SnapshotSmokeClassification::RunningVisible
+        );
+        assert_eq!(
+            classify_snapshot_smoke(StopReason::CycleLimit, 1, 0),
+            SnapshotSmokeClassification::RunningBlank
+        );
+        assert_eq!(
+            classify_snapshot_smoke(StopReason::CpuHalted, 2, 1),
+            SnapshotSmokeClassification::HaltedVisible
+        );
+        assert_eq!(
+            framebuffer_stats(&[0xff00_0000, 0xff00_0000, 0xffff_ffff]),
+            (2, 1)
         );
     }
 
