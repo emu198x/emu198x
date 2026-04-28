@@ -7,9 +7,7 @@ use emu198x_shell::{
 };
 use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
 use machine_dragon_32::{Dragon32, DragonKey, MatrixKey, ROM_SIZE};
-use motorola_vdg_6847::{
-    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, VdgPalette,
-};
+use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
 use serde_json::json;
 
 use crate::{Model, profile_for};
@@ -196,10 +194,10 @@ impl DragonRuntime {
     }
 
     fn update_framebuffer(&mut self) {
-        let argb = self.machine.render_visible_argb(VdgPalette::default());
+        let argb = self.machine.beam_visible_argb();
         self.rgba_framebuffer.clear();
         self.rgba_framebuffer.reserve(argb.len() * 4);
-        for pixel in argb {
+        for pixel in argb.iter().copied() {
             self.rgba_framebuffer.push(((pixel >> 16) & 0xFF) as u8);
             self.rgba_framebuffer.push(((pixel >> 8) & 0xFF) as u8);
             self.rgba_framebuffer.push((pixel & 0xFF) as u8);
@@ -332,6 +330,7 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
             "dragon.pia1.control_b" => json!(machine.machine.pia1_control_b()),
             "dragon.pia1.ddr_b" => json!(machine.machine.pia1_ddr_b()),
             "dragon.pia1.output_b" => json!(machine.machine.pia1_output_b()),
+            "dragon.pia1.pins_b" => json!(machine.machine.pia1_pins_b()),
             "dragon.sam.display_offset" => json!(machine.machine.sam_display_offset()),
             "dragon.sam.video_mode" => json!(machine.machine.sam_video_mode()),
             "dragon.tape.loaded" => json!(machine.tape.is_some()),

@@ -309,6 +309,77 @@ pub fn render_visible_argb_into(
     }
 }
 
+/// Render one visible MC6847 scanline into an existing border-inclusive framebuffer.
+pub fn render_visible_argb_line_into(
+    read_byte: impl FnMut(usize) -> u8,
+    control: VdgControl,
+    palette: VdgPalette,
+    framebuffer: &mut [u32],
+    visible_y: usize,
+) {
+    assert_eq!(framebuffer.len(), TEXT_VISIBLE_FRAMEBUFFER_PIXELS);
+    assert!(visible_y < TEXT_VISIBLE_FRAMEBUFFER_HEIGHT);
+
+    let row_start = visible_y * TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
+    framebuffer[row_start..row_start + TEXT_VISIBLE_FRAMEBUFFER_WIDTH].fill(palette.border);
+
+    if !(TEXT_TOP_BORDER_LINES..TEXT_TOP_BORDER_LINES + TEXT_FRAMEBUFFER_HEIGHT)
+        .contains(&visible_y)
+    {
+        return;
+    }
+
+    let active_y = visible_y - TEXT_TOP_BORDER_LINES;
+    if control.graphics {
+        render_graphics_line_into(read_byte, active_y, control, palette, framebuffer);
+    } else {
+        render_alpha_semigraphics_line_into(read_byte, active_y, control, palette, framebuffer);
+    }
+}
+
+/// Render one active display byte on one visible MC6847 scanline.
+pub fn render_visible_argb_byte_line_into(
+    mut read_byte: impl FnMut(usize) -> u8,
+    control: VdgControl,
+    palette: VdgPalette,
+    framebuffer: &mut [u32],
+    visible_y: usize,
+    byte_x: usize,
+) {
+    assert_eq!(framebuffer.len(), TEXT_VISIBLE_FRAMEBUFFER_PIXELS);
+    assert!(visible_y < TEXT_VISIBLE_FRAMEBUFFER_HEIGHT);
+
+    if !(TEXT_TOP_BORDER_LINES..TEXT_TOP_BORDER_LINES + TEXT_FRAMEBUFFER_HEIGHT)
+        .contains(&visible_y)
+    {
+        return;
+    }
+
+    let active_y = visible_y - TEXT_TOP_BORDER_LINES;
+    if control.graphics {
+        let spec = GraphicsSpec::from_control(control);
+        if byte_x < spec.row_bytes {
+            render_graphics_byte_line_into(
+                &mut read_byte,
+                active_y,
+                byte_x,
+                control,
+                palette,
+                framebuffer,
+            );
+        }
+    } else if byte_x < TEXT_COLUMNS {
+        render_alpha_semigraphics_byte_line_into(
+            &mut read_byte,
+            active_y,
+            byte_x,
+            control,
+            palette,
+            framebuffer,
+        );
+    }
+}
+
 /// Decode one MC6847 alphanumeric byte into a diagnostic text cell.
 #[must_use]
 pub fn decode_text_byte(raw: u8) -> TextCell {
@@ -390,6 +461,31 @@ fn render_cell(
     }
 }
 
+fn render_cell_line(
+    row: usize,
+    column: usize,
+    cell: TextCell,
+    line_y: usize,
+    palette: TextPalette,
+    target: RenderTarget<'_>,
+) {
+    let glyph_index = usize::from(cell.raw & 0x3F);
+    let glyph_base = glyph_index * TEXT_CELL_HEIGHT;
+    let (background, foreground) = if cell.inverse {
+        (palette.foreground, palette.background)
+    } else {
+        (palette.background, palette.foreground)
+    };
+    let bits = FONT_6847[glyph_base + line_y];
+    let framebuffer_y = target.y_origin + row * TEXT_CELL_HEIGHT + line_y;
+    for x in 0..TEXT_CELL_WIDTH {
+        let lit = glyph_pixel(bits, x);
+        let colour = if lit { foreground } else { background };
+        let framebuffer_x = target.x_origin + column * TEXT_CELL_WIDTH + x;
+        target.framebuffer[framebuffer_y * target.width + framebuffer_x] = colour;
+    }
+}
+
 fn glyph_pixel(bits: u8, x: usize) -> bool {
     bits & (0x80 >> x) != 0
 }
@@ -430,6 +526,81 @@ fn render_alpha_semigraphics_into(
     }
 }
 
+fn render_alpha_semigraphics_line_into(
+    mut read_byte: impl FnMut(usize) -> u8,
+    active_y: usize,
+    control: VdgControl,
+    palette: VdgPalette,
+    framebuffer: &mut [u32],
+) {
+    let row = active_y / TEXT_CELL_HEIGHT;
+    let line_y = active_y % TEXT_CELL_HEIGHT;
+    let text_palette = TextPalette {
+        border: palette.border,
+        background: palette.text_background,
+        foreground: palette.text_foreground,
+    };
+    for column in 0..TEXT_COLUMNS {
+        let raw = read_byte(row * TEXT_COLUMNS + column);
+        if raw & 0x80 == 0 {
+            render_cell_line(
+                row,
+                column,
+                decode_text_byte(raw),
+                line_y,
+                text_palette,
+                RenderTarget {
+                    framebuffer,
+                    width: TEXT_VISIBLE_FRAMEBUFFER_WIDTH,
+                    x_origin: TEXT_LEFT_BORDER_PIXELS,
+                    y_origin: TEXT_TOP_BORDER_LINES,
+                },
+            );
+        } else if control.int_ext {
+            render_semigraphics6_cell_line(row, column, line_y, raw, control, palette, framebuffer);
+        } else {
+            render_semigraphics4_cell_line(row, column, line_y, raw, palette, framebuffer);
+        }
+    }
+}
+
+fn render_alpha_semigraphics_byte_line_into(
+    read_byte: &mut impl FnMut(usize) -> u8,
+    active_y: usize,
+    column: usize,
+    control: VdgControl,
+    palette: VdgPalette,
+    framebuffer: &mut [u32],
+) {
+    let row = active_y / TEXT_CELL_HEIGHT;
+    let line_y = active_y % TEXT_CELL_HEIGHT;
+    let text_palette = TextPalette {
+        border: palette.border,
+        background: palette.text_background,
+        foreground: palette.text_foreground,
+    };
+    let raw = read_byte(row * TEXT_COLUMNS + column);
+    if raw & 0x80 == 0 {
+        render_cell_line(
+            row,
+            column,
+            decode_text_byte(raw),
+            line_y,
+            text_palette,
+            RenderTarget {
+                framebuffer,
+                width: TEXT_VISIBLE_FRAMEBUFFER_WIDTH,
+                x_origin: TEXT_LEFT_BORDER_PIXELS,
+                y_origin: TEXT_TOP_BORDER_LINES,
+            },
+        );
+    } else if control.int_ext {
+        render_semigraphics6_cell_line(row, column, line_y, raw, control, palette, framebuffer);
+    } else {
+        render_semigraphics4_cell_line(row, column, line_y, raw, palette, framebuffer);
+    }
+}
+
 fn render_semigraphics4_cell(
     row: usize,
     column: usize,
@@ -452,6 +623,31 @@ fn render_semigraphics4_cell(
                 fill,
             );
         }
+    }
+}
+
+fn render_semigraphics4_cell_line(
+    row: usize,
+    column: usize,
+    line_y: usize,
+    raw: u8,
+    palette: VdgPalette,
+    framebuffer: &mut [u32],
+) {
+    let colour = palette.colours[usize::from((raw >> 4) & 0x07)];
+    let sub_y = line_y / 6;
+    for sub_x in 0..2 {
+        let bit = semigraphics_bit(sub_y, sub_x, 2);
+        let lit = raw & (1 << bit) != 0;
+        let fill = if lit { colour } else { palette.black };
+        fill_rect(
+            framebuffer,
+            TEXT_LEFT_BORDER_PIXELS + column * TEXT_CELL_WIDTH + sub_x * 4,
+            TEXT_TOP_BORDER_LINES + row * TEXT_CELL_HEIGHT + line_y,
+            4,
+            1,
+            fill,
+        );
     }
 }
 
@@ -484,6 +680,38 @@ fn render_semigraphics6_cell(
                 fill,
             );
         }
+    }
+}
+
+fn render_semigraphics6_cell_line(
+    row: usize,
+    column: usize,
+    line_y: usize,
+    raw: u8,
+    control: VdgControl,
+    palette: VdgPalette,
+    framebuffer: &mut [u32],
+) {
+    let colour_index = match (control.css, raw & 0x40 != 0) {
+        (false, false) => 2,
+        (false, true) => 3,
+        (true, false) => 6,
+        (true, true) => 7,
+    };
+    let colour = palette.colours[colour_index];
+    let sub_y = line_y / 4;
+    for sub_x in 0..2 {
+        let bit = semigraphics_bit(sub_y, sub_x, 3);
+        let lit = raw & (1 << bit) != 0;
+        let fill = if lit { colour } else { palette.black };
+        fill_rect(
+            framebuffer,
+            TEXT_LEFT_BORDER_PIXELS + column * TEXT_CELL_WIDTH + sub_x * 4,
+            TEXT_TOP_BORDER_LINES + row * TEXT_CELL_HEIGHT + line_y,
+            4,
+            1,
+            fill,
+        );
     }
 }
 
@@ -590,6 +818,75 @@ fn render_graphics_into(
     }
 }
 
+fn render_graphics_line_into(
+    mut read_byte: impl FnMut(usize) -> u8,
+    active_y: usize,
+    control: VdgControl,
+    palette: VdgPalette,
+    framebuffer: &mut [u32],
+) {
+    let spec = GraphicsSpec::from_control(control);
+    let source_y = active_y / spec.y_scale;
+    for byte_x in 0..spec.row_bytes {
+        let raw = read_byte(source_y * spec.row_bytes + byte_x);
+        if spec.four_colour {
+            render_colour_graphics_byte_line(
+                active_y,
+                byte_x,
+                raw,
+                spec,
+                control,
+                palette,
+                framebuffer,
+            );
+        } else {
+            render_resolution_graphics_byte_line(
+                active_y,
+                byte_x,
+                raw,
+                spec,
+                control,
+                palette,
+                framebuffer,
+            );
+        }
+    }
+}
+
+fn render_graphics_byte_line_into(
+    read_byte: &mut impl FnMut(usize) -> u8,
+    active_y: usize,
+    byte_x: usize,
+    control: VdgControl,
+    palette: VdgPalette,
+    framebuffer: &mut [u32],
+) {
+    let spec = GraphicsSpec::from_control(control);
+    let source_y = active_y / spec.y_scale;
+    let raw = read_byte(source_y * spec.row_bytes + byte_x);
+    if spec.four_colour {
+        render_colour_graphics_byte_line(
+            active_y,
+            byte_x,
+            raw,
+            spec,
+            control,
+            palette,
+            framebuffer,
+        );
+    } else {
+        render_resolution_graphics_byte_line(
+            active_y,
+            byte_x,
+            raw,
+            spec,
+            control,
+            palette,
+            framebuffer,
+        );
+    }
+}
+
 fn render_colour_graphics_byte(
     source_y: usize,
     byte_x: usize,
@@ -609,6 +906,30 @@ fn render_colour_graphics_byte(
             TEXT_TOP_BORDER_LINES + source_y * spec.y_scale,
             spec.x_scale,
             spec.y_scale,
+            palette.colours[colour_index],
+        );
+    }
+}
+
+fn render_colour_graphics_byte_line(
+    active_y: usize,
+    byte_x: usize,
+    raw: u8,
+    spec: GraphicsSpec,
+    control: VdgControl,
+    palette: VdgPalette,
+    framebuffer: &mut [u32],
+) {
+    for pixel in 0..4 {
+        let shift = 6 - pixel * 2;
+        let colour_code = usize::from((raw >> shift) & 0x03);
+        let colour_index = colour_code + if control.css { 4 } else { 0 };
+        fill_rect(
+            framebuffer,
+            TEXT_LEFT_BORDER_PIXELS + (byte_x * 4 + pixel) * spec.x_scale,
+            TEXT_TOP_BORDER_LINES + active_y,
+            spec.x_scale,
+            1,
             palette.colours[colour_index],
         );
     }
@@ -637,6 +958,34 @@ fn render_resolution_graphics_byte(
             TEXT_TOP_BORDER_LINES + source_y * spec.y_scale,
             spec.x_scale,
             spec.y_scale,
+            colour,
+        );
+    }
+}
+
+fn render_resolution_graphics_byte_line(
+    active_y: usize,
+    byte_x: usize,
+    raw: u8,
+    spec: GraphicsSpec,
+    control: VdgControl,
+    palette: VdgPalette,
+    framebuffer: &mut [u32],
+) {
+    let foreground = if control.css {
+        palette.colours[4]
+    } else {
+        palette.colours[0]
+    };
+    for bit in 0..8 {
+        let lit = raw & (0x80 >> bit) != 0;
+        let colour = if lit { foreground } else { palette.black };
+        fill_rect(
+            framebuffer,
+            TEXT_LEFT_BORDER_PIXELS + (byte_x * 8 + bit) * spec.x_scale,
+            TEXT_TOP_BORDER_LINES + active_y,
+            spec.x_scale,
+            1,
             colour,
         );
     }
@@ -830,5 +1179,95 @@ mod tests {
         assert_eq!(framebuffer[active_origin + 2], DEFAULT_VDG_BLUE);
         assert_eq!(framebuffer[active_origin + 4], DEFAULT_VDG_RED);
         assert_eq!(framebuffer[active_origin + 6], DEFAULT_TEXT_FOREGROUND);
+    }
+
+    #[test]
+    fn line_renderer_matches_full_text_render() {
+        let control = VdgControl::from_dragon_pia1_port_b(0x00);
+        let palette = VdgPalette::default();
+        let full = render_visible_argb(|offset| (offset & 0xFF) as u8, control, palette);
+        let mut lines = vec![0; TEXT_VISIBLE_FRAMEBUFFER_PIXELS];
+
+        for y in 0..TEXT_VISIBLE_FRAMEBUFFER_HEIGHT {
+            render_visible_argb_line_into(
+                |offset| (offset & 0xFF) as u8,
+                control,
+                palette,
+                &mut lines,
+                y,
+            );
+        }
+
+        assert_eq!(lines, full);
+    }
+
+    #[test]
+    fn line_renderer_matches_full_graphics_render() {
+        let control = VdgControl::from_dragon_pia1_port_b(0xE0);
+        let palette = VdgPalette::default();
+        let full = render_visible_argb(|offset| (offset & 0xFF) as u8, control, palette);
+        let mut lines = vec![0; TEXT_VISIBLE_FRAMEBUFFER_PIXELS];
+
+        for y in 0..TEXT_VISIBLE_FRAMEBUFFER_HEIGHT {
+            render_visible_argb_line_into(
+                |offset| (offset & 0xFF) as u8,
+                control,
+                palette,
+                &mut lines,
+                y,
+            );
+        }
+
+        assert_eq!(lines, full);
+    }
+
+    #[test]
+    fn byte_line_renderer_matches_full_text_render() {
+        let control = VdgControl::from_dragon_pia1_port_b(0x00);
+        let palette = VdgPalette::default();
+        let full = render_visible_argb(|offset| (offset & 0xFF) as u8, control, palette);
+        let mut byte_lines = vec![palette.border; TEXT_VISIBLE_FRAMEBUFFER_PIXELS];
+
+        for y in 0..TEXT_VISIBLE_FRAMEBUFFER_HEIGHT {
+            let row_start = y * TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
+            byte_lines[row_start..row_start + TEXT_VISIBLE_FRAMEBUFFER_WIDTH].fill(palette.border);
+            for byte_x in 0..TEXT_COLUMNS {
+                render_visible_argb_byte_line_into(
+                    |offset| (offset & 0xFF) as u8,
+                    control,
+                    palette,
+                    &mut byte_lines,
+                    y,
+                    byte_x,
+                );
+            }
+        }
+
+        assert_eq!(byte_lines, full);
+    }
+
+    #[test]
+    fn byte_line_renderer_matches_full_graphics_render() {
+        let control = VdgControl::from_dragon_pia1_port_b(0xE0);
+        let palette = VdgPalette::default();
+        let full = render_visible_argb(|offset| (offset & 0xFF) as u8, control, palette);
+        let mut byte_lines = vec![palette.border; TEXT_VISIBLE_FRAMEBUFFER_PIXELS];
+
+        for y in 0..TEXT_VISIBLE_FRAMEBUFFER_HEIGHT {
+            let row_start = y * TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
+            byte_lines[row_start..row_start + TEXT_VISIBLE_FRAMEBUFFER_WIDTH].fill(palette.border);
+            for byte_x in 0..TEXT_COLUMNS {
+                render_visible_argb_byte_line_into(
+                    |offset| (offset & 0xFF) as u8,
+                    control,
+                    palette,
+                    &mut byte_lines,
+                    y,
+                    byte_x,
+                );
+            }
+        }
+
+        assert_eq!(byte_lines, full);
     }
 }

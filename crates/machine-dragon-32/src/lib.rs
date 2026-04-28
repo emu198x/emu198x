@@ -13,7 +13,10 @@ use std::fmt;
 use motorola_6809::Mc6809;
 use motorola_pia_6821::{Pia6821, PiaPort};
 use motorola_sam_6883::Sam6883;
-use motorola_vdg_6847::{TextPalette, TextScreen, VdgControl, VdgPalette};
+use motorola_vdg_6847::{
+    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS, TextPalette, TextScreen,
+    VdgControl, VdgPalette,
+};
 
 /// Dragon 32 RAM size.
 pub const RAM_SIZE: usize = 0x8000;
@@ -22,6 +25,9 @@ pub const ROM_SIZE: usize = 0x4000;
 const CASSETTE_ZERO_HALF_PERIOD_CYCLES: u32 = 373;
 const CASSETTE_ONE_HALF_PERIOD_CYCLES: u32 = 186;
 const CASSETTE_BITS_PER_BYTE: usize = 8;
+const DRAGON_CPU_HZ: u64 = 894_886;
+const DRAGON_FRAME_HZ: u64 = 50;
+const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
 
 /// A raw Dragon keyboard matrix switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -742,6 +748,124 @@ impl DragonMemory {
     }
 }
 
+#[derive(Debug, Clone)]
+struct BeamVideo {
+    frame: Vec<u32>,
+    cycle_in_frame: u64,
+    next_line: usize,
+    line_border_rendered: bool,
+    next_byte: usize,
+}
+
+impl BeamVideo {
+    fn new() -> Self {
+        Self {
+            frame: vec![VdgPalette::default().border; TEXT_VISIBLE_FRAMEBUFFER_PIXELS],
+            cycle_in_frame: 0,
+            next_line: 0,
+            line_border_rendered: false,
+            next_byte: 0,
+        }
+    }
+
+    fn frame(&self) -> &[u32] {
+        &self.frame
+    }
+
+    fn tick(&mut self, memory: &DragonMemory) {
+        let target = self.cycle_in_frame.saturating_add(1);
+        self.render_until(memory, target);
+        self.cycle_in_frame = target;
+        if self.cycle_in_frame >= DRAGON_FRAME_CYCLES {
+            self.render_until(memory, DRAGON_FRAME_CYCLES);
+            self.cycle_in_frame = 0;
+            self.next_line = 0;
+            self.line_border_rendered = false;
+            self.next_byte = 0;
+        }
+    }
+
+    fn render_until(&mut self, memory: &DragonMemory, target_cycle: u64) {
+        while self.next_line < TEXT_VISIBLE_FRAMEBUFFER_HEIGHT {
+            let line_start = line_start_cycle(self.next_line);
+            if line_start >= target_cycle {
+                break;
+            }
+
+            if !self.line_border_rendered {
+                self.render_border_line(self.next_line);
+                self.line_border_rendered = true;
+                if !active_line(self.next_line) {
+                    self.advance_line();
+                }
+                continue;
+            }
+
+            if active_line(self.next_line) && self.next_byte < 32 {
+                let byte_start = active_byte_start_cycle(self.next_line, self.next_byte);
+                if byte_start >= target_cycle {
+                    break;
+                }
+                self.render_byte_line(memory, self.next_line, self.next_byte);
+                self.next_byte += 1;
+                continue;
+            }
+
+            self.advance_line();
+        }
+    }
+
+    fn render_border_line(&mut self, line: usize) {
+        let palette = VdgPalette::default();
+        let start = line * motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
+        let end = start + motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
+        self.frame[start..end].fill(palette.border);
+    }
+
+    fn render_byte_line(&mut self, memory: &DragonMemory, line: usize, byte_x: usize) {
+        let control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
+        motorola_vdg_6847::render_visible_argb_byte_line_into(
+            |offset| memory.display_byte(offset),
+            control,
+            VdgPalette::default(),
+            &mut self.frame,
+            line,
+            byte_x,
+        );
+    }
+
+    fn advance_line(&mut self) {
+        self.next_line += 1;
+        self.line_border_rendered = false;
+        self.next_byte = 0;
+    }
+}
+
+fn line_start_cycle(line: usize) -> u64 {
+    DRAGON_FRAME_CYCLES.saturating_mul(line as u64) / TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64
+}
+
+fn line_end_cycle(line: usize) -> u64 {
+    DRAGON_FRAME_CYCLES.saturating_mul(line.saturating_add(1) as u64)
+        / TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64
+}
+
+fn active_line(line: usize) -> bool {
+    (motorola_vdg_6847::TEXT_TOP_BORDER_LINES
+        ..motorola_vdg_6847::TEXT_TOP_BORDER_LINES + motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT)
+        .contains(&line)
+}
+
+fn active_byte_start_cycle(line: usize, byte_x: usize) -> u64 {
+    let line_start = line_start_cycle(line);
+    let line_cycles = line_end_cycle(line).saturating_sub(line_start).max(1);
+    let pixel_x = motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS
+        .saturating_add(byte_x.saturating_mul(motorola_vdg_6847::TEXT_CELL_WIDTH));
+    line_start
+        + line_cycles.saturating_mul(pixel_x as u64)
+            / motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u64
+}
+
 #[derive(Debug, Clone, Default)]
 struct CassettePlayback {
     bytes: Vec<u8>,
@@ -817,6 +941,7 @@ impl CassettePlayback {
 pub struct Dragon32 {
     cpu: Mc6809,
     memory: DragonMemory,
+    video: BeamVideo,
     cycles: u64,
     instructions: u64,
 }
@@ -834,6 +959,7 @@ impl Dragon32 {
         let mut machine = Self {
             cpu: Mc6809::new(),
             memory: DragonMemory::new_with_keyboard(rom, keyboard),
+            video: BeamVideo::new(),
             cycles: 0,
             instructions: 0,
         };
@@ -990,6 +1116,12 @@ impl Dragon32 {
         self.memory.pia1.output_latch(PiaPort::B)
     }
 
+    /// Current PIA1 port B external pin levels after DDR/input/output mixing.
+    #[must_use]
+    pub fn pia1_pins_b(&self) -> u8 {
+        self.memory.pia1.pb
+    }
+
     /// Current SAM VDG mode latch bits V0..V2.
     #[must_use]
     pub fn sam_video_mode(&self) -> u8 {
@@ -1023,7 +1155,7 @@ impl Dragon32 {
     /// Render the current MC6847 output plus border as ARGB8888.
     #[must_use]
     pub fn render_visible_argb(&self, palette: VdgPalette) -> Vec<u32> {
-        let control = VdgControl::from_dragon_pia1_port_b(self.pia1_output_b());
+        let control = VdgControl::from_dragon_pia1_port_b(self.pia1_pins_b());
         motorola_vdg_6847::render_visible_argb(
             |offset| self.memory.display_byte(offset),
             control,
@@ -1031,8 +1163,15 @@ impl Dragon32 {
         )
     }
 
+    /// Return the progressively rendered MC6847 frame buffer as ARGB8888.
+    #[must_use]
+    pub fn beam_visible_argb(&self) -> &[u32] {
+        self.video.frame()
+    }
+
     /// Execute one bus cycle and return any observed memory/device event.
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
+        self.video.tick(&self.memory);
         self.memory.advance_cassette();
         let event = if self.cpu.rw {
             let (value, event) = self.memory.read_bus(self.cpu.addr);
