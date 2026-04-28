@@ -11,7 +11,7 @@ use std::error::Error;
 use std::fmt;
 
 use motorola_6809::Mc6809;
-use motorola_pia_6821::{Pia6821, PiaPort};
+use motorola_pia_6821::{Pia6821, PiaPort, PiaSignal};
 use motorola_sam_6883::Sam6883;
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS, TextPalette, TextScreen,
@@ -30,6 +30,11 @@ const CASSETTE_BITS_PER_BYTE: usize = 8;
 const DRAGON_CPU_HZ: u64 = 894_886;
 const DRAGON_FRAME_HZ: u64 = 50;
 const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
+const CART_ROM_START: u16 = 0xC000;
+const CART_ROM_END: u16 = 0xFEFF;
+const CART_IO_START: u16 = 0xFF40;
+const CART_IO_END: u16 = 0xFF5F;
+const CART_AUTORUN_FIRQ_CYCLES: u64 = DRAGON_CPU_HZ / 10;
 const XROAR_AUDIO_MAX_V: f32 = 4.70;
 const XROAR_AUDIO_OUTPUT_GAIN: f32 = 0.7;
 const XROAR_AUDIO_SOURCE_GAIN: [[f32; 3]; 6] = [
@@ -86,6 +91,101 @@ pub const DRAGON_JOYSTICK_MIN: u16 = 0x0000;
 pub const DRAGON_JOYSTICK_CENTER: u16 = 0x8000;
 /// Maximum Dragon analogue joystick axis value.
 pub const DRAGON_JOYSTICK_MAX: u16 = 0xFFFF;
+
+/// Dragon cartridge hardware model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DragonCartridgeKind {
+    /// Plain ROM cartridge mapped at `$C000-$FEFF`.
+    Rom,
+    /// Games Master Cartridge style 16 KiB banked cartridge.
+    GamesMaster,
+}
+
+/// Register state loaded from a PC-Dragon `.pak` snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DragonSnapshotRegisters {
+    /// Program counter.
+    pub pc: u16,
+    /// X index register.
+    pub x: u16,
+    /// Y index register.
+    pub y: u16,
+    /// U stack pointer.
+    pub u: u16,
+    /// S stack pointer.
+    pub s: u16,
+    /// Direct page register.
+    pub dp: u8,
+    /// B accumulator.
+    pub b: u8,
+    /// A accumulator.
+    pub a: u8,
+    /// Condition-code register.
+    pub cc: u8,
+}
+
+/// Peripheral state loaded from a PC-Dragon `.pak` snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DragonSnapshotPeripherals {
+    /// Stored value for `$FF02`, Dragon PIA0 port B.
+    pub ff02: u8,
+    /// Stored value for `$FF03`, Dragon PIA0 port B control.
+    pub ff03: u8,
+    /// Stored value for `$FF22`, Dragon PIA1 port B.
+    pub ff22: u8,
+}
+
+#[derive(Debug, Clone)]
+struct DragonCartridge {
+    kind: DragonCartridgeKind,
+    rom: Box<[u8]>,
+    bank: usize,
+    bank_mask: usize,
+    autorun: bool,
+    next_firq_cycle: u64,
+}
+
+impl DragonCartridge {
+    fn new(kind: DragonCartridgeKind, rom: &[u8], autorun: bool) -> Self {
+        let bank_mask = if matches!(kind, DragonCartridgeKind::GamesMaster) {
+            rom.len().saturating_sub(1) & 0x3c000
+        } else {
+            0
+        };
+        Self {
+            kind,
+            rom: rom.into(),
+            bank: 0,
+            bank_mask,
+            autorun,
+            next_firq_cycle: CART_AUTORUN_FIRQ_CYCLES,
+        }
+    }
+
+    fn read_rom(&self, addr: u16) -> u8 {
+        let offset = match self.kind {
+            DragonCartridgeKind::Rom => usize::from(addr - CART_ROM_START),
+            DragonCartridgeKind::GamesMaster => self.bank | (usize::from(addr) & 0x3fff),
+        };
+        self.rom.get(offset).copied().unwrap_or(0xff)
+    }
+
+    fn write_io(&mut self, addr: u16, value: u8) {
+        if matches!(self.kind, DragonCartridgeKind::GamesMaster) && addr & 1 == 0 {
+            self.bank = (usize::from(value) << 14) & self.bank_mask;
+        }
+    }
+
+    fn should_signal_autorun(&mut self, cycles: u64) -> bool {
+        if !self.autorun || cycles < self.next_firq_cycle {
+            return false;
+        }
+        self.next_firq_cycle = self
+            .next_firq_cycle
+            .saturating_add(CART_AUTORUN_FIRQ_CYCLES);
+        true
+    }
+}
 
 /// Dragon analogue joystick axis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -743,6 +843,8 @@ pub enum DeviceRegion {
     Pia1,
     /// SAM write-only latch range.
     Sam,
+    /// Cartridge I/O range.
+    Cartridge,
 }
 
 /// Instruction fetch trace entry.
@@ -834,6 +936,7 @@ struct DragonMemory {
     keyboard: DragonKeyboard,
     joystick: DragonJoystick,
     cassette: CassettePlayback,
+    cartridge: Option<DragonCartridge>,
 }
 
 impl DragonMemory {
@@ -847,10 +950,17 @@ impl DragonMemory {
             keyboard,
             joystick: DragonJoystick::new(),
             cassette: CassettePlayback::default(),
+            cartridge: None,
         }
     }
 
     fn read_fetch(&self, addr: u16) -> u8 {
+        if let Some(cartridge) = &self.cartridge
+            && (CART_ROM_START..=CART_ROM_END).contains(&addr)
+        {
+            return cartridge.read_rom(addr);
+        }
+
         let addr = usize::from(addr);
         if addr < RAM_SIZE {
             self.ram[addr]
@@ -866,6 +976,7 @@ impl DragonMemory {
                 DeviceRegion::Pia0 => self.pia0.read(offset),
                 DeviceRegion::Pia1 => self.pia1.read(offset),
                 DeviceRegion::Sam => unreachable!("SAM is not a PIA"),
+                DeviceRegion::Cartridge => unreachable!("cartridge is not a PIA"),
             };
             return (
                 value,
@@ -875,6 +986,12 @@ impl DragonMemory {
                     value,
                 }),
             );
+        }
+
+        if let Some(cartridge) = &self.cartridge
+            && (CART_ROM_START..=CART_ROM_END).contains(&addr)
+        {
+            return (cartridge.read_rom(addr), None);
         }
 
         (self.read_fetch(addr), None)
@@ -896,6 +1013,7 @@ impl DragonMemory {
                     self.refresh_pia_inputs();
                 }
                 DeviceRegion::Sam => unreachable!("SAM is not a PIA"),
+                DeviceRegion::Cartridge => unreachable!("cartridge is not a PIA"),
             }
             Some(MemoryEvent::DeviceWrite {
                 device,
@@ -911,8 +1029,46 @@ impl DragonMemory {
                 addr,
                 value,
             })
+        } else if let Some(cartridge) = &mut self.cartridge
+            && (CART_IO_START..=CART_IO_END).contains(&addr)
+        {
+            cartridge.write_io(addr, value);
+            Some(MemoryEvent::DeviceWrite {
+                device: DeviceRegion::Cartridge,
+                addr,
+                value,
+            })
         } else {
             Some(MemoryEvent::RomWrite { addr, value })
+        }
+    }
+
+    fn load_cartridge(&mut self, kind: DragonCartridgeKind, rom: &[u8], autorun: bool) {
+        self.cartridge = Some(DragonCartridge::new(kind, rom, autorun));
+    }
+
+    fn clear_cartridge(&mut self) {
+        self.cartridge = None;
+    }
+
+    fn restore_snapshot_peripherals(&mut self, peripherals: DragonSnapshotPeripherals) {
+        self.pia0.write(0x03, peripherals.ff03 & !0x04);
+        self.pia0.write(0x02, 0xff);
+        self.pia0.write(0x03, peripherals.ff03);
+        self.pia0.write(0x02, peripherals.ff02);
+
+        self.pia1.write(0x03, 0x00);
+        self.pia1.write(0x02, 0xff);
+        self.pia1.write(0x03, 0x04);
+        self.pia1.write(0x02, peripherals.ff22);
+        self.refresh_pia_inputs();
+    }
+
+    fn tick_cartridge_autorun(&mut self, cycles: u64) {
+        if let Some(cartridge) = &mut self.cartridge
+            && cartridge.should_signal_autorun(cycles)
+        {
+            self.pia1.set_signal(PiaSignal::Cb1);
         }
     }
 
@@ -1356,6 +1512,53 @@ impl Dragon32 {
         self.memory.refresh_pia_inputs();
     }
 
+    /// Load a Dragon cartridge image.
+    pub fn load_cartridge(&mut self, kind: DragonCartridgeKind, rom: &[u8], autorun: bool) {
+        self.memory.load_cartridge(kind, rom, autorun);
+    }
+
+    /// Remove any emulated cartridge.
+    pub fn clear_cartridge(&mut self) {
+        self.memory.clear_cartridge();
+    }
+
+    /// Load RAM and CPU state from a PC-Dragon snapshot.
+    pub fn load_pcdragon_snapshot(
+        &mut self,
+        load_address: u16,
+        ram: &[u8],
+        registers: DragonSnapshotRegisters,
+        peripherals: Option<DragonSnapshotPeripherals>,
+        display_base: Option<u16>,
+    ) {
+        for (offset, value) in ram.iter().copied().enumerate() {
+            let addr = usize::from(load_address).saturating_add(offset);
+            if addr < RAM_SIZE {
+                self.memory.ram[addr] = value;
+            }
+        }
+        if let Some(display_base) = display_base {
+            self.memory.sam.set_display_base(display_base);
+        }
+        if let Some(peripherals) = peripherals {
+            self.memory.restore_snapshot_peripherals(peripherals);
+        }
+        self.cpu.regs.pc = registers.pc;
+        self.cpu.regs.x = registers.x;
+        self.cpu.regs.y = registers.y;
+        self.cpu.regs.u = registers.u;
+        self.cpu.regs.s = registers.s;
+        self.cpu.regs.dp = registers.dp;
+        self.cpu.regs.b = registers.b;
+        self.cpu.regs.a = registers.a;
+        self.cpu.regs.cc = registers.cc;
+        self.cpu.reset_phase = 0;
+        self.cpu.addr = registers.pc;
+        self.cpu.rw = true;
+        self.cpu.sync = true;
+        self.cpu.halt = false;
+    }
+
     /// Remove the emulated cassette input.
     pub fn clear_cassette(&mut self) {
         self.memory.cassette.clear();
@@ -1520,6 +1723,9 @@ impl Dragon32 {
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
         self.video.tick(&self.memory);
         self.memory.advance_cassette();
+        self.memory.tick_cartridge_autorun(self.cycles);
+        self.cpu.irq = self.memory.pia0.irq_a() || self.memory.pia0.irq_b();
+        self.cpu.firq = self.memory.pia1.irq_a() || self.memory.pia1.irq_b();
         let event = if self.cpu.rw {
             let (value, event) = self.memory.read_bus(self.cpu.addr);
             self.cpu.data_in = value;
@@ -1747,6 +1953,73 @@ mod tests {
         assert_eq!(memory.read_fetch(0xC000), 0x12);
         assert_eq!(memory.read_fetch(0xFFFE), 0x80);
         assert_eq!(memory.read_fetch(0xFFFF), 0x00);
+    }
+
+    #[test]
+    fn cartridge_rom_overlays_c000_without_replacing_vectors() {
+        let mut rom = rom_with_reset_vector(0x8000);
+        rom[0] = 0x12;
+        rom[0x3FFE] = 0x80;
+        rom[0x3FFF] = 0x00;
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        let mut cart = vec![0xff; 0x4000];
+        cart[0] = 0x34;
+
+        memory.load_cartridge(DragonCartridgeKind::Rom, &cart, true);
+
+        assert_eq!(memory.read_fetch(0x8000), 0x12);
+        assert_eq!(memory.read_fetch(0xC000), 0x34);
+        assert_eq!(memory.read_fetch(0xFEFF), 0xff);
+        assert_eq!(memory.read_fetch(0xFFFE), 0x80);
+        assert_eq!(memory.read_fetch(0xFFFF), 0x00);
+    }
+
+    #[test]
+    fn games_master_cartridge_switches_sixteen_kib_banks() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        let mut cart = vec![0xff; 0x8000];
+        cart[0] = 0x10;
+        cart[0x4000] = 0x20;
+
+        memory.load_cartridge(DragonCartridgeKind::GamesMaster, &cart, true);
+
+        assert_eq!(memory.read_fetch(0xC000), 0x10);
+        memory.write(0xFF40, 0x01);
+        assert_eq!(memory.read_fetch(0xC000), 0x20);
+    }
+
+    #[test]
+    fn pcdragon_snapshot_restores_display_peripheral_state() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        machine.load_pcdragon_snapshot(
+            0x2000,
+            &[0xaa],
+            DragonSnapshotRegisters {
+                pc: 0x1234,
+                x: 0,
+                y: 0,
+                u: 0,
+                s: 0,
+                dp: 0,
+                b: 0,
+                a: 0,
+                cc: 0,
+            },
+            Some(DragonSnapshotPeripherals {
+                ff02: 0xff,
+                ff03: 0xb5,
+                ff22: 0xfc,
+            }),
+            Some(0x0600),
+        );
+
+        assert_eq!(machine.pia0_control_b(), 0xb5);
+        assert_eq!(machine.pia0_ddr_b(), 0xff);
+        assert_eq!(machine.pia1_pins_b(), 0xfc);
+        assert_eq!(machine.text_screen_base(), 0x0600);
     }
 
     #[test]

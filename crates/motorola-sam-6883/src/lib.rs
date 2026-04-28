@@ -68,6 +68,11 @@ impl Sam6883 {
         (self.display_offset as u16) << 9
     }
 
+    /// Set the display-offset latches from a byte address.
+    pub fn set_display_base(&mut self, base: u16) {
+        self.display_offset = (base >> 9) as u8;
+    }
+
     /// Return the P1 page-select latch.
     #[must_use]
     pub const fn page_select(&self) -> bool {
@@ -150,6 +155,16 @@ mod tests {
         assert!(sam.page_select());
         assert!(sam.cpu_rate());
         assert_eq!(sam.memory_size(), 0b10);
+    }
+
+    #[test]
+    fn display_base_can_be_restored_from_snapshot_address() {
+        let mut sam = Sam6883::new();
+
+        sam.set_display_base(0x0600);
+
+        assert_eq!(sam.display_offset(), 0x03);
+        assert_eq!(sam.display_base(), 0x0600);
     }
 
     #[test]

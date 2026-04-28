@@ -4,13 +4,14 @@
 
 Dragon 32 is now a usable early system in the fresh Rust workspace. It boots a
 real Dragon 32 BASIC ROM, accepts keyboard input, mounts Dragon CAS cassette
-images through the shared runtime media path, can load and start representative
-BASIC and machine-code tapes, opens a native `wgpu` verifier window, and has
-native CAS autoload plus patched-XRoar screenshot comparison coverage for
-cassette smoke runs, and now routes native gamepad input through the Dragon's
-analogue joystick comparator path.
+images, ROM/DGN cartridges, and PC-Dragon PAK snapshots through the shared
+runtime media path, can load and start representative BASIC and machine-code
+tapes, opens a native `wgpu` verifier window, and has native CAS autoload plus
+patched-XRoar screenshot comparison coverage for cassette smoke runs, and now
+routes native gamepad input through the Dragon's analogue joystick comparator
+path.
 
-Dragon 64, CoCo variants, cartridges, and DragonDOS disk support are still
+Dragon 64, CoCo variants, cartridge audio, and DragonDOS disk support are still
 future work.
 
 ## What Works
@@ -49,15 +50,23 @@ future work.
   tape. DAC, tape, and single-bit levels are pinned to XRoar's measured-voltage
   gain/offset model; cartridge/AY sources are silent until those expansions
   exist.
+- **Cartridge/snapshot media:** `format-dragon-pak` normalises Dragon ROM/DGN
+  cartridge images using XRoar-compatible header skipping for
+  non-256-byte-aligned files, and parses PC-Dragon PAK snapshots as restored
+  machine state. The runtime mounts cartridge media in `cartridge-1` and
+  snapshot media in `snapshot-1`; plain ROM cartridges overlay `$C000-$FEFF`,
+  and images larger than 16 KiB use Games Master Cartridge-style 16 KiB banking
+  through the cartridge I/O range.
 - **Runtime:** `runtime-dragon` implements the shared `MachineCore` boundary,
   builds from profile-declared Dragon 32 BASIC firmware, emits RGBA8888 frames
   and mono audio packets, exposes boot/video/PIA/SAM/tape queries, and mounts
-  CAS media in slot `tape-1`.
+  CAS media in slot `tape-1`, cartridge media in slot `cartridge-1`, and
+  PC-Dragon PAK snapshots in slot `snapshot-1`.
 - **Native shell:** `emu198x-dragon` opens a native window, presents the Dragon
   framebuffer through the shared `wgpu` presenter with `raw`/`lcd`/`crt`
-  filters, emits live host audio, accepts `--rom`, accepts `--tape`, supports
-  `--autoload`, maps keyboard input into Dragon key events, and maps gamepad
-  input into Dragon joystick 1.
+  filters, emits live host audio, accepts `--rom`, `--tape`, `--cart`, and
+  `--snapshot`, supports `--autoload`, maps keyboard input into Dragon key
+  events, and maps gamepad input into Dragon joystick 1.
 - **CAS format/media/playback:** `format-dragon-cas` parses framed Dragon CAS
   blocks, exposes checksum validity, and decodes the standard 15-byte namefile
   header. Runtime playback converts CAS blocks into motor-gated cassette input
@@ -79,6 +88,8 @@ Native window:
 ```sh
 cargo run --release -p emu198x-dragon -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --cart cartridge.dgn \
+  --snapshot game.pak \
   --tape game.cas \
   --autoload \
   --video crt
@@ -124,7 +135,7 @@ cargo run --release -q -p emu198x-script-dragon -- \
 3. The beam framebuffer is in place, but the display model is still calibrated
    to the current 372x243 diagnostic visible area and XRoar zoomed comparison
    bridge. A fuller PAL timing/overscan model can come later.
-4. Dragon 64 memory mode, cartridge ROMs, `.BIN` convenience loading, and
+4. Dragon 64 memory mode, cartridge audio, `.BIN` convenience loading, and
    DragonDOS/WD2797 disk support are not implemented.
 
 ## Near-Term Plan
@@ -141,14 +152,15 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 | Component | Tests |
 |-----------|-------|
-| Machine | ROM mapping, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
+| Machine | ROM mapping, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
 | PIA | 5: DDR, control, IRQ, input pins, mixed I/O |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 13: text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
 | Harness | 16: CLI, ROM loading, keyboard labels, text dumps, smoke options, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
-| Runtime | Profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, joystick button-to-hardware mapping, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
-| Native | CLI, CAS tape argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping, gamepad-to-joystick mapping |
+| Runtime | Profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, cartridge mounting, PAK snapshot mounting, joystick button-to-hardware mapping, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
+| Native | CLI, CAS tape argument, cartridge argument, snapshot argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping, gamepad-to-joystick mapping |
 | CAS format | 7: block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors |
+| PAK format | 4: aligned ROM images, XRoar-style cartridge header skip, empty image rejection, PC-Dragon snapshot decode |
 
 ## ROMs
 

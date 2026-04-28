@@ -55,6 +55,8 @@ Usage: emu198x-dragon [OPTIONS] --rom PATH
 Options:
     --rom PATH       Dragon 32 BASIC ROM, or zip containing one ROM/bin candidate
     --tape PATH      Dragon CAS tape image, or zip containing one .cas member
+    --cart PATH      Dragon cartridge ROM/DGN image, or zip containing one cartridge member
+    --snapshot PATH  PC-Dragon PAK snapshot, or zip containing one .pak member
     --autoload       type CLOAD/CLOADM, wait for load, then type RUN/EXEC
     --scale N        integer window scale, default 2
     --video MODE     raw | lcd | crt [default: crt]
@@ -83,6 +85,8 @@ Controls:
 struct Cli {
     rom: Option<PathBuf>,
     tape: Option<PathBuf>,
+    cart: Option<PathBuf>,
+    snapshot: Option<PathBuf>,
     autoload: bool,
     scale: u32,
     video: VideoFilter,
@@ -93,6 +97,8 @@ impl Default for Cli {
         Self {
             rom: None,
             tape: None,
+            cart: None,
+            snapshot: None,
             autoload: false,
             scale: DEFAULT_SCALE,
             video: VideoFilter::Crt,
@@ -223,6 +229,39 @@ fn runtime_from_cli(cli: &Cli) -> Result<DragonRuntime, AppError> {
                 }
             );
         }
+    }
+
+    if let Some(cart) = &cli.cart {
+        let loaded =
+            read_media_asset(cart, MediaKind::Cartridge).map_err(|err| AppError::Setup {
+                reason: format!("failed to load Dragon cartridge {}: {err}", cart.display()),
+            })?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            "cartridge-1",
+            MediaKind::Cartridge,
+            &loaded.bytes,
+        ));
+        session.load_media(&media)?;
+        println!("Loaded cartridge: {} bytes", loaded.bytes.len());
+    }
+
+    if let Some(snapshot) = &cli.snapshot {
+        let loaded =
+            read_media_asset(snapshot, MediaKind::Snapshot).map_err(|err| AppError::Setup {
+                reason: format!(
+                    "failed to load Dragon snapshot {}: {err}",
+                    snapshot.display()
+                ),
+            })?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            "snapshot-1",
+            MediaKind::Snapshot,
+            &loaded.bytes,
+        ));
+        session.load_media(&media)?;
+        println!("Loaded snapshot: {} bytes", loaded.bytes.len());
     }
 
     if cli.autoload {
@@ -524,6 +563,8 @@ where
         match arg.as_str() {
             "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
+            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
+            "--snapshot" => cli.snapshot = Some(PathBuf::from(next_arg(&mut iter, "--snapshot"))),
             "--autoload" => cli.autoload = true,
             "--scale" => {
                 cli.scale = next_arg(&mut iter, "--scale")
@@ -877,6 +918,8 @@ mod tests {
             Cli {
                 rom: Some(PathBuf::from("dragon32.rom")),
                 tape: None,
+                cart: None,
+                snapshot: None,
                 autoload: false,
                 scale: 3,
                 video: VideoFilter::Raw,
@@ -896,6 +939,32 @@ mod tests {
         assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
         assert_eq!(cli.tape, Some(PathBuf::from("program.cas")));
         assert!(!cli.autoload);
+    }
+
+    #[test]
+    fn parse_cli_accepts_cart_path() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--cart".to_owned(),
+            "game.dgn".to_owned(),
+        ]);
+
+        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
+        assert_eq!(cli.cart, Some(PathBuf::from("game.dgn")));
+    }
+
+    #[test]
+    fn parse_cli_accepts_snapshot_path() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--snapshot".to_owned(),
+            "game.pak".to_owned(),
+        ]);
+
+        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
+        assert_eq!(cli.snapshot, Some(PathBuf::from("game.pak")));
     }
 
     #[test]
@@ -955,6 +1024,8 @@ mod tests {
         let runtime = runtime_from_cli(&Cli {
             rom: Some(rom),
             tape: Some(tape),
+            cart: None,
+            snapshot: None,
             autoload: true,
             scale: DEFAULT_SCALE,
             video: VideoFilter::Crt,

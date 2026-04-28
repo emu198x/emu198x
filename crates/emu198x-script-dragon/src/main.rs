@@ -15,9 +15,13 @@ use emu198x_shell::{
     read_media_asset,
 };
 use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
+use format_dragon_pak::{
+    DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
+    parse_dragon_pak, parse_pcdragon_snapshot,
+};
 use machine_dragon_32::{
-    DeviceAccess, DeviceRegion, Dragon32, DragonKey, DragonKeyboard, FetchTrace, MatrixKey,
-    ROM_SIZE, ReadonlyWrite, RunReport, StopReason,
+    DeviceAccess, DeviceRegion, Dragon32, DragonCartridgeKind, DragonKey, DragonKeyboard,
+    FetchTrace, MatrixKey, ROM_SIZE, ReadonlyWrite, RunReport, StopReason,
 };
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
@@ -45,6 +49,8 @@ Usage: emu198x-script-dragon --rom PATH [OPTIONS]
 
 Firmware:
     --rom PATH          Dragon 32 BASIC ROM, exactly 16 KiB; .zip archives are accepted
+    --cart PATH         Dragon cartridge ROM/DGN image; .zip archives are accepted
+    --snapshot PATH     PC-Dragon PAK snapshot; .zip archives are accepted
 
 Execution:
     --cycles N         maximum MC6809 bus cycles to run [default: 100000]
@@ -84,6 +90,8 @@ Other:
 #[derive(Debug, Clone, PartialEq)]
 struct Cli {
     rom: PathBuf,
+    cart: Option<PathBuf>,
+    snapshot: Option<PathBuf>,
     cycles: u64,
     trace_limit: usize,
     pressed_keys: Vec<MatrixKey>,
@@ -336,6 +344,16 @@ fn run_main() -> Result<(), String> {
 
     let cli = parse_cli(args)?;
     let rom = load_rom(&cli.rom)?;
+    let cart = cli
+        .cart
+        .as_ref()
+        .map(|path| load_cartridge(path))
+        .transpose()?;
+    let snapshot = cli
+        .snapshot
+        .as_ref()
+        .map(|path| load_snapshot(path))
+        .transpose()?;
     if cli.smoke_root.is_some() {
         let report = run_smoke_matrix(&cli, &rom)?;
         let json = serde_json::to_string_pretty(&report)
@@ -353,11 +371,15 @@ fn run_main() -> Result<(), String> {
         DragonKeyboard::with_pressed_keys(&cli.pressed_keys).map_err(|err| err.to_string())?;
     let report = run_harness_with_keyboard(
         &rom,
-        cli.cycles,
-        cli.trace_limit,
         keyboard,
-        cli.dump_text,
-        cli.dump_text_png.is_some(),
+        HarnessRunOptions {
+            cartridge: cart.as_ref(),
+            snapshot: snapshot.as_ref(),
+            cycle_limit: cli.cycles,
+            trace_limit: cli.trace_limit,
+            dump_text: cli.dump_text,
+            dump_text_framebuffer: cli.dump_text_png.is_some(),
+        },
     );
     print_report(&report);
     if let Some(path) = &cli.dump_text_png {
@@ -376,6 +398,8 @@ where
     I: IntoIterator<Item = String>,
 {
     let mut rom = None;
+    let mut cart = None;
+    let mut snapshot = None;
     let mut cycles = DEFAULT_CYCLES;
     let mut trace_limit = DEFAULT_TRACE_LIMIT;
     let mut pressed_keys = Vec::new();
@@ -400,6 +424,12 @@ where
         match arg.as_str() {
             "--rom" => {
                 rom = Some(PathBuf::from(next_value(&mut iter, "--rom")?));
+            }
+            "--cart" => {
+                cart = Some(PathBuf::from(next_value(&mut iter, "--cart")?));
+            }
+            "--snapshot" => {
+                snapshot = Some(PathBuf::from(next_value(&mut iter, "--snapshot")?));
             }
             "--cycles" => {
                 cycles = parse_u64(&next_value(&mut iter, "--cycles")?, "--cycles")?;
@@ -494,6 +524,8 @@ where
 
     Ok(Cli {
         rom: rom.ok_or_else(|| format!("missing required --rom PATH\n\n{USAGE}"))?,
+        cart,
+        snapshot,
         cycles,
         trace_limit,
         pressed_keys,
@@ -2006,23 +2038,81 @@ fn exact_rom_from_bytes(path: &Path, bytes: Vec<u8>) -> Result<[u8; ROM_SIZE], S
     })
 }
 
-fn run_harness_with_keyboard(
-    rom: &[u8; ROM_SIZE],
+fn load_cartridge(path: &Path) -> Result<DragonPakImage, String> {
+    let loaded = read_media_asset(path, MediaKind::Cartridge)
+        .map_err(|err| format!("failed to load Dragon cartridge {}: {err}", path.display()))?;
+    parse_dragon_pak(&loaded.bytes)
+        .map_err(|err| format!("failed to parse Dragon cartridge {}: {err}", path.display()))
+}
+
+fn load_snapshot(path: &Path) -> Result<PcDragonSnapshot, String> {
+    let loaded = read_media_asset(path, MediaKind::Snapshot)
+        .map_err(|err| format!("failed to load Dragon snapshot {}: {err}", path.display()))?;
+    parse_pcdragon_snapshot(&loaded.bytes)
+        .map_err(|err| format!("failed to parse Dragon snapshot {}: {err}", path.display()))
+}
+
+const fn machine_cartridge_kind(kind: ParsedDragonCartridgeKind) -> DragonCartridgeKind {
+    match kind {
+        ParsedDragonCartridgeKind::Rom => DragonCartridgeKind::Rom,
+        ParsedDragonCartridgeKind::GamesMaster => DragonCartridgeKind::GamesMaster,
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HarnessRunOptions<'a> {
+    cartridge: Option<&'a DragonPakImage>,
+    snapshot: Option<&'a PcDragonSnapshot>,
     cycle_limit: u64,
     trace_limit: usize,
-    keyboard: DragonKeyboard,
     dump_text: bool,
     dump_text_framebuffer: bool,
+}
+
+fn run_harness_with_keyboard(
+    rom: &[u8; ROM_SIZE],
+    keyboard: DragonKeyboard,
+    options: HarnessRunOptions<'_>,
 ) -> HarnessReport {
     let mut machine = Dragon32::new_with_keyboard(rom, keyboard);
-    let report = machine.run_cycles(cycle_limit, trace_limit);
-    let text_screen = (dump_text || dump_text_framebuffer).then(|| machine.capture_text_screen());
+    if let Some(cartridge) = options.cartridge {
+        machine.load_cartridge(machine_cartridge_kind(cartridge.kind), &cartridge.rom, true);
+    }
+    if let Some(snapshot) = options.snapshot {
+        machine.load_pcdragon_snapshot(
+            snapshot.load_address,
+            &snapshot.ram,
+            machine_dragon_32::DragonSnapshotRegisters {
+                pc: snapshot.registers.pc,
+                x: snapshot.registers.x,
+                y: snapshot.registers.y,
+                u: snapshot.registers.u,
+                s: snapshot.registers.s,
+                dp: snapshot.registers.dp,
+                b: snapshot.registers.b,
+                a: snapshot.registers.a,
+                cc: snapshot.registers.cc,
+            },
+            snapshot
+                .peripherals
+                .map(|peripherals| machine_dragon_32::DragonSnapshotPeripherals {
+                    ff02: peripherals.ff02,
+                    ff03: peripherals.ff03,
+                    ff22: peripherals.ff22,
+                }),
+            snapshot.display_base,
+        );
+    }
+    let report = machine.run_cycles(options.cycle_limit, options.trace_limit);
+    let text_screen =
+        (options.dump_text || options.dump_text_framebuffer).then(|| machine.capture_text_screen());
     let text_screen_text = text_screen
         .as_ref()
-        .filter(|_| dump_text)
+        .filter(|_| options.dump_text)
         .map(|screen| screen.to_plain_text());
-    let text_framebuffer =
-        dump_text_framebuffer.then(|| machine.render_visible_text_argb(TextPalette::default()));
+    let text_framebuffer = options
+        .dump_text_framebuffer
+        .then(|| machine.render_visible_text_argb(TextPalette::default()));
 
     report.into_harness_report(text_screen_text, text_framebuffer)
 }
@@ -2189,6 +2279,7 @@ fn format_device_region(device: DeviceRegion) -> &'static str {
         DeviceRegion::Pia0 => "pia0",
         DeviceRegion::Pia1 => "pia1",
         DeviceRegion::Sam => "sam",
+        DeviceRegion::Cartridge => "cartridge",
     }
 }
 
@@ -2223,7 +2314,18 @@ mod tests {
         rom[0x000C] = 0x01;
         rom[0x000D] = 0x01;
 
-        let report = run_harness_with_keyboard(&rom, 128, 8, DragonKeyboard::new(), true, true);
+        let report = run_harness_with_keyboard(
+            &rom,
+            DragonKeyboard::new(),
+            HarnessRunOptions {
+                cartridge: None,
+                snapshot: None,
+                cycle_limit: 128,
+                trace_limit: 8,
+                dump_text: true,
+                dump_text_framebuffer: true,
+            },
+        );
 
         assert_eq!(report.stop_reason, StopReason::CpuHalted);
         assert_eq!(report.text_screen_base, 0x0400);
@@ -2271,6 +2373,32 @@ mod tests {
         assert_eq!(cli.trace_limit, 3);
         assert_eq!(cli.pressed_keys, Vec::new());
         assert!(cli.dump_text);
+    }
+
+    #[test]
+    fn cli_parses_cartridge_path() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--cart".to_owned(),
+            "game.dgn".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.cart, Some(PathBuf::from("game.dgn")));
+    }
+
+    #[test]
+    fn cli_parses_snapshot_path() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--snapshot".to_owned(),
+            "game.pak".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.snapshot, Some(PathBuf::from("game.pak")));
     }
 
     #[test]

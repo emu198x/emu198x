@@ -94,7 +94,8 @@ As of April 28, 2026, the fresh Rust workspace currently provides:
   - real Dragon 32 BASIC ROM boot over `motorola-6809`, dual MC6821 PIAs,
     MC6883 SAM, and MC6847 VDG
   - native verifier UI using the shared `wgpu` presenter, semantic keyboard
-    input, gamepad-to-keyboard controls, CAS media mounting, native
+    input, gamepad-to-keyboard controls, CAS media, ROM/DGN cartridge
+    mounting, PC-Dragon PAK snapshot mounting, native
     `--autoload`, and beam-updated MC6847 framebuffer
   - headless CAS smoke harness that loads BASIC and machine-code tapes through
     the real ROM `CLOAD`/`CLOADM` paths and can compare screenshots against a
@@ -103,7 +104,7 @@ As of April 28, 2026, the fresh Rust workspace currently provides:
 Notably not claimed yet:
 
 - no fresh-workspace Amiga snapshot support
-- no Dragon audio, analogue joystick hardware, Dragon 64, cartridge, or disk
+- no Dragon 64, cartridge audio, or disk
   support
 - no claim that disk/tape/cartridge support exists unless the corresponding
   hardware path is actually modeled
@@ -141,6 +142,10 @@ Examples:
 - `--tape game.cas` for the current Dragon runner mounts real CAS cassette
   media; the ROM still performs the `CLOAD`/`CLOADM` load over the emulated
   cassette input path.
+- `--cart cartridge.dgn` for the current Dragon runner mounts ROM/DGN
+  cartridge media through the emulated cartridge ROM/GMC banking path.
+- `--snapshot game.pak` for the current Dragon runner restores a PC-Dragon
+  PAK snapshot as machine state; it is not treated as cartridge media.
 
 ## Building
 

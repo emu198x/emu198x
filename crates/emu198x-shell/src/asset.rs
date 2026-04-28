@@ -213,10 +213,10 @@ fn archive_match_rules(kind: MediaKind) -> (&'static str, &'static [&'static str
         ),
         MediaKind::Cartridge => (
             "cartridge image",
-            &["bin", "crt", "gb", "gbc", "md", "nes", "rom"],
+            &["bin", "crt", "dgn", "gb", "gbc", "md", "nes", "rom"],
         ),
         MediaKind::Optical => ("optical image", &["bin", "ccd", "chd", "cue", "img", "iso"]),
-        MediaKind::Snapshot => ("snapshot image", &["pst", "sna", "szx", "z80"]),
+        MediaKind::Snapshot => ("snapshot image", &["pak", "pst", "sna", "szx", "z80"]),
     }
 }
 
@@ -269,6 +269,21 @@ mod tests {
 
         assert_eq!(loaded.bytes, b"ZXTape!\x1A\x01");
         assert_eq!(loaded.archive_member.as_deref(), Some("Manic Miner.tzx"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn read_media_asset_extracts_dragon_pak_snapshot() {
+        let path = temp_path("snapshot.zip");
+        let zip = write_zip(&[("manual.txt", b"not media"), ("game.pak", &[0x35, 0x7f])]);
+        fs::write(&path, zip).expect("zip test fixture should write");
+
+        let loaded = read_media_asset(&path, MediaKind::Snapshot)
+            .expect("zip snapshot asset should extract one PAK member");
+
+        assert_eq!(loaded.bytes, vec![0x35, 0x7f]);
+        assert_eq!(loaded.archive_member.as_deref(), Some("game.pak"));
 
         let _ = fs::remove_file(path);
     }

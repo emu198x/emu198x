@@ -773,6 +773,7 @@ version = "0.1.0"
 dependencies = [
  "emu198x-shell",
  "format-dragon-cas",
+ "format-dragon-pak",
  "machine-dragon-32",
  "motorola-vdg-6847",
  "png",
@@ -965,6 +966,13 @@ dependencies = [
 
 [[package]]
 name = "format-dragon-cas"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "format-dragon-pak"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.18",
@@ -2573,6 +2581,7 @@ version = "0.1.0"
 dependencies = [
  "emu198x-shell",
  "format-dragon-cas",
+ "format-dragon-pak",
  "machine-dragon-32",
  "motorola-vdg-6847",
  "png",

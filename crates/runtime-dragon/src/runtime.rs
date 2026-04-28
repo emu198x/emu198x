@@ -6,9 +6,14 @@ use emu198x_shell::{
     QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
 use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
+use format_dragon_pak::{
+    DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
+    parse_dragon_pak, parse_pcdragon_snapshot,
+};
 use machine_dragon_32::{
     DRAGON_AUDIO_SAMPLE_RATE, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX, DRAGON_JOYSTICK_MIN,
-    Dragon32, DragonJoystickAxis, DragonKey, MatrixKey, ROM_SIZE,
+    Dragon32, DragonCartridgeKind, DragonJoystickAxis, DragonKey, DragonSnapshotPeripherals,
+    DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
 };
 use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
 use serde_json::json;
@@ -84,6 +89,8 @@ pub struct DragonRuntime {
     audio_buffer: Vec<f32>,
     tape: Option<CasImage>,
     tape_bytes: Vec<u8>,
+    cartridge: Option<DragonPakImage>,
+    snapshot: Option<PcDragonSnapshot>,
 }
 
 impl DragonRuntime {
@@ -129,6 +136,8 @@ impl DragonRuntime {
             audio_buffer: Vec::with_capacity(DRAGON_AUDIO_SAMPLE_RATE as usize / 50),
             tape: None,
             tape_bytes: Vec::new(),
+            cartridge: None,
+            snapshot: None,
         })
     }
 
@@ -148,6 +157,8 @@ impl DragonRuntime {
             audio_buffer: Vec::with_capacity(DRAGON_AUDIO_SAMPLE_RATE as usize / 50),
             tape: None,
             tape_bytes: Vec::new(),
+            cartridge: None,
+            snapshot: None,
         }
     }
 
@@ -178,6 +189,16 @@ impl DragonRuntime {
         self.joystick = DragonJoystickInputState::default();
         if !self.tape_bytes.is_empty() {
             self.machine.load_cassette_bytes(self.tape_bytes.clone());
+        }
+        if let Some(cartridge) = &self.cartridge {
+            self.machine.load_cartridge(
+                machine_cartridge_kind(cartridge.kind),
+                &cartridge.rom,
+                true,
+            );
+        }
+        if let Some(snapshot) = &self.snapshot {
+            load_snapshot_into_machine(&mut self.machine, snapshot);
         }
         self.time = MachineTime::default();
         self.rgba_framebuffer.clear();
@@ -327,6 +348,40 @@ const fn dragon_joystick_port(port: u8) -> Option<u8> {
     }
 }
 
+const fn machine_cartridge_kind(kind: ParsedDragonCartridgeKind) -> DragonCartridgeKind {
+    match kind {
+        ParsedDragonCartridgeKind::Rom => DragonCartridgeKind::Rom,
+        ParsedDragonCartridgeKind::GamesMaster => DragonCartridgeKind::GamesMaster,
+    }
+}
+
+fn load_snapshot_into_machine(machine: &mut Dragon32, snapshot: &PcDragonSnapshot) {
+    let registers = DragonSnapshotRegisters {
+        pc: snapshot.registers.pc,
+        x: snapshot.registers.x,
+        y: snapshot.registers.y,
+        u: snapshot.registers.u,
+        s: snapshot.registers.s,
+        dp: snapshot.registers.dp,
+        b: snapshot.registers.b,
+        a: snapshot.registers.a,
+        cc: snapshot.registers.cc,
+    };
+    machine.load_pcdragon_snapshot(
+        snapshot.load_address,
+        &snapshot.ram,
+        registers,
+        snapshot
+            .peripherals
+            .map(|peripherals| DragonSnapshotPeripherals {
+                ff02: peripherals.ff02,
+                ff03: peripherals.ff03,
+                ff22: peripherals.ff22,
+            }),
+        snapshot.display_base,
+    );
+}
+
 impl MachineCore for DragonRuntime {
     fn profile(&self) -> &MachineProfile {
         &self.profile
@@ -357,6 +412,40 @@ impl MachineCore for DragonRuntime {
                     self.tape_bytes = tape_bytes;
                 }
                 MediaKind::Tape => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+                MediaKind::Cartridge if slot == "cartridge-1" => {
+                    let cartridge = parse_dragon_pak(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        }
+                    })?;
+                    self.machine.load_cartridge(
+                        machine_cartridge_kind(cartridge.kind),
+                        &cartridge.rom,
+                        true,
+                    );
+                    self.cartridge = Some(cartridge);
+                }
+                MediaKind::Cartridge => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+                MediaKind::Snapshot if slot == "snapshot-1" => {
+                    let snapshot = parse_pcdragon_snapshot(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        }
+                    })?;
+                    load_snapshot_into_machine(&mut self.machine, &snapshot);
+                    self.snapshot = Some(snapshot);
+                }
+                MediaKind::Snapshot => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: slot.to_owned(),
                     });
@@ -863,6 +952,32 @@ mod tests {
     }
 
     #[test]
+    fn load_media_accepts_dragon_cartridge() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let cart = vec![0x42; 0x4000];
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &cart));
+
+        runtime.load_media(&media).expect("cartridge should load");
+    }
+
+    #[test]
+    fn load_media_accepts_pcdragon_snapshot() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let snapshot = pcdragon_snapshot_with_pc(0x1234);
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            "snapshot-1",
+            MediaKind::Snapshot,
+            &snapshot,
+        ));
+
+        runtime.load_media(&media).expect("snapshot should load");
+
+        assert_eq!(runtime.machine.pc(), 0x1234);
+    }
+
+    #[test]
     fn load_media_rejects_malformed_cas() {
         let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
         let mut media = MediaSet::new();
@@ -877,5 +992,17 @@ mod tests {
             }
             other => panic!("expected InvalidMedia, got {other:?}"),
         }
+    }
+
+    fn pcdragon_snapshot_with_pc(pc: u16) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&[0; 33]);
+        bytes.extend_from_slice(&pc.to_le_bytes());
+        bytes.extend_from_slice(&[0; 12]);
+        bytes.extend_from_slice(&[0; 64]);
+        bytes
     }
 }

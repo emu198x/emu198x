@@ -48,22 +48,39 @@ pub fn profile_for(model: Model) -> MachineProfile {
             region: Region::Pal,
             support_tier: SupportTier::Boots,
             release_year: 1982,
-            summary: "Dragon 32 PAL bring-up runtime. It boots the real BASIC ROM through the shared MC6809/PIA/SAM/VDG machine substrate, mounts CAS tapes, emits the current MC6847 text, semigraphics, or graphics framebuffer, produces mono audio from the PIA DAC/mux path, and exposes Dragon analogue joystick hardware; Dragon 64 remains pending.".into(),
+            summary: "Dragon 32 PAL bring-up runtime. It boots the real BASIC ROM through the shared MC6809/PIA/SAM/VDG machine substrate, mounts CAS tapes, ROM/DGN cartridges, and PC-Dragon PAK snapshots, emits the current MC6847 text, semigraphics, or graphics framebuffer, produces mono audio from the PIA DAC/mux path, and exposes Dragon analogue joystick hardware; Dragon 64 remains pending.".into(),
             clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(894_886)),
             firmware: vec![FirmwareRequirement::new(
                 "dragon32-basic-rom",
                 "Dragon 32 BASIC ROM",
                 false,
             )],
-            media_slots: vec![MediaSlot::new(
-                "tape-1",
-                "Cassette",
-                MediaKind::Tape,
-                false,
-                WritebackPolicy::InMemoryOnly,
-            )],
+            media_slots: vec![
+                MediaSlot::new(
+                    "tape-1",
+                    "Cassette",
+                    MediaKind::Tape,
+                    false,
+                    WritebackPolicy::InMemoryOnly,
+                ),
+                MediaSlot::new(
+                    "cartridge-1",
+                    "Cartridge",
+                    MediaKind::Cartridge,
+                    false,
+                    WritebackPolicy::InMemoryOnly,
+                ),
+                MediaSlot::new(
+                    "snapshot-1",
+                    "PC-Dragon snapshot",
+                    MediaKind::Snapshot,
+                    false,
+                    WritebackPolicy::InMemoryOnly,
+                ),
+            ],
             capabilities: CapabilitySet::with_all([
                 known_capability("cassette-media"),
+                known_capability("cartridge-media"),
                 known_capability("joystick-input"),
                 known_capability("keyboard-matrix"),
                 known_capability("scripted-input"),
@@ -96,8 +113,12 @@ mod tests {
         assert_eq!(profile.region, Region::Pal);
         assert_eq!(profile.firmware.len(), 1);
         assert_eq!(profile.firmware[0].id.as_ref(), "dragon32-basic-rom");
-        assert_eq!(profile.media_slots.len(), 1);
+        assert_eq!(profile.media_slots.len(), 3);
         assert_eq!(profile.media_slots[0].id.as_ref(), "tape-1");
         assert_eq!(profile.media_slots[0].kind, MediaKind::Tape);
+        assert_eq!(profile.media_slots[1].id.as_ref(), "cartridge-1");
+        assert_eq!(profile.media_slots[1].kind, MediaKind::Cartridge);
+        assert_eq!(profile.media_slots[2].id.as_ref(), "snapshot-1");
+        assert_eq!(profile.media_slots[2].kind, MediaKind::Snapshot);
     }
 }
