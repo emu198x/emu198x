@@ -2136,10 +2136,15 @@ fn xroar_snapshot_pias(snapshot: &PcDragonSnapshot) -> [u8; 12] {
 }
 
 fn xroar_snapshot_sam(snapshot: &PcDragonSnapshot) -> [u8; 2] {
-    let register = snapshot
+    let display_register = snapshot
         .display_base
         .map(|base| (base >> 6) & 0x03f8)
         .unwrap_or(0);
+    let video_mode = snapshot
+        .peripherals
+        .map(|peripherals| (u16::from(peripherals.ff22) >> 4) & 0x0007)
+        .unwrap_or(0);
+    let register = display_register | video_mode;
     register.to_be_bytes()
 }
 
@@ -3221,7 +3226,7 @@ mod tests {
 
         assert!(bytes.starts_with(b"XRoar snapshot.\n\0"));
         assert!(bytes.windows(3).any(|chunk| chunk == [3, 0, 2]));
-        assert!(bytes.windows(2).any(|chunk| chunk == [0x00, 0x18]));
+        assert!(bytes.windows(2).any(|chunk| chunk == [0x00, 0x1f]));
         assert!(
             bytes
                 .windows(4)

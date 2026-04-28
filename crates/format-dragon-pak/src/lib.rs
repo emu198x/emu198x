@@ -225,20 +225,20 @@ fn parse_snapshot_registers(info: &[u8]) -> Result<PcDragonRegisters, DragonPakP
 }
 
 fn parse_snapshot_display_base(info: &[u8]) -> Option<u16> {
-    // Archived PC-Dragon V1.4 PAKs store p5d's video base as little-endian
-    // bytes at this offset after p1, p3, p5e, p5a, and p5c.
-    let base = info.get(60..62)?;
-    Some(u16::from_le_bytes([base[0], base[1]]))
+    // Archived PC-Dragon V1.4 PAKs store the display page in 256-byte units,
+    // not a byte address.
+    let offset = info.get(62..64)?;
+    Some(u16::from_le_bytes([offset[0], offset[1]]) << 8)
 }
 
 fn parse_snapshot_peripherals(info: &[u8]) -> Option<PcDragonPeripherals> {
     // This matches the observed V1.4 layout in the local PC-Dragon archive:
-    // p5c follows p5a at offset 55 and stores page, ROM, FF02, FF03, FF22.
-    let p5c = info.get(55..60)?;
+    // the useful display control bytes straddle p5c/p5d as FF02, FF03, FF22.
+    let display_state = info.get(58..61)?;
     Some(PcDragonPeripherals {
-        ff02: p5c[2],
-        ff03: p5c[3],
-        ff22: p5c[4],
+        ff02: display_state[0],
+        ff03: display_state[1],
+        ff22: display_state[2],
     })
 }
 
@@ -327,13 +327,14 @@ mod tests {
         bytes.extend_from_slice(&1u16.to_le_bytes());
         bytes.extend_from_slice(&0x2000u16.to_le_bytes());
         bytes.push(0xaa);
-        bytes.extend_from_slice(&[0; 33]);
-        bytes.extend_from_slice(&0x1234u16.to_le_bytes());
-        bytes.extend_from_slice(&[0; 12]);
-        bytes.extend_from_slice(&[0x38, 0x14, 0x00, 0x1c, 0x7c]);
-        bytes.extend_from_slice(&[0x06, 0x32, 0x87]);
-        bytes.extend_from_slice(&[0xd4, 0xde, 0xff, 0xb5, 0xfc]);
-        bytes.extend_from_slice(&[0x00, 0x06, 0x00, 0x1e]);
+        let mut info = [0; 65];
+        info[33..35].copy_from_slice(&0x1234u16.to_le_bytes());
+        info[54] = 0x87;
+        info[58] = 0x7f;
+        info[59] = 0xb5;
+        info[60] = 0xfc;
+        info[62..64].copy_from_slice(&0x000cu16.to_le_bytes());
+        bytes.extend_from_slice(&info);
 
         let snapshot = parse_pcdragon_snapshot(&bytes).expect("snapshot should parse");
 
@@ -341,11 +342,11 @@ mod tests {
         assert_eq!(
             snapshot.peripherals,
             Some(PcDragonPeripherals {
-                ff02: 0xff,
+                ff02: 0x7f,
                 ff03: 0xb5,
                 ff22: 0xfc,
             })
         );
-        assert_eq!(snapshot.display_base, Some(0x0600));
+        assert_eq!(snapshot.display_base, Some(0x0c00));
     }
 }
