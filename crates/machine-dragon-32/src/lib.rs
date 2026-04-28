@@ -34,6 +34,7 @@ const CART_ROM_START: u16 = 0xC000;
 const CART_ROM_END: u16 = 0xFEFF;
 const CART_IO_START: u16 = 0xFF40;
 const CART_IO_END: u16 = 0xFF5F;
+const NO_CARTRIDGE_BUS_VALUE: u8 = 0xFF;
 const CART_AUTORUN_FIRQ_CYCLES: u64 = DRAGON_CPU_HZ / 10;
 const XROAR_AUDIO_MAX_V: f32 = 4.70;
 const XROAR_AUDIO_OUTPUT_GAIN: f32 = 0.7;
@@ -869,6 +870,79 @@ pub struct ReadonlyWrite {
     pub value: u8,
 }
 
+/// Inclusive CPU address range used for diagnostic bus-write watches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AddressRange {
+    /// First watched address.
+    pub start: u16,
+    /// Last watched address.
+    pub end: u16,
+}
+
+impl AddressRange {
+    /// Create an inclusive address range.
+    #[must_use]
+    pub const fn new(start: u16, end: u16) -> Self {
+        Self { start, end }
+    }
+
+    #[must_use]
+    const fn contains(self, addr: u16) -> bool {
+        self.start <= addr && addr <= self.end
+    }
+}
+
+/// CPU register snapshot captured beside a diagnostic memory write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuRegisterTrace {
+    /// Accumulator A.
+    pub a: u8,
+    /// Accumulator B.
+    pub b: u8,
+    /// Direct-page register.
+    pub dp: u8,
+    /// Condition-code register.
+    pub cc: u8,
+    /// Index register X.
+    pub x: u16,
+    /// Index register Y.
+    pub y: u16,
+    /// User stack pointer.
+    pub u: u16,
+    /// Hardware stack pointer.
+    pub s: u16,
+    /// Program counter.
+    pub pc: u16,
+}
+
+/// Diagnostic bus-write trace entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryWriteTrace {
+    /// Bus cycle.
+    pub cycle: u64,
+    /// Address of the opcode fetch that started the current instruction.
+    pub instruction_pc: Option<u16>,
+    /// CPU address.
+    pub addr: u16,
+    /// Written value.
+    pub value: u8,
+    /// CPU registers before the write cycle was executed.
+    pub regs: CpuRegisterTrace,
+}
+
+/// Diagnostic opcode-fetch trace entry with CPU registers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WatchedFetchTrace {
+    /// Bus cycle when the opcode fetch began.
+    pub cycle: u64,
+    /// Program counter.
+    pub pc: u16,
+    /// Opcode byte.
+    pub opcode: u8,
+    /// CPU registers before the instruction was executed.
+    pub regs: CpuRegisterTrace,
+}
+
 /// Device access trace entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeviceAccess {
@@ -951,6 +1025,29 @@ pub enum StopReason {
     CpuHalted,
 }
 
+/// Options for a bounded Dragon machine run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunOptions {
+    /// Number of recent entries to retain in each diagnostic trace.
+    pub trace_limit: usize,
+    /// Optional inclusive opcode-fetch watch range.
+    pub fetch_watch: Option<AddressRange>,
+    /// Optional inclusive bus-write watch range.
+    pub write_watch: Option<AddressRange>,
+}
+
+impl RunOptions {
+    /// Create run options with the supplied trace limit.
+    #[must_use]
+    pub const fn new(trace_limit: usize) -> Self {
+        Self {
+            trace_limit,
+            fetch_watch: None,
+            write_watch: None,
+        }
+    }
+}
+
 /// Summary of a bounded Dragon machine run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunReport {
@@ -980,6 +1077,14 @@ pub struct RunReport {
     pub readonly_writes: Vec<ReadonlyWrite>,
     /// Number of read-only write entries dropped due to the trace limit.
     pub dropped_readonly_writes: usize,
+    /// Retained watched opcode fetches.
+    pub watched_fetches: Vec<WatchedFetchTrace>,
+    /// Number of watched fetch entries dropped due to the trace limit.
+    pub dropped_watched_fetches: usize,
+    /// Retained watched bus writes.
+    pub watched_writes: Vec<MemoryWriteTrace>,
+    /// Number of watched write entries dropped due to the trace limit.
+    pub dropped_watched_writes: usize,
     /// Retained PIA signal transitions.
     pub pia_signals: Vec<PiaSignalTrace>,
     /// Number of PIA signal entries dropped due to the trace limit.
@@ -1034,6 +1139,8 @@ impl DragonMemory {
         let addr = usize::from(addr);
         if addr < RAM_SIZE {
             self.ram[addr]
+        } else if (CART_ROM_START..=CART_ROM_END).contains(&(addr as u16)) {
+            NO_CARTRIDGE_BUS_VALUE
         } else {
             self.rom[(addr - RAM_SIZE) & (ROM_SIZE - 1)]
         }
@@ -1867,12 +1974,24 @@ impl Dragon32 {
     /// traces.
     #[must_use]
     pub fn run_cycles(&mut self, cycle_limit: u64, trace_limit: usize) -> RunReport {
+        self.run_cycles_with_options(cycle_limit, RunOptions::new(trace_limit))
+    }
+
+    /// Execute up to `cycle_limit` bus cycles and retain bounded diagnostic
+    /// traces.
+    #[must_use]
+    pub fn run_cycles_with_options(&mut self, cycle_limit: u64, options: RunOptions) -> RunReport {
+        let trace_limit = options.trace_limit;
         let mut trace = Vec::new();
         let mut dropped_trace = 0usize;
         let mut device_accesses = Vec::new();
         let mut dropped_device_accesses = 0usize;
         let mut readonly_writes = Vec::new();
         let mut dropped_readonly_writes = 0usize;
+        let mut watched_fetches = Vec::new();
+        let mut dropped_watched_fetches = 0usize;
+        let mut watched_writes = Vec::new();
+        let mut dropped_watched_writes = 0usize;
         let mut pia_signals = Vec::new();
         let mut dropped_pia_signals = 0usize;
         let mut interrupt_lines = Vec::new();
@@ -1922,7 +2041,34 @@ impl Dragon32 {
                 self.instructions = self.instructions.saturating_add(1);
                 run_instructions = run_instructions.saturating_add(1);
                 retain_trace(&mut trace, &mut dropped_trace, trace_limit, fetch);
+                if options
+                    .fetch_watch
+                    .is_some_and(|range| range.contains(fetch.pc))
+                {
+                    retain_watched_fetch(
+                        &mut watched_fetches,
+                        &mut dropped_watched_fetches,
+                        trace_limit,
+                        WatchedFetchTrace {
+                            cycle: run_cycle,
+                            pc: fetch.pc,
+                            opcode: fetch.opcode,
+                            regs: cpu_register_trace(self),
+                        },
+                    );
+                }
             }
+
+            let watched_write = options
+                .write_watch
+                .filter(|range| !self.cpu.rw && range.contains(self.cpu.addr))
+                .map(|_| MemoryWriteTrace {
+                    cycle: run_cycle,
+                    instruction_pc: last_fetch.map(|fetch| fetch.pc),
+                    addr: self.cpu.addr,
+                    value: self.cpu.data,
+                    regs: cpu_register_trace(self),
+                });
 
             let event = self.step_cycle_with_diagnostic_trace(
                 run_cycle,
@@ -2015,6 +2161,15 @@ impl Dragon32 {
                 None => {}
             }
 
+            if let Some(write) = watched_write {
+                retain_watched_write(
+                    &mut watched_writes,
+                    &mut dropped_watched_writes,
+                    trace_limit,
+                    write,
+                );
+            }
+
             if self.cpu.halt {
                 stop_reason = StopReason::CpuHalted;
                 break;
@@ -2035,6 +2190,10 @@ impl Dragon32 {
             dropped_device_accesses,
             readonly_writes,
             dropped_readonly_writes,
+            watched_fetches,
+            dropped_watched_fetches,
+            watched_writes,
+            dropped_watched_writes,
             pia_signals,
             dropped_pia_signals,
             interrupt_lines,
@@ -2139,6 +2298,56 @@ fn retain_readonly_write(
         *dropped_writes = dropped_writes.saturating_add(1);
     }
     writes.push(write);
+}
+
+fn retain_watched_write(
+    writes: &mut Vec<MemoryWriteTrace>,
+    dropped_writes: &mut usize,
+    write_limit: usize,
+    write: MemoryWriteTrace,
+) {
+    if write_limit == 0 {
+        *dropped_writes = dropped_writes.saturating_add(1);
+        return;
+    }
+
+    if writes.len() == write_limit {
+        writes.remove(0);
+        *dropped_writes = dropped_writes.saturating_add(1);
+    }
+    writes.push(write);
+}
+
+fn retain_watched_fetch(
+    fetches: &mut Vec<WatchedFetchTrace>,
+    dropped_fetches: &mut usize,
+    fetch_limit: usize,
+    fetch: WatchedFetchTrace,
+) {
+    if fetch_limit == 0 {
+        *dropped_fetches = dropped_fetches.saturating_add(1);
+        return;
+    }
+
+    if fetches.len() == fetch_limit {
+        fetches.remove(0);
+        *dropped_fetches = dropped_fetches.saturating_add(1);
+    }
+    fetches.push(fetch);
+}
+
+fn cpu_register_trace(machine: &Dragon32) -> CpuRegisterTrace {
+    CpuRegisterTrace {
+        a: machine.cpu.regs.a,
+        b: machine.cpu.regs.b,
+        dp: machine.cpu.regs.dp,
+        cc: machine.cpu.regs.cc,
+        x: machine.cpu.regs.x,
+        y: machine.cpu.regs.y,
+        u: machine.cpu.regs.u,
+        s: machine.cpu.regs.s,
+        pc: machine.cpu.regs.pc,
+    }
 }
 
 fn retain_pia_signal(
@@ -2254,7 +2463,7 @@ mod tests {
     }
 
     #[test]
-    fn memory_maps_rom_and_vector_mirror() {
+    fn memory_maps_basic_rom_vectors_and_empty_cartridge_slot() {
         let mut rom = rom_with_reset_vector(0x8000);
         rom[0] = 0x12;
         rom[0x3FFE] = 0x80;
@@ -2263,7 +2472,8 @@ mod tests {
         let memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
 
         assert_eq!(memory.read_fetch(0x8000), 0x12);
-        assert_eq!(memory.read_fetch(0xC000), 0x12);
+        assert_eq!(memory.read_fetch(0xC000), NO_CARTRIDGE_BUS_VALUE);
+        assert_eq!(memory.read_fetch(0xFEFF), NO_CARTRIDGE_BUS_VALUE);
         assert_eq!(memory.read_fetch(0xFFFE), 0x80);
         assert_eq!(memory.read_fetch(0xFFFF), 0x00);
     }

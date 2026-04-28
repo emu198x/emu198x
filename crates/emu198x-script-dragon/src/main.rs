@@ -20,9 +20,10 @@ use format_dragon_pak::{
     PcDragonSnapshot, parse_dragon_pak, parse_pcdragon_snapshot,
 };
 use machine_dragon_32::{
-    CpuInterruptAcceptTrace, CpuInterruptKind, CpuInterruptLineTrace, DeviceAccess, DeviceRegion,
-    Dragon32, DragonCartridgeKind, DragonKey, DragonKeyboard, FetchTrace, MatrixKey,
-    PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunReport, StopReason,
+    AddressRange, CpuInterruptAcceptTrace, CpuInterruptKind, CpuInterruptLineTrace,
+    CpuRegisterTrace, DeviceAccess, DeviceRegion, Dragon32, DragonCartridgeKind, DragonKey,
+    DragonKeyboard, FetchTrace, MatrixKey, MemoryWriteTrace, PiaSignalTrace, ROM_SIZE,
+    ReadonlyWrite, RunOptions, RunReport, StopReason, WatchedFetchTrace,
 };
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
@@ -56,6 +57,10 @@ Firmware:
 Execution:
     --cycles N         maximum MC6809 bus cycles to run [default: 100000]
     --trace-limit N    number of recent instruction fetches to retain [default: 64]
+    --watch-fetch A[-B]
+                       retain opcode fetches in inclusive hex/decimal address range A..B
+    --watch-write A[-B]
+                       retain bus writes to inclusive hex/decimal address range A..B
     --press KEY        hold a named Dragon key closed; may be repeated
     --press-matrix R,C hold a raw keyboard matrix switch closed; may be repeated
     --dump-text        print the current 32x16 MC6847 text snapshot
@@ -102,6 +107,8 @@ struct Cli {
     snapshot: Option<PathBuf>,
     cycles: u64,
     trace_limit: usize,
+    fetch_watch: Option<AddressRange>,
+    write_watch: Option<AddressRange>,
     pressed_keys: Vec<MatrixKey>,
     dump_text: bool,
     dump_text_png: Option<PathBuf>,
@@ -139,6 +146,10 @@ struct HarnessReport {
     dropped_device_accesses: usize,
     readonly_writes: Vec<ReadonlyWrite>,
     dropped_readonly_writes: usize,
+    watched_fetches: Vec<WatchedFetchTrace>,
+    dropped_watched_fetches: usize,
+    watched_writes: Vec<MemoryWriteTrace>,
+    dropped_watched_writes: usize,
     pia_signals: Vec<PiaSignalTrace>,
     dropped_pia_signals: usize,
     interrupt_lines: Vec<CpuInterruptLineTrace>,
@@ -482,6 +493,8 @@ fn run_main() -> Result<(), String> {
             snapshot: snapshot.as_ref(),
             cycle_limit: cli.cycles,
             trace_limit: cli.trace_limit,
+            fetch_watch: cli.fetch_watch,
+            write_watch: cli.write_watch,
             dump_text: cli.dump_text,
             dump_text_framebuffer: cli.dump_text_png.is_some(),
             capture_framebuffer: cli.screenshot.is_some(),
@@ -516,6 +529,8 @@ where
     let mut snapshot = None;
     let mut cycles = DEFAULT_CYCLES;
     let mut trace_limit = DEFAULT_TRACE_LIMIT;
+    let mut fetch_watch = None;
+    let mut write_watch = None;
     let mut pressed_keys = Vec::new();
     let mut dump_text = false;
     let mut dump_text_png = None;
@@ -555,6 +570,18 @@ where
             "--trace-limit" => {
                 trace_limit =
                     parse_usize(&next_value(&mut iter, "--trace-limit")?, "--trace-limit")?;
+            }
+            "--watch-fetch" => {
+                fetch_watch = Some(parse_address_range(
+                    &next_value(&mut iter, "--watch-fetch")?,
+                    "--watch-fetch",
+                )?);
+            }
+            "--watch-write" => {
+                write_watch = Some(parse_address_range(
+                    &next_value(&mut iter, "--watch-write")?,
+                    "--watch-write",
+                )?);
             }
             "--press" => {
                 let key = parse_dragon_key(&next_value(&mut iter, "--press")?)?;
@@ -671,6 +698,8 @@ where
         snapshot,
         cycles,
         trace_limit,
+        fetch_watch,
+        write_watch,
         pressed_keys,
         dump_text,
         dump_text_png,
@@ -725,9 +754,31 @@ fn parse_u8(value: &str, flag: &str) -> Result<u8, String> {
     u8::try_from(parsed).map_err(|err| format!("{flag} value {value} is too large: {err}"))
 }
 
+fn parse_u16(value: &str, flag: &str) -> Result<u16, String> {
+    let parsed = parse_u64(value, flag)?;
+    u16::try_from(parsed).map_err(|err| format!("{flag} value {value} is too large: {err}"))
+}
+
 fn parse_u32(value: &str, flag: &str) -> Result<u32, String> {
     let parsed = parse_u64(value, flag)?;
     u32::try_from(parsed).map_err(|err| format!("{flag} value {value} is too large: {err}"))
+}
+
+fn parse_address_range(value: &str, flag: &str) -> Result<AddressRange, String> {
+    let (start, end) = value
+        .split_once('-')
+        .map_or((value, value), |(start, end)| (start, end));
+    if start.is_empty() || end.is_empty() {
+        return Err(format!("invalid {flag} value {value}; expected A or A-B"));
+    }
+    let start = parse_u16(start, flag)?;
+    let end = parse_u16(end, flag)?;
+    if start > end {
+        return Err(format!(
+            "invalid {flag} value {value}; start must be <= end"
+        ));
+    }
+    Ok(AddressRange::new(start, end))
 }
 
 fn parse_f32(value: &str, flag: &str) -> Result<f32, String> {
@@ -1072,6 +1123,8 @@ fn run_snapshot_smoke(
             snapshot: Some(snapshot),
             cycle_limit: smoke.cycle_limit,
             trace_limit: smoke.trace_limit,
+            fetch_watch: None,
+            write_watch: None,
             dump_text: true,
             dump_text_framebuffer: false,
             capture_framebuffer: true,
@@ -3434,6 +3487,8 @@ struct HarnessRunOptions<'a> {
     snapshot: Option<&'a PcDragonSnapshot>,
     cycle_limit: u64,
     trace_limit: usize,
+    fetch_watch: Option<AddressRange>,
+    write_watch: Option<AddressRange>,
     dump_text: bool,
     dump_text_framebuffer: bool,
     capture_framebuffer: bool,
@@ -3473,7 +3528,10 @@ fn run_harness_with_keyboard(
             snapshot.display_base,
         );
     }
-    let report = machine.run_cycles(options.cycle_limit, options.trace_limit);
+    let mut run_options = RunOptions::new(options.trace_limit);
+    run_options.fetch_watch = options.fetch_watch;
+    run_options.write_watch = options.write_watch;
+    let report = machine.run_cycles_with_options(options.cycle_limit, run_options);
     let text_screen =
         (options.dump_text || options.dump_text_framebuffer).then(|| machine.capture_text_screen());
     let text_screen_text = text_screen
@@ -3520,6 +3578,10 @@ impl IntoHarnessReport for RunReport {
             dropped_device_accesses: self.dropped_device_accesses,
             readonly_writes: self.readonly_writes,
             dropped_readonly_writes: self.dropped_readonly_writes,
+            watched_fetches: self.watched_fetches,
+            dropped_watched_fetches: self.dropped_watched_fetches,
+            watched_writes: self.watched_writes,
+            dropped_watched_writes: self.dropped_watched_writes,
             pia_signals: self.pia_signals,
             dropped_pia_signals: self.dropped_pia_signals,
             interrupt_lines: self.interrupt_lines,
@@ -3583,6 +3645,39 @@ fn print_report(report: &HarnessReport) {
         println!(
             "  cycle={} addr=${:04X} value=${:02X}",
             write.cycle, write.addr, write.value
+        );
+    }
+    if report.dropped_watched_fetches != 0 {
+        println!(
+            "watched fetches dropped: {}",
+            report.dropped_watched_fetches
+        );
+    }
+    println!("watched fetches:");
+    for fetch in &report.watched_fetches {
+        println!(
+            "  cycle={} pc=${:04X} opcode=${:02X} {}",
+            fetch.cycle,
+            fetch.pc,
+            fetch.opcode,
+            format_cpu_registers(fetch.regs)
+        );
+    }
+    if report.dropped_watched_writes != 0 {
+        println!("watched writes dropped: {}", report.dropped_watched_writes);
+    }
+    println!("watched writes:");
+    for write in &report.watched_writes {
+        let instruction_pc = write
+            .instruction_pc
+            .map_or("????".to_owned(), |pc| format!("{pc:04X}"));
+        println!(
+            "  cycle={} instr=${} addr=${:04X} value=${:02X} {}",
+            write.cycle,
+            instruction_pc,
+            write.addr,
+            write.value,
+            format_cpu_registers(write.regs)
         );
     }
     if report.dropped_pia_signals != 0 {
@@ -3673,6 +3768,13 @@ fn format_interrupt_kind(kind: CpuInterruptKind) -> &'static str {
         CpuInterruptKind::Irq => "irq",
         CpuInterruptKind::Firq => "firq",
     }
+}
+
+fn format_cpu_registers(regs: CpuRegisterTrace) -> String {
+    format!(
+        "pc=${:04X} a=${:02X} b=${:02X} dp=${:02X} x=${:04X} y=${:04X} u=${:04X} s=${:04X} cc=${:02X}",
+        regs.pc, regs.a, regs.b, regs.dp, regs.x, regs.y, regs.u, regs.s, regs.cc
+    )
 }
 
 fn write_text_png(path: &Path, framebuffer: &[u32]) -> Result<(), String> {
@@ -3816,6 +3918,8 @@ mod tests {
                 snapshot: None,
                 cycle_limit: 128,
                 trace_limit: 8,
+                fetch_watch: None,
+                write_watch: None,
                 dump_text: true,
                 dump_text_framebuffer: true,
                 capture_framebuffer: true,
@@ -3874,8 +3978,26 @@ mod tests {
         assert_eq!(cli.rom, PathBuf::from("dragon32.rom"));
         assert_eq!(cli.cycles, 32);
         assert_eq!(cli.trace_limit, 3);
+        assert_eq!(cli.fetch_watch, None);
+        assert_eq!(cli.write_watch, None);
         assert_eq!(cli.pressed_keys, Vec::new());
         assert!(cli.dump_text);
+    }
+
+    #[test]
+    fn cli_parses_write_watch_range() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--watch-fetch".to_owned(),
+            "0x1c00".to_owned(),
+            "--watch-write".to_owned(),
+            "0x2c00-0x2cff".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.fetch_watch, Some(AddressRange::new(0x1C00, 0x1C00)));
+        assert_eq!(cli.write_watch, Some(AddressRange::new(0x2C00, 0x2CFF)));
     }
 
     #[test]
