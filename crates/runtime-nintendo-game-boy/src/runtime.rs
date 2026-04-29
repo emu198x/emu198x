@@ -1,15 +1,15 @@
 //! `MachineCore` wrapper for the DMG.
 
-use common_nintendo_game_boy::{DMG_GREYSCALE_RGBA, JoypadButton, SCREEN_HEIGHT, SCREEN_WIDTH};
+use common_nintendo_game_boy::{DMG_GREYSCALE_RGBA, SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, InputEvent, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError,
-    QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
+    AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
+    MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
+    StopReason,
 };
 use machine_nintendo_game_boy::{ApuChannel, AudioControls, GameBoy};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 
+use crate::input::apply_input_event;
+use crate::snapshot;
 use crate::{Model, profile_for};
 
 /// Audio sample rate produced by the APU. Matches
@@ -24,12 +24,6 @@ const APU_CHANNELS: u8 = 2;
 /// without ever resizing inside the drain loop.
 const AUDIO_DRAIN_CHUNK: usize = 4_096;
 
-const GAME_BOY_QUERY_PATHS: &[&str] = &["gameboy.cartridge.loaded", "gameboy.cpu.pc"];
-
-/// Game Boy-family query provider layered above the shared shell surface.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct GameBoySessionQueryProvider;
-
 /// Family runtime for the Game Boy. Holds the loaded machine plus
 /// host-boundary scratch space (audio drain + cartridge bytes for
 /// reset rebuilds).
@@ -40,24 +34,6 @@ pub struct GameBoyRuntime {
     cartridge_bytes: Option<Vec<u8>>,
     time: MachineTime,
     audio_buffer: Vec<f32>,
-}
-
-#[derive(Serialize)]
-struct GameBoyRuntimeSnapshotRefV1<'a> {
-    version: u32,
-    profile_id: &'a str,
-    time: MachineTime,
-    cartridge_bytes: Option<&'a [u8]>,
-    machine: Option<&'a GameBoy>,
-}
-
-#[derive(Deserialize)]
-struct GameBoyRuntimeSnapshotV1 {
-    version: u32,
-    profile_id: String,
-    time: MachineTime,
-    cartridge_bytes: Option<Vec<u8>>,
-    machine: Option<GameBoy>,
 }
 
 impl GameBoyRuntime {
@@ -164,6 +140,44 @@ impl GameBoyRuntime {
         Ok(())
     }
 
+    /// Read-only access to the runtime profile descriptor. Used by
+    /// the snapshot module for envelope validation.
+    #[must_use]
+    pub(crate) fn profile(&self) -> &MachineProfile {
+        &self.profile
+    }
+
+    /// Current machine time, exposed by name distinct from the
+    /// `MachineCore::time` trait method so internal modules don't
+    /// have to import the trait.
+    #[must_use]
+    pub(crate) const fn time_value(&self) -> MachineTime {
+        self.time
+    }
+
+    /// Cartridge bytes used to rebuild the machine on reset. Used by
+    /// the snapshot module for envelope encoding.
+    #[must_use]
+    pub(crate) fn cartridge_bytes(&self) -> Option<&[u8]> {
+        self.cartridge_bytes.as_deref()
+    }
+
+    pub(crate) fn set_machine(&mut self, machine: Option<GameBoy>) {
+        self.machine = machine;
+    }
+
+    pub(crate) fn set_cartridge_bytes(&mut self, bytes: Option<Vec<u8>>) {
+        self.cartridge_bytes = bytes;
+    }
+
+    pub(crate) fn set_time(&mut self, time: MachineTime) {
+        self.time = time;
+    }
+
+    pub(crate) fn clear_audio_buffer(&mut self) {
+        self.audio_buffer.clear();
+    }
+
     fn rebuild_machine(&mut self) {
         let preserved_ram = self.cartridge_ram().map(|ram| ram.to_vec());
         let Some(bytes) = self.cartridge_bytes.clone() else {
@@ -187,20 +201,6 @@ impl GameBoyRuntime {
         }
     }
 
-    fn apply_input_event(&mut self, event: &InputEvent) {
-        let Some(machine) = self.machine.as_mut() else {
-            return;
-        };
-        let (name, pressed) = match event {
-            InputEvent::Key { name, pressed } => (name.as_ref(), *pressed),
-            InputEvent::Button { name, pressed, .. } => (name.as_ref(), *pressed),
-            _ => return,
-        };
-        if let Some(button) = button_from_name(name) {
-            machine.set_button(button, pressed);
-        }
-    }
-
     fn drain_audio(&mut self) {
         self.audio_buffer.clear();
         let Some(machine) = self.machine.as_mut() else {
@@ -215,45 +215,6 @@ impl GameBoyRuntime {
                 break;
             }
         }
-    }
-}
-
-impl SessionQueryProvider<GameBoyRuntime> for GameBoySessionQueryProvider {
-    fn query_paths(&self, _machine: &GameBoyRuntime, prefix: Option<&str>) -> Vec<String> {
-        let mut paths: Vec<String> = GAME_BOY_QUERY_PATHS
-            .iter()
-            .copied()
-            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
-            .map(str::to_owned)
-            .collect();
-        paths.sort_unstable();
-        paths
-    }
-
-    fn query(
-        &self,
-        machine: &GameBoyRuntime,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
-        let value = match path {
-            "gameboy.cartridge.loaded" => json!(machine.machine.is_some()),
-            "gameboy.cpu.pc" => json!(
-                machine
-                    .machine
-                    .as_ref()
-                    .ok_or_else(|| QueryError::UnavailablePath {
-                        path: path.to_owned(),
-                        reason: "no cartridge is loaded",
-                    })?
-                    .cpu_pc()
-            ),
-            _ => return Ok(None),
-        };
-
-        Ok(Some(QueryResult {
-            path: path.to_owned(),
-            value,
-        }))
     }
 }
 
@@ -304,7 +265,7 @@ impl MachineCore for GameBoyRuntime {
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
         for event in host.input_events {
-            self.apply_input_event(event);
+            apply_input_event(self.machine.as_mut(), event);
         }
 
         if self.machine.is_none() {
@@ -346,44 +307,11 @@ impl MachineCore for GameBoyRuntime {
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
-        postcard::to_allocvec(&GameBoyRuntimeSnapshotRefV1 {
-            version: 1,
-            profile_id: self.profile.profile_id.as_str(),
-            time: self.time,
-            cartridge_bytes: self.cartridge_bytes.as_deref(),
-            machine: self.machine.as_ref(),
-        })
-        .map_err(|reason| MachineError::InvalidSnapshot {
-            reason: format!("encode failed: {reason}"),
-        })
+        snapshot::encode(self)
     }
 
     fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
-        let snapshot: GameBoyRuntimeSnapshotV1 =
-            postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
-                reason: format!("decode failed: {reason}"),
-            })?;
-
-        if snapshot.version != 1 {
-            return Err(MachineError::InvalidSnapshot {
-                reason: format!("unsupported snapshot version {}", snapshot.version),
-            });
-        }
-        if snapshot.profile_id != self.profile.profile_id.as_str() {
-            return Err(MachineError::InvalidSnapshot {
-                reason: format!(
-                    "snapshot profile {} does not match runtime profile {}",
-                    snapshot.profile_id,
-                    self.profile.profile_id.as_str()
-                ),
-            });
-        }
-
-        self.machine = snapshot.machine;
-        self.cartridge_bytes = snapshot.cartridge_bytes;
-        self.time = snapshot.time;
-        self.audio_buffer.clear();
-        Ok(())
+        snapshot::decode(self, bytes)
     }
 
     fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
@@ -394,328 +322,5 @@ impl MachineCore for GameBoyRuntime {
 
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
-    }
-}
-
-fn button_from_name(name: &str) -> Option<JoypadButton> {
-    Some(match name.to_ascii_lowercase().as_str() {
-        "a" => JoypadButton::A,
-        "b" => JoypadButton::B,
-        "select" => JoypadButton::Select,
-        "start" => JoypadButton::Start,
-        "up" => JoypadButton::Up,
-        "down" => JoypadButton::Down,
-        "left" => JoypadButton::Left,
-        "right" => JoypadButton::Right,
-        _ => return None,
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-
-    use super::*;
-    use common_nintendo_game_boy::MCYCLES_PER_FRAME;
-    use emu198x_shell::{
-        HeadlessSession, MediaImage, NullAudioSink, NullFrameSink, NullTraceSink,
-        SessionQueryProvider,
-    };
-
-    /// Build a 32 KiB ROM that loops forever at $0100 with a valid header.
-    fn loop_rom() -> Vec<u8> {
-        let mut rom = vec![0x00; 0x8000];
-        rom[0x0100] = 0x18; // JR
-        rom[0x0101] = 0xFE; // -2 → tight loop
-        rom[0x0147] = 0x00; // ROM only
-        rom[0x0148] = 0x00; // ROM size code 0 → 32 KiB
-        rom[0x0149] = 0x00; // RAM size code 0
-        let mut checksum: u8 = 0;
-        for &byte in &rom[0x0134..=0x014C] {
-            checksum = checksum.wrapping_sub(byte).wrapping_sub(1);
-        }
-        rom[0x014D] = checksum;
-        rom
-    }
-
-    fn make_host_buffers() -> (NullFrameSink, NullAudioSink, NullTraceSink) {
-        (NullFrameSink, NullAudioSink, NullTraceSink)
-    }
-
-    #[test]
-    fn blank_runtime_has_dmg_profile_and_no_machine() {
-        let runtime = GameBoyRuntime::blank(Model::Dmg);
-        assert_eq!(
-            runtime.profile().profile_id.as_str(),
-            "nintendo-game-boy-dmg"
-        );
-        assert!(runtime.machine().is_none());
-        assert_eq!(runtime.time(), MachineTime::default());
-    }
-
-    #[test]
-    fn loading_a_valid_cartridge_constructs_the_machine() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let rom = loop_rom();
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
-        runtime.load_media(&media).unwrap();
-        assert!(runtime.machine().is_some());
-    }
-
-    fn battery_ram_rom() -> Vec<u8> {
-        let mut rom = loop_rom();
-        rom[0x0147] = 0x03; // MBC1 + RAM + battery
-        rom[0x0149] = 0x02; // 8 KiB RAM
-        let mut checksum: u8 = 0;
-        for &byte in &rom[0x0134..=0x014C] {
-            checksum = checksum.wrapping_sub(byte).wrapping_sub(1);
-        }
-        rom[0x014D] = checksum;
-        rom
-    }
-
-    #[test]
-    fn battery_backed_ram_can_be_restored_and_exported() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let rom = battery_ram_rom();
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
-        runtime.load_media(&media).unwrap();
-
-        assert!(runtime.has_battery_backed_ram());
-        let save = vec![0x5A; 0x2000];
-        runtime.restore_cartridge_ram(&save).unwrap();
-
-        assert_eq!(runtime.cartridge_ram(), Some(save.as_slice()));
-    }
-
-    #[test]
-    fn reset_preserves_external_ram() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let rom = battery_ram_rom();
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
-        runtime.load_media(&media).unwrap();
-
-        let mut save = vec![0xFF; 0x2000];
-        save[0] = 0xC0;
-        save[0x1FFF] = 0xDE;
-        runtime.restore_cartridge_ram(&save).unwrap();
-        runtime.reset(ResetKind::Hard);
-
-        assert_eq!(runtime.cartridge_ram(), Some(save.as_slice()));
-    }
-
-    #[test]
-    fn load_media_rejects_unknown_slot() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let rom = loop_rom();
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("nope", MediaKind::Cartridge, &rom));
-        let err = runtime.load_media(&media).unwrap_err();
-        match err {
-            MachineError::UnknownMediaSlot { slot } => assert_eq!(slot, "nope"),
-            other => panic!("expected UnknownMediaSlot, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn load_media_rejects_wrong_kind() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let rom = loop_rom();
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("cartridge", MediaKind::Tape, &rom));
-        let err = runtime.load_media(&media).unwrap_err();
-        match err {
-            MachineError::UnsupportedMediaKind { kind } => assert_eq!(kind, MediaKind::Tape),
-            other => panic!("expected UnsupportedMediaKind, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn run_until_without_cartridge_reports_waiting_for_input() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let (mut frame_sink, mut audio_sink, mut trace_sink) = make_host_buffers();
-        let mut host = HostIo {
-            input_events: &[],
-            frame_sink: &mut frame_sink,
-            audio_sink: &mut audio_sink,
-            trace_sink: &mut trace_sink,
-        };
-        let result = runtime
-            .run_until(MachineTime::new(u64::from(MCYCLES_PER_FRAME)), &mut host)
-            .unwrap();
-        assert_eq!(result.stop_reason, StopReason::WaitingForInput);
-    }
-
-    #[test]
-    fn run_until_advances_machine_time_and_emits_one_frame() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let rom = loop_rom();
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
-        runtime.load_media(&media).unwrap();
-
-        let (mut frame_sink, mut audio_sink, mut trace_sink) = make_host_buffers();
-        let mut host = HostIo {
-            input_events: &[],
-            frame_sink: &mut frame_sink,
-            audio_sink: &mut audio_sink,
-            trace_sink: &mut trace_sink,
-        };
-        let result = runtime
-            .run_until(MachineTime::new(u64::from(MCYCLES_PER_FRAME)), &mut host)
-            .unwrap();
-        assert_eq!(result.stop_reason, StopReason::ReachedTarget);
-        assert!(runtime.time().get() >= u64::from(MCYCLES_PER_FRAME));
-    }
-
-    #[test]
-    fn key_input_event_presses_joypad_button() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let rom = loop_rom();
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
-        runtime.load_media(&media).unwrap();
-
-        let events = [InputEvent::Key {
-            name: "start".into(),
-            pressed: true,
-        }];
-        let (mut frame_sink, mut audio_sink, mut trace_sink) = make_host_buffers();
-        let mut host = HostIo {
-            input_events: &events,
-            frame_sink: &mut frame_sink,
-            audio_sink: &mut audio_sink,
-            trace_sink: &mut trace_sink,
-        };
-        runtime
-            .run_until(MachineTime::new(u64::from(MCYCLES_PER_FRAME)), &mut host)
-            .unwrap();
-
-        // We can't peek into the joypad state from outside the
-        // machine, but we can confirm Start is mapped to a button by
-        // round-tripping a snapshot — if the press was applied, the
-        // restored runtime should round-trip it byte-identically.
-        let snap = runtime.snapshot().unwrap();
-        let mut reborn = GameBoyRuntime::blank(Model::Dmg);
-        reborn.restore(&snap).unwrap();
-        let snap2 = reborn.snapshot().unwrap();
-        assert_eq!(snap, snap2);
-    }
-
-    #[test]
-    fn audio_controls_mutate_loaded_machine_mixer() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let rom = loop_rom();
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
-        runtime.load_media(&media).unwrap();
-
-        runtime.set_audio_channel_enabled(ApuChannel::Noise, false);
-        runtime.set_audio_channel_gain(ApuChannel::Wave, 0.25);
-
-        let controls = runtime.audio_controls().unwrap();
-        assert!(!controls.channel(ApuChannel::Noise).enabled());
-        assert_eq!(controls.channel(ApuChannel::Wave).gain(), 0.25);
-    }
-
-    #[test]
-    fn snapshot_round_trip_preserves_state() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let rom = loop_rom();
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
-        runtime.load_media(&media).unwrap();
-
-        let (mut frame_sink, mut audio_sink, mut trace_sink) = make_host_buffers();
-        let mut host = HostIo {
-            input_events: &[],
-            frame_sink: &mut frame_sink,
-            audio_sink: &mut audio_sink,
-            trace_sink: &mut trace_sink,
-        };
-        runtime
-            .run_until(MachineTime::new(u64::from(MCYCLES_PER_FRAME)), &mut host)
-            .unwrap();
-
-        let snap = runtime.snapshot().unwrap();
-        let mut reborn = GameBoyRuntime::blank(Model::Dmg);
-        reborn.restore(&snap).unwrap();
-        assert_eq!(reborn.time(), runtime.time());
-        assert!(reborn.machine().is_some());
-    }
-
-    #[test]
-    fn restore_rejects_mismatched_profile() {
-        let runtime = GameBoyRuntime::blank(Model::Dmg);
-        // Forge a snapshot with a wrong profile id.
-        let bytes = postcard::to_allocvec(&GameBoyRuntimeSnapshotRefV1 {
-            version: 1,
-            profile_id: "nintendo-game-boy-cgb",
-            time: MachineTime::new(0),
-            cartridge_bytes: None,
-            machine: None,
-        })
-        .unwrap();
-        let mut other = runtime;
-        let err = other.restore(&bytes).unwrap_err();
-        assert!(matches!(err, MachineError::InvalidSnapshot { .. }));
-    }
-
-    #[test]
-    fn query_provider_lists_gameboy_paths() {
-        let runtime = GameBoyRuntime::blank(Model::Dmg);
-        let provider = GameBoySessionQueryProvider;
-        assert_eq!(
-            provider.query_paths(&runtime, Some("gameboy.")),
-            vec![
-                "gameboy.cartridge.loaded".to_string(),
-                "gameboy.cpu.pc".to_string()
-            ]
-        );
-    }
-
-    #[test]
-    fn query_provider_reports_loaded_state_and_cpu_pc() {
-        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
-        let rom = loop_rom();
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("cartridge", MediaKind::Cartridge, &rom));
-        runtime.load_media(&media).unwrap();
-
-        let provider = GameBoySessionQueryProvider;
-        assert_eq!(
-            provider
-                .query(&runtime, "gameboy.cartridge.loaded")
-                .unwrap()
-                .unwrap()
-                .value,
-            json!(true)
-        );
-        assert_eq!(
-            provider
-                .query(&runtime, "gameboy.cpu.pc")
-                .unwrap()
-                .unwrap()
-                .value,
-            json!(0x0100u16)
-        );
-    }
-
-    #[test]
-    fn headless_session_exposes_gameboy_queries() {
-        let runtime = GameBoyRuntime::blank(Model::Dmg);
-        let session =
-            HeadlessSession::new_with_query_provider(runtime, 1, GameBoySessionQueryProvider);
-        let paths = session.query_paths(Some("gameboy."));
-        assert_eq!(
-            paths.paths,
-            vec![
-                "gameboy.cartridge.loaded".to_string(),
-                "gameboy.cpu.pc".to_string()
-            ]
-        );
     }
 }

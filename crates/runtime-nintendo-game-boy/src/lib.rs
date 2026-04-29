@@ -11,9 +11,13 @@
 //! this crate adds nothing chip-specific — it is the family's seat
 //! at the host boundary.
 
+mod input;
 mod profiles;
+mod queries;
 mod runtime;
+mod snapshot;
 
 pub use machine_nintendo_game_boy::{ApuChannel, AudioControls};
 pub use profiles::{Model, profile_for, profiles};
-pub use runtime::{GameBoyRuntime, GameBoySessionQueryProvider};
+pub use queries::GameBoySessionQueryProvider;
+pub use runtime::GameBoyRuntime;
