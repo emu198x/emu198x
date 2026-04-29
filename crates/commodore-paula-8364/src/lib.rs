@@ -687,6 +687,19 @@ pub struct Paula8364 {
     disk_dma_pending: bool,
     /// DSKLEN arming flip-flop per HRM "turn DMAEN on twice" protocol.
     dsklen_armed: bool,
+    /// Word countdown for the in-flight DMA transfer. Captured from
+    /// `DSKLEN[13:0]` on the second arming write; decremented per
+    /// successful chip-RAM write. Zero means "no transfer in flight".
+    disk_dma_words_remaining: u32,
+    /// `DSKLEN.WRITE` (bit 14) at arm time. CPU-driven write transfers
+    /// (chip RAM → drive) suppress the read-side word delivery — the
+    /// machine's MFM stream isn't part of a write transfer.
+    disk_dma_is_write: bool,
+    /// `true` until the first WORDSYNC match is observed. While true,
+    /// incoming MFM words still update DSKBYTR/DSKDATR latches but
+    /// are *not* written to chip RAM — software sees aligned data
+    /// from the sync onward.
+    disk_dma_wordsync_waiting: bool,
 
     /// IPF variable-rate PLL phase accumulator (16 = word ready).
     disk_pll_phase: u16,
@@ -758,6 +771,9 @@ impl Paula8364 {
             dskdat_queue: VecDeque::new(),
             disk_dma_pending: false,
             dsklen_armed: false,
+            disk_dma_words_remaining: 0,
+            disk_dma_is_write: false,
+            disk_dma_wordsync_waiting: false,
             disk_pll_phase: 0,
             disk_pll_variable_rate: false,
             audio: [AudioChannel::default(); 4],
@@ -1054,8 +1070,24 @@ impl Paula8364 {
         self.dsklen = val;
         if val & DSKLEN_DMAEN != 0 {
             if self.dsklen_armed {
+                // Second DMAEN write — arm completes. Capture the
+                // transfer parameters so subsequent register thrash
+                // mid-transfer doesn't retroactively change them.
                 self.disk_dma_pending = true;
                 self.dsklen_armed = false;
+                let word_count = u32::from(val & 0x3FFF);
+                let is_write = (val & DSKLEN_WRITE) != 0;
+                let wordsync_enabled = !is_write && (self.adkcon & ADKCON_WORDSYNC) != 0;
+                if word_count == 0 {
+                    // Zero-length transfer fires DSKBLK at once per
+                    // HRM ("a DSKLEN write with DMAEN set and length=0
+                    // fires DSKBLK immediately").
+                    self.complete_disk_dma();
+                } else {
+                    self.disk_dma_words_remaining = word_count;
+                    self.disk_dma_is_write = is_write;
+                    self.disk_dma_wordsync_waiting = wordsync_enabled;
+                }
             } else {
                 self.dsklen_armed = true;
             }
@@ -1064,11 +1096,14 @@ impl Paula8364 {
         }
     }
 
-    /// Called by the machine when a disk DMA transfer completes.
-    /// Atomically clears the pending flag, disarms, and raises DSKBLK.
+    /// Atomically end the in-flight disk DMA transfer: clear pending
+    /// + arming, drop transfer-state, and raise DSKBLK.
     pub fn complete_disk_dma(&mut self) {
         self.disk_dma_pending = false;
         self.dsklen_armed = false;
+        self.disk_dma_words_remaining = 0;
+        self.disk_dma_is_write = false;
+        self.disk_dma_wordsync_waiting = false;
         self.raise(IntSource::DskBlk);
     }
 
@@ -1139,6 +1174,41 @@ impl Paula8364 {
             self.raise(IntSource::DskSyn);
         }
         wordequal
+    }
+
+    /// Drive the disk-read DMA state machine forward one slot. Pass
+    /// the next MFM word from the drive's encoded track stream;
+    /// returns `Some(word)` if the caller should write that word into
+    /// chip RAM at DSKPT (and increment DSKPT by 2), or `None` if the
+    /// word is suppressed by WORDSYNC gating, the transfer is a write
+    /// (chip-RAM → drive, not exercised by boot), or no transfer is
+    /// in flight.
+    ///
+    /// Side effects: updates DSKBYTR/DSKDATR latches via
+    /// [`note_disk_read_word`], decrements `disk_dma_words_remaining`,
+    /// and raises DSKBLK (via [`complete_disk_dma`]) when the transfer
+    /// reaches zero. The machine layer becomes glue: encode the next
+    /// MFM word, call this, write to chip RAM if `Some`, increment
+    /// DSKPT.
+    pub fn tick_disk_dma_slot(&mut self, word: u16) -> Option<u16> {
+        let matched_sync = self.note_disk_read_word(word);
+        if self.disk_dma_words_remaining == 0 || self.disk_dma_is_write {
+            return None;
+        }
+        if self.disk_dma_wordsync_waiting {
+            // First sync match opens the DMA gate but is not itself
+            // written. Later sync words land in memory normally — the
+            // A1000 bootstrap raw-track loader expects to find them.
+            if matched_sync {
+                self.disk_dma_wordsync_waiting = false;
+            }
+            return None;
+        }
+        self.disk_dma_words_remaining = self.disk_dma_words_remaining.saturating_sub(1);
+        if self.disk_dma_words_remaining == 0 {
+            self.complete_disk_dma();
+        }
+        Some(word)
     }
 
     /// Read DSKBYTR with its documented side effect: DSKBYT clears.

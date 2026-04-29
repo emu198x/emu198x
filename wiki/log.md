@@ -4,6 +4,61 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — Paula owns disk read DMA end-to-end
+
+**Type:** milestone (Phase A.4 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md), seam 2 of [`amiga-architecture-review.md`](decisions/amiga-architecture-review.md))
+**Trigger:** the disk read DMA path was straddling four crates (floppy peripheral encoded MFM bytes, Agnus allocated DMA slots, Paula owned DSKLEN/DSKDATR/DSKBYTR/DSKSYN state, but the machine layer owned the WORDSYNC gate, the word countdown, and the DSKBLK trigger). The architecture review described this split as the source of the WORDSYNC residual bug and named it the actual Workbench-boot blocker. With seam 2 fixed, every disk-read responsibility lives in Paula, the chip the silicon assigns it to.
+
+**Result.** Paula now owns:
+
+- DSKLEN arming flip-flop (already there)
+- Per-transfer word countdown (`disk_dma_words_remaining`)
+- DSKLEN.WRITE direction at arm time (`disk_dma_is_write`)
+- WORDSYNC suppression / sync-stripping (`disk_dma_wordsync_waiting`)
+- The DSKBLK interrupt (already there, via `complete_disk_dma`)
+
+The capture point is `write_dsklen` itself: when the second DMAEN write completes the arm sequence, the new fields snapshot the transfer parameters atomically. Zero-length transfers complete immediately at that instant — the same HRM semantics as before, now expressed in one place.
+
+**New Paula API.** `tick_disk_dma_slot(&mut self, word: u16) -> Option<u16>` — the machine pumps in the next MFM word from the drive; Paula updates DSKBYTR/DSKDATR latches (via the existing `note_disk_read_word` primitive), checks the WORDSYNC gate, decrements the countdown, and either returns the word for the machine to write to chip RAM at DSKPT or returns `None` (suppressed: pre-sync, write-direction transfer, or no transfer in flight). When the countdown hits zero Paula self-clears `disk_dma_pending` and raises DSKBLK.
+
+**Machine becomes glue.** `feed_next_mfm_word` is now ~5 lines around the `tick_disk_dma_slot` call:
+
+```rust
+if let Some(write_word) = self.paula.tick_disk_dma_slot(word) {
+    let addr = self.agnus.dsk_pt & 0x001F_FFFE;
+    self.memory.write_word(addr, write_word);
+    self.agnus.dsk_pt = self.agnus.dsk_pt.wrapping_add(2);
+}
+```
+
+DSKPT lives on Agnus (current workspace shape), so chip-RAM write + pointer increment stay machine-side. Everything else moved.
+
+**Deletions from `machine-commodore-amiga-ocs`:**
+
+- `DiskDmaRuntime` struct (29 lines)
+- `service_disk_dma_word` fn (29 lines)
+- `start_disk_dma_transfer` fn (21 lines)
+- `disk_dma_runtime: Option<DiskDmaRuntime>` field on `AmigaOcs`
+- The arm-detection block in the per-CCK tick loop (12 lines)
+- `disk_dma_runtime` field on `AmigaOcsSnapshot` and the corresponding clone/restore lines
+
+`note_disk_read_word` stays as a public primitive — Paula's existing tests (`paula_phase2_machine.rs`, `adkcon.rs`) drive it directly to verify DSKBYTR/DSKDATR latching without involving the DMA state machine. `tick_disk_dma_slot` calls it internally on the live data path.
+
+**Verification:**
+
+- `cargo test -p commodore-paula-8364 --lib` — 7 passed (existing Paula suite still green).
+- `cargo test -p machine-commodore-amiga-ocs --lib` — 49 passed.
+- `cargo test -p runtime-commodore-amiga --tests` — every existing diag + golden + ram-variant + snapshot suite still green.
+- `cargo test -p runtime-commodore-amiga --test boot_invariants -- --ignored` — **Kickstart 1.3 → insert-disk** and **Workbench 1.3 → desktop** both still green (27.63s — same as the A.3 run, no measurable performance regression).
+- `cargo test --workspace --lib` — 74 binaries, all OK.
+- `cargo clippy -p commodore-paula-8364 -p machine-commodore-amiga-ocs -p runtime-commodore-amiga --all-targets -- -D warnings` — clean.
+
+**Consequence.** The architecture review's seam 2 is closed. Phase A is now complete (A.0 + A.1 + A.2 + A.3 + A.4 all green). The architecture-review document should move from "Proposed (draft for review)" to "Implemented" for seams 1, 2, 4 and 5; only seam 3 (chip-owned `read_register_word` for byte-write merging) remains, and it's the lowest-priority follow-up.
+
+The Paula disk DMA state is now also automatically captured by snapshots — Paula already derives serde, and the new fields ride on that derivation. A snapshot taken mid-disk-read will restore with the DMA transfer in the correct state, including the WORDSYNC gate and the remaining word count.
+
+---
+
 ## 2026-04-29 — Amiga CPU bus refactor (BusTransaction / BusResponse)
 
 **Type:** milestone (Phase A.3 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md), seams 1 + 4 of [`amiga-architecture-review.md`](decisions/amiga-architecture-review.md))
