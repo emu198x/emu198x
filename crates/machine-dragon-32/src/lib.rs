@@ -1507,10 +1507,13 @@ impl BeamVideo {
         bus_cycle: Option<u64>,
     ) {
         let pin_control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
-        let mut render_control = pin_control;
-        render_control.css = self.css_b;
+        if byte_x == 0 {
+            self.css_a = pin_control.css;
+        }
         self.css_b = self.css_a;
         self.css_a = pin_control.css;
+        let mut render_control = pin_control;
+        render_control.css = self.css_b;
         if let Some(cycle) = bus_cycle {
             self.pending_samples.push(VdgSampleTrace {
                 cycle,
@@ -3188,6 +3191,24 @@ mod tests {
             TEXT_TOP_BORDER_LINES * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
 
         assert_eq!(framebuffer[active_origin + 2], DEFAULT_VDG_BLUE);
+    }
+
+    #[test]
+    fn beam_renderer_uses_left_border_css_pipeline_for_first_byte() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine.memory.pia1.write(0x02, 0xF8); // PIA1 port B DDR.
+        machine.memory.pia1.write(0x03, 0x04); // PIA1 port B data selected.
+        machine.memory.pia1.write(0x02, 0x08); // Alpha mode, CSS 1.
+
+        machine
+            .video
+            .render_byte_line(&machine.memory, TEXT_TOP_BORDER_LINES, 0, Some(0));
+        let mut samples = Vec::new();
+        machine.video.drain_pending_samples(&mut samples);
+
+        assert_eq!(samples.len(), 1);
+        assert!(samples[0].css);
     }
 
     #[test]
