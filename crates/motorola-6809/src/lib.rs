@@ -245,6 +245,7 @@ enum IndexedOp {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum AfterPush {
     SetPc(u16),
+    SetPcAfterInternal { pc: u16, cycles: u8 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1192,9 +1193,15 @@ impl Mc6809 {
                         if self.branch_condition(condition) {
                             self.regs.pc = target;
                         }
-                        self.next_fetch();
+                        self.start_internal_cycles(1);
                     }
-                    Rel8Op::Bsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(target)),
+                    Rel8Op::Bsr => self.prepare_push_word(
+                        self.regs.pc,
+                        AfterPush::SetPcAfterInternal {
+                            pc: target,
+                            cycles: 3,
+                        },
+                    ),
                 }
             }
             CpuState::ReadRel16Hi(op) => {
@@ -1208,12 +1215,19 @@ impl Mc6809 {
                 let target = self.regs.pc.wrapping_add_signed(offset);
                 match op {
                     Rel16Op::Branch(condition) => {
-                        if self.branch_condition(condition) {
+                        let taken = self.branch_condition(condition);
+                        if taken {
                             self.regs.pc = target;
                         }
-                        self.next_fetch();
+                        self.start_internal_cycles(if taken { 3 } else { 2 });
                     }
-                    Rel16Op::Lbsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(target)),
+                    Rel16Op::Lbsr => self.prepare_push_word(
+                        self.regs.pc,
+                        AfterPush::SetPcAfterInternal {
+                            pc: target,
+                            cycles: 4,
+                        },
+                    ),
                 }
             }
             CpuState::ReadIndexedPostbyte(op) => {
@@ -1285,12 +1299,18 @@ impl Mc6809 {
             }
             CpuState::ReadDirectJmpOperand => {
                 self.regs.pc = u16::from_be_bytes([self.regs.dp, self.data_in]);
-                self.next_fetch();
+                self.start_internal_cycles(1);
             }
             CpuState::ReadDirectJsrOperand => {
                 let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
-                self.prepare_push_word(self.regs.pc, AfterPush::SetPc(addr));
+                self.prepare_push_word(
+                    self.regs.pc,
+                    AfterPush::SetPcAfterInternal {
+                        pc: addr,
+                        cycles: 3,
+                    },
+                );
             }
             CpuState::ReadDirectOperand(op) => {
                 let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
@@ -1354,7 +1374,13 @@ impl Mc6809 {
                         self.regs.pc = addr;
                         self.next_fetch();
                     }
-                    ExtOp::Jsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(addr)),
+                    ExtOp::Jsr => self.prepare_push_word(
+                        self.regs.pc,
+                        AfterPush::SetPcAfterInternal {
+                            pc: addr,
+                            cycles: 3,
+                        },
+                    ),
                 }
             }
             CpuState::ReadExtendedValue(op) => {
@@ -1410,9 +1436,11 @@ impl Mc6809 {
                 let value = u16::from_be_bytes([hi, self.data_in]);
                 self.regs.s = self.regs.s.wrapping_add(1);
                 match op {
-                    Pull16Op::Pc => self.regs.pc = value,
+                    Pull16Op::Pc => {
+                        self.regs.pc = value;
+                        self.start_internal_cycles(2);
+                    }
                 }
-                self.next_fetch();
             }
             CpuState::RtiReadCc => {
                 self.regs.cc = self.data_in;
@@ -1759,7 +1787,13 @@ impl Mc6809 {
                 self.regs.pc = addr;
                 self.next_fetch();
             }
-            IndexedOp::Jsr => self.prepare_push_word(self.regs.pc, AfterPush::SetPc(addr)),
+            IndexedOp::Jsr => self.prepare_push_word(
+                self.regs.pc,
+                AfterPush::SetPcAfterInternal {
+                    pc: addr,
+                    cycles: 3,
+                },
+            ),
         }
     }
 
@@ -2318,6 +2352,11 @@ impl Mc6809 {
     fn after_push(&mut self, after: AfterPush) {
         match after {
             AfterPush::SetPc(pc) => self.regs.pc = pc,
+            AfterPush::SetPcAfterInternal { pc, cycles } => {
+                self.regs.pc = pc;
+                self.start_internal_cycles(cycles);
+                return;
+            }
         }
         self.next_fetch();
     }
@@ -3087,7 +3126,7 @@ mod tests {
         memory[0x4006] = 0x67;
         let mut cpu = cpu_at(0x4000);
 
-        run_cycles(&mut cpu, &mut memory, 2);
+        run_cycles(&mut cpu, &mut memory, 3);
         assert_eq!(cpu.regs.pc, 0x4004);
         assert!(cpu.instruction_boundary());
 
@@ -3112,15 +3151,15 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.dp = 0x12;
 
-        run_cycles(&mut cpu, &mut memory, 2);
+        run_cycles(&mut cpu, &mut memory, 3);
         assert_eq!(cpu.regs.pc, 0x1234);
         assert!(cpu.instruction_boundary());
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        run_cycles(&mut cpu, &mut memory, 5);
         assert_eq!(cpu.regs.pc, 0x1247);
 
         cpu.regs.set_flag(FLAG_Z, true);
-        run_cycles(&mut cpu, &mut memory, 4);
+        run_cycles(&mut cpu, &mut memory, 6);
         assert_eq!(cpu.regs.pc, 0x1243);
     }
 
@@ -3133,7 +3172,7 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.s = 0x8000;
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        run_cycles(&mut cpu, &mut memory, 9);
 
         assert_eq!(cpu.regs.pc, 0x4013);
         assert_eq!(cpu.regs.s, 0x7FFE);
@@ -3151,7 +3190,7 @@ mod tests {
             let mut cpu = cpu_at(0x4000);
             cpu.regs.cc = cc;
 
-            run_cycles(&mut cpu, &mut memory, 2);
+            run_cycles(&mut cpu, &mut memory, 3);
 
             cpu.regs.pc
         }
@@ -3388,7 +3427,7 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.s = 0x8000;
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        run_cycles(&mut cpu, &mut memory, 7);
 
         assert_eq!(cpu.regs.pc, 0x4004);
         assert_eq!(cpu.regs.s, 0x7FFE);
@@ -3407,14 +3446,14 @@ mod tests {
         cpu.regs.dp = 0x12;
         cpu.regs.s = 0x8000;
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        run_cycles(&mut cpu, &mut memory, 7);
         assert_eq!(cpu.regs.pc, 0x1234);
         assert_eq!(cpu.regs.s, 0x7FFE);
         assert_eq!(memory[0x7FFE], 0x40);
         assert_eq!(memory[0x7FFF], 0x02);
         assert!(cpu.instruction_boundary());
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        run_cycles(&mut cpu, &mut memory, 5);
         assert_eq!(cpu.regs.pc, 0x4002);
         assert_eq!(cpu.regs.s, 0x8000);
         assert!(cpu.instruction_boundary());
@@ -3430,14 +3469,14 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.s = 0x8000;
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        run_cycles(&mut cpu, &mut memory, 8);
         assert_eq!(cpu.regs.pc, 0x4500);
         assert_eq!(cpu.regs.s, 0x7FFE);
         assert_eq!(memory[0x7FFE], 0x40);
         assert_eq!(memory[0x7FFF], 0x03);
         assert!(cpu.instruction_boundary());
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        run_cycles(&mut cpu, &mut memory, 5);
         assert_eq!(cpu.regs.pc, 0x4003);
         assert_eq!(cpu.regs.s, 0x8000);
         assert!(cpu.instruction_boundary());
