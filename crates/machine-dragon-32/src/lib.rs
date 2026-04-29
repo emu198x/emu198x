@@ -1390,6 +1390,9 @@ struct BeamVideo {
     next_byte: usize,
     hsync_level: bool,
     fsync_level: bool,
+    // MC6847 colour-set select is delayed through a two-byte pipeline.
+    css_a: bool,
+    css_b: bool,
     pending_samples: Vec<VdgSampleTrace>,
 }
 
@@ -1403,6 +1406,8 @@ impl BeamVideo {
             next_byte: 0,
             hsync_level: false,
             fsync_level: false,
+            css_a: false,
+            css_b: false,
             pending_samples: Vec::new(),
         }
     }
@@ -1499,7 +1504,11 @@ impl BeamVideo {
         byte_x: usize,
         bus_cycle: Option<u64>,
     ) {
-        let control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
+        let pin_control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
+        let mut render_control = pin_control;
+        render_control.css = self.css_b;
+        self.css_b = self.css_a;
+        self.css_a = pin_control.css;
         if let Some(cycle) = bus_cycle {
             self.pending_samples.push(VdgSampleTrace {
                 cycle,
@@ -1511,15 +1520,15 @@ impl BeamVideo {
                 sam_video_mode: memory.sam.video_mode(),
                 sam_display_offset: memory.sam.display_offset(),
                 pia1_pb: memory.pia1.pb,
-                graphics: control.graphics,
-                css: control.css,
-                int_ext: control.int_ext,
-                gm: control.gm,
+                graphics: render_control.graphics,
+                css: render_control.css,
+                int_ext: render_control.int_ext,
+                gm: render_control.gm,
             });
         }
         motorola_vdg_6847::render_visible_argb_byte_line_into(
             |offset| memory.display_byte(offset),
-            control,
+            render_control,
             VdgPalette::default(),
             &mut self.frame,
             line,
