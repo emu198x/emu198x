@@ -31,7 +31,14 @@ const CASSETTE_ONE_HALF_PERIOD_TICKS: u64 = 186 * SLOW_CPU_MASTER_TICKS;
 const CASSETTE_BITS_PER_BYTE: usize = 8;
 const DRAGON_CPU_HZ: u64 = 894_886;
 const DRAGON_FRAME_HZ: u64 = 50;
-const DRAGON_FRAME_MASTER_TICKS: u64 = DRAGON_MASTER_HZ / DRAGON_FRAME_HZ;
+const VDG_LINE_MASTER_TICKS: u64 = 912;
+const VDG_PAL_FRAME_LINES: u64 = 312;
+const VDG_VISIBLE_FIRST_LINE: u64 = 13;
+const VDG_HSYNC_TICKS: u64 = 64;
+const VDG_HBLANK_TICKS: u64 = 168;
+const VDG_LEFT_BORDER_TICKS: u64 = 120;
+const VDG_BYTE_TICKS_32_BYTE_MODE: u64 = 16;
+const DRAGON_FRAME_MASTER_TICKS: u64 = VDG_LINE_MASTER_TICKS * VDG_PAL_FRAME_LINES;
 const CART_ROM_START: u16 = 0xC000;
 const CART_ROM_END: u16 = 0xFEFF;
 const CART_IO_START: u16 = 0xFF40;
@@ -1388,7 +1395,6 @@ struct BeamVideo {
     next_line: usize,
     line_border_rendered: bool,
     next_byte: usize,
-    hsync_level: bool,
     fsync_level: bool,
     // MC6847 colour-set select is delayed through a two-byte pipeline.
     css_a: bool,
@@ -1404,7 +1410,6 @@ impl BeamVideo {
             next_line: 0,
             line_border_rendered: false,
             next_byte: 0,
-            hsync_level: false,
             fsync_level: false,
             css_a: false,
             css_b: false,
@@ -1423,10 +1428,6 @@ impl BeamVideo {
         bus_cycle: Option<u64>,
     ) -> BeamVideoTick {
         let mut tick = BeamVideoTick::default();
-        if self.hsync_level {
-            self.hsync_level = false;
-            tick.hsync = Some(false);
-        }
         if self.fsync_level {
             self.fsync_level = false;
             tick.frame_sync = Some(false);
@@ -1450,7 +1451,8 @@ impl BeamVideo {
         let previous_line = video_line_for_cycle(previous);
         let current_line = video_line_for_cycle(self.cycle_in_frame);
         if current_line != previous_line {
-            self.hsync_level = true;
+            tick.hsync = Some(false);
+        } else if crosses_hsync_rise(previous, self.cycle_in_frame) {
             tick.hsync = Some(true);
         }
         tick
@@ -1590,23 +1592,19 @@ impl SamCycleTiming {
 }
 
 fn line_start_cycle(line: usize) -> u64 {
-    DRAGON_FRAME_MASTER_TICKS.saturating_mul(line as u64) / TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64
+    VDG_VISIBLE_FIRST_LINE
+        .saturating_add(line as u64)
+        .saturating_mul(VDG_LINE_MASTER_TICKS)
 }
 
 fn video_line_for_cycle(cycle: u64) -> usize {
-    let line = cycle
-        .saturating_add(1)
-        .saturating_mul(TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64)
-        .div_ceil(DRAGON_FRAME_MASTER_TICKS)
-        .saturating_sub(1);
-    usize::try_from(line).map_or(TEXT_VISIBLE_FRAMEBUFFER_HEIGHT - 1, |line| {
-        line.min(TEXT_VISIBLE_FRAMEBUFFER_HEIGHT - 1)
-    })
+    let line = cycle / VDG_LINE_MASTER_TICKS;
+    usize::try_from(line).map_or(usize::MAX, |line| line)
 }
 
-fn line_end_cycle(line: usize) -> u64 {
-    DRAGON_FRAME_MASTER_TICKS.saturating_mul(line.saturating_add(1) as u64)
-        / TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64
+fn crosses_hsync_rise(previous: u64, current: u64) -> bool {
+    previous % VDG_LINE_MASTER_TICKS < VDG_HSYNC_TICKS
+        && current % VDG_LINE_MASTER_TICKS >= VDG_HSYNC_TICKS
 }
 
 fn active_line(line: usize) -> bool {
@@ -1616,13 +1614,10 @@ fn active_line(line: usize) -> bool {
 }
 
 fn active_byte_start_cycle(line: usize, byte_x: usize) -> u64 {
-    let line_start = line_start_cycle(line);
-    let line_cycles = line_end_cycle(line).saturating_sub(line_start).max(1);
-    let pixel_x = motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS
-        .saturating_add(byte_x.saturating_mul(motorola_vdg_6847::TEXT_CELL_WIDTH));
-    line_start
-        + line_cycles.saturating_mul(pixel_x as u64)
-            / motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u64
+    line_start_cycle(line)
+        .saturating_add(VDG_HBLANK_TICKS)
+        .saturating_add(VDG_LEFT_BORDER_TICKS)
+        .saturating_add((byte_x as u64).saturating_mul(VDG_BYTE_TICKS_32_BYTE_MODE))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1764,6 +1759,7 @@ impl Dragon32 {
             instructions: 0,
         };
         machine.cpu.reset();
+        machine.memory.pia0.set_signal_level(PiaSignal::Ca1, true);
         machine
     }
 
@@ -2820,12 +2816,31 @@ mod tests {
     }
 
     #[test]
-    fn visible_line_wrap_raises_pia0_ca1_hsync() {
+    fn visible_line_start_raises_pia0_ca1_hsync_falling_edge() {
         let rom = rom_with_reset_vector(0x8000);
         let mut machine = Dragon32::new(&rom);
 
-        machine.memory.pia0.write(0x01, 0x07); // PIA0 CA1 rising-edge IRQ enabled.
+        machine.memory.pia0.write(0x01, 0x05); // PIA0 CA1 falling-edge IRQ enabled.
         machine.video.cycle_in_frame = line_start_cycle(1) - 1;
+        machine.video.next_line = 1;
+
+        machine.step_cycle();
+
+        assert_eq!(machine.memory.pia0.control(PiaPort::A) & 0x80, 0x80);
+        assert!(machine.memory.pia0.irq_a());
+        assert_eq!(machine.memory.pia0.read(0x00), 0xff);
+        assert_eq!(machine.memory.pia0.control(PiaPort::A) & 0x80, 0);
+    }
+
+    #[test]
+    fn visible_line_hsync_rise_raises_pia0_ca1_rising_edge() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        let hsync_rise = line_start_cycle(1).saturating_add(VDG_HSYNC_TICKS);
+        machine.memory.pia0.set_signal_level(PiaSignal::Ca1, false);
+        machine.memory.pia0.write(0x01, 0x07); // PIA0 CA1 rising-edge IRQ enabled.
+        machine.video.cycle_in_frame = hsync_rise - 1;
         machine.video.next_line = 1;
 
         machine.step_cycle();
