@@ -1820,7 +1820,7 @@ impl Mc6809 {
                 i16::from((post & 0x1F) as i8)
             };
             let addr = self.index_base(post).wrapping_add_signed(offset);
-            self.start_indexed_effective_address(op, addr, 2);
+            self.start_indexed_effective_address(op, addr, 1);
             return;
         }
 
@@ -1828,30 +1828,30 @@ impl Mc6809 {
             0x00 => {
                 let addr = self.index_base(post);
                 self.set_index_base(post, addr.wrapping_add(1));
-                self.start_indexed_effective_address(op, addr, 3);
+                self.start_indexed_effective_address(op, addr, 2);
             }
             0x01 => {
                 let addr = self.index_base(post);
                 self.set_index_base(post, addr.wrapping_add(2));
-                self.start_indexed_effective_address(op, addr, 4);
+                self.start_indexed_effective_address(op, addr, 3);
             }
             0x02 => {
                 let addr = self.index_base(post).wrapping_sub(1);
                 self.set_index_base(post, addr);
-                self.start_indexed_effective_address(op, addr, 3);
+                self.start_indexed_effective_address(op, addr, 2);
             }
             0x03 => {
                 let addr = self.index_base(post).wrapping_sub(2);
                 self.set_index_base(post, addr);
-                self.start_indexed_effective_address(op, addr, 4);
+                self.start_indexed_effective_address(op, addr, 3);
             }
-            0x04 => self.start_indexed_effective_address(op, self.index_base(post), 1),
+            0x04 => self.start_indexed_effective_address(op, self.index_base(post), 0),
             0x05 => {
                 let offset = i16::from(self.regs.b as i8);
                 self.start_indexed_effective_address(
                     op,
                     self.index_base(post).wrapping_add_signed(offset),
-                    2,
+                    1,
                 );
             }
             0x06 => {
@@ -1859,46 +1859,46 @@ impl Mc6809 {
                 self.start_indexed_effective_address(
                     op,
                     self.index_base(post).wrapping_add_signed(offset),
-                    2,
+                    1,
                 );
             }
             0x08 | 0x0C => self.read_next(CpuState::ReadIndexedOffset8 {
                 op,
                 post,
-                extra_cycles: 1,
+                extra_cycles: 0,
             }),
             0x09 => self.read_next(CpuState::ReadIndexedOffset16Hi {
                 op,
                 post,
-                extra_cycles: 3,
+                extra_cycles: 2,
             }),
             0x0D => self.read_next(CpuState::ReadIndexedOffset16Hi {
                 op,
                 post,
-                extra_cycles: 4,
+                extra_cycles: 3,
             }),
             0x0B => self.start_indexed_effective_address(
                 op,
                 self.index_base(post).wrapping_add(self.regs.d()),
-                5,
+                4,
             ),
             0x11 => {
                 let ptr = self.index_base(post);
                 self.set_index_base(post, ptr.wrapping_add(2));
-                self.start_indexed_indirect(op, ptr, 5);
+                self.start_indexed_indirect(op, ptr, 4);
             }
             0x13 => {
                 let ptr = self.index_base(post).wrapping_sub(2);
                 self.set_index_base(post, ptr);
-                self.start_indexed_indirect(op, ptr, 5);
+                self.start_indexed_indirect(op, ptr, 4);
             }
-            0x14 => self.start_indexed_indirect(op, self.index_base(post), 2),
+            0x14 => self.start_indexed_indirect(op, self.index_base(post), 1),
             0x15 => {
                 let offset = i16::from(self.regs.b as i8);
                 self.start_indexed_indirect(
                     op,
                     self.index_base(post).wrapping_add_signed(offset),
-                    3,
+                    2,
                 );
             }
             0x16 => {
@@ -1906,33 +1906,33 @@ impl Mc6809 {
                 self.start_indexed_indirect(
                     op,
                     self.index_base(post).wrapping_add_signed(offset),
-                    3,
+                    2,
                 );
             }
             0x18 | 0x1C => self.read_next(CpuState::ReadIndexedOffset8 {
                 op,
                 post,
-                extra_cycles: 2,
+                extra_cycles: 1,
             }),
             0x19 => self.read_next(CpuState::ReadIndexedOffset16Hi {
                 op,
                 post,
-                extra_cycles: 4,
+                extra_cycles: 3,
             }),
             0x1D => self.read_next(CpuState::ReadIndexedOffset16Hi {
                 op,
                 post,
-                extra_cycles: 5,
+                extra_cycles: 4,
             }),
             0x1F => self.read_next(CpuState::ReadIndexedOffset16Hi {
                 op,
                 post,
-                extra_cycles: 2,
+                extra_cycles: 1,
             }),
             0x1B => self.start_indexed_indirect(
                 op,
                 self.index_base(post).wrapping_add(self.regs.d()),
-                6,
+                5,
             ),
             _ => self.trap_illegal(post),
         }
@@ -3081,7 +3081,7 @@ mod tests {
         assert_eq!(&memory[0x2000..=0x2001], &[0xAB, 0xCD]);
         assert!(cpu.instruction_boundary());
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.u, 0x8001);
 
         assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
@@ -3130,7 +3130,7 @@ mod tests {
         assert_eq!(cpu.regs.s, 0x0000);
         assert!(cpu.regs.flag(FLAG_Z));
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert!(cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_C));
         assert_eq!(cpu.regs.d(), 0x1234);
@@ -3168,7 +3168,7 @@ mod tests {
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert!(!cpu.regs.flag(FLAG_N));
         assert!(!cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
@@ -3204,7 +3204,7 @@ mod tests {
         assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(&memory[0x1220..=0x1221], &[0x12, 0x34]);
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.d(), 0x8001);
         assert!(cpu.regs.flag(FLAG_N));
 
@@ -3278,14 +3278,14 @@ mod tests {
         cpu.regs.a = 0xFF;
         cpu.regs.b = 0xFF;
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.d(), 0x0000);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(cpu.regs.flag(FLAG_C));
 
         cpu.regs.a = 0x00;
         cpu.regs.b = 0x02;
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 8);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
         assert_eq!(cpu.regs.d(), 0x0001);
         assert_eq!(cpu.regs.x, 0x2201);
         assert!(!cpu.regs.flag(FLAG_C));
@@ -3971,15 +3971,15 @@ mod tests {
         cpu.regs.y = 0x0010;
         cpu.regs.s = 0x8000;
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
         assert_eq!(cpu.regs.x, 0x1005);
         assert!(!cpu.regs.flag(FLAG_Z));
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
         assert_eq!(cpu.regs.y, 0x0000);
         assert!(cpu.regs.flag(FLAG_Z));
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 8);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
         assert_eq!(cpu.regs.s, 0x8010);
         assert!(cpu.regs.flag(FLAG_Z), "LEAS does not update Z");
         assert!(cpu.instruction_boundary());
@@ -3997,12 +3997,12 @@ mod tests {
         cpu.regs.x = 0x2000;
         cpu.regs.b = 0x05;
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(cpu.regs.a, 0x7E);
         assert_eq!(cpu.regs.x, 0x2001);
         assert!(cpu.instruction_boundary());
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(memory[0x2006], 0x05);
         assert!(cpu.instruction_boundary());
     }
@@ -4029,7 +4029,7 @@ mod tests {
         assert!(cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_C));
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(memory[0x2200], 0x80);
         assert!(cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_V));
@@ -4083,7 +4083,7 @@ mod tests {
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(cpu.regs.flag(FLAG_C));
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(memory[0x2200], 0x00);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(cpu.regs.flag(FLAG_C));
@@ -4103,7 +4103,7 @@ mod tests {
         memory[0x4002] = 0x03;
         let mut cpu = cpu_at(0x4000);
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 3);
 
         assert_eq!(cpu.regs.pc, 0x4006);
         assert_eq!(cpu.addr, 0x4006);
@@ -4159,7 +4159,7 @@ mod tests {
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
         assert!(cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_C));
 
@@ -4270,7 +4270,7 @@ mod tests {
         assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
         assert_eq!(cpu.regs.a, 0x15);
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
         assert_eq!(cpu.regs.b, 0x03);
 
         assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
@@ -4289,7 +4289,7 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.x = 0x2000;
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 11);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 10);
 
         assert_eq!(cpu.regs.a, 0xA5);
         assert_eq!(cpu.regs.x, 0x2002);
@@ -4308,7 +4308,7 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.b = 0x5A;
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 9);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 8);
 
         assert_eq!(memory[0x4567], 0x5A);
         assert_eq!(cpu.regs.pc, 0x4003);

@@ -24,7 +24,7 @@ use machine_dragon_32::{
     CpuRegisterTrace, DRAGON_CPU_HZ, DRAGON_FRAME_CYCLES, DeviceAccess, DeviceRegion, Dragon32,
     DragonCartridgeKind, DragonKey, DragonKeyboard, FetchTrace, MatrixKey, MemoryWriteTrace,
     PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions, RunReport, StopReason, VdgSampleTrace,
-    WatchedFetchTrace,
+    VdgModeWriteTrace, WatchedFetchTrace,
 };
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
@@ -160,6 +160,8 @@ struct HarnessReport {
     dropped_interrupt_accepts: usize,
     vdg_samples: Vec<VdgSampleTrace>,
     dropped_vdg_samples: usize,
+    vdg_mode_writes: Vec<VdgModeWriteTrace>,
+    dropped_vdg_mode_writes: usize,
     text_screen_base: u16,
     text_screen: Option<String>,
     text_framebuffer: Option<Vec<u32>>,
@@ -253,6 +255,7 @@ struct SnapshotRuntimeSmoke {
 #[derive(Debug, Serialize)]
 struct VdgTraceSummary {
     dropped_samples: usize,
+    dropped_mode_writes: usize,
     dropped_device_accesses: usize,
     samples: Vec<VdgSampleSummary>,
     mode_writes: Vec<VdgModeWriteSummary>,
@@ -278,6 +281,10 @@ struct VdgSampleSummary {
 #[derive(Debug, Serialize)]
 struct VdgModeWriteSummary {
     cycle: u64,
+    frame_master_tick: u64,
+    line: Option<usize>,
+    active_y: Option<usize>,
+    active_x: Option<usize>,
     addr: u16,
     value: u8,
     graphics: bool,
@@ -1336,34 +1343,33 @@ fn failed_snapshot_smoke(
 fn vdg_trace_summary(report: &HarnessReport) -> Option<VdgTraceSummary> {
     if report.vdg_samples.is_empty()
         && report.dropped_vdg_samples == 0
-        && report.device_accesses.is_empty()
-        && report.dropped_device_accesses == 0
+        && report.vdg_mode_writes.is_empty()
+        && report.dropped_vdg_mode_writes == 0
     {
         return None;
     }
 
     let mode_writes: Vec<_> = report
-        .device_accesses
+        .vdg_mode_writes
         .iter()
-        .filter(|access| {
-            !access.rw && access.device == DeviceRegion::Pia1 && (access.addr & 0x03) == 0x02
-        })
-        .map(|access| {
-            let control = motorola_vdg_6847::VdgControl::from_dragon_pia1_port_b(access.value);
-            VdgModeWriteSummary {
-                cycle: access.cycle,
-                addr: access.addr,
-                value: access.value,
-                graphics: control.graphics,
-                css: control.css,
-                int_ext: control.int_ext,
-                gm: control.gm,
-            }
+        .map(|write| VdgModeWriteSummary {
+            cycle: write.cycle,
+            frame_master_tick: write.frame_master_tick,
+            line: write.line,
+            active_y: write.active_y,
+            active_x: write.active_x,
+            addr: write.addr,
+            value: write.value,
+            graphics: write.graphics,
+            css: write.css,
+            int_ext: write.int_ext,
+            gm: write.gm,
         })
         .collect();
 
     Some(VdgTraceSummary {
         dropped_samples: report.dropped_vdg_samples,
+        dropped_mode_writes: report.dropped_vdg_mode_writes,
         dropped_device_accesses: report.dropped_device_accesses,
         samples: report
             .vdg_samples
@@ -3781,6 +3787,8 @@ impl IntoHarnessReport for RunReport {
             dropped_interrupt_accepts: self.dropped_interrupt_accepts,
             vdg_samples: self.vdg_samples,
             dropped_vdg_samples: self.dropped_vdg_samples,
+            vdg_mode_writes: self.vdg_mode_writes,
+            dropped_vdg_mode_writes: self.dropped_vdg_mode_writes,
             text_screen_base: self.text_screen_base,
             text_screen,
             text_framebuffer,
@@ -3866,8 +3874,12 @@ fn print_report(report: &HarnessReport) {
             .instruction_pc
             .map_or("????".to_owned(), |pc| format!("{pc:04X}"));
         println!(
-            "  cycle={} instr=${} addr=${:04X} value=${:02X} {}",
+            "  cycle={} frame_tick={} line={:?} active_y={:?} active_x={:?} instr=${} addr=${:04X} value=${:02X} {}",
             write.cycle,
+            write.frame_master_tick,
+            write.line,
+            write.active_y,
+            write.active_x,
             instruction_pc,
             write.addr,
             write.value,
@@ -3944,6 +3956,29 @@ fn print_report(report: &HarnessReport) {
             sample.css,
             sample.int_ext,
             sample.gm
+        );
+    }
+    if report.dropped_vdg_mode_writes != 0 {
+        println!(
+            "vdg mode writes dropped: {}",
+            report.dropped_vdg_mode_writes
+        );
+    }
+    println!("vdg mode writes:");
+    for write in &report.vdg_mode_writes {
+        println!(
+            "  cycle={} frame_tick={} line={:?} active_y={:?} active_x={:?} addr=${:04X} value=${:02X} ag={} css={} int_ext={} gm={}",
+            write.cycle,
+            write.frame_master_tick,
+            write.line,
+            write.active_y,
+            write.active_x,
+            write.addr,
+            write.value,
+            write.graphics,
+            write.css,
+            write.int_ext,
+            write.gm
         );
     }
     if let Some(text_screen) = &report.text_screen {

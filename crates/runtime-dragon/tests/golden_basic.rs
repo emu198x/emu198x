@@ -296,7 +296,22 @@ fn dragon_runtime_loads_and_executes_real_machine_code_cas_when_available() {
     );
     session
         .wait_for_query_bool("dragon.tape.motor_on", false, 4_500)
-        .expect("Dragon ROM should turn the cassette motor off after loading machine-code CAS");
+        .expect("Dragon ROM should reach a cassette motor-off interval while loading CLOADM");
+    assert!(
+        wait_for_ok_prompt_without_error(&mut session, 4_500),
+        "Dragon BASIC should return to OK after CLOADM; position={}/{} finished={} motor={}\n{}",
+        query_u64(&session, "dragon.tape.position_bits"),
+        query_u64(&session, "dragon.tape.length_bits"),
+        session
+            .query("dragon.tape.finished")
+            .expect("dragon.tape.finished query should work")
+            .value,
+        session
+            .query("dragon.tape.motor_on")
+            .expect("dragon.tape.motor_on query should work")
+            .value,
+        screen_text_lines(&session).join("\n")
+    );
 
     let lines = screen_text_lines(&session);
     let prompt_count = ok_prompt_count(&lines);
@@ -570,6 +585,22 @@ fn wait_for_tape_position_above(
 
 fn ok_prompt_count(lines: &[String]) -> usize {
     lines.iter().filter(|line| line.trim_end() == "OK").count()
+}
+
+fn wait_for_ok_prompt_without_error(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    max_frames: u32,
+) -> bool {
+    for _ in 0..=max_frames {
+        let lines = screen_text_lines(session);
+        if ok_prompt_count(&lines) >= 1 && !lines.iter().any(|line| line.contains("ERROR")) {
+            return true;
+        }
+        session
+            .run_frames(1)
+            .expect("Dragon runtime should advance while waiting for OK prompt");
+    }
+    false
 }
 
 fn wait_for_screen_text_change(

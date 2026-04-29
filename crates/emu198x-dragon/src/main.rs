@@ -637,6 +637,7 @@ fn autoload_tape(
 ) -> Result<(), AppError> {
     let kind = autoload_kind(session.machine())?;
     let boot = session.wait_for_boot(AUTOLOAD_BOOT_FRAMES)?;
+    session.run_frames(30)?;
 
     println!("Autoload: typing {}", kind.load_command());
     type_basic_command(session, kind.load_command())?;

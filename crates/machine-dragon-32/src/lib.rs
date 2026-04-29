@@ -931,6 +931,14 @@ pub struct CpuRegisterTrace {
 pub struct MemoryWriteTrace {
     /// Bus cycle.
     pub cycle: u64,
+    /// Master-tick offset within the current video frame.
+    pub frame_master_tick: u64,
+    /// Visible framebuffer line, including top border, when the beam is visible.
+    pub line: Option<usize>,
+    /// Active-area line, excluding top border, when the beam is in active display.
+    pub active_y: Option<usize>,
+    /// Active-area pixel column when the beam is in active display.
+    pub active_x: Option<usize>,
     /// Address of the opcode fetch that started the current instruction.
     pub instruction_pc: Option<u16>,
     /// CPU address.
@@ -1058,6 +1066,33 @@ pub struct VdgSampleTrace {
     pub gm: u8,
 }
 
+/// VDG mode-control write trace entry with beam position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VdgModeWriteTrace {
+    /// Bus cycle when the PIA1 port-B write was executed.
+    pub cycle: u64,
+    /// Master-tick offset within the current video frame.
+    pub frame_master_tick: u64,
+    /// Visible framebuffer line, including top border, when the beam is visible.
+    pub line: Option<usize>,
+    /// Active-area line, excluding top border, when the beam is in active display.
+    pub active_y: Option<usize>,
+    /// Active-area pixel column when the beam is in active display.
+    pub active_x: Option<usize>,
+    /// CPU address written.
+    pub addr: u16,
+    /// PIA1 port-B value written.
+    pub value: u8,
+    /// MC6847 A/G line after the write; true selects full graphics.
+    pub graphics: bool,
+    /// MC6847 CSS line after the write.
+    pub css: bool,
+    /// MC6847 INT/EXT line after the write.
+    pub int_ext: bool,
+    /// MC6847 GM0..GM2 value after the write.
+    pub gm: u8,
+}
+
 /// Reason a bounded machine run stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
@@ -1143,6 +1178,10 @@ pub struct RunReport {
     pub vdg_samples: Vec<VdgSampleTrace>,
     /// Number of VDG byte-render samples dropped due to the trace limit.
     pub dropped_vdg_samples: usize,
+    /// Retained VDG mode-control writes.
+    pub vdg_mode_writes: Vec<VdgModeWriteTrace>,
+    /// Number of VDG mode-control writes dropped due to the trace limit.
+    pub dropped_vdg_mode_writes: usize,
     /// SAM-selected text screen base at the end of the run.
     pub text_screen_base: u16,
 }
@@ -1275,6 +1314,8 @@ impl DragonMemory {
     }
 
     fn restore_snapshot_peripherals(&mut self, peripherals: DragonSnapshotPeripherals) {
+        self.sam
+            .set_video_mode(sam_video_mode_from_vdg_pins(peripherals.ff22));
         self.pia0.write(0x03, peripherals.ff03 & !0x04);
         self.pia0.write(0x02, 0xff);
         self.pia0.write(0x03, peripherals.ff03);
@@ -1490,6 +1531,26 @@ impl BeamVideo {
 
     fn drain_pending_samples(&mut self, dest: &mut Vec<VdgSampleTrace>) {
         dest.append(&mut self.pending_samples);
+    }
+
+    fn beam_position(&self) -> (Option<usize>, Option<usize>, Option<usize>) {
+        let absolute_line = video_line_for_cycle(self.cycle_in_frame);
+        let visible_line = absolute_line
+            .checked_sub(usize::try_from(VDG_VISIBLE_FIRST_LINE).unwrap_or(usize::MAX))
+            .filter(|&line| line < motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_HEIGHT);
+        let active_y = visible_line
+            .filter(|&line| active_line(line))
+            .map(|line| line - motorola_vdg_6847::TEXT_TOP_BORDER_LINES);
+        let active_x = visible_line.and_then(|line| {
+            if !active_line(line) {
+                return None;
+            }
+            let start = active_display_start_cycle(line);
+            let elapsed = self.cycle_in_frame.checked_sub(start)?;
+            let active_x = usize::try_from(elapsed / 2).ok()?;
+            (active_x < motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH).then_some(active_x)
+        });
+        (visible_line, active_y, active_x)
     }
 
     fn render_until(&mut self, memory: &DragonMemory, target_cycle: u64, bus_cycle: Option<u64>) {
@@ -1821,6 +1882,18 @@ impl DragonAudio {
 
     fn drain_into(&mut self, dest: &mut Vec<f32>) {
         dest.append(&mut self.samples);
+    }
+}
+
+fn sam_video_mode_from_vdg_pins(vdg_mode: u8) -> u8 {
+    match vdg_mode & 0xf0 {
+        0x80 | 0x90 => 1,
+        0xa0 => 2,
+        0xb0 => 3,
+        0xc0 => 4,
+        0xd0 => 5,
+        0xe0 | 0xf0 => 6,
+        _ => 0,
     }
 }
 
@@ -2214,6 +2287,24 @@ impl Dragon32 {
         event
     }
 
+    fn vdg_mode_write_trace(&self, cycle: u64, addr: u16, value: u8) -> VdgModeWriteTrace {
+        let (line, active_y, active_x) = self.video.beam_position();
+        let control = VdgControl::from_dragon_pia1_port_b(value);
+        VdgModeWriteTrace {
+            cycle,
+            frame_master_tick: self.video.cycle_in_frame,
+            line,
+            active_y,
+            active_x,
+            addr,
+            value,
+            graphics: control.graphics,
+            css: control.css,
+            int_ext: control.int_ext,
+            gm: control.gm,
+        }
+    }
+
     /// Execute up to `cycle_limit` bus cycles and retain bounded diagnostic
     /// traces.
     #[must_use]
@@ -2244,6 +2335,8 @@ impl Dragon32 {
         let mut dropped_interrupt_accepts = 0usize;
         let mut vdg_samples = Vec::new();
         let mut dropped_vdg_samples = 0usize;
+        let mut vdg_mode_writes = Vec::new();
+        let mut dropped_vdg_mode_writes = 0usize;
         let mut last_fetch = None;
         let mut last_irq = self.cpu.irq;
         let mut last_firq = self.cpu.firq;
@@ -2308,12 +2401,13 @@ impl Dragon32 {
             let watched_write = options
                 .write_watch
                 .filter(|range| !self.cpu.rw && range.contains(self.cpu.addr))
-                .map(|_| MemoryWriteTrace {
-                    cycle: run_cycle,
-                    instruction_pc: last_fetch.map(|fetch| fetch.pc),
-                    addr: self.cpu.addr,
-                    value: self.cpu.data,
-                    regs: cpu_register_trace(self),
+                .map(|_| {
+                    (
+                        last_fetch.map(|fetch| fetch.pc),
+                        self.cpu.addr,
+                        self.cpu.data,
+                        cpu_register_trace(self),
+                    )
                 });
 
             let event = self.step_cycle_with_diagnostic_trace(
@@ -2393,6 +2487,15 @@ impl Dragon32 {
                     addr,
                     value,
                 }) => {
+                    if device == DeviceRegion::Pia1 && (addr & 0x03) == 0x02 {
+                        let trace = self.vdg_mode_write_trace(run_cycle, addr, value);
+                        retain_vdg_mode_write(
+                            &mut vdg_mode_writes,
+                            &mut dropped_vdg_mode_writes,
+                            trace_limit,
+                            trace,
+                        );
+                    }
                     retain_device_access(
                         &mut device_accesses,
                         &mut dropped_device_accesses,
@@ -2410,11 +2513,22 @@ impl Dragon32 {
             }
 
             if let Some(write) = watched_write {
+                let (line, active_y, active_x) = self.video.beam_position();
                 retain_watched_write(
                     &mut watched_writes,
                     &mut dropped_watched_writes,
                     trace_limit,
-                    write,
+                    MemoryWriteTrace {
+                        cycle: run_cycle,
+                        frame_master_tick: self.video.cycle_in_frame,
+                        line,
+                        active_y,
+                        active_x,
+                        instruction_pc: write.0,
+                        addr: write.1,
+                        value: write.2,
+                        regs: write.3,
+                    },
                 );
             }
 
@@ -2450,6 +2564,8 @@ impl Dragon32 {
             dropped_interrupt_accepts,
             vdg_samples,
             dropped_vdg_samples,
+            vdg_mode_writes,
+            dropped_vdg_mode_writes,
             text_screen_base: self.text_screen_base(),
         }
     }
@@ -2542,6 +2658,24 @@ fn retain_device_access(
         *dropped_accesses = dropped_accesses.saturating_add(1);
     }
     accesses.push(access);
+}
+
+fn retain_vdg_mode_write(
+    writes: &mut Vec<VdgModeWriteTrace>,
+    dropped_writes: &mut usize,
+    write_limit: usize,
+    write: VdgModeWriteTrace,
+) {
+    if write_limit == 0 {
+        *dropped_writes = dropped_writes.saturating_add(1);
+        return;
+    }
+
+    if writes.len() == write_limit {
+        writes.remove(0);
+        *dropped_writes = dropped_writes.saturating_add(1);
+    }
+    writes.push(write);
 }
 
 fn retain_readonly_write(
@@ -2823,6 +2957,7 @@ mod tests {
         assert_eq!(machine.pia0_ddr_b(), 0xff);
         assert_eq!(machine.pia1_pins_b(), 0xfc);
         assert_eq!(machine.text_screen_base(), 0x0600);
+        assert_eq!(machine.sam_video_mode(), 6);
     }
 
     #[test]

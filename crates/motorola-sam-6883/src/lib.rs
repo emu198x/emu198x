@@ -53,6 +53,11 @@ impl Sam6883 {
         self.video_mode
     }
 
+    /// Restore the VDG mode latch bits V0..V2.
+    pub fn set_video_mode(&mut self, mode: u8) {
+        self.video_mode = mode & 0x07;
+    }
+
     /// Return the display-offset latch bits F0..F6.
     #[must_use]
     pub const fn display_offset(&self) -> u8 {
@@ -176,6 +181,15 @@ mod tests {
 
         assert_eq!(sam.display_offset(), 0x03);
         assert_eq!(sam.display_base(), 0x0600);
+    }
+
+    #[test]
+    fn video_mode_can_be_restored_from_snapshot_state() {
+        let mut sam = Sam6883::new();
+
+        sam.set_video_mode(0xff);
+
+        assert_eq!(sam.video_mode(), 0x07);
     }
 
     #[test]
