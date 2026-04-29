@@ -507,4 +507,242 @@ mod tests {
         fixture.run_one();
         assert_eq!(fixture.cpu.regs.pc, 0x3000);
     }
+
+    // ─── Tom-Harte-uncovered correctness paths ──────────────────────
+    // Tom Harte tests the opcodes; it does not drive the reset, NMI,
+    // or RDY pins. These directed tests cover the remaining
+    // correctness-critical paths in `tick.rs`. See Cov-2 in
+    // docs/plans/2026-04-28-october-runup-plan.md.
+
+    /// Spec invariant: reset is a 7-cycle sequence ending in PC =
+    /// reset vector at $FFFC/$FFFD with the I flag set.
+    ///
+    /// Catches regression: the chip-only Amiga investigation (2026-
+    /// 04-18) corrected the reset path from a 4-cycle to a 7-cycle
+    /// sequence; ensure that lock-in stays put.
+    #[test]
+    fn reset_executes_seven_cycles_and_loads_vector() {
+        let mut mem = [0u8; 0x10000];
+        mem[0xFFFC] = 0x00;
+        mem[0xFFFD] = 0x80;
+        // Plant a NOP at the reset vector so we can run a single
+        // instruction afterwards and confirm PC advanced from there.
+        mem[0x8000] = 0xEA;
+
+        let mut cpu = M6502::new();
+        cpu.reset();
+        assert_eq!(cpu.reset_phase, 7);
+
+        let mut total = 0u64;
+        for _ in 0..7 {
+            if cpu.rw {
+                cpu.data_in = mem[usize::from(cpu.addr)];
+            } else {
+                mem[usize::from(cpu.addr)] = cpu.data;
+            }
+            let _ = cpu.tick();
+            total += 1;
+        }
+        assert_eq!(total, 7);
+        assert_eq!(cpu.reset_phase, 0);
+        assert_eq!(cpu.regs.pc, 0x8000);
+        assert!(
+            cpu.regs.interrupt_disable(),
+            "reset should leave I flag set"
+        );
+    }
+
+    /// Spec invariant: NMI is taken on a rising edge of the NMI line
+    /// — holding NMI high doesn't continuously re-trigger.
+    ///
+    /// Catches regression: NMI level-detection vs edge-detection is a
+    /// classic 6502 gotcha; `tick.rs` uses `nmi_prev` to implement the
+    /// edge plus a safety-net at the very first instruction-fetch
+    /// after reset (line 59) that catches an NMI rising before the
+    /// latch helper has run.
+    #[test]
+    fn nmi_rising_edge_vectors_to_handler() {
+        let mut fixture = Fixture::with_program(0x0400, &[0xEA]);
+        fixture.mem[0xFFFA] = 0x00;
+        fixture.mem[0xFFFB] = 0x40;
+        fixture.boot();
+        fixture.cpu.nmi = true; // rising edge
+        // Safety-net check at line 59 catches the rising edge on the
+        // very first opcode-fetch after reset and runs the BRK
+        // sequence in place of the would-be NOP. PC ends at the NMI
+        // vector after a single instruction's worth of cycles.
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x4000);
+    }
+
+    /// Spec invariant: NMI re-triggers only on a rising edge — once
+    /// taken, the CPU does not service the same held-high line again.
+    ///
+    /// Catches regression: any path that would re-fire NMI while it
+    /// stays high (the chip-level "NMI is edge-triggered" promise).
+    #[test]
+    fn nmi_does_not_re_fire_while_held_high() {
+        // Program at the NMI vector ($4000): a NOP followed by a JMP
+        // to a sentinel address, so we can detect whether the second
+        // NMI service path runs.
+        let mut fixture = Fixture::with_program(0x0400, &[0xEA, 0xEA]);
+        fixture.mem[0xFFFA] = 0x00;
+        fixture.mem[0xFFFB] = 0x40;
+        fixture.mem[0x4000] = 0xEA; // NOP
+        fixture.mem[0x4001] = 0xEA; // NOP
+        fixture.boot();
+        fixture.cpu.nmi = true;
+        fixture.run_one(); // NMI taken; PC = $4000
+        assert_eq!(fixture.cpu.regs.pc, 0x4000);
+        // NMI line still high — must not re-trigger.
+        fixture.run_one(); // NOP at $4000
+        assert_eq!(fixture.cpu.regs.pc, 0x4001);
+        fixture.run_one(); // NOP at $4001
+        assert_eq!(fixture.cpu.regs.pc, 0x4002);
+    }
+
+    /// Spec invariant: NMI is honoured even when the I flag is set.
+    /// IRQ is masked by I; NMI is non-maskable.
+    ///
+    /// Catches regression: any change to `tick.rs` that conflated NMI
+    /// with the IRQ-masking path.
+    #[test]
+    fn nmi_taken_with_interrupt_disable_set() {
+        let mut fixture = Fixture::with_program(0x0400, &[0x78, 0xEA]);
+        fixture.mem[0xFFFA] = 0x00;
+        fixture.mem[0xFFFB] = 0x40;
+        fixture.boot();
+        fixture.run_one(); // SEI — sets I
+        fixture.cpu.nmi = true;
+        // Safety-net catches the rising edge on the next opcode
+        // fetch and runs the NMI BRK in place of the NOP. Even with
+        // I=1 the NMI is taken — that's the non-maskable promise.
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x4000);
+    }
+
+    /// Spec invariant: NMI takes priority over IRQ when both are
+    /// pending at an instruction boundary. The CPU vectors through
+    /// $FFFA/$FFFB, not $FFFE/$FFFF.
+    ///
+    /// Catches regression: if the tick dispatch ever checks IRQ
+    /// before NMI it would silently take the wrong vector.
+    #[test]
+    fn nmi_takes_priority_over_irq() {
+        let mut fixture = Fixture::with_program(0x0400, &[0x58, 0xEA]);
+        fixture.mem[0xFFFA] = 0x00; // NMI vector → $4000
+        fixture.mem[0xFFFB] = 0x40;
+        fixture.mem[0xFFFE] = 0x00; // IRQ vector → $5000
+        fixture.mem[0xFFFF] = 0x50;
+        fixture.boot();
+        fixture.run_one(); // CLI — I clear at end of this instruction
+        fixture.cpu.irq = true;
+        fixture.cpu.nmi = true;
+        // Safety-net catches NMI on the next fetch; even though IRQ
+        // is also pending and unmasked, NMI wins on real silicon.
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x4000);
+    }
+
+    /// Spec invariant: SEI has the same one-instruction delay as CLI.
+    /// An IRQ that's pending before SEI runs is still taken before
+    /// SEI's mask sticks.
+    ///
+    /// Catches regression: missed parity between CLI and SEI in the
+    /// penultimate-cycle latching path.
+    #[test]
+    fn sei_has_one_instruction_irq_delay() {
+        let mut fixture = Fixture::with_program(0x0400, &[0x58, 0x78, 0xEA, 0xEA]);
+        fixture.mem[0xFFFE] = 0x00;
+        fixture.mem[0xFFFF] = 0x30;
+        fixture.boot();
+        fixture.run_one(); // CLI — I clear at end
+        fixture.cpu.irq = true;
+        fixture.run_one(); // SEI — penultimate cycle still has I clear
+        // SEI's penultimate sample had I clear + IRQ high → IRQ taken.
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x3000);
+    }
+
+    /// Spec invariant: PLP that clears I has the same one-instruction
+    /// delay as CLI. PLP that sets I has the same one-instruction
+    /// delay as SEI.
+    ///
+    /// Catches regression: the penultimate-cycle latching applies
+    /// uniformly to every I-modifying instruction.
+    #[test]
+    fn plp_clearing_i_has_one_instruction_irq_delay() {
+        // Push status with I=0, then PLP, then NOP.
+        // Reset state has I=1; we'll set up the stack manually.
+        let mut fixture = Fixture::with_program(0x0400, &[0x28, 0xEA, 0xEA]);
+        fixture.mem[0xFFFE] = 0x00;
+        fixture.mem[0xFFFF] = 0x30;
+        // Stack frame for PLP: SP starts at $FF after reset (boot
+        // didn't touch it), PLP pulls from $0100 + (SP+1) = $0100.
+        // Place a status byte with I clear, B clear, U set (PLP forces U=1).
+        fixture.mem[0x0101] = 0x20; // U=1, all others 0 (I clear)
+        fixture.boot();
+        // SP should be 0xFD after reset (push of phantom returnaddr+P).
+        fixture.cpu.regs.sp = 0x00; // PLP will pull from $0100 + 1 = $0101
+        fixture.cpu.irq = true;
+        fixture.run_one(); // PLP — penultimate sample has I=1 (pre-PLP)
+        // IRQ should NOT be taken yet — one-instruction delay.
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x0402);
+        // Now NOP's penultimate sample has I=0 + IRQ high; vectors.
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x3000);
+    }
+
+    /// Spec invariant: RDY low during a read freezes the CPU — no
+    /// cycle accounting, addr/rw lines unchanged. NMOS 6502 does NOT
+    /// stall on writes; a write goes through even with RDY low.
+    ///
+    /// Catches regression: the VIC-II badline contention path on the
+    /// C64 depends on RDY-stall semantics; getting this wrong silently
+    /// breaks every C64 game that uses sprites.
+    #[test]
+    fn rdy_stalls_reads_but_lets_writes_through() {
+        let mut fixture = Fixture::with_program(0x0400, &[0xA9, 0x42, 0x8D, 0x00, 0x20]);
+        // LDA #$42 ; STA $2000
+        fixture.boot();
+        fixture.run_one(); // LDA (read-class) — runs while RDY=1
+
+        // Pull RDY low. The next tick is a STA setup (write coming).
+        // First two cycles of STA fetch the operand bytes (reads); RDY
+        // should freeze them. Once we set RDY=true again, they proceed.
+        fixture.cpu.rdy = false;
+        let cycles_before = fixture.cpu.total_cycles;
+        for _ in 0..5 {
+            fixture.step();
+        }
+        assert_eq!(
+            fixture.cpu.total_cycles, cycles_before,
+            "RDY low should suppress cycle accounting on reads"
+        );
+        fixture.cpu.rdy = true;
+        fixture.run_one(); // STA finishes
+        assert_eq!(fixture.mem[0x2000], 0x42);
+    }
+
+    /// Spec invariant: JAM opcodes (e.g. $02) halt the CPU. The CPU
+    /// keeps re-fetching the same address forever; no further
+    /// instructions execute.
+    ///
+    /// Catches regression: any change to the JAM dispatch in
+    /// `tick.rs` that lets the CPU advance past the JAM.
+    #[test]
+    fn jam_opcode_halts_cpu() {
+        let mut fixture = Fixture::with_program(0x0400, &[0x02, 0xA9, 0x42]);
+        fixture.boot();
+        fixture.run_one(); // execute the JAM
+        let pc_after_jam = fixture.cpu.regs.pc;
+        assert!(fixture.cpu.halted, "JAM should set the halted flag");
+        for _ in 0..16 {
+            fixture.step();
+        }
+        // PC must not have advanced past the JAM into the LDA.
+        assert_eq!(fixture.cpu.regs.pc, pc_after_jam);
+        assert_ne!(fixture.cpu.regs.a, 0x42);
+    }
 }

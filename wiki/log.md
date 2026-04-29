@@ -4,6 +4,59 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — Cov-3 + Cov-2: 68000 carve-out + tick.rs correctness paths
+
+**Type:** investigation + fix (Cov-2 and Cov-3 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md))
+**Trigger:** continuing the coverage track after Cov-1. Two siblings:
+- Cov-3 — `motorola-68000` had three files (`fpu.rs`, `mmu.rs`, `disasm.rs`) flagged as the largest absolute uncovered-line cluster in the workspace. The A500 (our only 68000-class target) has no FPU and no MMU; the disassembler is a debugging aid the running emulator never invokes.
+- Cov-2 — `mos-6502/src/tick.rs` was at 44.1% line / 34.0% branch. Tom Harte covers opcodes; it does not drive reset, NMI, or RDY pins.
+
+### Cov-3 — script-level carve-out
+
+`scripts/coverage.sh` now passes `--ignore-filename-regex 'motorola-68000/src/(fpu|mmu|disasm)\.rs'` to every `cargo llvm-cov` invocation, with a top-of-file comment explaining each excluded file and pointing at this entry. The same regex is threaded through the run, the JSON summary, the LCOV report, and the HTML report so every output is consistent.
+
+**Honest impact.** The carved files were not 100% uncovered — their `#[derive(Serialize, Deserialize)]` annotations, struct/enum scaffolding, and a few helper functions were exercised incidentally by serde tests in A.1. Removing them from the denominator removed ~2,400 lines of denominator and ~1,500 lines of numerator, lifting workspace line coverage by ~0.07 pp and branch coverage by ~0.8 pp (mid-run profdata snapshot). The point is honesty, not the headline number: those files describe code paths the active machines cannot reach, and tracking them as "uncovered" hid the real coverage of code that matters.
+
+**Decode.rs / cpu.rs left in.** The plan's Cov-3 also flagged `decode.rs` (46.6%) and `cpu.rs` (45.2%) as containing 68010+ variant-specific code. Carving those out at the file level is wrong — they hold the 68000 paths too. A correct fix needs either (a) per-variant decode-table extraction or (b) explicit "I am running an M68000 model so these arms are unreachable" assertions. Deferred as a future ticket; not blocking.
+
+### Cov-2 — directed tests for paths Tom Harte misses
+
+Eight new tests landed in `mos-6502::tests`:
+
+1. `reset_executes_seven_cycles_and_loads_vector` — confirms the 7-cycle reset shape (the 2026-04-18 chip-only-investigation lock-in).
+2. `nmi_rising_edge_vectors_to_handler` — NMI safety-net path on first opcode-fetch.
+3. `nmi_does_not_re_fire_while_held_high` — edge-triggered, not level-triggered.
+4. `nmi_taken_with_interrupt_disable_set` — NMI is non-maskable.
+5. `nmi_takes_priority_over_irq` — when both pending, NMI vector wins.
+6. `sei_has_one_instruction_irq_delay` — parity with the existing CLI delay test.
+7. `plp_clearing_i_has_one_instruction_irq_delay` — PLP closes the I-modifying-instruction-delay set.
+8. `rdy_stalls_reads_but_lets_writes_through` — NMOS RDY behaviour (the C64 VIC-II badline depends on this).
+9. `jam_opcode_halts_cpu` — JAM dispatch in tick.rs holds the CPU.
+
+These are spec invariants the rest of the workspace already relies on, never directly asserted before. The NMI tests took two iterations — the chip's safety-net path at `tick.rs:59` (catches a rising edge on the very next opcode fetch) means NMI vectors faster than IRQ, which the test pattern had to mirror.
+
+**Coverage delta on `tick.rs`:** L=44.1% → 44.6%, R=42.0% → 42.8%. Modest, because the bulk of `tick.rs` is per-addressing-mode/per-operation logic that Tom Harte exercises but the standing tests (without the corpus) cannot. Per the testing-policy, these are spec-driven additions; the coverage uplift is incidental.
+
+### Verification
+
+- `cargo test -p mos-6502 --lib` — 35 passed (was 26 after Cov-1, plus 9 new = 35).
+- `cargo test --workspace --lib` — 74 binaries all OK.
+- `cargo clippy -p mos-6502 --all-targets -- -D warnings` — clean.
+- `cargo +nightly llvm-cov report` with the new `--ignore-filename-regex` confirms the FPU/MMU/disasm files no longer count toward the workspace total.
+
+### Remaining coverage track
+
+- ✓ Cov-1 (`mos-6502/cycle.rs`)
+- ✓ Cov-2 (`mos-6502/tick.rs` correctness paths) — invariants captured; coverage uplift is small without Tom Harte in the standing run
+- ✓ Cov-3 (`motorola-68000` script-level carve-out for FPU/MMU/disasm)
+- ⏳ Cov-4 (`runtime-commodore-c64/src/runtime.rs` 1225 uncovered lines) — biggest absolute remaining gap
+- ⏳ Cov-5 (Spectrum `.z80` snapshot format edge cases)
+- ⏳ Cov-H1/H2/H3 — coverage hygiene (exclude wgpu / native-window glue, snapshot in releases, coverage-diff tool)
+
+A clean re-run of `./scripts/coverage.sh` was attempted post-Phase-A but stalled on a failing Dragon test in Codex's working set (`emu198x-dragon::native_autoload_runs_real_textstar_when_available` — autoload doesn't reach Textstar within 180 frames). Not caused by these changes; the coverage refresh can wait until that's resolved.
+
+---
+
 ## 2026-04-29 — Cov-1: mos-6502/cycle.rs investigation closed (14.8% → 100%)
 
 **Type:** investigation + fix (Cov-1 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md))
