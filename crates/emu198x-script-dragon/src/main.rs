@@ -21,9 +21,10 @@ use format_dragon_pak::{
 };
 use machine_dragon_32::{
     AddressRange, CpuInterruptAcceptTrace, CpuInterruptKind, CpuInterruptLineTrace,
-    CpuRegisterTrace, DeviceAccess, DeviceRegion, Dragon32, DragonCartridgeKind, DragonKey,
-    DragonKeyboard, FetchTrace, MatrixKey, MemoryWriteTrace, PiaSignalTrace, ROM_SIZE,
-    ReadonlyWrite, RunOptions, RunReport, StopReason, VdgSampleTrace, WatchedFetchTrace,
+    CpuRegisterTrace, DRAGON_FRAME_CYCLES, DeviceAccess, DeviceRegion, Dragon32,
+    DragonCartridgeKind, DragonKey, DragonKeyboard, FetchTrace, MatrixKey, MemoryWriteTrace,
+    PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions, RunReport, StopReason, VdgSampleTrace,
+    WatchedFetchTrace,
 };
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
@@ -39,9 +40,6 @@ const DEFAULT_XROAR_SETTLE_SECONDS: f32 = 3.0;
 const DEFAULT_XROAR_TIMEOUT_SECONDS: f32 = 45.0;
 const XROAR_ZOOMED_WIDTH: u32 = 512;
 const XROAR_ZOOMED_HEIGHT: u32 = 384;
-const DRAGON_CPU_HZ: u64 = 894_886;
-const DRAGON_FRAME_HZ: u64 = 50;
-const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
 const BOOT_FRAME_BUDGET: u32 = 100;
 const KEY_EDGE_FRAMES: u32 = 8;
 const SMOKE_START_SETTLE_FRAMES: u32 = 60;
@@ -68,6 +66,8 @@ Execution:
     --screenshot P     write the current border-inclusive MC6847 framebuffer as a PNG
     --screenshot-format FORMAT
                        screenshot format: diagnostic | xroar-zoomed [default: diagnostic]
+    --screenshot-phase PHASE
+                       screenshot capture phase: immediate | completed-frame [default: immediate]
     --smoke-root PATH  recursively scan .cas/.zip Dragon tape images
     --snapshot-smoke-root PATH
                        recursively scan .pak/.zip PC-Dragon snapshots
@@ -114,6 +114,7 @@ struct Cli {
     dump_text_png: Option<PathBuf>,
     screenshot: Option<PathBuf>,
     screenshot_format: SmokeScreenshotFormat,
+    screenshot_phase: SmokeScreenshotPhase,
     smoke_root: Option<PathBuf>,
     snapshot_smoke_root: Option<PathBuf>,
     smoke_run_limit: usize,
@@ -162,6 +163,7 @@ struct HarnessReport {
     text_screen: Option<String>,
     text_framebuffer: Option<Vec<u32>>,
     framebuffer: Option<Vec<u32>>,
+    framebuffer_cycles: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -227,6 +229,10 @@ struct SnapshotRuntimeSmoke {
     screen_text: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    screenshot_cycles: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    screenshot_frame_phase_cycles: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -411,6 +417,12 @@ enum SmokeScreenshotFormat {
     XroarZoomed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SmokeScreenshotPhase {
+    Immediate,
+    CompletedFrame,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 struct SmokeJoystickStep {
     port: u8,
@@ -459,6 +471,7 @@ struct SnapshotSmokeOptions<'a> {
     run_limit: usize,
     screenshot_path: Option<&'a Path>,
     screenshot_format: SmokeScreenshotFormat,
+    screenshot_phase: SmokeScreenshotPhase,
     cycle_limit: u64,
     trace_limit: usize,
     xroar: Option<&'a XroarReferenceConfig>,
@@ -538,6 +551,7 @@ fn run_main() -> Result<(), String> {
             dump_text: cli.dump_text,
             dump_text_framebuffer: cli.dump_text_png.is_some(),
             capture_framebuffer: cli.screenshot.is_some(),
+            capture_framebuffer_phase: cli.screenshot_phase,
         },
     );
     print_report(&report);
@@ -554,7 +568,12 @@ fn run_main() -> Result<(), String> {
             .framebuffer
             .as_deref()
             .ok_or_else(|| "framebuffer was not captured".to_owned())?;
-        write_screenshot_png(path, framebuffer, cli.screenshot_format, report.cycles)?;
+        write_screenshot_png(
+            path,
+            framebuffer,
+            cli.screenshot_format,
+            report.framebuffer_cycles.unwrap_or(report.cycles),
+        )?;
         println!("screenshot: {}", path.display());
     }
     Ok(())
@@ -576,6 +595,7 @@ where
     let mut dump_text_png = None;
     let mut screenshot = None;
     let mut screenshot_format = SmokeScreenshotFormat::Diagnostic;
+    let mut screenshot_phase = SmokeScreenshotPhase::Immediate;
     let mut smoke_root = None;
     let mut snapshot_smoke_root = None;
     let mut smoke_run_limit = DEFAULT_SMOKE_RUN_LIMIT;
@@ -643,6 +663,12 @@ where
                 screenshot_format = parse_screenshot_format(
                     &next_value(&mut iter, "--screenshot-format")?,
                     "--screenshot-format",
+                )?;
+            }
+            "--screenshot-phase" => {
+                screenshot_phase = parse_screenshot_phase(
+                    &next_value(&mut iter, "--screenshot-phase")?,
+                    "--screenshot-phase",
                 )?;
             }
             "--smoke-root" => {
@@ -745,6 +771,7 @@ where
         dump_text_png,
         screenshot,
         screenshot_format,
+        screenshot_phase,
         smoke_root,
         snapshot_smoke_root,
         smoke_run_limit,
@@ -839,6 +866,16 @@ fn parse_screenshot_format(value: &str, flag: &str) -> Result<SmokeScreenshotFor
         "xroar-zoomed" => Ok(SmokeScreenshotFormat::XroarZoomed),
         _ => Err(format!(
             "invalid {flag} value {value}; expected diagnostic or xroar-zoomed"
+        )),
+    }
+}
+
+fn parse_screenshot_phase(value: &str, flag: &str) -> Result<SmokeScreenshotPhase, String> {
+    match value {
+        "immediate" => Ok(SmokeScreenshotPhase::Immediate),
+        "completed-frame" => Ok(SmokeScreenshotPhase::CompletedFrame),
+        _ => Err(format!(
+            "invalid {flag} value {value}; expected immediate or completed-frame"
         )),
     }
 }
@@ -1023,6 +1060,7 @@ fn run_snapshot_smoke_matrix(
                 run_limit: cli.smoke_run_limit,
                 screenshot_path: screenshot_path.as_deref(),
                 screenshot_format: cli.smoke_screenshot_format,
+                screenshot_phase: cli.screenshot_phase,
                 cycle_limit: cli.cycles,
                 trace_limit: cli.trace_limit,
                 xroar: xroar.as_ref(),
@@ -1168,15 +1206,19 @@ fn run_snapshot_smoke(
             dump_text: true,
             dump_text_framebuffer: false,
             capture_framebuffer: true,
+            capture_framebuffer_phase: smoke.screenshot_phase,
         },
     );
     let framebuffer = report.framebuffer.as_deref().unwrap_or(&[]);
     let (distinct_colors, non_background_pixels) = framebuffer_stats(framebuffer);
     let screenshot = match (smoke.screenshot_path, report.framebuffer.as_deref()) {
         (Some(path), Some(framebuffer)) => {
-            if let Err(err) =
-                write_screenshot_png(path, framebuffer, smoke.screenshot_format, report.cycles)
-            {
+            if let Err(err) = write_screenshot_png(
+                path,
+                framebuffer,
+                smoke.screenshot_format,
+                report.framebuffer_cycles.unwrap_or(report.cycles),
+            ) {
                 return failed_snapshot_smoke(
                     snapshot,
                     report,
@@ -1233,6 +1275,10 @@ fn run_snapshot_smoke(
             .map(|text| text.lines().map(str::to_owned).collect())
             .unwrap_or_default(),
         screenshot,
+        screenshot_cycles: report.framebuffer_cycles,
+        screenshot_frame_phase_cycles: report
+            .framebuffer_cycles
+            .map(|cycles| cycles % DRAGON_FRAME_CYCLES),
         xroar_reference_screenshot,
         xroar_reference_error,
         xroar_reference_comparison,
@@ -1266,6 +1312,10 @@ fn failed_snapshot_smoke(
             .map(|text| text.lines().map(str::to_owned).collect())
             .unwrap_or_default(),
         screenshot: None,
+        screenshot_cycles: report.framebuffer_cycles,
+        screenshot_frame_phase_cycles: report
+            .framebuffer_cycles
+            .map(|cycles| cycles % DRAGON_FRAME_CYCLES),
         xroar_reference_screenshot: None,
         xroar_reference_error: None,
         xroar_reference_comparison: None,
@@ -3589,6 +3639,7 @@ struct HarnessRunOptions<'a> {
     dump_text: bool,
     dump_text_framebuffer: bool,
     capture_framebuffer: bool,
+    capture_framebuffer_phase: SmokeScreenshotPhase,
 }
 
 fn run_harness_with_keyboard(
@@ -3629,6 +3680,16 @@ fn run_harness_with_keyboard(
     run_options.fetch_watch = options.fetch_watch;
     run_options.write_watch = options.write_watch;
     let report = machine.run_cycles_with_options(options.cycle_limit, run_options);
+    let mut framebuffer_cycles = None;
+    if options.capture_framebuffer
+        && matches!(report.stop_reason, StopReason::CycleLimit)
+        && matches!(
+            options.capture_framebuffer_phase,
+            SmokeScreenshotPhase::CompletedFrame
+        )
+    {
+        run_to_completed_video_frame(&mut machine);
+    }
     let text_screen =
         (options.dump_text || options.dump_text_framebuffer).then(|| machine.capture_text_screen());
     let text_screen_text = text_screen
@@ -3638,11 +3699,26 @@ fn run_harness_with_keyboard(
     let text_framebuffer = options
         .dump_text_framebuffer
         .then(|| machine.render_visible_text_argb(TextPalette::default()));
-    let framebuffer = options
-        .capture_framebuffer
-        .then(|| machine.beam_visible_argb().to_vec());
+    let framebuffer = options.capture_framebuffer.then(|| {
+        framebuffer_cycles = Some(machine.cycles());
+        machine.beam_visible_argb().to_vec()
+    });
 
-    report.into_harness_report(text_screen_text, text_framebuffer, framebuffer)
+    report.into_harness_report(
+        text_screen_text,
+        text_framebuffer,
+        framebuffer,
+        framebuffer_cycles,
+    )
+}
+
+fn run_to_completed_video_frame(machine: &mut Dragon32) {
+    let phase = machine.cycles() % DRAGON_FRAME_CYCLES;
+    if phase == 0 {
+        return;
+    }
+    let remaining = DRAGON_FRAME_CYCLES - phase;
+    let _ = machine.run_cycles(remaining, 0);
 }
 
 trait IntoHarnessReport {
@@ -3651,6 +3727,7 @@ trait IntoHarnessReport {
         text_screen: Option<String>,
         text_framebuffer: Option<Vec<u32>>,
         framebuffer: Option<Vec<u32>>,
+        framebuffer_cycles: Option<u64>,
     ) -> HarnessReport;
 }
 
@@ -3660,6 +3737,7 @@ impl IntoHarnessReport for RunReport {
         text_screen: Option<String>,
         text_framebuffer: Option<Vec<u32>>,
         framebuffer: Option<Vec<u32>>,
+        framebuffer_cycles: Option<u64>,
     ) -> HarnessReport {
         HarnessReport {
             stop_reason: self.stop_reason,
@@ -3691,6 +3769,7 @@ impl IntoHarnessReport for RunReport {
             text_screen,
             text_framebuffer,
             framebuffer,
+            framebuffer_cycles,
         }
     }
 }
@@ -4044,6 +4123,7 @@ mod tests {
                 dump_text: true,
                 dump_text_framebuffer: true,
                 capture_framebuffer: true,
+                capture_framebuffer_phase: SmokeScreenshotPhase::Immediate,
             },
         );
 
@@ -4074,6 +4154,34 @@ mod tests {
                 .len(),
             TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT
         );
+    }
+
+    #[test]
+    fn completed_frame_screenshot_phase_advances_to_video_frame_boundary() {
+        let mut rom = rom_with_reset_vector(0x8000);
+        rom[0x0000] = 0x20; // BRA -2.
+        rom[0x0001] = 0xFE;
+
+        let report = run_harness_with_keyboard(
+            &rom,
+            DragonKeyboard::new(),
+            HarnessRunOptions {
+                cartridge: None,
+                snapshot: None,
+                cycle_limit: 1,
+                trace_limit: 0,
+                fetch_watch: None,
+                write_watch: None,
+                dump_text: false,
+                dump_text_framebuffer: false,
+                capture_framebuffer: true,
+                capture_framebuffer_phase: SmokeScreenshotPhase::CompletedFrame,
+            },
+        );
+
+        assert_eq!(report.stop_reason, StopReason::CycleLimit);
+        assert_eq!(report.cycles, 1);
+        assert_eq!(report.framebuffer_cycles, Some(DRAGON_FRAME_CYCLES));
     }
 
     #[test]
@@ -4156,11 +4264,14 @@ mod tests {
             "screen.png".to_owned(),
             "--screenshot-format".to_owned(),
             "xroar-zoomed".to_owned(),
+            "--screenshot-phase".to_owned(),
+            "completed-frame".to_owned(),
         ])
         .expect("valid CLI should parse");
 
         assert_eq!(cli.screenshot, Some(PathBuf::from("screen.png")));
         assert_eq!(cli.screenshot_format, SmokeScreenshotFormat::XroarZoomed);
+        assert_eq!(cli.screenshot_phase, SmokeScreenshotPhase::CompletedFrame);
     }
 
     #[test]
@@ -4247,6 +4358,8 @@ mod tests {
             "screens".to_owned(),
             "--smoke-screenshot-format".to_owned(),
             "xroar-zoomed".to_owned(),
+            "--screenshot-phase".to_owned(),
+            "completed-frame".to_owned(),
         ])
         .expect("valid CLI should parse");
 
@@ -4257,6 +4370,7 @@ mod tests {
             cli.smoke_screenshot_format,
             SmokeScreenshotFormat::XroarZoomed
         );
+        assert_eq!(cli.screenshot_phase, SmokeScreenshotPhase::CompletedFrame);
     }
 
     #[test]
