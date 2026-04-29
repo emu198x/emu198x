@@ -18,50 +18,114 @@ enum CpuState {
     Prefix10,
     Prefix11,
     NopInternal,
-    Internal { remaining: u8 },
+    Internal {
+        remaining: u8,
+    },
     ClrAInternal,
     ClrBInternal,
     ReadCcImm(CcOp),
     ReadTransferPostbyte(TransferOp),
     ReadImm8(Imm8Op),
     ReadImm16Hi(Imm16Op),
-    ReadImm16Lo { op: Imm16Op, hi: u8 },
+    ReadImm16Lo {
+        op: Imm16Op,
+        hi: u8,
+    },
     ReadRel8(Rel8Op),
     ReadRel16Hi(Rel16Op),
-    ReadRel16Lo { op: Rel16Op, hi: u8 },
+    ReadRel16Lo {
+        op: Rel16Op,
+        hi: u8,
+    },
     ReadIndexedPostbyte(IndexedOp),
-    ReadIndexedOffset8 { op: IndexedOp, post: u8 },
-    ReadIndexedOffset16Hi { op: IndexedOp, post: u8 },
-    ReadIndexedOffset16Lo { op: IndexedOp, post: u8, hi: u8 },
-    ReadIndexedIndirectHi { op: IndexedOp, ptr: u16 },
-    ReadIndexedIndirectLo { op: IndexedOp, hi: u8 },
+    ReadIndexedOffset8 {
+        op: IndexedOp,
+        post: u8,
+        extra_cycles: u8,
+    },
+    ReadIndexedOffset16Hi {
+        op: IndexedOp,
+        post: u8,
+        extra_cycles: u8,
+    },
+    ReadIndexedOffset16Lo {
+        op: IndexedOp,
+        post: u8,
+        hi: u8,
+        extra_cycles: u8,
+    },
+    ReadIndexedIndirectHi {
+        op: IndexedOp,
+        ptr: u16,
+        extra_cycles: u8,
+    },
+    ReadIndexedIndirectLo {
+        op: IndexedOp,
+        hi: u8,
+        extra_cycles: u8,
+    },
+    IndexedExtra {
+        op: IndexedOp,
+        addr: u16,
+        remaining: u8,
+    },
     ReadStackPostbyte(StackOp),
     ReadDirectRmwOperand(Rmw8Op),
     ReadDirectOperand(Mem8Op),
     ReadDirectOperand16(Mem16Op),
     ReadDirectValue(Mem8Op),
-    ReadRmwValue { op: Rmw8Op, addr: u16 },
-    ReadMem16Hi { op: Mem16Op, addr: u16 },
-    ReadMem16Lo { op: Mem16Op, hi: u8 },
+    ReadRmwValue {
+        op: Rmw8Op,
+        addr: u16,
+        post_cycles: u8,
+    },
+    ReadMem16Hi {
+        op: Mem16Op,
+        addr: u16,
+    },
+    ReadMem16Lo {
+        op: Mem16Op,
+        hi: u8,
+    },
     ReadExtendedHi(ExtOp),
-    ReadExtendedLo { op: ExtOp, hi: u8 },
+    ReadExtendedLo {
+        op: ExtOp,
+        hi: u8,
+    },
     ReadExtendedValue(Mem8Op),
     WriteDirectOperand(Store8Op),
     WriteDirectOperand16(Store16Op),
     WriteValue,
-    Write16Lo { lo: u8 },
+    WriteValueThenInternal {
+        cycles: u8,
+    },
+    Write16Lo {
+        lo: u8,
+        post_cycles: u8,
+    },
     StackRead,
     StackWrite,
-    PushWordHi { hi: u8, after: AfterPush },
+    PushWordHi {
+        hi: u8,
+        after: AfterPush,
+    },
     PushDone(AfterPush),
     PullWordHi(Pull16Op),
-    PullWordLo { op: Pull16Op, hi: u8 },
+    PullWordLo {
+        op: Pull16Op,
+        hi: u8,
+    },
     RtiReadCc,
     ReadDirectJmpOperand,
     ReadCwaiMask,
-    WaitForInterrupt { stacked: bool },
+    WaitForInterrupt {
+        stacked: bool,
+    },
     ReadVectorHi(Vector),
-    ReadVectorLo { vector: Vector, hi: u8 },
+    ReadVectorLo {
+        vector: Vector,
+        hi: u8,
+    },
     IllegalOpcode(u8),
     ReadDirectJsrOperand,
 }
@@ -1235,7 +1299,11 @@ impl Mc6809 {
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.resolve_indexed_postbyte(op, post);
             }
-            CpuState::ReadIndexedOffset8 { op, post } => {
+            CpuState::ReadIndexedOffset8 {
+                op,
+                post,
+                extra_cycles,
+            } => {
                 let offset = self.data_in as i8;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let low5 = Self::indexed_low5(post);
@@ -1246,17 +1314,31 @@ impl Mc6809 {
                 };
                 let addr = base.wrapping_add_signed(i16::from(offset));
                 if matches!(low5, 0x18 | 0x1C) {
-                    self.start_indexed_indirect(op, addr);
+                    self.start_indexed_indirect(op, addr, extra_cycles);
                 } else {
-                    self.apply_indexed_effective_address(op, addr);
+                    self.start_indexed_effective_address(op, addr, extra_cycles);
                 }
             }
-            CpuState::ReadIndexedOffset16Hi { op, post } => {
+            CpuState::ReadIndexedOffset16Hi {
+                op,
+                post,
+                extra_cycles,
+            } => {
                 let hi = self.data_in;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
-                self.read_next(CpuState::ReadIndexedOffset16Lo { op, post, hi });
+                self.read_next(CpuState::ReadIndexedOffset16Lo {
+                    op,
+                    post,
+                    hi,
+                    extra_cycles,
+                });
             }
-            CpuState::ReadIndexedOffset16Lo { op, post, hi } => {
+            CpuState::ReadIndexedOffset16Lo {
+                op,
+                post,
+                hi,
+                extra_cycles,
+            } => {
                 let offset = u16::from_be_bytes([hi, self.data_in]);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 let low5 = Self::indexed_low5(post);
@@ -1271,21 +1353,51 @@ impl Mc6809 {
                     base.wrapping_add(offset)
                 };
                 if matches!(low5, 0x19 | 0x1D | 0x1F) {
-                    self.start_indexed_indirect(op, addr);
+                    self.start_indexed_indirect(op, addr, extra_cycles);
                 } else {
-                    self.apply_indexed_effective_address(op, addr);
+                    self.start_indexed_effective_address(op, addr, extra_cycles);
                 }
             }
-            CpuState::ReadIndexedIndirectHi { op, ptr } => {
+            CpuState::ReadIndexedIndirectHi {
+                op,
+                ptr,
+                extra_cycles,
+            } => {
                 let hi = self.data_in;
-                self.state = CpuState::ReadIndexedIndirectLo { op, hi };
+                self.state = CpuState::ReadIndexedIndirectLo {
+                    op,
+                    hi,
+                    extra_cycles,
+                };
                 self.addr = ptr.wrapping_add(1);
                 self.rw = true;
                 self.sync = false;
             }
-            CpuState::ReadIndexedIndirectLo { op, hi } => {
+            CpuState::ReadIndexedIndirectLo {
+                op,
+                hi,
+                extra_cycles,
+            } => {
                 let addr = u16::from_be_bytes([hi, self.data_in]);
-                self.apply_indexed_effective_address(op, addr);
+                self.start_indexed_effective_address(op, addr, extra_cycles);
+            }
+            CpuState::IndexedExtra {
+                op,
+                addr,
+                remaining,
+            } => {
+                if remaining <= 1 {
+                    self.apply_indexed_effective_address(op, addr);
+                } else {
+                    self.state = CpuState::IndexedExtra {
+                        op,
+                        addr,
+                        remaining: remaining - 1,
+                    };
+                    self.addr = self.regs.pc;
+                    self.rw = true;
+                    self.sync = false;
+                }
             }
             CpuState::ReadStackPostbyte(op) => {
                 let mask = self.data_in;
@@ -1295,7 +1407,7 @@ impl Mc6809 {
             CpuState::ReadDirectRmwOperand(op) => {
                 let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
-                self.prepare_rmw(op, addr);
+                self.prepare_rmw(op, addr, Self::rmw_post_cycles(op));
             }
             CpuState::ReadDirectJmpOperand => {
                 self.regs.pc = u16::from_be_bytes([self.regs.dp, self.data_in]);
@@ -1327,17 +1439,27 @@ impl Mc6809 {
             }
             CpuState::ReadDirectValue(op) => {
                 self.load_mem8(op, self.data_in);
-                self.next_fetch();
+                self.start_internal_cycles(1);
             }
-            CpuState::ReadRmwValue { op, addr } => match self.rmw8(op, self.data_in) {
+            CpuState::ReadRmwValue {
+                op,
+                addr,
+                post_cycles,
+            } => match self.rmw8(op, self.data_in) {
                 Some(value) => {
-                    self.state = CpuState::WriteValue;
+                    self.state = if post_cycles == 0 {
+                        CpuState::WriteValue
+                    } else {
+                        CpuState::WriteValueThenInternal {
+                            cycles: post_cycles,
+                        }
+                    };
                     self.addr = addr;
                     self.data = value;
                     self.rw = false;
                     self.sync = false;
                 }
-                None => self.next_fetch(),
+                None => self.start_internal_cycles(post_cycles),
             },
             CpuState::ReadMem16Hi { op, addr } => {
                 let hi = self.data_in;
@@ -1349,7 +1471,7 @@ impl Mc6809 {
             CpuState::ReadMem16Lo { op, hi } => {
                 let value = u16::from_be_bytes([hi, self.data_in]);
                 self.load_mem16(op, value);
-                self.next_fetch();
+                self.start_internal_cycles(1);
             }
             CpuState::ReadExtendedHi(op) => {
                 let hi = self.data_in;
@@ -1366,10 +1488,10 @@ impl Mc6809 {
                         self.rw = true;
                         self.sync = false;
                     }
-                    ExtOp::Store(op) => self.prepare_store(op, addr),
-                    ExtOp::Rmw(op) => self.prepare_rmw(op, addr),
+                    ExtOp::Store(op) => self.prepare_store(op, addr, 1),
+                    ExtOp::Rmw(op) => self.prepare_rmw(op, addr, Self::rmw_post_cycles(op)),
                     ExtOp::Load16(op) => self.prepare_read16(op, addr),
-                    ExtOp::Store16(op) => self.prepare_store16(op, addr),
+                    ExtOp::Store16(op) => self.prepare_store16(op, addr, 1),
                     ExtOp::Jmp => {
                         self.regs.pc = addr;
                         self.next_fetch();
@@ -1385,23 +1507,32 @@ impl Mc6809 {
             }
             CpuState::ReadExtendedValue(op) => {
                 self.load_mem8(op, self.data_in);
-                self.next_fetch();
+                self.start_internal_cycles(1);
             }
             CpuState::WriteDirectOperand(op) => {
                 let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
-                self.prepare_store(op, addr);
+                self.prepare_store(op, addr, 1);
             }
             CpuState::WriteDirectOperand16(op) => {
                 let addr = u16::from_be_bytes([self.regs.dp, self.data_in]);
                 self.regs.pc = self.regs.pc.wrapping_add(1);
-                self.prepare_store16(op, addr);
+                self.prepare_store16(op, addr, 1);
             }
             CpuState::WriteValue => {
                 self.next_fetch();
             }
-            CpuState::Write16Lo { lo } => {
-                self.state = CpuState::WriteValue;
+            CpuState::WriteValueThenInternal { cycles } => {
+                self.start_internal_cycles(cycles);
+            }
+            CpuState::Write16Lo { lo, post_cycles } => {
+                self.state = if post_cycles == 0 {
+                    CpuState::WriteValue
+                } else {
+                    CpuState::WriteValueThenInternal {
+                        cycles: post_cycles,
+                    }
+                };
                 self.addr = self.addr.wrapping_add(1);
                 self.data = lo;
                 self.rw = false;
@@ -1681,7 +1812,7 @@ impl Mc6809 {
                 i16::from((post & 0x1F) as i8)
             };
             let addr = self.index_base(post).wrapping_add_signed(offset);
-            self.apply_indexed_effective_address(op, addr);
+            self.start_indexed_effective_address(op, addr, 2);
             return;
         }
 
@@ -1689,79 +1820,140 @@ impl Mc6809 {
             0x00 => {
                 let addr = self.index_base(post);
                 self.set_index_base(post, addr.wrapping_add(1));
-                self.apply_indexed_effective_address(op, addr);
+                self.start_indexed_effective_address(op, addr, 3);
             }
             0x01 => {
                 let addr = self.index_base(post);
                 self.set_index_base(post, addr.wrapping_add(2));
-                self.apply_indexed_effective_address(op, addr);
+                self.start_indexed_effective_address(op, addr, 4);
             }
             0x02 => {
                 let addr = self.index_base(post).wrapping_sub(1);
                 self.set_index_base(post, addr);
-                self.apply_indexed_effective_address(op, addr);
+                self.start_indexed_effective_address(op, addr, 3);
             }
             0x03 => {
                 let addr = self.index_base(post).wrapping_sub(2);
                 self.set_index_base(post, addr);
-                self.apply_indexed_effective_address(op, addr);
+                self.start_indexed_effective_address(op, addr, 4);
             }
-            0x04 => self.apply_indexed_effective_address(op, self.index_base(post)),
+            0x04 => self.start_indexed_effective_address(op, self.index_base(post), 1),
             0x05 => {
                 let offset = i16::from(self.regs.b as i8);
-                self.apply_indexed_effective_address(
+                self.start_indexed_effective_address(
                     op,
                     self.index_base(post).wrapping_add_signed(offset),
+                    2,
                 );
             }
             0x06 => {
                 let offset = i16::from(self.regs.a as i8);
-                self.apply_indexed_effective_address(
+                self.start_indexed_effective_address(
                     op,
                     self.index_base(post).wrapping_add_signed(offset),
+                    2,
                 );
             }
-            0x08 | 0x0C => self.read_next(CpuState::ReadIndexedOffset8 { op, post }),
-            0x09 | 0x0D => self.read_next(CpuState::ReadIndexedOffset16Hi { op, post }),
-            0x0B => self.apply_indexed_effective_address(
+            0x08 | 0x0C => self.read_next(CpuState::ReadIndexedOffset8 {
+                op,
+                post,
+                extra_cycles: 1,
+            }),
+            0x09 => self.read_next(CpuState::ReadIndexedOffset16Hi {
+                op,
+                post,
+                extra_cycles: 3,
+            }),
+            0x0D => self.read_next(CpuState::ReadIndexedOffset16Hi {
+                op,
+                post,
+                extra_cycles: 4,
+            }),
+            0x0B => self.start_indexed_effective_address(
                 op,
                 self.index_base(post).wrapping_add(self.regs.d()),
+                5,
             ),
             0x11 => {
                 let ptr = self.index_base(post);
                 self.set_index_base(post, ptr.wrapping_add(2));
-                self.start_indexed_indirect(op, ptr);
+                self.start_indexed_indirect(op, ptr, 5);
             }
             0x13 => {
                 let ptr = self.index_base(post).wrapping_sub(2);
                 self.set_index_base(post, ptr);
-                self.start_indexed_indirect(op, ptr);
+                self.start_indexed_indirect(op, ptr, 5);
             }
-            0x14 => self.start_indexed_indirect(op, self.index_base(post)),
+            0x14 => self.start_indexed_indirect(op, self.index_base(post), 2),
             0x15 => {
                 let offset = i16::from(self.regs.b as i8);
-                self.start_indexed_indirect(op, self.index_base(post).wrapping_add_signed(offset));
+                self.start_indexed_indirect(
+                    op,
+                    self.index_base(post).wrapping_add_signed(offset),
+                    3,
+                );
             }
             0x16 => {
                 let offset = i16::from(self.regs.a as i8);
-                self.start_indexed_indirect(op, self.index_base(post).wrapping_add_signed(offset));
+                self.start_indexed_indirect(
+                    op,
+                    self.index_base(post).wrapping_add_signed(offset),
+                    3,
+                );
             }
-            0x18 | 0x1C => self.read_next(CpuState::ReadIndexedOffset8 { op, post }),
-            0x19 | 0x1D | 0x1F => {
-                self.read_next(CpuState::ReadIndexedOffset16Hi { op, post });
-            }
-            0x1B => {
-                self.start_indexed_indirect(op, self.index_base(post).wrapping_add(self.regs.d()))
-            }
+            0x18 | 0x1C => self.read_next(CpuState::ReadIndexedOffset8 {
+                op,
+                post,
+                extra_cycles: 2,
+            }),
+            0x19 => self.read_next(CpuState::ReadIndexedOffset16Hi {
+                op,
+                post,
+                extra_cycles: 4,
+            }),
+            0x1D => self.read_next(CpuState::ReadIndexedOffset16Hi {
+                op,
+                post,
+                extra_cycles: 5,
+            }),
+            0x1F => self.read_next(CpuState::ReadIndexedOffset16Hi {
+                op,
+                post,
+                extra_cycles: 2,
+            }),
+            0x1B => self.start_indexed_indirect(
+                op,
+                self.index_base(post).wrapping_add(self.regs.d()),
+                6,
+            ),
             _ => self.trap_illegal(post),
         }
     }
 
-    fn start_indexed_indirect(&mut self, op: IndexedOp, ptr: u16) {
-        self.state = CpuState::ReadIndexedIndirectHi { op, ptr };
+    fn start_indexed_indirect(&mut self, op: IndexedOp, ptr: u16, extra_cycles: u8) {
+        self.state = CpuState::ReadIndexedIndirectHi {
+            op,
+            ptr,
+            extra_cycles,
+        };
         self.addr = ptr;
         self.rw = true;
         self.sync = false;
+    }
+
+    fn start_indexed_effective_address(&mut self, op: IndexedOp, addr: u16, extra_cycles: u8) {
+        if extra_cycles == 0 {
+            self.apply_indexed_effective_address(op, addr);
+        } else {
+            self.state = CpuState::IndexedExtra {
+                op,
+                addr,
+                remaining: extra_cycles,
+            };
+            self.addr = self.regs.pc;
+            self.rw = true;
+            self.sync = false;
+        }
     }
 
     fn apply_indexed_effective_address(&mut self, op: IndexedOp, addr: u16) {
@@ -1771,7 +1963,7 @@ impl Mc6809 {
                 if matches!(reg, Reg16::X | Reg16::Y) {
                     self.regs.set_flag(FLAG_Z, addr == 0);
                 }
-                self.next_fetch();
+                self.start_internal_cycles(1);
             }
             IndexedOp::Load(op) => {
                 self.state = CpuState::ReadExtendedValue(op);
@@ -1779,10 +1971,10 @@ impl Mc6809 {
                 self.rw = true;
                 self.sync = false;
             }
-            IndexedOp::Store(op) => self.prepare_store(op, addr),
-            IndexedOp::Rmw(op) => self.prepare_rmw(op, addr),
+            IndexedOp::Store(op) => self.prepare_store(op, addr, 1),
+            IndexedOp::Rmw(op) => self.prepare_rmw(op, addr, Self::rmw_post_cycles(op)),
             IndexedOp::Load16(op) => self.prepare_read16(op, addr),
-            IndexedOp::Store16(op) => self.prepare_store16(op, addr),
+            IndexedOp::Store16(op) => self.prepare_store16(op, addr, 1),
             IndexedOp::Jmp => {
                 self.regs.pc = addr;
                 self.next_fetch();
@@ -2012,21 +2204,35 @@ impl Mc6809 {
         }
     }
 
-    fn prepare_store(&mut self, op: Store8Op, addr: u16) {
+    const fn rmw_post_cycles(op: Rmw8Op) -> u8 {
+        if matches!(op, Rmw8Op::Tst) { 3 } else { 2 }
+    }
+
+    fn prepare_store(&mut self, op: Store8Op, addr: u16, post_cycles: u8) {
         let value = match op {
             Store8Op::Sta => self.regs.a,
             Store8Op::Stb => self.regs.b,
         };
         self.set_load_flags8(value);
-        self.state = CpuState::WriteValue;
+        self.state = if post_cycles == 0 {
+            CpuState::WriteValue
+        } else {
+            CpuState::WriteValueThenInternal {
+                cycles: post_cycles,
+            }
+        };
         self.addr = addr;
         self.data = value;
         self.rw = false;
         self.sync = false;
     }
 
-    fn prepare_rmw(&mut self, op: Rmw8Op, addr: u16) {
-        self.state = CpuState::ReadRmwValue { op, addr };
+    fn prepare_rmw(&mut self, op: Rmw8Op, addr: u16, post_cycles: u8) {
+        self.state = CpuState::ReadRmwValue {
+            op,
+            addr,
+            post_cycles,
+        };
         self.addr = addr;
         self.rw = true;
         self.sync = false;
@@ -2039,12 +2245,12 @@ impl Mc6809 {
         self.sync = false;
     }
 
-    fn prepare_store16(&mut self, op: Store16Op, addr: u16) {
+    fn prepare_store16(&mut self, op: Store16Op, addr: u16, post_cycles: u8) {
         let Store16Op::Store(reg) = op;
         let value = self.read_word_reg(reg);
         let [hi, lo] = value.to_be_bytes();
         self.set_load_flags16(value);
-        self.state = CpuState::Write16Lo { lo };
+        self.state = CpuState::Write16Lo { lo, post_cycles };
         self.addr = addr;
         self.data = hi;
         self.rw = false;
@@ -2606,6 +2812,12 @@ mod tests {
         panic!("instruction did not reach boundary");
     }
 
+    fn run_instruction_cycles(cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) -> u64 {
+        let start = cpu.total_cycles;
+        run_until_boundary(cpu, memory);
+        cpu.total_cycles - start
+    }
+
     fn run_until_boundary_or_wait_or_halt(cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
         run_cycle(cpu, memory);
         for _ in 0..128 {
@@ -2853,21 +3065,21 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.dp = 0x12;
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.x, 0xABCD);
         assert!(cpu.regs.flag(FLAG_N));
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(&memory[0x2000..=0x2001], &[0xAB, 0xCD]);
         assert!(cpu.instruction_boundary());
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(cpu.regs.u, 0x8001);
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(&memory[0x1240..=0x1241], &[0x80, 0x01]);
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
         assert_eq!(cpu.regs.x, 0xABCD);
@@ -2899,18 +3111,18 @@ mod tests {
         cpu.regs.a = 0x12;
         cpu.regs.b = 0x34;
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
         assert_eq!(cpu.regs.y, 0x8000);
         assert!(cpu.regs.flag(FLAG_N));
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(&memory[0x1220..=0x1221], &[0x80, 0x00]);
 
-        run_cycles(&mut cpu, &mut memory, 6);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
         assert_eq!(cpu.regs.s, 0x0000);
         assert!(cpu.regs.flag(FLAG_Z));
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
         assert!(cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_C));
         assert_eq!(cpu.regs.d(), 0x1234);
@@ -2939,16 +3151,16 @@ mod tests {
         cpu.regs.s = 0x8000;
         cpu.regs.x = 0x2200;
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
         assert!(cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_C));
         assert_eq!(cpu.regs.u, 0x1000);
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
         assert!(!cpu.regs.flag(FLAG_N));
         assert!(!cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
@@ -2981,19 +3193,19 @@ mod tests {
         assert!(!cpu.regs.flag(FLAG_N));
         assert!(!cpu.regs.flag(FLAG_Z));
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(&memory[0x1220..=0x1221], &[0x12, 0x34]);
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(cpu.regs.d(), 0x8001);
         assert!(cpu.regs.flag(FLAG_N));
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(&memory[0x3000..=0x3001], &[0x80, 0x01]);
 
         cpu.regs.a = 0;
         cpu.regs.b = 0;
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(cpu.regs.d(), 0x8001);
         assert!(cpu.instruction_boundary());
     }
@@ -3027,7 +3239,7 @@ mod tests {
         assert!(cpu.regs.flag(FLAG_V));
         assert!(!cpu.regs.flag(FLAG_C));
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.d(), 0xFFFF);
         assert!(cpu.regs.flag(FLAG_N));
         assert!(!cpu.regs.flag(FLAG_V));
@@ -3037,7 +3249,7 @@ mod tests {
         assert_eq!(cpu.regs.d(), 0xFFFD);
         assert!(!cpu.regs.flag(FLAG_C));
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(cpu.regs.d(), 0x7FFE);
         assert!(!cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_V));
@@ -3058,14 +3270,14 @@ mod tests {
         cpu.regs.a = 0xFF;
         cpu.regs.b = 0xFF;
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(cpu.regs.d(), 0x0000);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(cpu.regs.flag(FLAG_C));
 
         cpu.regs.a = 0x00;
         cpu.regs.b = 0x02;
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 8);
         assert_eq!(cpu.regs.d(), 0x0001);
         assert_eq!(cpu.regs.x, 0x2201);
         assert!(!cpu.regs.flag(FLAG_C));
@@ -3080,7 +3292,7 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.dp = 0x12;
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
 
         assert_eq!(cpu.regs.a, 0x7F);
         assert_eq!(cpu.regs.pc, 0x4002);
@@ -3103,15 +3315,15 @@ mod tests {
         cpu.regs.dp = 0x12;
         cpu.regs.b = 0x5A;
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.a, 0xA5);
         assert!(cpu.regs.flag(FLAG_N));
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
         assert_eq!(memory[0x1220], 0x5A);
         assert!(cpu.instruction_boundary());
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(memory[0x3456], 0x5A);
         assert!(cpu.instruction_boundary());
     }
@@ -3730,15 +3942,15 @@ mod tests {
         cpu.regs.y = 0x0010;
         cpu.regs.s = 0x8000;
 
-        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.x, 0x1005);
         assert!(!cpu.regs.flag(FLAG_Z));
 
-        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.y, 0x0000);
         assert!(cpu.regs.flag(FLAG_Z));
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 8);
         assert_eq!(cpu.regs.s, 0x8010);
         assert!(cpu.regs.flag(FLAG_Z), "LEAS does not update Z");
         assert!(cpu.instruction_boundary());
@@ -3756,12 +3968,12 @@ mod tests {
         cpu.regs.x = 0x2000;
         cpu.regs.b = 0x05;
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
         assert_eq!(cpu.regs.a, 0x7E);
         assert_eq!(cpu.regs.x, 0x2001);
         assert!(cpu.instruction_boundary());
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(memory[0x2006], 0x05);
         assert!(cpu.instruction_boundary());
     }
@@ -3783,17 +3995,17 @@ mod tests {
         cpu.regs.dp = 0x12;
         cpu.regs.x = 0x2200;
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(memory[0x1210], 0xFF);
         assert!(cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_C));
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
         assert_eq!(memory[0x2200], 0x80);
         assert!(cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_V));
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
         assert_eq!(memory[0x3300], 0x00);
         assert!(!cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_Z));
@@ -3810,7 +4022,7 @@ mod tests {
         cpu.regs.dp = 0x12;
         cpu.regs.set_flag(FLAG_C, true);
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
 
         assert_eq!(memory[0x1210], 0x80);
         assert!(cpu.regs.flag(FLAG_N));
@@ -3837,18 +4049,18 @@ mod tests {
         cpu.regs.dp = 0x12;
         cpu.regs.x = 0x2200;
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
         assert_eq!(memory[0x3000], 0x00);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(cpu.regs.flag(FLAG_C));
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
         assert_eq!(memory[0x2200], 0x00);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(cpu.regs.flag(FLAG_C));
         assert!(cpu.regs.flag(FLAG_V));
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
         assert_eq!(memory[0x1220], 0x01);
         assert!(!cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
@@ -3862,7 +4074,7 @@ mod tests {
         memory[0x4002] = 0x03;
         let mut cpu = cpu_at(0x4000);
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
 
         assert_eq!(cpu.regs.pc, 0x4006);
         assert_eq!(cpu.addr, 0x4006);
@@ -3914,15 +4126,15 @@ mod tests {
         cpu.regs.a = 0x42;
         cpu.regs.b = 0x40;
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert!(cpu.regs.flag(FLAG_N));
         assert!(cpu.regs.flag(FLAG_C));
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert!(!cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
         assert_eq!(cpu.regs.a, 0x42);
@@ -4026,13 +4238,13 @@ mod tests {
         cpu.regs.a = 0x10;
         cpu.regs.b = 0xF3;
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
         assert_eq!(cpu.regs.a, 0x15);
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.b, 0x03);
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.a, 0x95);
         assert!(cpu.regs.flag(FLAG_N));
     }
@@ -4048,7 +4260,7 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.x = 0x2000;
 
-        run_cycles(&mut cpu, &mut memory, 5);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 11);
 
         assert_eq!(cpu.regs.a, 0xA5);
         assert_eq!(cpu.regs.x, 0x2002);
@@ -4067,7 +4279,7 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.b = 0x5A;
 
-        run_cycles(&mut cpu, &mut memory, 6);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 9);
 
         assert_eq!(memory[0x4567], 0x5A);
         assert_eq!(cpu.regs.pc, 0x4003);

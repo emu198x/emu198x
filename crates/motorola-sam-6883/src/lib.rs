@@ -3,7 +3,7 @@
 //! The Dragon/CoCo SAM exposes write-only set/reset addresses at `$FFC0..$FFDF`.
 //! Even addresses clear the selected latch and odd addresses set it. This crate
 //! starts with the latches needed for Dragon ROM bring-up: VDG mode bits,
-//! display offset, page select, CPU rate, and memory-size bits.
+//! display offset, page select, CPU rate, memory-size bits, and type select.
 
 use serde::{Deserialize, Serialize};
 
@@ -16,8 +16,9 @@ pub struct Sam6883 {
     video_mode: u8,
     display_offset: u8,
     page_select: bool,
-    cpu_rate: bool,
+    cpu_rate: u8,
     memory_size: u8,
+    ty: bool,
 }
 
 impl Sam6883 {
@@ -79,9 +80,9 @@ impl Sam6883 {
         self.page_select
     }
 
-    /// Return the R1 CPU-rate latch.
+    /// Return CPU-rate latch bits R0..R1.
     #[must_use]
-    pub const fn cpu_rate(&self) -> bool {
+    pub const fn cpu_rate(&self) -> u8 {
         self.cpu_rate
     }
 
@@ -91,14 +92,20 @@ impl Sam6883 {
         self.memory_size
     }
 
+    /// Return the TY type-select latch.
+    #[must_use]
+    pub const fn ty(&self) -> bool {
+        self.ty
+    }
+
     fn write_latch(&mut self, latch: u8, set: bool) {
         match latch {
             0..=2 => set_bit(&mut self.video_mode, latch, set),
             3..=9 => set_bit(&mut self.display_offset, latch - 3, set),
             10 => self.page_select = set,
-            11 => self.cpu_rate = set,
-            12..=13 => set_bit(&mut self.memory_size, latch - 12, set),
-            14..=15 => {}
+            11..=12 => set_bit(&mut self.cpu_rate, latch - 11, set),
+            13..=14 => set_bit(&mut self.memory_size, latch - 13, set),
+            15 => self.ty = set,
             _ => unreachable!("SAM write range only decodes 16 latches"),
         }
     }
@@ -125,8 +132,9 @@ mod tests {
         assert_eq!(sam.display_offset(), 0);
         assert_eq!(sam.display_base(), 0x0000);
         assert!(!sam.page_select());
-        assert!(!sam.cpu_rate());
+        assert_eq!(sam.cpu_rate(), 0);
         assert_eq!(sam.memory_size(), 0);
+        assert!(!sam.ty());
     }
 
     #[test]
@@ -150,11 +158,14 @@ mod tests {
         sam.write(0xFFD5);
         sam.write(0xFFD7);
         sam.write(0xFFDB);
+        sam.write(0xFFDD);
+        sam.write(0xFFDF);
 
         assert_eq!(sam.video_mode(), 0b100);
         assert!(sam.page_select());
-        assert!(sam.cpu_rate());
-        assert_eq!(sam.memory_size(), 0b10);
+        assert_eq!(sam.cpu_rate(), 0b01);
+        assert_eq!(sam.memory_size(), 0b11);
+        assert!(sam.ty());
     }
 
     #[test]

@@ -24,12 +24,14 @@ pub const RAM_SIZE: usize = 0x8000;
 pub const ROM_SIZE: usize = 0x4000;
 /// Host audio sample rate for Dragon mono output.
 pub const DRAGON_AUDIO_SAMPLE_RATE: u32 = 48_000;
-const CASSETTE_ZERO_HALF_PERIOD_CYCLES: u32 = 373;
-const CASSETTE_ONE_HALF_PERIOD_CYCLES: u32 = 186;
+const DRAGON_MASTER_HZ: u64 = 14_318_180;
+const SLOW_CPU_MASTER_TICKS: u64 = 16;
+const CASSETTE_ZERO_HALF_PERIOD_TICKS: u64 = 373 * SLOW_CPU_MASTER_TICKS;
+const CASSETTE_ONE_HALF_PERIOD_TICKS: u64 = 186 * SLOW_CPU_MASTER_TICKS;
 const CASSETTE_BITS_PER_BYTE: usize = 8;
 const DRAGON_CPU_HZ: u64 = 894_886;
 const DRAGON_FRAME_HZ: u64 = 50;
-const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
+const DRAGON_FRAME_MASTER_TICKS: u64 = DRAGON_MASTER_HZ / DRAGON_FRAME_HZ;
 const CART_ROM_START: u16 = 0xC000;
 const CART_ROM_END: u16 = 0xFEFF;
 const CART_IO_START: u16 = 0xFF40;
@@ -1281,9 +1283,9 @@ impl DragonMemory {
         self.joystick.axis(port, axis) >= threshold
     }
 
-    fn advance_cassette(&mut self) {
+    fn advance_cassette(&mut self, master_ticks: u64) {
         if self.pia1.ca2 {
-            self.cassette.advance_cycle();
+            self.cassette.advance_ticks(master_ticks);
             self.refresh_pia_inputs();
         }
     }
@@ -1372,7 +1374,7 @@ impl BeamVideo {
         &self.frame
     }
 
-    fn tick(&mut self, memory: &DragonMemory) -> BeamVideoTick {
+    fn tick(&mut self, memory: &DragonMemory, master_ticks: u64) -> BeamVideoTick {
         let mut tick = BeamVideoTick::default();
         if self.hsync_level {
             self.hsync_level = false;
@@ -1384,11 +1386,11 @@ impl BeamVideo {
         }
 
         let previous = self.cycle_in_frame;
-        let target = self.cycle_in_frame.saturating_add(1);
+        let target = self.cycle_in_frame.saturating_add(master_ticks);
         self.render_until(memory, target);
         self.cycle_in_frame = target;
-        if self.cycle_in_frame >= DRAGON_FRAME_CYCLES {
-            self.render_until(memory, DRAGON_FRAME_CYCLES);
+        if self.cycle_in_frame >= DRAGON_FRAME_MASTER_TICKS {
+            self.render_until(memory, DRAGON_FRAME_MASTER_TICKS);
             self.cycle_in_frame = 0;
             self.next_line = 0;
             self.line_border_rendered = false;
@@ -1469,15 +1471,55 @@ struct BeamVideoTick {
     frame_sync: Option<bool>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct SamCycleTiming {
+    running_fast: bool,
+    extend_slow_cycle: bool,
+}
+
+impl SamCycleTiming {
+    fn tick(&mut self, sam: &Sam6883, addr: u16) -> u64 {
+        let fast_cycle = sam.cpu_rate() & 0x02 != 0
+            || (sam.cpu_rate() == 0x01 && !Self::is_ram_or_io0(sam, addr));
+
+        if !self.running_fast {
+            if fast_cycle {
+                self.running_fast = true;
+                15
+            } else {
+                16
+            }
+        } else if fast_cycle {
+            self.extend_slow_cycle = !self.extend_slow_cycle;
+            8
+        } else {
+            self.running_fast = false;
+            if self.extend_slow_cycle {
+                self.extend_slow_cycle = false;
+                25
+            } else {
+                17
+            }
+        }
+    }
+
+    fn is_ram_or_io0(sam: &Sam6883, addr: u16) -> bool {
+        let is_ffxx = addr >> 8 == 0xff;
+        let is_io0 = is_ffxx && ((addr >> 5) & 0x07) == 0x00;
+        let is_ram = addr & 0x8000 == 0 || (sam.ty() && !is_ffxx);
+        is_ram || is_io0
+    }
+}
+
 fn line_start_cycle(line: usize) -> u64 {
-    DRAGON_FRAME_CYCLES.saturating_mul(line as u64) / TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64
+    DRAGON_FRAME_MASTER_TICKS.saturating_mul(line as u64) / TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64
 }
 
 fn video_line_for_cycle(cycle: u64) -> usize {
     let line = cycle
         .saturating_add(1)
         .saturating_mul(TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64)
-        .div_ceil(DRAGON_FRAME_CYCLES)
+        .div_ceil(DRAGON_FRAME_MASTER_TICKS)
         .saturating_sub(1);
     usize::try_from(line).map_or(TEXT_VISIBLE_FRAMEBUFFER_HEIGHT - 1, |line| {
         line.min(TEXT_VISIBLE_FRAMEBUFFER_HEIGHT - 1)
@@ -1485,7 +1527,7 @@ fn video_line_for_cycle(cycle: u64) -> usize {
 }
 
 fn line_end_cycle(line: usize) -> u64 {
-    DRAGON_FRAME_CYCLES.saturating_mul(line.saturating_add(1) as u64)
+    DRAGON_FRAME_MASTER_TICKS.saturating_mul(line.saturating_add(1) as u64)
         / TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u64
 }
 
@@ -1509,7 +1551,7 @@ fn active_byte_start_cycle(line: usize, byte_x: usize) -> u64 {
 struct CassettePlayback {
     bytes: Vec<u8>,
     bit_index: usize,
-    half_cycles_remaining: u32,
+    half_ticks_remaining: u64,
     level: bool,
 }
 
@@ -1517,7 +1559,7 @@ impl CassettePlayback {
     fn load(&mut self, bytes: Vec<u8>) {
         self.bytes = bytes;
         self.bit_index = 0;
-        self.half_cycles_remaining = self.current_half_period();
+        self.half_ticks_remaining = self.current_half_period_ticks();
         self.level = false;
     }
 
@@ -1525,21 +1567,25 @@ impl CassettePlayback {
         *self = Self::default();
     }
 
-    fn advance_cycle(&mut self) {
+    fn advance_ticks(&mut self, ticks: u64) {
         if self.finished() {
             return;
         }
 
-        self.half_cycles_remaining = self.half_cycles_remaining.saturating_sub(1);
-        if self.half_cycles_remaining != 0 {
-            return;
+        let mut remaining_ticks = ticks;
+        while remaining_ticks >= self.half_ticks_remaining {
+            remaining_ticks -= self.half_ticks_remaining;
+            self.level = !self.level;
+            if !self.level {
+                self.bit_index = self.bit_index.saturating_add(1);
+                if self.finished() {
+                    return;
+                }
+            }
+            self.half_ticks_remaining = self.current_half_period_ticks();
         }
 
-        self.level = !self.level;
-        if !self.level {
-            self.bit_index = self.bit_index.saturating_add(1);
-        }
-        self.half_cycles_remaining = self.current_half_period();
+        self.half_ticks_remaining = self.half_ticks_remaining.saturating_sub(remaining_ticks);
     }
 
     fn line_level(&self) -> bool {
@@ -1558,11 +1604,11 @@ impl CassettePlayback {
         self.bytes.len().saturating_mul(CASSETTE_BITS_PER_BYTE)
     }
 
-    fn current_half_period(&self) -> u32 {
+    fn current_half_period_ticks(&self) -> u64 {
         if self.current_bit() {
-            CASSETTE_ONE_HALF_PERIOD_CYCLES
+            CASSETTE_ONE_HALF_PERIOD_TICKS
         } else {
-            CASSETTE_ZERO_HALF_PERIOD_CYCLES
+            CASSETTE_ZERO_HALF_PERIOD_TICKS
         }
     }
 
@@ -1591,12 +1637,12 @@ impl DragonAudio {
         }
     }
 
-    fn tick(&mut self, memory: &DragonMemory) {
+    fn tick(&mut self, memory: &DragonMemory, master_ticks: u64) {
         self.cycle_accumulator = self
             .cycle_accumulator
-            .saturating_add(u64::from(DRAGON_AUDIO_SAMPLE_RATE));
-        while self.cycle_accumulator >= DRAGON_CPU_HZ {
-            self.cycle_accumulator -= DRAGON_CPU_HZ;
+            .saturating_add(u64::from(DRAGON_AUDIO_SAMPLE_RATE) * master_ticks);
+        while self.cycle_accumulator >= DRAGON_MASTER_HZ {
+            self.cycle_accumulator -= DRAGON_MASTER_HZ;
             self.samples.push(memory.audio_sample());
         }
     }
@@ -1613,7 +1659,9 @@ pub struct Dragon32 {
     memory: DragonMemory,
     video: BeamVideo,
     audio: DragonAudio,
+    sam_timing: SamCycleTiming,
     cycles: u64,
+    master_ticks: u64,
     instructions: u64,
 }
 
@@ -1632,7 +1680,9 @@ impl Dragon32 {
             memory: DragonMemory::new_with_keyboard(rom, keyboard),
             video: BeamVideo::new(),
             audio: DragonAudio::new(),
+            sam_timing: SamCycleTiming::default(),
             cycles: 0,
+            master_ticks: 0,
             instructions: 0,
         };
         machine.cpu.reset();
@@ -1661,6 +1711,12 @@ impl Dragon32 {
     #[must_use]
     pub fn cycles(&self) -> u64 {
         self.cycles
+    }
+
+    /// Total SAM master-clock ticks executed since construction.
+    #[must_use]
+    pub fn master_ticks(&self) -> u64 {
+        self.master_ticks
     }
 
     /// Total instruction-boundary opcode fetches since construction.
@@ -1942,18 +1998,19 @@ impl Dragon32 {
 
     /// Execute one bus cycle and return any observed memory/device event.
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
-        let video_tick = self.video.tick(&self.memory);
+        let master_ticks = self.sam_timing.tick(&self.memory.sam, self.cpu.addr);
+        let video_tick = self.video.tick(&self.memory, master_ticks);
         if let Some(level) = video_tick.hsync {
             self.memory.pia0.set_signal_level(PiaSignal::Ca1, level);
         }
         if let Some(level) = video_tick.frame_sync {
             self.memory.pia0.set_signal_level(PiaSignal::Cb1, level);
         }
-        self.step_cycle_after_video()
+        self.step_cycle_after_video(master_ticks)
     }
 
-    fn step_cycle_after_video(&mut self) -> Option<MemoryEvent> {
-        self.memory.advance_cassette();
+    fn step_cycle_after_video(&mut self, master_ticks: u64) -> Option<MemoryEvent> {
+        self.memory.advance_cassette(master_ticks);
         self.memory.tick_cartridge_autorun(self.cycles);
         self.cpu.irq = self.memory.pia0.irq_a() || self.memory.pia0.irq_b();
         self.cpu.firq = self.memory.pia1.irq_a() || self.memory.pia1.irq_b();
@@ -1965,8 +2022,9 @@ impl Dragon32 {
             self.memory.write(self.cpu.addr, self.cpu.data)
         };
         self.cpu.tick();
-        self.audio.tick(&self.memory);
+        self.audio.tick(&self.memory, master_ticks);
         self.cycles = self.cycles.saturating_add(1);
+        self.master_ticks = self.master_ticks.saturating_add(master_ticks);
         event
     }
 
@@ -2211,7 +2269,8 @@ impl Dragon32 {
         dropped_pia_signals: &mut usize,
         trace_limit: usize,
     ) -> Option<MemoryEvent> {
-        let video_tick = self.video.tick(&self.memory);
+        let master_ticks = self.sam_timing.tick(&self.memory.sam, self.cpu.addr);
+        let video_tick = self.video.tick(&self.memory, master_ticks);
         if let Some(level) = video_tick.hsync {
             self.memory.pia0.set_signal_level(PiaSignal::Ca1, level);
             retain_pia_signal(
@@ -2242,7 +2301,7 @@ impl Dragon32 {
                 ),
             );
         }
-        self.step_cycle_after_video()
+        self.step_cycle_after_video(master_ticks)
     }
 }
 
@@ -2598,7 +2657,7 @@ mod tests {
         assert_eq!(
             report.last_fetch,
             Some(FetchTrace {
-                cycle: 6,
+                cycle: 7,
                 pc: 0x8003,
                 opcode: 0x01,
             })
@@ -2636,7 +2695,7 @@ mod tests {
         let mut machine = Dragon32::new(&rom);
 
         machine.memory.pia0.write(0x03, 0x07); // PIA0 CB1 rising-edge IRQ enabled.
-        machine.video.cycle_in_frame = DRAGON_FRAME_CYCLES - 1;
+        machine.video.cycle_in_frame = DRAGON_FRAME_MASTER_TICKS - SLOW_CPU_MASTER_TICKS;
         machine.video.next_line = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
 
         machine.step_cycle();
@@ -2823,20 +2882,16 @@ mod tests {
         let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
         memory.cassette.load(vec![0x01]);
 
-        memory.advance_cassette();
+        memory.advance_cassette(SLOW_CPU_MASTER_TICKS);
         assert_eq!(memory.cassette.position_bits(), 0);
         assert!(!memory.cassette.line_level());
 
         memory.pia1.write(0x01, 0x3C); // PIA1 CA2 high, port A data selected.
-        for _ in 0..CASSETTE_ONE_HALF_PERIOD_CYCLES {
-            memory.advance_cassette();
-        }
+        memory.advance_cassette(CASSETTE_ONE_HALF_PERIOD_TICKS);
         assert_eq!(memory.cassette.position_bits(), 0);
         assert!(memory.cassette.line_level());
 
-        for _ in 0..CASSETTE_ONE_HALF_PERIOD_CYCLES {
-            memory.advance_cassette();
-        }
+        memory.advance_cassette(CASSETTE_ONE_HALF_PERIOD_TICKS);
         assert_eq!(memory.cassette.position_bits(), 1);
         assert!(!memory.cassette.line_level());
     }
@@ -2853,9 +2908,7 @@ mod tests {
         assert_eq!(low_value & 0x01, 0);
 
         memory.pia1.write(0x01, 0x3C); // PIA1 CA2 high, port A data selected.
-        for _ in 0..CASSETTE_ONE_HALF_PERIOD_CYCLES {
-            memory.advance_cassette();
-        }
+        memory.advance_cassette(CASSETTE_ONE_HALF_PERIOD_TICKS);
         let (high_value, _) = memory.read_bus(0xFF20);
         assert_eq!(high_value & 0x01, 1);
     }
@@ -2910,9 +2963,7 @@ mod tests {
 
         memory.cassette.load(vec![0x01]);
         memory.pia1.write(0x01, 0x3C); // PIA1 CA2 high: advance cassette to high half-cycle.
-        for _ in 0..CASSETTE_ONE_HALF_PERIOD_CYCLES {
-            memory.advance_cassette();
-        }
+        memory.advance_cassette(CASSETTE_ONE_HALF_PERIOD_TICKS);
         assert_sample_near(memory.audio_sample(), ((0.50 + 2.05) / 4.70) * 0.7);
     }
 
