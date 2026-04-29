@@ -1596,6 +1596,10 @@ impl Mc6809 {
                     } else {
                         self.start_interrupt(vector);
                     }
+                } else if !stacked && self.maskable_interrupt_asserted() {
+                    // SYNC wakes on masked IRQ/FIRQ without stacking; CWAI
+                    // has already stacked and waits for a serviceable vector.
+                    self.next_fetch();
                 } else {
                     self.addr = self.regs.pc;
                     self.rw = true;
@@ -1656,6 +1660,10 @@ impl Mc6809 {
         } else {
             None
         }
+    }
+
+    fn maskable_interrupt_asserted(&self) -> bool {
+        self.irq || self.firq
     }
 
     fn start_interrupt(&mut self, vector: Vector) {
@@ -3823,6 +3831,27 @@ mod tests {
         assert_eq!(cpu.regs.s, 0x7FF4);
         assert_eq!(&memory[0x7FFE..=0x7FFF], &[0x40, 0x01]);
         assert!(cpu.regs.flag(FLAG_I));
+    }
+
+    #[test]
+    fn sync_continues_after_masked_irq_without_stacking() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x13; // SYNC
+        memory[0x4001] = 0x12; // NOP
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.cc = FLAG_I;
+
+        run_cycle(&mut cpu, &mut memory);
+        assert_eq!(cpu.regs.pc, 0x4001);
+        assert!(!cpu.instruction_boundary());
+
+        cpu.irq = true;
+        run_until_boundary(&mut cpu, &mut memory);
+
+        assert_eq!(cpu.regs.pc, 0x4001);
+        assert_eq!(cpu.regs.s, 0x8000);
+        assert!(cpu.instruction_boundary());
     }
 
     #[test]

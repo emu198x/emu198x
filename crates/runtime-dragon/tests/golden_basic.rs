@@ -12,7 +12,7 @@ const DRAGON_CPU_HZ: u64 = 894_886;
 const DRAGON_FRAME_HZ: u64 = 50;
 const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
 const BOOT_FRAME_BUDGET: u32 = 100;
-const KEY_EDGE_FRAMES: u32 = 4;
+const KEY_EDGE_FRAMES: u32 = 8;
 const GOLDEN_NAME: &str = "dragon32-basic";
 
 #[test]
