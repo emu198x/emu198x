@@ -4,6 +4,78 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — Runtime family normalization, wave 1: Game Boy + NES
+
+**Type:** refactor (architectural — applying the C64 shape to siblings)
+**Trigger:** the C64 split (12ec50c / d5f3f7b / 68cfe22) was one data point. A survey across `crates/runtime-*/src/` showed the same code smell in three other family members — `runtime.rs` mixing lifecycle + `apply_input_event` + `SessionQueryProvider` + inline snapshot/restore + 30-43% inline tests:
+
+| Runtime | runtime.rs | Inline-test % | Pre-split shape |
+|---|---|---|---|
+| commodore-c64 | 692 | 0% | ✅ already done |
+| commodore-amiga | 1044 | 27% | ❌ profiles only |
+| dragon | 1010 | 35% | ❌ Codex-owned, off-limits |
+| nintendo-nes | 765 | 40% | ❌ profiles only |
+| nintendo-game-boy | 721 | 43% | ❌ profiles only |
+
+The user's call: don't wait until each grows to 2000 lines. Establish the shape as the family standard now while the playbook is fresh. This commit pair handles GB and NES; Amiga (bigger surface) lands in wave 2.
+
+**Result:** both runtimes now match the C64 shape — `runtime.rs` holds lifecycle only; `queries.rs` / `snapshot.rs` / `input.rs` are siblings; tests live in per-topic integration files with a shared `tests/common/mod.rs`.
+
+### Game Boy
+
+| File | Before | After |
+|---|---|---|
+| `runtime.rs` (production+tests inline) | 721 | **326** (production only) |
+| `queries.rs` (new) | — | 74 |
+| `snapshot.rs` (new) | — | 83 |
+| `input.rs` (new) | — | 74 |
+| `tests/lifecycle.rs` (new) | — | 202 |
+| `tests/snapshot_roundtrip.rs` (new) | — | 69 |
+| `tests/queries.rs` (new) | — | 68 |
+| `tests/common/mod.rs` (new) | — | 45 |
+
+13 inline tests moved to integration; 3 stayed inline (each tests a private symbol — `button_from_name` in `input.rs`, `GAME_BOY_QUERY_PATHS` in `queries.rs`, plus a pre-existing `profiles` test). One inline test (`restore_rejects_mismatched_profile`) was rewritten because it forged the now-private `GameBoyRuntimeSnapshotRefV1` envelope by hand — replaced with a C64-style "snapshot one model, restore into another" test that goes through the public API. Two new tests added along the way (`restore_rejects_corrupt_postcard_bytes`, `restore_rejects_snapshot_from_different_profile`).
+
+**Judgement calls:** (1) `apply_input_event` takes `Option<&mut GameBoy>` rather than `&mut GameBoy` because the runtime's `run_until` applies events before checking whether the machine is loaded — pushing the `is_some()` check into the free function preserved original behaviour with the smallest delta. (2) Added `time_value()` accessor (rather than `time()`) on `GameBoyRuntime` to avoid colliding with the `MachineCore::time()` trait method when called from inside `snapshot.rs`. (3) Added `clear_audio_buffer()` helper for `decode` rather than exposing the buffer directly.
+
+### NES
+
+| File | Before | After |
+|---|---|---|
+| `runtime.rs` (production+tests inline) | 765 | **264** (production only) |
+| `queries.rs` (new) | — | 145 |
+| `snapshot.rs` (new) | — | 73 |
+| `input.rs` (new) | — | 61 |
+| `tests/lifecycle.rs` (new) | — | 137 |
+| `tests/snapshot_roundtrip.rs` (new) | — | 56 |
+| `tests/queries.rs` (new) | — | 87 |
+| `tests/common/mod.rs` (new) | — | 72 |
+
+All 7 inline runtime tests moved to integration files (3 lifecycle + 1 ignored ROM smoke + 2 queries + 1 snapshot). Zero stayed inline — none of the moved tests exercised private items, and per the brief no new tests were added for now-private helpers in `input.rs` / `queries.rs` / `snapshot.rs`. Pre-existing `tests/boot_invariants.rs` left untouched.
+
+**Public-API crossings:** `minimal_ines`, `blargg_ines`, `emit_store`, `NTSC_FRAME_TICKS` — previously inline `fn`s/consts in `runtime.rs` — moved verbatim into `tests/common/mod.rs` as `pub fn`/`pub const`. The snapshot module gained `pub(crate)` accessors on `NesRuntime`: `cartridge_mapper()`, `cartridge_bytes()`, `set_time()`, `set_cartridge_bytes()`, `set_cartridge_mapper()`, `set_machine()`, `refresh_rgba_framebuffer()` — same pattern the C64 used.
+
+**Judgement call:** `apply_input_event` signature went from `&mut self` to `&mut Nes` (matching C64's shape), so the `Option` short-circuit moved to the call site in `run_until`. The existing `is_none` early-return at the top of `run_until` is preserved, and the input loop now does `if let Some(machine) = self.machine.as_mut() { apply_input_event(machine, event); }`. Semantics identical.
+
+### Verification
+
+Both crates green across `--lib`, `--tests`, and `clippy --all-targets -- -D warnings`:
+
+```
+cargo test -p runtime-nintendo-game-boy --lib    -- 3 passed
+cargo test -p runtime-nintendo-game-boy --tests  -- 16 passed, 6 ignored
+cargo test -p runtime-nintendo-nes --lib          -- 2 passed
+cargo test -p runtime-nintendo-nes --tests        -- 9 passed, 2 ignored
+```
+
+### What's next on the runtime-family track
+
+Wave 2 — Amiga. Same playbook, bigger surface (1044 lines, 27% inline tests, multiple chips coordinated through one runtime). Sinclair Spectrum sits outside this normalization for now because it's already split per-variant rather than per-concern; a separate decision is needed about whether to converge or whether the variant axis is the right one for that family.
+
+After wave 2, the runtime family is normalized and the big chip splits (`format-nintendo-nes-ines`, `commodore-denise-ocs`, `motorola-68000` family-into-per-variant-crates) are the natural next track.
+
+---
+
 ## 2026-04-29 — Cov-4: directed tests for the isolated C64 runtime modules
 
 **Type:** test (Cov-4 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md))
