@@ -2,7 +2,7 @@
 
 mod common;
 
-use emu198x_shell::{HostIo, MachineCore, MachineTime, NullAudioSink, NullTraceSink};
+use emu198x_shell::{HostIo, MachineCore, MachineError, MachineTime, NullAudioSink, NullTraceSink};
 use runtime_commodore_c64::{C64Runtime, Model};
 
 use common::{FrameCollector, blank_firmware, blank_firmware_with_drive};
@@ -132,4 +132,51 @@ fn snapshot_round_trip_preserves_attached_drive_state() {
         .expect("drive should restore from snapshot");
     assert_eq!(drive.cycles(), expected_cycles);
     assert_eq!(drive.cpu().regs.pc, expected_pc);
+}
+
+#[test]
+fn restore_rejects_corrupt_postcard_bytes() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    let err = runtime
+        .restore(&[0xFF, 0xFF, 0xFF, 0xFF])
+        .expect_err("garbage bytes should not deserialise");
+    assert!(
+        matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("decode failed")),
+        "unexpected error variant: {err:?}",
+    );
+}
+
+/// Profile mismatch is the safety belt that prevents an NTSC
+/// snapshot from being restored into a PAL runtime (or vice-versa).
+/// Build a runtime in one model, snapshot it, then try to restore
+/// into the other model.
+#[test]
+fn restore_rejects_snapshot_from_different_profile() {
+    let mut pal = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("PAL runtime should build from blank firmware");
+    let mut frame_sink = FrameCollector::default();
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+
+    pal.run_until(
+        MachineTime::new(8),
+        &mut HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        },
+    )
+    .expect("PAL runtime should run a few cycles");
+
+    let snapshot = pal.snapshot().expect("PAL runtime should snapshot");
+    let mut ntsc = C64Runtime::blank(Model::C64NtscBreadbin);
+    let err = ntsc
+        .restore(&snapshot)
+        .expect_err("NTSC runtime should refuse a PAL-profile snapshot");
+    assert!(
+        matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("profile")),
+        "unexpected error variant: {err:?}",
+    );
 }

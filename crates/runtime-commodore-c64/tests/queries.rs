@@ -9,15 +9,15 @@ mod common;
 use common_commodore_c64::timing::TIMING_PAL_BREADBIN;
 use emu198x_shell::{
     ControlCommand, HostIo, MachineCore, MachineTime, MediaImage, MediaKind, MediaSet,
-    MediaTransportAction, MediaTransportCommand, NullAudioSink, NullTraceSink,
+    MediaTransportAction, MediaTransportCommand, NullAudioSink, NullTraceSink, QueryError,
     SessionQueryProvider,
 };
 use runtime_commodore_c64::{C64Runtime, C64SessionQueryProvider, Model};
 use serde_json::json;
 
 use common::{
-    FrameCollector, SCREEN_TEXT_HEIGHT, blank_firmware, local_rom_firmware,
-    local_rom_firmware_with_drive, make_tap,
+    FrameCollector, SCREEN_TEXT_HEIGHT, blank_firmware, blank_firmware_with_drive,
+    local_rom_firmware, local_rom_firmware_with_drive, make_tap,
 };
 
 #[test]
@@ -161,6 +161,96 @@ fn runtime_load_media_and_transport_update_tape_queries() {
             .value,
         json!(false)
     );
+}
+
+/// Walk every advertised query path against a blank runtime *with*
+/// the optional 1541 attached. Each concrete path resolves; the
+/// wildcard catalogue entries (`<hex16>` placeholders) are not valid
+/// suffixes, so the prefix-matched dispatcher reports them as
+/// `QueryError::UnknownPath`. This drives the whole `match` ladder in
+/// `queries.rs`, exercising every closure that shows up in llvm-cov
+/// as separate uncalled functions.
+#[test]
+fn every_advertised_query_path_resolves_with_drive_attached() {
+    walk_all_paths(&blank_firmware_with_drive());
+}
+
+#[test]
+fn every_advertised_query_path_resolves_without_drive_attached() {
+    walk_all_paths(&blank_firmware());
+}
+
+fn walk_all_paths(firmware: &emu198x_shell::FirmwareSet<'_>) {
+    let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, firmware)
+        .expect("firmware should construct a runtime");
+    let provider = C64SessionQueryProvider;
+    for path in provider.query_paths(&runtime, None) {
+        let result = provider.query(&runtime, &path);
+        if path.contains('<') {
+            assert!(
+                matches!(result, Err(QueryError::UnknownPath { .. })),
+                "wildcard placeholder {path} should be reported unknown, got {result:?}",
+            );
+        } else {
+            let value = result
+                .unwrap_or_else(|err| panic!("concrete {path} should not fail: {err:?}"));
+            assert!(value.is_some(), "concrete {path} should resolve");
+        }
+    }
+}
+
+#[test]
+fn memory_ram_prefix_query_returns_byte_at_address() {
+    let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank firmware should construct a runtime");
+    let provider = C64SessionQueryProvider;
+    let result = provider
+        .query(&runtime, "c64.memory.ram.0400")
+        .expect("hex address suffix should not error")
+        .expect("hex address suffix should resolve");
+    assert!(result.value.is_u64());
+
+    // Decimal-only suffixes that aren't valid hex are rejected.
+    let err = provider
+        .query(&runtime, "c64.memory.ram.zzzz")
+        .expect_err("non-hex suffix should be rejected");
+    let msg = format!("{err:?}");
+    assert!(msg.contains("c64.memory.ram.zzzz"));
+}
+
+#[test]
+fn drive8_mem_prefix_query_returns_some_when_drive_attached() {
+    let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware_with_drive())
+        .expect("blank firmware with drive should construct a runtime");
+    let provider = C64SessionQueryProvider;
+    let result = provider
+        .query(&runtime, "c64.drive8.mem.C000")
+        .expect("hex address suffix should not error")
+        .expect("hex address suffix should resolve");
+    // With a drive attached, the response is a u8.
+    assert!(result.value.is_u64());
+}
+
+#[test]
+fn drive8_mem_prefix_query_returns_null_when_drive_absent() {
+    let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank firmware should construct a runtime");
+    let provider = C64SessionQueryProvider;
+    let result = provider
+        .query(&runtime, "c64.drive8.mem.C000")
+        .expect("hex address suffix should not error")
+        .expect("hex address suffix should resolve");
+    assert!(result.value.is_null());
+}
+
+#[test]
+fn query_paths_filters_by_prefix() {
+    let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank firmware should construct a runtime");
+    let provider = C64SessionQueryProvider;
+    let cia1 = provider.query_paths(&runtime, Some("c64.cia1."));
+    assert!(!cia1.is_empty());
+    assert!(cia1.iter().all(|p| p.starts_with("c64.cia1.")));
 }
 
 #[test]

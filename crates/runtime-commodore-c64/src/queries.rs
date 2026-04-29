@@ -440,3 +440,92 @@ pub(crate) fn decode_screen_code(code: u8) -> char {
         _ => '?',
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        C64_QUERY_PATHS, c64_boot_status, decode_screen_code, decode_screen_text_lines,
+        parse_hex_u16,
+    };
+    use crate::Model;
+    use crate::runtime::C64Runtime;
+
+    /// Each match arm in `decode_screen_code` is a chip-spec invariant
+    /// (the C64 KERNAL puts each character at a fixed code-point).
+    /// One assert per arm catches a regression where someone widens a
+    /// range and silently swaps two characters.
+    #[test]
+    fn decode_screen_code_covers_every_arm() {
+        assert_eq!(decode_screen_code(0x00), '@');
+        assert_eq!(decode_screen_code(0x01), 'A');
+        assert_eq!(decode_screen_code(0x1A), 'Z');
+        assert_eq!(decode_screen_code(0x1B), '?', "reverse-video gap");
+        assert_eq!(decode_screen_code(0x20), ' ');
+        assert_eq!(decode_screen_code(0x21), '!');
+        assert_eq!(decode_screen_code(0x3F), '?');
+        assert_eq!(decode_screen_code(0x40), '@');
+        assert_eq!(decode_screen_code(0x5A), 'Z');
+        assert_eq!(decode_screen_code(0x5B), '[');
+        assert_eq!(decode_screen_code(0x5C), '\\');
+        assert_eq!(decode_screen_code(0x5D), ']');
+        assert_eq!(decode_screen_code(0x5E), '^');
+        assert_eq!(decode_screen_code(0x5F), '_');
+        assert_eq!(decode_screen_code(0x60), '`');
+        assert_eq!(decode_screen_code(0x61), 'A');
+        assert_eq!(decode_screen_code(0x7A), 'Z');
+        assert_eq!(decode_screen_code(0x7B), '?', "outside printable arms");
+        assert_eq!(decode_screen_code(0xFF), '?', "high bit fallback");
+    }
+
+    #[test]
+    fn parse_hex_u16_accepts_optional_prefix() {
+        assert_eq!(parse_hex_u16("0400"), Some(0x0400));
+        assert_eq!(parse_hex_u16("0x0400"), Some(0x0400));
+        assert_eq!(parse_hex_u16("0XDEAD"), Some(0xDEAD));
+        assert_eq!(parse_hex_u16("FFFF"), Some(0xFFFF));
+        assert_eq!(parse_hex_u16("zz"), None);
+        assert_eq!(parse_hex_u16("10000"), None, "overflow rejects");
+    }
+
+    /// `c64_boot_status` finds the READY. screen-code sequence
+    /// anywhere in the 1000-byte screen RAM. Hand-poke the 6 codes
+    /// into RAM at a known offset so we drive the detected branch
+    /// without booting a real ROM.
+    #[test]
+    fn c64_boot_status_detects_ready_anywhere_in_screen_ram() {
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let ready: [u8; 6] = [18, 5, 1, 4, 25, 46];
+        let offset = 80; // row 2, column 0
+        for (i, code) in ready.iter().enumerate() {
+            runtime
+                .machine_mut()
+                .cpu_write(0x0400 + offset + i as u16, *code);
+        }
+
+        let status = c64_boot_status(runtime.machine());
+        assert!(status.detected);
+        assert_eq!(status.row, Some(2));
+        assert_eq!(status.offset, Some(80));
+        assert!(status.reason.contains("READY"));
+    }
+
+    #[test]
+    fn decode_screen_text_lines_reports_the_full_25_rows() {
+        let runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let lines = decode_screen_text_lines(runtime.machine());
+        assert_eq!(lines.len(), 25);
+        assert!(lines.iter().all(|line| line.chars().count() == 40));
+    }
+
+    /// Catalogue invariant: every advertised path is unique. Doubles
+    /// would silently clobber each other in a sorted query_paths
+    /// listing.
+    #[test]
+    fn advertised_query_paths_are_unique() {
+        let mut sorted: Vec<&&str> = C64_QUERY_PATHS.iter().collect();
+        sorted.sort();
+        let mut deduped = sorted.clone();
+        deduped.dedup();
+        assert_eq!(sorted.len(), deduped.len(), "duplicate query paths");
+    }
+}

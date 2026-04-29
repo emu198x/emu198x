@@ -4,6 +4,50 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — Cov-4: directed tests for the isolated C64 runtime modules
+
+**Type:** test (Cov-4 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md))
+**Trigger:** the previous two commits split the C64 runtime into per-concern modules (`queries.rs` / `snapshot.rs` / `input.rs`) and moved the inline tests into `tests/`. With the file shape settled, per-module coverage finally became legible — and the gaps were specific enough to drive directed tests against, instead of staring at "1225 uncovered lines in runtime.rs" as one undifferentiated number.
+**Result:** ~31 new tests across lib (`queries.rs` inline, `file_loader.rs` inline) and `tests/` (lifecycle, snapshot_roundtrip, queries). Function-level coverage on `queries.rs` jumped from **25% → 100%**, and module-level line coverage moved by the numbers below.
+
+| File | Lines before | Lines after | Funcs before | Funcs after |
+|---|---|---|---|---|
+| `queries.rs` | 64.14% | **98.34%** | 25.00% | **100%** |
+| `runtime.rs` | 52.68% | **62.96%** | 63.27% | **73.47%** |
+| `snapshot.rs` | 66.67% | **86.27%** | 33.33% | 50.00% |
+| `file_loader.rs` | 93.46% | **100%** | 62.50% | **100%** |
+| `input.rs` | 93.20% | 95.15% | 100% | 100% |
+| `autoload.rs` | 64.38% | 64.38% | 100% | 100% |
+| `profiles.rs` | 100% | 100% | 100% | 100% |
+
+Total uncovered lines in the crate: **444 → 274**.
+
+**What the new tests cover.** The directed work clusters by module:
+
+- `tests/queries.rs` (+6 hermetic) — `every_advertised_query_path_resolves_with_drive_attached` walks the whole `C64_QUERY_PATHS` catalogue against a runtime with the optional 1541, asserting each concrete path returns `Ok(Some(_))` and each `<hex16>` placeholder reports `Err(QueryError::UnknownPath)`. A second copy runs without the drive (drive-side queries return `Ok(Some(null))`). Plus directed tests for `c64.memory.ram.<hex>` and `c64.drive8.mem.<hex>` prefix dispatch (with and without a drive), and `query_paths` prefix filtering.
+- `crates/runtime-commodore-c64/src/queries.rs` (+5 inline) — `decode_screen_code` (one assert per match arm so a regression that shifts an arm boundary trips at PR time), `parse_hex_u16` (with and without `0x`/`0X` prefix, plus overflow rejection), `c64_boot_status` driven into the detected branch by hand-poking `READY.` codes into screen RAM at a known offset, `decode_screen_text_lines` shape, and uniqueness of `C64_QUERY_PATHS`.
+- `tests/lifecycle.rs` (+14) — NTSC build, wrong-size KERNAL/DOS rejection, missing-firmware reporting per ROM, `MachineCore::reset` + `capabilities`, `load_media` rejecting unknown slot / wrong kind for tape-1 / wrong kind for drive-8, `command` rejecting unknown tape slot, trace-setter coverage for VIC and drive-ROM windows, `run_until` routing `InputEvent::Button` through `apply_input_event`, file-loader unrecognised-extension path, zero-cycle run.
+- `tests/snapshot_roundtrip.rs` (+2) — postcard decode rejects garbage bytes; profile mismatch rejects a PAL snapshot loaded into an NTSC runtime.
+- `crates/runtime-commodore-c64/src/file_loader.rs` (+4 inline) — unrecognised extension; non-UTF-8 BAS source; invalid T64 archive; invalid D64 image. Closes the three uncovered map_err closures in this module.
+
+**Honest gaps left.** The ~274 lines still uncovered split into four buckets:
+
+- **Unreachable through public API.** `MediaTransportAction::_` and `ControlCommand::_` arms in `MachineCore::command` only fire if the enums grow new variants — the enums are `#[non_exhaustive]` but currently exhaustive in `emu198x-shell`, so the runtime arms are belt-and-braces.
+- **Belt-and-braces error paths.** `from_firmware`'s `.ok_or_else(|| MachineError::MissingFirmware { … })` closures only fire if `firmware.bytes(id)` returns `None` after `validate_for_profile` has already passed — which it never does, since validate already verified each declared image is present.
+- **Need real CPU code.** The VIC colour-write trace inner block and the drive ROM trace `drive_trace_state` body emit when the relevant register/PC changes mid-`run_until`. With blank ROMs the CPU loops on BRK at $0000; no live writes to $D020/$D021 occur, no drive PC enters a windowed range. These will get covered the moment we run a ROM-backed test that opts into the trace stream.
+- **Need real ROMs.** `autoload.rs` (64% line coverage) and the 16 `#[ignore]`d real-D64/TAP tests cover the same code paths through a different door — they're behind `#[ignore]` because they need `~/.emu198x/roms/commodore-c64/` and the local Reference library, but they exist in the suite and run in our local verification.
+
+**Verification:**
+- `cargo test -p runtime-commodore-c64 --lib` — 23 passed (was 14).
+- `cargo test -p runtime-commodore-c64 --tests` — 36 passed, 16 ignored (was 14 + 16).
+- `cargo clippy -p runtime-commodore-c64 --all-targets -- -D warnings` — clean.
+
+**Plan-track status.** Cov-4 is closed. Remaining coverage work tracked in `docs/plans/2026-04-28-october-runup-plan.md`:
+- Cov-5 (the `decode.rs`/`cpu.rs` 68000 variant carve-out deferred from Cov-3) — open.
+- The architectural-split track has the three sibling files queued up next: `format-nintendo-nes-ines/src/lib.rs` (3879 lines, 14 mappers), `commodore-denise-ocs/src/lib.rs` (2407 lines), and the larger `motorola-68000`-into-per-variant-crates work the user has indicated support for. These will surface their own per-module coverage gaps the same way the C64 split did here.
+
+---
+
 ## 2026-04-29 — C64 runtime: extract inline tests into per-topic integration files
 
 **Type:** refactor (test reorganisation)

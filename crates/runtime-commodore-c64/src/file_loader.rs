@@ -74,6 +74,38 @@ mod tests {
     use crate::Model;
 
     #[test]
+    fn rejects_unrecognised_extension() {
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let err = load_host_file(&mut runtime, "demo.zip", &[0])
+            .expect_err("zip is not in the supported list");
+        assert!(err.contains("unrecognised file extension"));
+    }
+
+    #[test]
+    fn bas_loader_reports_non_utf8_source() {
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let err = load_host_file(&mut runtime, "broken.bas", &[0xFF, 0xFE, 0xFD])
+            .expect_err("non-UTF-8 BASIC source should be rejected");
+        assert!(err.contains("BASIC source is not valid UTF-8"));
+    }
+
+    #[test]
+    fn t64_loader_reports_invalid_archive() {
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let err = load_host_file(&mut runtime, "broken.t64", &[0; 4])
+            .expect_err("4-byte file is not a T64 archive");
+        assert!(err.contains("failed to parse T64 container"));
+    }
+
+    #[test]
+    fn d64_loader_reports_invalid_image() {
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let err = load_host_file(&mut runtime, "broken.d64", &[0; 4])
+            .expect_err("4-byte file is not a D64 image");
+        assert!(err.contains("failed to parse D64 image"));
+    }
+
+    #[test]
     fn imports_prg_file() {
         let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
         let msg = load_host_file(&mut runtime, "demo.prg", &[0x00, 0xC0, 0x11, 0x22])
