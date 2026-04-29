@@ -9,9 +9,11 @@
 //! text extraction and boot detection.
 
 mod autoload;
+mod input;
 mod profiles;
+mod runtime;
+mod snapshot;
 mod spectrum_48k;
-mod spectrum_runtime;
 mod variants;
 
 pub use autoload::{
@@ -20,8 +22,8 @@ pub use autoload::{
 };
 pub use common_sinclair_zx_spectrum::{AudioControls, SpeakerChannel};
 pub use profiles::{Model, profile_for, profiles};
+pub use runtime::{SpectrumMachine, SpectrumRuntime};
 pub use spectrum_48k::SpectrumSessionQueryProvider;
-pub use spectrum_runtime::{SpectrumMachine, SpectrumRuntime};
 pub use variants::{
     Pentagon128Runtime, ScorpionZS256Runtime, Spectrum48kRuntime, Spectrum128kRuntime,
     SpectrumPlusRuntime, TimexTC2048Runtime, TimexTS2068Runtime,

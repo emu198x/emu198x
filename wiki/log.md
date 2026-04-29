@@ -4,6 +4,77 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — Runtime family normalization, wave 3: Spectrum (hybrid shape) + decision record
+
+**Type:** refactor (architectural — applying the per-concern shape WITHIN the per-variant generic) + new decision record
+**Trigger:** waves 1 and 2 normalized C64, Game Boy, NES, and Amiga. Spectrum was the last family member but architecturally different — `SpectrumRuntime<M: SpectrumMachine>` is generic over the machine type, with 7 variant aliases. The user's call: the per-variant generic axis is correct (avoids 7 near-identical `MachineCore` impls) and is the *target* shape for Amiga once ECS/AGA/SAGA work begins. So the per-concern axis applies *inside* the generic structure rather than as an alternative — a hybrid split.
+
+The user also flagged that this pattern needs to be written down as a decision record so future contributors don't have to rediscover it.
+
+**Result:** Spectrum split into the four-concern shape with `<M: SpectrumMachine>` threading through; new `wiki/decisions/runtime-internal-shape.md` captures the rule with drift triggers; `wiki/index.md` linked.
+
+### The hybrid split
+
+| File | Before | After |
+|---|---|---|
+| `spectrum_runtime.rs` | 351 | — (renamed to `runtime.rs`) |
+| `runtime.rs` (was `spectrum_runtime.rs`) | — | **330** (struct + `MachineCore` impl + `SpectrumMachine` trait) |
+| `snapshot.rs` (new) | — | 96 (generic `SpectrumRuntimeSnapshotRefV1<'a, M: Serialize>` / `SpectrumRuntimeSnapshotV1<M>` + encode/decode) |
+| `input.rs` (new) | — | 35 (free `apply_input_event<M: SpectrumMachine>`) |
+| `variants.rs` | 543 (310 prod + 233 inline tests) | **309** (production only) |
+| `tests/variants.rs` (new) | — | 247 (9 tests moved from `src/variants.rs`) |
+| `spectrum_48k.rs` | 357 | 357 (untouched) |
+| `autoload.rs`, `profiles.rs` | 275, 457 | unchanged |
+
+**Rename, don't relocate.** The agent renamed `spectrum_runtime.rs` → `runtime.rs` to match the family-wide convention; the struct it carries is still `SpectrumRuntime<M>` so call sites are unchanged.
+
+### Generic threading
+
+- **`snapshot.rs`** keeps the original two-envelope shape: `SpectrumRuntimeSnapshotRefV1<'a, M: Serialize>` for the encode side (no `Deserialize` bound needed when only encoding), `SpectrumRuntimeSnapshotV1<M>` for the decode side. The two free functions `encode<M: SpectrumMachine>` / `decode<M: SpectrumMachine>` carry one bound — `SpectrumMachine` itself transitively gives both `Serialize` and `for<'de> Deserialize<'de>`.
+- **`input.rs`** carries the bound on `apply_input_event<M: SpectrumMachine>`. The signature deviates from the C64/GB/NES/Amiga pattern: it takes `&mut SpectrumRuntime<M>` rather than `&mut M`. **Why:** the Spectrum keyboard matrix is a runtime-side cache that survives across `run_until` calls. `set_keyboard_rows` is a whole-matrix write on the trait — there's no per-key setter — so the runtime decodes N events into the cached matrix and pushes the cache as one batched write before each frame. That input-buffer state lives on `SpectrumRuntime`, not on `M`, so the function needs the runtime arg. The decision record (see below) now codifies this variance: the *forbidden* shape is the method form (`&mut self`); a free fn taking `&mut Runtime<M>` is fine when input buffering lives on the runtime.
+
+### Tests
+
+All 9 inline `src/variants.rs` tests moved verbatim to `tests/variants.rs`. Zero stayed inline because every test exercises the public API (`SpectrumRuntime::new`, `runtime.snapshot()`, `runtime.restore()`, `runtime.run_until()`, `runtime.load_media()`, the per-variant type aliases, machine-side public fields). No `tests/common/mod.rs` was created — only one new integration file was added, and the two helpers it shares (`run_single_frame` / `run_single_frame_by_ref`, ~18 lines each) are duplicated inline rather than abstracted. Pre-existing `tests/runtime_48k.rs` (681 lines) and `tests/boot_invariants.rs` (113 lines) untouched.
+
+### `pub(crate)` accessors added to `SpectrumRuntime<M>`
+
+- `keyboard_mut() -> &mut KeyboardMatrix` — used by `input::apply_input_event`
+- `keyboard_rows() -> &[u8; 8]` — used by `snapshot::encode`
+- `set_keyboard_rows(rows: [u8; 8])` — used by `snapshot::decode`
+- `set_machine(m: M)` — used by `snapshot::decode`
+- `set_time(t: MachineTime)` — used by `snapshot::decode`
+- `time_value()` — pre-existing `time()` renamed to avoid shadowing `MachineCore::time` when called from inside `snapshot.rs` (same trick the GB and Amiga splits used)
+
+### Verification
+
+- `cargo test -p runtime-sinclair-zx-spectrum --lib` — **8 passed** (was 17; 9 moved out, 0 lost)
+- `cargo test -p runtime-sinclair-zx-spectrum --tests` — **22 passed, 6 ignored** (boot_invariants 3+1, runtime_48k 10+5, variants 9+0)
+- `cargo clippy -p runtime-sinclair-zx-spectrum --all-targets -- -D warnings` — clean
+- `cargo build -p runtime-sinclair-zx-spectrum` — clean
+
+**Test count proof.** Pre-split: lib 17 + (boot_invariants 3+1) + (runtime_48k 10+5) = 30 passed, 6 ignored. Post-split: lib 8 + (boot_invariants 3+1) + (runtime_48k 10+5) + (variants 9+0) = 30 passed, 6 ignored. Net: 9 lib tests moved to integration; nothing new added, nothing missing.
+
+### New decision record: `wiki/decisions/runtime-internal-shape.md`
+
+Captures:
+- The four-concern split (`runtime.rs` / `queries.rs` / `snapshot.rs` / `input.rs`) inside every `runtime-{family}` crate.
+- The per-variant generic axis as the *next* axis when a family grows variants with shared chip surface — explicit cross-link to `within-family-layering.md`, which already covers the inter-crate layering.
+- Family state table: C64 / GB / NES / Amiga normalised (concrete machine), Spectrum normalised hybrid, Dragon out-of-scope while Codex iterates.
+- Drift triggers — eight specific patterns ("if you find yourself doing X, stop and re-consult this record"). Includes the `apply_input_event` variance discovered during the Spectrum split itself.
+- Honest exclusions: `spectrum_48k.rs` is variant-specific feature scope, not architectural smell; `autoload.rs`/`file_loader.rs`/`profiles.rs` are family-specific and only exist where there's something to put in them.
+- Update procedure: future shape changes update the record first, then the code.
+
+Linked from `wiki/index.md` under the Decisions section, immediately after `within-family-layering.md`.
+
+### What's next
+
+The runtime-family normalization is now closed for all five currently-shipping platforms (C64, GB, NES, Amiga, Spectrum). Dragon stays Codex-owned. The big chip splits (`format-nintendo-nes-ines/src/lib.rs` 14 mappers, `commodore-denise-ocs/src/lib.rs` 2407 lines, `motorola-68000` family-into-per-variant-crates) are the natural next architectural track. Cov-5 — applying directed-test passes to GB / NES / Amiga / Spectrum the way Cov-4 did for C64 — is also unblocked because per-module coverage is now legible across the family.
+
+When ECS/AGA/SAGA work eventually begins on the Amiga side, the conversion to `AmigaRuntime<M: AmigaMachine>` follows the playbook in this Spectrum split: introduce the trait, `impl AmigaMachine for AmigaOcs`, parameterise `runtime.rs` / `snapshot.rs` / `input.rs` / `queries.rs`, add a `variants.rs` with the type aliases.
+
+---
+
 ## 2026-04-29 — Runtime family normalization, wave 2: Amiga
 
 **Type:** refactor (architectural — applying the C64 / GB / NES shape)

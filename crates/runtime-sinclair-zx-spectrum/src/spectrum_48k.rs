@@ -16,7 +16,7 @@ use emu198x_shell::{
 use machine_sinclair_zx_spectrum_48k::{BoardIssue, Spectrum48k};
 use serde_json::json;
 
-use crate::spectrum_runtime::SpectrumRuntime;
+use crate::runtime::SpectrumRuntime;
 use crate::variants::Spectrum48kRuntime;
 use crate::{Model, profile_for};
 

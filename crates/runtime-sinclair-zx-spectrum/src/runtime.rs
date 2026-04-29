@@ -1,25 +1,28 @@
 //! Generic `MachineCore` wrapper for Spectrum-family variants.
 //!
-//! The 48K runtime in `runtime.rs` is deliberately separate: it carries
-//! the rich `SpectrumSessionQueryProvider` with ROM-glyph-based text
-//! extraction and boot detection. The other variants plug into this
-//! thin generic wrapper for frame and audio output, tape control, input
-//! plumbing, and snapshot round-trips.
+//! The 48K runtime extras live in `spectrum_48k.rs`: 48K-specific
+//! firmware constructors, the rich `SpectrumSessionQueryProvider` with
+//! ROM-glyph-based text extraction, and boot detection. Every other
+//! variant plugs into the generic wrapper here for frame and audio
+//! output, tape control, input plumbing, and snapshot round-trips.
+//!
+//! Snapshot/restore are thin delegators into [`crate::snapshot`].
+//! The per-event keyboard matrix update lives in [`crate::input`].
 
 use common_sinclair_zx_spectrum::SPECTRUM_PALETTE;
-use common_sinclair_zx_spectrum::keyboard::{KeyboardMatrix, SpectrumKey};
+use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, InputEvent, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
-    PixelFormat, ResetKind, RunResult, StopReason,
+    AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
+    MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction, PixelFormat,
+    ResetKind, RunResult, StopReason,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{Model, profile_for};
 
-/// Trait satisfied by non-48K Spectrum-family machines so they can plug
-/// into the generic runtime. Implementors already derive
+/// Trait satisfied by Spectrum-family machines so they can plug into
+/// the generic runtime. Implementors already derive
 /// `serde::Serialize`/`Deserialize`; the runtime uses that for snapshot
 /// round-trips through postcard.
 pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
@@ -90,24 +93,6 @@ pub struct SpectrumRuntime<M: SpectrumMachine> {
     time: MachineTime,
 }
 
-#[derive(Serialize)]
-struct SpectrumRuntimeSnapshotRefV1<'a, M: Serialize> {
-    version: u32,
-    profile_id: &'a str,
-    time: MachineTime,
-    keyboard_rows: [u8; 8],
-    machine: &'a M,
-}
-
-#[derive(Deserialize)]
-struct SpectrumRuntimeSnapshotV1<M> {
-    version: u32,
-    profile_id: String,
-    time: MachineTime,
-    keyboard_rows: [u8; 8],
-    machine: M,
-}
-
 impl<M: SpectrumMachine> SpectrumRuntime<M> {
     /// Creates a runtime for the given profile and pre-initialised machine.
     #[must_use]
@@ -133,8 +118,11 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
     }
 
     /// Returns the current runtime time in authoritative half-cycles.
+    ///
+    /// Named `time_value` to avoid colliding with the `MachineCore::time`
+    /// trait method when called from inside the sibling snapshot module.
     #[must_use]
-    pub const fn time(&self) -> MachineTime {
+    pub const fn time_value(&self) -> MachineTime {
         self.time
     }
 
@@ -144,6 +132,35 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
     #[must_use]
     pub fn profile_mut(&mut self) -> &mut MachineProfile {
         &mut self.profile
+    }
+
+    /// Returns mutable access to the runtime-side keyboard matrix
+    /// cache. Used by [`crate::input::apply_input_event`] to flip a
+    /// single key while preserving the rest of the matrix state.
+    pub(crate) fn keyboard_mut(&mut self) -> &mut KeyboardMatrix {
+        &mut self.keyboard
+    }
+
+    /// Returns the cached keyboard rows. Used by snapshot encoding.
+    pub(crate) fn keyboard_rows(&self) -> &[u8; 8] {
+        self.keyboard.rows()
+    }
+
+    /// Replaces the cached keyboard rows. Used by snapshot decoding;
+    /// the caller is expected to push the rows into the machine after
+    /// the matrix has been restored.
+    pub(crate) fn set_keyboard_rows(&mut self, rows: [u8; 8]) {
+        *self.keyboard.rows_mut() = rows;
+    }
+
+    /// Replaces the wrapped machine. Used by snapshot decoding.
+    pub(crate) fn set_machine(&mut self, machine: M) {
+        self.machine = machine;
+    }
+
+    /// Replaces the runtime time stamp. Used by snapshot decoding.
+    pub(crate) fn set_time(&mut self, time: MachineTime) {
+        self.time = time;
     }
 
     fn load_tape_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
@@ -220,11 +237,7 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
         for event in host.input_events {
-            if let InputEvent::Key { name, pressed } = event
-                && let Some(key) = SpectrumKey::from_name(name.as_ref())
-            {
-                self.keyboard.set_key(key, *pressed);
-            }
+            crate::input::apply_input_event(self, event);
         }
         self.machine.set_keyboard_rows(self.keyboard.rows());
 
@@ -255,45 +268,11 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
-        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV1 {
-            version: 1,
-            profile_id: self.profile.profile_id.as_str(),
-            time: self.time,
-            keyboard_rows: *self.keyboard.rows(),
-            machine: &self.machine,
-        })
-        .map_err(|reason| MachineError::InvalidSnapshot {
-            reason: format!("encode failed: {reason}"),
-        })
+        crate::snapshot::encode(self)
     }
 
     fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
-        let snapshot: SpectrumRuntimeSnapshotV1<M> =
-            postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
-                reason: format!("decode failed: {reason}"),
-            })?;
-
-        if snapshot.version != 1 {
-            return Err(MachineError::InvalidSnapshot {
-                reason: format!("unsupported snapshot version {}", snapshot.version),
-            });
-        }
-
-        if snapshot.profile_id != self.profile.profile_id.as_str() {
-            return Err(MachineError::InvalidSnapshot {
-                reason: format!(
-                    "snapshot profile {} does not match runtime profile {}",
-                    snapshot.profile_id,
-                    self.profile.profile_id.as_str()
-                ),
-            });
-        }
-
-        self.machine = snapshot.machine;
-        self.time = snapshot.time;
-        *self.keyboard.rows_mut() = snapshot.keyboard_rows;
-        self.machine.set_keyboard_rows(self.keyboard.rows());
-        Ok(())
+        crate::snapshot::decode(self, bytes)
     }
 
     fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
