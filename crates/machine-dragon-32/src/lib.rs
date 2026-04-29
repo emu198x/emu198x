@@ -1018,6 +1018,37 @@ pub struct CpuInterruptAcceptTrace {
     pub cc: u8,
 }
 
+/// VDG byte-render sampling trace entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VdgSampleTrace {
+    /// Bus cycle that advanced the beam far enough to sample this byte.
+    pub cycle: u64,
+    /// Master-tick offset within the current visible frame.
+    pub frame_master_tick: u64,
+    /// Visible framebuffer line, including top border.
+    pub line: usize,
+    /// Active-area line, excluding top border.
+    pub active_y: usize,
+    /// Display byte column sampled on this line.
+    pub byte_x: usize,
+    /// SAM-selected display base at the sample point.
+    pub display_base: u16,
+    /// SAM VDG mode latch bits V0..V2 at the sample point.
+    pub sam_video_mode: u8,
+    /// SAM display-offset latch bits F0..F6 at the sample point.
+    pub sam_display_offset: u8,
+    /// PIA1 port-B pin state feeding MC6847 control lines.
+    pub pia1_pb: u8,
+    /// MC6847 A/G line; true selects full graphics.
+    pub graphics: bool,
+    /// MC6847 CSS line.
+    pub css: bool,
+    /// MC6847 INT/EXT line.
+    pub int_ext: bool,
+    /// MC6847 GM0..GM2 value.
+    pub gm: u8,
+}
+
 /// Reason a bounded machine run stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
@@ -1099,6 +1130,10 @@ pub struct RunReport {
     pub interrupt_accepts: Vec<CpuInterruptAcceptTrace>,
     /// Number of CPU interrupt acceptance entries dropped due to the trace limit.
     pub dropped_interrupt_accepts: usize,
+    /// Retained VDG byte-render samples.
+    pub vdg_samples: Vec<VdgSampleTrace>,
+    /// Number of VDG byte-render samples dropped due to the trace limit.
+    pub dropped_vdg_samples: usize,
     /// SAM-selected text screen base at the end of the run.
     pub text_screen_base: u16,
 }
@@ -1355,6 +1390,7 @@ struct BeamVideo {
     next_byte: usize,
     hsync_level: bool,
     fsync_level: bool,
+    pending_samples: Vec<VdgSampleTrace>,
 }
 
 impl BeamVideo {
@@ -1367,6 +1403,7 @@ impl BeamVideo {
             next_byte: 0,
             hsync_level: false,
             fsync_level: false,
+            pending_samples: Vec::new(),
         }
     }
 
@@ -1374,7 +1411,12 @@ impl BeamVideo {
         &self.frame
     }
 
-    fn tick(&mut self, memory: &DragonMemory, master_ticks: u64) -> BeamVideoTick {
+    fn tick(
+        &mut self,
+        memory: &DragonMemory,
+        master_ticks: u64,
+        bus_cycle: Option<u64>,
+    ) -> BeamVideoTick {
         let mut tick = BeamVideoTick::default();
         if self.hsync_level {
             self.hsync_level = false;
@@ -1387,10 +1429,10 @@ impl BeamVideo {
 
         let previous = self.cycle_in_frame;
         let target = self.cycle_in_frame.saturating_add(master_ticks);
-        self.render_until(memory, target);
+        self.render_until(memory, target, bus_cycle);
         self.cycle_in_frame = target;
         if self.cycle_in_frame >= DRAGON_FRAME_MASTER_TICKS {
-            self.render_until(memory, DRAGON_FRAME_MASTER_TICKS);
+            self.render_until(memory, DRAGON_FRAME_MASTER_TICKS, bus_cycle);
             self.cycle_in_frame = 0;
             self.next_line = 0;
             self.line_border_rendered = false;
@@ -1409,7 +1451,11 @@ impl BeamVideo {
         tick
     }
 
-    fn render_until(&mut self, memory: &DragonMemory, target_cycle: u64) {
+    fn drain_pending_samples(&mut self, dest: &mut Vec<VdgSampleTrace>) {
+        dest.append(&mut self.pending_samples);
+    }
+
+    fn render_until(&mut self, memory: &DragonMemory, target_cycle: u64, bus_cycle: Option<u64>) {
         while self.next_line < TEXT_VISIBLE_FRAMEBUFFER_HEIGHT {
             let line_start = line_start_cycle(self.next_line);
             if line_start >= target_cycle {
@@ -1430,7 +1476,7 @@ impl BeamVideo {
                 if byte_start >= target_cycle {
                     break;
                 }
-                self.render_byte_line(memory, self.next_line, self.next_byte);
+                self.render_byte_line(memory, self.next_line, self.next_byte, bus_cycle);
                 self.next_byte += 1;
                 continue;
             }
@@ -1446,8 +1492,31 @@ impl BeamVideo {
         self.frame[start..end].fill(palette.border);
     }
 
-    fn render_byte_line(&mut self, memory: &DragonMemory, line: usize, byte_x: usize) {
+    fn render_byte_line(
+        &mut self,
+        memory: &DragonMemory,
+        line: usize,
+        byte_x: usize,
+        bus_cycle: Option<u64>,
+    ) {
         let control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
+        if let Some(cycle) = bus_cycle {
+            self.pending_samples.push(VdgSampleTrace {
+                cycle,
+                frame_master_tick: active_byte_start_cycle(line, byte_x),
+                line,
+                active_y: line.saturating_sub(motorola_vdg_6847::TEXT_TOP_BORDER_LINES),
+                byte_x,
+                display_base: memory.text_screen_base(),
+                sam_video_mode: memory.sam.video_mode(),
+                sam_display_offset: memory.sam.display_offset(),
+                pia1_pb: memory.pia1.pb,
+                graphics: control.graphics,
+                css: control.css,
+                int_ext: control.int_ext,
+                gm: control.gm,
+            });
+        }
         motorola_vdg_6847::render_visible_argb_byte_line_into(
             |offset| memory.display_byte(offset),
             control,
@@ -1999,7 +2068,7 @@ impl Dragon32 {
     /// Execute one bus cycle and return any observed memory/device event.
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
         let master_ticks = self.sam_timing.tick(&self.memory.sam, self.cpu.addr);
-        let video_tick = self.video.tick(&self.memory, master_ticks);
+        let video_tick = self.video.tick(&self.memory, master_ticks, None);
         if let Some(level) = video_tick.hsync {
             self.memory.pia0.set_signal_level(PiaSignal::Ca1, level);
         }
@@ -2056,6 +2125,8 @@ impl Dragon32 {
         let mut dropped_interrupt_lines = 0usize;
         let mut interrupt_accepts = Vec::new();
         let mut dropped_interrupt_accepts = 0usize;
+        let mut vdg_samples = Vec::new();
+        let mut dropped_vdg_samples = 0usize;
         let mut last_fetch = None;
         let mut last_irq = self.cpu.irq;
         let mut last_firq = self.cpu.firq;
@@ -2132,6 +2203,8 @@ impl Dragon32 {
                 run_cycle,
                 &mut pia_signals,
                 &mut dropped_pia_signals,
+                &mut vdg_samples,
+                &mut dropped_vdg_samples,
                 trace_limit,
             );
             run_cycles = run_cycle.saturating_add(1);
@@ -2258,6 +2331,8 @@ impl Dragon32 {
             dropped_interrupt_lines,
             interrupt_accepts,
             dropped_interrupt_accepts,
+            vdg_samples,
+            dropped_vdg_samples,
             text_screen_base: self.text_screen_base(),
         }
     }
@@ -2267,10 +2342,21 @@ impl Dragon32 {
         cycle: u64,
         pia_signals: &mut Vec<PiaSignalTrace>,
         dropped_pia_signals: &mut usize,
+        vdg_samples: &mut Vec<VdgSampleTrace>,
+        dropped_vdg_samples: &mut usize,
         trace_limit: usize,
     ) -> Option<MemoryEvent> {
         let master_ticks = self.sam_timing.tick(&self.memory.sam, self.cpu.addr);
-        let video_tick = self.video.tick(&self.memory, master_ticks);
+        let video_tick = self.video.tick(
+            &self.memory,
+            master_ticks,
+            (trace_limit != 0).then_some(cycle),
+        );
+        let mut pending_vdg_samples = Vec::new();
+        self.video.drain_pending_samples(&mut pending_vdg_samples);
+        for sample in pending_vdg_samples {
+            retain_vdg_sample(vdg_samples, dropped_vdg_samples, trace_limit, sample);
+        }
         if let Some(level) = video_tick.hsync {
             self.memory.pia0.set_signal_level(PiaSignal::Ca1, level);
             retain_pia_signal(
@@ -2461,6 +2547,24 @@ fn retain_interrupt_accept(
         *dropped_accepts = dropped_accepts.saturating_add(1);
     }
     accepts.push(accept);
+}
+
+fn retain_vdg_sample(
+    samples: &mut Vec<VdgSampleTrace>,
+    dropped_samples: &mut usize,
+    trace_limit: usize,
+    sample: VdgSampleTrace,
+) {
+    if trace_limit == 0 {
+        *dropped_samples = dropped_samples.saturating_add(1);
+        return;
+    }
+
+    if samples.len() == trace_limit {
+        samples.remove(0);
+        *dropped_samples = dropped_samples.saturating_add(1);
+    }
+    samples.push(sample);
 }
 
 fn pia_signal_trace(

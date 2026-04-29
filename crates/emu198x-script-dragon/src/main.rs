@@ -23,7 +23,7 @@ use machine_dragon_32::{
     AddressRange, CpuInterruptAcceptTrace, CpuInterruptKind, CpuInterruptLineTrace,
     CpuRegisterTrace, DeviceAccess, DeviceRegion, Dragon32, DragonCartridgeKind, DragonKey,
     DragonKeyboard, FetchTrace, MatrixKey, MemoryWriteTrace, PiaSignalTrace, ROM_SIZE,
-    ReadonlyWrite, RunOptions, RunReport, StopReason, WatchedFetchTrace,
+    ReadonlyWrite, RunOptions, RunReport, StopReason, VdgSampleTrace, WatchedFetchTrace,
 };
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
@@ -156,6 +156,8 @@ struct HarnessReport {
     dropped_interrupt_lines: usize,
     interrupt_accepts: Vec<CpuInterruptAcceptTrace>,
     dropped_interrupt_accepts: usize,
+    vdg_samples: Vec<VdgSampleTrace>,
+    dropped_vdg_samples: usize,
     text_screen_base: u16,
     text_screen: Option<String>,
     text_framebuffer: Option<Vec<u32>>,
@@ -234,7 +236,45 @@ struct SnapshotRuntimeSmoke {
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_comparison_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    vdg_trace: Option<VdgTraceSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct VdgTraceSummary {
+    dropped_samples: usize,
+    dropped_device_accesses: usize,
+    samples: Vec<VdgSampleSummary>,
+    mode_writes: Vec<VdgModeWriteSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct VdgSampleSummary {
+    cycle: u64,
+    frame_master_tick: u64,
+    line: usize,
+    active_y: usize,
+    byte_x: usize,
+    display_base: u16,
+    sam_video_mode: u8,
+    sam_display_offset: u8,
+    pia1_pb: u8,
+    graphics: bool,
+    css: bool,
+    int_ext: bool,
+    gm: u8,
+}
+
+#[derive(Debug, Serialize)]
+struct VdgModeWriteSummary {
+    cycle: u64,
+    addr: u16,
+    value: u8,
+    graphics: bool,
+    css: bool,
+    int_ext: bool,
+    gm: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1197,6 +1237,7 @@ fn run_snapshot_smoke(
         xroar_reference_error,
         xroar_reference_comparison,
         xroar_reference_comparison_error: None,
+        vdg_trace: vdg_trace_summary(&report),
         error: None,
     }
 }
@@ -1229,8 +1270,64 @@ fn failed_snapshot_smoke(
         xroar_reference_error: None,
         xroar_reference_comparison: None,
         xroar_reference_comparison_error: None,
+        vdg_trace: vdg_trace_summary(&report),
         error: Some(error),
     }
+}
+
+fn vdg_trace_summary(report: &HarnessReport) -> Option<VdgTraceSummary> {
+    if report.vdg_samples.is_empty()
+        && report.dropped_vdg_samples == 0
+        && report.device_accesses.is_empty()
+        && report.dropped_device_accesses == 0
+    {
+        return None;
+    }
+
+    let mode_writes: Vec<_> = report
+        .device_accesses
+        .iter()
+        .filter(|access| {
+            !access.rw && access.device == DeviceRegion::Pia1 && (access.addr & 0x03) == 0x02
+        })
+        .map(|access| {
+            let control = motorola_vdg_6847::VdgControl::from_dragon_pia1_port_b(access.value);
+            VdgModeWriteSummary {
+                cycle: access.cycle,
+                addr: access.addr,
+                value: access.value,
+                graphics: control.graphics,
+                css: control.css,
+                int_ext: control.int_ext,
+                gm: control.gm,
+            }
+        })
+        .collect();
+
+    Some(VdgTraceSummary {
+        dropped_samples: report.dropped_vdg_samples,
+        dropped_device_accesses: report.dropped_device_accesses,
+        samples: report
+            .vdg_samples
+            .iter()
+            .map(|sample| VdgSampleSummary {
+                cycle: sample.cycle,
+                frame_master_tick: sample.frame_master_tick,
+                line: sample.line,
+                active_y: sample.active_y,
+                byte_x: sample.byte_x,
+                display_base: sample.display_base,
+                sam_video_mode: sample.sam_video_mode,
+                sam_display_offset: sample.sam_display_offset,
+                pia1_pb: sample.pia1_pb,
+                graphics: sample.graphics,
+                css: sample.css,
+                int_ext: sample.int_ext,
+                gm: sample.gm,
+            })
+            .collect(),
+        mode_writes,
+    })
 }
 
 fn classify_snapshot_smoke(
@@ -3588,6 +3685,8 @@ impl IntoHarnessReport for RunReport {
             dropped_interrupt_lines: self.dropped_interrupt_lines,
             interrupt_accepts: self.interrupt_accepts,
             dropped_interrupt_accepts: self.dropped_interrupt_accepts,
+            vdg_samples: self.vdg_samples,
+            dropped_vdg_samples: self.dropped_vdg_samples,
             text_screen_base: self.text_screen_base,
             text_screen,
             text_framebuffer,
@@ -3728,6 +3827,28 @@ fn print_report(report: &HarnessReport) {
             format_interrupt_kind(accept.kind),
             accept.pc,
             accept.cc
+        );
+    }
+    if report.dropped_vdg_samples != 0 {
+        println!("vdg samples dropped: {}", report.dropped_vdg_samples);
+    }
+    println!("vdg samples:");
+    for sample in &report.vdg_samples {
+        println!(
+            "  cycle={} frame_tick={} line={} active_y={} byte={} base=${:04X} sam_mode=${:02X} sam_offset=${:02X} pb=${:02X} ag={} css={} int_ext={} gm={}",
+            sample.cycle,
+            sample.frame_master_tick,
+            sample.line,
+            sample.active_y,
+            sample.byte_x,
+            sample.display_base,
+            sample.sam_video_mode,
+            sample.sam_display_offset,
+            sample.pia1_pb,
+            sample.graphics,
+            sample.css,
+            sample.int_ext,
+            sample.gm
         );
     }
     if let Some(text_screen) = &report.text_screen {
