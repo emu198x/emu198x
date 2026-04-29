@@ -398,6 +398,75 @@ pub fn render_visible_argb_byte_line_into(
     }
 }
 
+/// Maximum width of one MC6847 display byte in the cropped framebuffer.
+pub const VDG_BEAM_BYTE_MAX_PIXELS: usize = 16;
+
+/// Decoded pixels for one active display byte on one scanline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VdgBeamByte {
+    pixels: [u32; VDG_BEAM_BYTE_MAX_PIXELS],
+    width: usize,
+}
+
+impl VdgBeamByte {
+    /// Width of the decoded display byte in framebuffer pixels.
+    #[must_use]
+    pub const fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Copy a range of decoded byte pixels into a visible framebuffer line.
+    pub fn render_range_into(
+        &self,
+        framebuffer: &mut [u32],
+        visible_y: usize,
+        active_x_origin: usize,
+        start: usize,
+        end: usize,
+    ) {
+        assert_eq!(framebuffer.len(), TEXT_VISIBLE_FRAMEBUFFER_PIXELS);
+        assert!(start <= end);
+        assert!(end <= self.width);
+        let row_start = visible_y * TEXT_VISIBLE_FRAMEBUFFER_WIDTH
+            + TEXT_LEFT_BORDER_PIXELS
+            + active_x_origin
+            + start;
+        framebuffer[row_start..row_start + end - start].copy_from_slice(&self.pixels[start..end]);
+    }
+}
+
+/// Decode one MC6847 active display byte into beam-renderable pixels.
+#[must_use]
+pub fn decode_beam_byte(
+    mut read_byte: impl FnMut(usize) -> u8,
+    control: VdgControl,
+    palette: VdgPalette,
+    active_y: usize,
+    byte_x: usize,
+) -> VdgBeamByte {
+    let mut pixels = [palette.border; VDG_BEAM_BYTE_MAX_PIXELS];
+    let width = if control.graphics {
+        decode_graphics_beam_byte(
+            &mut read_byte,
+            control,
+            palette,
+            active_y,
+            byte_x,
+            &mut pixels,
+        )
+    } else {
+        decode_alpha_semigraphics_beam_byte(
+            &mut read_byte,
+            control,
+            palette,
+            active_y,
+            byte_x,
+            &mut pixels,
+        )
+    };
+    VdgBeamByte { pixels, width }
+}
+
 /// Expand the cropped border-inclusive VDG framebuffer into a PAL overscan frame.
 #[must_use]
 pub fn expand_visible_argb_to_pal_overscan(visible: &[u32], fill: u32) -> Vec<u32> {
@@ -630,6 +699,98 @@ fn render_alpha_semigraphics_byte_line_into(
         render_semigraphics6_cell_line(row, column, line_y, raw, control, palette, framebuffer);
     } else {
         render_semigraphics4_cell_line(row, column, line_y, raw, palette, framebuffer);
+    }
+}
+
+fn decode_alpha_semigraphics_beam_byte(
+    read_byte: &mut impl FnMut(usize) -> u8,
+    control: VdgControl,
+    palette: VdgPalette,
+    active_y: usize,
+    column: usize,
+    pixels: &mut [u32; VDG_BEAM_BYTE_MAX_PIXELS],
+) -> usize {
+    if column >= TEXT_COLUMNS {
+        return 0;
+    }
+    let row = active_y / TEXT_CELL_HEIGHT;
+    let line_y = active_y % TEXT_CELL_HEIGHT;
+    let raw = read_byte(row * TEXT_COLUMNS + column);
+    if raw & 0x80 == 0 {
+        decode_text_beam_byte(raw, line_y, alpha_text_palette(control, palette), pixels);
+    } else if control.int_ext {
+        decode_semigraphics6_beam_byte(raw, line_y, control, palette, pixels);
+    } else {
+        decode_semigraphics4_beam_byte(raw, line_y, palette, pixels);
+    }
+    TEXT_CELL_WIDTH
+}
+
+fn decode_text_beam_byte(
+    raw: u8,
+    line_y: usize,
+    palette: TextPalette,
+    pixels: &mut [u32; VDG_BEAM_BYTE_MAX_PIXELS],
+) {
+    let cell = decode_text_byte(raw);
+    let glyph_index = usize::from(cell.raw & 0x3F);
+    let bits = FONT_6847[glyph_index * TEXT_CELL_HEIGHT + line_y];
+    let (background, foreground) = if cell.inverse {
+        (palette.foreground, palette.background)
+    } else {
+        (palette.background, palette.foreground)
+    };
+    for (x, pixel) in pixels.iter_mut().take(TEXT_CELL_WIDTH).enumerate() {
+        *pixel = if glyph_pixel(bits, x) {
+            foreground
+        } else {
+            background
+        };
+    }
+}
+
+fn decode_semigraphics4_beam_byte(
+    raw: u8,
+    line_y: usize,
+    palette: VdgPalette,
+    pixels: &mut [u32; VDG_BEAM_BYTE_MAX_PIXELS],
+) {
+    let colour = palette.colours[usize::from((raw >> 4) & 0x07)];
+    let sub_y = line_y / 6;
+    for sub_x in 0..2 {
+        let bit = semigraphics_bit(sub_y, sub_x, 2);
+        let fill = if raw & (1 << bit) != 0 {
+            colour
+        } else {
+            palette.black
+        };
+        pixels[sub_x * 4..sub_x * 4 + 4].fill(fill);
+    }
+}
+
+fn decode_semigraphics6_beam_byte(
+    raw: u8,
+    line_y: usize,
+    control: VdgControl,
+    palette: VdgPalette,
+    pixels: &mut [u32; VDG_BEAM_BYTE_MAX_PIXELS],
+) {
+    let colour_index = match (control.css, raw & 0x40 != 0) {
+        (false, false) => 2,
+        (false, true) => 3,
+        (true, false) => 6,
+        (true, true) => 7,
+    };
+    let colour = palette.colours[colour_index];
+    let sub_y = line_y / 4;
+    for sub_x in 0..2 {
+        let bit = semigraphics_bit(sub_y, sub_x, 3);
+        let fill = if raw & (1 << bit) != 0 {
+            colour
+        } else {
+            palette.black
+        };
+        pixels[sub_x * 4..sub_x * 4 + 4].fill(fill);
     }
 }
 
@@ -932,6 +1093,69 @@ fn render_graphics_byte_line_into(
             palette,
             framebuffer,
         );
+    }
+}
+
+fn decode_graphics_beam_byte(
+    read_byte: &mut impl FnMut(usize) -> u8,
+    control: VdgControl,
+    palette: VdgPalette,
+    active_y: usize,
+    byte_x: usize,
+    pixels: &mut [u32; VDG_BEAM_BYTE_MAX_PIXELS],
+) -> usize {
+    let spec = GraphicsSpec::from_control(control);
+    if byte_x >= spec.row_bytes {
+        return 0;
+    }
+    let source_y = active_y / spec.y_scale;
+    let raw = read_byte(source_y * spec.row_bytes + byte_x);
+    if spec.four_colour {
+        decode_colour_graphics_beam_byte(raw, spec, control, palette, pixels);
+        4 * spec.x_scale
+    } else {
+        decode_resolution_graphics_beam_byte(raw, spec, control, palette, pixels);
+        8 * spec.x_scale
+    }
+}
+
+fn decode_colour_graphics_beam_byte(
+    raw: u8,
+    spec: GraphicsSpec,
+    control: VdgControl,
+    palette: VdgPalette,
+    pixels: &mut [u32; VDG_BEAM_BYTE_MAX_PIXELS],
+) {
+    for pixel in 0..4 {
+        let shift = 6 - pixel * 2;
+        let colour_code = usize::from((raw >> shift) & 0x03);
+        let colour_index = colour_code + if control.css { 4 } else { 0 };
+        let start = pixel * spec.x_scale;
+        pixels[start..start + spec.x_scale].fill(palette.colours[colour_index]);
+    }
+}
+
+fn decode_resolution_graphics_beam_byte(
+    raw: u8,
+    spec: GraphicsSpec,
+    control: VdgControl,
+    palette: VdgPalette,
+    pixels: &mut [u32; VDG_BEAM_BYTE_MAX_PIXELS],
+) {
+    let foreground = if control.css {
+        palette.colours[4]
+    } else {
+        palette.colours[0]
+    };
+    let background = resolution_graphics_background(control, palette);
+    for bit in 0..8 {
+        let colour = if raw & (0x80 >> bit) != 0 {
+            foreground
+        } else {
+            background
+        };
+        let start = bit * spec.x_scale;
+        pixels[start..start + spec.x_scale].fill(colour);
     }
 }
 
@@ -1344,5 +1568,36 @@ mod tests {
         }
 
         assert_eq!(byte_lines, full);
+    }
+
+    #[test]
+    fn beam_byte_decoder_matches_full_byte_render() {
+        let palette = VdgPalette::default();
+        for control in [
+            VdgControl::from_dragon_pia1_port_b(0x00),
+            VdgControl::from_dragon_pia1_port_b(0xE0),
+            VdgControl::from_dragon_pia1_port_b(0xF0),
+        ] {
+            let active_y = 4;
+            let byte_x = 0;
+            let visible_y = TEXT_TOP_BORDER_LINES + active_y;
+            let beam = decode_beam_byte(
+                |offset| (offset & 0xFF) as u8,
+                control,
+                palette,
+                active_y,
+                byte_x,
+            );
+            let full = render_visible_argb(|offset| (offset & 0xFF) as u8, control, palette);
+            let mut actual = vec![palette.border; TEXT_VISIBLE_FRAMEBUFFER_PIXELS];
+            beam.render_range_into(&mut actual, visible_y, 0, 0, beam.width());
+
+            let x = TEXT_LEFT_BORDER_PIXELS;
+            let row = visible_y * TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
+            assert_eq!(
+                &actual[row + x..row + x + beam.width()],
+                &full[row + x..row + x + beam.width()]
+            );
+        }
     }
 }

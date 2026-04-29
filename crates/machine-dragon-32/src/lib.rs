@@ -37,7 +37,6 @@ const VDG_VISIBLE_FIRST_LINE: u64 = 13;
 const VDG_HSYNC_TICKS: u64 = 64;
 const VDG_HBLANK_TICKS: u64 = 168;
 const VDG_LEFT_BORDER_TICKS: u64 = 120;
-const VDG_BYTE_TICKS_32_BYTE_MODE: u64 = 16;
 const DRAGON_FRAME_MASTER_TICKS: u64 = VDG_LINE_MASTER_TICKS * VDG_PAL_FRAME_LINES;
 const CART_ROM_START: u16 = 0xC000;
 const CART_ROM_END: u16 = 0xFEFF;
@@ -1394,7 +1393,9 @@ struct BeamVideo {
     cycle_in_frame: u64,
     next_line: usize,
     line_border_rendered: bool,
+    next_active_x: usize,
     next_byte: usize,
+    current_byte: Option<ActiveByteRender>,
     fsync_level: bool,
     // MC6847 colour-set select is delayed through a two-byte pipeline.
     css_a: bool,
@@ -1409,7 +1410,9 @@ impl BeamVideo {
             cycle_in_frame: 0,
             next_line: 0,
             line_border_rendered: false,
+            next_active_x: 0,
             next_byte: 0,
+            current_byte: None,
             fsync_level: false,
             css_a: false,
             css_b: false,
@@ -1442,7 +1445,9 @@ impl BeamVideo {
             self.cycle_in_frame = 0;
             self.next_line = 0;
             self.line_border_rendered = false;
+            self.next_active_x = 0;
             self.next_byte = 0;
+            self.current_byte = None;
             self.fsync_level = true;
             tick.frame_sync = Some(true);
             return tick;
@@ -1456,6 +1461,28 @@ impl BeamVideo {
             tick.hsync = Some(true);
         }
         tick
+    }
+
+    fn apply_vdg_control_change(&mut self, memory: &DragonMemory) {
+        let Some(current) = &mut self.current_byte else {
+            return;
+        };
+        let pin_control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
+        let mut render_control = pin_control;
+        render_control.css = current.control.css;
+        if render_control == current.control {
+            return;
+        }
+        current.control = render_control;
+        current.byte = motorola_vdg_6847::decode_beam_byte(
+            |offset| memory.display_byte(offset),
+            render_control,
+            VdgPalette::default(),
+            current
+                .line
+                .saturating_sub(motorola_vdg_6847::TEXT_TOP_BORDER_LINES),
+            current.byte_x,
+        );
     }
 
     fn drain_pending_samples(&mut self, dest: &mut Vec<VdgSampleTrace>) {
@@ -1478,13 +1505,34 @@ impl BeamVideo {
                 continue;
             }
 
-            if active_line(self.next_line) && self.next_byte < 32 {
-                let byte_start = active_byte_start_cycle(self.next_line, self.next_byte);
-                if byte_start >= target_cycle {
+            if active_line(self.next_line)
+                && self.next_active_x < motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH
+            {
+                let active_tick = active_pixel_cycle(self.next_line, self.next_active_x);
+                if active_tick >= target_cycle {
                     break;
                 }
-                self.render_byte_line(memory, self.next_line, self.next_byte, bus_cycle);
-                self.next_byte += 1;
+
+                if self.current_byte.is_none() {
+                    self.start_active_byte(memory, bus_cycle);
+                }
+                let Some(current) = self.current_byte else {
+                    self.advance_line();
+                    continue;
+                };
+                let target_active_x = active_x_for_target(self.next_line, target_cycle);
+                let segment_end = target_active_x
+                    .min(current.end_x())
+                    .min(motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH);
+                if segment_end <= self.next_active_x {
+                    break;
+                }
+                self.render_byte_range(current, self.next_active_x, segment_end);
+                self.next_active_x = segment_end;
+                if self.next_active_x >= current.end_x() {
+                    self.next_byte += 1;
+                    self.current_byte = None;
+                }
                 continue;
             }
 
@@ -1499,28 +1547,36 @@ impl BeamVideo {
         self.frame[start..end].fill(palette.border);
     }
 
-    fn render_byte_line(
-        &mut self,
-        memory: &DragonMemory,
-        line: usize,
-        byte_x: usize,
-        bus_cycle: Option<u64>,
-    ) {
+    fn start_active_byte(&mut self, memory: &DragonMemory, bus_cycle: Option<u64>) {
         let pin_control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
-        if byte_x == 0 {
+        if self.next_byte == 0 {
             self.css_a = pin_control.css;
         }
         self.css_b = self.css_a;
         self.css_a = pin_control.css;
         let mut render_control = pin_control;
         render_control.css = self.css_b;
+        let active_y = self
+            .next_line
+            .saturating_sub(motorola_vdg_6847::TEXT_TOP_BORDER_LINES);
+        let byte = motorola_vdg_6847::decode_beam_byte(
+            |offset| memory.display_byte(offset),
+            render_control,
+            VdgPalette::default(),
+            active_y,
+            self.next_byte,
+        );
+        if byte.width() == 0 {
+            self.next_active_x = motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH;
+            return;
+        }
         if let Some(cycle) = bus_cycle {
             self.pending_samples.push(VdgSampleTrace {
                 cycle,
-                frame_master_tick: active_byte_start_cycle(line, byte_x),
-                line,
-                active_y: line.saturating_sub(motorola_vdg_6847::TEXT_TOP_BORDER_LINES),
-                byte_x,
+                frame_master_tick: active_pixel_cycle(self.next_line, self.next_active_x),
+                line: self.next_line,
+                active_y,
+                byte_x: self.next_byte,
                 display_base: memory.text_screen_base(),
                 sam_video_mode: memory.sam.video_mode(),
                 sam_display_offset: memory.sam.display_offset(),
@@ -1531,20 +1587,46 @@ impl BeamVideo {
                 gm: render_control.gm,
             });
         }
-        motorola_vdg_6847::render_visible_argb_byte_line_into(
-            |offset| memory.display_byte(offset),
-            render_control,
-            VdgPalette::default(),
+        self.current_byte = Some(ActiveByteRender {
+            line: self.next_line,
+            byte_x: self.next_byte,
+            start_x: self.next_active_x,
+            control: render_control,
+            byte,
+        });
+    }
+
+    fn render_byte_range(&mut self, current: ActiveByteRender, start_x: usize, end_x: usize) {
+        current.byte.render_range_into(
             &mut self.frame,
-            line,
-            byte_x,
+            current.line,
+            current.start_x,
+            start_x.saturating_sub(current.start_x),
+            end_x.saturating_sub(current.start_x),
         );
     }
 
     fn advance_line(&mut self) {
         self.next_line += 1;
         self.line_border_rendered = false;
+        self.next_active_x = 0;
         self.next_byte = 0;
+        self.current_byte = None;
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ActiveByteRender {
+    line: usize,
+    byte_x: usize,
+    start_x: usize,
+    control: VdgControl,
+    byte: motorola_vdg_6847::VdgBeamByte,
+}
+
+impl ActiveByteRender {
+    const fn end_x(self) -> usize {
+        self.start_x + self.byte.width()
     }
 }
 
@@ -1616,11 +1698,22 @@ fn active_line(line: usize) -> bool {
         .contains(&line)
 }
 
-fn active_byte_start_cycle(line: usize, byte_x: usize) -> u64 {
+fn active_display_start_cycle(line: usize) -> u64 {
     line_start_cycle(line)
         .saturating_add(VDG_HBLANK_TICKS)
         .saturating_add(VDG_LEFT_BORDER_TICKS)
-        .saturating_add((byte_x as u64).saturating_mul(VDG_BYTE_TICKS_32_BYTE_MODE))
+}
+
+fn active_pixel_cycle(line: usize, active_x: usize) -> u64 {
+    active_display_start_cycle(line).saturating_add((active_x as u64).saturating_mul(2))
+}
+
+fn active_x_for_target(line: usize, target_cycle: u64) -> usize {
+    let elapsed = target_cycle.saturating_sub(active_display_start_cycle(line));
+    let active_x = elapsed.saturating_add(1) / 2;
+    usize::try_from(active_x).map_or(usize::MAX, |x| {
+        x.min(motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH)
+    })
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2100,6 +2193,7 @@ impl Dragon32 {
         self.memory.tick_cartridge_autorun(self.cycles);
         self.cpu.irq = self.memory.pia0.irq_a() || self.memory.pia0.irq_b();
         self.cpu.firq = self.memory.pia1.irq_a() || self.memory.pia1.irq_b();
+        let previous_pia1_pb = self.memory.pia1.pb;
         let event = if self.cpu.rw {
             let (value, event) = self.memory.read_bus(self.cpu.addr);
             self.cpu.data_in = value;
@@ -2107,6 +2201,9 @@ impl Dragon32 {
         } else {
             self.memory.write(self.cpu.addr, self.cpu.data)
         };
+        if previous_pia1_pb != self.memory.pia1.pb {
+            self.video.apply_vdg_control_change(&self.memory);
+        }
         self.cpu.tick();
         self.audio.tick(&self.memory, master_ticks);
         self.cycles = self.cycles.saturating_add(1);
@@ -3201,9 +3298,8 @@ mod tests {
         machine.memory.pia1.write(0x03, 0x04); // PIA1 port B data selected.
         machine.memory.pia1.write(0x02, 0x08); // Alpha mode, CSS 1.
 
-        machine
-            .video
-            .render_byte_line(&machine.memory, TEXT_TOP_BORDER_LINES, 0, Some(0));
+        machine.video.next_line = TEXT_TOP_BORDER_LINES;
+        machine.video.start_active_byte(&machine.memory, Some(0));
         let mut samples = Vec::new();
         machine.video.drain_pending_samples(&mut samples);
 
