@@ -38,12 +38,20 @@ impl CiaExt for Cia {
 }
 
 /// Decode a 24-bit Amiga address into a CIA-A register index, if
-/// the address falls into the CIA-A address space (odd byte,
-/// `$BFExxx`). CIA-A decodes on odd bytes (D0-D7 bus); register
-/// select uses address bits 8-11, giving 256-byte stride.
+/// the address falls into the CIA-A address space (`$BFExxx`).
+///
+/// CIA-A is physically wired to the low data byte (D0-D7). Reading
+/// `MOVE.B $BFExx01` (LDS-only, odd address) is the canonical access
+/// path. Word reads `MOVE.W $BFExx00` and even-address byte reads also
+/// reach the chip on real hardware: the 68000 asserts both UDS and
+/// LDS for word cycles, so the LDS-side CIA still drives its byte
+/// (and side-effects), and the UDS lane is floating bus from
+/// `Memory::last_bus_value`. The dispatcher in `lib.rs` uses
+/// `BusResponse::Byte` to deliver the chip's byte regardless of
+/// access width.
 #[must_use]
 pub fn decode_cia_a(addr: u32) -> Option<u8> {
-    if (0x00BF_E000..0x00BF_F000).contains(&addr) && addr & 1 == 1 {
+    if (0x00BF_E000..0x00BF_F000).contains(&addr) {
         Some(((addr >> 8) & 0x0F) as u8)
     } else {
         None
@@ -67,11 +75,16 @@ mod tests {
 
     #[test]
     fn address_decoding() {
+        // Odd-address byte access is the canonical CIA-A path.
         assert_eq!(decode_cia_a(0x00BFE001), Some(0));
         assert_eq!(decode_cia_a(0x00BFE101), Some(1));
         assert_eq!(decode_cia_a(0x00BFE201), Some(2));
         assert_eq!(decode_cia_a(0x00BFEF01), Some(0xF));
-        assert_eq!(decode_cia_a(0x00BFE000), None); // even byte = CIA-B
+        // Even-address (UDS) and word accesses also reach CIA-A: the
+        // chip's LDS lane still drives even on word cycles, and the
+        // dispatcher delivers the byte via BusResponse::Byte.
+        assert_eq!(decode_cia_a(0x00BFE000), Some(0));
+        assert_eq!(decode_cia_a(0x00BFED00), Some(0xD));
         assert_eq!(decode_cia_a(0x00BFD001), None); // CIA-B range
         assert_eq!(decode_cia_a(0x00BFF001), None); // outside
         assert_eq!(decode_cia_b(0x00BFD000), Some(0));

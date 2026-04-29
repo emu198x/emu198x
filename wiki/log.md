@@ -4,6 +4,47 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — Amiga CPU bus refactor (BusTransaction / BusResponse)
+
+**Type:** milestone (Phase A.3 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md), seams 1 + 4 of [`amiga-architecture-review.md`](decisions/amiga-architecture-review.md))
+**Trigger:** `service_cpu_bus` in `machine-commodore-amiga-ocs` had grown to 324 lines with four byte-lane conventions in flight. Two of the three boot-blocker bugs the chip-only push fixed lived in this function. The plan named it the largest refactor in Phase A.
+**Result:** the function is now **78 lines**. Every chip-select arm becomes a small handler that returns `BusResponse`, and a single `apply_bus_response` dispatcher applies the byte-lane extraction rule once.
+
+New types:
+- `BusTransaction { addr, is_read, is_word, data }` — the snapshotted bus cycle.
+- `BusResponse::{ Byte(u8), Word(u16), WriteAck }` — what the chip drove on the data lines.
+
+New per-chip handlers (in the AmigaOcs impl block, immediately after `service_cpu_bus`):
+- `dispatch_cia_a` — handles CIA-A reads/writes, including the overlay update.
+- `dispatch_cia_b` — handles CIA-B reads/writes, including DF0 control on PRB / DDRB writes.
+- `dispatch_rtc` — old-address battery-backed RTC at `$DC0000-$DC003F`.
+- `dispatch_autoconfig` — Zorro-II probe window with byte-write nibble mirroring.
+- `dispatch_fast_ram` — autoconfig fast-RAM serving (after the board's base address is set).
+- `dispatch_custom_register` — chipset registers (`$DFFxxx`) with all the per-offset reads and the existing `dispatch_custom_write` write path.
+- `dispatch_memory` — chip RAM / slow RAM / ROM / unmapped fallback, including the `debug_watch_addr` instrumentation.
+
+Lane rule, applied once in `apply_bus_response`:
+- `Byte(b)` → `u16::from(b)`, regardless of access width.
+- `Word(w)` → for word reads, `w` as-is; for byte reads, even address (UDS) takes high byte, odd address (LDS) takes low byte.
+- `WriteAck` → `BusStatus::Ready(0)`.
+
+`Memory::set_last_bus_value` is now driven uniformly from `apply_bus_response` — chip arms no longer thread it through their own paths.
+
+**Architecture-review fix landed in the same pass.** `cia::decode_cia_a` previously returned `None` for even addresses (`addr & 1 == 1` check), making word reads and even-address byte reads to `$BFExxx` fall through to floating-bus instead of triggering CIA-A side effects. The architecture review flagged this as a landmine ("ICR-pending bit could go uncleared"). The parity check is removed; CIA-A now decodes on every access in its address space and the dispatcher delivers the byte via `BusResponse::Byte`. The `decode_cia_a` test was updated to assert the new behaviour and document the rationale.
+
+**Verification:**
+- `cargo test -p machine-commodore-amiga-ocs --lib` — 49 passed.
+- `cargo test -p runtime-commodore-amiga --lib --test boot_invariants --test snapshot_roundtrip` — 25 passed.
+- `cargo test -p runtime-commodore-amiga --test boot_invariants -- --ignored` — **Kickstart 1.3 → insert-disk** (25.69s) and **Workbench 1.3 → desktop** (same suite) both still green.
+- `cargo test --workspace --lib` — 74 binaries, all OK.
+- `cargo clippy -p machine-commodore-amiga-ocs --all-targets -- -D warnings` — clean.
+
+**Consequence:** the boot-blocking-bug-prone seam is gone. Adding a new chip arm is now "write a `dispatch_*` returning `BusResponse`, slot it into `service_cpu_bus`'s `or_else` chain". The `BusResponse::Word`/`Byte` shape is also the natural input for [Phase A.4](decisions/amiga-architecture-review.md#seam-2--disk-dma-path-straddling-four-crates) — Paula owning disk read DMA — when that lands next.
+
+The architecture-review document moves from "Proposed (draft for review)" to "Implemented" for seams 1 and 4 with this commit; seams 2 and 3 remain open.
+
+---
+
 ## 2026-04-28 — Boot-invariant test suites land for all four anchors
 
 **Type:** milestone (Phase A.2 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md))

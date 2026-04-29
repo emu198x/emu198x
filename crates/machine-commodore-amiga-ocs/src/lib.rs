@@ -246,6 +246,42 @@ struct DiskDmaRuntime {
     wordsync_waiting: bool,
 }
 
+/// One CPU bus cycle decoded into chip-select-friendly fields.
+///
+/// Snapshotted out of `cpu.state.BusCycle` once per servicing pass so
+/// chip-select handlers can operate on plain values instead of holding
+/// a borrow on `&mut self.cpu`. `data` is `0` for reads.
+#[derive(Clone, Copy)]
+struct BusTransaction {
+    addr: u32,
+    is_read: bool,
+    is_word: bool,
+    data: u16,
+}
+
+/// What a chip-select arm produced for one [`BusTransaction`].
+///
+/// `Byte` and `Word` describe what the chip drove on the data lines;
+/// the dispatcher applies the byte-lane extraction rule once.
+/// `WriteAck` is the write-side equivalent — the chip absorbed the
+/// write and the dispatcher returns `Ready(0)`.
+///
+/// Every reachable cycle ultimately gets handled (Memory's fallback
+/// always claims the cycle, returning chip RAM, slow RAM, ROM, or
+/// floating-bus from `last_bus_value`), so a "no chip drove anything"
+/// variant is unreachable in this model.
+#[derive(Clone, Copy)]
+enum BusResponse {
+    /// Chip drove an 8-bit value. Always returned in the low 8 bits.
+    Byte(u8),
+    /// Chip drove a 16-bit value. For byte reads the dispatcher
+    /// extracts the byte lane: even address (UDS) → high byte, odd
+    /// (LDS) → low byte, both delivered in the low 8 bits.
+    Word(u16),
+    /// Write completed; bus_status becomes `Ready(0)`.
+    WriteAck,
+}
+
 /// Ticks per Agnus colour clock. A CCK (HRM beam-coordinate unit) is
 /// two master/4 ticks — one tick per lores pixel.
 const TICKS_PER_CCK: u64 = 2;
@@ -1624,7 +1660,8 @@ impl AmigaOcs {
 
     fn service_cpu_bus(&mut self) {
         // Snapshot the bus-cycle parameters out of the CPU state so we
-        // can mutate self.memory without borrow conflicts.
+        // can mutate self.memory and other chips without borrowing the
+        // CPU mutably across helper boundaries.
         let bus_info = match &self.cpu.state {
             State::BusCycle {
                 addr,
@@ -1637,14 +1674,13 @@ impl AmigaOcs {
             } => Some((*addr, *fc, *is_read, *is_word, *data, *cycle_count)),
             _ => None,
         };
-
         let Some((addr, fc, is_read, is_word, data, cycle_count)) = bus_info else {
             return;
         };
 
-        // 68000 bus cycle is 4 CCKs (S0-S7). DTACK is sampled at S4
-        // = cycle 2. We complete the bus cycle on the first poll at
-        // or after cycle 2 and then hold the result steady.
+        // 68000 bus cycle is 4 CCKs (S0-S7). DTACK is sampled at S4 =
+        // cycle 2. Complete the bus cycle on the first poll at or after
+        // cycle 2 and hold the result steady.
         if cycle_count < 2 {
             self.cpu.bus_status = BusStatus::Wait;
             return;
@@ -1653,297 +1689,286 @@ impl AmigaOcs {
             return;
         }
 
-        // Chip-bus arbitration. Agnus shares the chip-RAM bus between
-        // DMA and the CPU; when a CCK is claimed by DMA (bitplane,
-        // and later sprite/disk/audio/refresh) the CPU must stall
-        // its chip-RAM access to the next free CCK.
-        //
-        // Only real chip-RAM accesses are contended:
-        //   - Reads: low-memory reads with OVL on are routed to ROM
-        //     by Gary and don't touch the chip bus — not contended.
-        //   - Writes: always land in chip RAM when in the chip-RAM
-        //     decode range (OVL only gates reads).
-        //   - CIA / custom / slow-RAM / ROM / unmapped accesses are
-        //     not on the chip-RAM arbitration path.
+        // Chip-RAM bus arbitration: Agnus owns the chip-RAM bus during
+        // DMA slots; CPU chip-RAM accesses stall to the next free CCK.
+        // Reads with OVL on land in ROM (not contended); writes always
+        // hit chip RAM (OVL only gates reads); non-chip-RAM accesses
+        // (CIA / custom / slow / ROM / unmapped) bypass arbitration.
         let addr24 = addr & 0xFF_FFFF;
         let is_chip_ram_access = addr24 < 0x20_0000 && (!is_read || !self.memory.overlay());
-        if is_chip_ram_access {
-            let claim = denise::dma_claim(
+        if is_chip_ram_access
+            && !denise::dma_claim(
                 self.agnus.hpos,
                 self.agnus.dmacon,
                 self.agnus.bplcon0,
                 self.agnus.ddfstrt,
                 self.agnus.ddfstop,
-            );
-            if !claim.is_free() {
-                self.cpu.bus_status = BusStatus::Wait;
-                return;
-            }
+            )
+            .is_free()
+        {
+            self.cpu.bus_status = BusStatus::Wait;
+            return;
         }
 
-        // The Amiga uses 68000 autovectored interrupts: the chipset
-        // drives /VPA during InterruptAck rather than supplying a
-        // vector number, and the CPU then computes vector = 24 + IPL.
-        // Our bus model returns the vector directly, so synthesise
-        // (24 + ipl_being_acked). The IPL being acked lives in
-        // `cpu.ipl` — the CPU sampled it just before driving this bus
-        // cycle. Mask to 3 bits defensively.
+        // Autovectored interrupts: the chipset drives /VPA during
+        // InterruptAck and the CPU computes vector = 24 + IPL.
         if fc == FunctionCode::InterruptAck {
             let ipl = self.cpu.ipl & 0x07;
             self.cpu.bus_status = BusStatus::Ready(24 + u16::from(ipl));
             return;
         }
 
-        // CIA-A address space (odd bytes in $BFE000-$BFEFFF).
-        if let Some(reg) = cia::decode_cia_a(addr24) {
-            if is_read {
-                let val = u16::from(self.cia_a.read(reg));
-                self.memory.set_last_bus_value(val);
-                self.cpu.bus_status = BusStatus::Ready(val);
-            } else {
-                let val = data.unwrap_or(0);
-                self.memory.set_last_bus_value(val);
-                self.debug_cia_a_cr_log.push((
-                    self.tick_count / TICKS_PER_CCK,
-                    self.cpu.regs.pc,
-                    reg,
-                    val as u8,
-                ));
-                self.cia_a.write(reg, val as u8);
-                self.memory.set_overlay(self.cia_a.ovl());
-                self.cpu.bus_status = BusStatus::Ready(0);
-            }
+        let tx = BusTransaction {
+            addr: addr24,
+            is_read,
+            is_word,
+            data: data.unwrap_or(0),
+        };
+
+        let response = self
+            .dispatch_cia_a(&tx)
+            .or_else(|| self.dispatch_cia_b(&tx))
+            .or_else(|| self.dispatch_rtc(&tx))
+            .or_else(|| self.dispatch_autoconfig(&tx))
+            .or_else(|| self.dispatch_fast_ram(&tx))
+            .or_else(|| self.dispatch_custom_register(&tx))
+            .unwrap_or_else(|| self.dispatch_memory(&tx));
+
+        self.apply_bus_response(&tx, response);
+    }
+
+    /// Apply one chip-select response to the CPU bus, applying the
+    /// canonical lane-extraction rule once. `Byte` always lands in the
+    /// low 8 bits; `Word` is byte-extracted by address parity for byte
+    /// reads. Latches floating-bus state on every cycle.
+    fn apply_bus_response(&mut self, tx: &BusTransaction, response: BusResponse) {
+        if !tx.is_read {
+            // Writes ack with Ready(0); the chip-arm handlers updated
+            // chip state and the floating-bus latch already.
+            self.memory.set_last_bus_value(tx.data);
+            self.cpu.bus_status = BusStatus::Ready(0);
             return;
         }
-
-        // CIA-B address space (even bytes in $BFD000-$BFDFFF).
-        if let Some(reg) = cia::decode_cia_b(addr24) {
-            if is_read {
-                // CIA-B is on the high data byte; word reads put the
-                // CIA value in the high byte. We expose the byte
-                // value in the low byte for convenience to the bus.
-                let val = u16::from(self.cia_b.read(reg));
-                self.memory.set_last_bus_value(val);
-                self.cpu.bus_status = BusStatus::Ready(val);
-            } else {
-                let val = data.unwrap_or(0);
-                self.memory.set_last_bus_value(val);
-                // Word writes to CIA-B target the high byte; we take
-                // the high byte if it's a word write, low byte if byte.
-                let byte = if is_word { (val >> 8) as u8 } else { val as u8 };
-                self.cia_b.write(reg, byte);
-                if matches!(reg, 0x01 | 0x03) {
-                    self.apply_df0_control_from_cia_b();
-                }
-                self.cpu.bus_status = BusStatus::Ready(0);
-            }
-            return;
-        }
-
-        if self.gary.decode(addr24) == ChipSelect::Rtc {
-            if is_read {
-                let val = if is_word {
-                    self.rtc.read_word(addr24)
+        let val = match response {
+            BusResponse::Byte(b) => u16::from(b),
+            BusResponse::Word(w) => {
+                if tx.is_word {
+                    w
+                } else if tx.addr & 1 == 0 {
+                    (w >> 8) & 0xFF
                 } else {
-                    u16::from(self.rtc.read_byte(addr24))
-                };
-                self.log_rtc_access(addr24, true, is_word, val);
-                self.memory.set_last_bus_value(val);
-                self.cpu.bus_status = BusStatus::Ready(val);
-            } else {
-                let val = data.unwrap_or(0);
-                self.log_rtc_access(addr24, false, is_word, val);
-                self.memory.set_last_bus_value(val);
-                if is_word {
-                    self.rtc.write_word(addr24, val);
-                } else {
-                    self.rtc.write_byte(addr24, val as u8);
+                    w & 0xFF
                 }
-                self.cpu.bus_status = BusStatus::Ready(0);
             }
-            return;
+            BusResponse::WriteAck => 0, // unreachable on reads
+        };
+        // Latch the chip's bus output for the next floating-bus read.
+        match response {
+            BusResponse::Word(w) => self.memory.set_last_bus_value(w),
+            BusResponse::Byte(b) => self.memory.set_last_bus_value(u16::from(b)),
+            BusResponse::WriteAck => {}
         }
+        self.cpu.bus_status = BusStatus::Ready(val);
+    }
 
-        // Zorro-II autoconfig probe window ($E80000-$E8007F). Only the
-        // first unconfigured board answers; once configured, reads
-        // return floating bus and writes are no-ops. `expansion.
-        // library` drives the full base-address handshake here during
-        // boot.
-        //
-        // Byte-read semantics: Zorro-II delivers every nibble on the
-        // top four data lines (D15-D12). When the CPU does a byte
-        // read, it samples either UDS (even addr → upper byte D15-D8)
-        // or LDS (odd addr → lower byte D7-D0). Our 68000 takes the
-        // full 16-bit `read_data` word and keeps the low eight bits
-        // as the byte value, so the machine has to pre-shift the
-        // upper byte into the low half for even byte reads — see the
-        // upstream `finish_bus_cycle` (ReadByte arm) for context.
-        if (AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&addr24) {
-            let offset = (addr24 - AUTOCONFIG_BASE) as u16;
-            if is_read {
-                let val = self
-                    .autoconfig
-                    .as_ref()
-                    .map_or(0xFFFF, |b| b.read_word(offset));
-                self.memory.set_last_bus_value(val);
-                let delivered = if is_word {
-                    val
-                } else if addr24 & 1 == 0 {
-                    (val >> 8) & 0xFF
-                } else {
-                    val & 0xFF
-                };
-                self.cpu.bus_status = BusStatus::Ready(delivered);
+    /// CIA-A is wired to the low data byte (D0-D7) at `$BFExxx`. The
+    /// chip side-effects on every access — reading ICR clears its
+    /// flags — so the dispatcher routes all reads (byte or word, any
+    /// parity) through the chip and lets `BusResponse::Byte` deliver
+    /// the value.
+    fn dispatch_cia_a(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        let reg = cia::decode_cia_a(tx.addr)?;
+        Some(if tx.is_read {
+            BusResponse::Byte(self.cia_a.read(reg))
+        } else {
+            self.debug_cia_a_cr_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                reg,
+                tx.data as u8,
+            ));
+            self.cia_a.write(reg, tx.data as u8);
+            self.memory.set_overlay(self.cia_a.ovl());
+            BusResponse::WriteAck
+        })
+    }
+
+    /// CIA-B sits on the high data byte (D8-D15) at `$BFDxxx`. Word
+    /// writes deliver the data via the high byte; byte writes deliver
+    /// via the low byte (LDS-side). Reads are byte-wide, like CIA-A.
+    fn dispatch_cia_b(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        let reg = cia::decode_cia_b(tx.addr)?;
+        Some(if tx.is_read {
+            BusResponse::Byte(self.cia_b.read(reg))
+        } else {
+            let byte = if tx.is_word {
+                (tx.data >> 8) as u8
             } else {
-                let val = data.unwrap_or(0);
-                self.memory.set_last_bus_value(val);
-                if let Some(board) = self.autoconfig.as_mut() {
-                    // Byte writes at even addresses deliver the data
-                    // on D15-D8 — move.b to $E80048 / $E8004A is a
-                    // legitimate KS 1.3 opcode for the base-address
-                    // handshake. Mirror the byte into the high half
-                    // so the board's nibble extraction sees it.
-                    let written = if is_word {
-                        val
-                    } else if addr24 & 1 == 0 {
-                        (val & 0xFF) << 8
-                    } else {
-                        val & 0xFF
-                    };
-                    board.write_word(offset, written);
-                }
-                self.cpu.bus_status = BusStatus::Ready(0);
+                tx.data as u8
+            };
+            self.cia_b.write(reg, byte);
+            if matches!(reg, 0x01 | 0x03) {
+                self.apply_df0_control_from_cia_b();
             }
-            return;
-        }
+            BusResponse::WriteAck
+        })
+    }
 
-        // Fast-RAM window served by the configured autoconfig board.
-        // Checked before custom/memory dispatch so writes land in the
-        // board's backing store rather than silently dropping at the
-        // unmapped-write path.
-        if is_read {
-            if let Some(val) = self.autoconfig_fast_ram_read_word(addr24) {
-                let byte = self
-                    .autoconfig_fast_ram_read_byte(addr24)
-                    .map(u16::from)
-                    .unwrap_or(0);
-                self.memory.set_last_bus_value(val);
-                self.cpu.bus_status = BusStatus::Ready(if is_word { val } else { byte });
-                return;
+    /// Old-address battery-backed RTC at `$DC0000-$DC003F`. Word
+    /// accesses route through `read_word` / `write_word`; byte
+    /// accesses through `read_byte` / `write_byte`. Either path logs
+    /// the access for the `amiga.debug.rtc` query surface.
+    fn dispatch_rtc(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        if self.gary.decode(tx.addr) != ChipSelect::Rtc {
+            return None;
+        }
+        Some(if tx.is_read {
+            let val = if tx.is_word {
+                self.rtc.read_word(tx.addr)
+            } else {
+                u16::from(self.rtc.read_byte(tx.addr))
+            };
+            self.log_rtc_access(tx.addr, true, tx.is_word, val);
+            if tx.is_word {
+                BusResponse::Word(val)
+            } else {
+                BusResponse::Byte(val as u8)
             }
         } else {
-            let data_val = data.unwrap_or(0);
-            let absorbed = if is_word {
-                self.autoconfig_fast_ram_write_word(addr24, data_val)
+            self.log_rtc_access(tx.addr, false, tx.is_word, tx.data);
+            if tx.is_word {
+                self.rtc.write_word(tx.addr, tx.data);
             } else {
-                self.autoconfig_fast_ram_write_byte(addr24, data_val as u8)
-            };
-            if absorbed {
-                self.memory.set_last_bus_value(data_val);
-                self.cpu.bus_status = BusStatus::Ready(0);
-                return;
+                self.rtc.write_byte(tx.addr, tx.data as u8);
             }
-        }
+            BusResponse::WriteAck
+        })
+    }
 
-        // Custom-register space dispatches to the chipset module.
-        // Agnus owns the beam-position read-side registers; everything
-        // else routes to Chipset.
-        if let Some(offset) = self.custom_offset_for_addr(addr24) {
-            if is_read {
-                *self.debug_reg_read_counts.entry(offset).or_insert(0) += 1;
-                // DSKBYTR read has a side effect (clears DSKBYT); use
-                // read_dskbytr on the CPU path. Everything else is
-                // pure-read or routed to the chipset.
-                let val = match offset {
-                    0x004 => self.agnus.vposr(),
-                    0x006 => self.agnus.vhposr(),
-                    0x00A => joydat(self.joy0_x, self.joy0_y),
-                    0x00C => joydat(self.joy1_x, self.joy1_y),
-                    0x01C => self.paula.intena(),
-                    0x01E => self.paula.intreq(),
-                    0x010 => self.paula.adkcon(),
-                    0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
-                    0x018 => self.paula.read_serdatr(),
-                    0x012 => self.paula.pot0dat(),
-                    0x014 => self.paula.pot1dat(),
-                    0x016 => self.paula.peek_potgor(),
-                    0x002 => self.agnus.dmacon,
-                    0x0A0..=0x0DA => paula_decode::audio_register(offset)
-                        .map(|(ch, f)| self.paula.read_audio(ch, f))
-                        .unwrap_or(0xFFFF),
-                    _ => 0xFFFF,
-                };
-                self.memory.set_last_bus_value(val);
-                // Byte-access semantics on the 68000 16-bit chip
-                // bus: even address → UDS → upper byte (bits 15-8);
-                // odd address → LDS → lower byte (bits 7-0). The
-                // CPU stores whatever the bus returns in the low 8
-                // bits of its read_data word (`finish_bus_cycle`
-                // ReadByte arm), so the machine must pre-shift the
-                // upper byte down for even byte reads.
-                //
-                // Before this fix, byte reads of $DFF002 (DMACONR)
-                // returned `val & 0xFF` — the low byte of DMACON.
-                // Kickstart 1.3's WAITBLIT does `btst.b #6, $DFF002`
-                // to test bit 14 of the full word (= BBUSY in the
-                // upper byte, bit 6 of that byte). With the old
-                // behaviour, DMACON=$02D0 gave back $D0 whose bit 6
-                // is set — so KS 1.3 spun in WAITBLIT forever and
-                // never drew the insert-disk hand-disk graphic.
-                let delivered = if is_word {
-                    val
-                } else if addr24 & 1 == 0 {
-                    (val >> 8) & 0xFF
-                } else {
-                    val & 0xFF
-                };
-                self.cpu.bus_status = BusStatus::Ready(delivered);
-            } else {
-                let val = data.unwrap_or(0);
-                self.memory.set_last_bus_value(val);
-                self.debug_custom_write_log.push((
-                    self.tick_count / TICKS_PER_CCK,
-                    self.cpu.regs.pc,
-                    addr24,
-                    offset,
-                    val,
-                    is_word,
-                ));
-                self.dispatch_custom_write(offset, val);
-                self.cpu.bus_status = BusStatus::Ready(0);
-            }
-            return;
+    /// Zorro-II autoconfig probe window `$E80000-$E8007F`. The board
+    /// drives every nibble on D15-D12, so byte writes at even
+    /// addresses deliver their data via the high byte — mirror it
+    /// into the high half before handing the word to the board.
+    fn dispatch_autoconfig(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        if !(AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&tx.addr) {
+            return None;
         }
-
-        if is_read {
-            let val = if is_word {
-                self.memory.read_word(addr24)
-            } else {
-                u16::from(self.memory.read_byte(addr24))
-            };
-            self.cpu.bus_status = BusStatus::Ready(val);
+        let offset = (tx.addr - AUTOCONFIG_BASE) as u16;
+        Some(if tx.is_read {
+            let val = self
+                .autoconfig
+                .as_ref()
+                .map_or(0xFFFF, |b| b.read_word(offset));
+            BusResponse::Word(val)
         } else {
-            let val = data.unwrap_or(0);
+            if let Some(board) = self.autoconfig.as_mut() {
+                let written = if tx.is_word {
+                    tx.data
+                } else if tx.addr & 1 == 0 {
+                    (tx.data & 0xFF) << 8
+                } else {
+                    tx.data & 0xFF
+                };
+                board.write_word(offset, written);
+            }
+            BusResponse::WriteAck
+        })
+    }
+
+    /// Fast-RAM window served by the configured autoconfig board.
+    /// Checked before custom-register / memory dispatch so writes
+    /// land in the board's backing store.
+    fn dispatch_fast_ram(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        if tx.is_read {
+            let word = self.autoconfig_fast_ram_read_word(tx.addr)?;
+            if tx.is_word {
+                Some(BusResponse::Word(word))
+            } else {
+                let byte = self.autoconfig_fast_ram_read_byte(tx.addr).unwrap_or(0);
+                Some(BusResponse::Byte(byte))
+            }
+        } else {
+            let absorbed = if tx.is_word {
+                self.autoconfig_fast_ram_write_word(tx.addr, tx.data)
+            } else {
+                self.autoconfig_fast_ram_write_byte(tx.addr, tx.data as u8)
+            };
+            absorbed.then_some(BusResponse::WriteAck)
+        }
+    }
+
+    /// Custom-register space (`$DFF000-$DFFFFE`) dispatches to the
+    /// chipset module. DSKBYTR has a read side-effect; everything
+    /// else is pure-read or routed via `dispatch_custom_write`.
+    fn dispatch_custom_register(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        let offset = self.custom_offset_for_addr(tx.addr)?;
+        Some(if tx.is_read {
+            *self.debug_reg_read_counts.entry(offset).or_insert(0) += 1;
+            let val = match offset {
+                0x004 => self.agnus.vposr(),
+                0x006 => self.agnus.vhposr(),
+                0x00A => joydat(self.joy0_x, self.joy0_y),
+                0x00C => joydat(self.joy1_x, self.joy1_y),
+                0x01C => self.paula.intena(),
+                0x01E => self.paula.intreq(),
+                0x010 => self.paula.adkcon(),
+                0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
+                0x018 => self.paula.read_serdatr(),
+                0x012 => self.paula.pot0dat(),
+                0x014 => self.paula.pot1dat(),
+                0x016 => self.paula.peek_potgor(),
+                0x002 => self.agnus.dmacon,
+                0x0A0..=0x0DA => paula_decode::audio_register(offset)
+                    .map(|(ch, f)| self.paula.read_audio(ch, f))
+                    .unwrap_or(0xFFFF),
+                _ => 0xFFFF,
+            };
+            BusResponse::Word(val)
+        } else {
+            self.debug_custom_write_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                tx.addr,
+                offset,
+                tx.data,
+                tx.is_word,
+            ));
+            self.dispatch_custom_write(offset, tx.data);
+            BusResponse::WriteAck
+        })
+    }
+
+    /// Memory fallback: chip RAM (with OVL gating reads to ROM), slow
+    /// RAM, ROM, and unmapped reads (floating bus) all live here.
+    /// Writes go through the watch-range diagnostic before landing.
+    fn dispatch_memory(&mut self, tx: &BusTransaction) -> BusResponse {
+        if tx.is_read {
+            if tx.is_word {
+                BusResponse::Word(self.memory.read_word(tx.addr))
+            } else {
+                BusResponse::Byte(self.memory.read_byte(tx.addr))
+            }
+        } else {
             if let Some((lo, len)) = self.debug_watch_addr {
                 let hi = lo.wrapping_add(len);
-                let access_len = if is_word { 2u32 } else { 1 };
-                let access_hi = addr24.wrapping_add(access_len);
-                if addr24 < hi && access_hi > lo {
+                let access_len = if tx.is_word { 2u32 } else { 1 };
+                let access_hi = tx.addr.wrapping_add(access_len);
+                if tx.addr < hi && access_hi > lo {
                     self.debug_watch_writes.push((
                         self.tick_count / TICKS_PER_CCK,
                         self.cpu.regs.pc,
-                        addr24,
-                        val,
-                        is_word,
+                        tx.addr,
+                        tx.data,
+                        tx.is_word,
                     ));
                 }
             }
-            if is_word {
-                self.memory.write_word(addr24, val);
+            if tx.is_word {
+                self.memory.write_word(tx.addr, tx.data);
             } else {
-                self.memory.write_byte(addr24, val as u8);
+                self.memory.write_byte(tx.addr, tx.data as u8);
             }
-            self.cpu.bus_status = BusStatus::Ready(0);
+            BusResponse::WriteAck
         }
     }
 
