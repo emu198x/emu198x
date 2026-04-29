@@ -2,8 +2,11 @@
 
 mod autoload;
 pub mod file_loader;
+mod input;
 mod profiles;
+mod queries;
 mod runtime;
+mod snapshot;
 
 pub use autoload::{
     C64AutoloadError, C64DiskAutoloadResult, C64TapeAutoloadResult, DEFAULT_DISK_AUTOLOAD_SLOT,
@@ -13,4 +16,5 @@ pub use autoload::{
 };
 pub use machine_commodore_c64::{AudioControls, SidChannel};
 pub use profiles::{Model, profile_for, profiles};
-pub use runtime::{C64Runtime, C64SessionQueryProvider};
+pub use queries::C64SessionQueryProvider;
+pub use runtime::C64Runtime;

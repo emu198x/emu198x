@@ -4,6 +4,35 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — C64 runtime split: queries / snapshot / input modules
+
+**Type:** refactor (architectural)
+**Trigger:** the user spotted that `runtime-commodore-c64/src/runtime.rs` (3013 lines) was a workspace outlier and asked whether the file size itself was a code smell. A survey confirmed it was: production code mixed snapshot envelope, query surface, input mapping, and lifecycle plumbing in one file with no separation; tests inline accounted for 1796 of those 3013 lines (60%); peer runtimes had already moved past the inline-tests pattern (Spectrum 19 tests in `tests/`, Amiga 37). Cov-4's "1225 uncovered lines" was diagnosis-by-aggregation — once split per module the gaps become legible.
+**Result:** three new modules + `runtime.rs` shrunk to focus on lifecycle.
+
+| File | Before | After | Concern |
+|---|---|---|---|
+| `runtime.rs` (production code) | 1216 | **692** | C64Runtime struct, lifecycle (`MachineCore` impl), trace state |
+| `queries.rs` (new) | — | 442 | `C64SessionQueryProvider`, the 350+ query path strings, `c64_boot_status`, screen-text helpers, `parse_hex_u16` |
+| `snapshot.rs` (new) | — | 89 | `SnapshotEnvelopeV1` + postcard `encode` / `decode` |
+| `input.rs` (new) | — | 143 | `apply_input_event` + the 70-key C64 keyboard matrix |
+
+**`runtime.rs`'s `MachineCore::snapshot` and `MachineCore::restore`** are now one-line delegators — `snapshot::encode(self)` / `snapshot::decode(self, bytes)`. The runtime gained a small set of `pub(crate)` accessors (`profile`, `iec_bus`, `drive8_cycle_accum`, `set_time`, `set_drive8`, `set_iec_bus`, `set_drive8_cycle_accum`) that the snapshot module uses to reach into runtime fields without making them all public. The inline `apply_input_event` call in `run_until` is now `crate::input::apply_input_event` — same signature, different home.
+
+**Tests stay inline for now.** The 40 inline tests in `runtime.rs` (1786 lines) remain untouched in this commit; they'll move to `tests/` files split by topic in the follow-up. One small test (the input-mapping coverage check) moved into `input.rs` because it tests a private function (`c64_key_position`) that the new module owns.
+
+**Verification:**
+- `cargo test -p runtime-commodore-c64 --lib` — 25 passed, 15 ignored (15 ROM-backed kept ignored).
+- `cargo test -p runtime-commodore-c64 --test boot_invariants -- --ignored` — KERNAL → READY. still passes (5.77s).
+- `cargo test --workspace --lib` — 74 binaries all OK.
+- `cargo clippy -p runtime-commodore-c64 --all-targets -- -D warnings` — clean.
+
+**Architectural note.** This split is the first half of the broader cleanup the survey flagged. The user has indicated agreement to push the same shape to the other large files: `motorola-68000/src/{decode,cpu}.rs` (3578 + 4028 lines, mixed across CPU variants) — likely best handled by splitting the family into per-variant crates `motorola-68000`, `motorola-68010`, `motorola-68020`, `motorola-68030`, `motorola-68040` with shared infrastructure in `motorola-68k-common`. `format-nintendo-nes-ines/src/lib.rs` (3879 lines, 14 mappers in one file) wants per-mapper modules. `commodore-denise-ocs/src/lib.rs` (2407 lines) can move debug types to a `debug.rs` sibling. Codex-owned files (`motorola-6809`, `machine-dragon-32`, `emu198x-script-dragon/src/main.rs`) stay untouched while Codex iterates.
+
+**Cov-4 follow-up.** The split makes Cov-4 directly tractable: per-module coverage will surface concrete gaps. The next commit on this track will move the 40 inline tests into per-topic `tests/` files (`tests/lifecycle.rs`, `tests/snapshot_roundtrip.rs`, `tests/queries.rs`, `tests/tape_autoload.rs`, `tests/disk_autoload.rs`), at which point Cov-4's 1225 uncovered lines will redistribute and become per-module gaps.
+
+---
+
 ## 2026-04-29 — Cov-3 + Cov-2: 68000 carve-out + tick.rs correctness paths
 
 **Type:** investigation + fix (Cov-2 and Cov-3 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md))
