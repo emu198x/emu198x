@@ -2059,6 +2059,15 @@ impl Dragon32 {
         self.video.frame()
     }
 
+    /// Return the progressively rendered MC6847 frame expanded to PAL overscan.
+    #[must_use]
+    pub fn beam_pal_overscan_argb(&self) -> Vec<u32> {
+        motorola_vdg_6847::expand_visible_argb_to_pal_overscan(
+            self.video.frame(),
+            VdgPalette::default().border,
+        )
+    }
+
     /// Return the Dragon mono audio output sample rate.
     #[must_use]
     pub const fn audio_sample_rate(&self) -> u32 {

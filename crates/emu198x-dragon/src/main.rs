@@ -16,7 +16,7 @@ use emu198x_shell::{
     read_firmware_asset, read_media_asset,
 };
 use emu198x_shell::{HeadlessSession, SessionError};
-use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
+use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -325,8 +325,8 @@ impl DragonApp {
             return Ok(());
         }
 
-        let frame_width = TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32;
-        let frame_height = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32;
+        let frame_width = VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32;
+        let frame_height = VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT as u32;
         let attributes = WindowAttributes::default()
             .with_title(WINDOW_TITLE)
             .with_inner_size(LogicalSize::new(

@@ -35,6 +35,22 @@ pub const TEXT_VISIBLE_FRAMEBUFFER_HEIGHT: usize =
 /// Visible text-mode framebuffer size in pixels.
 pub const TEXT_VISIBLE_FRAMEBUFFER_PIXELS: usize =
     TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
+/// Dragon PAL overscan framebuffer width in display pixels.
+pub const VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH: usize = 744;
+/// Dragon PAL overscan framebuffer height in scanlines.
+pub const VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT: usize = 312;
+/// Dragon PAL overscan framebuffer size in pixels.
+pub const VDG_PAL_OVERSCAN_FRAMEBUFFER_PIXELS: usize =
+    VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH * VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT;
+/// X origin for the existing border-inclusive VDG crop in a PAL overscan frame.
+pub const VDG_PAL_OVERSCAN_VISIBLE_X: usize = 0;
+/// Y origin for the existing border-inclusive VDG crop in a PAL overscan frame.
+pub const VDG_PAL_OVERSCAN_VISIBLE_Y: usize = 38;
+/// X origin for the MC6847 active picture in a PAL overscan frame.
+pub const VDG_PAL_OVERSCAN_ACTIVE_X: usize =
+    VDG_PAL_OVERSCAN_VISIBLE_X + TEXT_LEFT_BORDER_PIXELS * 2;
+/// Y origin for the MC6847 active picture in a PAL overscan frame.
+pub const VDG_PAL_OVERSCAN_ACTIVE_Y: usize = VDG_PAL_OVERSCAN_VISIBLE_Y + TEXT_TOP_BORDER_LINES;
 /// Bytes consumed by one MC6847 text screen.
 pub const TEXT_SCREEN_BYTES: usize = TEXT_COLUMNS * TEXT_ROWS;
 
@@ -379,6 +395,32 @@ pub fn render_visible_argb_byte_line_into(
             palette,
             framebuffer,
         );
+    }
+}
+
+/// Expand the cropped border-inclusive VDG framebuffer into a PAL overscan frame.
+#[must_use]
+pub fn expand_visible_argb_to_pal_overscan(visible: &[u32], fill: u32) -> Vec<u32> {
+    let mut framebuffer = vec![fill; VDG_PAL_OVERSCAN_FRAMEBUFFER_PIXELS];
+    expand_visible_argb_to_pal_overscan_into(visible, &mut framebuffer);
+    framebuffer
+}
+
+/// Expand the cropped border-inclusive VDG framebuffer into an existing PAL overscan frame.
+pub fn expand_visible_argb_to_pal_overscan_into(visible: &[u32], framebuffer: &mut [u32]) {
+    assert_eq!(visible.len(), TEXT_VISIBLE_FRAMEBUFFER_PIXELS);
+    assert_eq!(framebuffer.len(), VDG_PAL_OVERSCAN_FRAMEBUFFER_PIXELS);
+
+    for y in 0..TEXT_VISIBLE_FRAMEBUFFER_HEIGHT {
+        let dest_y = VDG_PAL_OVERSCAN_VISIBLE_Y + y;
+        let source_row = y * TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
+        let dest_row = dest_y * VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH + VDG_PAL_OVERSCAN_VISIBLE_X;
+        for x in 0..TEXT_VISIBLE_FRAMEBUFFER_WIDTH {
+            let pixel = visible[source_row + x];
+            let dest = dest_row + x * 2;
+            framebuffer[dest] = pixel;
+            framebuffer[dest + 1] = pixel;
+        }
     }
 }
 

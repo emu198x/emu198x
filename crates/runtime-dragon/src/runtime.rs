@@ -15,7 +15,7 @@ use machine_dragon_32::{
     Dragon32, DragonCartridgeKind, DragonJoystickAxis, DragonKey, DragonSnapshotPeripherals,
     DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
 };
-use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
+use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
 use serde_json::json;
 
 use crate::{Model, profile_for};
@@ -131,7 +131,7 @@ impl DragonRuntime {
             joystick: DragonJoystickInputState::default(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::with_capacity(
-                TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT * 4,
+                VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH * VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT * 4,
             ),
             audio_buffer: Vec::with_capacity(DRAGON_AUDIO_SAMPLE_RATE as usize / 50),
             tape: None,
@@ -152,7 +152,7 @@ impl DragonRuntime {
             joystick: DragonJoystickInputState::default(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::with_capacity(
-                TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT * 4,
+                VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH * VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT * 4,
             ),
             audio_buffer: Vec::with_capacity(DRAGON_AUDIO_SAMPLE_RATE as usize / 50),
             tape: None,
@@ -238,10 +238,10 @@ impl DragonRuntime {
     }
 
     fn update_framebuffer(&mut self) {
-        let argb = self.machine.beam_visible_argb();
+        let argb = self.machine.beam_pal_overscan_argb();
         self.rgba_framebuffer.clear();
         self.rgba_framebuffer.reserve(argb.len() * 4);
-        for pixel in argb.iter().copied() {
+        for pixel in argb {
             self.rgba_framebuffer.push(((pixel >> 16) & 0xFF) as u8);
             self.rgba_framebuffer.push(((pixel >> 8) & 0xFF) as u8);
             self.rgba_framebuffer.push((pixel & 0xFF) as u8);
@@ -478,8 +478,8 @@ impl MachineCore for DragonRuntime {
         host.frame_sink.push_frame(FramePacket {
             timestamp: self.time,
             format: PixelFormat::Rgba8888,
-            width: TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
-            height: TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32,
+            width: VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32,
+            height: VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT as u32,
             palette: None,
             pixels: &self.rgba_framebuffer,
         })?;
@@ -661,7 +661,9 @@ mod tests {
         MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink, NullTraceSink, PixelFormat,
     };
     use format_dragon_cas::{LEADER_BYTE, SYNC_BYTE, checksum_for};
-    use motorola_vdg_6847::TEXT_ROWS;
+    use motorola_vdg_6847::{
+        TEXT_ROWS, VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
+    };
 
     use super::*;
 
@@ -723,8 +725,8 @@ mod tests {
         assert_eq!(
             frame_sink.last_size,
             Some((
-                TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
-                TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32
+                VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32,
+                VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT as u32
             ))
         );
         assert_eq!(frame_sink.last_format, Some(PixelFormat::Rgba8888));

@@ -5,7 +5,7 @@ use emu198x_shell::{
     FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineCore, MediaImage, MediaKind,
     MediaSet, read_firmware_asset, read_media_asset,
 };
-use motorola_vdg_6847::{TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH};
+use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 
 const DRAGON_CPU_HZ: u64 = 894_886;
@@ -34,8 +34,8 @@ fn dragon32_real_rom_reaches_basic_prompt_and_captures_frame() {
         .expect("booted Dragon runtime should have emitted a frame");
     assert_png_dimensions(
         &png,
-        TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
-        TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32,
+        VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32,
+        VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT as u32,
     );
 
     compare_or_update_golden(GOLDEN_NAME, &png);
