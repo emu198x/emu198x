@@ -227,3 +227,180 @@ fn dpf_both_transparent_outputs_color00() {
     let dbg = d.output_pixel_with_beam(0, 0, 0, 0);
     assert_eq!(dbg.final_color_idx, 0, "both PF zero -> COLOR00");
 }
+
+// --- Direct `resolve_color_rgb12` coverage (formerly inline tests).
+// These bypass the shifter and exercise the colour-mode switch in
+// isolation, complementing the end-to-end HAM/EHB tests above. ---
+
+#[test]
+fn ehb_normal_palette_unchanged() {
+    let mut denise = DeniseOcs::new();
+    // EHB: 6 planes, no HAM, no DBLPF
+    denise.bplcon0 = 0x6000; // BPU=6
+    denise.set_palette(5, 0xF00);
+
+    // Color index 5 (bit 5 clear) → normal palette
+    denise.bpl_shift[0] = 0x8000; // plane 1 = bit 0
+    denise.bpl_shift[2] = 0x8000; // plane 3 = bit 2
+    // raw_color_idx = 0b000101 = 5
+    denise.shift_count = 1;
+
+    let rgb = denise.resolve_color_rgb12(5);
+    assert_eq!(rgb, 0xF00);
+}
+
+#[test]
+fn ehb_half_brite_halves_rgb() {
+    let mut denise = DeniseOcs::new();
+    denise.bplcon0 = 0x6000; // BPU=6, no HAM, no DBLPF
+    denise.set_palette(5, 0xF80); // R=F, G=8, B=0
+
+    // Color index 37 = 0b100101 → bit 5 set → half-brite of palette[5]
+    let rgb = denise.resolve_color_rgb12(37);
+    // Half-brite: R=7, G=4, B=0
+    assert_eq!(rgb, 0x740);
+}
+
+#[test]
+fn ehb_index_zero_half_brite_uses_color00() {
+    let mut denise = DeniseOcs::new();
+    denise.bplcon0 = 0x6000; // BPU=6
+    denise.set_palette(0, 0x888);
+
+    // Index 32 = half-brite of COLOR00
+    let rgb = denise.resolve_color_rgb12(32);
+    assert_eq!(rgb, 0x444);
+}
+
+#[test]
+fn ham_palette_lookup_control_00() {
+    let mut denise = DeniseOcs::new();
+    // HAM: HOMOD=1 (bit 11), BPU=6
+    denise.bplcon0 = 0x6800; // 0x6000 (BPU=6) | 0x0800 (HOMOD)
+    denise.set_palette(7, 0xABC);
+
+    // Control=00, data=7 → palette[7]
+    let rgb = denise.resolve_color_rgb12(0x07);
+    assert_eq!(rgb, 0xABC);
+}
+
+#[test]
+fn ham_modify_blue_control_01() {
+    let mut denise = DeniseOcs::new();
+    denise.bplcon0 = 0x6800;
+    denise.set_palette(0, 0xF80);
+    denise.begin_beam_line(); // ham_prev_rgb = COLOR00 = 0xF80
+
+    // Control=01, data=0xA → modify blue: prev=0xF80 → 0xF8A
+    let rgb = denise.resolve_color_rgb12(0x1A); // 0b01_1010
+    assert_eq!(rgb, 0xF8A);
+}
+
+#[test]
+fn ham_modify_red_control_10() {
+    let mut denise = DeniseOcs::new();
+    denise.bplcon0 = 0x6800;
+    denise.set_palette(0, 0x000);
+    denise.begin_beam_line(); // ham_prev_rgb = 0x000
+
+    // Control=10, data=0xC → modify red: prev=0x000 → 0xC00
+    let rgb = denise.resolve_color_rgb12(0x2C); // 0b10_1100
+    assert_eq!(rgb, 0xC00);
+}
+
+#[test]
+fn ham_modify_green_control_11() {
+    let mut denise = DeniseOcs::new();
+    denise.bplcon0 = 0x6800;
+    denise.set_palette(0, 0xF0F);
+    denise.begin_beam_line(); // ham_prev_rgb = 0xF0F
+
+    // Control=11, data=0x5 → modify green: prev=0xF0F → 0xF5F
+    let rgb = denise.resolve_color_rgb12(0x35); // 0b11_0101
+    assert_eq!(rgb, 0xF5F);
+}
+
+#[test]
+fn ham_modify_chains_across_pixels() {
+    let mut denise = DeniseOcs::new();
+    denise.bplcon0 = 0x6800;
+    denise.set_palette(0, 0x000);
+    denise.begin_beam_line(); // Start from black
+
+    // Set red to 0xA
+    let rgb1 = denise.resolve_color_rgb12(0x2A); // control=10, data=A → 0xA00
+    assert_eq!(rgb1, 0xA00);
+
+    // Set green to 0x5
+    let rgb2 = denise.resolve_color_rgb12(0x35); // control=11, data=5 → 0xA50
+    assert_eq!(rgb2, 0xA50);
+
+    // Set blue to 0x3
+    let rgb3 = denise.resolve_color_rgb12(0x13); // control=01, data=3 → 0xA53
+    assert_eq!(rgb3, 0xA53);
+}
+
+#[test]
+fn normal_mode_ignores_ham_ehb() {
+    let mut denise = DeniseOcs::new();
+    // 4 planes, no HAM, no DBLPF → normal mode even with index > 31
+    denise.bplcon0 = 0x4000; // BPU=4
+    denise.set_palette(5, 0x0FF);
+
+    // resolve_color_rgb12 with index 5 in normal mode
+    let rgb = denise.resolve_color_rgb12(5);
+    assert_eq!(rgb, 0x0FF);
+}
+
+// FIXME (Denise port): this dual-playfield priority case was failing
+// before the Denise archive was re-included in the workspace for the
+// Phase 1 characterisation effort. Leaving it ignored so the
+// workspace build stays green; Phase 2 task #163 (attached-pair +
+// priority port) owns the fix. See
+// wiki/amiga/denise-ocs-porting-gap-list.md.
+#[test]
+#[ignore = "known archive bug — tracked in denise-ocs-porting-gap-list.md; fix in #163"]
+fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
+    fn encode_sprite_pos_ctl(hstart: u16, vstart: u16, vstop: u16) -> (u16, u16) {
+        let pos = ((vstart & 0x00FF) << 8) | ((hstart >> 1) & 0x00FF);
+        let ctl = ((vstop & 0x00FF) << 8)
+            | (((vstart >> 8) & 1) << 2)
+            | (((vstop >> 8) & 1) << 1)
+            | (hstart & 1);
+        (pos, ctl)
+    }
+
+    let mut denise = DeniseOcs::new();
+    denise.bplcon0 = 0x0400; // DBLPF
+    denise.set_palette(1, 0x00F); // PF1 color
+    denise.set_palette(9, 0x0F0); // PF2 color
+    denise.set_palette(17, 0xF00); // sprite 0 color
+
+    let (pos, ctl) = encode_sprite_pos_ctl(22, 9, 10);
+    denise.spr_pos[0] = pos;
+    denise.spr_ctl[0] = ctl;
+    denise.spr_data[0] = 0x8000;
+    denise.spr_datb[0] = 0x0000;
+
+    // Both playfields active on this pixel: PF1 code=1 (plane 1), PF2 code=1 (plane 2).
+    // PF2PRI=1 puts PF2 in front of PF1.
+    denise.bpl_shift[0] = 0x8000;
+    denise.bpl_shift[1] = 0x8000;
+    denise.shift_count = 1;
+    denise.bplcon2 = 0x0044; // PF2PRI=1, PF1P=4 (sprite beats PF1), PF2P=0 (PF2 beats sprite)
+    assert_eq!(
+        denise.output_pixel_color(22, 9),
+        DeniseOcs::rgb12_to_argb32(0x0F0),
+        "front PF2 should hide sprite when PF2P places PF2 ahead of SP01"
+    );
+
+    denise.bpl_shift[0] = 0x8000;
+    denise.bpl_shift[1] = 0x8000;
+    denise.shift_count = 1;
+    denise.bplcon2 = 0x004C; // PF2PRI=1, PF2P=1 => SP01 in front of PF2
+    assert_eq!(
+        denise.output_pixel_color(22, 9),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "sprite should appear when PF2P places SP01 ahead of front PF2"
+    );
+}

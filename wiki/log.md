@@ -4,6 +4,87 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — Big chip splits, wave 1: NES iNES mappers + Denise debug carve-out
+
+**Type:** refactor (architectural — splitting two large chip / format crates by concern)
+**Trigger:** with the runtime-family normalization closed (5 commits, all 5 shipping platforms), the next architectural track was the three big chip splits flagged during the C64 architecture review: NES iNES mappers (3879 lines, 14 mappers in one file), Denise debug carve-out (2407 lines), and the 68000 family-into-per-variant-crates (biggest swing — saved for solo). Wave 1 takes the first two in parallel; wave 2 will take the 68000 alone.
+
+**Result:** two large chip / format crates split into per-concern modules with all downstream consumers verified clean.
+
+### NES iNES — `format-nintendo-nes-ines`
+
+| File | Before | After |
+|---|---|---|
+| `src/lib.rs` | 3879 | **60** (re-exports only) |
+| `src/mapper.rs` (new) | — | 176 (`Mapper` trait + `Mirroring` enum) |
+| `src/format.rs` (new) | — | 177 (`CartridgeHeader`, `ParsedCartridge`, `parse_ines`) |
+| `src/snapshot.rs` (new) | — | 69 (`MapperSnapshot` + `mapper_from_snapshot` dispatcher) |
+| `src/mappers/mod.rs` (new) | — | 20 |
+| `src/mappers/nrom.rs` | — | 107 |
+| `src/mappers/mmc1.rs` | — | 240 |
+| `src/mappers/uxrom.rs` | — | 96 |
+| `src/mappers/cnrom.rs` | — | 79 |
+| `src/mappers/mmc3.rs` | — | 244 |
+| `src/mappers/mmc5.rs` | — | 629 (largest — `Mmc5Envelope` + `Mmc5Pulse` private helpers stay inside this file) |
+| `src/mappers/axrom.rs` | — | 81 |
+| `src/mappers/colordreams.rs` | — | 85 |
+| `src/mappers/vrc2a.rs` | — | 139 |
+| `src/mappers/action53.rs` | — | 149 |
+| `src/mappers/bxrom.rs` | — | 73 |
+| `src/mappers/nina001.rs` | — | 102 |
+| `src/mappers/sunsoft4.rs` | — | 150 |
+| `src/mappers/camerica.rs` | — | 84 |
+| `tests/parser.rs` (new) | — | 1293 (88 integration tests) |
+| `tests/common/mod.rs` (new) | — | 71 |
+
+**Test movement.** 88 inline tests moved out to `tests/parser.rs`. Two stayed inline in `src/mappers/mmc1.rs` (`mmc1_reset_write_clears_shift_register_and_sets_prg_mode_3`, `mmc1_loads_registers_lsb_first`) because they poke private MMC1 state (`shift_count`, `shift_register`, `control`, `chr_bank_*`, `prg_bank`). The fix was to mark those six fields `pub(crate)` rather than fully `pub` — the inline tests reach them through module privacy without leaking them onto the public API.
+
+**Public API audit.** Every previously-public symbol (`parse_ines`, `CartridgeHeader`, `ParsedCartridge`, `Mapper`, `Mirroring`, `MapperSnapshot`, `mapper_from_snapshot`, plus the 14 mapper structs `Nrom` / `Mmc1` / ...) still imports at the same flat path via `pub use` re-exports in `lib.rs`. Verified the actual downstream import sites (`machine-nintendo-nes`, `runtime-nintendo-nes`, `ricoh-ppu-2c02`, the `nestest.rs` test) compile unchanged.
+
+**Verification (8/8 green).**
+- `cargo test -p format-nintendo-nes-ines --lib` — 2 passed
+- `cargo test -p format-nintendo-nes-ines --tests` — 88 passed
+- `cargo clippy -p format-nintendo-nes-ines --all-targets -- -D warnings` — clean
+- `cargo build -p format-nintendo-nes-ines` — clean
+- `cargo build -p machine-nintendo-nes` — clean
+- `cargo build -p runtime-nintendo-nes` — clean
+- `cargo test -p machine-nintendo-nes --lib` — 14 passed
+- `cargo test -p runtime-nintendo-nes --lib --tests` — 6 passed (1 pre-existing ignored)
+
+### Denise — `commodore-denise-ocs`
+
+| File | Before | After |
+|---|---|---|
+| `src/lib.rs` | 2407 | **33** (module decls + 3 `pub const`s + 3 `pub use` blocks) |
+| `src/chip.rs` (new) | — | 1422 (`DeniseOcs` struct + both `impl DeniseOcs` blocks + `impl Default` + 4 inline tests) |
+| `src/debug.rs` (new) | — | 59 (the four debug instrumentation types) |
+| `src/viewport.rs` (new) | — | 155 (`ViewportBounds`, `ViewportPreset`, `ViewportImage`, `pixel_aspect_ratio`) |
+| `tests/bplcon_pipeline.rs` | 219 | unchanged |
+| `tests/ham_ehb_dpf.rs` | 229 | 406 (extended with EHB/HAM `resolve_color_rgb12` direct-call tests + the `#[ignore]` `dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite` archive-bug regression) |
+| `tests/sprites_collisions.rs` | 380 | 912 (extended with 16 inline tests covering sprite arming/disarm via direct field pokes, mid-line POS/DATA writes, CLXDAT mid-line edge cases, BPLCON2 PF1 priority pair, BPLCON4 ESPRM/OSPRM XOR) |
+| `tests/shift_load.rs` (new) | — | 115 (4 tests on `output_pixel_with_beam` shift mechanics: lores/hires source-pixel-per-call counts, two-call cumulative shifting, deferred-shift-load between hires samples) |
+
+**Test movement.** ~24 tests moved out, 4 stayed inline in `chip::tests` because each touches a private symbol — three call `shift_one_playfield_source_pixel` (private fn), one pokes `ham_prev_rgb` (private field). Two pairs of tests have `_via_field_pokes` suffixes to distinguish the direct-field-poke path from the existing register-write-API path; both forms are useful as they exercise different shifter entry points.
+
+**Public API audit.** Every previously-public symbol (`RASTER_FB_WIDTH`, `PAL_RASTER_FB_HEIGHT`, `NTSC_RASTER_FB_HEIGHT`, `DeniseOcs`, the four `Denise*Debug` types, `ViewportBounds`, `ViewportPreset`, `ViewportImage`, `pixel_aspect_ratio`) still imports from `commodore_denise_ocs::*` at the same path. `chip.rs` is 122 over the 1300 target — the inline tests + impl Default + `extract_viewport` (kept in `chip.rs` because it owns the framebuffer) push it up. No further peel-out without violating cohesion.
+
+**Verification (7/7 green).**
+- `cargo test -p commodore-denise-ocs --lib` — 4 passed
+- `cargo test -p commodore-denise-ocs --tests` — 4 + 8 + 21 (1 ignored) + 4 + 29 = 66 passed
+- `cargo clippy -p commodore-denise-ocs --all-targets -- -D warnings` — clean
+- `cargo build -p commodore-denise-ocs` — clean
+- `cargo build -p machine-commodore-amiga-ocs` — clean
+- `cargo build -p runtime-commodore-amiga` — clean
+- `cargo test -p machine-commodore-amiga-ocs --lib` — 49/49 passed
+
+### What's next on the chip-split track
+
+Wave 2 is the `motorola-68000` family-into-per-variant-crates split — the biggest swing of the three. It touches the Amiga (the only 68000-class target right now), the Tom Harte test runner, the `scripts/coverage.sh` carve-out for `fpu.rs` / `mmu.rs` / `disasm.rs`, and CI. Going solo rather than parallelising. The deferred Cov-3 follow-up (carving out `decode.rs` / `cpu.rs` 68010+ variant-specific arms) becomes natural once the variants are in their own crates.
+
+Cov-5 — applying directed-test passes to GB / NES / Amiga / Spectrum the way Cov-4 did for C64 — is unblocked across the family but waits behind the 68000 split for now (touching the same Amiga code surface in two tracks at once invites churn).
+
+---
+
 ## 2026-04-29 — Runtime family normalization, wave 3: Spectrum (hybrid shape) + decision record
 
 **Type:** refactor (architectural — applying the per-concern shape WITHIN the per-variant generic) + new decision record

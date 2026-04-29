@@ -378,3 +378,535 @@ fn clxdat_latches_sprite_pair_crosses() {
         "sprite pair 0 + sprite pair 1 at same pixel -> bit 9 set"
     );
 }
+
+// --- Direct-field arming, mid-line position writes, and CLXDAT
+// fine-grained coverage (formerly inline tests). These complement the
+// register-write tests above by poking fields directly to isolate
+// individual pipeline stages. Helpers reuse `encode_sprite_pos_ctl`
+// from this file. ---
+
+#[test]
+fn sprite_pixel_overrides_bitplane_pixel() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(1, 0x00F);
+    denise.set_palette(17, 0xF00); // sprite 0/1 pair, color 1
+    denise.bplcon2 = 0x0001; // PF1P=1 => sprite group 0 in front of PF1
+
+    denise.bpl_shift[0] = 0x8000; // playfield color index 1
+    denise.shift_count = 1;
+
+    let (pos, ctl) = encode_sprite_pos_ctl(20, 10, 11);
+    denise.spr_pos[0] = pos;
+    denise.spr_ctl[0] = ctl;
+    denise.spr_data[0] = 0x8000; // leftmost pixel = color code 1
+    denise.spr_datb[0] = 0x0000;
+
+    assert_eq!(
+        denise.output_pixel_color(20, 10),
+        DeniseOcs::rgb12_to_argb32(0xF00)
+    );
+}
+
+#[test]
+fn sprite_ctl_disarms_and_sprite_data_rearms_comparator() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(17, 0xF00);
+
+    let (pos, ctl) = encode_sprite_pos_ctl(26, 10, 11);
+    denise.write_sprite_pos(0, pos);
+    denise.write_sprite_ctl(0, ctl); // disarm
+    denise.write_sprite_datb(0, 0x0000);
+    denise.write_sprite_data(0, 0x8000); // arm
+
+    assert_eq!(
+        denise.output_pixel_color(26, 10),
+        DeniseOcs::rgb12_to_argb32(0xF00)
+    );
+
+    denise.write_sprite_ctl(0, ctl); // disarm again
+    assert_eq!(
+        denise.output_pixel_color(26, 10),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "writing SPRxCTL should disable sprite output until re-armed"
+    );
+
+    denise.write_sprite_datb(0, 0x0000); // DATB alone must not arm
+    assert_eq!(
+        denise.output_pixel_color(26, 10),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "writing SPRxDATB alone should not arm the comparator"
+    );
+
+    denise.write_sprite_data(0, 0x8000); // DATA arms
+    assert_eq!(
+        denise.output_pixel_color(26, 10),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "writing SPRxDATA should arm the comparator"
+    );
+}
+
+#[test]
+fn sprite_pos_write_moves_armed_sprite_horizontally() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(17, 0x0F0);
+
+    let (pos_a, ctl) = encode_sprite_pos_ctl(40, 12, 13);
+    let (pos_b, _) = encode_sprite_pos_ctl(42, 12, 13);
+    denise.write_sprite_pos(0, pos_a);
+    denise.write_sprite_ctl(0, ctl);
+    denise.write_sprite_datb(0, 0x0000);
+    denise.write_sprite_data(0, 0x8000); // arm
+
+    denise.write_sprite_pos(0, pos_b); // move while armed
+
+    let c40 = denise.output_pixel_color(40, 12);
+    let c42 = denise.output_pixel_color(42, 12);
+
+    assert_eq!(
+        c40,
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "sprite should no longer appear at the old horizontal position"
+    );
+    assert_eq!(
+        c42,
+        DeniseOcs::rgb12_to_argb32(0x0F0),
+        "writing SPRxPOS should move an armed sprite horizontally"
+    );
+}
+
+#[test]
+fn mid_line_sprite_data_write_affects_next_line_not_current_line() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(17, 0xF00);
+
+    let (pos, ctl) = encode_sprite_pos_ctl(20, 10, 12); // active on lines 10 and 11
+    denise.write_sprite_pos(0, pos);
+    denise.write_sprite_ctl(0, ctl);
+    denise.write_sprite_datb(0, 0x0000);
+    denise.write_sprite_data(0, 0xC000); // first two pixels set
+
+    // First pixel of line 10 loads and begins shifting.
+    assert_eq!(
+        denise.output_pixel_color(20, 10),
+        DeniseOcs::rgb12_to_argb32(0xF00)
+    );
+
+    // Mid-line data rewrite should not affect the already-loaded serial data
+    // for this line, but should be visible on the next line.
+    denise.write_sprite_data(0, 0x0000);
+    assert_eq!(
+        denise.output_pixel_color(21, 10),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "mid-line SPRxDATA write must not alter the current line after load"
+    );
+
+    assert_eq!(
+        denise.output_pixel_color(20, 11),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "next line should use the newly written sprite data"
+    );
+}
+
+#[test]
+fn mid_line_sprite_pos_write_before_hstart_moves_same_line_trigger() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(17, 0x0FF);
+
+    let (pos_a, ctl) = encode_sprite_pos_ctl(26, 9, 10);
+    let (pos_b, _) = encode_sprite_pos_ctl(24, 9, 10);
+    denise.write_sprite_pos(0, pos_a);
+    denise.write_sprite_ctl(0, ctl);
+    denise.write_sprite_datb(0, 0x0000);
+    denise.write_sprite_data(0, 0x8000);
+
+    denise.output_pixel(23, 9); // before either HSTART
+    denise.write_sprite_pos(0, pos_b); // move before comparator hit
+    let c24 = denise.output_pixel_color(24, 9);
+    let c26 = denise.output_pixel_color(26, 9);
+
+    assert_eq!(
+        c24,
+        DeniseOcs::rgb12_to_argb32(0x0FF),
+        "SPRxPOS write before HSTART should affect the current line comparator hit"
+    );
+    assert_eq!(
+        c26,
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "sprite should not also trigger again at the old HSTART"
+    );
+}
+
+#[test]
+fn spritedata_rearm_after_hstart_waits_until_next_line() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(17, 0xF0F);
+
+    let (pos, ctl) = encode_sprite_pos_ctl(28, 11, 13); // active on lines 11 and 12
+    denise.write_sprite_pos(0, pos);
+    denise.write_sprite_ctl(0, ctl); // disarm
+    denise.write_sprite_datb(0, 0x0000);
+
+    denise.output_pixel(29, 11); // HSTART already passed on line 11
+    denise.write_sprite_data(0, 0x8000); // arm after HSTART
+    assert_eq!(
+        denise.output_pixel_color(30, 11),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "arming after HSTART should wait for the next line's comparison"
+    );
+
+    assert_eq!(
+        denise.output_pixel_color(28, 12),
+        DeniseOcs::rgb12_to_argb32(0xF0F),
+        "next line should trigger output after late-line SPRxDATA arm"
+    );
+}
+
+#[test]
+fn clxdat_follows_loaded_sprite_serial_data_under_mid_line_data_write() {
+    let mut denise = DeniseOcs::new();
+    let (pos, ctl) = encode_sprite_pos_ctl(20, 10, 12); // active on lines 10 and 11
+    denise.write_sprite_pos(0, pos);
+    denise.write_sprite_ctl(0, ctl);
+    denise.write_sprite_datb(0, 0x0000);
+    denise.write_sprite_data(0, 0xC000); // two sprite pixels on each active line
+
+    // First pixel on line 10 collides with odd bitplane.
+    denise.bpl_shift[0] = 0x8000;
+    denise.shift_count = 1;
+    denise.output_pixel(20, 10);
+    assert_eq!(denise.read_clxdat() & (1 << 1), 1 << 1);
+
+    // Mid-line data rewrite should not affect the already-loaded serial data
+    // for line 10, so the second pixel still collides.
+    denise.write_sprite_data(0, 0x0000);
+    denise.bpl_shift[0] = 0x8000;
+    denise.shift_count = 1;
+    denise.output_pixel(21, 10);
+    assert_eq!(denise.read_clxdat() & (1 << 1), 1 << 1);
+
+    // Next line uses the rewritten data, so no collision occurs.
+    denise.bpl_shift[0] = 0x8000;
+    denise.shift_count = 1;
+    denise.output_pixel(20, 11);
+    assert_eq!(denise.read_clxdat() & (1 << 1), 0);
+}
+
+#[test]
+fn clxdat_stops_latching_after_mid_line_ctl_disarm() {
+    let mut denise = DeniseOcs::new();
+    let (pos, ctl) = encode_sprite_pos_ctl(24, 8, 9);
+    denise.write_sprite_pos(0, pos);
+    denise.write_sprite_ctl(0, ctl);
+    denise.write_sprite_datb(0, 0x0000);
+    denise.write_sprite_data(0, 0xC000); // two sprite pixels
+
+    denise.bpl_shift[0] = 0x8000;
+    denise.shift_count = 1;
+    denise.output_pixel(24, 8);
+    assert_eq!(denise.read_clxdat() & (1 << 1), 1 << 1);
+
+    // Disarm mid-line before the second sprite pixel.
+    denise.write_sprite_ctl(0, ctl);
+    denise.bpl_shift[0] = 0x8000;
+    denise.shift_count = 1;
+    denise.output_pixel(25, 8);
+    assert_eq!(
+        denise.read_clxdat() & (1 << 1),
+        0,
+        "SPRxCTL disarm should stop further same-line sprite collisions"
+    );
+}
+
+#[test]
+fn clxdat_pos_write_before_hstart_moves_same_line_collision_point() {
+    let mut denise = DeniseOcs::new();
+    let (pos_a, ctl) = encode_sprite_pos_ctl(26, 9, 10);
+    let (pos_b, _) = encode_sprite_pos_ctl(24, 9, 10);
+    denise.write_sprite_pos(0, pos_a);
+    denise.write_sprite_ctl(0, ctl);
+    denise.write_sprite_datb(0, 0x0000);
+    denise.write_sprite_data(0, 0x8000);
+
+    denise.output_pixel(23, 9); // establish runtime before comparator hit
+    let _ = denise.read_clxdat();
+
+    denise.write_sprite_pos(0, pos_b); // move before HSTART
+
+    denise.bpl_shift[0] = 0x8000;
+    denise.shift_count = 1;
+    denise.output_pixel(24, 9);
+    assert_eq!(denise.read_clxdat() & (1 << 1), 1 << 1);
+
+    denise.bpl_shift[0] = 0x8000;
+    denise.shift_count = 1;
+    denise.output_pixel(26, 9);
+    assert_eq!(
+        denise.read_clxdat() & (1 << 1),
+        0,
+        "collision should not also occur at the old HSTART after a pre-hit SPRxPOS move"
+    );
+}
+
+#[test]
+fn clxdat_arm_after_hstart_waits_until_next_line() {
+    let mut denise = DeniseOcs::new();
+    let (pos, ctl) = encode_sprite_pos_ctl(28, 11, 13); // active on lines 11 and 12
+    denise.write_sprite_pos(0, pos);
+    denise.write_sprite_ctl(0, ctl); // disarm
+    denise.write_sprite_datb(0, 0x0000);
+
+    denise.output_pixel(29, 11); // HSTART has passed on line 11
+    denise.write_sprite_data(0, 0x8000); // arm late
+
+    denise.bpl_shift[0] = 0x8000;
+    denise.shift_count = 1;
+    denise.output_pixel(30, 11);
+    assert_eq!(
+        denise.read_clxdat() & (1 << 1),
+        0,
+        "late-line arm must not cause a same-line collision after HSTART has passed"
+    );
+
+    denise.bpl_shift[0] = 0x8000;
+    denise.shift_count = 1;
+    denise.output_pixel(28, 12);
+    assert_eq!(
+        denise.read_clxdat() & (1 << 1),
+        1 << 1,
+        "next line should latch collision after late-line SPRxDATA arm"
+    );
+}
+
+#[test]
+fn transparent_sprite_pixel_leaves_playfield_visible_via_field_pokes() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(1, 0x0F0);
+    denise.set_palette(17, 0xF00);
+
+    denise.bpl_shift[0] = 0x8000; // playfield color index 1
+    denise.shift_count = 1;
+
+    let (pos, ctl) = encode_sprite_pos_ctl(24, 12, 13);
+    denise.spr_pos[0] = pos;
+    denise.spr_ctl[0] = ctl;
+    denise.spr_data[0] = 0x0000;
+    denise.spr_datb[0] = 0x0000; // transparent
+
+    assert_eq!(
+        denise.output_pixel_color(24, 12),
+        DeniseOcs::rgb12_to_argb32(0x0F0)
+    );
+}
+
+#[test]
+fn lower_numbered_sprite_has_priority_on_overlap_via_field_pokes() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(17, 0xF00); // sprite 0 pair color 1
+    denise.set_palette(21, 0x0FF); // sprite 2 pair color 1
+
+    let (pos0, ctl0) = encode_sprite_pos_ctl(30, 8, 9);
+    denise.spr_pos[0] = pos0;
+    denise.spr_ctl[0] = ctl0;
+    denise.spr_data[0] = 0x8000;
+    denise.spr_datb[0] = 0x0000;
+
+    let (pos2, ctl2) = encode_sprite_pos_ctl(30, 8, 9);
+    denise.spr_pos[2] = pos2;
+    denise.spr_ctl[2] = ctl2;
+    denise.spr_data[2] = 0x8000;
+    denise.spr_datb[2] = 0x0000;
+
+    assert_eq!(
+        denise.output_pixel_color(30, 8),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "sprite 0 should appear in front of sprite 2"
+    );
+}
+
+#[test]
+fn attached_sprite_pair_uses_full_sprite_palette_range() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(25, 0x0F0); // attached color value 1001 => COLOR25
+
+    let (pos, ctl) = encode_sprite_pos_ctl(32, 14, 15);
+    denise.spr_pos[0] = pos;
+    denise.spr_ctl[0] = ctl;
+    denise.spr_data[0] = 0x8000; // even sprite code = 01
+    denise.spr_datb[0] = 0x0000;
+
+    denise.spr_pos[1] = pos;
+    denise.spr_ctl[1] = ctl | 0x0080; // ATTACH on odd sprite
+    denise.spr_data[1] = 0x0000;
+    denise.spr_datb[1] = 0x8000; // odd sprite code = 10 (high two bits)
+
+    assert_eq!(
+        denise.output_pixel_color(32, 14),
+        DeniseOcs::rgb12_to_argb32(0x0F0)
+    );
+}
+
+#[test]
+fn misaligned_attached_pair_reverts_to_shifted_color_subsets() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(17, 0xF00); // even-only attached fallback color (code 0001)
+    denise.set_palette(20, 0x0F0); // odd-only attached fallback color (code 0100)
+
+    // Sprites shift at lores rate (once per CCK = 2 beam_x steps).
+    // To get a misaligned region where only ONE sprite has a pixel:
+    // - Even sprite starts at hstart=38, with 1-bit data (0x8000).
+    //   Its first pixel spans beam_x 38-39 (CCK 19). After shifting,
+    //   the data is exhausted at beam_x 40+.
+    // - Odd sprite starts at hstart=40, with 1-bit data (0x8000).
+    //   Its first pixel spans beam_x 40-41 (CCK 20).
+    //
+    // At beam_x=38: even-only (even has data, odd hasn't started).
+    // At beam_x=40: odd-only (even exhausted, odd just started).
+    let (pos0, ctl0) = encode_sprite_pos_ctl(38, 10, 11);
+    denise.spr_pos[0] = pos0;
+    denise.spr_ctl[0] = ctl0;
+    denise.spr_data[0] = 0x8000; // pixel at hstart=38 only
+    denise.spr_datb[0] = 0x0000;
+
+    let (pos1, ctl1) = encode_sprite_pos_ctl(40, 10, 11); // starts 1 CCK later
+    denise.spr_pos[1] = pos1;
+    denise.spr_ctl[1] = ctl1 | 0x0080; // ATTACH on odd sprite
+    denise.spr_data[1] = 0x8000; // odd-only pixel at hstart=40
+    denise.spr_datb[1] = 0x0000;
+
+    let c38 = denise.output_pixel_color(38, 10);
+    let c40 = denise.output_pixel_color(40, 10);
+
+    assert_eq!(
+        c38,
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "even-only pixel in misaligned attached pair should use COLOR17..19 subset"
+    );
+    assert_eq!(
+        c40,
+        DeniseOcs::rgb12_to_argb32(0x0F0),
+        "odd-only pixel in misaligned attached pair should use shifted COLOR20/24/28 subset"
+    );
+}
+
+#[test]
+fn attach_bit_on_even_sprite_is_ignored() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(17, 0xF00); // would appear if sprite 2 were incorrectly treated as attached
+    denise.set_palette(21, 0x00F); // normal sprite-2 color code 1 (group 1 base)
+
+    let (pos, ctl) = encode_sprite_pos_ctl(44, 12, 13);
+    denise.spr_pos[2] = pos;
+    denise.spr_ctl[2] = ctl | 0x0080; // ATTACH bit on even sprite must be ignored
+    denise.spr_data[2] = 0x8000;
+    denise.spr_datb[2] = 0x0000;
+
+    assert_eq!(
+        denise.output_pixel_color(44, 12),
+        DeniseOcs::rgb12_to_argb32(0x00F),
+        "ATTACH is only valid on odd sprites; even sprite 2 should render as normal group-1 sprite"
+    );
+}
+
+#[test]
+fn bplcon2_pf1_priority_can_hide_sprite_group_0() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(1, 0x00F); // playfield color
+    denise.set_palette(17, 0xF00); // sprite 0 color
+    denise.bplcon2 = 0x0000; // PF1P = 0 => PF1 in front of all sprite groups
+
+    denise.bpl_shift[0] = 0x8000; // playfield color index 1
+    denise.shift_count = 1;
+
+    let (pos, ctl) = encode_sprite_pos_ctl(18, 6, 7);
+    denise.spr_pos[0] = pos;
+    denise.spr_ctl[0] = ctl;
+    denise.spr_data[0] = 0x8000;
+    denise.spr_datb[0] = 0x0000;
+
+    assert_eq!(
+        denise.output_pixel_color(18, 6),
+        DeniseOcs::rgb12_to_argb32(0x00F),
+        "PF1 priority should place sprite 0 behind a nonzero playfield pixel"
+    );
+}
+
+#[test]
+fn bplcon2_pf1_priority_can_place_sprite_group_0_in_front() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    denise.set_palette(1, 0x00F); // playfield color
+    denise.set_palette(17, 0xF00); // sprite 0 color
+    denise.bplcon2 = 0x0001; // PF1P = 1 => SP01 in front of PF1
+
+    denise.bpl_shift[0] = 0x8000; // playfield color index 1
+    denise.shift_count = 1;
+
+    let (pos, ctl) = encode_sprite_pos_ctl(19, 7, 8);
+    denise.spr_pos[0] = pos;
+    denise.spr_ctl[0] = ctl;
+    denise.spr_data[0] = 0x8000;
+    denise.spr_datb[0] = 0x0000;
+
+    assert_eq!(
+        denise.output_pixel_color(19, 7),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "PF1 priority should allow sprite 0 in front when PF1P=1"
+    );
+}
+
+#[test]
+fn bplcon4_esprm_xors_even_sprite_colour_bank() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    // ESPRM = 1 => even sprites XOR upper nybble with 1.
+    // Sprite 0 code 1: base index = 17 (0x11). XOR: 0x11 ^ 0x10 = 0x01.
+    denise.bplcon4 = 0x0001;
+    denise.set_palette(1, 0xABC);
+
+    let (pos, ctl) = encode_sprite_pos_ctl(32, 14, 15);
+    denise.spr_pos[0] = pos;
+    denise.spr_ctl[0] = ctl;
+    denise.spr_data[0] = 0x8000;
+    denise.spr_datb[0] = 0x0000;
+
+    assert_eq!(
+        denise.output_pixel_color(32, 14),
+        DeniseOcs::rgb12_to_argb32(0xABC),
+        "ESPRM should XOR even sprite to palette index 1"
+    );
+}
+
+#[test]
+fn bplcon4_osprm_xors_odd_sprite_colour_bank() {
+    let mut denise = DeniseOcs::new();
+    denise.set_palette(0, 0x000);
+    // OSPRM = 1 => odd sprites XOR upper nybble with 1.
+    // Sprite 3 (odd, pair 1) code 1: base index = 20+1 = 21 (0x15).
+    // XOR: 0x15 ^ 0x10 = 0x05 = 5.
+    denise.bplcon4 = 0x0010;
+    denise.set_palette(5, 0xDEF);
+
+    let (pos, ctl) = encode_sprite_pos_ctl(32, 14, 15);
+    denise.spr_pos[3] = pos;
+    denise.spr_ctl[3] = ctl;
+    denise.spr_data[3] = 0x8000;
+    denise.spr_datb[3] = 0x0000;
+
+    assert_eq!(
+        denise.output_pixel_color(32, 14),
+        DeniseOcs::rgb12_to_argb32(0xDEF),
+        "OSPRM should XOR odd sprite to palette index 5"
+    );
+}
