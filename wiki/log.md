@@ -4,6 +4,49 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — Runtime family normalization, wave 2: Amiga
+
+**Type:** refactor (architectural — applying the C64 / GB / NES shape)
+**Trigger:** wave 1 (a960d90 / 2c9cfd3) brought GB and NES into the per-concern shape. Amiga was the last unsplit family member: 1044-line `runtime.rs` mixing lifecycle, `apply_input_event` (already a free fn — only one in the family), `SessionQueryProvider` impl, inline snapshot/restore, the multi-chip `boot_status` helper, and 258 lines of inline tests. Bigger surface than GB/NES because the runtime coordinates Agnus, Denise, Paula, dual 8520 CIAs, and the floppy across one shell-level `MachineCore` impl — all reasons to do the split solo rather than parallelising it.
+**Result:** the four-runtime family (C64, GB, NES, Amiga) now share the per-concern shape end-to-end.
+
+| File | Before | After |
+|---|---|---|
+| `runtime.rs` (production+inline tests) | 1044 (786 prod / 258 inline tests) | **569** (production only) |
+| `queries.rs` (new) | — | 178 |
+| `snapshot.rs` (new) | — | 100 |
+| `input.rs` (new) | — | 126 |
+| `tests/lifecycle.rs` (new) | — | 206 |
+| `tests/queries.rs` (new) | — | 55 |
+| `tests/common/mod.rs` (new) | — | 125 |
+
+**Test movement.** 14 inline tests → 11 in `tests/lifecycle.rs` + 3 in `tests/queries.rs`. Two inline tests stayed inline because each exercises a private symbol: `input::tests::key_name_lookup_covers_documented_keys` (covers private `key_name_to_raw_code`) and `queries::tests::advertised_query_paths_are_unique` (covers private `AMIGA_QUERY_PATHS`). The pre-existing 3 `profiles::tests::*` stayed inline (private `Model` invariants). All 14 moved tests preserved verbatim semantics.
+
+**The pre-existing `tests/snapshot_roundtrip.rs` and 9 diag/golden/ram_variants files were left untouched** — none of the moved-out inline tests targeted snapshot/restore (those four already lived in the integration file), and the 9 diag tests + golden_matrix + boot_invariants + ram_variants go through `MachineCore` so the split is invisible to them.
+
+**`pub(crate)` accessors added to `AmigaRuntime`.** Snapshot and queries crossed the runtime's private fields through these new accessors: `frame_count`, `non_black_pixels`, `non_white_pixels`, `first_active_row`, `floppy0_bytes`, `audio_sample_accumulator`, `time_value`, `set_time`, `set_ram_config`, `set_frame_count`, `set_non_black_pixels`, `set_non_white_pixels`, `set_first_active_row`, `set_audio_sample_accumulator`, `clear_floppy0_bytes`, `clear_audio_buffer`, `refresh_rgba_framebuffer`, `insert_floppy_bytes_pub`. The last is a `pub(crate)` shim because `snapshot::decode` re-mounts the disk through the same media path so A1000 disk-change-pending bookkeeping fires identically to `MachineCore::load_media`.
+
+The following symbols were promoted from inline-private to `pub(crate)` so the new sibling modules can see them: `KICKSTART_ROM_ID`, `A1000_BOOTSTRAP_ROM_ID`, `AUDIO_SAMPLE_RATE_HZ`, `AUDIO_CHANNELS`, `A500_PAL_TICK_HZ`, `audio_sample_frames_for_ticks`, `blank_standard_kickstart_rom`, `blank_a1000_bootstrap_rom`. `tests/common/mod.rs` hardcodes the same identifiers/values that the integration tests need (per the C64-split log), since `pub(crate)` doesn't reach across the integration-test boundary.
+
+**Judgement calls.**
+1. Multi-chip queries (Agnus / Denise / Paula / CIA / floppy) all read from `runtime.machine()` which exposes `&AmigaOcs`. No per-chip accessor proliferation was needed — the chip stack is owned by `AmigaOcs` itself, so the queries module reaches each chip through one stable accessor.
+2. `boot_status` moved to `queries.rs` and now takes `&AmigaRuntime` rather than `&self`. Read-only; drives the `boot.*` triple of query paths.
+3. `apply_input_event` was already a free fn at line 681, so the move was the cleanest of the three. Signature unchanged.
+
+**Verification.**
+- `cargo test -p runtime-commodore-amiga --lib` — **5 passed** (was 17; 12 moved out, 0 lost)
+- `cargo test -p runtime-commodore-amiga --test lifecycle` — **11 passed**
+- `cargo test -p runtime-commodore-amiga --test queries` — **3 passed**
+- `cargo test -p runtime-commodore-amiga --test snapshot_roundtrip` — **4 passed** (pre-existing file untouched)
+- `cargo build -p runtime-commodore-amiga --tests` — clean (all 13 integration test binaries compile, including the slow ROM-gated diag/golden ones)
+- `cargo clippy -p runtime-commodore-amiga --all-targets -- -D warnings` — clean
+
+**Test count proof.** Pre-split = 17 lib + (35 + 15 ignored integration via the agent's full-suite run) = 52 tests + 15 ignored. Post-split = 5 lib + (35 + 15 ignored) = 40 tests + 15 ignored, plus the 2 new private-symbol inline tests = 42 tests + 15 ignored, plus the 11+3 moved-out tests counted in the 35 = 55 total active. Net +2 from the new private-symbol tests; zero pre-existing tests went missing.
+
+**What's next.** Wave 2 closes the runtime-family normalization for the four currently-shipping platforms. Sinclair Spectrum stays outside this track for now — it's already split per-variant rather than per-concern, and a separate decision is needed about whether to converge or whether the variant axis is the right one for that family. Dragon stays Codex-owned. With the runtime side normalized, the big chip splits (`format-nintendo-nes-ines/src/lib.rs` 14 mappers, `commodore-denise-ocs/src/lib.rs` 2407 lines, `motorola-68000` family-into-per-variant-crates) become the next architectural track.
+
+---
+
 ## 2026-04-29 — Runtime family normalization, wave 1: Game Boy + NES
 
 **Type:** refactor (architectural — applying the C64 shape to siblings)

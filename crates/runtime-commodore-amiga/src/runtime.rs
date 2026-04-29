@@ -4,29 +4,31 @@
 //! through a common interface. The runtime owns the ROM bytes so
 //! reset rebuilds from them, emits one frame per `run_until`
 //! iteration, and delegates keyboard input and ADF insertion to
-//! `AmigaOcs`.
+//! `AmigaOcs`. Per-concern siblings — `queries.rs`, `snapshot.rs`,
+//! `input.rs` — own the pieces of the surface that don't belong in
+//! lifecycle.
 
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, InputEvent,
-    MachineCore, MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, QueryError,
-    QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
+    AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult,
+    StopReason,
 };
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_ocs::{
-    AmigaOcs, AmigaOcsSnapshot, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
+    AmigaOcs, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 
+use crate::input::apply_input_event;
+use crate::snapshot;
 use crate::{A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, Model, profile_for};
 
-const KICKSTART_ROM_ID: &str = "commodore-amiga-kickstart-rom";
-const A1000_BOOTSTRAP_ROM_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
+pub(crate) const KICKSTART_ROM_ID: &str = "commodore-amiga-kickstart-rom";
+pub(crate) const A1000_BOOTSTRAP_ROM_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
 const VALID_KICKSTART_SIZES: &[usize] = &[256 * 1024, 512 * 1024];
 const VALID_A1000_BOOTSTRAP_SIZES: &[usize] = &[64 * 1024];
-const AUDIO_SAMPLE_RATE_HZ: u32 = 48_000;
-const AUDIO_CHANNELS: u8 = 2;
-const A500_PAL_TICK_HZ: u64 = A500_PAL_CCK_HZ * 2;
+pub(crate) const AUDIO_SAMPLE_RATE_HZ: u32 = 48_000;
+pub(crate) const AUDIO_CHANNELS: u8 = 2;
+pub(crate) const A500_PAL_TICK_HZ: u64 = A500_PAL_CCK_HZ * 2;
 
 /// Machine framebuffer width (= `FB_WIDTH`). Re-exported for host
 /// integrations that size their output buffers without pulling in
@@ -34,69 +36,6 @@ const A500_PAL_TICK_HZ: u64 = A500_PAL_CCK_HZ * 2;
 pub const DISPLAY_WIDTH: u32 = FB_WIDTH;
 /// Machine framebuffer height (= `FB_HEIGHT`).
 pub const DISPLAY_HEIGHT: u32 = FB_HEIGHT;
-
-/// Query paths the runtime publishes through the session query
-/// provider. Kept deliberately short — shell diagnostics start here
-/// and can grow as the verifier UI adds panels.
-const AMIGA_QUERY_PATHS: &[&str] = &[
-    // Boot-status heuristic. `HeadlessSession::wait_for_boot` keys
-    // off `boot.detected` so scripts can sleep-until-ready.
-    "boot.detected",
-    "boot.reason",
-    "boot.row",
-    "amiga.a1000.boot_rom_visible",
-    "amiga.a1000.wom_locked",
-    "amiga.machine.frame_count",
-    "amiga.memory.overlay",
-    "amiga.cpu.pc",
-    "amiga.cpu.sr",
-    "amiga.cpu.ipl",
-    "amiga.agnus.vpos",
-    "amiga.agnus.hpos",
-    "amiga.agnus.dmacon",
-    "amiga.agnus.bplcon0",
-    "amiga.paula.intena",
-    "amiga.paula.intreq",
-    "amiga.debug.dsk_write_count",
-    "amiga.debug.last_dsk_write",
-    "amiga.display.color00",
-    "amiga.display.color01",
-    "amiga.disk.inserted",
-    "amiga.disk.change_pending",
-    "amiga.disk.cylinder",
-    "amiga.disk.head",
-    "amiga.disk.motor_on",
-    "amiga.disk.motor_spinning",
-    "amiga.disk.step_events",
-    "amiga.keyboard.state",
-    "amiga.keyboard.queued",
-];
-
-/// Amiga-family query provider layered above the shared shell surface.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct AmigaSessionQueryProvider;
-
-/// Persistable Amiga runtime envelope. Wraps an `AmigaOcsSnapshot`
-/// with the surrounding runtime context (model, time, frame counters,
-/// audio accumulator, and the inserted DF0 bytes for re-mount on
-/// restore). Versioned so future snapshot extensions can bump the
-/// major version cleanly.
-#[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV1 {
-    version: u32,
-    model: Model,
-    ram_config: RamConfig,
-    time: MachineTime,
-    machine: AmigaOcsSnapshot,
-    floppy0_bytes: Option<Vec<u8>>,
-    frame_count: u64,
-    non_black_pixels: u32,
-    non_white_pixels: u32,
-    first_active_row: Option<u32>,
-    audio_sample_accumulator: u64,
-}
-
-const SNAPSHOT_VERSION: u32 = 1;
 
 /// Firmware-backed Amiga runtime over the OCS machine family.
 pub struct AmigaRuntime {
@@ -124,17 +63,6 @@ pub struct AmigaRuntime {
     /// this phase stable across frame boundaries.
     audio_sample_accumulator: u64,
     audio_buffer: Vec<f32>,
-}
-
-/// Boot-status snapshot derived from the most recent frame. Matches
-/// the archive's `AmigaBootStatus` heuristic: a mostly-coloured
-/// framebuffer with visible pixels above row zero counts as boot-
-/// detected, matching the Kickstart insert-disk screen.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct AmigaBootStatus {
-    detected: bool,
-    reason: &'static str,
-    row: Option<u32>,
 }
 
 impl AmigaRuntime {
@@ -286,6 +214,18 @@ impl AmigaRuntime {
         Ok(())
     }
 
+    /// Snapshot-side hook into `insert_floppy_bytes`. The snapshot
+    /// module re-mounts the persisted disk image after restoring the
+    /// machine; the call has to go through the same media path so the
+    /// A1000 disk-change-pending bookkeeping fires.
+    pub(crate) fn insert_floppy_bytes_pub(
+        &mut self,
+        slot: &str,
+        bytes: &[u8],
+    ) -> Result<(), MachineError> {
+        self.insert_floppy_bytes(slot, bytes)
+    }
+
     /// Copy the machine's ARGB framebuffer into the RGBA frame
     /// packet buffer the shell expects. ARGB → RGBA is a simple
     /// byte reorder. Side-effect: refreshes the pixel-based boot
@@ -328,38 +268,6 @@ impl AmigaRuntime {
         self.first_active_row = first_active_row;
     }
 
-    /// Boot-status heuristic matching the archive's semantics:
-    ///   - `display-active` once the framebuffer has mostly non-
-    ///     white content and a non-zero first active row (Kickstart
-    ///     insert-disk screen or beyond)
-    ///   - `monochrome-framebuffer` if some pixels lit but below
-    ///     the threshold
-    ///   - `no-visible-output` before the copper has programmed the
-    ///     palette at all
-    fn boot_status(&self) -> AmigaBootStatus {
-        if let Some(row) = self.first_active_row
-            && self.non_white_pixels > 1_000
-        {
-            AmigaBootStatus {
-                detected: true,
-                reason: "display-active",
-                row: Some(row),
-            }
-        } else if self.non_black_pixels > 0 {
-            AmigaBootStatus {
-                detected: false,
-                reason: "monochrome-framebuffer",
-                row: self.first_active_row,
-            }
-        } else {
-            AmigaBootStatus {
-                detected: false,
-                reason: "no-visible-output",
-                row: None,
-            }
-        }
-    }
-
     fn tick_and_sample_audio(&mut self) {
         self.machine.tick();
         self.audio_sample_accumulator = self
@@ -373,70 +281,101 @@ impl AmigaRuntime {
             self.audio_buffer.push(right);
         }
     }
-}
 
-impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
-    fn query_paths(&self, _machine: &AmigaRuntime, prefix: Option<&str>) -> Vec<String> {
-        let mut paths: Vec<String> = AMIGA_QUERY_PATHS
-            .iter()
-            .copied()
-            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
-            .map(str::to_owned)
-            .collect();
-        paths.sort_unstable();
-        paths
+    // -----------------------------------------------------------------
+    // pub(crate) accessors for the queries / snapshot sibling modules
+    // -----------------------------------------------------------------
+
+    /// Frame counter. Used by the `amiga.machine.frame_count` query
+    /// and by the snapshot envelope.
+    #[must_use]
+    pub(crate) fn frame_count(&self) -> u64 {
+        self.frame_count
     }
 
-    fn query(&self, machine: &AmigaRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
-        let amiga = &machine.machine;
-        let drive = amiga.drive();
-        let drive_status = drive.status();
-        let boot = machine.boot_status();
-        let value = match path {
-            "boot.detected" => json!(boot.detected),
-            "boot.reason" => json!(boot.reason),
-            "boot.row" => json!(boot.row),
-            "amiga.a1000.boot_rom_visible" => json!(amiga.memory().a1000_boot_rom_visible()),
-            "amiga.a1000.wom_locked" => json!(amiga.memory().a1000_wom_locked()),
-            "amiga.machine.frame_count" => json!(machine.frame_count),
-            "amiga.memory.overlay" => json!(amiga.memory().overlay()),
-            "amiga.cpu.pc" => json!(amiga.cpu().regs.pc),
-            "amiga.cpu.sr" => json!(amiga.cpu().regs.sr),
-            "amiga.cpu.ipl" => json!(amiga.cpu().ipl),
-            "amiga.agnus.vpos" => json!(amiga.agnus().vpos),
-            "amiga.agnus.hpos" => json!(amiga.agnus().hpos),
-            "amiga.agnus.dmacon" => json!(amiga.dmacon()),
-            "amiga.agnus.bplcon0" => json!(amiga.bplcon0()),
-            "amiga.paula.intena" => json!(amiga.intena()),
-            "amiga.paula.intreq" => json!(amiga.intreq()),
-            "amiga.debug.dsk_write_count" => json!(amiga.debug_dsk_log.len()),
-            "amiga.debug.last_dsk_write" => {
-                json!(amiga.debug_dsk_log.last().map(|(cck, pc, reg, val)| {
-                    json!({
-                        "cck": cck,
-                        "pc": pc,
-                        "reg": reg,
-                        "val": val,
-                    })
-                }))
-            }
-            "amiga.display.color00" => json!(amiga.color(0)),
-            "amiga.display.color01" => json!(amiga.color(1)),
-            "amiga.disk.inserted" => json!(drive.has_disk()),
-            "amiga.disk.change_pending" => json!(drive_status.disk_change),
-            "amiga.disk.cylinder" => json!(drive.cylinder()),
-            "amiga.disk.head" => json!(drive.head()),
-            "amiga.disk.motor_on" => json!(drive.motor_on()),
-            "amiga.disk.motor_spinning" => json!(drive_status.ready),
-            "amiga.disk.step_events" => json!(drive.step_event_counter()),
-            "amiga.keyboard.state" => json!(amiga.keyboard().debug_state_name()),
-            "amiga.keyboard.queued" => json!(amiga.keyboard().queued_key_count()),
-            _ => return Ok(None),
-        };
-        Ok(Some(QueryResult {
-            path: path.to_owned(),
-            value,
-        }))
+    /// Non-black pixel count from the most recent frame. Drives the
+    /// boot-status heuristic and the snapshot envelope.
+    #[must_use]
+    pub(crate) fn non_black_pixels(&self) -> u32 {
+        self.non_black_pixels
+    }
+
+    /// Non-white pixel count from the most recent frame.
+    #[must_use]
+    pub(crate) fn non_white_pixels(&self) -> u32 {
+        self.non_white_pixels
+    }
+
+    /// Topmost active scanline from the most recent frame.
+    #[must_use]
+    pub(crate) fn first_active_row(&self) -> Option<u32> {
+        self.first_active_row
+    }
+
+    /// Inserted DF0 bytes (if any) — used by the snapshot envelope so
+    /// a restore can re-mount the same image.
+    #[must_use]
+    pub(crate) fn floppy0_bytes(&self) -> Option<&[u8]> {
+        self.floppy0_bytes.as_deref()
+    }
+
+    /// 48 kHz resampler phase. Held in the snapshot so a restore picks
+    /// up sampling at exactly the same fractional offset.
+    #[must_use]
+    pub(crate) fn audio_sample_accumulator(&self) -> u64 {
+        self.audio_sample_accumulator
+    }
+
+    /// Current machine time, exposed by name distinct from the
+    /// `MachineCore::time` trait method so internal modules don't have
+    /// to import the trait.
+    #[must_use]
+    pub(crate) const fn time_value(&self) -> MachineTime {
+        self.time
+    }
+
+    pub(crate) fn set_time(&mut self, time: MachineTime) {
+        self.time = time;
+    }
+
+    pub(crate) fn set_ram_config(&mut self, ram_config: RamConfig) {
+        self.ram_config = ram_config;
+    }
+
+    pub(crate) fn set_frame_count(&mut self, frame_count: u64) {
+        self.frame_count = frame_count;
+    }
+
+    pub(crate) fn set_non_black_pixels(&mut self, count: u32) {
+        self.non_black_pixels = count;
+    }
+
+    pub(crate) fn set_non_white_pixels(&mut self, count: u32) {
+        self.non_white_pixels = count;
+    }
+
+    pub(crate) fn set_first_active_row(&mut self, row: Option<u32>) {
+        self.first_active_row = row;
+    }
+
+    pub(crate) fn set_audio_sample_accumulator(&mut self, accum: u64) {
+        self.audio_sample_accumulator = accum;
+    }
+
+    pub(crate) fn clear_floppy0_bytes(&mut self) {
+        self.floppy0_bytes = None;
+    }
+
+    pub(crate) fn clear_audio_buffer(&mut self) {
+        self.audio_buffer.clear();
+    }
+
+    /// Repack the machine's framebuffer into the runtime's RGBA8888
+    /// buffer. Called by the snapshot module after a restore so the
+    /// next frame draw sees the post-snapshot contents instead of
+    /// stale RGB data.
+    pub(crate) fn refresh_rgba_framebuffer(&mut self) {
+        self.update_rgba_framebuffer();
     }
 }
 
@@ -511,60 +450,11 @@ impl MachineCore for AmigaRuntime {
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
-        let envelope = SnapshotEnvelopeV1 {
-            version: SNAPSHOT_VERSION,
-            model: self.model,
-            ram_config: self.ram_config,
-            time: self.time,
-            machine: self.machine.snapshot_state(),
-            floppy0_bytes: self.floppy0_bytes.clone(),
-            frame_count: self.frame_count,
-            non_black_pixels: self.non_black_pixels,
-            non_white_pixels: self.non_white_pixels,
-            first_active_row: self.first_active_row,
-            audio_sample_accumulator: self.audio_sample_accumulator,
-        };
-        postcard::to_allocvec(&envelope).map_err(|reason| MachineError::InvalidSnapshot {
-            reason: reason.to_string(),
-        })
+        snapshot::encode(self)
     }
 
     fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
-        let envelope: SnapshotEnvelopeV1 =
-            postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
-                reason: reason.to_string(),
-            })?;
-        if envelope.version != SNAPSHOT_VERSION {
-            return Err(MachineError::InvalidSnapshot {
-                reason: format!(
-                    "unsupported snapshot version {}; expected {SNAPSHOT_VERSION}",
-                    envelope.version
-                ),
-            });
-        }
-        if envelope.model != self.model {
-            return Err(MachineError::InvalidSnapshot {
-                reason: format!(
-                    "model mismatch: snapshot was {:?}, runtime is {:?}",
-                    envelope.model, self.model
-                ),
-            });
-        }
-        self.ram_config = envelope.ram_config;
-        self.time = envelope.time;
-        self.machine.restore_snapshot_state(envelope.machine);
-        self.floppy0_bytes = None;
-        if let Some(bytes) = envelope.floppy0_bytes {
-            self.insert_floppy_bytes("floppy-0", &bytes)?;
-        }
-        self.frame_count = envelope.frame_count;
-        self.non_black_pixels = envelope.non_black_pixels;
-        self.non_white_pixels = envelope.non_white_pixels;
-        self.first_active_row = envelope.first_active_row;
-        self.audio_sample_accumulator = envelope.audio_sample_accumulator;
-        self.audio_buffer.clear();
-        self.update_rgba_framebuffer();
-        Ok(())
+        snapshot::decode(self, bytes)
     }
 
     fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
@@ -606,7 +496,7 @@ fn firmware_id_for_model(model: Model) -> &'static str {
     }
 }
 
-fn blank_standard_kickstart_rom() -> Vec<u8> {
+pub(crate) fn blank_standard_kickstart_rom() -> Vec<u8> {
     let mut kickstart = vec![0u8; 256 * 1024];
     kickstart[0] = 0x00;
     kickstart[1] = 0x08;
@@ -621,7 +511,7 @@ fn blank_standard_kickstart_rom() -> Vec<u8> {
     kickstart
 }
 
-fn blank_a1000_bootstrap_rom() -> Vec<u8> {
+pub(crate) fn blank_a1000_bootstrap_rom() -> Vec<u8> {
     let mut rom = vec![0u8; 64 * 1024];
     rom[0] = 0x11;
     rom[1] = 0x11;
@@ -667,7 +557,7 @@ fn validate_firmware_rom(model: Model, firmware_rom: &[u8]) -> Result<(), Machin
     })
 }
 
-fn audio_sample_frames_for_ticks(ticks: u64) -> usize {
+pub(crate) fn audio_sample_frames_for_ticks(ticks: u64) -> usize {
     usize::try_from((ticks.saturating_mul(u64::from(AUDIO_SAMPLE_RATE_HZ))) / A500_PAL_TICK_HZ)
         .unwrap_or(usize::MAX)
 }
@@ -676,369 +566,4 @@ fn audio_buffer_capacity_for_frame() -> usize {
     audio_sample_frames_for_ticks(A500_PAL_FRAME_TICKS)
         .saturating_add(1)
         .saturating_mul(usize::from(AUDIO_CHANNELS))
-}
-
-fn apply_input_event(machine: &mut AmigaOcs, event: &InputEvent) {
-    match event {
-        InputEvent::Key { name, pressed } => {
-            if let Some(code) = key_name_to_raw_code(name.as_ref()) {
-                machine.key_event(code, *pressed);
-            }
-        }
-        InputEvent::PointerMotion { device, dx, dy } if device.as_ref() == "mouse-1" => {
-            machine.move_mouse_port0(*dx, *dy);
-        }
-        InputEvent::PointerButton {
-            device,
-            button,
-            pressed,
-        } if device.as_ref() == "mouse-1" => {
-            machine.set_mouse_button_port0(button.as_ref(), *pressed);
-        }
-        InputEvent::Button {
-            port,
-            name,
-            pressed,
-        } => {
-            let _ = machine.set_joystick_control(*port, name.as_ref(), *pressed);
-        }
-        _ => {}
-    }
-}
-
-fn key_name_to_raw_code(name: &str) -> Option<u8> {
-    let lower = name.to_ascii_lowercase();
-    if let Some(raw) = lower.strip_prefix("raw-") {
-        return u8::from_str_radix(raw.trim_start_matches("0x"), 16).ok();
-    }
-    Some(match lower.as_str() {
-        "1" => 0x01,
-        "2" => 0x02,
-        "3" => 0x03,
-        "4" => 0x04,
-        "5" => 0x05,
-        "6" => 0x06,
-        "7" => 0x07,
-        "8" => 0x08,
-        "9" => 0x09,
-        "0" => 0x0A,
-        "q" => 0x10,
-        "w" => 0x11,
-        "e" => 0x12,
-        "r" => 0x13,
-        "t" => 0x14,
-        "y" => 0x15,
-        "u" => 0x16,
-        "i" => 0x17,
-        "o" => 0x18,
-        "p" => 0x19,
-        "a" => 0x20,
-        "s" => 0x21,
-        "d" => 0x22,
-        "f" => 0x23,
-        "g" => 0x24,
-        "h" => 0x25,
-        "j" => 0x26,
-        "k" => 0x27,
-        "l" => 0x28,
-        "z" => 0x31,
-        "x" => 0x32,
-        "c" => 0x33,
-        "v" => 0x34,
-        "b" => 0x35,
-        "n" => 0x36,
-        "m" => 0x37,
-        "space" => 0x40,
-        "backspace" => 0x41,
-        "tab" => 0x42,
-        "enter" | "return" => 0x45,
-        _ => return None,
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use emu198x_shell::{AudioSink, FirmwareImage, MediaImage, NullFrameSink, NullTraceSink};
-    use format_commodore_amiga_adf::ADF_SIZE_DD;
-
-    #[derive(Default)]
-    struct AudioCollector {
-        packets: usize,
-        last_timestamp: MachineTime,
-        last_sample_rate: u32,
-        last_channels: u8,
-        last_samples: Vec<f32>,
-    }
-
-    impl AudioSink for AudioCollector {
-        fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
-            self.packets += 1;
-            self.last_timestamp = packet.timestamp;
-            self.last_sample_rate = packet.sample_rate;
-            self.last_channels = packet.channels;
-            self.last_samples.clear();
-            self.last_samples.extend_from_slice(packet.samples);
-            Ok(())
-        }
-    }
-
-    fn dummy_kickstart() -> Vec<u8> {
-        blank_standard_kickstart_rom()
-    }
-
-    fn dummy_a1000_bootstrap_rom() -> Vec<u8> {
-        blank_a1000_bootstrap_rom()
-    }
-
-    fn dummy_firmware() -> FirmwareSet<'static> {
-        let kickstart = dummy_kickstart().into_boxed_slice();
-        let bytes: &'static [u8] = Box::leak(kickstart);
-        let mut firmware = FirmwareSet::new();
-        firmware.push(FirmwareImage::new(KICKSTART_ROM_ID, bytes));
-        firmware
-    }
-
-    fn dummy_a1000_firmware() -> FirmwareSet<'static> {
-        let bootstrap = dummy_a1000_bootstrap_rom().into_boxed_slice();
-        let bytes: &'static [u8] = Box::leak(bootstrap);
-        let mut firmware = FirmwareSet::new();
-        firmware.push(FirmwareImage::new(A1000_BOOTSTRAP_ROM_ID, bytes));
-        firmware
-    }
-
-    #[test]
-    fn from_firmware_accepts_supported_kickstart_size() {
-        let runtime = AmigaRuntime::from_firmware(Model::A500OcsPal, &dummy_firmware());
-        assert!(runtime.is_ok());
-    }
-
-    #[test]
-    fn audio_controls_mutate_machine_paula_mixer() {
-        let mut runtime =
-            AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
-
-        runtime.set_audio_channel_enabled(PaulaChannel::Channel1, false);
-        runtime.set_audio_channel_gain(PaulaChannel::Channel3, 0.25);
-
-        let controls = runtime.audio_controls();
-        assert!(!controls.channel(PaulaChannel::Channel1).enabled());
-        assert_eq!(controls.channel(PaulaChannel::Channel3).gain(), 0.25);
-    }
-
-    #[test]
-    fn from_firmware_accepts_supported_a1000_bootstrap_size() {
-        let runtime = AmigaRuntime::from_firmware(Model::A1000OcsPal, &dummy_a1000_firmware());
-        assert!(runtime.is_ok());
-    }
-
-    #[test]
-    fn new_rejects_undersized_rom() {
-        match AmigaRuntime::new(Model::A500OcsPal, vec![0; 128 * 1024]) {
-            Err(MachineError::InvalidFirmware { id, .. }) => assert_eq!(id, KICKSTART_ROM_ID),
-            Err(other) => panic!("expected InvalidFirmware, got {other:?}"),
-            Ok(_) => panic!("expected InvalidFirmware, got Ok"),
-        }
-    }
-
-    #[test]
-    fn a1000_new_rejects_non_bootstrap_rom_size() {
-        match AmigaRuntime::new(Model::A1000OcsPal, vec![0; 256 * 1024]) {
-            Err(MachineError::InvalidFirmware { id, .. }) => {
-                assert_eq!(id, A1000_BOOTSTRAP_ROM_ID)
-            }
-            Err(other) => panic!("expected InvalidFirmware, got {other:?}"),
-            Ok(_) => panic!("expected InvalidFirmware, got Ok"),
-        }
-    }
-
-    #[test]
-    fn load_media_accepts_dd_adf() {
-        let mut runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart())
-            .expect("dummy Kickstart should construct");
-        let disk = vec![0u8; ADF_SIZE_DD];
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
-        runtime
-            .load_media(&media)
-            .expect("ADF bytes should insert into DF0");
-        assert!(runtime.machine().drive().has_disk());
-    }
-
-    #[test]
-    fn load_media_keeps_a1000_disk_change_pending() {
-        let mut runtime = AmigaRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
-            .expect("dummy bootstrap ROM should construct");
-        let disk = vec![0u8; ADF_SIZE_DD];
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
-        runtime
-            .load_media(&media)
-            .expect("ADF bytes should insert into DF0");
-
-        assert!(runtime.machine().drive().has_disk());
-        assert!(
-            runtime.machine().drive().status().disk_change,
-            "A1000 bootstrap expects a fresh /DSKCHANGE event when Kickstart media is loaded"
-        );
-    }
-
-    #[test]
-    fn load_media_rejects_unknown_slot() {
-        let mut runtime =
-            AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
-        let disk = vec![0u8; ADF_SIZE_DD];
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("floppy-1", MediaKind::Disk, &disk));
-        let err = runtime.load_media(&media).expect_err("unknown slot");
-        matches!(err, MachineError::UnknownMediaSlot { .. });
-    }
-
-    #[test]
-    fn run_until_advances_time_and_emits_frame() {
-        let mut runtime =
-            AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
-        let target = MachineTime::new(A500_PAL_FRAME_TICKS);
-        let mut frame_sink = NullFrameSink;
-        let mut audio_sink = AudioCollector::default();
-        let mut trace_sink = NullTraceSink;
-        let mut host = HostIo {
-            input_events: &[],
-            frame_sink: &mut frame_sink,
-            audio_sink: &mut audio_sink,
-            trace_sink: &mut trace_sink,
-        };
-        runtime
-            .run_until(target, &mut host)
-            .expect("one frame should run");
-        assert_eq!(runtime.time(), target);
-        assert_eq!(runtime.frame_count, 1);
-        assert_eq!(audio_sink.packets, 1);
-        assert_eq!(audio_sink.last_timestamp, target);
-        assert_eq!(audio_sink.last_sample_rate, AUDIO_SAMPLE_RATE_HZ);
-        assert_eq!(audio_sink.last_channels, AUDIO_CHANNELS);
-        assert_eq!(
-            audio_sink.last_samples.len(),
-            audio_sample_frames_for_ticks(A500_PAL_FRAME_TICKS) * usize::from(AUDIO_CHANNELS)
-        );
-        assert!(
-            audio_sink
-                .last_samples
-                .iter()
-                .all(|sample| sample.is_finite())
-        );
-    }
-
-    #[test]
-    fn run_until_applies_mouse_input_to_controller_port_zero() {
-        let mut runtime =
-            AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
-        let input_events = [
-            InputEvent::PointerMotion {
-                device: "mouse-1".into(),
-                dx: 3,
-                dy: 4,
-            },
-            InputEvent::PointerButton {
-                device: "mouse-1".into(),
-                button: "left".into(),
-                pressed: true,
-            },
-        ];
-        let mut frame_sink = NullFrameSink;
-        let mut audio_sink = AudioCollector::default();
-        let mut trace_sink = NullTraceSink;
-        let mut host = HostIo {
-            input_events: &input_events,
-            frame_sink: &mut frame_sink,
-            audio_sink: &mut audio_sink,
-            trace_sink: &mut trace_sink,
-        };
-
-        runtime
-            .run_until(MachineTime::new(A500_PAL_FRAME_TICKS), &mut host)
-            .expect("one frame should run");
-
-        assert_eq!(runtime.machine().read_word(0x00DF_F00A), 0x0403);
-        assert_eq!(runtime.machine().read_word(0x00BF_E001) & 0x80, 0);
-    }
-
-    #[test]
-    fn run_until_applies_joystick_input_to_controller_port_one() {
-        let mut runtime =
-            AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
-        let input_events = [
-            InputEvent::Button {
-                port: 1,
-                name: "right".into(),
-                pressed: true,
-            },
-            InputEvent::Button {
-                port: 1,
-                name: "fire".into(),
-                pressed: true,
-            },
-        ];
-        let mut frame_sink = NullFrameSink;
-        let mut audio_sink = AudioCollector::default();
-        let mut trace_sink = NullTraceSink;
-        let mut host = HostIo {
-            input_events: &input_events,
-            frame_sink: &mut frame_sink,
-            audio_sink: &mut audio_sink,
-            trace_sink: &mut trace_sink,
-        };
-
-        runtime
-            .run_until(MachineTime::new(A500_PAL_FRAME_TICKS), &mut host)
-            .expect("one frame should run");
-
-        assert_eq!(runtime.machine().read_word(0x00DF_F00C) & 0x0003, 0x0003);
-        assert_eq!(runtime.machine().read_word(0x00BF_E001) & 0x40, 0);
-    }
-
-    #[test]
-    fn query_provider_returns_declared_paths() {
-        let runtime =
-            AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
-        let provider = AmigaSessionQueryProvider;
-        let paths = provider.query_paths(&runtime, None);
-        assert!(paths.contains(&"amiga.a1000.boot_rom_visible".to_owned()));
-        assert!(paths.contains(&"amiga.a1000.wom_locked".to_owned()));
-        assert!(paths.contains(&"amiga.cpu.pc".to_owned()));
-        assert!(paths.contains(&"amiga.debug.dsk_write_count".to_owned()));
-        assert!(paths.contains(&"amiga.disk.change_pending".to_owned()));
-        assert!(paths.contains(&"amiga.disk.inserted".to_owned()));
-        assert!(paths.contains(&"amiga.disk.step_events".to_owned()));
-        assert!(paths.contains(&"amiga.keyboard.state".to_owned()));
-    }
-
-    #[test]
-    fn query_cpu_pc_returns_initial_reset_vector() {
-        let runtime =
-            AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
-        let result = AmigaSessionQueryProvider
-            .query(&runtime, "amiga.cpu.pc")
-            .expect("query succeeds")
-            .expect("path present");
-        assert_eq!(result.path, "amiga.cpu.pc");
-        assert_eq!(result.value, json!(0x00F8_0008u32));
-    }
-
-    #[test]
-    fn a1000_queries_report_bootstrap_state() {
-        let runtime = AmigaRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
-            .expect("runtime init");
-        let boot_rom_visible = AmigaSessionQueryProvider
-            .query(&runtime, "amiga.a1000.boot_rom_visible")
-            .expect("query succeeds")
-            .expect("path present");
-        assert_eq!(boot_rom_visible.value, json!(true));
-
-        let wom_locked = AmigaSessionQueryProvider
-            .query(&runtime, "amiga.a1000.wom_locked")
-            .expect("query succeeds")
-            .expect("path present");
-        assert_eq!(wom_locked.value, json!(false));
-    }
 }
