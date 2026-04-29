@@ -4,6 +4,32 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — C64 runtime: extract inline tests into per-topic integration files
+
+**Type:** refactor (test reorganisation)
+**Trigger:** the previous commit shrank `runtime.rs` production code from 1216 → 692 lines but left 1786 lines of inline tests in place (the file was still 2478 lines on disk). The split-up sibling modules (`queries.rs`, `snapshot.rs`, `input.rs`) had nowhere to put their own focused tests because everything funnelled through one massive `mod tests` block. Cov-4 needs per-module measurements; that needs tests living alongside the concern they exercise.
+**Result:** 40 inline tests moved into 5 per-topic files in `tests/` plus a shared `tests/common/mod.rs` for the firmware/zip/key-press helpers. `runtime.rs` is now 692 lines on disk — production code only. Test code outside `runtime.rs` rose by ~1530 lines (a wash, since all of it moved out of `runtime.rs`).
+
+| File | Tests | Concern |
+|---|---|---|
+| `tests/lifecycle.rs` | 7 | Hermetic build / RGBA framebuffer / drive attach / SID audio mixer |
+| `tests/snapshot_roundtrip.rs` | 2 | Postcard envelope round-trip mid-cycle + with attached drive |
+| `tests/queries.rs` | 2 + 2 ignored | `C64SessionQueryProvider` paths (boot status, transport, drive activity) |
+| `tests/tape_autoload.rs` | 5 ignored | Real TAP archives (Ghostbusters, Thomas, Thinker, Thing on a Spring) |
+| `tests/disk_autoload.rs` | 8 ignored | Real D64 + 1541 ROM (Bruce Lee mount + autoload + joystick + drive motion) |
+| `tests/common/mod.rs` (new) | — | `FrameCollector`, `AudioCollector`, `blank_firmware`, `make_d64`, `local_*_zip` helpers, `screen_text_lines`, `wait_for_screen_line_contains`, `press_key`, `press_button` |
+
+**Two crossings of the public-API line.** Integration tests can't reach `pub(crate)` symbols, so `tests/common/mod.rs` had to (a) hard-code the firmware-image sizes (KERNAL/BASIC/CHARGEN = 8/8/4 KiB, 1541 = 16 KiB) instead of importing the constants from `profiles.rs`, and (b) use the `MachineCore` trait import to call `runtime.machine().clone()` from `disk_autoload.rs` because the tests previously read `runtime.machine` directly via field access. Both are honest consequences of moving across the crate boundary, not a sign the API is wrong.
+
+**Verification:**
+- `cargo test -p runtime-commodore-c64 --lib` — 14 passed (down from 25 because 11 lifecycle-style tests left for `tests/lifecycle.rs`).
+- `cargo test -p runtime-commodore-c64 --tests` — 14 passed, 16 ignored (8 disk + 5 tape + 2 query + 1 boot-invariants ROM-backed).
+- `cargo clippy -p runtime-commodore-c64 --all-targets -- -D warnings` — clean.
+
+**Cov-4 unblocked.** With tests now grouped by concern, per-module line coverage becomes meaningful: `queries.rs` coverage answers "how many of our 350+ query paths actually have a test", `snapshot.rs` coverage answers "is the round-trip exercising every field of the envelope", `input.rs` coverage answers "did we miss a key in the matrix table". The aggregate "1225 uncovered lines in runtime.rs" disappears as a metric — what's left in `runtime.rs` is lifecycle code, not a 60% test-shaped object.
+
+---
+
 ## 2026-04-29 — C64 runtime split: queries / snapshot / input modules
 
 **Type:** refactor (architectural)
