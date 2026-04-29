@@ -4,6 +4,38 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — Cov-1: mos-6502/cycle.rs investigation closed (14.8% → 100%)
+
+**Type:** investigation + fix (Cov-1 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md))
+**Trigger:** the workspace coverage report flagged `crates/mos-6502/src/cycle.rs` at 14.8% line coverage with 774 uncovered lines — surprising for a CPU validated to 2.47M Tom Harte cases. The plan asked: dead code, or unwired parallel path?
+**Result:** **neither — it is the live decode-table consumed by `tick.rs` line 100, and the low coverage is honest.** The standing tests under `cargo test --workspace --lib` only cover three opcodes (`0xEA`, `0xAD`, `0x00`); the 2.47M Tom Harte cases that exercise the full opcode set live in `crates/mos-6502/tests/single_step_tests.rs::run_all`, which is `#[ignore]`'d behind a 1 GiB external corpus and never runs by default. The workspace coverage script doesn't pass `--ignored`, so it never sees those cases.
+
+**Fix:** three new hermetic spec tests in `mos-6502::tests`:
+
+1. `decode_table_covers_all_256_opcodes` — sweeps every `u8` opcode through `cycle::decode` and `Operation::category`. Asserts no panic, no missing arm.
+2. `decode_table_categories_for_representative_opcodes` — locks in category assignments for representative read / write / read-modify-write / control / implied operations.
+3. `decode_table_jam_opcodes_all_resolve_to_jam` — covers the 12 documented JAM stop-codes (`0x02 / 0x12 / 0x22 / ...`) and asserts they all decode to `AddrMode::Jam` + `Operation::Jam`.
+
+These are spec-driven, not coverage-driven (per `docs/testing-policy.md`): "every opcode is mapped" and "every operation has a category" are real invariants the rest of the workspace already relies on, just never directly asserted. The Tom Harte sweep would have caught a missing arm at run time, but only when run with the corpus present.
+
+**Coverage delta on `cycle.rs` under `cargo test -p mos-6502 --lib`:**
+
+| Metric | Before | After |
+|---|---|---|
+| Lines | 134/908 (14.8%) | 908/908 (100.0%) |
+| Regions | 47/242 (19.4%) | 242/242 (100.0%) |
+| Functions | 3/3 (100.0%) | 3/3 (100.0%) |
+
+774 uncovered lines closed in one move. The full 2.47M Tom Harte sweep stays as the deeper regression net (run via `cargo test -p mos-6502 --test single_step_tests run_all -- --ignored` when the corpus is present); the new hermetic sweep is the 0-cost daily check that the decode table stays well-formed.
+
+**Verification:** `cargo test --workspace --lib` 74 binaries OK, clippy `-D warnings` clean.
+
+**Consequence:** Cov-1 closed. Remaining coverage track investigations: Cov-2 (`mos-6502/src/tick.rs` at 44.1% line / 34.0% branch — probably needs directed unit tests for reset / IRQ / NMI / RDY-stall paths Tom Harte doesn't cover), Cov-3 (`motorola-68000` carve-out for FPU / MMU / disasm), Cov-4 (`runtime-commodore-c64/src/runtime.rs` 1225 uncovered lines), Cov-5 (Spectrum Z80 snapshot format edge cases).
+
+The "Tom Harte 100% green / 14.8% file coverage" paradox the plan flagged is now resolved and documented. Future surprises of the same shape should hit `decode_table_covers_all_256_opcodes` first.
+
+---
+
 ## 2026-04-29 — Paula owns disk read DMA end-to-end
 
 **Type:** milestone (Phase A.4 of [`docs/plans/2026-04-28-october-runup-plan.md`](../docs/plans/2026-04-28-october-runup-plan.md), seam 2 of [`amiga-architecture-review.md`](decisions/amiga-architecture-review.md))

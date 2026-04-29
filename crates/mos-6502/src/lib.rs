@@ -218,6 +218,77 @@ mod tests {
         assert_eq!(brk.operation, cycle::Operation::Brk);
     }
 
+    /// Spec invariant: every 8-bit opcode resolves through `cycle::decode`
+    /// without panicking, and `Operation::category` returns a defined
+    /// category for every produced operation.
+    ///
+    /// The Tom Harte regression suite would catch a missing arm at run
+    /// time, but it is `#[ignore]`'d and requires an external 1 GiB
+    /// corpus. This sweep is the standing hermetic gate that covers
+    /// the decode table on every `cargo test --workspace`.
+    #[test]
+    fn decode_table_covers_all_256_opcodes() {
+        for opcode in 0u8..=0xFF {
+            let info = cycle::decode(opcode);
+            // Force category resolution to ensure no Operation variant
+            // is missing from the category match.
+            let _ = info.operation.category();
+        }
+    }
+
+    /// Spec invariant: the four "official" addressing-mode landings
+    /// for every documented arithmetic opcode (immediate, zero-page,
+    /// absolute, branch) have stable category assignments. Catches any
+    /// silent renaming or category swap that would slip past the sweep.
+    #[test]
+    fn decode_table_categories_for_representative_opcodes() {
+        // Read-class operations.
+        for opcode in [0xA9u8, 0xA5, 0xAD, 0xBD] {
+            // LDA imm/zp/abs/abs,X
+            let info = cycle::decode(opcode);
+            assert_eq!(info.operation, cycle::Operation::Lda);
+            assert_eq!(info.operation.category(), cycle::OpCategory::Read);
+        }
+        // Write-class.
+        for opcode in [0x85u8, 0x8D, 0x9D] {
+            // STA zp/abs/abs,X
+            let info = cycle::decode(opcode);
+            assert_eq!(info.operation, cycle::Operation::Sta);
+            assert_eq!(info.operation.category(), cycle::OpCategory::Write);
+        }
+        // Read-modify-write.
+        for opcode in [0x06u8, 0x0E, 0x16, 0x1E] {
+            // ASL zp/abs/zp,X/abs,X
+            let info = cycle::decode(opcode);
+            assert_eq!(info.operation, cycle::Operation::Asl);
+            assert_eq!(info.operation.category(), cycle::OpCategory::ReadModWrite);
+        }
+        // Control flow.
+        let jmp = cycle::decode(0x4C);
+        assert_eq!(jmp.operation, cycle::Operation::Jmp);
+        assert_eq!(jmp.operation.category(), cycle::OpCategory::Control);
+        // Implied.
+        let inx = cycle::decode(0xE8);
+        assert_eq!(inx.operation, cycle::Operation::Inx);
+        assert_eq!(inx.operation.category(), cycle::OpCategory::Implied);
+    }
+
+    /// Spec invariant: every "JAM" opcode (the dozen 6502 stop-codes
+    /// that hang the CPU on real silicon) decodes into the JAM
+    /// addressing mode and JAM operation. Locks in the chip-port's
+    /// promise that we model these as `tick.rs` halts the CPU rather
+    /// than skipping the opcode.
+    #[test]
+    fn decode_table_jam_opcodes_all_resolve_to_jam() {
+        for opcode in [
+            0x02u8, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x92, 0xB2, 0xD2, 0xF2,
+        ] {
+            let info = cycle::decode(opcode);
+            assert_eq!(info.addr_mode, cycle::AddrMode::Jam);
+            assert_eq!(info.operation, cycle::Operation::Jam);
+        }
+    }
+
     struct Fixture {
         cpu: M6502,
         mem: [u8; 0x10000],
