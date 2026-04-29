@@ -38,7 +38,14 @@ const VDG_VISIBLE_FIRST_LINE: u64 = 13;
 const VDG_HSYNC_TICKS: u64 = 64;
 const VDG_HBLANK_TICKS: u64 = 168;
 const VDG_LEFT_BORDER_TICKS: u64 = 120;
+const VDG_ACTIVE_AREA_START_LINE: u64 =
+    VDG_VISIBLE_FIRST_LINE + motorola_vdg_6847::TEXT_TOP_BORDER_LINES as u64;
+const VDG_ACTIVE_AREA_END_LINE: u64 =
+    VDG_ACTIVE_AREA_START_LINE + motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT as u64;
+const VDG_FRAME_SYNC_FALL_TICK: u64 = VDG_ACTIVE_AREA_END_LINE * VDG_LINE_MASTER_TICKS;
 const DRAGON_FRAME_MASTER_TICKS: u64 = VDG_LINE_MASTER_TICKS * VDG_PAL_FRAME_LINES;
+const VDG_FRAME_SYNC_RISE_TICK: u64 =
+    DRAGON_FRAME_MASTER_TICKS - VDG_LINE_MASTER_TICKS * 16 - SLOW_CPU_MASTER_TICKS * 2;
 /// Number of MC6809 bus cycles in one PAL VDG video frame.
 pub const DRAGON_FRAME_CYCLES: u64 = DRAGON_FRAME_MASTER_TICKS / SLOW_CPU_MASTER_TICKS;
 const CART_ROM_START: u16 = 0xC000;
@@ -1440,7 +1447,6 @@ struct BeamVideo {
     next_active_x: usize,
     next_byte: usize,
     current_byte: Option<ActiveByteRender>,
-    fsync_level: bool,
     // MC6847 colour-set select is delayed through a two-byte pipeline.
     css_a: bool,
     css_b: bool,
@@ -1457,7 +1463,6 @@ impl BeamVideo {
             next_active_x: 0,
             next_byte: 0,
             current_byte: None,
-            fsync_level: false,
             css_a: false,
             css_b: false,
             pending_samples: Vec::new(),
@@ -1475,11 +1480,6 @@ impl BeamVideo {
         bus_cycle: Option<u64>,
     ) -> BeamVideoTick {
         let mut tick = BeamVideoTick::default();
-        if self.fsync_level {
-            self.fsync_level = false;
-            tick.frame_sync = Some(false);
-        }
-
         let previous = self.cycle_in_frame;
         let target = self.cycle_in_frame.saturating_add(master_ticks);
         self.render_until(memory, target, bus_cycle);
@@ -1492,11 +1492,14 @@ impl BeamVideo {
             self.next_active_x = 0;
             self.next_byte = 0;
             self.current_byte = None;
-            self.fsync_level = true;
-            tick.frame_sync = Some(true);
             return tick;
         }
 
+        if crosses_frame_sync_fall(previous, self.cycle_in_frame) {
+            tick.frame_sync = Some(false);
+        } else if crosses_frame_sync_rise(previous, self.cycle_in_frame) {
+            tick.frame_sync = Some(true);
+        }
         let previous_line = video_line_for_cycle(previous);
         let current_line = video_line_for_cycle(self.cycle_in_frame);
         if current_line != previous_line {
@@ -1561,7 +1564,7 @@ impl BeamVideo {
             }
 
             if !self.line_border_rendered {
-                self.render_border_line(self.next_line);
+                self.render_border_line(memory, self.next_line);
                 self.line_border_rendered = true;
                 if !active_line(self.next_line) {
                     self.advance_line();
@@ -1604,18 +1607,18 @@ impl BeamVideo {
         }
     }
 
-    fn render_border_line(&mut self, line: usize) {
+    fn render_border_line(&mut self, memory: &DragonMemory, line: usize) {
         let palette = VdgPalette::default();
         let start = line * motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
         let end = start + motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
         self.frame[start..end].fill(palette.border);
+        if active_line(line) {
+            self.css_a = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb).css;
+        }
     }
 
     fn start_active_byte(&mut self, memory: &DragonMemory, bus_cycle: Option<u64>) {
         let pin_control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
-        if self.next_byte == 0 {
-            self.css_a = pin_control.css;
-        }
         self.css_b = self.css_a;
         self.css_a = pin_control.css;
         let mut render_control = pin_control;
@@ -1754,6 +1757,14 @@ fn video_line_for_cycle(cycle: u64) -> usize {
 fn crosses_hsync_rise(previous: u64, current: u64) -> bool {
     previous % VDG_LINE_MASTER_TICKS < VDG_HSYNC_TICKS
         && current % VDG_LINE_MASTER_TICKS >= VDG_HSYNC_TICKS
+}
+
+fn crosses_frame_sync_fall(previous: u64, current: u64) -> bool {
+    previous < VDG_FRAME_SYNC_FALL_TICK && current >= VDG_FRAME_SYNC_FALL_TICK
+}
+
+fn crosses_frame_sync_rise(previous: u64, current: u64) -> bool {
+    previous < VDG_FRAME_SYNC_RISE_TICK && current >= VDG_FRAME_SYNC_RISE_TICK
 }
 
 fn active_line(line: usize) -> bool {
@@ -1932,6 +1943,7 @@ impl Dragon32 {
         };
         machine.cpu.reset();
         machine.memory.pia0.set_signal_level(PiaSignal::Ca1, true);
+        machine.memory.pia0.set_signal_level(PiaSignal::Cb1, true);
         machine
     }
 
@@ -3046,12 +3058,31 @@ mod tests {
     }
 
     #[test]
-    fn frame_wrap_raises_pia0_cb1_frame_sync() {
+    fn active_area_end_raises_pia0_cb1_frame_sync_falling_edge() {
         let rom = rom_with_reset_vector(0x8000);
         let mut machine = Dragon32::new(&rom);
 
+        machine.memory.pia0.set_signal_level(PiaSignal::Cb1, true);
+        machine.memory.pia0.write(0x03, 0x05); // PIA0 CB1 falling-edge IRQ enabled.
+        machine.video.cycle_in_frame = VDG_FRAME_SYNC_FALL_TICK - 1;
+        machine.video.next_line = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
+
+        machine.step_cycle();
+
+        assert_eq!(machine.memory.pia0.control(PiaPort::B) & 0x80, 0x80);
+        assert!(machine.memory.pia0.irq_b());
+        assert_eq!(machine.memory.pia0.read(0x02), 0xff);
+        assert_eq!(machine.memory.pia0.control(PiaPort::B) & 0x80, 0);
+    }
+
+    #[test]
+    fn vblank_start_raises_pia0_cb1_frame_sync_rising_edge() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        machine.memory.pia0.set_signal_level(PiaSignal::Cb1, false);
         machine.memory.pia0.write(0x03, 0x07); // PIA0 CB1 rising-edge IRQ enabled.
-        machine.video.cycle_in_frame = DRAGON_FRAME_MASTER_TICKS - SLOW_CPU_MASTER_TICKS;
+        machine.video.cycle_in_frame = VDG_FRAME_SYNC_RISE_TICK - 1;
         machine.video.next_line = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
 
         machine.step_cycle();
@@ -3436,6 +3467,9 @@ mod tests {
         machine.memory.pia1.write(0x03, 0x04); // PIA1 port B data selected.
         machine.memory.pia1.write(0x02, 0x08); // Alpha mode, CSS 1.
 
+        machine
+            .video
+            .render_border_line(&machine.memory, TEXT_TOP_BORDER_LINES);
         machine.video.next_line = TEXT_TOP_BORDER_LINES;
         machine.video.start_active_byte(&machine.memory, Some(0));
         let mut samples = Vec::new();
@@ -3443,6 +3477,33 @@ mod tests {
 
         assert_eq!(samples.len(), 1);
         assert!(samples[0].css);
+    }
+
+    #[test]
+    fn beam_renderer_latches_css_before_active_area_boundary_writes() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine.memory.pia1.write(0x02, 0xF8); // PIA1 port B DDR.
+        machine.memory.pia1.write(0x03, 0x04); // PIA1 port B data selected.
+        machine.memory.pia1.write(0x02, 0xE0); // CG6, CSS 0.
+
+        let active_line = TEXT_TOP_BORDER_LINES;
+        let active_start = active_display_start_cycle(active_line);
+        machine.video.tick(&machine.memory, active_start, Some(0));
+        machine.memory.pia1.write(0x02, 0xE8); // CG6, CSS 1 at active x=0.
+        machine.video.tick(&machine.memory, 32, Some(1));
+
+        let frame = machine.video.frame();
+        let active_origin = active_line * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
+        let palette = VdgPalette::default();
+        assert_eq!(
+            &frame[active_origin..active_origin + 8],
+            [palette.colours[0]; 8]
+        );
+        assert_eq!(
+            &frame[active_origin + 8..active_origin + 16],
+            [palette.colours[4]; 8]
+        );
     }
 
     #[test]
