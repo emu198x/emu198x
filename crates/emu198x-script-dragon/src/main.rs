@@ -21,7 +21,7 @@ use format_dragon_pak::{
 };
 use machine_dragon_32::{
     AddressRange, CpuInterruptAcceptTrace, CpuInterruptKind, CpuInterruptLineTrace,
-    CpuRegisterTrace, DRAGON_FRAME_CYCLES, DeviceAccess, DeviceRegion, Dragon32,
+    CpuRegisterTrace, DRAGON_CPU_HZ, DRAGON_FRAME_CYCLES, DeviceAccess, DeviceRegion, Dragon32,
     DragonCartridgeKind, DragonKey, DragonKeyboard, FetchTrace, MatrixKey, MemoryWriteTrace,
     PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions, RunReport, StopReason, VdgSampleTrace,
     WatchedFetchTrace,
@@ -92,7 +92,8 @@ Execution:
                        write the synthetic XRoar v2 snapshot used for reference comparison
     --xroar-motoroff N capture CAS reference on the Nth tape motor-off [default: auto]
     --xroar-settle-seconds N
-                       wait N emulated seconds after the reference trap before capture [default: 3]
+                       wait N emulated seconds after CAS reference trigger before capture [default: 3];
+                       snapshot references instead use the local screenshot cycle count
     --xroar-timeout-seconds N
                        hard XRoar run timeout in emulated seconds [default: 45]
 
@@ -235,6 +236,8 @@ struct SnapshotRuntimeSmoke {
     screenshot_frame_phase_cycles: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_settle_seconds: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1239,6 +1242,8 @@ fn run_snapshot_smoke(
         } else {
             None
         };
+    let xroar_reference_settle_seconds =
+        xroar_snapshot_settle_seconds(report.framebuffer_cycles.unwrap_or(report.cycles));
     let (xroar_reference_screenshot, xroar_reference_error, xroar_reference_comparison) =
         match (smoke.xroar, smoke.xroar_stem) {
             (Some(config), Some(stem)) => match capture_xroar_snapshot_reference(
@@ -1247,6 +1252,7 @@ fn run_snapshot_smoke(
                 snapshot,
                 comparison_screenshot,
                 stem,
+                xroar_reference_settle_seconds,
             ) {
                 Ok(reference) => (
                     Some(reference.path.display().to_string()),
@@ -1280,6 +1286,7 @@ fn run_snapshot_smoke(
             .framebuffer_cycles
             .map(|cycles| cycles % DRAGON_FRAME_CYCLES),
         xroar_reference_screenshot,
+        xroar_reference_settle_seconds: smoke.xroar.map(|_| xroar_reference_settle_seconds),
         xroar_reference_error,
         xroar_reference_comparison,
         xroar_reference_comparison_error: None,
@@ -1317,6 +1324,7 @@ fn failed_snapshot_smoke(
             .framebuffer_cycles
             .map(|cycles| cycles % DRAGON_FRAME_CYCLES),
         xroar_reference_screenshot: None,
+        xroar_reference_settle_seconds: None,
         xroar_reference_error: None,
         xroar_reference_comparison: None,
         xroar_reference_comparison_error: None,
@@ -2089,6 +2097,7 @@ fn capture_xroar_snapshot_reference(
     snapshot: &PcDragonSnapshot,
     comparison_screenshot: Option<&Path>,
     stem: &Path,
+    settle_seconds: f32,
 ) -> Result<XroarReferenceCapture, String> {
     let rom_path = write_temp_bytes("rom", "rom", rom)?;
     let template_path = write_temp_path("snapshot-template", "sna")?;
@@ -2109,6 +2118,7 @@ fn capture_xroar_snapshot_reference(
             &snapshot_path,
             &trap_condition,
             &output_path,
+            settle_seconds,
         )
         .and_then(|path| {
             let comparison = comparison_screenshot
@@ -2233,6 +2243,7 @@ fn run_xroar_snapshot_reference_command(
     snapshot_path: &Path,
     trap_condition: &str,
     output_path: &Path,
+    settle_seconds: f32,
 ) -> Result<PathBuf, String> {
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)
@@ -2258,7 +2269,7 @@ fn run_xroar_snapshot_reference_command(
         .arg("-trap")
         .arg(trap_condition)
         .arg("-trap-timeout")
-        .arg(format_seconds(config.settle_seconds))
+        .arg(format_seconds(settle_seconds))
         .arg("-trap-timeout-screenshot")
         .arg(output_path)
         .arg("-timeout")
@@ -2643,6 +2654,7 @@ fn patch_xroar_v2_vdg(bytes: &mut Vec<u8>, snapshot: &PcDragonSnapshot) -> Resul
 
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 6, gm)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 8, graphics)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 9, gm0)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 10, css)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 11, css)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 12, css)?;
@@ -3227,6 +3239,10 @@ fn format_seconds(seconds: f32) -> String {
     } else {
         seconds.to_string()
     }
+}
+
+fn xroar_snapshot_settle_seconds(cycles: u64) -> f32 {
+    cycles as f32 / DRAGON_CPU_HZ as f32
 }
 
 fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
