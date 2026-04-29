@@ -23,8 +23,8 @@ use machine_dragon_32::{
     AddressRange, CpuInterruptAcceptTrace, CpuInterruptKind, CpuInterruptLineTrace,
     CpuRegisterTrace, DRAGON_CPU_HZ, DRAGON_FRAME_CYCLES, DeviceAccess, DeviceRegion, Dragon32,
     DragonCartridgeKind, DragonKey, DragonKeyboard, FetchTrace, MatrixKey, MemoryWriteTrace,
-    PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions, RunReport, StopReason, VdgSampleTrace,
-    VdgModeWriteTrace, WatchedFetchTrace,
+    PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions, RunReport, StopReason, VdgModeWriteTrace,
+    VdgSampleTrace, WatchedFetchTrace,
 };
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
@@ -240,6 +240,10 @@ struct SnapshotRuntimeSmoke {
     xroar_reference_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_settle_seconds: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_trap_pc: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xroar_reference_trap_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1251,6 +1255,17 @@ fn run_snapshot_smoke(
         };
     let xroar_reference_settle_seconds =
         xroar_snapshot_settle_seconds(report.framebuffer_cycles.unwrap_or(report.cycles));
+    let xroar_reference_trap = if smoke.xroar.is_some() && smoke.xroar_stem.is_some() {
+        xroar_snapshot_reference_trap(
+            rom,
+            snapshot,
+            smoke.cycle_limit,
+            smoke.trace_limit,
+            report.pc,
+        )
+    } else {
+        None
+    };
     let (xroar_reference_screenshot, xroar_reference_error, xroar_reference_comparison) =
         match (smoke.xroar, smoke.xroar_stem) {
             (Some(config), Some(stem)) => match capture_xroar_snapshot_reference(
@@ -1259,6 +1274,7 @@ fn run_snapshot_smoke(
                 snapshot,
                 comparison_screenshot,
                 stem,
+                xroar_reference_trap,
                 xroar_reference_settle_seconds,
             ) {
                 Ok(reference) => (
@@ -1294,6 +1310,8 @@ fn run_snapshot_smoke(
             .map(|cycles| cycles % DRAGON_FRAME_CYCLES),
         xroar_reference_screenshot,
         xroar_reference_settle_seconds: smoke.xroar.map(|_| xroar_reference_settle_seconds),
+        xroar_reference_trap_pc: xroar_reference_trap.map(|trap| trap.pc),
+        xroar_reference_trap_count: xroar_reference_trap.map(|trap| trap.count),
         xroar_reference_error,
         xroar_reference_comparison,
         xroar_reference_comparison_error: None,
@@ -1332,12 +1350,43 @@ fn failed_snapshot_smoke(
             .map(|cycles| cycles % DRAGON_FRAME_CYCLES),
         xroar_reference_screenshot: None,
         xroar_reference_settle_seconds: None,
+        xroar_reference_trap_pc: None,
+        xroar_reference_trap_count: None,
         xroar_reference_error: None,
         xroar_reference_comparison: None,
         xroar_reference_comparison_error: None,
         vdg_trace: vdg_trace_summary(&report),
         error: Some(error),
     }
+}
+
+fn xroar_snapshot_reference_trap(
+    rom: &[u8; ROM_SIZE],
+    snapshot: &PcDragonSnapshot,
+    cycle_limit: u64,
+    trace_limit: usize,
+    pc: u16,
+) -> Option<XroarSnapshotTrap> {
+    let report = run_harness_with_keyboard(
+        rom,
+        DragonKeyboard::new(),
+        HarnessRunOptions {
+            cartridge: None,
+            snapshot: Some(snapshot),
+            cycle_limit,
+            trace_limit,
+            fetch_watch: Some(AddressRange::new(pc, pc)),
+            write_watch: None,
+            dump_text: false,
+            dump_text_framebuffer: false,
+            capture_framebuffer: false,
+            capture_framebuffer_phase: SmokeScreenshotPhase::Immediate,
+        },
+    );
+    let count = report
+        .dropped_watched_fetches
+        .saturating_add(report.watched_fetches.len());
+    (count != 0).then_some(XroarSnapshotTrap { pc, count })
 }
 
 fn vdg_trace_summary(report: &HarnessReport) -> Option<VdgTraceSummary> {
@@ -2072,6 +2121,12 @@ struct XroarReferenceCapture {
     comparison: Option<ImageComparison>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct XroarSnapshotTrap {
+    pc: u16,
+    count: usize,
+}
+
 fn capture_best_xroar_reference(
     config: &XroarReferenceConfig,
     rom: &[u8; ROM_SIZE],
@@ -2103,6 +2158,7 @@ fn capture_xroar_snapshot_reference(
     snapshot: &PcDragonSnapshot,
     comparison_screenshot: Option<&Path>,
     stem: &Path,
+    trap: Option<XroarSnapshotTrap>,
     settle_seconds: f32,
 ) -> Result<XroarReferenceCapture, String> {
     let rom_path = write_temp_bytes("rom", "rom", rom)?;
@@ -2116,16 +2172,26 @@ fn capture_xroar_snapshot_reference(
         .and_then(|template| xroar_v2_snapshot_bytes(&template, snapshot))
         .and_then(|bytes| write_temp_bytes("snapshot", "sna", &bytes));
     let output_path = stem.with_extension("xroar.png");
-    let trap_condition = xroar_snapshot_trap_condition(snapshot);
     let result = snapshot_path.and_then(|snapshot_path| {
-        let result = run_xroar_snapshot_reference_command(
-            config,
-            &rom_path,
-            &snapshot_path,
-            &trap_condition,
-            &output_path,
-            settle_seconds,
-        )
+        let result = (if let Some(trap) = trap {
+            run_xroar_snapshot_trap_reference_command(
+                config,
+                &rom_path,
+                &snapshot_path,
+                trap,
+                &output_path,
+            )
+        } else {
+            let trap_condition = xroar_snapshot_trap_condition(snapshot);
+            run_xroar_snapshot_reference_command(
+                config,
+                &rom_path,
+                &snapshot_path,
+                &trap_condition,
+                &output_path,
+                settle_seconds,
+            )
+        })
         .and_then(|path| {
             let comparison = comparison_screenshot
                 .map(|screenshot| compare_png_files(screenshot, &path))
@@ -2277,6 +2343,68 @@ fn run_xroar_snapshot_reference_command(
         .arg("-trap-timeout")
         .arg(format_seconds(settle_seconds))
         .arg("-trap-timeout-screenshot")
+        .arg(output_path)
+        .arg("-timeout")
+        .arg(format_seconds(config.timeout_seconds))
+        .arg("-q")
+        .output()
+        .map_err(|err| format!("failed to run {}: {err}", config.bin.display()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "XRoar exited with status {}: {}",
+            output.status,
+            stderr.trim()
+        ));
+    }
+    if !output_path.is_file() {
+        return Err(format!(
+            "XRoar did not write reference screenshot {}",
+            output_path.display()
+        ));
+    }
+    Ok(output_path.to_owned())
+}
+
+fn run_xroar_snapshot_trap_reference_command(
+    config: &XroarReferenceConfig,
+    rom_path: &Path,
+    snapshot_path: &Path,
+    trap: XroarSnapshotTrap,
+    output_path: &Path,
+) -> Result<PathBuf, String> {
+    if trap.count == 0 {
+        return Err("XRoar snapshot trap count must be greater than zero".to_owned());
+    }
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
+    let _ = fs::remove_file(output_path);
+
+    let trap_condition = format!("pc=0x{:04x}", trap.pc);
+    let trap_range = format!("{}-{}", trap.count, trap.count);
+    let mut command = Command::new(&config.bin);
+    command
+        .arg("-ui")
+        .arg("null")
+        .arg("-ao")
+        .arg("null")
+        .arg("-no-ratelimit")
+        .arg("-vo-picture")
+        .arg("zoomed")
+        .arg("-machine")
+        .arg("dragon32");
+    append_xroar_rom_args(&mut command, rom_path)?;
+    let output = command
+        .arg("-load")
+        .arg(snapshot_path)
+        .arg("-trap")
+        .arg(trap_condition)
+        .arg("-trap-range")
+        .arg(trap_range)
+        .arg("-trap-screenshot")
         .arg(output_path)
         .arg("-timeout")
         .arg(format_seconds(config.timeout_seconds))
