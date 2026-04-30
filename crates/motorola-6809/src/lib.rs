@@ -1820,12 +1820,7 @@ impl Mc6809 {
                 i16::from((post & 0x1F) as i8)
             };
             let addr = self.index_base(post).wrapping_add_signed(offset);
-            let extra_cycles = if matches!(op, IndexedOp::Lea(_)) {
-                2
-            } else {
-                1
-            };
-            self.start_indexed_effective_address(op, addr, extra_cycles);
+            self.start_indexed_effective_address(op, addr, 1);
             return;
         }
 
@@ -1955,6 +1950,11 @@ impl Mc6809 {
     }
 
     fn start_indexed_effective_address(&mut self, op: IndexedOp, addr: u16, extra_cycles: u8) {
+        let extra_cycles = if matches!(op, IndexedOp::Lea(_)) {
+            extra_cycles.saturating_add(1)
+        } else {
+            extra_cycles
+        };
         if extra_cycles == 0 {
             self.apply_indexed_effective_address(op, addr);
         } else {
@@ -3971,10 +3971,17 @@ mod tests {
         memory[0x4005] = 0xE9;
         memory[0x4006] = 0x00;
         memory[0x4007] = 0x10;
+        memory[0x4008] = 0x33; // LEAU $20,U
+        memory[0x4009] = 0xC8;
+        memory[0x400A] = 0x20;
+        memory[0x400B] = 0x30; // LEAX D,X
+        memory[0x400C] = 0x8B;
         let mut cpu = cpu_at(0x4000);
         cpu.regs.x = 0x1000;
         cpu.regs.y = 0x0010;
         cpu.regs.s = 0x8000;
+        cpu.regs.u = 0x9000;
+        cpu.regs.b = 0x03;
 
         assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.x, 0x1005);
@@ -3984,9 +3991,17 @@ mod tests {
         assert_eq!(cpu.regs.y, 0x0000);
         assert!(cpu.regs.flag(FLAG_Z));
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 8);
         assert_eq!(cpu.regs.s, 0x8010);
         assert!(cpu.regs.flag(FLAG_Z), "LEAS does not update Z");
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
+        assert_eq!(cpu.regs.u, 0x9020);
+        assert!(cpu.regs.flag(FLAG_Z), "LEAU does not update Z");
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 8);
+        assert_eq!(cpu.regs.x, 0x1008);
+        assert!(!cpu.regs.flag(FLAG_Z));
         assert!(cpu.instruction_boundary());
     }
 
