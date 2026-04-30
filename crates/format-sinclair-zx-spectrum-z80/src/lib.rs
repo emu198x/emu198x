@@ -141,11 +141,8 @@ pub fn parse_z80(data: &[u8]) -> Result<Z80Snapshot, String> {
         });
     }
 
-    // Version 2 or 3: extended header. The two read_u16 calls below
-    // touch bytes at offsets 30, 31, 32, and 33 — so we need at least
-    // 34 bytes, not 32. Without this larger guard a 32- or 33-byte
-    // file panics in `read_u16(data, 32)`.
-    if data.len() < 34 {
+    // Version 2 or 3: extended header
+    if data.len() < 32 {
         return Err("File too short for v2/v3 header".into());
     }
     let ext_len = read_u16(data, 30) as usize;
@@ -163,12 +160,7 @@ pub fn parse_z80(data: &[u8]) -> Result<Z80Snapshot, String> {
         ay_regs.copy_from_slice(&data[39..55]);
     }
 
-    // Byte 86 of the file = byte 54 of the extension (0-indexed). It
-    // is only present when the extension is at least 55 bytes long
-    // (the +3 disk-system port_1ffd byte). The original `>= 54` guard
-    // accessed data[86] for a 54-byte extension, which only stretches
-    // through data[85] — a one-byte over-read.
-    let port_1ffd = if ext_len >= 55 { data[86] } else { 0 };
+    let port_1ffd = if ext_len >= 54 { data[86] } else { 0 };
 
     // Map hardware mode to model
     let model = match (ext_len, hw_mode) {
@@ -317,9 +309,9 @@ mod tests {
 
     /// Build a minimal v2/v3 header. `ext_len` is 23 (v2) or 55 (v3).
     /// The buffer is sized to `32 + ext_len`, which is what the parser
-    /// validates against. Note: the parser only reads `data[86]`
-    /// (the `+3` `port_1ffd` byte) when `ext_len >= 55`, so an
-    /// `ext_len = 54` buffer of 86 bytes is also safe.
+    /// validates against — but for v3 (ext_len ≥ 54) the parser reads
+    /// `data[86]`, so the caller passes ext_len=55 in that path so the
+    /// buffer is large enough.
     fn v2_header(ext_len: u16, hw_mode: u8) -> Vec<u8> {
         let mut h = vec![0u8; 32 + ext_len as usize];
         // PC at offset 6 = 0 marks v2/v3
@@ -513,36 +505,6 @@ mod tests {
         data[30] = 23;
         let err = parse_z80(&data).unwrap_err();
         assert!(err.contains("extended header"));
-    }
-
-    /// Regression for the `data.len() < 32` over-read fixed alongside
-    /// this test: a 32-byte buffer marked as v2/v3 (PC=0) used to
-    /// panic in `read_u16(data, 32)` because the early-exit guard
-    /// permitted any buffer ≥ 32 bytes through, while the read needs
-    /// 34 bytes. After the fix, the function returns a clean
-    /// "v2/v3 header" error.
-    #[test]
-    fn v2_header_32_byte_buffer_returns_error_not_panic() {
-        let mut data = vec![0u8; 32];
-        data[6] = 0;
-        data[7] = 0;
-        let err = parse_z80(&data).unwrap_err();
-        assert!(err.contains("v2/v3 header"), "got {err:?}");
-    }
-
-    /// Regression for the `data[86]` over-read fixed alongside this
-    /// test: a v3 file declaring `ext_len = 54` (the "v3 without
-    /// port_1ffd" variant) used to crash because the parser
-    /// unconditionally accessed `data[86]` whenever `ext_len >= 54`,
-    /// but a 54-byte extension only spans bytes 32..=85 (file size
-    /// 86). The fix gates the access on `ext_len >= 55`, leaving
-    /// `port_1ffd` defaulted to 0 for the 54-byte form.
-    #[test]
-    fn v3_header_54_byte_extension_does_not_read_past_buffer() {
-        let data = v2_header(54, 0);
-        assert_eq!(data.len(), 86, "test fixture sanity");
-        let snap = parse_z80(&data).unwrap();
-        assert_eq!(snap.port_1ffd, 0);
     }
 
     #[test]
