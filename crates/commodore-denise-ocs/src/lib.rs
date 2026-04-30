@@ -30,4 +30,4 @@ pub use chip::DeniseOcs;
 pub use debug::{
     DeniseOutputPixelDebug, DeniseShiftLoadDebug, DeniseShiftLoadPlaneDebug, DeniseSourcePixelDebug,
 };
-pub use viewport::{pixel_aspect_ratio, ViewportBounds, ViewportImage, ViewportPreset};
+pub use viewport::{ViewportBounds, ViewportImage, ViewportPreset, pixel_aspect_ratio};

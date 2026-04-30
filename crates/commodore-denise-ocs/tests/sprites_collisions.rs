@@ -910,3 +910,178 @@ fn bplcon4_osprm_xors_odd_sprite_colour_bank() {
         "OSPRM should XOR odd sprite to palette index 5"
     );
 }
+
+// --- Cov-5c additions: sprite-pair collision bits 10-14 + odd-sprite
+// CLXCON enables for sprites 5 and 7 + sprite_line_active wrap case +
+// the priority-loop "odd sprite with ATTACH continues" fall-through.
+
+#[test]
+fn clxdat_latches_sprite_pair_cross_bits_10_through_14() {
+    // HRM Table 3-10: bits 10..14 cover the remaining sprite-pair-cross
+    // combinations beyond bit 9 (SP01 × SP23). Drive groups in
+    // combinations that hit each bit individually, with bitplanes
+    // disabled so only the sprite-pair logic latches.
+    fn arm_sprite_at(d: &mut DeniseOcs, sprite: usize, hstart: u16, vstart: u16, vstop: u16) {
+        let (pos, ctl) = encode_sprite_pos_ctl(hstart, vstart, vstop);
+        d.write_sprite_pos(sprite, pos);
+        d.write_sprite_ctl(sprite, ctl);
+        d.write_sprite_datb(sprite, 0x0000);
+        d.write_sprite_data(sprite, 0x8000);
+    }
+
+    fn collide(s_a: usize, s_b: usize) -> u16 {
+        let mut d = with_clear_playfield();
+        d.clxcon = 0xFFFF; // enable all sprite-cross bits
+        arm_sprite_at(&mut d, s_a, 30, 5, 6);
+        arm_sprite_at(&mut d, s_b, 30, 5, 6);
+        let _ = d.output_pixel_with_beam(30, 5, 30, 5);
+        d.read_clxdat()
+    }
+
+    // bit 10 = group 0 × group 2  (sprites 0,1 × sprites 4,5) -> SP01 + SP45
+    assert_ne!(collide(0, 4) & (1 << 10), 0, "SP01 × SP45 -> bit 10");
+    // bit 11 = group 0 × group 3  (sprites 0,1 × sprites 6,7)
+    assert_ne!(collide(0, 6) & (1 << 11), 0, "SP01 × SP67 -> bit 11");
+    // bit 12 = group 1 × group 2  (sprites 2,3 × sprites 4,5)
+    assert_ne!(collide(2, 4) & (1 << 12), 0, "SP23 × SP45 -> bit 12");
+    // bit 13 = group 1 × group 3  (sprites 2,3 × sprites 6,7)
+    assert_ne!(collide(2, 6) & (1 << 13), 0, "SP23 × SP67 -> bit 13");
+    // bit 14 = group 2 × group 3  (sprites 4,5 × sprites 6,7)
+    assert_ne!(collide(4, 6) & (1 << 14), 0, "SP45 × SP67 -> bit 14");
+}
+
+#[test]
+fn clxcon_ensp5_and_ensp7_gate_odd_sprite_in_collision_mask() {
+    // CLXCON bit 14 = ENSP5 (enables sprite 5 in collisions).
+    // CLXCON bit 15 = ENSP7 (enables sprite 7 in collisions).
+    // When the bit is clear, the odd sprite's pixels do not contribute
+    // to its pair's group mask, so SP23 × SP45 (bit 12) and
+    // SP23 × SP67 (bit 13) should NOT latch.
+    fn arm(d: &mut DeniseOcs, sprite: usize, hstart: u16, vstart: u16, vstop: u16) {
+        let (pos, ctl) = encode_sprite_pos_ctl(hstart, vstart, vstop);
+        d.write_sprite_pos(sprite, pos);
+        d.write_sprite_ctl(sprite, ctl);
+        d.write_sprite_datb(sprite, 0x0000);
+        d.write_sprite_data(sprite, 0x8000);
+    }
+
+    // Sprite 3 (group 1, even) plus sprite 5 (group 2, odd).
+    // Bit 14 ENSP5 cleared while ENSP3 enabled -> sprite 5 dropped from
+    // its group mask, group 2 stays at zero (no even sprite 4 active).
+    let mut d = with_clear_playfield();
+    d.clxcon = !(1u16 << 14); // clear ENSP5 only
+    arm(&mut d, 3, 30, 5, 6);
+    arm(&mut d, 5, 30, 5, 6);
+    let _ = d.output_pixel_with_beam(30, 5, 30, 5);
+    assert_eq!(
+        d.read_clxdat() & (1 << 12),
+        0,
+        "ENSP5=0 should suppress SP23 × SP45 collision bit"
+    );
+
+    // Same shape with sprite 7 + ENSP7.
+    let mut d = with_clear_playfield();
+    d.clxcon = !(1u16 << 15);
+    arm(&mut d, 3, 30, 5, 6);
+    arm(&mut d, 7, 30, 5, 6);
+    let _ = d.output_pixel_with_beam(30, 5, 30, 5);
+    assert_eq!(
+        d.read_clxdat() & (1 << 13),
+        0,
+        "ENSP7=0 should suppress SP23 × SP67 collision bit"
+    );
+}
+
+#[test]
+fn sprite_line_active_wraps_when_vstart_greater_than_vstop() {
+    // When SPRxPOS encodes vstart > vstop the active range wraps the
+    // field boundary: sprite is visible on lines >= vstart OR < vstop.
+    // Place a sprite with vstart=300, vstop=2 and verify it lights up
+    // both at line 305 (above vstart) and line 1 (below vstop).
+    let mut d = with_clear_playfield();
+    d.set_palette(17, 0xF00);
+    let (pos, ctl) = encode_sprite_pos_ctl(40, 300, 2);
+    d.write_sprite_pos(0, pos);
+    d.write_sprite_ctl(0, ctl);
+    d.write_sprite_datb(0, 0x0000);
+    d.write_sprite_data(0, 0x8000);
+
+    assert_eq!(
+        d.output_pixel_color(40, 305),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "wrap: line above vstart -> sprite visible"
+    );
+    assert_eq!(
+        d.output_pixel_color(40, 1),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "wrap: line below vstop -> sprite visible"
+    );
+    assert_eq!(
+        d.output_pixel_color(40, 100),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "wrap: line in the gap -> no sprite"
+    );
+}
+
+#[test]
+fn sprite_line_active_returns_false_when_vstart_equals_vstop() {
+    // The early-return `if vstart == vstop { return false }` arm of
+    // `sprite_line_active` — sprite is never visible.
+    let mut d = with_clear_playfield();
+    d.set_palette(17, 0xF00);
+    let (pos, ctl) = encode_sprite_pos_ctl(40, 30, 30);
+    d.write_sprite_pos(0, pos);
+    d.write_sprite_ctl(0, ctl);
+    d.write_sprite_datb(0, 0x0000);
+    d.write_sprite_data(0, 0x8000);
+
+    for line in [29u32, 30, 31, 32] {
+        assert_eq!(
+            d.output_pixel_color(40, line),
+            DeniseOcs::rgb12_to_argb32(0x000),
+            "vstart==vstop -> never active (line {line})"
+        );
+    }
+}
+
+#[test]
+fn priority_loop_skips_attached_odd_sprite_then_lights_unattached_below() {
+    // When an odd sprite has ATTACH set, the priority loop continues
+    // (line 545-547 of chip.rs) so the next iteration can pick up a
+    // lower-priority but standalone sprite. Build a scenario where
+    // sprite 1 has ATTACH (skipped), sprite 0 is transparent (no pixel)
+    // and sprite 2 lights — exercising the continue path on sprite 1
+    // and falling through to sprite 2's standard arm.
+    let mut d = with_clear_playfield();
+    d.set_palette(17, 0xF00); // sprite 0/1 pair colour 1
+    d.set_palette(21, 0x0F0); // sprite 2/3 pair colour 1
+
+    // Sprite 0 (even) — armed but DATA=DATB=0 (transparent).
+    let (pos0, ctl0) = encode_sprite_pos_ctl(30, 5, 6);
+    d.write_sprite_pos(0, pos0);
+    d.write_sprite_ctl(0, ctl0);
+    d.write_sprite_datb(0, 0x0000);
+    d.write_sprite_data(0, 0x0000);
+
+    // Sprite 1 (odd) — ATTACH bit set, also transparent. The priority
+    // loop must `continue` past this entry without matching its empty
+    // payload.
+    let (pos1, ctl1) = encode_sprite_pos_ctl(30, 5, 6);
+    d.write_sprite_pos(1, pos1);
+    d.write_sprite_ctl(1, ctl1 | 0x0080);
+    d.write_sprite_datb(1, 0x0000);
+    d.write_sprite_data(1, 0x0000);
+
+    // Sprite 2 (even, standalone) — opaque.
+    let (pos2, ctl2) = encode_sprite_pos_ctl(30, 5, 6);
+    d.write_sprite_pos(2, pos2);
+    d.write_sprite_ctl(2, ctl2);
+    d.write_sprite_datb(2, 0x0000);
+    d.write_sprite_data(2, 0x8000);
+
+    assert_eq!(
+        d.output_pixel_color(30, 5),
+        DeniseOcs::rgb12_to_argb32(0x0F0),
+        "attached transparent pair must fall through to next sprite"
+    );
+}

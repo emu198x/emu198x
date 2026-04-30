@@ -4,6 +4,81 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-30 — Cov-5c wave 2: directed-test passes across five chip crates
+
+**Type:** test (Cov-5c wave 2 — same C64-Cov-4 / runtime-Cov-5b playbook applied to chip crates)
+**Trigger:** the workspace coverage audit after Cov-5b/Cov-5c-wave-1 surfaced five chip crates with actionable coverage gaps. Same playbook again — directed tests, no architectural changes, document honest exclusions. Five agents in parallel.
+
+**Result:** **237 directed tests added**. Total uncovered across the five chip crates **1137 → 97 lines** (~91% reduction).
+
+### Per-crate summary
+
+| Crate | File | Lines before | Lines after | Funcs before | Funcs after | Tests added |
+|---|---|---|---|---|---|---|
+| ricoh-ppu-2c02 | `src/lib.rs` | 70.56% | **97.71%** | ~62% | **93.14%** | 82 |
+| ricoh-apu-2a03 | `src/lib.rs` | 78.06% | **99.15%** | 75.23% | **97.32%** | 40 |
+| mos-vic-ii | `src/lib.rs` | 83.78% | **99.20%** | ~85% | **100%** | 29 |
+| machine-commodore-1541 | `src/lib.rs` | 86.23% | **99.26%** | 91.04% | **98.82%** | 35 |
+| commodore-denise-ocs | `src/chip.rs` | 75.19%* | **98.50%** | 74.24% | **95.45%** | 51 |
+
+*Surprising finding: the workspace-wide audit reported denise/chip.rs at 85.67% / 134 missed, but a per-crate measurement showed 75.19% / 232 missed. The downstream Amiga consumers exercise extra paths in workspace measurement; the crate-only baseline made the gap actionable. Worth remembering for future audits — per-crate measurement is the honest signal.
+
+### What landed per crate
+
+**ricoh-ppu-2c02 — 82 tests** (the biggest run): public observation accessors (`scanline`, `dot`, `frame_odd`, `pre_render_line`, `oam_addr`, `ctrl`, `mask`, `status`, `v_reg`, `t_reg`, `fine_x`, `w_latch`, `open_bus`, `framebuffer`, `palette_ram`, `oam`, `nametable_ram`); register write side effects (PPUCTRL t-bits, PPUMASK, OAMADDR, OAMDATA increment + wrap, open-bus on write-only reads); PPUDATA (32-step increment, palette immediate read, palette mirror $3F10, palette write, CHR read buffered semantics); mirroring (FourScreen, SingleScreenLower, SingleScreenUpper); scrolling (`increment_x` wrap+toggle, `increment_y` normal/wrap-29/wrap-31, `copy_horizontal`, `copy_vertical`, all rendering-disabled gating); `tick_visible` rendering-enabled and disabled paths; `tick_prerender` dot 3 NMI clear, dot 256 increment_y, dot 257 copy_horizontal, dots 257-320 sprite bus address, dots 280-304 copy_vertical; suppress-VBL via $2002 read at exact (241,1); `update_sprite_bus_address` phases 0/1, 2/3, 4-7; `sprite_fetch_addr` 8x8 (table 0/1, flip_v) and 8x16 (row≥8, row<8); `evaluate_sprites` 8x16 mode + flip_v + horizontal flip + no-sprites slot clear; `render_pixel` bg-only / sprite-only / both-zero universal-bg / sprite-zero hit / sprite-priority-behind-bg / off-screen; `get_bg_pixel` / `get_sprite_pixel` left-8 clipping; A12 transition rendering-active gate; `load_bg_shift_registers` attribute planes; `bg_fetch_cycle` cycles 4 and 6 (pattern table 0 and 1); mapper-side nametable override.
+
+**ricoh-apu-2a03 — 40 tests**: region/`ApuChannel` API, PAL region tables and frame counter, envelope (decay/loop/divider/constant-volume), length counter clock + halt, sweep (ones/twos complement, target update, reload, divider decrement), pulse sweep muting, triangle ultrasonic silencing + linear-counter decrement, DMC `clock_output` (decrement, clamp, buffer load, DMA request, silence) + address wrap $FFFF→$8000, $4015 status read (DMC IRQ, frame IRQ clear, pulse2/noise length bits), 5-step frame counter step-3 quiet path, `take_channel_buffers` drain, save-registers default state + full round-trip + 5-step capture.
+
+**mos-vic-ii — 29 tests**: `VicModel` NTSC timings + Default-is-PAL, NTSC construction + Default constructs PAL, public accessor round-trip (`char_row`, `is_badline`, `ba_is_low`, `registers`, `irq_status`, `set_irq_status`, `set_registers` restoring raster_compare from $D011/$D012 and irq_enable from $D01A); register read/peek matrix for $D011/$D012/$D019/$D01A and write-acknowledge for $D019; `ba_is_low` and `is_badline` accessors; `render_hires_bitmap`, `render_mcm_bitmap` four-pair colours, `render_mcm_text` MCM-on + standard-fallback; sprite X high bit ($D010); sprite multicolor mc0/mc1/sprite_col; sprite priority-below-foreground ($D01B); sprite DMA y-expand height + halved data line; off-screen sprite skip; xscroll-zero no-carry-load; frame_complete clears LP and DEN latches; raster IRQ compare for high-bit lines.
+
+**machine-commodore-1541 — 35 tests**: `Drive1541Disk` accessors (disk_name/disk_id/directory_entries/image_bytes); idle accessors (sync_detected, sync_event_count, byte_ready_event_count, recent_io_writes); eject_disk; ROM peek + ROM/unmapped poke ignored; full IEC-aware path (peek/read/write/tick_with_iec_bus); read/write_without_iec_bus via CPU-driven LDA/STA; motor-off transition state reset; head step retraction (phase 3); density bit decode; `after_via2_write` $1C01/$1C0F GCR-write-buffer arm; alternate-drive-select gating; `record_io_write` ring-buffer cap; `schedule_byte_ready` no-op when CA2 disabled; `rotate_one_track_bit` early-return + wrap; `Drive1541TrackData::track_bytes` None paths; `restore_snapshot_state` happy + RAM/ROM-size errors; `from_snapshot` size errors; `current_track_bit` zero on no-track; `advance_rotation_ref_cycles` byte-ready-delay branch; `via2_port_b_input` write-protect-low branch; `d64_file_type_name` all six arms.
+
+**commodore-denise-ocs — 51 tests across 5 files** (3 new + 2 extended):
+- `tests/write_word_dispatch.rs` (NEW, 9): every `write_word` arm (BPLCON0/1/2/4, CLXCON, palette range, sprite range, BPL1DAT) + `queue_shift_load_from_bpl1dat` → `apply_pending_shift_load_if_due` pipeline (lores/hires phase masks, split odd/even commit, ignored offsets).
+- `tests/aga_extensions.rs` (NEW, 11): `num_bitplanes` AGA 4-bit BPU, SHRES 4-pixels-per-call, `push_bpl_fifo` / FIFO auto-reload / 4-entry cap / idx≥8 guard, `load_bitplane` idx≥8 guard, `rgb12_to_rgb24` / `rgb24_to_argb32`, `defer_shift_load_after_source_pixels` count==0 and count>1.
+- `tests/raster_framebuffer.rs` (NEW, 17): `write_raster_pixel` interlace LOF/SHF + non-interlace double-write + x/y OOB drop, `extract_viewport` PAL/NTSC × Standard/Overscan/Full × deinterlace + buffer-OOB fallback, `viewport.rs`'s `scale_nearest`/`to_display`/`pixel_aspect_ratio`/all `*_bounds` arms, `Default::default()`. Lifted `viewport.rs` from 0% (literal) to 100% line coverage.
+- `tests/sprites_collisions.rs` (extended, +5): CLXDAT bits 10–14 (SP01×SP45, SP01×SP67, SP23×SP45, SP23×SP67, SP45×SP67), ENSP5/ENSP7 gates, `sprite_line_active` wrap (vstart>vstop) + zero-extent (vstart==vstop), priority-loop attached-odd-sprite continue.
+- `tests/bplcon_pipeline.rs` (extended, +3): DPF + PF2PRI + sprite priority via PF2P, two legacy BPLCON0=0 direct-poke fallbacks.
+
+### Honest exclusions (the remaining 97 lines)
+
+All five reports flagged unreachable-by-design paths:
+
+- **Defensive bounds checks inside per-pixel loops** (mostly VIC-II + PPU-2C02): `if idx < self.framebuffer.len()` early-returns where the framebuffer is statically sized at construction. Required by the type system, structurally unreachable.
+- **`unreachable!` arms** with the explicit invariant comment (`update_sprite_bus_address` line 614 in PPU; HAM resolver line 920 in Denise — control is `(idx>>4) & 0x03`, all 4 cases enumerated).
+- **`_ => {}` arms after `& 0x07`-style bounds masking** (PPU `cpu_write` line 813, `ppu_read` line 838, `ppu_write` line 857) — required by Rust's exhaustiveness check, unreachable through the public API.
+- **Serde-only `default_*` helpers** (APU 2A03 lines 795-809, 12 lines): used as `#[serde(default = "default_X")]` for fields with `skip` — only fire on deserialisation of state without those fields, which doesn't happen in our crate.
+- **`_ => {}` arms inside frame-counter `if frame_step < 4`/`< 5` gates** (APU lines 1343, 1363): Rust requires them, unreachable by the surrounding gate.
+- **Test-fixture-only mapper-trait shims** (PPU): `CountingMapper` and `OverrideMapper` private test fixtures whose `Mapper`-trait methods aren't called by their respective tests. Test-side scaffolding, not production code.
+- **Test-only GCR helper branches** (1541): `gcr_find_sync` / `gcr_decode_block` / `gcr_read_sector_from_raw_track` defensive empty/wrap branches the synthetic D64 test fixture doesn't trigger; `Ok(_) => panic!(...)` arms inside test error-checking match blocks.
+- **Defensive `or_else` and `bpl_shift_delay > 0` arms in Denise legacy compat** (lines 994-998, 1003-1004): `ensure_legacy_shift_state_compat` always mirrors `shift_count` into `bpl_shift_count` (so the `or_else` never fires); `bpl_shift_delay` is hard-coded to 0 by both load paths. Both are defensive against future shape changes.
+- **`output_pixel_color` else arm** (Denise line 1075): `0xFF00_0000` branch only fires if `called: true` is never set, but `output_pixel_with_beam_n_source_samples` always sets it (line 1208).
+
+### Verification
+
+| Crate | `--lib` tests | Coverage gain |
+|---|---|---|
+| ricoh-ppu-2c02 | 103 passed | 70.56% → 97.71% lines |
+| ricoh-apu-2a03 | 64 passed | 78.06% → 99.15% lines |
+| mos-vic-ii | 58 passed | 83.78% → 99.20% lines |
+| machine-commodore-1541 | 61 passed | 86.23% → 99.26% lines |
+| commodore-denise-ocs | 4 passed (lib) + 110 passed (tests, +44 net) | 75.19% → 98.50% lines on chip.rs |
+
+`cargo clippy -p ricoh-ppu-2c02 -p ricoh-apu-2a03 -p mos-vic-ii -p machine-commodore-1541 -p commodore-denise-ocs --all-targets -- -D warnings` clean.
+
+Downstream consumers (`machine-nintendo-nes`, `runtime-nintendo-nes`, `machine-commodore-c64`, `runtime-commodore-c64`, `machine-commodore-amiga-ocs`, `runtime-commodore-amiga`) all build clean.
+
+### What's next
+
+Cov-5c is now closed. The directed-test track has reached every actionable target across the workspace: five runtime crates (Cov-4 + Cov-5b), five chip crates (Cov-5c wave 2), plus structural cleanup of two CPU crates (Cov-5c wave 1). The honestly-excluded paths are documented per crate in this log.
+
+Open queue:
+1. **Spectrum query-provider generalisation** (feature work — extending `spectrum_48k.rs`-style providers to non-48K variants).
+2. **Amiga ECS/AGA/SAGA conversion** (when variant work begins — generic `AmigaRuntime<M: AmigaMachine>` per the Spectrum playbook).
+3. **Coverage-script question (deferred):** should `scripts/coverage.sh` run `--ignored` to include the Tom Harte 6502 / 68k, FUSE Z80, and Adam Tennant SM83 corpora? Each adds 5-10 minutes; together they'd lift CPU-crate workspace coverage from artificially-low to honest. Coverage-script PR rather than a test-addition PR.
+
+---
+
 ## 2026-04-30 — Cov-5c wave 1: structural cleanup of two CPU crates
 
 **Type:** refactor (architectural — splitting a chip-crate monolith + relocating a test runner that was hiding in `src/`)

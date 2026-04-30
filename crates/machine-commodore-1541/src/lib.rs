@@ -1237,11 +1237,12 @@ const fn d64_file_type_name(kind: D64FileType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        Drive1541, Drive1541Config, Drive1541InitError, Drive1541TrackData, ROM_SIZE,
-        TRACK_SLOT_COUNT, build_track_data, track_slot_index,
+        DEFAULT_DEVICE_NUMBER, Drive1541, Drive1541Config, Drive1541InitError, Drive1541TrackData,
+        IO_TRACE_LIMIT, MAX_HEAD_POSITION, RAM_SIZE, ROM_SIZE, TRACK_SLOT_COUNT, build_track_data,
+        d64_file_type_name, track_slot_index,
     };
     use common_commodore_iec::IecBus;
-    use format_commodore_c64_d64::read_sector;
+    use format_commodore_c64_d64::{D64FileType, read_sector};
 
     const D64_STANDARD_SIZE: usize = 174_848;
     const D64_SECTOR_SIZE: usize = 256;
@@ -1967,5 +1968,760 @@ mod tests {
             restored.disk().expect("disk should be restored").disk_name,
             "DEMO DISK"
         );
+    }
+
+    // ----- accessors and small helpers -----
+
+    #[test]
+    fn drive1541_disk_accessor_methods_expose_inner_state() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let bytes = synthetic_d64();
+        machine
+            .load_d64_bytes(&bytes)
+            .expect("synthetic D64 should mount");
+
+        let disk = machine.disk().expect("disk should be inserted");
+        assert_eq!(disk.disk_name(), "DEMO DISK");
+        assert_eq!(disk.disk_id(), "42");
+        assert_eq!(disk.image_bytes().len(), bytes.len());
+        let entries = disk.directory_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "HELLO");
+    }
+
+    #[test]
+    fn sync_detected_and_event_count_accessors_initial_state() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        // Drive idle: no sync detected, no events recorded yet.
+        assert!(!machine.sync_detected());
+        assert_eq!(machine.sync_event_count(), 0);
+        assert_eq!(machine.byte_ready_event_count(), 0);
+        assert!(machine.recent_io_writes().is_empty());
+    }
+
+    #[test]
+    fn d64_file_type_name_covers_every_arm() {
+        assert_eq!(d64_file_type_name(D64FileType::Del), "DEL");
+        assert_eq!(d64_file_type_name(D64FileType::Seq), "SEQ");
+        assert_eq!(d64_file_type_name(D64FileType::Prg), "PRG");
+        assert_eq!(d64_file_type_name(D64FileType::Usr), "USR");
+        assert_eq!(d64_file_type_name(D64FileType::Rel), "REL");
+        assert_eq!(d64_file_type_name(D64FileType::Unknown(7)), "UNKNOWN");
+    }
+
+    #[test]
+    fn track_slot_index_returns_none_outside_supported_range() {
+        // Below the lower bound and above the upper bound both return `None`.
+        assert!(track_slot_index(1).is_none());
+        assert!(track_slot_index(MAX_HEAD_POSITION + 1).is_none());
+    }
+
+    // ----- eject + reset/rotation state -----
+
+    #[test]
+    fn eject_disk_drops_image_and_resets_rotation_state() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+        assert!(machine.disk_inserted());
+
+        machine.gcr_head_offset = 100;
+        machine.byte_ready_level = true;
+
+        machine.eject_disk();
+
+        assert!(!machine.disk_inserted());
+        assert!(machine.disk().is_none());
+        assert!(machine.track_data.is_none());
+        assert_eq!(machine.gcr_head_offset, 0);
+        assert!(!machine.byte_ready_level);
+    }
+
+    // ----- peek/poke fall-through ranges -----
+
+    #[test]
+    fn peek_returns_rom_byte_and_open_bus_for_unmapped_addresses() {
+        let mut rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        rom[0x1234] = 0xAB; // ROM offset 0x1234 -> address 0xD234
+        let machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        assert_eq!(machine.peek(0xD234), 0xAB);
+        // Anything outside the mapped windows reads as open bus (0xFF).
+        assert_eq!(machine.peek(0x2000), 0xFF);
+        assert_eq!(machine.peek(0xBFFF), 0xFF);
+    }
+
+    #[test]
+    fn poke_to_rom_and_unmapped_ranges_is_ignored() {
+        let mut rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        rom[0x1234] = 0xAB;
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        machine.poke(0xD234, 0x55);
+        machine.poke(0x2000, 0x77);
+        machine.poke(0xBFFF, 0x99);
+
+        assert_eq!(machine.peek(0xD234), 0xAB);
+    }
+
+    // ----- read_without_iec_bus + write_without_iec_bus full coverage -----
+
+    #[test]
+    fn cpu_read_through_via1_register_paths_via_tick() {
+        // Program: LDA $1800; LDA $1801; LDA $1802; LDA $1900; NOP loop (read VIA1 PB,
+        // PA, the DDRB register, and the mirrored Port-B address through the CPU bus).
+        let rom = make_rom(
+            &[(
+                0xC000,
+                &[
+                    0xAD, 0x00, 0x18, // LDA $1800 (port B with via1 read path)
+                    0xAD, 0x01, 0x18, // LDA $1801 (port A with via1 read path)
+                    0xAD, 0x02, 0x18, // LDA $1802 (other VIA1 register)
+                    0xAD, 0x00, 0x19, // LDA $1900 (mirror of $1800 via decode)
+                    0xEA,
+                ],
+            )],
+            0xC000,
+        );
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        boot(&mut machine);
+        for _ in 0..4 {
+            run_one(&mut machine);
+        }
+
+        // We don't assert on the exact value — we just need each VIA1 read branch
+        // of `read_without_iec_bus` to execute. Make sure execution made progress.
+        assert!(machine.cpu().regs.pc >= 0xC00C);
+    }
+
+    #[test]
+    fn cpu_read_through_via2_register_paths_via_tick() {
+        // LDA $1C00; LDA $1C01; LDA $1C02 — covers the VIA2 PB, PA, and other-reg
+        // arms of `read_without_iec_bus`.
+        let rom = make_rom(
+            &[(
+                0xC000,
+                &[
+                    0xAD, 0x00, 0x1C, // LDA $1C00
+                    0xAD, 0x01, 0x1C, // LDA $1C01
+                    0xAD, 0x02, 0x1C, // LDA $1C02 (DDRB)
+                    0xEA,
+                ],
+            )],
+            0xC000,
+        );
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        boot(&mut machine);
+        for _ in 0..3 {
+            run_one(&mut machine);
+        }
+
+        assert!(machine.cpu().regs.pc >= 0xC009);
+    }
+
+    #[test]
+    fn cpu_write_through_board_to_via2_space_uses_after_write_hook() {
+        // STA $1C00 — ends up in the VIA2-port-b branch of write_without_iec_bus,
+        // which calls after_via2_write and refresh_drive_mechanics.
+        let rom = make_rom(
+            &[(
+                0xC000,
+                &[
+                    0xA9, 0x04, // LDA #$04 (motor on bit)
+                    0x8D, 0x00, 0x1C, // STA $1C00
+                    0xEA,
+                ],
+            )],
+            0xC000,
+        );
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        boot(&mut machine);
+        run_one(&mut machine); // LDA #$04
+        run_one(&mut machine); // STA $1C00
+
+        assert!(machine.motor_on(), "writing motor bit should engage motor");
+        // Recording also captured the I/O write.
+        let writes = machine.recent_io_writes();
+        assert!(writes.iter().any(|ev| ev.addr == 0x1C00));
+    }
+
+    #[test]
+    fn cpu_write_to_rom_window_is_ignored_during_tick() {
+        // STA $C500 — exercise the ROM-write fall-through branch in
+        // write_without_iec_bus.
+        let rom = make_rom(
+            &[(
+                0xC000,
+                &[
+                    0xA9, 0x55, // LDA #$55
+                    0x8D, 0x00, 0xC5, // STA $C500
+                    0xEA,
+                ],
+            )],
+            0xC000,
+        );
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        boot(&mut machine);
+        run_one(&mut machine); // LDA
+        run_one(&mut machine); // STA into ROM (ignored)
+
+        assert_eq!(machine.peek(0xC500), 0xEA, "ROM should remain unchanged");
+    }
+
+    // ----- IEC-bus read/write/peek paths -----
+
+    #[test]
+    fn read_with_iec_bus_returns_ram_via1_via2_and_rom_bytes() {
+        let mut rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        rom[0x2000] = 0x77; // ROM offset 0x2000 -> address 0xE000
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let bus = IecBus::new();
+
+        machine.poke(0x0010, 0xAB);
+        machine.poke(0x1802, 0xCD); // VIA1 DDRB
+        machine.poke(0x1C03, 0xEF); // VIA2 DDRA
+
+        // RAM
+        assert_eq!(machine.read_with_iec_bus(0x0010, &bus), 0xAB);
+        // VIA1 Port B (decode + iec bus path)
+        let _ = machine.read_with_iec_bus(0x1800, &bus);
+        // VIA1 Port A
+        let _ = machine.read_with_iec_bus(0x1801, &bus);
+        // VIA1 other register (DDRB)
+        assert_eq!(machine.read_with_iec_bus(0x1802, &bus), 0xCD);
+        // VIA2 other register (DDRA)
+        assert_eq!(machine.read_with_iec_bus(0x1C03, &bus), 0xEF);
+        // ROM
+        assert_eq!(machine.read_with_iec_bus(0xE000, &bus), 0x77);
+        // Open bus fall-through for unmapped address space.
+        assert_eq!(machine.read_with_iec_bus(0x2000, &bus), 0xFF);
+    }
+
+    #[test]
+    fn write_with_iec_bus_targets_ram_via2_rom_and_ignored_ranges() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let mut bus = IecBus::new();
+
+        // RAM: should be writable through the IEC-aware write path.
+        machine.write_with_iec_bus(0x0040, 0x12, &mut bus);
+        assert_eq!(machine.peek(0x0040), 0x12);
+
+        // VIA2 IO: writes go through after_via2_write.
+        machine.write_with_iec_bus(0x1C02, 0x7F, &mut bus); // DDRB
+        machine.write_with_iec_bus(0x1C00, 0x04, &mut bus); // motor on
+        assert!(machine.motor_on());
+
+        // ROM and unmapped: silently ignored.
+        machine.write_with_iec_bus(0xC100, 0xFF, &mut bus);
+        machine.write_with_iec_bus(0x2000, 0xFF, &mut bus);
+        assert_eq!(machine.peek(0xC100), 0xEA);
+    }
+
+    #[test]
+    fn peek_with_iec_bus_covers_via1_pa_via2_pa_and_other_paths() {
+        let mut rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        rom[0x3000] = 0x42; // 0xF000
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine.head_position = 2;
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+        let bus = IecBus::new();
+
+        // VIA1 Port A (peek path with $1801).
+        let _ = machine.peek_with_iec_bus(0x1801, &bus);
+        // VIA1 other register (peek path).
+        let _ = machine.peek_with_iec_bus(0x1802, &bus);
+        // VIA2 Port A (peek path with $1C01).
+        let _ = machine.peek_with_iec_bus(0x1C01, &bus);
+        // VIA2 other register peek path ($1C03).
+        let _ = machine.peek_with_iec_bus(0x1C03, &bus);
+        // ROM
+        assert_eq!(machine.peek_with_iec_bus(0xF000, &bus), 0x42);
+        // Open bus
+        assert_eq!(machine.peek_with_iec_bus(0x2000, &bus), 0xFF);
+    }
+
+    #[test]
+    fn tick_with_iec_bus_advances_cpu_and_drive_state() {
+        let rom = make_rom(&[(0xC000, &[0xEA, 0xEA, 0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let mut bus = IecBus::new();
+
+        // Boot via the IEC-aware tick path so tick_with_iec_bus is exercised end-to-end.
+        for _ in 0..7 {
+            if machine.tick_with_iec_bus(&mut bus) && machine.cpu().instruction_complete() {
+                break;
+            }
+        }
+        let cycles_before = machine.cycles();
+
+        // Run one NOP via the IEC-aware path.
+        loop {
+            let completed = machine.tick_with_iec_bus(&mut bus);
+            if completed && machine.cpu().instruction_complete() {
+                break;
+            }
+        }
+
+        assert_eq!(machine.cycles() - cycles_before, 2);
+    }
+
+    #[test]
+    fn tick_with_iec_bus_writes_through_to_via1_when_cpu_stores_to_iec_register() {
+        // STA $1800 with IEC-aware tick — exercises the write branch and
+        // drive_iec_outputs.
+        let rom = make_rom(
+            &[(
+                0xC000,
+                &[
+                    0xA9, 0x00, // LDA #$00 (pull data line low when DDR enabled)
+                    0x8D, 0x02, 0x18, // STA $1802 -> set DDRB to 0
+                    0xEA,
+                ],
+            )],
+            0xC000,
+        );
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let mut bus = IecBus::new();
+
+        for _ in 0..7 {
+            if machine.tick_with_iec_bus(&mut bus) && machine.cpu().instruction_complete() {
+                break;
+            }
+        }
+        // Run LDA + STA via the IEC path.
+        for _ in 0..2 {
+            loop {
+                let completed = machine.tick_with_iec_bus(&mut bus);
+                if completed && machine.cpu().instruction_complete() {
+                    break;
+                }
+            }
+        }
+
+        // The drive should have published an IEC contribution onto the bus.
+        assert!(bus.drive_data(DEFAULT_DEVICE_NUMBER).is_some());
+    }
+
+    // ----- mechanics: motor off transition, head step backwards, density -----
+
+    #[test]
+    fn motor_off_transition_clears_byte_ready_and_rotation_state() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine.head_position = 10;
+
+        // Engage motor first.
+        machine.poke(0x1C02, 0x7F);
+        machine.poke(0x1C00, 0x04);
+        machine.tick();
+        assert!(machine.motor_on());
+
+        // Force some byte-ready / rotation state, then drop the motor bit.
+        machine.byte_ready_level = true;
+        machine.byte_ready_edge = true;
+        machine.byte_ready_delay_ref_cycles = 5;
+        machine.last_read_data = 0x1234;
+        machine.bit_counter = 4;
+        machine.sync_active = true;
+        machine.rotation_accum = 1234;
+        machine.rotation_ref_phase = 7;
+
+        machine.poke(0x1C00, 0x00);
+        machine.tick();
+
+        assert!(!machine.motor_on());
+        assert!(!machine.byte_ready_level);
+        assert!(!machine.byte_ready_edge);
+        assert_eq!(machine.byte_ready_delay_ref_cycles, 0);
+        assert_eq!(machine.last_read_data, 0);
+        assert_eq!(machine.bit_counter, 0);
+        assert!(!machine.sync_active);
+        assert_eq!(machine.rotation_accum, 0);
+        assert_eq!(machine.rotation_ref_phase, 0);
+    }
+
+    #[test]
+    fn step_phase_three_decrements_head_position() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        // Engage motor with stepper phase 0 (head_position 36 -> phase ((36-2)&3)=2,
+        // so we land in a sensible neighbourhood). Then advance the head into a
+        // place where we can step backwards.
+        machine.head_position = 10;
+        machine.stepper_phase = 0;
+        machine.poke(0x1C02, 0x7F);
+        machine.poke(0x1C00, 0x0C); // motor + new stepper phase 0 -> step_count 0
+        machine.tick();
+        machine.poke(0x1C00, 0x0D); // motor + stepper phase 1 -> +1
+        machine.tick();
+        assert_eq!(machine.head_position(), 11);
+
+        // Now walk backwards: from stepper position 1, going to 0 gives step_count 3.
+        machine.poke(0x1C00, 0x0C); // motor + stepper phase 0 -> step_count 3 (back)
+        machine.tick();
+        assert_eq!(
+            machine.head_position(),
+            10,
+            "stepper phase delta of 3 should retract the head"
+        );
+    }
+
+    #[test]
+    fn density_code_field_reflects_via2_port_b_bits() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine.head_position = 10;
+
+        machine.poke(0x1C02, 0xFF); // all VIA2 PB bits as outputs
+        machine.poke(0x1C00, 0x60 | 0x04); // density bits (0b11), motor on
+        machine.tick();
+
+        assert_eq!(machine.density_code(), 0b11);
+    }
+
+    // ----- after_via2_write: $1C01/$1C0F path -----
+
+    #[test]
+    fn writing_via2_port_a_register_buffers_gcr_write_value() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        // Pre-charge byte-ready level so we can verify it is cleared.
+        machine.byte_ready_level = true;
+        machine.poke(0x1C01, 0xA5);
+
+        assert_eq!(machine.gcr_write_value, 0xA5);
+        assert!(!machine.byte_ready_level);
+
+        // The mirrored register $1C0F also buffers the GCR value.
+        machine.byte_ready_level = true;
+        machine.poke(0x1C0F, 0x5A);
+        assert_eq!(machine.gcr_write_value, 0x5A);
+        assert!(!machine.byte_ready_level);
+    }
+
+    // ----- via2_port_a_input falls back when drive 1 is selected -----
+
+    #[test]
+    fn via2_port_a_input_returns_zero_when_other_drive_selected() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        // The 1541 ROM uses the LSB of $7F to pick between drive 0 and drive 1
+        // in dual-drive heritage; selecting drive 1 makes the GCR data port read 0.
+        machine.poke(0x007F, 0x01);
+        machine.gcr_read = 0xAA;
+
+        assert_eq!(machine.via2_port_a_input(), 0);
+    }
+
+    // ----- record_io_write trace ring buffer cap -----
+
+    #[test]
+    fn record_io_write_caps_at_io_trace_limit() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        // Write `IO_TRACE_LIMIT + 4` times into the same VIA register; the buffer
+        // should grow until the cap and then start dropping the oldest entries.
+        for value in 0..=(IO_TRACE_LIMIT as u16 + 4) {
+            machine.poke(0x1802, value as u8);
+        }
+
+        assert_eq!(machine.recent_io_writes().len(), IO_TRACE_LIMIT);
+        // The first surviving record should be later than the very first write.
+        let first = &machine.recent_io_writes()[0];
+        assert_eq!(first.addr, 0x1802);
+        assert_ne!(first.value, 0);
+    }
+
+    // ----- byte ready / sync helpers under explicit pre-conditions -----
+
+    #[test]
+    fn schedule_byte_ready_no_op_when_byte_ready_disabled() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        // Disable byte-ready (PCR bit 1 = 0 keeps CA2 low through `ca2_line_high`).
+        machine.poke(0x1C0C, 0x20); // CB2=high (read mode), CA2 manual low
+        let count_before = machine.byte_ready_event_count();
+        machine.byte_ready_level = false;
+        machine.byte_ready_edge = false;
+
+        machine.schedule_byte_ready(0);
+
+        assert!(!machine.byte_ready_level);
+        assert!(!machine.byte_ready_edge);
+        assert_eq!(machine.byte_ready_event_count(), count_before);
+    }
+
+    #[test]
+    fn rotate_one_track_bit_is_noop_when_no_track_bytes() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        // No track data inserted; total_bits == 0 => early return.
+        machine.gcr_head_offset = 0;
+        machine.last_read_data = 0;
+        machine.rotate_one_track_bit();
+
+        assert_eq!(machine.gcr_head_offset, 0);
+        assert_eq!(machine.last_read_data, 0);
+    }
+
+    #[test]
+    fn rotate_one_track_bit_wraps_head_offset_at_track_end() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        // Single-byte track: 8 bits total, so wrapping happens predictably.
+        machine.track_data = Some(Drive1541TrackData {
+            tracks: vec![vec![0x00]; TRACK_SLOT_COUNT],
+        });
+        machine.head_position = 2;
+        // Place head at the last bit of the track; the next rotation must wrap to 0.
+        machine.gcr_head_offset = 7;
+
+        machine.rotate_one_track_bit();
+
+        assert_eq!(machine.gcr_head_offset, 0);
+    }
+
+    // ----- selected_internal_drive_present: track selection blocked -----
+
+    #[test]
+    fn selecting_external_drive_hides_track_data_from_decoder() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+        machine.head_position = 2;
+        // Route the GCR head to the alternate drive selection path.
+        machine.poke(0x007F, 0x01);
+
+        assert!(machine.current_track_bytes().is_none());
+        assert_eq!(machine.current_track_bit_len(), 0);
+    }
+
+    #[test]
+    fn track_data_track_bytes_returns_none_for_empty_or_invalid_slot() {
+        let bytes = synthetic_d64();
+        let track_data = build_track_data(&bytes).expect("synthetic D64 should build GCR data");
+
+        // Out of range head position -> None.
+        assert!(track_data.track_bytes(1).is_none());
+
+        // Even with a built dataset, an odd halftrack slot stays empty -> None.
+        assert!(track_data.track_bytes(3).is_none());
+    }
+
+    // ----- snapshot/restore covering restore_snapshot_state -----
+
+    #[test]
+    fn restore_snapshot_state_repopulates_drive_in_place() {
+        let rom = make_rom(&[(0xC000, &[0xA9, 0x12, 0x8D, 0x00, 0x04, 0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        boot(&mut machine);
+        run_one(&mut machine); // LDA #$12
+        run_one(&mut machine); // STA $0400
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+        machine.head_position = 4;
+
+        let snapshot = machine.snapshot_state();
+        let snapshot_pc = machine.cpu().regs.pc;
+        let snapshot_cycles = machine.cycles();
+
+        // Disturb the live machine, then restore in place.
+        let mut other = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        other
+            .restore_snapshot_state(snapshot)
+            .expect("snapshot should restore in place");
+
+        assert_eq!(other.cpu().regs.pc, snapshot_pc);
+        assert_eq!(other.cycles(), snapshot_cycles);
+        assert!(other.disk_inserted());
+        assert_eq!(other.head_position(), 4);
+        assert_eq!(other.peek(0x0400), 0x12);
+        // The recent IO trace is intentionally cleared on restore.
+        assert!(other.recent_io_writes().is_empty());
+    }
+
+    #[test]
+    fn restore_snapshot_state_rejects_wrong_ram_size() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let mut snapshot = machine.snapshot_state();
+        snapshot.ram = vec![0u8; RAM_SIZE - 1];
+
+        let err = machine
+            .restore_snapshot_state(snapshot)
+            .expect_err("undersized RAM should be rejected");
+        assert!(err.contains("snapshot RAM size mismatch"));
+    }
+
+    #[test]
+    fn restore_snapshot_state_rejects_wrong_rom_size() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let mut snapshot = machine.snapshot_state();
+        snapshot.rom = vec![0u8; ROM_SIZE - 1];
+
+        let err = machine
+            .restore_snapshot_state(snapshot)
+            .expect_err("undersized ROM should be rejected");
+        assert!(err.contains("snapshot ROM size mismatch"));
+    }
+
+    #[test]
+    fn write_to_unmapped_address_is_silently_dropped_during_tick() {
+        // STA $1900 falls between the VIA1 mirror window ($1800-$18FF) and the
+        // VIA2 window ($1C00-$1CFF), exercising the catch-all match arm in
+        // `write_without_iec_bus`.
+        let rom = make_rom(
+            &[(
+                0xC000,
+                &[
+                    0xA9, 0x55, // LDA #$55
+                    0x8D, 0x00, 0x19, // STA $1900
+                    0xEA,
+                ],
+            )],
+            0xC000,
+        );
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        boot(&mut machine);
+        run_one(&mut machine); // LDA #$55
+        run_one(&mut machine); // STA $1900 (no-op)
+
+        // Open-bus read confirms the address was not captured anywhere.
+        assert_eq!(machine.peek(0x1900), 0xFF);
+    }
+
+    #[test]
+    fn via2_port_b_reflects_unprotected_disk_with_write_protect_low() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let bus = IecBus::new();
+        machine.head_position = 2;
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+
+        // Override write-protect so the OR-in branch fires.
+        if let Some(disk) = machine.disk.as_mut() {
+            disk.write_protected = false;
+        }
+
+        let port_b = machine.peek_with_iec_bus(0x1C00, &bus);
+        assert!(
+            port_b & 0x10 != 0,
+            "an unprotected disk should pull VIA2 PB4 high through write_protect_not_asserted"
+        );
+    }
+
+    #[test]
+    fn advance_rotation_ref_cycles_consumes_delay_in_smaller_step() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("synthetic D64 should mount");
+        machine.head_position = 2;
+
+        // Engage motor + read mode through the public IO path so flags align.
+        machine.poke(0x1C02, 0x7F);
+        machine.poke(0x1C00, 0x04);
+        machine.poke(0x1C0C, 0x22);
+        machine.tick();
+
+        // Pre-load a small byte-ready delay; then drive rotation forward enough
+        // to make `to_byte_ready` the limiting factor inside the inner loop.
+        machine.byte_ready_delay_ref_cycles = 3;
+        machine.advance_rotation_ref_cycles(2);
+
+        assert_eq!(machine.byte_ready_delay_ref_cycles, 1);
+    }
+
+    #[test]
+    fn current_track_bit_returns_zero_when_no_track_data() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        // No D64 mounted, so current_track_bytes() returns None and the bit read
+        // collapses to a zero.
+        assert_eq!(machine.current_track_bit(0), 0);
+    }
+
+    #[test]
+    fn from_snapshot_rejects_wrong_ram_and_rom_sizes() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        let mut snapshot = machine.snapshot_state();
+        snapshot.ram = vec![0u8; RAM_SIZE - 1];
+        let err = match Drive1541::from_snapshot(snapshot) {
+            Ok(_) => panic!("undersized RAM should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.contains("snapshot RAM size mismatch"));
+
+        let mut snapshot = machine.snapshot_state();
+        snapshot.rom = vec![0u8; ROM_SIZE - 1];
+        let err = match Drive1541::from_snapshot(snapshot) {
+            Ok(_) => panic!("undersized ROM should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.contains("snapshot ROM size mismatch"));
     }
 }

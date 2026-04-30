@@ -9,12 +9,12 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
+use crate::PAL_RASTER_FB_HEIGHT;
+use crate::RASTER_FB_WIDTH;
 use crate::debug::{
     DeniseOutputPixelDebug, DeniseShiftLoadDebug, DeniseShiftLoadPlaneDebug, DeniseSourcePixelDebug,
 };
 use crate::viewport::{ViewportImage, ViewportPreset};
-use crate::PAL_RASTER_FB_HEIGHT;
-use crate::RASTER_FB_WIDTH;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DeniseOcs {

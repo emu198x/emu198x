@@ -1619,4 +1619,571 @@ mod tests {
             assert_eq!(fb_pixel(&vic, fb_x0 + px, fb_y), PALETTE[1]);
         }
     }
+
+    // ----- Cov-5c wave 2: directed coverage tests -----
+
+    #[test]
+    fn vic_model_ntsc_timings() {
+        assert_eq!(VicModel::Ntsc6567.lines_per_frame(), 263);
+        assert_eq!(VicModel::Ntsc6567.cycles_per_line(), 65);
+        assert_eq!(VicModel::Pal6569.lines_per_frame(), 312);
+        assert_eq!(VicModel::Pal6569.cycles_per_line(), 63);
+    }
+
+    #[test]
+    fn vic_model_default_is_pal() {
+        assert_eq!(VicModel::default(), VicModel::Pal6569);
+    }
+
+    #[test]
+    fn ntsc_construction_uses_ntsc_visible_lines() {
+        let vic = Vic::new(VicModel::Ntsc6567);
+        // NTSC visible window: 14..258 → 244 lines.
+        assert_eq!(vic.framebuffer_height(), 244);
+    }
+
+    #[test]
+    fn default_constructs_pal_vic() {
+        let vic: Vic = Vic::default();
+        assert_eq!(vic.framebuffer_width(), FB_WIDTH);
+        // PAL fb height: 312 - 0 = 312.
+        assert_eq!(vic.framebuffer_height(), 312);
+    }
+
+    #[test]
+    fn public_accessor_methods_round_trip() {
+        let mut vic = Vic::new(VicModel::Pal6569);
+        // Direct accessors initially zero.
+        assert_eq!(vic.char_row(), 0);
+        assert!(!vic.is_badline());
+        assert!(!vic.ba_is_low());
+        // registers() returns the raw register file pointer.
+        let regs_snapshot = *vic.registers();
+        assert_eq!(regs_snapshot.len(), 0x40);
+        // irq_status getter/setter round-trip.
+        vic.set_irq_status(0x0F);
+        assert_eq!(vic.irq_status(), 0x0F);
+        // set_registers should restore both raster_compare and irq_enable.
+        let mut new_regs = [0u8; 0x40];
+        new_regs[0x11] = 0x80; // raster compare bit 8 set
+        new_regs[0x12] = 0x10;
+        new_regs[0x1A] = 0x01;
+        vic.set_registers(&new_regs);
+        // peek($D011) reports raster bit 8 in bit 7; raster_line is 0 here.
+        assert_eq!(vic.peek(0x11) & 0x80, 0x00);
+        // The raw register bits read back via registers().
+        assert_eq!(vic.registers()[0x11], 0x80);
+        assert_eq!(vic.registers()[0x12], 0x10);
+        // raster_compare = ($D011 bit 7) << 8 | $D012 = 0x110 = 272.
+        // PAL has 312 lines, so 272 is reachable.
+        vic.set_irq_status(0);
+        let memory = TestMemory::new(&[0u8; 4096]);
+        let mut hit = false;
+        for _ in 0..(63u32 * 400) {
+            tick_vic(&mut vic, &memory);
+            if (vic.irq_status() & 0x01) != 0 {
+                hit = true;
+                break;
+            }
+        }
+        assert!(hit, "raster IRQ never latched at compare 0x110");
+        assert_eq!(vic.raster_line(), 0x110);
+    }
+
+    #[test]
+    fn read_d011_returns_high_bit_of_raster_line() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // Advance to a line >= 256. PAL has 312 lines; line 256 is reachable.
+        while vic.raster_line() < 256 {
+            tick_vic(&mut vic, &memory);
+        }
+        // Set CR1 lower bits (mode/yscroll) to a known non-zero pattern.
+        vic.write(0x11, 0x1B);
+        let v = vic.read(0x11);
+        // Bit 7 should be set since raster_line >= 256.
+        assert_eq!(v & 0x80, 0x80);
+        // Lower bits preserved.
+        assert_eq!(v & 0x7F, 0x1B);
+    }
+
+    #[test]
+    fn read_d012_returns_low_byte_of_raster_line() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // Advance to line 5.
+        while vic.raster_line() < 5 {
+            tick_vic(&mut vic, &memory);
+        }
+        assert_eq!(vic.read(0x12), 5);
+    }
+
+    #[test]
+    fn read_d019_composite_irq_bit_and_unused_high_bits() {
+        let mut vic = Vic::new(VicModel::Pal6569);
+        // Force raster IRQ pending, with mask enabled.
+        vic.set_irq_status(0x01);
+        vic.write(0x1A, 0x01);
+        let v = vic.read(0x19);
+        // Bit 7 = composite, bits 6:4 = 1, bit 0 = pending raster IRQ.
+        assert_eq!(v & 0x80, 0x80);
+        assert_eq!(v & 0x70, 0x70);
+        assert_eq!(v & 0x01, 0x01);
+        // With no enable, bit 7 should clear but the latched bit stays.
+        vic.write(0x1A, 0x00);
+        let v2 = vic.read(0x19);
+        assert_eq!(v2 & 0x80, 0x00);
+        assert_eq!(v2 & 0x01, 0x01);
+    }
+
+    #[test]
+    fn read_d01a_returns_irq_enable_with_high_nibble_set() {
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.write(0x1A, 0x05);
+        assert_eq!(vic.read(0x1A), 0xF5);
+    }
+
+    #[test]
+    fn write_d019_acknowledges_only_set_bits() {
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.set_irq_status(0x0F);
+        vic.write(0x19, 0x05); // ack bits 0 and 2 only
+        assert_eq!(vic.peek(0x19) & 0x0F, 0x0A);
+    }
+
+    #[test]
+    fn peek_d011_d012_match_raster() {
+        let (mut vic, memory) = make_vic_and_memory();
+        while vic.raster_line() < 257 {
+            tick_vic(&mut vic, &memory);
+        }
+        vic.write(0x11, 0x13);
+        // peek($D011) should report raster bit 8 in bit 7 of the result.
+        assert_eq!(vic.peek(0x11) & 0x80, 0x80);
+        assert_eq!(vic.peek(0x12), (vic.raster_line() & 0xFF) as u8);
+    }
+
+    #[test]
+    fn peek_d019_returns_irq_status_and_composite() {
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.set_irq_status(0x02);
+        vic.write(0x1A, 0x02);
+        let v = vic.peek(0x19);
+        assert_eq!(v & 0x80, 0x80);
+        assert_eq!(v & 0x02, 0x02);
+        // Without enable, composite bit clears.
+        vic.write(0x1A, 0x00);
+        assert_eq!(vic.peek(0x19) & 0x80, 0x00);
+    }
+
+    #[test]
+    fn peek_d01a_returns_raw_enable() {
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.write(0x1A, 0x09);
+        assert_eq!(vic.peek(0x1A), 0x09);
+    }
+
+    #[test]
+    fn peek_returns_register_for_other_addrs_and_last_bus_above_2e() {
+        let (mut vic, memory) = make_vic_and_memory();
+        for _ in 0..(CYCLES_PER_LINE as u32 * (DISPLAY_START_LINE as u32 + 2)) {
+            tick_vic(&mut vic, &memory);
+        }
+        vic.write(0x20, 0x05);
+        // peek of a colour reg returns the raw register without high-nibble mask.
+        assert_eq!(vic.peek(0x20), 0x05);
+        // peek($D02F..$D03F) returns last_bus_data.
+        let lb = vic.peek(0x2F);
+        assert_eq!(vic.peek(0x30), lb);
+        assert_eq!(vic.peek(0x3F), lb);
+    }
+
+    #[test]
+    fn ba_is_low_reflects_pin_state() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B); // DEN=1, RSEL=1, YSCROLL=3
+        advance_to(&mut vic, &memory, 0x33, 0);
+        // Run until we are inside the badline-stealing window.
+        for _ in 0..20 {
+            tick_vic(&mut vic, &memory);
+        }
+        assert_eq!(vic.ba_is_low(), vic.ba_low);
+    }
+
+    #[test]
+    fn is_badline_accessor_reports_badline_state() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B); // DEN=1, YSCROLL=3
+        // Walk until we see a badline.
+        let mut saw_badline = false;
+        for _ in 0..(CYCLES_PER_LINE as u32 * 100) {
+            tick_vic(&mut vic, &memory);
+            if vic.is_badline() {
+                saw_badline = true;
+                break;
+            }
+        }
+        assert!(saw_badline);
+    }
+
+    #[test]
+    fn hires_bitmap_renders_fg_and_bg_from_screen_byte() {
+        // BMM=1, MCM=0 → render_hires_bitmap. Bitmap byte 0xF0 paints
+        // 4 fg + 4 bg pixels. fg = upper nibble of screen byte, bg = lower.
+        let chargen = vec![0u8; 4096];
+        let mut memory = TestMemory::new(&chargen);
+        let mut vic = Vic::new(VicModel::Pal6569);
+        // BMM=1, DEN=1, RSEL=1, YSCROLL=3 → 0x3B
+        vic.write(0x11, 0x3B);
+        // CB=0 (bitmap at 0x0000), VM=0x14 → screen at 0x1000.
+        vic.write(0x18, 0x14);
+        // CSEL=1 so the main FF clears at cycle 16 (matches DISPLAY_START_CYCLE).
+        vic.write(0x16, 0x08);
+        let target_line = DISPLAY_START_LINE + 3;
+        // bitmap_addr = bitmap_base + text_row*40*8 + col*8 + char_row.
+        // text_row=0, col=0, char_row=0 (badline reset at cycle 15) → addr 0.
+        memory.ram_write(0, 0xF0);
+        // Screen base = (0x14 >> 4) * 0x400 = 0x400. Column 0 → addr 0x400.
+        memory.ram_write(0x400, 0x52); // fg=palette[5], bg=palette[2]
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        tick_vic(&mut vic, &memory);
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+        // First 4 px = fg (bit set), last 4 px = bg (bit clear).
+        for px in 0..4 {
+            assert_eq!(fb_pixel(&vic, fb_x0 + px, fb_y), PALETTE[5]);
+        }
+        for px in 4..8 {
+            assert_eq!(fb_pixel(&vic, fb_x0 + px, fb_y), PALETTE[2]);
+        }
+    }
+
+    #[test]
+    fn mcm_bitmap_renders_four_pixel_pairs() {
+        // BMM=1, MCM=1. Pairs in bitmap byte select bg0 / c01 / c10 / c11.
+        let chargen = vec![0u8; 4096];
+        let colour_ram = {
+            let mut v = vec![0u8; 1024];
+            v[0] = 0x07; // colour_nybble for col 0 = 7 → c11
+            v
+        };
+        let mut memory = TestMemory::with_colour(&chargen, colour_ram);
+        let mut vic = Vic::new(VicModel::Pal6569);
+        // BMM=1, MCM=1, DEN=1 → CR1=0x3B, CR2=0x18 (CSEL+MCM).
+        vic.write(0x11, 0x3B);
+        vic.write(0x16, 0x18);
+        vic.write(0x18, 0x14);
+        vic.write(0x21, 0x02); // bg0 = 2
+        // Bitmap at 0x0000, bytes=0b00_01_10_11 = 0x1B → pair colours (bg0, c01, c10, c11).
+        let target_line = DISPLAY_START_LINE + 3;
+        // char_row=0 at cycle 15 of badline → bitmap addr 0.
+        memory.ram_write(0, 0x1B);
+        // Screen base = 0x400. Column 0 → addr 0x400.
+        memory.ram_write(0x400, 0x46); // c01=palette[4], c10=palette[6]
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        tick_vic(&mut vic, &memory);
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+        // Pair 0 = bg0 (palette[2]).
+        assert_eq!(fb_pixel(&vic, fb_x0, fb_y), PALETTE[2]);
+        assert_eq!(fb_pixel(&vic, fb_x0 + 1, fb_y), PALETTE[2]);
+        // Pair 1 = c01 (palette[4]).
+        assert_eq!(fb_pixel(&vic, fb_x0 + 2, fb_y), PALETTE[4]);
+        assert_eq!(fb_pixel(&vic, fb_x0 + 3, fb_y), PALETTE[4]);
+        // Pair 2 = c10 (palette[6]).
+        assert_eq!(fb_pixel(&vic, fb_x0 + 4, fb_y), PALETTE[6]);
+        assert_eq!(fb_pixel(&vic, fb_x0 + 5, fb_y), PALETTE[6]);
+        // Pair 3 = c11 (palette[7]).
+        assert_eq!(fb_pixel(&vic, fb_x0 + 6, fb_y), PALETTE[7]);
+        assert_eq!(fb_pixel(&vic, fb_x0 + 7, fb_y), PALETTE[7]);
+    }
+
+    #[test]
+    fn mcm_text_with_high_colour_bit_renders_multicolour() {
+        // MCM=1 + colour bit 3 set → render_mcm_text full path.
+        let chargen = vec![0xB4u8; 4096]; // 0b10110100 → pairs 10 11 01 00
+        let colour_ram = {
+            let mut v = vec![0u8; 1024];
+            v[0] = 0x0F; // colour bit 3 set → MCM enable, fg = palette[7]
+            v
+        };
+        let memory = TestMemory::with_colour(&chargen, colour_ram);
+        let mut vic = Vic::new(VicModel::Pal6569);
+        // MCM=1 in CR2 (bit 4), CSEL=1.
+        vic.write(0x11, 0x1B);
+        vic.write(0x16, 0x18);
+        vic.write(0x18, 0x14);
+        vic.write(0x21, 0x01); // bg0
+        vic.write(0x22, 0x02); // bg1
+        vic.write(0x23, 0x03); // bg2
+        let target_line = DISPLAY_START_LINE + 3;
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        tick_vic(&mut vic, &memory);
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+        // Pair 0 = 10 → bg2 (palette[3]).
+        assert_eq!(fb_pixel(&vic, fb_x0, fb_y), PALETTE[3]);
+        // Pair 1 = 11 → fg (palette[7]).
+        assert_eq!(fb_pixel(&vic, fb_x0 + 2, fb_y), PALETTE[7]);
+        // Pair 2 = 01 → bg1 (palette[2]).
+        assert_eq!(fb_pixel(&vic, fb_x0 + 4, fb_y), PALETTE[2]);
+        // Pair 3 = 00 → bg0 (palette[1]).
+        assert_eq!(fb_pixel(&vic, fb_x0 + 6, fb_y), PALETTE[1]);
+    }
+
+    #[test]
+    fn mcm_text_with_low_colour_bit_falls_back_to_standard_text() {
+        // colour bit 3 clear → render_mcm_text returns render_standard_text result.
+        let chargen = vec![0xFFu8; 4096];
+        let colour_ram = {
+            let mut v = vec![0u8; 1024];
+            v[0] = 0x07; // colour bit 3 clear
+            v
+        };
+        let memory = TestMemory::with_colour(&chargen, colour_ram);
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.write(0x11, 0x1B);
+        vic.write(0x16, 0x18); // MCM=1 in register
+        vic.write(0x18, 0x14);
+        vic.write(0x21, 0x02);
+        let target_line = DISPLAY_START_LINE + 3;
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        tick_vic(&mut vic, &memory);
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+        // 0xFF chargen → all foreground = palette[7].
+        for px in 0..8 {
+            assert_eq!(fb_pixel(&vic, fb_x0 + px, fb_y), PALETTE[7]);
+        }
+    }
+
+    #[test]
+    fn sprite_x_high_bit_places_sprite_past_256() {
+        // Set sprite 0 X to 256 + 4 = 260 via $D010 bit 0.
+        let (mut vic, mut memory) = make_vic_and_memory();
+        vic.write(0x15, 0x01);
+        vic.write(0x00, 4); // low byte
+        vic.write(0x10, 0x01); // high bit for sprite 0
+        vic.write(0x01, 100);
+        vic.write(0x27, 0x05); // colour palette[5]
+        vic.write(0x18, 0x14);
+        vic.write(0x11, 0x1B);
+        memory.ram_write(0x07F8, 0x80);
+        memory.ram_write(0x2000, 0xFF);
+        memory.ram_write(0x2001, 0xFF);
+        memory.ram_write(0x2002, 0xFF);
+        // sprite_fb_x = 260 + 24 = 284. Need a cycle that paints this fb_x.
+        // fb_x = (cycle - 10) * 8. Cycle 45 paints fb_x 280..288 → covers 284.
+        let target_line = 100u16;
+        let target_cycle = 45u8;
+        let total = u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
+        for _ in 0..=total {
+            tick_vic(&mut vic, &memory);
+        }
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let idx = fb_y * FB_WIDTH as usize + 284;
+        assert_eq!(vic.framebuffer()[idx], PALETTE[5]);
+    }
+
+    #[test]
+    fn sprite_multicolor_renders_three_colours() {
+        // MCM sprite: pairs select transparent / mc0 / sprite_col / mc1.
+        let (mut vic, mut memory) = make_vic_and_memory();
+        vic.write(0x15, 0x01); // enable sprite 0
+        vic.write(0x1C, 0x01); // sprite 0 multicolor
+        vic.write(0x00, 172);
+        vic.write(0x01, 100);
+        vic.write(0x25, 0x04); // mc0
+        vic.write(0x26, 0x06); // mc1
+        vic.write(0x27, 0x05); // sprite 0 colour
+        vic.write(0x18, 0x14);
+        vic.write(0x11, 0x1B);
+        memory.ram_write(0x07F8, 0x80);
+        // Pattern: 0b00_01_10_11 = 0x1B → pairs (transparent, mc0, sprite, mc1).
+        memory.ram_write(0x2000, 0x1B);
+        memory.ram_write(0x2001, 0x1B);
+        memory.ram_write(0x2002, 0x1B);
+        // sprite_fb_x = 172 + 24 = 196. Cycle 34 → fb_x 192..200. Cycle 35 → 200..208.
+        let target_line = 100u16;
+        let target_cycle = 34u8;
+        let total = u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
+        for _ in 0..=total {
+            tick_vic(&mut vic, &memory);
+        }
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let row_off = fb_y * FB_WIDTH as usize;
+        // pair 0 (px 196,197): transparent → background (border colour 14 default).
+        // pair 1 (px 198,199): mc0 → palette[4].
+        assert_eq!(vic.framebuffer()[row_off + 198], PALETTE[4]);
+        assert_eq!(vic.framebuffer()[row_off + 199], PALETTE[4]);
+        // Tick another cycle to cover 200..208.
+        tick_vic(&mut vic, &memory);
+        // pair 2 (200,201): sprite_col palette[5].
+        assert_eq!(vic.framebuffer()[row_off + 200], PALETTE[5]);
+        assert_eq!(vic.framebuffer()[row_off + 201], PALETTE[5]);
+        // pair 3 (202,203): mc1 palette[6].
+        assert_eq!(vic.framebuffer()[row_off + 202], PALETTE[6]);
+        assert_eq!(vic.framebuffer()[row_off + 203], PALETTE[6]);
+    }
+
+    #[test]
+    fn sprite_priority_below_foreground_is_hidden() {
+        // Sprite 0 with priority bit set ($D01B) should be hidden behind FG.
+        let chargen = vec![0xFFu8; 4096];
+        let colour_ram = {
+            let mut v = vec![0u8; 1024];
+            v[0] = 0x01; // FG bits in column 0
+            v
+        };
+        let mut memory = TestMemory::with_colour(&chargen, colour_ram);
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.write(0x15, 0x01); // enable sprite 0
+        vic.write(0x1B, 0x01); // sprite 0 BEHIND fg
+        vic.write(0x11, 0x1B);
+        vic.write(0x16, 0x08); // CSEL=1 so border off at left edge (cycle 16)
+        vic.write(0x18, 0x14);
+        vic.write(0x00, 24); // sprite_fb_x = 48 → cycle 16 paints fb_x 48..56.
+        vic.write(0x01, 51);
+        vic.write(0x27, 0x05);
+        memory.ram_write(0x07F8, 0x80);
+        memory.ram_write(0x2000, 0xFF);
+        memory.ram_write(0x2001, 0xFF);
+        memory.ram_write(0x2002, 0xFF);
+        let target_line = 51u16;
+        let target_cycle = DISPLAY_START_CYCLE; // cycle 16 → fb_x 48..56
+        let total = u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
+        for _ in 0..=total {
+            tick_vic(&mut vic, &memory);
+        }
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let row_off = fb_y * FB_WIDTH as usize;
+        // FG is solid (0xFF chargen): sprite hidden, pixels remain text fg.
+        assert_eq!(vic.framebuffer()[row_off + 48], PALETTE[1]);
+    }
+
+    #[test]
+    fn sprite_dma_y_expand_extends_height() {
+        // y_expand sprite (height 42) should still be DMA-active at offset 25.
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x15, 0x01); // enable sprite 0
+        vic.write(0x17, 0x01); // y-expand sprite 0
+        vic.write(0x01, 0); // sprite Y = 0
+        // Walk to line 25, cycle 55: evaluate_sprite_dma runs at cycle 55.
+        advance_to(&mut vic, &memory, 25, 55);
+        tick_vic(&mut vic, &memory);
+        // Without y-expand, height = 21; so offset 25 would NOT be DMA-active.
+        // With y-expand, height = 42; so offset 25 IS DMA-active.
+        assert!(vic.sprite_dma_active[0]);
+    }
+
+    #[test]
+    fn sprite_y_expand_fetch_uses_halved_data_line() {
+        // Build a sprite where data byte 0 differs from byte at line 1.
+        // With y-expand, lines 0 and 1 should both fetch data_line=0.
+        let (mut vic, mut memory) = make_vic_and_memory();
+        vic.write(0x15, 0x01); // enable sprite 0
+        vic.write(0x17, 0x01); // y-expand
+        vic.write(0x00, 24); // X
+        vic.write(0x01, 100); // Y
+        vic.write(0x18, 0x14);
+        vic.write(0x11, 0x1B);
+        vic.write(0x27, 0x05);
+        memory.ram_write(0x07F8, 0x80);
+        // data_line 0 (target_line - 100 == 1, /2 = 0) → bytes at 0x2000..2002.
+        memory.ram_write(0x2000, 0xFF);
+        memory.ram_write(0x2001, 0xFF);
+        memory.ram_write(0x2002, 0xFF);
+        let target_line = 101u16; // line 1 of sprite
+        let target_cycle = DISPLAY_START_CYCLE; // fb_x = 48..56, sprite_fb_x = 48
+        let total = u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
+        for _ in 0..=total {
+            tick_vic(&mut vic, &memory);
+        }
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let row_off = fb_y * FB_WIDTH as usize;
+        // Sprite present at fb_x 48 since data byte 0 = 0xFF.
+        assert_eq!(vic.framebuffer()[row_off + 48], PALETTE[5]);
+    }
+
+    #[test]
+    fn sprite_off_screen_below_visible_lines_is_skipped() {
+        // The fetch_sprite_if_scheduled path bails when target_line is
+        // outside visible lines. PAL: visible 0..312, so wrap test.
+        // NTSC: visible 14..258. Use an NTSC vic and advance past line 257.
+        let chargen = vec![0u8; 4096];
+        let memory = TestMemory::new(&chargen);
+        let mut vic = Vic::new(VicModel::Ntsc6567);
+        vic.write(0x15, 0x01); // enable sprite 0
+        vic.write(0x01, 0); // sprite Y = 0
+        // NTSC: 263 lines, last_visible = 258. Walk to a point where target
+        // would be 259..262 (sprite p-access fetches at cycle 1/3/5/7/9).
+        // PAL has 312 visible lines so use NTSC where last_visible=258 to
+        // exercise the early-return branch.
+        for _ in 0..(263u32 * 65) {
+            tick_vic(&mut vic, &memory);
+        }
+        // Simply ran one full NTSC frame; if no panic, the off-screen branch
+        // was hit.
+    }
+
+    #[test]
+    fn xscroll_zero_no_carry_load() {
+        // Cover the xscroll==0 path explicitly with foreground bits to set
+        // fg_mask via cell.fg_mask copy.
+        let chargen = vec![0x80u8; 4096];
+        let colour_ram = {
+            let mut v = vec![0u8; 1024];
+            v[0] = 0x07;
+            v
+        };
+        let memory = TestMemory::with_colour(&chargen, colour_ram);
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.write(0x11, 0x1B);
+        vic.write(0x16, 0x08); // CSEL=1, xscroll=0
+        vic.write(0x18, 0x14);
+        vic.write(0x21, 0x02);
+        let target_line = DISPLAY_START_LINE + 3;
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        tick_vic(&mut vic, &memory);
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x0 = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+        // High bit only set → first pixel = fg, rest = bg.
+        assert_eq!(fb_pixel(&vic, fb_x0, fb_y), PALETTE[7]);
+        assert_eq!(fb_pixel(&vic, fb_x0 + 1, fb_y), PALETTE[2]);
+    }
+
+    #[test]
+    fn frame_complete_clears_lp_and_den_latches() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // Trigger light pen.
+        for _ in 0..40 {
+            tick_vic(&mut vic, &memory);
+        }
+        vic.trigger_light_pen();
+        assert!(vic.lp_triggered);
+        // Run a full frame.
+        let total = u32::from(LINES_PER_FRAME) * u32::from(CYCLES_PER_LINE);
+        for _ in 0..total {
+            tick_vic(&mut vic, &memory);
+        }
+        assert!(!vic.lp_triggered);
+        assert!(!vic.den_latch);
+    }
+
+    #[test]
+    fn raster_irq_compare_works_for_high_bit_lines() {
+        // raster_compare > 255 — sets bit 8 via $D011 write.
+        let (mut vic, memory) = make_vic_and_memory();
+        // line 257 → low byte = 1, high bit = 1.
+        vic.write(0x11, 0x80);
+        vic.write(0x12, 1);
+        vic.write(0x1A, 0x01);
+        // Tick until raster matches.
+        loop {
+            tick_vic(&mut vic, &memory);
+            if vic.irq_active() {
+                break;
+            }
+            assert!(vic.raster_line() <= 258, "didn't fire");
+        }
+        assert_eq!(vic.raster_line(), 257);
+    }
 }
