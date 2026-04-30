@@ -27,7 +27,37 @@ mkdir -p target/llvm-cov
 # motorola-68000 figure. Tom Harte continues to validate the live
 # 68000 opcode surface at 1,000,058/1,000,058.
 
-cargo llvm-cov --workspace "$@" | tee target/llvm-cov/coverage-summary.txt
+# Run instrumented tests, then generate reports separately. Three
+# things this fixes against the previous script shape:
+#   1. `--lib --tests` ensures integration tests under `tests/` run
+#      too. Without this, `cargo llvm-cov` defaults to the lib-only
+#      target set and reports any crate whose coverage comes from
+#      integration tests (i.e. most runtimes after the Cov-5b track)
+#      as effectively 0%.
+#   2. `--no-report` here pairs with the explicit
+#      `cargo llvm-cov report` invocations below, whose stdout is the
+#      formatted per-file + TOTAL summary. The previous shape piped
+#      the test-running invocation through `tee`, which writes its
+#      progress messages to stderr, so the summary file came out
+#      empty.
+#   3. `--no-fail-fast` + soft test-failure handling: a single failing
+#      test in any crate (often Codex iterating on Dragon code) used
+#      to kill the entire run before any reports were generated.
+#      Failures are now noted but don't suppress the report.
+test_status=0
+cargo llvm-cov --workspace --lib --tests --no-fail-fast --no-report "$@" \
+    || test_status=$?
+
+if [ "${test_status}" -ne 0 ]; then
+    echo
+    echo "WARNING: cargo llvm-cov exited with status ${test_status} —" \
+         "one or more tests failed. Coverage data is still complete" \
+         "(tests run to completion under --no-fail-fast); review the" \
+         "test output above before trusting the report."
+    echo
+fi
+
+cargo llvm-cov report | tee target/llvm-cov/coverage-summary.txt
 cargo llvm-cov report --json --summary-only \
     --output-path target/llvm-cov/coverage-summary.json
 cargo llvm-cov report --lcov \
