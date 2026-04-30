@@ -202,24 +202,6 @@ pub enum State {
         data: Option<u16>,
         cycle_count: u8,
     },
-    /// MMU table walk in progress — reading page table descriptors.
-    ///
-    /// On ATC miss, the CPU must read 1+ descriptors from physical memory.
-    /// Each descriptor read is a real bus cycle with full timing. The walk
-    /// context tracks which level we're on, the accumulated protection bits,
-    /// and the original operation to resume once translation completes.
-    TableWalk {
-        /// Physical address of the current descriptor word being read.
-        walk_addr: u32,
-        /// Bus cycle counter for timing (same min_bus as normal reads).
-        walk_cycle_count: u8,
-        /// False = reading hi word, true = reading lo word.
-        walk_reading_lo: bool,
-        /// First word of the descriptor (stored after hi read completes).
-        descriptor_hi: u16,
-        /// Full walk context (level, protection, pending op, etc.).
-        walk: crate::mmu::TableWalkContext,
-    },
     /// CPU halted (double bus error or unimplemented instruction).
     Halted,
     /// CPU stopped (STOP instruction, waiting for interrupt).
@@ -446,9 +428,6 @@ pub struct Cpu68000 {
     pub(crate) move16_idx: u8,
     /// MOVE16: destination base address (line-aligned).
     pub(crate) move16_dst_addr: u32,
-    /// FPU: source operand value for the current FPU instruction.
-    #[allow(dead_code)] // Used in Phase 2+ of FPU implementation
-    pub(crate) fpu_source: f64,
     /// Exception vector for group 1/2 exceptions (TRAP, privilege violation, etc.).
     /// When set, TAG_EXC_STACK_SR skips InterruptAck and uses this vector directly.
     pub exc_vector: Option<u8>,
@@ -519,10 +498,6 @@ pub struct Cpu68000 {
     /// 68030-style direct-mapped data cache (16 lines × 8 words).
     /// Write-through, write-no-allocate. Disabled at reset (CACR ED=0).
     pub(crate) dcache: DCache,
-
-    // --- MMU (68030+) ---
-    /// On-chip MMU (ATC + TT matching). Mode set from model capabilities.
-    pub mmu: crate::mmu::Mmu,
 
     // ── Pin-level bus interface ──────────────────────────────────
     //
@@ -602,7 +577,6 @@ impl Cpu68000 {
             move16_buf: [0; 8],
             move16_idx: 0,
             move16_dst_addr: 0,
-            fpu_source: 0.0,
             exc_vector: None,
             src_val: 0,
             dst_val: 0,
@@ -623,7 +597,6 @@ impl Cpu68000 {
             group0_vector: 3,
             icache: ICache::new(),
             dcache: DCache::new(),
-            mmu: crate::mmu::Mmu::new(model),
             bus_status: BusStatus::Wait,
             ipl: 0,
             reset_out: false,
@@ -922,8 +895,8 @@ impl Cpu68000 {
     ///
     /// Call every 4 crystal clocks. The machine layer must:
     /// 1. Before calling: write `bus_status` if the CPU is in a
-    ///    `BusCycle` or `TableWalk` state (inspect the state via
-    ///    the bus output fields set by `initiate_bus_cycle`).
+    ///    `BusCycle` state (inspect the state via the bus output
+    ///    fields set by `initiate_bus_cycle`).
     /// 2. Before calling: write `ipl` from Paula's interrupt
     ///    priority encoder.
     /// 3. After calling: check `reset_out` for RESET instruction.
@@ -1034,98 +1007,6 @@ impl Cpu68000 {
                             let fault_addr = *addr;
                             let fault_read = *is_read;
                             let fault_fc = *fc;
-                            self.state = State::Idle;
-                            self.begin_bus_error(fault_addr, fault_read, fault_fc);
-                        }
-                    }
-                }
-            }
-            State::TableWalk {
-                walk_addr,
-                walk_cycle_count,
-                walk_reading_lo,
-                descriptor_hi,
-                walk,
-            } => {
-                *walk_cycle_count = walk_cycle_count.saturating_add(1);
-                if *walk_cycle_count >= min_bus {
-                    // Table walk bus cycles also read bus_status from
-                    // the machine layer.
-                    let result = self.bus_status;
-                    match result {
-                        BusStatus::Ready(data_word) => {
-                            if !*walk_reading_lo {
-                                // Hi word read complete — store and read lo word.
-                                *descriptor_hi = data_word;
-                                *walk_addr = walk_addr.wrapping_add(2);
-                                *walk_reading_lo = true;
-                                *walk_cycle_count = 0;
-                            } else {
-                                // Lo word read complete — combine into 32-bit descriptor.
-                                let descriptor =
-                                    (u32::from(*descriptor_hi) << 16) | u32::from(data_word);
-
-                                // Take ownership of walk context for processing.
-                                let mut walk_ctx = walk.clone();
-                                let step = self.mmu.process_walk_descriptor(
-                                    descriptor,
-                                    &mut walk_ctx,
-                                    &self.regs,
-                                );
-
-                                match step {
-                                    crate::mmu::WalkStep::NextLevel(next_addr) => {
-                                        // More levels to walk — start reading next descriptor.
-                                        self.state = State::TableWalk {
-                                            walk_addr: next_addr,
-                                            walk_cycle_count: 0,
-                                            walk_reading_lo: false,
-                                            descriptor_hi: 0,
-                                            walk: walk_ctx,
-                                        };
-                                    }
-                                    crate::mmu::WalkStep::Complete {
-                                        physical_addr,
-                                        write_protect,
-                                        ..
-                                    } => {
-                                        // Walk done — check WP then resume the original bus cycle.
-                                        if write_protect && !walk_ctx.pending.is_read {
-                                            // Write to write-protected page → bus error.
-                                            let fault_addr = walk_ctx.pending.logical_addr;
-                                            let fault_fc = walk_ctx.pending.fc;
-                                            self.state = State::Idle;
-                                            self.begin_bus_error(fault_addr, false, fault_fc);
-                                        } else {
-                                            self.state = State::BusCycle {
-                                                op: walk_ctx.pending.op,
-                                                addr: physical_addr,
-                                                fc: walk_ctx.pending.fc,
-                                                is_read: walk_ctx.pending.is_read,
-                                                is_word: walk_ctx.pending.is_word,
-                                                data: walk_ctx.pending.data,
-                                                cycle_count: 0,
-                                            };
-                                        }
-                                    }
-                                    crate::mmu::WalkStep::Fault => {
-                                        // Invalid page descriptor → bus error.
-                                        let fault_addr = walk_ctx.pending.logical_addr;
-                                        let fault_fc = walk_ctx.pending.fc;
-                                        let fault_read = walk_ctx.pending.is_read;
-                                        self.state = State::Idle;
-                                        self.begin_bus_error(fault_addr, fault_read, fault_fc);
-                                    }
-                                }
-                            }
-                        }
-                        BusStatus::Wait => { /* Stay in same state, waiting for DTACK. */ }
-                        BusStatus::Error => {
-                            // Bus error during descriptor read → bus error on the original access.
-                            let walk_ctx = walk.clone();
-                            let fault_addr = walk_ctx.pending.logical_addr;
-                            let fault_fc = walk_ctx.pending.fc;
-                            let fault_read = walk_ctx.pending.is_read;
                             self.state = State::Idle;
                             self.begin_bus_error(fault_addr, fault_read, fault_fc);
                         }
@@ -1423,46 +1304,19 @@ impl Cpu68000 {
             _ => panic!("Non-bus op in initiate_bus_cycle: {:?}", op),
         };
 
-        // Translate logical → physical through the MMU (if enabled).
-        use crate::mmu::{PendingBusCycle, TranslateResult};
-        let pending = PendingBusCycle {
+        // M68000 has no MMU: logical and physical addresses are
+        // identical. The on-die MMU first appears in the 68030 — the
+        // table walk and TT register matching live in
+        // `motorola-68030::mmu` and will be wired in when that
+        // variant gets its own state machine.
+        State::BusCycle {
             op,
-            logical_addr: addr,
+            addr,
             fc,
             is_read,
             is_word,
             data,
-        };
-        let translate = self.mmu.translate_fast(
-            &self.regs, addr, fc, !is_read, // is_write
-            pending,
-        );
-
-        match translate {
-            TranslateResult::Passthrough(a) | TranslateResult::Physical(a) => State::BusCycle {
-                op,
-                addr: a,
-                fc,
-                is_read,
-                is_word,
-                data,
-                cycle_count: 0,
-            },
-            TranslateResult::Fault => {
-                // Protection violation → bus error.
-                self.begin_bus_error(addr, is_read, fc);
-                State::Idle
-            }
-            TranslateResult::NeedWalk(walk_ctx) => {
-                let first_desc_addr = walk_ctx.next_descriptor_addr;
-                State::TableWalk {
-                    walk_addr: first_desc_addr,
-                    walk_cycle_count: 0,
-                    walk_reading_lo: false,
-                    descriptor_hi: 0,
-                    walk: walk_ctx,
-                }
-            }
+            cycle_count: 0,
         }
     }
 

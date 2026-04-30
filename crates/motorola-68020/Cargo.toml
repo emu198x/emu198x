@@ -1,0 +1,15 @@
+[package]
+name = "motorola-68020"
+description = "Motorola 68020 CPU — adds CACR/CAAR/MSP/ISP, bitfield ops, 32-bit MUL/DIV, scaled index, barrel shifter, and the coprocessor interface. Skeleton crate: re-exports the shared 68k core with a 68020-specific type alias. Not exercised by any active machine today."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+motorola-68k-common = { path = "../motorola-68k-common" }
+motorola-68000 = { path = "../motorola-68000" }
+motorola-68010 = { path = "../motorola-68010" }
+serde = { workspace = true }
+
+[lints]
+workspace = true

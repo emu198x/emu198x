@@ -146,18 +146,6 @@ fn service_bus(cpu: &mut Cpu68000, mem: &mut TestMem) {
                 cpu.bus_status = BusStatus::Wait;
             }
         }
-        State::TableWalk {
-            walk_cycle_count,
-            walk_addr,
-            ..
-        } => {
-            if *walk_cycle_count >= 3 {
-                let val = mem.read_word(*walk_addr);
-                cpu.bus_status = BusStatus::Ready(val);
-            } else {
-                cpu.bus_status = BusStatus::Wait;
-            }
-        }
         _ => {
             cpu.bus_status = BusStatus::Wait;
         }

@@ -7,7 +7,7 @@
 //! 4-way set-associative ATCs (instruction + data), four TT registers
 //! (ITT0/ITT1 for instruction, DTT0/DTT1 for data).
 
-use crate::model::{CpuModel, TimingClass};
+use motorola_68k_common::model::{CpuModel, TimingClass};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -673,9 +673,9 @@ impl Mmu {
 // Bus integration — translation fast path and table walk context
 // ---------------------------------------------------------------------------
 
-use crate::bus::FunctionCode;
-use crate::microcode::MicroOp;
-use crate::registers::Registers;
+use motorola_68k_common::bus::FunctionCode;
+use motorola_68k_common::microcode::MicroOp;
+use motorola_68k_common::registers::Registers;
 
 /// Result of the fast address translation path.
 ///

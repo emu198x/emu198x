@@ -1773,12 +1773,62 @@ name = "motorola-68000"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "motorola-68k-common",
  "serde",
  "serde_json",
 ]
 
 [[package]]
+name = "motorola-68010"
+version = "0.1.0"
+dependencies = [
+ "motorola-68000",
+ "motorola-68k-common",
+ "serde",
+]
+
+[[package]]
+name = "motorola-68020"
+version = "0.1.0"
+dependencies = [
+ "motorola-68000",
+ "motorola-68010",
+ "motorola-68k-common",
+ "serde",
+]
+
+[[package]]
+name = "motorola-68030"
+version = "0.1.0"
+dependencies = [
+ "motorola-68000",
+ "motorola-68010",
+ "motorola-68020",
+ "motorola-68k-common",
+ "serde",
+]
+
+[[package]]
+name = "motorola-68040"
+version = "0.1.0"
+dependencies = [
+ "motorola-68000",
+ "motorola-68010",
+ "motorola-68020",
+ "motorola-68030",
+ "motorola-68k-common",
+ "serde",
+]
+
+[[package]]
 name = "motorola-6809"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "motorola-68k-common"
 version = "0.1.0"
 dependencies = [
  "serde",

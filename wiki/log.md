@@ -4,6 +4,80 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-29 — Big chip splits, wave 2: 68k family-into-per-variant-crates
+
+**Type:** refactor (architectural — splitting the largest chip crate into a six-crate family layout) + architectural correction
+**Trigger:** with NES iNES mappers and Denise split (wave 1), the last big chip target was the 14,178-line `motorola-68000` crate. The user had previously approved a six-crate target layout (`motorola-68k-common` + `motorola-68000` + `motorola-68010` / `-68020` / `-68030` / `-68040`), with `disasm.rs` deleted, dormant variants as skeletons, and the agent's call on `Cpu68k<M>` vs per-variant concrete structs.
+
+**Result:** the six-crate structure is in place and the architectural lie about MMU/FPU on the M68000 is corrected. Two design follow-ups remain explicit and tracked.
+
+### Wave 2 in two passes
+
+This commit covers two consecutive agent runs because the first pass landed a half-job that the user correctly diagnosed as wrong:
+
+**Pass A (structural).** Created `motorola-68k-common` and the four variant crates. Moved shared infrastructure (`addressing` / `alu` / `bus` / `flags` / `microcode` / `model` / `registers`) into the common crate. Moved `fpu.rs` into `motorola-68040` (conceptually-correct on-die home). Deleted `disasm.rs` per user approval. Updated workspace Cargo.toml + `scripts/coverage.sh` (carve-out regex removed). Tom Harte stayed at 100% and the Amiga kept booting.
+
+But pass A made two compromises:
+1. It put `mmu.rs` into `motorola-68k-common` rather than `motorola-68030`, citing a circular-dependency concern.
+2. It deleted four `#[ignore]`d Amiga debugging-trace test files (~7,025 lines) that depend on `motorola_68000::disasm::disassemble`.
+
+The user pushed back on both — and pointed out the deeper smell behind (1): the 68000 has **no MMU** at all. On-die MMU first appears in the 68030 (and a different one in the 68040). The 68020 paired *externally* with a 68851 PMMU, but nothing on the silicon. Same story for FPU: on-die from the 68040 onwards. So `Cpu68000` having `mmu: Mmu` and `fpu_source: f64` fields was a vestige of pre-split code that called itself `Cpu68000` while actually being a multi-variant `Cpu68k` in disguise. The agent's "circular dependency" was downstream of accepting that lie as if it were structural.
+
+**Pass B (architectural correction).** Restored `disasm.rs` and the four trace test files (`a1000_bootstrap_trace.rs`, `ks12_disasm_early_boot.rs`, `ks13_disasm_bootblock.rs`, `wb13_late_boot_trace.rs`). Then ran a focused agent against a single mandate: `Cpu68000` must not have `mmu` or `fpu` fields. That agent:
+
+- Moved `mmu.rs` from `motorola-68k-common` → `motorola-68030` (where on-die MMU actually lives in the silicon timeline). 49 MMU unit tests came along; all pass at the new home.
+- Removed the `mmu: Mmu` field from `Cpu68000`. Resolved 4 `self.mmu` call sites: 3 by deleting the `State::TableWalk` enum variant and its tick-state-machine arm (unreachable for an M68000 instance because table walks only fire from `MmuMode::M68030` / `M68040`), 1 by replacing `self.mmu.translate_fast` with a direct logical-equals-physical passthrough at `State::BusCycle` (correct for M68000 — no address translation hardware exists).
+- Removed the dead `pub(crate) fpu_source: f64` field from `Cpu68000` (no `fpu: Fpu` field actually existed; the "FPU on the 68000" was just a stub variable marked `#[allow(dead_code)]`).
+- Removed `pub use motorola_68k_common::mmu;` from `motorola-68000/src/lib.rs`. Dropped `pub mod mmu;` from `motorola-68k-common/src/lib.rs`. Confirmed by grep that no consumer (Amiga or otherwise) imports `motorola_68000::mmu` — the re-export was vestigial.
+- Caught a leftover `State::TableWalk { walk_cycle_count, walk_addr, .. }` arm in `tests/pin_level.rs` that pass A had missed; removed it (the trailing `_ => Wait` covered the case anyway).
+
+### Final crate shape
+
+| Crate | src lines | Contents |
+|---|---|---|
+| `motorola-68k-common` | 1,438 | `addressing` (108) + `alu` (210) + `bus` (47) + `flags` (151) + `microcode` (178) + `model` (407) + `registers` (285) + `lib.rs` (52). NO MMU, NO FPU. |
+| `motorola-68000` | ~8,820 | `cpu.rs` (4028 — still hosts capability-gated 68010+ instruction-set arms; reduction to M68000-only is deferred), `decode.rs` (3578), `disasm.rs` (871, restored), `ea.rs` (209), `execute.rs` (963), `lib.rs` (42). Tom Harte runner stays here. |
+| `motorola-68010` | 42 | `lib.rs` only — `Cpu68010` type alias + `M68010Variant` marker |
+| `motorola-68020` | 54 | `lib.rs` only — `Cpu68020`/`Cpu68EC020` aliases + markers |
+| `motorola-68030` | **2,499** | `mmu.rs` (2421 — moved here in pass B) + `lib.rs` (78). Hosts the on-die 68030 PMMU at the conceptually-correct location. |
+| `motorola-68040` | 785 | `fpu.rs` (705) + `lib.rs` (80). Hosts the on-die 68040 FPU. |
+
+### Honest deferrals
+
+1. **The variant-code reduction in `cpu.rs` / `decode.rs` is NOT done.** Both files still hold capability-gated 68010/68020/68030/68040 instruction-set arms (BFEXTU, MOVE16, CALLM, the 32-bit MUL.L extension, etc.). Cpu68000 still hosts these even though they're dead paths for an M68000 instance. The four variant crates today are type-alias-only skeletons that re-export `Cpu68000`. This is the user-acknowledged "phase 1 / structural" framing: the crates exist, the architectural lie about MMU/FPU is corrected, but the variant arms in cpu.rs still need to migrate to per-variant structs (`Cpu68010 { base: Cpu68000, vbr: u32 }`-style or similar). That's a separate, larger follow-up and explicitly tracked here as deferred.
+
+2. **No `M68kVariant` trait was introduced.** Pass A's reasoning (that 68k variants add genuinely new opcodes, not just timing differences) holds — once the per-variant reduction lands, the per-variant concrete struct shape is likely the right one rather than a generic `Cpu68k<M>` à la Spectrum. The marker structs `M68000Variant` / `M68010Variant` / etc. in each variant crate are placeholders for that future shape.
+
+### Verification
+
+| Gate | Command | Result |
+|---|---|---|
+| **Tom Harte 100%** | `cargo test -p motorola-68000 --test tom_harte -- --ignored harte_full_sweep` | **1 passed; 0 failed; 0 ignored; 486.39s** |
+| Pin-level | `cargo test -p motorola-68000 --test pin_level` | 13 passed |
+| `motorola-68k-common` lib | `cargo test -p motorola-68k-common --lib` | 6 passed (model only — MMU left for 68030) |
+| `motorola-68030` lib (post-pass-B) | `cargo test -p motorola-68030 --lib` | **49 passed** (relocated MMU tests, all green) |
+| `motorola-68040` lib | `cargo test -p motorola-68040 --lib` | 25 passed (FPU) |
+| **Amiga boot** | `cargo test -p runtime-commodore-amiga --test boot_invariants -- --ignored` | 2 passed; 0 failed (kickstart_13_reaches_insert_disk_screen + workbench_13_reaches_desktop, 26.41s) |
+| Amiga lib | `cargo test -p machine-commodore-amiga-ocs --lib` | 49 passed |
+| Workspace clippy | `cargo clippy --workspace --all-targets -- -D warnings` | clean (6m 27s) |
+| Workspace build | `cargo build --workspace` | clean |
+
+### scripts/coverage.sh
+
+Pass A removed the `motorola-68000/src/(fpu|mmu|disasm)\.rs` carve-out regex and its four `--ignore-filename-regex` invocations, replacing the explanatory comment with a paragraph that names the family split. Pass B left this alone — the carve-out is correctly gone now that those files don't live in `motorola-68000` anymore (or, in the case of `disasm.rs`, are restored but the original Cov-3 honesty argument still applies and the file is small).
+
+### Public API
+
+`Cpu68000`, `CpuCapabilities`, `CpuModel`, `TimingClass` — all import unchanged from `motorola_68000::*`. The Amiga's `use motorola_68000::Cpu68000;`, `use motorola_68000::bus::{BusStatus, FunctionCode};`, `use motorola_68000::cpu::State;`, and `use motorola_68000::disasm::disassemble` all compile unchanged. `motorola_68000::mmu` is no longer importable — by design, since the M68000 has no MMU. Verified by grep that nothing in the codebase actually imported it.
+
+### What's next
+
+Cov-5 follow-up: actually reduce `motorola-68000/src/cpu.rs` and `decode.rs` to M68000-only paths, with the 68010+ instruction-set arms migrating to per-variant `Cpu*` structs in their respective crates. This is the larger architectural split the user originally framed; this commit lays the foundation. It also unblocks the deferred Cov-3 gap (variant-specific arms in `cpu.rs`/`decode.rs` artificially depressing motorola-68000's coverage).
+
+The big chip splits track is now closed for wave 2. Cov-5 + the per-variant code migration sit at the top of the open queue. Cov-5-style directed-test passes for GB / NES / Amiga / Spectrum (modelled on Cov-4 for C64) are also unblocked across the runtime family.
+
+---
+
 ## 2026-04-29 — Big chip splits, wave 1: NES iNES mappers + Denise debug carve-out
 
 **Type:** refactor (architectural — splitting two large chip / format crates by concern)

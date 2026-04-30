@@ -1,0 +1,17 @@
+[package]
+name = "motorola-68040"
+description = "Motorola 68040 CPU — adds an on-chip FPU, dual ATCs (instruction + data), MOVE16, and four TT registers. Skeleton crate: owns the FPU module (data type conversions, FPSR management, FMOVECR ROM constants, arithmetic) and exposes a 68040-specific type alias. Not exercised by any active machine today."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+motorola-68k-common = { path = "../motorola-68k-common" }
+motorola-68000 = { path = "../motorola-68000" }
+motorola-68010 = { path = "../motorola-68010" }
+motorola-68020 = { path = "../motorola-68020" }
+motorola-68030 = { path = "../motorola-68030" }
+serde = { workspace = true }
+
+[lints]
+workspace = true

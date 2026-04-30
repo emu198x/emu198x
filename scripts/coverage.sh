@@ -10,30 +10,24 @@ mkdir -p target/llvm-cov
 coverage_toolchain="+nightly"
 coverage_flags=(--branch)
 
-# Files we deliberately carve out of the workspace coverage number.
-# These are not "uncovered code we should test" — they are code paths
-# that the active machines cannot reach.
-#
-# - motorola-68000/src/(fpu|mmu|disasm)\.rs
-#     The 68040 FPU, the 68030/040 MMU, and the disassembler. The
-#     A500 (our only 68000-class target) has no FPU and no MMU; the
-#     disassembler is a debugging aid that the running emulator
-#     never invokes. Tom Harte validates the actual 68000 opcode
-#     surface at 1,000,058/1,000,058. See Cov-3 in
-#     docs/plans/2026-04-28-october-runup-plan.md.
-coverage_ignore_regex='motorola-68000/src/(fpu|mmu|disasm)\.rs'
+# The motorola-68000 family was split into per-variant crates in April
+# 2026: motorola-68k-common, motorola-68000, motorola-68010,
+# motorola-68020, motorola-68030, and motorola-68040. The previous
+# Cov-3 carve-out for `motorola-68000/src/(fpu|mmu|disasm)\.rs` no
+# longer applies — disasm.rs was deleted, fpu.rs moved to
+# motorola-68040, and mmu.rs moved to motorola-68k-common (and is
+# re-exported from motorola-68030). The dormant variant crates carry
+# their own coverage numbers and don't artificially depress the
+# motorola-68000 figure. Tom Harte continues to validate the live
+# 68000 opcode surface at 1,000,058/1,000,058.
 
 cargo "${coverage_toolchain}" llvm-cov "${coverage_flags[@]}" \
-    --ignore-filename-regex "${coverage_ignore_regex}" \
     --workspace "$@" | tee target/llvm-cov/coverage-summary.txt
 cargo "${coverage_toolchain}" llvm-cov report "${coverage_flags[@]}" \
-    --ignore-filename-regex "${coverage_ignore_regex}" \
     --json --summary-only --output-path target/llvm-cov/coverage-summary.json
 cargo "${coverage_toolchain}" llvm-cov report "${coverage_flags[@]}" \
-    --ignore-filename-regex "${coverage_ignore_regex}" \
     --lcov --output-path target/llvm-cov/lcov.info
 cargo "${coverage_toolchain}" llvm-cov report "${coverage_flags[@]}" \
-    --ignore-filename-regex "${coverage_ignore_regex}" \
     --html --output-dir target/llvm-cov
 
 echo
