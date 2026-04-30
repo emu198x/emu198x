@@ -184,6 +184,70 @@ pub fn apply_ay_registers(snap: &Z80Snapshot, ay: &mut gi_ay_3_8912::Ay3_8912) {
 mod tests {
     use super::*;
 
+    /// In-memory `Paged128kMemory` stub that records every write and the
+    /// `$7FFD` paging history. Backing array is one byte per address.
+    struct StubMemory {
+        ram: Vec<u8>,
+        paged: Vec<u8>,
+    }
+
+    impl StubMemory {
+        fn new() -> Self {
+            Self {
+                ram: vec![0u8; 0x10000],
+                paged: Vec::new(),
+            }
+        }
+    }
+
+    impl MemoryBus for StubMemory {
+        fn read(&self, addr: u16) -> u8 {
+            self.ram[addr as usize]
+        }
+        fn write(&mut self, addr: u16, value: u8) {
+            self.ram[addr as usize] = value;
+        }
+        fn is_contended(&self, _addr: u16) -> bool {
+            false
+        }
+    }
+
+    impl Paged128kMemory for StubMemory {
+        fn write_7ffd(&mut self, val: u8) {
+            self.paged.push(val);
+        }
+    }
+
+    /// Build a fully-populated `Z80Snapshot` for register-restore tests.
+    fn populated_snapshot() -> Z80Snapshot {
+        Z80Snapshot {
+            af: 0x1122,
+            bc: 0x3344,
+            de: 0x5566,
+            hl: 0x7788,
+            af_alt: 0x99AA,
+            bc_alt: 0xBBCC,
+            de_alt: 0xDDEE,
+            hl_alt: 0xFF00,
+            ix: 0xCAFE,
+            iy: 0xBEEF,
+            sp: 0xFEDC,
+            pc: 0x1234,
+            i: 0x3F,
+            r: 0x80,
+            im: 2,
+            iff1: true,
+            iff2: false,
+            border: 5,
+            model: format_sinclair_zx_spectrum_z80::SnapshotModel::Spectrum128K,
+            port_7ffd: 0x10,
+            port_1ffd: 0x04,
+            ay_register: 0x07,
+            ay_regs: [0; 16],
+            pages: Vec::new(),
+        }
+    }
+
     #[test]
     fn snapshot_bank_target_maps_pages_correctly() {
         assert_eq!(
@@ -211,5 +275,128 @@ mod tests {
         assert_eq!(SnapshotBankTarget::Bank5At4000.base(), 0x4000);
         assert_eq!(SnapshotBankTarget::Bank2At8000.base(), 0x8000);
         assert_eq!(SnapshotBankTarget::BankedAtC000(4).base(), 0xC000);
+    }
+
+    #[test]
+    fn snapshot_bank_target_for_page_zero_is_rom() {
+        // Page 0 corresponds to bank checked_sub(3) underflow → None.
+        assert_eq!(SnapshotBankTarget::for_page(0), None);
+        assert_eq!(SnapshotBankTarget::for_page(1), None);
+    }
+
+    #[test]
+    fn snapshot_bank_target_for_page_above_10_is_none() {
+        // Page 11 already covered by the existing test, but lock down the
+        // edge with the explicit "bank > 7" comparison too.
+        assert_eq!(SnapshotBankTarget::for_page(11), None);
+        assert_eq!(SnapshotBankTarget::for_page(255), None);
+    }
+
+    #[test]
+    fn apply_z80_registers_copies_every_field() {
+        let snap = populated_snapshot();
+        let mut z80 = Z80::default();
+        // Pre-populate with sentinels so we can confirm overwrite.
+        z80.regs.af = 0x0000;
+        z80.regs.pc = 0x0000;
+        z80.regs.sp = 0x0000;
+
+        apply_z80_registers(&mut z80, &snap);
+
+        assert_eq!(z80.regs.af, 0x1122);
+        assert_eq!(z80.regs.bc, 0x3344);
+        assert_eq!(z80.regs.de, 0x5566);
+        assert_eq!(z80.regs.hl, 0x7788);
+        assert_eq!(z80.regs.af_alt, 0x99AA);
+        assert_eq!(z80.regs.bc_alt, 0xBBCC);
+        assert_eq!(z80.regs.de_alt, 0xDDEE);
+        assert_eq!(z80.regs.hl_alt, 0xFF00);
+        assert_eq!(z80.regs.ix, 0xCAFE);
+        assert_eq!(z80.regs.iy, 0xBEEF);
+        assert_eq!(z80.regs.sp, 0xFEDC);
+        assert_eq!(z80.regs.pc, 0x1234);
+        assert_eq!(z80.regs.i, 0x3F);
+        assert_eq!(z80.regs.r, 0x80);
+        assert_eq!(z80.regs.im, 2);
+        assert!(z80.regs.iff1);
+        assert!(!z80.regs.iff2);
+    }
+
+    #[test]
+    fn apply_128k_bank_pages_skips_rom_and_reserved_pages() {
+        let mut snap = populated_snapshot();
+        // Page 0 (ROM) and page 11 (reserved) — both should be ignored.
+        snap.pages.push((0, vec![0xAA; 16384]));
+        snap.pages.push((11, vec![0xBB; 16384]));
+        let mut mem = StubMemory::new();
+        apply_128k_bank_pages(&snap, &mut mem);
+        // No writes performed (RAM stays zero), no 7FFD reconfiguration.
+        assert!(mem.ram.iter().all(|&b| b == 0));
+        assert!(mem.paged.is_empty());
+    }
+
+    #[test]
+    fn apply_128k_bank_pages_routes_bank5_and_bank2_to_fixed_slots() {
+        let mut snap = populated_snapshot();
+        let mut bank5 = vec![0u8; 16384];
+        bank5[0] = 0x55;
+        bank5[16383] = 0x5F;
+        let mut bank2 = vec![0u8; 16384];
+        bank2[0] = 0x22;
+        bank2[16383] = 0x2F;
+        snap.pages.push((8, bank5)); // bank 5 → $4000
+        snap.pages.push((5, bank2)); // bank 2 → $8000
+
+        let mut mem = StubMemory::new();
+        apply_128k_bank_pages(&snap, &mut mem);
+
+        // Fixed-slot pages do NOT page through $7FFD.
+        assert!(mem.paged.is_empty());
+        assert_eq!(mem.ram[0x4000], 0x55);
+        assert_eq!(mem.ram[0x7FFF], 0x5F);
+        assert_eq!(mem.ram[0x8000], 0x22);
+        assert_eq!(mem.ram[0xBFFF], 0x2F);
+    }
+
+    #[test]
+    fn apply_128k_bank_pages_pages_banked_targets_through_7ffd() {
+        let mut snap = populated_snapshot();
+        // Page 3 == bank 0; page 10 == bank 7.
+        let mut b0 = vec![0u8; 16384];
+        b0[0] = 0xB0;
+        let mut b7 = vec![0u8; 16384];
+        b7[0] = 0xB7;
+        snap.pages.push((3, b0));
+        snap.pages.push((10, b7));
+
+        let mut mem = StubMemory::new();
+        apply_128k_bank_pages(&snap, &mut mem);
+
+        // Each banked page issues exactly one $7FFD write before copy.
+        assert_eq!(mem.paged, vec![0, 7]);
+        // Both copies land at $C000 (the same window).
+        assert_eq!(mem.ram[0xC000], 0xB7); // last write wins
+    }
+
+    #[test]
+    fn apply_ay_registers_replays_full_register_file_then_selects() {
+        // Build a stand-in AY chip and feed it a known register file. Use
+        // values that survive AY's per-register write masks (4-bit safe).
+        let mut snap = populated_snapshot();
+        for (i, b) in snap.ay_regs.iter_mut().enumerate() {
+            *b = i as u8; // 0..15, all within every register's mask width
+        }
+        snap.ay_register = 0x0B;
+
+        let mut ay = gi_ay_3_8912::Ay3_8912::new(1_773_400, 44_100, 882);
+        apply_ay_registers(&snap, &mut ay);
+
+        for i in 0..16u8 {
+            ay.select_register(i);
+            assert_eq!(ay.read_data(), i);
+        }
+        // After helper completes, snap.ay_register stays selected.
+        ay.select_register(snap.ay_register);
+        assert_eq!(ay.read_data(), 0x0B);
     }
 }

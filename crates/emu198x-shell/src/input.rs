@@ -240,8 +240,58 @@ mod tests {
 
     const TEST_MAP: ButtonInputMap = ButtonInputMap::new(&[
         (HostControl::Up, ButtonTarget::new(2, "up")),
+        (HostControl::Down, ButtonTarget::new(2, "down")),
+        (HostControl::Left, ButtonTarget::new(2, "left")),
+        (HostControl::Right, ButtonTarget::new(2, "right")),
         (HostControl::South, ButtonTarget::new(2, "fire")),
+        (HostControl::East, ButtonTarget::new(2, "east")),
+        (HostControl::West, ButtonTarget::new(2, "west")),
+        (HostControl::North, ButtonTarget::new(2, "north")),
+        (HostControl::Start, ButtonTarget::new(1, "start")),
+        (HostControl::Select, ButtonTarget::new(1, "select")),
     ]);
+
+    #[test]
+    fn button_target_new_records_port_and_name() {
+        let target = ButtonTarget::new(7, "thrust");
+        assert_eq!(target.port, 7);
+        assert_eq!(target.name, "thrust");
+    }
+
+    #[test]
+    fn button_input_map_new_stores_entries() {
+        const ENTRIES: &[(HostControl, ButtonTarget)] =
+            &[(HostControl::South, ButtonTarget::new(0, "a"))];
+        let map = ButtonInputMap::new(ENTRIES);
+        assert_eq!(map.target(HostControl::South), Some(ButtonTarget::new(0, "a")));
+    }
+
+    #[test]
+    fn button_input_map_target_returns_each_mapped_control() {
+        // Hits the find_map success path for every HostControl variant.
+        for &(control, target) in [
+            (HostControl::Up, ButtonTarget::new(2, "up")),
+            (HostControl::Down, ButtonTarget::new(2, "down")),
+            (HostControl::Left, ButtonTarget::new(2, "left")),
+            (HostControl::Right, ButtonTarget::new(2, "right")),
+            (HostControl::South, ButtonTarget::new(2, "fire")),
+            (HostControl::East, ButtonTarget::new(2, "east")),
+            (HostControl::West, ButtonTarget::new(2, "west")),
+            (HostControl::North, ButtonTarget::new(2, "north")),
+            (HostControl::Start, ButtonTarget::new(1, "start")),
+            (HostControl::Select, ButtonTarget::new(1, "select")),
+        ]
+        .iter()
+        {
+            assert_eq!(TEST_MAP.target(control), Some(target));
+        }
+    }
+
+    #[test]
+    fn button_input_map_target_returns_none_for_empty_map() {
+        const EMPTY: ButtonInputMap = ButtonInputMap::new(&[]);
+        assert_eq!(EMPTY.target(HostControl::South), None);
+    }
 
     #[test]
     fn button_map_emits_internal_button_event() {
@@ -256,7 +306,153 @@ mod tests {
     }
 
     #[test]
+    fn button_map_event_propagates_release_state() {
+        assert_eq!(
+            TEST_MAP.event(HostControl::Start, false),
+            Some(InputEvent::Button {
+                port: 1,
+                name: Cow::Borrowed("start"),
+                pressed: false,
+            })
+        );
+    }
+
+    #[test]
     fn button_map_ignores_unmapped_controls() {
-        assert_eq!(TEST_MAP.event(HostControl::East, true), None);
+        const SPARSE: ButtonInputMap =
+            ButtonInputMap::new(&[(HostControl::Up, ButtonTarget::new(2, "up"))]);
+        assert_eq!(SPARSE.event(HostControl::East, true), None);
+    }
+
+    #[test]
+    fn host_control_is_hashable_and_eq() {
+        // HostControl is used as a HashMap key inside NativeGamepadInput; cover
+        // the derived traits here so the public API surface is exercised.
+        use std::collections::HashSet;
+        let mut set: HashSet<HostControl> = HashSet::new();
+        set.insert(HostControl::Up);
+        set.insert(HostControl::Up);
+        set.insert(HostControl::Down);
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&HostControl::Up));
+    }
+
+    #[test]
+    fn native_gamepad_input_new_constructs() {
+        // Whether or not a backend is available depends on the host; both
+        // branches return a usable value, so we just verify construction
+        // does not panic and exposes the configured threshold.
+        let input = NativeGamepadInput::new();
+        assert_eq!(input.axis_threshold, DEFAULT_AXIS_THRESHOLD);
+        assert!(input.axis_states.is_empty());
+        // is_available reflects whatever Gilrs::new() returned.
+        let _avail = input.is_available();
+    }
+
+    #[test]
+    fn native_gamepad_input_default_matches_new() {
+        let default = NativeGamepadInput::default();
+        assert_eq!(default.axis_threshold, DEFAULT_AXIS_THRESHOLD);
+        assert!(default.axis_states.is_empty());
+    }
+
+    #[test]
+    fn native_gamepad_input_is_available_false_when_backend_missing() {
+        let mut input = NativeGamepadInput::new();
+        // Force the no-backend path regardless of platform.
+        input.gilrs = None;
+        assert!(!input.is_available());
+    }
+
+    #[test]
+    fn native_gamepad_input_is_available_true_when_backend_present() {
+        // We can't construct a real Gilrs, but we can detect when one is
+        // available on this host. If it is, exercise the true branch.
+        let input = NativeGamepadInput::new();
+        if input.gilrs.is_some() {
+            assert!(input.is_available());
+        }
+    }
+
+    #[test]
+    fn drain_events_returns_immediately_without_backend() {
+        let mut input = NativeGamepadInput::new();
+        input.gilrs = None;
+        let mut output = Vec::new();
+        input.drain_events(&TEST_MAP, &mut output);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn drain_events_empty_queue_returns_when_backend_present() {
+        // If a backend exists on the host, the inner gilrs.next_event() returns
+        // None on an empty queue, hitting the second early-return arm. This
+        // test is a no-op on hosts without a gamepad backend.
+        let mut input = NativeGamepadInput::new();
+        if input.gilrs.is_some() {
+            let mut output = Vec::new();
+            input.drain_events(&TEST_MAP, &mut output);
+            // Output may legitimately contain events the host generated; we
+            // only assert that drain_events returned without panicking.
+            let _ = output.len();
+        }
+    }
+
+    #[test]
+    fn map_gamepad_button_covers_every_named_control() {
+        assert_eq!(map_gamepad_button(Button::South), Some(HostControl::South));
+        assert_eq!(map_gamepad_button(Button::East), Some(HostControl::East));
+        assert_eq!(map_gamepad_button(Button::West), Some(HostControl::West));
+        assert_eq!(map_gamepad_button(Button::North), Some(HostControl::North));
+        assert_eq!(map_gamepad_button(Button::Start), Some(HostControl::Start));
+        assert_eq!(map_gamepad_button(Button::Select), Some(HostControl::Select));
+        assert_eq!(map_gamepad_button(Button::DPadUp), Some(HostControl::Up));
+        assert_eq!(map_gamepad_button(Button::DPadDown), Some(HostControl::Down));
+        assert_eq!(map_gamepad_button(Button::DPadLeft), Some(HostControl::Left));
+        assert_eq!(
+            map_gamepad_button(Button::DPadRight),
+            Some(HostControl::Right)
+        );
+    }
+
+    #[test]
+    fn map_gamepad_button_returns_none_for_unmapped_inputs() {
+        // Cover the wildcard arm. Mode/Z/shoulder buttons are intentionally
+        // unmapped because the abstract HostControl set doesn't include them.
+        assert_eq!(map_gamepad_button(Button::Mode), None);
+        assert_eq!(map_gamepad_button(Button::LeftTrigger), None);
+        assert_eq!(map_gamepad_button(Button::LeftTrigger2), None);
+        assert_eq!(map_gamepad_button(Button::RightTrigger), None);
+        assert_eq!(map_gamepad_button(Button::RightTrigger2), None);
+        assert_eq!(map_gamepad_button(Button::LeftThumb), None);
+        assert_eq!(map_gamepad_button(Button::RightThumb), None);
+        assert_eq!(map_gamepad_button(Button::C), None);
+        assert_eq!(map_gamepad_button(Button::Z), None);
+        assert_eq!(map_gamepad_button(Button::Unknown), None);
+    }
+
+    #[test]
+    fn map_gamepad_axis_returns_pairs_for_left_stick() {
+        assert_eq!(
+            map_gamepad_axis(Axis::LeftStickX),
+            Some((HostControl::Left, HostControl::Right))
+        );
+        assert_eq!(
+            map_gamepad_axis(Axis::LeftStickY),
+            Some((HostControl::Up, HostControl::Down))
+        );
+    }
+
+    #[test]
+    fn map_gamepad_axis_returns_none_for_unmapped_axes() {
+        // Wildcard arm — right stick, triggers, and DPad axes are unmapped
+        // because directional input flows through the dedicated DPad buttons.
+        assert_eq!(map_gamepad_axis(Axis::RightStickX), None);
+        assert_eq!(map_gamepad_axis(Axis::RightStickY), None);
+        assert_eq!(map_gamepad_axis(Axis::LeftZ), None);
+        assert_eq!(map_gamepad_axis(Axis::RightZ), None);
+        assert_eq!(map_gamepad_axis(Axis::DPadX), None);
+        assert_eq!(map_gamepad_axis(Axis::DPadY), None);
+        assert_eq!(map_gamepad_axis(Axis::Unknown), None);
     }
 }

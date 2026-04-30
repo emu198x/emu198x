@@ -4,6 +4,88 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-30 — Cov-5d: directed-test passes on actionable workspace gaps
+
+**Type:** test (Cov-5d — directed-test passes on the lowest-coverage actionable files surfaced by the workspace audit)
+**Trigger:** the workspace coverage script (now fixed in `a326319` to use `--lib --tests` and capture report output cleanly) reported a **78.26% line / 79.01% function** workspace TOTAL with 53 files at ≥95% coverage. The remaining gaps fell into clear buckets: verifier binaries (low by design), corpus-gated CPU paths (separate decision), audit-or-prune candidates (motorola-68k-common alu.rs, motorola-68000 disasm.rs), and **actionable directed-test candidates**. This wave handles the actionable bucket.
+
+**Result:** Three parallel agent runs, **115 directed tests added** across four files in three crates. Total uncovered lines on the targeted files **402 → 69** (~83% reduction). Plus two real bugs surfaced in `parse_z80` along the way — flagged but not fixed (separate change).
+
+### Per-file summary
+
+| Crate | File | Lines before | Lines after | Funcs before | Funcs after | Tests added |
+|---|---|---|---|---|---|---|
+| emu198x-shell | `src/input.rs` | 16.15% | **74.70%** | 33.33% | **93.55%** | 16 |
+| nintendo-game-boy-apu | `src/noise.rs` | 37.76% | **100%** | 43.75% | **100%** | 33 |
+| nintendo-game-boy-apu | `src/wave.rs` | 48.70% | **100%** | 64.29% | **100%** | 33 |
+| format-sinclair-zx-spectrum-z80 | `src/lib.rs` | 48.06% | **100%** | 83.33% | **100%** | 33 |
+| format-sinclair-zx-spectrum-z80 | `src/sna.rs` | 62.40% | **100%** | 100% | 100% | 4 |
+| common-sinclair-zx-spectrum | `src/snapshot.rs` | 46.48% | **97.07%** | 57.14% | **90.48%** | 7 (in target file) |
+
+Total directed tests across the wave: **115**.
+
+### What landed per agent
+
+**emu198x-shell — 16 tests** on `input.rs`:
+- `ButtonTarget::new`, `ButtonInputMap::new`, `ButtonInputMap::target` for every `HostControl` variant + empty-map miss path
+- `ButtonInputMap::event` release branch
+- `HostControl` derived `Eq`/`Hash`
+- `NativeGamepadInput` constructor + `Default` parity
+- `is_available` Some/None branches
+- `drain_events` two early-return arms
+- `map_gamepad_button` covering all 10 mapped variants + the wildcard arm (10 unmapped buttons)
+- `map_gamepad_axis` covering both mapped + 7 unmapped axes
+
+**nintendo-game-boy-apu — 66 tests** (33 noise + 33 wave) covering every reachable path: noise period-timer + LFSR feedback (both 7-bit and 15-bit width), every divisor code, full envelope state machine (period-zero early return, increment/decrement clamps), all register I/O round-trips, length-counter quirks (first-half/second-half clocks, zero-length+trigger double-decrement). Wave channel exercises 100/50/25%-mute volume shifts, sample-position wrap 31→0, DMG wave-RAM corruption quirk on retrigger (offset<4 single-byte path + offset≥4 four-byte block-copy path), DAC-on-but-volume-zero silence path.
+
+**format-sinclair-zx-spectrum-z80 + common-sinclair-zx-spectrum — 44 tests**:
+- v1 header decode (full register set), v1 byte-12 0xFF→1 remap, v1 RLE decompression edge cases
+- v2/v3 header extension sizing (23 / 25 / 55 byte arms)
+- Hardware-mode → model dispatcher across all 12 documented hw_mode values
+- Page parsing for v2/v3 (uncompressed full 16K, uncompressed truncated, compressed, compressed truncated, multi-page)
+- Decompression edges (literal-only padding, 16K cap, marker at EOF, end-marker recognition + padding)
+- SNA format register decode for both 48K and 128K layouts
+- `apply_z80_registers` full field copy
+- `apply_128k_bank_pages` ROM/reserved-page skip + Bank5/Bank2 fixed-slot routing + dynamic-bank routing through $7FFD
+- `apply_ay_registers` full register-file replay + select restoration
+
+### Honest exclusions (the remaining 69 missed lines)
+
+**emu198x-shell `input.rs` (63 lines):** The `drain_events` `match event.event` arms (lines 130-148) and `update_axis` / `update_axis_control` (lines 153-204) are unreachable through the public API in unit tests. `update_axis` takes a `gilrs::GamepadId` parameter, and `gilrs` 0.11.1 does not publicly expose any constructor, `Default` impl, or `From` conversion for `GamepadId`. The only workaround is `mem::transmute` from `usize`, which the workspace's `forbid(unsafe_code)` lint blocks. The match arms inside `drain_events` only fire when `Gilrs::next_event()` returns hardware events. **Action item:** either upstream a `GamepadId::from_index_for_testing` helper to gilrs, or write a fake-gilrs-backend feature for emu198x-shell tests. Out of scope for a tests-only PR.
+
+**common-sinclair-zx-spectrum `snapshot.rs` (6 lines):** Test-fixture `StubMemory`'s `MemoryBus::read` and `MemoryBus::is_contended` impls. The helpers under test only call `write` and `write_7ffd`, so the fixture's `read`/`is_contended` shims are never invoked. Required by the trait bound; structurally unreachable from these tests without contortion.
+
+### Bugs surfaced (not fixed in this commit)
+
+The Z80 snapshot agent flagged two real off-by-one bugs in `parse_z80` while writing fixtures. The tests-only mandate forbids fixing them; tracked here for follow-up:
+
+1. **`format-sinclair-zx-spectrum-z80/src/lib.rs:149`** — `read_u16(data, 32)` panics on a 32-byte buffer that satisfies the `data.len() < 32` guard one line earlier. The guard should be `< 34`.
+2. **`format-sinclair-zx-spectrum-z80/src/lib.rs:163`** — `data[86]` requires `data.len() >= 87` but the `if ext_len >= 54` guard combined with the `data.len() < 32 + ext_len` check at line 151 only guarantees `data.len() >= 86` (off-by-one — the guard should be `ext_len >= 55`, or the line-151 check should be `< 33 + ext_len`). Real-world v3 snapshots use `ext_len=55` so the bug doesn't fire in practice; feeding a 54-byte ext_len (also v3 per the loose spec) crashes.
+
+These should be a separate small PR.
+
+### Verification
+
+- `cargo test -p emu198x-shell --lib` — 62 passed
+- `cargo test -p nintendo-game-boy-apu --lib` — 87 passed (was 21; +66 net)
+- `cargo test -p format-sinclair-zx-spectrum-z80 --lib` — 40 passed (was 3)
+- `cargo test -p common-sinclair-zx-spectrum --lib` — 39 passed (was 32)
+- `cargo clippy on all four crates --all-targets -- -D warnings` — clean
+
+Downstream consumers (every Spectrum machine + runtime, every GB machine + runtime, every runtime that consumes emu198x-shell — i.e. all five) build clean.
+
+### What's next
+
+After this wave, the directly-touched files are at **97-100%** with documented honest exclusions. The remaining workspace gaps cluster into three buckets:
+
+1. **Audit-or-prune candidates** — `motorola-68k-common/src/alu.rs` (33%) likely contains 68010+ helpers we should delete (per the Cov-5 reduction); `motorola-68000/src/disasm.rs` (39%) is debugging-aid not invoked. These need an audit pass, not directed tests.
+2. **Verifier binaries** — `emu198x-{c64,amiga,nes,spectrum,game-boy,dragon}/src/main.rs` plus the script-* siblings. Low by design (interactive frontends). Could be improved with headless smoke tests but separate decision.
+3. **Coverage-script question** — should `scripts/coverage.sh` run `--ignored` to include the Tom Harte / FUSE / Adam Tennant CPU corpora? Each adds ~5-10 minutes; the gate against trivial CI runs is real. Separate decision.
+
+Plus the two `parse_z80` bugs above as a small follow-up commit.
+
+---
+
 ## 2026-04-30 — Cov-5c wave 2: directed-test passes across five chip crates
 
 **Type:** test (Cov-5c wave 2 — same C64-Cov-4 / runtime-Cov-5b playbook applied to chip crates)
