@@ -25,7 +25,8 @@ pub const RAM_SIZE: usize = 0x8000;
 pub const ROM_SIZE: usize = 0x4000;
 /// Host audio sample rate for Dragon mono output.
 pub const DRAGON_AUDIO_SAMPLE_RATE: u32 = 48_000;
-const DRAGON_MASTER_HZ: u64 = 14_318_180;
+/// Dragon/XRoar master event tick frequency.
+pub const DRAGON_MASTER_HZ: u64 = 14_318_180;
 const SLOW_CPU_MASTER_TICKS: u64 = 16;
 const CASSETTE_ZERO_HALF_PERIOD_TICKS: u64 = 373 * SLOW_CPU_MASTER_TICKS;
 const CASSETTE_ONE_HALF_PERIOD_TICKS: u64 = 186 * SLOW_CPU_MASTER_TICKS;
@@ -879,6 +880,8 @@ pub enum DeviceRegion {
 pub struct FetchTrace {
     /// Bus cycle when the opcode fetch began.
     pub cycle: u64,
+    /// SAM master-clock tick when the opcode fetch began.
+    pub master_tick: u64,
     /// Program counter.
     pub pc: u16,
     /// Opcode byte.
@@ -969,6 +972,8 @@ pub struct MemoryWriteTrace {
 pub struct WatchedFetchTrace {
     /// Bus cycle when the opcode fetch began.
     pub cycle: u64,
+    /// SAM master-clock tick when the opcode fetch began.
+    pub master_tick: u64,
     /// Program counter.
     pub pc: u16,
     /// Opcode byte.
@@ -1170,6 +1175,8 @@ pub struct RunReport {
     pub stop_reason: StopReason,
     /// Bus cycles executed during this run.
     pub cycles: u64,
+    /// SAM master-clock ticks executed during this run.
+    pub master_ticks: u64,
     /// Instruction-boundary opcode fetches observed during this run.
     pub instructions: u64,
     /// Current CPU PC.
@@ -2523,6 +2530,7 @@ impl Dragon32 {
     #[must_use]
     pub fn run_cycles_with_options(&mut self, cycle_limit: u64, options: RunOptions) -> RunReport {
         let trace_limit = options.trace_limit;
+        let start_master_ticks = self.master_ticks;
         let mut trace = Vec::new();
         let mut dropped_trace = 0usize;
         let mut device_accesses = Vec::new();
@@ -2579,6 +2587,7 @@ impl Dragon32 {
                 }
                 let fetch = FetchTrace {
                     cycle: run_cycle,
+                    master_tick: self.master_ticks,
                     pc: self.cpu.addr,
                     opcode: self.memory.read_fetch(self.cpu.addr),
                 };
@@ -2596,6 +2605,7 @@ impl Dragon32 {
                         trace_limit,
                         WatchedFetchTrace {
                             cycle: run_cycle,
+                            master_tick: fetch.master_tick,
                             pc: fetch.pc,
                             opcode: fetch.opcode,
                             regs: cpu_register_trace(self),
@@ -2747,6 +2757,7 @@ impl Dragon32 {
         RunReport {
             stop_reason,
             cycles: run_cycles,
+            master_ticks: self.master_ticks.saturating_sub(start_master_ticks),
             instructions: run_instructions,
             pc: self.cpu.regs.pc,
             addr: self.cpu.addr,
@@ -3220,6 +3231,7 @@ mod tests {
             report.last_fetch,
             Some(FetchTrace {
                 cycle: 7,
+                master_tick: 112,
                 pc: 0x8003,
                 opcode: 0x01,
             })
@@ -3594,6 +3606,7 @@ mod tests {
             report.last_fetch,
             Some(FetchTrace {
                 cycle: 2,
+                master_tick: 32,
                 pc: 0x8000,
                 opcode: 0x01,
             })

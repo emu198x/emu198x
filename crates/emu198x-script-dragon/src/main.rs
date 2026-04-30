@@ -21,10 +21,10 @@ use format_dragon_pak::{
 };
 use machine_dragon_32::{
     AddressRange, CpuInterruptAcceptTrace, CpuInterruptKind, CpuInterruptLineTrace,
-    CpuRegisterTrace, DRAGON_CPU_HZ, DRAGON_FRAME_CYCLES, DeviceAccess, DeviceRegion, Dragon32,
-    DragonCartridgeKind, DragonKey, DragonKeyboard, DragonVideoPhase, FetchTrace, MatrixKey,
-    MemoryWriteTrace, PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions, RunReport, StopReason,
-    VdgModeWriteTrace, VdgSampleTrace, WatchedFetchTrace,
+    CpuRegisterTrace, DRAGON_CPU_HZ, DRAGON_FRAME_CYCLES, DRAGON_MASTER_HZ, DeviceAccess,
+    DeviceRegion, Dragon32, DragonCartridgeKind, DragonKey, DragonKeyboard, DragonVideoPhase,
+    FetchTrace, MatrixKey, MemoryWriteTrace, PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions,
+    RunReport, StopReason, VdgModeWriteTrace, VdgSampleTrace, WatchedFetchTrace,
 };
 use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette, VdgPalette,
@@ -142,6 +142,7 @@ struct Cli {
 struct HarnessReport {
     stop_reason: StopReason,
     cycles: u64,
+    master_ticks: u64,
     instructions: u64,
     pc: u16,
     addr: u16,
@@ -173,6 +174,7 @@ struct HarnessReport {
     text_framebuffer: Option<Vec<u32>>,
     framebuffer: Option<Vec<u32>>,
     framebuffer_cycles: Option<u64>,
+    framebuffer_master_ticks: Option<u64>,
     video_phase: DragonVideoPhase,
 }
 
@@ -241,6 +243,8 @@ struct SnapshotRuntimeSmoke {
     screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     screenshot_cycles: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    screenshot_master_ticks: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     screenshot_frame_phase_cycles: Option<u64>,
     video_phase: VideoPhaseSummary,
@@ -1313,12 +1317,20 @@ fn run_snapshot_smoke(
             None
         };
     let screenshot_cycles = report.framebuffer_cycles.unwrap_or(report.cycles);
-    let xroar_reference_settle_seconds = xroar_snapshot_settle_seconds(screenshot_cycles);
-    let xroar_reference_trap = if smoke.xroar.is_some() && smoke.xroar_stem.is_some() {
-        xroar_snapshot_reference_trap(rom, snapshot, screenshot_cycles, smoke.trace_limit)
-    } else {
-        None
-    };
+    let screenshot_master_ticks = report
+        .framebuffer_master_ticks
+        .unwrap_or(report.master_ticks);
+    let use_master_timed_reference =
+        matches!(smoke.screenshot_phase, SmokeScreenshotPhase::CompletedFrame)
+            && report.framebuffer_master_ticks.is_some();
+    let xroar_reference_settle_seconds =
+        xroar_snapshot_settle_seconds(screenshot_cycles, screenshot_master_ticks);
+    let xroar_reference_trap =
+        if smoke.xroar.is_some() && smoke.xroar_stem.is_some() && !use_master_timed_reference {
+            xroar_snapshot_reference_trap(rom, snapshot, screenshot_cycles, smoke.trace_limit)
+        } else {
+            None
+        };
     let (xroar_reference_screenshot, xroar_reference_error, xroar_reference_comparison) =
         match (smoke.xroar, smoke.xroar_stem) {
             (Some(config), Some(stem)) => match capture_xroar_snapshot_reference(
@@ -1327,8 +1339,11 @@ fn run_snapshot_smoke(
                 snapshot,
                 comparison_screenshot,
                 stem,
-                xroar_reference_trap,
-                xroar_reference_settle_seconds,
+                XroarSnapshotReferenceTiming {
+                    trap: xroar_reference_trap,
+                    settle_seconds: xroar_reference_settle_seconds,
+                    start_immediate: use_master_timed_reference,
+                },
             ) {
                 Ok(reference) => (
                     Some(reference.path.display().to_string()),
@@ -1358,6 +1373,7 @@ fn run_snapshot_smoke(
             .unwrap_or_default(),
         screenshot,
         screenshot_cycles: report.framebuffer_cycles,
+        screenshot_master_ticks: report.framebuffer_master_ticks,
         screenshot_frame_phase_cycles: report
             .framebuffer_cycles
             .map(|_| report.video_phase.frame_master_tick),
@@ -1399,6 +1415,7 @@ fn failed_snapshot_smoke(
             .unwrap_or_default(),
         screenshot: None,
         screenshot_cycles: report.framebuffer_cycles,
+        screenshot_master_ticks: report.framebuffer_master_ticks,
         screenshot_frame_phase_cycles: report
             .framebuffer_cycles
             .map(|_| report.video_phase.frame_master_tick),
@@ -2216,6 +2233,13 @@ struct XroarSnapshotTrap {
     count: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct XroarSnapshotReferenceTiming {
+    trap: Option<XroarSnapshotTrap>,
+    settle_seconds: f32,
+    start_immediate: bool,
+}
+
 fn capture_best_xroar_reference(
     config: &XroarReferenceConfig,
     rom: &[u8; ROM_SIZE],
@@ -2247,8 +2271,7 @@ fn capture_xroar_snapshot_reference(
     snapshot: &PcDragonSnapshot,
     comparison_screenshot: Option<&Path>,
     stem: &Path,
-    trap: Option<XroarSnapshotTrap>,
-    settle_seconds: f32,
+    timing: XroarSnapshotReferenceTiming,
 ) -> Result<XroarReferenceCapture, String> {
     let rom_path = write_temp_bytes("rom", "rom", rom)?;
     let template_path = write_temp_path("snapshot-template", "sna")?;
@@ -2262,7 +2285,7 @@ fn capture_xroar_snapshot_reference(
         .and_then(|bytes| write_temp_bytes("snapshot", "sna", &bytes));
     let output_path = stem.with_extension("xroar.png");
     let result = snapshot_path.and_then(|snapshot_path| {
-        let result = (if let Some(trap) = trap {
+        let result = (if let Some(trap) = timing.trap {
             run_xroar_snapshot_trap_reference_command(
                 config,
                 &rom_path,
@@ -2271,14 +2294,18 @@ fn capture_xroar_snapshot_reference(
                 &output_path,
             )
         } else {
-            let trap_condition = xroar_snapshot_trap_condition(snapshot);
+            let trap_condition = if timing.start_immediate {
+                "immediate".to_owned()
+            } else {
+                xroar_snapshot_trap_condition(snapshot)
+            };
             run_xroar_snapshot_reference_command(
                 config,
                 &rom_path,
                 &snapshot_path,
                 &trap_condition,
                 &output_path,
-                settle_seconds,
+                timing.settle_seconds,
             )
         })
         .and_then(|path| {
@@ -3467,8 +3494,12 @@ fn format_seconds(seconds: f32) -> String {
     }
 }
 
-fn xroar_snapshot_settle_seconds(cycles: u64) -> f32 {
-    cycles as f32 / DRAGON_CPU_HZ as f32
+fn xroar_snapshot_settle_seconds(cycles: u64, master_ticks: u64) -> f32 {
+    if master_ticks != 0 {
+        master_ticks as f32 / DRAGON_MASTER_HZ as f32
+    } else {
+        cycles as f32 / DRAGON_CPU_HZ as f32
+    }
 }
 
 fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
@@ -3886,6 +3917,16 @@ struct HarnessRunOptions<'a> {
     capture_framebuffer_source: ScreenshotSource,
 }
 
+struct HarnessCaptures {
+    text_screen: Option<String>,
+    ram: Option<Vec<u8>>,
+    text_framebuffer: Option<Vec<u32>>,
+    framebuffer: Option<Vec<u32>>,
+    framebuffer_cycles: Option<u64>,
+    framebuffer_master_ticks: Option<u64>,
+    video_phase: DragonVideoPhase,
+}
+
 fn run_harness_with_keyboard(
     rom: &[u8; ROM_SIZE],
     keyboard: DragonKeyboard,
@@ -3925,6 +3966,7 @@ fn run_harness_with_keyboard(
     run_options.write_watch = options.write_watch;
     let report = machine.run_cycles_with_options(options.cycle_limit, run_options);
     let mut framebuffer_cycles = None;
+    let mut framebuffer_master_ticks = None;
     if options.capture_framebuffer
         && matches!(report.stop_reason, StopReason::CycleLimit)
         && matches!(
@@ -3946,20 +3988,22 @@ fn run_harness_with_keyboard(
     let ram = options.dump_ram.then(|| machine.ram().to_vec());
     let framebuffer = options.capture_framebuffer.then(|| {
         framebuffer_cycles = Some(machine.cycles());
+        framebuffer_master_ticks = Some(machine.master_ticks());
         match options.capture_framebuffer_source {
             ScreenshotSource::Beam => machine.beam_visible_argb().to_vec(),
             ScreenshotSource::Static => machine.render_visible_argb(VdgPalette::default()),
         }
     });
 
-    report.into_harness_report(
-        text_screen_text,
+    report.into_harness_report(HarnessCaptures {
+        text_screen: text_screen_text,
         ram,
         text_framebuffer,
         framebuffer,
         framebuffer_cycles,
-        machine.video_phase(),
-    )
+        framebuffer_master_ticks,
+        video_phase: machine.video_phase(),
+    })
 }
 
 fn run_to_completed_video_frame(machine: &mut Dragon32) {
@@ -3979,30 +4023,15 @@ fn run_to_completed_video_frame(machine: &mut Dragon32) {
 }
 
 trait IntoHarnessReport {
-    fn into_harness_report(
-        self,
-        text_screen: Option<String>,
-        ram: Option<Vec<u8>>,
-        text_framebuffer: Option<Vec<u32>>,
-        framebuffer: Option<Vec<u32>>,
-        framebuffer_cycles: Option<u64>,
-        video_phase: DragonVideoPhase,
-    ) -> HarnessReport;
+    fn into_harness_report(self, captures: HarnessCaptures) -> HarnessReport;
 }
 
 impl IntoHarnessReport for RunReport {
-    fn into_harness_report(
-        self,
-        text_screen: Option<String>,
-        ram: Option<Vec<u8>>,
-        text_framebuffer: Option<Vec<u32>>,
-        framebuffer: Option<Vec<u32>>,
-        framebuffer_cycles: Option<u64>,
-        video_phase: DragonVideoPhase,
-    ) -> HarnessReport {
+    fn into_harness_report(self, captures: HarnessCaptures) -> HarnessReport {
         HarnessReport {
             stop_reason: self.stop_reason,
             cycles: self.cycles,
+            master_ticks: self.master_ticks,
             instructions: self.instructions,
             pc: self.pc,
             addr: self.addr,
@@ -4029,12 +4058,13 @@ impl IntoHarnessReport for RunReport {
             vdg_mode_writes: self.vdg_mode_writes,
             dropped_vdg_mode_writes: self.dropped_vdg_mode_writes,
             text_screen_base: self.text_screen_base,
-            text_screen,
-            ram,
-            text_framebuffer,
-            framebuffer,
-            framebuffer_cycles,
-            video_phase,
+            text_screen: captures.text_screen,
+            ram: captures.ram,
+            text_framebuffer: captures.text_framebuffer,
+            framebuffer: captures.framebuffer,
+            framebuffer_cycles: captures.framebuffer_cycles,
+            framebuffer_master_ticks: captures.framebuffer_master_ticks,
+            video_phase: captures.video_phase,
         }
     }
 }
@@ -4043,6 +4073,7 @@ fn print_report(report: &HarnessReport) {
     println!("dragon harness summary");
     println!("status: {}", format_stop_reason(report.stop_reason));
     println!("cycles: {}", report.cycles);
+    println!("master ticks: {}", report.master_ticks);
     println!("instructions: {}", report.instructions);
     println!("pc: ${:04X}", report.pc);
     println!("text screen base: ${:04X}", report.text_screen_base);
@@ -4062,8 +4093,8 @@ fn print_report(report: &HarnessReport) {
     );
     if let Some(fetch) = report.last_fetch {
         println!(
-            "last fetch: cycle={} pc=${:04X} opcode=${:02X}",
-            fetch.cycle, fetch.pc, fetch.opcode
+            "last fetch: cycle={} master_tick={} pc=${:04X} opcode=${:02X}",
+            fetch.cycle, fetch.master_tick, fetch.pc, fetch.opcode
         );
     }
     if report.dropped_trace != 0 {
@@ -4108,8 +4139,9 @@ fn print_report(report: &HarnessReport) {
     println!("watched fetches:");
     for fetch in &report.watched_fetches {
         println!(
-            "  cycle={} pc=${:04X} opcode=${:02X} {}",
+            "  cycle={} master_tick={} pc=${:04X} opcode=${:02X} {}",
             fetch.cycle,
+            fetch.master_tick,
             fetch.pc,
             fetch.opcode,
             format_cpu_registers(fetch.regs)
@@ -4257,12 +4289,15 @@ fn print_report(report: &HarnessReport) {
             TEXT_VISIBLE_FRAMEBUFFER_HEIGHT,
             framebuffer.len()
         );
+        if let Some(master_ticks) = report.framebuffer_master_ticks {
+            println!("framebuffer master ticks: {master_ticks}");
+        }
     }
     println!("trace:");
     for fetch in &report.trace {
         println!(
-            "  cycle={} pc=${:04X} opcode=${:02X}",
-            fetch.cycle, fetch.pc, fetch.opcode
+            "  cycle={} master_tick={} pc=${:04X} opcode=${:02X}",
+            fetch.cycle, fetch.master_tick, fetch.pc, fetch.opcode
         );
     }
 }
