@@ -10,11 +10,12 @@
 
 use common_sinclair_zx_spectrum::timing::{
     SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_WIDTH_HIRES, TIMING_48K, TIMING_128K, TIMING_PENTAGON,
-    TIMING_SCORPION,
+    TIMING_PLUS2A, TIMING_SCORPION,
 };
 use emu198x_shell::{
-    AudioPacket, AudioSink, FramePacket, FrameSink, HostIo, InputEvent, MachineCore, MachineError,
-    MachineTime, MediaImage, MediaKind, MediaSet, NullTraceSink, PixelFormat,
+    AudioPacket, AudioSink, ControlCommand, FramePacket, FrameSink, HostIo, InputEvent,
+    MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, MediaTransportAction,
+    MediaTransportCommand, NullTraceSink, PixelFormat, ResetKind, known_capability,
 };
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
@@ -131,8 +132,7 @@ fn timex_tc2048_runtime_emits_hires_dimensions() {
 
 #[test]
 fn timex_ts2068_runtime_uses_ntsc_frame_length_for_ts() {
-    let runtime =
-        TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+    let runtime = TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
     let (frames, _, _) = run_single_frame(runtime, TIMING_TS2068.halfcycles_per_frame);
     assert_eq!(frames, 1);
 }
@@ -244,4 +244,457 @@ fn keyboard_input_updates_machine_matrix() {
 
     // Space is at row 7, bit 0 — active-low.
     assert_eq!(runtime.machine().keyboard[7] & 0x01, 0x00);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Per-variant smoke matrix: construct + frame + reset + tape-load +
+// snapshot round-trip via the generic SpectrumRuntime<M>. These exist
+// to exercise every `impl SpectrumMachine` block in `src/variants.rs`
+// — most variants only had a frame test before Cov-5b, so 37 of 72
+// trait-method instantiations sat uncovered.
+// ─────────────────────────────────────────────────────────────────────
+
+fn run_one_frame_with_inputs<M: SpectrumMachine>(
+    runtime: &mut SpectrumRuntime<M>,
+    frame_halfcycles: u32,
+    inputs: &[InputEvent],
+) {
+    let mut frame_sink = RecordingFrameSink::default();
+    let mut audio_sink = RecordingAudioSink::default();
+    let mut trace_sink = NullTraceSink;
+    let mut host = HostIo {
+        input_events: inputs,
+        frame_sink: &mut frame_sink,
+        audio_sink: &mut audio_sink,
+        trace_sink: &mut trace_sink,
+    };
+    runtime
+        .run_until(MachineTime::new(u64::from(frame_halfcycles)), &mut host)
+        .expect("frame should run");
+}
+
+fn minimal_tap() -> Vec<u8> {
+    // 19-byte standard-speed header block: length-prefixed (0x0013),
+    // flag byte 0x00, 17 bytes of payload (zeroed), checksum 0x00.
+    let mut tap = vec![0x13, 0x00];
+    tap.push(0x00);
+    tap.extend_from_slice(&[0; 17]);
+    tap.push(0x00);
+    tap
+}
+
+fn minimal_tzx() -> Vec<u8> {
+    // ZXTape! 0x1A, version 1.20, no blocks. Round-trips through
+    // `tzx_to_stream` to an empty span list; exercises the TZX
+    // dispatch arm in `runtime::load_tape_bytes`.
+    let mut tzx = b"ZXTape!\x1a".to_vec();
+    tzx.push(1);
+    tzx.push(20);
+    tzx
+}
+
+fn load_tape_into_runtime<M: SpectrumMachine>(runtime: &mut SpectrumRuntime<M>, bytes: &[u8]) {
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("tape-1", MediaKind::Tape, bytes));
+    runtime.load_media(&media).expect("tape media should load");
+}
+
+fn snapshot_round_trip_is_fixed_point<M, F>(runtime: &mut SpectrumRuntime<M>, mut fresh_fn: F)
+where
+    M: SpectrumMachine,
+    F: FnMut() -> SpectrumRuntime<M>,
+{
+    let bytes = runtime.snapshot().expect("snapshot should encode");
+    let mut restored = fresh_fn();
+    restored
+        .restore(&bytes)
+        .expect("snapshot should restore into a fresh runtime");
+    let round_trip = restored
+        .snapshot()
+        .expect("restored snapshot should encode");
+    assert_eq!(round_trip, bytes);
+}
+
+/// Run `f` on a dedicated thread with an 8 MiB stack. Some
+/// Spectrum-family machines (Timex TC2048 / TS2068) carry 64 KiB of
+/// memory inline as `[u8; …]`; constructing two of them plus snapshot
+/// bytes on the default test thread stack overflows.
+fn run_with_large_stack<F>(f: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(f)
+        .expect("worker thread should spawn")
+        .join()
+        .expect("worker thread should not panic");
+}
+
+#[test]
+fn spectrum_128k_runtime_loads_tap_and_drives_transport() {
+    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    load_tape_into_runtime(&mut runtime, &minimal_tap());
+
+    runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Start,
+        )))
+        .expect("128K tape transport start should succeed");
+    runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Stop,
+        )))
+        .expect("128K tape transport stop should succeed");
+}
+
+#[test]
+fn spectrum_128k_runtime_loads_tzx_via_runtime() {
+    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    load_tape_into_runtime(&mut runtime, &minimal_tzx());
+}
+
+#[test]
+fn spectrum_128k_runtime_resets_via_machine_core() {
+    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    run_one_frame_with_inputs(
+        &mut runtime,
+        TIMING_128K.halfcycles_per_frame,
+        &[InputEvent::Key {
+            name: "space".into(),
+            pressed: true,
+        }],
+    );
+    assert!(runtime.time().get() > 0);
+    runtime.reset(ResetKind::Hard);
+    assert_eq!(runtime.time(), MachineTime::default());
+    // Reset should clear the cached keyboard matrix back to the
+    // "all keys released" baseline (active-low: 0xFF).
+    assert_eq!(runtime.machine().keyboard, [0xFF; 8]);
+}
+
+#[test]
+fn spectrum_plus2a_runtime_runs_frame_loads_tape_and_resets() {
+    let mut runtime =
+        SpectrumPlusRuntime::new(Model::SpectrumPlus2A, SpectrumPlus::new(PlusModel::Plus2A));
+    run_one_frame_with_inputs(&mut runtime, TIMING_PLUS2A.halfcycles_per_frame, &[]);
+    load_tape_into_runtime(&mut runtime, &minimal_tap());
+    runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Start,
+        )))
+        .expect("+2A tape transport start should succeed");
+    runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Stop,
+        )))
+        .expect("+2A tape transport stop should succeed");
+    runtime.reset(ResetKind::Hard);
+    assert_eq!(runtime.time(), MachineTime::default());
+}
+
+#[test]
+fn spectrum_plus2a_runtime_round_trips_through_snapshot() {
+    let mut runtime =
+        SpectrumPlusRuntime::new(Model::SpectrumPlus2A, SpectrumPlus::new(PlusModel::Plus2A));
+    run_one_frame_with_inputs(&mut runtime, TIMING_PLUS2A.halfcycles_per_frame, &[]);
+    snapshot_round_trip_is_fixed_point(&mut runtime, || {
+        SpectrumPlusRuntime::new(Model::SpectrumPlus2A, SpectrumPlus::new(PlusModel::Plus2A))
+    });
+}
+
+#[test]
+fn spectrum_plus2b_runtime_runs_frame_and_resets() {
+    let mut runtime =
+        SpectrumPlusRuntime::new(Model::SpectrumPlus2B, SpectrumPlus::new(PlusModel::Plus2B));
+    run_one_frame_with_inputs(&mut runtime, TIMING_PLUS2A.halfcycles_per_frame, &[]);
+    load_tape_into_runtime(&mut runtime, &minimal_tap());
+    runtime.reset(ResetKind::Hard);
+    assert_eq!(runtime.time(), MachineTime::default());
+}
+
+#[test]
+fn spectrum_plus3_runtime_runs_frame_loads_tape_and_resets() {
+    let mut runtime =
+        SpectrumPlusRuntime::new(Model::SpectrumPlus3, SpectrumPlus::new(PlusModel::Plus3));
+    run_one_frame_with_inputs(&mut runtime, TIMING_PLUS2A.halfcycles_per_frame, &[]);
+    load_tape_into_runtime(&mut runtime, &minimal_tap());
+    runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Start,
+        )))
+        .expect("+3 tape transport start should succeed");
+    runtime.reset(ResetKind::Hard);
+    assert_eq!(runtime.time(), MachineTime::default());
+}
+
+#[test]
+fn spectrum_plus3_runtime_round_trips_through_snapshot() {
+    let mut runtime =
+        SpectrumPlusRuntime::new(Model::SpectrumPlus3, SpectrumPlus::new(PlusModel::Plus3));
+    run_one_frame_with_inputs(&mut runtime, TIMING_PLUS2A.halfcycles_per_frame, &[]);
+    snapshot_round_trip_is_fixed_point(&mut runtime, || {
+        SpectrumPlusRuntime::new(Model::SpectrumPlus3, SpectrumPlus::new(PlusModel::Plus3))
+    });
+}
+
+#[test]
+fn spectrum_plus3_runtime_rejects_malformed_disk_image() {
+    let mut runtime =
+        SpectrumPlusRuntime::new(Model::SpectrumPlus3, SpectrumPlus::new(PlusModel::Plus3));
+    let mut media = MediaSet::new();
+    let bogus = vec![0u8; 32];
+    media.push(MediaImage::new("disk-a", MediaKind::Disk, &bogus));
+
+    let err = runtime
+        .load_media(&media)
+        .expect_err("Plus3 must reject malformed DSK bytes");
+    assert!(matches!(err, MachineError::InvalidMedia { .. }));
+}
+
+#[test]
+fn pentagon_128_runtime_loads_tape_resets_and_round_trips() {
+    let mut runtime = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    run_one_frame_with_inputs(&mut runtime, TIMING_PENTAGON.halfcycles_per_frame, &[]);
+    load_tape_into_runtime(&mut runtime, &minimal_tap());
+    runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Start,
+        )))
+        .expect("Pentagon tape transport start should succeed");
+    runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Stop,
+        )))
+        .expect("Pentagon tape transport stop should succeed");
+    runtime.reset(ResetKind::Hard);
+    assert_eq!(runtime.time(), MachineTime::default());
+
+    let mut runtime = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    run_one_frame_with_inputs(&mut runtime, TIMING_PENTAGON.halfcycles_per_frame, &[]);
+    snapshot_round_trip_is_fixed_point(&mut runtime, || {
+        Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new())
+    });
+}
+
+#[test]
+fn pentagon_128_runtime_rejects_disk_slot_via_default_supports_disk_slot() {
+    // Pentagon does not override `supports_disk_slot`; the default
+    // returns `false`, which sends every disk slot down the
+    // `UnknownMediaSlot` path in `MachineCore::load_media`.
+    let mut runtime = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("disk-a", MediaKind::Disk, &[0u8; 16]));
+
+    let err = runtime
+        .load_media(&media)
+        .expect_err("Pentagon has no drive — disk slots must be unknown");
+    assert!(matches!(err, MachineError::UnknownMediaSlot { .. }));
+}
+
+#[test]
+fn scorpion_runtime_loads_tape_drives_transport_and_resets() {
+    let mut runtime = ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new());
+    run_one_frame_with_inputs(&mut runtime, TIMING_SCORPION.halfcycles_per_frame, &[]);
+    load_tape_into_runtime(&mut runtime, &minimal_tap());
+    runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Start,
+        )))
+        .expect("Scorpion tape transport start should succeed");
+    runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Stop,
+        )))
+        .expect("Scorpion tape transport stop should succeed");
+    runtime.reset(ResetKind::Hard);
+    assert_eq!(runtime.time(), MachineTime::default());
+}
+
+#[test]
+fn timex_tc2048_runtime_loads_tape_resets_and_round_trips() {
+    run_with_large_stack(|| {
+        let mut runtime = TimexTC2048Runtime::new(Model::TimexTC2048, TimexTC2048::new());
+        run_one_frame_with_inputs(&mut runtime, TIMING_48K.halfcycles_per_frame, &[]);
+        load_tape_into_runtime(&mut runtime, &minimal_tap());
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Start,
+            )))
+            .expect("TC2048 tape transport start should succeed");
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Stop,
+            )))
+            .expect("TC2048 tape transport stop should succeed");
+        runtime.reset(ResetKind::Hard);
+        assert_eq!(runtime.time(), MachineTime::default());
+
+        let mut runtime = TimexTC2048Runtime::new(Model::TimexTC2048, TimexTC2048::new());
+        run_one_frame_with_inputs(&mut runtime, TIMING_48K.halfcycles_per_frame, &[]);
+        snapshot_round_trip_is_fixed_point(&mut runtime, || {
+            TimexTC2048Runtime::new(Model::TimexTC2048, TimexTC2048::new())
+        });
+    });
+}
+
+#[test]
+fn timex_tc2068_runtime_runs_pal_frame_length_and_round_trips() {
+    run_with_large_stack(|| {
+        let mut runtime =
+            TimexTS2068Runtime::new(Model::TimexTC2068, TimexTS2068::new(TimexModel::TC2068));
+        run_one_frame_with_inputs(&mut runtime, TIMING_48K.halfcycles_per_frame, &[]);
+        load_tape_into_runtime(&mut runtime, &minimal_tap());
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Start,
+            )))
+            .expect("TC2068 tape transport start should succeed");
+        runtime.reset(ResetKind::Hard);
+        assert_eq!(runtime.time(), MachineTime::default());
+
+        let mut runtime =
+            TimexTS2068Runtime::new(Model::TimexTC2068, TimexTS2068::new(TimexModel::TC2068));
+        run_one_frame_with_inputs(&mut runtime, TIMING_48K.halfcycles_per_frame, &[]);
+        snapshot_round_trip_is_fixed_point(&mut runtime, || {
+            TimexTS2068Runtime::new(Model::TimexTC2068, TimexTS2068::new(TimexModel::TC2068))
+        });
+    });
+}
+
+#[test]
+fn timex_ts2068_runtime_loads_tape_resets_and_round_trips() {
+    run_with_large_stack(|| {
+        let mut runtime =
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        run_one_frame_with_inputs(&mut runtime, TIMING_TS2068.halfcycles_per_frame, &[]);
+        load_tape_into_runtime(&mut runtime, &minimal_tap());
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Start,
+            )))
+            .expect("TS2068 tape transport start should succeed");
+        runtime
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                "tape-1",
+                MediaTransportAction::Stop,
+            )))
+            .expect("TS2068 tape transport stop should succeed");
+        runtime.reset(ResetKind::Hard);
+        assert_eq!(runtime.time(), MachineTime::default());
+
+        let mut runtime =
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        run_one_frame_with_inputs(&mut runtime, TIMING_TS2068.halfcycles_per_frame, &[]);
+        snapshot_round_trip_is_fixed_point(&mut runtime, || {
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068))
+        });
+    });
+}
+
+// Cross-variant snapshot mismatch: a snapshot captured against the
+// 128K profile should refuse to restore into a Pentagon runtime, even
+// though both wrap the same Z80 / AY infrastructure. This drives the
+// `decode` profile-id check on a non-48K pair so the generic envelope
+// is exercised end-to-end.
+#[test]
+fn snapshot_refuses_to_restore_across_variants() {
+    let mut source = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    run_one_frame_with_inputs(&mut source, TIMING_128K.halfcycles_per_frame, &[]);
+    let bytes = source.snapshot().expect("source snapshot should encode");
+
+    let mut target = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    let err = target
+        .restore(&bytes)
+        .expect_err("128K snapshot must not restore into Pentagon runtime");
+    assert!(matches!(err, MachineError::InvalidSnapshot { .. }));
+}
+
+#[test]
+fn variant_runtime_rejects_unknown_tape_slot() {
+    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    let mut media = MediaSet::new();
+    let tap = minimal_tap();
+    media.push(MediaImage::new("tape-99", MediaKind::Tape, &tap));
+
+    let err = runtime
+        .load_media(&media)
+        .expect_err("only `tape-1` is recognised");
+    assert!(matches!(err, MachineError::UnknownMediaSlot { ref slot } if slot == "tape-99"));
+}
+
+#[test]
+fn variant_runtime_rejects_unsupported_media_kind() {
+    let mut runtime = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("cart-1", MediaKind::Cartridge, &[0u8; 8]));
+
+    let err = runtime
+        .load_media(&media)
+        .expect_err("Spectrum runtimes do not accept cartridge-kind media");
+    assert!(matches!(err, MachineError::UnsupportedMediaKind { .. }));
+}
+
+#[test]
+fn variant_runtime_rejects_unknown_transport_slot() {
+    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    let err = runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-9",
+            MediaTransportAction::Start,
+        )))
+        .expect_err("transport command on unknown slot must fail");
+    assert!(matches!(err, MachineError::UnknownMediaSlot { .. }));
+}
+
+#[test]
+fn each_variant_accepts_tzx_via_runtime() {
+    // Drives the `load_tape_stream` arm of each `SpectrumMachine`
+    // impl. Tape-only variants share the path; the SpectrumPlus impl
+    // covers all three Plus models since they reuse the same machine
+    // type.
+    let mut runtime128 = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    load_tape_into_runtime(&mut runtime128, &minimal_tzx());
+
+    let mut plus2a =
+        SpectrumPlusRuntime::new(Model::SpectrumPlus2A, SpectrumPlus::new(PlusModel::Plus2A));
+    load_tape_into_runtime(&mut plus2a, &minimal_tzx());
+
+    let mut pentagon = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    load_tape_into_runtime(&mut pentagon, &minimal_tzx());
+
+    let mut scorpion = ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new());
+    load_tape_into_runtime(&mut scorpion, &minimal_tzx());
+
+    run_with_large_stack(|| {
+        let mut tc2048 = TimexTC2048Runtime::new(Model::TimexTC2048, TimexTC2048::new());
+        load_tape_into_runtime(&mut tc2048, &minimal_tzx());
+
+        let mut ts2068 =
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        load_tape_into_runtime(&mut ts2068, &minimal_tzx());
+    });
+}
+
+#[test]
+fn variant_runtime_capabilities_reflects_profile() {
+    let runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    let caps = runtime.capabilities();
+    // The 128K profile bundles both AY audio and banked memory; both
+    // come from the shared `ay_capabilities()` constructor.
+    assert!(caps.contains(&known_capability("ay-audio")));
+    assert!(caps.contains(&known_capability("banked-memory")));
 }

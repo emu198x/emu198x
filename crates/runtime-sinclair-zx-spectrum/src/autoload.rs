@@ -272,4 +272,152 @@ mod tests {
 
         assert!(basic_prompt_ready(&session).expect("prompt query should succeed"));
     }
+
+    /// Provider that reports both a detected boot status and a row-23
+    /// prompt of literal "K". Used to drive the full autoload success
+    /// path without needing a real ROM.
+    struct ReadyPromptProvider;
+
+    impl SessionQueryProvider<Spectrum48kRuntime> for ReadyPromptProvider {
+        fn query_paths(&self, _machine: &Spectrum48kRuntime, _prefix: Option<&str>) -> Vec<String> {
+            vec![
+                "boot.detected".to_owned(),
+                "boot.reason".to_owned(),
+                "boot.row".to_owned(),
+                "screen.text.lines".to_owned(),
+            ]
+        }
+
+        fn query(
+            &self,
+            _machine: &Spectrum48kRuntime,
+            path: &str,
+        ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
+            let value = match path {
+                "boot.detected" => json!(true),
+                "boot.reason" => json!("found copyright banner on row 23"),
+                "boot.row" => json!(23),
+                "screen.text.lines" => {
+                    let mut lines = vec![" ".repeat(32); 24];
+                    lines[BASIC_PROMPT_ROW] = "K                               ".to_owned();
+                    json!(lines)
+                }
+                _ => return Ok(None),
+            };
+            Ok(Some(QueryResult {
+                path: path.to_owned(),
+                value,
+            }))
+        }
+    }
+
+    /// Provider returning a non-K prompt so we can drive the
+    /// `PromptNotReady` error arm. Reports boot detected so
+    /// `wait_for_boot` returns immediately.
+    struct StuckPromptProvider;
+
+    impl SessionQueryProvider<Spectrum48kRuntime> for StuckPromptProvider {
+        fn query_paths(&self, _machine: &Spectrum48kRuntime, _prefix: Option<&str>) -> Vec<String> {
+            vec![
+                "boot.detected".to_owned(),
+                "screen.text.lines".to_owned(),
+            ]
+        }
+
+        fn query(
+            &self,
+            _machine: &Spectrum48kRuntime,
+            path: &str,
+        ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
+            let value = match path {
+                "boot.detected" => json!(true),
+                "screen.text.lines" => {
+                    // Every row shows "X" — no K prompt anywhere.
+                    let lines = vec!["X".repeat(32); 24];
+                    json!(lines)
+                }
+                _ => return Ok(None),
+            };
+            Ok(Some(QueryResult {
+                path: path.to_owned(),
+                value,
+            }))
+        }
+    }
+
+    fn loaded_runtime() -> Spectrum48kRuntime {
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new(
+            "sinclair-zx-spectrum-48k-rom",
+            &[0; 16 * 1024],
+        ));
+        let mut runtime =
+            Spectrum48kRuntime::from_firmware(&firmware).expect("dummy firmware should boot");
+        // Minimal 19-byte tape header so `tape_is_loaded()` returns true.
+        let blocks = vec![common_sinclair_zx_spectrum::tape::TapeBlock {
+            flag: 0x00,
+            data: vec![0u8; 19],
+        }];
+        runtime.machine_mut().load_tape_blocks(blocks);
+        runtime
+    }
+
+    #[test]
+    fn autoload_rejects_unsupported_slot() {
+        let runtime = loaded_runtime();
+        let mut session =
+            HeadlessSession::new_with_query_provider(runtime, 1, SpectrumSessionQueryProvider);
+
+        let err = autoload_basic_tape(&mut session, "tape-9", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+            .expect_err("autoload should reject non-default slots");
+        match err {
+            SpectrumAutoloadError::UnsupportedSlot { expected, actual } => {
+                assert_eq!(expected, DEFAULT_TAPE_AUTOLOAD_SLOT);
+                assert_eq!(actual, "tape-9");
+            }
+            other => panic!("expected UnsupportedSlot, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn autoload_runs_through_to_tape_transport_start() {
+        // Drives the full happy path: boot wait, prompt-K detection,
+        // LOAD"" key sequence, and tape transport command.
+        let runtime = loaded_runtime();
+        let mut session = HeadlessSession::new_with_query_provider(runtime, 1, ReadyPromptProvider);
+
+        let result = autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+        )
+        .expect("autoload should drive the full success path");
+
+        assert_eq!(result.slot, DEFAULT_TAPE_AUTOLOAD_SLOT);
+        assert_eq!(result.boot.row, Some(23));
+        assert!(session.machine().machine().tape_is_playing());
+    }
+
+    #[test]
+    fn autoload_reports_prompt_not_ready_when_row_23_is_not_k() {
+        let runtime = loaded_runtime();
+        let mut session = HeadlessSession::new_with_query_provider(runtime, 1, StuckPromptProvider);
+
+        let err = autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+        )
+        .expect_err("autoload must refuse to type into a non-K prompt");
+
+        match err {
+            SpectrumAutoloadError::PromptNotReady { line } => {
+                assert!(
+                    line.starts_with('X'),
+                    "PromptNotReady should carry the decoded row, got {line:?}"
+                );
+            }
+            other => panic!("expected PromptNotReady, got {other:?}"),
+        }
+    }
 }

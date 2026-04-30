@@ -324,3 +324,25 @@ impl MachineCore for GameBoyRuntime {
         self.profile.capabilities.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{GameBoyRuntime, ResetKind};
+    use crate::Model;
+    use emu198x_shell::MachineCore;
+
+    /// `rebuild_machine` returns through its `Err` arm when the
+    /// cartridge bytes recorded by a previous load no longer parse
+    /// as a Game Boy ROM. Drive that arm by surgically poking
+    /// invalid bytes through the `pub(crate)` setter and then
+    /// calling `reset` — the runtime should clear both the machine
+    /// and the cartridge bytes rather than panic.
+    #[test]
+    fn reset_clears_state_when_cartridge_bytes_no_longer_parse() {
+        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
+        runtime.set_cartridge_bytes(Some(vec![0xDE, 0xAD, 0xBE, 0xEF]));
+        runtime.reset(ResetKind::Hard);
+        assert!(runtime.machine().is_none());
+        assert!(runtime.cartridge_bytes().is_none());
+    }
+}

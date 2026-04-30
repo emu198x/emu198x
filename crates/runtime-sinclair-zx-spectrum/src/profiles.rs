@@ -454,4 +454,66 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn model_id_is_unique_and_stable_for_every_variant() {
+        // Every entry in the catalogue exposes a `model_id` distinct
+        // from the corresponding `profile_id`. Pre-Cov-5b nothing called
+        // `Model::model_id`, so the match arms had no coverage.
+        let models = [
+            Model::Spectrum48KPal,
+            Model::Spectrum128KPal,
+            Model::SpectrumPlus2,
+            Model::SpectrumPlus2A,
+            Model::SpectrumPlus2B,
+            Model::SpectrumPlus3,
+            Model::Pentagon128,
+            Model::ScorpionZS256,
+            Model::TimexTC2048,
+            Model::TimexTC2068,
+            Model::TimexTS2068,
+        ];
+        let mut ids: Vec<&'static str> = models.iter().map(|m| m.model_id()).collect();
+        let count_before = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), count_before, "model ids must be unique");
+        // Spot-check an obvious one to defend against an accidental
+        // global rename.
+        assert_eq!(Model::Spectrum48KPal.model_id(), "sinclair-zx-spectrum-48k");
+    }
+
+    #[test]
+    fn release_year_covers_every_documented_variant() {
+        // 1982-1991 covers the entire family — 1983 is the earliest
+        // (Timex) and 1991 is the latest (Scorpion ZS-256). Without this
+        // test the standalone TimexTC2068/Plus2B/Pentagon arms never run.
+        assert_eq!(Model::Spectrum48KPal.release_year(), 1982);
+        assert_eq!(Model::TimexTC2068.release_year(), 1983);
+        assert_eq!(Model::TimexTS2068.release_year(), 1983);
+        assert_eq!(Model::Spectrum128KPal.release_year(), 1985);
+        assert_eq!(Model::TimexTC2048.release_year(), 1985);
+        assert_eq!(Model::SpectrumPlus2.release_year(), 1986);
+        assert_eq!(Model::SpectrumPlus2A.release_year(), 1986);
+        assert_eq!(Model::SpectrumPlus3.release_year(), 1986);
+        assert_eq!(Model::SpectrumPlus2B.release_year(), 1988);
+        assert_eq!(Model::Pentagon128.release_year(), 1989);
+        assert_eq!(Model::ScorpionZS256.release_year(), 1991);
+    }
+
+    #[test]
+    fn display_name_returns_a_human_readable_string_per_variant() {
+        // Drives every arm of `display_name`.
+        assert_eq!(Model::Spectrum48KPal.display_name(), "ZX Spectrum 48K (PAL)");
+        assert_eq!(Model::Spectrum128KPal.display_name(), "ZX Spectrum 128K (PAL)");
+        assert_eq!(Model::SpectrumPlus2.display_name(), "ZX Spectrum +2 (PAL)");
+        assert_eq!(Model::SpectrumPlus2A.display_name(), "ZX Spectrum +2A (PAL)");
+        assert_eq!(Model::SpectrumPlus2B.display_name(), "ZX Spectrum +2B (PAL)");
+        assert_eq!(Model::SpectrumPlus3.display_name(), "ZX Spectrum +3 (PAL)");
+        assert_eq!(Model::Pentagon128.display_name(), "Pentagon 128");
+        assert_eq!(Model::ScorpionZS256.display_name(), "Scorpion ZS-256");
+        assert_eq!(Model::TimexTC2048.display_name(), "Timex TC2048");
+        assert_eq!(Model::TimexTC2068.display_name(), "Timex TC2068");
+        assert_eq!(Model::TimexTS2068.display_name(), "Timex TS2068 (NTSC)");
+    }
 }

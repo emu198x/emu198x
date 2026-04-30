@@ -150,4 +150,74 @@ mod tests {
         assert_eq!(profile.media_slots[0].id.as_ref(), "cartridge");
         assert_eq!(profile.media_slots[0].kind, MediaKind::Cartridge);
     }
+
+    /// Every supported model returns one match arm for each of
+    /// `model_id`, `profile_id`, `display_name`, `release_year`, and
+    /// `boot_profile`. One assert per arm catches a regression where
+    /// a rename or year-fix silently shifts a model boundary.
+    #[test]
+    fn every_model_has_consistent_metadata() {
+        let dmg0 = Model::Dmg0;
+        assert_eq!(dmg0.model_id(), "nintendo-game-boy-dmg0");
+        assert_eq!(dmg0.profile_id(), "nintendo-game-boy-dmg0");
+        assert_eq!(dmg0.display_name(), "Nintendo Game Boy (DMG0 boot profile)");
+        assert_eq!(dmg0.release_year(), 1989);
+        assert_eq!(dmg0.boot_profile(), BootProfile::Dmg0);
+
+        let dmg = Model::Dmg;
+        assert_eq!(dmg.model_id(), "nintendo-game-boy-dmg");
+        assert_eq!(dmg.profile_id(), "nintendo-game-boy-dmg");
+        assert_eq!(dmg.display_name(), "Nintendo Game Boy (DMG)");
+        assert_eq!(dmg.release_year(), 1989);
+        assert_eq!(dmg.boot_profile(), BootProfile::DmgAbc);
+
+        let mgb = Model::Mgb;
+        assert_eq!(mgb.model_id(), "nintendo-game-boy-mgb");
+        assert_eq!(mgb.profile_id(), "nintendo-game-boy-mgb");
+        assert_eq!(mgb.display_name(), "Nintendo Game Boy Pocket (MGB)");
+        assert_eq!(mgb.release_year(), 1996);
+        assert_eq!(mgb.boot_profile(), BootProfile::Mgb);
+
+        let sgb = Model::Sgb;
+        assert_eq!(sgb.model_id(), "nintendo-super-game-boy");
+        assert_eq!(sgb.profile_id(), "nintendo-super-game-boy");
+        assert_eq!(sgb.display_name(), "Nintendo Super Game Boy");
+        assert_eq!(sgb.release_year(), 1994);
+        assert_eq!(sgb.boot_profile(), BootProfile::Sgb);
+
+        let sgb2 = Model::Sgb2;
+        assert_eq!(sgb2.model_id(), "nintendo-super-game-boy-2");
+        assert_eq!(sgb2.profile_id(), "nintendo-super-game-boy-2");
+        assert_eq!(sgb2.display_name(), "Nintendo Super Game Boy 2");
+        assert_eq!(sgb2.release_year(), 1998);
+        assert_eq!(sgb2.boot_profile(), BootProfile::Sgb2);
+    }
+
+    /// `profiles()` returns the full catalogue — five models, each
+    /// with the GameBoy family marker. A regression where someone
+    /// drops a model from the vec should trip this immediately.
+    #[test]
+    fn profiles_returns_full_catalogue() {
+        let all = profiles();
+        assert_eq!(all.len(), 5);
+        for profile in &all {
+            assert_eq!(profile.machine_id.as_str(), "nintendo-game-boy");
+            assert_eq!(profile.family, Family::GameBoy);
+            assert_eq!(profile.region, Region::Other);
+            assert_eq!(profile.support_tier, SupportTier::Boots);
+            assert!(profile.firmware.is_empty());
+            assert_eq!(profile.media_slots.len(), 1);
+        }
+        let ids: Vec<&str> = all.iter().map(|p| p.profile_id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "nintendo-game-boy-dmg0",
+                "nintendo-game-boy-dmg",
+                "nintendo-game-boy-mgb",
+                "nintendo-super-game-boy",
+                "nintendo-super-game-boy-2",
+            ],
+        );
+    }
 }

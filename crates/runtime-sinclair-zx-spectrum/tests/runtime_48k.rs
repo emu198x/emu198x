@@ -4,7 +4,7 @@ use emu198x_shell::{
     AudioPacket, AudioSink, ControlCommand, FirmwareImage, FirmwareSet, FramePacket, FrameSink,
     HeadlessSession, HostIo, InputEvent, MachineCore, MachineError, MachineTime, MediaImage,
     MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
-    SessionQueryProvider, read_media_asset,
+    ResetKind, SessionQueryProvider, read_media_asset,
 };
 use runtime_sinclair_zx_spectrum::*;
 use std::fs;
@@ -600,6 +600,144 @@ fn minimal_tap() -> Vec<u8> {
     tap.extend_from_slice(&[0; 17]);
     tap.push(0x00);
     tap
+}
+
+fn minimal_tzx() -> Vec<u8> {
+    // ZXTape! 0x1A signature + version 1.20, no body.
+    let mut tzx = b"ZXTape!\x1a".to_vec();
+    tzx.push(1);
+    tzx.push(20);
+    tzx
+}
+
+#[test]
+fn runtime_loads_tzx_media_into_tape_slot() {
+    // Exercises the TZX dispatch arm in `runtime::load_tape_bytes`,
+    // which wasn't covered by the existing TAP-only test. The empty
+    // TZX header parses to a zero-span stream — the runtime accepts
+    // it without error, which is the path under test.
+    let mut runtime =
+        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let tzx = minimal_tzx();
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("tape-1", MediaKind::Tape, &tzx));
+
+    runtime
+        .load_media(&media)
+        .expect("valid TZX should load into the runtime");
+}
+
+#[test]
+fn runtime_rejects_malformed_tap_bytes() {
+    let mut runtime =
+        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    // Two bytes total — claims a 19-byte block but the body is missing.
+    let bogus = vec![0x13u8, 0x00];
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("tape-1", MediaKind::Tape, &bogus));
+
+    let err = runtime
+        .load_media(&media)
+        .expect_err("truncated TAP must surface as InvalidMedia");
+    assert!(matches!(err, MachineError::InvalidMedia { ref slot, .. } if slot == "tape-1"));
+}
+
+#[test]
+fn runtime_rejects_malformed_tzx_bytes() {
+    let mut runtime =
+        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    // ZXTape! header but missing version bytes.
+    let bogus: Vec<u8> = b"ZXTape!\x1a".to_vec();
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("tape-1", MediaKind::Tape, &bogus));
+
+    let err = runtime
+        .load_media(&media)
+        .expect_err("truncated TZX header must surface as InvalidMedia");
+    assert!(matches!(err, MachineError::InvalidMedia { .. }));
+}
+
+#[test]
+fn runtime_rejects_disk_slot_on_48k() {
+    // 48K has no disk interface; the default `supports_disk_slot`
+    // returns false, sending every disk slot down the
+    // `UnknownMediaSlot` path.
+    let mut runtime =
+        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("disk-a", MediaKind::Disk, &[0u8; 16]));
+
+    let err = runtime
+        .load_media(&media)
+        .expect_err("48K runtime has no disk interface");
+    assert!(matches!(err, MachineError::UnknownMediaSlot { .. }));
+}
+
+#[test]
+fn runtime_rejects_unsupported_media_kind() {
+    let mut runtime =
+        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("cart-1", MediaKind::Cartridge, &[0u8; 8]));
+
+    let err = runtime
+        .load_media(&media)
+        .expect_err("48K runtime has no cartridge slot");
+    assert!(matches!(err, MachineError::UnsupportedMediaKind { .. }));
+}
+
+#[test]
+fn runtime_reset_clears_time_and_keyboard_matrix() {
+    let mut runtime =
+        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let inputs = [InputEvent::Key {
+        name: "q".into(),
+        pressed: true,
+    }];
+    let mut frame_sink = RecordingFrameSink::default();
+    let mut audio_sink = RecordingAudioSink::default();
+    let mut trace_sink = NullTraceSink;
+    let mut host = HostIo {
+        input_events: &inputs,
+        frame_sink: &mut frame_sink,
+        audio_sink: &mut audio_sink,
+        trace_sink: &mut trace_sink,
+    };
+    runtime
+        .run_until(
+            MachineTime::new(u64::from(TIMING_48K.halfcycles_per_frame)),
+            &mut host,
+        )
+        .expect("one frame should run before reset");
+    assert!(runtime.time().get() > 0);
+
+    runtime.reset(ResetKind::Hard);
+
+    assert_eq!(runtime.time(), MachineTime::default());
+    // Keyboard matrix should have been cleared back to all-released.
+    assert_eq!(runtime.machine().read_fe(0xfbfe) & 0x01, 0x01);
+}
+
+#[test]
+fn runtime_rejects_unknown_transport_slot() {
+    let mut runtime =
+        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let err = runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-9",
+            MediaTransportAction::Start,
+        )))
+        .expect_err("transport command on unknown slot must fail");
+    assert!(matches!(err, MachineError::UnknownMediaSlot { ref slot } if slot == "tape-9"));
+}
+
+#[test]
+fn runtime_capabilities_advertise_snapshot_export() {
+    let runtime =
+        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let caps = runtime.capabilities();
+    assert!(caps.contains(&emu198x_shell::known_capability("snapshot-export")));
+    assert!(caps.contains(&emu198x_shell::known_capability("tape-input")));
 }
 
 fn spectrum_48k_rom_path() -> Option<PathBuf> {

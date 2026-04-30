@@ -84,7 +84,9 @@ pub(crate) fn decode(runtime: &mut AmigaRuntime, bytes: &[u8]) -> Result<(), Mac
     }
     runtime.set_ram_config(envelope.ram_config);
     runtime.set_time(envelope.time);
-    runtime.machine_mut().restore_snapshot_state(envelope.machine);
+    runtime
+        .machine_mut()
+        .restore_snapshot_state(envelope.machine);
     runtime.clear_floppy0_bytes();
     if let Some(bytes) = envelope.floppy0_bytes {
         runtime.insert_floppy_bytes_pub("floppy-0", &bytes)?;

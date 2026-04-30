@@ -290,6 +290,7 @@ mod tests {
     use super::*;
     use common_sinclair_zx_spectrum::memory::MemoryBus;
     use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
+    use emu198x_shell::FirmwareImage;
     use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 
     fn write_screen_cell(
@@ -353,5 +354,134 @@ mod tests {
         assert!(!status.detected);
         assert_eq!(status.row, None);
         assert_eq!(status.reason, "copyright banner not visible");
+    }
+
+    #[test]
+    fn from_firmware_rejects_missing_rom() {
+        // Empty firmware set — `validate_for_profile` flags the missing
+        // 48K ROM, which `from_firmware` then surfaces verbatim.
+        let firmware = FirmwareSet::new();
+        match SpectrumRuntime::<Spectrum48k>::from_firmware(&firmware) {
+            Err(MachineError::MissingFirmware { .. }) => {}
+            Err(other) => panic!("expected MissingFirmware, got {other:?}"),
+            Ok(_) => panic!("empty firmware set should fail to boot the 48K runtime"),
+        }
+    }
+
+    #[test]
+    fn from_firmware_reports_invalid_rom_when_size_mismatches() {
+        // Wrong-size ROM passes `validate_for_profile` (only the id is
+        // checked) but fails the `from_rom_bytes` round-trip — that's the
+        // InvalidFirmware arm.
+        let mut firmware = FirmwareSet::new();
+        let too_small = [0u8; 1024];
+        firmware.push(FirmwareImage::new("sinclair-zx-spectrum-48k-rom", &too_small));
+        match SpectrumRuntime::<Spectrum48k>::from_firmware(&firmware) {
+            Err(MachineError::InvalidFirmware { .. }) => {}
+            Err(other) => panic!("expected InvalidFirmware, got {other:?}"),
+            Ok(_) => panic!("wrong-size 48K ROM must be rejected"),
+        }
+    }
+
+    #[test]
+    fn from_rom_bytes_rejects_wrong_size_slice() {
+        match SpectrumRuntime::<Spectrum48k>::from_rom_bytes(&[0u8; 1024]) {
+            Err(RomImageError::WrongSize { actual }) => assert_eq!(actual, 1024),
+            Ok(_) => panic!("wrong-size slice must be rejected at construction time"),
+        }
+    }
+
+    #[test]
+    fn audio_controls_round_trip_through_runtime() {
+        let mut runtime = SpectrumRuntime::<Spectrum48k>::blank();
+        let mut controls = runtime.audio_controls();
+        controls.set_channel_gain(SpeakerChannel::Speaker, 0.125);
+        runtime.set_audio_controls(controls);
+        assert!(
+            (runtime
+                .audio_controls()
+                .channel(SpeakerChannel::Speaker)
+                .gain()
+                - 0.125)
+                .abs()
+                < f32::EPSILON
+        );
+    }
+
+    #[test]
+    fn decode_screen_char_returns_copyright_for_glyph_7f() {
+        // Build a glyph table where the glyph at index 0x7f - 0x20 (the
+        // last cell) is unique, then decode that exact cell. The arm
+        // around `ROM_TEXT_GLYPH_COPYRIGHT` returns '©'.
+        let mut glyphs = vec![[0u8; 8]; ROM_TEXT_GLYPH_COUNT];
+        let copyright_index = (ROM_TEXT_GLYPH_COPYRIGHT - ROM_TEXT_GLYPH_FIRST) as usize;
+        glyphs[copyright_index] = [0x3c, 0x42, 0x99, 0xa1, 0xa1, 0x99, 0x42, 0x3c];
+        assert_eq!(
+            decode_screen_char(&glyphs, glyphs[copyright_index]),
+            '©',
+            "the 0x7f arm should map to the unicode copyright sign"
+        );
+    }
+
+    #[test]
+    fn decode_screen_char_returns_question_mark_for_unknown_cell() {
+        // Empty glyph table → no match; trailing '?' fall-through.
+        let glyphs: Vec<[u8; 8]> = Vec::new();
+        let unique = [0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55];
+        assert_eq!(decode_screen_char(&glyphs, unique), '?');
+    }
+
+    #[test]
+    fn board_issue_name_round_trips_for_both_revisions() {
+        // Issue3 is exercised by the standing 48K runtime; Issue2 was
+        // never read by a test before Cov-5b.
+        assert_eq!(board_issue_name(BoardIssue::Issue2), "issue2");
+        assert_eq!(board_issue_name(BoardIssue::Issue3), "issue3");
+    }
+
+    #[test]
+    fn query_provider_resolves_boot_reason_and_row_paths() {
+        // The `boot.detected` arm is exercised by tests/runtime_48k.rs;
+        // the `boot.reason` and `boot.row` arms had no test before.
+        let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+            .expect("dummy ROM should construct");
+        let provider = SpectrumSessionQueryProvider;
+
+        let reason = provider
+            .query(&runtime, "boot.reason")
+            .expect("boot.reason should resolve")
+            .expect("boot.reason should be owned by the provider");
+        let row = provider
+            .query(&runtime, "boot.row")
+            .expect("boot.row should resolve")
+            .expect("boot.row should be owned by the provider");
+
+        assert_eq!(reason.value, json!("copyright banner not visible"));
+        assert_eq!(row.value, serde_json::Value::Null);
+    }
+
+    #[test]
+    fn query_provider_returns_none_for_unrecognised_path() {
+        // The unknown-path arm in `query` returns `Ok(None)` so the
+        // session layer can report `UnknownPath`.
+        let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+            .expect("dummy ROM should construct");
+        let provider = SpectrumSessionQueryProvider;
+
+        let result = provider
+            .query(&runtime, "no.such.path")
+            .expect("unknown paths should resolve cleanly");
+        assert!(result.is_none(), "unknown paths must surface as Ok(None)");
+    }
+
+    #[test]
+    fn boots_profile_with_export_promotes_support_tier_and_capabilities() {
+        use emu198x_shell::MachineCore;
+        let runtime = Spectrum48kRuntime::blank();
+        let caps = runtime.profile().capabilities.clone();
+        // The bespoke 48K profile bumps the support tier and advertises
+        // snapshot-export beyond the base profile_for(...) bundle.
+        assert_eq!(runtime.profile().support_tier, SupportTier::Boots);
+        assert!(caps.contains(&known_capability("snapshot-export")));
     }
 }

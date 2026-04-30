@@ -58,4 +58,3 @@ fn button_bit(name: &str) -> Option<u8> {
         _ => return None,
     })
 }
-

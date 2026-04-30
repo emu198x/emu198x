@@ -14,8 +14,8 @@ use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
-    MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction, PixelFormat,
-    ResetKind, RunResult, StopReason,
+    MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction, PixelFormat, ResetKind,
+    RunResult, StopReason,
 };
 use serde::{Deserialize, Serialize};
 

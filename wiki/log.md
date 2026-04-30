@@ -4,6 +4,108 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-30 — Cov-5b: directed-test passes across the runtime family
+
+**Type:** test (Cov-5b — Cov-4-style directed-test passes for the four other runtimes)
+**Trigger:** Cov-4 took the C64 from "1225 uncovered lines" (one undifferentiated number) to per-module gaps that were actionable, and added ~31 directed tests that hit specific gaps. The other four runtimes (GB, NES, Amiga, Spectrum) were now in the same shape as pre-Cov-4 C64 — split into per-concern modules but with no directed-test pass yet. Total uncovered across the four: **763 lines**.
+
+**Result:** Four parallel agent runs, one per runtime. **132 directed tests added across the family.** Total uncovered lines **763 → 109** (~85% reduction). Honest exclusions documented.
+
+### Summary across the family
+
+| Runtime | Before | After | Tests added | Biggest single win |
+|---|---|---|---|---|
+| GB | 86 | **10** | 18 | runtime.rs 79% → 97% lines, 85% → 100% funcs |
+| NES | 107 | **2** | 32 | queries.rs 55% → **100%** lines, 36% → **100%** funcs |
+| Amiga | 274 | **28** | 30 | queries.rs 8% → **80%** lines, 14% → **86%** funcs |
+| Spectrum | 296 | **~69** | 52 | variants.rs 49% → **99.55%** lines, 49% → **100%** funcs |
+
+Per-module before / after summaries follow.
+
+### Game Boy (`runtime-nintendo-game-boy`)
+
+| File | Before lines | After lines | Before funcs | After funcs |
+|---|---|---|---|---|
+| input.rs | 91.89% | 91.89% (unchanged per mandate) | 100% | 100% |
+| profiles.rs | 67.78% | **100%** | 75% | **100%** |
+| queries.rs | 90.00% | **95.83%** | 83.33% | **100%** |
+| runtime.rs | 79.17% | **96.86%** | 84.85% | **100%** |
+| snapshot.rs | 86.84% | **89.09%** | 75% | **80%** |
+
+18 tests: 4 inline in `queries.rs` (unknown-path, UnavailablePath, query_paths catalogue, prefix filter), 1 inline in `snapshot.rs` (version-rejection by hand-crafting a v999 envelope), 2 inline in `profiles.rs` (catalogue + per-variant metadata), 1 inline in `runtime.rs` (rebuild Err arm via injected garbage), 10 in `tests/lifecycle.rs` (audio controls / cartridge-RAM restore rejection / load_media error paths / reset / capabilities).
+
+### NES (`runtime-nintendo-nes`)
+
+| File | Before lines | After lines | Before funcs | After funcs |
+|---|---|---|---|---|
+| input.rs | 67.57% | **100%** | 100% | 100% |
+| profiles.rs | 100% | 100% | 100% | 100% |
+| queries.rs | 54.76% | **100%** | 36.36% | **100%** |
+| runtime.rs | 72.16% | **100%** | 74.07% | **100%** |
+| snapshot.rs | 73.33% | **93.33%** | 50% | **75%** |
+
+32 tests: 6 in `tests/queries.rs` (walk-every-path with and without cartridge — drives the entire match ladder; `blargg_text` whitespace + non-printable arms), 13 in `tests/lifecycle.rs` (lifecycle accessors, run_until WaitingForInput, three load_media error arms, reset rebuild paths, MachineCore impls, every input.rs button-name arm), 5 in `tests/snapshot_roundtrip.rs` (blank-runtime snapshot, corrupt bytes, empty slice, version mismatch, framebuffer repopulation post-restore).
+
+### Amiga (`runtime-commodore-amiga`)
+
+| File | Before lines | After lines | Before funcs | After funcs |
+|---|---|---|---|---|
+| input.rs | 74.16% | **100%** | 66.67% | **100%** |
+| profiles.rs | 95.05% | **100%** | 100% | 100% |
+| queries.rs | **7.95%** | **79.55%** | **14.29%** | **85.71%** |
+| runtime.rs | 56.16% | **97.60%** | 62.26% | **98.11%** |
+| snapshot.rs | 67.80% | **96.61%** | 50% | **75%** |
+
+30 tests: 10 in `tests/queries.rs` (walk-every-path with/without floppy, boot-status arms, prefix filters, frame_count, disk.inserted), 18 in `tests/lifecycle.rs` (MachineCore accessors, reset rebuilds & re-mounts persisted floppy, A1000 boot-rom-visible, command rejection, load_media unsupported-kind / invalid-ADF, missing/wrong-size firmware errors, all 5 `AmigaRuntime::blank()` constructors, audio controls, zero-target run, keyboard `raw-XX` arms, mouse-vs-pointer wildcard arm), 2 in `tests/snapshot_roundtrip.rs` (version mismatch by patching the postcard varint, persisted-floppy round-trip).
+
+### Spectrum (`runtime-sinclair-zx-spectrum`)
+
+| File | Before lines | After lines | Before funcs | After funcs |
+|---|---|---|---|---|
+| autoload.rs | 44.23% | **85.71%** | 70% | **83.33%** |
+| input.rs | 100% | 100% | 100% | 100% |
+| profiles.rs | 95.44% | **100%** | 93.75% | **100%** |
+| runtime.rs | 72.47% | **94.38%** | 75.86% | **96.55%** |
+| snapshot.rs | 65.91% | **91.84%** | 50% | **88.89%** |
+| spectrum_48k.rs | 92.20% | **96.66%** | 85.19% | **97.30%** |
+| variants.rs | **49.33%** | **99.55%** | **48.61%** | **100%** |
+
+52 tests: 25 in `tests/variants.rs` (per-variant smoke matrix — for each of the 7 variants: frame run + tape load + transport (start/stop) + reset + snapshot round-trip; cross-variant snapshot mismatch; disk-rejection on Pentagon/Plus3; TZX load on every variant; capabilities advertisement), 8 in `tests/runtime_48k.rs` (TZX dispatch arm, malformed-TAP/TZX rejection, disk-slot rejection on 48K, MachineCore::reset, unknown-transport-slot, capabilities), 9 inline in `spectrum_48k.rs` (firmware validation, audio controls, decode_screen_char copyright + question-mark, board-issue names, boot.* queries, unknown-path, capabilities), 4 inline in `snapshot.rs` (corrupt bytes, version mismatch, profile mismatch, non-48K Plus3 round-trip through generic envelope), 3 inline in `profiles.rs` (model_id uniqueness, release_year, display_name), 3 inline in `autoload.rs` (UnsupportedSlot, full success path with custom ReadyPromptProvider, PromptNotReady via StuckPromptProvider).
+
+**Per-variant coverage on Spectrum:** all 7 variants (Spectrum48k, 128K, +2A, +3, Pentagon128, Scorpion ZS-256, TimexTC2048, TimexTS2068) now have at least frame + reset + tape coverage. Six variants additionally have snapshot round-trip; the three Timex variants run their round-trips on a dedicated 8 MiB-stack thread because they hold 64 KiB of inline RAM that overflows the default test stack.
+
+### Honest exclusions (the remaining 109 missed lines)
+
+Unreachable through the public API or belt-and-braces error paths:
+- **postcard `to_allocvec` `map_err` closures** in all four runtimes' `snapshot.rs` (~8 lines total): postcard never fails for valid `Serialize` types we use.
+- **Boot-status active-display arms** in Amiga `queries.rs` (~13 lines): need real Kickstart ROM that programs the copper palette so Denise emits non-black pixels. Hermetic blank ROM loops at $F80008 and never colours the framebuffer. Covered by ROM-gated diag tests.
+- **Amiga `amiga.debug.last_dsk_write` closure** (~7 lines): needs CPU to write DSKLEN, only happens with real ROM code.
+- **`MissingFirmware` arms inside `from_firmware`** (Amiga ~2 lines, Spectrum ~2 lines): unreachable — `validate_for_profile` already errors first with the same variant.
+- **`MediaTransportAction::_` and `ControlCommand::_` wildcard arms** (~6 lines across the family): `non_exhaustive` enums whose only variants are already enumerated.
+- **`SpectrumMachine` trait defaults** for `supports_disk_slot` / `load_disk_image` (~6 lines): every concrete variant overrides through `MachineCore::load_media`.
+- **Test-fixture-only mock provider arms** in Spectrum `autoload.rs` (~12 lines): `query_paths` impls and `_ => Ok(None)` arms in `ReadyPromptProvider` / `StuckPromptProvider` — `wait_for_boot` uses `query()` not `query_paths()`.
+- **Audio-drain `loop` no-break path** in GB `runtime.rs` (~2 lines): requires `written == AUDIO_DRAIN_CHUNK == 4096`, but APU produces ~1600 stereo floats per frame at 60 Hz so the chunk is never full.
+- **Test panic-arms in match-blocks** (~4 lines across the family): `other => panic!(...)` regression guards inside test fixtures.
+- **Framebuffer-resize unreachable branch** in Amiga `runtime.rs` (~1 line): `DISPLAY_WIDTH * DISPLAY_HEIGHT * 4` is fixed at construction.
+
+### Verification
+
+- `cargo test -p runtime-nintendo-game-boy --lib --tests` — 11 lib + 20 lifecycle + 0/6 phase2 + 3 queries + 3 snapshot
+- `cargo test -p runtime-nintendo-nes --lib --tests` — 2 lib + 3/1 boot + 18/1 lifecycle + 8 queries + 6 snapshot
+- `cargo test -p runtime-commodore-amiga --lib --test lifecycle --test queries --test snapshot_roundtrip` — 5 lib + 30 + 13 + 6 (slow ROM-gated diag/golden/ram tests skipped — they didn't change)
+- `cargo test -p runtime-sinclair-zx-spectrum --lib --tests` — 28 lib + 3/1 boot + 18/5 runtime_48k + 30 variants
+- `cargo clippy -p runtime-nintendo-game-boy -p runtime-nintendo-nes -p runtime-commodore-amiga -p runtime-sinclair-zx-spectrum --all-targets -- -D warnings` — clean
+
+### What's next
+
+Cov-5 + Cov-5b close the directed-test track. Open queue:
+
+1. **Spectrum query-provider generalisation.** `spectrum_48k.rs` is 48K-only; the other 6 variants get nothing through `SessionQueryProvider`. Feature work, separate decision — not refactoring.
+2. **Amiga ECS/AGA/SAGA conversion.** When variant work begins, generalise `AmigaRuntime` to `AmigaRuntime<M: AmigaMachine>` per the Spectrum playbook in `wiki/decisions/runtime-internal-shape.md`. The four 68k variant crates (today honest skeletons) receive their first real implementations.
+3. **Cov-5c (potential).** No currently-uncovered runtime modules below 80% line coverage. Workspace-wide coverage check could surface other crates worth a Cov-4-style pass — but the immediate runtime-family work is done.
+
+---
+
 ## 2026-04-30 — Cov-5: reduce motorola-68000 to truly-M68000
 
 **Type:** refactor (architectural — finishing the work the 68k split deferred)

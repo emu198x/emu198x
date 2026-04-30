@@ -94,3 +94,96 @@ pub(crate) fn decode<M: SpectrumMachine>(
     runtime.machine_mut().set_keyboard_rows(&rows);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Model;
+    use crate::Spectrum48kRuntime;
+    use crate::variants::{Spectrum128kRuntime, SpectrumPlusRuntime};
+    use emu198x_shell::MachineCore;
+    use machine_sinclair_zx_spectrum_128k::Spectrum128K;
+    use machine_sinclair_zx_spectrum_plus::{Model as PlusModel, SpectrumPlus};
+
+    fn synthetic_envelope(profile_id: &str, version: u32) -> Vec<u8> {
+        // Hand-rolled v1 envelope around a default-constructed 128K so we
+        // can flip individual fields (version, profile_id) and exercise
+        // the corresponding decode error paths without needing to touch
+        // the real envelope schema.
+        let machine = Spectrum128K::new();
+        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV1 {
+            version,
+            profile_id,
+            time: MachineTime::default(),
+            keyboard_rows: [0xFF; 8],
+            machine: &machine,
+        })
+        .expect("synthetic envelope should encode")
+    }
+
+    #[test]
+    fn decode_rejects_completely_corrupt_bytes() {
+        let mut runtime = Spectrum48kRuntime::blank();
+        let err = runtime
+            .restore(&[0xFFu8; 8])
+            .expect_err("corrupt postcard bytes must not decode");
+        assert!(matches!(err, MachineError::InvalidSnapshot { .. }));
+    }
+
+    #[test]
+    fn decode_rejects_unsupported_snapshot_version() {
+        let bytes = synthetic_envelope(
+            Model::Spectrum128KPal.profile_id(),
+            SNAPSHOT_VERSION + 1,
+        );
+        let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+        let err = runtime
+            .restore(&bytes)
+            .expect_err("future snapshot versions must be rejected");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("unsupported snapshot version"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_rejects_profile_mismatch_within_generic_envelope() {
+        // Profile-id mismatch covers the generic decode arm without
+        // needing two physically-distinct machine types.
+        let bytes = synthetic_envelope("not-a-real-profile", SNAPSHOT_VERSION);
+        let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+        let err = runtime
+            .restore(&bytes)
+            .expect_err("profile-id mismatch must be rejected");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("snapshot profile") && reason.contains("does not match"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_and_decode_round_trip_on_plus_runtime() {
+        // Round-trips through the generic envelope on a non-128K, non-48K
+        // variant so the whole serde-generic path stays exercised even
+        // when the Plus3-specific runtime is constructed.
+        let runtime =
+            SpectrumPlusRuntime::new(Model::SpectrumPlus3, SpectrumPlus::new(PlusModel::Plus3));
+        let bytes = runtime.snapshot().expect("Plus3 snapshot should encode");
+
+        let mut restored =
+            SpectrumPlusRuntime::new(Model::SpectrumPlus3, SpectrumPlus::new(PlusModel::Plus3));
+        restored
+            .restore(&bytes)
+            .expect("Plus3 snapshot should round-trip through the generic envelope");
+    }
+}

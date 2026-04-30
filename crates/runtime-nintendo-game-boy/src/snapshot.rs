@@ -81,3 +81,39 @@ pub(crate) fn decode(runtime: &mut GameBoyRuntime, bytes: &[u8]) -> Result<(), M
     runtime.clear_audio_buffer();
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{GameBoyRuntimeSnapshotRefV1, decode};
+    use crate::{Model, runtime::GameBoyRuntime};
+    use emu198x_shell::{MachineError, MachineTime};
+
+    /// Decode rejects a snapshot whose version field is not the one
+    /// the runtime knows. We can't reach this via the public encode
+    /// path (which always writes `SNAPSHOT_VERSION`), so craft a
+    /// future-version envelope here and confirm the version check
+    /// fails before profile validation.
+    #[test]
+    fn decode_rejects_unsupported_version() {
+        let mut runtime = GameBoyRuntime::blank(Model::Dmg);
+        let bytes = postcard::to_allocvec(&GameBoyRuntimeSnapshotRefV1 {
+            version: 999,
+            profile_id: runtime.profile().profile_id.as_str(),
+            time: MachineTime::default(),
+            cartridge_bytes: None,
+            machine: None,
+        })
+        .expect("synthetic envelope should encode");
+
+        let err = decode(&mut runtime, &bytes).expect_err("future version should reject");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("unsupported snapshot version"),
+                    "unexpected reason: {reason}",
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+}

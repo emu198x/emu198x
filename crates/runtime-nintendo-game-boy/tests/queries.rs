@@ -55,8 +55,7 @@ fn query_provider_reports_loaded_state_and_cpu_pc() {
 #[test]
 fn headless_session_exposes_gameboy_queries() {
     let runtime = GameBoyRuntime::blank(Model::Dmg);
-    let session =
-        HeadlessSession::new_with_query_provider(runtime, 1, GameBoySessionQueryProvider);
+    let session = HeadlessSession::new_with_query_provider(runtime, 1, GameBoySessionQueryProvider);
     let paths = session.query_paths(Some("gameboy."));
     assert_eq!(
         paths.paths,

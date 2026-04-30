@@ -24,8 +24,10 @@
 use std::error::Error;
 
 use emu198x_shell::{
-    HostIo, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
+    HostIo, MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
+    NullFrameSink, NullTraceSink,
 };
+use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{AmigaRuntime, Model};
 
 fn blank_kickstart() -> Vec<u8> {
@@ -137,5 +139,58 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
     // mismatched length / shape and the restore returns an error.
     let result = runtime.restore(&[0xFFu8; 4]);
     assert!(result.is_err(), "garbage bytes should not restore");
+    Ok(())
+}
+
+/// Take a real snapshot, hand-patch the leading postcard varint version
+/// field to 99, and confirm the version-mismatch arm fires with a
+/// human-readable reason naming the snapshot version. The first byte
+/// of an `SnapshotEnvelopeV1` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 1` that byte is `0x01`.
+/// Replacing it with a single-byte value > 1 keeps the envelope
+/// length stable and lands us inside the explicit version-mismatch
+/// branch (rather than the postcard-parse-error branch above).
+#[test]
+fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
+    let runtime = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut bytes = runtime.snapshot()?;
+    assert_eq!(
+        bytes[0], 1,
+        "postcard varint for SNAPSHOT_VERSION = 1 should be 0x01"
+    );
+    bytes[0] = 99;
+
+    let mut other = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let err = other
+        .restore(&bytes)
+        .expect_err("version-99 snapshot should be rejected");
+    assert!(
+        matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("version")),
+        "expected version-mismatch reason, got {err:?}"
+    );
+    Ok(())
+}
+
+/// Snapshot taken with an ADF inserted into DF0 round-trips through
+/// restore — the `Some(bytes)` arm of `decode` re-mounts the disk via
+/// `insert_floppy_bytes_pub`. Without this test the floppy0 re-insert
+/// path stays uncovered.
+#[test]
+fn restore_remounts_persisted_floppy_image() -> Result<(), Box<dyn Error>> {
+    let mut runtime = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let disk = vec![0u8; ADF_SIZE_DD];
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
+    runtime.load_media(&media)?;
+    assert!(runtime.machine().drive().has_disk());
+
+    let snapshot = runtime.snapshot()?;
+
+    let mut restored = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+    assert!(
+        restored.machine().drive().has_disk(),
+        "restore should re-mount the persisted disk image"
+    );
     Ok(())
 }
