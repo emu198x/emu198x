@@ -2998,6 +2998,8 @@ mod tests {
         Direct16,
         Indexed8,
         Indexed16,
+        Store8,
+        Store16,
         Stack,
     }
 
@@ -3006,6 +3008,14 @@ mod tests {
         name: &'static str,
         bytes: &'static [u8],
         setup: TimingSetup,
+        expected_cycles: u64,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct IndexedTimingCase {
+        name: &'static str,
+        postbyte: u8,
+        operand: &'static [u8],
         expected_cycles: u64,
     }
 
@@ -3045,6 +3055,90 @@ mod tests {
             expected_cycles: 5,
         },
         TimingCase {
+            name: "LDB immediate",
+            bytes: &[0xC6, 0x55],
+            setup: TimingSetup::None,
+            expected_cycles: 2,
+        },
+        TimingCase {
+            name: "LDB direct",
+            bytes: &[0xD6, 0x34],
+            setup: TimingSetup::Direct8,
+            expected_cycles: 4,
+        },
+        TimingCase {
+            name: "LDB indexed ,X",
+            bytes: &[0xE6, 0x84],
+            setup: TimingSetup::Indexed8,
+            expected_cycles: 4,
+        },
+        TimingCase {
+            name: "LDB extended",
+            bytes: &[0xF6, 0x23, 0x45],
+            setup: TimingSetup::None,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "STA direct",
+            bytes: &[0x97, 0x34],
+            setup: TimingSetup::Store8,
+            expected_cycles: 4,
+        },
+        TimingCase {
+            name: "STA indexed ,X",
+            bytes: &[0xA7, 0x84],
+            setup: TimingSetup::Store8,
+            expected_cycles: 4,
+        },
+        TimingCase {
+            name: "STA extended",
+            bytes: &[0xB7, 0x23, 0x45],
+            setup: TimingSetup::Store8,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "LDD immediate",
+            bytes: &[0xCC, 0x12, 0x34],
+            setup: TimingSetup::None,
+            expected_cycles: 3,
+        },
+        TimingCase {
+            name: "LDD direct",
+            bytes: &[0xDC, 0x34],
+            setup: TimingSetup::Direct16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "LDD indexed ,X",
+            bytes: &[0xEC, 0x84],
+            setup: TimingSetup::Indexed16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "LDD extended",
+            bytes: &[0xFC, 0x23, 0x45],
+            setup: TimingSetup::None,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "STD direct",
+            bytes: &[0xDD, 0x34],
+            setup: TimingSetup::Store16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "STD indexed ,X",
+            bytes: &[0xED, 0x84],
+            setup: TimingSetup::Store16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "STD extended",
+            bytes: &[0xFD, 0x23, 0x45],
+            setup: TimingSetup::Store16,
+            expected_cycles: 6,
+        },
+        TimingCase {
             name: "LDX immediate",
             bytes: &[0x8E, 0x12, 0x34],
             setup: TimingSetup::None,
@@ -3067,6 +3161,78 @@ mod tests {
             bytes: &[0xBE, 0x23, 0x45],
             setup: TimingSetup::None,
             expected_cycles: 6,
+        },
+        TimingCase {
+            name: "STX direct",
+            bytes: &[0x9F, 0x34],
+            setup: TimingSetup::Store16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "STX indexed ,X",
+            bytes: &[0xAF, 0x84],
+            setup: TimingSetup::Store16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "STX extended",
+            bytes: &[0xBF, 0x23, 0x45],
+            setup: TimingSetup::Store16,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "NEGA inherent",
+            bytes: &[0x40],
+            setup: TimingSetup::None,
+            expected_cycles: 2,
+        },
+        TimingCase {
+            name: "COMA inherent",
+            bytes: &[0x43],
+            setup: TimingSetup::None,
+            expected_cycles: 2,
+        },
+        TimingCase {
+            name: "CLRA inherent",
+            bytes: &[0x4F],
+            setup: TimingSetup::None,
+            expected_cycles: 2,
+        },
+        TimingCase {
+            name: "NEG direct",
+            bytes: &[0x00, 0x34],
+            setup: TimingSetup::Direct8,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "NEG indexed ,X",
+            bytes: &[0x60, 0x84],
+            setup: TimingSetup::Indexed8,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "NEG extended",
+            bytes: &[0x70, 0x23, 0x45],
+            setup: TimingSetup::None,
+            expected_cycles: 7,
+        },
+        TimingCase {
+            name: "TST direct",
+            bytes: &[0x0D, 0x34],
+            setup: TimingSetup::Direct8,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "TST indexed ,X",
+            bytes: &[0x6D, 0x84],
+            setup: TimingSetup::Indexed8,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "TST extended",
+            bytes: &[0x7D, 0x23, 0x45],
+            setup: TimingSetup::None,
+            expected_cycles: 7,
         },
         TimingCase {
             name: "BRA relative",
@@ -3117,6 +3283,36 @@ mod tests {
             expected_cycles: 3,
         },
         TimingCase {
+            name: "DAA inherent",
+            bytes: &[0x19],
+            setup: TimingSetup::None,
+            expected_cycles: 2,
+        },
+        TimingCase {
+            name: "SEX inherent",
+            bytes: &[0x1D],
+            setup: TimingSetup::None,
+            expected_cycles: 2,
+        },
+        TimingCase {
+            name: "ABX inherent",
+            bytes: &[0x3A],
+            setup: TimingSetup::None,
+            expected_cycles: 3,
+        },
+        TimingCase {
+            name: "EXG immediate",
+            bytes: &[0x1E, 0x01],
+            setup: TimingSetup::None,
+            expected_cycles: 8,
+        },
+        TimingCase {
+            name: "TFR immediate",
+            bytes: &[0x1F, 0x12],
+            setup: TimingSetup::None,
+            expected_cycles: 6,
+        },
+        TimingCase {
             name: "MUL inherent",
             bytes: &[0x3D],
             setup: TimingSetup::None,
@@ -3127,6 +3323,155 @@ mod tests {
             bytes: &[0x39],
             setup: TimingSetup::Stack,
             expected_cycles: 5,
+        },
+    ];
+
+    // Source: MC6809E indexed addressing mode table. Expected cycles are the
+    // LDA indexed base timing plus the documented per-postbyte additions.
+    const OFFICIAL_INDEXED_LDA_TIMING_CASES: &[IndexedTimingCase] = &[
+        IndexedTimingCase {
+            name: "LDA ,X",
+            postbyte: 0x84,
+            operand: &[],
+            expected_cycles: 4,
+        },
+        IndexedTimingCase {
+            name: "LDA 5,X",
+            postbyte: 0x05,
+            operand: &[],
+            expected_cycles: 5,
+        },
+        IndexedTimingCase {
+            name: "LDA 8-bit offset,X",
+            postbyte: 0x88,
+            operand: &[0x05],
+            expected_cycles: 5,
+        },
+        IndexedTimingCase {
+            name: "LDA 16-bit offset,X",
+            postbyte: 0x89,
+            operand: &[0x00, 0x05],
+            expected_cycles: 8,
+        },
+        IndexedTimingCase {
+            name: "LDA A,X",
+            postbyte: 0x86,
+            operand: &[],
+            expected_cycles: 5,
+        },
+        IndexedTimingCase {
+            name: "LDA B,X",
+            postbyte: 0x85,
+            operand: &[],
+            expected_cycles: 5,
+        },
+        IndexedTimingCase {
+            name: "LDA D,X",
+            postbyte: 0x8B,
+            operand: &[],
+            expected_cycles: 8,
+        },
+        IndexedTimingCase {
+            name: "LDA ,X+",
+            postbyte: 0x80,
+            operand: &[],
+            expected_cycles: 6,
+        },
+        IndexedTimingCase {
+            name: "LDA ,X++",
+            postbyte: 0x81,
+            operand: &[],
+            expected_cycles: 7,
+        },
+        IndexedTimingCase {
+            name: "LDA ,-X",
+            postbyte: 0x82,
+            operand: &[],
+            expected_cycles: 6,
+        },
+        IndexedTimingCase {
+            name: "LDA ,--X",
+            postbyte: 0x83,
+            operand: &[],
+            expected_cycles: 7,
+        },
+        IndexedTimingCase {
+            name: "LDA [,X]",
+            postbyte: 0x94,
+            operand: &[],
+            expected_cycles: 7,
+        },
+        IndexedTimingCase {
+            name: "LDA [8-bit offset,X]",
+            postbyte: 0x98,
+            operand: &[0x05],
+            expected_cycles: 8,
+        },
+        IndexedTimingCase {
+            name: "LDA [16-bit offset,X]",
+            postbyte: 0x99,
+            operand: &[0x00, 0x05],
+            expected_cycles: 11,
+        },
+        IndexedTimingCase {
+            name: "LDA [A,X]",
+            postbyte: 0x96,
+            operand: &[],
+            expected_cycles: 8,
+        },
+        IndexedTimingCase {
+            name: "LDA [B,X]",
+            postbyte: 0x95,
+            operand: &[],
+            expected_cycles: 8,
+        },
+        IndexedTimingCase {
+            name: "LDA [D,X]",
+            postbyte: 0x9B,
+            operand: &[],
+            expected_cycles: 11,
+        },
+        IndexedTimingCase {
+            name: "LDA [,X++]",
+            postbyte: 0x91,
+            operand: &[],
+            expected_cycles: 10,
+        },
+        IndexedTimingCase {
+            name: "LDA [,--X]",
+            postbyte: 0x93,
+            operand: &[],
+            expected_cycles: 10,
+        },
+        IndexedTimingCase {
+            name: "LDA 8-bit offset,PCR",
+            postbyte: 0x8C,
+            operand: &[0x05],
+            expected_cycles: 5,
+        },
+        IndexedTimingCase {
+            name: "LDA 16-bit offset,PCR",
+            postbyte: 0x8D,
+            operand: &[0x00, 0x05],
+            expected_cycles: 9,
+        },
+        IndexedTimingCase {
+            name: "LDA [8-bit offset,PCR]",
+            postbyte: 0x9C,
+            operand: &[0x05],
+            expected_cycles: 8,
+        },
+        IndexedTimingCase {
+            name: "LDA [16-bit offset,PCR]",
+            postbyte: 0x9D,
+            operand: &[0x00, 0x05],
+            expected_cycles: 12,
+        },
+        IndexedTimingCase {
+            name: "LDA [extended]",
+            postbyte: 0x9F,
+            operand: &[0x22, 0x00],
+            expected_cycles: 9,
         },
     ];
 
@@ -3151,12 +3496,44 @@ mod tests {
                 memory[0x2200] = 0x80;
                 memory[0x2201] = 0x01;
             }
+            TimingSetup::Store8 => {
+                cpu.regs.a = 0x5A;
+                cpu.regs.x = 0x2200;
+            }
+            TimingSetup::Store16 => {
+                cpu.regs.a = 0x12;
+                cpu.regs.b = 0x34;
+                cpu.regs.x = 0x2200;
+            }
             TimingSetup::Stack => {
                 cpu.regs.s = 0x8000;
                 memory[0x8000] = 0x45;
                 memory[0x8001] = 0x00;
             }
         }
+    }
+
+    fn prepare_indexed_timing_case(
+        case: IndexedTimingCase,
+        cpu: &mut Mc6809,
+        memory: &mut [u8; 0x10000],
+    ) {
+        memory[0x4000] = 0xA6; // LDA indexed
+        memory[0x4001] = case.postbyte;
+        memory[0x4002..0x4002 + case.operand.len()].copy_from_slice(case.operand);
+
+        cpu.regs.x = 0x2200;
+        cpu.regs.a = 0x05;
+        cpu.regs.b = 0x05;
+
+        memory[0x21F0..=0x2210].fill(0x80);
+        memory[0x2200] = 0x23;
+        memory[0x2201] = 0x00;
+        memory[0x2205] = 0x23;
+        memory[0x2206] = 0x00;
+        memory[0x21FE] = 0x23;
+        memory[0x21FF] = 0x00;
+        memory[0x2300] = 0x80;
     }
 
     #[test]
@@ -3230,12 +3607,84 @@ mod tests {
     }
 
     #[test]
+    fn pins_report_busy_for_documented_multi_cycle_bus_windows() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x8E; // LDX #$1234
+        memory[0x4001] = 0x12;
+        memory[0x4002] = 0x34;
+        let mut cpu = cpu_at(0x4000);
+
+        run_cycle(&mut cpu, &mut memory);
+        assert!(cpu.pins().busy, "LDX high-byte cycle should assert BUSY");
+
+        run_cycle(&mut cpu, &mut memory);
+        assert!(
+            !cpu.pins().busy,
+            "LDX low-byte cycle should not keep BUSY asserted"
+        );
+
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x00; // NEG <$34
+        memory[0x4001] = 0x34;
+        memory[0x1234] = 0x80;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.dp = 0x12;
+
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert!(cpu.pins().busy, "RMW read cycle should assert BUSY");
+
+        run_cycle(&mut cpu, &mut memory);
+        assert!(cpu.pins().busy, "RMW write cycle should assert BUSY");
+    }
+
+    #[test]
+    fn pins_report_interrupt_acknowledge_during_vector_fetch() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x3F; // SWI
+        memory[0xFFFA] = 0x45;
+        memory[0xFFFB] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+
+        for _ in 0..13 {
+            run_cycle(&mut cpu, &mut memory);
+        }
+
+        let pins = cpu.pins();
+        assert_eq!(
+            pins.bus_status,
+            Mc6809BusStatus::InterruptOrResetAcknowledge
+        );
+        assert!(pins.busy, "first vector-fetch byte should assert BUSY");
+        assert!(pins.rw);
+        assert_eq!(pins.addr, 0xFFFA);
+    }
+
+    #[test]
     fn official_base_timing_fixture_matches_current_core() {
         for &case in OFFICIAL_BASE_TIMING_CASES {
             let mut memory = [0; 0x10000];
             memory[0x4000..0x4000 + case.bytes.len()].copy_from_slice(case.bytes);
             let mut cpu = cpu_at(0x4000);
             apply_timing_setup(case, &mut cpu, &mut memory);
+
+            let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+            assert_eq!(cycles, case.expected_cycles, "{}", case.name);
+            assert!(
+                cpu.instruction_boundary(),
+                "{} did not end at instruction boundary",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn official_indexed_lda_timing_fixture_matches_current_core() {
+        for &case in OFFICIAL_INDEXED_LDA_TIMING_CASES {
+            let mut memory = [0; 0x10000];
+            let mut cpu = cpu_at(0x4000);
+            prepare_indexed_timing_case(case, &mut cpu, &mut memory);
 
             let cycles = run_instruction_cycles(&mut cpu, &mut memory);
 

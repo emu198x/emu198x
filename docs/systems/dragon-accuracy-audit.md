@@ -184,3 +184,7 @@ Progress:
   the Motorola timing table.
 - That fixture corrected three previous timing shortcuts: `LBRA`, extended
   `JMP`, and `ORCC`/`ANDCC`.
+- The timing fixture now covers more base opcode families plus the documented
+  indexed `LDA` postbyte cycle additions, including indirect and PCR forms.
+- Pin tests now assert `BUSY` and interrupt/vector acknowledge behavior for the
+  bus-cycle states the current compatibility model can expose.
