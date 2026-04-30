@@ -175,3 +175,12 @@ the system. The next patch should add source-backed opcode timing fixtures and a
 pin-state test scaffold without changing machine behavior. Once the tests exist,
 we can evolve the core from bus-cycle stepping toward phase-visible stepping
 without losing the working Dragon boot path.
+
+Progress:
+
+- `motorola-6809` now exposes a compatibility `Mc6809Pins` snapshot for the
+  bus-state pins we can represent before the full E/Q phase model lands.
+- A source-backed opcode timing fixture now checks a first transcribed subset of
+  the Motorola timing table.
+- That fixture corrected three previous timing shortcuts: `LBRA`, extended
+  `JMP`, and `ORCC`/`ANDCC`.

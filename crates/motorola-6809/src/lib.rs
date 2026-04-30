@@ -399,6 +399,50 @@ enum StackWork {
     },
 }
 
+/// Decoded MC6809E bus-state pins.
+///
+/// Motorola documents `BA` and `BS` as a two-bit externally visible state. The
+/// current CPU core still steps one bus cycle at a time, so this exposes the
+/// state we can represent today while leaving room for E/Q phase refinement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Mc6809BusStatus {
+    /// Normal running bus ownership.
+    Normal,
+    /// Hardware or software interrupt/reset vector acknowledge.
+    InterruptOrResetAcknowledge,
+    /// `SYNC` acknowledge while waiting for an interrupt line.
+    SyncAcknowledge,
+    /// Halt acknowledge; the address/data buses would be high impedance.
+    HaltAcknowledge,
+}
+
+/// MC6809E external pin snapshot for the currently presented bus cycle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Mc6809Pins {
+    /// Address currently presented by the compatibility bus-cycle model.
+    pub addr: u16,
+    /// Data driven during a write cycle.
+    pub data: u8,
+    /// Last data sampled by the core during a read cycle.
+    pub data_in: u8,
+    /// `true` for read cycles, `false` for write cycles.
+    pub rw: bool,
+    /// Advanced valid-memory-address indication.
+    pub avma: bool,
+    /// Last-instruction-cycle indication in the compatibility model.
+    pub lic: bool,
+    /// Best-effort `BUSY` indication for bus-cycle stepping.
+    pub busy: bool,
+    /// Bus-available pin.
+    pub ba: bool,
+    /// Bus-status pin.
+    pub bs: bool,
+    /// Decoded `BA`/`BS` state.
+    pub bus_status: Mc6809BusStatus,
+    /// Existing fetch-boundary signal exposed by this core.
+    pub sync: bool,
+}
+
 /// Motorola MC6809 CPU state exposed to machine crates.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Mc6809 {
@@ -490,6 +534,70 @@ impl Mc6809 {
     #[must_use]
     pub const fn instruction_boundary(&self) -> bool {
         self.reset_phase == 0 && self.sync
+    }
+
+    /// Return the external pin state represented by the current bus-cycle API.
+    ///
+    /// This is intentionally a compatibility snapshot, not yet a half-cycle
+    /// accurate E/Q model. It gives machine code and tests a single place to
+    /// assert the pins we already know how to represent before the core is
+    /// migrated to phase-visible stepping.
+    #[must_use]
+    pub fn pins(&self) -> Mc6809Pins {
+        let bus_status = self.bus_status();
+        let (ba, bs) = match bus_status {
+            Mc6809BusStatus::Normal => (false, false),
+            Mc6809BusStatus::InterruptOrResetAcknowledge => (false, true),
+            Mc6809BusStatus::SyncAcknowledge => (true, false),
+            Mc6809BusStatus::HaltAcknowledge => (true, true),
+        };
+
+        Mc6809Pins {
+            addr: self.addr,
+            data: self.data,
+            data_in: self.data_in,
+            rw: self.rw,
+            avma: !matches!(
+                bus_status,
+                Mc6809BusStatus::SyncAcknowledge | Mc6809BusStatus::HaltAcknowledge
+            ),
+            lic: self.instruction_boundary(),
+            busy: self.busy_pin(),
+            ba,
+            bs,
+            bus_status,
+            sync: self.sync,
+        }
+    }
+
+    fn bus_status(&self) -> Mc6809BusStatus {
+        if self.halt {
+            Mc6809BusStatus::HaltAcknowledge
+        } else if self.reset_phase != 0
+            || matches!(
+                self.state,
+                CpuState::ReadVectorHi(_) | CpuState::ReadVectorLo { .. }
+            )
+        {
+            Mc6809BusStatus::InterruptOrResetAcknowledge
+        } else if matches!(self.state, CpuState::WaitForInterrupt { stacked: false }) {
+            Mc6809BusStatus::SyncAcknowledge
+        } else {
+            Mc6809BusStatus::Normal
+        }
+    }
+
+    fn busy_pin(&self) -> bool {
+        matches!(
+            self.state,
+            CpuState::ReadImm16Hi(_)
+                | CpuState::ReadMem16Hi { .. }
+                | CpuState::ReadRmwValue { .. }
+                | CpuState::WriteValue
+                | CpuState::WriteValueThenInternal { .. }
+                | CpuState::Write16Lo { .. }
+                | CpuState::ReadVectorHi(_)
+        )
     }
 
     fn tick_instruction(&mut self) {
@@ -1215,7 +1323,7 @@ impl Mc6809 {
                     CcOp::And => self.regs.cc &= value,
                     CcOp::Or => self.regs.cc |= value,
                 }
-                self.next_fetch();
+                self.start_internal_cycles(1);
             }
             CpuState::ReadTransferPostbyte(op) => {
                 let post = self.data_in;
@@ -1283,7 +1391,14 @@ impl Mc6809 {
                         if taken {
                             self.regs.pc = target;
                         }
-                        self.start_internal_cycles(if taken { 3 } else { 2 });
+                        let cycles = if condition == BranchCondition::Always {
+                            2
+                        } else if taken {
+                            3
+                        } else {
+                            2
+                        };
+                        self.start_internal_cycles(cycles);
                     }
                     Rel16Op::Lbsr => self.prepare_push_word(
                         self.regs.pc,
@@ -1494,7 +1609,7 @@ impl Mc6809 {
                     ExtOp::Store16(op) => self.prepare_store16(op, addr, 1),
                     ExtOp::Jmp => {
                         self.regs.pc = addr;
-                        self.next_fetch();
+                        self.start_internal_cycles(1);
                     }
                     ExtOp::Jsr => self.prepare_push_word(
                         self.regs.pc,
@@ -2876,6 +2991,174 @@ mod tests {
         assert!(!cpu.halt, "{label} tripped illegal-opcode diagnostic");
     }
 
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum TimingSetup {
+        None,
+        Direct8,
+        Direct16,
+        Indexed8,
+        Indexed16,
+        Stack,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct TimingCase {
+        name: &'static str,
+        bytes: &'static [u8],
+        setup: TimingSetup,
+        expected_cycles: u64,
+    }
+
+    // Source: Motorola MC6809E HMOS Microprocessor Programming Model opcode
+    // timing tables in docs/source-extracts/dragon-primary. These fixtures are
+    // intentionally small but table-driven; expand them as we transcribe the
+    // full official opcode matrix.
+    const OFFICIAL_BASE_TIMING_CASES: &[TimingCase] = &[
+        TimingCase {
+            name: "NOP inherent",
+            bytes: &[0x12],
+            setup: TimingSetup::None,
+            expected_cycles: 2,
+        },
+        TimingCase {
+            name: "LDA immediate",
+            bytes: &[0x86, 0x55],
+            setup: TimingSetup::None,
+            expected_cycles: 2,
+        },
+        TimingCase {
+            name: "LDA direct",
+            bytes: &[0x96, 0x34],
+            setup: TimingSetup::Direct8,
+            expected_cycles: 4,
+        },
+        TimingCase {
+            name: "LDA indexed ,X",
+            bytes: &[0xA6, 0x84],
+            setup: TimingSetup::Indexed8,
+            expected_cycles: 4,
+        },
+        TimingCase {
+            name: "LDA extended",
+            bytes: &[0xB6, 0x23, 0x45],
+            setup: TimingSetup::None,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "LDX immediate",
+            bytes: &[0x8E, 0x12, 0x34],
+            setup: TimingSetup::None,
+            expected_cycles: 3,
+        },
+        TimingCase {
+            name: "LDX direct",
+            bytes: &[0x9E, 0x34],
+            setup: TimingSetup::Direct16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "LDX indexed ,X",
+            bytes: &[0xAE, 0x84],
+            setup: TimingSetup::Indexed16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "LDX extended",
+            bytes: &[0xBE, 0x23, 0x45],
+            setup: TimingSetup::None,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "BRA relative",
+            bytes: &[0x20, 0x02],
+            setup: TimingSetup::None,
+            expected_cycles: 3,
+        },
+        TimingCase {
+            name: "LBRA relative",
+            bytes: &[0x16, 0x00, 0x02],
+            setup: TimingSetup::None,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "BSR relative",
+            bytes: &[0x8D, 0x02],
+            setup: TimingSetup::Stack,
+            expected_cycles: 7,
+        },
+        TimingCase {
+            name: "LBSR relative",
+            bytes: &[0x17, 0x00, 0x02],
+            setup: TimingSetup::Stack,
+            expected_cycles: 9,
+        },
+        TimingCase {
+            name: "JMP direct",
+            bytes: &[0x0E, 0x34],
+            setup: TimingSetup::None,
+            expected_cycles: 3,
+        },
+        TimingCase {
+            name: "JMP extended",
+            bytes: &[0x7E, 0x23, 0x45],
+            setup: TimingSetup::None,
+            expected_cycles: 4,
+        },
+        TimingCase {
+            name: "ORCC immediate",
+            bytes: &[0x1A, 0x01],
+            setup: TimingSetup::None,
+            expected_cycles: 3,
+        },
+        TimingCase {
+            name: "ANDCC immediate",
+            bytes: &[0x1C, 0xFE],
+            setup: TimingSetup::None,
+            expected_cycles: 3,
+        },
+        TimingCase {
+            name: "MUL inherent",
+            bytes: &[0x3D],
+            setup: TimingSetup::None,
+            expected_cycles: 11,
+        },
+        TimingCase {
+            name: "RTS inherent",
+            bytes: &[0x39],
+            setup: TimingSetup::Stack,
+            expected_cycles: 5,
+        },
+    ];
+
+    fn apply_timing_setup(case: TimingCase, cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
+        match case.setup {
+            TimingSetup::None => {}
+            TimingSetup::Direct8 => {
+                cpu.regs.dp = 0x12;
+                memory[0x1234] = 0x80;
+            }
+            TimingSetup::Direct16 => {
+                cpu.regs.dp = 0x12;
+                memory[0x1234] = 0x80;
+                memory[0x1235] = 0x01;
+            }
+            TimingSetup::Indexed8 => {
+                cpu.regs.x = 0x2200;
+                memory[0x2200] = 0x80;
+            }
+            TimingSetup::Indexed16 => {
+                cpu.regs.x = 0x2200;
+                memory[0x2200] = 0x80;
+                memory[0x2201] = 0x01;
+            }
+            TimingSetup::Stack => {
+                cpu.regs.s = 0x8000;
+                memory[0x8000] = 0x45;
+                memory[0x8001] = 0x00;
+            }
+        }
+    }
+
     #[test]
     fn reset_fetches_vector_big_endian() {
         let mut cpu = Mc6809::new();
@@ -2897,6 +3180,72 @@ mod tests {
         assert_eq!(cpu.reset_phase, 0);
         assert!(cpu.sync);
         assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn pins_decode_reset_sync_halt_and_vector_acknowledge_states() {
+        let mut memory = [0; 0x10000];
+        let mut cpu = Mc6809::new();
+        cpu.reset();
+        assert_eq!(
+            cpu.pins().bus_status,
+            Mc6809BusStatus::InterruptOrResetAcknowledge
+        );
+        assert!(!cpu.pins().ba);
+        assert!(cpu.pins().bs);
+        assert!(cpu.pins().avma);
+
+        let mut cpu = cpu_at(0x4000);
+        memory[0x4000] = 0x13; // SYNC
+        run_cycle(&mut cpu, &mut memory);
+        let pins = cpu.pins();
+        assert_eq!(pins.bus_status, Mc6809BusStatus::SyncAcknowledge);
+        assert!(pins.ba);
+        assert!(!pins.bs);
+        assert!(!pins.avma);
+
+        let mut cpu = cpu_at(0x4000);
+        memory[0x4000] = 0x3F; // SWI
+        memory[0xFFFA] = 0x45;
+        memory[0xFFFB] = 0x00;
+        cpu.regs.s = 0x8000;
+        for _ in 0..13 {
+            run_cycle(&mut cpu, &mut memory);
+        }
+        assert_eq!(
+            cpu.pins().bus_status,
+            Mc6809BusStatus::InterruptOrResetAcknowledge
+        );
+        assert!(!cpu.pins().ba);
+        assert!(cpu.pins().bs);
+
+        let mut cpu = cpu_at(0x4000);
+        memory[0x4000] = 0x01; // illegal/undefined opcode in our diagnostic mode
+        run_cycle(&mut cpu, &mut memory);
+        let pins = cpu.pins();
+        assert_eq!(pins.bus_status, Mc6809BusStatus::HaltAcknowledge);
+        assert!(pins.ba);
+        assert!(pins.bs);
+        assert!(!pins.avma);
+    }
+
+    #[test]
+    fn official_base_timing_fixture_matches_current_core() {
+        for &case in OFFICIAL_BASE_TIMING_CASES {
+            let mut memory = [0; 0x10000];
+            memory[0x4000..0x4000 + case.bytes.len()].copy_from_slice(case.bytes);
+            let mut cpu = cpu_at(0x4000);
+            apply_timing_setup(case, &mut cpu, &mut memory);
+
+            let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+            assert_eq!(cycles, case.expected_cycles, "{}", case.name);
+            assert!(
+                cpu.instruction_boundary(),
+                "{} did not end at instruction boundary",
+                case.name
+            );
+        }
     }
 
     #[test]
@@ -3355,7 +3704,7 @@ mod tests {
         assert_eq!(cpu.regs.pc, 0x4004);
         assert!(cpu.instruction_boundary());
 
-        run_cycles(&mut cpu, &mut memory, 3);
+        run_cycles(&mut cpu, &mut memory, 4);
         assert_eq!(cpu.regs.pc, 0x4567);
         assert_eq!(cpu.addr, 0x4567);
         assert!(cpu.instruction_boundary());
@@ -3553,12 +3902,12 @@ mod tests {
         memory[0x4003] = !FLAG_I;
         let mut cpu = cpu_at(0x4000);
 
-        run_cycles(&mut cpu, &mut memory, 2);
+        run_cycles(&mut cpu, &mut memory, 3);
         assert!(cpu.regs.flag(FLAG_C));
         assert!(cpu.regs.flag(FLAG_I));
         assert!(cpu.regs.flag(FLAG_F));
 
-        run_cycles(&mut cpu, &mut memory, 2);
+        run_cycles(&mut cpu, &mut memory, 3);
         assert!(cpu.regs.flag(FLAG_C));
         assert!(!cpu.regs.flag(FLAG_I));
         assert!(cpu.regs.flag(FLAG_F));
