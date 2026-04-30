@@ -1858,6 +1858,27 @@ struct BeamVideoTick {
     frame_sync: Option<bool>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CpuPhaseMasterTicks {
+    q_high: u64,
+    e_high: u64,
+    q_low: u64,
+    e_low: u64,
+}
+
+impl CpuPhaseMasterTicks {
+    fn split(master_ticks: u64) -> Self {
+        let base = master_ticks / 4;
+        let remainder = master_ticks % 4;
+        Self {
+            q_high: base + u64::from(remainder > 0),
+            e_high: base + u64::from(remainder > 1),
+            q_low: base + u64::from(remainder > 2),
+            e_low: base,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct SamCycleTiming {
     running_fast: bool,
@@ -2099,6 +2120,15 @@ pub struct Dragon32 {
     cycles: u64,
     master_ticks: u64,
     instructions: u64,
+}
+
+struct DiagnosticCycleTrace<'a> {
+    cycle: u64,
+    pia_signals: &'a mut Vec<PiaSignalTrace>,
+    dropped_pia_signals: &'a mut usize,
+    vdg_samples: &'a mut Vec<VdgSampleTrace>,
+    dropped_vdg_samples: &'a mut usize,
+    trace_limit: usize,
 }
 
 impl Dragon32 {
@@ -2472,24 +2502,27 @@ impl Dragon32 {
 
     /// Execute one bus cycle and return any observed memory/device event.
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
-        let master_ticks = self.sam_timing.tick(&self.memory.sam, self.cpu.addr);
-        let video_tick = self.video.tick(&self.memory, master_ticks, None);
-        if let Some(level) = video_tick.hsync {
-            self.memory.pia0.set_signal_level(PiaSignal::Ca1, level);
-        }
-        if let Some(level) = video_tick.frame_sync {
-            self.memory.pia0.set_signal_level(PiaSignal::Cb1, level);
-        }
-        self.step_cycle_after_video(master_ticks)
+        self.step_cycle_with_phase_windows(None)
     }
 
-    fn step_cycle_after_video(&mut self, master_ticks: u64) -> Option<MemoryEvent> {
-        self.memory.advance_cassette(master_ticks);
+    fn step_cycle_with_phase_windows(
+        &mut self,
+        mut diagnostics: Option<&mut DiagnosticCycleTrace<'_>>,
+    ) -> Option<MemoryEvent> {
+        let master_ticks = self.sam_timing.tick(&self.memory.sam, self.cpu.addr);
+        let phase_ticks = CpuPhaseMasterTicks::split(master_ticks);
+
         self.memory.tick_cartridge_autorun(self.cycles);
+
+        self.advance_phase_window(phase_ticks.q_high, diagnostics.as_deref_mut());
+        self.cpu.tick_phase();
+
+        self.advance_phase_window(phase_ticks.e_high, diagnostics.as_deref_mut());
         self.cpu.irq = self.memory.pia0.irq_a() || self.memory.pia0.irq_b();
         self.cpu.firq = self.memory.pia1.irq_a() || self.memory.pia1.irq_b();
         self.cpu.tick_phase();
-        self.cpu.tick_phase();
+
+        self.advance_phase_window(phase_ticks.q_low, diagnostics.as_deref_mut());
         let previous_pia1_pb = self.memory.pia1.pb;
         let event = if self.cpu.rw {
             let (value, event) = self.memory.read_bus(self.cpu.addr);
@@ -2502,11 +2535,80 @@ impl Dragon32 {
             self.video.apply_vdg_control_change(&self.memory);
         }
         self.cpu.tick_phase();
+
+        self.advance_phase_window(phase_ticks.e_low, diagnostics);
         self.cpu.tick_phase();
+
         self.audio.tick(&self.memory, master_ticks);
         self.cycles = self.cycles.saturating_add(1);
         self.master_ticks = self.master_ticks.saturating_add(master_ticks);
         event
+    }
+
+    fn advance_phase_window(
+        &mut self,
+        master_ticks: u64,
+        mut diagnostics: Option<&mut DiagnosticCycleTrace<'_>>,
+    ) {
+        self.memory.advance_cassette(master_ticks);
+        let bus_cycle = diagnostics
+            .as_ref()
+            .and_then(|diagnostics| (diagnostics.trace_limit != 0).then_some(diagnostics.cycle));
+        let video_tick = self.video.tick(&self.memory, master_ticks, bus_cycle);
+        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+            let mut pending_vdg_samples = Vec::new();
+            self.video.drain_pending_samples(&mut pending_vdg_samples);
+            for sample in pending_vdg_samples {
+                retain_vdg_sample(
+                    diagnostics.vdg_samples,
+                    diagnostics.dropped_vdg_samples,
+                    diagnostics.trace_limit,
+                    sample,
+                );
+            }
+        }
+        self.apply_video_tick(video_tick, diagnostics);
+    }
+
+    fn apply_video_tick(
+        &mut self,
+        video_tick: BeamVideoTick,
+        mut diagnostics: Option<&mut DiagnosticCycleTrace<'_>>,
+    ) {
+        if let Some(level) = video_tick.hsync {
+            self.memory.pia0.set_signal_level(PiaSignal::Ca1, level);
+            if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                retain_pia_signal(
+                    diagnostics.pia_signals,
+                    diagnostics.dropped_pia_signals,
+                    diagnostics.trace_limit,
+                    pia_signal_trace(
+                        diagnostics.cycle,
+                        DeviceRegion::Pia0,
+                        PiaSignal::Ca1,
+                        level,
+                        &self.memory.pia0,
+                    ),
+                );
+            }
+        }
+        if let Some(level) = video_tick.frame_sync {
+            self.memory.pia0.set_signal_level(PiaSignal::Cb1, level);
+            if let Some(diagnostics) = diagnostics {
+                retain_pia_signal(
+                    diagnostics.pia_signals,
+                    diagnostics.dropped_pia_signals,
+                    diagnostics.trace_limit,
+                    pia_signal_trace(
+                        diagnostics.cycle,
+                        DeviceRegion::Pia0,
+                        PiaSignal::Cb1,
+                        level,
+                        &self.memory.pia0,
+                    ),
+                );
+            }
+        }
     }
 
     fn vdg_mode_write_trace(&self, cycle: u64, addr: u16, value: u8) -> VdgModeWriteTrace {
@@ -2807,48 +2909,15 @@ impl Dragon32 {
         dropped_vdg_samples: &mut usize,
         trace_limit: usize,
     ) -> Option<MemoryEvent> {
-        let master_ticks = self.sam_timing.tick(&self.memory.sam, self.cpu.addr);
-        let video_tick = self.video.tick(
-            &self.memory,
-            master_ticks,
-            (trace_limit != 0).then_some(cycle),
-        );
-        let mut pending_vdg_samples = Vec::new();
-        self.video.drain_pending_samples(&mut pending_vdg_samples);
-        for sample in pending_vdg_samples {
-            retain_vdg_sample(vdg_samples, dropped_vdg_samples, trace_limit, sample);
-        }
-        if let Some(level) = video_tick.hsync {
-            self.memory.pia0.set_signal_level(PiaSignal::Ca1, level);
-            retain_pia_signal(
-                pia_signals,
-                dropped_pia_signals,
-                trace_limit,
-                pia_signal_trace(
-                    cycle,
-                    DeviceRegion::Pia0,
-                    PiaSignal::Ca1,
-                    level,
-                    &self.memory.pia0,
-                ),
-            );
-        }
-        if let Some(level) = video_tick.frame_sync {
-            self.memory.pia0.set_signal_level(PiaSignal::Cb1, level);
-            retain_pia_signal(
-                pia_signals,
-                dropped_pia_signals,
-                trace_limit,
-                pia_signal_trace(
-                    cycle,
-                    DeviceRegion::Pia0,
-                    PiaSignal::Cb1,
-                    level,
-                    &self.memory.pia0,
-                ),
-            );
-        }
-        self.step_cycle_after_video(master_ticks)
+        let mut diagnostics = DiagnosticCycleTrace {
+            cycle,
+            pia_signals,
+            dropped_pia_signals,
+            vdg_samples,
+            dropped_vdg_samples,
+            trace_limit,
+        };
+        self.step_cycle_with_phase_windows(Some(&mut diagnostics))
     }
 }
 
@@ -3104,6 +3173,10 @@ mod tests {
         );
     }
 
+    fn total_phase_ticks(ticks: CpuPhaseMasterTicks) -> u64 {
+        ticks.q_high + ticks.e_high + ticks.q_low + ticks.e_low
+    }
+
     #[test]
     fn memory_maps_basic_rom_vectors_and_empty_cartridge_slot() {
         let mut rom = rom_with_reset_vector(0x8000);
@@ -3118,6 +3191,49 @@ mod tests {
         assert_eq!(memory.read_fetch(0xFEFF), NO_CARTRIDGE_BUS_VALUE);
         assert_eq!(memory.read_fetch(0xFFFE), 0x80);
         assert_eq!(memory.read_fetch(0xFFFF), 0x00);
+    }
+
+    #[test]
+    fn cpu_phase_master_ticks_preserve_sam_cycle_lengths() {
+        let slow = CpuPhaseMasterTicks::split(16);
+        assert_eq!(
+            slow,
+            CpuPhaseMasterTicks {
+                q_high: 4,
+                e_high: 4,
+                q_low: 4,
+                e_low: 4
+            }
+        );
+        assert_eq!(total_phase_ticks(slow), 16);
+
+        let fast = CpuPhaseMasterTicks::split(8);
+        assert_eq!(
+            fast,
+            CpuPhaseMasterTicks {
+                q_high: 2,
+                e_high: 2,
+                q_low: 2,
+                e_low: 2
+            }
+        );
+        assert_eq!(total_phase_ticks(fast), 8);
+
+        let entry_fast = CpuPhaseMasterTicks::split(15);
+        assert_eq!(
+            entry_fast,
+            CpuPhaseMasterTicks {
+                q_high: 4,
+                e_high: 4,
+                q_low: 4,
+                e_low: 3
+            }
+        );
+        assert_eq!(total_phase_ticks(entry_fast), 15);
+
+        let extended_slow = CpuPhaseMasterTicks::split(25);
+        assert_eq!(total_phase_ticks(extended_slow), 25);
+        assert!(extended_slow.q_high >= extended_slow.e_low);
     }
 
     #[test]
@@ -3138,6 +3254,7 @@ mod tests {
         assert_eq!(machine.bus_addr(), 0x8000);
         assert!(machine.bus_rw());
         assert_eq!(machine.cycles(), 2);
+        assert_eq!(machine.master_ticks(), 32);
     }
 
     #[test]

@@ -58,22 +58,19 @@ The primary sources describe a richer MC6809E interface:
 - `BA`, `BS`, `BUSY`, `AVMA`, `LIC`, `TSC`, `HALT`, and related bus-state pins
   are externally visible and have behavioral meaning.
 
-Our core currently advances one bus-visible CPU cycle per `tick()` and checks
-pending interrupts at instruction boundaries or wait states. That is enough for
-many ROM and software paths, but it is not enough to claim pin-accurate 6809E
-behavior. It also prevents hardware-level validation of interrupt sampling,
-`BUSY` windows, DMA/bus sharing, and invalid-vs-valid memory access cycles.
+The CPU core now has an additive phase-visible API. The compatibility `tick()`
+path still advances one bus-visible CPU cycle, while Dragon machine stepping
+uses `tick_phase()` around SAM master-tick windows. This is enough to put
+interrupt sampling and read-data latching at the documented falling-Q and
+falling-E points, but it is not yet a complete external bus model for DMA,
+halt/three-state ownership, or every invalid-vs-valid memory access cycle.
 
 Required resolution:
 
-1. Add a `Mc6809Pins` or equivalent public pin snapshot with `addr`, `data`,
-   `rw`, `avma`, `lic`, `busy`, `ba`, `bs`, `sync`, and clock phase.
-2. Keep the current bus-cycle API as a compatibility wrapper while introducing
-   phase-aware stepping.
-3. Move interrupt recognition to the documented falling-`Q` sampling point with
-   the required synchronization delay.
-4. Add bus-trace tests for reset, fetch, RMW, double-byte operations, vector
+1. Expand bus-trace tests for reset, fetch, RMW, double-byte operations, vector
    fetches, `SYNC`, `CWAI`, `HALT`, and interrupt entry.
+2. Model the remaining external ownership pins and DMA/three-state behavior
+   once a machine needs them.
 
 ### MC6809 Opcode Validation
 
@@ -170,11 +167,10 @@ Required resolution:
 
 ## Immediate Next Engineering Step
 
-Start with the 6809. It is the deepest dependency and the most reusable part of
-the system. The next patch should add source-backed opcode timing fixtures and a
-pin-state test scaffold without changing machine behavior. Once the tests exist,
-we can evolve the core from bus-cycle stepping toward phase-visible stepping
-without losing the working Dragon boot path.
+Move to SAM display-offset timing. The CPU now has source-backed timing fixtures
+and Dragon uses phase-visible stepping, so the next raster accuracy gap is
+separating immediate SAM latch writes from the frame-sync-delayed display base
+that the VDG actually sees.
 
 Progress:
 
@@ -193,3 +189,7 @@ Progress:
   interrupt inputs on falling Q and latches read data on falling E.
 - `machine-dragon-32` now drives the CPU through the phase-visible API for each
   public bus cycle, while preserving the existing SAM master-tick accounting.
+- Dragon bus-cycle stepping now splits each SAM CPU cycle into Q-high, E-high,
+  Q-low, and E-low master-tick windows. Video, cassette, PIA sync lines, and
+  diagnostic VDG traces advance through those windows; CPU memory data is
+  supplied at the falling-E point instead of after a whole-cycle video lump.
