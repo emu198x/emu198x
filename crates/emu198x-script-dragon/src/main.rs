@@ -22,12 +22,12 @@ use format_dragon_pak::{
 use machine_dragon_32::{
     AddressRange, CpuInterruptAcceptTrace, CpuInterruptKind, CpuInterruptLineTrace,
     CpuRegisterTrace, DRAGON_CPU_HZ, DRAGON_FRAME_CYCLES, DeviceAccess, DeviceRegion, Dragon32,
-    DragonCartridgeKind, DragonKey, DragonKeyboard, FetchTrace, MatrixKey, MemoryWriteTrace,
-    PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions, RunReport, StopReason, VdgModeWriteTrace,
-    VdgSampleTrace, WatchedFetchTrace,
+    DragonCartridgeKind, DragonKey, DragonKeyboard, DragonVideoPhase, FetchTrace, MatrixKey,
+    MemoryWriteTrace, PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions, RunReport, StopReason,
+    VdgModeWriteTrace, VdgSampleTrace, WatchedFetchTrace,
 };
 use motorola_vdg_6847::{
-    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
+    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette, VdgPalette,
 };
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 use serde::Serialize;
@@ -61,6 +61,7 @@ Execution:
                        retain bus writes to inclusive hex/decimal address range A..B
     --press KEY        hold a named Dragon key closed; may be repeated
     --press-matrix R,C hold a raw keyboard matrix switch closed; may be repeated
+    --dump-ram P       write the current 32 KiB RAM image as raw bytes
     --dump-text        print the current 32x16 MC6847 text snapshot
     --dump-text-png P  write the current border-inclusive MC6847 text framebuffer as a PNG
     --screenshot P     write the current border-inclusive MC6847 framebuffer as a PNG
@@ -68,6 +69,8 @@ Execution:
                        screenshot format: diagnostic | xroar-zoomed [default: diagnostic]
     --screenshot-phase PHASE
                        screenshot capture phase: immediate | completed-frame [default: immediate]
+    --screenshot-source SOURCE
+                       screenshot source: beam | static [default: beam]
     --smoke-root PATH  recursively scan .cas/.zip Dragon tape images
     --snapshot-smoke-root PATH
                        recursively scan .pak/.zip PC-Dragon snapshots
@@ -111,11 +114,13 @@ struct Cli {
     fetch_watch: Option<AddressRange>,
     write_watch: Option<AddressRange>,
     pressed_keys: Vec<MatrixKey>,
+    dump_ram: Option<PathBuf>,
     dump_text: bool,
     dump_text_png: Option<PathBuf>,
     screenshot: Option<PathBuf>,
     screenshot_format: SmokeScreenshotFormat,
     screenshot_phase: SmokeScreenshotPhase,
+    screenshot_source: ScreenshotSource,
     smoke_root: Option<PathBuf>,
     snapshot_smoke_root: Option<PathBuf>,
     smoke_run_limit: usize,
@@ -164,9 +169,11 @@ struct HarnessReport {
     dropped_vdg_mode_writes: usize,
     text_screen_base: u16,
     text_screen: Option<String>,
+    ram: Option<Vec<u8>>,
     text_framebuffer: Option<Vec<u32>>,
     framebuffer: Option<Vec<u32>>,
     framebuffer_cycles: Option<u64>,
+    video_phase: DragonVideoPhase,
 }
 
 #[derive(Debug, Serialize)]
@@ -236,6 +243,7 @@ struct SnapshotRuntimeSmoke {
     screenshot_cycles: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     screenshot_frame_phase_cycles: Option<u64>,
+    video_phase: VideoPhaseSummary,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -254,6 +262,16 @@ struct SnapshotRuntimeSmoke {
     vdg_trace: Option<VdgTraceSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct VideoPhaseSummary {
+    frame_master_tick: u64,
+    physical_line: usize,
+    line_master_tick: u64,
+    visible_line: Option<usize>,
+    active_y: Option<usize>,
+    active_x: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -437,6 +455,12 @@ enum SmokeScreenshotPhase {
     CompletedFrame,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScreenshotSource {
+    Beam,
+    Static,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 struct SmokeJoystickStep {
     port: u8,
@@ -563,12 +587,22 @@ fn run_main() -> Result<(), String> {
             fetch_watch: cli.fetch_watch,
             write_watch: cli.write_watch,
             dump_text: cli.dump_text,
+            dump_ram: cli.dump_ram.is_some(),
             dump_text_framebuffer: cli.dump_text_png.is_some(),
             capture_framebuffer: cli.screenshot.is_some(),
             capture_framebuffer_phase: cli.screenshot_phase,
+            capture_framebuffer_source: cli.screenshot_source,
         },
     );
     print_report(&report);
+    if let Some(path) = &cli.dump_ram {
+        let ram = report
+            .ram
+            .as_deref()
+            .ok_or_else(|| "RAM was not captured".to_owned())?;
+        fs::write(path, ram).map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+        println!("ram: {}", path.display());
+    }
     if let Some(path) = &cli.dump_text_png {
         let framebuffer = report
             .text_framebuffer
@@ -605,11 +639,13 @@ where
     let mut fetch_watch = None;
     let mut write_watch = None;
     let mut pressed_keys = Vec::new();
+    let mut dump_ram = None;
     let mut dump_text = false;
     let mut dump_text_png = None;
     let mut screenshot = None;
     let mut screenshot_format = SmokeScreenshotFormat::Diagnostic;
     let mut screenshot_phase = SmokeScreenshotPhase::Immediate;
+    let mut screenshot_source = ScreenshotSource::Beam;
     let mut smoke_root = None;
     let mut snapshot_smoke_root = None;
     let mut smoke_run_limit = DEFAULT_SMOKE_RUN_LIMIT;
@@ -664,6 +700,9 @@ where
             "--press-matrix" => {
                 pressed_keys.push(parse_matrix_key(&next_value(&mut iter, "--press-matrix")?)?);
             }
+            "--dump-ram" => {
+                dump_ram = Some(PathBuf::from(next_value(&mut iter, "--dump-ram")?));
+            }
             "--dump-text" => {
                 dump_text = true;
             }
@@ -683,6 +722,12 @@ where
                 screenshot_phase = parse_screenshot_phase(
                     &next_value(&mut iter, "--screenshot-phase")?,
                     "--screenshot-phase",
+                )?;
+            }
+            "--screenshot-source" => {
+                screenshot_source = parse_screenshot_source(
+                    &next_value(&mut iter, "--screenshot-source")?,
+                    "--screenshot-source",
                 )?;
             }
             "--smoke-root" => {
@@ -781,11 +826,13 @@ where
         fetch_watch,
         write_watch,
         pressed_keys,
+        dump_ram,
         dump_text,
         dump_text_png,
         screenshot,
         screenshot_format,
         screenshot_phase,
+        screenshot_source,
         smoke_root,
         snapshot_smoke_root,
         smoke_run_limit,
@@ -890,6 +937,16 @@ fn parse_screenshot_phase(value: &str, flag: &str) -> Result<SmokeScreenshotPhas
         "completed-frame" => Ok(SmokeScreenshotPhase::CompletedFrame),
         _ => Err(format!(
             "invalid {flag} value {value}; expected immediate or completed-frame"
+        )),
+    }
+}
+
+fn parse_screenshot_source(value: &str, flag: &str) -> Result<ScreenshotSource, String> {
+    match value {
+        "beam" => Ok(ScreenshotSource::Beam),
+        "static" => Ok(ScreenshotSource::Static),
+        _ => Err(format!(
+            "invalid {flag} value {value}; expected beam or static"
         )),
     }
 }
@@ -1218,9 +1275,11 @@ fn run_snapshot_smoke(
             fetch_watch: None,
             write_watch: None,
             dump_text: true,
+            dump_ram: false,
             dump_text_framebuffer: false,
             capture_framebuffer: true,
             capture_framebuffer_phase: smoke.screenshot_phase,
+            capture_framebuffer_source: ScreenshotSource::Beam,
         },
     );
     let framebuffer = report.framebuffer.as_deref().unwrap_or(&[]);
@@ -1256,13 +1315,7 @@ fn run_snapshot_smoke(
     let xroar_reference_settle_seconds =
         xroar_snapshot_settle_seconds(report.framebuffer_cycles.unwrap_or(report.cycles));
     let xroar_reference_trap = if smoke.xroar.is_some() && smoke.xroar_stem.is_some() {
-        xroar_snapshot_reference_trap(
-            rom,
-            snapshot,
-            smoke.cycle_limit,
-            smoke.trace_limit,
-            report.pc,
-        )
+        xroar_snapshot_reference_trap(rom, snapshot, smoke.cycle_limit, smoke.trace_limit, &report)
     } else {
         None
     };
@@ -1308,6 +1361,7 @@ fn run_snapshot_smoke(
         screenshot_frame_phase_cycles: report
             .framebuffer_cycles
             .map(|cycles| cycles % DRAGON_FRAME_CYCLES),
+        video_phase: video_phase_summary(report.video_phase),
         xroar_reference_screenshot,
         xroar_reference_settle_seconds: smoke.xroar.map(|_| xroar_reference_settle_seconds),
         xroar_reference_trap_pc: xroar_reference_trap.map(|trap| trap.pc),
@@ -1348,6 +1402,7 @@ fn failed_snapshot_smoke(
         screenshot_frame_phase_cycles: report
             .framebuffer_cycles
             .map(|cycles| cycles % DRAGON_FRAME_CYCLES),
+        video_phase: video_phase_summary(report.video_phase),
         xroar_reference_screenshot: None,
         xroar_reference_settle_seconds: None,
         xroar_reference_trap_pc: None,
@@ -1365,8 +1420,9 @@ fn xroar_snapshot_reference_trap(
     snapshot: &PcDragonSnapshot,
     cycle_limit: u64,
     trace_limit: usize,
-    pc: u16,
+    report: &HarnessReport,
 ) -> Option<XroarSnapshotTrap> {
+    let fetch = report.last_fetch?;
     let report = run_harness_with_keyboard(
         rom,
         DragonKeyboard::new(),
@@ -1375,18 +1431,34 @@ fn xroar_snapshot_reference_trap(
             snapshot: Some(snapshot),
             cycle_limit,
             trace_limit,
-            fetch_watch: Some(AddressRange::new(pc, pc)),
+            fetch_watch: Some(AddressRange::new(fetch.pc, fetch.pc)),
             write_watch: None,
             dump_text: false,
+            dump_ram: false,
             dump_text_framebuffer: false,
             capture_framebuffer: false,
             capture_framebuffer_phase: SmokeScreenshotPhase::Immediate,
+            capture_framebuffer_source: ScreenshotSource::Beam,
         },
     );
     let count = report
         .dropped_watched_fetches
         .saturating_add(report.watched_fetches.len());
-    (count != 0).then_some(XroarSnapshotTrap { pc, count })
+    (count != 0).then_some(XroarSnapshotTrap {
+        pc: fetch.pc,
+        count,
+    })
+}
+
+const fn video_phase_summary(phase: DragonVideoPhase) -> VideoPhaseSummary {
+    VideoPhaseSummary {
+        frame_master_tick: phase.frame_master_tick,
+        physical_line: phase.physical_line,
+        line_master_tick: phase.line_master_tick,
+        visible_line: phase.visible_line,
+        active_y: phase.active_y,
+        active_x: phase.active_x,
+    }
 }
 
 fn vdg_trace_summary(report: &HarnessReport) -> Option<VdgTraceSummary> {
@@ -3787,9 +3859,11 @@ struct HarnessRunOptions<'a> {
     fetch_watch: Option<AddressRange>,
     write_watch: Option<AddressRange>,
     dump_text: bool,
+    dump_ram: bool,
     dump_text_framebuffer: bool,
     capture_framebuffer: bool,
     capture_framebuffer_phase: SmokeScreenshotPhase,
+    capture_framebuffer_source: ScreenshotSource,
 }
 
 fn run_harness_with_keyboard(
@@ -3849,16 +3923,22 @@ fn run_harness_with_keyboard(
     let text_framebuffer = options
         .dump_text_framebuffer
         .then(|| machine.render_visible_text_argb(TextPalette::default()));
+    let ram = options.dump_ram.then(|| machine.ram().to_vec());
     let framebuffer = options.capture_framebuffer.then(|| {
         framebuffer_cycles = Some(machine.cycles());
-        machine.beam_visible_argb().to_vec()
+        match options.capture_framebuffer_source {
+            ScreenshotSource::Beam => machine.beam_visible_argb().to_vec(),
+            ScreenshotSource::Static => machine.render_visible_argb(VdgPalette::default()),
+        }
     });
 
     report.into_harness_report(
         text_screen_text,
+        ram,
         text_framebuffer,
         framebuffer,
         framebuffer_cycles,
+        machine.video_phase(),
     )
 }
 
@@ -3875,9 +3955,11 @@ trait IntoHarnessReport {
     fn into_harness_report(
         self,
         text_screen: Option<String>,
+        ram: Option<Vec<u8>>,
         text_framebuffer: Option<Vec<u32>>,
         framebuffer: Option<Vec<u32>>,
         framebuffer_cycles: Option<u64>,
+        video_phase: DragonVideoPhase,
     ) -> HarnessReport;
 }
 
@@ -3885,9 +3967,11 @@ impl IntoHarnessReport for RunReport {
     fn into_harness_report(
         self,
         text_screen: Option<String>,
+        ram: Option<Vec<u8>>,
         text_framebuffer: Option<Vec<u32>>,
         framebuffer: Option<Vec<u32>>,
         framebuffer_cycles: Option<u64>,
+        video_phase: DragonVideoPhase,
     ) -> HarnessReport {
         HarnessReport {
             stop_reason: self.stop_reason,
@@ -3919,9 +4003,11 @@ impl IntoHarnessReport for RunReport {
             dropped_vdg_mode_writes: self.dropped_vdg_mode_writes,
             text_screen_base: self.text_screen_base,
             text_screen,
+            ram,
             text_framebuffer,
             framebuffer,
             framebuffer_cycles,
+            video_phase,
         }
     }
 }
@@ -3933,6 +4019,15 @@ fn print_report(report: &HarnessReport) {
     println!("instructions: {}", report.instructions);
     println!("pc: ${:04X}", report.pc);
     println!("text screen base: ${:04X}", report.text_screen_base);
+    println!(
+        "video phase: frame_tick={} physical_line={} line_tick={} visible_line={:?} active_y={:?} active_x={:?}",
+        report.video_phase.frame_master_tick,
+        report.video_phase.physical_line,
+        report.video_phase.line_master_tick,
+        report.video_phase.visible_line,
+        report.video_phase.active_y,
+        report.video_phase.active_x
+    );
     println!(
         "bus: addr=${:04X} rw={}",
         report.addr,
@@ -4300,9 +4395,11 @@ mod tests {
                 fetch_watch: None,
                 write_watch: None,
                 dump_text: true,
+                dump_ram: false,
                 dump_text_framebuffer: true,
                 capture_framebuffer: true,
                 capture_framebuffer_phase: SmokeScreenshotPhase::Immediate,
+                capture_framebuffer_source: ScreenshotSource::Beam,
             },
         );
 
@@ -4352,9 +4449,11 @@ mod tests {
                 fetch_watch: None,
                 write_watch: None,
                 dump_text: false,
+                dump_ram: false,
                 dump_text_framebuffer: false,
                 capture_framebuffer: true,
                 capture_framebuffer_phase: SmokeScreenshotPhase::CompletedFrame,
+                capture_framebuffer_source: ScreenshotSource::Beam,
             },
         );
 
@@ -4379,6 +4478,8 @@ mod tests {
             "0x20".to_owned(),
             "--trace-limit".to_owned(),
             "3".to_owned(),
+            "--dump-ram".to_owned(),
+            "ram.bin".to_owned(),
             "--dump-text".to_owned(),
         ])
         .expect("valid CLI should parse");
@@ -4389,6 +4490,7 @@ mod tests {
         assert_eq!(cli.fetch_watch, None);
         assert_eq!(cli.write_watch, None);
         assert_eq!(cli.pressed_keys, Vec::new());
+        assert_eq!(cli.dump_ram, Some(PathBuf::from("ram.bin")));
         assert!(cli.dump_text);
     }
 
@@ -4445,12 +4547,15 @@ mod tests {
             "xroar-zoomed".to_owned(),
             "--screenshot-phase".to_owned(),
             "completed-frame".to_owned(),
+            "--screenshot-source".to_owned(),
+            "static".to_owned(),
         ])
         .expect("valid CLI should parse");
 
         assert_eq!(cli.screenshot, Some(PathBuf::from("screen.png")));
         assert_eq!(cli.screenshot_format, SmokeScreenshotFormat::XroarZoomed);
         assert_eq!(cli.screenshot_phase, SmokeScreenshotPhase::CompletedFrame);
+        assert_eq!(cli.screenshot_source, ScreenshotSource::Static);
     }
 
     #[test]

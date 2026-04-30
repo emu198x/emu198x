@@ -44,8 +44,10 @@ const VDG_ACTIVE_AREA_END_LINE: u64 =
     VDG_ACTIVE_AREA_START_LINE + motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT as u64;
 const VDG_FRAME_SYNC_FALL_TICK: u64 = VDG_ACTIVE_AREA_END_LINE * VDG_LINE_MASTER_TICKS;
 const DRAGON_FRAME_MASTER_TICKS: u64 = VDG_LINE_MASTER_TICKS * VDG_PAL_FRAME_LINES;
+const VDG_NTSC_LOGICAL_FRAME_LINES: u64 = 262;
+const VDG_DRAGON_PAL_FIRST_PADDING_LINES: u64 = 25;
 const VDG_FRAME_SYNC_RISE_TICK: u64 =
-    DRAGON_FRAME_MASTER_TICKS - VDG_LINE_MASTER_TICKS * 16 - SLOW_CPU_MASTER_TICKS * 2;
+    (VDG_NTSC_LOGICAL_FRAME_LINES + VDG_DRAGON_PAL_FIRST_PADDING_LINES) * VDG_LINE_MASTER_TICKS;
 /// Number of MC6809 bus cycles in one PAL VDG video frame.
 pub const DRAGON_FRAME_CYCLES: u64 = DRAGON_FRAME_MASTER_TICKS / SLOW_CPU_MASTER_TICKS;
 const CART_ROM_START: u16 = 0xC000;
@@ -1100,6 +1102,23 @@ pub struct VdgModeWriteTrace {
     pub gm: u8,
 }
 
+/// Current MC6847 beam position within the emulated PAL frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DragonVideoPhase {
+    /// Master-tick offset within the current video frame.
+    pub frame_master_tick: u64,
+    /// Physical scanline index within the PAL frame.
+    pub physical_line: usize,
+    /// Master-tick offset within the current physical scanline.
+    pub line_master_tick: u64,
+    /// Visible framebuffer line, including top border, when the beam is visible.
+    pub visible_line: Option<usize>,
+    /// Active-area line, excluding top border, when the beam is in active display.
+    pub active_y: Option<usize>,
+    /// Active-area pixel column when the beam is in active display.
+    pub active_x: Option<usize>,
+}
+
 /// Reason a bounded machine run stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
@@ -2094,6 +2113,12 @@ impl Dragon32 {
         self.cpu.halt = false;
     }
 
+    /// Return the live 32 KiB RAM image.
+    #[must_use]
+    pub fn ram(&self) -> &[u8; RAM_SIZE] {
+        &self.memory.ram
+    }
+
     /// Remove the emulated cassette input.
     pub fn clear_cassette(&mut self) {
         self.memory.cassette.clear();
@@ -2241,6 +2266,21 @@ impl Dragon32 {
     #[must_use]
     pub fn beam_visible_argb(&self) -> &[u32] {
         self.video.frame()
+    }
+
+    /// Return the current MC6847 beam phase within the emulated PAL frame.
+    #[must_use]
+    pub fn video_phase(&self) -> DragonVideoPhase {
+        let frame_master_tick = self.video.cycle_in_frame;
+        let (visible_line, active_y, active_x) = self.video.beam_position();
+        DragonVideoPhase {
+            frame_master_tick,
+            physical_line: video_line_for_cycle(frame_master_tick),
+            line_master_tick: frame_master_tick % VDG_LINE_MASTER_TICKS,
+            visible_line,
+            active_y,
+            active_x,
+        }
     }
 
     /// Return the progressively rendered MC6847 frame expanded to PAL overscan.

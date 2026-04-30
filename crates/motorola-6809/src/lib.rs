@@ -1820,7 +1820,12 @@ impl Mc6809 {
                 i16::from((post & 0x1F) as i8)
             };
             let addr = self.index_base(post).wrapping_add_signed(offset);
-            self.start_indexed_effective_address(op, addr, 1);
+            let extra_cycles = if matches!(op, IndexedOp::Lea(_)) {
+                2
+            } else {
+                1
+            };
+            self.start_indexed_effective_address(op, addr, extra_cycles);
             return;
         }
 
@@ -3971,11 +3976,11 @@ mod tests {
         cpu.regs.y = 0x0010;
         cpu.regs.s = 0x8000;
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.x, 0x1005);
         assert!(!cpu.regs.flag(FLAG_Z));
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 5);
         assert_eq!(cpu.regs.y, 0x0000);
         assert!(cpu.regs.flag(FLAG_Z));
 
