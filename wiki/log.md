@@ -4,6 +4,94 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-30 — Cov-5c wave 1: structural cleanup of two CPU crates
+
+**Type:** refactor (architectural — splitting a chip-crate monolith + relocating a test runner that was hiding in `src/`)
+**Trigger:** the workspace coverage audit after Cov-5b surfaced two architectural smells in CPU crates beyond the runtime-family work:
+1. `crates/zilog-z80/src/z80_fuse_tests.rs` — 980-line FUSE Z80 test corpus runner sitting **inside `src/`**. Same shape lie that `motorola-68000` had with the Tom Harte runner before its split. Test runners belong in `tests/`.
+2. `crates/sharp-lr35902/src/opcodes.rs` — 2406-line opcode-dispatcher monolith. Same shape that the NES iNES file had before its 14-mapper split.
+
+The user authorised "split crates further into smaller files" with the qualifier "or move functionality between them, if really necessary". Both moves here are within-crate; no cross-crate functionality changes.
+
+### sharp-lr35902 — opcode dispatcher split
+
+| File | Before | After |
+|---|---|---|
+| `src/opcodes.rs` | 2406 | — (moved into `opcodes/`) |
+| `src/opcodes/mod.rs` (new) | — | 654 (dispatcher, `tick`, `interrupt_dispatch`, dispatch table, `op_cb_prefix` walker, fixtures) |
+| `src/opcodes/load.rs` (new) | — | 593 (LD-family + LDH + indirect loads) |
+| `src/opcodes/control.rs` (new) | — | 548 (JR/JP/CALL/RET/RETI/RST + PUSH/POP) |
+| `src/opcodes/arith.rs` (new) | — | 501 (INC/DEC/ALU/ADD HL/ADD SP/rotates/DAA/CPL/SCF/CCF) |
+| `src/opcodes/misc.rs` (new) | — | 242 (HALT/STOP/DI/EI + interrupt-interaction tests) |
+| `src/{alu,cb,reg,flags,lib}.rs` | unchanged | unchanged |
+
+**Split axis:** instruction class, following the existing comment-banner groups inside the original file. The dispatcher (the `match self.opcode` table, `tick`, `interrupt_dispatch`, the small helpers, and the CB-prefix walker) stays in `opcodes/mod.rs`; per-op bodies move to siblings. PUSH/POP land in `control.rs` next to CALL/RET/RST since they share stack semantics; the accumulator rotates and DAA/CPL/SCF/CCF land in `arith.rs` since they're flag/accumulator math.
+
+**Tests:** all 86 inline `#[test]` functions moved with their instruction class. The `TestBus` fixture and `boot` / `boot_for_dispatch` helpers live in `opcodes/mod.rs` as `pub(super)` so siblings can use them.
+
+**Visibility:** all `op_*` methods are `pub(super)` so the dispatcher in `mod.rs` calls them through `Sm83`'s impl scope; no symbols promoted to `pub`. `finish_instruction` was bumped from private to `pub(super)` so the per-op modules can call it.
+
+**Public API audit:** every previously-public symbol resolves at the same path. Verified by clean builds of `machine-nintendo-game-boy` and `runtime-nintendo-game-boy` against the new layout — the sole import sites compile unchanged.
+
+### zilog-z80 — FUSE runner moved out of `src/` + light directed-test polish
+
+**Move:** `src/z80_fuse_tests.rs` (980 lines) → `tests/z80_fuse.rs`. Modeled after `motorola-68000/tests/tom_harte.rs`. Removed the `#[cfg(test)] #[path = "z80_fuse_tests.rs"] mod fuse_tests;` declaration from `src/z80.rs`. The runner now uses `support::find_fuse_z80_tests_dir` from the existing `tests/support/mod.rs` (which already had a path-discovery helper). The two `#[ignore]`d tests (`run_fuse_z80_reference_suite`, `parse_fuse_inline_sample`) carry over.
+
+**Visibility widened (justification documented in code).** The FUSE harness inspects half-cycle phase and walker state to align bus events with T-states. From `tests/` only `pub` items are reachable, so:
+- `walker` module: `pub(crate)` → `pub`
+- `Walker`, `Staged`, `Prefix` in `walker.rs`: `pub(crate)` → `pub`
+- `Z80::phase`, `Z80::walker` fields: private/`pub(crate)` → `pub`
+- `Phase`, `M1Phase`, `MemPhase`, `IoPhase`, `InternalPhase`, `IntAckPhase` in `z80.rs`: `pub(crate)` → `pub`
+
+Each newly-public item carries a doc comment marking it as crate-internal and pointing at the FUSE test as the only legitimate consumer. No items renamed, removed, or moved within the crate; widening only.
+
+**Light directed-test polish (15 tests):** while in the file shuffle, the agent added small targeted tests where the post-move per-module gaps were tractable:
+- `registers.rs` (4): byte-pair / IX/IY / WZ accessors round-trip; `set_flag` toggles individual bits.
+- `mcycle.rs` (1): `mstep_half_cycles_match_z80_bus_timing` — single test that lifted the file from 0% to 100% line coverage.
+- `alu.rs` (6): ADC/SBC carry-in invariants, OR/XOR clear-flags, `write_r8` round-trip across all indices, IX-prefix swap, RR helpers distinguish SP from AF, BIT/SET/RES round-trip.
+- `walker.rs` (4): default state at idle boundary, begin-instruction clears completion flags, advance terminates on done short-circuit, current_step returns None past sequence end.
+- `z80.rs` (2): `new` matches `default`, NOP run returns to instruction boundary.
+
+### Coverage delta on zilog-z80
+
+| File | Lines before | Lines after | Funcs before | Funcs after |
+|---|---|---|---|---|
+| alu.rs | 69.02% | **85.44%** | 73.08% | **86.44%** |
+| execute.rs | 78.13% | 78.13% | 95.24% | 95.24% |
+| mcycle.rs | **0.00%** | **100.00%** | 0.00% | **100.00%** |
+| registers.rs | 73.66% | **100.00%** | 61.54% | **100.00%** |
+| walker.rs | 97.83% | 98.38% | 100% | 100% |
+| z80.rs | 91.31% | 92.05% | 95.65% | **100.00%** |
+| **Total** | **80.10%** | **86.53%** | **77.78%** | **94.44%** |
+
+`execute.rs` (1521 lines) coverage stayed flat because the FUSE corpus is its big lifter — that's `#[ignore]`d so it doesn't run in default coverage; that's a coverage-script question, not a directed-test question.
+
+### Verification
+
+| Crate | Command | Result |
+|---|---|---|
+| sharp-lr35902 | `cargo test --lib` | **93 passed** (matches pre-split baseline) |
+| sharp-lr35902 | `cargo test --tests` | 1 passed, 4 ignored (Adam Tennant SM83 corpus) |
+| sharp-lr35902 | `cargo clippy --all-targets -- -D warnings` | clean |
+| zilog-z80 | `cargo test --lib` | **37 passed** (was 19 + the 1 in-source FUSE parser test = 20) |
+| zilog-z80 | `cargo test --tests` | 75 + 0/2 + 1/1 + 6/4 ignored (75 integration + FUSE + ZEX) |
+| zilog-z80 | `cargo clippy --all-targets -- -D warnings` | clean |
+| Downstream | `cargo build -p machine-nintendo-game-boy -p runtime-nintendo-game-boy -p runtime-sinclair-zx-spectrum` | clean |
+| Downstream | `cargo test -p runtime-sinclair-zx-spectrum --lib --tests` | 30/30 still pass |
+
+### What's next on Cov-5c
+
+Wave 2: directed-test passes for chip crates with actionable gaps surfaced by the workspace audit:
+- `mos-vic-ii/src/lib.rs` (83.78% lines, 177 missed)
+- `ricoh-ppu-2c02/src/lib.rs` (70.56%, 275 missed)
+- `ricoh-apu-2a03/src/lib.rs` (78.31%, 259 missed)
+- `commodore-denise-ocs/src/chip.rs` (85.67%, 134 missed)
+- `machine-commodore-1541/src/lib.rs` (86.23%, 191 missed)
+
+Separate decision deferred for later: should the workspace coverage script run `--ignored` to include Tom Harte / FUSE / Adam Tennant single-step corpora? Each adds ~5-10 minutes; together they'd lift CPU-crate workspace coverage from artificially-low to honest. Probably a coverage-script PR, not a directed-test PR.
+
+---
+
 ## 2026-04-30 — Cov-5b: directed-test passes across the runtime family
 
 **Type:** test (Cov-5b — Cov-4-style directed-test passes for the four other runtimes)

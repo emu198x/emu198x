@@ -306,4 +306,80 @@ mod tests {
         };
         assert_eq!(r.ir(), 0x3F42);
     }
+
+    #[test]
+    fn byte_pair_accessors_are_self_inverse() {
+        // Each (high, low) accessor pair must round-trip without leaking
+        // bits across the byte boundary it owns.
+        let mut r = Registers {
+            bc: 0,
+            de: 0,
+            hl: 0,
+            ..Registers::default()
+        };
+
+        r.set_b(0xAA);
+        r.set_c(0x55);
+        assert_eq!(r.b(), 0xAA);
+        assert_eq!(r.c(), 0x55);
+        assert_eq!(r.bc, 0xAA55);
+
+        r.set_d(0x12);
+        r.set_e(0x34);
+        assert_eq!(r.d(), 0x12);
+        assert_eq!(r.e(), 0x34);
+        assert_eq!(r.de, 0x1234);
+
+        r.set_h(0xDE);
+        r.set_l(0xAD);
+        assert_eq!(r.h(), 0xDE);
+        assert_eq!(r.l(), 0xAD);
+        assert_eq!(r.hl, 0xDEAD);
+    }
+
+    #[test]
+    fn ix_iy_byte_accessors_round_trip() {
+        let mut r = Registers::default();
+
+        r.set_ixh(0xCA);
+        r.set_ixl(0xFE);
+        assert_eq!(r.ixh(), 0xCA);
+        assert_eq!(r.ixl(), 0xFE);
+        assert_eq!(r.ix, 0xCAFE);
+
+        r.set_iyh(0xBE);
+        r.set_iyl(0xEF);
+        assert_eq!(r.iyh(), 0xBE);
+        assert_eq!(r.iyl(), 0xEF);
+        assert_eq!(r.iy, 0xBEEF);
+    }
+
+    #[test]
+    fn wz_byte_accessors_split_word() {
+        let r = Registers {
+            wz: 0xAB12,
+            ..Registers::default()
+        };
+        assert_eq!(r.w(), 0xAB);
+        assert_eq!(r.z(), 0x12);
+    }
+
+    #[test]
+    fn set_flag_toggles_individual_bits() {
+        let mut r = Registers::default();
+        r.set_f(0);
+
+        r.set_flag(FLAG_C, true);
+        assert!(r.flag(FLAG_C));
+        assert_eq!(r.f(), FLAG_C);
+
+        r.set_flag(FLAG_Z, true);
+        assert!(r.flag(FLAG_Z));
+        assert_eq!(r.f(), FLAG_C | FLAG_Z);
+
+        r.set_flag(FLAG_C, false);
+        assert!(!r.flag(FLAG_C));
+        assert!(r.flag(FLAG_Z));
+        assert_eq!(r.f(), FLAG_Z);
+    }
 }

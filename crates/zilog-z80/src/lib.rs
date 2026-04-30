@@ -12,7 +12,7 @@ pub mod alu;
 mod execute;
 pub mod mcycle;
 pub mod registers;
-pub(crate) mod walker;
+pub mod walker;
 pub mod z80;
 
 pub use z80::Z80;

@@ -1,9 +1,27 @@
-use super::{InternalPhase, IoPhase, M1Phase, MemPhase, Phase, Z80};
-use crate::mcycle::{self, MStep};
-use crate::walker::Prefix;
-use std::path::{Path, PathBuf};
+//! FUSE Z80 reference test harness.
+//!
+//! Runs the FUSE emulator's per-T-state fixture suite (`tests.in` /
+//! `tests.expected`) against the half-cycle Z80 core. Each fixture
+//! gives a starting CPU + memory state, the requested T-state budget,
+//! and a list of bus events plus a final state to compare against.
+//!
+//! The corpus path is resolved by `support::find_fuse_z80_tests_dir`
+//! (driven by `EMU198X_FUSE_Z80_TESTS_DIR`).
+//!
+//! Skipped under normal `cargo test`. Run explicitly with:
+//!
+//! ```sh
+//! cargo test -p zilog-z80 --test z80_fuse -- --ignored --nocapture
+//! ```
 
-const FUSE_Z80_TESTS_ENV: &str = "EMU198X_FUSE_Z80_TESTS_DIR";
+mod support;
+
+use support::find_fuse_z80_tests_dir;
+use zilog_z80::Z80;
+use zilog_z80::mcycle::{self, MStep};
+use zilog_z80::walker::Prefix;
+use zilog_z80::z80::{InternalPhase, IoPhase, M1Phase, MemPhase, Phase};
+
 const FUSE_CASE_ENV: &str = "EMU198X_FUSE_Z80_CASE";
 const FUSE_LIMIT_ENV: &str = "EMU198X_FUSE_Z80_LIMIT";
 
@@ -118,46 +136,6 @@ const ACCEPTED_FUSE_DISAGREEMENTS: &[(&str, &[&str])] = &[
     ("edba_1", &["WZ"]),
     ("edbb_1", &["AF", "WZ"]),
 ];
-
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .to_path_buf()
-}
-
-fn home_projects_path(relative: &str) -> PathBuf {
-    match dirs::home_dir() {
-        Some(home) => home.join("Projects").join(relative),
-        None => PathBuf::from("/missing-home").join(relative),
-    }
-}
-
-fn first_existing_path(candidates: Vec<PathBuf>) -> Option<PathBuf> {
-    candidates.into_iter().find(|path| path.exists())
-}
-
-fn find_fuse_z80_tests_dir() -> Result<PathBuf, String> {
-    let mut candidates = Vec::new();
-
-    if let Some(path) = std::env::var_os(FUSE_Z80_TESTS_ENV) {
-        candidates.push(PathBuf::from(path));
-    }
-
-    candidates.push(repo_root().join("test-data/fuse-z80"));
-    candidates.push(home_projects_path(
-        "Emu198x-Unclean/fuse-emulator-fuse/z80/tests",
-    ));
-    candidates.push(home_projects_path("Reference/fuse-emulator-fuse/z80/tests"));
-
-    first_existing_path(candidates).ok_or_else(|| {
-        format!(
-            "FUSE Z80 test directory not found. Set {FUSE_Z80_TESTS_ENV} or place the data in one of:\n  - {}\n  - {}\n  - {}",
-            repo_root().join("test-data/fuse-z80").display(),
-            home_projects_path("Emu198x-Unclean/fuse-emulator-fuse/z80/tests").display(),
-            home_projects_path("Reference/fuse-emulator-fuse/z80/tests").display(),
-        )
-    })
-}
 
 fn parse_hex_u16(token: &str) -> u16 {
     u16::from_str_radix(token, 16)

@@ -4,8 +4,13 @@ use crate::z80::{IntAckPhase, InternalPhase, IoPhase, MemPhase, Phase};
 
 /// Staged data accumulated across MSteps within an instruction.
 /// Execute steps consume this data to apply the operation.
+///
+/// Public so the FUSE-corpus integration test (`tests/z80_fuse.rs`) can
+/// inspect mid-instruction state to align bus events with T-states.
+/// Treat as crate-internal — production consumers should use `Z80`'s
+/// public pin signals instead.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub(crate) struct Staged {
+pub struct Staged {
     /// Low byte fetched from memory or immediate.
     pub data_lo: u8,
     /// High byte fetched from memory or immediate.
@@ -23,9 +28,11 @@ pub(crate) struct Staged {
 }
 
 /// Prefix state for multi-byte opcodes.
+///
+/// Public for the FUSE-corpus integration test; treat as crate-internal.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[allow(clippy::upper_case_acronyms)]
-pub(crate) enum Prefix {
+pub enum Prefix {
     None,
     CB,
     ED,
@@ -36,8 +43,10 @@ pub(crate) enum Prefix {
 }
 
 /// Walker state — tracks progress through an instruction's MStep sequence.
+///
+/// Public for the FUSE-corpus integration test; treat as crate-internal.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub(crate) struct Walker {
+pub struct Walker {
     /// The current MStep sequence being executed.
     ///
     /// `#[serde(skip)]` because it's a `&'static` reference — static
@@ -239,5 +248,71 @@ impl Walker {
     /// Get the current MStep, if any.
     pub fn current_step(&self) -> Option<MStep> {
         self.sequence.get(self.step_idx).copied()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_walker_is_at_idle_boundary() {
+        let w = Walker::default();
+        assert_eq!(w.prefix, Prefix::None);
+        assert!(w.instruction_complete);
+        assert!(!w.ddcb_fetch_phase);
+        assert_eq!(w.step_idx, 0);
+        // The default sequence is SEQ_NOP — one Execute step.
+        assert!(matches!(w.current_step(), Some(MStep::Execute)));
+    }
+
+    #[test]
+    fn begin_instruction_clears_completion_flags_but_keeps_sequence() {
+        let mut w = Walker {
+            sequence: mcycle::SEQ_LD_R_N,
+            step_idx: 7,
+            done: true,
+            instruction_complete: true,
+            ddcb_fetch_phase: true,
+            staged: Staged {
+                disp: -3,
+                ..Staged::default()
+            },
+            ..Walker::default()
+        };
+
+        w.begin_instruction();
+        assert_eq!(w.step_idx, 0);
+        assert!(!w.done);
+        assert!(!w.instruction_complete);
+        assert!(!w.ddcb_fetch_phase);
+        assert_eq!(w.staged.disp, 0);
+        // Sequence is owned by the caller (Z80 sets it after decode);
+        // begin_instruction must not touch it.
+        assert!(std::ptr::eq(w.sequence.as_ptr(), mcycle::SEQ_LD_R_N.as_ptr()));
+    }
+
+    #[test]
+    fn advance_terminates_on_done_short_circuit() {
+        // Conditional instructions set `done` to skip the remaining steps;
+        // advance must report completion immediately even if more steps exist.
+        let mut w = Walker {
+            sequence: mcycle::SEQ_JP_CC_NN,
+            done: true,
+            instruction_complete: false,
+            ..Walker::default()
+        };
+        assert!(w.advance());
+        assert!(w.instruction_complete);
+    }
+
+    #[test]
+    fn current_step_returns_none_past_sequence_end() {
+        let w = Walker {
+            sequence: mcycle::SEQ_NOP,
+            step_idx: mcycle::SEQ_NOP.len(),
+            ..Walker::default()
+        };
+        assert!(w.current_step().is_none());
     }
 }

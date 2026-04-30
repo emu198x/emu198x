@@ -658,3 +658,39 @@ pub static SEQ_RETI: &[MStep] = &[MStep::PopLo, MStep::PopHi, MStep::Execute];
 
 /// IM 0/1/2 — set interrupt mode. Just execute.
 pub static SEQ_IM: &[MStep] = &[MStep::Execute];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mstep_half_cycles_match_z80_bus_timing() {
+        // Memory cycles: 3 T-states = 6 half-cycles.
+        assert_eq!(MStep::FetchByte.half_cycles(), 6);
+        assert_eq!(MStep::FetchByteHi.half_cycles(), 6);
+        assert_eq!(MStep::FetchDisp.half_cycles(), 6);
+        assert_eq!(MStep::ReadAddr.half_cycles(), 6);
+        assert_eq!(MStep::ReadAddrHi.half_cycles(), 6);
+        assert_eq!(MStep::WriteAddr.half_cycles(), 6);
+        assert_eq!(MStep::WriteAddrHi.half_cycles(), 6);
+        assert_eq!(MStep::PushHi.half_cycles(), 6);
+        assert_eq!(MStep::PushLo.half_cycles(), 6);
+        assert_eq!(MStep::PopLo.half_cycles(), 6);
+        assert_eq!(MStep::PopHi.half_cycles(), 6);
+        assert_eq!(MStep::ContendPc.half_cycles(), 6);
+
+        // I/O cycles: 4 T-states = 8 half-cycles.
+        assert_eq!(MStep::IoRead.half_cycles(), 8);
+        assert_eq!(MStep::IoWrite.half_cycles(), 8);
+
+        // Internal: scales linearly with T-state count.
+        assert_eq!(MStep::Internal(1).half_cycles(), 2);
+        assert_eq!(MStep::Internal(5).half_cycles(), 10);
+
+        // Interrupt acknowledge: 7 T-states.
+        assert_eq!(MStep::IntAck.half_cycles(), 14);
+
+        // Execute is processed without advancing the clock.
+        assert_eq!(MStep::Execute.half_cycles(), 0);
+    }
+}

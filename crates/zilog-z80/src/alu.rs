@@ -790,4 +790,146 @@ mod tests {
         assert_eq!(read_r8(&r, 5), 0xBC); // L
         assert_eq!(read_r8(&r, 7), 0xDE); // A
     }
+
+    #[test]
+    fn adc_a_includes_carry_in() {
+        let mut r = Registers::default();
+        r.set_a(0x10);
+        r.set_flag(FLAG_C, true);
+        adc_a(&mut r, 0x20);
+        assert_eq!(r.a(), 0x31); // 0x10 + 0x20 + carry-in
+        assert!(!r.flag(FLAG_C));
+        assert!(!r.flag(FLAG_Z));
+
+        // Carry-in tipping the result over 0xFF.
+        let mut r = Registers::default();
+        r.set_a(0xFE);
+        r.set_flag(FLAG_C, true);
+        adc_a(&mut r, 0x01);
+        assert_eq!(r.a(), 0x00);
+        assert!(r.flag(FLAG_C));
+        assert!(r.flag(FLAG_Z));
+    }
+
+    #[test]
+    fn sbc_a_includes_carry_in() {
+        let mut r = Registers::default();
+        r.set_a(0x10);
+        r.set_flag(FLAG_C, true);
+        sbc_a(&mut r, 0x01);
+        assert_eq!(r.a(), 0x0E); // 0x10 - 0x01 - 1
+        assert!(r.flag(FLAG_N));
+        assert!(!r.flag(FLAG_C));
+
+        // Borrow propagates from the carry-in alone.
+        let mut r = Registers::default();
+        r.set_a(0x00);
+        r.set_flag(FLAG_C, true);
+        sbc_a(&mut r, 0x00);
+        assert_eq!(r.a(), 0xFF);
+        assert!(r.flag(FLAG_C));
+        assert!(r.flag(FLAG_S));
+    }
+
+    #[test]
+    fn or_xor_clear_carry_and_half_carry() {
+        let mut r = Registers::default();
+        r.set_a(0xF0);
+        r.set_flag(FLAG_C, true);
+        r.set_flag(FLAG_H, true);
+        or_a(&mut r, 0x0F);
+        assert_eq!(r.a(), 0xFF);
+        assert!(!r.flag(FLAG_C));
+        assert!(!r.flag(FLAG_H));
+        assert!(r.flag(FLAG_S));
+
+        let mut r = Registers::default();
+        r.set_a(0xFF);
+        r.set_flag(FLAG_C, true);
+        r.set_flag(FLAG_H, true);
+        xor_a(&mut r, 0xFF);
+        assert_eq!(r.a(), 0x00);
+        assert!(!r.flag(FLAG_C));
+        assert!(!r.flag(FLAG_H));
+        assert!(r.flag(FLAG_Z));
+        assert!(r.flag(FLAG_PV)); // 0 has even parity
+    }
+
+    #[test]
+    fn write_r8_round_trips_every_index() {
+        // Indices 0..=5 plus 7 form a complete 8-bit register selector;
+        // index 6 is `(HL)` and is handled by the caller.
+        let mut r = Registers::default();
+        for idx in [0u8, 1, 2, 3, 4, 5, 7] {
+            write_r8(&mut r, idx, 0xA0 | idx);
+            assert_eq!(read_r8(&r, idx), 0xA0 | idx, "index {idx}");
+        }
+    }
+
+    #[test]
+    fn r8_ix_prefix_swaps_h_l_for_ixh_ixl() {
+        let mut r = Registers {
+            ix: 0x1122,
+            iy: 0x3344,
+            hl: 0x5566,
+            ..Registers::default()
+        };
+
+        // is_ix = true selects IXH/IXL for indices 4/5; others fall through.
+        assert_eq!(read_r8_ix(&r, 4, true), 0x11);
+        assert_eq!(read_r8_ix(&r, 5, true), 0x22);
+        assert_eq!(read_r8_ix(&r, 4, false), 0x33);
+        assert_eq!(read_r8_ix(&r, 5, false), 0x44);
+        // Non-H/L indices ignore the prefix.
+        r.bc = 0xAB00;
+        assert_eq!(read_r8_ix(&r, 0, true), 0xAB);
+
+        write_r8_ix(&mut r, 4, 0xEE, true);
+        write_r8_ix(&mut r, 5, 0xFF, true);
+        assert_eq!(r.ix, 0xEEFF);
+        write_r8_ix(&mut r, 4, 0x99, false);
+        write_r8_ix(&mut r, 5, 0x88, false);
+        assert_eq!(r.iy, 0x9988);
+        // HL should be untouched by either prefix path.
+        assert_eq!(r.hl, 0x5566);
+    }
+
+    #[test]
+    fn rr_index_helpers_distinguish_sp_from_af() {
+        let mut r = Registers {
+            bc: 0x1111,
+            de: 0x2222,
+            hl: 0x3333,
+            sp: 0x4444,
+            af: 0x5555,
+            ..Registers::default()
+        };
+
+        // Standard table (idx 3 = SP).
+        assert_eq!(read_rr(&r, 0), 0x1111);
+        assert_eq!(read_rr(&r, 1), 0x2222);
+        assert_eq!(read_rr(&r, 2), 0x3333);
+        assert_eq!(read_rr(&r, 3), 0x4444);
+        // PUSH/POP table (idx 3 = AF).
+        assert_eq!(read_rr_af(&r, 3), 0x5555);
+
+        write_rr(&mut r, 3, 0xC0DE);
+        assert_eq!(r.sp, 0xC0DE);
+        write_rr_af(&mut r, 3, 0xBABE);
+        assert_eq!(r.af, 0xBABE);
+        // Confirm AF write didn't bleed into SP and vice versa.
+        assert_eq!(r.sp, 0xC0DE);
+    }
+
+    #[test]
+    fn bit_set_res_round_trip() {
+        // SET writes the bit, RES clears it, leaving every other bit alone.
+        let v = 0b0000_0000;
+        let with_bit3 = set(3, v);
+        assert_eq!(with_bit3, 0b0000_1000);
+        assert_eq!(res(3, with_bit3), 0b0000_0000);
+
+        let cleared = res(7, 0xFF);
+        assert_eq!(cleared, 0x7F);
+    }
 }

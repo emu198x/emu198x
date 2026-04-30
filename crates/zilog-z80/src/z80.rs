@@ -92,9 +92,16 @@ pub struct Z80 {
 
     // === Internal state ===
     /// Current half-cycle state in the state machine.
-    phase: Phase,
+    ///
+    /// Public so the FUSE-corpus integration test
+    /// (`tests/z80_fuse.rs`) can align bus events with T-states.
+    /// Production consumers should never read this — use the pin
+    /// signals (`mreq`, `rd`, etc.) instead.
+    pub phase: Phase,
     /// MStep sequence walker — tracks instruction progress and staged data.
-    pub(crate) walker: Walker,
+    ///
+    /// Public for the FUSE-corpus integration test (see note on `phase`).
+    pub walker: Walker,
     /// EI was just executed — defer interrupt check by one instruction.
     pub(crate) ei_pending: bool,
     /// Previous NMI state for edge detection.
@@ -106,8 +113,10 @@ pub struct Z80 {
 /// Each M-cycle type has a sequence of phases. The Z80 advances through
 /// these phases one half-cycle at a time. Bus signals are set at specific
 /// phases to match the real Z80's pin timing.
+///
+/// Public for the FUSE-corpus integration test; treat as crate-internal.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum Phase {
+pub enum Phase {
     /// M1 opcode fetch: T1 through T4, rise and fall.
     /// 8 half-cycles total.
     M1(M1Phase),
@@ -145,7 +154,7 @@ pub(crate) enum Phase {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum M1Phase {
+pub enum M1Phase {
     T1Rise,
     T1Fall,
     T2Rise,
@@ -157,7 +166,7 @@ pub(crate) enum M1Phase {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum MemPhase {
+pub enum MemPhase {
     T1Rise,
     T1Fall,
     T2Rise,
@@ -167,7 +176,7 @@ pub(crate) enum MemPhase {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum IoPhase {
+pub enum IoPhase {
     T1Rise,
     T1Fall,
     T2Rise,
@@ -179,13 +188,13 @@ pub(crate) enum IoPhase {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct InternalPhase {
+pub struct InternalPhase {
     /// Half-cycles remaining (counts down).
     pub remaining: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum IntAckPhase {
+pub enum IntAckPhase {
     /// IntAck is 7 T-states (14 half-cycles): 5 internal + 2 for data read.
     /// Phases T1-T5 are internal (IORQ + M1 asserted at T4).
     T1Rise,
@@ -1114,10 +1123,6 @@ impl Z80 {
 }
 
 #[cfg(test)]
-#[path = "z80_fuse_tests.rs"]
-mod fuse_tests;
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1185,5 +1190,38 @@ mod tests {
         // T4 fall: decode
         z80.tick();
         // After 8 half-cycles, we should be back at M1 T1 rise (NOP loops)
+    }
+
+    #[test]
+    fn new_matches_default_and_reports_instruction_boundary() {
+        // `new()` is documented as the reset constructor — it must be
+        // identical to `default()` and start at an instruction boundary
+        // so a fresh CPU is ready to fetch.
+        let from_new = Z80::new();
+        let from_default = Z80::default();
+        assert_eq!(from_new.regs.pc, from_default.regs.pc);
+        assert_eq!(from_new.regs.sp, from_default.regs.sp);
+        assert_eq!(from_new.phase, from_default.phase);
+        assert!(from_new.instruction_complete());
+    }
+
+    #[test]
+    fn nop_run_returns_to_instruction_boundary() {
+        // After a complete NOP fetch (8 half-cycles), the CPU must be
+        // back at an instruction boundary with PC advanced by one.
+        let mut z80 = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0] = 0x00; // NOP
+
+        for _ in 0..8 {
+            z80.tick();
+            if z80.mreq && z80.rd {
+                z80.data_in = mem[z80.addr as usize];
+            }
+        }
+
+        assert!(z80.instruction_complete());
+        assert_eq!(z80.regs.pc, 1);
+        assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
     }
 }
