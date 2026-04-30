@@ -504,11 +504,23 @@ mod tests {
     #[test]
     fn display_name_returns_a_human_readable_string_per_variant() {
         // Drives every arm of `display_name`.
-        assert_eq!(Model::Spectrum48KPal.display_name(), "ZX Spectrum 48K (PAL)");
-        assert_eq!(Model::Spectrum128KPal.display_name(), "ZX Spectrum 128K (PAL)");
+        assert_eq!(
+            Model::Spectrum48KPal.display_name(),
+            "ZX Spectrum 48K (PAL)"
+        );
+        assert_eq!(
+            Model::Spectrum128KPal.display_name(),
+            "ZX Spectrum 128K (PAL)"
+        );
         assert_eq!(Model::SpectrumPlus2.display_name(), "ZX Spectrum +2 (PAL)");
-        assert_eq!(Model::SpectrumPlus2A.display_name(), "ZX Spectrum +2A (PAL)");
-        assert_eq!(Model::SpectrumPlus2B.display_name(), "ZX Spectrum +2B (PAL)");
+        assert_eq!(
+            Model::SpectrumPlus2A.display_name(),
+            "ZX Spectrum +2A (PAL)"
+        );
+        assert_eq!(
+            Model::SpectrumPlus2B.display_name(),
+            "ZX Spectrum +2B (PAL)"
+        );
         assert_eq!(Model::SpectrumPlus3.display_name(), "ZX Spectrum +3 (PAL)");
         assert_eq!(Model::Pentagon128.display_name(), "Pentagon 128");
         assert_eq!(Model::ScorpionZS256.display_name(), "Scorpion ZS-256");

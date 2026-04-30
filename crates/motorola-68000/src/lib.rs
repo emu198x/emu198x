@@ -1,14 +1,11 @@
 //! Motorola 68000 CPU.
 //!
 //! This crate hosts the M68000 CPU core: prefetch pipeline, micro-op
-//! state machine, decode tables, and execute logic. It also currently
-//! hosts the higher-variant decode arms (68010 / 68020 / 68030 /
-//! 68040), gated at runtime on
-//! [`motorola_68k_common::CpuModel`] capabilities. Reducing the core
-//! to M68000-only paths and giving each higher variant its own state
-//! machine is the deferred follow-up tracked in `wiki/log.md` as
-//! "Cov-5"; today the variant crates re-export this core under the
-//! conceptually-correct type alias.
+//! state machine, decode tables, and execute logic. It implements the
+//! 68000 ISA *only* — no 68010+ instructions, no caches, no FPU, no
+//! MMU. Higher-variant cores (68010 / 68020 / 68030 / 68040) live in
+//! their own crates and currently re-export this type as a stand-in
+//! until each variant's state machine is built out.
 //!
 //! # Shared infrastructure
 //!

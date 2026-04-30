@@ -211,9 +211,7 @@ fn audio_controls_mutate_loaded_machine_mixer() {
 fn set_audio_controls_replaces_loaded_mixer() {
     let mut runtime = GameBoyRuntime::blank(Model::Dmg);
     // No-op when no cartridge is loaded — should not panic.
-    let blank_controls = runtime
-        .audio_controls()
-        .unwrap_or_default();
+    let blank_controls = runtime.audio_controls().unwrap_or_default();
     runtime.set_audio_controls(blank_controls);
     assert!(runtime.audio_controls().is_none());
 

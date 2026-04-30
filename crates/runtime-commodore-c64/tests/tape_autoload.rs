@@ -16,8 +16,8 @@ use runtime_commodore_c64::{
 };
 
 use common::{
-    local_ghostbusters_tap_zip, local_rom_firmware, local_thinker_tap_zip, local_thomas_tap_zip,
-    local_thing_on_a_spring_tap_zip, screen_text_lines, wait_for_screen_line_contains,
+    local_ghostbusters_tap_zip, local_rom_firmware, local_thing_on_a_spring_tap_zip,
+    local_thinker_tap_zip, local_thomas_tap_zip, screen_text_lines, wait_for_screen_line_contains,
 };
 
 #[test]

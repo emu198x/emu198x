@@ -108,8 +108,8 @@ pub fn make_tap(payload: &[u8]) -> Vec<u8> {
 
 pub fn d64_linear_sector_index(track: u8, sector_num: u8) -> usize {
     const TRACK_SECTOR_COUNTS: [u8; 35] = [
-        21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 19, 19, 19, 19, 19,
-        19, 19, 18, 18, 18, 18, 18, 18, 17, 17, 17, 17, 17,
+        21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 19, 19, 19, 19, 19, 19,
+        19, 18, 18, 18, 18, 18, 18, 17, 17, 17, 17, 17,
     ];
     TRACK_SECTOR_COUNTS[..usize::from(track - 1)]
         .iter()

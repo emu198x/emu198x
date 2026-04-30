@@ -214,8 +214,7 @@ fn run_until_applies_joystick_input_to_controller_port_one() {
 
 #[test]
 fn machine_core_profile_matches_model_profile() {
-    let runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     assert_eq!(
         runtime.profile().profile_id.as_str(),
         profile_for(Model::A500OcsPal).profile_id.as_str()
@@ -224,8 +223,7 @@ fn machine_core_profile_matches_model_profile() {
 
 #[test]
 fn machine_core_capabilities_match_profile() {
-    let runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let caps = runtime.capabilities();
     let profile = profile_for(Model::A500OcsPal);
     assert_eq!(caps, profile.capabilities);
@@ -233,8 +231,7 @@ fn machine_core_capabilities_match_profile() {
 
 #[test]
 fn machine_core_time_matches_internal_time() {
-    let runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     // Brand new runtime: time is the default (zero ticks).
     assert_eq!(runtime.time(), MachineTime::default());
 }
@@ -274,9 +271,7 @@ fn machine_core_reset_remounts_inserted_floppy() {
     let disk = vec![0u8; ADF_SIZE_DD];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
-    runtime
-        .load_media(&media)
-        .expect("ADF should mount");
+    runtime.load_media(&media).expect("ADF should mount");
     assert!(runtime.machine().drive().has_disk());
     runtime.reset(ResetKind::Hard);
     assert!(

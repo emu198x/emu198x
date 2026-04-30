@@ -132,10 +132,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_unsupported_snapshot_version() {
-        let bytes = synthetic_envelope(
-            Model::Spectrum128KPal.profile_id(),
-            SNAPSHOT_VERSION + 1,
-        );
+        let bytes = synthetic_envelope(Model::Spectrum128KPal.profile_id(), SNAPSHOT_VERSION + 1);
         let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
         let err = runtime
             .restore(&bytes)

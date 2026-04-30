@@ -318,10 +318,7 @@ mod tests {
 
     impl SessionQueryProvider<Spectrum48kRuntime> for StuckPromptProvider {
         fn query_paths(&self, _machine: &Spectrum48kRuntime, _prefix: Option<&str>) -> Vec<String> {
-            vec![
-                "boot.detected".to_owned(),
-                "screen.text.lines".to_owned(),
-            ]
+            vec!["boot.detected".to_owned(), "screen.text.lines".to_owned()]
         }
 
         fn query(

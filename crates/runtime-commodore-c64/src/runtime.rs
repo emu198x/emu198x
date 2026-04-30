@@ -689,4 +689,3 @@ fn repack_rgba8888(argb_pixels: &[u32], rgba: &mut Vec<u8>) {
         rgba[base + 3] = ((pixel >> 24) & 0xFF) as u8;
     }
 }
-

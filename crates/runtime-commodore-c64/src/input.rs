@@ -116,8 +116,28 @@ mod tests {
     #[test]
     fn input_mapping_covers_native_shell_keys() {
         for key in [
-            "RETURN", "BACKSPACE", "SPACE", "LSHIFT", "RSHIFT", "CTRL", "RUNSTOP", "F1", "F3",
-            "F5", "F7", "UP", "DOWN", "RIGHT", "A", "Z", "0", "9", ":", "@", ",", ".",
+            "RETURN",
+            "BACKSPACE",
+            "SPACE",
+            "LSHIFT",
+            "RSHIFT",
+            "CTRL",
+            "RUNSTOP",
+            "F1",
+            "F3",
+            "F5",
+            "F7",
+            "UP",
+            "DOWN",
+            "RIGHT",
+            "A",
+            "Z",
+            "0",
+            "9",
+            ":",
+            "@",
+            ",",
+            ".",
         ] {
             assert!(
                 c64_key_position(key).is_some(),

@@ -192,8 +192,8 @@ fn walk_all_paths(firmware: &emu198x_shell::FirmwareSet<'_>) {
                 "wildcard placeholder {path} should be reported unknown, got {result:?}",
             );
         } else {
-            let value = result
-                .unwrap_or_else(|err| panic!("concrete {path} should not fail: {err:?}"));
+            let value =
+                result.unwrap_or_else(|err| panic!("concrete {path} should not fail: {err:?}"));
             assert!(value.is_some(), "concrete {path} should resolve");
         }
     }

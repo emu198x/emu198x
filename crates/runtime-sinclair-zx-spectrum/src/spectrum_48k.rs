@@ -375,7 +375,10 @@ mod tests {
         // InvalidFirmware arm.
         let mut firmware = FirmwareSet::new();
         let too_small = [0u8; 1024];
-        firmware.push(FirmwareImage::new("sinclair-zx-spectrum-48k-rom", &too_small));
+        firmware.push(FirmwareImage::new(
+            "sinclair-zx-spectrum-48k-rom",
+            &too_small,
+        ));
         match SpectrumRuntime::<Spectrum48k>::from_firmware(&firmware) {
             Err(MachineError::InvalidFirmware { .. }) => {}
             Err(other) => panic!("expected InvalidFirmware, got {other:?}"),

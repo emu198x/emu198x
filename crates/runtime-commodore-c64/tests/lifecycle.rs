@@ -267,7 +267,9 @@ fn from_firmware_reports_each_missing_rom() {
                 continue;
             }
             let bytes: &'static [u8] = match id {
-                "commodore-c64-kernal-rom" => Box::leak(vec![0; KERNAL_ROM_SIZE].into_boxed_slice()),
+                "commodore-c64-kernal-rom" => {
+                    Box::leak(vec![0; KERNAL_ROM_SIZE].into_boxed_slice())
+                }
                 "commodore-c64-basic-rom" => Box::leak(vec![0; BASIC_ROM_SIZE].into_boxed_slice()),
                 "commodore-c64-character-rom" => {
                     Box::leak(vec![0; CHARACTER_ROM_SIZE].into_boxed_slice())
@@ -285,7 +287,10 @@ fn from_firmware_reports_each_missing_rom() {
         // InvalidRequest depending on profile-side checks; both name
         // the missing image.
         let msg = format!("{err:?}");
-        assert!(msg.contains(missing), "error message should name {missing}: {msg}");
+        assert!(
+            msg.contains(missing),
+            "error message should name {missing}: {msg}"
+        );
     }
 }
 
@@ -329,7 +334,11 @@ fn machine_core_load_media_rejects_unknown_slot() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let mut media = MediaSet::new();
-    media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &[0x00]));
+    media.push(MediaImage::new(
+        "cartridge-1",
+        MediaKind::Cartridge,
+        &[0x00],
+    ));
 
     let err = runtime
         .load_media(&media)
