@@ -4,6 +4,35 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-30 — Decision: skip audit-and-prune of motorola-68k-common alu.rs and motorola-68000 disasm.rs
+
+**Type:** decision (close-out on a Cov-5d open-queue item)
+**Trigger:** the post-Cov-5d open queue listed `motorola-68k-common/src/alu.rs` (33% coverage) and `motorola-68000/src/disasm.rs` (39%) as audit-and-prune candidates — the framing being that they might contain dormant code from the pre-split state that should be deleted. The user flagged that the **later M680x0 CPUs (68010 / 68020 / 68030 / 68040)** will be implemented imminently — possibly within the same weekend as this decision. That changes the calculus.
+
+**Decision:** keep both files as-is. Do not prune. Do not add directed tests now.
+
+### Rationale per file
+
+**`motorola-68k-common/src/alu.rs` (33%, 89 missed lines).** This is the *shared* ALU crate consumed by every variant. The low coverage isn't dormant code — it's helper functions the M68000 path doesn't exercise but the higher variants will (32-bit MUL.L / DIV.L for the 68020+, BCD pack/unpack for the 68020+, the 68040 FPU's integer support helpers, etc.). With variant work landing imminently, those functions become live code with real test coverage from per-variant test passes. Pruning now would mean re-introducing them; testing M68000-side now would mean re-baseline-ing once the variants light up.
+
+**`motorola-68000/src/disasm.rs` (39%, 349 missed lines).** Debugging aid the running M68000 never invokes — the 39% is the four restored Amiga trace test files (`a1000_bootstrap_trace.rs` / `ks12_disasm_early_boot.rs` / `ks13_disasm_bootblock.rs` / `wb13_late_boot_trace.rs`) using the disassembler to log boot-time CPU state. The remaining ~349 lines are opcode arms the trace tests don't reach. Adding directed unit tests would be coverage-for-coverage's-sake; the disassembler's job is to format real CPU state correctly, and the only honest tests are end-to-end against a running CPU. The variant work this weekend will need disasm support for the 68010+ instructions too, which will naturally exercise more of this file.
+
+### How this is documented for future contributors
+
+Both files are now flagged in their respective `lib.rs` module-doc comments as "skeleton coverage, exercised by variant work" — TODO: add the comment in a small follow-up commit when the variant work begins, alongside the per-variant code. For now the wiki/log entry is the record.
+
+The Cov-5d open queue (in commit 14a7e58's wiki/log entry) has its first three bullets effectively closed:
+- ~~`motorola-68k-common/src/alu.rs`~~ — kept; coverage will rise when variants land
+- ~~`motorola-68000/src/disasm.rs`~~ — kept; trace tests are sufficient ground truth
+- ~~Verifier binaries~~ — separate decision (low by design; headless smoke tests as a future feature)
+- **Coverage-script `--ignored` question** still open
+
+### Implications for the workspace TOTAL
+
+The current 78.26% line / 79.01% function workspace number now reflects the long-term state — it'll move up as M680x0 work lights up the alu.rs / disasm.rs paths and as Spectrum query-provider generalisation lands. The "actionable but deferred" coverage debt is honest and small.
+
+---
+
 ## 2026-04-30 — Cov-5d: directed-test passes on actionable workspace gaps
 
 **Type:** test (Cov-5d — directed-test passes on the lowest-coverage actionable files surfaced by the workspace audit)
