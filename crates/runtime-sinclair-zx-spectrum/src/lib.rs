@@ -4,13 +4,17 @@
 //! generic `SpectrumRuntime<M>` that translates `MediaSet`, host input
 //! events, and frame/audio sinks into concrete machine operations. Each
 //! variant — 48K through Timex TS2068 — exposes a `Spectrum…Runtime`
-//! type alias backed by the same generic implementation. The 48K
-//! additionally wears the `SpectrumSessionQueryProvider` for ROM-glyph
-//! text extraction and boot detection.
+//! type alias backed by the same generic implementation. The
+//! `SpectrumSessionQueryProvider` is generic over `M: SpectrumMachine`,
+//! so every variant exposes the shared screen-text / keyboard / tape /
+//! timing query surface; variant-specific paths (boot banner, AY
+//! state, board issue, SCLD high-res) come from the `SpectrumMachine`
+//! trait's variant-query hooks.
 
 mod autoload;
 mod input;
 mod profiles;
+mod queries;
 mod runtime;
 mod snapshot;
 mod spectrum_48k;
@@ -22,8 +26,8 @@ pub use autoload::{
 };
 pub use common_sinclair_zx_spectrum::{AudioControls, SpeakerChannel};
 pub use profiles::{Model, profile_for, profiles};
+pub use queries::{SpectrumBootStatus, SpectrumSessionQueryProvider};
 pub use runtime::{SpectrumMachine, SpectrumRuntime};
-pub use spectrum_48k::SpectrumSessionQueryProvider;
 pub use variants::{
     Pentagon128Runtime, ScorpionZS256Runtime, Spectrum48kRuntime, Spectrum128kRuntime,
     SpectrumPlusRuntime, TimexTC2048Runtime, TimexTS2068Runtime,

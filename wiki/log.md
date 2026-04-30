@@ -4,6 +4,107 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-30 — Generalise SpectrumSessionQueryProvider across all 7 variants
+
+**Type:** feature (extending an existing capability to additional family members)
+**Trigger:** a Cov-5d follow-up. The `SessionQueryProvider` impl was previously 48K-only — six other Spectrum variants (128K, +2A/+2B/+3, Pentagon128, ScorpionZS256, TimexTC2048, TimexTS2068) exposed nothing through the query surface. Now that the runtime and chip crates are stable and the directed-test track is closed, this is the right time to broaden coverage.
+**Result:** `SpectrumSessionQueryProvider` is now generic over `M: SpectrumMachine`. All seven variants resolve at minimum the shared query catalogue; six variants additionally expose variant-specific paths. 48K boot-banner detection is preserved verbatim; six variants honestly stub `boot.detected = false` until ROM-backed banner verification confirms the exact on-screen string.
+
+### Architecture
+
+Added eight methods to the `SpectrumMachine` trait. Six are required (every variant implements them anyway through `MemoryBus` / `SpectrumDriver`), two have empty defaults so future variants compile without override:
+
+| Method | Required / Default | Purpose |
+|---|---|---|
+| `read_byte(&self, addr: u16) -> u8` | required | Generic memory peek for shared queries (notably the ROM glyph table at $3D00) |
+| `keyboard_rows(&self) -> &[u8; 8]` | required | Keyboard-matrix exposure |
+| `tape_is_loaded(&self) -> bool` | required | Shared `spectrum.tape.loaded` |
+| `tape_is_playing(&self) -> bool` | required | Shared `spectrum.tape.playing` |
+| `half_cycle_in_frame(&self) -> u32` | required | Shared `spectrum.machine.half_cycle_in_frame` |
+| `tstate_in_frame(&self) -> u32` | required | Shared `spectrum.machine.tstate_in_frame` |
+| `variant_query_paths() -> &'static [&'static str]` | default = `&[]` | Variant-specific path catalogue |
+| `resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError>` | default = `Ok(None)` | Variant-specific dispatcher |
+
+The two new defaulted methods are the per-variant extension hook documented in `wiki/decisions/runtime-internal-shape.md` ("the per-variant generic axis" — same shape as the runtime itself). Adding methods with default impls is a compatible change for the existing 7 variant impls in the workspace plus any future ones.
+
+### Per-variant query exposure
+
+| Variant | Boot banner | Variant-specific paths exposed |
+|---|---|---|
+| Spectrum48k | **Confirmed** ("(C) 1982 Sinclair Research Ltd" + ASCII / unicode fallbacks) | `spectrum.machine.issue` |
+| Spectrum128K | TODO stub | (none yet — 128K paging / AY register state are follow-up) |
+| SpectrumPlus (+2A/+2B/+3) | TODO stub | `spectrum.plus.disk_slot_supported` |
+| Pentagon128 | TODO stub | `spectrum.kempston.state` |
+| ScorpionZS256 | TODO stub | `spectrum.kempston.state` |
+| TimexTC2048 | TODO stub | `spectrum.kempston.state` |
+| TimexTS2068 | TODO stub | `spectrum.kempston.state`, `spectrum.timex.model` ("ts2068") |
+
+The agent honoured the "no fabrication" constraint — the six TODO stubs return `boot.detected = false` with reason "copyright banner not visible" rather than guessed banner strings. Confirming the actual banners for the other six variants needs ROM-backed verification (boot the ROM, capture screen RAM at the boot prompt, transcribe the banner) and lands as follow-up work in the variant track.
+
+### Code reorganisation
+
+| File | Lines before | Lines after | Notes |
+|---|---|---|---|
+| `src/queries.rs` (new) | — | 324 | Generic `SpectrumSessionQueryProvider`, shared screen-text scanner, `boot_status_from_banners`, `SpectrumBootStatus`, ROM-glyph constants, `SHARED_QUERY_PATHS` |
+| `src/spectrum_48k.rs` | 490 | **182** | Trimmed to 48K constructors + audio-control wrappers + `boots_profile_with_export()`. The query-provider machinery moved out. |
+| `src/runtime.rs` | 330 | 394 | Trait extension + the `SpectrumMachine` doc lift |
+| `src/variants.rs` | 309 | 730 | Per-variant trait method impls + boot-banner constants + variant-specific query paths |
+| `src/lib.rs` | 30 | 34 | Registered `mod queries`; re-exports preserved |
+| `tests/variants.rs` | 247 | 930 | +8 integration tests for non-48K variant query smoke + boot-paths-wired |
+
+Public API: `SpectrumSessionQueryProvider` and `SpectrumBootStatus` continue to import from `runtime_sinclair_zx_spectrum::*` at unchanged paths. The 48K-specific `tests/runtime_48k.rs` import sites compile unchanged.
+
+### Tests
+
+12 new tests total (4 inline in `queries.rs`, 8 integration in `tests/variants.rs`):
+
+- `queries::tests::screen_text_lines_decode_rom_glyph_cells`
+- `queries::tests::boot_status_reports_absence_when_banner_is_missing`
+- `queries::tests::provider_returns_none_for_unrecognised_path`
+- `queries::tests::provider_resolves_variant_specific_issue_path_via_trait`
+- 6 per-variant query-smoke tests (`spectrum_128k_*`, `spectrum_plus_*`, `pentagon_128_*`, `scorpion_*`, `timex_tc2048_*`, `timex_ts2068_*`) — each builds a runtime, asserts `screen.text.cols`, `screen.text.rows`, the variant's first-class queries, and a deliberately-unknown path; plus the boot-paths-wired check.
+- `tests/variants::variant_query_paths_include_boot_paths` — confirms every variant exposes the boot path catalogue.
+- `tests/variants::pentagon_boot_status_returns_not_detected_until_banner_confirmed` — explicit assertion that the TODO-stubbed variants honestly report no detection.
+
+### Coverage
+
+| File | Line | Function |
+|---|---|---|
+| `queries.rs` (new) | **98.74%** | **100%** |
+| `runtime.rs` | 92.99% | 90.32% |
+| `variants.rs` | 90.78% | 90.08% |
+| `spectrum_48k.rs` | 92.90% | 94.12% |
+| `snapshot.rs` | 93.28% | 88.89% |
+| `input.rs` | 91.67% | 100% |
+| `profiles.rs` | 100% | 100% |
+| `autoload.rs` | 83.28% | 83.33% |
+
+### Verification
+
+- `cargo test -p runtime-sinclair-zx-spectrum --lib` — 28 passed (was 24, +4)
+- `cargo test -p runtime-sinclair-zx-spectrum --tests` — 59 passed, 6 ignored (was 51 / 6)
+- `cargo clippy -p runtime-sinclair-zx-spectrum --all-targets -- -D warnings` — clean
+- `cargo build --workspace` — clean (every downstream consumer compiles)
+
+### Surprises noted by the agent
+
+1. **`tstate_in_frame()` is not an inherent method on the non-48K variants** — only the 48K had it directly. For the others, the agent derives it as `<Self as SpectrumDriver>::hc(self) / TIMING_*.cpu_divisor`. This is a Spectrum-driver-side architectural unevenness worth noting; future cleanup might lift `tstate_in_frame()` onto the `SpectrumDriver` trait so it's uniformly available.
+2. **AY-3-8912 register state was deferred.** The chip's register file is private inside `Ay3_8912` (no public reader). Adding `spectrum.ay.registers` paths would require touching the chip crate. Out of scope for this commit.
+
+### What's next
+
+This entry effectively closes item (3) on the post-Cov-5d open queue. The remaining items:
+
+1. **ROM-backed banner verification** for the six TODO-stubbed variants. Probably a small follow-up: boot each variant under a ROM-gated test, capture screen RAM at the boot prompt, transcribe the banner, replace the TODO. Per variant it's ~5-10 lines and one new test.
+2. **AY register exposure** — needs a small chip-crate API addition (`fn registers(&self) -> &[u8; 16]`). Trivial when needed.
+3. **Verifier-binary smoke tests** (long-deferred — separate decision).
+4. **Coverage-script `--ignored` toggle** for CPU corpora.
+5. **Amiga ECS/AGA/SAGA conversion** (when variant work begins; the 68k variant crates light up at the same time per the prior architectural decisions).
+
+The Spectrum query coverage is now uniform across the family; further enrichment per variant is incremental rather than architectural.
+
+---
+
 ## 2026-04-30 — Decision: skip audit-and-prune of motorola-68k-common alu.rs and motorola-68000 disasm.rs
 
 **Type:** decision (close-out on a Cov-5d open-queue item)

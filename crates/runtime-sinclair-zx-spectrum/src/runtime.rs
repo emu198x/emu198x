@@ -1,10 +1,13 @@
 //! Generic `MachineCore` wrapper for Spectrum-family variants.
 //!
-//! The 48K runtime extras live in `spectrum_48k.rs`: 48K-specific
-//! firmware constructors, the rich `SpectrumSessionQueryProvider` with
-//! ROM-glyph-based text extraction, and boot detection. Every other
-//! variant plugs into the generic wrapper here for frame and audio
+//! Each variant plugs into this generic wrapper for frame and audio
 //! output, tape control, input plumbing, and snapshot round-trips.
+//! The query provider that decodes screen text and per-variant boot
+//! status is in [`crate::queries`]; it pulls variant-specific paths
+//! through [`SpectrumMachine::variant_query_paths`] and
+//! [`SpectrumMachine::resolve_variant_query`]. The 48K-specific
+//! firmware constructors and audio-control wrappers live in
+//! `spectrum_48k.rs`.
 //!
 //! Snapshot/restore are thin delegators into [`crate::snapshot`].
 //! The per-event keyboard matrix update lives in [`crate::input`].
@@ -14,8 +17,8 @@ use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
-    MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction, PixelFormat, ResetKind,
-    RunResult, StopReason,
+    MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction, PixelFormat,
+    QueryError, QueryResult, ResetKind, RunResult, StopReason,
 };
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +85,67 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
     /// or if the target slot is unknown.
     fn load_disk_image(&mut self, _slot: &str, _bytes: &[u8]) -> Result<(), String> {
         Err("this machine has no disk interface".to_owned())
+    }
+
+    // ─── Shared query surface ─────────────────────────────────────────
+    //
+    // The methods below are read-only accessors used by the generic
+    // `SpectrumSessionQueryProvider`. Every Spectrum variant exposes the
+    // same shape (memory, keyboard rows, tape state, frame timing), so
+    // the provider can query them without per-variant glue.
+
+    /// Reads one byte from the machine's CPU-visible address space.
+    /// Used by the generic screen-text / boot detection query path that
+    /// reads ROM glyphs at $3D00 and screen RAM at $4000.
+    fn read_byte(&self, addr: u16) -> u8;
+
+    /// Returns the current keyboard matrix rows (active-low). Used by
+    /// the `spectrum.keyboard.rows` query.
+    fn keyboard_rows(&self) -> &[u8; 8];
+
+    /// Returns whether a tape image is loaded.
+    fn tape_is_loaded(&self) -> bool;
+
+    /// Returns whether tape transport is currently playing.
+    fn tape_is_playing(&self) -> bool;
+
+    /// Returns the current half-cycle position within the frame.
+    fn half_cycle_in_frame(&self) -> u32;
+
+    /// Returns the current T-state position within the frame.
+    fn tstate_in_frame(&self) -> u32;
+
+    // ─── Variant-specific query surface ───────────────────────────────
+    //
+    // Each variant supplies the additional path catalogue it owns
+    // (e.g. AY register state, board issue, SCLD high-res flag) plus a
+    // dispatcher. Default impls expose nothing, so unimplemented
+    // variants simply have no extra queries.
+
+    /// Returns the variant-specific query paths this machine owns.
+    /// These are aggregated into the generic
+    /// `SpectrumSessionQueryProvider`'s path catalogue alongside the
+    /// shared paths.
+    #[must_use]
+    fn variant_query_paths() -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Resolves one variant-specific query path.
+    ///
+    /// Returns `Ok(None)` when the variant does not own the path; the
+    /// generic provider then surfaces it as an unknown-path error.
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueryError` only when the path is recognised but
+    /// resolution fails (e.g. transient unavailability). Unknown paths
+    /// must return `Ok(None)`, not an error.
+    fn resolve_variant_query(
+        &self,
+        _path: &str,
+    ) -> Result<Option<QueryResult>, QueryError> {
+        Ok(None)
     }
 }
 

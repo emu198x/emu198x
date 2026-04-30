@@ -15,7 +15,8 @@ use common_sinclair_zx_spectrum::timing::{
 use emu198x_shell::{
     AudioPacket, AudioSink, ControlCommand, FramePacket, FrameSink, HostIo, InputEvent,
     MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, MediaTransportAction,
-    MediaTransportCommand, NullTraceSink, PixelFormat, ResetKind, known_capability,
+    MediaTransportCommand, NullTraceSink, PixelFormat, ResetKind, SessionQueryProvider,
+    known_capability,
 };
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
@@ -25,7 +26,8 @@ use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
 use runtime_sinclair_zx_spectrum::{
     Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime, SpectrumMachine,
-    SpectrumPlusRuntime, SpectrumRuntime, TimexTC2048Runtime, TimexTS2068Runtime,
+    SpectrumPlusRuntime, SpectrumRuntime, SpectrumSessionQueryProvider, TimexTC2048Runtime,
+    TimexTS2068Runtime,
 };
 
 #[derive(Default)]
@@ -697,4 +699,232 @@ fn variant_runtime_capabilities_reflects_profile() {
     // come from the shared `ay_capabilities()` constructor.
     assert!(caps.contains(&known_capability("ay-audio")));
     assert!(caps.contains(&known_capability("banked-memory")));
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Per-variant query smoke matrix
+//
+// Every variant now plugs into the generic
+// `SpectrumSessionQueryProvider`. These tests assert that each one
+// resolves the shared screen / keyboard / tape / timing paths plus
+// its own variant-specific path catalogue. Boot-banner detection
+// itself is covered by the 48K integration tests; for variants whose
+// banners are still TODO, we just verify the path is wired up and
+// returns a sensible default (`detected = false`).
+// ─────────────────────────────────────────────────────────────────────
+
+fn assert_shared_query_paths_resolve<M: SpectrumMachine>(runtime: &SpectrumRuntime<M>) {
+    let provider = SpectrumSessionQueryProvider;
+
+    let cols = provider
+        .query(runtime, "screen.text.cols")
+        .expect("screen.text.cols should resolve")
+        .expect("provider must own screen.text.cols");
+    let rows = provider
+        .query(runtime, "screen.text.rows")
+        .expect("screen.text.rows should resolve")
+        .expect("provider must own screen.text.rows");
+    let kbd = provider
+        .query(runtime, "spectrum.keyboard.rows")
+        .expect("keyboard rows should resolve")
+        .expect("provider must own spectrum.keyboard.rows");
+    let tape_loaded = provider
+        .query(runtime, "spectrum.tape.loaded")
+        .expect("tape loaded should resolve")
+        .expect("provider must own spectrum.tape.loaded");
+    let tape_playing = provider
+        .query(runtime, "spectrum.tape.playing")
+        .expect("tape playing should resolve")
+        .expect("provider must own spectrum.tape.playing");
+    let hc = provider
+        .query(runtime, "spectrum.machine.half_cycle_in_frame")
+        .expect("half-cycle should resolve")
+        .expect("provider must own half_cycle_in_frame");
+    let tstate = provider
+        .query(runtime, "spectrum.machine.tstate_in_frame")
+        .expect("tstate should resolve")
+        .expect("provider must own tstate_in_frame");
+
+    assert_eq!(cols.value, serde_json::json!(32));
+    assert_eq!(rows.value, serde_json::json!(24));
+    assert!(kbd.value.is_array());
+    assert_eq!(kbd.value.as_array().expect("rows must be JSON array").len(), 8);
+    assert!(tape_loaded.value.is_boolean());
+    assert!(tape_playing.value.is_boolean());
+    assert!(hc.value.is_u64());
+    assert!(tstate.value.is_u64());
+
+    let unknown = provider
+        .query(runtime, "this.path.does.not.exist")
+        .expect("unknown path query should not error");
+    assert!(unknown.is_none(), "unknown paths must surface as Ok(None)");
+}
+
+fn assert_boot_paths_wired<M: SpectrumMachine>(runtime: &SpectrumRuntime<M>) {
+    let provider = SpectrumSessionQueryProvider;
+
+    let detected = provider
+        .query(runtime, "boot.detected")
+        .expect("boot.detected should resolve")
+        .expect("provider must own boot.detected");
+    let reason = provider
+        .query(runtime, "boot.reason")
+        .expect("boot.reason should resolve")
+        .expect("provider must own boot.reason");
+    let row = provider
+        .query(runtime, "boot.row")
+        .expect("boot.row should resolve")
+        .expect("provider must own boot.row");
+
+    assert!(detected.value.is_boolean());
+    assert!(reason.value.is_string());
+    // `row` is `null` when no banner was found, otherwise a u32. Both
+    // are valid — we just want the path to resolve cleanly.
+    assert!(row.value.is_null() || row.value.is_u64());
+}
+
+#[test]
+fn spectrum_128k_runtime_exposes_shared_and_variant_query_paths() {
+    let runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    assert_shared_query_paths_resolve(&runtime);
+    assert_boot_paths_wired(&runtime);
+
+    let provider = SpectrumSessionQueryProvider;
+    let paths = provider.query_paths(&runtime, Some("screen.text."));
+    assert_eq!(
+        paths,
+        vec![
+            "screen.text.cols".to_owned(),
+            "screen.text.lines".to_owned(),
+            "screen.text.rows".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn spectrum_plus_runtime_resolves_disk_slot_query() {
+    let runtime3 =
+        SpectrumPlusRuntime::new(Model::SpectrumPlus3, SpectrumPlus::new(PlusModel::Plus3));
+    assert_shared_query_paths_resolve(&runtime3);
+    assert_boot_paths_wired(&runtime3);
+
+    let provider = SpectrumSessionQueryProvider;
+    let plus3_disk = provider
+        .query(&runtime3, "spectrum.plus.disk_slot_supported")
+        .expect("disk slot query should resolve")
+        .expect("provider must own disk_slot_supported");
+    assert_eq!(plus3_disk.value, serde_json::json!(true));
+
+    let runtime2a =
+        SpectrumPlusRuntime::new(Model::SpectrumPlus2A, SpectrumPlus::new(PlusModel::Plus2A));
+    let plus2a_disk = provider
+        .query(&runtime2a, "spectrum.plus.disk_slot_supported")
+        .expect("disk slot query should resolve")
+        .expect("provider must own disk_slot_supported");
+    assert_eq!(plus2a_disk.value, serde_json::json!(false));
+}
+
+#[test]
+fn pentagon_128_runtime_exposes_kempston_state_query() {
+    let runtime = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    assert_shared_query_paths_resolve(&runtime);
+    assert_boot_paths_wired(&runtime);
+
+    let provider = SpectrumSessionQueryProvider;
+    let kempston = provider
+        .query(&runtime, "spectrum.kempston.state")
+        .expect("kempston query should resolve")
+        .expect("provider must own kempston.state");
+    // Default kempston state is 0 (no buttons pressed).
+    assert_eq!(kempston.value, serde_json::json!(0));
+}
+
+#[test]
+fn scorpion_runtime_exposes_kempston_state_query() {
+    let runtime = ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new());
+    assert_shared_query_paths_resolve(&runtime);
+    assert_boot_paths_wired(&runtime);
+
+    let provider = SpectrumSessionQueryProvider;
+    let kempston = provider
+        .query(&runtime, "spectrum.kempston.state")
+        .expect("kempston query should resolve")
+        .expect("provider must own kempston.state");
+    assert_eq!(kempston.value, serde_json::json!(0));
+}
+
+#[test]
+fn timex_tc2048_runtime_exposes_kempston_state_query() {
+    run_with_large_stack(|| {
+        let runtime = TimexTC2048Runtime::new(Model::TimexTC2048, TimexTC2048::new());
+        assert_shared_query_paths_resolve(&runtime);
+        assert_boot_paths_wired(&runtime);
+
+        let provider = SpectrumSessionQueryProvider;
+        let kempston = provider
+            .query(&runtime, "spectrum.kempston.state")
+            .expect("kempston query should resolve")
+            .expect("provider must own kempston.state");
+        assert_eq!(kempston.value, serde_json::json!(0));
+    });
+}
+
+#[test]
+fn timex_ts2068_runtime_exposes_model_query_alongside_kempston() {
+    run_with_large_stack(|| {
+        let runtime =
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        assert_shared_query_paths_resolve(&runtime);
+        assert_boot_paths_wired(&runtime);
+
+        let provider = SpectrumSessionQueryProvider;
+        let model = provider
+            .query(&runtime, "spectrum.timex.model")
+            .expect("timex model query should resolve")
+            .expect("provider must own timex.model");
+        assert_eq!(model.value, serde_json::json!("ts2068"));
+
+        let runtime_tc =
+            TimexTS2068Runtime::new(Model::TimexTC2068, TimexTS2068::new(TimexModel::TC2068));
+        let model_tc = provider
+            .query(&runtime_tc, "spectrum.timex.model")
+            .expect("timex model query should resolve")
+            .expect("provider must own timex.model");
+        assert_eq!(model_tc.value, serde_json::json!("tc2068"));
+    });
+}
+
+#[test]
+fn variant_query_paths_include_boot_paths() {
+    // Every variant exposes boot.detected / boot.reason / boot.row,
+    // even those still TODO-stubbed against banner detection.
+    let pentagon = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    let provider = SpectrumSessionQueryProvider;
+    let paths = provider.query_paths(&pentagon, Some("boot."));
+    assert_eq!(
+        paths,
+        vec![
+            "boot.detected".to_owned(),
+            "boot.reason".to_owned(),
+            "boot.row".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn pentagon_boot_status_returns_not_detected_until_banner_confirmed() {
+    // Pentagon banner is TODO — the provider must return
+    // `detected = false` and a sensible reason rather than failing.
+    let runtime = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    let provider = SpectrumSessionQueryProvider;
+    let detected = provider
+        .query(&runtime, "boot.detected")
+        .expect("boot.detected should resolve")
+        .expect("provider must own boot.detected");
+    let reason = provider
+        .query(&runtime, "boot.reason")
+        .expect("boot.reason should resolve")
+        .expect("provider must own boot.reason");
+    assert_eq!(detected.value, serde_json::json!(false));
+    assert_eq!(reason.value, serde_json::json!("copyright banner not visible"));
 }
