@@ -4,6 +4,104 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-04-30 — Cov-5: reduce motorola-68000 to truly-M68000
+
+**Type:** refactor (architectural — finishing the work the 68k split deferred)
+**Trigger:** the 68k family split (74b18f1) created the six-crate structure but left `motorola-68000/src/cpu.rs` (4028 lines) and `decode.rs` (3578 lines) holding capability-gated 68010+ code paths. `Cpu68000` still had `model: CpuModel`, `move16_*`, `icache: ICache`, `dcache: DCache` fields — vestiges of code that called itself `Cpu68000` while actually being a multi-variant `Cpu68k` in disguise. The dormant code had **zero test coverage** (Tom Harte tests M68000 only) and was unreachable when `Cpu68000::new()` constructs an M68000 instance.
+
+The user-approved decision was **delete + skeleton documentation** rather than migrate the dormant code into wrapper structs on the variant crates. Reasons: zero test coverage means it's almost certainly subtly broken; fresh re-implementation from spec when ECS/AGA work begins will likely be cleaner; git preserves the original code; variant crates being skeletons with feature-inventory docs is more honest than skeletons with imported-but-broken code.
+
+**Result:** `motorola-68000` is now actually-the-M68000. Variant crates are honest skeletons listing what each would implement.
+
+### Reduction
+
+| File | Before | After | Δ |
+|---|---|---|---|
+| `cpu.rs` | 4028 | **1359** | −66% |
+| `decode.rs` | 3578 | **2325** | −35% |
+| `ea.rs` | 209 | 201 | small |
+| `execute.rs` | 963 | 963 | no shrink — only variant gating removed; M68000 paths unchanged |
+
+`cpu.rs` shrank by 2669 lines. `decode.rs` shrank by 1253 lines. Total ~3.9k lines of dormant variant code deleted from the core.
+
+### What was deleted from `Cpu68000`
+
+- `model: CpuModel` field (always was M68000 in the Amiga; pretending otherwise was the architectural lie)
+- `move16_buf`, `move16_idx`, `move16_dst_addr` (68040 instruction state)
+- `icache: ICache`, `dcache: DCache` (68020+ caches), plus the `ICache` and `DCache` type definitions and their 5 helpers (`icache_lookup`, `icache_fill`, `dcache_lookup`, `dcache_fill`, `dcache_write_through`)
+- `be_extra_count`, `be_format_word` (68010+ bus-error stack frame fields)
+- Methods `model()`, `capabilities()`, `sr_mask()`, `internal_delay()`, `min_bus_cycles()` (variant dispatchers — replaced with literal M68000 constants where called)
+- 9 state-machine tags (`TAG_RTE_READ_FORMAT`, `TAG_EXC_STACK_FORMAT`, `TAG_MOVE16_NEXT`, `TAG_MOVE16_ADDR_LO`, `TAG_BE_PUSH_EXTRA`, `TAG_RTD_PC_HI/LO`, `TAG_BITFIELD_MEM_EXECUTE`, `TAG_BCC_FETCH_DISP`, `TAG_JSR_JUMP`)
+- Constructor `Cpu68000::new_with_model(model: CpuModel)` — the only entry point that allowed instantiating `Cpu68000` as a non-M68000. `Cpu68000::new()` (the M68000-default constructor) is now the only constructor.
+- A 1900-line `tests_disabled` `cfg(any())`-gated test module that included the one `new_with_model(CpuModel::M68020)` call — full delete
+
+### What was deleted from `decode.rs`
+
+96 capability gates removed by category:
+- **CAS / CAS2** (68020+): 2 gates + helpers
+- **Bitfield ops** (68020+): BFFFO/BFEXTS/BFEXTU/BFINS/BFTST/BFCLR/BFSET/BFCHG — 1 gate + the entire bitfield exec block + `extract_bitfield_reg` / `insert_bitfield_reg` helpers
+- **Barrel shifter** (68020+): 3 gates (cycle-time differences for shift instructions)
+- **EXTB.L** (68020+): 1 gate
+- **MULU.L / MULS.L / DIVU.L / DIVS.L** (68020+ 32-bit mul/div): 1 gate + matching `FETCH_SRC_DATA` / `DATA_SRC_LONG` / `TAG_MULDIV_EXECUTE` arms
+- **MOVE from CCR** (68010+): 1 gate
+- **FPU coprocessor** (68040 on-die; 68020+68881/68882 external): 1 gate covering the whole F-line block (cpID=1 dispatch) — including the 68030 PMMU and 68040 PMMU/CINV/CPUSH/MOVE16 paths reachable through F-line
+- **MOVEC** (68010+ control register move): 1 gate covering the ~280-line control-register dispatch block
+- **RTD** (68010+ return-deallocate): 1 gate
+- **VBR-aware RTE** (68010+ format-word stack frame): 1 gate + `TAG_RTE_READ_FORMAT` arm
+- 12 stub functions at the end of decode.rs that the deleted gates referenced: `decode_cas`, `execute_bitfield_memory`, `write_bitfield_memory`, `decode_pmmu_030`, `decode_pmmu_040`, plus 5 `fpu_*` helpers and 3 `decode_fpu_*` decoders
+
+### Other reductions
+
+- **`ea.rs`**: 2 `scaled_index` gates collapsed to constant `scale = 1` (M68000 has no scaled-index addressing — that's a 68020+ feature). 3 `internal_delay` calls inlined.
+- **`execute.rs`**: BCD V-flag gate (`overflow && self.model == CpuModel::M68000`) collapsed; `sr_mask()` and `internal_delay()` calls inlined; `CpuModel` import removed.
+
+### Variant fields kept on `Registers` (motorola-68k-common)
+
+`msp`, `caar`, `vbr`, `cacr` stay on the shared `Registers` struct because they're conceptually 68k-family-wide register names that future variants will use. Doc comments expanded on each, naming the variant that introduces it (M68010+ for VBR; M68020+ for the rest). The M68000's serde envelope serialises zeros for these — harmless.
+
+### Variant skeletons expanded
+
+All four variant `lib.rs` files rewritten with comprehensive `//!` module docs listing the features each crate's future state machine must implement, sourced from the just-deleted code paths and cross-referenced to M68000 Programmer's Reference Manual sections:
+
+| Crate | lib.rs lines | Inventory covers |
+|---|---|---|
+| `motorola-68010` | 102 | VBR, MOVES, MOVEC (CRP/SRP/TC/TT0/TT1/MMUSR), LOOP-mode (DBcc with prefetch), RTD, MOVE FROM CCR (privileged → unprivileged via VBR), bus-error format-word stack frames |
+| `motorola-68020` | 153 | CACR/CAAR/MSP/ISP, the bitfield op family, 32-bit MULU.L/MULS.L/DIVU.L/DIVS.L (incl. MULU.L/Q register output), CAS/CAS2 (atomic compare-and-swap), CHK2/CMP2 (bounds-check), TRAPcc, PACK/UNPK (BCD pack/unpack), EXTB.L, RTM, CALLM (memory-segmentation; immediately deprecated), full-format extension words for indexed/scaled addressing modes, scaled-index addressing |
+| `motorola-68030` | 122 | Integrated PMMU dispatch via `motorola-68030::mmu` (PFLUSH/PFLUSHA/PMOVE/PTEST/PLOAD/PVALID), MMU table-walk state machine arms, 1-line on-die instruction and data caches |
+| `motorola-68040` | 162 | Integrated FPU via `motorola-68040::fpu` (the full 68881-subset op set), MOVE16 (16-byte burst transfers between memory and on-die caches), MMU enhancements (4-level page tables → 2-level + ATC), CINV/CPUSH (cache-invalidate / cache-push), on-die unified caches replacing separate icache/dcache |
+
+### Verification
+
+| Gate | Command | Result |
+|---|---|---|
+| **Tom Harte 100%** | `cargo test -p motorola-68000 --test tom_harte -- --ignored harte_full_sweep` | **1 passed; 0 failed; 0 ignored; 469s** (1,000,058 tests, 124/124 opcodes) |
+| Pin-level | `cargo test -p motorola-68000 --test pin_level` | passes |
+| `motorola-68000` lib | `cargo test -p motorola-68000 --lib` | 13 passed |
+| `motorola-68030` lib | `cargo test -p motorola-68030 --lib` | 49 passed (relocated MMU tests) |
+| `motorola-68040` lib | `cargo test -p motorola-68040 --lib` | 25 passed (FPU) |
+| **Amiga boot** | `cargo test -p runtime-commodore-amiga --test boot_invariants -- --ignored` | 2 passed; 0 failed (Kickstart insert-disk + Workbench desktop) |
+| Amiga lib | `cargo test -p machine-commodore-amiga-ocs --lib` | 49 passed |
+| Amiga runtime | `cargo test -p runtime-commodore-amiga --lib` | 5 passed |
+| Workspace build | `cargo build --workspace` | clean |
+| Workspace clippy | `cargo clippy --workspace --all-targets -- -D warnings` | clean |
+| All test binaries compile | `cargo test --workspace --no-run` | clean |
+
+### Public API
+
+The Amiga consumes `motorola-68000` only for M68000 emulation. `Cpu68000::new()` (no args) is the only constructor it uses — that still works. The Amiga reads no fields that were removed (verified by build success). Public symbols `Cpu68000`, `CpuCapabilities`, `CpuModel`, `TimingClass` all import from `motorola_68000::*` at unchanged paths.
+
+The one breaking change is `Cpu68000::new_with_model` removal — but that constructor was used only inside `motorola-68000`'s deleted test module and one inline test that called `new_with_model(CpuModel::M68020)`. Both deleted. Nothing outside `motorola-68000` referenced it.
+
+### What's next
+
+The big chip splits track + the variant-code reduction track are now both closed. The runtime-family normalization track is closed. Open queue:
+
+1. **Cov-5b — directed-test passes for GB / NES / Amiga / Spectrum.** Same Cov-4-style work that took C64 `queries.rs` from 64% → 98% line coverage. Per-module coverage is now legible across all five runtimes.
+2. **Spectrum query-provider generalisation.** `spectrum_48k.rs` is variant-specific; the other 6 variants get nothing through `SessionQueryProvider`. Feature work, separate decision.
+3. **Amiga ECS/AGA/SAGA conversion.** When variant work begins, generalise `AmigaRuntime` to `AmigaRuntime<M: AmigaMachine>` per the Spectrum playbook in `wiki/decisions/runtime-internal-shape.md`. The 68k variant crates (now honest skeletons) will receive their first real implementations during this work.
+
+---
+
 ## 2026-04-29 — Big chip splits, wave 2: 68k family-into-per-variant-crates
 
 **Type:** refactor (architectural — splitting the largest chip crate into a six-crate family layout) + architectural correction

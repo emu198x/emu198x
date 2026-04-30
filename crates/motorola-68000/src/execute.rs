@@ -8,7 +8,6 @@ use crate::addressing::AddrMode;
 use crate::alu::Size;
 use crate::cpu::{AluOp, BitOp, Cpu68000};
 use crate::microcode::MicroOp;
-use crate::model::CpuModel;
 
 impl Cpu68000 {
     /// Execute the ALU operation for the current instruction.
@@ -128,9 +127,9 @@ impl Cpu68000 {
                 self.regs.sr = (self.regs.sr & 0xFF00) | (val as u16 & 0x001F);
             } else {
                 // MOVE to SR
-                self.regs.sr = val as u16 & self.sr_mask();
+                self.regs.sr = val as u16 & crate::flags::SR_MASK;
             }
-            let d = self.internal_delay(8, 0);
+            let d: u8 = 8;
             if d > 0 {
                 self.micro_ops.push(MicroOp::Internal(d));
             }
@@ -924,8 +923,9 @@ impl Cpu68000 {
         } else {
             self.regs.sr &= !0x0008;
         }
-        // WinUAE: 68010+ always clears V for BCD (xBCD_KEEPS_V_FLAG)
-        if overflow && self.model == CpuModel::M68000 {
+        // M68000: V flag set on BCD overflow.
+        // (WinUAE: 68010+ always clears V — xBCD_KEEPS_V_FLAG.)
+        if overflow {
             self.regs.sr |= V;
         } else {
             self.regs.sr &= !V;

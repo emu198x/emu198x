@@ -16,57 +16,20 @@
 
 use crate::addressing::AddrMode;
 use crate::alu::Size;
-use crate::bus::FunctionCode;
 use crate::cpu::{
     AluOp, BitOp, Cpu68000, State, TAG_ADDX_READ_DST, TAG_ADDX_READ_SRC, TAG_ADDX_WRITE,
     TAG_AE_FETCH_VECTOR, TAG_AE_FINISH, TAG_AE_PUSH_FAULT, TAG_AE_PUSH_INFO, TAG_AE_PUSH_IR,
-    TAG_AE_PUSH_SR, TAG_BCC_EXECUTE, TAG_BCD_DST_READ, TAG_BCD_SRC_READ, TAG_BE_PUSH_EXTRA,
-    TAG_BSR_EXECUTE, TAG_CHK_EXECUTE, TAG_DATA_DST_LONG, TAG_DATA_SRC_LONG, TAG_DBCC_EXECUTE,
-    TAG_EA_DST_DISP, TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG,
-    TAG_EA_SRC_PCDISP, TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_FORMAT,
-    TAG_EXC_STACK_PC_HI, TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA,
-    TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA, TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP,
-    TAG_MOVE16_ADDR_LO, TAG_MOVE16_NEXT, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA, TAG_MOVEM_STORE,
-    TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTD_PC_HI, TAG_RTD_PC_LO, TAG_RTE_READ_FORMAT,
-    TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI,
-    TAG_RTR_READ_PC_LO, TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI,
-    TAG_UNLK_POP_LO, TAG_WRITEBACK,
+    TAG_AE_PUSH_SR, TAG_BCC_EXECUTE, TAG_BCD_DST_READ, TAG_BCD_SRC_READ, TAG_BSR_EXECUTE,
+    TAG_CHK_EXECUTE, TAG_DATA_DST_LONG, TAG_DATA_SRC_LONG, TAG_DBCC_EXECUTE, TAG_EA_DST_DISP,
+    TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
+    TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_PC_HI, TAG_EXC_STACK_PC_LO,
+    TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA,
+    TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
+    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_PC_HI,
+    TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
+    TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
-
-/// Extract a bit field from a 32-bit register value.
-/// `offset` is the bit position from the MSB (bit 31), wrapping within 32 bits.
-/// Returns the field value right-justified.
-fn extract_bitfield_reg(val: u32, offset: u32, width: u32) -> u32 {
-    let off = offset & 31;
-    let mask = if width >= 32 {
-        0xFFFF_FFFFu32
-    } else {
-        (1u32 << width) - 1
-    };
-    // Rotate left by offset to bring the field's MSB to bit 31, then shift right
-    let rotated = val.rotate_left(off);
-    (rotated >> (32 - width)) & mask
-}
-
-/// Insert a bit field into a 32-bit register value.
-/// `insert_val` is right-justified field data.
-fn insert_bitfield_reg(val: u32, offset: u32, width: u32, insert_val: u32) -> u32 {
-    let off = offset & 31;
-    let mask = if width >= 32 {
-        0xFFFF_FFFFu32
-    } else {
-        (1u32 << width) - 1
-    };
-    // Build a mask at the field position and replace those bits
-    let field_mask = mask
-        .wrapping_shl(32u32.wrapping_sub(width))
-        .rotate_right(off);
-    let field_bits = (insert_val & mask)
-        .wrapping_shl(32u32.wrapping_sub(width))
-        .rotate_right(off);
-    (val & !field_mask) | field_bits
-}
 
 impl Cpu68000 {
     /// Decode the opcode in IR and begin execution.
@@ -167,7 +130,7 @@ impl Cpu68000 {
                         Size::Long => result,
                     };
                     if size == Size::Long {
-                        let d = self.internal_delay(4, 0);
+                        let d: u8 = 4;
                         if d > 0 {
                             self.micro_ops.push(MicroOp::Internal(d));
                         }
@@ -187,7 +150,7 @@ impl Cpu68000 {
                     self.addr = self.regs.a(ry as usize).wrapping_sub(dec);
                     self.regs.set_a(ry as usize, self.addr);
                     self.ae_undo_reg = Some((ry, dec, false, false));
-                    let d = self.internal_delay(2, 0);
+                    let d: u8 = 2;
                     if d > 0 {
                         self.micro_ops.push(MicroOp::Internal(d));
                     }
@@ -224,7 +187,7 @@ impl Cpu68000 {
                     }
                     _ => {}
                 }
-                let d = self.internal_delay(2, 0);
+                let d: u8 = 2;
                 if d > 0 {
                     self.micro_ops.push(MicroOp::Internal(d));
                 }
@@ -255,7 +218,7 @@ impl Cpu68000 {
                     self.regs.d[rx as usize] =
                         (self.regs.d[rx as usize] & 0xFFFF_FF00) | u32::from(result);
                     self.set_bcd_flags(result, carry, overflow);
-                    let d = self.internal_delay(2, 0);
+                    let d: u8 = 2;
                     if d > 0 {
                         self.micro_ops.push(MicroOp::Internal(d));
                     }
@@ -269,7 +232,7 @@ impl Cpu68000 {
                     self.movem_is_write = is_add;
                     self.ea_reg = rx;
 
-                    let d = self.internal_delay(2, 0);
+                    let d: u8 = 2;
                     if d > 0 {
                         self.micro_ops.push(MicroOp::Internal(d));
                     }
@@ -428,7 +391,7 @@ impl Cpu68000 {
                     5 => sr32 ^ imm, // EORI
                     _ => sr32,
                 };
-                self.regs.sr = (result as u16) & self.sr_mask();
+                self.regs.sr = (result as u16) & crate::flags::SR_MASK;
             } else {
                 let ccr = u32::from(self.regs.sr & 0xFF);
                 let result = match op_type {
@@ -439,7 +402,7 @@ impl Cpu68000 {
                 };
                 self.regs.sr = (self.regs.sr & 0xFF00) | (result as u16 & 0xFF);
             }
-            let d = self.internal_delay(8, 0);
+            let d: u8 = 8;
             if d > 0 {
                 self.micro_ops.push(MicroOp::Internal(d));
             }
@@ -473,20 +436,20 @@ impl Cpu68000 {
                 if bit_type != 0 {
                     self.regs.d[ea_reg as usize] = result;
                 }
-                let extra = match bit_type {
-                    0 => self.internal_delay(2, 0),
+                let extra: u8 = match bit_type {
+                    0 => 2,
                     2 => {
                         if bit >= 16 {
-                            self.internal_delay(6, 0)
+                            6
                         } else {
-                            self.internal_delay(4, 0)
+                            4
                         }
                     }
                     _ => {
                         if bit >= 16 {
-                            self.internal_delay(4, 0)
+                            4
                         } else {
-                            self.internal_delay(2, 0)
+                            2
                         }
                     }
                 };
@@ -516,14 +479,10 @@ impl Cpu68000 {
             return;
         }
 
-        // --- CAS.l (68020+): 0000_1110_11_MMMRRR ($0EC0) ---
+        // --- CAS.l ($0EC0): 68020+ only — illegal on M68000 ---
         // Must check before dynamic bit ops which also match $0Exx.
         if (opcode & 0xFFC0) == 0x0EC0 {
-            if !self.capabilities().cas {
-                self.begin_group1_exception(4, self.instr_start_pc);
-                return;
-            }
-            self.decode_cas(opcode);
+            self.begin_group1_exception(4, self.instr_start_pc);
             return;
         }
 
@@ -557,20 +516,20 @@ impl Cpu68000 {
                     if bit_type != 0 {
                         self.regs.d[ea_reg as usize] = result;
                     }
-                    let extra = match bit_type {
-                        0 => self.internal_delay(2, 0),
+                    let extra: u8 = match bit_type {
+                        0 => 2,
                         2 => {
                             if bit >= 16 {
-                                self.internal_delay(6, 0)
+                                6
                             } else {
-                                self.internal_delay(4, 0)
+                                4
                             }
                         }
                         _ => {
                             if bit >= 16 {
-                                self.internal_delay(4, 0)
+                                4
                             } else {
-                                self.internal_delay(2, 0)
+                                2
                             }
                         }
                     };
@@ -660,12 +619,7 @@ impl Cpu68000 {
                 1 => Size::Word,
                 2 => Size::Long,
                 _ => {
-                    // Size 3: CAS on 68020+ (EORI range=$0Axx, CMPI range=$0Cxx)
-                    let op_type = (opcode >> 9) & 7;
-                    if self.capabilities().cas && (op_type == 5 || op_type == 6) {
-                        self.decode_cas(opcode);
-                        return;
-                    }
+                    // Size 3: CAS on 68020+, illegal on M68000.
                     self.begin_group1_exception(4, self.instr_start_pc);
                     return;
                 }
@@ -699,134 +653,9 @@ impl Cpu68000 {
             if size_bits == 3 {
                 // Bit 11 separates memory shifts (0) from bit field instructions (1).
                 if (opcode & 0x0800) != 0 {
-                    // --- Bit field instructions (68020+): 1110 1xxx 11 MMMRRR ---
-                    if !self.capabilities().bitfield {
-                        self.begin_group1_exception(4, self.instr_start_pc);
-                        return;
-                    }
-                    let ext = self.consume_irc();
-                    self.movem_mask = ext; // stash extension word
-
-                    let ea_mode_bits = ((opcode >> 3) & 7) as u8;
-                    let ea_reg = (opcode & 7) as u8;
-                    let mode = AddrMode::decode(ea_mode_bits, ea_reg);
-
-                    // Decode offset/width from extension word
-                    let do_flag = ext & 0x0800 != 0;
-                    let dw_flag = ext & 0x0020 != 0;
-                    let offset = if do_flag {
-                        self.regs.d[((ext >> 6) & 7) as usize] as i32
-                    } else {
-                        ((ext >> 6) & 0x1F) as i32
-                    };
-                    let width_raw = if dw_flag {
-                        self.regs.d[(ext & 7) as usize] & 31
-                    } else {
-                        let w = ext & 0x1F;
-                        if w == 0 { 32 } else { w as u32 }
-                    };
-                    let width = if width_raw == 0 { 32 } else { width_raw };
-
-                    let bf_type = (opcode >> 8) & 7; // instruction selector
-
-                    match mode {
-                        Some(AddrMode::DataReg(r)) => {
-                            // Register bit field: operates on Dn, wraps within 32 bits
-                            let val = self.regs.d[r as usize];
-                            let off = (offset as u32) & 31;
-                            let field = extract_bitfield_reg(val, off, width);
-
-                            // Set condition codes: N from MSB of field, Z if zero, V=0, C=0
-                            let mask = if width >= 32 {
-                                0xFFFF_FFFF
-                            } else {
-                                (1u32 << width) - 1
-                            };
-                            let result = field & mask;
-                            let mut sr = self.regs.sr & !0x000F;
-                            if result & (1u32 << (width - 1)) != 0 {
-                                sr |= 0x0008;
-                            } // N
-                            if result == 0 {
-                                sr |= 0x0004;
-                            } // Z
-                            self.regs.sr = sr;
-
-                            match bf_type {
-                                0 => {} // BFTST — test only
-                                1 => {
-                                    // BFEXTU — extract unsigned
-                                    let dn = ((ext >> 12) & 7) as usize;
-                                    self.regs.d[dn] = result;
-                                }
-                                2 => {
-                                    // BFCHG — toggle
-                                    let new_val =
-                                        insert_bitfield_reg(val, off, width, field ^ mask);
-                                    self.regs.d[r as usize] = new_val;
-                                }
-                                3 => {
-                                    // BFEXTS — extract signed
-                                    let dn = ((ext >> 12) & 7) as usize;
-                                    let shift = 32u32.wrapping_sub(width);
-                                    self.regs.d[dn] = ((result << shift) as i32 >> shift) as u32;
-                                }
-                                4 => {
-                                    // BFCLR — clear
-                                    let new_val = insert_bitfield_reg(val, off, width, 0);
-                                    self.regs.d[r as usize] = new_val;
-                                }
-                                5 => {
-                                    // BFFFO — find first one
-                                    let dn = ((ext >> 12) & 7) as usize;
-                                    // Register mode: use the effective offset (modulo 32),
-                                    // not the raw register value.
-                                    let first_one = if result == 0 {
-                                        off + width
-                                    } else {
-                                        let leading = (result << (32 - width)).leading_zeros();
-                                        off + leading
-                                    };
-                                    self.regs.d[dn] = first_one;
-                                }
-                                6 => {
-                                    // BFSET — set all bits
-                                    let new_val = insert_bitfield_reg(val, off, width, mask);
-                                    self.regs.d[r as usize] = new_val;
-                                }
-                                7 => {
-                                    // BFINS — insert
-                                    let dn = ((ext >> 12) & 7) as usize;
-                                    let insert_val = self.regs.d[dn] & mask;
-                                    let new_val = insert_bitfield_reg(val, off, width, insert_val);
-                                    self.regs.d[r as usize] = new_val;
-                                    // Flags from inserted value
-                                    let mut sr2 = self.regs.sr & !0x000F;
-                                    if insert_val & (1u32 << (width - 1)) != 0 {
-                                        sr2 |= 0x0008;
-                                    }
-                                    if insert_val == 0 {
-                                        sr2 |= 0x0004;
-                                    }
-                                    self.regs.sr = sr2;
-                                }
-                                _ => unreachable!(),
-                            }
-                            // ~6 cycles for register bit fields (barrel shifter on 68020)
-                            let d = self.internal_delay(2, 0);
-                            if d > 0 {
-                                self.micro_ops.push(MicroOp::Internal(d));
-                            }
-                        }
-                        _ => {
-                            // Memory bit field: resolve EA, then execute
-                            self.size = Size::Long; // for EA resolution
-                            self.src_mode = mode;
-                            self.in_followup = true;
-                            self.followup_tag = TAG_FETCH_SRC_EA;
-                            self.continue_instruction();
-                        }
-                    }
+                    // Bit field instructions (BFTST/BFEXTU/BFEXTS/BFINS/BFSET/
+                    // BFCLR/BFCHG/BFFFO) are 68020+ only — illegal on M68000.
+                    self.begin_group1_exception(4, self.instr_start_pc);
                     return;
                 }
 
@@ -867,14 +696,9 @@ impl Cpu68000 {
 
                 self.perform_shift(reg, count, direction as u8, shift_type, size);
 
-                // 68000: 6+2n (byte/word), 8+2n (long)
-                // 68020+: barrel shifter, constant time
-                let delay = if self.capabilities().barrel_shifter {
-                    0
-                } else {
-                    let base = if size == Size::Long { 4u8 } else { 2u8 };
-                    base + (count as u8) * 2
-                };
+                // 68000: 6+2n (byte/word), 8+2n (long).
+                let base = if size == Size::Long { 4u8 } else { 2u8 };
+                let delay = base + (count as u8) * 2;
                 if delay > 0 {
                     self.micro_ops.push(MicroOp::Internal(delay));
                 }
@@ -946,16 +770,10 @@ impl Cpu68000 {
             return;
         }
 
-        // --- EXTB.L (0x49C0, 68020+) — must check before LEA which shares mask ---
+        // --- EXTB.L ($49C0): 68020+ only — illegal on M68000 ---
+        // Must check before LEA which shares the same mask region.
         if (opcode & 0xFFF8) == 0x49C0 {
-            if !self.capabilities().extb_l {
-                self.begin_group1_exception(4, self.instr_start_pc);
-                return;
-            }
-            let r = (opcode & 7) as usize;
-            let ext = (self.regs.d[r] as u8 as i8 as i32) as u32;
-            self.regs.d[r] = ext;
-            self.set_flags_move(ext, Size::Long);
+            self.begin_group1_exception(4, self.instr_start_pc);
             return;
         }
 
@@ -1033,23 +851,10 @@ impl Cpu68000 {
             return;
         }
 
-        // --- MULL (0x4C00-0x4C3F) / DIVL (0x4C40-0x4C7F), 68020+ ---
+        // --- MULL ($4C00-$4C3F) / DIVL ($4C40-$4C7F): 68020+ only ---
+        // Illegal on M68000 — the 68000 only has 16-bit MULU/MULS/DIVU/DIVS.
         if (opcode & 0xFFC0) == 0x4C00 || (opcode & 0xFFC0) == 0x4C40 {
-            if !self.capabilities().mull_divl {
-                self.begin_group1_exception(4, self.instr_start_pc);
-                return;
-            }
-            // Extension word is in IRC (next word after opcode).
-            // Store it in movem_mask (unused field) before EA resolution.
-            let ext = self.consume_irc();
-            self.movem_mask = ext;
-            self.size = Size::Long;
-            let ea_mode_bits = ((opcode >> 3) & 7) as u8;
-            let ea_reg = (opcode & 7) as u8;
-            self.src_mode = AddrMode::decode(ea_mode_bits, ea_reg);
-            self.in_followup = true;
-            self.followup_tag = TAG_FETCH_SRC_EA;
-            self.continue_instruction();
+            self.begin_group1_exception(4, self.instr_start_pc);
             return;
         }
 
@@ -1136,7 +941,7 @@ impl Cpu68000 {
                 self.regs.d[ea_reg as usize] =
                     (self.regs.d[ea_reg as usize] & 0xFFFF_FF00) | u32::from(result);
                 self.set_bcd_flags(result, carry, overflow);
-                let d = self.internal_delay(2, 0);
+                let d: u8 = 2;
                 if d > 0 {
                     self.micro_ops.push(MicroOp::Internal(d));
                 }
@@ -1175,7 +980,7 @@ impl Cpu68000 {
                             // Dn: 68000=6 cycles (Internal(2)), 68020=0
                             self.regs.d[ea_reg as usize] =
                                 (self.regs.d[ea_reg as usize] & 0xFFFF_0000) | (self.data & 0xFFFF);
-                            let d = self.internal_delay(2, 0);
+                            let d: u8 = 2;
                             if d > 0 {
                                 self.micro_ops.push(MicroOp::Internal(d));
                             }
@@ -1211,26 +1016,8 @@ impl Cpu68000 {
                         return;
                     }
                     1 => {
-                        // MOVE from CCR (0x42C0, 68010+)
-                        // On 68000, this opcode space is invalid.
-                        if !self.capabilities().movec {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        // Read CCR (low byte of SR, zero-extended to word)
-                        self.data = u32::from(self.regs.sr & 0xFF);
-                        self.size = Size::Word;
-                        self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
-                        if ea_mode_bits == 0 {
-                            // Dn: write low word
-                            self.regs.d[ea_reg as usize] =
-                                (self.regs.d[ea_reg as usize] & 0xFFFF_0000) | (self.data & 0xFFFF);
-                        } else {
-                            // Memory: write word to EA
-                            self.in_followup = true;
-                            self.followup_tag = TAG_FETCH_DST_EA;
-                            self.continue_instruction();
-                        }
+                        // MOVE from CCR ($42C0): 68010+ only — illegal on M68000.
+                        self.begin_group1_exception(4, self.instr_start_pc);
                         return;
                     }
                     _ => {
@@ -1332,143 +1119,13 @@ impl Cpu68000 {
             return;
         }
         if (opcode & 0xF000) == 0xF000 {
-            // FPU coprocessor instructions (cpID=1) on models with FPU.
-            if self.capabilities().fpu {
-                let cp_id = (opcode >> 9) & 7;
-                if cp_id == 1 {
-                    let cp_type = (opcode >> 6) & 7;
-                    match cp_type {
-                        0 => {
-                            self.decode_fpu_cpgen(opcode);
-                            return;
-                        }
-                        1 => {
-                            self.decode_fpu_cpscc_dbcc(opcode);
-                            return;
-                        }
-                        2 => {
-                            self.decode_fpu_fbcc(opcode, false);
-                            return;
-                        }
-                        3 => {
-                            self.decode_fpu_fbcc(opcode, true);
-                            return;
-                        }
-                        4 => {
-                            self.decode_fpu_fsave(opcode);
-                            return;
-                        }
-                        5 => {
-                            self.decode_fpu_frestore(opcode);
-                            return;
-                        }
-                        _ => {
-                            self.begin_group1_exception(11, self.instr_start_pc);
-                            return;
-                        }
-                    }
-                }
-            }
-            // 68030 PMMU cpGen instructions (cpID=0, type=000): PMOVE, PFLUSH,
-            // PTEST. Requires MMU capability and cpID=0 in bits 11-9.
-            if self.capabilities().mmu && (opcode & 0x0FC0) == 0x0000 {
-                self.decode_pmmu_030(opcode);
-                return;
-            }
-            // 68040/060 PFLUSH/PTEST — NOT coprocessor format.
-            // Encoding: $F5xx range:
-            //   $F548+reg = PTESTW (An), $F568+reg = PTESTR (An)
-            //   $F508+reg = PFLUSH (An), $F510+reg = PFLUSHN (An)
-            //   $F518     = PFLUSHA
-            if self.capabilities().mmu
-                && matches!(
-                    self.model.timing_class(),
-                    crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
-                )
-                && (opcode & 0xFF00) == 0xF500
-            {
-                self.decode_pmmu_040(opcode);
-                return;
-            }
-            // CINV/CPUSH — 68040+ cache management instructions.
-            // Encoding: 1111 0100 cc x ss rrr
-            //   cc  = cache select (00=none, 01=data, 10=instr, 11=both)
-            //   x   = 0 for CINV, 1 for CPUSH
-            //   ss  = scope (00=line, 01=page, 10/11=all)
-            //   rrr = An register (line/page scope only)
-            // Invalidate/push the selected cache(s).
-            if matches!(
-                self.model.timing_class(),
-                crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
-            ) && (opcode & 0xFE00) == 0xF400
-            {
-                let cc = (opcode >> 6) & 3;
-                if cc & 0x01 != 0 {
-                    self.dcache.clear();
-                }
-                if cc & 0x02 != 0 {
-                    self.icache.clear();
-                }
-                return;
-            }
-            // MOVE16 — 68040+ line transfer (16 bytes aligned).
-            // Five forms, all 0xF6xx:
-            //   Form 1: (Ax)+,(Ay)+  = 1111_0110_0010_0xxx, ext: 1yyy_000_000_000_000
-            //   Form 2: (Ax)+,abs.L  = 1111_0110_0000_0xxx, ext = 32-bit address
-            //   Form 3: abs.L,(Ax)+  = 1111_0110_0000_1xxx, ext = 32-bit address
-            //   Form 4: (Ax),abs.L   = 1111_0110_0001_0xxx, ext = 32-bit address
-            //   Form 5: abs.L,(Ax)   = 1111_0110_0001_1xxx, ext = 32-bit address
-            if matches!(
-                self.model.timing_class(),
-                crate::model::TimingClass::M68040 | crate::model::TimingClass::M68060
-            ) && (opcode & 0xFF00) == 0xF600
-            {
-                let form = (opcode >> 3) & 0x1F;
-                let reg_a = (opcode & 7) as usize;
-
-                if form == 0x04 {
-                    // Form 1: (Ax)+,(Ay)+ — ext word has dest reg in bits 14-12
-                    let ext = self.consume_irc();
-                    let reg_b = ((ext >> 12) & 7) as usize;
-                    let src_addr = self.regs.a(reg_a) & !0xF;
-                    let dst_addr = self.regs.a(reg_b) & !0xF;
-                    self.regs.set_a(reg_a, self.regs.a(reg_a).wrapping_add(16));
-                    if reg_b != reg_a {
-                        self.regs.set_a(reg_b, self.regs.a(reg_b).wrapping_add(16));
-                    }
-                    self.addr = src_addr;
-                    self.move16_dst_addr = dst_addr;
-                    // Ready to start transfer immediately.
-                    self.src_val = src_addr;
-                    self.move16_idx = 0;
-                    self.move16_buf = [0; 8];
-                    self.in_followup = true;
-                    self.followup_tag = TAG_MOVE16_NEXT;
-                    self.micro_ops.push(MicroOp::Execute);
-                    return;
-                }
-                if matches!(form, 0x00..=0x03) {
-                    // Forms 2-5 need a 32-bit absolute address from two extension
-                    // words. consume_irc() only reads one word (the other is still
-                    // in the prefetch pipeline). Read the high word now, then enter
-                    // a followup to read the low word after FetchIRC.
-                    let ext_hi = self.consume_irc();
-                    // Stash form and register-derived state for the followup:
-                    //   dst_val = abs addr high word << 16
-                    //   movem_idx = form (reused scratch)
-                    //   move16_idx = reg_a (reused scratch)
-                    self.dst_val = u32::from(ext_hi) << 16;
-                    self.movem_idx = form as u8;
-                    self.move16_idx = reg_a as u8;
-                    self.in_followup = true;
-                    self.followup_tag = TAG_MOVE16_ADDR_LO;
-                    self.micro_ops.push(MicroOp::Execute);
-                    return;
-                }
-                // Unknown form — illegal
-                self.begin_group1_exception(11, self.instr_start_pc);
-                return;
-            }
+            // F-line: F-line emulator trap (vector 11).
+            //
+            // The 68000 has no FPU coprocessor interface, no on-die MMU,
+            // and no MOVE16 / CINV / CPUSH instructions. Every F-line
+            // opcode is unimplemented and traps. The 68020+ uses this
+            // space for cpID-1 FPU coprocessor calls; the 68030 PMMU
+            // and 68040 MOVE16/CINV/CPUSH/PFLUSH/PTEST live here too.
             self.begin_group1_exception(11, self.instr_start_pc);
             return;
         }
@@ -1482,21 +1139,9 @@ impl Cpu68000 {
             return;
         }
 
-        // --- RTD (0x4E74, 68010+) ---
-        // Return and Deallocate: pop PC, then add sign-extended d16 to SP.
-        // The displacement is in IRC (consumed before the stack pops).
+        // --- RTD ($4E74): 68010+ only — illegal on M68000 ---
         if opcode == 0x4E74 {
-            if !self.capabilities().movec {
-                // 68000 doesn't have RTD — illegal instruction
-                self.begin_group1_exception(4, self.instr_start_pc);
-                return;
-            }
-            // Save displacement from IRC before FetchIRC overwrites it
-            self.src_val = u32::from(self.consume_irc());
-            self.in_followup = true;
-            self.followup_tag = TAG_RTD_PC_HI;
-            self.micro_ops.push(MicroOp::PopLongHi);
-            self.micro_ops.push(MicroOp::Execute);
+            self.begin_group1_exception(4, self.instr_start_pc);
             return;
         }
 
@@ -1595,323 +1240,9 @@ impl Cpu68000 {
             return;
         }
 
-        // --- MOVEC (0x4E7A/0x4E7B, 68010+) ---
-        //
-        // 68000 treats this opcode family as illegal. Later models support it.
-        // Implemented for VBR, SFC, DFC, and CACR.
+        // --- MOVEC ($4E7A/$4E7B): 68010+ only — illegal on M68000 ---
         if opcode == 0x4E7A || opcode == 0x4E7B {
-            if !self.capabilities().movec {
-                self.begin_group1_exception(4, self.instr_start_pc);
-                return;
-            }
-            if self.check_supervisor() {
-                return;
-            }
-            let ext = self.consume_irc();
-            let reg_idx = ((ext >> 12) & 0x0F) as usize;
-            let is_addr = ext & 0x8000 != 0;
-            let cr_code = ext & 0x0FFF;
-            let direction_to_cr = opcode == 0x4E7B;
-
-            if direction_to_cr {
-                // MOVEC Rn,Rc — general register → control register
-                let val = if is_addr {
-                    self.regs.a(reg_idx & 7)
-                } else {
-                    self.regs.d[reg_idx & 7]
-                };
-                match cr_code {
-                    0x000 => self.regs.sfc = (val & 0x07) as u8,
-                    0x001 => self.regs.dfc = (val & 0x07) as u8,
-                    0x002 => {
-                        if !self.capabilities().cacr {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        // CI (bit 3): clear entire instruction cache
-                        if val & 0x08 != 0 {
-                            self.icache.clear();
-                        }
-                        // Disabling icache (EI 1→0) also clears it
-                        if val & 0x01 == 0 && self.regs.cacr & 0x01 != 0 {
-                            self.icache.clear();
-                        }
-                        // CD (bit 11): clear entire data cache
-                        if val & 0x0800 != 0 {
-                            self.dcache.clear();
-                        }
-                        // Disabling dcache (ED 1→0) also clears it
-                        if val & 0x100 == 0 && self.regs.cacr & 0x100 != 0 {
-                            self.dcache.clear();
-                        }
-                        // CI/CEI (3,2) + CD/CED (11,10) are write-only
-                        self.regs.cacr = val & !0x0C0C;
-                    }
-                    // TC — Translation Control (68030/040, requires MMU)
-                    0x003 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.tc = val;
-                    }
-                    // TT0/ITT0 — Transparent Translation 0 (68030 TT0, 68040 ITT0)
-                    0x004 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.itt0 = val;
-                    }
-                    // TT1/ITT1 — Transparent Translation 1 (68030 TT1, 68040 ITT1)
-                    0x005 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.itt1 = val;
-                    }
-                    // DTT0 — Data Transparent Translation 0 (68040+)
-                    0x006 => {
-                        if !self.capabilities().mmu
-                            || !matches!(
-                                self.model.timing_class(),
-                                crate::model::TimingClass::M68040
-                                    | crate::model::TimingClass::M68060
-                            )
-                        {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.dtt0 = val;
-                    }
-                    // DTT1 — Data Transparent Translation 1 (68040+)
-                    0x007 => {
-                        if !self.capabilities().mmu
-                            || !matches!(
-                                self.model.timing_class(),
-                                crate::model::TimingClass::M68040
-                                    | crate::model::TimingClass::M68060
-                            )
-                        {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.dtt1 = val;
-                    }
-                    // BUSCR — Bus Control Register (68060)
-                    0x008 => {
-                        if self.model.timing_class() != crate::model::TimingClass::M68060 {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.buscr = val;
-                    }
-                    0x800 => self.regs.usp = val,
-                    0x801 => self.regs.vbr = val,
-                    0x802 => {
-                        if !self.capabilities().cacr {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.caar = val;
-                    }
-                    0x803 => {
-                        if !self.capabilities().cacr {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.msp = val;
-                    }
-                    0x804 => {
-                        if !self.capabilities().cacr {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.ssp = val;
-                    }
-                    // MMUSR (68030/040)
-                    0x805 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.mmusr = val;
-                    }
-                    // URP — User Root Pointer (68030 CRP low 32 / 68040 URP)
-                    0x806 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.urp = val;
-                    }
-                    // SRP — Supervisor Root Pointer (68030 SRP low 32 / 68040 SRP)
-                    0x807 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.srp = val;
-                    }
-                    // PCR — Processor Configuration Register (68060)
-                    0x808 => {
-                        if self.model.timing_class() != crate::model::TimingClass::M68060 {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.pcr = val;
-                    }
-                    _ => {
-                        self.begin_group1_exception(4, self.instr_start_pc);
-                        return;
-                    }
-                }
-            } else {
-                // MOVEC Rc,Rn — control register → general register
-                let val = match cr_code {
-                    0x000 => u32::from(self.regs.sfc),
-                    0x001 => u32::from(self.regs.dfc),
-                    0x002 => {
-                        if !self.capabilities().cacr {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        // CI/CEI (3,2) + CD/CED (11,10) are write-only
-                        self.regs.cacr & !0x0C0C
-                    }
-                    0x800 => self.regs.usp,
-                    0x801 => self.regs.vbr,
-                    0x802 => {
-                        if !self.capabilities().cacr {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.caar
-                    }
-                    0x803 => {
-                        if !self.capabilities().cacr {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.msp
-                    }
-                    0x804 => {
-                        if !self.capabilities().cacr {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.ssp
-                    }
-                    // MMUSR (68030/040)
-                    0x805 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.mmusr
-                    }
-                    // URP — User Root Pointer (68030 CRP low 32 / 68040 URP)
-                    0x806 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.urp
-                    }
-                    // SRP — Supervisor Root Pointer (68030 SRP low 32 / 68040 SRP)
-                    0x807 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.srp
-                    }
-                    // TC — Translation Control (68030/040)
-                    0x003 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.tc
-                    }
-                    // ITT0 — Instruction Transparent Translation 0 (68030 TT0 / 68040 ITT0)
-                    0x004 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.itt0
-                    }
-                    // ITT1 — Instruction Transparent Translation 1 (68030 TT1 / 68040 ITT1)
-                    0x005 => {
-                        if !self.capabilities().mmu {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.itt1
-                    }
-                    // DTT0 — Data Transparent Translation 0 (68040+)
-                    0x006 => {
-                        if !self.capabilities().mmu
-                            || !matches!(
-                                self.model.timing_class(),
-                                crate::model::TimingClass::M68040
-                                    | crate::model::TimingClass::M68060
-                            )
-                        {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.dtt0
-                    }
-                    // DTT1 — Data Transparent Translation 1 (68040+)
-                    0x007 => {
-                        if !self.capabilities().mmu
-                            || !matches!(
-                                self.model.timing_class(),
-                                crate::model::TimingClass::M68040
-                                    | crate::model::TimingClass::M68060
-                            )
-                        {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.dtt1
-                    }
-                    // BUSCR — Bus Control Register (68060)
-                    0x008 => {
-                        if self.model.timing_class() != crate::model::TimingClass::M68060 {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.buscr
-                    }
-                    // PCR — Processor Configuration Register (68060)
-                    0x808 => {
-                        if self.model.timing_class() != crate::model::TimingClass::M68060 {
-                            self.begin_group1_exception(4, self.instr_start_pc);
-                            return;
-                        }
-                        self.regs.pcr
-                    }
-                    _ => {
-                        self.begin_group1_exception(4, self.instr_start_pc);
-                        return;
-                    }
-                };
-                if is_addr {
-                    self.regs.set_a(reg_idx & 7, val);
-                } else {
-                    self.regs.d[reg_idx & 7] = val;
-                }
-            }
-            // MOVEC takes 12 cycles total on 68000 (2 words fetched = 8 cycles
-            // + 4 internal). The 68020 pipelines the internal work.
-            let d = self.internal_delay(4, 0);
-            if d > 0 {
-                self.micro_ops.push(MicroOp::Internal(d));
-            }
+            self.begin_group1_exception(4, self.instr_start_pc);
             return;
         }
 
@@ -1925,7 +1256,7 @@ impl Cpu68000 {
                 return;
             }
             let new_sr = self.consume_irc();
-            self.regs.sr = new_sr & self.sr_mask();
+            self.regs.sr = new_sr & crate::flags::SR_MASK;
             // Clear the FetchIRC that consume_irc queued — STOP doesn't
             // complete the pipeline refill.
             self.micro_ops.clear();
@@ -1990,15 +1321,6 @@ impl Cpu68000 {
                 if (opcode & 0xFF80) == 0x4880 || (opcode & 0xFF80) == 0x4C80 {
                     self.followup_tag = TAG_MOVEM_NEXT;
                     self.micro_ops.push(MicroOp::Execute);
-                    return;
-                }
-
-                // Bit field memory: EA resolved, execute bit field operation
-                if (opcode & 0xF000) == 0xE000
-                    && (opcode & 0x00C0) == 0x00C0
-                    && (opcode & 0x0800) != 0
-                {
-                    self.execute_bitfield_memory();
                     return;
                 }
 
@@ -2071,32 +1393,6 @@ impl Cpu68000 {
                         }
                         return;
                     }
-                }
-
-                // MULL/DIVL (32-bit, 68020+): read source long, then execute
-                if (opcode & 0xFFC0) == 0x4C00 || (opcode & 0xFFC0) == 0x4C40 {
-                    match self
-                        .src_mode
-                        .expect("source mode should be resolved before MOVEM transfer")
-                    {
-                        AddrMode::DataReg(r) => {
-                            self.src_val = self.regs.d[r as usize];
-                            self.followup_tag = TAG_MULDIV_EXECUTE;
-                            self.micro_ops.push(MicroOp::Execute);
-                        }
-                        AddrMode::Immediate => {
-                            let hi = self.consume_irc();
-                            self.src_val = u32::from(hi) << 16;
-                            self.followup_tag = TAG_DATA_SRC_LONG;
-                            self.micro_ops.push(MicroOp::Execute);
-                        }
-                        _ => {
-                            self.followup_tag = TAG_MULDIV_EXECUTE;
-                            self.queue_read_ops(Size::Long);
-                            self.micro_ops.push(MicroOp::Execute);
-                        }
-                    }
-                    return;
                 }
 
                 match self
@@ -2272,13 +1568,7 @@ impl Cpu68000 {
             // --- Immediate long lo-word handlers ---
             TAG_DATA_SRC_LONG => {
                 self.src_val |= u32::from(self.consume_irc());
-                // MULL/DIVL immediate long: go to execute, not dest EA
-                let opc = self.ir;
-                if (opc & 0xFFC0) == 0x4C00 || (opc & 0xFFC0) == 0x4C40 {
-                    self.followup_tag = TAG_MULDIV_EXECUTE;
-                } else {
-                    self.followup_tag = TAG_FETCH_DST_EA;
-                }
+                self.followup_tag = TAG_FETCH_DST_EA;
                 self.micro_ops.push(MicroOp::Execute);
             }
 
@@ -2384,37 +1674,7 @@ impl Cpu68000 {
                 self.in_followup = false;
             }
 
-            TAG_RTD_PC_HI => {
-                // PopLongHi stored hi word in self.data.
-                self.followup_tag = TAG_RTD_PC_LO;
-                self.micro_ops.push(MicroOp::PopLongLo);
-                self.micro_ops.push(MicroOp::Execute);
-            }
-
-            TAG_RTD_PC_LO => {
-                // self.data has the complete 32-bit return address.
-                // Apply displacement to SP before jumping.
-                let disp = self.src_val as u16 as i16 as i32;
-                let sp = self.regs.active_sp().wrapping_add(disp as u32);
-                self.regs.set_active_sp(sp);
-                self.regs.pc = self.data;
-                self.next_fetch_addr = self.regs.pc;
-                self.micro_ops.clear();
-                self.micro_ops.push(MicroOp::FetchIRC);
-                self.micro_ops.push(MicroOp::PromoteIRC);
-                self.in_followup = false;
-            }
-
             // --- Exception handlers ---
-            TAG_EXC_STACK_FORMAT => {
-                // 68010+: format/vector word has been pushed.
-                // Restore the saved PC and continue with PC push.
-                self.data = self.src_val;
-                self.followup_tag = TAG_EXC_STACK_PC_HI;
-                self.micro_ops.push(MicroOp::PushLongHi);
-                self.micro_ops.push(MicroOp::Execute);
-            }
-
             TAG_EXC_STACK_PC_HI => {
                 self.followup_tag = TAG_EXC_STACK_PC_LO;
                 self.micro_ops.push(MicroOp::PushLongLo);
@@ -2484,7 +1744,7 @@ impl Cpu68000 {
             // position in self.addr and update regs.ssp directly because
             // restoring SR may switch to user mode (making active_sp = USP).
             TAG_RTE_READ_SR => {
-                let new_sr = (self.data as u16) & self.sr_mask();
+                let new_sr = (self.data as u16) & crate::flags::SR_MASK;
                 self.addr = self.addr.wrapping_add(2);
                 self.regs.sr = new_sr;
                 self.regs.ssp = self.addr;
@@ -2507,46 +1767,7 @@ impl Cpu68000 {
                 self.regs.pc = target;
                 self.next_fetch_addr = self.regs.pc;
 
-                // 68010+ stack frames include a format/vector word after SR+PC.
-                // Read it to determine how many additional words to pop.
-                if self.capabilities().vbr {
-                    // Read format/vector word from SSP
-                    self.followup_tag = TAG_RTE_READ_FORMAT;
-                    self.micro_ops.push(MicroOp::ReadWord);
-                    self.micro_ops.push(MicroOp::Execute);
-                } else {
-                    // 68000: no format word, just refetch
-                    self.micro_ops.clear();
-                    self.micro_ops.push(MicroOp::FetchIRC);
-                    self.micro_ops.push(MicroOp::PromoteIRC);
-                    self.in_followup = false;
-                }
-            }
-
-            TAG_RTE_READ_FORMAT => {
-                // Format/vector word: bits 15-12 = format, bits 11-0 = vector offset.
-                let format = (self.data >> 12) & 0xF;
-                self.addr = self.addr.wrapping_add(2);
-                self.regs.ssp = self.addr;
-
-                // Additional words to pop based on frame format.
-                let extra_words: u32 = match format {
-                    0x0 => 0,  // Format $0: 4-word frame (SR + PC + format). Done.
-                    0x1 => 0,  // Format $1: throwaway (68010 only). Done.
-                    0x2 => 2,  // Format $2: 6-word frame. 2 extra words (instruction address).
-                    0x4 => 4,  // Format $4: 68060 access error. 4 extra words.
-                    0x7 => 26, // Format $7: 68040 access error. 26 extra words.
-                    0x9 => 6,  // Format $9: coprocessor mid-instruction. 6 extra words.
-                    0xA => 12, // Format $A: short bus fault (68020/030). 12 extra words.
-                    0xB => 42, // Format $B: long bus fault (68020/030). 42 extra words.
-                    _ => 0,    // Unknown format — treat as done.
-                };
-
-                // Skip extra words by advancing SSP
-                self.addr = self.addr.wrapping_add(extra_words * 2);
-                self.regs.ssp = self.addr;
-
-                // Resume execution at the target PC
+                // 68000: no format word in the exception frame, just refetch.
                 self.micro_ops.clear();
                 self.micro_ops.push(MicroOp::FetchIRC);
                 self.micro_ops.push(MicroOp::PromoteIRC);
@@ -2726,94 +1947,6 @@ impl Cpu68000 {
                 self.micro_ops.push(MicroOp::Execute);
             }
 
-            // --- MOVE16: read low word of absolute address, then start transfer ---
-            TAG_MOVE16_ADDR_LO => {
-                let ext_lo = self.consume_irc();
-                let abs_addr = (self.dst_val | u32::from(ext_lo)) & !0xF;
-                let form = self.movem_idx;
-                let reg_a = self.move16_idx as usize;
-
-                match form {
-                    0 => {
-                        // Form 2: (Ax)+,abs.L — src from An (post-inc), dst to abs
-                        let src_addr = self.regs.a(reg_a) & !0xF;
-                        self.regs.set_a(reg_a, self.regs.a(reg_a).wrapping_add(16));
-                        self.addr = src_addr;
-                        self.move16_dst_addr = abs_addr;
-                        self.src_val = src_addr;
-                    }
-                    1 => {
-                        // Form 3: abs.L,(Ax)+ — src from abs, dst to An (post-inc)
-                        let dst_addr = self.regs.a(reg_a) & !0xF;
-                        self.regs.set_a(reg_a, self.regs.a(reg_a).wrapping_add(16));
-                        self.addr = abs_addr;
-                        self.move16_dst_addr = dst_addr;
-                        self.src_val = abs_addr;
-                    }
-                    2 => {
-                        // Form 4: (Ax),abs.L — src from An (no inc), dst to abs
-                        self.addr = self.regs.a(reg_a) & !0xF;
-                        self.move16_dst_addr = abs_addr;
-                        self.src_val = self.addr;
-                    }
-                    3 => {
-                        // Form 5: abs.L,(Ax) — src from abs, dst to An (no inc)
-                        self.addr = abs_addr;
-                        self.move16_dst_addr = self.regs.a(reg_a) & !0xF;
-                        self.src_val = abs_addr;
-                    }
-                    _ => unreachable!(),
-                }
-
-                self.move16_idx = 0;
-                self.move16_buf = [0; 8];
-                self.followup_tag = TAG_MOVE16_NEXT;
-                self.micro_ops.push(MicroOp::Execute);
-            }
-
-            // --- MOVE16 transfer loop ---
-            // src_val = aligned source base address (set in decode).
-            // move16_dst_addr = aligned destination base address.
-            // move16_idx: 0-7 = about to read word N, 8 = reads done, 9-16 = writes.
-            TAG_MOVE16_NEXT => {
-                let idx = self.move16_idx;
-                if idx <= 8 {
-                    // Read phase.
-                    if idx > 0 {
-                        // Store the word just read.
-                        self.move16_buf[(idx - 1) as usize] = self.data as u16;
-                    }
-                    if idx < 8 {
-                        // Set up the next read.
-                        self.addr = self.src_val.wrapping_add(u32::from(idx) * 2);
-                        self.move16_idx = idx + 1;
-                        self.followup_tag = TAG_MOVE16_NEXT;
-                        self.micro_ops.push(MicroOp::ReadWord);
-                        self.micro_ops.push(MicroOp::Execute);
-                    } else {
-                        // All 8 words read. Start write phase.
-                        self.addr = self.move16_dst_addr;
-                        self.data = u32::from(self.move16_buf[0]);
-                        self.move16_idx = 9;
-                        self.followup_tag = TAG_MOVE16_NEXT;
-                        self.micro_ops.push(MicroOp::WriteWord);
-                        self.micro_ops.push(MicroOp::Execute);
-                    }
-                } else {
-                    // Write phase: word (idx-9) was just written.
-                    let next_word = (idx - 8) as usize; // 1-based: next word to write
-                    if next_word < 8 {
-                        self.addr = self.move16_dst_addr.wrapping_add(next_word as u32 * 2);
-                        self.data = u32::from(self.move16_buf[next_word]);
-                        self.move16_idx = idx + 1;
-                        self.followup_tag = TAG_MOVE16_NEXT;
-                        self.micro_ops.push(MicroOp::WriteWord);
-                        self.micro_ops.push(MicroOp::Execute);
-                    }
-                    // else: all 8 words written, done — fall through to FetchIRC
-                }
-            }
-
             // --- ADDX/SUBX memory mode handlers ---
             TAG_ADDX_READ_SRC => {
                 // Source read done, result in self.data.
@@ -2905,7 +2038,7 @@ impl Cpu68000 {
                 } else {
                     // In bounds: preserve X/N, clear ZVC, no trap
                     self.regs.sr &= !0x0007;
-                    let d = self.internal_delay(6, 0);
+                    let d: u8 = 6;
                     if d > 0 {
                         self.micro_ops.push(MicroOp::Internal(d));
                     }
@@ -2963,24 +2096,6 @@ impl Cpu68000 {
                 self.micro_ops.push(MicroOp::FetchIRC);
                 self.micro_ops.push(MicroOp::PromoteIRC);
                 self.in_followup = false;
-            }
-
-            // --- Bus error (68010+): push extra frame words ---
-            TAG_BE_PUSH_EXTRA => {
-                self.be_extra_count -= 1;
-                if self.be_extra_count > 0 {
-                    // More zero words to push.
-                    self.data = 0;
-                    self.micro_ops.push(MicroOp::PushWord);
-                    self.micro_ops.push(MicroOp::Execute);
-                } else {
-                    // All extra words pushed. Now push format/vector word
-                    // via the standard group-1/2 exception path.
-                    self.data = u32::from(self.be_format_word);
-                    self.followup_tag = TAG_EXC_STACK_FORMAT;
-                    self.micro_ops.push(MicroOp::PushWord);
-                    self.micro_ops.push(MicroOp::Execute);
-                }
             }
 
             // --- BCD -(An),-(An): source read complete ---
@@ -3055,237 +2170,9 @@ impl Cpu68000 {
                 self.micro_ops.push(MicroOp::Execute);
             }
 
-            // --- MULU/MULS/DIVU/DIVS + MULL/DIVL execution ---
+            // --- MULU/MULS/DIVU/DIVS execution (16-bit only — M68000) ---
             TAG_MULDIV_EXECUTE => {
                 let opcode = self.ir;
-
-                // --- 68020 MULL/DIVL (opcode $4Cxx) ---
-                if (opcode & 0xFFC0) == 0x4C00 || (opcode & 0xFFC0) == 0x4C40 {
-                    // For memory modes, bus read result (32-bit) is in self.data
-                    if let Some(mode) = self.src_mode
-                        && !matches!(mode, AddrMode::DataReg(_) | AddrMode::Immediate)
-                    {
-                        self.src_val = self.data;
-                    }
-                    let ext = self.movem_mask; // stashed during decode
-                    // Extension word: bits 14-12 = Dl (low/single result),
-                    // bits 2-0 = Dh (high word for 64-bit).
-                    let dl = ((ext >> 12) & 7) as usize;
-                    let is_signed = ext & 0x0800 != 0;
-                    let is_64bit = ext & 0x0400 != 0;
-                    let dh = (ext & 7) as usize;
-                    let src = self.src_val;
-
-                    if (opcode & 0xFFC0) == 0x4C00 {
-                        // MULL: 32x32 multiply. Source × Dl → Dh:Dl (64) or Dl (32).
-                        if is_signed {
-                            let result = (src as i32 as i64) * (self.regs.d[dl] as i32 as i64);
-                            let result_u = result as u64;
-                            if is_64bit {
-                                self.regs.d[dl] = result_u as u32; // low → Dl
-                                self.regs.d[dh] = (result_u >> 32) as u32; // high → Dh
-                            } else {
-                                self.regs.d[dl] = result_u as u32;
-                            }
-                            let mut sr = self.regs.sr & !0x000F;
-                            if is_64bit {
-                                if result_u & 0x8000_0000_0000_0000 != 0 {
-                                    sr |= 0x0008;
-                                }
-                                if result_u == 0 {
-                                    sr |= 0x0004;
-                                }
-                            } else {
-                                let r32 = result_u as u32;
-                                if r32 & 0x8000_0000 != 0 {
-                                    sr |= 0x0008;
-                                }
-                                if r32 == 0 {
-                                    sr |= 0x0004;
-                                }
-                                // V set if 64-bit result doesn't fit in 32 bits
-                                let hi = (result_u >> 32) as u32;
-                                if (r32 & 0x8000_0000 != 0 && hi != 0xFFFF_FFFF)
-                                    || (r32 & 0x8000_0000 == 0 && hi != 0)
-                                {
-                                    sr |= 0x0002;
-                                }
-                            }
-                            self.regs.sr = sr;
-                        } else {
-                            let result = u64::from(src) * u64::from(self.regs.d[dl]);
-                            if is_64bit {
-                                self.regs.d[dl] = result as u32; // low → Dl
-                                self.regs.d[dh] = (result >> 32) as u32; // high → Dh
-                            } else {
-                                self.regs.d[dl] = result as u32;
-                            }
-                            let mut sr = self.regs.sr & !0x000F;
-                            if is_64bit {
-                                if result & 0x8000_0000_0000_0000 != 0 {
-                                    sr |= 0x0008;
-                                }
-                                if result == 0 {
-                                    sr |= 0x0004;
-                                }
-                            } else {
-                                let r32 = result as u32;
-                                if r32 & 0x8000_0000 != 0 {
-                                    sr |= 0x0008;
-                                }
-                                if r32 == 0 {
-                                    sr |= 0x0004;
-                                }
-                                if result > 0xFFFF_FFFF {
-                                    sr |= 0x0002;
-                                } // V
-                            }
-                            self.regs.sr = sr;
-                        }
-                        // 68020: ~44 clocks. 68040/060: 2 clocks (pipelined)
-                        let mull_internal = match self.model.timing_class() {
-                            crate::model::TimingClass::M68020 => 40u8,
-                            _ => 0, // 68040/060
-                        };
-                        if mull_internal > 0 {
-                            self.micro_ops.push(MicroOp::Internal(mull_internal));
-                        }
-                    } else {
-                        // DIVL: Dividend / Source → Dq:Dr (quotient:remainder).
-                        // 64-bit dividend: Dh:Dl. 32-bit dividend: Dl.
-                        // Result: quotient → Dl, remainder → Dh.
-                        if src == 0 {
-                            self.begin_group1_exception(5, self.irc_addr);
-                            return;
-                        }
-                        if is_signed {
-                            let divisor = src as i32;
-                            let dividend = if is_64bit {
-                                ((self.regs.d[dh] as i64) << 32) | (self.regs.d[dl] as i64)
-                            } else {
-                                self.regs.d[dl] as i32 as i64
-                            };
-                            let quotient = dividend / i64::from(divisor);
-                            let remainder = dividend % i64::from(divisor);
-                            if quotient > i32::MAX as i64 || quotient < i32::MIN as i64 {
-                                // WinUAE divsl_overflow: flags depend on model
-                                // and 32/64-bit dividend mode.
-                                let mut sr = self.regs.sr & !0x000F;
-                                sr |= 0x0002; // V always set
-                                if matches!(
-                                    self.model.timing_class(),
-                                    crate::model::TimingClass::M68040
-                                        | crate::model::TimingClass::M68060
-                                ) {
-                                    // 68040+: just V, C=0
-                                } else {
-                                    let a32 = dividend as i32;
-                                    if is_64bit {
-                                        let ahigh = (dividend >> 32) as i32;
-                                        if ahigh == 0 {
-                                            sr |= 0x0004; // Z
-                                        } else if ahigh < 0 && divisor < 0 && ahigh > divisor {
-                                            // N=0, Z=0
-                                        } else if a32 == 0 {
-                                            sr |= 0x0004; // Z
-                                        } else {
-                                            let neg64 = dividend < 0;
-                                            let neg32 = a32 < 0;
-                                            if neg32 ^ neg64 {
-                                                sr |= 0x0008; // N
-                                            }
-                                        }
-                                    } else {
-                                        let neg32 = a32 < 0;
-                                        if a32 == 0 {
-                                            sr |= 0x0004; // Z
-                                        } else if neg32 {
-                                            sr |= 0x0008; // N
-                                        }
-                                    }
-                                }
-                                self.regs.sr = sr;
-                            } else {
-                                self.regs.d[dh] = remainder as u32;
-                                self.regs.d[dl] = quotient as u32;
-                                let mut sr = self.regs.sr & !0x000F;
-                                if quotient as u32 & 0x8000_0000 != 0 {
-                                    sr |= 0x0008;
-                                }
-                                if quotient as u32 == 0 {
-                                    sr |= 0x0004;
-                                }
-                                self.regs.sr = sr;
-                            }
-                        } else {
-                            let divisor = src as u64;
-                            let dividend = if is_64bit {
-                                ((self.regs.d[dh] as u64) << 32) | (self.regs.d[dl] as u64)
-                            } else {
-                                self.regs.d[dl] as u64
-                            };
-                            let quotient = dividend / divisor;
-                            let remainder = dividend % divisor;
-                            if quotient > u32::MAX as u64 {
-                                // WinUAE divul_overflow: flags depend on model.
-                                let mut sr = self.regs.sr & !0x000F;
-                                sr |= 0x0002; // V always set
-                                if matches!(
-                                    self.model.timing_class(),
-                                    crate::model::TimingClass::M68040
-                                        | crate::model::TimingClass::M68060
-                                ) {
-                                    // 68040+: just V, C=0
-                                } else {
-                                    let a32 = dividend as i32;
-                                    if a32 < 0 {
-                                        sr |= 0x0008; // N
-                                    }
-                                    if a32 == 0 {
-                                        sr |= 0x0004; // Z
-                                    }
-                                }
-                                self.regs.sr = sr;
-                            } else {
-                                self.regs.d[dh] = remainder as u32;
-                                self.regs.d[dl] = quotient as u32;
-                                let mut sr = self.regs.sr & !0x000F;
-                                if quotient as u32 & 0x8000_0000 != 0 {
-                                    sr |= 0x0008;
-                                }
-                                if quotient as u32 == 0 {
-                                    sr |= 0x0004;
-                                }
-                                self.regs.sr = sr;
-                            }
-                        }
-                        // 68020: ~78 clocks. 68040: 35/38. 68060: 37/38.
-                        let divl_internal = match self.model.timing_class() {
-                            crate::model::TimingClass::M68020 => 74u8,
-                            crate::model::TimingClass::M68040 => {
-                                if is_signed {
-                                    35
-                                } else {
-                                    32
-                                }
-                            }
-                            crate::model::TimingClass::M68060 => {
-                                if is_signed {
-                                    35
-                                } else {
-                                    34
-                                }
-                            }
-                            _ => 74, // M68000 can't reach here
-                        };
-                        if divl_internal > 0 {
-                            self.micro_ops.push(MicroOp::Internal(divl_internal));
-                        }
-                    }
-                    self.in_followup = false;
-                    return;
-                }
-
                 // --- 68000 16-bit MULU/MULS/DIVU/DIVS ---
                 // For memory modes, bus read result is in self.data
                 if let Some(mode) = self.src_mode
@@ -3316,16 +2203,9 @@ impl Cpu68000 {
                         }
                         self.regs.sr = sr;
 
-                        // 68000: 38 + 2*(set bits) clocks
-                        // 68020: 28 clocks. 68040/060: 2 clocks (pipelined)
-                        let internal = match self.model.timing_class() {
-                            crate::model::TimingClass::M68000 => {
-                                let total = 38 + 2 * src_word.count_ones();
-                                total.saturating_sub(4) as u8
-                            }
-                            crate::model::TimingClass::M68020 => 24,
-                            _ => 0, // 68040/060: pipelined multiply
-                        };
+                        // 68000: 38 + 2*(set bits) clocks.
+                        let total = 38 + 2 * src_word.count_ones();
+                        let internal = total.saturating_sub(4) as u8;
                         self.micro_ops.push(MicroOp::Internal(internal));
                     }
                     (0xC000, 7) => {
@@ -3344,18 +2224,11 @@ impl Cpu68000 {
                         }
                         self.regs.sr = sr;
 
-                        // 68000: Booth encoding transitions
-                        // 68020: 28 clocks. 68040/060: 2 clocks (pipelined)
-                        let internal = match self.model.timing_class() {
-                            crate::model::TimingClass::M68000 => {
-                                let v = u32::from(src_word);
-                                let transitions = ((v ^ (v << 1)) & 0xFFFF).count_ones();
-                                let total = 38 + 2 * transitions;
-                                total.saturating_sub(4) as u8
-                            }
-                            crate::model::TimingClass::M68020 => 24,
-                            _ => 0, // 68040/060: pipelined multiply
-                        };
+                        // 68000: Booth encoding transitions.
+                        let v = u32::from(src_word);
+                        let transitions = ((v ^ (v << 1)) & 0xFFFF).count_ones();
+                        let total = 38 + 2 * transitions;
+                        let internal = total.saturating_sub(4) as u8;
                         self.micro_ops.push(MicroOp::Internal(internal));
                     }
                     (0x8000, 3) => {
@@ -3372,18 +2245,10 @@ impl Cpu68000 {
                         let remainder = dividend % u32::from(src_word);
 
                         if quotient > 0xFFFF {
-                            if self.capabilities().barrel_shifter {
-                                // 68020+: set V, set N only if dividend negative, C/Z unchanged
-                                self.regs.sr |= 0x0002; // V
-                                if dividend & 0x8000_0000 != 0 {
-                                    self.regs.sr |= 0x0008; // N
-                                }
-                            } else {
-                                // 68000/010: overflow preserves N/Z/X, clears C, sets V.
-                                let mut sr = self.regs.sr & !0x0003;
-                                sr |= 0x0002;
-                                self.regs.sr = sr;
-                            }
+                            // 68000: overflow preserves N/Z/X, clears C, sets V.
+                            let mut sr = self.regs.sr & !0x0003;
+                            sr |= 0x0002;
+                            self.regs.sr = sr;
                         } else {
                             self.regs.d[dn] = (remainder << 16) | (quotient & 0xFFFF);
                             let mut sr = self.regs.sr & !0x000F;
@@ -3395,16 +2260,9 @@ impl Cpu68000 {
                             }
                             self.regs.sr = sr;
                         }
-                        // 68000: Cwik variable. 68020: 44. 68040: 35. 68060: 37.
-                        let internal = match self.model.timing_class() {
-                            crate::model::TimingClass::M68000 => {
-                                let total_cycles = Self::divu_cycles(dividend, src_word);
-                                total_cycles.saturating_sub(4)
-                            }
-                            crate::model::TimingClass::M68020 => 40,
-                            crate::model::TimingClass::M68040 => 32,
-                            crate::model::TimingClass::M68060 => 34,
-                        };
+                        // 68000: Cwik variable cycle count.
+                        let total_cycles = Self::divu_cycles(dividend, src_word);
+                        let internal = total_cycles.saturating_sub(4);
                         if internal > 0 {
                             self.micro_ops.push(MicroOp::Internal(internal));
                         }
@@ -3423,28 +2281,10 @@ impl Cpu68000 {
                         let remainder = dividend % i32::from(divisor);
 
                         if !(-32768..=32767).contains(&quotient) {
-                            if self.capabilities().barrel_shifter {
-                                // 68020+: WinUAE setdivsflags
-                                self.regs.sr &= !0x000F; // clear CZNV
-                                self.regs.sr |= 0x0002; // V
-                                let abs_dvd = (dividend as i64).unsigned_abs() as u32;
-                                let abs_dvs = (divisor as i32).unsigned_abs() as u16;
-                                if (abs_dvd >> 16) < u32::from(abs_dvs) {
-                                    // Non-absolute overflow: N/Z from byte-sized quotient
-                                    let aquot = (abs_dvd / u32::from(abs_dvs)) as u8 as i8;
-                                    if aquot == 0 {
-                                        self.regs.sr |= 0x0004;
-                                    }
-                                    if aquot < 0 {
-                                        self.regs.sr |= 0x0008;
-                                    }
-                                }
-                            } else {
-                                // 68000/010: overflow preserves N/Z/X, clears C, sets V.
-                                let mut sr = self.regs.sr & !0x0003;
-                                sr |= 0x0002;
-                                self.regs.sr = sr;
-                            }
+                            // 68000: overflow preserves N/Z/X, clears C, sets V.
+                            let mut sr = self.regs.sr & !0x0003;
+                            sr |= 0x0002;
+                            self.regs.sr = sr;
                         } else {
                             let q16 = quotient as u16;
                             let r16 = remainder as u16;
@@ -3458,16 +2298,9 @@ impl Cpu68000 {
                             }
                             self.regs.sr = sr;
                         }
-                        // 68000: Cwik variable. 68020: 56. 68040: 37. 68060: 38.
-                        let internal = match self.model.timing_class() {
-                            crate::model::TimingClass::M68000 => {
-                                let total_cycles = Self::divs_cycles(dividend, divisor);
-                                total_cycles.saturating_sub(4)
-                            }
-                            crate::model::TimingClass::M68020 => 52,
-                            crate::model::TimingClass::M68040 => 34,
-                            crate::model::TimingClass::M68060 => 35,
-                        };
+                        // 68000: Cwik variable cycle count.
+                        let total_cycles = Self::divs_cycles(dividend, divisor);
+                        let internal = total_cycles.saturating_sub(4);
                         if internal > 0 {
                             self.micro_ops.push(MicroOp::Internal(internal));
                         }
@@ -3489,90 +2322,4 @@ impl Cpu68000 {
         }
     }
 
-    // ════════════════════════════════════════════════════════════════
-    //  68020+ synchronous bus operations — stub for pin-level Phase 1
-    // ════════════════════════════════════════════════════════════════
-    //
-    // The functions below used synchronous `bus.poll_cycle()` calls in
-    // the archive. In the pin-level model, they need to be rewritten
-    // as micro-op sequences. For Phase 1 (68000 A500 target), none of
-    // these code paths are reachable — CAS, bitfield memory ops, FPU,
-    // and PMMU are all 68020+ instructions that a 68000 never decodes.
-    //
-    // They will be properly converted when Phase 9 (ECS/AGA variants
-    // with 68020/68030) is reached.
-
-    fn decode_cas(&mut self, _opcode: u16) {
-        unimplemented!("CAS requires 68020+ pin-level bus conversion");
-    }
-
-    fn execute_bitfield_memory(&mut self) {
-        unimplemented!("bitfield memory ops require 68020+ pin-level bus conversion");
-    }
-
-    #[allow(clippy::too_many_arguments, dead_code)]
-    fn write_bitfield_memory(
-        &mut self,
-        _first_byte_addr: u32,
-        _bit_offset: u32,
-        _width: u32,
-        _new_field: u32,
-        _fc: FunctionCode,
-        _amask: u32,
-    ) {
-        unimplemented!("bitfield memory write requires 68020+ pin-level bus conversion");
-    }
-
-    fn decode_pmmu_030(&mut self, _opcode: u16) {
-        unimplemented!("PMMU 030 requires 68020+ pin-level bus conversion");
-    }
-
-    fn decode_pmmu_040(&mut self, _opcode: u16) {
-        unimplemented!("PMMU 040 requires 68040+ pin-level bus conversion");
-    }
-
-    #[allow(dead_code)]
-    fn fpu_read_bytes(&self, _addr: u32, _n: usize) -> Vec<u8> {
-        unimplemented!("FPU memory access requires 68020+ pin-level bus conversion");
-    }
-
-    #[allow(dead_code)]
-    fn fpu_write_bytes(&mut self, _addr: u32, _data: &[u8]) {
-        unimplemented!("FPU memory access requires 68020+ pin-level bus conversion");
-    }
-
-    #[allow(dead_code)]
-    fn fpu_resolve_ea(&mut self, _opcode: u16) -> u32 {
-        unimplemented!("FPU EA resolution requires 68020+ pin-level bus conversion");
-    }
-
-    #[allow(dead_code)]
-    fn fpu_read_source(&mut self, _opcode: u16, _format: u8) -> f64 {
-        unimplemented!("FPU source read requires 68020+ pin-level bus conversion");
-    }
-
-    #[allow(dead_code)]
-    fn fpu_write_dest(&mut self, _opcode: u16, _format: u8, _val: f64) {
-        unimplemented!("FPU dest write requires 68020+ pin-level bus conversion");
-    }
-
-    fn decode_fpu_fsave(&mut self, _opcode: u16) {
-        unimplemented!("FPU FSAVE requires 68020+ pin-level bus conversion");
-    }
-
-    fn decode_fpu_frestore(&mut self, _opcode: u16) {
-        unimplemented!("FPU FRESTORE requires 68020+ pin-level bus conversion");
-    }
-
-    fn decode_fpu_cpgen(&mut self, _opcode: u16) {
-        unimplemented!("FPU CPGEN requires 68020+ pin-level bus conversion");
-    }
-
-    fn decode_fpu_fbcc(&mut self, _opcode: u16, _long_disp: bool) {
-        unimplemented!("FPU FBcc requires 68020+ pin-level bus conversion");
-    }
-
-    fn decode_fpu_cpscc_dbcc(&mut self, _opcode: u16) {
-        unimplemented!("FPU CPScc/DBcc requires 68020+ pin-level bus conversion");
-    }
 }

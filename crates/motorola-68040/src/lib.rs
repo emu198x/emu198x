@@ -20,19 +20,101 @@
 //! # Today
 //!
 //! No active machine in the workspace runs a 68040-class part. The
-//! decode arms and capability gates for 68040-specific opcodes
-//! (FPU instructions, MOVE16, the new MMU instructions) live inside
-//! [`motorola_68000`] today; the FPU register file lives in
-//! [`motorola_68k_common::registers`] because every variant struct
-//! shares that file. This crate is the architectural seam for when
-//! a 68040-class machine appears.
+//! M68000 core no longer contains 68040-specific decode arms or
+//! capability gates — those were stripped on 2026-04-29.
+//!
+//! # What a real 68040 implementation needs
+//!
+//! All 68030 ISA inherits, but the *implementation* of caches and
+//! MMU is materially different.
+//!
+//! ## Pipeline / bus
+//!
+//! - **Six-stage pipeline** (fetch / decode 1 / decode 2 / address /
+//!   execute / writeback) — most instructions retire in one clock
+//!   when the operand cache hits.
+//! - **1-clock effective bus** for cached fetches; external bus
+//!   transactions are 2-clock minimum.
+//! - **Wider buses** internally — 32-bit-everywhere with separate
+//!   instruction and data paths.
+//!
+//! ## Caches
+//!
+//! - **4 KB instruction cache** (4-way set-associative, 16-byte
+//!   lines) — much bigger than the 68030's 256 bytes.
+//! - **4 KB data cache** (4-way set-associative, 16-byte lines)
+//!   with **copyback or write-through** policy per page (driven by
+//!   the MMU descriptor's CM bits).
+//! - **CINV** / **CPUSH** — encoded as `$F4xx` (NOT coprocessor
+//!   format). Cache select bits choose data / instruction / both;
+//!   scope bits choose line / page / all. M68040UM § 8.4.
+//!
+//! ## On-die MMU (rev of the 68030 PMMU)
+//!
+//! - **Fixed three-level table walk** (4 KB or 8 KB pages). The
+//!   68030's flexible TC bit-field is gone; page size is fixed by
+//!   TC[14] only.
+//! - **Separate instruction / data ATCs** (64 entries each, fully
+//!   associative).
+//! - **Four transparent-translation registers**: ITT0 / ITT1 /
+//!   DTT0 / DTT1 (vs the 68030's two TT0 / TT1 covering both
+//!   instruction and data).
+//! - **PFLUSH / PTEST** are *not* coprocessor F-line — they have
+//!   their own encoding `$F500`-`$F5FF` (different from the 68030).
+//!   `PFLUSHA` clears the entire ATC; `PFLUSH (An)` flushes one
+//!   entry; `PTESTW (An)` / `PTESTR (An)` read the table for a
+//!   specific FC and address.
+//! - **No PMOVE** — MMU control registers move via `MOVEC`
+//!   (cr codes $003 / $004 / $005 / $006 / $007 / $805 / $806 /
+//!   $807 for TC / ITT0 / ITT1 / DTT0 / DTT1 / MMUSR / URP / SRP).
+//!
+//! ## On-die FPU (encoded as cpID 1 F-line opcodes)
+//!
+//! Routes through [`fpu`] for the actual arithmetic. The decode
+//! side recognises:
+//!
+//! - **FADD / FSUB / FMUL / FDIV / FCMP / FNEG / FABS / FSQRT** and
+//!   their precision-rounded variants (FSADD, FDADD, etc.).
+//! - **FMOVE** — between FP register and EA, with format conversion
+//!   (Byte / Word / Long / Single / Double / Extended / Packed BCD).
+//! - **FMOVEM** — register-mask move of FP0-FP7 / FPCR / FPSR / FPIAR.
+//! - **FMOVECR** — load a ROM constant (pi, e, log2, etc.).
+//! - **FINT / FINTRZ / FGETMAN / FGETEXP / FSCALE** — IEEE
+//!   transcendental support.
+//! - **FBcc.[WL]** / **FScc** / **FDBcc** / **FTRAPcc** — FP
+//!   conditional control flow.
+//! - **FSAVE** / **FRESTORE** — save / restore the FPU's internal
+//!   exception-handling state across context switches.
+//!
+//! ## New non-FP instruction
+//!
+//! - **MOVE16** (`$F600`-`$F6FF`) — copy one 16-byte cache line.
+//!   Five forms:
+//!   - `(Ax)+, (Ay)+`           — both post-increment, ext word
+//!     carries `Ay` register in bits 14-12.
+//!   - `(Ax)+, abs.L`           — post-inc source, 32-bit abs dest.
+//!   - `abs.L, (Ax)+`           — 32-bit abs source, post-inc dest.
+//!   - `(Ax),  abs.L`           — non-incrementing source.
+//!   - `abs.L, (Ax)`            — non-incrementing dest.
+//!
+//!   Both addresses are forced 16-byte aligned (low 4 bits cleared).
+//!   Used by AmigaOS 3.1+ for fast `CopyMem()` and by NetBSD/m68k
+//!   for page copies. M68040UM § 4.5.
+//!
+//! ## Exception frames
+//!
+//! - **Format `$2`**: 6-word frame (instruction trap).
+//! - **Format `$3`**: floating-point post-instruction (4 words after
+//!   header).
+//! - **Format `$7`**: 30-word access-fault frame (M68040 specific).
+//!   Captures effective address, special status word (SSW), write
+//!   buffer state. Different from the 68030's format `$B`.
 //!
 //! # Type aliases
 //!
 //! [`Cpu68040`], [`Cpu68EC040`], and [`Cpu68LC040`] resolve to
-//! [`motorola_68000::Cpu68000`] today — distinguish them via the
-//! corresponding [`motorola_68k_common::CpuModel`] variant at
-//! construction time.
+//! [`motorola_68000::Cpu68000`] today — construct via
+//! [`motorola_68000::Cpu68000::new`].
 
 pub mod fpu;
 

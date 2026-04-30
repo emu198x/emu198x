@@ -73,7 +73,7 @@ impl Cpu68000 {
                 self.addr = self.regs.a(r as usize).wrapping_sub(decrement);
                 self.regs.set_a(r as usize, self.addr);
                 self.ae_undo_reg = Some((r, decrement, false, !is_src));
-                let d = self.internal_delay(2, 0);
+                let d: u8 = 2;
                 if d > 0 {
                     self.micro_ops.push(MicroOp::Internal(d));
                 }
@@ -149,17 +149,13 @@ impl Cpu68000 {
                     idx_val as i16 as i32 as u32 // sign-extend word index
                 };
                 // Bits 9-10: scale factor (1/2/4/8). 68020+ only.
-                // On the 68000/68010 these bits are "don't care" — the
-                // hardware always uses scale=1 regardless of their value.
-                let scale = if self.capabilities().scaled_index {
-                    1u32 << ((ext >> 9) & 3)
-                } else {
-                    1
-                };
+                // On the 68000 these bits are "don't care" — the hardware
+                // always uses scale=1 regardless of their value.
+                let scale = 1u32;
                 self.addr = base
                     .wrapping_add(disp as u32)
                     .wrapping_add(idx.wrapping_mul(scale));
-                let d = self.internal_delay(2, 0);
+                let d: u8 = 2;
                 if d > 0 {
                     self.micro_ops.push(MicroOp::Internal(d));
                 }
@@ -188,16 +184,12 @@ impl Cpu68000 {
                     idx_val as i16 as i32 as u32 // sign-extend word index
                 };
                 // Bits 9-10: scale factor (1/2/4/8). 68020+ only.
-                // On the 68000/68010 these bits are "don't care".
-                let scale = if self.capabilities().scaled_index {
-                    1u32 << ((ext >> 9) & 3)
-                } else {
-                    1
-                };
+                // On the 68000 these bits are "don't care".
+                let scale = 1u32;
                 self.addr = base
                     .wrapping_add(disp as u32)
                     .wrapping_add(idx.wrapping_mul(scale));
-                let d = self.internal_delay(2, 0);
+                let d: u8 = 2;
                 if d > 0 {
                     self.micro_ops.push(MicroOp::Internal(d));
                 }

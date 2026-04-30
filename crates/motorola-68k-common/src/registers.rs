@@ -31,26 +31,36 @@ pub struct Registers {
     pub d: [u32; 8],
     /// Address registers A0-A6 (A7 is handled via USP/SSP).
     pub a: [u32; 7],
-    /// User stack pointer (active A7 when in user mode).
+    /// User stack pointer (active A7 when in user mode). Used by every variant.
     pub usp: u32,
     /// Supervisor stack pointer (active A7 when in supervisor mode).
-    /// On 68020+, this serves as the Interrupt Stack Pointer (ISP).
+    /// On 68020+, also serves as the Interrupt Stack Pointer (ISP). Used by
+    /// every variant.
     pub ssp: u32,
-    /// Master Stack Pointer (68020+, selected when SR M-flag is set).
+    /// Master Stack Pointer. **68020+ only** — selected as A7 when the SR
+    /// M-flag (bit 12) is set. Zero / unused on M68000 / M68010, but kept on
+    /// the shared register file so the serde envelope is variant-agnostic.
     pub msp: u32,
-    /// Cache Address Register (68020+).
+    /// Cache Address Register. **68020+ only** — points at the cache line a
+    /// CINV / CPUSH instruction targets. Zero / unused on M68000 / M68010.
     pub caar: u32,
     /// Program counter.
     pub pc: u32,
     /// Status register.
     pub sr: u16,
-    /// Vector Base Register (68010+).
+    /// Vector Base Register. **68010+ only** — exception vector table base
+    /// address. Zero / unused on M68000 (M68000 vector table is hard-fixed
+    /// at $00000000).
     pub vbr: u32,
-    /// Source Function Code register (68010+, 3 bits).
+    /// Source Function Code register. **68010+ only** — 3-bit FC for MOVES
+    /// source side. Zero / unused on M68000.
     pub sfc: u8,
-    /// Destination Function Code register (68010+, 3 bits).
+    /// Destination Function Code register. **68010+ only** — 3-bit FC for
+    /// MOVES destination side. Zero / unused on M68000.
     pub dfc: u8,
-    /// Cache Control Register (68020+).
+    /// Cache Control Register. **68020+ only** — enables and freezes the
+    /// on-die instruction / data caches. Zero / unused on M68000 / M68010
+    /// (no caches).
     pub cacr: u32,
     /// Translation Control register (68030 TC, 68040 TC).
     pub tc: u32,
