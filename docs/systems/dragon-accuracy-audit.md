@@ -188,3 +188,6 @@ Progress:
   indexed `LDA` postbyte cycle additions, including indirect and PCR forms.
 - Pin tests now assert `BUSY` and interrupt/vector acknowledge behavior for the
   bus-cycle states the current compatibility model can expose.
+- `motorola-6809` now has an additive E/Q phase-visible stepping API. The
+  compatibility `tick()` path remains intact, while `tick_phase()` samples
+  interrupt inputs on falling Q and latches read data on falling E.

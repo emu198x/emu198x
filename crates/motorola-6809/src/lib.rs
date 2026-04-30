@@ -7,7 +7,7 @@
 
 pub mod registers;
 
-use registers::{FLAG_C, FLAG_E, FLAG_F, FLAG_H, FLAG_I, FLAG_N, FLAG_V, FLAG_Z, Registers};
+use registers::{Registers, FLAG_C, FLAG_E, FLAG_F, FLAG_H, FLAG_I, FLAG_N, FLAG_V, FLAG_Z};
 use serde::{Deserialize, Serialize};
 
 const MAX_STACK_BYTES: usize = 12;
@@ -416,6 +416,20 @@ pub enum Mc6809BusStatus {
     HaltAcknowledge,
 }
 
+/// MC6809E external clock phase in Q-leads-E order.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum Mc6809ClockPhase {
+    /// Q high, E low.
+    #[default]
+    QHigh,
+    /// Q high, E high.
+    EHigh,
+    /// Q low, E high. Interrupt inputs are sampled on entry to this phase.
+    QLow,
+    /// Q low, E low. Read data is latched and the bus cycle advances on entry.
+    ELow,
+}
+
 /// MC6809E external pin snapshot for the currently presented bus cycle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Mc6809Pins {
@@ -441,6 +455,8 @@ pub struct Mc6809Pins {
     pub bus_status: Mc6809BusStatus,
     /// Existing fetch-boundary signal exposed by this core.
     pub sync: bool,
+    /// Current E/Q phase in the additive phase-visible API.
+    pub phase: Mc6809ClockPhase,
 }
 
 /// Motorola MC6809 CPU state exposed to machine crates.
@@ -458,6 +474,20 @@ pub struct Mc6809 {
     pub nmi: bool,
     pub halt: bool,
     pub reset_phase: u8,
+    #[serde(default)]
+    phase: Mc6809ClockPhase,
+    #[serde(default)]
+    sampled_irq: bool,
+    #[serde(default)]
+    sampled_firq: bool,
+    #[serde(default)]
+    sampled_nmi: bool,
+    #[serde(default)]
+    ready_irq: bool,
+    #[serde(default)]
+    ready_firq: bool,
+    #[serde(default)]
+    ready_nmi: bool,
     vector_hi: u8,
     state: CpuState,
     stack_work: StackWork,
@@ -479,6 +509,13 @@ impl Mc6809 {
             nmi: false,
             halt: false,
             reset_phase: 0,
+            phase: Mc6809ClockPhase::QHigh,
+            sampled_irq: false,
+            sampled_firq: false,
+            sampled_nmi: false,
+            ready_irq: false,
+            ready_firq: false,
+            ready_nmi: false,
             vector_hi: 0,
             state: CpuState::Fetch,
             stack_work: StackWork::None,
@@ -499,6 +536,13 @@ impl Mc6809 {
         self.nmi = false;
         self.halt = false;
         self.reset_phase = 2;
+        self.phase = Mc6809ClockPhase::QHigh;
+        self.sampled_irq = false;
+        self.sampled_firq = false;
+        self.sampled_nmi = false;
+        self.ready_irq = false;
+        self.ready_firq = false;
+        self.ready_nmi = false;
         self.vector_hi = 0;
         self.state = CpuState::Fetch;
         self.stack_work = StackWork::None;
@@ -506,6 +550,41 @@ impl Mc6809 {
 
     /// Advance one bus-visible CPU cycle.
     pub fn tick(&mut self) {
+        self.sample_interrupt_inputs();
+        self.promote_sampled_interrupts();
+        self.tick_bus_cycle();
+        self.phase = Mc6809ClockPhase::QHigh;
+    }
+
+    /// Advance one E/Q phase.
+    ///
+    /// Q leads E. Interrupt inputs are sampled on falling Q; read data is
+    /// consumed and the CPU bus cycle advances on falling E. This is additive
+    /// to the older [`Self::tick`] compatibility API so machine crates can move
+    /// over incrementally.
+    pub fn tick_phase(&mut self) {
+        self.phase = match self.phase {
+            Mc6809ClockPhase::QHigh => Mc6809ClockPhase::EHigh,
+            Mc6809ClockPhase::EHigh => {
+                self.sample_interrupt_inputs();
+                Mc6809ClockPhase::QLow
+            }
+            Mc6809ClockPhase::QLow => {
+                self.tick_bus_cycle();
+                self.promote_sampled_interrupts();
+                Mc6809ClockPhase::ELow
+            }
+            Mc6809ClockPhase::ELow => Mc6809ClockPhase::QHigh,
+        };
+    }
+
+    /// Return the current E/Q phase used by [`Self::tick_phase`].
+    #[must_use]
+    pub const fn clock_phase(&self) -> Mc6809ClockPhase {
+        self.phase
+    }
+
+    fn tick_bus_cycle(&mut self) {
         if self.halt {
             return;
         }
@@ -567,6 +646,7 @@ impl Mc6809 {
             bs,
             bus_status,
             sync: self.sync,
+            phase: self.phase,
         }
     }
 
@@ -1765,12 +1845,14 @@ impl Mc6809 {
     }
 
     fn pending_interrupt(&mut self) -> Option<Vector> {
-        if self.nmi {
+        if self.ready_nmi {
+            self.ready_nmi = false;
+            self.sampled_nmi = false;
             self.nmi = false;
             Some(Vector::Nmi)
-        } else if self.firq && !self.regs.firq_masked() {
+        } else if self.ready_firq && !self.regs.firq_masked() {
             Some(Vector::Firq)
-        } else if self.irq && !self.regs.irq_masked() {
+        } else if self.ready_irq && !self.regs.irq_masked() {
             Some(Vector::Irq)
         } else {
             None
@@ -1778,7 +1860,22 @@ impl Mc6809 {
     }
 
     fn maskable_interrupt_asserted(&self) -> bool {
-        self.irq || self.firq
+        self.ready_irq || self.ready_firq
+    }
+
+    fn sample_interrupt_inputs(&mut self) {
+        self.sampled_irq = self.irq;
+        self.sampled_firq = self.firq;
+        self.sampled_nmi |= self.nmi;
+    }
+
+    fn promote_sampled_interrupts(&mut self) {
+        self.ready_irq = self.sampled_irq;
+        self.ready_firq = self.sampled_firq;
+        self.ready_nmi |= self.sampled_nmi;
+        self.sampled_irq = false;
+        self.sampled_firq = false;
+        self.sampled_nmi = false;
     }
 
     fn start_interrupt(&mut self, vector: Vector) {
@@ -2333,7 +2430,11 @@ impl Mc6809 {
     }
 
     const fn rmw_post_cycles(op: Rmw8Op) -> u8 {
-        if matches!(op, Rmw8Op::Tst) { 3 } else { 2 }
+        if matches!(op, Rmw8Op::Tst) {
+            3
+        } else {
+            2
+        }
     }
 
     fn prepare_store(&mut self, op: Store8Op, addr: u16, post_cycles: u8) {
@@ -2921,6 +3022,18 @@ mod tests {
             memory[cpu.addr as usize] = cpu.data;
         }
         cpu.tick();
+    }
+
+    fn run_phase_cycle(cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
+        cpu.tick_phase();
+        cpu.tick_phase();
+        if cpu.rw {
+            cpu.data_in = memory[cpu.addr as usize];
+        } else {
+            memory[cpu.addr as usize] = cpu.data;
+        }
+        cpu.tick_phase();
+        cpu.tick_phase();
     }
 
     fn run_cycles(cpu: &mut Mc6809, memory: &mut [u8; 0x10000], count: usize) {
@@ -3604,6 +3717,67 @@ mod tests {
         assert!(pins.ba);
         assert!(pins.bs);
         assert!(!pins.avma);
+    }
+
+    #[test]
+    fn phase_step_latches_read_data_on_falling_e() {
+        let mut cpu = cpu_at(0x4000);
+        cpu.data_in = 0x01; // Undefined opcode if consumed before falling E.
+
+        cpu.tick_phase();
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::EHigh);
+        assert_eq!(cpu.regs.pc, 0x4000);
+
+        cpu.tick_phase();
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::QLow);
+        assert_eq!(cpu.regs.pc, 0x4000);
+
+        cpu.data_in = 0x12; // NOP, latched on the falling E transition.
+        cpu.tick_phase();
+
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::ELow);
+        assert_eq!(cpu.regs.pc, 0x4001);
+        assert!(!cpu.halt);
+        assert!(matches!(cpu.state, CpuState::NopInternal));
+    }
+
+    #[test]
+    fn phase_step_samples_irq_on_falling_q_not_falling_e() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x12; // NOP must still execute.
+        memory[0xFFF8] = 0x45;
+        memory[0xFFF9] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.cc = 0;
+
+        cpu.tick_phase();
+        cpu.tick_phase();
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::QLow);
+
+        cpu.irq = true;
+        cpu.data_in = memory[cpu.addr as usize];
+        cpu.tick_phase();
+
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::ELow);
+        assert_eq!(cpu.regs.pc, 0x4001);
+        assert!(
+            matches!(cpu.state, CpuState::NopInternal),
+            "IRQ asserted after falling Q must not replace the current fetch"
+        );
+
+        cpu.tick_phase();
+        run_phase_cycle(&mut cpu, &mut memory);
+        assert!(cpu.instruction_boundary());
+
+        for _ in 0..32 {
+            if cpu.instruction_boundary() && cpu.regs.pc == 0x4500 {
+                return;
+            }
+            run_phase_cycle(&mut cpu, &mut memory);
+        }
+
+        panic!("IRQ sampled on falling Q did not vector after current instruction");
     }
 
     #[test]
@@ -4528,9 +4702,7 @@ mod tests {
         assert_eq!(cpu.regs.s, 0x7FF4);
         assert_eq!(
             &memory[0x7FF4..=0x7FFF],
-            &[
-                FLAG_E, 0x9A, 0x78, 0x56, 0x12, 0x34, 0xC0, 0xD0, 0xA0, 0xB0, 0x40, 0x01
-            ]
+            &[FLAG_E, 0x9A, 0x78, 0x56, 0x12, 0x34, 0xC0, 0xD0, 0xA0, 0xB0, 0x40, 0x01]
         );
         assert!(cpu.regs.flag(FLAG_I));
         assert!(cpu.regs.flag(FLAG_F));
@@ -4703,9 +4875,7 @@ mod tests {
         assert_eq!(cpu.regs.s, 0x7FF4);
         assert_eq!(
             &memory[0x7FF4..=0x7FFF],
-            &[
-                0xA5, 0x9A, 0x78, 0x56, 0x12, 0x34, 0xC0, 0xD0, 0xA0, 0xB0, 0x40, 0x02
-            ]
+            &[0xA5, 0x9A, 0x78, 0x56, 0x12, 0x34, 0xC0, 0xD0, 0xA0, 0xB0, 0x40, 0x02]
         );
         assert!(cpu.instruction_boundary());
 
