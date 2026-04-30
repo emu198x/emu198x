@@ -7,9 +7,15 @@ cd "${repo_root}"
 
 mkdir -p target/llvm-cov
 
-coverage_toolchain="+nightly"
-coverage_flags=(--branch)
-
+# Branch coverage was dropped 2026-04-30: it requires `+nightly`, and
+# the nightly-instrumented build was producing roughly 2x the
+# "functions have mismatched data" warnings of a stable run. Region,
+# function, and line coverage are sufficient signal for the
+# directed-test passes we run, and stable instrumentation is more
+# coherent across parallel agent runs. If branch coverage matters
+# again later, restore `coverage_toolchain="+nightly"` and
+# `coverage_flags=(--branch)`.
+#
 # The motorola-68000 family was split into per-variant crates in April
 # 2026: motorola-68k-common, motorola-68000, motorola-68010,
 # motorola-68020, motorola-68030, and motorola-68040. The previous
@@ -21,14 +27,12 @@ coverage_flags=(--branch)
 # motorola-68000 figure. Tom Harte continues to validate the live
 # 68000 opcode surface at 1,000,058/1,000,058.
 
-cargo "${coverage_toolchain}" llvm-cov "${coverage_flags[@]}" \
-    --workspace "$@" | tee target/llvm-cov/coverage-summary.txt
-cargo "${coverage_toolchain}" llvm-cov report "${coverage_flags[@]}" \
-    --json --summary-only --output-path target/llvm-cov/coverage-summary.json
-cargo "${coverage_toolchain}" llvm-cov report "${coverage_flags[@]}" \
-    --lcov --output-path target/llvm-cov/lcov.info
-cargo "${coverage_toolchain}" llvm-cov report "${coverage_flags[@]}" \
-    --html --output-dir target/llvm-cov
+cargo llvm-cov --workspace "$@" | tee target/llvm-cov/coverage-summary.txt
+cargo llvm-cov report --json --summary-only \
+    --output-path target/llvm-cov/coverage-summary.json
+cargo llvm-cov report --lcov \
+    --output-path target/llvm-cov/lcov.info
+cargo llvm-cov report --html --output-dir target/llvm-cov
 
 echo
 echo "Coverage total:"
