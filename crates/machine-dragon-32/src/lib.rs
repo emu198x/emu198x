@@ -1146,24 +1146,24 @@ pub enum StopReason {
 }
 
 /// Options for a bounded Dragon machine run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOptions {
     /// Number of recent entries to retain in each diagnostic trace.
     pub trace_limit: usize,
-    /// Optional inclusive opcode-fetch watch range.
-    pub fetch_watch: Option<AddressRange>,
-    /// Optional inclusive bus-write watch range.
-    pub write_watch: Option<AddressRange>,
+    /// Inclusive opcode-fetch watch ranges.
+    pub fetch_watch: Vec<AddressRange>,
+    /// Inclusive bus-write watch ranges.
+    pub write_watch: Vec<AddressRange>,
 }
 
 impl RunOptions {
     /// Create run options with the supplied trace limit.
     #[must_use]
-    pub const fn new(trace_limit: usize) -> Self {
+    pub fn new(trace_limit: usize) -> Self {
         Self {
             trace_limit,
-            fetch_watch: None,
-            write_watch: None,
+            fetch_watch: Vec::new(),
+            write_watch: Vec::new(),
         }
     }
 }
@@ -2597,7 +2597,8 @@ impl Dragon32 {
                 retain_trace(&mut trace, &mut dropped_trace, trace_limit, fetch);
                 if options
                     .fetch_watch
-                    .is_some_and(|range| range.contains(fetch.pc))
+                    .iter()
+                    .any(|range| range.contains(fetch.pc))
                 {
                     retain_watched_fetch(
                         &mut watched_fetches,
@@ -2616,8 +2617,9 @@ impl Dragon32 {
 
             let watched_write = options
                 .write_watch
-                .filter(|range| !self.cpu.rw && range.contains(self.cpu.addr))
-                .map(|_| {
+                .iter()
+                .any(|range| !self.cpu.rw && range.contains(self.cpu.addr))
+                .then(|| {
                     (
                         last_fetch.map(|fetch| fetch.pc),
                         self.cpu.addr,
@@ -3261,6 +3263,37 @@ mod tests {
                 value: 0x55,
             }
         );
+    }
+
+    #[test]
+    fn machine_records_writes_matching_any_watch_range() {
+        let mut rom = rom_with_reset_vector(0x8000);
+        rom[0x0000] = 0x86; // LDA #$12
+        rom[0x0001] = 0x12;
+        rom[0x0002] = 0xB7; // STA $0020
+        rom[0x0003] = 0x00;
+        rom[0x0004] = 0x20;
+        rom[0x0005] = 0x86; // LDA #$34
+        rom[0x0006] = 0x34;
+        rom[0x0007] = 0xB7; // STA $0040
+        rom[0x0008] = 0x00;
+        rom[0x0009] = 0x40;
+        rom[0x000A] = 0x01;
+
+        let mut machine = Dragon32::new(&rom);
+        let mut options = RunOptions::new(8);
+        options.write_watch = vec![
+            AddressRange::new(0x0020, 0x0020),
+            AddressRange::new(0x0040, 0x0040),
+        ];
+        let report = machine.run_cycles_with_options(128, options);
+
+        assert_eq!(report.stop_reason, StopReason::CpuHalted);
+        assert_eq!(report.watched_writes.len(), 2);
+        assert_eq!(report.watched_writes[0].addr, 0x0020);
+        assert_eq!(report.watched_writes[0].value, 0x12);
+        assert_eq!(report.watched_writes[1].addr, 0x0040);
+        assert_eq!(report.watched_writes[1].value, 0x34);
     }
 
     #[test]

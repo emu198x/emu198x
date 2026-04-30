@@ -56,9 +56,9 @@ Execution:
     --cycles N         maximum MC6809 bus cycles to run [default: 100000]
     --trace-limit N    number of recent instruction fetches to retain [default: 64]
     --watch-fetch A[-B]
-                       retain opcode fetches in inclusive hex/decimal address range A..B
+                       retain opcode fetches in inclusive hex/decimal address range A..B; may be repeated
     --watch-write A[-B]
-                       retain bus writes to inclusive hex/decimal address range A..B
+                       retain bus writes to inclusive hex/decimal address range A..B; may be repeated
     --press KEY        hold a named Dragon key closed; may be repeated
     --press-matrix R,C hold a raw keyboard matrix switch closed; may be repeated
     --dump-ram P       write the current 32 KiB RAM image as raw bytes
@@ -111,8 +111,8 @@ struct Cli {
     snapshot: Option<PathBuf>,
     cycles: u64,
     trace_limit: usize,
-    fetch_watch: Option<AddressRange>,
-    write_watch: Option<AddressRange>,
+    fetch_watch: Vec<AddressRange>,
+    write_watch: Vec<AddressRange>,
     pressed_keys: Vec<MatrixKey>,
     dump_ram: Option<PathBuf>,
     dump_text: bool,
@@ -588,8 +588,8 @@ fn run_main() -> Result<(), String> {
             snapshot: snapshot.as_ref(),
             cycle_limit: cli.cycles,
             trace_limit: cli.trace_limit,
-            fetch_watch: cli.fetch_watch,
-            write_watch: cli.write_watch,
+            fetch_watch: cli.fetch_watch.clone(),
+            write_watch: cli.write_watch.clone(),
             dump_text: cli.dump_text,
             dump_ram: cli.dump_ram.is_some(),
             dump_text_framebuffer: cli.dump_text_png.is_some(),
@@ -640,8 +640,8 @@ where
     let mut snapshot = None;
     let mut cycles = DEFAULT_CYCLES;
     let mut trace_limit = DEFAULT_TRACE_LIMIT;
-    let mut fetch_watch = None;
-    let mut write_watch = None;
+    let mut fetch_watch = Vec::new();
+    let mut write_watch = Vec::new();
     let mut pressed_keys = Vec::new();
     let mut dump_ram = None;
     let mut dump_text = false;
@@ -686,13 +686,13 @@ where
                     parse_usize(&next_value(&mut iter, "--trace-limit")?, "--trace-limit")?;
             }
             "--watch-fetch" => {
-                fetch_watch = Some(parse_address_range(
+                fetch_watch.push(parse_address_range(
                     &next_value(&mut iter, "--watch-fetch")?,
                     "--watch-fetch",
                 )?);
             }
             "--watch-write" => {
-                write_watch = Some(parse_address_range(
+                write_watch.push(parse_address_range(
                     &next_value(&mut iter, "--watch-write")?,
                     "--watch-write",
                 )?);
@@ -1276,8 +1276,8 @@ fn run_snapshot_smoke(
             snapshot: Some(snapshot),
             cycle_limit: smoke.cycle_limit,
             trace_limit: smoke.trace_limit,
-            fetch_watch: None,
-            write_watch: None,
+            fetch_watch: Vec::new(),
+            write_watch: Vec::new(),
             dump_text: true,
             dump_ram: false,
             dump_text_framebuffer: false,
@@ -1446,8 +1446,8 @@ fn xroar_snapshot_reference_trap(
             snapshot: Some(snapshot),
             cycle_limit: target_cycles,
             trace_limit: 0,
-            fetch_watch: None,
-            write_watch: None,
+            fetch_watch: Vec::new(),
+            write_watch: Vec::new(),
             dump_text: false,
             dump_ram: false,
             dump_text_framebuffer: false,
@@ -1465,8 +1465,8 @@ fn xroar_snapshot_reference_trap(
             snapshot: Some(snapshot),
             cycle_limit: target_cycles,
             trace_limit,
-            fetch_watch: Some(AddressRange::new(fetch.pc, fetch.pc)),
-            write_watch: None,
+            fetch_watch: vec![AddressRange::new(fetch.pc, fetch.pc)],
+            write_watch: Vec::new(),
             dump_text: false,
             dump_ram: false,
             dump_text_framebuffer: false,
@@ -3901,14 +3901,14 @@ const fn machine_cartridge_kind(kind: ParsedDragonCartridgeKind) -> DragonCartri
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct HarnessRunOptions<'a> {
     cartridge: Option<&'a DragonPakImage>,
     snapshot: Option<&'a PcDragonSnapshot>,
     cycle_limit: u64,
     trace_limit: usize,
-    fetch_watch: Option<AddressRange>,
-    write_watch: Option<AddressRange>,
+    fetch_watch: Vec<AddressRange>,
+    write_watch: Vec<AddressRange>,
     dump_text: bool,
     dump_ram: bool,
     dump_text_framebuffer: bool,
@@ -4457,8 +4457,8 @@ mod tests {
                 snapshot: None,
                 cycle_limit: 128,
                 trace_limit: 8,
-                fetch_watch: None,
-                write_watch: None,
+                fetch_watch: Vec::new(),
+                write_watch: Vec::new(),
                 dump_text: true,
                 dump_ram: false,
                 dump_text_framebuffer: true,
@@ -4511,8 +4511,8 @@ mod tests {
                 snapshot: None,
                 cycle_limit: 1,
                 trace_limit: 0,
-                fetch_watch: None,
-                write_watch: None,
+                fetch_watch: Vec::new(),
+                write_watch: Vec::new(),
                 dump_text: false,
                 dump_ram: false,
                 dump_text_framebuffer: false,
@@ -4547,8 +4547,8 @@ mod tests {
                 snapshot: None,
                 cycle_limit: 16,
                 trace_limit: 0,
-                fetch_watch: None,
-                write_watch: None,
+                fetch_watch: Vec::new(),
+                write_watch: Vec::new(),
                 dump_text: false,
                 dump_ram: false,
                 dump_text_framebuffer: false,
@@ -4595,8 +4595,8 @@ mod tests {
         assert_eq!(cli.rom, PathBuf::from("dragon32.rom"));
         assert_eq!(cli.cycles, 32);
         assert_eq!(cli.trace_limit, 3);
-        assert_eq!(cli.fetch_watch, None);
-        assert_eq!(cli.write_watch, None);
+        assert!(cli.fetch_watch.is_empty());
+        assert!(cli.write_watch.is_empty());
         assert_eq!(cli.pressed_keys, Vec::new());
         assert_eq!(cli.dump_ram, Some(PathBuf::from("ram.bin")));
         assert!(cli.dump_text);
@@ -4614,8 +4614,29 @@ mod tests {
         ])
         .expect("valid CLI should parse");
 
-        assert_eq!(cli.fetch_watch, Some(AddressRange::new(0x1C00, 0x1C00)));
-        assert_eq!(cli.write_watch, Some(AddressRange::new(0x2C00, 0x2CFF)));
+        assert_eq!(cli.fetch_watch, vec![AddressRange::new(0x1C00, 0x1C00)]);
+        assert_eq!(cli.write_watch, vec![AddressRange::new(0x2C00, 0x2CFF)]);
+    }
+
+    #[test]
+    fn cli_accumulates_repeated_watch_ranges() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--watch-write".to_owned(),
+            "0x88-0x89".to_owned(),
+            "--watch-write".to_owned(),
+            "0x1fed".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(
+            cli.write_watch,
+            vec![
+                AddressRange::new(0x0088, 0x0089),
+                AddressRange::new(0x1FED, 0x1FED)
+            ]
+        );
     }
 
     #[test]

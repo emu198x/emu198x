@@ -81,9 +81,16 @@ future work.
   ROM tape-load traps; PAK smoke converts PC-Dragon snapshots into temporary
   XRoar v1 snapshots, captures patched-XRoar reference PNGs, and records
   pixel-difference summaries.
+- **Trace probes:** `emu198x-script-dragon` can retain bounded opcode-fetch
+  and bus-write traces. `--watch-fetch A[-B]` and `--watch-write A[-B]` may be
+  repeated, which lets investigations correlate state variables, framebuffer
+  writes, and VDG fetch samples in one deterministic run.
 - **XRoar comparison:** the current 12-title application smoke batch is 11/12
   exact against patched XRoar. The remaining non-exact case, Dragon Composer,
   differs by capture/timing phase rather than by a static VDG decode error.
+  PAK snapshot comparisons are currently advisory: the PC-Dragon-to-XRoar
+  snapshot bridge does not yet restore enough CPU/PIA/SAM/event state to be a
+  hard reference after the initial resumed frame.
 
 ## Launch Commands
 
@@ -144,6 +151,19 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --xroar-reference-dir target/dragon-xroar-reference
 ```
 
+Focused trace probe for a running PAK snapshot:
+
+```sh
+cargo run --release -q -p emu198x-script-dragon -- \
+  --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --snapshot game.pak \
+  --cycles 120000 \
+  --watch-write 0x0088-0x0089 \
+  --watch-write 0x1fed \
+  --watch-fetch 0x1fe0-0x1fff \
+  --trace-limit 80
+```
+
 ## Current Gaps
 
 1. Audio now follows the Dragon PIA DAC/mux/single-bit/cassette signal path and
@@ -152,20 +172,26 @@ cargo run --release -q -p emu198x-script-dragon -- \
 2. Joystick hardware now follows the Dragon comparator/DAC behavior, but the
    host input surface still only exposes thresholded gamepad directions rather
    than continuous analogue axis values.
-3. The beam framebuffer is in place, but the display model is still calibrated
+3. PAK-vs-XRoar screenshots currently rely on a synthetic XRoar snapshot import
+   path. That path is useful for broad smoke triage, but it is not yet reliable
+   enough to prove per-pixel renderer bugs in isolation.
+4. The beam framebuffer is in place, but the display model is still calibrated
    to the current 372x243 diagnostic visible area and XRoar zoomed comparison
    bridge. A fuller PAL timing/overscan model can come later.
-4. Dragon 64 memory mode, cartridge audio, `.BIN` convenience loading, and
+5. Dragon 64 memory mode, cartridge audio, `.BIN` convenience loading, and
    DragonDOS/WD2797 disk support are not implemented.
 
 ## Near-Term Plan
 
-1. Validate Dragon audio filtering and audible software behavior against XRoar
+1. Replace the synthetic PAK screenshot oracle with a state-alignment harness:
+   either export complete enough XRoar state or compare deterministic bus/video
+   traces from matched initial machine state.
+2. Validate Dragon audio filtering and audible software behavior against XRoar
    or hardware captures once we have sound-producing CAS fixtures.
-2. Extend the shared input layer with true analogue axis events so Dragon
+3. Extend the shared input layer with true analogue axis events so Dragon
    joysticks can receive continuous gamepad stick positions instead of only
    digital extremes.
-3. Revisit PAL geometry and external video reference captures after the current
+4. Revisit PAL geometry and external video reference captures after the current
    practical usability loop is smoother.
 
 ## Test Coverage
