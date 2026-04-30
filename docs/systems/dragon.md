@@ -181,6 +181,9 @@ cargo run --release -q -p emu198x-script-dragon -- \
 5. Dragon 64 memory mode, cartridge audio, `.BIN` convenience loading, and
    DragonDOS/WD2797 disk support are not implemented.
 
+For the source-backed accuracy audit and implementation sequence, see
+[`dragon-accuracy-audit.md`](dragon-accuracy-audit.md).
+
 ## Near-Term Plan
 
 1. Replace the synthetic PAK screenshot oracle with a state-alignment harness:
