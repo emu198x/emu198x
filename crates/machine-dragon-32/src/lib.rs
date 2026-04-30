@@ -39,9 +39,11 @@ const VDG_VISIBLE_FIRST_LINE: u64 = 13;
 const VDG_HSYNC_TICKS: u64 = 64;
 const VDG_BACK_PORCH_TICKS: u64 = 70;
 const VDG_LEFT_BORDER_TICKS: u64 = 120;
-// XRoar fetches display bytes before the corresponding pixels are emitted;
-// CSS changes therefore trail CPU writes by the back porch plus one byte.
-const VDG_VRAM_FETCH_TO_DISPLAY_TICKS: u64 = VDG_BACK_PORCH_TICKS + 16;
+const VDG_FETCH_FIRST_BYTE_AFTER_HBLANK_TICKS: u64 = 16;
+// XRoar fetches the first display byte at hblank+16 and emits it after the
+// left border, so CPU writes can miss the current frame even before display.
+const VDG_VRAM_FETCH_TO_DISPLAY_TICKS: u64 =
+    VDG_LEFT_BORDER_TICKS - VDG_FETCH_FIRST_BYTE_AFTER_HBLANK_TICKS;
 const VDG_ACTIVE_AREA_START_LINE: u64 =
     VDG_VISIBLE_FIRST_LINE + motorola_vdg_6847::TEXT_TOP_BORDER_LINES as u64;
 const VDG_ACTIVE_AREA_END_LINE: u64 =
@@ -1055,12 +1057,18 @@ pub struct VdgSampleTrace {
     pub cycle: u64,
     /// Master-tick offset within the current visible frame.
     pub frame_master_tick: u64,
+    /// Master-tick offset when this display byte was fetched from RAM.
+    pub fetch_frame_master_tick: u64,
     /// Visible framebuffer line, including top border.
     pub line: usize,
     /// Active-area line, excluding top border.
     pub active_y: usize,
     /// Display byte column sampled on this line.
     pub byte_x: usize,
+    /// Display-memory offset fetched for this byte.
+    pub display_offset: usize,
+    /// Raw display byte latched by the VDG.
+    pub raw: u8,
     /// SAM-selected display base at the sample point.
     pub display_base: u16,
     /// SAM VDG mode latch bits V0..V2 at the sample point.
@@ -1470,6 +1478,10 @@ struct BeamVideo {
     next_active_x: usize,
     next_byte: usize,
     current_byte: Option<ActiveByteRender>,
+    prefetch_line: usize,
+    next_prefetch_x: usize,
+    next_prefetch_byte: usize,
+    prefetched_bytes: [Option<PrefetchedByte>; motorola_vdg_6847::TEXT_COLUMNS],
     control_initialized: bool,
     render_pin_control: VdgControl,
     pending_css_changes: VecDeque<(u64, bool)>,
@@ -1489,6 +1501,10 @@ impl BeamVideo {
             next_active_x: 0,
             next_byte: 0,
             current_byte: None,
+            prefetch_line: 0,
+            next_prefetch_x: 0,
+            next_prefetch_byte: 0,
+            prefetched_bytes: [None; motorola_vdg_6847::TEXT_COLUMNS],
             control_initialized: false,
             render_pin_control: VdgControl::default(),
             pending_css_changes: VecDeque::new(),
@@ -1522,6 +1538,7 @@ impl BeamVideo {
             self.next_active_x = 0;
             self.next_byte = 0;
             self.current_byte = None;
+            self.reset_prefetch_state();
             return tick;
         }
 
@@ -1599,6 +1616,10 @@ impl BeamVideo {
                 continue;
             }
 
+            if active_line(self.next_line) {
+                self.prefetch_until(memory, target_cycle);
+            }
+
             if active_line(self.next_line)
                 && self.next_active_x < motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH
             {
@@ -1657,8 +1678,17 @@ impl BeamVideo {
         let active_y = self
             .next_line
             .saturating_sub(motorola_vdg_6847::TEXT_TOP_BORDER_LINES);
+        self.ensure_prefetch_line();
+        let prefetched = self
+            .prefetched_bytes
+            .get(self.next_byte)
+            .and_then(|prefetched| *prefetched);
         let byte = motorola_vdg_6847::decode_beam_byte(
-            |offset| memory.display_byte(offset),
+            |offset| {
+                prefetched
+                    .filter(|prefetched| prefetched.offset == offset)
+                    .map_or_else(|| memory.display_byte(offset), |prefetched| prefetched.raw)
+            },
             render_control,
             VdgPalette::default(),
             active_y,
@@ -1672,9 +1702,21 @@ impl BeamVideo {
             self.pending_samples.push(VdgSampleTrace {
                 cycle,
                 frame_master_tick: active_pixel_cycle(self.next_line, self.next_active_x),
+                fetch_frame_master_tick: prefetched.map_or(
+                    active_pixel_cycle(self.next_line, self.next_active_x),
+                    |prefetched| prefetched.fetch_cycle,
+                ),
                 line: self.next_line,
                 active_y,
                 byte_x: self.next_byte,
+                display_offset: prefetched.map_or(usize::MAX, |prefetched| prefetched.offset),
+                raw: prefetched.map_or_else(
+                    || {
+                        vdg_byte_fetch_offset(render_control, active_y, self.next_byte)
+                            .map_or(0, |(offset, _)| memory.display_byte(offset))
+                    },
+                    |prefetched| prefetched.raw,
+                ),
                 display_base: memory.text_screen_base(),
                 sam_video_mode: memory.sam.video_mode(),
                 sam_display_offset: memory.sam.display_offset(),
@@ -1694,6 +1736,33 @@ impl BeamVideo {
         });
     }
 
+    fn prefetch_until(&mut self, memory: &DragonMemory, target_cycle: u64) {
+        self.ensure_control_initialized(memory);
+        self.ensure_prefetch_line();
+        let active_y = self
+            .next_line
+            .saturating_sub(motorola_vdg_6847::TEXT_TOP_BORDER_LINES);
+        while self.next_prefetch_byte < motorola_vdg_6847::TEXT_COLUMNS {
+            let Some((offset, width)) =
+                vdg_byte_fetch_offset(self.render_pin_control, active_y, self.next_prefetch_byte)
+            else {
+                break;
+            };
+            let display_cycle = active_pixel_cycle(self.next_line, self.next_prefetch_x);
+            let fetch_cycle = display_cycle.saturating_sub(VDG_VRAM_FETCH_TO_DISPLAY_TICKS);
+            if fetch_cycle >= target_cycle {
+                break;
+            }
+            self.prefetched_bytes[self.next_prefetch_byte] = Some(PrefetchedByte {
+                offset,
+                raw: memory.display_byte(offset),
+                fetch_cycle,
+            });
+            self.next_prefetch_byte += 1;
+            self.next_prefetch_x += width;
+        }
+    }
+
     fn render_byte_range(&mut self, current: ActiveByteRender, start_x: usize, end_x: usize) {
         current.byte.render_range_into(
             &mut self.frame,
@@ -1710,6 +1779,20 @@ impl BeamVideo {
         self.next_active_x = 0;
         self.next_byte = 0;
         self.current_byte = None;
+        self.reset_prefetch_state();
+    }
+
+    fn ensure_prefetch_line(&mut self) {
+        if self.prefetch_line != self.next_line {
+            self.reset_prefetch_state();
+        }
+    }
+
+    fn reset_prefetch_state(&mut self) {
+        self.prefetch_line = self.next_line;
+        self.next_prefetch_x = 0;
+        self.next_prefetch_byte = 0;
+        self.prefetched_bytes.fill(None);
     }
 
     fn ensure_control_initialized(&mut self, memory: &DragonMemory) {
@@ -1753,6 +1836,13 @@ impl ActiveByteRender {
     const fn end_x(self) -> usize {
         self.start_x + self.byte.width()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PrefetchedByte {
+    offset: usize,
+    raw: u8,
+    fetch_cycle: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1848,6 +1938,30 @@ fn active_x_for_target(line: usize, target_cycle: u64) -> usize {
     usize::try_from(active_x).map_or(usize::MAX, |x| {
         x.min(motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH)
     })
+}
+
+fn vdg_byte_fetch_offset(
+    control: VdgControl,
+    active_y: usize,
+    byte_x: usize,
+) -> Option<(usize, usize)> {
+    if !control.graphics {
+        let row = active_y / motorola_vdg_6847::TEXT_CELL_HEIGHT;
+        return (byte_x < motorola_vdg_6847::TEXT_COLUMNS)
+            .then_some((row * motorola_vdg_6847::TEXT_COLUMNS + byte_x, 8));
+    }
+
+    let (row_bytes, byte_width, y_scale) = match control.gm {
+        0 => (16, 16, 3),
+        1 => (16, 16, 3),
+        2 => (32, 8, 3),
+        3 => (16, 16, 2),
+        4 => (32, 8, 2),
+        5 => (16, 16, 1),
+        6 => (32, 8, 1),
+        _ => (32, 8, 1),
+    };
+    (byte_x < row_bytes).then_some((active_y / y_scale * row_bytes + byte_x, byte_width))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -3587,7 +3701,42 @@ mod tests {
         );
         assert_eq!(
             &frame[active_origin + 56..active_origin + 64],
+            [palette.colours[0]; 8]
+        );
+        assert_eq!(
+            &frame[active_origin + 64..active_origin + 72],
             [palette.colours[4]; 8]
+        );
+    }
+
+    #[test]
+    fn beam_renderer_latches_vram_before_pixels_are_displayed() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine.memory.pia1.write(0x02, 0xF8); // PIA1 port B DDR.
+        machine.memory.pia1.write(0x03, 0x04); // PIA1 port B data selected.
+        machine.memory.pia1.write(0x02, 0xE0); // CG6, CSS 0.
+
+        let active_line = TEXT_TOP_BORDER_LINES;
+        let active_start = active_display_start_cycle(active_line);
+        let first_fetch = active_start - VDG_VRAM_FETCH_TO_DISPLAY_TICKS;
+        let base = usize::from(machine.memory.text_screen_base());
+        machine.memory.ram[base] = 0x00;
+
+        machine
+            .video
+            .tick(&machine.memory, first_fetch + 1, Some(0));
+        machine.memory.ram[base] = 0xFF;
+        machine
+            .video
+            .tick(&machine.memory, active_start + 16, Some(1));
+
+        let frame = machine.video.frame();
+        let active_origin = active_line * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
+        let palette = VdgPalette::default();
+        assert_eq!(
+            &frame[active_origin..active_origin + 8],
+            [palette.colours[0]; 8]
         );
     }
 

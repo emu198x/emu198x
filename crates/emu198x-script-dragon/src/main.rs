@@ -1312,10 +1312,10 @@ fn run_snapshot_smoke(
         } else {
             None
         };
-    let xroar_reference_settle_seconds =
-        xroar_snapshot_settle_seconds(report.framebuffer_cycles.unwrap_or(report.cycles));
+    let screenshot_cycles = report.framebuffer_cycles.unwrap_or(report.cycles);
+    let xroar_reference_settle_seconds = xroar_snapshot_settle_seconds(screenshot_cycles);
     let xroar_reference_trap = if smoke.xroar.is_some() && smoke.xroar_stem.is_some() {
-        xroar_snapshot_reference_trap(rom, snapshot, smoke.cycle_limit, smoke.trace_limit, &report)
+        xroar_snapshot_reference_trap(rom, snapshot, screenshot_cycles, smoke.trace_limit)
     } else {
         None
     };
@@ -1360,7 +1360,7 @@ fn run_snapshot_smoke(
         screenshot_cycles: report.framebuffer_cycles,
         screenshot_frame_phase_cycles: report
             .framebuffer_cycles
-            .map(|cycles| cycles % DRAGON_FRAME_CYCLES),
+            .map(|_| report.video_phase.frame_master_tick),
         video_phase: video_phase_summary(report.video_phase),
         xroar_reference_screenshot,
         xroar_reference_settle_seconds: smoke.xroar.map(|_| xroar_reference_settle_seconds),
@@ -1401,7 +1401,7 @@ fn failed_snapshot_smoke(
         screenshot_cycles: report.framebuffer_cycles,
         screenshot_frame_phase_cycles: report
             .framebuffer_cycles
-            .map(|cycles| cycles % DRAGON_FRAME_CYCLES),
+            .map(|_| report.video_phase.frame_master_tick),
         video_phase: video_phase_summary(report.video_phase),
         xroar_reference_screenshot: None,
         xroar_reference_settle_seconds: None,
@@ -1418,18 +1418,35 @@ fn failed_snapshot_smoke(
 fn xroar_snapshot_reference_trap(
     rom: &[u8; ROM_SIZE],
     snapshot: &PcDragonSnapshot,
-    cycle_limit: u64,
+    target_cycles: u64,
     trace_limit: usize,
-    report: &HarnessReport,
 ) -> Option<XroarSnapshotTrap> {
-    let fetch = report.last_fetch?;
+    let probe = run_harness_with_keyboard(
+        rom,
+        DragonKeyboard::new(),
+        HarnessRunOptions {
+            cartridge: None,
+            snapshot: Some(snapshot),
+            cycle_limit: target_cycles,
+            trace_limit: 0,
+            fetch_watch: None,
+            write_watch: None,
+            dump_text: false,
+            dump_ram: false,
+            dump_text_framebuffer: false,
+            capture_framebuffer: false,
+            capture_framebuffer_phase: SmokeScreenshotPhase::Immediate,
+            capture_framebuffer_source: ScreenshotSource::Beam,
+        },
+    );
+    let fetch = probe.last_fetch?;
     let report = run_harness_with_keyboard(
         rom,
         DragonKeyboard::new(),
         HarnessRunOptions {
             cartridge: None,
             snapshot: Some(snapshot),
-            cycle_limit,
+            cycle_limit: target_cycles,
             trace_limit,
             fetch_watch: Some(AddressRange::new(fetch.pc, fetch.pc)),
             write_watch: None,
@@ -2831,8 +2848,10 @@ fn patch_xroar_v2_vdg(bytes: &mut Vec<u8>, snapshot: &PcDragonSnapshot) -> Resul
     const VDG_RENDER_RG: u32 = 2;
     const VDG_TLB: u32 = 120;
     const VDG_TRB: u32 = 112;
+    const VDG_HS_RISING_EDGE_DELTA: u32 = 64;
+    const VDG_LINE_DURATION: u32 = 912;
     const VDG_LEFT_BORDER_START: u32 = 134;
-    const VDG_HS_FALL_DELTA: u32 = 902;
+    const VDG_INITIAL_SCANLINE: u32 = 0;
     const GM_NLPR: [u32; 8] = [3, 3, 3, 2, 2, 1, 1, 1];
 
     let range = xroar_v2_component_range(bytes, b"VDG", Some(b"PIA1"))?;
@@ -2864,10 +2883,11 @@ fn patch_xroar_v2_vdg(bytes: &mut Vec<u8>, snapshot: &PcDragonSnapshot) -> Resul
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 10, css)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 11, css)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 12, css)?;
-    upsert_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 14, VDG_HS_FALL_DELTA)?;
+    upsert_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 14, VDG_LINE_DURATION)?;
+    upsert_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 15, VDG_HS_RISING_EDGE_DELTA)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 16, 0)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 17, VDG_LEFT_BORDER_START)?;
-    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 18, 0)?;
+    patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 18, VDG_INITIAL_SCANLINE)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 21, is_32byte)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 22, gm0)?;
     patch_xroar_v2_vuint_field_in_range(bytes, start, &mut end, 25, fg_colour)?;
@@ -3943,12 +3963,19 @@ fn run_harness_with_keyboard(
 }
 
 fn run_to_completed_video_frame(machine: &mut Dragon32) {
-    let phase = machine.cycles() % DRAGON_FRAME_CYCLES;
-    if phase == 0 {
+    if machine.video_phase().frame_master_tick == 0 {
         return;
     }
-    let remaining = DRAGON_FRAME_CYCLES - phase;
-    let _ = machine.run_cycles(remaining, 0);
+
+    let max_cycles = DRAGON_FRAME_CYCLES.saturating_mul(3);
+    for _ in 0..max_cycles {
+        let previous = machine.video_phase().frame_master_tick;
+        let _ = machine.run_cycles(1, 0);
+        let current = machine.video_phase().frame_master_tick;
+        if current == 0 || current < previous {
+            return;
+        }
+    }
 }
 
 trait IntoHarnessReport {
@@ -4165,12 +4192,15 @@ fn print_report(report: &HarnessReport) {
     println!("vdg samples:");
     for sample in &report.vdg_samples {
         println!(
-            "  cycle={} frame_tick={} line={} active_y={} byte={} base=${:04X} sam_mode=${:02X} sam_offset=${:02X} pb=${:02X} ag={} css={} int_ext={} gm={}",
+            "  cycle={} frame_tick={} fetch_tick={} line={} active_y={} byte={} offset=${:04X} raw=${:02X} base=${:04X} sam_mode=${:02X} sam_offset=${:02X} pb=${:02X} ag={} css={} int_ext={} gm={}",
             sample.cycle,
             sample.frame_master_tick,
+            sample.fetch_frame_master_tick,
             sample.line,
             sample.active_y,
             sample.byte_x,
+            sample.display_offset,
+            sample.raw,
             sample.display_base,
             sample.sam_video_mode,
             sample.sam_display_offset,
@@ -4460,6 +4490,49 @@ mod tests {
         assert_eq!(report.stop_reason, StopReason::CycleLimit);
         assert_eq!(report.cycles, 1);
         assert_eq!(report.framebuffer_cycles, Some(DRAGON_FRAME_CYCLES));
+        assert_eq!(report.video_phase.frame_master_tick, 0);
+    }
+
+    #[test]
+    fn completed_frame_screenshot_phase_uses_actual_video_phase_for_fast_sam_cycles() {
+        let mut rom = rom_with_reset_vector(0x8000);
+        rom[0x0000] = 0x86; // LDA #$00.
+        rom[0x0001] = 0x00;
+        rom[0x0002] = 0xB7; // STA $FFD9: set SAM R1, selecting fast CPU cycles.
+        rom[0x0003] = 0xFF;
+        rom[0x0004] = 0xD9;
+        rom[0x0005] = 0x20; // BRA -2.
+        rom[0x0006] = 0xFE;
+
+        let report = run_harness_with_keyboard(
+            &rom,
+            DragonKeyboard::new(),
+            HarnessRunOptions {
+                cartridge: None,
+                snapshot: None,
+                cycle_limit: 16,
+                trace_limit: 0,
+                fetch_watch: None,
+                write_watch: None,
+                dump_text: false,
+                dump_ram: false,
+                dump_text_framebuffer: false,
+                capture_framebuffer: true,
+                capture_framebuffer_phase: SmokeScreenshotPhase::CompletedFrame,
+                capture_framebuffer_source: ScreenshotSource::Beam,
+            },
+        );
+
+        let framebuffer_cycles = report
+            .framebuffer_cycles
+            .expect("completed-frame capture should report its cycle");
+        assert_eq!(report.stop_reason, StopReason::CycleLimit);
+        assert_eq!(report.video_phase.frame_master_tick, 0);
+        assert_ne!(
+            framebuffer_cycles % DRAGON_FRAME_CYCLES,
+            0,
+            "fast SAM timing must not use nominal slow-cycle frame modulo"
+        );
     }
 
     #[test]
@@ -4846,12 +4919,67 @@ mod tests {
         }
     }
 
+    #[test]
+    fn xroar_v2_vdg_patch_starts_references_at_clean_scanline_phase() {
+        let mut bytes = xroar_v2_component_marker(b"VDG");
+        bytes.extend_from_slice(&xroar_v2_component_marker(b"MC6847"));
+        for tag in [
+            6, 8, 9, 10, 11, 12, 16, 17, 18, 21, 22, 25, 26, 27, 28, 30, 31, 33, 35, 36, 37, 38,
+            39, 40,
+        ] {
+            push_xroar_v2_test_field(&mut bytes, tag, 1);
+        }
+        bytes.push(0);
+        bytes.extend_from_slice(&xroar_v2_component_marker(b"PIA1"));
+        bytes.push(0);
+        bytes.push(0);
+        let snapshot = PcDragonSnapshot {
+            ram: Box::new([]),
+            load_address: 0,
+            registers: format_dragon_pak::PcDragonRegisters {
+                pc: 0,
+                x: 0,
+                y: 0,
+                u: 0,
+                s: 0,
+                dp: 0,
+                b: 0,
+                a: 0,
+                cc: 0,
+            },
+            peripherals: Some(format_dragon_pak::PcDragonPeripherals {
+                ff02: 0,
+                ff03: 0,
+                ff22: 0xec,
+            }),
+            display_base: Some(0x0800),
+        };
+
+        patch_xroar_v2_vdg(&mut bytes, &snapshot).expect("VDG phase should be patchable");
+        let range =
+            xroar_v2_component_range(&bytes, b"VDG", Some(b"PIA1")).expect("VDG should exist");
+        let start = find_bytes_from_until(&bytes, b"MC6847", range.start, range.end)
+            .map(|offset| offset + b"MC6847".len())
+            .expect("MC6847 payload should exist");
+
+        assert_eq!(xroar_v2_test_field(&bytes, start, range.end, 14), Some(912));
+        assert_eq!(xroar_v2_test_field(&bytes, start, range.end, 15), Some(64));
+        assert_eq!(xroar_v2_test_field(&bytes, start, range.end, 16), Some(0));
+        assert_eq!(xroar_v2_test_field(&bytes, start, range.end, 17), Some(134));
+        assert_eq!(xroar_v2_test_field(&bytes, start, range.end, 18), Some(0));
+    }
+
     fn push_xroar_v2_test_field(bytes: &mut Vec<u8>, tag: u32, value: u32) {
         let payload = xroar_v2_vuint(value);
         bytes.extend_from_slice(&xroar_v2_vuint(tag));
         bytes.extend_from_slice(&xroar_v2_vuint(payload.len() as u32));
         bytes.extend_from_slice(&payload);
         bytes.push(0);
+    }
+
+    fn xroar_v2_test_field(bytes: &[u8], start: usize, end: usize, tag: u32) -> Option<u32> {
+        let field = xroar_v2_find_tag_payload(bytes, start, end, tag)?;
+        xroar_v2_read_vuint(bytes, field.payload_start).map(|(value, _)| value)
     }
 
     #[test]
