@@ -1,0 +1,2059 @@
+       MOTOROLA                                                                                    MC6847
+                                                                                              Non-lnterlace
+
+    SEMICONDUCTORS                                                                            MC6847Y
+            3501   ED BLUESTEIN BLVD., AUSTIN. TEXAS 78721                                         Interlace
+
+
+
+
+   MC6847/MC6847Y VIDEO DISPLAY GENERATOR (VDG)
+                                                                                                       MOS
+                                                                                        (N-CHANNEL, SILICON-GATE)
+
+  The video display generator (VDG) provides a means of interfacing
+                                                                                              VIDEO DISPLAY
+the M6800 microprocessor family (or similar products) to a standard col-
+or or black and white NTSC television receiver. Applications of the VDG                            GENERATOR
+include video games,    process control displays, home computers,
+education, communications, and graphics applications.
+   The VDG reads data from memory and produces a video signal which
+will allow the generation of alphanumeric or graphic displays. The
+generated video signal may be modulated to either channel 3 or 4 by
+using the compatible MC1372 (TV chroma and video modulator). This
+                                                                                                                 L SUFFIX
+modulated signal       is   suitable for reception by a standard unmodified
+                                                                                                             CERAMIC PACKAGE
+television receiver.    A typical TV game is shown in Figure 1.                                                  CASE 715
+
+• Compatible with the M6800 Family, the M68000 Family, and Other
+   Microprocessor Families
+
+• Generates Four Different Alphanumeric Display Modes, Two Semi-                                                 P SUFFIX
+   graphic Modes, and Eight Graphic Display Modes                                                            PLASTIC PACKAGE
+                                                                                                                    CASE 711
+• The Alphanumeric Modes Display 32 Characters Per Line by 16 Lines
+   Using Either the Internal ROM or an External Character Generator
+
+• Alphanumeric and Semigraphic Modes May Be Mixed on a Char-
+   acter-by-Character Basis
+                                                                                                                    S SUFFIX
+• Alphanumeric Modes Support Selectable Inverse on a Character-                                               CERDIP PACKAGE
+   by-Character Basis                                                                                               CASE 734
+
+• Internal ROM May Be Mask Programmed with a Custom Pattern
+                                                                                                  PIN ASSIGNMENT
+• Full Graphic Modes Offer 64x64, 128x64, 128x96, 128x192, or
+   256x192 Densities
+                                                                                      VssE    1    •           40 ]DD7
+• Full Graphic Modes Use One of Two 4-Color Sets or One of Two                        DD6[ 2                   39   less
+   2-Color Sets
+                                                                                      DD0[ 3                   38 ]HS
+• Compatible with the MC1372 and MC1373 Modulators Via Y, R-Y                         DD1[ 4                   37 ]FS
+   (4>A),   and B-Y (<£B) Interface
+                                                                                      DD2[ 5                   36 ]RP
+• Compatible with the MC6883 (74LS783) Synchronous-Address Multi-
+                                                                                      DD3[ 6                   35 ]a>g
+   plexer
+                                                                                      DD4     7                34   ]a7s
+• Available in Either an Interlace (NTSC Standard) or Non-interlace
+                                                                                      DD5[ 8                   33 ]CLK
+   Version
+                                                                                      CHB     9                32 ]INV
+
+                                                                                       0B[ 10                  31   ]INT/EXT
+                                                                                       </>A   11               30   ]GM0
+                                                                                       MS     12               29   ]GM1
+                                                                                      DA5[ 13                  28 ]Y
+
+                                                                                      DA6     14               27   ]GM2
+                                                                                      DA7[ 15                  26 ]DA4
+
+                                                                                      DA8[ 16                  25 IdA3
+
+                                                                                      vccl 17                  24   ]DA2
+                                                                                      DA9[ 18                  23 ]DA1
+
+                                                                                     DA10[ 19                  22 ]DA0
+
+                                                                                     DA11     20               2lt]DA12
+
+
+
+                                                                              ©MOTOROLA INC., 1984                         DS9823-R1
+MC6847-MC6847Y
+
+
+                              FIGURE 1 - BLOCK DIAGRAM OF A TV GAME USING THE VDG AND THE MC6809E MPU
+
+                                                                             4X Color
+                                                                             Burst Freq.
+                                                                             14.38 MHz
+                                                                                                                                              -RF Signal
+                                                                                                                                                 to TV
+                                                                             rl°h
+                                              S0-S2                   Synchronous             CLK       •—*> CLK
+                                             MC6883                     Address                                                          M
+           MC6809E                                                                                                                        C
+                                                                       Multiplexer           DAO                DAO
+                MPU                                                                                                                       1
+
+                                                                                                                                          3
+                                            A0-A15             Z0-Z7 WE CAS            RAS    HS                 HS           0B          7
+                                                                                                                              0A          2
+                                                16                /8                                               MC6847 y
+                                                                                                                                       RF
+                                                                 V                                                    Video
+                                                                                                                                       Mod
+                                                                                                                   Display
+                                                                           Dynamic
+                                                                                                                  Generator
+                   D0-D7                              f   >                 RAM
+                                                                            Array
+                                                                   (MCM4027,                             t/> D0-D7
+                                                               MCM4116, MCM6633
+                  A0-A15                                          or MCM6665)
+
+
+
+
+                                                                                                                    Mode
+
+                                                                                                                        '5
+
+
+                  A0-A15
+
+
+
+ Game_             D0-D7
+Paddles                                                               CS
+
+                MC6846
+                 ROM
+            I/O Timer
+
+
+
+
+                         CS   *M
+
+  ELECTRICAL SPECIFICATIONS
+  ABSOLUTE MAXIMUM RATINGS
+                          Characteristics                 Symbol               Value         Unit     This device contains circuitry to protect the in-
+                                                                                                    puts against damage due to high static voltages
+    Supply Voltage                                            vcc          -0.3 to +7.0       V
+                                                                                                    or electric fields; however, it is advised that nor-
+    Input Voltage Any Pin                                     Vin          -0.3 to +7.0       V     mal precautions be taken to avoid application of
+    Operating Temperature                                     TA               to   +70       °c    any voltage higher than maximum rated voltages
+                                                              T stg         -65 to +150             to this high impedance circuit. Reliability of
+    Storage Temperature                                                                       °c
+                                                                                                    operation is enhanced if unused inputs are tied to
+                                                                                                    an appropriate logic voltage (e.g., either V$s or
+
+  THERMAL CHARACTERISTICS                                                                           vcc)-
+
+                          Characteristics                 Symbol               Value         Unit
+
+    Thermal Resistance
+      Ceramic                                                                   50
+                                                              0JA                            °C/W
+      Plastic                                                                   100
+      Cerdip                                                                      60
+
+
+
+
+                              ® MOTOROLA                                    Semiconductor Products Inc.
+MC6847»MC6847Y
+
+
+DC (STATIC) CHARACTERISTICS (V CC = 5.0V ±5%, V S s = 0.0 V, T A = 0°C to 70°C unless otherwise noted)
+                                         Characteristic                                     Symbol      Min          Typ         Max        Unit
+
+  Input High Voltage
+    CLK                                                                                      V| H     Vss + 2.4       -          v Cc        V
+    Other Inputs                                                                                      Vss + 2.0                  vcc
+  Input Low Voltage
+    CLK                                                                                      V|L      Vss-0.3         -        Vss + 0.6     V
+    Other Inputs                                                                                      Vss-0.3                  Vss + 0.8
+  Input Leakage Current, Force 5.25 V on Pin Under Test,
+    V CC = 5.5 V CLK, GM0-GM2, INV, INT/EXT, MS, Vss.                                         "in
+                                                                                                         -            -           2.5       *A
+    DD0-DD7, A/S, A/G
+  Three-State (Off State) Input Current DA0-DA12                                                          -           -
+                                                                                             lOL                                 ±10        *A
+    Force 2.4 V and 0.4 V on Pin Under Test
+  Output High Voltage (CLoad = 30 pF,lLoad= -100/»A                          RP.HS, FS       VOH         2.4          -            -         V
+  Output High Voltage (CLoad = 55 pF,lLoad= -100pA)                           DA0-DA12       VOH         2.4          -            -         V
+  Output Low Voltage (C|_ oac = 30 pF, l|_ oa d = 1.6mA)
+                                 j
+                                                                             RP. HS, FS      vol          -           -        Vss + 0.4     V
+  Output Low Voltage (C|_ oa d = 55 pF, lt_ ad = 1 -6 mAI                     DA0-DA12       vol          -           -        Vss + 0.4     V
+  Output High Current (Sourcing)                                      All Outputs (Except
+                                                                                             'oh        -100          -            -        ma
+    (Vqh = 2.4 V)                                                    0A, 0B, Y, and CHB)
+  Output Low Current (Sinking)                                        All Outputs (Except
+                                                                                                                      -            -
+                                                                                             >OL         1.6                                mA
+    (Vql = 0.4V)                                                     <#>A>B,Y,andCHB)
+  Input Capacitance (Vj n = 0, Ta = 25°C, f = 1 .0 MHz)                        All Inputs     Qn          -           -           7.5       PF
+  Internal   Power Dissipation (Measured at Ta =          to 70°C)                           Pint         -           -           600       mW
+  Chroma <>A Voltage (Figure 3)                                                              V| H        1.8         2.0          2.2
+    (C Loa d = 20 pF, RLoad= 100 kQ)                                                         vR         1.34          1.5        1.66        V
+    (Notel)                                                                                  vol         0.8          1.0         1.2
+
+  Chroma <t>B Voltage (Figure 3)                                                             V|H         1.8         2.0          2.2
+    (C Lo ad = 20 pF, R Load =100 kQ)                                                         vr        1.34          1.5        1.66
+                                                                                                                                             V
+    (Note 1)                                                                                 vol        0.80          1.0         1.2
+                                                                                            V Burst      1.07        1.25         1.43
+
+  Luminance Y Voltage (Figure 3)
+    (C Load = 20 pF, R Load =100 kQ)
+    (Voltage Synchronization)                                                                 vs         0.9          1.0         1.1
+
+    (Voltage Blank)                                                                         v Blank     0.63         0.77         0.9
+                                                                                                                                             V
+    (Voltage Black)                                                                         v Black     0.58         0.72        0.83
+    IVoltage White Low)                                                                      V WL       0.51         0.65        0.75
+    (Voltage White Medium)                                                                   V WM       0.40         0.54        0.65
+    (Voltage White High) (Note 1)                                                            V WH       0.27         0.42        0.53
+
+  Chroma Bias Voltage (C(_ oaC = 20 pF, RLoad= 100 kQ
+                                     j                         '                              Vr      0.27 V C C   0.3 V C C   0.33 V C C    V
+  Resistor    % of Vss Tracking (Analog Outputs Linearity Error)                              Rt          —           1.0         3.0        %
+ NOTE 1: The specified minimum and maximum number reflect performance of the VDG of the specified temperature range. Overlapping vol-
+             tage levels will not occur. Refer to Figure 2.
+
+
+
+
+                            ® MOTOROLA                                       Semiconductor Products Inc.
+MC6847»MC6847Y
+
+
+                                                   POWER CONSIDERATIONS
+   The average chip-junction temperature, Tj, in °C can be obtained from:
+        Tj = Ta+<Pd«0JA>                                                                                                      (1)
+
+          Where:
+                 Ta = Ambient Temperature, °C
+                 6j/\= Package Thermal Resistance, Junction-to-Ambient, °C/W
+                PD=P|NT+PP0RT
+                p INT s 'CC x VCC. Watts - Chip Internal Power
+                PpORT s Port Power Dissipation, Watts — User Determined
+   For most applications PpoRT^ p INT ar| d can be neglected. PpoRT may become significant              if   the device is configured to
+ drive Darlington bases or sink   LED loads.
+   An approximate relationship between Prj and Tj (if PpoRT is neglected) is:
+       P D =K>(Tj + 273°C)                                                                                                    (2)
+
+   Solving equations 1 and 2 for K gives:
+        K=Pd»(TA + 273°C) + 0JA»PD 2                                                                                     (3)
+
+   Where K is a constant pertaining to the particular part. K can be determined from equation 3 by measuring Pq (at equilibrium)
+ for a known Ta- Using this value of K the values of Pp and Tj can be obtained by solving equations (1) and (2) iteratively f or any
+ value of Ta-
+
+
+
+
+                                     FIGURE 2 - PSEUDO ANALOG LUMINANCE RESISTOR CHAIN
+
+                                                      + 5V     v Sync
+
+
+
+
+                             NOTE: The chrominance output chain Is similar in design to the luminance chain.
+
+
+
+
+                         AA)      MOTOROLA Semiconductor Products                                               Inc.
+MC684VMC6847Y
+
+ AC (DYNAMIC) CHARACTERISTICS (V CC = 5.0 V ±5%, T A = 0°C to 70°C) (Load Circuit of Figure 3)
+                                            Characteristic                                              Symbol         Min      Max      Unit   Figure
+
+  CLK (Frequency (3.579545 Color Burst Frequency)                                                            f       3.579535 3.597555   MHz      4
+  CLK Duty Cycle                                                                                        CLK^c           45       55       %       4
+  Clock Rise Time                                                                                       *CLKr
+                                                                                                                        -        50       ns      4
+  Clock Fall Time                                                                                       tCLKf           -        50       ns      4
+  Clock Pulse Width                                                                                     PWCLK          120      160       ns      4
+  Horizontal Display Address Delay from Counter                                        DA0-DA3       tHDAD              -       490       ns    4,5,6
+                                                                                                 DA4 *HDA4D             -       550       ns     5,6
+  Horizontal Display Address Hold Time                                                               tHDAH                       -
+                                                                                                                                          ns    4,5,6
+                                                                                              1HDA4H                             -
+  Display Data Setup Time                                     CSS, INV, A/S, INT/EXT, DD0-DD7  tDDS                     70       -        ns    4,5,6
+  Display Data Hold Time                                      CSS, INV, A/S, INT/EXT, DD0-DD7  'DDH                    140       -        ns    4,5,6
+  Horizontal Sync (RS) Delay                                                                     Fall   tDHSf           -       550
+                                                                                                                                          ns      7
+                                                                                                 Rise   tDHSr           -       740
+  Row Preset (RP) Delay                                                                          Fall   tDRPf           -       660
+                                                                                                                                          ns      7
+                                                                                                 Rise   tDRDr           -       540
+  Vertical Display Address Delay from Counter                                         DA5-DA1           A/DAD           -       6.0       ^s      7
+  Vertical Display Address Hold Time                                                                    tVDAH           -       220       ns      7
+
+  Field Sync (FS) Delay                                                                          Fall   tDFSf           -       520
+                                                                                                                                          ns      8
+                                                                                                 Rise   *DFSr
+                                                                                                                        -       600
+  Memory Select Low to Display Address High-Impedance                                                   tDMST           -        80       ns      9
+  Memory Select High to Display Address Valid                                                           tDMSV           -       400       ns      9
+  Chroma Rise and Fall Times
+    (0A Rise Time)                                                                                      VC0A                    100
+                                                                                                         l
+                                                                                                             r*A                100
+    («A Fall Time)                                                                                      tfC<*>A                 100
+                                                                                                         M<t>A          -       100       ns      12
+    (<£B Rise Time)                                                                                     VC«B                    100
+                                                                                                         V^B                    100
+    (4>B Fall Time)                                                                                     tfC^B                   100
+                                                                                                         %B                     100
+
+  Color Burst Rise Time on <t>B Output                                                                   tCBr           -       100       ns      12
+  Color Burst Fall Time on 0B Output                                                                     tCBf           -       100       ns      12
+
+  Chroma Phase Delay (Measured with Respect to "Y" Output)
+    4>A                                                                                                  tYA           -50      140       ns      11
+
+    <j>B                                                                                                 *YB           -50      140
+  Luminance Rise Time                                                                                        try
+                                                                                                                        -       100       ns      12
+
+  Luminance Fall Time                                                                                        tfy
+                                                                                                                        -        100      ns      12
+  Horizontal Sync Rise Time on Y Output                                                                      tHr
+                                                                                                                        -        100      ns      12
+
+  Horizontal Sync Fall Time on Y Output                                                                      tHf        -        100      ns      12
+  Horizontal Blanking Rise Time on Y Output                                                              tHBr           -        100      ns      12
+  Horizontal Blanking Fall Time on Y Output                                                              l   HBf
+                                                                                                                        -        100      ns      12
+  Front Porch Duaration Time (7x1/f)                                                                         tFP        1.8      2.4      MS      12
+   Back Porch Duration Time (17. 5x 1/f)                                                                 tBP            4.5      5.1      Ms      12
+  Left Border Duration Time (29.5 x 1/f)                                                                     tLB        7.5      8.3      /.S     12
+  Right Border Duration Time (28 x 1/f)                                                                  tRB            7.5      8.3      us      12
+  Color Burst Duration Time (10. 5x 1/f)                                                                 tCB            2.7      3.2      MS      12
+
+
+                                                            FIGURE 3 - TEST LOADS
+
+
+                 A0-A12, FS, RP, HS                                           <t>A, <j>&,   Y,   CHB
+                                           MMD6150
+                                           or Equiv.
+                      Test
+                      Point •<
+                                 24 k      »:  30pFw
+                                                       11
+                                                             MMD7000
+                                                             or Equiv.
+                                                                                                                   y ^ 100 k
+
+
+
+
+                          ® MOTOROLA                                     Semiconductor Products Inc.
+MC6847-MC6847Y
+
+
+                                       FIGURE 4 - CLOCK AND LONG CYCLE HORIZONTAL ACCESS TIMING
+
+
+
+
+ DD0-DD7, CSS
+
+
+
+
+ NOTES:
+   1. The VDG may power-up using either the rising or falling edge of the clock (dotted line).
+
+   2. Transitions of DA4-DA12 occur outside the display area. DA0-DA3 access the 16 bytes of data displayed during each scan line in the dis-
+
+        play area.                                                                _
+   3.   Long cycle timing applies to CG1, RG1, RG2, and RG3 modes (see Table 3). A/G is high; AS, INT/ EXT, and INV input levels do not affect
+        the VDG in long cycle modes.
+  4.    Usable RAM access time for the long cycle may be calculated using the following equation:
+                                                         -t
+             tRACL = 8 , 1/fmax-tHDAD rn ax -, DDS min        CLKr
+         address and data buffers are used, the access time must be adjusted accordingly.
+        If
+
+   5. All timing is measured to and from a low voltage of 0.8 volts and a high voltage of 2.0 volts unless otherwise specified.
+
+
+
+
+                                            FIGURE 5 - SHORT CYCLE HORIZONTAL ACCESS TIMING
+
+
+
+
+                               DD0-DD7     _
+                               CSS A/G, A/S,
+                                   ,
+
+
+
+                               INT/EXT
+
+
+ NOTES:
+   1. The VDG may power-up using either the rising or falling edge of the clock as shown in Figure 4.
+
+   2. Transitions of DA5-DA12 occur outside the display area. DA0-DA4 access the 32 bytes of data displayed during each scan line in the dis-
+
+        play area.
+   3.   Short cycle timing applies to the four alphanumeric modes, two semigraphic modes, andtotheCG2, CG3, CG6, RG6 modes (see Table 3).
+        For the four graphic modes, A/G is high and the A/S, NT/ EXT, and INV input levels do not affect the VDG.
+                                                                     I
+
+
+
+
+   4.   Usable RAM access time for the short cycle may be calculated using the following equation:
+          tRACS = 4,1 / f max-tHDA4D      - t DDS    - t CLKr
+                                         rnax       min
+         address and data buffers are used, the access time must be adjusted accordingly.
+        If
+
+   5. All timing is measured to and from a low voltage of 0.8 volts and a high voltage of 2.0 volts unless otherwise specified.
+
+
+
+
+                            ® MOTOROLA                                   Semiconductor Products Inc.
+            H ii
+            I:   X                           io(
+
+
+
+
+            x «
+                          —I-l-o;
+                            -
+                          —   '   15 !
+
+
+
+
+                                         i
+
+
+
+
+                                                                    CD
+
+
+
+CD
+Z
+                                             ^
+                                                                    r-
+                                                                    <
+                                                                    N
+o                                                                   z
+X                                                                   o
+Q                                                                   OC
+                                                                    X
+< »c
+5                                                                   CJ
+                                                                    z
+      ->
+0-
+~ } **~
+                                                                    >
+                                                                    CO
+K °O)
+1X1
+CO    c
+
+<     0)
+                 H                                                  o
+Q Q3                                                                CC
+9 E                                          i*5l                   o
+                                                                    X
+< u.                                                                Q
+> c                                                                 z
+Q 5                                                                 <
+                                                                    r-
+                                                                    UJ
+«c/5                                                                CO
+CO    M                                                             111
+CO    Q.                                                            oc
+UJ    £
+CC    CO                 Tf                                         a.
+
+
+
+<                                                                   O
+      .to                                                           tr
+
+<«                                                                  co~
+                                                                    CO
+r-
+Z c                                                                 UJ
+O                                                                   oc
+                                                                    a
+tr    C                                                             Q
+o                                                                   <
+x                                                                   <
+ I
+                                                                    O
+CO                                                                  r-
+                                                                    CC
+Ol                                                                  UJ
+OC
+D                                                                   >
+CD                                                                    I
+
+
+
+
+                                                                    UJ
+                                                                    DC
+                                                                    =)
+                                                                    CD
+
+
+
+
+                                                             <?R
+
+
+
+
+                                                             If
+
+            5K       i
+
+
+
+
+                                                             II
+                         ±s                                  c .c
+                                                             O CO
+
+
+
+
+                                                    CO   O
+                                                    (J   C
+
+
+
+
+                              MOTOROLA Semiconductor Products             Inc.
+MC6847-MC6847Y
+
+
+
+
+                                                    FIGURE 8 - FIELD SYNC (FS) TIMING
+
+
+
+
+           CLK
+
+
+
+           FS
+
+
+
+
+                                                                           Note 2
+
+           NOTES:
+              1.      t\A/FS = 32-tpHST= 32. (277.5- 1/f)
+              2.      tp FS = 262.tpHST = 262-(227.5.1/f) for MC6847
+                      tpFS = 262.5-tpHST = 262.5.(227.5.1/f) for MC6847Y
+
+
+
+
+                                                 FIGURE 9 - MEMORY SELECT (MS) TIMING
+
+
+
+
+         MS
+        Note 1                                                                  J
+                                                                                    tDMSV
+                                              rtQMST-i                              <   >
+     MA0-MA12          Valid Address   Y   Valid Address                                    Valid Address   X
+                                                                                                            xs
+                                                                                                              Valid Address
+
+
+
+
+           NOTES:
+                 1.   MS is asserted asynchronously with respect to CLK.
+
+
+
+
+                          AA)      MOTOROLA Semiconductor Products                                     Inc.
+                           FIGURE 10 - VIDEO AND CHROMINANCE OUTPUT WAVEFORM RELATIONSHIPS
+
+
+
+
+       Sync
+      Blank
+
+
+
+
+NOTES:
+ 1.t H CD = 3.5.1/f
+ 2.   tAV=128.1/f
+ 3-   tAVB = 185.5. 1/f
+ 4. Refer to Figure 7
+
+ 5tHBNK = 42.1/f
+
+
+
+                                                   FIGURE 11 - CHROMA PHASE DELAY
+
+
+
+
+                                                          *YA-
+
+                                         4>A   .                   s
+                                         </>B.                   s
+                                                                      tYB
+
+
+
+
+                          AA)   MOTOROLA Semiconductor Products                         Inc.
+MC6847-MC6847Y
+
+
+
+
+                                        FIGURE 12 - TIMING DIAGRAMS
+                       VIDEO RISE AND FALL TIMES (Illustrates Beginning of One Horizontal Line)
+
+
+
+
+ »sync
+
+
+
+
+ V|H
+
+
+
+ VR                                                                                               -   -90%
+                                                                                                                        Ar-
+ v Burst
+ VOL
+
+
+
+
+                                                                                                             T   f«A
+
+
+                                                                                                                       tfC<2>A
+
+
+
+
+                                                         tfC*A
+ Vr
+           4>A
+
+
+
+
+ vol
+
+
+
+
+                 AA)    MOTOROLA Semiconductor Products 10
+                                                                                                  Inc.
+MC6847-MC6847Y
+
+
+                                                 FIGURE 13 - DISPLAY AREA TIMING
+
+
+
+                                            Vertical Blanking .13 H Lines
+
+
+                                                Top Border 25 H Lines
+
+
+
+
+                                           Active Display Area 192 H Lines
+                                                                                                                               o
+                                                                                                                               z
+                                                                                                                S     5!   5
+
+
+
+
+                                                                   Falling   Edge of FS*
+
+
+
+
+                                              Bottom Border 26 H Lines
+
+
+
+                                              Vertical Retrace 6 H Lines
+
+
+
+                                                           •   tAV
+
+                                                       •       *AVB
+
+                                                               tHST -
+
+
+        *Typically 2.4 /»s after start of vertical blank.
+
+
+
+                                       FIGURE 14 - TYPICAL FORMAT OF THE TELEVISION SCREEN
+                                                                             BORDER
+                                      -(Black in all alpha/semigraphic modes. Green or buff (off-white)
+                                                  n all graphic modes. Controlled by the VDG.)
+
+
+
+
+                                                                              256 Dots
+
+
+
+                                                                             DISPLAY AREA
+                                                                        (49,152 dots, all under VDG
+                                                                       control in all modes. Each
+                                                                      one of up to 8 colors when on
+                                                                          depending on mode.)
+
+
+
+
+                                      *One on each non-interlaced line; for interlace, the lines of the odd
+                                       field are copied into the even field thus doubling the number of dis-
+
+                                       played dots.
+
+
+
+
+                                MOTOROLA Semiconductor Products               11
+                                                                                                               Inc.
+MC6847»MC6847Y
+
+
+VIDEO DISPLAY GENERATOR DESCRIPTION                                                                        change during the active display area. A4 changes during the
+                                                                                                           active display area in the alphanumerics, semigraphics, CG2,
+  The MC6847/MC6847Y video display generators provide a                                                    CG3, CG6, and RG6 modes. A5-A12 do not toggle within the
+simple interface for display of digital information on a color                                             active display area but instead, ripple through the address
+monitor      or   standard       color/ black      and        white    television                          during border and blanking time.
+receiver.
+  Television transmissions in North and South America and                                                  DATA INPUTS (DD0-DD7)
+Japan conform to the National Television System Commit-                                                      Eight TTL compatible data lines are used to input data
+tee (NTSC) standards. This system is based on a field repeti-                                              from RAM to be processed by the VDG. The data is then in-
+tion rate of 60 fields per second. There are 525 interlaced                                                terpreted and transformed into luminance (Y) and chroma
+lines per frame or one-half this number per field.                                                         outputs (0A and <t>B).
+   The MC6847 scans one field of 262 lines 60 times per sec-
+ond. The      MC6847 non-interlace VDG is recommended for                                                     POWER INPUTS - Vqc requires +5 volts +5%. Vss
+use   in   systems  TV games and personal computers)
+                       (i.e.,                                                                              requires zero volts and is normally ground. The tolerance and
+where absolute NTSC compatibility is not required. NTSC                     If
+                                                                                                           current requirements of the VDG are specified in the Elec-
+compatibility     is   required, perhaps for caption overlays on                                           trical       Characteristics.
+broad-case signals, then the               MC6847Y interlace VDG                        is
+
+recommended.                                                                                                 VIDEO OUTPUTS (<t>A, 4>B, Y, CHB) - These four analog
+                                                                                                           outputs are used to transfer luminance and color information
+                                    NOTE                                                                   to a standard NTSC color television receiver, either via the
+   A system with the MC6847 VDG and the MC1372                                                             MC1372 RF modulator or via drivers directly into Y, 4>A, <$>B
+   video modulator forms a transmitter, transmitting at                                                    television video inputs (see Figures 10, 11, and 12).
+   61 .2 MHz (channel 3) or 67.25 MHz (channel 4) depen-
+   ding on component values chosen. This being a Class                             I                         Luminance (Y) — This six level analog output contains
+   TV      device,     care must be taken to meet                     FCC        re-                       composite sync, blanking and four levels of video luminance.
+   quirements Part 15, Subpart H. However, if the com-
+   posite video output from the MC1372 were to drive the                                                         <j>A   — This three level analog output is used in combina-
+   television directly. Section 15.7 of the FCC specifica-                                                 tion with <t>B and Y outputs to specify one of eight colors.
+   tion must be adhered to.
+                                                                                                                 <t>B   — This four level output is used in combination with
+                                                                                                           <j>A and   Y outputs to specify one of eight colors. Additional-
+                       SIGNAL DESCRIPTION                                                                  ly,    one analog level is used to specify the time of the color
+                                                                                                           burst reference signal.
+DISPLAY ADDRESS OUTPUT LINES (DA0-DA12)
+  Thirteen address lines are used by the VDG to scan the
+display memory as shown in Figures 4-7. The starting ad-                                                         Chroma Bias (CHB) - This pin is an analog output and
+dress of the display memory is located at the upper left cor-                                              provides a          DC reference corresponding to the quiescent
+ner of the display screen. As the television sweeps from the                                               value of 4>A and <t>B. CHB is used to guarantee good thermal
+left to right and top to bottom, the VDG increments the                                                    tracking and minimize the variation between the MC1372and
+RAM display address. The timing for two accesses starting                                                   MC6847. This pin, when pulled low, resets certain registers
+at the beginning of the line is shown in Figure 6. These lines                                             within the chip. In a user's system, this pin should not nor-
+are TTL compatible and may be forced into a high-                                                          mally be used as an input. It is used mainly to enhance test
+impedance state whenever MS (pin 12) goes low. A0-A3                                                        capabilities within the factory.
+
+
+
+
+                                               FIGURE 15 - COLOR COMPOSITE VIDEO TO COLOR MONITOR
+                                                                                                      <J   +5V
+                                           : 360                                         560
+                                                                                   Adjust for
+                                                   1N3064
+                                                                                   dc Output
+                                     14                  13
+
+
+
+                                                                       12                    4.3 V,
+                                             = 0.4 mA ppTyp                                                2N4403
+
+                                    MC1372                                                                                     2N4401
+                                                                                                                                                      Color
+                                                                                                                                        750
+                                                                                                                                        - Wf-       Composite
+                                                                                                           3.3 k
+                                                                                                                                                      Video
+                                                                                                                               470   = 2 0V-
+
+                                                                                                                                                *      Out
+                                      10
+                                           tSI
+                                            750
+                                                               8
+                                                               Adjust for
+                                                               ac Output
+                                                                                       3.9 k*
+                                                                                                                              *3.9 kG is MC1372 effective load,
+                                                                                                                              pin 12 voltage doesn't move and is virtual ground.
+                                Ratio: Color to Video Trim
+
+
+
+
+                                 AA)         MOTOROLA Semiconductor Products                    12
+                                                                                                                                                      Inc.
+MC6847-MC6847Y
+
+
+ SYNCHRONIZING INPUTS (MS, CLK)                                                HORIZONTAL SYNC (HS) - The HS pulse coincides
+   THREE-STATE CONTROL - (MS) is a TTL compatible                            with the horizontal synchronization pulse furnished to the
+ input which, when low, forces the VDG address lines into a                  television receiver by the VDG (see Figure 7). The high-to-
+
+ high-impedance state, as shown in Figure 9. This may be                     low transition of the HS output coincides with the leading
+ done to allow other devices (such as an MPU) to address the                 edge of the horizontal synchronization pulse and the low-to-
+ display memory (RAM).                                                       high transition coincides with the trailing edge.
+
+
+    CLOCK (CLK) - The VDG clock input (CLK) requires a                         ROW PRESET (RP) -               If   desired, an external character
+
+ 3.579545 MHz (standard color burst) TV crystal frequency                    generator ROM may be used with the VDG. However, an ex-
+ square wave. The duty cycle of this clock must be between                   ternal four bit counter must be added to supply row ad-
+
+ 45 and 55% since it controls the width of alternate dots on                 dresses.    The counter is clocked by the HS            signal   and is
+ the television screen. The MC1372 RF modulator may be                       cleared by the RP signal. RP pulses occur in all alphanumeric
+ used to supply the 3.579545 MHz clock and has provisions                    and semigraphics modes; no pulses are output in the full
+ for a duty cycle adjustment. The VDG will power-up using                    graphic modes. R_P_ occurs after the first valid 12 lines.
+ either the rising or falling edge of the clock. The dotted line             Therefore, use an FS clocked preloadable counter such as a
+ on the CLK signal in Figure 4 indicates this characteristic of              74LS161 as shown in Figures 7, 14, and 23.
+ latching in data on either clock edge.
+                                                                             MODE CONTROL LINES INPUT (A/G, A/S, INT/EXT,
+ SYNCHRONIZING OUTPUTS (FS, HS, RP)                                          GMO, GM1, GM2, CSS, INV)
+   Three TTL compatible outputs provide circuits, exterior to                  Eight TTL compatible inputs are used to control the
+ the VDG, with timing references to the following internal                   operating mode of the VDG. A/S INT/EXT, CSS, and INV
+ VDG states:                                                                 may be changed on a character-by-character basis. The CSS
+                                                                             pin is used to select between two possible alphanumeric col-
+
+   FIELD SYNC (FS) - The high-to-low transition of the FS                    ors when the VDG is in the alphanumeric mode and between
+ output coincides with the end of active display area (see                   two color sets when the VDG is in the Semigraphics 6 or full
+ Figure 8). During this time interval, an MPU may have total                 graphic modes. Table 1 illustrates the various modes that can
+ access to the display RAM without causing undesired flicker                 be obtained using the mode control lines. There are two dif-
+ on the screen. The low-to-high transition of FS coincides                   ferent types of  memory access concerning these modes,
+ with the trailing edge of the vertical synchronization pulse.               they are a short and a long access cycle, which differ by a
+
+
+
+
+                           FIGURE 16 - EXTERNAL CHARACTER GENERATOR ROW COUNTER FOR MC6847
+
+
+
+
+                                                                              +5 V       >
+
+
+
+
+                                                                                         ±
+                                                                        3            4            5        6
+
+                                                                   PO           P1           F'2      P3
+                                                                                                                       16
+                                     1                                                                         vCc
+                    RP                    MR
+                                                                                                                        7
+                                                                                                               CEP
+                                     9                                                                                 10
+         From        FS                   PE                                74LS161                            CET
+        MC6847
+                                     2
+                                                                                                               GND
+                     HS                   CP      v                                                                     8
+                                                                                                                              _L
+                                                                   QO           Q1           Q2       C3
+
+                                                                                                  "
+                                                                   II"           r           -
+                                                                                                       I"
+
+                                                                                 Row Address
+                                                                             (Zero Through Eleven)
+
+
+
+
+                          rKj     MOTOROLA Semiconductor Products  13
+                                                                                                                       Inc.
+MC6847»MC6847Y
+
+                                                                TABLE 1 - MODE CONTROL LINES (INPUTS)
+
+                         A/G   A/S            INT/ EXT    INV    GM2 GM1 GMO                 Alpha/Graphic Mode Select              # of Colors
+
+                                                                  X     X       X    Internal Alphanumerics
+                                                           1      X     X       X    Internal Alphanumerics Inverted
+                                                                                                                                        2
+                                                 1                X     X       X    External Alphanumerics
+                                                 1         1      X     X       X    External Alphanumerics Inverted
+
+                                    1                     X       X     X       X    Semigraphics 4 (SG4)                               8
+                                    1            1        X       X     X       X    Semigraphics 6 (SG6)                               8
+                                    X            X        X                          64x64 Color Graphics One (CG1)                     4
+                                    X            X        X                     1    128x64 Resolution Graphics One (RG1)               2
+                                    X            X        X             1            128x64 Color Graphics Two (CG2)                    4
+                                    X            X        X             1       1    128x96 Resolution Graphics Two (RG2)               2
+                                    X            X        X       1                  128x96 Color Graphics Three (CG3)                  4
+                                    X            X        X       1             1    128 x 192 Resolution Graphics Three (RG3)          2
+                                    X            X        X       1     1            128 x 192 Color Graphics Six (CG6)                 4
+                                    X            X        X       1     1       1    256 x 192 Resolution Graphics Six (RG6)            2
+
+
+
+
+shift of one full        3.58 MHz cycle. One of the differences be-                          of every horizontal blanking period. This color burst is sup-
+tween these access times, in the short access time frame, is                                 pressed during vertical sync and equalizing intervals. Color
+a shift of one full 3.58 MHz cycle from the corresponding                                    burst is also suppressed in the most dense two color graphic
+normal long access time frame, as shown in Figure 6. The                                     modes. This leads to some interesting rainbow effects on the
+modes using short access times read memory twice as often                                    display which is frequency and pattern dependent.        The ver-
+as the long access modes.                                                                    tical timing for the   VDG is given in Figure 18. Vertical retrace
+                                                                                             is   initiated   by the luminance signal being brought to the
+                                                                                             blanking level. The vertical blanking period begins with three
+                     OPERATION OF THE VDG                                                    lines of equalizing pulses followed by three lines of serrated
+                                                                                             vertical sync pulses followedby three more lines of equaliz-
+  A simplified block diagram of the VDG is shown in Figure                                   ing pulses.The remaining vertical blanking period contains
+17a and a detailed block diagram is shown in Figure 17b.                                     the normal horizontal sync pulses. The equalizing and serra-
+  The externally generated 3.58 MHz color burst clock drives                                 tion pulses are at half line frequency. Notice the difference in
+the   VDG.        Referring to Figures 11 and 12, note that the                              spacing between the last horizontal sync pulse and the first
+horizontal screen span from blanking to blanking                        is   193.1           equalizing pulse in even and odd fields. It is the half line dif-
+clock periods ( » 53.95 its)            .   The display window is offset from                ference between fields that produces the interlaced picture in
+the left-hand edge by 283 periods and lasts for 128 periods                                  a frame. Vertical timing between fields for the non-interlaced
+(35.75 jts)Of the 242 lines on the vertical screen from blank-
+              .                                                                              VDG, on the other hand, is identical. The equalizing and ser-
+ing to blanking, 192 lines are used for the display. The                                     ration pulses are, however, at the horizontal frequency.
+display window is offset from the top by 25 lines. Under the                                      The 3.58 MHz color frequency is also used to clock the
+constraint of the master clock, the smallest display element                                 video shift register load counter. This counter and the video
+possible for the VDG           is    half period of the 3.58          MHz clock              shift clock inhibit circuitry derive the dot-clock for the output
+wide by one scan line high. All other display elements are                                   of the video shift registers and the load signals for the video
+multiples of this basic size.                                                                shift registers' input latches.   The vertical and horizontal ad-
+                                                                                             dress counters generate the addresses for the external
+DISPLAY MEMORY ADDRESS DRIVERS                                                               display memory.
+
+  The address drivers normally drive the video refresh ad-
+dress   into       the    display           memory   so   characters    may be               INTERNAL CHARACTER GENERATOR ROM
+displayed on the CRT. When the memory select pin (MS) is                                       Since many uses of the VDG will involve the display of
+pulled low by an external decoder, the driver outputs go to a                                alphanumeric data, a character-generator ROM is included
+high-impedance state so external three-state drivers may                                     on the chip. This ROM will generate 64 standard 5x7 dot
+switch the MPU produced address onto the display memory                                      matrix characters from standard 6-bit ASCII input. A stan-
+address bus; the MPU may directly manipulate data in the                                     dard character set is included in the MC6847 although the
+display memory.                                                                              ROM is custom programmable.
+VIDEO TIMING AND CONTROL                                                                     INTERNAL/EXTERNAL CHARACTER GENERATOR
+  This subsystem of the VDG includes the mode decoding,                                      MULTIPLEXER
+timing generation, and associated                    row counter logic, and                       The internal/external multiplexer allows the use of either
+uses the 3.58 MHz color frequency to generate horizontal                                     the internal      ROM or an external character generator. This
+and vertical timing information (via linear shift register                                   multiplexer      may be switched on a character-by-character
+counters), which the video and chroma encoder uses to                                        basis to allow mixed internal and external characters on the
+generate color video information. The horizontal timing for                                  CRT. The external character may be any desired dot-pattern
+the VDG is summarized in Figure 7. Ten and one-half cycles                                   in   the standard     8x12 one-character display matrix, thus
+of the 3.58       MHz subcarrier are transmitted on the back porch                           allowing the maximum 256 x 192 screen density.
+
+
+
+
+                               rK)               MOTORGLA Semiconductor               14
+                                                                                                                    Products Inc.
+MC6847-MC6847Y
+
+
+                                                   FIGURE 17a - SIMPLIFIED VDG BLOCK DIAGRAM
+                                                                                                      MPU Address Bus       MPU Data Bus
+
+
+                          +5      OV                                              <3
+                                                                                                             BUF
+
+
+
+                          VDD v SS                                        MS
+                                                                                                             /',
+                                          VDG                                                                  13
+                           FS                                                                                                   Refresh
+                 9"*-
+                                                                              +13
+                                                                                      -^<>            -/-
+                                                                                                        13
+                                                                                                                                 RAM
+                                                                                                                              512 Bytes to
+                                                                                                                                6K Bytes
+                   cc
+                    f >
+                                  Timing
+                                   and                                    =
+                                                                          INT/ EXT
+                                                                                    INV
+                                                                                           9**—
+                                  Control
+
+                                                                                A/S
+                                                                                           <x-        -77-          Vr
+                                A/l/UIJl                                            RF
+                                                                                          >S>
+                                                                                    HS
+                                                                                          X>
+                                                                                A/G
+                                                                               GM2
+                                                                                           3
+                                                                                GM1
+                                                                               GMO
+                                                                                CSS
+
+                                                                                           V-*-
+                                                                                                      ^7     or 8
+
+
+
+
+                                 Character
+                                 Generator
+                                   ROM
+
+
+
+                                                                                                Luminance
+                                             Parallel To                              ->"<>
+                                       Serial Shift Register,                     R-Y       I   0A
+                                    Video Chroma Encoder
+                                                                                                <£B
+
+
+
+                                                                     CHB-
+                                                                                      =3
+
+ VIDEO AND COLOR SUBSYSTEM
+   The 8-bit output of the internal/external               multiplexer   is                called Y. The luminance signal, Y, and the two chrominance
+ serialized in   an 8-bit shift register clocked at the dot-clock                          outputs,   4>A (R-Y) and <t>B (B-Y), can be combined
+ frequency.                                                                                (modulated) by an MC1372 into a composite video signal
+   The luminance information from the shift register is sum-                               with color. Figures 8, 9, 10, and 16 show the relationship be-
+ med with the horizontal and vertical sync signals to produce                              tween the luminance and chrominance signals and the resul-
+ a composite video signal less the chrominance information,                                tant color.
+
+
+
+
+                           ® MOTOROLA                                          Semiconductor Products Inc.
+                                                                               15
+                                                               2=>*=>
+                     —   —>s.          c/>   o   JNJ
+
+
+
+
+                                                                             <   t/3   CC   *_*- ^   .   \
+
+
+
+
+                                                                 3>          l
+
+
+
+
+                                                                     2 ° * -
+
+
+
+
+<
+DC
+
+<    r*               ^ a
+
+O
+_j
+CO
+          5H          — cr
+
+                                                                                               A             A
+o         51                                                                                                                Hi'
+Q
+>
+Q
+
+          5J
+Q
+          -0-1
+                                                                     c
+         3UH J3d spjQ M 91
+ I
+
+
+     K                           MOH «3N
+
+
+     i
+             1
+                             i
+                                 9l!                                                                                              ^->\\
+
+     3^                                                                                                      -
+                                                                                                                 E
+                                                                                                                 1-   u-
+     :^~              .   _ "O
+                            •D
+
+     =5J                 _ <
+
+
+
+     :^
+                                                                     G
+                                                                                       c
+     A
+                                                                             >5        a.
+
+
+
+
+                                                       o   To
+                                                           '             '
+
+
+
+
+                                                           IsonDie-]
+                                                           '
+                                                               apoiftj
+
+                                                       o   !     D       ,
+
+
+
+
+                                                                             JH 10111103 ;)|K>|/\]
+                                                                                                                                  Hi.
+
+
+                 MOTOROLA Semiconductor Products                                 16
+                                                                                                                           Inc.
+                T
+
+C3
+H
+S_
+-I.
+      c
+      (D
+< "             X
+O S.            Q-
+
+
+
+
+E 3«
+1X1
+> O)
+UJ.C       T
+St
+LU    U
+                ii
+I-
+is
+
+DC    —
+3
+O
+
+
+
+
+                7
+
+
+
+                to   J
+                I
+                a.
+
+                m
+
+
+
+                                                  ^S       1
+
+                                                           '
+                                                  3   ii
+
+
+
+
+                ii
+                                                               is   «c*
+
+                                                  i* S
+
+
+
+
+               ® MOTOROLA   Semiconductor Products Inc.
+                            17
+MC6847-MC6847Y
+
+
+DISPLAY MODES                                                                                     The 5x7 character font is positioned two columns to the
+  There are two major display modes in the VDG. Major                                             right   and three rows down within the 8x 12 character ele-
+mode 1 contains four alphanumeric and two limited graphic                                         ment. Six bits of the 8-bit data word are typically used for the
+modes. Major mode 2 contains eight graphic modes. Of                                              internal ASCII character generator. The remaining two bits
+these, four are full color graphic and four restricted color                                      may be used to implement inverse video, color switching, or
+graphic modes.     The mode selection for the VDG is sum-                                         external character generator ROM selection on a character-
+marized in Table 2. The mnemonics of these fourteen modes                                         by-character basis. For those who wish to display lower case
+are explained in the following sections.                                                          letters, special characters, or even limited-graphics, an exter-
+  In major mode 1 the display window is divided into 32 col-                                      nal ROM may be used. If such external ROM is used, all of
+umns by 16 character element rows thus requiring 512 bytes                                        the 8x 12 picture elements, or pixels, in the character ele-
+of memory. Each character element is 8 half periods by 12                                         ment can be utilized. Characters may be either green on a
+scan lines in size as shown in Figure 19. The area outside the                                    dark  green background or orange on a dark orange
+display window is black.                                                                          background, depending on the state of the CSS pin. The in-
+     The VDG has a built-in character generator ROM contain-                                      vert pin can be used to display dark characters on a bright
+ing the 64 ASCII characters in a    5x7 format (see Figure 20).                                   background.
+
+
+
+
+                                                                 TABLE 2 - SUMMARY OF MAJOR MODES
+                                                                       Major Mode 1 — Alpha Modes
+
+
+      .   Title    Memory           Display Elements                            Colors            Title        Memory          Display Elements          Colors
+
+Alphanumerics      512x8            —                                                         Semigraphic 4    512x8
+      (Internal)
+                                2
+                                         H»
+                             ~r              •
+                                             •
+                                             •
+                                                             •
+                                                             •
+                                                             •    12
+                                             •               •                                                                                Element
+                                             •               •
+                                             •               •
+                                2
+
+                                t
+
+                                                         • ••
+                                        ••               •
+                                             •           •
+ Alphanumerics     512x8                                                                      Semigraphic 6    512x8
+                                             •           •          12                                                                       -Element
+      (External)                             •           •
+                                                 •
+                                                 •
+                                                 •
+                                                 •
+                                                     •
+                                                         •
+                                                         •
+                                                         •
+                                                         •                                                                             H
+
+                                                                         Major Mode 2     — Graphics Modes
+
+                                                 Title                     Memory        Colors                 Comments
+                             64x64 Color Graphic                            1   kx8           4    Matrix 64 x 64 Elements
+                             128x64 Graphics*                               1   kx8           2    Matrix 128 Elements Wide by
+                             128x64 Color Graphic                           2kx8              4    64 Elements High
+                             128x96 Graphics'                              1.5 kx8            2    Matrix 128 Elements Wide by
+                             128x96 Color Graphic                           3kx8              4    96 Elements High
+                             128x192 Graphics'                              3kx8              2    Matrix 128 Elements Wide by
+                             128x192 Color Graphic                          6 kx8             4    192 Elements High
+                             256x192 Graphics                               6 kx8             2    Matrix 256 Elements Wide by
+                                                                                                   192 Elements High
+
+
+                              'Graphics mode turns on or off each element. The color may be one of two.
+
+
+
+
+                        ® MOTOROLA                                                       Semiconductor Products Inc.
+                                                                                         18
+MC6847«MC6847Y
+
+
+
+
+                                                                                                                          s s
+                                                                                                                          _ E                                                      S E        ? E
+      ins=*                                                                0*S>
+                                                                           I >
+                                                                                                                          o £                                                      SI
+                                                                                                                                                                                   3 E
+                                                                                                                                               l a
+                                                                           2li
+                                                                                                                           E .
+                                                                                                                                                                                   6 f
+                                                                                                                                                                                              t:
+                                                                                                                           - o
+                      if.                  = I ; 5
+                                           £ £ Q. o                                                                                   II              ii
+                      ill                                                                                                                                                                     II
+                                           c    " S £                                                                                                                                         -§   I
+                                                                                                                                      3   «!
+
+
+                                                                               £ * 2                                                           o^
+                                                                               S » ;                                                           3 g
+                  « £i*                                                                                                               le
+      ||£ ..Ik-       :
+
+                           | o
+                                                                               | | ^
+                                           J* Is                                                                                      PS
+                  Sis                      3    « > .§
+                                           O 2U ""
+                                                £ « A
+                                                                               II i
+                                                                                                        CO   o            < c
+                                           **   =      -5   »
+                                                                               S s 2                    MS                Si
+                  S ^ S 1                                                                                                             < c             < -                          S1
+                  lis*                                                                                                                Si
+                                                                                                                          3 ^                  3 *£                                           3 s
+                                                                                                                          O -D                 o
+                      !
+
+                           5^5             Slit!                                                                                                      u 5-
+                                                                                                                           .s                                                                 Si
+       %»c< is        ;
+                           & 5> E                                                                                                                         = l          !SI
+
+
+
+
+10
+
+                                                    an
+111
+O
+O
+
+Q
+>
+
+                                                                                                                                      -*•>»
+a.                                                                                                                                                                                  -4R
+oc
+o
+w
+UJ
+      fr
+                                                                                1*
+                                                                                        3      o
+                                                                                                                 H                                        ii                        i
+o     tsfc^-                                i          "           1
+a                                                                                       K-k?H
+UJ
+_j
+
+                                                                                                                                                      I
+I
+a
+      JUS                                        as         a
+                                                            e *e                                                                                      - *       "5 >               »*    eg
+ I                                               * o
+                                                a -         o o
+                                                                                  5 O
+                                                                                  D -
+                                                                                         2 *
+                                                                                        Q O                               Q 2
+                                                                                                                          •» -
+                                                                                                                                 =
+                                                                                                                                 Q                                                 OS    QJ            2*
+CO    8 |g s                                    3 a         Re                    sis?                       5 a   5      2 a    S.                                    a     §.S
+
+CO
+
+J5
+
+
+      u y u c
+      ooao                             .   W S If           5S? If I Oo»Otj>_o —                     § $1 S"S 3 I fi
+
+                                                to — O — o — © —           ;   x © — o — x o — © —
+                                                x © ©            ©©    -        <oo — — xoo-                       o©——                                                            S u
+
+                                                <   ©©©O—                                                                                      ill                     is 1                    u 5 i
+                  C       j,   Si j,
+
+
+                  oaoi                                                                                                                         ill                     I g s       Mi          III
+                  ©—©—
+
+
+
+
+                               AA)     MOTOROLA Semiconductor Products                                                                                    Inc.
+                                                                                                   19
+MC6847»MC6847Y
+
+
+      FIGURE 19 - ALPHANUMERIC MODE (INTERNAL)                                             FIGURE 20 - AVAILABLE ALPHANUMERICS
+   512 Characters (32x16)                                                                                                    MD4=INV=D4
+      Typical Character                                                                                                      MD7 = AS = D7
+            oooooooo                      ••••••••                                           O = Inverted Character - Illuminated Background,
+            oooooooo
+            oooooooo                                                                                                  Dark Character
+            oo«««*oo        • - Dot Off
+            oo«ooo»c        O-Dot Lit                                                                2_3_4_5_6_7_8_9.A_B_C_0_E_F
+            oo«ooo»o                                                                       _0   .1
+            00«#t#QQ
+            oo«ooo»o
+                                          _ JOOOO««
+                                          —om—cm                                     0_@A8CDEFGH                        I   JKLMNO
+            S8S888S8                      '
+                                              »OOOOt                                 1..   PQRSTUVWXYZl                                    '   -
+
+
+
+
+                                                                                                      *$%&()• *. —
+                                                                                                                                       |
+
+
+
+            oooooooo
+            oooooooo                      •«                                         2_         !                                          .
+                                                                                                                                                   i
+
+
+
+
+      Inverted                        Normal                                         3_         1
+
+
+      Black Character
+      Orange or Green
+                                      Black Background
+                                      Orange or Green
+                                                                                     *-    ©OO0OOGOOOOOOOOO
+      Background (Selectable)         Character (Selectable)                         5_    oooooooooooooo««
+Character Source:                                                                    e_    •oeooooeooeoeoeo
+Internal - 6 Bit ASCII Generator ROM On Chip or User Definable
+External - Users ROM
+                                                                                     7_    ooooooooooeo»e«o
+                                                                                   THE 128x64 COLOR GRAPHICS TWO (CG2) MODE -
+   The two limited graphic modes are Semigraphics 4 and                          The 128 x 64 color graphics mode generates a display matrix
+Semigraphics 6. In Semigraphics 4, the 8x12 dot character                        128 elements wide by 64 elements high. Each element may
+block is divided into four pixels (each pixel is four half-clocks                be one of four colors. A 2k x 8 display memory is required.
+by six scan lines). The four low-order bits (DD0-DD3) of each                    The display RAM is accessed 32 times per horizontal line.
+incoming byte of data select one of sixteen possible illumina-                   Each pixel equals two half-clocks by three scan lines.
+tion patterns while the next three bits (DD4-DD6) determine
+the color of the illuminated elements. The most significant                        THE 128x96 RESOLUTION GRAPHICS                  TWO (RG2)
+bit is unused. Figure 21 shows the color and pattern selec-
+                                                                                 MODE - The 128x96 graphics mode generates a display
+tions. In Semigraphics 6 the 8x 12 dot character block is
+                                                                                 matrix 128 elements wide by 96 elements high. Each element
+divided into six pixels, each four half-clocks by four scan
+                                                                                 may be either ON or OFF. However, the entire display may
+lines. The six low-order bits of each byte of incoming data
+                                                                                 be one of two colors selected by using the color set select
+select one of 64 possible illumination patterns while the CSS
+                                                                                 pin: A 1 .5k x 8 display memory is required. The display RAM
+input and the high-order data bits (DD6-DD7) determine the
+                                                                                 is accessed 16 times per horizontal line. Each pixel equals
+color of the illuminated elements.
+                                                                                 two half-clocks by two scan lines.
+   The display window in major mode 2 (full graphics) has a
+less rigorous  format than in major mode 1. The display                            THE 128 x 96 COLOR GRAPHICS THREE (CG3) MODE -
+elements vary from one scan         line to three      scan   lines in
+                                                                                 The 128x96 color graphics mode generates a display 128
+height.    The length of the display element is either eight or                  elements wide by 96 elements high. Each element may be
+sixteen half-periods wide. Each display element is divided in-                   one of four colors. A 3k x 8 display memory is required. The
+to four or eight pixels. The former corresponds to a full color                  display   RAM is accessed 32 times per horizontal line. Each
+mode while the latter a restricted color mode, like the                          pixel equals two half-clocks by two scan lines.
+semigraphics modes, represents illumination data. When is         it
+
+
+high the pixel is illuminated with the color chosen by the col-                    THE 128x192 RESOLUTION GRAPHICS THREE (RG3)
+or set select (CSS) pin. When it is low the pixel is black.            In
+                                                                                 MODE - The 128 x 192 graphics mode generates a display
+the full color modes, pairs of data bits choose one of four                      matrix 128 elements wide by 192 elements high. Each ele-
+colors in one of two color sets defined by the CSS pin.                          ment may be either ON or OFF, but the ON element may be
+ Depending on the state of the CSS pin, the area outside the                     one of two colors selected with the color set select pin. A
+display window is either green or buff. The display formats                      3k x 8 display memory is required. The display RAM is ac-
+and color selection for this major mode are summarized in                        cessed 16 times per horizontal line. Each pixel equals two
+ Figure 19.                                                                      half-clocks by one scan line.
+
+   THE 64x64 COLOR GRAPHICS ONE (CG1) MODE -                                       THE 128 x 192 COLOR GRAPHICS SIX (CG6) MODE -
+The 64x64 color graphics mode generates a display matrix                         The 128x 192 color graphics mode generates a display 128
+of 64 elements wide by 64 elements high. Each element may
+                                                                                 elements wide by 192 elements high. Each element may be
+be one of four colors. A 1k x 8 display memory is required.                      one of four colors. A 6k x 8 display memory is required. The
+The display RAM is accessed 16 times per horizontal line.                        display   RAM is accessed 32 times per horizontal line. Each
+ Each pixel equals four half-clocks by three scan lines.                         pixel equals two half-clocks by one scan line.
+
+
+   THE 128x64 RESOLUTION GRAPHICS ONE                           (RG1)              THE 256x192 RESOLUTION GRAPHICS SIX                         (RG6)
+ MODE - The 128x64 graphics mode generates a matrix                              MODE - The 256 x 193 graphics mode generates a display
+ 128 elements wide by 64 elements high. Each element may                         256 elements wide by 192 elements high. Each element may
+ be either ON or OFF. However, the entire display may be one                     be either ON or OFF, but the ON element may be one of two
+ of two colors, selected by using the color set select pin. A                    colors selected with the color set select pin. A 6k x 8 display
+ 1kx8 display memory is required. The display RAM is ac-                         memory is required. The display RAM is accessed 32 times
+ cessed 16 times per horizontal line. Each pixel equals two                      per horizontal line. Each pixel equals one half-clock by one
+ half-clocks by three scan lines.
+                                                                                 scan line.
+
+
+                          AA) MOTOROLA Semiconductor Products Inc.
+                                                                            20
+MC6847-MC6847Y
+
+
+                                                                  FIGURE 21 - SEMIGRAPHIC MODE ENCODING
+                                                                               (a)   Data and Display Formats
+
+
+                                                                                                                                                           D3        D2
+                      D7    |
+                                D6   |
+                                           D5       D4        D3        D2     D1         D                                                                                        t
+                                                                                                                                                           D1            DO        6L
+                            w— Chroma —>4<                                Luma                >
+                                                  Semigraphics 4
+                                                                                                                                                                  4 (PWclk)
+                                                                                                                                                                               I?
+                                                                                                                                                           D5            D4
+
+                [CSS
+                                h             D6        D5        D4      D3     D2           D1      DO                                                   D3
+
+                                                                                                                                                           Dl
+                                                                                                                                                                         D2
+
+                                                                                                                                                                         D
+                                                                                                                                                                                Jl
+                                                                                                                                                                                   4L
+                                                                   Semigraphics 6
+
+                                                                                         (b) Color Selection
+                                                                                                                                                                  4 (PWclk)
+                                                                                                                                                                               ^
+                                                         Luma                    SG4                           SG6
+                                                                                                                                                 Color
+                                                             DN           D6         D5       D4      CSS       D7            D6
+                                                                          X          X        X           X     X             X                  Black
+                                                                                                                                                 Green
+                                                                                               1                              1                 Yellow
+                                                                                     1                           1                               Blue
+                                                                                     1         1                 1            1                  Red
+                                                                           1                               1                                     Buff
+                                                                           1                   1           1                  1                  Cyan
+                                                                           1         1                     1     1                              Magenta
+                                                                           1         1         1           1     1            1                 Orange
+
+
+                                                                   FIGURE 22 - GRAPHIC MODE ENCODING
+                 (a)      Data Format                                                                                                   (b)       Display Format
+
+                                                                                                                                                      JL                                               JL
+                                                                                                                                                      3L CG1                                           3LCG2
+ D7   D6   D5     D4            D3       D2        Di        D     Color Graphic
+                                                                                                               4 (T/2)
+                                                                                                                              H                                                    2 (T/2)
+                                                                                                                                                                                             H     KJL
+                                                                                                                                                                                                       T
+                  •   Chroma
+                                                                                                                                                      JL
+                                                                     Resolution                                                                       3L RG1                                           2LCG3
+ D7   D6   D5     D4            D3       D2        Di        D         Color Graphic
+                                                                                                                                                      T                            2IT/2)
+                                                                                                                                                                                             H     K
+                      •   Luma   -
+                                                                                                                     2 (T/2)
+                                                                                                                                       H KJL
+                                                                                                                                                      2L RG2         i   —                         ]
+                                                                                                                                                                                                       JL
+                                                                                                                                                                                                       JLCG6
+
+                                                                                                                      2 (T/2) ->)                 U-
+                                                                                                                                                                                   2 (T/2)'
+                                                                                                                                                                                             H     K
+                                                                                                      I          I        I        I        I     I   IOG3           L         X                       TLR G6
+
+                                                                                                                      2 (T/2) *\
+                                                                                                                                                  \*                               1    (T/2)>j    |<-
+
+                                                                                                    Long Element Modes                                                       Short Element Modes
+                                     (c)   Color Selection
+
+                                                                                     Resolution
+                                                                                                                                  Color Mode
+                                           CSS               Border                  Color Mode
+                                                                               DN                  Color       DN +       1            DN                 Color
+                                                             Green                                 Black                                                  Green
+                                                             Green               1                 Green                                1                Yellow
+                                                             Green               1                 Green              1                                   Blue
+                                                             Green               1                 Green              1                 1                  Red
+                                              1               Buff                                 Black                                                  Buff
+                                              1               Buff               1                 Buff                                 1                 Cyan
+                                              1               Buff               1                 Buff               1                                  Magenta
+                                              1               Buff               i                 Buff               1                 1                Orange
+
+
+
+
+                                AA)               MOTOROLA Semiconductor Products                    21
+                                                                                                                                                                         Inc.
+MC6847»MC6847Y
+
+
+TYPICAL SYSTEM IMPLEMENTATION                                                         rows. The presence of row preset in major mode 1 serves as
+                                                                                      a flag for the beginning of a new element row. Detection of
+     The block diagram in Figure 23 shows how the VDG is
+                                                                        system        this signal   can initiate a major mode switch from 1 to 2.
+related      to   other   functional    blocks     in    a    typical
+                                                                                        Display memory size is a function of the display density.
+(non-6883). A negative row preset signal (RP) generated by
+                                                                                      Quite often a graphic display contains shapes that are several
+the VDG initializes the row scan counter for the external
+character generator once every twelve scan lines, while the
+                                                                                      times larger than that of the display elements in the VDG.
+                                                                                      This is particularly true of certain video games. Much of the
+negative horizontal sync (FT5) acts as clock to this counter.
+                                                                                      display consists of a fixed background. The vertical size of a
+The negative field sync (FS~) generates an interrupt to the
+                                                                                      display element can be doubled or quadrupled by simply ig-
+MPU, signifying that the display memory can be updated
+                                                                                      noring the lowest order or the first two low order vertical ad-
+without interference with the VDG display function. This
+                                                                                      dresses, respectively, from the VDG. Reduction of address
+signal must not be confused with the system vertical sync
+signal. Field sync is activated by the end of the vertical
+                                                                                      lines naturally leads to reduction in    memory size. Another
+display window and deactivated by the trailing edge of ver-
+                                                                                      method of memory reduction is to store objects or object
+tical sync. This gives the MPU a total of thirty-two scan lines
+                                                                                      fragments inROM and store their display addresses in the
+or    2.03    ms  update the display memory. The MPU
+                   to
+                                                                                      RAM portion of display memory. Here, the larger the object
+                                                                                      fragment, the greater the memory saving.
+acknowledges the interrupt request from the VDG by bring-
+ing the negative memory select input (MS) to the VDG low.                             ASSOCIATED DEVICES
+This puts the address bus output from the VDG into high-
+impedance state, thus relinquishing bus control to the MPU.
+                                                                                      MC6883 - SYNCHRONOUS ADDRESS MULTIPLEXER
+The timing relationship of horizontal sync, row preset, and
+                                                                                                  (SAM)
+fieldsync are shown in Figures 7, 8, and 13.                                            This device, a linear bipolar companion to the MC6800 or
+  The display memory is an element-by-element map of the                              MC6809E (external clock inputs), is primarily a VDG
+display window on the screen. The VDG addresses the                                   transparent-access controller.   It   allows the microprocessor
+display      memory       storage      locations    in and   succession               to load and store to   VDG display memory ("screen RAM")
+translates their contents into luminance and chrominance                              without-waiting for a blank screen interval. Figure 1 shows a
+levels. The frequency of address update is dependent on the                           typical system using the SAM and the MC6809E. The in-
+length of the display element. Recall that display elements in                        herent interleaved direct  memory accesses (IDMA) which
+major mode 1 are four periods and major mode 2 are either                             occur, continuously keep the VDG updated with the proper
+four or eight periods of the master clock. Data from the                              data (independently of mode), as well as keeping the
+display memory is latched on every address transition.                                dynamic memory (used as system memory with the MC6833)
+Hence, the data for the first display element must be stable                          refreshed. This is done through a IDMA process as well, dur-
+
+four or eight periods before the horizontal display window                            ing the time the VDG does not need display data (horizontal
+
+depending on the display mode selected. This timing require-                          and vertical sync times)
+ment is illustrated in Figure 6.                                                         In addition to being a transparent memory access and
+
+   Examination of Figures 21 and 22 reveal that all display                           dynamic memory controller, the SAM also functions as an
+elements within major mode 1 are similar while those within                           external clock generator for the MC6800/6809E (slight addi-
+
+major mode 2 are largely dissimilar. Therefore, mode switch-                          tional circuitry is required for the MC6800).
+
+ing between alphanumeric modes and semigraphic modes
+can be carried out freely. Care must be taken, however,                               MC1372/1373 CHROMA/RF MODULATOR
+when performing mode switching in major mode 2. The only                                 The MC1372 is a chrominance phase-shift modulator with
+compatible modes are between CG1 and RG1, and between                                 built in RF up-converter. The part may be used without the
+
+CG6 and RG6. Minor mode switching within the same major                               RF modulator for chroma only, or the RF oscillator may be
+mode in a given element row can be achieved as long as it is                          defeated and composite chrominance and luminance can be
+between compatible modes. It should be quite apparent that                            obtained.
+major mode switching on an element-by-element basis is im-                              The MC1373 is an RF modulator only (similar to the sec-
+practical. It can be achieved, however, at the expense of                             ond half of the MC1372) and can be used to up-modulate
+added component count. The element formats in the VDG                                 separate luma and chroma signals at the receiver for high
+lend themselves to major mode switching between element                               quality video reception.
+
+
+
+
+                             ® MOTOROLA                                          Semiconductor Products Inc.
+                                                                                 22
+                                                    FIGURE 23 - TYPICAL VDG SYSTEM
+
+
+
+
+                              3.58 MHz
+                               XTAL
+
+
+
+
+                                                                        Row Counter
+
+
+
+
+              APPENDIX A                                                                        FIGURE 24 - PROM MARKING
+  CUSTOM MC6847 ORDERING INFORMATION
+  The following information is required when ordering a
+custom MCU. This information may be transmitted to
+Motorola in the following media:
+  PROM(s) MCM2716s or MCM2708s
+  MDOS disk file
+  To initiate a ROM pattern for the MCU        it   is   necessary to
+first contact your local field service office, local sales person,
+
+or your local Motorola representative.
+                                                                                                    xxx = Customer ID
+
+   PROMs - The MCM2708 or MCM2716 type PROMs, pro-
+grammed with the customer program (positive logic sense                       VERIFICATION MEDIA
+for address and data), may be submitted for pattern genera-                     All original pattern media (PROMs or Floppy Disk) are filed
+tion. The PROMs must be clearly marked to indicate which                      for contractual  purposes and are not returned. A computer
+PROM corresponds to which address space (000-3FF HEX),                        listing of the ROM code will be generated and returned along
+(400-7FF)   or (000-7FF).   See Figure 24    for    recommended               with a listing verification form. The listing should be
+marking procedure.                                                            thoroughly checked and the verification form completed,
+  After the   PROM(s) are marked they should be placed in                     signed, and returned to Motorola. The signed verification
+conductive IC    carriers and securely packed. Do not use                     form constitutes the contractual agreement for creation of
+styrofoam.                                                                    the customer mask. If desired, Motorola will program a blank
+
+
+
+
+                      ® MOTOROLA                                         Semiconductor Products Inc.
+                                                                        23
+MC6847-MC6847Y
+
+
+2716 EPROM (supplied by the customer) from the data file               disk with a felt-tip pen. The floppies are not to be returned by
+used to create the custom mask to aid in the verification pro-         Motorola as they are used for archival storage. The minimum
+cess.                                                                  MDOS system files must be on the disk as well as the ab-
+ ROM VERIFICATION UNITS                                                solute binary object file (filename. LO type of file). An object
+
+   Ten MC6847s containing the customer's ROM pattern will
+                                                                          made from a memory dump using the ROLLOUT com-
+                                                                       file
+
+
+be sent for program verification. These units will have been
+                                                                       mand is also admissable. Consider submitting a source
+made using the custom mask but are for the purpose of                  listing    as well as the following   files:   filename. LX (EXOR-
+ROM verification only. For expediency they are usually un-             ciser®      loadable format) and filename -SA (ASCII Source
+
+marked, packaged in ceramic, and tested only at room                   Code). These files will of course be kept confidential and are
+                                                                       used 1) to speed up the process in house if any problems
+temperature and 5 volts. These RVUs are included in the
+mask charge and are not production parts.                              arise,    and 2) to speed up our customer to factory interface if
+                                                                       a user finds any software errors and needs assistance quickly
+FLEXIBLE DISKS                                                         from the factory representatives.
+  The disk media submitted must be single-sided, single-                 MDOS is Motorola's Disk Operating System available on
+density, 8-inch, MDOS compatible floppies. The customer                development systems such as EXORcisers, or EXORsets,
+must write the binary file name and company name on the                etc.
+
+
+
+
+                                                              FIGURE A-2
+
+
+  Customer Name
+
+  Address
+
+  City
+
+
+  Phone (_                                       .State   .                                       -Zip
+
+
+  Contact Ms/ Mr.
+
+  Customer Part Number
+
+  Pattern Media
+            2708 PROM
+            2716 PROM
+
+          MDOS Disk
+          (Note   2)
+
+
+
+  Other (NOTE: Other media requires prior factory approval)
+
+
+  Signature
+
+
+  Title
+
+
+
+
+® Registered trademark of Motorola Inc.
+
+ EXORset is a trademark of Motorola Inc.
+
+
+
+
+                        A^j
+                        v_y
+                                 MOTOROLA Semiconductor           24
+                                                                                               Products Inc.
+MC6847»MC6847Y
+
+
+
+                                                                        OUTLINE DIMENSIONS
+
+
+
+
+                                                                             P SUFFIX
+                                                                          PLASTIC PACKAGE
+                                                                             CASE 711-03
+                                                                                                                                        MILLIMETERS                  INCHES
+                                                                                                                                 DIM       MIN       MAX           MIN   MAX
+    ni^i^iri^nr^nrif^i^riT^r^nr^i^i^t'Vi^i                                                                                        A     51.69        52.45     2.035          2.065
+                                                                                                                                  B     13.72        14.22     0.540          0.560
+                                                                                                                                  C        3.94       5.08     0.155          0.200
+                                                                                                                                  D        Q.36       0.56     0.014          0.022
+                                                                                                                                  F        1.02       1.52     0.040          0.060
+                                                                                                                                  G           2.54 BSC             0.100 BSC
+                                                                                                                                  H        1.65       2.16     0.065          0.085
+                       A                                                                                                          J        0.20       0.38     0.008          0.015
+                                                                                                                                  K        2.92       3.43     0.115          0.135
+                                                                                                                                  L         15.24 BSC              0.600 BSC
+                                                                                                                                 M         0°        15°           0°    |
+                                                                                                                                                                               15°
+                                                                                                                                  N        0.51       1.02     0.020     I
+                                                                                                                                                                              0.040
+   -iH^—      — G>—
+               :
+                      — ^— F — I—                 K   1
+                                                              l!
+
+
+
+
+                                                                                                   NOTES:
+                                                                                                   1. POSITIONAL TOLERANCE OF LEADS (D),
+
+                                                                                                      SHALL BE WITHIN 0.25 mm (0.010) AT
+                                                                                                      MAXIMUM MATERIAL CONDITION, IN
+                                                                                                      RELATION TO SEATING PLANE AND
+                                                                                                      EACH OTHER.
+                                                                                                   2. DIMENSION L TO CENTER OF LEAOS
+
+                                                                                                      WHEN FORMED PARALLEL.
+                                                                                                   3. DIMENSION B DOES NOT INCLUDE
+
+                                                                                                      MOLD FLASH.
+
+
+
+
+                                                                              L SUFFIX
+                                                                          CERAMIC PACKAGE
+                                                                             CASE 715-04
+                                                                                                                                      MILLIMETERS              INCHES
+                                                                                                                            DIM        MIN   MAX             MIN   MAX
+                                                                                                                            A         50.29       51.31      1.980       2.020
+                                                                                                                             B        14.63       15.49      0.576       0.610
+                                                                                                                             C         3.05        4.32      0.120       0.170
+                                                                                                                            D          0.38        0.53      0.015       0.021
+                                                                                                                             F         0.76        1.40      0.030       0.055
+                                                                                                                            G           254 BSC               0.100 BSC
+                                                                                                                             J         0.20        0.33      0.008      ^013
+                                                                                                                             K         2.54        4.19      0.100       0.165
+                                                                                                                             L        14.99       15.65      0.590       0.616
+       -irF                                                                                                                 M          -           100         -             10°
+
+
+
+
+   H-Ui
+      --D
+                              3D J -
+                                G-
+                                    W
+                                    /IlpNi
+                                     '.
+                                              T
+                                             "K
+                                                  -4-J
+                                                          ,
+
+
+
+
+                                                                   M-                NOTES:
+                                                                                       1.   DIMENSIONED IS DATUM.
+                                                                                                                             N         1.02        1.52      0.040       0.060
+
+
+
+
+                                                                                       2.   POSITIONAL TOLERANCE FOR LEADS:
+
+
+                                                                                            1-^10.25(0.010) <J5)|TlA(jS)|
+
+                                                                                       3.   EH IS SEATING PLANE.
+                                                                                       4.   DIMENSION "L"TO CENTER OF LEADS
+                                                                                            WHEN FORMED PARALLEL.
+                                                                                       5.   DIMENSIONING AND TOLERANCING
+                                                                                            PER ANSI Y14.5. 1973.
+
+
+
+
+                                MOTOROLA Semiconductor Products                                                                                   Inc.
+                                                                                25
+MC6847-MC6847Y
+
+
+
+
+                                   OUTLINE DIMENSIONS (CONTINUED)
+
+
+
+
+                                                 S SUFFIX
+                                               CERDIP PACKAGE
+                                                 CASE 734-03                                  MILLIMETERS         INCHES
+                                                                                    DIM        MIN   MAX        MIN   MAX
+                                                                                    A         51.31   53.24    2.020   2.096
+                                                                                    B         12.70   15.49    0.500   0.610
+   ftfiftfift^flffr-ii'iff^lll'lft ftftfi^ft                                        C          4.06    5.84    0.160   0.230
+                                                                                               0.38    0.56    0.015   0.022
+                                                                                    F          1.27    1.65    0.050   0.065
+                                                                                    G           2.54 BSC         0.100 BSC     !
+
+
+
+
+                                                                                    J          0.20    0.30    0.008   0.012
+                                                                                    K          3.18    4.06    0.125   0.160
+                                                                                    L           15.24 BSC        0.600 BSC
+                                                                                    M ^5°              15°      5°     15°
+                                                                                    N          0.51    1.27    0.020   0.050
+
+
+
+
+                                                                      NOTES:
+                                                                        1.  DIMENSIONS-IS DATUM.
+                                                                        2.  POSITIONAL TOLERANCE
+                                                                            FOR LEADS:
+                                                                                |
+                                                                                    +     |    1 0.25 10.010)©]      T|A©|
+
+                                                                           3.   QD            IS SEATING    PLANE.
+                                                                           4.   OIMENSIONLTO CENTER
+                                                                                OF LEAOS WHEN FORMED
+                                                                                PARALLEL.
+                                                                           5.   DIMENSION A AND B
+                                                                                INCLUDES MENISCUS.
+
+
+
+
+           MOTOROLA Semiconductor Products                          Inc.
+This page intentionally left blank.
+   Motorola reserves the right to make changes without further notice to any products herein. Motorola makes no warranty, representation or guarantee regarding
+   the suitability of its products for any particular purpose, nor does Motorola assume any liability arising out of the application or use of any product or circuit,
+   and specifically disclaims any and all liability, including without limitation consequential or incidental damages. 'Typical" parameters can and do vary in different
+   applications. All operating parameters, including Typicals" must be validated for each customer application by customer's technical experts. Motorola does
+   not convey any license under its patent rights nor the rights of others. Motorola products are not designed, intended, or authorized for use as components in
+   systems intended for surgical implant into the body, or other applications intended to support or sustain life, or for any other application in which the failure of
+   the Motorola product could create a situation where personal injury or death may occur. Should Buyer purchase or use Motorola products for any such
+   unintended or unauthorized application, Buyer shall indemnify and hold Motorola and its officers, employees, subsidiaries, affiliates, and distributors harmless
+   against all claims, costs, damages, and expenses, and reasonable attorney fees arising out of, directly or indirectly, any claim of personal injury or death
+   associated with such unintended or unauthorized use, even if such daim alleges that Motorola was negligent regarding the design or manufacture of the part.
+   Motorola and   ©   are registered trademarks of Motorola, Inc. Motorola, Inc. is an Equal Opportunity/Affirmative Action Employer.
+
+
+Literature Distribution Centers:
+USA: Motorola Literature Distribution; P.O. Box 20912; Phoenix, Arizona 85036.
+EUROPE: Motorola Ltd.; European Literature Centre; 88 Tanners Drive, Blakelands, Milton Keynes, MK14 5BP, England.
+JAPAN: Nippon Motorola Ltd.; 4-32-1 Nishi-Gotanda, Shinagawa-ku, Tokyo 141 Japan.
+                                            ,                                                   ,
+
+
+
+ASIA PACIFIC: Motorola Semiconductors H.K. Ltd.; Silicon Harbour Center, No. 2 Dai King Street, Tai Po Industrial Estate,
+              Tai Po, N.T., Hong Kong.
+
+
+
+
+     ®              A11724-5 PRINTED IN USA(1994) MPS/POD                                                                                                      MC6847/D
+                                                                                                                         llllllllllllllllllllllllllllllllllllllllllllllllll
+

@@ -1,0 +1,2383 @@
+ ®                  MOTOROLA                                                                                            SN74LS783
+                                                                                                                          MC6883
+
+                       Advance Information
+                                                                                                                       SYNCHRONOUS
+              SYNCHRONOUS ADDRESS MULTIPLEXER                                                                                   ADDRESS
+         The SN74LS783/MC6883 brings together the MC6809E
+                                                                                                                        MULTIPLEXER
+       (MPU), the MC6847 (Color Video Display Generator} and dy-
+       namic RAM to form a highly effective, compact and cost ef-
+       fective computer and display system.                                                                            LOW POWER SCHOTTKY
+       • MC6809E, MC6800, MC6801E, MC68000 and MC6847 (VDG)
+            Compatible
+       • Transparent MPU/VDG/Refresh
+       •   RAM size — 4K, 8K, 16K, 32K or 64K Bytes (Dynamic or
+            Static)
+       • Addressing Range        — 96K Bytes                                                                                W     '
+
+                                                                                                                                            N SUFFIX
+                                                                                                                            1
+       • Single Crystal Provides All Timing                                                                                             PLASTIC PACKAGE
+       • Register Programmable:                                                                                                             CASE 711
+                                                                                                                   1
+           VDG Addressing Modes
+           VDG Offset (0 to 64K)
+            RAM Size                                                                                                                     Iff
+            Page Switch
+            MPU Rate (Crystal * 16 or + 8)
+                                                                                                                                            J SUFFIX
+            MPU Rate (Address Dependent or Independent)                                                                                CERAMIC PACKAGE
+                                                                                                           1
+       • System "Device Selects" Decoded 'On Chip'                                                                                         CASE 734
+       • Timing is Optimized for Standard Dynamic RAMs
+       • +5.0 V Only Operation
+       • Easy Synchronization of Multiple SAM Systems
+                                                                                                                         PIN ASSIGNMENT
+       •   DMA Mode
+
+                                                                                                               1   LZ A11             vcc ZD 40
+                             SYSTEM BLOCK DIAGRAM                                                              2 LZ A10               A12 Z2 39
+
+                                                  Device Selects
+                                                                                                               3CZ A9                 A13 Z3 38
+                                                                                                               4CZ A8                 A14 Z3 37
+                                      j£                                       TV Display Section
+                                                                                                               5C OsC| n              A15 Zl 36
+                                                                                  is   Optional                6C Oscout               Z7 ZD 35<RAS1)
+                                      XEZ                                 »|cik
+                                                                                                               7 rz: VCIk              Z6 Zl 34
+                                                                                                               8CZ DAO                 Z5 ZD 33
+                                                                          -jDAO                                9C HS                   Z4 ZD 32
+<^                                    SN74LS783/
+                                        MC6883
+                                          SAM                             -]hs
+                                                                                   '                       10 cz WE                    Z3 Z] 31
+                       R/W                                 - 14 MHz                                        11      cz CAS              Z2 ZJ 30
+                         E                                         Data                                    12 CZ RASO                  Z1 ZD 29
+
+ To                     Q                                                                                  13 CZ Q                     zo Z] 28
+                                      Z0-Z7       CAS
+ROMs                                                                       L                          J    14 CZ E                     so ZJ 27
+and
+ I/O
+             MC6809E
+              MPU
+                                      iSJI=                 SN74LS273J]    ["
+                                                                                3z::
+                                                                                   MC 1372            ~!
+                                                                                                           15 CZ R/W                   S1 Zl 26
+                                              R"AS"   WE                                                   16 rz: A0                   S2 ZD 25
+                                                                           j
+                                                                                  or RGB Ckt.          j
+
+
+
+                                       DYNAMIC                                                             17 CZ A1                   A7 ZD 24
+
+<=                           "7"? >
+                                          RAM
+                                       4K, 8K. 16K
+                                       32K or 64K
+                                                           Data)           I
+
+
+
+
+                                                                                  COLOR
+                                                                                        *
+
+
+                                                                                              O
+                                                                                                       1
+                                                                                                           18 CZ A2
+                                                                                                           19 CZ A3
+                                                                                                                                      A6 Z3 23
+                                                                                                                                      A5 Zl 22
+                                         BYTES                                   (OR B/W)
+                                                                                       TV
+                                                                                                  o    I
+                                                                                                           20 CZ Gnd                  A4 Zl 21
+
+
+
+
+                                                                          4-630
+SN74LS783-MC6883
+
+
+
+
+ MAXIMUM RATINGS (TA = 25°C unless otherwise noted.)
+                            Rating                       Symbol             Value         Unit
+ Power Supply Voltage                                        vcc     -0.5 to +7.0         Vdc
+ Input Voltage (Except Osc| n         )                       V|          -0.5 to 10      Vdc
+ Input Current (Except Osq n          )                        ll     -30 to +5.0         mA
+ Output Voltage                                              vo      -0.5 to +7.0         Vdc
+ Operating Ambient Temperature Range                         ta             to   +70       °C
+
+ Storage Temperature Range                                   T stg   -65 to +150           °c
+
+ Input Voltage Osc| n                                    V|Osc, n     -0.5 to Vcc         Vdc
+ Input Current Osc| n                                    'lOscin     -0.5 to +5.0         mA
+
+ RECOMMENDED OPERATING CONDITIONS
+                            Rating                       Symbol            Value          Unit
+ Power Supply Voltage                                        vcc      4.75 to 5.25        Vdc
+ Operating Ambient Temperature Range                         ta             to   +70       °C
+
+
+ DC CHARACTERISTICS (Unless otherwise noted specifications apply over recommended power supply and
+                                      temperature ranges.)
+                                 Characteristic                                  Symbol         Min      Typ   Max    Units
+ Input Voltage — High Logic State                                                 V|H            2.0     —      —      V
+ Input Voltage — Low Logic State                                                  V|L            —       —     0.8     V
+ Input Clamp Voltage                                                              V|K       •    —       —     -1.5    V
+   (Vqc - Win,       lj
+                          n =   -18 mA) All Inputs Except Osc| n
+ Input Current   —
+                 High Logic State at Max Input Voltage                              ll                                 HA
+   (V Cc = Max, V in = 5.25 V) VCIk Input                                                                      200
+   (Vcc = M ax. Vj n = 5.25 V) DA0 Input                                                         -       -     100
+   (V C c = Max, Vj n = 5.25 V) Oscout '"P"*                                                                   250
+   (Vcc = Max, Vj n = 7.0 V) All Other Inputs Except Osq n                                                     100
+ Input Current High Logic State                                                    l|H                                 »tA
+                                                                      *
+   (Vcc = Max, Vjn = 2.7 V) All Inputs Except VCIk, Osq n                                                      20
+ Input Current   —Low Logic State                                                  "IL                                mA
+   (V C C = Max, Vjn = 0.4 V) DA0 Input                                                          -             -1.2
+   (Vcc = Max, Vjn = 0.4 V) VCIk Input                                                                   -30   -60
+   (Vcc = Max, Vj n = 0.4 V, Osc| n = Gnd) OscQut Input                                                        -8
+   (Vcc = Max, Vj n = 0.4 V) All Other Inputs Except Osc| n                                                    -.4
+ Output Voltage      — High Logic State                                                                                V
+       = Min, Iqh = -10 mA) RAS0, RAS1, CAS, WE
+  (V C c                                                                         VOH(C)         3.0             -
+  (Vcc = Min 'OH = -0.2 mA) E, Q
+                 '                                                               VOH(E)   V C C " 0.75   ~
+  (Vcc = Min 'OH = -0.2 mA) All Other Outputs
+                 »                                                                VOH           2.7
+
+ Output Voltage      — Low Logic State                                                                                 V
+       = Min, Iql = 8.0 mA) RAS0, RAS1, CAS, WE
+  (V C c                                                                         VOL(C)                        0.5
+  (Vcc = Min, Iol = 4 -0 mA) E, Q Outputs                                        VOL(E)                  -     0.5
+  (Vcc = Min, Iol = 0.8 mA) VCIk Output                                          VOL(V)          -             0.6
+  (Vcc = Min, Iql = 4 -0 mA) All Other Outputs                                    vol                          0.5
+
+ Power Supply Current                                                             ice            —       180   230    mA
+ Output Short-Circuit Current                                                     IQS            30      -     225    mA
+ 'Including OscQut (when Osq n is grounded).
+
+
+
+
+                                                                     4-631
+SN74LS783*MC6883
+
+
+
+
+  AC CHARACTERISTICS (4.75 V*sVcc*5.25 V and 0=sTA ^70°C, unless otherwise n(Dted).
+                             Characteristic                                            Symbol         Min     Typ        Max      Units
+  Propagation Delay Times                                                                                                           ns
+    (See Circuit in Figure 9) Oscillator-ln "X. to Oscillator-Out>T td(OL-OH)                             -   3.0        -
+                              Oscillator-ln JT to Oscillator-Out^- td(OH-OL)                                  20
+     (Cl = 195 pF) AO thru A15 to ZO, Z1, Z2 thru Z7                                   td(A-Z)            —   28         —
+     (Cl = 30 pF) AO thru A15, R/W to SO, S1, S3                                       td(A-S)                18
+
+     (Cl = 95 pF) Oscillator-Out "X. to RASO _rf~                                    td(OL-ROH)               20
+     (Cl = 95 pF) Oscillator-Out "Xto RASO "X                                        td(OL-ROL)                18
+
+     (Cl = 95 pF) Oscillator-Out X.to RAS1 JT                                        td(OL-R1H)               22
+     (Cl = 95 pF) Oscillator-Out ~^to RAS1 "X.                                       td(OL-R1L).              20
+
+     (Cl = 195 pF) Oscillator-Out "X. to CAS JT                                      td (OL-CH)               20
+     (Cl = 195 pF) Oscillator-Out "V to CAS "X                                       td(OL-CL)                20
+     (Cl = 195 pF) Oscillator-Out"^ to WE              JT                            td(OL-WH)                22         —
+     (Cl = 195 pF) Oscillator-Out ~*L to WE            "X                            td(OL-WL)                40
+     (Cl = 100 pF) Oscillator-Out "Xto E JT                                          td(OL-EH)                55     *   —
+     (Cl = 100 pF) Oscillator-Out ~^to E X.                                          td(OL-EL)                25
+     (Cl = 100 pF) Oscillator-Out X. to       Q-f                                    td(OL-QH)        —       55         —
+     (C|_« = 100 pF) Oscillator-Out "Xto Q "X                                        td(OL-QL)                25
+
+     (Cl = 30 pF) Oscillator-Out JT to VCIk jT                                       td(OH-VH)                50         —
+     (Cl = 30 pF) Oscillator-Out jT to VCIk "X                                       td(OH-VL)                65
+
+     (Cl = 195 pF) Oscillator-Out ~<_ to Row Address                                 td(OL-AR)                36         —
+     (Cl = 195 pF) Oscillator-Out "Xto Column Address                                td(OL-AC)                33
+
+     (Cl = 15 pF) Oscillator-Out "Xto DAO _*" Earliest 0)                            td(OL-DH)        —       -15
+     (Cl = 15 pF) Oscillator-Out "X to DAO _rf~ Latest! 1)                           td(OL-DH)                + 15
+     (Cl = 95 pF on RAS, C|_ = 195 pFon CAS) CAS "Xto RAS JT                         td(CL-RH)        —       208        —
+  Setup Time for A0 thru A15, R/W                             Rate =       +•   16      tsu(A)        —       28         —         ns
+                                                              Rate =       h-    8                            28
+  Hold Time for A0 thru A15, R/W                              Rate = -16                 l
+                                                                                             h(A)
+                                                                                                      —       30                   ns
+                                                              Rate = + 8                                      30
+  Width of HS Low 2                                                                   *wL(HS)         2.0     5.0        6.0       u.s
+
+
+
+ Notes: 1. When using the SAM with an MC6847, the rising edge of DAO is confined within the range shown in the timing diagrams (unless the
+           synchronizing process is incomplete.) The synchronization process requires a maximum of 32 cycles of Oscrjut for completion.
+        2- tWL(HS) wider than 6.0 fis may yield more than 8 sequential refresh addresses.
+
+
+
+
+                                               FIGURE 1        — PROPAGATION DELAY TIMES
+                                                                   VERSUS LOAD CAPACITANCE
+                                         40
+
+
+
+                                    1 30
+                                                              td(OL-RIL)
+                                    2
+                                    £ 20                    iJ-H
+                                              &- ^ \fr
+                                    2                                                s'd(0L -CL)
+                                              _^
+                                                               (OL-ROL)
+                                    | 10
+                                    <
+                                    2         ,
+
+                                    2
+                                    a.
+                                         o
+
+
+
+
+                                                  50    100               200                300    400
+
+                                                                  Cl, LOAD CAPACITANCE (pF)
+
+
+
+
+                                                                           4-632
+SN74LS783-MC6883
+
+
+
+
+                                                                     PIN DESCRIPTION TABLE
+                   Name          No.                                                      Function
+           9                                Apply + 5 volts ± 5%. SAM draws less than 230 mA.
+           *       vcc            40
+                   Gnd            20    I   Return Ground for +5 volts.
+       a.
+
+                   A15            36        Most Significant Bit.
+                   A14            37
+                   A13            38          MPU address bits A0-A15. These 16 signals come directly from the MPU and are used to
+           o       A12            39          directly address   up to 64K memory locations or to indirectly address up to 96K memory
+                   A11             1          locations. (See pages 17 and 18 for memory maps). Each input is approximately equivalent
+           o       A10             2.         to one low power Schottky load.
+       u           A9              3
+           e       A8              4
+           «»      A7             24
+           •       A6             23
+ m     5
+ c                 A5             22
+ £     <           A4             21
+ 3     D           A3             19
+ a     a.
+                   A2             18
+ c     2
+                   A1             17
+                   AO             16        Least Significant Bit.
+
+                   R/W            15        MPU READ or WRITE. This signal comes directly from the MPU and is used to enable writing
+                                             to the SAM control register, dynamic RAM (via WE), and to enable device select #0.
+
+                   Osc| n          5        Apply 14.31818* MHz crystal and 2.5-30 pF trimmer to ground. See page 12.
+                   DAO             8        Display Address DAO. The primary function of this pin is to input the least significant bit of a
+                                              16-bit video display address. The more significant 15-bits are outputs from an internal 15-bit
+                                              counter which is clocked by DAO. The secondary function of this pin is to indirectly input the
+                                              logic level of the VDG "FS" (field synchronization pulse) for vertical video address updating.
+
+      9    HS                      9        Horizontal Synchronization. The primary function of this pin is to detect the falling edge of
+      > co                                    VDG "HS" pulse in order to initiate eight dynamic RAM refresh cycles. The secondary function
+        u
+                                              is to reset up to 4 least significant bits of the internal video address counter.
+
+                   VCIk            7        VDG Clock. The primary function of this pin is to output a 3.579545 MHz square wave** to the
+                                              VDG "Clk" pin. The secondary function resets the SAM when this VCIk pin is pulled to logic
+                                              "0" level, acting as an input.
+
+                   OscQut          6        Apply 1.5 kfi resistor to 14.31818* MHz crystal and 33 pF capacitor to ground. See page 12.
+                   S2             25        Most Significant Bit (Device Select Bits). The binary value of S2, S1, SO selects one of eight
+      ° o          S1             26          "chunks" of MPU address space (numbers through 7). Varying in length, these "chunks"
+                                              provide efficient memory mapping for ROMs, RAMs, Input/Output devices, and MPU Vectors.
+      j*    (Pi
+      Q (0                                    (Requires 74LS 138-type demultiplexer).
+                   SO             27        Least Significant Bit.
+
+      —            E              14        E (Enable Clock) "E" and "Q" are 90° out of phase and are both used as MPU clocks for the
+      3 *2                                    MC6809E. For the MC6800 and MC6801E, only "E" is used. "E" is also used for many MC6800
+      * 2
+      5-2                                     peripheral chips.
+ 40
+ c      o
+                   Q              13        Q (Quadrature Clock).
+ 3                 Z7t            35        Most Significant Bit
+ a                 Z6t            34          First, the least significant address bits from   the MPU or "VDG" are presented to Z0-Z5 (4K
+ 3
+ O _ *i     •»     Z5t            33          x   RAMs) or Z0-Z6 (16K x 1 RAMs) or Z0-Z7 (64K x 1 RAMs). Next, the most significant
+                                                  1
+
+   <               Z4t            32          address bits from the MPU or "VDG" are presented to Z0-Z5 (4K x 1 RAMs) or Z0-Z6
+           -is,
+      s si         Z3t            31          (16K x 1 RAMs) or Z0 -Z7 (64K x 1 RAMs). Note that for 4K x 1 and 16K x 1 RAMs, Z7 (Pin
+           <,      Z2t            30          35) is not needed for address information. Therefore, Pin 35 is used for a second row
+                   Z1t            29          address select which is labeled (RAS1).
+                   ZOt            28        Least Significant Bit.
+
+                   RASIt          35        Row Address Strobe One. This pulse strobes the least significant 6,7 or 8 address bits into
+            _                                dynamic RAMs in Bank #1.
+      ss           RASOt          12        Row Address Strobe Zero. This pulse strobes the least significant 6,7 or 8 address bits into
+      < c                                    dynamic RAMs in Bank #0.
+      c o
+           u CASt                 11        Column Address Strobe. This pulse strobes the most significant 6,7 or 8 address bits into
+                                              dynamic RAMs.
+                   WEt            10        Write Enable. When low, this pulse enables the MPU to write into dynamic RAM.
+
+
+                   *14.31818 MHz is 4 times 3.579545 MHz television color subcarrier. Other frequencies may be used. (See page 12.)
+                  ••When VDG and SAM are not yet synchronized the "square wave" will stretch (see page 10.)
+                  t Due to fast transitions, ferrite beads in series with these outputs may be necessary to avoid high frequency (» 60 MHz) resonances.
+
+
+
+
+                                                                          4-633
+SN74LS783*MC6883
+
+
+
+
+      o
+      -I
+      CO
+      II
+
+
+
+
+      3
+      2
+
+      <0
+      2
+
+      >
+      <
+
+
+      2
+
+
+
+      3
+
+
+
+
+                   4-634
+SN74LS783»MC6883
+
+
+
+
+                                                                         !                f               f           ft TT             TT                      TT              ft                    T T
+           S>|
+                                  L
+                                  TO
+                                           H
+                                           TO
+                                                                                                                          II                              3fc*
+                                  H        L                                                                                                                                                                    I
+                                                                                                                                                            i                                                   d
+                                  FROM     FROM                                                                                                                                                                     Q
+                                                                                                                                                           Q                                                    5   X
+
+                                                                                          y
+                                                        UNKNOWN
+                          VALID
+
+
+
+
+                                                                                                                                                                                s
+                                                                                                                                                                                                                T
+                                  CHANGE   CHANGE
+                                                                                                                                                                                        >1
+
+                          BE
+
+                 OUTPUT
+
+                                                        STATE
+                          WILL    WILL     WILL
+
+
+
+
+                                                                                                                                                                    I
+
+
+
+
+                                                                                                                                                                    1
+
+
+
+                                                                                                                                                                i   1
+
+                                  L        H                                  9   '
+
+
+
+                                                        PERMITTED
+
+
+                                  TO       TO
+                                  H        L
+                                                                                                                                   d s
+                          VALID
+
+
+                                  FROM     FROM
+                                                                                                                                   ?3
+                                                        HANGE
+
+
+
+                                                                                                          J
+                              in \
+                          BE               QE
+                                  GE
+                                                                                                                                                                                                                                          s
+                                                                                                                                    4
+                                                                                                                                                                                                                                         o«
+                 i        i
+
+
+                                                                                                                                                                                             d a                        j=i •
+                                                                                                                                                                                             5 d                        -?2 s
+                                                                         I                                                                                                                   1
+                                                                                                                                         |
+                                                                                                                                                                                                                =       !M
+                                                                                                                                                                                                                       -  ° "
+                 i
+                 8                                                                                                                                                                                              n
+                                                                                                                                                                                                                d -
+
+                                                                                                                                                                                                                ill
+                                                                                                                                                                                                                    *=.=
+                                                                                                                                                                                                                    .fis
+                 2                                                                            1
+                  z                                                                                                                                                                                                                       use           pro
+                                                                                                                                                                                                                         to
+                                                                                                                                             d             O
+                                                                                                                                                                                                                                         is
+                                                                                                                                   |                                        d c d
+
+                                                                                                                                                                            UL
+                                                                                                                                                                                                                        "OscQut"
+
+
+                                                                                                                                                                                                                                         address
+
+
+
+
+                                                                                                                                                                !!
+                                                                                                                                                                                                                                                     synchronization
+                                                                                                                                                                                                                                                                       tF.
+
+
+      3                                                                                                                                                                                                                 of                                               or
+
+                                                                                                                                                                                                                                         VDG
+
+
+
+
+                                                                                                          \
+                                                                                                                      J|                                        i
+
+
+
+
+                                                                                                                                                                :
+                                                                                                                                                                    i                        i       AVOH(C)
+                                                                                                                                                                                                                        cycles
+
+
+
+
+                                                                                                                                                                                                                        8
+                                                                                                                                                                                                                                          a
+                                                                                                                                                                                                                                         for
+                                                                                                                                                                                                                                                     the               t2
+
+                                                                                                                                                                                                                                                                       t1.
+
+                                                                                                                                                                                                                                         used
+           I
+      5    Z
+                                                                                                                                                                                                                                                     unless
+                                                                                                                                                                                                                                                                       tO,
+
+
+
+
+                                                                                                                               U 4r
+      oc                                                                                                                                                                                                                (specifically,                                 of
+           X
+      o
+      u.                                                                                                                                                                                                                                 otherwise
+
+
+
+                                                                                                                                                                                                                                                     "OscQut"
+
+
+
+      >    o
+      <                                                                                                                                                     t
+                                                                                                                                                                            i
+                                                                                                                                                                                                                                                                       nanoseconds
+
+
+
+
+                                                                                                                                                                                    i                                                    slot
+                                                                                                                                                                                                                                                     of
+                                                                                      a   £                       ;                                                                                                     elsewhere
+
+
+
+
+      a                                                                                                                                                                     ? I.'            O                                                       that
+
+      z
+                                                                                                                      h-
+                                                                                                                                                                                                                                         time
+
+
+
+
+                                                                        i     1
+                                                                                      k                               J
+                                                                                                                          i,
+
+
+
+                                                                                                                                                                                             1           ....
+                                                                                                                                                                                                                        defined
+
+
+
+
+                                                                                                                                                                                                                           are
+                                                                                                                                                                                                                                         the
+
+
+
+
+                                                                                                                                                                                                                                         mode,
+                                                                                                                                                                                                                                                     times
+
+
+
+
+                                                                                                                                                                                                                                                     four
+                                                                                                                                                                                                                                                                       d(OH-VH)
+
+
+
+
+                                                                                                                                                                                                                                                                       l
+
+                                                                                                                                                 I                                                                                                    is
+                                                                                                                                                                                                                                                                       within
+
+
+
+                                                                                                                                                 •>                                                                     "*"
+
+
+
+
+      c                                                                                           c
+                                                                                                                                                 5
+                                                                                                                                                                                                                                         rate"
+
+                                                                                                                                                                                                                                                     "VCIk"
+                                                                                                                                                                                                                                                                       rise
+                                                                                                                                                                    2                            3
+
+      a
+                                                                                                                                                                                                                        with
+
+                                                                                                  c
+                                                                                                                                                                                                                                         MPU
+
+                                                                                                              o                                                                                                                                      of                  may
+
+                                                                                              j                                                                                                                         marked
+                                                                                                                                                                                                                                         "fast
+
+                                                                                                                                                                                                                                                     period            VCIk
+                                                                                                                                                                    |
+                                                                                                  t
+                                                                                                                                                                    >
+
+                                                                                                                                                                                                                                         the
+                                                                                                                                                                    i                                                   points
+                                                                                                                                                                                                                                                                       Also.
+                                                                                                                                                                                                                                                     The
+                                                                                                                                                      >                                                  ,..,
+
+                                                                                                                                                                                                                                         In
+                                                                                                                                                      o             !
+                                                                                                                                                                                                                                         1: 2:
+                                                                                                                                                                                                     i
+                                                                                                                                                                                                                        'Timing
+
+                                                                                                                                                 Ji                                                                                      Notes
+
+
+                                                                                                                                                            ,
+                                                                                                                                                          u °           d
+
+
+                                                    !               o
+                                                                                      i
+                                                                                          4           )
+                                                                                                                                                 "Tl       o
+
+                                                                        -if           o
+                                                                                                                                             o
+                                                                                                                                                                    i
+                                                                                                                                                                                J
+                                                                                                                          <    i
+
+                                                                                                      !           L       5    O
+
+
+                                                                         >                                                                   I                      i
+
+
+                                                                                                                      I'ki'i °                                      >
+
+                                                    1"                                                                                                              i
+
+
+
+
+           "                                                                                                                                                        !
+
+
+                                                                                                                                                                                                     1
+                                                                                                                                                 i                  l\          111                    BS
+
+
+
+
+                                                                                                          4-635
+SN74LS783*MC6883
+
+
+
+                                                                FIGURE 4   - SAM BLOCK DIAGRAM
+                            S2   S1      SO
+                            n n n
+
+
+
+
+ VP   IR
+                                          LI Li LU LI LJ LI
+                                      RA81/27   Z6   ZB   Z4   Z3   Z2
+                                                                         U  LJ
+                                                                         Z1 ZO
+                                                                                             U U u
+,HR       IER.                                                                              RA80   CA8   WE
+8m Taxt   .   ,   .   Pag* 6.
+
+
+
+
+                                                                             4-636
+SN74LS783*MC6883
+
+
+                                              SAM BLOCK DIAGRAM DESCRIPTION
+MPU Addresses (AO - A15):
+     These 16 signals come directly from the MPU and are used to directly address up to 64K memory locations
+(K = 1024) or to indirectly address up to 96K memory locations, by using a paging bit "P" (see pages 17 and
+18 for memory maps.) Each input is approximately equivalent to one low power Schottky load.
+
+VDG Address Counter (BO - B15):
+  These 16 signals are derived from one input (DAO) which is the least significant bit of the VDG address. Most
+of the counter  is simply binary. However, to duplicate the various addressing modes of the MC6847 VDG,
+ADDRESS MODIFIER logic is used. Selected by three VDG mode bits (V2, V1, and VO) from the SAM CONTROL
+REGISTER, eight address modifications are obtained as shown in Figure 5.
+  Also, notice that bits B9-B15 may be loaded from bits F0-F6 from the CONTROL REGISTER. This allows the
+starting address of the VDG display to be offset (in ViK increments) from $0000 to $FFFFt B9-B15 are loaded        .
+
+
+
+
+when a VERTICAL PRE-LOAD(VP) pulse is generated. VP goes active (high) when HS from the VDG rises if DAO
+is high (or a high impedance.) This condition should occur only while the TV electron beam is in vertical
+
+blanking and is simply implemented by connecting FS and MS together on the MC6847. The VP pulse also
+clears bits B1 - B8.
+  Finally, a HORIZONTAL RESET (HR) pulse may also affect the counter by clearing bits B1 - B3 or B1 - B4
+when HS from the VDG is LOW (see Figure 5.) The HR pulse should occur only while the TV electron beam is
+in horizontal blanking.
+     summary, DAO clocks the VDG ADDRESS COUNTER; HR initializes the horizontal portion and VP initializes
+     In
+the vertical portion of the VDG ADDRESS COUNTER.
+
+REFresh Address Counter (CO - C6):
+  A seven bit binary counter with outputs labeled CO - C6 supplies bursts of eight* sequential addresses
+triggered by a HS high to low transition. Thus, while the TV electron beam is in horizontal blanking, eight
+sequential addresses are accessed. Likewise, the next eight addresses are accessed during the next horizontal
+blanking period, etc. In this manner, all 128 addresses are refreshed in less than 1.1 milliseconds.
+
+Address Multiplexer:
+  Occupying a large portion of the block diagram in Figure 4, is the address multiplexer which outputs bits
+Z0-Z7 (as addresses to dynamic RAM's.) Inputs to the address multiplexer include the VDG address (BO - B15)
+the REFresh address (CO- C6) and the MPU address (AO - A15) or (AO - A14 plus one paging bit "P".) The paging
+bit "P" is one bit in the SAM CONTROL REGISTER that is used in place of A15 when memory map TYpe #0 is
+selected (via the SAM CONTROL REGISTER "TY" bit.)
+  Figure 6 shows which nputs are routed to Z0 - Z7 and when the routing occurs relative to one SAM machine
+                                  i
+
+
+
+
+cycle. Notice that Z7 and RAS1 share the same pin. Z7 is selected if "M1" in the SAM CONTROL REGISTER IS
+HIGH (Memory size = 64K.)
+Address Decode:
+  At the top left of Figure 4, is the Address Decode block. Outputs S2, S1, and SO form a three bit encoded
+binary word(S). Thus S may be one of eight values (0 through 7) with each value representing a different range
+of MPU addresses. (To enable peripheral ROM's or I/O, decode the S2, S1, and SO bits into eight seperate
+signals by using a 74LS138, 74LS155 or 74LS156. Notice that S2, S1, and SO are not gated with any timing
+signals such as E or Q.)
+  Along with the A5 - A15 inputs is the MEMORY MAP TYpe bit (TY.) This bit is soft-programmable (as are all
+16 bits in the SAM CONTROL REGISTER,) and selects one of two memory maps. Memory map #0 is intended
+to be used in systems that are primarily ROM based. Whereas, memory map #1 is intended for a primarily
+RAM based system with 64K contiguous RAM locations (minus 256 locations.) The various meanings of S2, S1,
+SO are tabulated in Figure 16 (page 19) and again on pages 17 and 18.
+_ In addition to S2, S1, and SO outputs is a decode of $FFCO through $FFDF which, when gated with E and
+R/W, results in the write strobe for the SAM CONTROL REGISTER.
+
+SAM Control Register
+     As shown in Figure 4, the CONTROL REGISTER has 16 "outputs":
+       VDG Addressing Modes:      V2, V1, V0               MPU Rate:                                            R1, R0
+          VDG Address Offset:                 F6, F5, F4, F3, F2, F1, F0           Memory Size (RAM):           M1, M0
+          32K Page Switch:                    P                                    Memory Map TYpe:             TY
+  When the SAM is reset (see page 10,) all 16 bits are cleared. To set any one of these 16 bits, the MPU simply
+writes to a unique** odd address (within $FFC1 through $FFDF.) To clear any one of these 16 bits, the MPU
+   *   HS is held low longer than 8 p.s, then the number of sequential addresses in one refresh "BURST" is proportional to the time interval
+          If
+
+     during which HS is low.
+     ** See pages 17 or 18 for specific addresses.
+      t In this document, the "$" symbol always proceeds hexidecimal characters.
+                                                                                                                                               8
+
+
+
+                                                                   4-637
+SN74LS783»MC6883
+
+
+ simply writes to a unique** even address (within $FFCO through $FFDE.) Note that the data on the MPU data
+ bus is irrevelant.
+   Inputs to the control register include A4, A3, A2, A1 (which are. used to select which one of 16 bits is to be
+ cleared or set), AO (which determines the polarity       clear or set,) and R/W, E and $FFCO - $FFDF (which
+                                                                               .   .   .
+
+
+
+ restrict the method, timing and addresses for changing one of the 16 bits.) For more detailed descriptions of
+ the purposes of the 16 control bits, refer to related sections in the BLOCK DIAGRAM DESCRIPTION (pages 8
+ through 12) and the PROGRAMMING GUIDE (pages 14 through 18).
+   •* See pages 17 or 18 for specific addresses.
+
+
+
+
+ FIGURE 5 — VDG ADDRESS MODIFIER
+                Mode                Division Variables                Bits Cleared by HS (low)
+
+    V2            V1       VO           X             Y
+                                        1            12          B1-B4
+                           1            3              1         B1-B3
+                   1                    1              3         B1-B4
+                   1       1            2              1         B1-B3
+       1                                1              2         B1-B4
+       1                   1            1              1         B1-B3
+       1           1                    1              1         B1-B4
+       1           1       1            1              1         None (DMA MODE)
+
+
+ FIGURE 6 — SIGNAL ROUTING for ADDRESS MULTIPLEXER
+           Memory Size                             Row/Column                                    Signals Routed to Z0-Z7
+                                      Signal                                                                                                       Timing
+                M1 MO                Source                              Z7                Z6     Z5     Z4     Z3      Z2        Z1       ZO     (Figure 2)
+
+
+  4K                                  MPU           ROW                   *
+                                                                                           A6     A5    A4     A3       A2       A1       A0        T7-TA
+                                                                          #
+                                                    COL                                *
+                                                                                            L    A11    A10    A9       A8       A7       A6        TA-TF
+                                      VDG           ROW                   »
+                                                                                           B6     B5    B4     B3       B2       B1       B0        TF-T2
+                                                    COL                   *
+                                                                                            L     B11   B10    B9       B8       B7       B6        T2-T7
+                                      REF           ROW                   *
+                                                                                           C6     C5    C4     C3       C2       C1       CO        TF-T2
+                                                                          *
+                                                    COL                                     L      L     L      L        L        L        L        T2-T7
+
+
+  16K                           1     MPU           ROW                   *
+                                                                                           A6    A5     A4     A3       A2       A1       A0        T7-TA
+                                                                          *
+                                                    COL                                    A13   A12    A11    A10     A9        A8       A7        TA-TF
+                                      VDG           ROW                   *                B6     B5    B4     B3       B2       B1       B0        TF-T2
+                                                                          »
+                                                    COL                                    B13    B12   B11    B10      B9       B8       B7        T2-T7
+                                      REF           ROW                   *
+                                                                                           C6     C5    C4     C3       C2       C1       CO        TF-T2
+                                                                          #
+                                                    COL                                     L      L     L      L        L        L        L        T2-T7
+
+  64K (dynamic)                       MPU           ROW                 A7                 A6    A5     A4     A3      A2       A1        A0        T7-TA
+                                                    COL              P/A15***              A14   A13    A12    A11     A10      A9        A8        TA-TF
+                       1
+
+                                      VDG           ROW                  B7                B6    B5     B4     B3       B2       B1       B0        TF-T2
+                                                    COL                  B15               B14   B13    B12    B11      B10      B9       B8        T2-T7
+                                      REF           ROW                   L                C6    C5     C4     C3      C2        C1       CO        TF-T2
+                                                    COL                   L                 L      L     L      L        L        L        L        T2-T7
+
+  64K (static)                        MPU           ROW                 A7                 A6    A5     A4     A3      A2       A1       A0         T7-T9
+                       1        1
+                                                    COL              P/A15»»*              A14   A13    A12    A11     A10      A9       A8         T9-TF
+                                      VDG           ROW                 B7                 B6    B5     B4     B3      B2        B1       B0        TF-T1
+                                                    COL                 B15                B14   B13    B12    B11     B10       B9       B8       T1-T7
+                                      REF           ROW                   L                C6    C5     C4     C3      C2       C1        CO       TF-T1
+                                                    COL                   L                 L     L      L      L        L        L        L       T1-T7
+
+           :
+               1" ImpHet logical LOW level.
+               •27 functions at RA81 and Hs level is address dependent. For example, when using two banks of 16K x 1 RAMs, RA§6 is active for addresses
+               $0000 to I3FFF and &A§1 is active for addresses $4000 to $7FFF.
+               —If Map Type - 0. then page bit "P" is the output (otherwise A15).
+
+
+
+
+                                                                              4-638
+SN74LS783«MC6883
+
+
+
+
+ Internal Reset
+   By lowering Vqq below 0.6 volts for at least one millisecond, a complete SAM reset is initiated and is
+ completed within 500 nanoseconds after Vcc rises above 4.25 volts.
+     NOTE: In some applications, (for example, multiple "VDG-RAM" systems controlled by a single MPU)
+              multiple SAM ICs can be synchronized as follows:
+                  • Drive all SAM's from one external oscillator.
+                  • Stop external oscillator.
+                  • Lower Vqq below 0.6 volts for at least 1.0 millisecond.
+                  • Raise Vcc to 5.0 volts.
+                  • Start external oscillator.
+                  • Wait at least 500 nanoseconds.
+              Now, the "E" clocks from all SAM's should be in-phase.
+ External Reset
+  When the VCIk pin on SAM is forced below 0.8 volts for at least eight cycles of "oscillator-out", the SAM
+beco mes partially reset. That is, all bits in the SAM control register are cleared. However, signals such as RAS,
+CAS, WE, E or Q are not stopped (as they are with an internal reset), since the SAM must maintain dynamic
+RAM refresh even during this external reset period.
+  Figure 7 shows how VCIk can be pulled low through diode D1 when node "A" is low.* When node "A" is
+high, only the backbiased capacitance of diode D1 loads the 3.58 MHz on VCIk. Diode D2 helps discharge C1
+(Power-on-Reset capacitor) when power is turned off. Diode D3 allows the MPU reset time constant R2C2 to
+be greater than the SAM reset time constant. Thereby, ensuring release of the SAM reset prior to attempting
+to program the      SAM control register.
+
+                                             FIGURE 7    — EXTERNAL RESET CIRCUITRY
+                                                                                              h5.0 V
+                                                                                                Q
+
+
+
+                       100 kn:
+                                            1                                     D3
+                                                                                                > 100 kn
+                                                                                                <R2
+                               "              —                    ?              14
+                  Manual |6  °               _L 0.1 ^F          *T     D1                           .1.0 u.F
+                  System
+                   Reset ',i rt              T    C1
+                                                                 M*
+                                                                                                    'C2
+                   Switch-
+                              I
+
+                                                               MC6883               MC6847                MC6809E
+
+ VDG Synchronization
+                VDG and MPU to share the same dynamic RAM (see page 13,) the VDG clock must be stopped
+  In order for the
+        VDG data fetch and MPU data fetch are synchronized as shown in Figure 12. Once synchronized, the
+until the
+VDG clock resumes its 3.579545 MHz rate and is not stopped again unless an extreme temperature change (or
+SAM reset) occurs. When stopped, the VDG clock remains stopped for no more than 32 OscQut cycles (ap-
+proximately 2 microseconds.)
+  In the block diagram in Figure 4, DA0 e nters a block labeled VDG Timing Error Detector. If DA0 rises between
+time reference points** ta and tq, then Error is high and VCIk is the result of divi ding BOSC (Buffered OscQut
+* 14 MHz) by four. However, if DA0 rises outside the time Window ta to tq, then Error goes LOW and the VDG
+stops. A START pulse at time reference point ig (center of Window) restarts the VDG       properly synchronized.
+                                                                                                          .   .   .
+
+
+
+
+   •Use a diode with sufficiently low forward voltage drop to meet V|L requirement at VCIk.
+
+  **See timing diagrams on page 5 and 6.
+
+
+
+                                                                                                                      10
+
+
+
+                                                                 4-639
+SN74LS783*MC6883
+
+
+
+
+ Changing the MPU Rate (by changing SAM control register bits RO, R1).
+  Two bits in the SAM control register determine the period of both "E" and "Q" MPU clocks. Three rate modes
+ are implemented as follows:
+
+  RATE MODE R1         RO
+  SLOW                                 The frequency of "E" (and "Q") is f crystal   16. This rate mode is automatically selected when
+                                                                                                -5-
+
+
+
+                                       the SAM is reset. Note that system timing is least critical in this "SLOW" rate mode.
+
+  A.D.                    1            The frequency of "E" (and "Q") is either f crystal h- 16 or f crystal + 8, depending on the address
+  (Address Dependent)                  the MPU is presenting.
+
+
+  FAST             1      X            The frequency of "E" (and "Q") is f crystal * 8. This is accomplished by stealing the time that
+                                       is normally used for VDG/REFRESH, and using this time for the MPU. Note: Neither VDG display
+
+                                       nor dynamic RAM refresh are available in the "FAST" rate mode. (Both are available in SLOW
+                                       and A.D. rate modes).
+
+
+   When changing between any two of the three rate modes, the following procedures must be followed to
+ ensure that MPU timing specifications are met:
+
+
+  RATE MODE
+  SLOW
+  A.D.
+
+  FAST
+                       ^      Set RO
+
+
+
+
+                                                                  *
+                                                                       Set R1             P
+                                                                                     p ^-Sequence #1
+                                                                                              (See Below)
+                                                                                                               ^
+                                                                                                                            This direct path is
+                                                                                                                       not allowed except by
+
+                                                                                                               "V-Set R1.
+                                                                                                                                                   j
+
+
+                                                                                                                                  hardware reset. -J
+                                                                                                                                                  i
+                                                                                                                                                       f
+
+
+
+
+                                                                                A-Se
+                                                                                   Set RO, then CLEAR R1           \
+                       May be ANY address                          from $0000 to $7FFF.
+SEQUENCE #1:           _^
+  7D 00 00 TST #$0000          .       .       .       Synchronizes STA instruction to write during T2-TG (See Figure #8).*
+  21  00       BRN 00
+   B7 FF D6    STA #$FFD6          .       .       .   Clears bit R0
+
+*Note: "TST" instruction affects MC6809E condition code register.
+
+
+
+Changing the MPU Rate (In Address Dependent Mode)
+  When the SAM control register bits "R1", and "R0" are programmed to "0" and "1", respectively, the
+Address Dependent Rate Mode is selected. In this mode, the + 16 MPU rate is automatically used when
+addressing within $0000 to $7FFF* or $FF00 to $FF1F ranges. Otherwise the + 8 MPU rate is automatically
+used. (Refer to Figure 8 for sample "E" and "Q" waveforms yielding + 8 to *• 16 and       16 to * 8 rate                    -f-
+
+
+
+changes). This mode often nearly doubles the MPU throughput while still providing transparent VDG and
+dynamic, RAM refresh functions. For example, since much of the MPU's time may be spent performing
+internal MPU functions (address = $FFFF)**, accessing ROM (address = $8000 to $FEFF) or accessing I/O
+(address = $FF20       —
+                      $FF5F), the faster f crystal *- 8 MPU rate may be used much of the time.
+
+Note: The VDG operates normally when using the SLOW or A.D. rate modes. However, in the FAST rate mode, the VDG is not allowed access to
+       the dynamic RAM.
+
+
+
+                                                            FIGURE 8   — RATE CHANGE E AND Q WAVEFORMS
+
+
+
+
+ "slow" address detected here                                                                   "fast" address detected here
+
+
+ *When using Memory Map 0, addresses $0000 to $7FFF may access Dynamic RAM.
+**The MC6809 outputs $FFFF on A0-A15 when no other valid addresses are being presented.
+
+
+
+
+                                                                                 4-640
+SN74LS783*MC6883
+
+
+
+
+ Oscillator
+                                    Osq n and Oscrjut provides the gain for oscillation (using a crystal as shown
+      In Figure 4, an amplifier between
+ in Figure 9.) Alternately, Pin 5 (Osq n may be grounded while Pin 6 (OscQut) mav De driven at low-power
+                                                                       )
+
+
+ Schottky levels as shown in Figure 10. Also, see Vjh, V||_ on page 2.
+
+
+
+                                                 tpH(Osc)          l
+                                                                                                                                   AC Specifications*
+          08CQut
+                   ~v1                          Tov
+                                           fiD.8V
+                                                                  \        -
+                                                                               .sv
+                                                                                                           tpH(Osc)
+                                                                                                                                 Max
+                                                                                                                                   —
+                                                                                                                                          Typ
+                                                                                                                                             30
+                                                                                                                                                      Mln
+                                                                                                                                                           22
+                                                                                                                                                                      Units
+                                                                                                                                                                       ns
+                      —   tpL(Osc)
+                          m        ]                                                                       t
+                                                                                                               D L(Osc)
+                                                                                                                                   —         30            22          ns
+                                 -t C yc(Osc)-
+                                                                                                           *cvc(Osc)
+                                                                                                                                   —         70        62.4            ns
+
+
+
+
+                                                                   FIGURE 9 — CRYSTAL OSCILLATOR
+
+
+
+                                                       ?•:*       OPTIONAL. DUT>                    ADJ.
+                                                                                                                            Suggested Component Values
+                                                              ,
+
+
+
+
+                                                                                                               Freq.
+                                                              -                ZZZ
+                                            l
+                                            3sc| n
+                                                        ? «•?
+                                                        ^>
+                                                          »-•                  7T" cv                          MHz         CV*         CF«   R1*    ??2*        «S*     X1
+            SAM                                                                                                           2.5-30       33    1.5
+          MC6883
+                       0<J    1            Oscout
+                                                       R1
+                                                     -VW-
+                                                                               T.
+                                                                                     X1                    14.31818
+
+
+                                                                                                           16.0000
+                                                                                                                            pF
+                                                                                                                          2.5-30
+                                                                                                                                       PF
+                                                                                                                                       33
+                                                                                                                                             kn
+                                                                                                                                             1.5
+                                                                                                                                                   ~ 100K
+
+                                                                                                                                                   - 100K
+                                                                                                                                                                10K
+
+
+                                                                                                                                                                10K
+                                                                                                                                                                            *
+
+
+
+                                                                                                                                                                            *
+                                           6
+                                                                               i
+                                                                                     CF           ^                         PF         PF    kn
+
+
+
+
+               Recommended Crystal Parameters
+                14.31818 MHz**       16.0000 MHz**
+
+  Rs               10 n ± 2.0 ft                        10 ft ± 2.0 ft
+
+  CO             5.0 pF   ±   1.5 pF                   6.0 pF ± 1.0 pF
+
+  C1            0.0245 pF ±     15%                   0.0319 pF ±                15%                            s
+                                                                                                                    - A-
+  L1                 5.05 mH                                      3.1      mH
+  Q                 50K ± 10K                            40K ± 10K
+                                            C
+Calibration Tolerance: 0.002% at 26 C
+                                       C
+Temperature Tolerance: 0.001%              C to 70°C
+
+
+
+
+                                                                           FIGURE 10 — TTL CLOCK INPUT
+
+                                                                                          5
+                                                                                      Osqn
+                                                SAM                                           1                (R4 = 200 ft Typ, 50 ft Min)
+                                            MC6883
+                                                                  o<h          i       0SC ° Ut
+                                                                                                      R4
+
+
+                                                                                              6       \    74TS~00
+                                                                                                       ^•(Used as an input)
+
+
+
+
+       •Optimum values depend on characteristics of the crystal (X1). For many applications, VCIk must be 3.579545 MMz ± 50 Hz! Hence,
+        Oscout must be made similarly "drift resistant" (by balancing temperature coefficients of X1, CV, CF, R1, R2 and R3).
+       •Specifically cut for MC6883 are International Crystal Manufacturing, Inc. Crystals (#167568 for 14.31818 MHz or #167569 for 16.0 MHz).
+        However, other crystals may be used.
+
+
+
+
+                                                                                                  4-641
+SN74LS783*MC6883
+
+
+
+
+                                                       THEORY OF OPERATION
+ Video or No Video
+   Although the MC6883 may be used as a dynamic RAM controller without a video display*, most applications
+ are likely to include a MC6847 video display generator (VDG). Therefore, this document emphasizes MC6883
+ with MC6847 systems.
+
+ Shared RAM (with interleaved DMA)
+   To minimize the number of RAM and interface chips, both the MPU and VDG share common dynamic RAM.
+ Yet, the use ofcommon RAM creates an apparent difficulty. That is, the MPU and VDG must both access the
+ RAM without contention. This difficulty is overcome by taking advantage of the timing and architecture of
+ Motorola MPU's (MC6800, MC6801E, MC6809E, MC68000). Specifically, all MPU accesses of external memory
+ always occur in the latter half of the machine cycle, as shown below:
+
+
+                                             FIGURE 11 — MOTOROLA MPU TIMING
+
+                                        One Machine Cycle
+                                                                   ^
+                   'E'   Clock: —i                 I                i
+
+
+           (Approx. 1 MHz)
+                                                              '^L
+                               1
+                                   I               1
+
+
+
+
+                                               V
+                                        MPU Address         MPU Data
+                                                                                  y
+                                                                           MPU Address
+                                                                                                  'V
+                                                                                                 MPU Data
+                                                             Window                              Window
+
+
+   Similarly, the MC6847 (non-interlaced) VDG transfers a data byte in a half machine cycle (E or4>2). Thus,
+  when properly positioned, VDG and MPU RAM accesses interleave without contention as shown below:
+
+
+                                       FIGURE 12       — MOTOROLA MPU WITH VDG TIMING
+                                                        VDG Address
+                                                             A
+
+                    E C
+                                                                                                            VDG Ha>f    ~
+            (Approx 'l    MSzil____J
+                                   .
+
+                                               y
+                                        MPU Address
+                                                   _-            '^
+                                                            MPU Data
+                                                             Window
+                                                                    1
+
+
+
+
+                                                                                    ,
+                                                                            MPU Address
+                                                                                         I
+
+
+
+
+                                                                                                  ^
+                                                                                             MPU Half   I
+
+
+
+
+                                                                                                 MPU Data
+                                                                                                  Window
+                                                                                                                       l
+
+
+
+
+  This Interleaved Direct Memory Access (IDMA) is synchronized via the MC6883 by centering the VDG data
+window half-way between MPU data windows.**
+  The result is a shared RAM system without MPU/VDG RAM access contention, with both                               MPU and VDG
+running uninterrupted at normal operating speed, each transparent to the other.
+
+RAM Refresh
+  Dynamic RAM refresh is accomplished by accessing eight*** sequential addresses every 64*** microseconds
+until128 consecutive addresses have been accessed. To avoid RAM access contention between REFRESH and
+MPU, each of the 128 refresh accesses occupies the "VDG half" of the interleaved DMA (IDMA). Furthermore,
+refresh accesses occur only during the television retrace period (at which time the VDG doesn't need to access
+RAM).
+  In summary, the VDG, MPU and MC6883's Refresh Counter all transparently access the common dynamic
+RAM without contention or interruption.
+Why IDMA?
+  Use of the interleaved direct memory access results in fast modification to variable portions of display RAM,
+by the MPU, without any distracting flashes on the screen (due to RAM access contention.) In addition, the
+MPU is not slowed down nor stopped by the MC6883; thereby, assuring accurate software timing loops without
+costly additional hardware timers. Furthermore, additional hardware and software to give "access permission"
+to the MPU is eliminated since the MPU may access RAM at any time.
+
+    * Only 1 pin, (DAO) out of 40 pins is dedicated to the video display.
+   ** See VDG synchronization (page 10) for more detail.
+  *** When not using a MC6847, HS may be wired low for continuous transparent refresh.
+
+
+
+
+                                                                 4-642
+SN74LS783*MC6883
+
+
+
+
+ "Systems On Silicon" Concept
+ Total Timing
+   For most applications, the SAM can supply complete system timing from its on-chip precision 14.31818 MHz
+ oscillat or. T his includes buffered MP U clo cks (E and Q), VDG clock, color subcarrier (3.58 MHz), row address
+ select (RAS), column address select (CAS) and write enable (WE).
+
+ Total Address Decode
+   For most applications, the SAM plus a "1 of 8 decoder" chip completely decodes I/O, ROM and RAM chip
+ selects without wasting memory address space and without needlessly chopping-up contiguous address space.
+ Chip selects are positioned in address space to allow three types of memory (RAM, local ROM and cartridge
+ ROM) independent room for growth. For example, RAM may grow from address $0000-up, cartridge ROM may
+ grow from address $FEFF-down and local ROM may grow from $FBFF-down. Alternately, if the application
+ requires minimum ROM and maximum contiguous RAM, a second choice of two memory maps places RAM
+ from $0000 to $FEFF. (See pages 17 and 18.)
+   In both memory maps all I/O, MPU vectors, SAM control registers, and some reserved address spaces are
+ efficiently contained between addresses $FF00 and $FFFF.
+
+ How Much RAM?
+     Using nine SAM pins (Z0 - Z7 and RASO) the following combinations require no additional address logic.
+
+
+                                                  FIGURE 13 — RAM CONFIGURATIONS
+          Address:                                    Chip Select:
+ MSB                   LSB
+           Z5Z4Z3Z2Z1Z0                               fiASO
+                                                                            ~ ~ " - -
+           Z5Z4Z3Z2Z1Z0                               RAS1    (   = Z7) \               One or two banks of 4K x 8 (like MCM4027's>
+        Z6Z5Z4Z3Z2Z1Z0                                RASO              i
+
+
+        Z6Z5Z4Z3Z2Z1Z0                                RAS1    (   = Z7)C~ " " ~ ~ -One or two banks of 16K x 8 (like MCM4116's)
+     Z7Z6Z5Z4Z3Z2Z1Z0                                 RASO                              One bank of 64K x 8 (like MCM6665's)
+
+
+
+
+                                                       PROGRAMMING GUIDE
+ SAM — Programmability
+     The SAM contains a 16-bit control register which allows the MC6809E to program the SAM for the following
+ options:
+         VDG Addressing Mode                     3-bits                                                       '
+
+
+
+
+         VDG Address Offset                      7-bits
+         32K Page Switch                          1-bit
+         MPU Rate                                2-bits
+        Memory Size                   2-bits
+        Map Type                       1-bit
+     Note that when the SAM is reset by first applying power or by manual hardware reset, t all control register
+ bits are cleared (to a logic "0").
+
+ VDG Addressing Mode
+  Three bits (V2, V1, V0) control the sequence of DISPLAY ADDRESSES generated by the SAM (which are used
+ to scandynamic RAM for video information). For example, if you wish to display Dynamic RAM data as
+ INTERNAL ALPHANUMERICS VIDEO, you should program* the MC6847 for the INTERNAL ALPHANUMERICS
+ MODE and CLEAR BITS V2, V1 and V0 in the SAM. The table on the following page summarizes the available
+ modes:
+ t   See Figure 7 for manual reset circuit.
+ t Typically,  part of a PIA (MC6821) at location SFF22 is used to control MC6847 modes. (See MC6847 Data Sheet.)
+
+
+
+
+                                                                        4-643
+SN74LS783«MC6883
+
+
+
+
+                                                              MC6847 Mode                                        SAM Mode
+                                                                               GM«
+                Mode Type                    G/A       GM2        GM1         EXT/I        CSS              V2        VI         vo
+  Internal Alphanumerics                                  X         X                         X
+  External Alphanumerics                                  X         X            1            X
+  OSemigraphics —4                                        X         X                         X
+  Semigraphics — 6                                        X         X            1            X
+  Semigraphics  — 8*                                      X         X                         X                          1
+
+
+
+  Semigraphics  — 12*                                     X         X                         X             1
+
+
+
+  Semigraphics — 24*                                      X         X                         X             1            1
+
+
+  Full Graphics — 1C                                                                          X                                  1
+
+
+
+  Full Graphics — 1R                                                             1            X                                  1
+
+
+
+  Full Graphics — 2C                                                1                         X         ,                1
+
+
+
+  Full Graphics — 2R                                                1            1            X                          1       1
+
+
+
+  Full Graphics — 3C                                      1                                   X
+  Full Graphics — 3R                                      1                      1            X                                  1
+
+
+
+  Full Graphics — 6C                                      1         1                         X                          1
+
+
+
+  Full Graphics — 6R                                      1         1            1            X                          1
+
+
+
+  Direct Memory Accesst                       X           X         X           X             X                          1       1
+
+
+ *S8, S12, & S24 modes are not described in the MC6847 Data Sheet. See appendix "A"
+ tDMA is identical to 6R except as shown in Figure 5 on page 9.
+
+
+VDG Address Offset
+  Seven bits (F6 F5, F4, F3, F2, F1 and FO) determine the Starting Address for the video display. The
+                      f
+
+
+
+"Starting Address" is defined as "the address corresponding to data displayed in the Upper Left corner of
+the TV screen". The "Starting Address" is shown below in binary:
+
+
+
+  F6      F5     F4       F3    F2     F1     FO                                      o   o                      |           |
+
+
+
+
+    I    Most                                                                                     Least              t
+                                                                                                                     /
+    V. Significant                                                                                Significant    -S
+         Bit                                                                                      Bit
+
+
+
+
+Note that the "Starting Address" may be placed anywhere within the 64K address space with a resolution of
+ViK (the size of one alphanumeric page).
+The F6-F0 bits take effect during the TV vertical synchronization pulse (i.e., when FS from MC6847 is low).
+
+Page Switch
+One bit (P1) is used "in place of" A15 from the MC6809E in order to refer access within $0000-$7FFF to one
+of two 32K byte pages of RAM. If the system does not use more than 32K bytes of RAM, P1 can be ignored.**
+
+
+**When using 4K x 1 RAMS, two banks of eight IC's are allowed. This accounts for Addresses $0000-1 FFF. Also, this same RAM can be
+ addressed at $2000-$3FFF, $4000-$5FFF and $6000-$7FFF.
+
+
+
+
+                                                              4-644
+SN74LS783*MC6883
+
+
+
+
+MPU Rate
+  Two bits (R1, RO) control the clock rate to the MC6809E MPU. The options are:
+                                               RATE (FREQUENCY OF "E" CLOCK)                        R1      RO
+                                        0.9 MHz (Crystal Frequency  + 16) Slow
+                                        0.9/1.8 MHz (Address Dependent Rate)
+                                            1.8 MHz (Crystal Frequency *• 8) Fast
+
+
+
+                                                (Typical Crystal Frequency   = 14.31818 MHz)
+
+
+
+  In   the "address dependent rate" mode, accesses to $0000-$7FFF and $FF00-$FF1F are slowed to 0.9 MHz
+(crystal frequency  * 16) and all other addresses are accessed at 1.8 MHz (crystal frequency 8.)                    -*•
+
+
+
+
+Memory Size
+  Two bits (M1 and MO) determine RAM memory size. The options are:
+                                                                SIZE                                M1 MO
+
+                                        One or two banks of 4K x 1 dynamic RAMs
+                                        One or two banks of 16K x 1 dynamic RAMs                            1
+
+                                        One bank of 64K x 1 dynamic RAMs                            1
+
+                                                                  Up to 64K static RAM*             1       1
+
+
+
+
+                                        •Requires a latch for demultiplexing the RAM address.
+
+IMPORTANT!
+  Note: Be sure to program the SAM for the correct                 memory size before using RAM (i.e., for a subroutine
+stack).
+
+Map Type
+  One bit (TY) is used to select between two memory map configurations.
+  Refer to pages 17, 18 and 19 for details. When using Map Type "TY = 1", only the "Slow" MPU rate may
+be used. Future versions of the SAM may allow use of all rates.
+
+
+Writing To The SAM Control Register
+  Any bit in the control register (CR) may be set by writing to a specific unique address. Each bit has two unique
+addresses   .  writing to the even # address clears the bit and writing to the odd # address sets the bit. (Data
+                .   .
+
+
+
+
+on the data bus is irrelevant in this procedure.) The specific addresses are tabulated on pages 17 and 18.
+  If desired, a short routine may be written to program the SAM CR "a word at a time". For example, the
+
+following routine copies "B" bits from "A" register to SAM CR addresses beginning with address "X".
+
+   SAM1                 46        ROR     A                              7    6    5    4       3       2       1
+
+                        24
+                        30
+                        A7
+                        20
+                             06
+                             01
+                             80
+                             02
+                                  BCC
+                                  INX
+                                  STA
+                                  BRA
+                                          SAM2
+                                          (LEAX1,X)
+                                          o,x+
+                                          SAM3
+                                                                  c                                                 th
+   SAM2                 A7   81   STA     o,x + -
+   SAM3                 5A        DEC     B
+                        26   F2   BNE     SAM1
+                        39        RTS
+
+
+
+
+                                                               4-645
+SN74LS783*MC6883
+
+                                                     FIGURE 14       — MEMORY MAP (TYPE #0)
+              COUR8E                                                                                 FINE
+
+                                   MC8809E           S2,
+                    «-_    8       Address          81, S0MC6809E
+                          Bits           f          Value Address              Label                   Definitions
+
+                                  $$FFFF              t     t
+
+
+                                     $FF00
+
+
+
+
+                                 --<$C000
+
+
+
+
+                                 -<$A000
+
+                                                                                                                          FAST
+                                                                                                                             FAST               ,   ,
+                                                                                                                               |— A.D.          (   Transparent
+                                                                                                                                    [-SLOW ) Refresh
+
+
+                                 --($8000
+                                                                                                     MPU Addresses from $0000 to $7FFF
+                                                                                                           Apply to page #1 if P1 = '1.'
+
+                                                                                                     Address of "Upper-Left-Most
+                                                                                                     Display Element = $0000 + (V4K» Offset)
+
+
+               RAM_
+       (S =    if   R/W = 1)
+       (S = 7 if R/W = 0)
+
+
+                                                                                                                               pG1C, G1R
+                                                                                                                               J   H     Al, AE, S4, S6
+
+
+
+
+                                 --<$4000
+
+
+
+
+                          16K
+
+
+
+
+                          -—/--<$ 1000
+
+
+
+                                  <$0000
+       Page 1         Page
+
+  •Note:                                                                                                            •May also be RAM
+     M.S.     Most Significant       S   >
+                                             Set Bit
+                                                         (All bits   are cleared whe "1
+                                                                                          ,AM is reset.)
+     L.S.     Least Significant      C   '
+                                             Clear Bit
+                                             Device Select value      4xS2 + 2 n S1        1   xSO
+
+
+
+
+                                                                         4-646
+SN74LS783*MC6883
+
+                                                     FIGURE 15      — MEMORY MAP (TYPE #1)
+                 COUR8E                                                                         FINE
+
+                                   MC6809E             S2,
+ MC6809E                             Address                  MC6809E
+ Vectors,
+                   ^_ 8                              S1, SO
+                                                                              Label               Definitions
+                       Bits               |          Value    Address
+   SAM                           3-OSFFFF              t        t
+ Control,
+ I/O,
+   ROM
+        Boot
+               7                   ^$FF00
+
+
+
+
+                     (S    = 3
+                          If
+
+                    R/W =0)
+
+                     (S
+                          If
+
+                    R/W =_1)
+                    7SZ-,T.7-<$C000
+                    (S=2***
+                          If
+
+                    R/W = 0)
+                     (S    =
+                          If
+
+                    R/W = 1)
+                      RAM
+                    ~™'IL        — <$A000
+
+                          if
+
+
+                    R/W = 0)
+                     (S    =
+                          if
+
+
+                   LR/W        =1) yd onnn
+                                      ,
+                                  --<$8000
+
+
+                      (S =
+                       Jf
+                     R/W = 1)
+
+
+
+
+                      (S = 7
+                       Ji
+                     R/W = 0)
+
+
+
+
+                                                                                                 ••Decode S2, S1, and SO with an open
+                                                                                                   collector SN74LS156 and 'wire-or' state 7
+                                                                                                   with Btate 2. (See Appendix B for
+                                                                                                   suggested decode circuit.)
+                                                                                                •••To avoid ROM enable during R/W - LOW^
+                                                                                                   the ROM at S - 2 must be gated with R/W.
+                                                                                                   (See Appendix B for suggested decode circuit.)
+
+
+
+
+               \                   <$0000
+
+
+  •Note:
+     M.S.      Most Significant           5 - Set Bit   (
+                                                          (All bits are cleared when SAM is reset.)
+        L.S.   Least Significant          C   Clear Bit S
+                                          6 - Device Select value - 4 x S2 + 2 x S1 + 1 x SO
+                                                                                                                                                    18
+
+
+
+
+                                                                         4-647
+SN74LS783*MC6883
+
+
+
+
+                                        FIGURE 16 — MEMORY ALLOCATION TABLE
+                                     (Also, see the memory MAPs on pages 17 and 18.)
+
+Type # 0:   (Primarily for   ROM based systems)
+                    S = 4(S2) + 2
+                      (SD + S0
+   Address Range      S Value                                                   Intended Use
+
+  $FFF2 to FFFF              2       MC6809E Vectors: Reset     NMI, SWI, IRQ, FIRQ, SWI2, SWI3.
+                                                                   ,
+
+
+
+  FFEO to FFF1               2       Reserved for future MPU enhancements.
+  FFCO to FFDF               7       SAM Control Register: V0, - V2, F0 - F6, P, R0, R1, M0, M1, TY.
+  FF60 to FFBF               7       Reserved for future control register enhancements.
+  FF40 to FF5F               6       I/O2: Input/Output (PIAs, ACIAs, etc.) To subdivide, use A0-A4.
+  FF20 to FF3F               5       I/Oi Input/Output (PIAs, ACIAs, etc.) To subdivide, use A0-A4.
+                                         :
+
+
+
+
+  FFOOto FF1F                4       I/Oq: Input/Output (PIAs, ACIAs, etc.) To subdivide, use A0-A4.
+  COOO to FEFF               3       ROM2: 16K addresses. External cartridge ROM*.
+  AOOO to BFFF               2       ROM1 8K addresses. Internal ROM*. Note that MC6809E vector addresses select this
+                                              :
+
+
+
+
+                                     ROM*.
+  8000 to 9FFF               1       ROM0: 8K addresses. Internal ROM*.
+  0000 to 7FFF        if R/W = 1     RAM: 32K addresses. RAM shared by MPU and VDG.
+                    7 if R/W =0
+
+
+                                             *Not restricted to ROM. For example, RAM or I/O may be used here.
+
+
+
+
+Type # 1:   (Primarily for RAM based systems)
+
+                    S = 4(S2) + 2
+                      (SD + S0
+  Address Range       S Value                                                  Intended Use
+ $FFF2 to FFFF               2       MC6809E Vectors: Reset, NMI, SWI, IRQ, FIRQ, SWI2, SWI3.
+ FFEO to FFF1                2       Reserved for future MPU enhancements.
+ FFCO to FFDF                7       SAM Control Register: V0 - V2, F0 - Fe, P, R0, R1      M0, M1, TY.
+                                                                                               (
+
+
+
+ FF60 to FFBF                7       Small ROM: Boot load program and initial MC6809 vectors.
+ FF40 to FF5F                6       I/O2: Input/Output (PIAs> ACIAs, etc.) To subdivide, use A0-A4.
+ FF20 to FF3F                5       I/Oi Input/Output (PIAs, ACIAs, etc.) To subdivide, use A0- A4.
+                                         :
+
+
+
+
+ FFOOto FF1F                 4       l/0(j: Input/Output (PIAs, ACIAs, etc.) To subdivide, use A2- A4.
+
+ 0000 to FEFF         if   R/W = 1   RAM: 64K(-256) addresses, shared by MPU and VDG.
+                                     (If R/W =    then S = 3 for $C000-$FEFF; S = 2 for $A000-$BFFF; S ==        1   for
+                                     $8000-$9FFF and S = 7 for $0000-$7FFF.)
+
+
+
+
+                                                              4-648
+SN74LS783*MC6883
+
+
+
+
+                                                     APPENDIX A
+                       VDG/SAM Video Display System Offers 3 New Modes
+                                                           by
+                                                      Paul Fletcher
+   There are three new modes created when the VDG                  ience B2 should be made equal to BO and B3 should
+and SAM are used together in a video display sys-                  be made equal to B1. This eliminates a screen place-
+tem. These modes offer alphanumeric compatibility                  ment problem which would cause other codes to
+with 8 color low-to-high resolution graphics,                      change patterns when moved vertically on the
+64H*64V, 64H*96V, 64H*192V. The new modes S8,                      screen. The illuminated boxes can be one of eight
+S12, and S24 are created by placing the VDG in the                 colors which are controlled by B4 - B6 (see Figure
+Alpha Internal mode and having the SAM in a 2K,                    18). The bytes needed to control all the boxes in the
+3K or 6K full color graphics mode. In all modes the                8*12 dot box must be spaced 32 address spaces
+VDG's S/A and Inv. pins are connected to data bits                 apart in the display RAM because of the addressing
+DD7 and DD6 to allow switching on the fly between                  scheme orginally used in the VDG and duplicated
+Alpha and Semigraphics and between inverted                        by the SAM. This means to place an alphanumeric
+and non-inverted alpha. This method is used in                     character on the TV screen it requires 4, 6, or 12
+most VDG systems to obtain maximum flexibility.                    bytes depending on the mode used. These bytes are
+  The three modes divide the standard 8*1 2 dot box                placed 32 memory locations apart in the display
+used by the VDG for the standard alpha and semi-                   RAM (see Figure 18). This multiple byte format al-
+graphics modes into eight 4*3 dot boxes for the S8                 lows the mixing of character rows of different char-
+mode, twelve 4*2 dot boxes for the S12 mode, and                   acters in the same 8*12 dot box creating new char-
+twenty-four 4*1 dot boxes for the S24 mode. Figure                 acters and symbols. It also allows overlining and
+17 shows the arrangement of these boxes. One byte                  underlining in eight colors by switching to semi-
+is needed to control two horizontally consecutive                  graphics at the correct time.
+boxes. It therefore takes four bytes for the S8, six                 These new modes optimize the memory versus
+bytes for the S1 2, and 1 2 bytes for the S24 mode to              screen density tradeoffs for RF performance on
+control the entire 8*12 dot box. These two horizon-                color TVs. This could make them the most versatile
+tally consecutive boxes have four combinations of                  of all the modes depending on the users creativity
+luminance controlled by bits BO - B3. For conven-                  and the software sophistication.
+
+
+                                            APPENDIX B
+                                  Memory Decode for "MAP TYPE = 1"
+                                                                                      MPU Vectors and
+                                                                                      Boot Load ROM
+                                                                                      128X8 (or 256X8)
+
+
+                                                       V CC = 16
+                                                                                             EN
+                                                                                             *"
+                                                                                                  x EN
+
+
+                                                        Gnd = 8
+                                                                7 (0 3a )     J—
+                                                                              + 5.0-VV\rn
+                                                                                         L         R/W
+
+
+                                       JT                       6(0 2a    )                       ->i/o 2
+                                                                              + 5.0-AA/V-I
+                                                                5(0 1a    )                       ^l/O-,
+                                                                               5.0 -W\-i
+
+                                                                4 (6 0a   )                       ->i/o
+
+                                                       SN74LS156
+
+                                                                              12
+                                                                3 (0 3b )          NC
+
+                                  S2>-           !b             2(0 2b    )
+
+
+
+                                                 Eb
+                   From SAM   <                                 T(0 1b    )        NC
+                                   S1>           A1                                + 5.0V -VW-i
+                                   s   >-        A              0(O b)
+                                            13
+                                                                                                  RAM READ
+
+
+
+
+                                                         4-649
+SN74LS783*MC6883
+
+
+
+
+                                           FIGURE 17       - DISPLAY MODES S8, S12, S24
+                                                       Bit/Visible Dot Correlation
+
+
+
+
+                                           3           ^
+                           Left                Right                                                Address Byte
+                       i    <      >
+                                       „
+
+
+                                                                  i
+            Scan                                              i
+
+
+
+                                                                                                      SXXOO ($01)
+            Lines
+
+
+                                                                                         • _ •        $XX20 ($01)   l
+
+                                                                                                                        $01   is the
+
+             S8                                              1                                                          VDG "ASCII"
+                                                                                                      $XX40 ($01)       code for 'A'.
+                                                                                                                    |
+
+
+
+
+                                                                                                      $XX60 ($01)
+                                                                  '
+
+
+
+
+                                                                         Alphanumeric Compatible
+
+
+
+
+                      -*                   8
+                           Dots                                                   Left      Right * ##
+            Scan                                              i   i
+                                                                                  Red        Red      $XX0O ($BF)
+            Lines
+                                                                                  Blue       Off      $XX20 ($AA)
+
+                                                                                  Off       Green     $XX40 ($85)
+            S12                                              1    2
+                                                                            Orange         Orange $XX60 ($FF)
+
+                                                                                  Off        Off      $XX80 ($80)
+
+                                                              \
+                                                                  '
+                                                                              Yellow        Yellow    $XXA0 ($9F)
+                                                                         Options:        One of 8 colors for
+                                                                                         L or R or both. Off = Black
+
+
+
+
+                      •<                   8
+
+                       i    i     i
+
+
+
+
+              Scan                                            i   i
+                                                                              Blue          Blue      $XX00 ($AF)
+              Lines                                                           Black
+                                                                              Black
+                                                                                            Black
+                                                                                            Black
+                                                                                                      $XX20 ($80)
+                                                                                                      $XX40 ($80)
+                                                                                                                    w
+                                                                                                                    VDG   ^
+                                                                              1
+                                                                                    •'• • • •         $XX60 ($14) --Code
+                                                                                                                        for T
+                                                                                    •       •
+                                                                                      •   •
+             S24                                              1 2             J
+                                                                              I         •
+                                                                              I       •   •
+                                                                                    •       •
+                                                                              J
+                                                                              J
+                                                                                    •       •
+                                                                              Black         Black
+                                                              <   r
+                                                                              Green         Green
+                                                                       • Underline, Overline
+
+                                                                       • Mix Character Dot Rows
+
+
+
+
+                                * Characters will          always remain in standard VDG positions.
+
+
+
+
+                                                                      4-650
+SN74LS783*MC6883
+
+
+
+
+           £              £                    fc
+           °              s                    °
+                                                                   o__                                                                                                                 r#i                      r#
+                                                                                                                              r*i                           r*i
+                                                                   5                   5         CM CO <* un
+                                                                                                                                    CM
+                                                                                                                                    CO       CM CO **   m         CM
+                                                                                                                                                                  CO      CO ^r              CO   CM CO ^» in
+                                                                                                                                                                                                                     CM
+                                                                                                                                                                                                                     CO
+           S
+           O              *
+                          o
+                                               -2
+                                               o                                            CO   CO   CO       CO        CO         CO   n   JO JO A  jo          A u o u o u                o "D T3 TO "D o         13
+                                                                                       o
+                                                                                       E                                                                                                »                       u
+                                                                                       0)
+                                                                                                       CO                                                                  CO                         CO
+                                                                                       2                                                         <*>
+
+                                                                                                           x                                      x                         x                          X
+                                                                                                       * ©
+                                                                                                                    (0
+                                                                                                                                                 * CDw
+                                                                                                                                                 _k
+                                                                                                                                                                           « CO   to
+                                                                                                                                                                                                      * X
+                                                                                                                                                                                                           CO
+                                                                                                                                                                                                           0)
+
+      o                                                                                                Z ox                                      H-
+                                                                                                                                                  O O
+                                                                                                                                                       X                   '*-
+                                                                                                                                                                            o o
+                                                                                                                                                                                  X                   «_
+                                                                                                                                                                                                      o o
+      m                                                                                     «
+                                                                                            -
+                                                                                                           o
+           o              *-                   o                   *-                                      si                            *        ^ -                       si               "         *t            *
+      m                                                                                                    o  o                                   o  o                      o  o                      o  o
+                                                                                                           i-                                     *"                        »-                        »-
+                                                                                                                -o                                     TJ                        TJ                        "O
+                                                                                                       «
+                                                                                                       *~
+                                                                                                                                                 ?                o        P
+                                                                                                                                                                           CO
+                                                                                                                                                                                                      £
+                                                                                                                                                                                                      ^
+      m
+                                                                                                                                                 CM
+                                                                                                                                                                   J CM
+                                                                                                                                                                     "
+           o              o                                                                                                                                       o
+      o                                                                                     .*                                                                    oc X                                               •>
+      m
+
+
+                                                                         CO
+
+                c                                                        c        CO
+                                                                                  CD
+      O    u    CO        o                                        c     CO
+                                                                         CD       c
+                                                                   CO
+      O    CO   J)                                   15            >     CO       JO
+      o    CD   (3        5          00        cc    CD                  5        6
+      o    X    o         -          o         -     o             -     p        -
+      o
+ .
+
+
+
+
+      o    X    o         o          -         -     o             o     -        -
+      CM
+      o    X    o         o          o         o     -             -     -        -
+      X    o
+
+
+
+                     o
+                     00        o          X
+                               Zi         X
+                               CM
+                               -J         X
+ 2
+ <
+ x                             CO
+                                          X                 o
+                                                            C/>
+
+                               o          X                 <
+ <                             o
+ 2
+ cc
+ O                             o          X
+ >                             CM         >
+ <                             O          c
+
+                               X          CO
+                     00
+
+
+
+                                    (0
+                                                *—   C> 4
+                                                                  —u
+ UJ
+ cc
+ 3                              o               o                 O          o
+                                -1              _J                -J      -J
+                t*
+
+
+                1"              Ij              Ij                IJ         Ij
+
+
+
+
+                                                     00
+
+
+                                                                                                                                                                                                                          22
+
+
+
+
+                                                                                                                4-651
+         SN74LS783*MC6883
+
+
+
+
+                                                                                                                                                                                           FIGURE 19            — EXAMPLE of MO
+
+
+
+
+                                                                                                     CS1                      CS1
+                                                                                                     CSO                      CSO
+
+
+
+                                                                                                     RS1                       RS1
+
+                                                                                                     RSO                       RSO
+
+                                                                                                     CS2    :   i   o         CS2
+
+
+
+
+                                                      CONNECTOR                 BS
+                                                                            >
+                                                                                BUSY
+
+
+                                                                                                                           2                                                          o                                  o
+                                                                                                                                                                                      s
+                                                                                                                                                                                      s                              *2
+                                                                                                                           o                                                          o
+                                                                                                                                                                                      s
+
+
+                                                                                                                                                                                      S
+
+
+
+
+                                                                                                            64 KEY
+                                                                                                           KEYBOARD
+ 7   6   5   4    3        2        1          76543210                                  2   1   2    1
+                                                                                                           CONNECTS
+                                                                                                             HERE         7     6    5   4   3   2   1        7    6    5    4   3     2    10            2     12
+
+                                                                                                                                                                                                                         ^
+17T16T15M4       13   12       11       lOJ   9 \8\    7\   6|   5|   4|   3|   2|     19|18| 39T40J                    17| 16| 15| 14| 13| 12| 11| 10|      9j   8|             5|   4|   3|   2|   19   1
+                                                                                                                                                                                                              18| 39 1
+                                                                                                                                                                       7J   6J
+
+
+
+                                                                                                                                                          MC6847 Mode Control & Misc I/O connects here.
+                                                                                                                                                                                                                             23
+                                                                                                                4-652
+        SN74LS783*MC6883
+
+
+
+
+3 and MC6847 COMPUTER
+                                                                                                                                                                         VIDEO
+                                                                                                                                                                       ENCODER
+                                                                                                                                                                      MODULATOR
+                                                                                                                                                                       CONNECTS
+                                                                                                                                                                         HERE           1
+
+
+
+
+                                                                                                                                                                             vcc
+
+                                          A15
+                                                                                                                                         i-IO ?
+                                          A14     A14
+                                          A13     A13
+                                          A12     A12
+
+                                                  All                                                                    A2   W          12    ROM 2
+                                                  A10
+                                                                                                                                               ROM   i   \ c l,
+                                                                                                                                                                  p
+                                                                                                                        A0 S             14
+                                                                                                                                                             Sc,CCtS
+                                                                                                                                                         [
+                                                                                                                                         -*ROM0J
+                                                                                                                                         15^MRD
+
+                                                                                                                        Vcc-16
+                                                                                                                            Gnd -8
+
+
+
+                                                                                                                         E[
+                                                                                               OscQut
+
+                                                                                                                DpF<T*        r=Tl«-3
+
+
+
+                                                                                                                                                               £
+                                                                                                                                                             TO PIA
+
+                                                                                                      HS                                                               HS
+
+                                                                                                     DAO                                                               DAO
+                                                                                                                                                                              <
+                                                                                                     VCIk                                                              Clk    O
+                                                                                                                                                                              o
+                                                                                                                                                                              2
+                                                                                                                       !i
+                                                                                                                               JLj
+
+
+
+
+                                          FIRQ
+
+                                          IRQ                                             CAS_
+                                                     Zl Z6 Z5 24 Z3 Z2 Z1 ZO        RASO        V\
+                                          HALT
+                                                    3& 34 33 32 31 30 29 28         12    11   10
+                                          NMI
+                                          RESET
+                  S:i   5;!   =   i
+                                      =
+
+
+
+
+                                          vcc
+                                                     A; A« A5 A4   A3 A 2 At   Ao   RAS CAS WE
+                                          Gnd
+                                                        RAM's MCM4116A
+                                                                                         "jT
+                                                                                                                                                                               AG-
+                                                                                                                                                                                    2
+                                                                                                                                                                              GM ? -
+                                                                                                                                                                              GM!
+
+                                                                                    t                                                w                                        GM    -
+
+                                                                               V CC =20                                        V CC      20
+
+                                                                               Gnd -10                                         Gnd        10                                  EXT -
+
+
+                                                                                -o-
+                                                         VDD                                                T    47k
+                                                                                                            1—wv-O
+                                                           rx rx
+
+
+                                                                                                                                                                                            24
+                                                  •This pin number on B different RAM chips is connected to this point.
+
+
+
+                                                                   4-653
+SN74LS783*MC6883
+
+
+
+
+ FIGURE 20   - EQUIVALENT OF OSCILLATOR INPUT AND OUTPUT     FIGURE 23   — E AND Q OUTPUTS
+                Vcc               Oscout   Vcc    V CC                         Vcc o o vcc
+                 9         v C c9 ?
+
+
+
+
+     ,«-tr
+  Osq,
+
+                                      *    —                                    <
+                                                                                 it
+
+                               — DAO INPUT
+                   FIGURE 21
+
+                   vcc      vcc            v cc
+                                                                           \
+                                                              FIGURE 24   — TYPICAL INPUT
+                                                                         vcc           vcc
+
+             DAO
+
+
+
+
+              FIGURE 22   — VCIk INPUT/OUTPUT
+                                                              RGURE 25— TYPICAL OUTPUT
+
+                                                                               vcc 9
+
+
+
+
+                                                                                             25
+
+
+
+
+                                                     4-654
+

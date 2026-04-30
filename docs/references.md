@@ -38,6 +38,14 @@ This file is committed to the repository. The actual PDF/document files in `refs
 | ⬜ | `m68040-users-manual` | MC68040 User's Manual | Motorola | 1993 | Integrated FPU/MMU, pipelines | For Amiga accelerators. |
 | ⬜ | `m68060-users-manual` | MC68060 User's Manual | Motorola | 1994 | Superscalar pipeline, branch prediction | For Amiga accelerators. |
 
+### 6809
+
+| Status | ID | Title | Author | Year | Topics | Notes |
+|--------|-----|-------|--------|------|--------|-------|
+| ✅ | `mc6809-programming-manual` | MC6809/MC6809E 8-Bit Microprocessor Programming Manual | Motorola | 1981 | Instruction semantics, addressing modes, programmer-visible state | Extracted at `docs/source-extracts/dragon-primary/mc6809-mc6809e-programming-manual-1981.txt`. |
+| ✅ | `mc6809e-hmos-datasheet` | MC6809E HMOS 8-Bit Microprocessor | Motorola | 1984 | MC6809E bus signals, electrical characteristics, instruction timing tables | Extracted at `docs/source-extracts/dragon-primary/mc6809e-hmos-microprocessor-1984.txt`. |
+| ✅ | `motorola-microprocessors-data-manual` | Motorola Microprocessors Data Manual | Motorola | — | Motorola CPU and support-chip data | Large cross-check extract at `docs/source-extracts/dragon-primary/motorola-microprocessors-data-manual.txt`. |
+
 ---
 
 ## System references
@@ -91,6 +99,14 @@ This file is committed to the repository. The actual PDF/document files in `refs
 | ⬜ | `aga-differences` | AGA vs OCS/ECS Differences | various | — | Enhanced registers, 256 colours, HAM8 | For A1200/A4000/CD32 support. |
 | ⬜ | `amiga-floppy` | Amiga Floppy Disk Format and Timing | various | — | MFM encoding, track timing, DMA | For disk support. |
 
+### Dragon / CoCo
+
+| Status | ID | Title | Author | Year | Topics | Notes |
+|--------|-----|-------|--------|------|--------|-------|
+| ✅ | `mc6847-vdg-datasheet` | MC6847 MOS Video Display Generator | Motorola | 1984 | VDG modes, colours, sync timing, memory access timing | Extracted at `docs/source-extracts/dragon-primary/mc6847-video-display-generator-1984.txt`. |
+| ✅ | `mc6883-sam-advance-sheet` | MC6883/SN74LS783 Synchronous Address Multiplexer Advance Sheet | Motorola | — | SAM clocks, VDG/MPU arbitration, memory mapping, device selects | Extracted at `docs/source-extracts/dragon-primary/mc6883-sam-advance-sheet.txt`. |
+| ✅ | `sam-programming-guide` | Synchronous Address Multiplexer Programming Guide | — | — | SAM register programming, VDG address modes, MPU rate | Extracted at `docs/source-extracts/dragon-primary/sam-programming-guide.txt`; OCR is noisy but readable. |
+
 ### Acorn BBC Micro
 
 | Status | ID | Title | Author | Year | Topics | Notes |
@@ -123,6 +139,7 @@ This file is committed to the repository. The actual PDF/document files in `refs
 | ⬜ | `cs8900a-datasheet` | CS8900A Ethernet Controller | Cirrus Logic | 1990s | Ethernet controller with ISA bus | For Apple II Uthernet, C64 RR-Net. |
 | ⬜ | `z80-pio-datasheet` | Z80 PIO Datasheet | Zilog | 1976 | Parallel I/O | For systems using Z80 PIO. |
 | ⬜ | `z80-sio-datasheet` | Z80 SIO Datasheet | Zilog | 1976 | Serial I/O | For systems using Z80 SIO. |
+| ✅ | `mc6821-pia-datasheet` | MC6821 NMOS Peripheral Interface Adapter | Motorola | 1985 | DDR/data registers, control registers, CA/CB lines, interrupts | Extracted at `docs/source-extracts/dragon-primary/mc6821-pia-1985.txt`. |
 
 ---
 
