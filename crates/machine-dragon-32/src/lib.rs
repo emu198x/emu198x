@@ -7,6 +7,7 @@
 //! full native runtime; later runtime crates should build on this API rather
 //! than duplicating the harness wiring.
 
+use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt;
 
@@ -36,8 +37,11 @@ const VDG_LINE_MASTER_TICKS: u64 = 912;
 const VDG_PAL_FRAME_LINES: u64 = 312;
 const VDG_VISIBLE_FIRST_LINE: u64 = 13;
 const VDG_HSYNC_TICKS: u64 = 64;
-const VDG_HBLANK_TICKS: u64 = 168;
+const VDG_BACK_PORCH_TICKS: u64 = 70;
 const VDG_LEFT_BORDER_TICKS: u64 = 120;
+// XRoar fetches display bytes before the corresponding pixels are emitted;
+// CSS changes therefore trail CPU writes by the back porch plus one byte.
+const VDG_VRAM_FETCH_TO_DISPLAY_TICKS: u64 = VDG_BACK_PORCH_TICKS + 16;
 const VDG_ACTIVE_AREA_START_LINE: u64 =
     VDG_VISIBLE_FIRST_LINE + motorola_vdg_6847::TEXT_TOP_BORDER_LINES as u64;
 const VDG_ACTIVE_AREA_END_LINE: u64 =
@@ -1466,6 +1470,9 @@ struct BeamVideo {
     next_active_x: usize,
     next_byte: usize,
     current_byte: Option<ActiveByteRender>,
+    control_initialized: bool,
+    render_pin_control: VdgControl,
+    pending_css_changes: VecDeque<(u64, bool)>,
     // MC6847 colour-set select is delayed through a two-byte pipeline.
     css_a: bool,
     css_b: bool,
@@ -1482,6 +1489,9 @@ impl BeamVideo {
             next_active_x: 0,
             next_byte: 0,
             current_byte: None,
+            control_initialized: false,
+            render_pin_control: VdgControl::default(),
+            pending_css_changes: VecDeque::new(),
             css_a: false,
             css_b: false,
             pending_samples: Vec::new(),
@@ -1505,6 +1515,7 @@ impl BeamVideo {
         self.cycle_in_frame = target;
         if self.cycle_in_frame >= DRAGON_FRAME_MASTER_TICKS {
             self.render_until(memory, DRAGON_FRAME_MASTER_TICKS, bus_cycle);
+            self.wrap_pending_css_changes();
             self.cycle_in_frame = 0;
             self.next_line = 0;
             self.line_border_rendered = false;
@@ -1530,25 +1541,22 @@ impl BeamVideo {
     }
 
     fn apply_vdg_control_change(&mut self, memory: &DragonMemory) {
-        let Some(current) = &mut self.current_byte else {
-            return;
-        };
+        self.ensure_control_initialized(memory);
         let pin_control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
-        let mut render_control = pin_control;
-        render_control.css = current.control.css;
-        if render_control == current.control {
-            return;
+        let pending_css = self
+            .pending_css_changes
+            .back()
+            .map_or(self.render_pin_control.css, |(_, css)| *css);
+        self.render_pin_control.graphics = pin_control.graphics;
+        self.render_pin_control.int_ext = pin_control.int_ext;
+        self.render_pin_control.gm = pin_control.gm;
+        if pin_control.css != pending_css {
+            self.pending_css_changes.push_back((
+                self.cycle_in_frame
+                    .saturating_add(VDG_VRAM_FETCH_TO_DISPLAY_TICKS),
+                pin_control.css,
+            ));
         }
-        current.control = render_control;
-        current.byte = motorola_vdg_6847::decode_beam_byte(
-            |offset| memory.display_byte(offset),
-            render_control,
-            VdgPalette::default(),
-            current
-                .line
-                .saturating_sub(motorola_vdg_6847::TEXT_TOP_BORDER_LINES),
-            current.byte_x,
-        );
     }
 
     fn drain_pending_samples(&mut self, dest: &mut Vec<VdgSampleTrace>) {
@@ -1627,17 +1635,21 @@ impl BeamVideo {
     }
 
     fn render_border_line(&mut self, memory: &DragonMemory, line: usize) {
+        self.ensure_control_initialized(memory);
+        self.apply_pending_css_changes(line_start_cycle(line));
         let palette = VdgPalette::default();
         let start = line * motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
         let end = start + motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
         self.frame[start..end].fill(palette.border);
         if active_line(line) {
-            self.css_a = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb).css;
+            self.css_a = self.render_pin_control.css;
         }
     }
 
     fn start_active_byte(&mut self, memory: &DragonMemory, bus_cycle: Option<u64>) {
-        let pin_control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
+        self.ensure_control_initialized(memory);
+        self.apply_pending_css_changes(active_pixel_cycle(self.next_line, self.next_active_x));
+        let pin_control = self.render_pin_control;
         self.css_b = self.css_a;
         self.css_a = pin_control.css;
         let mut render_control = pin_control;
@@ -1698,6 +1710,33 @@ impl BeamVideo {
         self.next_active_x = 0;
         self.next_byte = 0;
         self.current_byte = None;
+    }
+
+    fn ensure_control_initialized(&mut self, memory: &DragonMemory) {
+        if !self.control_initialized {
+            self.render_pin_control = VdgControl::from_dragon_pia1_port_b(memory.pia1.pb);
+            self.control_initialized = true;
+        }
+    }
+
+    fn apply_pending_css_changes(&mut self, display_cycle: u64) {
+        while self
+            .pending_css_changes
+            .front()
+            .is_some_and(|(effective_cycle, _)| *effective_cycle <= display_cycle)
+        {
+            let Some((_, css)) = self.pending_css_changes.pop_front() else {
+                break;
+            };
+            self.render_pin_control.css = css;
+        }
+    }
+
+    fn wrap_pending_css_changes(&mut self) {
+        self.apply_pending_css_changes(DRAGON_FRAME_MASTER_TICKS);
+        for (effective_cycle, _) in &mut self.pending_css_changes {
+            *effective_cycle = effective_cycle.saturating_sub(DRAGON_FRAME_MASTER_TICKS);
+        }
     }
 }
 
@@ -1794,7 +1833,8 @@ fn active_line(line: usize) -> bool {
 
 fn active_display_start_cycle(line: usize) -> u64 {
     line_start_cycle(line)
-        .saturating_add(VDG_HBLANK_TICKS)
+        .saturating_add(VDG_HSYNC_TICKS)
+        .saturating_add(VDG_BACK_PORCH_TICKS)
         .saturating_add(VDG_LEFT_BORDER_TICKS)
 }
 
@@ -3520,7 +3560,7 @@ mod tests {
     }
 
     #[test]
-    fn beam_renderer_latches_css_before_active_area_boundary_writes() {
+    fn beam_renderer_delays_css_boundary_writes_until_prefetched_bytes_drain() {
         let rom = rom_with_reset_vector(0x8000);
         let mut machine = Dragon32::new(&rom);
         machine.memory.pia1.write(0x02, 0xF8); // PIA1 port B DDR.
@@ -3531,7 +3571,8 @@ mod tests {
         let active_start = active_display_start_cycle(active_line);
         machine.video.tick(&machine.memory, active_start, Some(0));
         machine.memory.pia1.write(0x02, 0xE8); // CG6, CSS 1 at active x=0.
-        machine.video.tick(&machine.memory, 32, Some(1));
+        machine.video.apply_vdg_control_change(&machine.memory);
+        machine.video.tick(&machine.memory, 160, Some(1));
 
         let frame = machine.video.frame();
         let active_origin = active_line * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
@@ -3541,7 +3582,11 @@ mod tests {
             [palette.colours[0]; 8]
         );
         assert_eq!(
-            &frame[active_origin + 8..active_origin + 16],
+            &frame[active_origin + 48..active_origin + 56],
+            [palette.colours[0]; 8]
+        );
+        assert_eq!(
+            &frame[active_origin + 56..active_origin + 64],
             [palette.colours[4]; 8]
         );
     }
