@@ -191,3 +191,5 @@ Progress:
 - `motorola-6809` now has an additive E/Q phase-visible stepping API. The
   compatibility `tick()` path remains intact, while `tick_phase()` samples
   interrupt inputs on falling Q and latches read data on falling E.
+- `machine-dragon-32` now drives the CPU through the phase-visible API for each
+  public bus cycle, while preserving the existing SAM master-tick accounting.

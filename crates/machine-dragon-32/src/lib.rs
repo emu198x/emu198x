@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt;
 
-use motorola_6809::Mc6809;
+use motorola_6809::{Mc6809, Mc6809ClockPhase};
 use motorola_pia_6821::{Pia6821, PiaPort, PiaSignal};
 use motorola_sam_6883::Sam6883;
 use motorola_vdg_6847::{
@@ -2145,6 +2145,12 @@ impl Dragon32 {
         self.cpu.rw
     }
 
+    /// Current MC6809E E/Q phase.
+    #[must_use]
+    pub fn cpu_clock_phase(&self) -> Mc6809ClockPhase {
+        self.cpu.clock_phase()
+    }
+
     /// Total bus cycles executed since construction.
     #[must_use]
     pub fn cycles(&self) -> u64 {
@@ -2482,6 +2488,8 @@ impl Dragon32 {
         self.memory.tick_cartridge_autorun(self.cycles);
         self.cpu.irq = self.memory.pia0.irq_a() || self.memory.pia0.irq_b();
         self.cpu.firq = self.memory.pia1.irq_a() || self.memory.pia1.irq_b();
+        self.cpu.tick_phase();
+        self.cpu.tick_phase();
         let previous_pia1_pb = self.memory.pia1.pb;
         let event = if self.cpu.rw {
             let (value, event) = self.memory.read_bus(self.cpu.addr);
@@ -2493,7 +2501,8 @@ impl Dragon32 {
         if previous_pia1_pb != self.memory.pia1.pb {
             self.video.apply_vdg_control_change(&self.memory);
         }
-        self.cpu.tick();
+        self.cpu.tick_phase();
+        self.cpu.tick_phase();
         self.audio.tick(&self.memory, master_ticks);
         self.cycles = self.cycles.saturating_add(1);
         self.master_ticks = self.master_ticks.saturating_add(master_ticks);
@@ -3109,6 +3118,26 @@ mod tests {
         assert_eq!(memory.read_fetch(0xFEFF), NO_CARTRIDGE_BUS_VALUE);
         assert_eq!(memory.read_fetch(0xFFFE), 0x80);
         assert_eq!(memory.read_fetch(0xFFFF), 0x00);
+    }
+
+    #[test]
+    fn step_cycle_drives_cpu_through_complete_eq_phase_sequence() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        assert_eq!(machine.cpu_clock_phase(), Mc6809ClockPhase::QHigh);
+        assert_eq!(machine.bus_addr(), 0xFFFE);
+
+        machine.step_cycle();
+        assert_eq!(machine.cpu_clock_phase(), Mc6809ClockPhase::QHigh);
+        assert_eq!(machine.bus_addr(), 0xFFFF);
+
+        machine.step_cycle();
+        assert_eq!(machine.cpu_clock_phase(), Mc6809ClockPhase::QHigh);
+        assert_eq!(machine.pc(), 0x8000);
+        assert_eq!(machine.bus_addr(), 0x8000);
+        assert!(machine.bus_rw());
+        assert_eq!(machine.cycles(), 2);
     }
 
     #[test]
