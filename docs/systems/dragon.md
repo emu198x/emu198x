@@ -133,9 +133,14 @@ Direct DragonDOS `.BIN` program smoke:
 cargo run --release -q -p emu198x-script-dragon -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --bin '/path/to/Dragon/Games/[BIN]/Cross Chase (2021-05-13)(Caruso, Fabrizio).zip' \
-  --cycles 200000 \
+  --cycles 3000000 \
   --screenshot dragon-bin.png
 ```
+
+Direct `.BIN` autorun boots the Dragon 32 ROM to the BASIC `OK` prompt first,
+then injects the program payload and starts at the file's EXEC address. Starting
+from reset-time CPU/PIA/SAM state is not equivalent: real programs depend on the
+ROM-initialized stack, display base, and device state.
 
 Headless smoke over one cassette tree:
 

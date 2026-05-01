@@ -44,6 +44,7 @@ const DEFAULT_XROAR_TIMEOUT_SECONDS: f32 = 45.0;
 const XROAR_ZOOMED_WIDTH: u32 = 512;
 const XROAR_ZOOMED_HEIGHT: u32 = 384;
 const BOOT_FRAME_BUDGET: u32 = 100;
+const DIRECT_PROGRAM_BOOT_SETTLE_FRAMES: u64 = 30;
 const KEY_EDGE_FRAMES: u32 = 8;
 // Completed-frame screenshots are taken on CPU bus-cycle boundaries; the SAM
 // can stretch a transition cycle to 25 master ticks.
@@ -4528,6 +4529,9 @@ fn run_harness_with_keyboard(
         );
     }
     if let Some(program) = options.program {
+        if options.snapshot.is_none() && options.cartridge.is_none() {
+            boot_machine_to_basic_idle(&mut machine);
+        }
         let result = machine.load_binary_program(
             program.load_address,
             &program.payload,
@@ -4579,6 +4583,34 @@ fn run_harness_with_keyboard(
         framebuffer_master_ticks,
         video_phase: machine.video_phase(),
     })
+}
+
+fn boot_machine_to_basic_idle(machine: &mut Dragon32) {
+    if screen_has_basic_prompt(machine) {
+        return;
+    }
+
+    for _ in 0..BOOT_FRAME_BUDGET {
+        let report = machine.run_cycles(DRAGON_FRAME_CYCLES, 0);
+        if matches!(report.stop_reason, StopReason::CpuHalted) {
+            return;
+        }
+        if screen_has_basic_prompt(machine) {
+            let _ = machine.run_cycles(
+                DRAGON_FRAME_CYCLES.saturating_mul(DIRECT_PROGRAM_BOOT_SETTLE_FRAMES),
+                0,
+            );
+            return;
+        }
+    }
+}
+
+fn screen_has_basic_prompt(machine: &Dragon32) -> bool {
+    machine
+        .capture_text_screen()
+        .to_plain_text()
+        .lines()
+        .any(|line| line.trim() == "OK")
 }
 
 fn run_to_completed_video_frame(machine: &mut Dragon32) {

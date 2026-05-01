@@ -23,6 +23,8 @@ use motorola_vdg_6847::{
 pub const RAM_SIZE: usize = 0x8000;
 /// Dragon 32 BASIC ROM size.
 pub const ROM_SIZE: usize = 0x4000;
+/// Hardware stack pointer observed after Dragon 32 BASIC reaches the `OK` prompt.
+const DIRECT_PROGRAM_STACK_POINTER: u16 = 0x7f2a;
 /// Host audio sample rate for Dragon mono output.
 pub const DRAGON_AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// Dragon/XRoar master event tick frequency.
@@ -2255,6 +2257,12 @@ impl Dragon32 {
         self.cpu.halt
     }
 
+    /// Current MC6809 hardware stack pointer.
+    #[must_use]
+    pub fn stack_pointer(&self) -> u16 {
+        self.cpu.regs.s
+    }
+
     /// Replace keyboard matrix state.
     pub fn set_keyboard(&mut self, keyboard: DragonKeyboard) {
         self.memory.keyboard = keyboard;
@@ -2337,7 +2345,10 @@ impl Dragon32 {
     /// This mirrors the post-load state that Dragon BASIC's `CLOADM` path leaves
     /// for machine-code programs: bytes are copied into RAM and the EXEC vector
     /// is updated to the supplied execution address. When `autorun` is true, the
-    /// CPU program counter is also moved to that execution address.
+    /// CPU program counter is also moved to that execution address. If the ROM
+    /// has not yet initialized the hardware stack, a BASIC-idle stack value from
+    /// the Dragon 32 ROM is installed so that subroutine calls return through RAM
+    /// rather than the reset-time ROM vector area.
     ///
     /// # Errors
     ///
@@ -2376,6 +2387,9 @@ impl Dragon32 {
         self.memory.ram[0x01e8] = load_bytes[1];
 
         if autorun {
+            if self.cpu.regs.s == 0 || usize::from(self.cpu.regs.s) >= RAM_SIZE {
+                self.cpu.regs.s = DIRECT_PROGRAM_STACK_POINTER;
+            }
             self.cpu.regs.pc = exec_address;
             self.cpu.reset_phase = 0;
             self.cpu.addr = exec_address;
@@ -4104,6 +4118,7 @@ mod tests {
         assert_eq!(machine.ram()[0x01e7], 0x28);
         assert_eq!(machine.ram()[0x01e8], 0x00);
         assert_eq!(machine.pc(), 0x0000);
+        assert_eq!(machine.stack_pointer(), 0x0000);
     }
 
     #[test]
@@ -4116,6 +4131,21 @@ mod tests {
             .expect("program should fit in Dragon RAM");
 
         assert_eq!(machine.pc(), 0x2800);
+        assert_eq!(machine.stack_pointer(), DIRECT_PROGRAM_STACK_POINTER);
+    }
+
+    #[test]
+    fn binary_program_autorun_preserves_initialized_stack_pointer() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine.cpu.regs.s = 0x7000;
+
+        machine
+            .load_binary_program(0x2800, &[0x39], 0x2800, true)
+            .expect("program should fit in Dragon RAM");
+
+        assert_eq!(machine.pc(), 0x2800);
+        assert_eq!(machine.stack_pointer(), 0x7000);
     }
 
     #[test]

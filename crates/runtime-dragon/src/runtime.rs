@@ -12,9 +12,9 @@ use format_dragon_pak::{
     parse_dragon_pak, parse_pcdragon_snapshot,
 };
 use machine_dragon_32::{
-    DRAGON_AUDIO_SAMPLE_RATE, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX, DRAGON_JOYSTICK_MIN,
-    Dragon32, DragonCartridgeKind, DragonJoystickAxis, DragonKey, DragonSnapshotPeripherals,
-    DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
+    DRAGON_AUDIO_SAMPLE_RATE, DRAGON_FRAME_CYCLES, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX,
+    DRAGON_JOYSTICK_MIN, Dragon32, DragonCartridgeKind, DragonJoystickAxis, DragonKey,
+    DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
 };
 use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
 use serde_json::json;
@@ -28,6 +28,7 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "dragon.cpu.cycles",
     "dragon.cpu.instructions",
     "dragon.cpu.pc",
+    "dragon.cpu.s",
     "dragon.machine.halted",
     "dragon.pia0.control_a",
     "dragon.pia0.control_b",
@@ -59,6 +60,8 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "dragon.program.load_address",
     "dragon.program.loaded",
 ];
+const PROGRAM_BOOT_FRAME_BUDGET: u64 = 100;
+const PROGRAM_BOOT_SETTLE_FRAMES: u64 = 30;
 
 const MIN_INITIAL_LEADER_BYTES: usize = 128;
 
@@ -480,6 +483,14 @@ fn load_program_into_machine(machine: &mut Dragon32, program: &DragonBinImage) {
     debug_assert!(result.is_ok());
 }
 
+fn screen_has_basic_prompt(machine: &Dragon32) -> bool {
+    machine
+        .capture_text_screen()
+        .to_plain_text()
+        .lines()
+        .any(|line| line.trim() == "OK")
+}
+
 impl MachineCore for DragonRuntime {
     fn profile(&self) -> &MachineProfile {
         &self.profile
@@ -555,6 +566,7 @@ impl MachineCore for DragonRuntime {
                             reason: reason.to_string(),
                         }
                     })?;
+                    self.prepare_for_program_load(slot)?;
                     self.machine
                         .load_binary_program(
                             program.load_address,
@@ -660,6 +672,7 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
             "dragon.cpu.cycles" => json!(machine.machine.cycles()),
             "dragon.cpu.instructions" => json!(machine.machine.instructions()),
             "dragon.cpu.pc" => json!(machine.machine.pc()),
+            "dragon.cpu.s" => json!(machine.machine.stack_pointer()),
             "dragon.machine.halted" => json!(machine.machine.is_halted()),
             "dragon.pia0.control_a" => json!(machine.machine.pia0_control_a()),
             "dragon.pia0.control_b" => json!(machine.machine.pia0_control_b()),
@@ -763,6 +776,40 @@ struct BootStatus {
 }
 
 impl DragonRuntime {
+    fn prepare_for_program_load(&mut self, slot: &str) -> Result<(), MachineError> {
+        if self.snapshot.is_some()
+            || self.cartridge.is_some()
+            || screen_has_basic_prompt(&self.machine)
+        {
+            return Ok(());
+        }
+        if self.firmware_rom.iter().all(|&byte| byte == 0) {
+            return Ok(());
+        }
+
+        for _ in 0..PROGRAM_BOOT_FRAME_BUDGET {
+            let report = self.machine.run_cycles(DRAGON_FRAME_CYCLES, 0);
+            self.time = self.time.saturating_add(report.cycles);
+            if report.stop_reason == machine_dragon_32::StopReason::CpuHalted {
+                return Err(MachineError::InvalidMedia {
+                    slot: slot.to_owned(),
+                    reason: "Dragon BASIC halted before direct program load".to_owned(),
+                });
+            }
+            if screen_has_basic_prompt(&self.machine) {
+                let settle_cycles = DRAGON_FRAME_CYCLES.saturating_mul(PROGRAM_BOOT_SETTLE_FRAMES);
+                let settle = self.machine.run_cycles(settle_cycles, 0);
+                self.time = self.time.saturating_add(settle.cycles);
+                return Ok(());
+            }
+        }
+
+        Err(MachineError::InvalidMedia {
+            slot: slot.to_owned(),
+            reason: "Dragon BASIC did not reach OK prompt before direct program load".to_owned(),
+        })
+    }
+
     fn screen_text_lines(&self) -> Vec<String> {
         self.machine
             .capture_text_screen()
@@ -1244,6 +1291,14 @@ mod tests {
                 .expect("query should be owned")
                 .value,
             json!(0x2800)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "dragon.cpu.s")
+                .expect("query should not fail")
+                .expect("query should be owned")
+                .value,
+            json!(0x7f2a)
         );
     }
 

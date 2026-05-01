@@ -229,8 +229,10 @@ Progress:
 - DragonDOS `.BIN` program parsing is now isolated in `format-dragon-bin` and
   pinned to the locally referenced XRoar-compatible header shape. Runtime,
   native, and headless Dragon paths can mount those files as direct program
-  media, inject the payload into RAM, set the BASIC `EXEC` vector, and autorun
-  from the declared exec address.
+  media, boot the ROM to the BASIC `OK` prompt, inject the payload into RAM, set
+  the BASIC `EXEC` vector, and autorun from the declared exec address. The
+  boot-before-EXEC step is required: starting at the entry point from reset-time
+  state leaves the hardware stack and display state invalid for real programs.
 - The shared shell input surface now has analogue axis events, and the native
   Dragon shell maps left-stick X/Y to continuous Dragon joystick 1 comparator
   values while preserving D-pad/button digital controls.
