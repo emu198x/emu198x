@@ -1,4 +1,4 @@
-//! Runtime wrapper for the Dragon 32.
+//! Runtime wrapper for the Dragon family.
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, FirmwareSet, FramePacket, HostIo, InputEvent, MachineCore,
@@ -13,8 +13,8 @@ use format_dragon_pak::{
 };
 use machine_dragon_32::{
     DRAGON_AUDIO_SAMPLE_RATE, DRAGON_FRAME_CYCLES, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX,
-    DRAGON_JOYSTICK_MIN, Dragon32, DragonCartridgeKind, DragonJoystickAxis, DragonKey,
-    DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
+    DRAGON_JOYSTICK_MIN, Dragon32, DragonCartridgeKind, DragonHardwareModel, DragonJoystickAxis,
+    DragonKey, DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
 };
 use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
 use serde_json::json;
@@ -97,9 +97,10 @@ pub struct DragonProgramSummary {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DragonSessionQueryProvider;
 
-/// Dragon 32 runtime.
+/// Dragon family runtime.
 pub struct DragonRuntime {
     profile: MachineProfile,
+    model: Model,
     firmware_rom: [u8; ROM_SIZE],
     machine: Dragon32,
     joystick: DragonJoystickInputState,
@@ -122,7 +123,7 @@ impl DragonRuntime {
     /// is not exactly 16 KiB.
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
-        let rom_id = "dragon32-basic-rom";
+        let rom_id = model.firmware_id();
         firmware.validate_for_profile(&profile)?;
         let rom = firmware
             .bytes(rom_id)
@@ -141,13 +142,17 @@ impl DragonRuntime {
     ///
     /// Returns an error if the supplied ROM is not exactly 16 KiB.
     pub fn new(model: Model, rom: &[u8]) -> Result<Self, String> {
-        let firmware_rom: [u8; ROM_SIZE] = rom
-            .try_into()
-            .map_err(|_| format!("Dragon 32 BASIC ROM must be exactly {ROM_SIZE} bytes"))?;
+        let firmware_rom: [u8; ROM_SIZE] = rom.try_into().map_err(|_| {
+            format!(
+                "{} ROM must be exactly {ROM_SIZE} bytes",
+                model.display_name()
+            )
+        })?;
         Ok(Self {
             profile: profile_for(model),
+            model,
             firmware_rom,
-            machine: Dragon32::new(&firmware_rom),
+            machine: machine_for_model(model, &firmware_rom),
             joystick: DragonJoystickInputState::default(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::with_capacity(
@@ -168,8 +173,9 @@ impl DragonRuntime {
         let firmware_rom = [0; ROM_SIZE];
         Self {
             profile: profile_for(model),
+            model,
             firmware_rom,
-            machine: Dragon32::new(&firmware_rom),
+            machine: machine_for_model(model, &firmware_rom),
             joystick: DragonJoystickInputState::default(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::with_capacity(
@@ -217,7 +223,7 @@ impl DragonRuntime {
     }
 
     fn rebuild_machine(&mut self) {
-        self.machine = Dragon32::new(&self.firmware_rom);
+        self.machine = machine_for_model(self.model, &self.firmware_rom);
         self.joystick = DragonJoystickInputState::default();
         if !self.tape_bytes.is_empty() {
             self.machine.load_cassette_bytes(self.tape_bytes.clone());
@@ -444,6 +450,14 @@ const fn machine_cartridge_kind(kind: ParsedDragonCartridgeKind) -> DragonCartri
         ParsedDragonCartridgeKind::Rom => DragonCartridgeKind::Rom,
         ParsedDragonCartridgeKind::GamesMaster => DragonCartridgeKind::GamesMaster,
     }
+}
+
+fn machine_for_model(model: Model, rom: &[u8; ROM_SIZE]) -> Dragon32 {
+    let hardware = match model {
+        Model::Dragon32Pal => DragonHardwareModel::Dragon32,
+        Model::Dragon64Pal => DragonHardwareModel::Dragon64Compat,
+    };
+    Dragon32::new_with_keyboard_and_model(rom, machine_dragon_32::DragonKeyboard::new(), hardware)
 }
 
 fn load_snapshot_into_machine(machine: &mut Dragon32, snapshot: &PcDragonSnapshot) {

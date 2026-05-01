@@ -42,6 +42,32 @@ fn dragon32_real_rom_reaches_basic_prompt_and_captures_frame() {
 }
 
 #[test]
+fn dragon64_real_rom_reaches_basic_prompt() {
+    let Some(mut session) = booted_dragon64_session() else {
+        return;
+    };
+
+    let boot = session
+        .wait_for_boot(BOOT_FRAME_BUDGET)
+        .unwrap_or_else(|err| {
+            panic!(
+                "Dragon 64 ROM should reach BASIC prompt: {err}; pc=${:04X} s=${:04X} text_base=${:04X} display_base=${:04X}\n{}",
+                query_u64(&session, "dragon.cpu.pc"),
+                query_u64(&session, "dragon.cpu.s"),
+                query_u64(&session, "dragon.text.base"),
+                query_u64(&session, "dragon.video.display_base"),
+                screen_text_lines(&session).join("\n")
+            )
+        });
+
+    assert_eq!(boot.reason, "basic-ok-prompt");
+    assert!(boot.frames <= BOOT_FRAME_BUDGET);
+    session
+        .run_frames(30)
+        .expect("Dragon 64 ROM should idle after reaching BASIC prompt");
+}
+
+#[test]
 fn dragon32_real_rom_echoes_basic_keyboard_input() {
     let Some(mut session) = booted_dragon_session() else {
         return;
@@ -376,6 +402,38 @@ fn booted_dragon_session() -> Option<HeadlessSession<DragonRuntime, DragonSessio
     Some(session)
 }
 
+fn booted_dragon64_session() -> Option<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>> {
+    let Some(rom_path) = dragon32_rom_path() else {
+        eprintln!("skipping Dragon 64 real-ROM smoke: set EMU198X_DRAGON32_ROM");
+        return None;
+    };
+
+    let loaded = read_firmware_asset(&rom_path)
+        .unwrap_or_else(|err| panic!("read Dragon 32 ROM at {}: {err}", rom_path.display()));
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
+    let mut dragon64_rom = None;
+    if let Some(rom_path) = dragon64_rom_path() {
+        let loaded = read_firmware_asset(&rom_path).unwrap_or_else(|err| {
+            panic!(
+                "read optional Dragon 64 ROM at {}: {err}",
+                rom_path.display()
+            )
+        });
+        dragon64_rom = Some(loaded.bytes);
+    }
+    if let Some(bytes) = &dragon64_rom {
+        firmware.push(FirmwareImage::new("dragon64-basic-rom", bytes));
+    }
+    let runtime = DragonRuntime::from_firmware(Model::Dragon64Pal, &firmware)
+        .expect("real Dragon 64 ROM should create runtime");
+    Some(HeadlessSession::new_with_query_provider(
+        runtime,
+        DRAGON_FRAME_CYCLES,
+        DragonSessionQueryProvider,
+    ))
+}
+
 fn dragon_textstar_cas_path() -> Option<PathBuf> {
     if let Some(path) = existing_env_path("EMU198X_DRAGON_CAS") {
         return Some(path);
@@ -427,6 +485,28 @@ fn dragon32_rom_path() -> Option<PathBuf> {
     let sibling_archive = repo_root
         .parent()?
         .join("Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)(Dragon Data).zip");
+    if sibling_archive.exists() {
+        return Some(sibling_archive);
+    }
+
+    None
+}
+
+fn dragon64_rom_path() -> Option<PathBuf> {
+    if let Some(path) = existing_env_path("EMU198X_DRAGON64_ROM") {
+        return Some(path);
+    }
+
+    if let Some(path) = home_path(".emu198x/roms/dragon/dragon64.rom") {
+        return Some(path);
+    }
+
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)?;
+    let sibling_archive = repo_root
+        .parent()?
+        .join("Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 64 BIOS (1983)(Dragon Data)[48Kb RAM].zip");
     if sibling_archive.exists() {
         return Some(sibling_archive);
     }

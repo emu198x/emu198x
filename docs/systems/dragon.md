@@ -1,9 +1,9 @@
 # Dragon 32/64
 
-## Status: Early Dragon 32 Usability
+## Status: Early Dragon 32/64 Usability
 
-Dragon 32 is now a usable early system in the fresh Rust workspace. It boots a
-real Dragon 32 BASIC ROM, accepts keyboard input, mounts Dragon CAS cassette
+Dragon 32 is now a usable early system in the fresh Rust workspace. It boots
+real Dragon BASIC ROMs, accepts keyboard input, mounts Dragon CAS cassette
 images, DragonDOS `.BIN` programs, ROM/DGN cartridges, and PC-Dragon PAK
 snapshots through the shared runtime media path, can load and start
 representative BASIC and machine-code tapes, opens a native `wgpu` verifier
@@ -11,19 +11,24 @@ window, and has native CAS autoload plus patched-XRoar screenshot comparison
 coverage for cassette smoke runs, and now routes native gamepad input through
 the Dragon's analogue joystick comparator path.
 
-Dragon 64 ROM/profile support, CoCo variants, cartridge expansion hardware
-beyond the documented audio input pin, and DragonDOS disk support are still
-future work.
+Dragon 64 is represented as a distinct PAL runtime profile. It cold-boots in
+the real hardware's Dragon 32-compatible mode, adds the Dragon 64 ACIA decode
+at `$FF04-$FF07`, and keeps the SAM-backed 64K RAM paging model. Native
+`EXEC 48000` 64-mode entry using the Dragon 64 BASIC ROM is still future work,
+as are CoCo variants, cartridge expansion hardware beyond the documented audio
+input pin, and DragonDOS disk support.
 
 ## What Works
 
-- **CPU:** `motorola-6809` executes real Dragon 32 ROM and cassette loader paths
+- **CPU:** `motorola-6809` executes real Dragon ROM and cassette loader paths
   far enough to boot BASIC, load Textstar with `CLOAD`/`RUN`, and start
   machine-code CAS titles with `CLOADM`/`EXEC`.
-- **PIA:** `motorola-pia-6821` models DDR/data selection, mixed external pin
+- **PIA/ACIA:** `motorola-pia-6821` models DDR/data selection, mixed external pin
   levels, control registers, interrupt flags, and CA2/CB2 output state. Dragon
   PIA0 is wired to the keyboard matrix; PIA1 is wired to cassette input and VDG
-  control signals.
+  control signals. Dragon 64 also decodes a minimal 6551-compatible ACIA stub
+  at `$FF04-$FF07`, currently enough for no-serial-device cold boot with the
+  transmit-ready status bit.
 - **SAM:** `motorola-sam-6883` tracks the write-only SAM latches used by the
   Dragon ROM and software: VDG mode bits, display offset F0-F6, page mode, MPU
   rate, memory size, and map type. The Dragon machine keeps those immediate
@@ -75,11 +80,11 @@ future work.
   cartridges overlay `$C000-$FEFF`, and images larger than 16 KiB use Games
   Master Cartridge-style 16 KiB banking through the cartridge I/O range.
 - **Runtime:** `runtime-dragon` implements the shared `MachineCore` boundary,
-  builds from profile-declared Dragon 32 BASIC firmware, emits RGBA8888 frames
-  and mono audio packets, exposes boot/video/PIA/SAM/tape/program queries, and
-  mounts CAS media in slot `tape-1`, direct DragonDOS `.BIN` programs in
-  `program-1`, cartridge media in slot `cartridge-1`, and PC-Dragon PAK
-  snapshots in slot `snapshot-1`.
+  exposes separate Dragon 32 PAL and Dragon 64 PAL profiles, builds from
+  profile-declared BASIC firmware, emits RGBA8888 frames and mono audio
+  packets, exposes boot/video/PIA/SAM/tape/program queries, and mounts CAS media
+  in slot `tape-1`, direct DragonDOS `.BIN` programs in `program-1`, cartridge
+  media in slot `cartridge-1`, and PC-Dragon PAK snapshots in `snapshot-1`.
 - **Native shell:** `emu198x-dragon` opens a native window, presents the Dragon
   framebuffer through the shared `wgpu` presenter with `raw`/`lcd`/`crt`
   filters, emits live host audio, accepts `--rom`, `--tape`, `--bin`, `--cart`,
@@ -295,9 +300,11 @@ cargo run --release -q -p emu198x-script-dragon -- \
 4. The beam framebuffer is in place, but the display model is still calibrated
    to the current 372x243 diagnostic visible area and XRoar zoomed comparison
    bridge. A fuller PAL timing/overscan model can come later.
-5. SAM-backed 64K/page memory mapping is modeled, but Dragon 64 ROM/profile
-   support, cartridge expansion hardware beyond the documented `SND` input pin,
-   and DragonDOS/WD2797 disk support are not implemented.
+5. Dragon 64 cold-boot profile support is in place, including the real
+   hardware's Dragon 32-compatible reset mode and `$FF04-$FF07` ACIA decode.
+   Native `EXEC 48000` 64-mode BASIC entry, cartridge expansion hardware beyond
+   the documented `SND` input pin, and DragonDOS/WD2797 disk support are not
+   implemented.
 
 For the source-backed accuracy audit and implementation sequence, see
 [`dragon-accuracy-audit.md`](dragon-accuracy-audit.md).
@@ -320,13 +327,15 @@ For the source-backed accuracy audit and implementation sequence, see
 Dragon 32 is at a practical-use baseline: real BASIC ROM boot, keyboard, CAS
 autoload, cartridges, PAK snapshots, beam-updated VDG output, cassette input,
 PIA/SAM timing, mono audio, native windowing, gamepad input, and smoke tooling
-are all in place. The remaining work to call it complete is accuracy and
-coverage rather than initial bring-up.
+are all in place. Dragon 64 now cold-boots through a separate runtime profile in
+the hardware's Dragon 32-compatible reset mode. The remaining work to call the
+family complete is accuracy, 64-mode entry, and coverage rather than initial
+bring-up.
 
 To complete Dragon 32, the main gaps are: full source-backed MC6809 timing and
 interrupt edge cases, PAL video geometry calibrated against hardware captures,
-analogue audio filtering and expansion-device mixing, Dragon 64 ROM/profile
-support, DragonDOS/WD2797 disks, and a trusted fixture suite for
+analogue audio filtering and expansion-device mixing, Dragon 64 `EXEC 48000`
+mode switching, DragonDOS/WD2797 disks, and a trusted fixture suite for
 joystick/audio/video behaviours that does not depend on emulator-vs-emulator
 pixel matching.
 
@@ -334,12 +343,12 @@ pixel matching.
 
 | Component | Tests |
 |-----------|-------|
-| Machine | ROM mapping, SAM P/TY RAM paging, direct DragonDOS `.BIN` program RAM/EXEC loading, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/cartridge-SND/single-bit audio |
+| Machine | Dragon 32/64 ROM mapping, Dragon 64 ACIA decode, SAM P/TY RAM paging, direct DragonDOS `.BIN` program RAM/EXEC loading, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/cartridge-SND/single-bit audio |
 | PIA | 12: DDR, control, IRQ, input pins, mixed I/O, Cx1 edge selection, Cx2 input/output, Cx1-restored Cx2 strobe modes |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 16: source horizontal geometry/crop split, text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
 | Harness | 24: CLI, ROM loading, direct `.BIN` argument, keyboard labels, text dumps, direct screenshots, CAS smoke options, PAK snapshot smoke, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
-| Runtime | Profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, direct `.BIN` mounting, cartridge mounting, PAK snapshot mounting, joystick button-to-hardware mapping, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
+| Runtime | Dragon 32 and Dragon 64 profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, direct `.BIN` mounting, cartridge mounting, PAK snapshot mounting, joystick button-to-hardware mapping, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
 | Native | CLI, CAS tape argument, direct `.BIN` argument, cartridge argument, snapshot argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping, gamepad-to-joystick mapping |
 | CAS format | 7: block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors |
 | BIN format | 4: DragonDOS sentinel, machine-code type, header fields, payload length validation |
@@ -347,11 +356,12 @@ pixel matching.
 
 ## ROMs
 
-Place the Dragon 32 BASIC ROM at:
+Place the Dragon BASIC ROMs at:
 
 | File | Size | Description |
 |------|------|-------------|
 | `~/.emu198x/roms/dragon/dragon32.rom` | 16KB | Dragon 32 BASIC ROM |
+| `~/.emu198x/roms/dragon/dragon64.rom` | 16KB | Optional Dragon 64 BASIC ROM for future 64-mode entry |
 
 The native and script runners also accept a zip containing one suitable
 ROM/bin candidate.

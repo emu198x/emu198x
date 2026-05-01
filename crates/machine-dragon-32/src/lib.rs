@@ -64,6 +64,19 @@ const CART_IO_START: u16 = 0xFF40;
 const CART_IO_END: u16 = 0xFF5F;
 const NO_CARTRIDGE_BUS_VALUE: u8 = 0xFF;
 const CART_AUTORUN_FIRQ_CYCLES: u64 = DRAGON_CPU_HZ / 10;
+const ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY: u8 = 0x10;
+
+/// Dragon board-level memory decode variant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DragonHardwareModel {
+    /// Dragon 32: 32 KiB base RAM, internal ROM at `$8000-$BFFF`, cartridge ROM at `$C000-$FEFF`.
+    Dragon32,
+    /// Dragon 64 after cold reset: Dragon 32-compatible memory map plus the onboard ACIA.
+    Dragon64Compat,
+    /// Dragon 64 64K mode: 48 KiB base RAM, system ROM at `$C000-$FEFF`, vectors in the system ROM page.
+    Dragon64Mode,
+}
+
 const XROAR_AUDIO_MAX_V: f32 = 4.70;
 const XROAR_AUDIO_OUTPUT_GAIN: f32 = 0.7;
 const XROAR_AUDIO_SOURCE_GAIN: [[f32; 3]; 6] = [
@@ -893,6 +906,8 @@ pub enum DeviceRegion {
     Pia1,
     /// SAM write-only latch range.
     Sam,
+    /// Dragon 64 6551 ACIA serial interface.
+    Acia,
     /// Cartridge I/O range.
     Cartridge,
 }
@@ -1257,6 +1272,7 @@ pub struct RunReport {
 struct DragonMemory {
     ram: Box<[u8; FULL_RAM_SIZE]>,
     rom: Box<[u8; ROM_SIZE]>,
+    model: DragonHardwareModel,
     pia0: Pia6821,
     pia1: Pia6821,
     sam: Sam6883,
@@ -1269,10 +1285,20 @@ struct DragonMemory {
 }
 
 impl DragonMemory {
+    #[cfg(test)]
     fn new_with_keyboard(rom: &[u8; ROM_SIZE], keyboard: DragonKeyboard) -> Self {
+        Self::new_with_keyboard_and_model(rom, keyboard, DragonHardwareModel::Dragon32)
+    }
+
+    fn new_with_keyboard_and_model(
+        rom: &[u8; ROM_SIZE],
+        keyboard: DragonKeyboard,
+        model: DragonHardwareModel,
+    ) -> Self {
         Self {
             ram: Box::new([0; FULL_RAM_SIZE]),
             rom: Box::new(*rom),
+            model,
             pia0: Pia6821::new(),
             pia1: Pia6821::new(),
             sam: Sam6883::new(),
@@ -1296,21 +1322,29 @@ impl DragonMemory {
             return cartridge.read_rom(addr);
         }
 
-        let addr = usize::from(addr);
-        if (CART_ROM_START..=CART_ROM_END).contains(&(addr as u16)) {
-            NO_CARTRIDGE_BUS_VALUE
-        } else {
-            self.rom[(addr - RAM_SIZE) & (ROM_SIZE - 1)]
-        }
+        self.rom_read(addr).unwrap_or(NO_CARTRIDGE_BUS_VALUE)
     }
 
     fn read_bus(&mut self, addr: u16) -> (u8, Option<MemoryEvent>) {
+        if decode_acia(self.model, addr).is_some() {
+            let value = acia_read(addr);
+            return (
+                value,
+                Some(MemoryEvent::DeviceRead {
+                    device: DeviceRegion::Acia,
+                    addr,
+                    value,
+                }),
+            );
+        }
+
         if let Some((device, offset)) = decode_pia(addr) {
             self.refresh_pia_inputs();
             let value = match device {
                 DeviceRegion::Pia0 => self.pia0.read(offset),
                 DeviceRegion::Pia1 => self.pia1.read(offset),
                 DeviceRegion::Sam => unreachable!("SAM is not a PIA"),
+                DeviceRegion::Acia => unreachable!("ACIA is not a PIA"),
                 DeviceRegion::Cartridge => unreachable!("cartridge is not a PIA"),
             };
             return (
@@ -1340,6 +1374,12 @@ impl DragonMemory {
         if let Some(index) = self.mpu_ram_index(addr) {
             self.ram[index] = value;
             None
+        } else if decode_acia(self.model, addr).is_some() {
+            Some(MemoryEvent::DeviceWrite {
+                device: DeviceRegion::Acia,
+                addr,
+                value,
+            })
         } else if let Some((device, offset)) = decode_pia(addr) {
             match device {
                 DeviceRegion::Pia0 => {
@@ -1351,6 +1391,7 @@ impl DragonMemory {
                     self.refresh_pia_inputs();
                 }
                 DeviceRegion::Sam => unreachable!("SAM is not a PIA"),
+                DeviceRegion::Acia => unreachable!("ACIA is not a PIA"),
                 DeviceRegion::Cartridge => unreachable!("cartridge is not a PIA"),
             }
             Some(MemoryEvent::DeviceWrite {
@@ -1489,7 +1530,25 @@ impl DragonMemory {
             let page = if self.sam.page_select() { RAM_SIZE } else { 0 };
             return Some(page + usize::from(addr));
         }
+        if self.model == DragonHardwareModel::Dragon64Mode && addr < 0xC000 {
+            return Some(usize::from(addr));
+        }
         None
+    }
+
+    fn rom_read(&self, addr: u16) -> Option<u8> {
+        let index = match self.model {
+            DragonHardwareModel::Dragon32 | DragonHardwareModel::Dragon64Compat
+                if !(CART_ROM_START..=CART_ROM_END).contains(&addr) =>
+            {
+                (usize::from(addr).wrapping_sub(RAM_SIZE)) & (ROM_SIZE - 1)
+            }
+            DragonHardwareModel::Dragon64Mode if addr >= CART_ROM_START => {
+                usize::from(addr - CART_ROM_START) & (ROM_SIZE - 1)
+            }
+            _ => return None,
+        };
+        Some(self.rom[index])
     }
 
     fn audio_sample(&self) -> f32 {
@@ -2206,12 +2265,32 @@ impl Dragon32 {
         Self::new_with_keyboard(rom, DragonKeyboard::new())
     }
 
+    /// Build and reset a Dragon 64 in its Dragon 32-compatible cold-boot mode.
+    #[must_use]
+    pub fn new_dragon64(rom: &[u8; ROM_SIZE]) -> Self {
+        Self::new_with_keyboard_and_model(
+            rom,
+            DragonKeyboard::new(),
+            DragonHardwareModel::Dragon64Compat,
+        )
+    }
+
     /// Build and reset a Dragon 32 with a specific keyboard matrix state.
     #[must_use]
     pub fn new_with_keyboard(rom: &[u8; ROM_SIZE], keyboard: DragonKeyboard) -> Self {
+        Self::new_with_keyboard_and_model(rom, keyboard, DragonHardwareModel::Dragon32)
+    }
+
+    /// Build and reset a Dragon with a specific keyboard matrix state and hardware model.
+    #[must_use]
+    pub fn new_with_keyboard_and_model(
+        rom: &[u8; ROM_SIZE],
+        keyboard: DragonKeyboard,
+        model: DragonHardwareModel,
+    ) -> Self {
         let mut machine = Self {
             cpu: Mc6809::new(),
-            memory: DragonMemory::new_with_keyboard(rom, keyboard),
+            memory: DragonMemory::new_with_keyboard_and_model(rom, keyboard, model),
             video: BeamVideo::new(),
             audio: DragonAudio::new(),
             sam_timing: SamCycleTiming::default(),
@@ -3299,6 +3378,21 @@ fn decode_pia(addr: u16) -> Option<(DeviceRegion, u8)> {
     }
 }
 
+fn decode_acia(model: DragonHardwareModel, addr: u16) -> Option<u8> {
+    (matches!(
+        model,
+        DragonHardwareModel::Dragon64Compat | DragonHardwareModel::Dragon64Mode
+    ) && (0xFF04..=0xFF07).contains(&addr))
+    .then_some((addr & 0x03) as u8)
+}
+
+fn acia_read(addr: u16) -> u8 {
+    match addr & 0x03 {
+        0x01 => ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY,
+        _ => 0x00,
+    }
+}
+
 fn decode_device_write(addr: u16) -> Option<DeviceRegion> {
     match addr {
         0xFFC0..=0xFFDF => Some(DeviceRegion::Sam),
@@ -3360,6 +3454,51 @@ mod tests {
         assert_eq!(memory.read_fetch(0xFEFF), NO_CARTRIDGE_BUS_VALUE);
         assert_eq!(memory.read_fetch(0xFFFE), 0x80);
         assert_eq!(memory.read_fetch(0xFFFF), 0x00);
+    }
+
+    #[test]
+    fn dragon64_mode_maps_base_ram_and_system_rom_at_c000() {
+        let mut rom = rom_with_reset_vector(0xC000);
+        rom[0] = 0x12;
+        rom[0x3FFE] = 0xC0;
+        rom[0x3FFF] = 0x00;
+
+        let mut memory = DragonMemory::new_with_keyboard_and_model(
+            &rom,
+            DragonKeyboard::new(),
+            DragonHardwareModel::Dragon64Mode,
+        );
+
+        memory.write(0x8000, 0x34);
+        memory.write(0xBFFF, 0x56);
+
+        assert_eq!(memory.read_fetch(0x8000), 0x34);
+        assert_eq!(memory.read_fetch(0xBFFF), 0x56);
+        assert_eq!(memory.read_fetch(0xC000), 0x12);
+        assert_eq!(memory.read_fetch(0xFFFE), 0xC0);
+        assert_eq!(memory.read_fetch(0xFFFF), 0x00);
+    }
+
+    #[test]
+    fn dragon64_decodes_acia_before_pia0_mirror() {
+        let rom = rom_with_reset_vector(0xC000);
+        let mut memory = DragonMemory::new_with_keyboard_and_model(
+            &rom,
+            DragonKeyboard::new(),
+            DragonHardwareModel::Dragon64Compat,
+        );
+
+        let (value, event) = memory.read_bus(0xFF05);
+
+        assert_eq!(value, ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY);
+        assert_eq!(
+            event,
+            Some(MemoryEvent::DeviceRead {
+                device: DeviceRegion::Acia,
+                addr: 0xFF05,
+                value: ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY,
+            })
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "machine-dragon-32"
-description = "Dragon 32 machine substrate: MC6809, RAM/ROM map, PIA, SAM, keyboard, and VDG text capture"
+description = "Dragon 32/64 machine substrate: MC6809, RAM/ROM map, PIA, SAM, keyboard, and VDG text capture"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
