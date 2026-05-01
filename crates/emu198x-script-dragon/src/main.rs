@@ -42,6 +42,10 @@ const XROAR_ZOOMED_WIDTH: u32 = 512;
 const XROAR_ZOOMED_HEIGHT: u32 = 384;
 const BOOT_FRAME_BUDGET: u32 = 100;
 const KEY_EDGE_FRAMES: u32 = 8;
+// Completed-frame screenshots are taken on CPU bus-cycle boundaries; the SAM
+// can stretch a transition cycle to 25 master ticks.
+#[cfg(test)]
+const MAX_SAM_BUS_CYCLE_MASTER_TICKS: u64 = 25;
 const SMOKE_START_SETTLE_FRAMES: u32 = 60;
 
 const USAGE: &str = "\
@@ -4712,7 +4716,11 @@ mod tests {
             .framebuffer_cycles
             .expect("completed-frame capture should report its cycle");
         assert_eq!(report.stop_reason, StopReason::CycleLimit);
-        assert_eq!(report.video_phase.frame_master_tick, 0);
+        assert!(
+            report.video_phase.frame_master_tick < MAX_SAM_BUS_CYCLE_MASTER_TICKS,
+            "completed-frame capture should stop at the first bus-cycle boundary after frame wrap, got frame tick {}",
+            report.video_phase.frame_master_tick
+        );
         assert_ne!(
             framebuffer_cycles % DRAGON_FRAME_CYCLES,
             0,
