@@ -74,7 +74,7 @@ fn ram_variant_presets_construct_cleanly() {
     for model in [
         Model::A500OcsPal,
         Model::A500OcsPalA501,
-        Model::A500PlusOcsPal,
+        Model::A500PlusEcsPal,
         Model::A500OcsPalMaxed,
     ] {
         let runtime = AmigaOcsRuntime::new(model, blank_kickstart())
@@ -90,13 +90,12 @@ fn expected_chip(model: Model) -> usize {
     // Same chip-RAM size for the PAL/NTSC pair of every variant —
     // only Agnus differs between regions.
     match model {
-        Model::A500OcsPal
-        | Model::A500OcsPalA501
-        | Model::A500OcsNtsc
-        | Model::A500OcsNtscA501 => 512 * 1024,
-        Model::A500PlusOcsPal
+        Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsNtsc | Model::A500OcsNtscA501 => {
+            512 * 1024
+        }
+        Model::A500PlusEcsPal
         | Model::A500OcsPalMaxed
-        | Model::A500PlusOcsNtsc
+        | Model::A500PlusEcsNtsc
         | Model::A500OcsNtscMaxed => 1024 * 1024,
         Model::A1000OcsPal | Model::A1000OcsNtsc => 256 * 1024,
     }
@@ -247,6 +246,53 @@ fn workbench_13_reaches_desktop() -> Result<(), Box<dyn Error>> {
         result.value,
         serde_json::Value::Bool(true),
         "Workbench 1.3 should reach desktop within 25M ticks"
+    );
+    Ok(())
+}
+
+/// Waypoint: Kickstart 2.04 boots an A500+ ECS machine to the
+/// insert-disk screen.
+///
+/// **Structural check, not a passing baseline.** This session ships
+/// the AmigaEcs machine wrapper + AmigaEcsRuntime + A500+ Model
+/// reclassification, but doesn't validate that Kickstart 2.04
+/// actually reaches insert-disk yet. KS 2.04 may exercise BEAMCON0
+/// or BPLCON3 paths that the current ECS chip wrappers stub out.
+/// The first real run of this test from a freshly-extracted KS 2.04
+/// ROM is expected to surface those gaps; treat regressions found
+/// here as the input to the next ECS session.
+#[test]
+#[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom (KS 2.04 r37.175)"]
+fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal()
+-> Result<(), Box<dyn Error>> {
+    use runtime_commodore_amiga::AmigaEcsRuntime;
+    let Some(rom_dir) = home_rom_dir() else {
+        eprintln!("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
+        return Ok(());
+    };
+    let kickstart_path = rom_dir.join("kick204.rom");
+    if !kickstart_path.exists() {
+        eprintln!("skip: kick204.rom missing at {}", kickstart_path.display());
+        return Ok(());
+    }
+    let firmware = std::fs::read(&kickstart_path)?;
+    let mut runtime = AmigaEcsRuntime::new(Model::A500PlusEcsPal, firmware)?;
+
+    let mut host = null_host();
+    runtime.run_until(MachineTime::new(2_500_000), &mut host)?;
+
+    let provider = runtime_commodore_amiga::AmigaSessionQueryProvider;
+    use emu198x_shell::SessionQueryProvider;
+    let result = provider
+        .query(&runtime, "boot.detected")?
+        .expect("boot.detected should be available");
+    // We don't yet assert true here — the chip wrappers may need
+    // BEAMCON0/BPLCON3 fixes for KS 2.04 to reach insert-disk. When
+    // the first run produces a stable boot.detected = true, flip
+    // this assertion to match.
+    eprintln!(
+        "KS 2.04 A500+ PAL after 2.5M ticks: boot.detected = {}",
+        result.value
     );
     Ok(())
 }

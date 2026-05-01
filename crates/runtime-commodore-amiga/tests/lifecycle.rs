@@ -412,7 +412,7 @@ fn blank_constructor_builds_a1000_runtime() {
 fn blank_constructor_builds_every_a500_variant() {
     for model in [
         Model::A500OcsPalA501,
-        Model::A500PlusOcsPal,
+        Model::A500PlusEcsPal,
         Model::A500OcsPalMaxed,
     ] {
         let runtime = AmigaOcsRuntime::blank(model);
@@ -553,7 +553,7 @@ fn blank_constructor_builds_every_ntsc_variant() {
     let _ = AmigaOcsRuntime::blank(Model::A1000OcsNtsc);
     let _ = AmigaOcsRuntime::blank(Model::A500OcsNtsc);
     let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscA501);
-    let _ = AmigaOcsRuntime::blank(Model::A500PlusOcsNtsc);
+    let _ = AmigaOcsRuntime::blank(Model::A500PlusEcsNtsc);
     let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscMaxed);
 }
 
@@ -618,4 +618,85 @@ fn ntsc_a1000_uses_bootstrap_firmware_path() {
         AmigaOcsRuntime::new(Model::A1000OcsNtsc, kickstart),
         Err(MachineError::InvalidFirmware { .. })
     ));
+}
+
+// =====================================================================
+// ECS variant smoke tests (A500+ today; A600 / A2000B / A3000 to come)
+//
+// AmigaEcsRuntime is the canonical home for the A500+ Models. The
+// chip stack is AgnusEcs + DeniseEcs over the existing OCS Paula +
+// CIA pair. Smoke tests prove construction + frame-loop wiring.
+// Software boot validation (Kickstart 2.04 -> insert-disk) lives in
+// boot_invariants.rs as a #[ignore]'d ROM-gated test.
+// =====================================================================
+
+#[test]
+fn ecs_blank_constructor_builds_a500_plus_pal_and_ntsc() {
+    use runtime_commodore_amiga::AmigaEcsRuntime;
+    let _ = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let _ = AmigaEcsRuntime::blank(Model::A500PlusEcsNtsc);
+}
+
+#[test]
+fn ecs_runtime_runs_one_pal_frame() {
+    use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaEcsRuntime};
+    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+    runtime
+        .run_until(
+            MachineTime::new(A500_PAL_FRAME_TICKS),
+            &mut HostIo {
+                input_events: &[],
+                frame_sink: &mut frame_sink,
+                audio_sink: &mut audio_sink,
+                trace_sink: &mut trace_sink,
+            },
+        )
+        .expect("one ECS PAL frame should run");
+    assert_eq!(runtime.time(), MachineTime::new(A500_PAL_FRAME_TICKS));
+}
+
+#[test]
+fn ecs_runtime_runs_one_ntsc_frame() {
+    use runtime_commodore_amiga::{A500_NTSC_FRAME_TICKS, AmigaEcsRuntime};
+    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsNtsc);
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+    runtime
+        .run_until(
+            MachineTime::new(A500_NTSC_FRAME_TICKS),
+            &mut HostIo {
+                input_events: &[],
+                frame_sink: &mut frame_sink,
+                audio_sink: &mut audio_sink,
+                trace_sink: &mut trace_sink,
+            },
+        )
+        .expect("one ECS NTSC frame should run");
+    assert_eq!(runtime.time(), MachineTime::new(A500_NTSC_FRAME_TICKS));
+}
+
+#[test]
+fn ecs_profile_advertises_ecs_pal_region_and_clock() {
+    use emu198x_shell::Region;
+    use runtime_commodore_amiga::A500_PAL_CCK_HZ;
+    let profile = profile_for(Model::A500PlusEcsPal);
+    assert_eq!(profile.region, Region::Pal);
+    assert_eq!(profile.clock.rate.numerator_hz, A500_PAL_CCK_HZ);
+    assert!(profile.display_name.contains("ECS"));
+    assert!(profile.profile_id.as_str().contains("ecs-pal"));
+}
+
+#[test]
+fn ecs_profile_advertises_ecs_ntsc_region_and_clock() {
+    use emu198x_shell::Region;
+    use runtime_commodore_amiga::A500_NTSC_CCK_HZ;
+    let profile = profile_for(Model::A500PlusEcsNtsc);
+    assert_eq!(profile.region, Region::Ntsc);
+    assert_eq!(profile.clock.rate.numerator_hz, A500_NTSC_CCK_HZ);
+    assert!(profile.display_name.contains("ECS"));
+    assert!(profile.profile_id.as_str().contains("ecs-ntsc"));
 }

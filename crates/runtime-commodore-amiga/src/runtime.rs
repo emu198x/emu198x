@@ -20,6 +20,7 @@ use emu198x_shell::{
     StopReason,
 };
 use format_commodore_amiga_adf::Adf;
+use machine_commodore_amiga_ecs::{AmigaEcs, AudioControls as EcsAudioControls, PaulaChannel as EcsPaulaChannel};
 use machine_commodore_amiga_ocs::{
     AmigaOcs, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
 };
@@ -518,6 +519,115 @@ impl AmigaRuntime<AmigaOcs> {
     /// Set one Paula channel's host-side gain.
     pub fn set_audio_channel_gain(&mut self, channel: PaulaChannel, gain: f32) {
         self.machine.set_audio_channel_gain(channel, gain);
+    }
+}
+
+// =====================================================================
+// AmigaEcs-specific construction + audio control surface.
+// Parallels the AmigaOcs block above. Today only the A500+ ECS
+// variants route through here; A600 / A2000B / A3000 land alongside
+// once their machine-specific chips (Gayle / Ramsey / Fat Gary) are
+// ported.
+// =====================================================================
+
+impl AmigaRuntime<AmigaEcs> {
+    /// Construct an ECS runtime from owned firmware bytes, using the
+    /// model's preset RAM layout.
+    pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
+        Self::with_ram_config(model, firmware_rom, model.ram_config())
+    }
+
+    /// Construct an ECS runtime with an explicit RAM layout.
+    pub fn with_ram_config(
+        model: Model,
+        firmware_rom: Vec<u8>,
+        ram_config: RamConfig,
+    ) -> Result<Self, MachineError> {
+        validate_firmware_rom(model, &firmware_rom)?;
+        let machine = build_amiga_ecs(model, ram_config, &firmware_rom);
+        let tick_hz = AmigaMachine::cck_hz(&machine).saturating_mul(2);
+        let mut runtime = Self {
+            profile: profile_for(model),
+            model,
+            metadata: ram_config,
+            machine,
+            time: MachineTime::default(),
+            firmware_rom,
+            floppy0_bytes: None,
+            rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
+            frame_count: 0,
+            non_black_pixels: 0,
+            non_white_pixels: 0,
+            first_active_row: None,
+            audio_sample_accumulator: 0,
+            audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
+            tick_hz,
+        };
+        runtime.update_rgba_framebuffer();
+        Ok(runtime)
+    }
+
+    /// Construct an ECS runtime from a profile firmware set.
+    pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        let profile = profile_for(model);
+        firmware.validate_for_profile(&profile)?;
+        let firmware_id = firmware_id_for_model(model);
+        let image = firmware
+            .bytes(firmware_id)
+            .ok_or_else(|| MachineError::MissingFirmware {
+                id: firmware_id.to_owned(),
+            })?;
+        Self::new(model, image.to_vec())
+    }
+
+    /// Construct an ECS runtime with a zero-filled placeholder ROM.
+    #[must_use]
+    pub fn blank(model: Model) -> Self {
+        Self::new(model, blank_firmware_rom(model))
+            .expect("blank ECS model firmware image should be valid")
+    }
+
+    /// RAM layout currently installed.
+    #[must_use]
+    pub fn ram_config(&self) -> RamConfig {
+        self.metadata
+    }
+
+    /// Current host-side Paula audio controls. The ECS machine crate
+    /// re-exports the same `AudioControls` / `PaulaChannel` types as
+    /// OCS via the shared Paula crate, but keeps a local alias so the
+    /// two impls don't share a concrete type signature here.
+    #[must_use]
+    pub fn audio_controls(&self) -> EcsAudioControls {
+        self.machine.audio_controls()
+    }
+
+    /// Replace all host-side Paula audio controls.
+    pub fn set_audio_controls(&mut self, controls: EcsAudioControls) {
+        self.machine.set_audio_controls(controls);
+    }
+
+    /// Enable or disable one Paula channel in host output.
+    pub fn set_audio_channel_enabled(&mut self, channel: EcsPaulaChannel, enabled: bool) {
+        self.machine.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Set one Paula channel's host-side gain.
+    pub fn set_audio_channel_gain(&mut self, channel: EcsPaulaChannel, gain: f32) {
+        self.machine.set_audio_channel_gain(channel, gain);
+    }
+}
+
+fn build_amiga_ecs(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> AmigaEcs {
+    // ECS uses the same Kickstart-only construction as the A500
+    // family. A1000-style bootstrap and A3000 SuperKickstart paths
+    // come later. Region drives PAL/NTSC Agnus selection inside the
+    // chip layer.
+    let firmware = firmware_rom.to_vec();
+    if model.is_ntsc() {
+        AmigaEcs::with_ram_config_ntsc(firmware, ram_config)
+    } else {
+        AmigaEcs::with_ram_config(firmware, ram_config)
     }
 }
 

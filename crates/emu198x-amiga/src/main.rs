@@ -758,7 +758,7 @@ impl ModelArg {
             Self::A1000 => Model::A1000OcsPal,
             Self::A500 => Model::A500OcsPal,
             Self::A500A501 => Model::A500OcsPalA501,
-            Self::A500Plus => Model::A500PlusOcsPal,
+            Self::A500Plus => Model::A500PlusEcsPal,
             Self::A500Maxed => Model::A500OcsPalMaxed,
         }
     }
@@ -1023,7 +1023,7 @@ mod tests {
         assert_eq!(ModelArg::A1000.to_model(), Model::A1000OcsPal);
         assert_eq!(ModelArg::A500.to_model(), Model::A500OcsPal);
         assert_eq!(ModelArg::A500A501.to_model(), Model::A500OcsPalA501);
-        assert_eq!(ModelArg::A500Plus.to_model(), Model::A500PlusOcsPal);
+        assert_eq!(ModelArg::A500Plus.to_model(), Model::A500PlusEcsPal);
         assert_eq!(ModelArg::A500Maxed.to_model(), Model::A500OcsPalMaxed);
     }
 }

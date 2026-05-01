@@ -43,8 +43,8 @@ fn query_cpu_pc_returns_initial_reset_vector() {
 
 #[test]
 fn a1000_queries_report_bootstrap_state() {
-    let runtime =
-        AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
+        .expect("runtime init");
     let boot_rom_visible = AmigaSessionQueryProvider
         .query(&runtime, "amiga.a1000.boot_rom_visible")
         .expect("query succeeds")

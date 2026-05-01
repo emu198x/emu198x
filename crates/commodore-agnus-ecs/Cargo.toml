@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
+serde = { workspace = true }
 
 [lints]
 workspace = true

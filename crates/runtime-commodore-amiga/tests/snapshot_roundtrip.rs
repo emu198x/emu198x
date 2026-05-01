@@ -126,7 +126,7 @@ fn restore_rejects_wrong_model() -> Result<(), Box<dyn Error>> {
     let original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let snapshot = original.snapshot()?;
 
-    let mut other_model = AmigaOcsRuntime::new(Model::A500PlusOcsPal, blank_kickstart())?;
+    let mut other_model = AmigaOcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     let result = other_model.restore(&snapshot);
     assert!(result.is_err(), "restoring across models should fail");
     Ok(())

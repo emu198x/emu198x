@@ -45,9 +45,7 @@ struct SnapshotEnvelopeV1<M: AmigaMachine> {
 
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
-pub(crate) fn encode<M: AmigaMachine>(
-    runtime: &AmigaRuntime<M>,
-) -> Result<Vec<u8>, MachineError> {
+pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
     let envelope = SnapshotEnvelopeV1::<M> {
         version: SNAPSHOT_VERSION,
         model: runtime.model(),

@@ -1,8 +1,6 @@
 //! Commodore Amiga family profile catalogue.
 
-use commodore_agnus_ocs::{
-    NTSC_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME,
-};
+use commodore_agnus_ocs::{NTSC_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME};
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
     MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
@@ -35,10 +33,13 @@ pub enum Model {
     A500OcsPalA501,
     /// A500 + A501 trapdoor (NTSC).
     A500OcsNtscA501,
-    /// A500+ layout: 1 MiB chip RAM, no trapdoor (PAL).
-    A500PlusOcsPal,
-    /// A500+ layout (NTSC).
-    A500PlusOcsNtsc,
+    /// A500+ (Plus) layout: 1 MiB chip RAM, no trapdoor (PAL).
+    /// **ECS chipset** — A500+ shipped with ECS Agnus 8375 and ECS
+    /// (Super) Denise 8373, plus Kickstart 2.04. Backed by
+    /// `AmigaEcs` not `AmigaOcs`.
+    A500PlusEcsPal,
+    /// A500+ (Plus) layout (NTSC). ECS chipset; Kickstart 2.04.
+    A500PlusEcsNtsc,
     /// Maxed A500: 1 MiB chip + 512 KiB slow + 8 MiB Zorro-II fast (PAL).
     A500OcsPalMaxed,
     /// Maxed A500 (NTSC).
@@ -79,8 +80,8 @@ impl Model {
             Self::A500OcsNtsc => "commodore-amiga-a500-ocs-ntsc",
             Self::A500OcsPalA501 => "commodore-amiga-a500-ocs-pal-a501",
             Self::A500OcsNtscA501 => "commodore-amiga-a500-ocs-ntsc-a501",
-            Self::A500PlusOcsPal => "commodore-amiga-a500-plus-ocs-pal",
-            Self::A500PlusOcsNtsc => "commodore-amiga-a500-plus-ocs-ntsc",
+            Self::A500PlusEcsPal => "commodore-amiga-a500-plus-ecs-pal",
+            Self::A500PlusEcsNtsc => "commodore-amiga-a500-plus-ecs-ntsc",
             Self::A500OcsPalMaxed => "commodore-amiga-a500-ocs-pal-maxed",
             Self::A500OcsNtscMaxed => "commodore-amiga-a500-ocs-ntsc-maxed",
         }
@@ -102,8 +103,8 @@ impl Model {
             Self::A500OcsNtsc => "Commodore Amiga 500 (OCS NTSC)",
             Self::A500OcsPalA501 => "Commodore Amiga 500 + A501 trapdoor (OCS PAL)",
             Self::A500OcsNtscA501 => "Commodore Amiga 500 + A501 trapdoor (OCS NTSC)",
-            Self::A500PlusOcsPal => "Commodore Amiga 500+ (OCS PAL)",
-            Self::A500PlusOcsNtsc => "Commodore Amiga 500+ (OCS NTSC)",
+            Self::A500PlusEcsPal => "Commodore Amiga 500+ (ECS PAL)",
+            Self::A500PlusEcsNtsc => "Commodore Amiga 500+ (ECS NTSC)",
             Self::A500OcsPalMaxed => "Commodore Amiga 500 maxed (OCS PAL, 1M+512K+8M)",
             Self::A500OcsNtscMaxed => "Commodore Amiga 500 maxed (OCS NTSC, 1M+512K+8M)",
         }
@@ -122,7 +123,7 @@ impl Model {
             },
             Self::A500OcsPal | Self::A500OcsNtsc => RamConfig::bare(),
             Self::A500OcsPalA501 | Self::A500OcsNtscA501 => RamConfig::a501_trapdoor(),
-            Self::A500PlusOcsPal | Self::A500PlusOcsNtsc => RamConfig::a500_plus(),
+            Self::A500PlusEcsPal | Self::A500PlusEcsNtsc => RamConfig::a500_plus(),
             Self::A500OcsPalMaxed | Self::A500OcsNtscMaxed => RamConfig::a500_maxed(),
         }
     }
@@ -145,7 +146,7 @@ impl Model {
             Self::A1000OcsNtsc
                 | Self::A500OcsNtsc
                 | Self::A500OcsNtscA501
-                | Self::A500PlusOcsNtsc
+                | Self::A500PlusEcsNtsc
                 | Self::A500OcsNtscMaxed
         )
     }
@@ -161,8 +162,8 @@ pub fn profiles() -> Vec<MachineProfile> {
         profile_for(Model::A500OcsNtsc),
         profile_for(Model::A500OcsPalA501),
         profile_for(Model::A500OcsNtscA501),
-        profile_for(Model::A500PlusOcsPal),
-        profile_for(Model::A500PlusOcsNtsc),
+        profile_for(Model::A500PlusEcsPal),
+        profile_for(Model::A500PlusEcsNtsc),
         profile_for(Model::A500OcsPalMaxed),
         profile_for(Model::A500OcsNtscMaxed),
     ]
@@ -184,7 +185,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         | Model::A500OcsNtscA501
         | Model::A500OcsPalMaxed
         | Model::A500OcsNtscMaxed => 1987,
-        Model::A500PlusOcsPal | Model::A500PlusOcsNtsc => 1991,
+        Model::A500PlusEcsPal | Model::A500PlusEcsNtsc => 1991,
     };
     let (firmware_id, firmware_name) = if model.is_a1000() {
         (
@@ -215,8 +216,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
         summary: match model {
             Model::A1000OcsPal => "Amiga 1000 OCS PAL — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Kickstart-to-Workbench disk swaps are scriptable via headless media reloads.".into(),
             Model::A1000OcsNtsc => "Amiga 1000 OCS NTSC — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Boot path matches PAL A1000; Agnus runs on the NTSC clock with the short/long line alternation modelled in the chip layer.".into(),
-            Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500PlusOcsPal | Model::A500OcsPalMaxed => "Amiga OCS PAL — Kickstart-backed headless boot, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Snapshots and broader software validation still pending.".into(),
-            Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500PlusOcsNtsc | Model::A500OcsNtscMaxed => "Amiga OCS NTSC — Kickstart-backed headless boot at the US 60 Hz field rate, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. NTSC boot validation still pending; structural plumbing is in place via the chip-layer short/long line alternation.".into(),
+            Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500PlusEcsPal | Model::A500OcsPalMaxed => "Amiga OCS PAL — Kickstart-backed headless boot, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Snapshots and broader software validation still pending.".into(),
+            Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500PlusEcsNtsc | Model::A500OcsNtscMaxed => "Amiga OCS NTSC — Kickstart-backed headless boot at the US 60 Hz field rate, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. NTSC boot validation still pending; structural plumbing is in place via the chip-layer short/long line alternation.".into(),
         },
         clock: ClockDesc::new("cck", ClockRate::from_hz(cck_hz)),
         firmware: vec![FirmwareRequirement::new(firmware_id, firmware_name, false)],

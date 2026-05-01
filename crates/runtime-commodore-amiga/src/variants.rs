@@ -16,6 +16,7 @@
 
 use emu198x_shell::QueryError;
 use format_commodore_amiga_adf::Adf;
+use machine_commodore_amiga_ecs::{AmigaEcs, AmigaEcsSnapshot};
 use machine_commodore_amiga_ocs::{
     AgnusRegion, AmigaOcs, AmigaOcsSnapshot, FB_HEIGHT, FB_WIDTH, RamConfig,
 };
@@ -289,11 +290,153 @@ impl AmigaMachine for AmigaOcs {
     }
 }
 
-/// Type alias for the OCS PAL runtime — covers A1000 + A500 family +
-/// A500+ + maxed-A500. The same `AmigaOcs` machine struct serves all
-/// of them via different `RamConfig` presets and bootstrap modes;
-/// the runtime layer distinguishes them through `Model`.
+/// Type alias for the OCS runtime — covers the A1000 + A500 family.
+/// The A500+ Models (`A500PlusEcsPal/Ntsc`) are listed in `Model`
+/// alongside the OCS variants but are *technically* misrouted when
+/// constructed through `AmigaOcsRuntime` (A500+ shipped with ECS
+/// chips per Commodore). For the canonical ECS chip stack, use
+/// `AmigaEcsRuntime`. The OCS path remains the verifier-binary
+/// default until the dispatch refactor lands in a follow-up session.
 pub type AmigaOcsRuntime = AmigaRuntime<AmigaOcs>;
+
+// ===================================================================
+// AmigaEcs impl — A500+ today; A600 / A2000B / A3000 to follow once
+// Gayle / Ramsey / Fat Gary are ported. The trait body is mechanically
+// identical to the AmigaOcs impl: the chip-level differences (BEAMCON0
+// register handling, BPLCON3 register, programmable sync generator)
+// are absorbed inside AgnusEcs / DeniseEcs via Deref/DerefMut, so the
+// machine layer's call sites are unchanged. The two impls coexist so
+// a future ECS-only behaviour can be carved out without touching OCS.
+// ===================================================================
+
+const ECS_VARIANT_QUERY_PATHS: &[&str] = OCS_VARIANT_QUERY_PATHS;
+
+impl AmigaMachine for AmigaEcs {
+    const CHIPSET_FB_WIDTH: u32 = FB_WIDTH;
+    const CHIPSET_FB_HEIGHT: u32 = FB_HEIGHT;
+
+    type Snapshot = AmigaEcsSnapshot;
+    type SnapshotMetadata = RamConfig;
+
+    fn rebuild(&mut self, firmware: &[u8], metadata: &Self::SnapshotMetadata) {
+        // The A500+ never shipped with an A1000-style bootstrap ROM,
+        // so for now ECS only routes through the standard Kickstart
+        // path. When A1000-NTSC-ECS-equivalent (or A3000 with its
+        // 64KiB bootstrap) lands we can extend this to mirror the
+        // OCS rebuild's size-based dispatch.
+        *self = AmigaEcs::with_ram_config(firmware.to_vec(), *metadata);
+    }
+
+    fn tick(&mut self) {
+        AmigaEcs::tick(self);
+    }
+
+    fn frame_ticks(&self) -> u64 {
+        match self.region() {
+            AgnusRegion::Pal => crate::A500_PAL_FRAME_TICKS,
+            AgnusRegion::Ntsc => crate::A500_NTSC_FRAME_TICKS,
+        }
+    }
+
+    fn cck_hz(&self) -> u64 {
+        match self.region() {
+            AgnusRegion::Pal => crate::A500_PAL_CCK_HZ,
+            AgnusRegion::Ntsc => crate::A500_NTSC_CCK_HZ,
+        }
+    }
+
+    fn chipset_framebuffer(&self) -> &[u32] {
+        self.denise().framebuffer()
+    }
+
+    fn mix_audio_stereo(&self) -> (f32, f32) {
+        self.paula().mix_audio_stereo()
+    }
+
+    fn key_event(&mut self, code: u8, pressed: bool) {
+        AmigaEcs::key_event(self, code, pressed);
+    }
+
+    fn move_mouse_port0(&mut self, dx: i32, dy: i32) {
+        AmigaEcs::move_mouse_port0(self, dx, dy);
+    }
+
+    fn set_mouse_button_port0(&mut self, button: &str, pressed: bool) {
+        AmigaEcs::set_mouse_button_port0(self, button, pressed);
+    }
+
+    fn set_joystick_control(&mut self, port: u8, name: &str, pressed: bool) {
+        let _ = AmigaEcs::set_joystick_control(self, port, name, pressed);
+    }
+
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
+        if change_pending {
+            self.insert_adf_with_change_pending(adf);
+        } else {
+            self.insert_adf(adf);
+        }
+    }
+
+    fn snapshot_state(&self) -> Self::Snapshot {
+        AmigaEcs::snapshot_state(self)
+    }
+
+    fn restore_snapshot_state(&mut self, snapshot: Self::Snapshot) {
+        AmigaEcs::restore_snapshot_state(self, snapshot);
+    }
+
+    fn variant_query_paths() -> &'static [&'static str] {
+        ECS_VARIANT_QUERY_PATHS
+    }
+
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<Value>, QueryError> {
+        // Same chip-state surface as OCS for now — every query path
+        // ECS carries is also valid on OCS. The ECS-only paths
+        // (BEAMCON0, BPLCON3 reads) will land alongside whichever
+        // verifier flow needs them first.
+        let drive = self.drive();
+        let drive_status = drive.status();
+        let value = match path {
+            "amiga.a1000.boot_rom_visible" => json!(self.memory().a1000_boot_rom_visible()),
+            "amiga.a1000.wom_locked" => json!(self.memory().a1000_wom_locked()),
+            "amiga.memory.overlay" => json!(self.memory().overlay()),
+            "amiga.cpu.pc" => json!(self.cpu().regs.pc),
+            "amiga.cpu.sr" => json!(self.cpu().regs.sr),
+            "amiga.cpu.ipl" => json!(self.cpu().ipl),
+            "amiga.agnus.vpos" => json!(self.agnus().vpos),
+            "amiga.agnus.hpos" => json!(self.agnus().hpos),
+            "amiga.agnus.dmacon" => json!(self.dmacon()),
+            "amiga.agnus.bplcon0" => json!(self.bplcon0()),
+            "amiga.paula.intena" => json!(self.intena()),
+            "amiga.paula.intreq" => json!(self.intreq()),
+            "amiga.debug.dsk_write_count" => json!(self.debug_dsk_log.len()),
+            "amiga.debug.last_dsk_write" => {
+                json!(self.debug_dsk_log.last().map(|(cck, pc, reg, val)| {
+                    json!({"cck": cck, "pc": pc, "reg": reg, "val": val})
+                }))
+            }
+            "amiga.display.color00" => json!(self.color(0)),
+            "amiga.display.color01" => json!(self.color(1)),
+            "amiga.disk.inserted" => json!(drive.has_disk()),
+            "amiga.disk.change_pending" => json!(drive_status.disk_change),
+            "amiga.disk.cylinder" => json!(drive.cylinder()),
+            "amiga.disk.head" => json!(drive.head()),
+            "amiga.disk.motor_on" => json!(drive.motor_on()),
+            "amiga.disk.motor_spinning" => json!(drive_status.ready),
+            "amiga.disk.step_events" => json!(drive.step_event_counter()),
+            "amiga.keyboard.state" => json!(self.keyboard().debug_state_name()),
+            "amiga.keyboard.queued" => json!(self.keyboard().queued_key_count()),
+            _ => return Ok(None),
+        };
+        Ok(Some(value))
+    }
+}
+
+/// Type alias for the ECS runtime — currently A500+. A600 / A2000B /
+/// A3000 land here in later sessions once their machine-specific
+/// chips (Gayle, Ramsey, Fat Gary) are ported. The chip stack is
+/// AgnusEcs + DeniseEcs over the existing OCS Paula + CIA pair.
+pub type AmigaEcsRuntime = AmigaRuntime<AmigaEcs>;
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,29 @@
+[package]
+name = "machine-commodore-amiga-ecs"
+description = "Commodore Amiga (ECS chipset) — A500+ (Kickstart 2.04). Parallel of machine-commodore-amiga-ocs with ECS Agnus 8375 + ECS Denise 8373 swapped in. A600 / A2000B / A3000 land later (Gayle / Ramsey / Fat Gary chip ports pending)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+motorola-68000 = { path = "../motorola-68000" }
+mos-cia-8520 = { path = "../mos-cia-8520" }
+commodore-paula-8364 = { path = "../commodore-paula-8364" }
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
+commodore-agnus-ecs = { path = "../commodore-agnus-ecs" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs" }
+commodore-denise-ecs = { path = "../commodore-denise-ecs" }
+machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs" }
+peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy" }
+peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard" }
+commodore-gary = { path = "../commodore-gary" }
+commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig" }
+format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
+serde = { workspace = true }
+
+[dev-dependencies]
+png = { workspace = true }
+zip = { workspace = true }
+
+[lints]
+workspace = true

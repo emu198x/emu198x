@@ -4,6 +4,70 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-01 — Amiga ECS machine: machine-commodore-amiga-ecs + AmigaEcsRuntime + A500+ reclassified
+
+**Type:** parallel-crate machine wrapper, runtime trait impl, and Model reclassification. Builds on the earlier ECS chip ports landed today.
+**Trigger:** the user's "let's go ECS, baby" — push from the chip ports through to a constructible ECS machine in the runtime layer.
+
+### Three confirmed scope decisions before code
+
+1. **Parallel crate** — copy `machine-commodore-amiga-ocs` wholesale, swap chip imports to ECS variants. Consolidate into a generic-over-chip-pair crate later when both diverge meaningfully. OCS path completely untouched (no PAL-golden risk).
+2. **A500+ only this session, A600 next** — A600 needs Gayle (IDE/PCMCIA/system control) which isn't ported yet (3175 lines in archive, mostly NE2000 PCMCIA we don't yet need).
+3. **Reclassify A500+ as ECS** — A500+ historically shipped with ECS Agnus 8375 + (often Super) Denise 8373 + Kickstart 2.04. The `A500PlusOcs*` Model entries were structural placeholders for the OCS-only era; rename to `A500PlusEcs*` and mark them as the canonical ECS Models.
+
+### What landed
+
+**`crates/machine-commodore-amiga-ecs/`** — wholesale copy of `machine-commodore-amiga-ocs/src/` (4,794 lines across 7 files), plus a fresh Cargo.toml, plus three surgical edits:
+- `agnus.rs` — re-exports `AgnusEcs` from `commodore-agnus-ecs` alongside the existing OCS Agnus types.
+- `denise.rs` — `use commodore_denise_ecs::DeniseEcs;` (was `commodore_denise_ocs::DeniseOcs;`); the local `Denise` wrapper now embeds `DeniseEcs`.
+- `lib.rs` — `agnus: Agnus` field type → `agnus: AgnusEcs`; constructor `Agnus::new_with_region(region)` → `AgnusEcs::from_ocs(Agnus::new_with_region(region))`; struct rename `AmigaOcs` → `AmigaEcs` (and `AmigaOcsSnapshot` → `AmigaEcsSnapshot`); `RamConfig` definition deleted in favour of `pub use machine_commodore_amiga_ocs::RamConfig` so the same struct identity flows through both machines.
+
+The chip-level wrappers' `Deref/DerefMut` to OCS innards means every `self.agnus.vpos`, `self.denise.write_word(...)`, etc. site in the machine code passes through unchanged. **Lib tests run identically: 49 passed, 0 failed**.
+
+**`crates/commodore-agnus-ecs` + `crates/commodore-denise-ecs`** — added `serde::Serialize`/`Deserialize` derives + `serde` dep so the wrappers can ride inside the snapshot envelope.
+
+**`crates/runtime-commodore-amiga/src/variants.rs`** — new `impl AmigaMachine for AmigaEcs` parallel to the existing OCS impl. Same query catalogue (no ECS-only paths yet — those land alongside whichever verifier flow surfaces them). New `pub type AmigaEcsRuntime = AmigaRuntime<AmigaEcs>` alias.
+
+**`crates/runtime-commodore-amiga/src/runtime.rs`** — new `impl AmigaRuntime<AmigaEcs>` block with the construction surface (`new`, `with_ram_config`, `from_firmware`, `blank`, `audio_controls`, ...) parallel to the OCS block. New `build_amiga_ecs(model, ram_config, firmware) -> AmigaEcs` helper picks PAL or NTSC based on `model.is_ntsc()`. The OCS path is unchanged.
+
+**`crates/runtime-commodore-amiga/src/profiles.rs`** — `Model::A500PlusOcsPal/Ntsc` renamed to `A500PlusEcsPal/Ntsc`. Profile metadata picks up "(ECS PAL)" / "(ECS NTSC)" display names and the corresponding profile-id strings (`commodore-amiga-a500-plus-ecs-pal`/-`ntsc`). The PAL/NTSC clock/region selection on the profile reuses the existing `is_ntsc()` predicate.
+
+**`crates/emu198x-amiga` + `crates/emu198x-script-amiga`** — mechanical `A500PlusOcsPal/Ntsc` → `A500PlusEcsPal/Ntsc` rename in the verifier-binary `--model a500-plus` mappers. **Verifier binaries still construct `AmigaOcsRuntime` for all models, including A500+** — see honest exclusion below.
+
+### Tests
+
+| Crate | Result |
+|---|---|
+| `commodore-agnus-ecs --lib` | 20 passed (unchanged) |
+| `commodore-denise-ecs --lib` | 12 passed (unchanged) |
+| `machine-commodore-amiga-ecs --lib` | 49 passed (parallels the OCS lib tests, validates Deref-based pass-through) |
+| `runtime-commodore-amiga --lib --tests` | 82 passed (5 new ECS smoke tests on top of 77), 16 ignored (ROM-gated as before), 0 failed |
+| `cargo clippy ... -- -D warnings` | clean across the full Amiga stack |
+
+The new lifecycle smoke tests (in `tests/lifecycle.rs`):
+- `ecs_blank_constructor_builds_a500_plus_pal_and_ntsc` — both NTSC and PAL ECS models construct from blank firmware
+- `ecs_runtime_runs_one_pal_frame` / `ecs_runtime_runs_one_ntsc_frame` — frame-loop wiring works at both region tick counts
+- `ecs_profile_advertises_ecs_pal_region_and_clock` / `_ntsc_` — profile metadata reflects the reclassification (Region::Pal/Ntsc, correct CCK Hz, ECS in display name + profile id)
+
+The new boot-invariants entry (`tests/boot_invariants.rs::kickstart_204_reaches_insert_disk_screen_a500_plus_pal`) is **`#[ignore]`'d and intentionally non-asserting** — it constructs an ECS A500+ runtime, runs 2.5M ticks, and prints `boot.detected`. Treat the first real run as the input to the next ECS session, not a passing baseline. KS 2.04 may exercise BEAMCON0 / BPLCON3 paths the wrappers stub out.
+
+### Honest exclusions
+
+- **No KS 2.04 boot validation.** Structurally complete, behaviourally untested. The KS 2.04 ROM is in the archive at `~/Projects/Emu198x-Unclean/Reference/amiga/Firmware/Kickstart v2.04 r37.175 (1991-05)(Commodore)(A500+)[!].zip` — extracting and running the boot probe is the first task next session.
+- **`AmigaOcsRuntime` still accepts ECS Models.** The reclassification is honoured in profile metadata and in the existence of `AmigaEcsRuntime`, but `AmigaOcsRuntime::new(Model::A500PlusEcsPal, ...)` still works and routes through `AmigaOcs` (OCS chips against the renamed Model). Tests can use `AmigaEcsRuntime` explicitly to validate the ECS path. The verifier-binary dispatch refactor (so `--model a500-plus` actually picks `AmigaEcsRuntime`) is deferred to next session — it's a real refactor of the verifier `runtime: AmigaOcsRuntime` field into either an enum (`AmigaRuntimeKind`) or a generic dispatch.
+- **No new ECS-only query paths.** `BEAMCON0`, `BPLCON3` reads / programmable sync state are reachable via `runtime.machine().beamcon0` etc. but not surfaced as `amiga.agnus.beamcon0` / `amiga.denise.bplcon3` queries yet. Adding those is cheap when a verifier flow needs them.
+- **A600 / A2000B / A3000 not done.** A600 needs `commodore-gayle` (3175 lines in archive). A2000B is a separate revision of the existing A2000 mostly identical to A500+ chipset-wise. A3000 needs `commodore-fat-gary` + `commodore-ramsey` and a different memory layout.
+- **No code consolidation.** Per the user's confirmed scope ("parallel for now, consolidate later"), the ~5K lines duplicated between `machine-commodore-amiga-ocs` and `machine-commodore-amiga-ecs` are intentionally redundant for now. Maintenance pain when both diverge is the trigger for consolidation.
+
+### Next session candidates
+
+1. **Extract KS 2.04 + run the boot probe.** First reality check on whether the ECS chip wrappers cover KS 2.04's boot path. Likely surfaces 1-2 BEAMCON0/BPLCON3 register paths Kickstart 2.04 reads that aren't yet wired.
+2. **Verifier-binary dispatch refactor.** `AmigaRuntimeKind` enum (or similar) so `--model a500-plus` actually picks `AmigaEcsRuntime`.
+3. **A600 — port `commodore-gayle`** (3175 lines lift from `Emu198x-Oldest`). Then add A600 Models + machine wrapping.
+4. **AGA chip lifts** — `commodore-agnus-aga` (278) + `commodore-denise-aga` (372). Foundation for A1200/A4000 next.
+
+---
+
 ## 2026-05-01 — Amiga ECS chip ports: agnus-ecs + denise-ecs lifted from archive
 
 **Type:** archive port (lift-and-shift). Pure foundation work for the next tracks (ECS machine variants, AGA, eventually SAGA/Vampire/RTG).

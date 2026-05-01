@@ -17,6 +17,7 @@ const BPLCON3_KILLEHB: u16 = 0x0200;
 const BPLCON3_ENBPLCN3: u16 = 0x0001;
 
 /// Thin ECS wrapper that currently reuses the OCS Denise implementation.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeniseEcs {
     inner: InnerDeniseOcs,
     /// ECS/ECS+ bitplane control extension register.

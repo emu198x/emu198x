@@ -57,8 +57,8 @@ use emu198x_shell::{
 };
 use format_commodore_amiga_adf::Adf;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AmigaSessionQueryProvider, DISPLAY_HEIGHT, DISPLAY_WIDTH,
-    Model,
+    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AmigaSessionQueryProvider, DISPLAY_HEIGHT,
+    DISPLAY_WIDTH, Model,
 };
 
 /// One row in the golden matrix.

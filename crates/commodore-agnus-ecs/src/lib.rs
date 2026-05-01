@@ -63,7 +63,7 @@ pub struct SyncPinLevels {
 }
 
 /// Thin ECS wrapper that currently reuses the OCS Agnus implementation.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct AgnusEcs {
     inner: InnerAgnusOcs,
     beamcon0: u16,
