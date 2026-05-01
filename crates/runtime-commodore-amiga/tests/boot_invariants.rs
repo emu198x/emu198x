@@ -278,21 +278,106 @@ fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal()
     let firmware = std::fs::read(&kickstart_path)?;
     let mut runtime = AmigaEcsRuntime::new(Model::A500PlusEcsPal, firmware)?;
 
-    let mut host = null_host();
-    runtime.run_until(MachineTime::new(2_500_000), &mut host)?;
+    let provider = runtime_commodore_amiga::AmigaSessionQueryProvider;
+    use emu198x_shell::SessionQueryProvider;
+
+    // Tick in 100k-tick increments and snapshot diagnostic state at
+    // each window so we can see exactly where the boot path stalls.
+    // Each window is roughly 35 KS frames at PAL.
+    let probes = [100_000u64, 250_000, 500_000, 1_000_000, 2_500_000];
+    let mut prior = 0u64;
+    for &target in &probes {
+        let delta = target - prior;
+        let mut host = null_host();
+        runtime.run_until(MachineTime::new(target), &mut host)?;
+        prior = target;
+
+        let pc = provider
+            .query(&runtime, "amiga.cpu.pc")?
+            .expect("amiga.cpu.pc")
+            .value;
+        let ipl = provider
+            .query(&runtime, "amiga.cpu.ipl")?
+            .expect("amiga.cpu.ipl")
+            .value;
+        let vpos = provider
+            .query(&runtime, "amiga.agnus.vpos")?
+            .expect("amiga.agnus.vpos")
+            .value;
+        let dmacon = provider
+            .query(&runtime, "amiga.agnus.dmacon")?
+            .expect("amiga.agnus.dmacon")
+            .value;
+        let intena = provider
+            .query(&runtime, "amiga.paula.intena")?
+            .expect("amiga.paula.intena")
+            .value;
+        let intreq = provider
+            .query(&runtime, "amiga.paula.intreq")?
+            .expect("amiga.paula.intreq")
+            .value;
+        let bplcon0 = provider
+            .query(&runtime, "amiga.agnus.bplcon0")?
+            .expect("amiga.agnus.bplcon0")
+            .value;
+        let overlay = provider
+            .query(&runtime, "amiga.memory.overlay")?
+            .expect("amiga.memory.overlay")
+            .value;
+        let detected = provider
+            .query(&runtime, "boot.detected")?
+            .expect("boot.detected")
+            .value;
+        let reason = provider
+            .query(&runtime, "boot.reason")?
+            .expect("boot.reason")
+            .value;
+        eprintln!(
+            "[{:>10} ticks (+{:>8})] PC={pc} IPL={ipl} vpos={vpos} \
+             dmacon={dmacon} intena={intena} intreq={intreq} \
+             bplcon0={bplcon0} overlay={overlay} \
+             boot.detected={detected} boot.reason={reason}",
+            target, delta
+        );
+    }
+    Ok(())
+}
+
+/// Diagnostic: same KS 2.04 ROM, but constructed against
+/// AmigaOcsRuntime instead of AmigaEcsRuntime. Lets us tell whether
+/// the early stall is ECS-specific or KS-2.04-specific.
+#[test]
+#[ignore = "diagnostic — KS 2.04 against OCS chip stack"]
+fn kickstart_204_diagnostic_on_ocs_runtime() -> Result<(), Box<dyn Error>> {
+    let Some(rom_dir) = home_rom_dir() else {
+        eprintln!("skip: no Amiga ROM dir");
+        return Ok(());
+    };
+    let kickstart_path = rom_dir.join("kick204.rom");
+    if !kickstart_path.exists() {
+        eprintln!("skip: kick204.rom missing");
+        return Ok(());
+    }
+    let firmware = std::fs::read(&kickstart_path)?;
+    // Construct against OCS for diagnostic purposes — A500+ is now
+    // ECS in profile metadata, but AmigaOcsRuntime accepts the model
+    // and routes to OCS chips for this sort of comparison.
+    let mut runtime = AmigaOcsRuntime::new(Model::A500PlusEcsPal, firmware)?;
 
     let provider = runtime_commodore_amiga::AmigaSessionQueryProvider;
     use emu198x_shell::SessionQueryProvider;
-    let result = provider
-        .query(&runtime, "boot.detected")?
-        .expect("boot.detected should be available");
-    // We don't yet assert true here — the chip wrappers may need
-    // BEAMCON0/BPLCON3 fixes for KS 2.04 to reach insert-disk. When
-    // the first run produces a stable boot.detected = true, flip
-    // this assertion to match.
-    eprintln!(
-        "KS 2.04 A500+ PAL after 2.5M ticks: boot.detected = {}",
-        result.value
-    );
+
+    let probes = [100_000u64, 250_000, 500_000, 1_000_000, 2_500_000];
+    for &target in &probes {
+        let mut host = null_host();
+        runtime.run_until(MachineTime::new(target), &mut host)?;
+        let pc = provider.query(&runtime, "amiga.cpu.pc")?.expect("pc").value;
+        let dmacon = provider.query(&runtime, "amiga.agnus.dmacon")?.expect("dmacon").value;
+        let detected = provider.query(&runtime, "boot.detected")?.expect("detected").value;
+        eprintln!(
+            "[OCS @ {:>10}] PC={pc} dmacon={dmacon} boot.detected={detected}",
+            target
+        );
+    }
     Ok(())
 }

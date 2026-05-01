@@ -4,6 +4,76 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-01 — KS 2.04 boot probe: stalls in ROM string area on BOTH chip stacks
+
+**Type:** diagnostic / structural finding. Documents the first reality check on the ECS path landed earlier today.
+**Trigger:** "one more push" — extract the KS 2.04 ROM, run the ECS A500+ boot probe, see what happens.
+
+### Setup
+
+Extracted the verified-good dump:
+```
+~/Projects/Emu198x-Unclean/Reference/amiga/Firmware/Kickstart v2.04 r37.175 (1991-05)(Commodore)(A500+)[!].zip
+```
+to `~/.emu198x/roms/commodore-amiga/kick204.rom` (524288 bytes). Magic header `1114 4ef9 00f8 00d2` and the readable `"exec 37.132 (23.5.91)"` string at offset $20+ confirm a valid 512 KiB Kickstart 2.04.
+
+### Probe results
+
+Ran `kickstart_204_reaches_insert_disk_screen_a500_plus_pal` against `AmigaEcsRuntime` with diagnostic dumps at five tick checkpoints:
+
+```
+[    100000 ticks] PC=$F80026 IPL=0 vpos=0 dmacon=0 intena=0 intreq=$20 bplcon0=0 overlay=true detected=false reason=no-visible-output
+[    250000 ticks] PC=$F8002E IPL=0 vpos=0 dmacon=0 intena=0 intreq=$20 bplcon0=0 overlay=true detected=false reason=no-visible-output
+[    500000 ticks] PC=$F8002E IPL=0 vpos=0 dmacon=0 intena=0 intreq=$20 bplcon0=0 overlay=true detected=false reason=no-visible-output
+[   1000000 ticks] PC=$F8002E IPL=0 vpos=0 dmacon=0 intena=0 intreq=$20 bplcon0=0 overlay=true detected=false reason=no-visible-output
+[   2500000 ticks] PC=$F8002A IPL=0 vpos=0 dmacon=0 intena=0 intreq=$20 bplcon0=0 overlay=true detected=false reason=no-visible-output
+```
+
+PC oscillates between **$F80026 / $F8002A / $F8002E** — that's tight loop territory. But: **$F80020-$F80060 is ROM string data, not code.** The bytes there read `"32 (23.5.91)\0\0\nAMIGA ROM Operating System \nCopyright 1985,1986…"`. The CPU is executing string bytes as instructions — it's gone off the rails.
+
+### Same wall on OCS
+
+Added a diagnostic test (`kickstart_204_diagnostic_on_ocs_runtime`) that runs the same KS 2.04 ROM through `AmigaOcsRuntime` instead. **Identical PC progression**:
+
+```
+[OCS @     100000] PC=$F80026 dmacon=0 boot.detected=false
+[OCS @     250000] PC=$F8002E dmacon=0 boot.detected=false
+[OCS @     500000] PC=$F8002E dmacon=0 boot.detected=false
+[OCS @    1000000] PC=$F8002E dmacon=0 boot.detected=false
+[OCS @    2500000] PC=$F8002A dmacon=0 boot.detected=false
+```
+
+This is the key finding: **the wall is NOT in the ECS chip swap.** The same OCS implementation that boots KS 1.3 to insert-disk fails identically on KS 2.04. The chip-port + machine-wrapper + runtime work landed today is structurally clean; the wall pre-existed this session.
+
+### Hypothesis (next session's starting point)
+
+Two strong candidates for what KS 2.04 does that KS 1.3 doesn't:
+
+1. **Overlay handling.** `overlay=true` throughout the entire 2.5M-tick run. KS 2.04 clears OVERLAY (CIA-A PRA bit 0 at `$BFE001`) very early in cold boot to remap chip RAM at `$0`. If our CIA-A PRA write path isn't actually flipping the overlay state for KS 2.04's specific write sequence, an exception that vectors through `$0..$3FF` would read the still-mapped-as-ROM vectors — leading to a wild-goose chase. KS 1.3 may write the overlay sequence differently or rely on it less aggressively.
+
+2. **Reset-vector / exception-table mismatch.** KS 2.x rebuilds the exception table differently from KS 1.3. If our 68000 takes an exception (BERR / address error) early in KS 2.04 startup, it reads vector $0..$7. With overlay=true those vectors point into ROM but at different addresses than KS 2.04 expects, sending the CPU into ROM string territory.
+
+The PC location (string area, not code area) is consistent with "exception fired, vectored through bad address, CPU now reading garbage as instructions." That's the most likely root cause.
+
+### What landed in this commit
+
+- `tests/boot_invariants.rs::kickstart_204_reaches_insert_disk_screen_a500_plus_pal` — extended the originally-stub probe with diagnostic dumps (PC, IPL, vpos, dmacon, intena, intreq, bplcon0, overlay, boot.detected, boot.reason) at 5 tick checkpoints.
+- `tests/boot_invariants.rs::kickstart_204_diagnostic_on_ocs_runtime` — new diagnostic running KS 2.04 against AmigaOcsRuntime, confirming the wall is the same on both chip stacks.
+
+Both tests `#[ignore]`'d, intentionally non-asserting. They're reusable next session for incremental progress.
+
+### Why this is good news
+
+The ECS path is structurally clean. The chip swap (AgnusOcs → AgnusEcs, DeniseOcs → DeniseEcs) and the machine-wrapper composition pattern verified in tests today (49 lib tests on `machine-commodore-amiga-ecs`, 5 ECS smoke tests on the runtime) all hold. The next session's KS 2.04 work is debugging an OCS-baseline gap, not an ECS-introduced regression — and that work will benefit BOTH chip stacks, not just ECS.
+
+### Next session's starting point
+
+1. **Wire a 68000 disassembler** (or use Musashi from `Emu198x-Unclean`) to inspect what code at $F800D2 actually does in the first 200 instructions — find where the CPU jumps off the rails.
+2. **Trace CIA-A PRA writes** during KS 2.04 boot — confirm whether KS 2.04 actually issues the overlay-clear sequence and whether our handling fires the side-effect.
+3. **If overlay clearing is the culprit**, the fix is in `mos-cia-8520` (the CIA shared between OCS/ECS) or in the machine layer's bus dispatch — touching either the OCS or ECS path lifts BOTH boots.
+
+---
+
 ## 2026-05-01 — Amiga ECS machine: machine-commodore-amiga-ecs + AmigaEcsRuntime + A500+ reclassified
 
 **Type:** parallel-crate machine wrapper, runtime trait impl, and Model reclassification. Builds on the earlier ECS chip ports landed today.
