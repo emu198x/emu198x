@@ -112,14 +112,27 @@ const PENTAGON_128_BANNERS: &[&str] = &[
     "(C) 1993 Sinclair Research Ltd",
 ];
 
-// BLOCKED 2026-05-01: the Scorpion ROM boots into TR-DOS waiting for
-// a disk image. With no disk inserted, the screen RAM stays blank
-// (probed at 500 frames produces a uniformly empty screen — neither
-// glyph cells nor a graphic splash). Banner detection here needs
-// either (a) inserting a known idle disk image and waiting for the
-// TR-DOS prompt, (b) using an I/O register-state check rather than
-// a screen-text scan, or (c) hooking the alternate boot path that
-// drops directly into 48 BASIC if the user holds Caps Shift.
+// BLOCKED 2026-05-01 (refined 2026-05-01 by `probe_scorpion_screen_ram`):
+// the Scorpion's Service ROM (ROM 0 / ZSU monitor) boots silently
+// to a monitor in upper RAM. After 2000 frames the screen RAM at
+// $4000-$5AFF is **100% zero** but the CPU is alive (PC=$EB82,
+// IFF1=true, IM=1, TR-DOS not paged) — interrupts are firing every
+// frame, the monitor is just choosing not to paint anything until
+// you interact. This is standard Soviet-Scorpion behaviour, NOT a
+// TR-DOS implementation bug. The Beta-disk crate is fully
+// implemented (442 lines, no `todo!`/`unimplemented!`); TR-DOS
+// hasn't been paged in here because nothing has tried to read from
+// `$3D00..$3DFF` yet.
+//
+// Banner detection here genuinely cannot use a screen-text scan.
+// Three signal alternatives the next contributor could use:
+//   (a) Insert a known idle disk image and wait for TR-DOS to page
+//       in and paint its directory listing.
+//   (b) Send a Caps Shift / key press at boot and wait for the
+//       monitor's response screen.
+//   (c) Detect the boot via PC range or I/O register state rather
+//       than a screen scan (e.g. once PC enters the monitor's
+//       command-loop region).
 const SCORPION_ZS256_BANNERS: &[&str] = &[];
 
 // Confirmed 2026-05-01 by booting `~/.emu198x/roms/timex-tc2048/tc2048.rom`
@@ -135,14 +148,25 @@ const TIMEX_TC2048_BANNERS: &[&str] = &[
     "1982 Sinclair Research Ltd",
 ];
 
-// BLOCKED 2026-05-01: the TS2068 uses a different ROM glyph table
-// from the standard Sinclair $3D00 layout (the TS2068's ROM is a
-// rewrite by Timex of America, not a 48K derivative like the TC2048).
-// The probe test shows alternating `? ` cells which means the
-// decoder is reading the right screen RAM but applying the wrong
-// glyph table to interpret each cell. Banner detection needs either
-// a TS2068-specific glyph table address or a different decoder
-// strategy for non-Sinclair-derived ROMs.
+// BLOCKED 2026-05-01 (refined 2026-05-01 by `probe_ts2068_screen_ram`):
+// the TS2068 boot screen lives in **Timex 64-column high-resolution
+// mode**, not the standard 32-column Sinclair layout. The probe shows
+//   * standard pixel area $4000-$57FF: 3072/6144 nonzero (~50%)
+//   * secondary pixel area $6000-$77FF: 3072/6144 nonzero (~50%)
+//   * sample row 23: `39 00 39 00 39 00 39 00 …`
+// The alternating `$39 $00` pattern is the SCLD (Timex hi-res
+// controller) interleaving the two bitmap planes — even-indexed
+// bytes from $4000-$57FF, odd-indexed from $6000-$77FF — to compose
+// a 512×192 monochrome image. Our screen-text decoder reads only the
+// 32-column standard layout, so it sees the even-indexed half of an
+// interleaved hi-res bitmap and renders alternating `?` cells.
+//
+// Banner detection here can't use the standard $3D00 glyph table at
+// all — there are no character cells to decode. The next contributor
+// could either (a) add a Timex-mode-aware screen-text decoder that
+// reconstructs the 512-pixel-wide bitmap and OCRs it, or (b) detect
+// the boot via PC range / I/O register state (port $FF, the SCLD
+// mode register) rather than a screen scan.
 const TIMEX_TS2068_BANNERS: &[&str] = &[];
 
 const COMMON_BOOT_PATHS: &[&str] = &["boot.detected", "boot.reason", "boot.row"];

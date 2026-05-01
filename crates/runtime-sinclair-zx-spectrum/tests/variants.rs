@@ -1127,6 +1127,113 @@ fn pentagon_128_boot_banner_is_detected_with_real_rom() {
     );
 }
 
+/// Probe the raw screen RAM after Scorpion boot. The screen-text
+/// decoder shows a uniformly empty screen, but the raw bitmap bytes
+/// at $4000-$57FF will tell us whether the Service ROM is painting
+/// anything at all. If non-zero bytes show up, the issue is decoder
+/// scope (we're missing a screen mode or screen address). If
+/// everything is zero, the issue is upstream — Service ROM never
+/// writes to screen.
+#[test]
+#[ignore = "diagnostic — Scorpion screen-RAM dump (pixel bitmap + attributes)"]
+fn probe_scorpion_screen_ram() {
+    let dir = rom_dir(".emu198x/roms/scorpion-zs256").expect("HOME set");
+    let r0 = std::fs::read(dir.join("scorpion-0.rom"));
+    let r1 = std::fs::read(dir.join("scorpion-1.rom"));
+    let r2 = std::fs::read(dir.join("scorpion-2.rom"));
+    let r3 = std::fs::read(dir.join("scorpion-3.rom"));
+    let (Ok(r0), Ok(r1), Ok(r2), Ok(r3)) = (r0, r1, r2, r3) else {
+        eprintln!("Scorpion ROMs missing — skipping");
+        return;
+    };
+    let mut m = ScorpionZS256::new();
+    m.memory.load_roms(&r0, &r1, &r2, &r3);
+    let mut rt = ScorpionZS256Runtime::new(Model::ScorpionZS256, m);
+
+    let mut total_frames = 0u32;
+    for &target_total in &[50u32, 200, 500, 1000, 2000] {
+        let delta = target_total - total_frames;
+        run_frames(&mut rt, delta);
+        total_frames = target_total;
+        let nonzero_pixels = (0x4000u16..0x5800)
+            .filter(|&a| rt.machine().read_byte(a) != 0)
+            .count();
+        let nonzero_attrs = (0x5800u16..0x5B00)
+            .filter(|&a| rt.machine().read_byte(a) != 0)
+            .count();
+        eprintln!(
+            "Scorpion @ {target_total} frames: pixel-nonzero={nonzero_pixels} / 6144,  attr-nonzero={nonzero_attrs} / 768"
+        );
+    }
+
+    // Sample some bytes from a few specific addresses that text
+    // would touch (top of screen, middle, near the bottom).
+    eprintln!("\nSample bytes at common text positions (visible at $4000-$5AFF):");
+    for addr in [0x4000u16, 0x4020, 0x4400, 0x4800, 0x5000, 0x5800, 0x5820, 0x5A00] {
+        eprintln!("  ${addr:04X} = ${:02X}", rt.machine().read_byte(addr));
+    }
+
+    // Where is the CPU actually stuck?
+    let regs = &rt.machine().z80.regs;
+    eprintln!("\nCPU state after 2000 frames:");
+    eprintln!("  PC=${:04X}  IFF1={}  IM={}", regs.pc, regs.iff1, regs.im);
+    eprintln!("  TR-DOS paged: {}", rt.machine().beta.trdos_paged);
+}
+
+/// Probe the raw screen RAM after TS2068 boot. Standard Spectrum
+/// screen is $4000-$57FF (6144 bytes pixels) + $5800-$5AFF (768
+/// attributes). Timex high-res mode uses $4000-$57FF *and*
+/// $6000-$77FF as two interleaved bitmap planes (8192 pixels each).
+/// Dump raw byte counts in each region to see which layout is in
+/// play.
+#[test]
+#[ignore = "diagnostic — TS2068 screen-RAM dump (standard + high-res addresses)"]
+fn probe_ts2068_screen_ram() {
+    let dir = rom_dir(".emu198x/roms/timex-ts2068").expect("HOME set");
+    let main_path = dir.join("ts2068.rom");
+    let exrom_path = dir.join("exrom.rom");
+    if !main_path.exists() || !exrom_path.exists() {
+        eprintln!("TS2068 ROMs missing — skipping");
+        return;
+    }
+    let mut m = TimexTS2068::new(TimexModel::TS2068);
+    m.memory.load_rom(&main_path).expect("ts2068 main ROM");
+    m.memory.load_exrom(&exrom_path).expect("ts2068 exrom");
+    let mut rt = TimexTS2068Runtime::new(Model::TimexTS2068, m);
+    run_frames(&mut rt, 200);
+
+    let standard_pixels = (0x4000u16..0x5800)
+        .filter(|&a| rt.machine().read_byte(a) != 0)
+        .count();
+    let standard_attrs = (0x5800u16..0x5B00)
+        .filter(|&a| rt.machine().read_byte(a) != 0)
+        .count();
+    let hires_secondary_pixels = (0x6000u16..0x7800)
+        .filter(|&a| rt.machine().read_byte(a) != 0)
+        .count();
+    let hires_secondary_attrs = (0x7800u16..0x7B00)
+        .filter(|&a| rt.machine().read_byte(a) != 0)
+        .count();
+    eprintln!("TS2068 @ 200 frames:");
+    eprintln!("  standard $4000-$57FF pixels nonzero: {standard_pixels} / 6144");
+    eprintln!("  standard $5800-$5AFF attrs  nonzero: {standard_attrs} / 768");
+    eprintln!("  hires    $6000-$77FF pixels nonzero: {hires_secondary_pixels} / 6144");
+    eprintln!("  hires    $7800-$7AFF attrs  nonzero: {hires_secondary_attrs} / 768");
+
+    eprintln!("\nFirst few bytes of standard screen RAM:");
+    for addr in [0x4000u16, 0x4020, 0x4040, 0x4400, 0x4800, 0x5000] {
+        let b = rt.machine().read_byte(addr);
+        eprintln!("  ${addr:04X} = ${b:02X} ({b:08b})");
+    }
+
+    eprintln!("\nLast row of pixel data (row 23 = $50E0..=$50FF):");
+    for col in 0..32 {
+        let b = rt.machine().read_byte(0x50E0 + col);
+        eprint!("{b:02X} ");
+    }
+    eprintln!();
+}
+
 #[test]
 #[ignore = "diagnostic — boots six variants from ~/.emu198x/roms and prints banners"]
 fn probe_all_variant_banners() {
