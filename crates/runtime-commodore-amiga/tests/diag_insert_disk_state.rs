@@ -13,7 +13,7 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use machine_commodore_amiga_ocs::AmigaOcs;
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntime, Model};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
 
 fn load_ks13() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").ok()?;
@@ -31,7 +31,7 @@ fn dump_dmacon_trajectory_from_reset() -> Result<(), Box<dyn Error>> {
     let Some(rom) = load_ks13() else {
         return Ok(());
     };
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
+    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom)?;
     for _ in 0..(260u64 * A500_PAL_FRAME_TICKS) {
         rt.machine_mut().tick();
     }
@@ -72,7 +72,7 @@ fn dump_state_at_frame_250_a500_a501() -> Result<(), Box<dyn Error>> {
     let Some(rom) = load_ks13() else {
         return Ok(());
     };
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
+    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom)?;
     for _ in 0..(250u64 * A500_PAL_FRAME_TICKS) {
         rt.machine_mut().tick();
     }

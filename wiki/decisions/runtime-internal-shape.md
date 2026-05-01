@@ -43,7 +43,7 @@ As of April 2026:
 | `runtime-commodore-c64` | ✅ | not yet (no second variant in this generation) |
 | `runtime-nintendo-game-boy` | ✅ | no (single machine type) |
 | `runtime-nintendo-nes` | ✅ | no (single machine type) |
-| `runtime-commodore-amiga` | ✅ | not yet — concrete `AmigaOcs`. **Generic conversion is the planned next axis** when ECS/AGA/SAGA work begins. |
+| `runtime-commodore-amiga` | ✅ | ✅ — `AmigaRuntime<M: AmigaMachine>` with `AmigaOcsRuntime` alias (May 2026). The trait surface is designed for the full long-term scope: chipset variants (OCS / ECS / AGA / SAGA), CPU variants (Cpu68000 → Cpu68020/30/40 → Apollo AC68080 / PiStorm-host 68k), and RTG framebuffer expansion. NTSC + ECS/AGA Commodore variants land next; Vampire / SAGA / PiStorm / RTG are research-first. |
 | `runtime-sinclair-zx-spectrum` | ✅ (hybrid) | ✅ — `SpectrumRuntime<M: SpectrumMachine>` with 7 variant aliases. |
 | `runtime-dragon` | not normalised — Codex-owned, off-limits to this track | no |
 

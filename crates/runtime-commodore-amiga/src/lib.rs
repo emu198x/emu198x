@@ -5,6 +5,7 @@ mod profiles;
 mod queries;
 mod runtime;
 mod snapshot;
+mod variants;
 
 pub use machine_commodore_amiga_ocs::{AudioControls, PaulaChannel, RamConfig};
 pub use profiles::{
@@ -12,3 +13,4 @@ pub use profiles::{
 };
 pub use queries::AmigaSessionQueryProvider;
 pub use runtime::{AmigaRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH};
+pub use variants::{AmigaMachine, AmigaOcsRuntime};

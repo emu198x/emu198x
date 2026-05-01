@@ -15,7 +15,7 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use runtime_commodore_amiga::{AmigaRuntime, Model, RamConfig};
+use runtime_commodore_amiga::{AmigaOcsRuntime, Model, RamConfig};
 
 fn blank_kickstart() -> Vec<u8> {
     let mut kickstart = vec![0u8; 256 * 1024];
@@ -46,7 +46,7 @@ fn load_kickstart_13() -> Option<Vec<u8>> {
 
 #[test]
 fn stock_a500_preset_has_no_fast_ram_board() -> Result<(), Box<dyn Error>> {
-    let rt = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let rt = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     assert_eq!(rt.ram_config(), RamConfig::bare());
     assert_eq!(rt.machine().memory().chip_ram_size(), 512 * 1024);
     assert_eq!(rt.machine().memory().slow_ram_size(), 0);
@@ -56,7 +56,7 @@ fn stock_a500_preset_has_no_fast_ram_board() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn a501_trapdoor_preset_installs_slow_ram() -> Result<(), Box<dyn Error>> {
-    let rt = AmigaRuntime::new(Model::A500OcsPalA501, blank_kickstart())?;
+    let rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, blank_kickstart())?;
     assert_eq!(rt.ram_config(), RamConfig::a501_trapdoor());
     assert_eq!(rt.machine().memory().chip_ram_size(), 512 * 1024);
     assert_eq!(rt.machine().memory().slow_ram_size(), 512 * 1024);
@@ -66,7 +66,7 @@ fn a501_trapdoor_preset_installs_slow_ram() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn a500_plus_preset_installs_1m_chip() -> Result<(), Box<dyn Error>> {
-    let rt = AmigaRuntime::new(Model::A500PlusOcsPal, blank_kickstart())?;
+    let rt = AmigaOcsRuntime::new(Model::A500PlusOcsPal, blank_kickstart())?;
     assert_eq!(rt.ram_config(), RamConfig::a500_plus());
     assert_eq!(rt.machine().memory().chip_ram_size(), 1024 * 1024);
     assert_eq!(rt.machine().memory().slow_ram_size(), 0);
@@ -76,7 +76,7 @@ fn a500_plus_preset_installs_1m_chip() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn maxed_a500_preset_attaches_8m_fast_ram_board() -> Result<(), Box<dyn Error>> {
-    let rt = AmigaRuntime::new(Model::A500OcsPalMaxed, blank_kickstart())?;
+    let rt = AmigaOcsRuntime::new(Model::A500OcsPalMaxed, blank_kickstart())?;
     assert_eq!(rt.ram_config(), RamConfig::a500_maxed());
     assert_eq!(rt.machine().memory().chip_ram_size(), 1024 * 1024);
     assert_eq!(rt.machine().memory().slow_ram_size(), 512 * 1024);
@@ -92,7 +92,7 @@ fn with_ram_config_accepts_custom_layout() -> Result<(), Box<dyn Error>> {
     // Custom 2M fast-RAM layout outside the Model presets. Profile
     // metadata still tracks A500OcsPal — the model is decoupled from
     // the RAM layout when `with_ram_config` is used.
-    let rt = AmigaRuntime::with_ram_config(
+    let rt = AmigaOcsRuntime::with_ram_config(
         Model::A500OcsPal,
         blank_kickstart(),
         RamConfig {
@@ -128,7 +128,7 @@ fn kickstart_13_configures_fast_ram_board_during_boot() -> Result<(), Box<dyn Er
     let Some(rom) = load_kickstart_13() else {
         return Ok(());
     };
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalMaxed, rom)?;
+    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalMaxed, rom)?;
     // 300 frames mirrors the machine-level boot tests — ample time
     // for Kickstart to finish Exec init, run ExpansionInit, and
     // assign the autoconfig base.

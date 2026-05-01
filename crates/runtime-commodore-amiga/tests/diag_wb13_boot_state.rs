@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use format_commodore_amiga_adf::Adf;
 use peripheral_commodore_amiga_floppy::mfm::{MFM_TRACK_BYTES, decode_mfm_track, encode_mfm_track};
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntime, Model};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
 
 fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
     if !path.exists() {
@@ -39,7 +39,7 @@ fn wb13_boot_state_checkpoints() -> Result<(), Box<dyn Error>> {
     // exactly where.
     let adf_bootblock: Vec<u8> = adf_bytes[..1024].to_vec();
 
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
+    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom)?;
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     rt.machine_mut().insert_adf(adf);
 

@@ -28,7 +28,7 @@ use emu198x_shell::{
     NullFrameSink, NullTraceSink,
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
-use runtime_commodore_amiga::{AmigaRuntime, Model};
+use runtime_commodore_amiga::{AmigaOcsRuntime, Model};
 
 fn blank_kickstart() -> Vec<u8> {
     let mut kickstart = vec![0u8; 256 * 1024];
@@ -59,7 +59,7 @@ fn null_host() -> HostIo<'static> {
 
 #[test]
 fn snapshot_then_restore_then_snapshot_is_a_fixed_point() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
 
     // Run a handful of frames so the chipset has non-trivial state
     // (beam counters advanced, CIA timers run, copper has been kicked
@@ -70,7 +70,7 @@ fn snapshot_then_restore_then_snapshot_is_a_fixed_point() -> Result<(), Box<dyn 
 
     let snapshot_a = original.snapshot()?;
 
-    let mut restored = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     restored.restore(&snapshot_a)?;
 
     let snapshot_b = restored.snapshot()?;
@@ -89,13 +89,13 @@ fn snapshot_then_restore_then_snapshot_is_a_fixed_point() -> Result<(), Box<dyn 
 
 #[test]
 fn snapshot_then_restore_yields_bit_identical_forward_run() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut host = null_host();
     original.run_until(MachineTime::new(32_000), &mut host)?;
 
     let snapshot = original.snapshot()?;
 
-    let mut restored = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     restored.restore(&snapshot)?;
 
     // Run both runtimes forward by the same amount of machine time
@@ -123,10 +123,10 @@ fn snapshot_then_restore_yields_bit_identical_forward_run() -> Result<(), Box<dy
 
 #[test]
 fn restore_rejects_wrong_model() -> Result<(), Box<dyn Error>> {
-    let original = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let snapshot = original.snapshot()?;
 
-    let mut other_model = AmigaRuntime::new(Model::A500PlusOcsPal, blank_kickstart())?;
+    let mut other_model = AmigaOcsRuntime::new(Model::A500PlusOcsPal, blank_kickstart())?;
     let result = other_model.restore(&snapshot);
     assert!(result.is_err(), "restoring across models should fail");
     Ok(())
@@ -134,7 +134,7 @@ fn restore_rejects_wrong_model() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
-    let mut runtime = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     // Crafted bytes that won't deserialize as v1 — postcard rejects
     // mismatched length / shape and the restore returns an error.
     let result = runtime.restore(&[0xFFu8; 4]);
@@ -152,7 +152,7 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 /// branch (rather than the postcard-parse-error branch above).
 #[test]
 fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
         bytes[0], 1,
@@ -160,7 +160,7 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     );
     bytes[0] = 99;
 
-    let mut other = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
         .expect_err("version-99 snapshot should be rejected");
@@ -177,7 +177,7 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
 /// path stays uncovered.
 #[test]
 fn restore_remounts_persisted_floppy_image() -> Result<(), Box<dyn Error>> {
-    let mut runtime = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let disk = vec![0u8; ADF_SIZE_DD];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
@@ -186,7 +186,7 @@ fn restore_remounts_persisted_floppy_image() -> Result<(), Box<dyn Error>> {
 
     let snapshot = runtime.snapshot()?;
 
-    let mut restored = AmigaRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     restored.restore(&snapshot)?;
     assert!(
         restored.machine().drive().has_disk(),

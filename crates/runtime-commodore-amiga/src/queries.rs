@@ -5,47 +5,29 @@
 //! table all live alongside each other. The provider itself is
 //! stateless (`AmigaSessionQueryProvider`); all the lookup logic lives
 //! here.
+//!
+//! The provider is generic over `M: AmigaMachine` so a single type
+//! covers every present and future variant. Variant-specific paths
+//! (anything outside the runtime-owned `boot.*` and
+//! `amiga.machine.*` namespaces) are pushed down to the machine via
+//! `M::resolve_variant_query`.
 
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
 use serde_json::json;
 
-use crate::runtime::AmigaRuntime;
+use crate::AmigaRuntime;
+use crate::variants::AmigaMachine;
 
-/// Query paths the runtime publishes through the session query
-/// provider. Kept deliberately short — shell diagnostics start here
-/// and can grow as the verifier UI adds panels.
-pub(crate) const AMIGA_QUERY_PATHS: &[&str] = &[
+/// Runtime-owned query paths shared by every Amiga variant. Variant-
+/// specific paths come from `M::variant_query_paths()` and are joined
+/// in by `query_paths`.
+pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     // Boot-status heuristic. `HeadlessSession::wait_for_boot` keys
     // off `boot.detected` so scripts can sleep-until-ready.
     "boot.detected",
     "boot.reason",
     "boot.row",
-    "amiga.a1000.boot_rom_visible",
-    "amiga.a1000.wom_locked",
     "amiga.machine.frame_count",
-    "amiga.memory.overlay",
-    "amiga.cpu.pc",
-    "amiga.cpu.sr",
-    "amiga.cpu.ipl",
-    "amiga.agnus.vpos",
-    "amiga.agnus.hpos",
-    "amiga.agnus.dmacon",
-    "amiga.agnus.bplcon0",
-    "amiga.paula.intena",
-    "amiga.paula.intreq",
-    "amiga.debug.dsk_write_count",
-    "amiga.debug.last_dsk_write",
-    "amiga.display.color00",
-    "amiga.display.color01",
-    "amiga.disk.inserted",
-    "amiga.disk.change_pending",
-    "amiga.disk.cylinder",
-    "amiga.disk.head",
-    "amiga.disk.motor_on",
-    "amiga.disk.motor_spinning",
-    "amiga.disk.step_events",
-    "amiga.keyboard.state",
-    "amiga.keyboard.queued",
 ];
 
 /// Boot-status snapshot derived from the most recent frame. Matches
@@ -67,7 +49,7 @@ pub(crate) struct AmigaBootStatus {
 ///     threshold
 ///   - `no-visible-output` before the copper has programmed the
 ///     palette at all
-pub(crate) fn boot_status(runtime: &AmigaRuntime) -> AmigaBootStatus {
+pub(crate) fn boot_status<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> AmigaBootStatus {
     if let Some(row) = runtime.first_active_row()
         && runtime.non_white_pixels() > 1_000
     {
@@ -95,63 +77,41 @@ pub(crate) fn boot_status(runtime: &AmigaRuntime) -> AmigaBootStatus {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AmigaSessionQueryProvider;
 
-impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
-    fn query_paths(&self, _machine: &AmigaRuntime, prefix: Option<&str>) -> Vec<String> {
-        let mut paths: Vec<String> = AMIGA_QUERY_PATHS
+impl<M: AmigaMachine> SessionQueryProvider<AmigaRuntime<M>> for AmigaSessionQueryProvider {
+    fn query_paths(&self, _machine: &AmigaRuntime<M>, prefix: Option<&str>) -> Vec<String> {
+        let mut paths: Vec<String> = SHARED_QUERY_PATHS
             .iter()
+            .chain(M::variant_query_paths().iter())
             .copied()
             .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
             .map(str::to_owned)
             .collect();
         paths.sort_unstable();
+        paths.dedup();
         paths
     }
 
-    fn query(&self, machine: &AmigaRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
-        let amiga = machine.machine();
-        let drive = amiga.drive();
-        let drive_status = drive.status();
-        let boot = boot_status(machine);
+    fn query(
+        &self,
+        machine: &AmigaRuntime<M>,
+        path: &str,
+    ) -> Result<Option<QueryResult>, QueryError> {
+        // Runtime-owned paths come first.
         let value = match path {
-            "boot.detected" => json!(boot.detected),
-            "boot.reason" => json!(boot.reason),
-            "boot.row" => json!(boot.row),
-            "amiga.a1000.boot_rom_visible" => json!(amiga.memory().a1000_boot_rom_visible()),
-            "amiga.a1000.wom_locked" => json!(amiga.memory().a1000_wom_locked()),
+            "boot.detected" => json!(boot_status(machine).detected),
+            "boot.reason" => json!(boot_status(machine).reason),
+            "boot.row" => json!(boot_status(machine).row),
             "amiga.machine.frame_count" => json!(machine.frame_count()),
-            "amiga.memory.overlay" => json!(amiga.memory().overlay()),
-            "amiga.cpu.pc" => json!(amiga.cpu().regs.pc),
-            "amiga.cpu.sr" => json!(amiga.cpu().regs.sr),
-            "amiga.cpu.ipl" => json!(amiga.cpu().ipl),
-            "amiga.agnus.vpos" => json!(amiga.agnus().vpos),
-            "amiga.agnus.hpos" => json!(amiga.agnus().hpos),
-            "amiga.agnus.dmacon" => json!(amiga.dmacon()),
-            "amiga.agnus.bplcon0" => json!(amiga.bplcon0()),
-            "amiga.paula.intena" => json!(amiga.intena()),
-            "amiga.paula.intreq" => json!(amiga.intreq()),
-            "amiga.debug.dsk_write_count" => json!(amiga.debug_dsk_log.len()),
-            "amiga.debug.last_dsk_write" => {
-                json!(amiga.debug_dsk_log.last().map(|(cck, pc, reg, val)| {
-                    json!({
-                        "cck": cck,
-                        "pc": pc,
-                        "reg": reg,
-                        "val": val,
-                    })
-                }))
+            _ => {
+                // Push everything else down to the variant.
+                return match machine.machine().resolve_variant_query(path)? {
+                    Some(value) => Ok(Some(QueryResult {
+                        path: path.to_owned(),
+                        value,
+                    })),
+                    None => Ok(None),
+                };
             }
-            "amiga.display.color00" => json!(amiga.color(0)),
-            "amiga.display.color01" => json!(amiga.color(1)),
-            "amiga.disk.inserted" => json!(drive.has_disk()),
-            "amiga.disk.change_pending" => json!(drive_status.disk_change),
-            "amiga.disk.cylinder" => json!(drive.cylinder()),
-            "amiga.disk.head" => json!(drive.head()),
-            "amiga.disk.motor_on" => json!(drive.motor_on()),
-            "amiga.disk.motor_spinning" => json!(drive_status.ready),
-            "amiga.disk.step_events" => json!(drive.step_event_counter()),
-            "amiga.keyboard.state" => json!(amiga.keyboard().debug_state_name()),
-            "amiga.keyboard.queued" => json!(amiga.keyboard().queued_key_count()),
-            _ => return Ok(None),
         };
         Ok(Some(QueryResult {
             path: path.to_owned(),
@@ -162,17 +122,18 @@ impl SessionQueryProvider<AmigaRuntime> for AmigaSessionQueryProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::AMIGA_QUERY_PATHS;
+    use super::SHARED_QUERY_PATHS;
 
-    /// Catalogue invariant: every advertised path is unique. Doubles
-    /// would silently clobber each other in a sorted query_paths
-    /// listing.
+    /// Catalogue invariant: every advertised shared path is unique.
+    /// Doubles would silently clobber each other in a sorted listing.
+    /// The variant catalogues are checked separately in `variants.rs`
+    /// (one test per variant impl).
     #[test]
-    fn advertised_query_paths_are_unique() {
-        let mut sorted: Vec<&&str> = AMIGA_QUERY_PATHS.iter().collect();
+    fn shared_query_paths_are_unique() {
+        let mut sorted: Vec<&&str> = SHARED_QUERY_PATHS.iter().collect();
         sorted.sort();
         let mut deduped = sorted.clone();
         deduped.dedup();
-        assert_eq!(sorted.len(), deduped.len(), "duplicate query paths");
+        assert_eq!(sorted.len(), deduped.len(), "duplicate shared query paths");
     }
 }

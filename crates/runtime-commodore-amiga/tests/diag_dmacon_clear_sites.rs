@@ -11,7 +11,7 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use runtime_commodore_amiga::{AmigaRuntime, Model};
+use runtime_commodore_amiga::{AmigaOcsRuntime, Model};
 
 fn load_ks13() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").ok()?;
@@ -31,7 +31,7 @@ fn dump_rom_around_dmacon_clear_sites() -> Result<(), Box<dyn Error>> {
     };
     // Use the runtime to get the ROM mapped at the right address
     // (ROM anchored at $FC0000 for 512 KiB images) via `read_word`.
-    let rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
+    let rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom)?;
 
     // Dump a generous window around each clear site — enough to see
     // the enclosing routine's prologue / epilogue and any nearby
@@ -48,7 +48,7 @@ fn dump_rom_around_dmacon_clear_sites() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn dump_window(rt: &AmigaRuntime, label: &str, center: u32, pre_bytes: u32, post_bytes: u32) {
+fn dump_window(rt: &AmigaOcsRuntime, label: &str, center: u32, pre_bytes: u32, post_bytes: u32) {
     let lo = (center - pre_bytes) & !1; // align even
     let hi = (center + post_bytes) & !1;
     println!("=== {label} at ${center:08X} ===");
@@ -69,7 +69,7 @@ fn dump_window(rt: &AmigaRuntime, label: &str, center: u32, pre_bytes: u32, post
 /// Tag a few common 68000 opcodes to aid eyeballing. Not a proper
 /// disassembler — just enough to spot `move.w #imm, xxx`-style
 /// writes to custom registers, branches, and returns.
-fn classify(word: u16, addr: u32, rt: &AmigaRuntime) -> String {
+fn classify(word: u16, addr: u32, rt: &AmigaOcsRuntime) -> String {
     // Full encoding decode would take a crate. These heuristics
     // only cover the patterns that matter for reading DMACON setup
     // code; miss cases fall through to an empty string.

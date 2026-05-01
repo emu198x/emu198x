@@ -57,7 +57,7 @@ use emu198x_shell::{
 };
 use format_commodore_amiga_adf::Adf;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaRuntime, AmigaSessionQueryProvider, DISPLAY_HEIGHT, DISPLAY_WIDTH,
+    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AmigaSessionQueryProvider, DISPLAY_HEIGHT, DISPLAY_WIDTH,
     Model,
 };
 
@@ -251,7 +251,7 @@ fn load_optional_disk_asset(spec: DiskAsset, row: &str) -> Option<Vec<u8>> {
 /// `tick()` directly rather than `run_until` so we bypass the
 /// frame-sink plumbing — the test only cares about the final
 /// framebuffer, not per-frame emission.
-fn tick_frames(rt: &mut AmigaRuntime, frames: u64) {
+fn tick_frames(rt: &mut AmigaOcsRuntime, frames: u64) {
     for _ in 0..(frames * A500_PAL_FRAME_TICKS) {
         rt.machine_mut().tick();
     }
@@ -265,7 +265,7 @@ fn tick_frames(rt: &mut AmigaRuntime, frames: u64) {
 /// horizontal trim and `(DISPLAY_HEIGHT - FSUAE_H) / 2`-scanline
 /// vertical trim, discarding the outer PAL overscan border that
 /// FS-UAE doesn't show.
-fn capture_fsuae_rgb(rt: &AmigaRuntime) -> Vec<u8> {
+fn capture_fsuae_rgb(rt: &AmigaOcsRuntime) -> Vec<u8> {
     let fb = rt.machine().denise().framebuffer();
     assert_eq!(fb.len(), (DISPLAY_WIDTH * DISPLAY_HEIGHT) as usize);
     let x_off = (DISPLAY_WIDTH - FSUAE_W) / 2;
@@ -367,7 +367,7 @@ fn run_row(row: &GoldenRow) {
             disk,
             settle_frames,
         } => {
-            let mut rt = AmigaRuntime::new(row.model, rom_bytes)
+            let mut rt = AmigaOcsRuntime::new(row.model, rom_bytes)
                 .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
             if let Some(spec) = disk {
                 let Some(bytes) = load_optional_disk_asset(spec, row.name) else {
@@ -391,7 +391,7 @@ fn run_row(row: &GoldenRow) {
             let Some(workbench_path) = disk_asset_path(workbench_disk, row.name) else {
                 return;
             };
-            let runtime = AmigaRuntime::new(row.model, rom_bytes)
+            let runtime = AmigaOcsRuntime::new(row.model, rom_bytes)
                 .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
             let mut session = HeadlessSession::new_with_query_provider(
                 runtime,

@@ -9,7 +9,7 @@ use emu198x_shell::{
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaRuntime, AmigaSessionQueryProvider, Model,
+    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AmigaSessionQueryProvider, Model,
 };
 use serde_json::json;
 
@@ -17,7 +17,7 @@ use common::{dummy_a1000_bootstrap_rom, dummy_kickstart};
 
 #[test]
 fn query_provider_returns_declared_paths() {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let paths = provider.query_paths(&runtime, None);
     assert!(paths.contains(&"amiga.a1000.boot_rom_visible".to_owned()));
@@ -32,7 +32,7 @@ fn query_provider_returns_declared_paths() {
 
 #[test]
 fn query_cpu_pc_returns_initial_reset_vector() {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let result = AmigaSessionQueryProvider
         .query(&runtime, "amiga.cpu.pc")
         .expect("query succeeds")
@@ -44,7 +44,7 @@ fn query_cpu_pc_returns_initial_reset_vector() {
 #[test]
 fn a1000_queries_report_bootstrap_state() {
     let runtime =
-        AmigaRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom()).expect("runtime init");
     let boot_rom_visible = AmigaSessionQueryProvider
         .query(&runtime, "amiga.a1000.boot_rom_visible")
         .expect("query succeeds")
@@ -78,7 +78,7 @@ fn every_advertised_query_path_resolves_with_floppy_loaded() {
 }
 
 fn walk_all_paths(with_disk: bool) {
-    let mut runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart())
+    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart())
         .expect("dummy Kickstart should construct");
     if with_disk {
         let disk = vec![0u8; ADF_SIZE_DD];
@@ -107,7 +107,7 @@ fn walk_all_paths(with_disk: bool) {
 /// real ROMs (covered by ROM-gated diagnostics).
 #[test]
 fn boot_status_reports_no_visible_output_on_fresh_runtime() {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let detected = provider
         .query(&runtime, "boot.detected")
@@ -136,7 +136,7 @@ fn boot_status_reports_no_visible_output_on_fresh_runtime() {
 #[test]
 fn boot_status_reports_monochrome_after_running_some_frames() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = NullAudioSink;
     let mut trace_sink = NullTraceSink;
@@ -169,7 +169,7 @@ fn boot_status_reports_monochrome_after_running_some_frames() {
 
 #[test]
 fn unknown_path_returns_ok_none() {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let value = provider
         .query(&runtime, "amiga.does.not.exist")
@@ -179,7 +179,7 @@ fn unknown_path_returns_ok_none() {
 
 #[test]
 fn query_paths_filters_by_prefix() {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let disk_paths = provider.query_paths(&runtime, Some("amiga.disk."));
     assert!(!disk_paths.is_empty());
@@ -192,7 +192,7 @@ fn query_paths_filters_by_prefix() {
 
 #[test]
 fn query_paths_returns_full_catalogue_when_prefix_missing() {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let all = provider.query_paths(&runtime, None);
     let prefixed = provider.query_paths(&runtime, Some(""));
@@ -204,7 +204,7 @@ fn query_paths_returns_full_catalogue_when_prefix_missing() {
 
 #[test]
 fn debug_dsk_log_query_reports_zero_when_empty() {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let count = provider
         .query(&runtime, "amiga.debug.dsk_write_count")
@@ -221,7 +221,7 @@ fn debug_dsk_log_query_reports_zero_when_empty() {
 #[test]
 fn frame_count_query_advances_after_run_until() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let initial = provider
         .query(&runtime, "amiga.machine.frame_count")
@@ -254,7 +254,7 @@ fn frame_count_query_advances_after_run_until() {
 #[test]
 fn disk_queries_flip_after_load_media() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
 
     let inserted = provider

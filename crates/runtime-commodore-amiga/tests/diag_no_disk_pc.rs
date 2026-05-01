@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntime, Model};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
 
 #[test]
 fn no_disk_final_pc() {
@@ -14,7 +14,7 @@ fn no_disk_final_pc() {
         return;
     }
     let rom = std::fs::read(&rom_path).expect("read ROM");
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom).expect("build");
+    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom).expect("build");
 
     // Match the wb13 settle count so the comparison is apples-to-apples.
     for _ in 0..(900 * A500_PAL_FRAME_TICKS) {

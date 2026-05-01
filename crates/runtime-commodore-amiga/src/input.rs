@@ -5,14 +5,19 @@
 //! raw matrix code lookup, `PointerMotion` / `PointerButton` events
 //! drive controller port 0 (mouse-1), and `Button` events drive
 //! controller port 1 (joystick).
+//!
+//! Generic over `M: AmigaMachine` — the four input methods on the
+//! trait (`key_event`, `move_mouse_port0`, `set_mouse_button_port0`,
+//! `set_joystick_control`) are the entire surface this module needs.
 
 use emu198x_shell::InputEvent;
-use machine_commodore_amiga_ocs::AmigaOcs;
+
+use crate::variants::AmigaMachine;
 
 /// Apply one host input event to the machine. Unrecognised event
 /// kinds and unknown key names are silently dropped — the runtime
 /// loop iterates the whole event queue regardless.
-pub(crate) fn apply_input_event(machine: &mut AmigaOcs, event: &InputEvent) {
+pub(crate) fn apply_input_event<M: AmigaMachine>(machine: &mut M, event: &InputEvent) {
     match event {
         InputEvent::Key { name, pressed } => {
             if let Some(code) = key_name_to_raw_code(name.as_ref()) {
@@ -34,7 +39,7 @@ pub(crate) fn apply_input_event(machine: &mut AmigaOcs, event: &InputEvent) {
             name,
             pressed,
         } => {
-            let _ = machine.set_joystick_control(*port, name.as_ref(), *pressed);
+            machine.set_joystick_control(*port, name.as_ref(), *pressed);
         }
         _ => {}
     }

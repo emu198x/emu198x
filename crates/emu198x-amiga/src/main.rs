@@ -16,7 +16,7 @@ use emu198x_shell::{
     read_firmware_asset, read_media_asset,
 };
 use runtime_commodore_amiga::{
-    A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaRuntime, AudioControls, DISPLAY_HEIGHT,
+    A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AudioControls, DISPLAY_HEIGHT,
     DISPLAY_WIDTH, Model, PaulaChannel,
 };
 use thiserror::Error;
@@ -129,7 +129,7 @@ enum AppError {
 }
 
 struct AmigaRunner {
-    runtime: AmigaRuntime,
+    runtime: AmigaOcsRuntime,
     frame_capture: LatestFrameCapture,
     audio_output: NativeAudioOutput,
     last_run_result: Option<RunResult>,
@@ -153,7 +153,7 @@ impl AmigaRunner {
             firmware_id_for_model_arg(cli.model),
             &firmware_bytes.bytes,
         ));
-        let mut runtime = AmigaRuntime::from_firmware(model, &firmware)?;
+        let mut runtime = AmigaOcsRuntime::from_firmware(model, &firmware)?;
 
         if let Some(path) = &cli.disk {
             let disk = read_media_asset(path, MediaKind::Disk).map_err(|err| AppError::Setup {

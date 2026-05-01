@@ -13,7 +13,7 @@ use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_ocs::RTC_BASE;
 use png::{BitDepth, ColorType, Encoder};
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
+    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
 };
 
 fn load_artifact(path: &Path) -> Option<Vec<u8>> {
@@ -24,7 +24,7 @@ fn load_artifact(path: &Path) -> Option<Vec<u8>> {
     std::fs::read(path).ok()
 }
 
-fn snapshot_to_png(rt: &AmigaRuntime, path: &Path) {
+fn snapshot_to_png(rt: &AmigaOcsRuntime, path: &Path) {
     let fb = rt.machine().denise().framebuffer();
     assert_eq!(fb.len(), (DISPLAY_WIDTH * DISPLAY_HEIGHT) as usize);
 
@@ -56,7 +56,7 @@ fn trace_wb13_setclock_rtc_accesses() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
 
-    let mut rt = AmigaRuntime::new(Model::A500OcsPalA501, rom)?;
+    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom)?;
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     rt.machine_mut().insert_adf(adf);
 

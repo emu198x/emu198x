@@ -4,28 +4,37 @@
 //! versioned envelope and the encode/decode machinery have one home.
 //! `MachineCore::snapshot` and `MachineCore::restore` are thin
 //! delegators that call into [`encode`] and [`decode`].
+//!
+//! The envelope is generic over `M: AmigaMachine` so it works for
+//! any variant. The variant-specific bits (chip-stack snapshot +
+//! reconstruction metadata) are typed as `M::Snapshot` and
+//! `M::SnapshotMetadata`; the runtime-wide bits (model, time, frame
+//! counters, audio accumulator, inserted DF0 bytes) are common to
+//! every variant.
 
 use emu198x_shell::{MachineError, MachineTime};
-use machine_commodore_amiga_ocs::{AmigaOcsSnapshot, RamConfig};
 use serde::{Deserialize, Serialize};
 
 use crate::Model;
 use crate::runtime::AmigaRuntime;
+use crate::variants::AmigaMachine;
 
 const SNAPSHOT_VERSION: u32 = 1;
 
-/// Persistable Amiga runtime envelope. Wraps an `AmigaOcsSnapshot`
-/// with the surrounding runtime context (model, time, frame counters,
-/// audio accumulator, and the inserted DF0 bytes for re-mount on
-/// restore). Versioned so future snapshot extensions can bump the
-/// major version cleanly.
+/// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
+/// snapshot (`M::Snapshot`) and the variant's reconstruction metadata
+/// (`M::SnapshotMetadata`, e.g. `RamConfig` for OCS) with the
+/// surrounding runtime context (model, time, frame counters, audio
+/// accumulator, and the inserted DF0 bytes for re-mount on restore).
+/// Versioned so future snapshot extensions can bump the major version
+/// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV1 {
+struct SnapshotEnvelopeV1<M: AmigaMachine> {
     version: u32,
     model: Model,
-    ram_config: RamConfig,
+    metadata: M::SnapshotMetadata,
     time: MachineTime,
-    machine: AmigaOcsSnapshot,
+    machine: M::Snapshot,
     floppy0_bytes: Option<Vec<u8>>,
     frame_count: u64,
     non_black_pixels: u32,
@@ -36,11 +45,13 @@ struct SnapshotEnvelopeV1 {
 
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
-pub(crate) fn encode(runtime: &AmigaRuntime) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV1 {
+pub(crate) fn encode<M: AmigaMachine>(
+    runtime: &AmigaRuntime<M>,
+) -> Result<Vec<u8>, MachineError> {
+    let envelope = SnapshotEnvelopeV1::<M> {
         version: SNAPSHOT_VERSION,
         model: runtime.model(),
-        ram_config: runtime.ram_config(),
+        metadata: runtime.metadata().clone(),
         time: runtime.time_value(),
         machine: runtime.machine().snapshot_state(),
         floppy0_bytes: runtime.floppy0_bytes().map(<[u8]>::to_vec),
@@ -60,8 +71,11 @@ pub(crate) fn encode(runtime: &AmigaRuntime) -> Result<Vec<u8>, MachineError> {
 /// disk image, and the time / counters atomically. Clears the per-
 /// frame audio drain buffer and refreshes the RGBA framebuffer so the
 /// next `run_until` doesn't replay stale data.
-pub(crate) fn decode(runtime: &mut AmigaRuntime, bytes: &[u8]) -> Result<(), MachineError> {
-    let envelope: SnapshotEnvelopeV1 =
+pub(crate) fn decode<M: AmigaMachine>(
+    runtime: &mut AmigaRuntime<M>,
+    bytes: &[u8],
+) -> Result<(), MachineError> {
+    let envelope: SnapshotEnvelopeV1<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;
@@ -82,7 +96,7 @@ pub(crate) fn decode(runtime: &mut AmigaRuntime, bytes: &[u8]) -> Result<(), Mac
             ),
         });
     }
-    runtime.set_ram_config(envelope.ram_config);
+    runtime.set_metadata(envelope.metadata);
     runtime.set_time(envelope.time);
     runtime
         .machine_mut()

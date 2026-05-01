@@ -1,12 +1,18 @@
-//! Runtime wrapper around the A500 OCS machine.
+//! Runtime wrapper around an Amiga machine variant.
 //!
-//! Implements `MachineCore` so the shell can drive the machine
-//! through a common interface. The runtime owns the ROM bytes so
-//! reset rebuilds from them, emits one frame per `run_until`
-//! iteration, and delegates keyboard input and ADF insertion to
-//! `AmigaOcs`. Per-concern siblings — `queries.rs`, `snapshot.rs`,
-//! `input.rs` — own the pieces of the surface that don't belong in
-//! lifecycle.
+//! `AmigaRuntime<M: AmigaMachine>` implements `MachineCore` so the
+//! shell can drive any Amiga variant through a common interface. The
+//! runtime owns variant-agnostic state (model, time, frame counters,
+//! audio buffers, RGBA framebuffer, boot heuristic), variant-specific
+//! state via `M::SnapshotMetadata` (RAM layout for OCS today), and
+//! delegates per-frame ticking, framebuffer access, audio sampling,
+//! and chip-state queries to the machine through the `AmigaMachine`
+//! trait.
+//!
+//! Per-concern siblings — `queries.rs`, `snapshot.rs`, `input.rs` —
+//! are also generic over `M` and own the pieces of the surface that
+//! don't belong in lifecycle. `variants.rs` carries the trait + the
+//! per-variant impls + the public type aliases (`AmigaOcsRuntime`).
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
@@ -20,7 +26,8 @@ use machine_commodore_amiga_ocs::{
 
 use crate::input::apply_input_event;
 use crate::snapshot;
-use crate::{A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, Model, profile_for};
+use crate::variants::AmigaMachine;
+use crate::{Model, profile_for};
 
 pub(crate) const KICKSTART_ROM_ID: &str = "commodore-amiga-kickstart-rom";
 pub(crate) const A1000_BOOTSTRAP_ROM_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
@@ -28,25 +35,27 @@ const VALID_KICKSTART_SIZES: &[usize] = &[256 * 1024, 512 * 1024];
 const VALID_A1000_BOOTSTRAP_SIZES: &[usize] = &[64 * 1024];
 pub(crate) const AUDIO_SAMPLE_RATE_HZ: u32 = 48_000;
 pub(crate) const AUDIO_CHANNELS: u8 = 2;
-pub(crate) const A500_PAL_TICK_HZ: u64 = A500_PAL_CCK_HZ * 2;
 
 /// Machine framebuffer width (= `FB_WIDTH`). Re-exported for host
 /// integrations that size their output buffers without pulling in
-/// the machine crate directly.
+/// the machine crate directly. Tracks the OCS chipset framebuffer
+/// today; future RTG variants will publish per-slot dimensions.
 pub const DISPLAY_WIDTH: u32 = FB_WIDTH;
 /// Machine framebuffer height (= `FB_HEIGHT`).
 pub const DISPLAY_HEIGHT: u32 = FB_HEIGHT;
 
-/// Firmware-backed Amiga runtime over the OCS machine family.
-pub struct AmigaRuntime {
+/// Firmware-backed Amiga runtime. Generic over an `M: AmigaMachine`
+/// so ECS / AGA / SAGA / Vampire / PiStorm / RTG variants can plug
+/// in by adding new `impl AmigaMachine for X` blocks plus a public
+/// type alias next to `AmigaOcsRuntime` in `variants.rs`.
+pub struct AmigaRuntime<M: AmigaMachine> {
     profile: MachineProfile,
     model: Model,
-    /// Active RAM layout. Defaults to `model.ram_config()` for the
-    /// standard model presets; `from_ram_config` overrides it with a
-    /// caller-supplied layout. Held here so `reset` / `rebuild_machine`
-    /// reconstructs with the same sizes.
-    ram_config: RamConfig,
-    machine: AmigaOcs,
+    /// Variant-specific snapshot metadata. For OCS this is `RamConfig`
+    /// (the chip / slow / fast RAM sizes the chip stack was built
+    /// around). Held here so `reset` rebuilds with the same layout.
+    metadata: M::SnapshotMetadata,
+    machine: M,
     time: MachineTime,
     firmware_rom: Vec<u8>,
     floppy0_bytes: Option<Vec<u8>>,
@@ -58,172 +67,39 @@ pub struct AmigaRuntime {
     non_white_pixels: u32,
     first_active_row: Option<u32>,
     /// Fractional 48 kHz resampler phase. The source advances once
-    /// per machine tick (master/4); Paula output itself only changes
+    /// per machine tick (master/4); audio output itself only changes
     /// on CCK boundaries, but sampling at the finer runtime tick keeps
     /// this phase stable across frame boundaries.
     audio_sample_accumulator: u64,
     audio_buffer: Vec<f32>,
+    /// Tick rate in Hz (= 2 × cck_hz). Cached at construction so the
+    /// audio resampler doesn't query the machine every tick.
+    tick_hz: u64,
 }
 
-impl AmigaRuntime {
-    /// Construct a runtime from owned model-specific firmware bytes,
-    /// using the model's preset RAM layout.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the firmware size is not valid for the
-    /// selected model.
-    pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
-        Self::with_ram_config(model, firmware_rom, model.ram_config())
-    }
+// =====================================================================
+// Generic methods — work for every `M: AmigaMachine`.
+// =====================================================================
 
-    /// Construct a runtime with an explicit RAM layout, bypassing the
-    /// model's preset. Useful for matching custom hardware profiles
-    /// (e.g. A500 + custom Zorro-II fast-RAM size) or driving tests
-    /// over ranges the enum doesn't cover. The model still determines
-    /// the profile metadata (display name, firmware, media slots).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the ROM size is invalid. Panics if the RAM
-    /// layout is not one of the supported size combinations — see
-    /// `RamConfig::is_valid`.
-    pub fn with_ram_config(
-        model: Model,
-        firmware_rom: Vec<u8>,
-        ram_config: RamConfig,
-    ) -> Result<Self, MachineError> {
-        validate_firmware_rom(model, &firmware_rom)?;
-        let machine = build_machine(model, ram_config, &firmware_rom);
-        let mut runtime = Self {
-            profile: profile_for(model),
-            model,
-            ram_config,
-            machine,
-            time: MachineTime::default(),
-            firmware_rom,
-            floppy0_bytes: None,
-            rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
-            frame_count: 0,
-            non_black_pixels: 0,
-            non_white_pixels: 0,
-            first_active_row: None,
-            audio_sample_accumulator: 0,
-            audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame()),
-        };
-        runtime.update_rgba_framebuffer();
-        Ok(runtime)
-    }
-
-    /// Construct from the profile's firmware set.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if firmware is missing or invalid.
-    pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
-        let profile = profile_for(model);
-        firmware.validate_for_profile(&profile)?;
-        let firmware_id = firmware_id_for_model(model);
-        let image = firmware
-            .bytes(firmware_id)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: firmware_id.to_owned(),
-            })?;
-        Self::new(model, image.to_vec())
-    }
-
-    /// Construct with a zero-filled placeholder model-specific ROM.
-    #[must_use]
-    pub fn blank(model: Model) -> Self {
-        Self::new(model, blank_firmware_rom(model))
-            .expect("blank model firmware image should be valid")
-    }
-
+impl<M: AmigaMachine> AmigaRuntime<M> {
     /// Read-only access to the wrapped machine.
     #[must_use]
-    pub fn machine(&self) -> &AmigaOcs {
+    pub fn machine(&self) -> &M {
         &self.machine
     }
 
     /// Mutable access to the wrapped machine. Only for tests /
     /// integrations that need to drive the tick loop directly (e.g.
     /// autoconfig boot tests that run the machine outside `run_until`).
-    pub fn machine_mut(&mut self) -> &mut AmigaOcs {
+    pub fn machine_mut(&mut self) -> &mut M {
         &mut self.machine
     }
 
-    /// Current host-side Paula audio controls.
-    #[must_use]
-    pub fn audio_controls(&self) -> AudioControls {
-        self.machine.audio_controls()
-    }
-
-    /// Replace all host-side Paula audio controls.
-    pub fn set_audio_controls(&mut self, controls: AudioControls) {
-        self.machine.set_audio_controls(controls);
-    }
-
-    /// Enable or disable one Paula channel in host output.
-    pub fn set_audio_channel_enabled(&mut self, channel: PaulaChannel, enabled: bool) {
-        self.machine.set_audio_channel_enabled(channel, enabled);
-    }
-
-    /// Set one Paula channel's host-side gain.
-    pub fn set_audio_channel_gain(&mut self, channel: PaulaChannel, gain: f32) {
-        self.machine.set_audio_channel_gain(channel, gain);
-    }
-
-    fn rebuild_machine(&mut self) -> Result<(), MachineError> {
-        validate_firmware_rom(self.model, &self.firmware_rom)?;
-        self.machine = build_machine(self.model, self.ram_config, &self.firmware_rom);
-        if let Some(bytes) = self.floppy0_bytes.clone() {
-            self.insert_floppy_bytes("floppy-0", &bytes)?;
-        }
-        self.time = MachineTime::default();
-        self.frame_count = 0;
-        self.audio_sample_accumulator = 0;
-        self.audio_buffer.clear();
-        self.update_rgba_framebuffer();
-        Ok(())
-    }
-
-    /// RAM layout currently installed — read back for diagnostics or
-    /// for tests asserting a preset was honoured.
-    #[must_use]
-    pub fn ram_config(&self) -> RamConfig {
-        self.ram_config
-    }
-
-    /// Active model (affects profile metadata, not the RAM layout).
+    /// Active model (affects profile metadata, not the machine
+    /// internals).
     #[must_use]
     pub fn model(&self) -> Model {
         self.model
-    }
-
-    fn insert_floppy_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
-        let adf = Adf::from_bytes(bytes.to_vec()).map_err(|reason| MachineError::InvalidMedia {
-            slot: slot.to_owned(),
-            reason: reason.to_string(),
-        })?;
-        if self.model == Model::A1000OcsPal {
-            self.machine.insert_adf_with_change_pending(adf);
-        } else {
-            self.machine.insert_adf(adf);
-        }
-        self.floppy0_bytes = Some(bytes.to_vec());
-        Ok(())
-    }
-
-    /// Snapshot-side hook into `insert_floppy_bytes`. The snapshot
-    /// module re-mounts the persisted disk image after restoring the
-    /// machine; the call has to go through the same media path so the
-    /// A1000 disk-change-pending bookkeeping fires.
-    pub(crate) fn insert_floppy_bytes_pub(
-        &mut self,
-        slot: &str,
-        bytes: &[u8],
-    ) -> Result<(), MachineError> {
-        self.insert_floppy_bytes(slot, bytes)
     }
 
     /// Copy the machine's ARGB framebuffer into the RGBA frame
@@ -233,7 +109,7 @@ impl AmigaRuntime {
     /// `first_active_row`) so the next `boot.detected` query reads
     /// consistent values.
     fn update_rgba_framebuffer(&mut self) {
-        let fb = self.machine.denise().framebuffer();
+        let fb = self.machine.chipset_framebuffer();
         let expected = (DISPLAY_WIDTH * DISPLAY_HEIGHT) as usize;
         debug_assert_eq!(fb.len(), expected);
         if self.rgba_framebuffer.len() != expected * 4 {
@@ -274,9 +150,9 @@ impl AmigaRuntime {
             .audio_sample_accumulator
             .saturating_add(u64::from(AUDIO_SAMPLE_RATE_HZ));
 
-        while self.audio_sample_accumulator >= A500_PAL_TICK_HZ {
-            self.audio_sample_accumulator -= A500_PAL_TICK_HZ;
-            let (left, right) = self.machine.paula().mix_audio_stereo();
+        while self.audio_sample_accumulator >= self.tick_hz {
+            self.audio_sample_accumulator -= self.tick_hz;
+            let (left, right) = self.machine.mix_audio_stereo();
             self.audio_buffer.push(left);
             self.audio_buffer.push(right);
         }
@@ -326,6 +202,12 @@ impl AmigaRuntime {
         self.audio_sample_accumulator
     }
 
+    /// Variant-specific snapshot metadata (RamConfig for OCS).
+    #[must_use]
+    pub(crate) fn metadata(&self) -> &M::SnapshotMetadata {
+        &self.metadata
+    }
+
     /// Current machine time, exposed by name distinct from the
     /// `MachineCore::time` trait method so internal modules don't have
     /// to import the trait.
@@ -338,8 +220,8 @@ impl AmigaRuntime {
         self.time = time;
     }
 
-    pub(crate) fn set_ram_config(&mut self, ram_config: RamConfig) {
-        self.ram_config = ram_config;
+    pub(crate) fn set_metadata(&mut self, metadata: M::SnapshotMetadata) {
+        self.metadata = metadata;
     }
 
     pub(crate) fn set_frame_count(&mut self, frame_count: u64) {
@@ -379,7 +261,7 @@ impl AmigaRuntime {
     }
 }
 
-impl MachineCore for AmigaRuntime {
+impl<M: AmigaMachine> MachineCore for AmigaRuntime<M> {
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }
@@ -389,8 +271,21 @@ impl MachineCore for AmigaRuntime {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        self.rebuild_machine()
-            .expect("stored Kickstart image should remain valid across resets");
+        // The variant rebuilds itself in place via `AmigaMachine::
+        // rebuild(firmware, metadata)`. After the new chip stack
+        // exists, re-mount any cached DF0 image, zero the time /
+        // frame counters, and refresh the RGBA mirror so the next
+        // frame draw sees the post-reset contents.
+        self.machine.rebuild(&self.firmware_rom, &self.metadata);
+        if let Some(bytes) = self.floppy0_bytes.clone() {
+            self.insert_floppy_bytes("floppy-0", &bytes)
+                .expect("re-mounting cached DF0 image should not fail");
+        }
+        self.time = MachineTime::default();
+        self.frame_count = 0;
+        self.audio_sample_accumulator = 0;
+        self.audio_buffer.clear();
+        self.update_rgba_framebuffer();
     }
 
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
@@ -413,21 +308,26 @@ impl MachineCore for AmigaRuntime {
         target: MachineTime,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
-        // Apply queued input at the top of the run window. Keyboard
-        // is the only input kind wired right now; mouse / joystick
-        // come later.
+        // Apply queued input at the top of the run window. Keyboard,
+        // mouse, and joystick are wired through the generic
+        // `apply_input_event`; unknown event kinds are silently
+        // dropped.
         for event in host.input_events {
             apply_input_event(&mut self.machine, event);
         }
 
         while self.time < target {
-            // Run one PAL frame.
+            // Run one frame's worth of machine ticks. The variant
+            // declares its own frame length via `M::frame_ticks()` —
+            // PAL OCS = 141,648 ticks; NTSC variants will return a
+            // different value once they land.
+            let frame_ticks = self.machine.frame_ticks();
             self.audio_buffer.clear();
-            for _ in 0..A500_PAL_FRAME_TICKS {
+            for _ in 0..frame_ticks {
                 self.tick_and_sample_audio();
             }
             self.frame_count = self.frame_count.saturating_add(1);
-            self.time = self.time.saturating_add(A500_PAL_FRAME_TICKS);
+            self.time = self.time.saturating_add(frame_ticks);
             self.update_rgba_framebuffer();
 
             host.frame_sink.push_frame(FramePacket {
@@ -468,7 +368,157 @@ impl MachineCore for AmigaRuntime {
     }
 }
 
-fn build_machine(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> AmigaOcs {
+/// Generic floppy-bytes insertion. Decodes the ADF, asks the variant
+/// (via `AmigaMachine::insert_floppy0`) to mount it with the right
+/// disk-change-pending bookkeeping for the current model, and caches
+/// the bytes for snapshot replay.
+impl<M: AmigaMachine> AmigaRuntime<M> {
+    fn insert_floppy_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
+        let adf = Adf::from_bytes(bytes.to_vec()).map_err(|reason| MachineError::InvalidMedia {
+            slot: slot.to_owned(),
+            reason: reason.to_string(),
+        })?;
+        let change_pending = self.model == Model::A1000OcsPal;
+        self.machine.insert_floppy0(adf, change_pending);
+        self.floppy0_bytes = Some(bytes.to_vec());
+        Ok(())
+    }
+
+    /// Snapshot-side hook into `insert_floppy_bytes`. The snapshot
+    /// module re-mounts the persisted disk image after restoring the
+    /// machine; the call has to go through the same media path so the
+    /// A1000 disk-change-pending bookkeeping fires.
+    pub(crate) fn insert_floppy_bytes_pub(
+        &mut self,
+        slot: &str,
+        bytes: &[u8],
+    ) -> Result<(), MachineError> {
+        self.insert_floppy_bytes(slot, bytes)
+    }
+}
+
+// =====================================================================
+// AmigaOcs-specific construction + audio control surface.
+//
+// These methods are constrained to `AmigaRuntime<AmigaOcs>` because they
+// reference OCS-specific types (`RamConfig`, `AudioControls`,
+// `PaulaChannel`) and OCS-specific construction helpers
+// (`AmigaOcs::with_a1000_bootstrap_rom`, `AmigaOcs::with_ram_config`).
+// When ECS / AGA / SAGA / Vampire variants land, each gets its own
+// `impl AmigaRuntime<XxxMachine>` block here (or in `variants.rs`)
+// with whatever construction shape its machine demands.
+// =====================================================================
+
+impl AmigaRuntime<AmigaOcs> {
+    /// Construct a runtime from owned model-specific firmware bytes,
+    /// using the model's preset RAM layout.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the firmware size is not valid for the
+    /// selected model.
+    pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
+        Self::with_ram_config(model, firmware_rom, model.ram_config())
+    }
+
+    /// Construct a runtime with an explicit RAM layout, bypassing the
+    /// model's preset. Useful for matching custom hardware profiles
+    /// (e.g. A500 + custom Zorro-II fast-RAM size) or driving tests
+    /// over ranges the enum doesn't cover. The model still determines
+    /// the profile metadata (display name, firmware, media slots).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ROM size is invalid. Panics if the RAM
+    /// layout is not one of the supported size combinations — see
+    /// `RamConfig::is_valid`.
+    pub fn with_ram_config(
+        model: Model,
+        firmware_rom: Vec<u8>,
+        ram_config: RamConfig,
+    ) -> Result<Self, MachineError> {
+        validate_firmware_rom(model, &firmware_rom)?;
+        let machine = build_amiga_ocs(model, ram_config, &firmware_rom);
+        let tick_hz = AmigaMachine::cck_hz(&machine).saturating_mul(2);
+        let mut runtime = Self {
+            profile: profile_for(model),
+            model,
+            metadata: ram_config,
+            machine,
+            time: MachineTime::default(),
+            firmware_rom,
+            floppy0_bytes: None,
+            rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
+            frame_count: 0,
+            non_black_pixels: 0,
+            non_white_pixels: 0,
+            first_active_row: None,
+            audio_sample_accumulator: 0,
+            audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
+            tick_hz,
+        };
+        runtime.update_rgba_framebuffer();
+        Ok(runtime)
+    }
+
+    /// Construct from the profile's firmware set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if firmware is missing or invalid.
+    pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        let profile = profile_for(model);
+        firmware.validate_for_profile(&profile)?;
+        let firmware_id = firmware_id_for_model(model);
+        let image = firmware
+            .bytes(firmware_id)
+            .ok_or_else(|| MachineError::MissingFirmware {
+                id: firmware_id.to_owned(),
+            })?;
+        Self::new(model, image.to_vec())
+    }
+
+    /// Construct with a zero-filled placeholder model-specific ROM.
+    #[must_use]
+    pub fn blank(model: Model) -> Self {
+        Self::new(model, blank_firmware_rom(model))
+            .expect("blank model firmware image should be valid")
+    }
+
+    /// RAM layout currently installed — read back for diagnostics or
+    /// for tests asserting a preset was honoured. OCS-specific alias
+    /// over the generic `metadata` field.
+    #[must_use]
+    pub fn ram_config(&self) -> RamConfig {
+        self.metadata
+    }
+
+    /// Current host-side Paula audio controls. OCS-specific because
+    /// `AudioControls` and `PaulaChannel` are defined in the OCS
+    /// machine crate; future variants with different audio surfaces
+    /// add their own impl block here.
+    #[must_use]
+    pub fn audio_controls(&self) -> AudioControls {
+        self.machine.audio_controls()
+    }
+
+    /// Replace all host-side Paula audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.machine.set_audio_controls(controls);
+    }
+
+    /// Enable or disable one Paula channel in host output.
+    pub fn set_audio_channel_enabled(&mut self, channel: PaulaChannel, enabled: bool) {
+        self.machine.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Set one Paula channel's host-side gain.
+    pub fn set_audio_channel_gain(&mut self, channel: PaulaChannel, gain: f32) {
+        self.machine.set_audio_channel_gain(channel, gain);
+    }
+}
+
+fn build_amiga_ocs(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> AmigaOcs {
     match model {
         Model::A1000OcsPal => AmigaOcs::with_a1000_bootstrap_rom(firmware_rom.to_vec(), ram_config),
         Model::A500OcsPal
@@ -557,13 +607,27 @@ fn validate_firmware_rom(model: Model, firmware_rom: &[u8]) -> Result<(), Machin
     })
 }
 
-pub(crate) fn audio_sample_frames_for_ticks(ticks: u64) -> usize {
-    usize::try_from((ticks.saturating_mul(u64::from(AUDIO_SAMPLE_RATE_HZ))) / A500_PAL_TICK_HZ)
+fn audio_sample_frames_for_ticks(ticks: u64, tick_hz: u64) -> usize {
+    if tick_hz == 0 {
+        return 0;
+    }
+    usize::try_from((ticks.saturating_mul(u64::from(AUDIO_SAMPLE_RATE_HZ))) / tick_hz)
         .unwrap_or(usize::MAX)
 }
 
-fn audio_buffer_capacity_for_frame() -> usize {
-    audio_sample_frames_for_ticks(A500_PAL_FRAME_TICKS)
+fn audio_buffer_capacity_for_frame(tick_hz: u64) -> usize {
+    // A reasonable upper bound for one PAL frame at 48 kHz: 960
+    // stereo samples. Computing dynamically against tick_hz keeps the
+    // capacity right for NTSC and future Vampire-clock variants.
+    let frame_ticks = if tick_hz > 0 {
+        // PAL frame ≈ tick_hz / 50; NTSC ≈ tick_hz / 60. Use the
+        // larger of the two as an upper bound so the buffer doesn't
+        // grow at runtime under either region.
+        tick_hz / 50
+    } else {
+        tick_hz
+    };
+    audio_sample_frames_for_ticks(frame_ticks, tick_hz)
         .saturating_add(1)
         .saturating_mul(usize::from(AUDIO_CHANNELS))
 }

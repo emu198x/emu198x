@@ -4,6 +4,78 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-01 — Amiga runtime: generic conversion to `AmigaRuntime<M: AmigaMachine>`
+
+**Type:** architectural conversion. Zero new chip code, zero new variants — pure shape change matching the Spectrum playbook in `wiki/decisions/runtime-internal-shape.md`.
+**Trigger:** the open queue's "Amiga ECS/AGA/SAGA conversion" item, brainstormed up-front. The user confirmed the long-term scope extends to **Apollo Vampire FPGA + AC68080**, **PiStorm**, and **RTG framebuffer expansions** — not just Commodore-era ECS/AGA chipsets. NTSC PAL/NTSC region matrix is also in scope. Together these three axes (chipset / CPU + accelerator / region) ruled out a "small trait surface that only describes OCS+wrappers" — the trait has to be agnostic to which CPU is running, which chipset is producing the framebuffer, and (at the dimensions level) whether output is chipset-only or chipset + RTG.
+
+**Scope chosen for this session (option C from brainstorm):** trait + generic runtime + retain the 5 existing PAL OCS variants. NTSC variants and ECS/AGA/SAGA/Vampire/PiStorm/RTG chip work all explicitly deferred — adding NTSC requires fixing the chip-layer short/long-line alternation in `commodore-agnus-ocs` first (HRM p. 785), which is real work and shouldn't be bundled into a runtime conversion session.
+
+### What changed
+
+Added `crates/runtime-commodore-amiga/src/variants.rs` containing the `AmigaMachine` trait + the OCS impl + the `AmigaOcsRuntime` type alias. Parameterised the four concern files (`runtime.rs`, `queries.rs`, `snapshot.rs`, `input.rs`) over `M: AmigaMachine`. The runtime owns the variant-agnostic state (model, time, frame counters, audio buffers, RGBA mirror, boot heuristic); the trait owns the variant-specific behaviours (clock, framebuffer, audio sample, input, media, snapshot, query resolution).
+
+### Trait surface
+
+```rust
+pub trait AmigaMachine {
+    const CHIPSET_FB_WIDTH: u32;
+    const CHIPSET_FB_HEIGHT: u32;
+    type Snapshot: Serialize + DeserializeOwned;
+    type SnapshotMetadata: Serialize + DeserializeOwned + Clone;
+
+    fn rebuild(&mut self, firmware: &[u8], metadata: &Self::SnapshotMetadata);
+    fn tick(&mut self);
+    fn frame_ticks(&self) -> u64;
+    fn cck_hz(&self) -> u64;
+    fn chipset_framebuffer(&self) -> &[u32];
+    fn mix_audio_stereo(&self) -> (f32, f32);
+    fn key_event(&mut self, code: u8, pressed: bool);
+    fn move_mouse_port0(&mut self, dx: i32, dy: i32);
+    fn set_mouse_button_port0(&mut self, button: &str, pressed: bool);
+    fn set_joystick_control(&mut self, port: u8, name: &str, pressed: bool);
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool);
+    fn snapshot_state(&self) -> Self::Snapshot;
+    fn restore_snapshot_state(&mut self, snapshot: Self::Snapshot);
+    fn variant_query_paths() -> &'static [&'static str];
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<Value>, QueryError>;
+}
+```
+
+Design choices that bake in long-term scope without writing speculative code today:
+
+- **No CPU type in the trait surface.** When Apollo Vampire's AC68080 lands as a software model (and PiStorm's host-emulated 68k), each is a distinct `AmigaMachine` impl whose `tick` advances whatever its CPU is. The runtime never sees the CPU type.
+- **Per-machine `frame_ticks()` + `cck_hz()` instead of family constants.** The PAL OCS values are returned by `impl AmigaMachine for AmigaOcs`. NTSC variants will return their own values; future Vampire-with-clock-mod variants can override too. The runtime reads these once at construction (`tick_hz` cached) and per-frame (`frame_ticks`).
+- **`SnapshotMetadata` associated type.** OCS uses `RamConfig`. Future variants that need different reconstruction state (a chipset descriptor, a CPU + accelerator pair, an RTG card inventory) carry whatever fits — no `RamConfig` baked into the runtime envelope. The runtime stores `metadata: M::SnapshotMetadata` and exposes an OCS-specific `ram_config()` accessor on `impl AmigaRuntime<AmigaOcs>`.
+- **Single `chipset_framebuffer()` accessor today; slotted RTG accessor reserved.** The trait deliberately doesn't expose RTG framebuffers yet — when an RTG card lands, the right shape is to add a slotted accessor (`framebuffer(slot: FramebufferSlot)`) without reshaping the trait. Keeping the chipset-only surface today matches "convert at the point a second variant arrives" rather than speculating on RTG semantics.
+
+### What's next (ordered)
+
+1. **NTSC variants for OCS** — chip-layer fix in `commodore-agnus-ocs` (model the short/long line alternation from HRM p. 785), then 5 NTSC `Model` enum variants matching the PAL set, parallel `A500_NTSC_*` constants, and `Region::Ntsc` in profiles. Together: chip + runtime in one cohesive session.
+2. **ECS / AGA Commodore variants** — port `commodore-agnus-ecs` (988 lines) + `commodore-denise-ecs` (383 lines) + `commodore-agnus-aga` (278 lines) + `commodore-denise-aga` (372 lines) from `Emu198x-archive`; add new machine wrappers + `AmigaMachine` impls + `Model` entries.
+3. **Vampire / SAGA / PiStorm / RTG** — research-first, not in archive. Apollo Team docs, PiStorm GitHub, Picasso96 reference. SAGA in particular is a chip-stack replacement (not an OCS+wrapper); the trait shape designed today already permits this.
+
+### Honest exclusions
+
+- **No NTSC.** Postponed pending chip-layer alternation work.
+- **No new chip code.** All existing chip crates untouched. Trait is constructed entirely from the existing `AmigaOcs` public surface plus reorganisation of `queries.rs`'s 24 chip-state paths into `AmigaOcs::resolve_variant_query`.
+- **No new variant impls.** OCS is the only `impl AmigaMachine` block today.
+- **No `MachineCore` impl per-variant.** `impl<M: AmigaMachine> MachineCore for AmigaRuntime<M>` is fully generic — every variant gets it for free.
+
+### Verification
+
+- `cargo build -p runtime-commodore-amiga -p emu198x-amiga -p emu198x-script-amiga` clean
+- `cargo test -p runtime-commodore-amiga --lib --tests`: **72 passed, 16 ignored, 0 failed** across all 14 integration test binaries (lifecycle, queries, ram_variants, snapshot_roundtrip, boot_invariants, golden_matrix, 8 diag_* tests). The ignored tests are ROM-gated (require local Kickstart/Workbench images) — they're the same set that was ignored before the conversion.
+- `cargo clippy -p runtime-commodore-amiga -p emu198x-amiga -p emu198x-script-amiga --lib --tests -- -D warnings` clean
+- External callers (`emu198x-amiga`, `emu198x-script-amiga`) ported via mechanical `AmigaRuntime` → `AmigaOcsRuntime` rename.
+
+### Decisions / memory updates
+
+- `wiki/decisions/runtime-internal-shape.md` — the table row for `runtime-commodore-amiga` flips from "not yet — concrete `AmigaOcs`" to "✅ — `AmigaRuntime<M: AmigaMachine>` with `AmigaOcsRuntime` alias".
+- `~/.claude/.../memory/project_amiga_long_term_scope.md` — new memory note pinning the long-term Amiga targets (Vampire AC68080 + SAGA + PiStorm + RTG + NTSC), so future sessions know the trait was designed for this scope and don't strip generality on the assumption "Amiga = Commodore Amiga".
+
+---
+
 ## 2026-05-01 — Paging-aware glyph reader: 4 more Spectrum variant banners confirmed
 
 **Type:** feature (architectural fix the previous commit identified) + ROM-backed banner verification

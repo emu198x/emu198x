@@ -9,7 +9,7 @@ use emu198x_shell::{
     MediaKind, MediaSet, ScriptObservation, boot_machine, read_firmware_asset, read_media_asset,
 };
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaRuntime, AmigaSessionQueryProvider, Model,
+    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AmigaSessionQueryProvider, Model,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -236,8 +236,8 @@ fn run(cli: Cli) -> Result<RunnerReport, String> {
 
     let machine = boot_machine(
         &artifacts,
-        |images| AmigaRuntime::from_firmware(model, images),
-        || AmigaRuntime::blank(model),
+        |images| AmigaOcsRuntime::from_firmware(model, images),
+        || AmigaOcsRuntime::blank(model),
     )
     .map_err(|err| format!("machine construction failed: {err}"))?;
 
@@ -403,7 +403,7 @@ fn candidate_rom_dirs(cli: &Cli) -> Vec<PathBuf> {
 }
 
 fn query_bool(
-    session: &HeadlessSession<AmigaRuntime, AmigaSessionQueryProvider>,
+    session: &HeadlessSession<AmigaOcsRuntime, AmigaSessionQueryProvider>,
     path: &str,
 ) -> Result<bool, String> {
     session
@@ -415,7 +415,7 @@ fn query_bool(
 }
 
 fn query_string(
-    session: &HeadlessSession<AmigaRuntime, AmigaSessionQueryProvider>,
+    session: &HeadlessSession<AmigaOcsRuntime, AmigaSessionQueryProvider>,
     path: &str,
 ) -> Result<String, String> {
     session

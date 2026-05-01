@@ -10,7 +10,7 @@ use emu198x_shell::{
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaRuntime, AudioControls, Model, PaulaChannel, profile_for,
+    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AudioControls, Model, PaulaChannel, profile_for,
 };
 
 use common::{
@@ -21,14 +21,14 @@ use common::{
 
 #[test]
 fn from_firmware_accepts_supported_kickstart_size() {
-    let runtime = AmigaRuntime::from_firmware(Model::A500OcsPal, &dummy_firmware());
+    let runtime = AmigaOcsRuntime::from_firmware(Model::A500OcsPal, &dummy_firmware());
     assert!(runtime.is_ok());
 }
 
 #[test]
 fn audio_controls_mutate_machine_paula_mixer() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
 
     runtime.set_audio_channel_enabled(PaulaChannel::Channel1, false);
     runtime.set_audio_channel_gain(PaulaChannel::Channel3, 0.25);
@@ -40,13 +40,13 @@ fn audio_controls_mutate_machine_paula_mixer() {
 
 #[test]
 fn from_firmware_accepts_supported_a1000_bootstrap_size() {
-    let runtime = AmigaRuntime::from_firmware(Model::A1000OcsPal, &dummy_a1000_firmware());
+    let runtime = AmigaOcsRuntime::from_firmware(Model::A1000OcsPal, &dummy_a1000_firmware());
     assert!(runtime.is_ok());
 }
 
 #[test]
 fn new_rejects_undersized_rom() {
-    match AmigaRuntime::new(Model::A500OcsPal, vec![0; 128 * 1024]) {
+    match AmigaOcsRuntime::new(Model::A500OcsPal, vec![0; 128 * 1024]) {
         Err(MachineError::InvalidFirmware { id, .. }) => assert_eq!(id, KICKSTART_ROM_ID),
         Err(other) => panic!("expected InvalidFirmware, got {other:?}"),
         Ok(_) => panic!("expected InvalidFirmware, got Ok"),
@@ -55,7 +55,7 @@ fn new_rejects_undersized_rom() {
 
 #[test]
 fn a1000_new_rejects_non_bootstrap_rom_size() {
-    match AmigaRuntime::new(Model::A1000OcsPal, vec![0; 256 * 1024]) {
+    match AmigaOcsRuntime::new(Model::A1000OcsPal, vec![0; 256 * 1024]) {
         Err(MachineError::InvalidFirmware { id, .. }) => {
             assert_eq!(id, A1000_BOOTSTRAP_ROM_ID)
         }
@@ -66,7 +66,7 @@ fn a1000_new_rejects_non_bootstrap_rom_size() {
 
 #[test]
 fn load_media_accepts_dd_adf() {
-    let mut runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart())
+    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart())
         .expect("dummy Kickstart should construct");
     let disk = vec![0u8; ADF_SIZE_DD];
     let mut media = MediaSet::new();
@@ -79,7 +79,7 @@ fn load_media_accepts_dd_adf() {
 
 #[test]
 fn load_media_keeps_a1000_disk_change_pending() {
-    let mut runtime = AmigaRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
+    let mut runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
         .expect("dummy bootstrap ROM should construct");
     let disk = vec![0u8; ADF_SIZE_DD];
     let mut media = MediaSet::new();
@@ -98,7 +98,7 @@ fn load_media_keeps_a1000_disk_change_pending() {
 #[test]
 fn load_media_rejects_unknown_slot() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let disk = vec![0u8; ADF_SIZE_DD];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-1", MediaKind::Disk, &disk));
@@ -109,7 +109,7 @@ fn load_media_rejects_unknown_slot() {
 #[test]
 fn run_until_advances_time_and_emits_frame() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let target = MachineTime::new(A500_PAL_FRAME_TICKS);
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = AudioCollector::default();
@@ -143,7 +143,7 @@ fn run_until_advances_time_and_emits_frame() {
 #[test]
 fn run_until_applies_mouse_input_to_controller_port_zero() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let input_events = [
         InputEvent::PointerMotion {
             device: "mouse-1".into(),
@@ -177,7 +177,7 @@ fn run_until_applies_mouse_input_to_controller_port_zero() {
 #[test]
 fn run_until_applies_joystick_input_to_controller_port_one() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let input_events = [
         InputEvent::Button {
             port: 1,
@@ -214,7 +214,7 @@ fn run_until_applies_joystick_input_to_controller_port_one() {
 
 #[test]
 fn machine_core_profile_matches_model_profile() {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     assert_eq!(
         runtime.profile().profile_id.as_str(),
         profile_for(Model::A500OcsPal).profile_id.as_str()
@@ -223,7 +223,7 @@ fn machine_core_profile_matches_model_profile() {
 
 #[test]
 fn machine_core_capabilities_match_profile() {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let caps = runtime.capabilities();
     let profile = profile_for(Model::A500OcsPal);
     assert_eq!(caps, profile.capabilities);
@@ -231,7 +231,7 @@ fn machine_core_capabilities_match_profile() {
 
 #[test]
 fn machine_core_time_matches_internal_time() {
-    let runtime = AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     // Brand new runtime: time is the default (zero ticks).
     assert_eq!(runtime.time(), MachineTime::default());
 }
@@ -239,7 +239,7 @@ fn machine_core_time_matches_internal_time() {
 #[test]
 fn machine_core_reset_rebuilds_runtime_state() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = AudioCollector::default();
     let mut trace_sink = NullTraceSink;
@@ -267,7 +267,7 @@ fn machine_core_reset_rebuilds_runtime_state() {
 #[test]
 fn machine_core_reset_remounts_inserted_floppy() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let disk = vec![0u8; ADF_SIZE_DD];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
@@ -282,7 +282,7 @@ fn machine_core_reset_remounts_inserted_floppy() {
 
 #[test]
 fn machine_core_reset_a1000_rebuilds_with_bootstrap_rom() {
-    let mut runtime = AmigaRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
+    let mut runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
         .expect("A1000 bootstrap should construct");
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = AudioCollector::default();
@@ -306,7 +306,7 @@ fn machine_core_reset_a1000_rebuilds_with_bootstrap_rom() {
 #[test]
 fn machine_core_command_rejects_any_request() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let err = runtime
         .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
             "floppy-0",
@@ -322,7 +322,7 @@ fn machine_core_command_rejects_any_request() {
 #[test]
 fn load_media_rejects_unsupported_media_kind() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let bytes = [0u8; 16];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Cartridge, &bytes));
@@ -338,7 +338,7 @@ fn load_media_rejects_unsupported_media_kind() {
 #[test]
 fn load_media_rejects_invalid_adf_bytes() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     // ADF parser requires a specific size; a short buffer is invalid.
     let bytes = [0u8; 12];
     let mut media = MediaSet::new();
@@ -355,7 +355,7 @@ fn load_media_rejects_invalid_adf_bytes() {
 #[test]
 fn from_firmware_reports_missing_kickstart() {
     let firmware = FirmwareSet::new();
-    let result = AmigaRuntime::from_firmware(Model::A500OcsPal, &firmware);
+    let result = AmigaOcsRuntime::from_firmware(Model::A500OcsPal, &firmware);
     let Err(err) = result else {
         panic!("empty firmware set should be rejected")
     };
@@ -369,7 +369,7 @@ fn from_firmware_reports_missing_kickstart() {
 #[test]
 fn from_firmware_reports_missing_a1000_bootstrap() {
     let firmware = FirmwareSet::new();
-    let result = AmigaRuntime::from_firmware(Model::A1000OcsPal, &firmware);
+    let result = AmigaOcsRuntime::from_firmware(Model::A1000OcsPal, &firmware);
     let Err(err) = result else {
         panic!("empty firmware set should be rejected")
     };
@@ -384,12 +384,12 @@ fn from_firmware_reports_missing_a1000_bootstrap() {
 fn from_firmware_rejects_wrong_size_kickstart_via_firmware_set() {
     // Firmware set passes profile validation (the right id is present)
     // but the bytes are the wrong size — that drives the error path
-    // *inside* `AmigaRuntime::new` after `from_firmware` has resolved
+    // *inside* `AmigaOcsRuntime::new` after `from_firmware` has resolved
     // the bytes.
     let bytes: &'static [u8] = Box::leak(vec![0u8; 1024].into_boxed_slice());
     let mut firmware = FirmwareSet::new();
     firmware.push(FirmwareImage::new(KICKSTART_ROM_ID, bytes));
-    let result = AmigaRuntime::from_firmware(Model::A500OcsPal, &firmware);
+    let result = AmigaOcsRuntime::from_firmware(Model::A500OcsPal, &firmware);
     assert!(
         matches!(result, Err(MachineError::InvalidFirmware { .. })),
         "1 KiB firmware should be rejected"
@@ -398,13 +398,13 @@ fn from_firmware_rejects_wrong_size_kickstart_via_firmware_set() {
 
 #[test]
 fn blank_constructor_builds_a500_runtime() {
-    let runtime = AmigaRuntime::blank(Model::A500OcsPal);
+    let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
     assert_eq!(runtime.model(), Model::A500OcsPal);
 }
 
 #[test]
 fn blank_constructor_builds_a1000_runtime() {
-    let runtime = AmigaRuntime::blank(Model::A1000OcsPal);
+    let runtime = AmigaOcsRuntime::blank(Model::A1000OcsPal);
     assert_eq!(runtime.model(), Model::A1000OcsPal);
 }
 
@@ -415,7 +415,7 @@ fn blank_constructor_builds_every_a500_variant() {
         Model::A500PlusOcsPal,
         Model::A500OcsPalMaxed,
     ] {
-        let runtime = AmigaRuntime::blank(model);
+        let runtime = AmigaOcsRuntime::blank(model);
         assert_eq!(runtime.model(), model);
     }
 }
@@ -423,7 +423,7 @@ fn blank_constructor_builds_every_a500_variant() {
 #[test]
 fn set_audio_controls_replaces_full_mixer_state() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let mut controls = AudioControls::default();
     controls.set_channel_enabled(PaulaChannel::Channel0, false);
     controls.set_channel_gain(PaulaChannel::Channel2, 0.125);
@@ -439,7 +439,7 @@ fn set_audio_controls_replaces_full_mixer_state() {
 #[test]
 fn run_until_reports_reached_target_with_zero_advancement() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = NullAudioSink;
     let mut trace_sink = NullTraceSink;
@@ -463,7 +463,7 @@ fn run_until_reports_reached_target_with_zero_advancement() {
 #[test]
 fn run_until_applies_keyboard_input() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let input_events = [
         InputEvent::Key {
             name: "space".into(),
@@ -506,7 +506,7 @@ fn run_until_applies_keyboard_input() {
 #[test]
 fn run_until_drops_unrouted_input_events() {
     let mut runtime =
-        AmigaRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let input_events = [
         InputEvent::PointerMotion {
             device: "mouse-2".into(),
