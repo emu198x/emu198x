@@ -93,6 +93,9 @@ Execution:
     --smoke-joystick-axis PORT,AXIS,VALUE,FRAMES
                        after start, hold analogue axis x/y on port 1/2 at VALUE for N frames;
                        VALUE is normalized from -1.0 to 1.0; may be repeated
+    --smoke-joystick-axis-sweep PORT,AXIS,START,END,STEPS,FRAMES
+                       after start, sweep analogue axis x/y over normalized START..END;
+                       records whether each step changes visible output
     --smoke-idle-after-start FRAMES
                        after start, run N frames without extra input and capture idle output
     --xroar-bin PATH   patched XRoar binary used to write reference PNGs
@@ -137,6 +140,7 @@ struct Cli {
     smoke_audio_dir: Option<PathBuf>,
     smoke_joystick: Vec<SmokeJoystickStep>,
     smoke_joystick_axis: Vec<SmokeJoystickAxisStep>,
+    smoke_joystick_axis_sweep: Vec<SmokeJoystickAxisSweep>,
     smoke_idle_after_start: u32,
     xroar_bin: Option<PathBuf>,
     xroar_reference_dir: Option<PathBuf>,
@@ -390,6 +394,10 @@ struct CasRuntimeSmoke {
     joystick_steps: Vec<SmokeJoystickStep>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     joystick_axis_steps: Vec<SmokeJoystickAxisStep>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    joystick_axis_sweeps: Vec<SmokeJoystickAxisSweep>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    joystick_axis_sweep_results: Vec<SmokeJoystickAxisSweepResult>,
     joystick_visible_change: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     joystick_screen_text: Option<Vec<String>>,
@@ -491,6 +499,28 @@ struct SmokeJoystickAxisStep {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+struct SmokeJoystickAxisSweep {
+    port: u8,
+    axis: SmokeJoystickAxis,
+    start: i16,
+    end: i16,
+    steps: u32,
+    frames: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct SmokeJoystickAxisSweepResult {
+    port: u8,
+    axis: SmokeJoystickAxis,
+    step: u32,
+    value: i16,
+    frames: u32,
+    visible_change: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    screenshot: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum SmokeJoystickControl {
     Up,
@@ -538,6 +568,7 @@ struct RuntimeSmokeOptions<'a> {
     audio_stem: Option<&'a Path>,
     joystick: &'a [SmokeJoystickStep],
     joystick_axis: &'a [SmokeJoystickAxisStep],
+    joystick_axis_sweep: &'a [SmokeJoystickAxisSweep],
     idle_after_start_frames: u32,
     xroar: Option<&'a XroarReferenceConfig>,
     xroar_stem: Option<&'a Path>,
@@ -694,6 +725,7 @@ where
     let mut smoke_audio_dir = None;
     let mut smoke_joystick = Vec::new();
     let mut smoke_joystick_axis = Vec::new();
+    let mut smoke_joystick_axis_sweep = Vec::new();
     let mut smoke_idle_after_start = 0;
     let mut xroar_bin = None;
     let mut xroar_reference_dir = None;
@@ -815,6 +847,12 @@ where
                     "--smoke-joystick-axis",
                 )?)?);
             }
+            "--smoke-joystick-axis-sweep" => {
+                smoke_joystick_axis_sweep.push(parse_smoke_joystick_axis_sweep(&next_value(
+                    &mut iter,
+                    "--smoke-joystick-axis-sweep",
+                )?)?);
+            }
             "--smoke-idle-after-start" => {
                 smoke_idle_after_start = parse_u32(
                     &next_value(&mut iter, "--smoke-idle-after-start")?,
@@ -888,6 +926,7 @@ where
         smoke_audio_dir,
         smoke_joystick,
         smoke_joystick_axis,
+        smoke_joystick_axis_sweep,
         smoke_idle_after_start,
         xroar_bin,
         xroar_reference_dir,
@@ -1085,8 +1124,63 @@ fn parse_smoke_joystick_axis_step(value: &str) -> Result<SmokeJoystickAxisStep, 
     })
 }
 
+fn parse_smoke_joystick_axis_sweep(value: &str) -> Result<SmokeJoystickAxisSweep, String> {
+    let mut parts = value.split(',');
+    let port = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_axis_sweep_value(value))?;
+    let axis = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_axis_sweep_value(value))?;
+    let start = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_axis_sweep_value(value))?;
+    let end = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_axis_sweep_value(value))?;
+    let steps = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_axis_sweep_value(value))?;
+    let frames = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_axis_sweep_value(value))?;
+    if parts.next().is_some() {
+        return Err(invalid_smoke_joystick_axis_sweep_value(value));
+    }
+
+    let port = parse_u8(port, "--smoke-joystick-axis-sweep port")?;
+    if !matches!(port, 1 | 2) {
+        return Err(format!(
+            "invalid --smoke-joystick-axis-sweep port {port}; expected 1 or 2"
+        ));
+    }
+    let steps = parse_u32(steps, "--smoke-joystick-axis-sweep steps")?;
+    if steps == 0 {
+        return Err("--smoke-joystick-axis-sweep steps must be greater than zero".to_owned());
+    }
+    let frames = parse_u32(frames, "--smoke-joystick-axis-sweep frames")?;
+    if frames == 0 {
+        return Err("--smoke-joystick-axis-sweep frames must be greater than zero".to_owned());
+    }
+
+    Ok(SmokeJoystickAxisSweep {
+        port,
+        axis: parse_smoke_joystick_axis(axis)?,
+        start: parse_smoke_axis_value(start)?,
+        end: parse_smoke_axis_value(end)?,
+        steps,
+        frames,
+    })
+}
+
 fn invalid_smoke_joystick_axis_value(value: &str) -> String {
     format!("invalid --smoke-joystick-axis value {value}; expected PORT,AXIS,VALUE,FRAMES")
+}
+
+fn invalid_smoke_joystick_axis_sweep_value(value: &str) -> String {
+    format!(
+        "invalid --smoke-joystick-axis-sweep value {value}; expected PORT,AXIS,START,END,STEPS,FRAMES"
+    )
 }
 
 fn parse_smoke_joystick_axis(value: &str) -> Result<SmokeJoystickAxis, String> {
@@ -1120,6 +1214,15 @@ fn normalize_axis_value(value: f32) -> i16 {
     } else {
         (clamped * f32::from(i16::MAX)) as i16
     }
+}
+
+fn axis_sweep_value(sweep: SmokeJoystickAxisSweep, step: u32) -> i16 {
+    if sweep.steps <= 1 {
+        return sweep.start;
+    }
+    let fraction = f64::from(step) / f64::from(sweep.steps - 1);
+    let value = f64::from(sweep.start) + (f64::from(sweep.end) - f64::from(sweep.start)) * fraction;
+    (value + 0.5).floor() as i16
 }
 
 fn parse_matrix_key(value: &str) -> Result<MatrixKey, String> {
@@ -1193,6 +1296,7 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
                 audio_stem: audio_stem.as_deref(),
                 joystick: &cli.smoke_joystick,
                 joystick_axis: &cli.smoke_joystick_axis,
+                joystick_axis_sweep: &cli.smoke_joystick_axis_sweep,
                 idle_after_start_frames: cli.smoke_idle_after_start,
                 xroar: xroar.as_ref(),
                 xroar_stem: xroar_stem.as_deref(),
@@ -1834,6 +1938,7 @@ fn run_runtime_smoke_inner(
     let audio_stem = smoke_options.audio_stem;
     let joystick_steps = smoke_options.joystick;
     let joystick_axis_steps = smoke_options.joystick_axis;
+    let joystick_axis_sweeps = smoke_options.joystick_axis_sweep;
     let idle_after_start_frames = smoke_options.idle_after_start_frames;
     let mut session = boot_runtime_session(rom)?;
     let mut media = MediaSet::new();
@@ -1952,29 +2057,40 @@ fn run_runtime_smoke_inner(
             idle_screenshot,
         )
     };
-    let (joystick_visible_change, joystick_screen_text, joystick_screenshot) =
-        if joystick_steps.is_empty() && joystick_axis_steps.is_empty() {
-            (false, None, None)
-        } else {
-            apply_smoke_joystick_steps(&mut session, joystick_steps)?;
-            apply_smoke_joystick_axis_steps(&mut session, joystick_axis_steps)?;
-            let joystick_frame = session
-                .screenshot_png_bytes()
-                .map_err(|err| format!("failed to capture post-joystick frame: {err}"))?;
-            let joystick_screen_text = screen_text_lines(&session)?;
-            let joystick_screenshot = write_smoke_screenshot(
-                screenshot_stem,
-                "joystick",
-                screenshot_format,
-                &session,
-                &joystick_frame,
-            )?;
-            (
-                joystick_frame != start_screenshot_frame,
-                Some(joystick_screen_text),
-                joystick_screenshot,
-            )
-        };
+    let mut joystick_axis_sweep_results = Vec::new();
+    let (joystick_visible_change, joystick_screen_text, joystick_screenshot) = if joystick_steps
+        .is_empty()
+        && joystick_axis_steps.is_empty()
+        && joystick_axis_sweeps.is_empty()
+    {
+        (false, None, None)
+    } else {
+        apply_smoke_joystick_steps(&mut session, joystick_steps)?;
+        apply_smoke_joystick_axis_steps(&mut session, joystick_axis_steps)?;
+        joystick_axis_sweep_results = apply_smoke_joystick_axis_sweeps(
+            &mut session,
+            joystick_axis_sweeps,
+            &start_screenshot_frame,
+            screenshot_stem,
+            screenshot_format,
+        )?;
+        let joystick_frame = session
+            .screenshot_png_bytes()
+            .map_err(|err| format!("failed to capture post-joystick frame: {err}"))?;
+        let joystick_screen_text = screen_text_lines(&session)?;
+        let joystick_screenshot = write_smoke_screenshot(
+            screenshot_stem,
+            "joystick",
+            screenshot_format,
+            &session,
+            &joystick_frame,
+        )?;
+        (
+            joystick_frame != start_screenshot_frame,
+            Some(joystick_screen_text),
+            joystick_screenshot,
+        )
+    };
     let start_video_changed = load_video != start_video;
     let classification = classify_runtime_smoke(RuntimeSmokeClassificationInput {
         command,
@@ -2026,6 +2142,8 @@ fn run_runtime_smoke_inner(
         idle_screenshot,
         joystick_steps: joystick_steps.to_vec(),
         joystick_axis_steps: joystick_axis_steps.to_vec(),
+        joystick_axis_sweeps: joystick_axis_sweeps.to_vec(),
+        joystick_axis_sweep_results,
         joystick_visible_change,
         joystick_screen_text,
         joystick_screenshot,
@@ -3664,6 +3782,8 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         idle_screenshot: None,
         joystick_steps: Vec::new(),
         joystick_axis_steps: Vec::new(),
+        joystick_axis_sweeps: Vec::new(),
+        joystick_axis_sweep_results: Vec::new(),
         joystick_visible_change: false,
         joystick_screen_text: None,
         joystick_screenshot: None,
@@ -3822,6 +3942,67 @@ fn apply_smoke_joystick_axis_steps(
         })?;
     }
     Ok(())
+}
+
+fn apply_smoke_joystick_axis_sweeps(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    sweeps: &[SmokeJoystickAxisSweep],
+    baseline_frame: &[u8],
+    screenshot_stem: Option<&Path>,
+    screenshot_format: SmokeScreenshotFormat,
+) -> Result<Vec<SmokeJoystickAxisSweepResult>, String> {
+    let mut results = Vec::new();
+    for sweep in sweeps {
+        let name = sweep.axis.name();
+        for step in 0..sweep.steps {
+            let value = axis_sweep_value(*sweep, step);
+            session.queue_input(InputEvent::Axis {
+                port: sweep.port,
+                name: name.into(),
+                value,
+            });
+            session.run_frames(sweep.frames).map_err(|err| {
+                format!(
+                    "joystick axis sweep port {} {name}={} for {} frames failed: {err}",
+                    sweep.port, value, sweep.frames
+                )
+            })?;
+            let frame = session.screenshot_png_bytes().map_err(|err| {
+                format!(
+                    "failed to capture joystick axis sweep port {} {name} step {}: {err}",
+                    sweep.port, step
+                )
+            })?;
+            let screenshot = write_smoke_screenshot(
+                screenshot_stem,
+                &format!("joystick-axis-{}-{}-{step:02}", sweep.port, name),
+                screenshot_format,
+                session,
+                &frame,
+            )?;
+            results.push(SmokeJoystickAxisSweepResult {
+                port: sweep.port,
+                axis: sweep.axis,
+                step,
+                value,
+                frames: sweep.frames,
+                visible_change: frame != baseline_frame,
+                screenshot,
+            });
+        }
+        session.queue_input(InputEvent::Axis {
+            port: sweep.port,
+            name: name.into(),
+            value: 0,
+        });
+        session.run_frames(KEY_EDGE_FRAMES).map_err(|err| {
+            format!(
+                "joystick axis sweep reset port {} {name} failed: {err}",
+                sweep.port
+            )
+        })?;
+    }
+    Ok(results)
 }
 
 fn wait_for_tape_position_above(
@@ -4886,6 +5067,8 @@ mod tests {
             "1,right,30".to_owned(),
             "--smoke-joystick-axis".to_owned(),
             "1,x,-0.5,40".to_owned(),
+            "--smoke-joystick-axis-sweep".to_owned(),
+            "2,y,-1.0,1.0,3,12".to_owned(),
             "--smoke-idle-after-start".to_owned(),
             "492".to_owned(),
         ])
@@ -4919,6 +5102,17 @@ mod tests {
                 axis: SmokeJoystickAxis::X,
                 value: -16_383,
                 frames: 40,
+            }]
+        );
+        assert_eq!(
+            cli.smoke_joystick_axis_sweep,
+            vec![SmokeJoystickAxisSweep {
+                port: 2,
+                axis: SmokeJoystickAxis::Y,
+                start: i16::MIN,
+                end: i16::MAX,
+                steps: 3,
+                frames: 12,
             }]
         );
         assert_eq!(
@@ -5267,6 +5461,15 @@ mod tests {
         ])
         .expect_err("invalid joystick axis value should fail");
         assert!(bad_value.contains("must be a finite number from -1.0 to 1.0"));
+
+        let bad_sweep_steps = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--smoke-joystick-axis-sweep".to_owned(),
+            "1,x,-1.0,1.0,0,20".to_owned(),
+        ])
+        .expect_err("invalid joystick axis sweep steps should fail");
+        assert!(bad_sweep_steps.contains("steps must be greater than zero"));
     }
 
     #[test]
@@ -5274,6 +5477,22 @@ mod tests {
         assert_eq!(parse_smoke_axis_value("-1.0"), Ok(i16::MIN));
         assert_eq!(parse_smoke_axis_value("0.0"), Ok(0));
         assert_eq!(parse_smoke_axis_value("1.0"), Ok(i16::MAX));
+    }
+
+    #[test]
+    fn smoke_axis_sweep_values_include_endpoints() {
+        let sweep = SmokeJoystickAxisSweep {
+            port: 1,
+            axis: SmokeJoystickAxis::X,
+            start: i16::MIN,
+            end: i16::MAX,
+            steps: 3,
+            frames: 12,
+        };
+
+        assert_eq!(axis_sweep_value(sweep, 0), i16::MIN);
+        assert_eq!(axis_sweep_value(sweep, 1), 0);
+        assert_eq!(axis_sweep_value(sweep, 2), i16::MAX);
     }
 
     #[test]

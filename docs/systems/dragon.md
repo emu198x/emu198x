@@ -42,8 +42,10 @@ future work.
   script runner can inject post-start smoke actions with
   `--smoke-joystick PORT,CONTROL,FRAMES` and analogue comparator stimulus with
   `--smoke-joystick-axis PORT,AXIS,VALUE,FRAMES`, where `VALUE` is normalized
-  from -1.0 to 1.0. It can capture same-duration idle baselines with
-  `--smoke-idle-after-start`.
+  from -1.0 to 1.0. It can also sweep comparator values with
+  `--smoke-joystick-axis-sweep PORT,AXIS,START,END,STEPS,FRAMES`, recording
+  per-step visible output changes in the smoke report. It can capture
+  same-duration idle baselines with `--smoke-idle-after-start`.
 - **VDG:** `motorola-vdg-6847` renders text, inverse text, SG4/SG6
   semigraphics, and standard MC6847 graphics modes. It now exposes full-frame,
   scanline, and byte-position renderers, and `machine-dragon-32` maintains a
@@ -124,6 +126,7 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --smoke-audio-dir target/dragon-smoke-audio \
   --smoke-joystick 2,fire,300 \
   --smoke-joystick-axis 1,x,0.5,300 \
+  --smoke-joystick-axis-sweep 1,x,-1.0,1.0,5,120 \
   --smoke-idle-after-start 300
 ```
 
@@ -196,10 +199,25 @@ For the source-backed accuracy audit and implementation sequence, see
    traces from matched initial machine state.
 2. Validate Dragon audio filtering and audible software behavior against XRoar
    or hardware captures once we have sound-producing CAS fixtures.
-3. Add comparator-focused Dragon smoke fixtures that sweep analogue axis values
-   against software known to read joysticks.
+3. Build a small comparator-sensitive software fixture set and run the new
+   smoke axis sweep against it in CI or local smoke matrices.
 4. Revisit PAL geometry and external video reference captures after the current
    practical usability loop is smoother.
+
+## Completion Assessment
+
+Dragon 32 is at a practical-use baseline: real BASIC ROM boot, keyboard, CAS
+autoload, cartridges, PAK snapshots, beam-updated VDG output, cassette input,
+PIA/SAM timing, mono audio, native windowing, gamepad input, and smoke tooling
+are all in place. The remaining work to call it complete is accuracy and
+coverage rather than initial bring-up.
+
+To complete Dragon 32, the main gaps are: full source-backed MC6809 timing and
+interrupt edge cases, PAL video geometry calibrated against hardware captures,
+analogue audio filtering and expansion-source mixing, Dragon 64 memory mode,
+DragonDOS/WD2797 disks, `.BIN` convenience loading, and a trusted fixture suite
+for joystick/audio/video behaviours that does not depend on emulator-vs-emulator
+pixel matching.
 
 ## Test Coverage
 
