@@ -131,6 +131,29 @@ impl Ay3_8912 {
         self.regs[self.selected as usize]
     }
 
+    /// The currently selected register index (0-15).
+    ///
+    /// Used by the runtime query layer (`spectrum.ay.selected_register`)
+    /// and by snapshot serialisers that need to capture the chip's
+    /// register-pointer state alongside the file. Distinct from
+    /// `read_data`, which returns the *value* of that register.
+    #[must_use]
+    pub fn selected_register(&self) -> u8 {
+        self.selected
+    }
+
+    /// Borrow the full 16-register file in index order.
+    ///
+    /// Each entry is the post-mask value (e.g. coarse-tone registers
+    /// have already been clipped to 4 bits). Used by the runtime
+    /// query layer (`spectrum.ay.registers`) so debuggers and tools
+    /// can inspect the chip without driving 16 separate
+    /// `select` + `read_data` round-trips.
+    #[must_use]
+    pub fn registers(&self) -> &[u8; 16] {
+        &self.regs
+    }
+
     /// Advance one AY clock cycle. Call at ay_clock_hz rate.
     ///
     /// The AY divides its input clock by 8 internally. Tone, noise,
@@ -380,6 +403,34 @@ mod tests {
         ay.end_frame(&mut out);
         let max = out.iter().cloned().fold(0.0f32, f32::max);
         assert!(max > 0.1, "expected audible output, got max={}", max);
+    }
+
+    #[test]
+    fn selected_register_and_registers_expose_full_state() {
+        let mut ay = Ay3_8912::new(1_773_400, 44100, 882);
+        // Default state: register 0 selected, all 16 zeroed.
+        assert_eq!(ay.selected_register(), 0);
+        assert_eq!(ay.registers(), &[0u8; 16]);
+
+        // Write distinct values into a few registers and confirm the
+        // borrow returns the masked values (coarse tone clipped to 4 bits).
+        ay.select_register(0);
+        ay.write_data(0xAB); // fine tone A — full 8 bits preserved
+        ay.select_register(1);
+        ay.write_data(0xFF); // coarse tone A — clipped to 0x0F
+        ay.select_register(7);
+        ay.write_data(0x3E); // mixer
+        ay.select_register(13);
+        ay.write_data(0x09); // envelope shape
+
+        assert_eq!(ay.selected_register(), 13);
+        let regs = ay.registers();
+        assert_eq!(regs[0], 0xAB);
+        assert_eq!(regs[1], 0x0F);
+        assert_eq!(regs[7], 0x3E);
+        assert_eq!(regs[13], 0x09);
+        // Untouched registers remain zero.
+        assert_eq!(regs[2], 0x00);
     }
 
     #[test]

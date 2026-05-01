@@ -20,14 +20,15 @@ use emu198x_shell::{
 };
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
+use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_plus::{Model as PlusModel, SpectrumPlus};
 use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
 use runtime_sinclair_zx_spectrum::{
-    Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime, SpectrumMachine,
-    SpectrumPlusRuntime, SpectrumRuntime, SpectrumSessionQueryProvider, TimexTC2048Runtime,
-    TimexTS2068Runtime,
+    Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum48kRuntime, Spectrum128kRuntime,
+    SpectrumMachine, SpectrumPlusRuntime, SpectrumRuntime, SpectrumSessionQueryProvider,
+    TimexTC2048Runtime, TimexTS2068Runtime,
 };
 
 #[derive(Default)]
@@ -891,6 +892,158 @@ fn timex_ts2068_runtime_exposes_model_query_alongside_kempston() {
             .expect("timex model query should resolve")
             .expect("provider must own timex.model");
         assert_eq!(model_tc.value, serde_json::json!("tc2068"));
+    });
+}
+
+/// Exercise the `spectrum.ay.*` query surface on every AY-equipped
+/// variant. The protocol is identical across the family — write a
+/// distinct register pattern through the chip-crate API, then read
+/// the selected-register pointer and the full 16-byte register file
+/// back via the runtime query provider. Reuses
+/// `runtime.machine_mut().ay` because each machine exposes its AY
+/// chip publicly.
+fn assert_ay_query_round_trip<M>(runtime: &mut SpectrumRuntime<M>)
+where
+    M: SpectrumMachine + HasAy,
+{
+    // Drive the AY directly through the chip-crate API.
+    let ay = HasAy::ay_mut(runtime.machine_mut());
+    ay.select_register(0);
+    ay.write_data(0xAB); // fine tone A
+    ay.select_register(1);
+    ay.write_data(0xFF); // coarse tone A — clipped to 0x0F
+    ay.select_register(7);
+    ay.write_data(0x3E); // mixer
+    ay.select_register(13);
+    ay.write_data(0x09); // envelope shape
+
+    let provider = SpectrumSessionQueryProvider;
+
+    let selected = provider
+        .query(runtime, "spectrum.ay.selected_register")
+        .expect("AY register query should resolve")
+        .expect("provider must own ay.selected_register");
+    assert_eq!(selected.value, serde_json::json!(13));
+
+    let regs = provider
+        .query(runtime, "spectrum.ay.registers")
+        .expect("AY register-file query should resolve")
+        .expect("provider must own ay.registers");
+    let arr = regs.value.as_array().expect("registers value is an array");
+    assert_eq!(arr.len(), 16);
+    assert_eq!(arr[0], serde_json::json!(0xAB));
+    assert_eq!(arr[1], serde_json::json!(0x0F));
+    assert_eq!(arr[7], serde_json::json!(0x3E));
+    assert_eq!(arr[13], serde_json::json!(0x09));
+    assert_eq!(arr[2], serde_json::json!(0x00));
+}
+
+/// Bridge trait so a single generic test covers every AY-equipped
+/// variant without each machine needing identical inherent helpers.
+trait HasAy {
+    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912;
+}
+
+impl HasAy for Spectrum128K {
+    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912 {
+        &mut self.ay
+    }
+}
+
+impl HasAy for SpectrumPlus {
+    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912 {
+        &mut self.ay
+    }
+}
+
+impl HasAy for Pentagon128 {
+    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912 {
+        &mut self.ay
+    }
+}
+
+impl HasAy for ScorpionZS256 {
+    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912 {
+        &mut self.ay
+    }
+}
+
+impl HasAy for TimexTS2068 {
+    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912 {
+        &mut self.ay
+    }
+}
+
+#[test]
+fn spectrum_128k_runtime_exposes_ay_register_queries() {
+    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    assert_ay_query_round_trip(&mut runtime);
+}
+
+#[test]
+fn spectrum_plus2a_runtime_exposes_ay_register_queries() {
+    let mut runtime = SpectrumPlusRuntime::new(
+        Model::SpectrumPlus2A,
+        SpectrumPlus::new(PlusModel::Plus2A),
+    );
+    assert_ay_query_round_trip(&mut runtime);
+}
+
+#[test]
+fn pentagon_128_runtime_exposes_ay_register_queries() {
+    let mut runtime = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    assert_ay_query_round_trip(&mut runtime);
+}
+
+#[test]
+fn scorpion_runtime_exposes_ay_register_queries() {
+    let mut runtime = ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new());
+    assert_ay_query_round_trip(&mut runtime);
+}
+
+#[test]
+fn timex_ts2068_runtime_exposes_ay_register_queries() {
+    run_with_large_stack(|| {
+        let mut runtime =
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        assert_ay_query_round_trip(&mut runtime);
+    });
+}
+
+/// Variants without an AY chip (48K and TC2048) MUST NOT advertise
+/// the `spectrum.ay.*` paths and MUST return Ok(None) when asked.
+#[test]
+fn non_ay_variants_do_not_advertise_ay_paths() {
+    let provider = SpectrumSessionQueryProvider;
+
+    let runtime48 = Spectrum48kRuntime::new(Model::Spectrum48KPal, Spectrum48k::new());
+    let paths_48 = provider.query_paths(&runtime48, Some("spectrum.ay."));
+    assert!(
+        paths_48.is_empty(),
+        "48K should not advertise spectrum.ay.* paths, got {paths_48:?}"
+    );
+    assert!(
+        provider
+            .query(&runtime48, "spectrum.ay.selected_register")
+            .expect("query call must not error")
+            .is_none(),
+        "48K must not own spectrum.ay.selected_register"
+    );
+
+    run_with_large_stack(move || {
+        let runtime_tc = TimexTC2048Runtime::new(Model::TimexTC2048, TimexTC2048::new());
+        let paths_tc = provider.query_paths(&runtime_tc, Some("spectrum.ay."));
+        assert!(
+            paths_tc.is_empty(),
+            "TC2048 should not advertise spectrum.ay.* paths, got {paths_tc:?}"
+        );
+        assert!(
+            provider
+                .query(&runtime_tc, "spectrum.ay.registers")
+                .expect("query call must not error")
+                .is_none(),
+            "TC2048 must not own spectrum.ay.registers"
+        );
     });
 }
 

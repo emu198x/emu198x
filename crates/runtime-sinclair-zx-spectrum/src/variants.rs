@@ -16,6 +16,7 @@ use common_sinclair_zx_spectrum::timing::{
     TIMING_PLUS2A, TIMING_SCORPION,
 };
 use emu198x_shell::{QueryError, QueryResult};
+use gi_ay_3_8912::Ay3_8912;
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
 use machine_sinclair_zx_spectrum_48k::{BoardIssue, Spectrum48k};
@@ -171,6 +172,14 @@ const TIMEX_TS2068_BANNERS: &[&str] = &[];
 
 const COMMON_BOOT_PATHS: &[&str] = &["boot.detected", "boot.reason", "boot.row"];
 
+/// AY-3-8912 query paths shared by every variant that owns an AY chip
+/// (128K, +2A/+2B/+3, Pentagon, Scorpion, TS2068). The 48K and TC2048
+/// have no AY and never expose these. Resolved by [`resolve_ay_path`].
+const AY_QUERY_PATHS: &[&str] = &[
+    "spectrum.ay.selected_register",
+    "spectrum.ay.registers",
+];
+
 const SPECTRUM_48K_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
@@ -178,11 +187,21 @@ const SPECTRUM_48K_QUERY_PATHS: &[&str] = &[
     "spectrum.machine.issue",
 ];
 
+const SPECTRUM_128K_QUERY_PATHS: &[&str] = &[
+    "boot.detected",
+    "boot.reason",
+    "boot.row",
+    "spectrum.ay.selected_register",
+    "spectrum.ay.registers",
+];
+
 const SPECTRUM_PLUS_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
     "spectrum.plus.disk_slot_supported",
+    "spectrum.ay.selected_register",
+    "spectrum.ay.registers",
 ];
 
 const PENTAGON_128_QUERY_PATHS: &[&str] = &[
@@ -190,6 +209,8 @@ const PENTAGON_128_QUERY_PATHS: &[&str] = &[
     "boot.reason",
     "boot.row",
     "spectrum.kempston.state",
+    "spectrum.ay.selected_register",
+    "spectrum.ay.registers",
 ];
 
 const SCORPION_ZS256_QUERY_PATHS: &[&str] = &[
@@ -197,6 +218,8 @@ const SCORPION_ZS256_QUERY_PATHS: &[&str] = &[
     "boot.reason",
     "boot.row",
     "spectrum.kempston.state",
+    "spectrum.ay.selected_register",
+    "spectrum.ay.registers",
 ];
 
 const TIMEX_TC2048_QUERY_PATHS: &[&str] = &[
@@ -212,6 +235,8 @@ const TIMEX_TS2068_QUERY_PATHS: &[&str] = &[
     "boot.row",
     "spectrum.kempston.state",
     "spectrum.timex.model",
+    "spectrum.ay.selected_register",
+    "spectrum.ay.registers",
 ];
 
 fn boot_status_query<M: SpectrumMachine>(
@@ -234,6 +259,23 @@ fn resolve_boot_path<M: SpectrumMachine>(
         "boot.detected" => json!(boot_status_query(machine, banners).detected),
         "boot.reason" => json!(boot_status_query(machine, banners).reason),
         "boot.row" => json!(boot_status_query(machine, banners).row),
+        _ => return Ok(None),
+    };
+    Ok(Some(QueryResult {
+        path: path.to_owned(),
+        value,
+    }))
+}
+
+/// Resolve `spectrum.ay.*` paths against an AY-3-8912 chip. Used by
+/// every variant that owns an AY (128K, +2A/+2B/+3, Pentagon,
+/// Scorpion, TS2068). Returns `Ok(None)` for any path outside the
+/// `spectrum.ay.*` namespace so callers can chain into other
+/// variant-specific resolvers.
+fn resolve_ay_path(ay: &Ay3_8912, path: &str) -> Result<Option<QueryResult>, QueryError> {
+    let value = match path {
+        "spectrum.ay.selected_register" => json!(ay.selected_register()),
+        "spectrum.ay.registers" => json!(ay.registers()),
         _ => return Ok(None),
     };
     Ok(Some(QueryResult {
@@ -387,7 +429,7 @@ impl SpectrumMachine for Spectrum128K {
     }
 
     fn variant_query_paths() -> &'static [&'static str] {
-        COMMON_BOOT_PATHS
+        SPECTRUM_128K_QUERY_PATHS
     }
 
     fn resolve_variant_query(
@@ -396,6 +438,9 @@ impl SpectrumMachine for Spectrum128K {
     ) -> Result<Option<QueryResult>, QueryError> {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, SPECTRUM_128K_BANNERS, path);
+        }
+        if AY_QUERY_PATHS.contains(&path) {
+            return resolve_ay_path(&self.ay, path);
         }
         Ok(None)
     }
@@ -486,6 +531,9 @@ impl SpectrumMachine for SpectrumPlus {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, SPECTRUM_PLUS_BANNERS, path);
         }
+        if AY_QUERY_PATHS.contains(&path) {
+            return resolve_ay_path(&self.ay, path);
+        }
         let value = match path {
             "spectrum.plus.disk_slot_supported" => {
                 json!(self.supports_disk_slot("disk-a"))
@@ -570,6 +618,9 @@ impl SpectrumMachine for Pentagon128 {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, PENTAGON_128_BANNERS, path);
         }
+        if AY_QUERY_PATHS.contains(&path) {
+            return resolve_ay_path(&self.ay, path);
+        }
         let value = match path {
             "spectrum.kempston.state" => json!(self.kempston),
             _ => return Ok(None),
@@ -650,6 +701,9 @@ impl SpectrumMachine for ScorpionZS256 {
     ) -> Result<Option<QueryResult>, QueryError> {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, SCORPION_ZS256_BANNERS, path);
+        }
+        if AY_QUERY_PATHS.contains(&path) {
+            return resolve_ay_path(&self.ay, path);
         }
         let value = match path {
             "spectrum.kempston.state" => json!(self.kempston),
@@ -805,6 +859,9 @@ impl SpectrumMachine for TimexTS2068 {
     ) -> Result<Option<QueryResult>, QueryError> {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, TIMEX_TS2068_BANNERS, path);
+        }
+        if AY_QUERY_PATHS.contains(&path) {
+            return resolve_ay_path(&self.ay, path);
         }
         let value = match path {
             "spectrum.kempston.state" => json!(self.kempston),

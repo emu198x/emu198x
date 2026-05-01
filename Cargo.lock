@@ -2698,6 +2698,7 @@ dependencies = [
  "format-amstrad-dsk",
  "format-sinclair-zx-spectrum-tap",
  "format-sinclair-zx-spectrum-tzx",
+ "gi-ay-3-8912",
  "machine-pentagon-128",
  "machine-scorpion-zs256",
  "machine-sinclair-zx-spectrum-128k",
