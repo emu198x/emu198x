@@ -122,7 +122,6 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --smoke-run-limit 12 \
   --smoke-report target/dragon-smoke.json \
   --smoke-screenshot-dir target/dragon-smoke-screens \
-  --smoke-screenshot-format xroar-zoomed \
   --smoke-audio-dir target/dragon-smoke-audio \
   --smoke-joystick 2,fire,300 \
   --smoke-joystick-axis 1,x,0.5,300 \
@@ -144,9 +143,12 @@ cargo run -p emu198x-script-dragon -- \
   --smoke-idle-after-start 120
 ```
 
-This archived CAS fixture loads as `JOY TEST`, starts via `RUN`, reaches a
-stable idle frame, then reports visible changes for comparator sweep points on
-both X and Y axes. The 2026-05-01 run produced valid CAS checksums,
+This archived CAS fixture is also part of
+`scripts/verify-current-systems.sh --local-only` when
+`EMU198X_DRAGON_JOYSTICK_CAS` or the standard reference archive path is
+available. It loads as `JOY TEST`, starts via `RUN`, reaches a stable idle
+frame, then reports visible changes for comparator sweep points on both X and Y
+axes. The 2026-05-01 run produced valid CAS checksums,
 `classification=started-text-drawing`, `idle_visible_change=false`, and
 `joystick_visible_change=true`.
 
@@ -219,9 +221,8 @@ For the source-backed accuracy audit and implementation sequence, see
    traces from matched initial machine state.
 2. Validate Dragon audio filtering and audible software behavior against XRoar
    or hardware captures once we have sound-producing CAS fixtures.
-3. Promote the real `JOY TEST` comparator sweep into the regular local smoke
-   matrix, and add a synthetic fixture only if we need deterministic text
-   assertions independent of archived media availability.
+3. Add a synthetic comparator fixture only if we need deterministic text
+   assertions independent of archived `JOY TEST` media availability.
 4. Revisit PAL geometry and external video reference captures after the current
    practical usability loop is smoother.
 

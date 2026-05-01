@@ -35,6 +35,7 @@ Environment:
     EMU198X_DRAGON_CLOADM_CAS    Dragon machine-code CAS or zip archive
     EMU198X_DRAGON_AUDIO_CAS     Dragon CAS expected to produce non-silent audio
     EMU198X_DRAGON_JOYSTICK_CAS  Dragon CAS used for scripted joystick smoke
+                                  and analogue comparator sweep smoke
     EMU198X_DRAGON_JOYSTICK_GAME_CAS
                                   Dragon game CAS used for joystick-vs-idle smoke
     EMU198X_XROAR_BIN            patched XRoar binary for optional Dragon reference
@@ -179,8 +180,7 @@ run_dragon_audio_smoke() {
         --smoke-run-limit 1 \
         --smoke-report "${smoke_report}" \
         --smoke-audio-dir "${audio_dir}" \
-        --smoke-screenshot-dir "${screen_dir}" \
-        --smoke-screenshot-format xroar-zoomed
+        --smoke-screenshot-dir "${screen_dir}"
 
     python3 - "${smoke_report}" <<'PY'
 import json
@@ -234,7 +234,6 @@ run_dragon_joystick_game_smoke() {
         --smoke-run-limit 1 \
         --smoke-report "${idle_report}" \
         --smoke-screenshot-dir "${idle_screen_dir}" \
-        --smoke-screenshot-format xroar-zoomed \
         --smoke-idle-after-start 492
 
     cargo run -q -p emu198x-script-dragon -- \
@@ -243,7 +242,6 @@ run_dragon_joystick_game_smoke() {
         --smoke-run-limit 1 \
         --smoke-report "${input_report}" \
         --smoke-screenshot-dir "${input_screen_dir}" \
-        --smoke-screenshot-format xroar-zoomed \
         --smoke-joystick 2,up,492
 
     python3 - "${idle_report}" "${input_report}" <<'PY'
@@ -275,6 +273,59 @@ if idle_path.read_bytes() == input_path.read_bytes():
     raise SystemExit("scripted joystick screenshot matches no-input idle baseline")
 
 print(f"Dragon joystick game input differs from idle baseline: {input_path}")
+PY
+}
+
+run_dragon_joystick_axis_sweep_smoke() {
+    local rom="$1"
+    local cas="$2"
+    local smoke_report="$3"
+    local artifact_root="$4"
+    local screen_dir
+
+    mkdir -p "${artifact_root}"
+    screen_dir="$(mktemp -d "${artifact_root}/dragon-joystick-axis-sweep.XXXXXX")"
+    cargo run -q -p emu198x-script-dragon -- \
+        --rom "${rom}" \
+        --smoke-root "${cas}" \
+        --smoke-run-limit 1 \
+        --smoke-report "${smoke_report}" \
+        --smoke-screenshot-dir "${screen_dir}" \
+        --smoke-joystick-axis-sweep 1,x,-1.0,1.0,5,120 \
+        --smoke-joystick-axis-sweep 1,y,-1.0,1.0,5,120 \
+        --smoke-idle-after-start 120
+
+    python3 - "${smoke_report}" <<'PY'
+import json
+import sys
+
+report_path = sys.argv[1]
+with open(report_path, "r", encoding="utf-8") as handle:
+    report = json.load(handle)
+
+try:
+    runtime = report["rows"][0]["runtime"]
+except (KeyError, IndexError, TypeError) as exc:
+    raise SystemExit(f"missing runtime in {report_path}: {exc}") from exc
+
+if runtime.get("classification") != "started-text-drawing":
+    raise SystemExit(f"unexpected joystick fixture classification: {runtime.get('classification')}")
+if runtime.get("start_command") != "RUN":
+    raise SystemExit(f"unexpected joystick fixture start command: {runtime.get('start_command')}")
+if runtime.get("idle_visible_change") is not False:
+    raise SystemExit("joystick fixture did not reach a stable idle baseline")
+if runtime.get("joystick_visible_change") is not True:
+    raise SystemExit("analogue joystick sweep did not visibly affect fixture output")
+
+results = runtime.get("joystick_axis_sweep_results", [])
+for axis in ("x", "y"):
+    axis_results = [result for result in results if result.get("port") == 1 and result.get("axis") == axis]
+    if len(axis_results) != 5:
+        raise SystemExit(f"expected 5 sweep results for axis {axis}, got {len(axis_results)}")
+    if not any(result.get("visible_change") is True for result in axis_results):
+        raise SystemExit(f"axis {axis} sweep produced no visible response")
+
+print(f"Dragon analogue joystick sweep passed: {report_path}")
 PY
 }
 
@@ -464,8 +515,7 @@ if [[ "${mode}" != "unit" ]]; then
                 --smoke-root "${dragon_textstar_cas}" \
                 --smoke-run-limit 1 \
                 --smoke-report "${out_dir}/dragon-textstar-smoke.json" \
-                --smoke-screenshot-dir "${out_dir}/dragon-textstar-screens" \
-                --smoke-screenshot-format xroar-zoomed
+                --smoke-screenshot-dir "${out_dir}/dragon-textstar-screens"
     else
         skip_step "dragon-textstar-cload-run" "missing Dragon ROM or Textstar CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_TEXTSTAR_CAS"
     fi
@@ -479,8 +529,7 @@ if [[ "${mode}" != "unit" ]]; then
                 --smoke-root "${dragon_cloadm_cas}" \
                 --smoke-run-limit 1 \
                 --smoke-report "${out_dir}/dragon-cloadm-smoke.json" \
-                --smoke-screenshot-dir "${out_dir}/dragon-cloadm-screens" \
-                --smoke-screenshot-format xroar-zoomed
+                --smoke-screenshot-dir "${out_dir}/dragon-cloadm-screens"
     else
         skip_step "dragon-cloadm-exec" "missing Dragon ROM or machine-code CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_CLOADM_CAS"
     fi
@@ -506,11 +555,20 @@ if [[ "${mode}" != "unit" ]]; then
                 --smoke-run-limit 1 \
                 --smoke-report "${out_dir}/dragon-joystick-smoke.json" \
                 --smoke-screenshot-dir "${out_dir}/dragon-joystick-screens" \
-                --smoke-screenshot-format xroar-zoomed \
-                --smoke-joystick 2,fire,300 \
-                --smoke-joystick 2,right,300
+                --smoke-joystick 1,right,300
     else
         skip_step "dragon-joystick-scripted-input" "missing Dragon ROM or joystick CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_JOYSTICK_CAS"
+    fi
+
+    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_joystick_cas}" && -f "${dragon_joystick_cas}" ]]; then
+        run_step "dragon-joystick-axis-sweep" \
+            run_dragon_joystick_axis_sweep_smoke \
+                "${dragon_rom}" \
+                "${dragon_joystick_cas}" \
+                "${out_dir}/dragon-joystick-axis-sweep-smoke.json" \
+                "${out_dir}"
+    else
+        skip_step "dragon-joystick-axis-sweep" "missing Dragon ROM or joystick CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_JOYSTICK_CAS"
     fi
 
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_joystick_game_cas}" && -f "${dragon_joystick_game_cas}" ]]; then
