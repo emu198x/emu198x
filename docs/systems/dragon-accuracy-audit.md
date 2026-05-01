@@ -91,22 +91,20 @@ Required resolution:
 
 ### SAM Display Offset Timing
 
-`motorola-sam-6883` updates display offset latches immediately, and Dragon video
-currently reads `display_base()` directly. The SAM advance sheet states that
-`F6-F0` display-offset bits take effect during the TV vertical synchronization
-pulse, when MC6847 `FS` is low.
+`motorola-sam-6883` updates display offset latches immediately. Dragon machine
+state now keeps a separate VDG-effective display base that is copied from the
+SAM latches only when frame sync falls low. This follows the SAM advance sheet
+description that `F6-F0` display-offset bits take effect during the TV vertical
+synchronization pulse, when MC6847 `FS` is low.
 
-This is a real raster accuracy gap. Software that changes the display base
-mid-frame should not necessarily affect the address stream immediately.
+Implemented behavior:
 
-Required resolution:
-
-1. Preserve immediate writes to the SAM latch state for snapshot/debug
+1. Immediate writes remain visible through the SAM latch state for snapshot/debug
    visibility.
-2. Add a separate VDG-effective display base or display-address preload state.
-3. Apply pending `F6-F0` changes only at the frame-sync-low boundary.
-4. Add tests that write the display base before, during, and after the `FS` low
-   transition and verify which frame sees the new screen.
+2. Rendering, VDG samples, and `dragon.video.display_base` use the VDG-effective
+   base, not the immediate SAM latch.
+3. Tests cover writes before the frame-sync-low boundary and writes after the
+   boundary that must wait for the next frame-sync fall.
 
 ### VDG Horizontal And Fetch Timing
 
@@ -157,20 +155,20 @@ Required resolution:
 1. Stabilize `motorola-6809` as a source-backed CPU core: table-driven opcode
    timing, pin-state traces, interrupt sampling tests, and RMW/vector `BUSY`
    behavior.
-2. Add SAM frame-sync display-base timing tests and implementation.
-3. Re-derive VDG horizontal timing and byte-latch timing from primary sources,
+2. Re-derive VDG horizontal timing and byte-latch timing from primary sources,
    then update constants and tests.
-4. Re-run Dragon CAS and PAK smoke after each timing change, but treat those as
+3. Re-run Dragon CAS and PAK smoke after each timing change, but treat those as
    integration checks rather than proof of accuracy.
-5. Only after CPU/SAM/VDG timing is source-backed, revisit audio filtering,
+4. Only after CPU/SAM/VDG timing is source-backed, revisit audio filtering,
    cartridge audio, Dragon 64 mode, and disk hardware.
 
 ## Immediate Next Engineering Step
 
-Move to SAM display-offset timing. The CPU now has source-backed timing fixtures
-and Dragon uses phase-visible stepping, so the next raster accuracy gap is
-separating immediate SAM latch writes from the frame-sync-delayed display base
-that the VDG actually sees.
+Move to VDG horizontal and fetch timing. CPU phase stepping is in place and SAM
+display-offset writes are now frame-sync delayed, so the remaining core raster
+question is whether our horizontal placement, byte fetch lead time, and VDG
+latch timing are derived from MC6847/SAM source material rather than emulator
+observation.
 
 Progress:
 
@@ -193,3 +191,6 @@ Progress:
   Q-low, and E-low master-tick windows. Video, cassette, PIA sync lines, and
   diagnostic VDG traces advance through those windows; CPU memory data is
   supplied at the falling-E point instead of after a whole-cycle video lump.
+- Dragon rendering now separates immediate SAM display-offset latches from the
+  VDG-effective display base. `dragon.sam.display_offset` changes immediately,
+  while VDG fetches and `dragon.video.display_base` update on frame-sync fall.

@@ -1238,6 +1238,7 @@ struct DragonMemory {
     pia0: Pia6821,
     pia1: Pia6821,
     sam: Sam6883,
+    vdg_display_base: u16,
     keyboard: DragonKeyboard,
     joystick: DragonJoystick,
     cassette: CassettePlayback,
@@ -1252,6 +1253,7 @@ impl DragonMemory {
             pia0: Pia6821::new(),
             pia1: Pia6821::new(),
             sam: Sam6883::new(),
+            vdg_display_base: 0,
             keyboard,
             joystick: DragonJoystick::new(),
             cassette: CassettePlayback::default(),
@@ -1424,13 +1426,21 @@ impl DragonMemory {
         self.sam.display_base()
     }
 
+    fn vdg_display_base(&self) -> u16 {
+        self.vdg_display_base
+    }
+
+    fn sync_vdg_display_base_from_sam(&mut self) {
+        self.vdg_display_base = self.sam.display_base();
+    }
+
     fn capture_text_screen(&self) -> TextScreen {
         let base = usize::from(self.text_screen_base());
         TextScreen::capture(|offset| self.ram[(base + offset) & (RAM_SIZE - 1)])
     }
 
     fn display_byte(&self, offset: usize) -> u8 {
-        let base = usize::from(self.text_screen_base());
+        let base = usize::from(self.vdg_display_base());
         self.ram[(base + offset) & (RAM_SIZE - 1)]
     }
 
@@ -1724,7 +1734,7 @@ impl BeamVideo {
                     },
                     |prefetched| prefetched.raw,
                 ),
-                display_base: memory.text_screen_base(),
+                display_base: memory.vdg_display_base(),
                 sam_video_mode: memory.sam.video_mode(),
                 sam_display_offset: memory.sam.display_offset(),
                 pia1_pb: memory.pia1.pb,
@@ -2154,6 +2164,7 @@ impl Dragon32 {
         machine.cpu.reset();
         machine.memory.pia0.set_signal_level(PiaSignal::Ca1, true);
         machine.memory.pia0.set_signal_level(PiaSignal::Cb1, true);
+        machine.memory.sync_vdg_display_base_from_sam();
         machine
     }
 
@@ -2290,6 +2301,7 @@ impl Dragon32 {
         }
         if let Some(display_base) = display_base {
             self.memory.sam.set_display_base(display_base);
+            self.memory.sync_vdg_display_base_from_sam();
         }
         if let Some(peripherals) = peripherals {
             self.memory.restore_snapshot_peripherals(peripherals);
@@ -2434,6 +2446,12 @@ impl Dragon32 {
     #[must_use]
     pub fn text_screen_base(&self) -> u16 {
         self.memory.text_screen_base()
+    }
+
+    /// Current VDG-effective display base.
+    #[must_use]
+    pub fn video_display_base(&self) -> u16 {
+        self.memory.vdg_display_base()
     }
 
     /// Capture the current MC6847 32x16 text screen.
@@ -2594,6 +2612,9 @@ impl Dragon32 {
         }
         if let Some(level) = video_tick.frame_sync {
             self.memory.pia0.set_signal_level(PiaSignal::Cb1, level);
+            if !level {
+                self.memory.sync_vdg_display_base_from_sam();
+            }
             if let Some(diagnostics) = diagnostics {
                 retain_pia_signal(
                     diagnostics.pia_signals,
@@ -3461,6 +3482,44 @@ mod tests {
     }
 
     #[test]
+    fn sam_display_base_writes_update_vdg_on_frame_sync_fall() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        machine.memory.write(0xFFC9, 0x00); // Set SAM F1, selecting $0400.
+
+        assert_eq!(machine.text_screen_base(), 0x0400);
+        assert_eq!(machine.video_display_base(), 0x0000);
+
+        machine.memory.pia0.set_signal_level(PiaSignal::Cb1, true);
+        machine.video.cycle_in_frame = VDG_FRAME_SYNC_FALL_TICK - 1;
+        machine.video.next_line = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
+        machine.step_cycle();
+
+        assert_eq!(machine.video_display_base(), 0x0400);
+    }
+
+    #[test]
+    fn sam_display_base_writes_after_frame_sync_fall_wait_for_next_fall() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        machine.video.cycle_in_frame = VDG_FRAME_SYNC_FALL_TICK + SLOW_CPU_MASTER_TICKS;
+        machine.video.next_line = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
+        machine.memory.write(0xFFC9, 0x00); // Set SAM F1, selecting $0400.
+        machine.step_cycle();
+
+        assert_eq!(machine.text_screen_base(), 0x0400);
+        assert_eq!(machine.video_display_base(), 0x0000);
+
+        machine.memory.pia0.set_signal_level(PiaSignal::Cb1, true);
+        machine.video.cycle_in_frame = VDG_FRAME_SYNC_FALL_TICK - 1;
+        machine.step_cycle();
+
+        assert_eq!(machine.video_display_base(), 0x0400);
+    }
+
+    #[test]
     fn vblank_start_raises_pia0_cb1_frame_sync_rising_edge() {
         let rom = rom_with_reset_vector(0x8000);
         let mut machine = Dragon32::new(&rom);
@@ -3833,6 +3892,7 @@ mod tests {
         let rom = rom_with_reset_vector(0x8000);
         let mut machine = Dragon32::new(&rom);
         machine.memory.sam.write(0xFFC9); // Display base $0400.
+        machine.memory.sync_vdg_display_base_from_sam();
         machine.memory.ram[0x0400] = 0b01_10_11_00;
         machine.memory.pia1.write(0x02, 0xF8); // PIA1 port B DDR.
         machine.memory.pia1.write(0x03, 0x04); // PIA1 port B data selected.

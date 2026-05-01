@@ -25,7 +25,9 @@ future work.
   control signals.
 - **SAM:** `motorola-sam-6883` tracks the write-only SAM latches used by the
   Dragon ROM and software: VDG mode bits, display offset F0-F6, page mode, MPU
-  rate, and all-RAM state.
+  rate, and all-RAM state. The Dragon machine keeps those immediate latches
+  separate from the VDG-effective display base, which updates on frame-sync
+  fall as documented by the SAM timing notes.
 - **Keyboard:** PIA0 uses the confirmed Dragon 32 keyboard matrix: PB0-PB7
   select columns via `$FF02`, and PA0-PA6 read rows via `$FF00`. The native
   shell maps printable host text semantically, including shifted symbols by
@@ -201,7 +203,7 @@ For the source-backed accuracy audit and implementation sequence, see
 
 | Component | Tests |
 |-----------|-------|
-| Machine | ROM mapping, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
+| Machine | ROM mapping, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
 | PIA | 5: DDR, control, IRQ, input pins, mixed I/O |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 13: text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |

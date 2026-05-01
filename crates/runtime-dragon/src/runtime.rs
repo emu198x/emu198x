@@ -584,9 +584,8 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                         .map(|header| cas_file_type_label(header.file_type))
                 )
             }
-            "dragon.text.base" | "dragon.video.display_base" => {
-                json!(machine.machine.text_screen_base())
-            }
+            "dragon.text.base" => json!(machine.machine.text_screen_base()),
+            "dragon.video.display_base" => json!(machine.machine.video_display_base()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
