@@ -108,28 +108,32 @@ Implemented behavior:
 
 ### VDG Horizontal And Fetch Timing
 
-Current VDG vertical shape is defensible, but horizontal placement and fetch
-lead time still need a source-backed derivation. In particular:
+Current VDG vertical shape is defensible. Byte-fetch lead time is now
+source-backed, but horizontal placement still needs a clearer derivation because
+the MC6847 text describes the active display window relative to the
+blanking-to-blanking screen span, while our beam model stores a cropped visible
+framebuffer plus separate PAL overscan expansion.
 
 - `TEXT_LEFT_BORDER_PIXELS = 60`
 - `TEXT_RIGHT_BORDER_PIXELS = 56`
 - `VDG_LINE_MASTER_TICKS = 912`
 - `VDG_LEFT_BORDER_TICKS = 120`
-- `VDG_FETCH_FIRST_BYTE_AFTER_HBLANK_TICKS = 16`
-- `VDG_VRAM_FETCH_TO_DISPLAY_TICKS` is currently documented from XRoar
-  behavior rather than Motorola source material.
 
 The MC6847 documentation states the display window timing, the 192-line active
 height, the 25-line top offset, and that display memory data must be stable four
 or eight clock periods before the horizontal display window depending on mode.
-We need to turn that into explicit constants and tests.
+The implementation now uses those four/eight VDG-clock requirements for
+short-cycle and long-cycle fetch timing.
 
 Required resolution:
 
-1. Re-derive horizontal blank, display-window start, active width, and fetch
-   lead time from the MC6847 and SAM timing descriptions.
-2. Replace emulator-derived comments with source-backed comments.
-3. Add beam tests for writes just before and just after the VDG latches a byte.
+1. Re-derive horizontal blank, display-window start, and visible border crop
+   from the MC6847 and SAM timing descriptions.
+2. Decide whether `TEXT_LEFT_BORDER_PIXELS`/`TEXT_RIGHT_BORDER_PIXELS` should
+   represent the MC6847 blanking-to-blanking screen span, the Dragon PAL crop,
+   or only the runtime-visible framebuffer.
+3. Add beam tests that assert the chosen horizontal origin against the source
+   derivation.
 4. Keep XRoar comparisons as regression smoke only, not as the timing authority.
 
 ### PIA And Analogue Paths
@@ -155,8 +159,8 @@ Required resolution:
 1. Stabilize `motorola-6809` as a source-backed CPU core: table-driven opcode
    timing, pin-state traces, interrupt sampling tests, and RMW/vector `BUSY`
    behavior.
-2. Re-derive VDG horizontal timing and byte-latch timing from primary sources,
-   then update constants and tests.
+2. Re-derive VDG horizontal placement from primary sources, then update
+   constants and tests.
 3. Re-run Dragon CAS and PAK smoke after each timing change, but treat those as
    integration checks rather than proof of accuracy.
 4. Only after CPU/SAM/VDG timing is source-backed, revisit audio filtering,
@@ -164,11 +168,11 @@ Required resolution:
 
 ## Immediate Next Engineering Step
 
-Move to VDG horizontal and fetch timing. CPU phase stepping is in place and SAM
-display-offset writes are now frame-sync delayed, so the remaining core raster
-question is whether our horizontal placement, byte fetch lead time, and VDG
-latch timing are derived from MC6847/SAM source material rather than emulator
-observation.
+Move to VDG horizontal placement. CPU phase stepping is in place, SAM
+display-offset writes are frame-sync delayed, and VDG fetch-to-display timing is
+now derived from the MC6847 four/eight-clock data-stability requirement. The
+remaining core raster question is exactly what our visible framebuffer crop
+should represent relative to the MC6847 blanking-to-blanking screen span.
 
 Progress:
 
@@ -194,3 +198,7 @@ Progress:
 - Dragon rendering now separates immediate SAM display-offset latches from the
   VDG-effective display base. `dragon.sam.display_offset` changes immediately,
   while VDG fetches and `dragon.video.display_base` update on frame-sync fall.
+- VDG byte fetch lead time is now mode-aware and source-derived: short-cycle
+  modes latch four VDG clocks before display, while long-cycle modes latch
+  eight VDG clocks before display. Beam tests now cover writes just before and
+  just after the latch point.

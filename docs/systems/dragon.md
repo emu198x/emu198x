@@ -203,7 +203,7 @@ For the source-backed accuracy audit and implementation sequence, see
 
 | Component | Tests |
 |-----------|-------|
-| Machine | ROM mapping, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
+| Machine | ROM mapping, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
 | PIA | 5: DDR, control, IRQ, input pins, mixed I/O |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 13: text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |

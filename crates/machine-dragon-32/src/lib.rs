@@ -34,17 +34,15 @@ const CASSETTE_BITS_PER_BYTE: usize = 8;
 /// Nominal Dragon 32 MC6809 bus frequency.
 pub const DRAGON_CPU_HZ: u64 = 894_886;
 const DRAGON_FRAME_HZ: u64 = 50;
+const VDG_CLOCK_MASTER_TICKS: u64 = 4;
+const VDG_SHORT_CYCLE_FETCH_CLOCKS: u64 = 4;
+const VDG_LONG_CYCLE_FETCH_CLOCKS: u64 = 8;
 const VDG_LINE_MASTER_TICKS: u64 = 912;
 const VDG_PAL_FRAME_LINES: u64 = 312;
 const VDG_VISIBLE_FIRST_LINE: u64 = 13;
 const VDG_HSYNC_TICKS: u64 = 64;
 const VDG_BACK_PORCH_TICKS: u64 = 70;
 const VDG_LEFT_BORDER_TICKS: u64 = 120;
-const VDG_FETCH_FIRST_BYTE_AFTER_HBLANK_TICKS: u64 = 16;
-// XRoar fetches the first display byte at hblank+16 and emits it after the
-// left border, so CPU writes can miss the current frame even before display.
-const VDG_VRAM_FETCH_TO_DISPLAY_TICKS: u64 =
-    VDG_LEFT_BORDER_TICKS - VDG_FETCH_FIRST_BYTE_AFTER_HBLANK_TICKS;
 const VDG_ACTIVE_AREA_START_LINE: u64 =
     VDG_VISIBLE_FIRST_LINE + motorola_vdg_6847::TEXT_TOP_BORDER_LINES as u64;
 const VDG_ACTIVE_AREA_END_LINE: u64 =
@@ -1587,7 +1585,7 @@ impl BeamVideo {
         if pin_control.css != pending_css {
             self.pending_css_changes.push_back((
                 self.cycle_in_frame
-                    .saturating_add(VDG_VRAM_FETCH_TO_DISPLAY_TICKS),
+                    .saturating_add(vdg_fetch_to_display_ticks(pin_control)),
                 pin_control.css,
             ));
         }
@@ -1766,7 +1764,8 @@ impl BeamVideo {
                 break;
             };
             let display_cycle = active_pixel_cycle(self.next_line, self.next_prefetch_x);
-            let fetch_cycle = display_cycle.saturating_sub(VDG_VRAM_FETCH_TO_DISPLAY_TICKS);
+            let fetch_cycle =
+                display_cycle.saturating_sub(vdg_fetch_to_display_ticks(self.render_pin_control));
             if fetch_cycle >= target_cycle {
                 break;
             }
@@ -1976,6 +1975,15 @@ fn active_x_for_target(line: usize, target_cycle: u64) -> usize {
     usize::try_from(active_x).map_or(usize::MAX, |x| {
         x.min(motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH)
     })
+}
+
+fn vdg_fetch_to_display_ticks(control: VdgControl) -> u64 {
+    let fetch_clocks = if control.graphics && matches!(control.gm, 0 | 1 | 3 | 5) {
+        VDG_LONG_CYCLE_FETCH_CLOCKS
+    } else {
+        VDG_SHORT_CYCLE_FETCH_CLOCKS
+    };
+    fetch_clocks * VDG_CLOCK_MASTER_TICKS
 }
 
 fn vdg_byte_fetch_offset(
@@ -3198,6 +3206,18 @@ mod tests {
         ticks.q_high + ticks.e_high + ticks.q_low + ticks.e_low
     }
 
+    fn text_control() -> VdgControl {
+        VdgControl::default()
+    }
+
+    fn graphics_control(gm: u8) -> VdgControl {
+        VdgControl {
+            graphics: true,
+            gm,
+            ..VdgControl::default()
+        }
+    }
+
     #[test]
     fn memory_maps_basic_rom_vectors_and_empty_cartridge_slot() {
         let mut rom = rom_with_reset_vector(0x8000);
@@ -3255,6 +3275,27 @@ mod tests {
         let extended_slow = CpuPhaseMasterTicks::split(25);
         assert_eq!(total_phase_ticks(extended_slow), 25);
         assert!(extended_slow.q_high >= extended_slow.e_low);
+    }
+
+    #[test]
+    fn vdg_horizontal_timing_uses_mc6847_clock_periods() {
+        assert_eq!(VDG_LINE_MASTER_TICKS, 228 * VDG_CLOCK_MASTER_TICKS);
+        assert_eq!(
+            motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH as u64 * 2,
+            128 * VDG_CLOCK_MASTER_TICKS
+        );
+        assert_eq!(
+            vdg_fetch_to_display_ticks(text_control()),
+            VDG_SHORT_CYCLE_FETCH_CLOCKS * VDG_CLOCK_MASTER_TICKS
+        );
+        assert_eq!(
+            vdg_fetch_to_display_ticks(graphics_control(0)),
+            VDG_LONG_CYCLE_FETCH_CLOCKS * VDG_CLOCK_MASTER_TICKS
+        );
+        assert_eq!(
+            vdg_fetch_to_display_ticks(graphics_control(6)),
+            VDG_SHORT_CYCLE_FETCH_CLOCKS * VDG_CLOCK_MASTER_TICKS
+        );
     }
 
     #[test]
@@ -3948,15 +3989,11 @@ mod tests {
             [palette.colours[0]; 8]
         );
         assert_eq!(
-            &frame[active_origin + 48..active_origin + 56],
+            &frame[active_origin + 8..active_origin + 16],
             [palette.colours[0]; 8]
         );
         assert_eq!(
-            &frame[active_origin + 56..active_origin + 64],
-            [palette.colours[0]; 8]
-        );
-        assert_eq!(
-            &frame[active_origin + 64..active_origin + 72],
+            &frame[active_origin + 16..active_origin + 24],
             [palette.colours[4]; 8]
         );
     }
@@ -3971,7 +4008,7 @@ mod tests {
 
         let active_line = TEXT_TOP_BORDER_LINES;
         let active_start = active_display_start_cycle(active_line);
-        let first_fetch = active_start - VDG_VRAM_FETCH_TO_DISPLAY_TICKS;
+        let first_fetch = active_start - vdg_fetch_to_display_ticks(graphics_control(6));
         let base = usize::from(machine.memory.text_screen_base());
         machine.memory.ram[base] = 0x00;
 
@@ -3989,6 +4026,35 @@ mod tests {
         assert_eq!(
             &frame[active_origin..active_origin + 8],
             [palette.colours[0]; 8]
+        );
+    }
+
+    #[test]
+    fn beam_renderer_observes_vram_writes_before_latch_point() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine.memory.pia1.write(0x02, 0xF8); // PIA1 port B DDR.
+        machine.memory.pia1.write(0x03, 0x04); // PIA1 port B data selected.
+        machine.memory.pia1.write(0x02, 0xE0); // CG6, CSS 0.
+
+        let active_line = TEXT_TOP_BORDER_LINES;
+        let active_start = active_display_start_cycle(active_line);
+        let first_fetch = active_start - vdg_fetch_to_display_ticks(graphics_control(6));
+        let base = usize::from(machine.memory.text_screen_base());
+        machine.memory.ram[base] = 0x00;
+
+        machine.video.tick(&machine.memory, first_fetch, Some(0));
+        machine.memory.ram[base] = 0xFF;
+        machine
+            .video
+            .tick(&machine.memory, active_start + 16, Some(1));
+
+        let frame = machine.video.frame();
+        let active_origin = active_line * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
+        let palette = VdgPalette::default();
+        assert_eq!(
+            &frame[active_origin..active_origin + 8],
+            [palette.colours[3]; 8]
         );
     }
 
