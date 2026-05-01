@@ -167,7 +167,8 @@ Required resolution:
 Move to analogue/audio validation. CPU phase stepping, SAM display-offset
 timing, VDG fetch-to-display timing, VDG source-vs-crop horizontal geometry, and
 PIA edge/strobe behavior are now documented and tested. The next accuracy gap is
-the Dragon analogue path beyond the current measured-level audio model.
+continuous host analogue input; audio output is still a measured-level model
+without analogue filtering or expansion-source mixing.
 
 Progress:
 
@@ -204,3 +205,7 @@ Progress:
   the next configured Cx1 active edge. Tests cover CA2 read strobe with CA1
   restore, CB2 write strobe with CB1 restore, and stale strobe-state clearing
   when Cx2 returns to input mode.
+- Dragon joystick comparator tests now pin the PIA1 PA2-PA7 DAC threshold,
+  ignored PA0/PA1 bits, and the exact `axis >= threshold` edge.
+- Dragon audio tests now pin PIA1 CB2 mux enable and the four PIA0 CA2/CB2 mux
+  source selections: DAC, cassette tape, cartridge, and AY.

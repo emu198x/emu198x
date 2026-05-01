@@ -118,6 +118,10 @@ pub const DRAGON_JOYSTICK_CENTER: u16 = 0x8000;
 /// Maximum Dragon analogue joystick axis value.
 pub const DRAGON_JOYSTICK_MAX: u16 = 0xFFFF;
 
+fn joystick_threshold_from_dac(value: u8) -> u16 {
+    u16::from((value & 0xFC) | 0x02) << 8
+}
+
 /// Dragon cartridge hardware model.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DragonCartridgeKind {
@@ -1409,7 +1413,7 @@ impl DragonMemory {
         } else {
             DragonJoystickAxis::X
         };
-        let threshold = u16::from((self.pia1.output_latch(PiaPort::A) & 0xFC) | 0x02) << 8;
+        let threshold = joystick_threshold_from_dac(self.pia1.output_latch(PiaPort::A));
         self.joystick.axis(port, axis) >= threshold
     }
 
@@ -3713,6 +3717,44 @@ mod tests {
     }
 
     #[test]
+    fn joystick_comparator_threshold_uses_pia1_pa2_to_pa7() {
+        assert_eq!(joystick_threshold_from_dac(0x00), 0x0200);
+        assert_eq!(joystick_threshold_from_dac(0x03), 0x0200);
+        assert_eq!(joystick_threshold_from_dac(0x80), 0x8200);
+        assert_eq!(joystick_threshold_from_dac(0x83), 0x8200);
+        assert_eq!(joystick_threshold_from_dac(0xFC), 0xFE00);
+        assert_eq!(joystick_threshold_from_dac(0xFF), 0xFE00);
+    }
+
+    #[test]
+    fn joystick_comparator_switches_high_at_dac_threshold() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.pia0.write(0x01, 0x34); // PIA0 CA2 low: X axis, data register selected.
+        memory.pia0.write(0x03, 0x34); // PIA0 CB2 low: joystick port 0, data register selected.
+        memory.pia1.write(0x00, 0xFC); // PIA1 PA2-PA7 are DAC outputs.
+        memory.pia1.write(0x01, 0x04); // PIA1 port A data register selected.
+        memory.pia1.write(0x00, 0x80);
+        let threshold = joystick_threshold_from_dac(0x80);
+
+        memory
+            .joystick
+            .set_axis(0, DragonJoystickAxis::X, threshold - 1)
+            .expect("port 0 X axis should exist");
+        memory.refresh_pia_inputs();
+        let (below_value, _) = memory.read_bus(0xFF00);
+        assert_eq!(below_value & 0x80, 0);
+
+        memory
+            .joystick
+            .set_axis(0, DragonJoystickAxis::X, threshold)
+            .expect("port 0 X axis should exist");
+        memory.refresh_pia_inputs();
+        let (equal_value, _) = memory.read_bus(0xFF00);
+        assert_eq!(equal_value & 0x80, 0x80);
+    }
+
+    #[test]
     fn joystick_axis_comparator_honours_pia0_axis_and_port_selects() {
         let rom = rom_with_reset_vector(0x8000);
         let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
@@ -3841,6 +3883,57 @@ mod tests {
 
         memory.pia1.write(0x00, 0xFC);
         assert_sample_near(memory.audio_sample(), ((4.50 + 0.20) / 4.70) * 0.7);
+    }
+
+    #[test]
+    fn audio_mux_is_disabled_until_pia1_cb2_enables_it() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.pia1.write(0x00, 0xFC); // PIA1 PA2-PA7 drive the DAC.
+        memory.pia1.write(0x01, 0x04); // PIA1 port A data selected.
+        memory.pia1.write(0x00, 0xFC);
+
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Dac, 1.0));
+        assert_sample_near(memory.audio_sample(), 0.0);
+
+        memory.pia1.write(0x03, 0x3C); // PIA1 CB2 high: enable sound mux.
+        assert_sample_near(memory.audio_sample(), ((4.50 + 0.20) / 4.70) * 0.7);
+    }
+
+    #[test]
+    fn audio_mux_source_is_selected_by_pia0_ca2_and_cb2() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.pia1.write(0x00, 0xFC); // PIA1 PA2-PA7 drive the DAC.
+        memory.pia1.write(0x01, 0x04); // PIA1 port A data selected.
+        memory.pia1.write(0x00, 0xFC);
+        memory.pia1.write(0x03, 0x3C); // PIA1 CB2 high: enable sound mux.
+
+        memory.pia0.write(0x01, 0x34); // PIA0 CA2 low.
+        memory.pia0.write(0x03, 0x34); // PIA0 CB2 low.
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Dac, 1.0));
+        assert_sample_near(memory.audio_sample(), ((4.50 + 0.20) / 4.70) * 0.7);
+
+        memory.pia0.write(0x01, 0x3C); // PIA0 CA2 high.
+        memory.pia0.write(0x03, 0x34); // PIA0 CB2 low.
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Tape, 0.0));
+        assert_sample_near(memory.audio_sample(), (2.05 / 4.70) * 0.7);
+
+        memory.cassette.load(vec![0x01]);
+        memory.pia1.write(0x01, 0x3C); // PIA1 CA2 high: advance cassette to high half-cycle.
+        memory.advance_cassette(CASSETTE_ONE_HALF_PERIOD_TICKS);
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Tape, 1.0));
+        assert_sample_near(memory.audio_sample(), ((0.50 + 2.05) / 4.70) * 0.7);
+
+        memory.pia0.write(0x01, 0x34); // PIA0 CA2 low.
+        memory.pia0.write(0x03, 0x3C); // PIA0 CB2 high.
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Cart, 0.0));
+        assert_sample_near(memory.audio_sample(), 0.0);
+
+        memory.pia0.write(0x01, 0x3C); // PIA0 CA2 high.
+        memory.pia0.write(0x03, 0x3C); // PIA0 CB2 high.
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Ay, 0.0));
+        assert_sample_near(memory.audio_sample(), 0.0);
     }
 
     #[test]
