@@ -152,6 +152,11 @@ axes. The 2026-05-01 run produced valid CAS checksums,
 `classification=started-text-drawing`, `idle_visible_change=false`, and
 `joystick_visible_change=true`.
 
+The longer joystick-vs-idle game smoke is intentionally opt-in via
+`EMU198X_DRAGON_JOYSTICK_GAME_CAS`. The archived Frogger CAS is useful as a
+manual regression, but it is a `CLOADM` tape of roughly 368k bits and the smoke
+loads it twice, so it is too slow for the routine local gate.
+
 Headless smoke over one PC-Dragon PAK snapshot tree:
 
 ```sh
@@ -181,6 +186,11 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --xroar-bin ../Emu198x-Unclean/xroar/src/xroar \
   --xroar-reference-dir target/dragon-xroar-reference
 ```
+
+This comparison is explicit opt-in through `EMU198X_XROAR_BIN` in
+`scripts/verify-current-systems.sh`. It is kept as a regression aid only, and
+the current PAL overscan framebuffer means older `xroar-zoomed` comparison
+commands need revisiting before being treated as a routine gate.
 
 Focused trace probe for a running PAK snapshot:
 

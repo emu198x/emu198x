@@ -37,8 +37,10 @@ Environment:
     EMU198X_DRAGON_JOYSTICK_CAS  Dragon CAS used for scripted joystick smoke
                                   and analogue comparator sweep smoke
     EMU198X_DRAGON_JOYSTICK_GAME_CAS
-                                  Dragon game CAS used for joystick-vs-idle smoke
-    EMU198X_XROAR_BIN            patched XRoar binary for optional Dragon reference
+                                  Optional Dragon game CAS used for longer
+                                  joystick-vs-idle smoke
+    EMU198X_XROAR_BIN            patched XRoar binary for explicit optional
+                                  Dragon reference
 
 Missing local ROM/media assets are reported as skipped, not failed.
 USAGE
@@ -491,11 +493,6 @@ if [[ "${mode}" != "unit" ]]; then
     fi
 
     dragon_joystick_game_cas="${EMU198X_DRAGON_JOYSTICK_GAME_CAS:-}"
-    if [[ -z "${dragon_joystick_game_cas}" ]]; then
-        dragon_joystick_game_cas="$(first_existing_file \
-            "${reference_root}/dragon/Dragon/Games/[CAS]/Frogger (1983)(Cornsoft).zip" \
-            || true)"
-    fi
 
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" ]]; then
         run_step "dragon-real-rom-runtime" \
@@ -580,15 +577,10 @@ if [[ "${mode}" != "unit" ]]; then
                 "${out_dir}/dragon-joystick-game-input-smoke.json" \
                 "${out_dir}"
     else
-        skip_step "dragon-joystick-game-input" "missing Dragon ROM or joystick game CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_JOYSTICK_GAME_CAS"
+        skip_step "dragon-joystick-game-input" "missing Dragon ROM or explicit joystick game CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_JOYSTICK_GAME_CAS for this longer smoke"
     fi
 
     xroar_bin="${EMU198X_XROAR_BIN:-}"
-    if [[ -z "${xroar_bin}" ]]; then
-        xroar_bin="$(first_existing_file \
-            "${repo_root}/../Emu198x-Unclean/xroar/src/xroar" \
-            || true)"
-    fi
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_textstar_cas}" && -f "${dragon_textstar_cas}" && -n "${xroar_bin}" && -x "${xroar_bin}" ]]; then
         run_step_expect_file "dragon-xroar-textstar-reference" \
             "${out_dir}/dragon-xroar-textstar-smoke.json" \
