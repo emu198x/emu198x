@@ -5785,6 +5785,60 @@ mod tests {
     }
 
     #[test]
+    fn bin_smoke_matrix_runs_synthetic_program_when_dragon_rom_available() {
+        let Some(rom_path) = test_dragon32_rom_path() else {
+            eprintln!("skipping Dragon BIN smoke regression: set EMU198X_DRAGON32_ROM");
+            return;
+        };
+        let rom = load_rom(&rom_path)
+            .unwrap_or_else(|err| panic!("read Dragon 32 ROM at {}: {err}", rom_path.display()));
+        let root = temp_test_dir("emu198x-dragon-bin-smoke");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root)
+            .unwrap_or_else(|err| panic!("create test dir {}: {err}", root.display()));
+        let bin_path = root.join("visible.bin");
+        fs::write(&bin_path, synthetic_visible_bin())
+            .unwrap_or_else(|err| panic!("write synthetic BIN {}: {err}", bin_path.display()));
+
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            rom_path.display().to_string(),
+            "--bin-smoke-root".to_owned(),
+            root.display().to_string(),
+            "--smoke-run-limit".to_owned(),
+            "1".to_owned(),
+            "--cycles".to_owned(),
+            "20000".to_owned(),
+            "--screenshot-phase".to_owned(),
+            "completed-frame".to_owned(),
+        ])
+        .expect("valid BIN smoke CLI should parse");
+
+        let report =
+            run_bin_smoke_matrix(&cli, &rom).expect("synthetic BIN smoke matrix should run");
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(report.program_count, 1);
+        assert_eq!(report.runtime_smokes, 1);
+        let row = report.rows.first().expect("one BIN row should be present");
+        assert_eq!(row.parse_status, "ok");
+        assert_eq!(row.load_address, Some(0x2800));
+        assert_eq!(row.exec_address, Some(0x2800));
+        assert_eq!(row.len, Some(100));
+        let runtime = row.runtime.as_ref().expect("runtime smoke should run");
+        assert_eq!(
+            runtime.classification,
+            SnapshotSmokeClassification::RunningVisible
+        );
+        assert_eq!(runtime.stop_reason, "cycle-limit");
+        assert!(
+            runtime.non_background_pixels > 0,
+            "synthetic program should write visible text pixels"
+        );
+        assert!(runtime.error.is_none());
+    }
+
+    #[test]
     fn cli_rejects_mixed_smoke_roots() {
         let err = parse_cli([
             "--rom".to_owned(),
@@ -6425,6 +6479,65 @@ mod tests {
         fs::remove_file(&path).expect("test zip should be removable");
 
         assert_eq!(loaded, rom);
+    }
+
+    fn synthetic_visible_bin() -> Vec<u8> {
+        let load_address = 0x2800_u16;
+        let mut payload = vec![0x86, 0xBF]; // LDA #$BF: solid semigraphics block.
+        for addr in 0x0400_u16..0x0420 {
+            let [hi, lo] = addr.to_be_bytes();
+            payload.extend_from_slice(&[0xB7, hi, lo]); // STA addr
+        }
+        payload.extend_from_slice(&[0x20, 0xFE]); // BRA *: remain visibly running.
+
+        let len = u16::try_from(payload.len()).expect("test payload should fit in BIN header");
+        let [load_hi, load_lo] = load_address.to_be_bytes();
+        let [len_hi, len_lo] = len.to_be_bytes();
+        let mut bytes = vec![
+            0x55, 0x02, load_hi, load_lo, len_hi, len_lo, load_hi, load_lo, 0xAA,
+        ];
+        bytes.extend_from_slice(&payload);
+        bytes
+    }
+
+    fn temp_test_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()))
+    }
+
+    fn test_dragon32_rom_path() -> Option<PathBuf> {
+        if let Some(path) = existing_env_path("EMU198X_DRAGON32_ROM") {
+            return Some(path);
+        }
+
+        if let Some(path) = home_path(".emu198x/roms/dragon/dragon32.rom") {
+            return Some(path);
+        }
+
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)?;
+        let sibling_archive = repo_root
+            .parent()?
+            .join("Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)(Dragon Data).zip");
+        if sibling_archive.exists() {
+            return Some(sibling_archive);
+        }
+
+        None
+    }
+
+    fn existing_env_path(var: &str) -> Option<PathBuf> {
+        let path = PathBuf::from(env::var_os(var)?);
+        if path.exists() { Some(path) } else { None }
+    }
+
+    fn home_path(relative: &str) -> Option<PathBuf> {
+        let path = PathBuf::from(env::var_os("HOME")?).join(relative);
+        if path.exists() { Some(path) } else { None }
     }
 
     fn xroar_v1_chunk(bytes: &[u8], section: u8) -> Option<&[u8]> {

@@ -156,6 +156,18 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --screenshot-phase completed-frame
 ```
 
+The script crate also has a synthetic real-ROM regression for this path:
+
+```sh
+cargo test -p emu198x-script-dragon bin_smoke_matrix_runs_synthetic_program_when_dragon_rom_available
+```
+
+It builds a tiny DragonDOS `.BIN` fixture at test time, boots BASIC from the
+configured Dragon 32 ROM, injects the program, starts it via the same EXEC path
+as archived `.BIN` software, and asserts the smoke matrix reports visible
+running output. Set `EMU198X_DRAGON32_ROM` when the ROM is not in the default
+local archive locations.
+
 Headless smoke over one cassette tree:
 
 ```sh
