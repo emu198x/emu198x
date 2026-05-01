@@ -78,6 +78,15 @@ pub enum InputEvent {
         /// `true` for press, `false` for release.
         pressed: bool,
     },
+    /// A named analogue axis on a numbered port changed value.
+    Axis {
+        /// Target port number.
+        port: u8,
+        /// Stable symbolic axis name.
+        name: Cow<'static, str>,
+        /// Normalized signed axis value, from full negative to full positive.
+        value: i16,
+    },
     /// Relative pointer movement.
     PointerMotion {
         /// Stable device name, for example `"mouse-1"`.

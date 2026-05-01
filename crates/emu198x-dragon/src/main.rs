@@ -10,10 +10,10 @@ use emu198x_native_video::{
     PresentationProfile, VideoFilter, VideoPresenterError, WgpuVideoPresenter,
 };
 use emu198x_shell::{
-    ButtonInputMap, ButtonTarget, CapturedFrame, FirmwareImage, FirmwareSet, HostControl, HostIo,
-    InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
-    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, ResetKind, RunResult,
-    read_firmware_asset, read_media_asset,
+    AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, CapturedFrame, FirmwareImage,
+    FirmwareSet, HostAxis, HostControl, HostIo, InputEvent, LatestFrameCapture, MachineCore,
+    MachineError, MediaImage, MediaKind, MediaSet, NativeAudioError, NativeAudioOutput,
+    NativeGamepadInput, NullTraceSink, ResetKind, RunResult, read_firmware_asset, read_media_asset,
 };
 use emu198x_shell::{HeadlessSession, SessionError};
 use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
@@ -48,6 +48,10 @@ const DRAGON_GAMEPAD_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Start, ButtonTarget::new(1, "enter")),
     (HostControl::Select, ButtonTarget::new(1, "clear")),
 ]);
+const DRAGON_GAMEPAD_AXIS_MAP: AxisInputMap = AxisInputMap::new(&[
+    (HostAxis::LeftStickX, AxisTarget::new(1, "x")),
+    (HostAxis::LeftStickY, AxisTarget::new(1, "y")),
+]);
 
 const USAGE: &str = "\
 Usage: emu198x-dragon [OPTIONS] --rom PATH
@@ -76,7 +80,7 @@ Controls:
     Backspace        Dragon Clear
     F1               Dragon Break
     Gamepad D-pad/left stick
-                     Dragon joystick 1 axes
+                     Dragon joystick 1 axes; left stick is analogue
     Gamepad South/East
                      Dragon joystick 1 fire
 ";
@@ -351,8 +355,11 @@ impl DragonApp {
     }
 
     fn advance_machine(&mut self) -> Result<bool, AppError> {
-        self.gamepads
-            .drain_events(&DRAGON_GAMEPAD_MAP, &mut self.pending_inputs);
+        self.gamepads.drain_events_with_axes(
+            &DRAGON_GAMEPAD_MAP,
+            &DRAGON_GAMEPAD_AXIS_MAP,
+            &mut self.pending_inputs,
+        );
 
         let now = Instant::now();
         if now < self.next_slice_at {
@@ -1007,6 +1014,26 @@ mod tests {
                 port: 1,
                 name: "right".into(),
                 pressed: true,
+            })
+        );
+    }
+
+    #[test]
+    fn gamepad_axis_map_targets_dragon_analogue_axes() {
+        assert_eq!(
+            DRAGON_GAMEPAD_AXIS_MAP.event(HostAxis::LeftStickX, -1.0),
+            Some(InputEvent::Axis {
+                port: 1,
+                name: "x".into(),
+                value: i16::MIN,
+            })
+        );
+        assert_eq!(
+            DRAGON_GAMEPAD_AXIS_MAP.event(HostAxis::LeftStickY, 1.0),
+            Some(InputEvent::Axis {
+                port: 1,
+                name: "y".into(),
+                value: i16::MAX,
             })
         );
     }

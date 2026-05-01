@@ -35,7 +35,10 @@ pub use host::{
     AudioPacket, AudioSink, FramePacket, FrameSink, HostIo, InputEvent, NullAudioSink,
     NullFrameSink, NullTraceSink, PixelFormat, TraceEvent, TraceSink,
 };
-pub use input::{ButtonInputMap, ButtonTarget, HostControl, NativeGamepadInput};
+pub use input::{
+    AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl,
+    NativeGamepadInput,
+};
 pub use machine::{
     Family, MachineCore, MachineId, MachineProfile, ProfileId, Region, ResetKind, RunResult,
     StopReason, SupportTier,

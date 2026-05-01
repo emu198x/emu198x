@@ -143,13 +143,13 @@ incomplete:
 
 - Audio uses measured/reference gains and offsets, but not full analogue
   filtering.
-- Host gamepad input is still thresholded before it reaches the Dragon analogue
-  comparator path.
+- Native host gamepad left-stick input now reaches the Dragon analogue
+  comparator path continuously; headless smoke injection is still digital-only.
 - Cartridge audio and AY expansions are not implemented.
 
 Required resolution:
 
-1. Add continuous analogue axis events to the shared input surface.
+1. Add explicit analogue axis injection to Dragon smoke tooling.
 2. Add analogue filtering and expansion audio only after core timing is stable.
 
 ## Validation Plan
@@ -166,9 +166,10 @@ Required resolution:
 
 Move to analogue/audio validation. CPU phase stepping, SAM display-offset
 timing, VDG fetch-to-display timing, VDG source-vs-crop horizontal geometry, and
-PIA edge/strobe behavior are now documented and tested. The next accuracy gap is
-continuous host analogue input; audio output is still a measured-level model
-without analogue filtering or expansion-source mixing.
+PIA edge/strobe behavior are now documented and tested. Native host input now
+has a continuous analogue axis path for Dragon left-stick movement. The next
+accuracy gap is headless analogue stimulus and audio output beyond the current
+measured-level model.
 
 Progress:
 
@@ -209,3 +210,6 @@ Progress:
   ignored PA0/PA1 bits, and the exact `axis >= threshold` edge.
 - Dragon audio tests now pin PIA1 CB2 mux enable and the four PIA0 CA2/CB2 mux
   source selections: DAC, cassette tape, cartridge, and AY.
+- The shared shell input surface now has analogue axis events, and the native
+  Dragon shell maps left-stick X/Y to continuous Dragon joystick 1 comparator
+  values while preserving D-pad/button digital controls.

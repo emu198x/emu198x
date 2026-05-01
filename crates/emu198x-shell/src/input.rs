@@ -12,6 +12,7 @@ use gilrs::{Axis, Button, EventType, GamepadId, Gilrs};
 use crate::host::InputEvent;
 
 const DEFAULT_AXIS_THRESHOLD: f32 = 0.5;
+const NORMALIZED_AXIS_MAX: f32 = i16::MAX as f32;
 
 /// A frontend-neutral host control.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -39,6 +40,16 @@ pub enum HostControl {
     Select,
 }
 
+/// A frontend-neutral host analogue axis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum HostAxis {
+    /// Left stick horizontal axis.
+    LeftStickX,
+    /// Left stick vertical axis.
+    LeftStickY,
+}
+
 /// Target emulated button for one host control.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ButtonTarget {
@@ -50,6 +61,23 @@ pub struct ButtonTarget {
 
 impl ButtonTarget {
     /// Creates a target button mapping.
+    #[must_use]
+    pub const fn new(port: u8, name: &'static str) -> Self {
+        Self { port, name }
+    }
+}
+
+/// Target emulated analogue axis for one host axis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AxisTarget {
+    /// Target emulated port.
+    pub port: u8,
+    /// Stable emulated axis name.
+    pub name: &'static str,
+}
+
+impl AxisTarget {
+    /// Creates a target analogue axis mapping.
     #[must_use]
     pub const fn new(port: u8, name: &'static str) -> Self {
         Self { port, name }
@@ -89,6 +117,39 @@ impl ButtonInputMap {
     }
 }
 
+/// Converts frontend-neutral host axes into emulated analogue axis events.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AxisInputMap {
+    entries: &'static [(HostAxis, AxisTarget)],
+}
+
+impl AxisInputMap {
+    /// Creates a static analogue axis mapping.
+    #[must_use]
+    pub const fn new(entries: &'static [(HostAxis, AxisTarget)]) -> Self {
+        Self { entries }
+    }
+
+    /// Returns the emulated target for a host axis.
+    #[must_use]
+    pub fn target(&self, axis: HostAxis) -> Option<AxisTarget> {
+        self.entries
+            .iter()
+            .find_map(|(candidate, target)| (*candidate == axis).then_some(*target))
+    }
+
+    /// Converts a host axis value into an emulated analogue axis event.
+    #[must_use]
+    pub fn event(&self, axis: HostAxis, value: f32) -> Option<InputEvent> {
+        let target = self.target(axis)?;
+        Some(InputEvent::Axis {
+            port: target.port,
+            name: Cow::Borrowed(target.name),
+            value: normalize_axis_value(value),
+        })
+    }
+}
+
 /// Polls physical gamepads and emits mapped button events.
 pub struct NativeGamepadInput {
     gilrs: Option<Gilrs>,
@@ -116,6 +177,18 @@ impl NativeGamepadInput {
 
     /// Drains pending host gamepad events into the supplied emulated event queue.
     pub fn drain_events(&mut self, map: &ButtonInputMap, output: &mut Vec<InputEvent>) {
+        const EMPTY_AXIS_MAP: AxisInputMap = AxisInputMap::new(&[]);
+        self.drain_events_with_axes(map, &EMPTY_AXIS_MAP, output);
+    }
+
+    /// Drains pending host gamepad events, preferring analogue axis mappings
+    /// over thresholded button synthesis when an axis target is present.
+    pub fn drain_events_with_axes(
+        &mut self,
+        button_map: &ButtonInputMap,
+        axis_map: &AxisInputMap,
+        output: &mut Vec<InputEvent>,
+    ) {
         loop {
             let event = {
                 let Some(gilrs) = self.gilrs.as_mut() else {
@@ -130,20 +203,22 @@ impl NativeGamepadInput {
             match event.event {
                 EventType::ButtonPressed(button, _) => {
                     if let Some(control) = map_gamepad_button(button)
-                        && let Some(input) = map.event(control, true)
+                        && let Some(input) = button_map.event(control, true)
                     {
                         output.push(input);
                     }
                 }
                 EventType::ButtonReleased(button, _) => {
                     if let Some(control) = map_gamepad_button(button)
-                        && let Some(input) = map.event(control, false)
+                        && let Some(input) = button_map.event(control, false)
                     {
                         output.push(input);
                     }
                 }
                 EventType::AxisChanged(axis, value, _) => {
-                    self.update_axis(event.id, axis, value, map, output);
+                    if !emit_analogue_axis(axis, value, axis_map, output) {
+                        self.update_axis(event.id, axis, value, button_map, output);
+                    }
                 }
                 _ => {}
             }
@@ -234,6 +309,41 @@ fn map_gamepad_axis(axis: Axis) -> Option<(HostControl, HostControl)> {
     })
 }
 
+fn map_gamepad_analogue_axis(axis: Axis) -> Option<HostAxis> {
+    Some(match axis {
+        Axis::LeftStickX => HostAxis::LeftStickX,
+        Axis::LeftStickY => HostAxis::LeftStickY,
+        _ => return None,
+    })
+}
+
+fn emit_analogue_axis(
+    axis: Axis,
+    value: f32,
+    map: &AxisInputMap,
+    output: &mut Vec<InputEvent>,
+) -> bool {
+    let Some(host_axis) = map_gamepad_analogue_axis(axis) else {
+        return false;
+    };
+    let Some(input) = map.event(host_axis, value) else {
+        return false;
+    };
+    output.push(input);
+    true
+}
+
+fn normalize_axis_value(value: f32) -> i16 {
+    let clamped = value.clamp(-1.0, 1.0);
+    if clamped <= -1.0 {
+        i16::MIN
+    } else if clamped >= 1.0 {
+        i16::MAX
+    } else {
+        (clamped * NORMALIZED_AXIS_MAX) as i16
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,11 +369,21 @@ mod tests {
     }
 
     #[test]
+    fn axis_target_new_records_port_and_name() {
+        let target = AxisTarget::new(1, "x");
+        assert_eq!(target.port, 1);
+        assert_eq!(target.name, "x");
+    }
+
+    #[test]
     fn button_input_map_new_stores_entries() {
         const ENTRIES: &[(HostControl, ButtonTarget)] =
             &[(HostControl::South, ButtonTarget::new(0, "a"))];
         let map = ButtonInputMap::new(ENTRIES);
-        assert_eq!(map.target(HostControl::South), Some(ButtonTarget::new(0, "a")));
+        assert_eq!(
+            map.target(HostControl::South),
+            Some(ButtonTarget::new(0, "a"))
+        );
     }
 
     #[test]
@@ -325,6 +445,38 @@ mod tests {
     }
 
     #[test]
+    fn axis_input_map_emits_normalized_axis_event() {
+        const MAP: AxisInputMap = AxisInputMap::new(&[
+            (HostAxis::LeftStickX, AxisTarget::new(1, "x")),
+            (HostAxis::LeftStickY, AxisTarget::new(1, "y")),
+        ]);
+
+        assert_eq!(
+            MAP.event(HostAxis::LeftStickX, 0.5),
+            Some(InputEvent::Axis {
+                port: 1,
+                name: Cow::Borrowed("x"),
+                value: 16_383,
+            })
+        );
+        assert_eq!(
+            MAP.event(HostAxis::LeftStickY, -1.5),
+            Some(InputEvent::Axis {
+                port: 1,
+                name: Cow::Borrowed("y"),
+                value: i16::MIN,
+            })
+        );
+    }
+
+    #[test]
+    fn axis_input_map_ignores_unmapped_axes() {
+        const SPARSE: AxisInputMap =
+            AxisInputMap::new(&[(HostAxis::LeftStickX, AxisTarget::new(1, "x"))]);
+        assert_eq!(SPARSE.event(HostAxis::LeftStickY, 0.0), None);
+    }
+
+    #[test]
     fn host_control_is_hashable_and_eq() {
         // HostControl is used as a HashMap key inside NativeGamepadInput; cover
         // the derived traits here so the public API surface is exercised.
@@ -335,6 +487,17 @@ mod tests {
         set.insert(HostControl::Down);
         assert_eq!(set.len(), 2);
         assert!(set.contains(&HostControl::Up));
+    }
+
+    #[test]
+    fn host_axis_is_hashable_and_eq() {
+        use std::collections::HashSet;
+        let mut set: HashSet<HostAxis> = HashSet::new();
+        set.insert(HostAxis::LeftStickX);
+        set.insert(HostAxis::LeftStickX);
+        set.insert(HostAxis::LeftStickY);
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&HostAxis::LeftStickX));
     }
 
     #[test]
@@ -405,10 +568,19 @@ mod tests {
         assert_eq!(map_gamepad_button(Button::West), Some(HostControl::West));
         assert_eq!(map_gamepad_button(Button::North), Some(HostControl::North));
         assert_eq!(map_gamepad_button(Button::Start), Some(HostControl::Start));
-        assert_eq!(map_gamepad_button(Button::Select), Some(HostControl::Select));
+        assert_eq!(
+            map_gamepad_button(Button::Select),
+            Some(HostControl::Select)
+        );
         assert_eq!(map_gamepad_button(Button::DPadUp), Some(HostControl::Up));
-        assert_eq!(map_gamepad_button(Button::DPadDown), Some(HostControl::Down));
-        assert_eq!(map_gamepad_button(Button::DPadLeft), Some(HostControl::Left));
+        assert_eq!(
+            map_gamepad_button(Button::DPadDown),
+            Some(HostControl::Down)
+        );
+        assert_eq!(
+            map_gamepad_button(Button::DPadLeft),
+            Some(HostControl::Left)
+        );
         assert_eq!(
             map_gamepad_button(Button::DPadRight),
             Some(HostControl::Right)
@@ -444,6 +616,49 @@ mod tests {
     }
 
     #[test]
+    fn map_gamepad_analogue_axis_returns_axes_for_left_stick() {
+        assert_eq!(
+            map_gamepad_analogue_axis(Axis::LeftStickX),
+            Some(HostAxis::LeftStickX)
+        );
+        assert_eq!(
+            map_gamepad_analogue_axis(Axis::LeftStickY),
+            Some(HostAxis::LeftStickY)
+        );
+    }
+
+    #[test]
+    fn emit_analogue_axis_prefers_axis_event_when_mapped() {
+        const MAP: AxisInputMap =
+            AxisInputMap::new(&[(HostAxis::LeftStickX, AxisTarget::new(1, "x"))]);
+        let mut output = Vec::new();
+
+        assert!(emit_analogue_axis(Axis::LeftStickX, 1.0, &MAP, &mut output));
+        assert_eq!(
+            output,
+            [InputEvent::Axis {
+                port: 1,
+                name: Cow::Borrowed("x"),
+                value: i16::MAX,
+            }]
+        );
+    }
+
+    #[test]
+    fn emit_analogue_axis_returns_false_when_unmapped() {
+        const EMPTY: AxisInputMap = AxisInputMap::new(&[]);
+        let mut output = Vec::new();
+
+        assert!(!emit_analogue_axis(
+            Axis::LeftStickX,
+            1.0,
+            &EMPTY,
+            &mut output
+        ));
+        assert!(output.is_empty());
+    }
+
+    #[test]
     fn map_gamepad_axis_returns_none_for_unmapped_axes() {
         // Wildcard arm — right stick, triggers, and DPad axes are unmapped
         // because directional input flows through the dedicated DPad buttons.
@@ -454,5 +669,25 @@ mod tests {
         assert_eq!(map_gamepad_axis(Axis::DPadX), None);
         assert_eq!(map_gamepad_axis(Axis::DPadY), None);
         assert_eq!(map_gamepad_axis(Axis::Unknown), None);
+    }
+
+    #[test]
+    fn map_gamepad_analogue_axis_returns_none_for_unmapped_axes() {
+        assert_eq!(map_gamepad_analogue_axis(Axis::RightStickX), None);
+        assert_eq!(map_gamepad_analogue_axis(Axis::RightStickY), None);
+        assert_eq!(map_gamepad_analogue_axis(Axis::LeftZ), None);
+        assert_eq!(map_gamepad_analogue_axis(Axis::RightZ), None);
+        assert_eq!(map_gamepad_analogue_axis(Axis::DPadX), None);
+        assert_eq!(map_gamepad_analogue_axis(Axis::DPadY), None);
+        assert_eq!(map_gamepad_analogue_axis(Axis::Unknown), None);
+    }
+
+    #[test]
+    fn normalize_axis_value_clamps_and_scales() {
+        assert_eq!(normalize_axis_value(-2.0), i16::MIN);
+        assert_eq!(normalize_axis_value(-1.0), i16::MIN);
+        assert_eq!(normalize_axis_value(0.0), 0);
+        assert_eq!(normalize_axis_value(1.0), i16::MAX);
+        assert_eq!(normalize_axis_value(2.0), i16::MAX);
     }
 }

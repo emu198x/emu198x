@@ -36,11 +36,12 @@ future work.
 - **Joystick:** Dragon analogue joystick hardware is wired through PIA0/PIA1:
   PIA0 CB2 selects the port, PIA0 CA2 selects X/Y, PIA1 PA2-PA7 supplies the
   DAC threshold, and the comparator result drives PIA0 PA7. The two fire lines
-  pull PIA0 PA0/PA1 low. Native gamepad D-pad/left-stick events currently map
-  to joystick 1 axis extremes and South/East maps to fire; true host analogue
-  axis values are still pending in the shared input layer. The script runner can
-  inject post-start smoke actions with `--smoke-joystick PORT,CONTROL,FRAMES`
-  and can capture same-duration idle baselines with `--smoke-idle-after-start`.
+  pull PIA0 PA0/PA1 low. Native gamepad D-pad events still map to joystick 1
+  axis extremes, while left-stick motion now feeds continuous host analogue
+  axis values into the Dragon comparator path. South/East maps to fire. The
+  script runner can inject post-start smoke actions with
+  `--smoke-joystick PORT,CONTROL,FRAMES` and can capture same-duration idle
+  baselines with `--smoke-idle-after-start`.
 - **VDG:** `motorola-vdg-6847` renders text, inverse text, SG4/SG6
   semigraphics, and standard MC6847 graphics modes. It now exposes full-frame,
   scanline, and byte-position renderers, and `machine-dragon-32` maintains a
@@ -171,9 +172,9 @@ cargo run --release -q -p emu198x-script-dragon -- \
 1. Audio now follows the Dragon PIA DAC/mux/single-bit/cassette signal path and
    uses XRoar's measured level model, but it does not yet model analogue
    filtering, cartridge audio, or AY expansion audio.
-2. Joystick hardware now follows the Dragon comparator/DAC behavior, but the
-   host input surface still only exposes thresholded gamepad directions rather
-   than continuous analogue axis values.
+2. Native gamepad left-stick movement now reaches the Dragon comparator path as
+   continuous analogue axis values, but script smoke joystick actions are still
+   digital extremes.
 3. PAK-vs-XRoar screenshots currently rely on a synthetic XRoar snapshot import
    path. That path is useful for broad smoke triage, but it is not yet reliable
    enough to prove per-pixel renderer bugs in isolation.
@@ -193,9 +194,8 @@ For the source-backed accuracy audit and implementation sequence, see
    traces from matched initial machine state.
 2. Validate Dragon audio filtering and audible software behavior against XRoar
    or hardware captures once we have sound-producing CAS fixtures.
-3. Extend the shared input layer with true analogue axis events so Dragon
-   joysticks can receive continuous gamepad stick positions instead of only
-   digital extremes.
+3. Extend Dragon smoke tooling with explicit analogue axis injection so
+   comparator-sensitive software can be tested headlessly.
 4. Revisit PAL geometry and external video reference captures after the current
    practical usability loop is smoother.
 
