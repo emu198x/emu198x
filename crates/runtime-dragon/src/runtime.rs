@@ -21,6 +21,11 @@ use serde_json::json;
 
 use crate::{Model, profile_for};
 
+const DRAGON64_COMPATIBLE_ROM_ID: &str = "dragon64-compatible-rom";
+const DRAGON64_MODE_ROM_ID: &str = "dragon64-basic-rom";
+const DRAGON64_COMPATIBLE_ROM_CRC32S: &[u32] = &[0x60A4_634C, 0x84F6_8BF9];
+const DRAGON64_MODE_ROM_CRC32S: &[u32] = &[0x1789_3A42];
+
 const DRAGON_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
@@ -121,8 +126,8 @@ impl DragonRuntime {
     ///
     /// # Errors
     ///
-    /// Returns an error if required firmware is missing or the Dragon BASIC ROM
-    /// is not exactly 16 KiB.
+    /// Returns an error if required firmware is missing, a ROM is not exactly
+    /// 16 KiB, or a Dragon 64 firmware pair is obviously swapped/duplicated.
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         let rom_id = model.firmware_id();
@@ -132,13 +137,8 @@ impl DragonRuntime {
             .ok_or_else(|| MachineError::MissingFirmware {
                 id: rom_id.to_owned(),
             })?;
-        let dragon64_mode_rom =
-            dragon64_mode_rom_from_firmware(model, firmware).map_err(|reason| {
-                MachineError::InvalidFirmware {
-                    id: "dragon64-basic-rom".to_owned(),
-                    reason,
-                }
-            })?;
+        let dragon64_mode_rom = dragon64_mode_rom_from_firmware(model, firmware)?;
+        validate_dragon64_rom_pair(model, rom, dragon64_mode_rom.as_ref())?;
         Self::with_roms(model, rom, dragon64_mode_rom).map_err(|reason| {
             MachineError::InvalidFirmware {
                 id: rom_id.to_owned(),
@@ -489,18 +489,108 @@ const fn machine_cartridge_kind(kind: ParsedDragonCartridgeKind) -> DragonCartri
 fn dragon64_mode_rom_from_firmware(
     model: Model,
     firmware: &FirmwareSet<'_>,
-) -> Result<Option<[u8; ROM_SIZE]>, String> {
+) -> Result<Option<[u8; ROM_SIZE]>, MachineError> {
     if model != Model::Dragon64Pal {
         return Ok(None);
     }
 
-    let bytes = firmware
-        .bytes("dragon64-basic-rom")
-        .ok_or_else(|| "Dragon 64 BASIC ROM is required for 64-mode entry".to_owned())?;
+    let bytes =
+        firmware
+            .bytes(DRAGON64_MODE_ROM_ID)
+            .ok_or_else(|| MachineError::MissingFirmware {
+                id: DRAGON64_MODE_ROM_ID.to_owned(),
+            })?;
     let rom = bytes
         .try_into()
-        .map_err(|_| format!("Dragon 64 BASIC ROM must be exactly {ROM_SIZE} bytes"))?;
+        .map_err(|_| MachineError::InvalidFirmware {
+            id: DRAGON64_MODE_ROM_ID.to_owned(),
+            reason: format!("Dragon 64 BASIC ROM must be exactly {ROM_SIZE} bytes"),
+        })?;
     Ok(Some(rom))
+}
+
+fn validate_dragon64_rom_pair(
+    model: Model,
+    compatible_rom: &[u8],
+    mode_rom: Option<&[u8; ROM_SIZE]>,
+) -> Result<(), MachineError> {
+    let Some(mode_rom) = mode_rom else {
+        return Ok(());
+    };
+    if model != Model::Dragon64Pal {
+        return Ok(());
+    }
+
+    if compatible_rom == mode_rom {
+        return Err(MachineError::InvalidFirmware {
+            id: DRAGON64_MODE_ROM_ID.to_owned(),
+            reason: format!(
+                "Dragon 64 mode ROM is identical to {DRAGON64_COMPATIBLE_ROM_ID}; expected the separate 64-mode BASIC ROM"
+            ),
+        });
+    }
+
+    if dragon64_known_rom_role(compatible_rom) == Some(Dragon64KnownRomRole::Mode) {
+        return Err(MachineError::InvalidFirmware {
+            id: DRAGON64_COMPATIBLE_ROM_ID.to_owned(),
+            reason: format!(
+                "{DRAGON64_COMPATIBLE_ROM_ID} has CRC32 {}, which matches a known 64-mode BASIC ROM; expected a compatible-mode ROM",
+                hex_crc32(crc32(compatible_rom))
+            ),
+        });
+    }
+
+    if dragon64_known_rom_role(mode_rom) == Some(Dragon64KnownRomRole::Compatible) {
+        return Err(MachineError::InvalidFirmware {
+            id: DRAGON64_MODE_ROM_ID.to_owned(),
+            reason: format!(
+                "{DRAGON64_MODE_ROM_ID} has CRC32 {}, which matches a known compatible-mode ROM; expected the separate 64-mode BASIC ROM",
+                hex_crc32(crc32(mode_rom))
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Dragon64KnownRomRole {
+    Compatible,
+    Mode,
+}
+
+fn dragon64_known_rom_role(bytes: &[u8]) -> Option<Dragon64KnownRomRole> {
+    if bytes.len() != ROM_SIZE {
+        return None;
+    }
+
+    dragon64_known_rom_role_from_crc(crc32(bytes))
+}
+
+fn dragon64_known_rom_role_from_crc(crc: u32) -> Option<Dragon64KnownRomRole> {
+    if DRAGON64_COMPATIBLE_ROM_CRC32S.contains(&crc) {
+        return Some(Dragon64KnownRomRole::Compatible);
+    }
+    if DRAGON64_MODE_ROM_CRC32S.contains(&crc) {
+        return Some(Dragon64KnownRomRole::Mode);
+    }
+    None
+}
+
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFF;
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            let mask = 0u32.wrapping_sub(crc & 1);
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+fn hex_crc32(crc: u32) -> String {
+    format!("0x{crc:08X}")
 }
 
 fn machine_for_model(
@@ -965,6 +1055,50 @@ mod tests {
             .expect("declared firmware should build runtime");
 
         assert_eq!(runtime.profile().profile_id.as_str(), "dragon-32-pal");
+    }
+
+    #[test]
+    fn dragon64_runtime_rejects_identical_firmware_pair() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new(DRAGON64_COMPATIBLE_ROM_ID, &rom));
+        firmware.push(FirmwareImage::new(DRAGON64_MODE_ROM_ID, &rom));
+
+        let err = match DragonRuntime::from_firmware(Model::Dragon64Pal, &firmware) {
+            Ok(_) => panic!("duplicated Dragon 64 ROM pair should be rejected"),
+            Err(err) => err,
+        };
+
+        assert!(
+            matches!(
+                err,
+                MachineError::InvalidFirmware { ref id, ref reason }
+                    if id == DRAGON64_MODE_ROM_ID && reason.contains("identical")
+            ),
+            "unexpected firmware error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn crc32_matches_standard_check_vector() {
+        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+    }
+
+    #[test]
+    fn dragon64_known_rom_role_classifies_catalogued_crcs() {
+        assert_eq!(
+            dragon64_known_rom_role_from_crc(0x60A4_634C),
+            Some(Dragon64KnownRomRole::Compatible)
+        );
+        assert_eq!(
+            dragon64_known_rom_role_from_crc(0x84F6_8BF9),
+            Some(Dragon64KnownRomRole::Compatible)
+        );
+        assert_eq!(
+            dragon64_known_rom_role_from_crc(0x1789_3A42),
+            Some(Dragon64KnownRomRole::Mode)
+        );
+        assert_eq!(dragon64_known_rom_role_from_crc(0), None);
     }
 
     #[test]

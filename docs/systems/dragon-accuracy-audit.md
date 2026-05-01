@@ -1,6 +1,6 @@
 # Dragon Accuracy Audit
 
-Last updated: 2026-04-30.
+Last updated: 2026-05-01.
 
 This audit is about our own Dragon 32/64 emulation accuracy, not matching another
 emulator. Other emulators are still useful as smoke references, but hardware and
@@ -229,6 +229,10 @@ Progress:
   Dragon 64 compatible BASIC ROM, decodes the Dragon 64 6551 ACIA range at
   `$FF04-$FF07`, and enters 64-mode BASIC through `EXEC 48000`. Full RS-232
   behavior remains pending.
+- Dragon 64 firmware construction now rejects obviously bad ROM pairs:
+  identical compatible/mode images and catalogued CRCs supplied in the wrong
+  slot. Unknown 16 KiB alternates are still accepted so valid uncatalogued dumps
+  do not fail solely because they are not in our local reference set.
 - VDG byte fetch lead time is now mode-aware and source-derived: short-cycle
   modes latch four VDG clocks before display, while long-cycle modes latch
   eight VDG clocks before display. Beam tests now cover writes just before and

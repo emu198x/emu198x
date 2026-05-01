@@ -16,9 +16,11 @@ the real hardware's Dragon 32-compatible mode, adds the Dragon 64 ACIA decode
 at `$FF04-$FF07`, keeps the SAM-backed 64K RAM paging model, and now supports
 the native `EXEC 48000` transition. PIA1 PB2 selects between the compatible and
 64-mode internal BASIC ROMs at `$8000-$BFFF`, while SAM map type 1 exposes RAM
-below the `$FFxx` device/vector page. CoCo variants, cartridge expansion
-hardware beyond the documented audio input pin, and DragonDOS disk support
-remain future work.
+below the `$FFxx` device/vector page. The runtime rejects obviously bad Dragon
+64 firmware pairs, including duplicated ROMs and known swapped compatible/mode
+ROM CRCs, without requiring every alternate valid dump to match a catalogued
+CRC. CoCo variants, cartridge expansion hardware beyond the documented audio
+input pin, and DragonDOS disk support remain future work.
 
 ## What Works
 
@@ -364,6 +366,11 @@ Place the Dragon BASIC ROMs at:
 | `~/.emu198x/roms/dragon/dragon32.rom` | 16KB | Dragon 32 BASIC ROM |
 | `~/.emu198x/roms/dragon/dragon64-compat.rom` | 16KB | Dragon 64 compatible-mode BASIC ROM used at cold boot |
 | `~/.emu198x/roms/dragon/dragon64.rom` | 16KB | Dragon 64 64-mode BASIC ROM selected by `EXEC 48000` |
+
+Observed Dragon 64 compatible-mode CRC32 values in local references are
+`0x60A4634C` and `0x84F68BF9`; the observed 64-mode BASIC CRC32 is
+`0x17893A42`. These are used as diagnostics for swapped ROMs, not as a strict
+allow-list for all possible valid dumps.
 
 The native and script runners also accept a zip containing one suitable
 ROM/bin candidate.
