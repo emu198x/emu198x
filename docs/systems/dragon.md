@@ -142,6 +142,20 @@ then injects the program payload and starts at the file's EXEC address. Starting
 from reset-time CPU/PIA/SAM state is not equivalent: real programs depend on the
 ROM-initialized stack, display base, and device state.
 
+Headless smoke over a DragonDOS `.BIN` tree:
+
+```sh
+cargo run --release -q -p emu198x-script-dragon -- \
+  --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --bin-smoke-root '/path/to/Dragon/Games/[BIN]' \
+  --smoke-run-limit 8 \
+  --cycles 3000000 \
+  --smoke-report target/dragon-bin-smoke.json \
+  --smoke-screenshot-dir target/dragon-bin-smoke-screens \
+  --smoke-screenshot-format xroar-zoomed \
+  --screenshot-phase completed-frame
+```
+
 Headless smoke over one cassette tree:
 
 ```sh

@@ -233,6 +233,8 @@ Progress:
   the BASIC `EXEC` vector, and autorun from the declared exec address. The
   boot-before-EXEC step is required: starting at the entry point from reset-time
   state leaves the hardware stack and display state invalid for real programs.
+  `emu198x-script-dragon --bin-smoke-root` now turns DragonDOS `.BIN` trees into
+  structured parse/runtime/screenshot regression reports.
 - The shared shell input surface now has analogue axis events, and the native
   Dragon shell maps left-stick X/Y to continuous Dragon joystick 1 comparator
   values while preserving D-pad/button digital controls.
