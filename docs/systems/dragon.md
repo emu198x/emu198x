@@ -11,8 +11,9 @@ window, and has native CAS autoload plus patched-XRoar screenshot comparison
 coverage for cassette smoke runs, and now routes native gamepad input through
 the Dragon's analogue joystick comparator path.
 
-Dragon 64, CoCo variants, cartridge expansion hardware beyond the documented
-audio input pin, and DragonDOS disk support are still future work.
+Dragon 64 ROM/profile support, CoCo variants, cartridge expansion hardware
+beyond the documented audio input pin, and DragonDOS disk support are still
+future work.
 
 ## What Works
 
@@ -25,9 +26,11 @@ audio input pin, and DragonDOS disk support are still future work.
   control signals.
 - **SAM:** `motorola-sam-6883` tracks the write-only SAM latches used by the
   Dragon ROM and software: VDG mode bits, display offset F0-F6, page mode, MPU
-  rate, and all-RAM state. The Dragon machine keeps those immediate latches
-  separate from the VDG-effective display base, which updates on frame-sync
-  fall as documented by the SAM timing notes.
+  rate, memory size, and map type. The Dragon machine keeps those immediate
+  latches separate from the VDG-effective display base, which updates on
+  frame-sync fall as documented by the SAM timing notes. SAM page select now
+  switches the low 32 KiB RAM page in map type 0, and TY map type 1 maps MPU
+  reads/writes through RAM below the `$FFxx` device/vector page.
 - **Keyboard:** PIA0 uses the confirmed Dragon 32 keyboard matrix: PB0-PB7
   select columns via `$FF02`, and PA0-PA6 read rows via `$FF00`. The native
   shell maps printable host text semantically, including shifted symbols by
@@ -292,8 +295,9 @@ cargo run --release -q -p emu198x-script-dragon -- \
 4. The beam framebuffer is in place, but the display model is still calibrated
    to the current 372x243 diagnostic visible area and XRoar zoomed comparison
    bridge. A fuller PAL timing/overscan model can come later.
-5. Dragon 64 memory mode, cartridge expansion hardware beyond the documented
-   `SND` input pin, and DragonDOS/WD2797 disk support are not implemented.
+5. SAM-backed 64K/page memory mapping is modeled, but Dragon 64 ROM/profile
+   support, cartridge expansion hardware beyond the documented `SND` input pin,
+   and DragonDOS/WD2797 disk support are not implemented.
 
 For the source-backed accuracy audit and implementation sequence, see
 [`dragon-accuracy-audit.md`](dragon-accuracy-audit.md).
@@ -321,15 +325,16 @@ coverage rather than initial bring-up.
 
 To complete Dragon 32, the main gaps are: full source-backed MC6809 timing and
 interrupt edge cases, PAL video geometry calibrated against hardware captures,
-analogue audio filtering and expansion-device mixing, Dragon 64 memory mode,
-DragonDOS/WD2797 disks, and a trusted fixture suite for joystick/audio/video
-behaviours that does not depend on emulator-vs-emulator pixel matching.
+analogue audio filtering and expansion-device mixing, Dragon 64 ROM/profile
+support, DragonDOS/WD2797 disks, and a trusted fixture suite for
+joystick/audio/video behaviours that does not depend on emulator-vs-emulator
+pixel matching.
 
 ## Test Coverage
 
 | Component | Tests |
 |-----------|-------|
-| Machine | ROM mapping, direct DragonDOS `.BIN` program RAM/EXEC loading, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/cartridge-SND/single-bit audio |
+| Machine | ROM mapping, SAM P/TY RAM paging, direct DragonDOS `.BIN` program RAM/EXEC loading, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/cartridge-SND/single-bit audio |
 | PIA | 12: DDR, control, IRQ, input pins, mixed I/O, Cx1 edge selection, Cx2 input/output, Cx1-restored Cx2 strobe modes |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 16: source horizontal geometry/crop split, text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |

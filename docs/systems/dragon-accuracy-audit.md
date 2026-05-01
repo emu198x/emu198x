@@ -26,6 +26,10 @@ Motorola/Dragon source material are the authority when behavior differs.
   SAM advance sheet slows `$0000-$7FFF` and `$FF00-$FF1F` in address-dependent
   mode; `SamCycleTiming::is_ram_or_io0` currently implements RAM plus IO0 as
   the slow region.
+- SAM memory map type and page-select behavior is now source-aligned at the
+  board-memory level. In map type 0, P selects which 32 KiB RAM page appears at
+  `$0000-$7FFF`. In map type 1, MPU reads/writes below `$FF00` use contiguous
+  RAM while the `$FFxx` device/vector page remains decoded.
 - The vertical active display shape is source-aligned at the practical level.
   The MC6847 documentation describes 192 display lines offset 25 lines from the
   top of the visible VDG picture. `motorola-vdg-6847` uses a 256x192 active text
@@ -172,7 +176,8 @@ Required resolution:
    timing change, treating XRoar screenshots as advisory regression artifacts
    rather than proof of accuracy.
 3. Only after CPU/SAM/VDG timing is source-backed, revisit audio filtering,
-   cartridge expansion devices, Dragon 64 mode, and disk hardware.
+   cartridge expansion devices, Dragon 64 ROM/profile support, and disk
+   hardware.
 
 ## Immediate Next Engineering Step
 
@@ -207,6 +212,10 @@ Progress:
 - Dragon rendering now separates immediate SAM display-offset latches from the
   VDG-effective display base. `dragon.sam.display_offset` changes immediately,
   while VDG fetches and `dragon.video.display_base` update on frame-sync fall.
+- Dragon RAM mapping now follows the SAM P/TY map controls: map type 0 pages
+  the low 32 KiB RAM window, and map type 1 exposes contiguous RAM below the
+  `$FFxx` device/vector page. This fixes the prior mismatch where TY affected
+  cycle timing but not actual memory reads/writes.
 - VDG byte fetch lead time is now mode-aware and source-derived: short-cycle
   modes latch four VDG clocks before display, while long-cycle modes latch
   eight VDG clocks before display. Beam tests now cover writes just before and

@@ -2,10 +2,10 @@
 //!
 //! This crate owns the reusable board-level state that was first proven in the
 //! `emu198x-script-dragon` harness: MC6809 execution, 32 KiB RAM, mirrored
-//! 16 KiB BASIC ROM, two MC6821 PIAs, MC6883 SAM latches, keyboard matrix
-//! input, and MC6847 text-screen capture. It deliberately stops short of a
-//! full native runtime; later runtime crates should build on this API rather
-//! than duplicating the harness wiring.
+//! 16 KiB BASIC ROM, SAM-backed RAM paging, two MC6821 PIAs, MC6883 SAM
+//! latches, keyboard matrix input, and MC6847 text-screen capture. It
+//! deliberately stops short of a full native runtime; later runtime crates
+//! should build on this API rather than duplicating the harness wiring.
 
 use std::collections::VecDeque;
 use std::error::Error;
@@ -21,6 +21,7 @@ use motorola_vdg_6847::{
 
 /// Dragon 32 RAM size.
 pub const RAM_SIZE: usize = 0x8000;
+const FULL_RAM_SIZE: usize = 0x10000;
 /// Dragon 32 BASIC ROM size.
 pub const ROM_SIZE: usize = 0x4000;
 /// Hardware stack pointer observed after Dragon 32 BASIC reaches the `OK` prompt.
@@ -1254,7 +1255,7 @@ pub struct RunReport {
 
 #[derive(Debug, Clone)]
 struct DragonMemory {
-    ram: Box<[u8; RAM_SIZE]>,
+    ram: Box<[u8; FULL_RAM_SIZE]>,
     rom: Box<[u8; ROM_SIZE]>,
     pia0: Pia6821,
     pia1: Pia6821,
@@ -1270,7 +1271,7 @@ struct DragonMemory {
 impl DragonMemory {
     fn new_with_keyboard(rom: &[u8; ROM_SIZE], keyboard: DragonKeyboard) -> Self {
         Self {
-            ram: Box::new([0; RAM_SIZE]),
+            ram: Box::new([0; FULL_RAM_SIZE]),
             rom: Box::new(*rom),
             pia0: Pia6821::new(),
             pia1: Pia6821::new(),
@@ -1285,6 +1286,10 @@ impl DragonMemory {
     }
 
     fn read_fetch(&self, addr: u16) -> u8 {
+        if let Some(index) = self.mpu_ram_index(addr) {
+            return self.ram[index];
+        }
+
         if let Some(cartridge) = &self.cartridge
             && (CART_ROM_START..=CART_ROM_END).contains(&addr)
         {
@@ -1292,9 +1297,7 @@ impl DragonMemory {
         }
 
         let addr = usize::from(addr);
-        if addr < RAM_SIZE {
-            self.ram[addr]
-        } else if (CART_ROM_START..=CART_ROM_END).contains(&(addr as u16)) {
+        if (CART_ROM_START..=CART_ROM_END).contains(&(addr as u16)) {
             NO_CARTRIDGE_BUS_VALUE
         } else {
             self.rom[(addr - RAM_SIZE) & (ROM_SIZE - 1)]
@@ -1320,6 +1323,10 @@ impl DragonMemory {
             );
         }
 
+        if let Some(index) = self.mpu_ram_index(addr) {
+            return (self.ram[index], None);
+        }
+
         if let Some(cartridge) = &self.cartridge
             && (CART_ROM_START..=CART_ROM_END).contains(&addr)
         {
@@ -1330,8 +1337,7 @@ impl DragonMemory {
     }
 
     fn write(&mut self, addr: u16, value: u8) -> Option<MemoryEvent> {
-        let index = usize::from(addr);
-        if index < RAM_SIZE {
+        if let Some(index) = self.mpu_ram_index(addr) {
             self.ram[index] = value;
             None
         } else if let Some((device, offset)) = decode_pia(addr) {
@@ -1467,12 +1473,23 @@ impl DragonMemory {
 
     fn capture_text_screen(&self) -> TextScreen {
         let base = usize::from(self.text_screen_base());
-        TextScreen::capture(|offset| self.ram[(base + offset) & (RAM_SIZE - 1)])
+        TextScreen::capture(|offset| self.ram[(base + offset) & (FULL_RAM_SIZE - 1)])
     }
 
     fn display_byte(&self, offset: usize) -> u8 {
         let base = usize::from(self.vdg_display_base());
-        self.ram[(base + offset) & (RAM_SIZE - 1)]
+        self.ram[(base + offset) & (FULL_RAM_SIZE - 1)]
+    }
+
+    fn mpu_ram_index(&self, addr: u16) -> Option<usize> {
+        if self.sam.ty() {
+            return (addr < 0xFF00).then_some(usize::from(addr));
+        }
+        if addr < 0x8000 {
+            let page = if self.sam.page_select() { RAM_SIZE } else { 0 };
+            return Some(page + usize::from(addr));
+        }
+        None
     }
 
     fn audio_sample(&self) -> f32 {
@@ -2439,10 +2456,12 @@ impl Dragon32 {
         self.cpu.halt = false;
     }
 
-    /// Return the live 32 KiB RAM image.
+    /// Return the live lower 32 KiB RAM page.
     #[must_use]
     pub fn ram(&self) -> &[u8; RAM_SIZE] {
-        &self.memory.ram
+        self.memory.ram[..RAM_SIZE]
+            .try_into()
+            .expect("lower Dragon RAM page has fixed size")
     }
 
     /// Remove the emulated cassette input.
@@ -3339,6 +3358,47 @@ mod tests {
         assert_eq!(memory.read_fetch(0x8000), 0x12);
         assert_eq!(memory.read_fetch(0xC000), NO_CARTRIDGE_BUS_VALUE);
         assert_eq!(memory.read_fetch(0xFEFF), NO_CARTRIDGE_BUS_VALUE);
+        assert_eq!(memory.read_fetch(0xFFFE), 0x80);
+        assert_eq!(memory.read_fetch(0xFFFF), 0x00);
+    }
+
+    #[test]
+    fn sam_page_select_switches_lower_thirty_two_kib_ram_page() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+
+        memory.write(0x0000, 0x11);
+        memory.write(0xFFD5, 0x00); // SAM P1 set: low MPU addresses select page 1.
+        memory.write(0x0000, 0x22);
+
+        assert_eq!(memory.read_fetch(0x0000), 0x22);
+        memory.write(0xFFD4, 0x00); // SAM P1 clear: low MPU addresses select page 0.
+        assert_eq!(memory.read_fetch(0x0000), 0x11);
+        memory.write(0xFFD5, 0x00);
+        assert_eq!(memory.read_fetch(0x0000), 0x22);
+    }
+
+    #[test]
+    fn sam_type_one_maps_high_reads_and_writes_to_ram_below_io_page() {
+        let mut rom = rom_with_reset_vector(0x8000);
+        rom[0] = 0x12;
+        rom[0x3FFE] = 0x80;
+        rom[0x3FFF] = 0x00;
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        let cart = vec![0x34; 0x4000];
+        memory.load_cartridge(DragonCartridgeKind::Rom, &cart, true);
+
+        assert_eq!(memory.read_fetch(0x8000), 0x12);
+        assert_eq!(memory.read_fetch(0xC000), 0x34);
+
+        memory.write(0xFFDF, 0x00); // SAM TY set: map type #1, RAM-based system.
+        memory.write(0x8000, 0x45);
+        memory.write(0xC000, 0x67);
+        memory.write(0xFEFF, 0x89);
+
+        assert_eq!(memory.read_fetch(0x8000), 0x45);
+        assert_eq!(memory.read_fetch(0xC000), 0x67);
+        assert_eq!(memory.read_fetch(0xFEFF), 0x89);
         assert_eq!(memory.read_fetch(0xFFFE), 0x80);
         assert_eq!(memory.read_fetch(0xFFFF), 0x00);
     }
