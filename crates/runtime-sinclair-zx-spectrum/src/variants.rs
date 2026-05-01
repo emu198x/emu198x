@@ -66,40 +66,60 @@ const SPECTRUM_48K_BANNERS: &[&str] = &[
     "1982 Sinclair Research Ltd",
 ];
 
-// BLOCKED 2026-05-01: the screen-text decoder reads ROM glyphs from
-// $3D00, but the 128K family pages ROM 0 (128 BASIC editor) at
-// $0000-$3FFF after boot — and ROM 0 doesn't carry the standard glyph
-// table at $3D00, only ROM 1 (48 BASIC) does. Banner detection on
-// these variants needs a paging-aware glyph reader (look up ROM 1's
-// $3D00 regardless of which ROM is currently mapped). Until that
-// architectural change lands, the boot screen text is rendered but
-// not decodable.
+// Confirmed 2026-05-01 by booting `~/.emu198x/roms/sinclair-zx-spectrum-128k/
+// 128-{0,1}.rom` for 200 frames: row 23 reads
+// `"© 1986 Sinclair Research Ltd"`. Reachable now because
+// `glyph_byte` on `Spectrum128K` reads the standard table directly
+// from ROM 1 (48 BASIC) regardless of paging — see
+// `impl SpectrumMachine for Spectrum128K`.
 //
-// The probe test `probe_all_variant_banners` confirms the boot
-// screens *do* contain a recognisable model identifier text on row 7
-// (e.g. "+2A BASIC", "+3 BASIC") — only the glyph lookup is
-// blocked, not the runtime itself.
-const SPECTRUM_128K_BANNERS: &[&str] = &[];
+// The grey +2 (Amstrad relabel of the 128K — `plus2-{0,1}.rom`)
+// boots to the same Spectrum128K runtime but shows
+// `"©1986, ©1982 Amstrad Consumer Electronics plc"` instead. Its
+// rendering splits across rows 22-23, so the substring
+// "Amstrad Consumer Electronics plc" is the most reliable single
+// match. Both banners are accepted here so the same runtime
+// detects "we're at the 128K menu" regardless of which ROM image
+// is loaded.
+const SPECTRUM_128K_BANNERS: &[&str] = &[
+    "© 1986 Sinclair Research Ltd",
+    "(C) 1986 Sinclair Research Ltd",
+    "Amstrad Consumer Electronics plc",
+];
 
-// BLOCKED 2026-05-01: same paging-aware-glyph-reader issue as
-// SPECTRUM_128K_BANNERS. Probe shows the +2A/+2B/+3 boot screen does
-// render the model identifier on row 7 plus an "Amstrad" credit on
-// rows 22-23, but the glyphs decode as `?` because the +3 ROM 0 (the
-// boot ROM) doesn't carry the table at $3D00 either.
-const SPECTRUM_PLUS_BANNERS: &[&str] = &[];
+// Confirmed 2026-05-01 by booting `~/.emu198x/roms/amstrad-zx-spectrum-plus3/
+// plus3-{0,1,2,3}.rom` for 250 frames against each of Plus2A, Plus2B,
+// and Plus3 models: row 22 reads `"©1982, 1986, 1987 Amstrad Plc."`
+// across all three. Row 23 differs by model (+2A/+2B = "Drive M:
+// available.", +3 = "Drives A:, B: and M: available.") but the
+// row-22 banner is the same. Reachable now because `glyph_byte` on
+// `SpectrumPlus` reads the standard table from ROM 3 (the 48 BASIC
+// sub-ROM in the +3 layout) — see `impl SpectrumMachine for
+// SpectrumPlus`.
+const SPECTRUM_PLUS_BANNERS: &[&str] = &[
+    "©1982, 1986, 1987 Amstrad Plc.",
+    "(C)1982, 1986, 1987 Amstrad Plc.",
+];
 
-// BLOCKED 2026-05-01: the Pentagon boot screen is a graphic splash
-// (full-screen bitmap), not text rendered through the standard ROM
-// glyph table. Banner detection here needs a different signal —
-// either a screen-RAM bitmap pattern match, or an I/O / register
-// state check (e.g. once the BASIC editor's idle state is reached).
-// The probe test confirms 200 frames produces a uniformly graphic
-// screen with no text-glyph cells.
-const PENTAGON_128_BANNERS: &[&str] = &[];
+// Confirmed 2026-05-01 by booting `~/.emu198x/roms/pentagon-128/
+// pentagon-{0,1}.rom` for 200 frames: row 23 reads
+// `"© 1993 Sinclair Research Ltd"` — the Pentagon's revised banner
+// dating the Russian-market reissue. Reachable via the same
+// paging-aware `glyph_byte` override that 128K uses (Pentagon's
+// ROM 1 carries the 48 BASIC glyph table).
+const PENTAGON_128_BANNERS: &[&str] = &[
+    "© 1993 Sinclair Research Ltd",
+    "(C) 1993 Sinclair Research Ltd",
+];
 
-// BLOCKED 2026-05-01: same as Pentagon — the Scorpion boot screen is
-// a graphic splash, not text. Banner detection needs a different
-// signal mechanism.
+// BLOCKED 2026-05-01: the Scorpion ROM boots into TR-DOS waiting for
+// a disk image. With no disk inserted, the screen RAM stays blank
+// (probed at 500 frames produces a uniformly empty screen — neither
+// glyph cells nor a graphic splash). Banner detection here needs
+// either (a) inserting a known idle disk image and waiting for the
+// TR-DOS prompt, (b) using an I/O register-state check rather than
+// a screen-text scan, or (c) hooking the alternate boot path that
+// drops directly into 48 BASIC if the user holds Caps Shift.
 const SCORPION_ZS256_BANNERS: &[&str] = &[];
 
 // Confirmed 2026-05-01 by booting `~/.emu198x/roms/timex-tc2048/tc2048.rom`
@@ -319,6 +339,13 @@ impl SpectrumMachine for Spectrum128K {
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }
+    /// 128K keeps the standard glyph table in ROM 1 (48 BASIC). After
+    /// boot ROM 0 (the 128 BASIC editor) is mapped at $0000-$3FFF, so
+    /// the default `read_byte($3D00 + offset)` would hit the editor.
+    /// Read ROM 1 directly via the paging-aware accessor.
+    fn glyph_byte(&self, offset: u16) -> u8 {
+        self.memory.read_rom_byte(1, 0x3D00u16.wrapping_add(offset))
+    }
     fn keyboard_rows(&self) -> &[u8; 8] {
         &self.keyboard
     }
@@ -401,6 +428,13 @@ impl SpectrumMachine for SpectrumPlus {
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }
+    /// +2A/+2B/+3 keep the standard glyph table in ROM 3 (the 48
+    /// BASIC sub-ROM). After boot ROM 0 (the +3 editor) is mapped at
+    /// $0000-$3FFF, so the default glyph reader would miss. Reach
+    /// ROM 3 directly via the paging-aware accessor.
+    fn glyph_byte(&self, offset: u16) -> u8 {
+        self.memory.read_rom_byte(3, 0x3D00u16.wrapping_add(offset))
+    }
     fn keyboard_rows(&self) -> &[u8; 8] {
         &self.keyboard
     }
@@ -479,6 +513,12 @@ impl SpectrumMachine for Pentagon128 {
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }
+    /// Pentagon is a 128K-derivative; its ROM 1 (48 BASIC) carries
+    /// the standard glyph table. After boot ROM 0 is mapped at
+    /// $0000-$3FFF, so we reach ROM 1 directly.
+    fn glyph_byte(&self, offset: u16) -> u8 {
+        self.memory.read_rom_byte(1, 0x3D00u16.wrapping_add(offset))
+    }
     fn keyboard_rows(&self) -> &[u8; 8] {
         &self.keyboard
     }
@@ -554,6 +594,11 @@ impl SpectrumMachine for ScorpionZS256 {
 
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
+    }
+    /// Scorpion is 128K-derivative — ROM 1 (48 BASIC) holds the
+    /// standard glyph table. ROMs 2 and 3 are TR-DOS / Service ROM.
+    fn glyph_byte(&self, offset: u16) -> u8 {
+        self.memory.read_rom_byte(1, 0x3D00u16.wrapping_add(offset))
     }
     fn keyboard_rows(&self) -> &[u8; 8] {
         &self.keyboard

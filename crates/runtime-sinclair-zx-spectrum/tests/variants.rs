@@ -912,10 +912,11 @@ fn variant_query_paths_include_boot_paths() {
 }
 
 #[test]
-fn pentagon_boot_status_returns_not_detected_until_banner_confirmed() {
-    // Pentagon banner is TODO — the provider must return
-    // `detected = false` and a sensible reason rather than failing.
-    let runtime = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+fn scorpion_boot_status_returns_not_detected_until_banner_confirmed() {
+    // Scorpion ROM boots into TR-DOS with no disk inserted — screen
+    // stays blank, no banner to detect. Provider returns
+    // `detected = false` cleanly.
+    let runtime = ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new());
     let provider = SpectrumSessionQueryProvider;
     let detected = provider
         .query(&runtime, "boot.detected")
@@ -1029,6 +1030,103 @@ fn tc2048_boot_banner_is_detected_with_real_rom() {
     );
 }
 
+/// Regression for the 128K banner confirmed in `src/variants.rs::
+/// SPECTRUM_128K_BANNERS`. Boots the local ROMs and asserts the
+/// boot status matches the verified Sinclair 1986 banner.
+#[test]
+#[ignore = "requires local Spectrum 128K ROMs at ~/.emu198x/roms/sinclair-zx-spectrum-128k/128-{0,1}.rom"]
+fn spectrum_128k_boot_banner_is_detected_with_real_rom() {
+    let dir = rom_dir(".emu198x/roms/sinclair-zx-spectrum-128k").expect("HOME set");
+    let rom0 = std::fs::read(dir.join("128-0.rom"));
+    let rom1 = std::fs::read(dir.join("128-1.rom"));
+    let (Ok(rom0), Ok(rom1)) = (rom0, rom1) else {
+        eprintln!("128K ROMs missing — skipping");
+        return;
+    };
+    let mut m = Spectrum128K::new();
+    m.memory.load_roms(&rom0, &rom1);
+    let mut rt = Spectrum128kRuntime::new(Model::Spectrum128KPal, m);
+    run_frames(&mut rt, 200);
+
+    let provider = SpectrumSessionQueryProvider;
+    let detected = provider
+        .query(&rt, "boot.detected")
+        .expect("boot.detected resolves")
+        .expect("provider owns boot.detected");
+    assert_eq!(detected.value, serde_json::json!(true));
+    let lines = screen_lines(&rt);
+    assert!(
+        lines.iter().any(|line| line.contains("Sinclair Research Ltd")),
+        "128K screen.text.lines should contain 'Sinclair Research Ltd'; got {lines:?}",
+    );
+}
+
+/// Regression for the +3 banner confirmed in `src/variants.rs::
+/// SPECTRUM_PLUS_BANNERS`. Boots the +3 (Plus3 model) from the local
+/// 4-ROM set and asserts the Amstrad 1982/1986/1987 banner is
+/// detected. The Plus2A and Plus2B share the same row-22 banner —
+/// covered by the same constant.
+#[test]
+#[ignore = "requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/plus3-{0..3}.rom"]
+fn spectrum_plus3_boot_banner_is_detected_with_real_rom() {
+    let dir = rom_dir(".emu198x/roms/amstrad-zx-spectrum-plus3").expect("HOME set");
+    let r0 = std::fs::read(dir.join("plus3-0.rom"));
+    let r1 = std::fs::read(dir.join("plus3-1.rom"));
+    let r2 = std::fs::read(dir.join("plus3-2.rom"));
+    let r3 = std::fs::read(dir.join("plus3-3.rom"));
+    let (Ok(r0), Ok(r1), Ok(r2), Ok(r3)) = (r0, r1, r2, r3) else {
+        eprintln!("+3 ROMs missing — skipping");
+        return;
+    };
+    let mut m = SpectrumPlus::new(PlusModel::Plus3);
+    m.memory.load_roms(&r0, &r1, &r2, &r3);
+    let mut rt = SpectrumPlusRuntime::new(Model::SpectrumPlus3, m);
+    run_frames(&mut rt, 250);
+
+    let provider = SpectrumSessionQueryProvider;
+    let detected = provider
+        .query(&rt, "boot.detected")
+        .expect("boot.detected resolves")
+        .expect("provider owns boot.detected");
+    assert_eq!(detected.value, serde_json::json!(true));
+    let lines = screen_lines(&rt);
+    assert!(
+        lines.iter().any(|line| line.contains("Amstrad Plc")),
+        "+3 screen.text.lines should contain 'Amstrad Plc'; got {lines:?}",
+    );
+}
+
+/// Regression for the Pentagon 128 banner confirmed in
+/// `src/variants.rs::PENTAGON_128_BANNERS`. Boots the local Pentagon
+/// ROMs and asserts the 1993 Sinclair banner is detected.
+#[test]
+#[ignore = "requires local Pentagon ROMs at ~/.emu198x/roms/pentagon-128/pentagon-{0,1}.rom"]
+fn pentagon_128_boot_banner_is_detected_with_real_rom() {
+    let dir = rom_dir(".emu198x/roms/pentagon-128").expect("HOME set");
+    let r0 = std::fs::read(dir.join("pentagon-0.rom"));
+    let r1 = std::fs::read(dir.join("pentagon-1.rom"));
+    let (Ok(r0), Ok(r1)) = (r0, r1) else {
+        eprintln!("Pentagon ROMs missing — skipping");
+        return;
+    };
+    let mut m = Pentagon128::new();
+    m.memory.load_roms(&r0, &r1);
+    let mut rt = Pentagon128Runtime::new(Model::Pentagon128, m);
+    run_frames(&mut rt, 200);
+
+    let provider = SpectrumSessionQueryProvider;
+    let detected = provider
+        .query(&rt, "boot.detected")
+        .expect("boot.detected resolves")
+        .expect("provider owns boot.detected");
+    assert_eq!(detected.value, serde_json::json!(true));
+    let lines = screen_lines(&rt);
+    assert!(
+        lines.iter().any(|line| line.contains("1993 Sinclair Research Ltd")),
+        "Pentagon screen.text.lines should contain '1993 Sinclair Research Ltd'; got {lines:?}",
+    );
+}
+
 #[test]
 #[ignore = "diagnostic — boots six variants from ~/.emu198x/roms and prints banners"]
 fn probe_all_variant_banners() {
@@ -1108,8 +1206,8 @@ fn probe_all_variant_banners() {
             let mut m = ScorpionZS256::new();
             m.memory.load_roms(&rom0, &rom1, &rom2, &rom3);
             let mut rt = ScorpionZS256Runtime::new(Model::ScorpionZS256, m);
-            run_frames(&mut rt, 250);
-            print_screen("Scorpion ZS-256 (250 frames)", &screen_lines(&rt));
+            run_frames(&mut rt, 500);
+            print_screen("Scorpion ZS-256 (500 frames)", &screen_lines(&rt));
         } else {
             eprintln!("Scorpion ROMs missing");
         }

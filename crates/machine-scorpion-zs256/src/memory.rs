@@ -100,6 +100,20 @@ impl MemoryScorpion {
     pub fn screen_bank(&self) -> u8 {
         if self.paging_7ffd & 0x08 != 0 { 7 } else { 5 }
     }
+
+    /// Reads one byte from a specific ROM bank, ignoring the current
+    /// paging. Used by the runtime's screen-text decoder to reach
+    /// the standard glyph table at `$3D00` of ROM 1 (48 BASIC) when
+    /// the menu / TR-DOS / Service ROM is currently mapped at
+    /// `$0000-$3FFF`. Returns `0` for out-of-range bank indices.
+    #[must_use]
+    pub fn read_rom_byte(&self, bank: usize, addr: u16) -> u8 {
+        self.rom
+            .get(bank)
+            .and_then(|rom| rom.get(addr as usize))
+            .copied()
+            .unwrap_or(0)
+    }
 }
 
 impl Default for MemoryScorpion {

@@ -38,6 +38,7 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
 
 pub(crate) const SCREEN_TEXT_COLS: usize = 32;
 pub(crate) const SCREEN_TEXT_ROWS: usize = 24;
+#[cfg(test)]
 pub(crate) const ROM_TEXT_GLYPH_BASE: u16 = 0x3d00;
 pub(crate) const ROM_TEXT_GLYPH_FIRST: u8 = 0x20;
 pub(crate) const ROM_TEXT_GLYPH_COUNT: usize = 96;
@@ -108,11 +109,15 @@ pub fn boot_status_from_banners(lines: &[String], banners: &[&str]) -> SpectrumB
 fn rom_glyphs<M: SpectrumMachine>(machine: &M) -> Vec<[u8; 8]> {
     let mut glyphs = Vec::with_capacity(ROM_TEXT_GLYPH_COUNT);
 
+    // Calls the variant's `glyph_byte` rather than a fixed
+    // `read_byte($3D00 + ..)` so paged-ROM variants (128K family) can
+    // reach the 48 BASIC sub-ROM regardless of which ROM is currently
+    // mapped at $0000-$3FFF.
     for glyph_index in 0..ROM_TEXT_GLYPH_COUNT {
-        let glyph_base = ROM_TEXT_GLYPH_BASE + (glyph_index as u16 * 8);
+        let glyph_offset_base = (glyph_index as u16) * 8;
         let mut glyph = [0u8; 8];
         for (row, byte) in glyph.iter_mut().enumerate() {
-            *byte = machine.read_byte(glyph_base + row as u16);
+            *byte = machine.glyph_byte(glyph_offset_base + row as u16);
         }
         glyphs.push(glyph);
     }

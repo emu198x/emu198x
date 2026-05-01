@@ -128,6 +128,21 @@ impl MemoryPlus {
     pub fn screen_bank(&self) -> u8 {
         if self.paging_7ffd & 0x08 != 0 { 7 } else { 5 }
     }
+
+    /// Reads one byte from a specific ROM bank, ignoring the current
+    /// `$7FFD`/`$1FFD` paging. Used by the runtime's screen-text
+    /// decoder to reach the standard glyph table at `$3D00` of ROM 3
+    /// (48 BASIC sub-ROM) regardless of which of the four +3 ROMs is
+    /// currently mapped at `$0000-$3FFF`. Returns `0` for
+    /// out-of-range bank indices.
+    #[must_use]
+    pub fn read_rom_byte(&self, bank: usize, addr: u16) -> u8 {
+        self.rom
+            .get(bank)
+            .and_then(|rom| rom.get(addr as usize))
+            .copied()
+            .unwrap_or(0)
+    }
 }
 
 impl Default for MemoryPlus {

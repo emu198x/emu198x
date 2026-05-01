@@ -99,6 +99,25 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
     /// reads ROM glyphs at $3D00 and screen RAM at $4000.
     fn read_byte(&self, addr: u16) -> u8;
 
+    /// Returns one byte of the machine's standard ROM glyph table —
+    /// `offset` is `0..768` (96 glyphs × 8 bytes), starting at the
+    /// space character (0x20) and ending at code 0x7F (the
+    /// copyright sign). The default implementation reads through
+    /// `read_byte($3D00 + offset)`, which works for unpaged variants
+    /// (48K, TC2048) where the glyph table lives in the only ROM at
+    /// `$3D00..=$3F00`.
+    ///
+    /// **Paged variants must override this.** On the 128K family the
+    /// menu ROM is mapped at `$0000-$3FFF` after boot, but the menu
+    /// ROM doesn't carry the standard glyph table at `$3D00` — only
+    /// the 48 BASIC sub-ROM does. Variants override to reach the
+    /// 48 BASIC sub-ROM directly via `memory.read_rom_byte(idx,
+    /// $3D00 + offset)` regardless of the current paging.
+    #[must_use]
+    fn glyph_byte(&self, offset: u16) -> u8 {
+        self.read_byte(0x3D00u16.wrapping_add(offset))
+    }
+
     /// Returns the current keyboard matrix rows (active-low). Used by
     /// the `spectrum.keyboard.rows` query.
     fn keyboard_rows(&self) -> &[u8; 8];

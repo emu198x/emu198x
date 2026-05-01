@@ -4,6 +4,91 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-01 — Paging-aware glyph reader: 4 more Spectrum variant banners confirmed
+
+**Type:** feature (architectural fix the previous commit identified) + ROM-backed banner verification
+**Trigger:** the previous commit (`2de5156`) confirmed only TC2048's banner and documented the architectural blocker for the rest: the screen-text decoder reads ROM glyphs from `$3D00`, but the 128K family pages the menu ROM at `$0000-$3FFF` after boot, and that ROM doesn't carry the standard glyph table — only the 48 BASIC sub-ROM does. The user pushed back on the framing — "we need to be sure we're booting the correct ROM in any case (the menu, usually — not 48K BASIC!)" — clarifying that the *boot ROM* selection is correct (we ARE on the menu), it's just the *glyph lookup* that needs paging-awareness.
+**Result:** added a `glyph_byte` trait method on `SpectrumMachine` with a default impl matching the previous behaviour. Each 128K-family variant overrides it to read directly from the appropriate ROM bank via a new paging-aware `read_rom_byte` accessor on each variant's memory struct. The boot screens that were previously full of `?` characters now decode cleanly. Five of the six TODO-stubbed variants are confirmed in this commit; one (Scorpion) remains TODO with a different blocker.
+
+### Architectural change
+
+`SpectrumMachine` trait gains one method:
+```rust
+fn glyph_byte(&self, offset: u16) -> u8 {
+    self.read_byte(0x3D00u16.wrapping_add(offset))
+}
+```
+Default impl matches the previous behaviour (works for unpaged variants — 48K, TC2048). Paged variants override.
+
+`queries.rs::rom_glyphs` now calls `machine.glyph_byte(offset)` instead of `machine.read_byte(0x3D00 + offset)`.
+
+### Per-variant overrides (in `src/variants.rs`)
+
+Each 128K-family variant's `impl SpectrumMachine` block now overrides `glyph_byte` to reach the right ROM bank directly. The bank index per variant was determined by inspecting `$3D00..=$3D0F` of each ROM file — the standard space glyph (8 zero bytes) followed by the "!" pattern (`00 10 10 10 10 00 10 00`) is unmistakable:
+
+| Variant | ROM with glyph table |
+|---|---|
+| Spectrum128K | ROM 1 (48 BASIC) |
+| SpectrumPlus (+2A/+2B/+3) | ROM 3 (48 BASIC sub-ROM in the 4-ROM +3 layout) |
+| Pentagon128 | ROM 1 (Pentagon's 48 BASIC) |
+| ScorpionZS256 | ROM 1 (48 BASIC) |
+| TimexTS2068 | not addressed in this commit — different glyph table location, separate fix |
+
+Each per-variant memory struct (`Memory128K`, `MemoryPlus`, `MemoryPentagon`, `MemoryScorpion`) gains a `read_rom_byte(bank: usize, addr: u16) -> u8` public accessor that ignores the current `$7FFD`/`$1FFD` paging.
+
+### Confirmed banners (5 of 6 stubbed variants)
+
+| Variant | ROM file(s) | Banner | Row |
+|---|---|---|---|
+| Spectrum 128K | `128-{0,1}.rom` | `© 1986 Sinclair Research Ltd` | 23 |
+| Spectrum +2 grey (Amstrad relabel of 128K) | `plus2-{0,1}.rom` | `Amstrad Consumer Electronics plc` | 22-23 (split) |
+| Spectrum +2A / +2B / +3 | `plus3-{0,1,2,3}.rom` | `©1982, 1986, 1987 Amstrad Plc.` | 22 |
+| Pentagon 128 | `pentagon-{0,1}.rom` | `© 1993 Sinclair Research Ltd` | 23 |
+| Timex TC2048 (already done in `2de5156`) | `tc2048.rom` | `© 1982 Sinclair Research Ltd` | 23 |
+
+The +2A, +2B, and +3 share the row-22 banner — the per-model differences are on row 23 (drive availability: `+2A/+2B = "Drive M:"`, `+3 = "Drives A:, B: and M:"`). One `SPECTRUM_PLUS_BANNERS` constant covers all three SpectrumPlus models because they share the same Amstrad ROM family and the same row-22 banner.
+
+The grey +2 (Amstrad relabel of the 128K) shares the `Spectrum128K` runtime — its banner ("Amstrad Consumer Electronics plc") is added to `SPECTRUM_128K_BANNERS` alongside the genuine 128K banner so both ROM images detect cleanly.
+
+### Still TODO
+
+**Scorpion ZS-256** — boots into TR-DOS waiting for a disk image. With no disk inserted, the screen RAM stays blank (probed at 500 frames produces a uniformly empty screen). The blocker has changed from "graphic splash" to "TR-DOS prompt waiting for input". Three possible fixes documented in the constant's comment:
+1. Insert a known idle disk image and wait for the TR-DOS prompt.
+2. Use I/O register-state check instead of a screen-text scan.
+3. Hook the alternate boot path that drops directly into 48 BASIC if Caps Shift is held.
+
+**TimexTS2068** — uses a different ROM glyph table from the standard Sinclair `$3D00` layout (TS2068 ROM is a Timex-of-America rewrite). Unchanged from the previous commit's analysis. Probe still shows alternating `? ` cells.
+
+The new `scorpion_boot_status_returns_not_detected_until_banner_confirmed` test (replacing the now-obsolete Pentagon equivalent) explicitly asserts Scorpion returns `detected = false` cleanly — guards against accidentally enabling banner detection for a variant where the architectural blocker hasn't been resolved.
+
+### Tests added
+
+Four new ROM-gated `#[ignore]`d regression tests:
+- `spectrum_128k_boot_banner_is_detected_with_real_rom`
+- `spectrum_plus3_boot_banner_is_detected_with_real_rom` (covers the SpectrumPlus family — Plus2A/Plus2B share the row-22 banner)
+- `pentagon_128_boot_banner_is_detected_with_real_rom`
+- (TC2048 was already added in the previous commit)
+
+All four pass against local ROMs at `~/.emu198x/roms/...`.
+
+### Verification
+
+- `cargo test -p runtime-sinclair-zx-spectrum --lib --tests` — 87 passed, 5 ignored *(was 87/8 — the obsolete Pentagon TODO test got replaced by a Scorpion equivalent)*
+- `cargo test -p runtime-sinclair-zx-spectrum --test variants -- --ignored` — **5 passed** (TC2048, 128K, +3, Pentagon, plus the diagnostic probe)
+- `cargo clippy` across `runtime-sinclair-zx-spectrum`, `machine-sinclair-zx-spectrum-128k`, `machine-sinclair-zx-spectrum-plus`, `machine-pentagon-128`, `machine-scorpion-zs256` — clean
+
+### Open queue narrows
+
+Of the original 6 TODO-stubbed variants from `dc0e200`:
+- ✅ TC2048 (previous commit)
+- ✅ 128K, +2A, +2B, +3, Pentagon (this commit)
+- ❌ Scorpion — different blocker (TR-DOS waiting for disk)
+- ❌ TS2068 — different glyph table location
+
+Two items remain on the banner-detection track. The "paging-aware glyph reader" architectural block is closed.
+
+---
+
 ## 2026-05-01 — Spectrum variant boot banners: TC2048 confirmed, others architecturally blocked
 
 **Type:** investigation + small fix (post-`dc0e200` follow-up — confirm the per-variant boot banners stubbed in the previous commit)

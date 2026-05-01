@@ -115,6 +115,21 @@ impl Memory128K {
     pub fn ram_bank_mut(&mut self, bank: usize) -> &mut [u8; 16384] {
         &mut self.ram[bank]
     }
+
+    /// Reads one byte from a specific ROM bank, ignoring the current
+    /// `$7FFD` paging. Used by the runtime's screen-text decoder so
+    /// it can reach the standard glyph table at `$3D00` of ROM 1
+    /// (48 BASIC) even when ROM 0 (the 128 BASIC editor) is mapped
+    /// at `$0000-$3FFF`. Returns `0` for out-of-range bank indices
+    /// or addresses past the 16 KiB ROM bank.
+    #[must_use]
+    pub fn read_rom_byte(&self, bank: usize, addr: u16) -> u8 {
+        self.rom
+            .get(bank)
+            .and_then(|rom| rom.get(addr as usize))
+            .copied()
+            .unwrap_or(0)
+    }
 }
 
 impl Default for Memory128K {
