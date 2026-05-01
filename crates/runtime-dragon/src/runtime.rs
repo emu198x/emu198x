@@ -5,6 +5,7 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError,
     QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
 };
+use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
 use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
 use format_dragon_pak::{
     DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
@@ -53,6 +54,10 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "dragon.tape.position_bits",
     "dragon.text.base",
     "dragon.video.display_base",
+    "dragon.program.exec_address",
+    "dragon.program.length",
+    "dragon.program.load_address",
+    "dragon.program.loaded",
 ];
 
 const MIN_INITIAL_LEADER_BYTES: usize = 128;
@@ -74,6 +79,17 @@ pub struct DragonTapeSummary {
     pub header_file_type: Option<&'static str>,
 }
 
+/// Summary of the currently mounted direct Dragon binary program.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DragonProgramSummary {
+    /// Target load address.
+    pub load_address: u16,
+    /// Execution address.
+    pub exec_address: u16,
+    /// Payload length in bytes.
+    pub len: usize,
+}
+
 /// Dragon-family query provider layered above the shared shell surface.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DragonSessionQueryProvider;
@@ -90,6 +106,7 @@ pub struct DragonRuntime {
     tape: Option<CasImage>,
     tape_bytes: Vec<u8>,
     cartridge: Option<DragonPakImage>,
+    program: Option<DragonBinImage>,
     snapshot: Option<PcDragonSnapshot>,
 }
 
@@ -137,6 +154,7 @@ impl DragonRuntime {
             tape: None,
             tape_bytes: Vec::new(),
             cartridge: None,
+            program: None,
             snapshot: None,
         })
     }
@@ -158,6 +176,7 @@ impl DragonRuntime {
             tape: None,
             tape_bytes: Vec::new(),
             cartridge: None,
+            program: None,
             snapshot: None,
         }
     }
@@ -184,6 +203,16 @@ impl DragonRuntime {
         })
     }
 
+    /// Returns a summary of the currently mounted direct binary program.
+    #[must_use]
+    pub fn program_summary(&self) -> Option<DragonProgramSummary> {
+        self.program.as_ref().map(|program| DragonProgramSummary {
+            load_address: program.load_address,
+            exec_address: program.exec_address,
+            len: program.payload.len(),
+        })
+    }
+
     fn rebuild_machine(&mut self) {
         self.machine = Dragon32::new(&self.firmware_rom);
         self.joystick = DragonJoystickInputState::default();
@@ -199,6 +228,9 @@ impl DragonRuntime {
         }
         if let Some(snapshot) = &self.snapshot {
             load_snapshot_into_machine(&mut self.machine, snapshot);
+        }
+        if let Some(program) = &self.program {
+            load_program_into_machine(&mut self.machine, program);
         }
         self.time = MachineTime::default();
         self.rgba_framebuffer.clear();
@@ -438,6 +470,16 @@ fn load_snapshot_into_machine(machine: &mut Dragon32, snapshot: &PcDragonSnapsho
     );
 }
 
+fn load_program_into_machine(machine: &mut Dragon32, program: &DragonBinImage) {
+    let result = machine.load_binary_program(
+        program.load_address,
+        &program.payload,
+        program.exec_address,
+        true,
+    );
+    debug_assert!(result.is_ok());
+}
+
 impl MachineCore for DragonRuntime {
     fn profile(&self) -> &MachineProfile {
         &self.profile
@@ -502,6 +544,31 @@ impl MachineCore for DragonRuntime {
                     self.snapshot = Some(snapshot);
                 }
                 MediaKind::Snapshot => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+                MediaKind::Program if slot == "program-1" => {
+                    let program = parse_dragon_bin(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        }
+                    })?;
+                    self.machine
+                        .load_binary_program(
+                            program.load_address,
+                            &program.payload,
+                            program.exec_address,
+                            true,
+                        )
+                        .map_err(|reason| MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        })?;
+                    self.program = Some(program);
+                }
+                MediaKind::Program => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: slot.to_owned(),
                     });
@@ -638,6 +705,21 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                         .as_ref()
                         .and_then(CasImage::first_header)
                         .map(|header| cas_file_type_label(header.file_type))
+                )
+            }
+            "dragon.program.loaded" => json!(machine.program.is_some()),
+            "dragon.program.load_address" => {
+                json!(machine.program.as_ref().map(|program| program.load_address))
+            }
+            "dragon.program.exec_address" => {
+                json!(machine.program.as_ref().map(|program| program.exec_address))
+            }
+            "dragon.program.length" => {
+                json!(
+                    machine
+                        .program
+                        .as_ref()
+                        .map(|program| program.payload.len())
                 )
             }
             "dragon.text.base" => json!(machine.machine.text_screen_base()),
@@ -1116,6 +1198,53 @@ mod tests {
         runtime.load_media(&media).expect("snapshot should load");
 
         assert_eq!(runtime.machine.pc(), 0x1234);
+    }
+
+    fn dragon_bin(load: u16, exec: u16, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0x55, 0x02];
+        bytes.extend_from_slice(&load.to_be_bytes());
+        bytes.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        bytes.extend_from_slice(&exec.to_be_bytes());
+        bytes.push(0xaa);
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    #[test]
+    fn load_media_accepts_dragon_binary_program() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let program = dragon_bin(0x2800, 0x2801, &[0xcc, 0xfc, 0x39]);
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("program-1", MediaKind::Program, &program));
+
+        runtime.load_media(&media).expect("program should load");
+
+        let summary = runtime
+            .program_summary()
+            .expect("program should be mounted");
+        assert_eq!(summary.load_address, 0x2800);
+        assert_eq!(summary.exec_address, 0x2801);
+        assert_eq!(summary.len, 3);
+        assert_eq!(&runtime.machine.ram()[0x2800..0x2803], &[0xcc, 0xfc, 0x39]);
+        assert_eq!(runtime.machine.pc(), 0x2801);
+
+        let provider = DragonSessionQueryProvider;
+        assert_eq!(
+            provider
+                .query(&runtime, "dragon.program.loaded")
+                .expect("query should not fail")
+                .expect("query should be owned")
+                .value,
+            json!(true)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "dragon.program.load_address")
+                .expect("query should not fail")
+                .expect("query should be owned")
+                .value,
+            json!(0x2800)
+        );
     }
 
     #[test]

@@ -77,6 +77,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
                     false,
                     WritebackPolicy::InMemoryOnly,
                 ),
+                MediaSlot::new(
+                    "program-1",
+                    "DragonDOS binary program",
+                    MediaKind::Program,
+                    false,
+                    WritebackPolicy::InMemoryOnly,
+                ),
             ],
             capabilities: CapabilitySet::with_all([
                 known_capability("cassette-media"),
@@ -113,12 +120,14 @@ mod tests {
         assert_eq!(profile.region, Region::Pal);
         assert_eq!(profile.firmware.len(), 1);
         assert_eq!(profile.firmware[0].id.as_ref(), "dragon32-basic-rom");
-        assert_eq!(profile.media_slots.len(), 3);
+        assert_eq!(profile.media_slots.len(), 4);
         assert_eq!(profile.media_slots[0].id.as_ref(), "tape-1");
         assert_eq!(profile.media_slots[0].kind, MediaKind::Tape);
         assert_eq!(profile.media_slots[1].id.as_ref(), "cartridge-1");
         assert_eq!(profile.media_slots[1].kind, MediaKind::Cartridge);
         assert_eq!(profile.media_slots[2].id.as_ref(), "snapshot-1");
         assert_eq!(profile.media_slots[2].kind, MediaKind::Snapshot);
+        assert_eq!(profile.media_slots[3].id.as_ref(), "program-1");
+        assert_eq!(profile.media_slots[3].kind, MediaKind::Program);
     }
 }

@@ -210,6 +210,7 @@ fn parse_media_kind(kind: &str) -> MediaKind {
         "cartridge" => MediaKind::Cartridge,
         "disk" => MediaKind::Disk,
         "optical" => MediaKind::Optical,
+        "program" => MediaKind::Program,
         "snapshot" => MediaKind::Snapshot,
         "tape" => MediaKind::Tape,
         _ => die(&format!("unknown media kind: {kind}")),

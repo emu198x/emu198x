@@ -18,6 +18,8 @@ pub enum MediaKind {
     Optical,
     /// Machine snapshot image.
     Snapshot,
+    /// Directly loadable program image.
+    Program,
 }
 
 /// Persistence policy for writes originating from the emulated machine.

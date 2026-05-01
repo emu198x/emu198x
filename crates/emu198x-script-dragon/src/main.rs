@@ -14,6 +14,7 @@ use emu198x_shell::{
     CapturedFrame, HeadlessSession, InputEvent, MachineTime, MediaImage, MediaKind, MediaSet,
     PixelFormat, read_media_asset,
 };
+use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
 use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
 use format_dragon_pak::{
     DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonPeripherals,
@@ -56,6 +57,7 @@ Usage: emu198x-script-dragon --rom PATH [OPTIONS]
 Firmware:
     --rom PATH          Dragon 32 BASIC ROM, exactly 16 KiB; .zip archives are accepted
     --cart PATH         Dragon cartridge ROM/DGN image; .zip archives are accepted
+    --bin PATH          DragonDOS .BIN program image; .zip archives are accepted
     --snapshot PATH     PC-Dragon PAK snapshot; .zip archives are accepted
 
 Execution:
@@ -120,6 +122,7 @@ Other:
 struct Cli {
     rom: PathBuf,
     cart: Option<PathBuf>,
+    bin: Option<PathBuf>,
     snapshot: Option<PathBuf>,
     cycles: u64,
     trace_limit: usize,
@@ -619,6 +622,11 @@ fn run_main() -> Result<(), String> {
         .as_ref()
         .map(|path| load_cartridge(path))
         .transpose()?;
+    let bin = cli
+        .bin
+        .as_ref()
+        .map(|path| load_binary_program(path))
+        .transpose()?;
     let snapshot = cli
         .snapshot
         .as_ref()
@@ -663,6 +671,7 @@ fn run_main() -> Result<(), String> {
         keyboard,
         HarnessRunOptions {
             cartridge: cart.as_ref(),
+            program: bin.as_ref(),
             snapshot: snapshot.as_ref(),
             cycle_limit: cli.cycles,
             trace_limit: cli.trace_limit,
@@ -715,6 +724,7 @@ where
 {
     let mut rom = None;
     let mut cart = None;
+    let mut bin = None;
     let mut snapshot = None;
     let mut cycles = DEFAULT_CYCLES;
     let mut trace_limit = DEFAULT_TRACE_LIMIT;
@@ -754,6 +764,9 @@ where
             }
             "--cart" => {
                 cart = Some(PathBuf::from(next_value(&mut iter, "--cart")?));
+            }
+            "--bin" => {
+                bin = Some(PathBuf::from(next_value(&mut iter, "--bin")?));
             }
             "--snapshot" => {
                 snapshot = Some(PathBuf::from(next_value(&mut iter, "--snapshot")?));
@@ -916,6 +929,7 @@ where
     Ok(Cli {
         rom: rom.ok_or_else(|| format!("missing required --rom PATH\n\n{USAGE}"))?,
         cart,
+        bin,
         snapshot,
         cycles,
         trace_limit,
@@ -1507,6 +1521,7 @@ fn run_snapshot_smoke(
         DragonKeyboard::new(),
         HarnessRunOptions {
             cartridge: None,
+            program: None,
             snapshot: Some(snapshot),
             cycle_limit: smoke.cycle_limit,
             trace_limit: smoke.trace_limit,
@@ -1679,6 +1694,7 @@ fn xroar_snapshot_reference_trap(
         DragonKeyboard::new(),
         HarnessRunOptions {
             cartridge: None,
+            program: None,
             snapshot: Some(snapshot),
             cycle_limit: target_cycles,
             trace_limit: 0,
@@ -1698,6 +1714,7 @@ fn xroar_snapshot_reference_trap(
         DragonKeyboard::new(),
         HarnessRunOptions {
             cartridge: None,
+            program: None,
             snapshot: Some(snapshot),
             cycle_limit: target_cycles,
             trace_limit,
@@ -4420,6 +4437,21 @@ fn load_cartridge(path: &Path) -> Result<DragonPakImage, String> {
         .map_err(|err| format!("failed to parse Dragon cartridge {}: {err}", path.display()))
 }
 
+fn load_binary_program(path: &Path) -> Result<DragonBinImage, String> {
+    let loaded = read_media_asset(path, MediaKind::Program).map_err(|err| {
+        format!(
+            "failed to load Dragon binary program {}: {err}",
+            path.display()
+        )
+    })?;
+    parse_dragon_bin(&loaded.bytes).map_err(|err| {
+        format!(
+            "failed to parse Dragon binary program {}: {err}",
+            path.display()
+        )
+    })
+}
+
 fn load_snapshot(path: &Path) -> Result<PcDragonSnapshot, String> {
     let loaded = read_media_asset(path, MediaKind::Snapshot)
         .map_err(|err| format!("failed to load Dragon snapshot {}: {err}", path.display()))?;
@@ -4437,6 +4469,7 @@ const fn machine_cartridge_kind(kind: ParsedDragonCartridgeKind) -> DragonCartri
 #[derive(Clone, Debug)]
 struct HarnessRunOptions<'a> {
     cartridge: Option<&'a DragonPakImage>,
+    program: Option<&'a DragonBinImage>,
     snapshot: Option<&'a PcDragonSnapshot>,
     cycle_limit: u64,
     trace_limit: usize,
@@ -4493,6 +4526,15 @@ fn run_harness_with_keyboard(
                 }),
             snapshot.display_base,
         );
+    }
+    if let Some(program) = options.program {
+        let result = machine.load_binary_program(
+            program.load_address,
+            &program.payload,
+            program.exec_address,
+            true,
+        );
+        debug_assert!(result.is_ok());
     }
     let mut run_options = RunOptions::new(options.trace_limit);
     run_options.fetch_watch = options.fetch_watch;
@@ -4987,6 +5029,7 @@ mod tests {
             DragonKeyboard::new(),
             HarnessRunOptions {
                 cartridge: None,
+                program: None,
                 snapshot: None,
                 cycle_limit: 128,
                 trace_limit: 8,
@@ -5041,6 +5084,7 @@ mod tests {
             DragonKeyboard::new(),
             HarnessRunOptions {
                 cartridge: None,
+                program: None,
                 snapshot: None,
                 cycle_limit: 1,
                 trace_limit: 0,
@@ -5077,6 +5121,7 @@ mod tests {
             DragonKeyboard::new(),
             HarnessRunOptions {
                 cartridge: None,
+                program: None,
                 snapshot: None,
                 cycle_limit: 16,
                 trace_limit: 0,
@@ -5187,6 +5232,19 @@ mod tests {
         .expect("valid CLI should parse");
 
         assert_eq!(cli.cart, Some(PathBuf::from("game.dgn")));
+    }
+
+    #[test]
+    fn cli_parses_binary_program_path() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--bin".to_owned(),
+            "game.bin".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.bin, Some(PathBuf::from("game.bin")));
     }
 
     #[test]

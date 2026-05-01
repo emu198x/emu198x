@@ -21,6 +21,7 @@ pub enum ScriptMediaKind {
     Cartridge,
     Optical,
     Snapshot,
+    Program,
 }
 
 impl From<ScriptMediaKind> for MediaKind {
@@ -31,6 +32,7 @@ impl From<ScriptMediaKind> for MediaKind {
             ScriptMediaKind::Cartridge => MediaKind::Cartridge,
             ScriptMediaKind::Optical => MediaKind::Optical,
             ScriptMediaKind::Snapshot => MediaKind::Snapshot,
+            ScriptMediaKind::Program => MediaKind::Program,
         }
     }
 }

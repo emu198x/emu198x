@@ -217,6 +217,7 @@ fn archive_match_rules(kind: MediaKind) -> (&'static str, &'static [&'static str
         ),
         MediaKind::Optical => ("optical image", &["bin", "ccd", "chd", "cue", "img", "iso"]),
         MediaKind::Snapshot => ("snapshot image", &["pak", "pst", "sna", "szx", "z80"]),
+        MediaKind::Program => ("program image", &["bin"]),
     }
 }
 

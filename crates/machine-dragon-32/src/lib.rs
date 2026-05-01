@@ -157,6 +157,31 @@ pub struct DragonSnapshotPeripherals {
     pub ff22: u8,
 }
 
+/// Failure while directly loading a Dragon binary program into RAM.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DragonProgramLoadError {
+    /// The program payload would write outside the Dragon 32 RAM range.
+    RamOverflow {
+        /// Target load address.
+        load_address: u16,
+        /// Payload size in bytes.
+        len: usize,
+    },
+}
+
+impl fmt::Display for DragonProgramLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RamOverflow { load_address, len } => write!(
+                f,
+                "Dragon binary payload of {len} bytes at ${load_address:04X} exceeds 32 KiB RAM"
+            ),
+        }
+    }
+}
+
+impl Error for DragonProgramLoadError {}
+
 #[derive(Debug, Clone)]
 struct DragonCartridge {
     kind: DragonCartridgeKind,
@@ -2307,6 +2332,61 @@ impl Dragon32 {
         self.memory.set_cartridge_sound_level(level);
     }
 
+    /// Load one machine-code program directly into RAM.
+    ///
+    /// This mirrors the post-load state that Dragon BASIC's `CLOADM` path leaves
+    /// for machine-code programs: bytes are copied into RAM and the EXEC vector
+    /// is updated to the supplied execution address. When `autorun` is true, the
+    /// CPU program counter is also moved to that execution address.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the program would write outside the 32 KiB Dragon
+    /// 32 RAM range.
+    pub fn load_binary_program(
+        &mut self,
+        load_address: u16,
+        payload: &[u8],
+        exec_address: u16,
+        autorun: bool,
+    ) -> Result<(), DragonProgramLoadError> {
+        let start = usize::from(load_address);
+        let end = start
+            .checked_add(payload.len())
+            .ok_or(DragonProgramLoadError::RamOverflow {
+                load_address,
+                len: payload.len(),
+            })?;
+        if end > RAM_SIZE {
+            return Err(DragonProgramLoadError::RamOverflow {
+                load_address,
+                len: payload.len(),
+            });
+        }
+
+        self.memory.ram[start..end].copy_from_slice(payload);
+        let exec_bytes = exec_address.to_be_bytes();
+        let load_bytes = load_address.to_be_bytes();
+        self.memory.ram[0x009d] = exec_bytes[0];
+        self.memory.ram[0x009e] = exec_bytes[1];
+        self.memory.ram[0x01e2] = 0x02;
+        self.memory.ram[0x01e5] = exec_bytes[0];
+        self.memory.ram[0x01e6] = exec_bytes[1];
+        self.memory.ram[0x01e7] = load_bytes[0];
+        self.memory.ram[0x01e8] = load_bytes[1];
+
+        if autorun {
+            self.cpu.regs.pc = exec_address;
+            self.cpu.reset_phase = 0;
+            self.cpu.addr = exec_address;
+            self.cpu.rw = true;
+            self.cpu.sync = true;
+            self.cpu.halt = false;
+        }
+
+        Ok(())
+    }
+
     /// Load RAM and CPU state from a PC-Dragon snapshot.
     pub fn load_pcdragon_snapshot(
         &mut self,
@@ -4004,6 +4084,56 @@ mod tests {
         memory.set_cartridge_sound_level(2.0);
         assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Cart, 1.0));
         assert_sample_near(memory.audio_sample(), 0.7);
+    }
+
+    #[test]
+    fn binary_program_loads_payload_and_exec_vector() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        machine
+            .load_binary_program(0x2800, &[0xcc, 0xfc, 0x39], 0x2801, false)
+            .expect("program should fit in Dragon RAM");
+
+        assert_eq!(&machine.ram()[0x2800..0x2803], &[0xcc, 0xfc, 0x39]);
+        assert_eq!(machine.ram()[0x009d], 0x28);
+        assert_eq!(machine.ram()[0x009e], 0x01);
+        assert_eq!(machine.ram()[0x01e2], 0x02);
+        assert_eq!(machine.ram()[0x01e5], 0x28);
+        assert_eq!(machine.ram()[0x01e6], 0x01);
+        assert_eq!(machine.ram()[0x01e7], 0x28);
+        assert_eq!(machine.ram()[0x01e8], 0x00);
+        assert_eq!(machine.pc(), 0x0000);
+    }
+
+    #[test]
+    fn binary_program_autorun_sets_program_counter() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        machine
+            .load_binary_program(0x2800, &[0x39], 0x2800, true)
+            .expect("program should fit in Dragon RAM");
+
+        assert_eq!(machine.pc(), 0x2800);
+    }
+
+    #[test]
+    fn binary_program_rejects_payload_outside_ram() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+
+        let err = machine
+            .load_binary_program(0x7fff, &[0x39, 0x39], 0x7fff, false)
+            .expect_err("program must not overflow Dragon 32 RAM");
+
+        assert_eq!(
+            err,
+            DragonProgramLoadError::RamOverflow {
+                load_address: 0x7fff,
+                len: 2,
+            }
+        );
     }
 
     #[test]

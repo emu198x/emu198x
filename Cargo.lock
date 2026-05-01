@@ -802,6 +802,7 @@ name = "emu198x-script-dragon"
 version = "0.1.0"
 dependencies = [
  "emu198x-shell",
+ "format-dragon-bin",
  "format-dragon-cas",
  "format-dragon-pak",
  "machine-dragon-32",
@@ -991,6 +992,13 @@ name = "format-commodore-c64-tap"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "format-dragon-bin"
+version = "0.1.0"
+dependencies = [
  "thiserror 2.0.18",
 ]
 

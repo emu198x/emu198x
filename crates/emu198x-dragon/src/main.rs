@@ -60,6 +60,7 @@ Options:
     --rom PATH       Dragon 32 BASIC ROM, or zip containing one ROM/bin candidate
     --tape PATH      Dragon CAS tape image, or zip containing one .cas member
     --cart PATH      Dragon cartridge ROM/DGN image, or zip containing one cartridge member
+    --bin PATH       DragonDOS .BIN program, or zip containing one .bin member
     --snapshot PATH  PC-Dragon PAK snapshot, or zip containing one .pak member
     --autoload       type CLOAD/CLOADM, wait for load, then type RUN/EXEC
     --scale N        integer window scale, default 2
@@ -90,6 +91,7 @@ struct Cli {
     rom: Option<PathBuf>,
     tape: Option<PathBuf>,
     cart: Option<PathBuf>,
+    bin: Option<PathBuf>,
     snapshot: Option<PathBuf>,
     autoload: bool,
     scale: u32,
@@ -102,6 +104,7 @@ impl Default for Cli {
             rom: None,
             tape: None,
             cart: None,
+            bin: None,
             snapshot: None,
             autoload: false,
             scale: DEFAULT_SCALE,
@@ -248,6 +251,28 @@ fn runtime_from_cli(cli: &Cli) -> Result<DragonRuntime, AppError> {
         ));
         session.load_media(&media)?;
         println!("Loaded cartridge: {} bytes", loaded.bytes.len());
+    }
+
+    if let Some(bin) = &cli.bin {
+        let loaded = read_media_asset(bin, MediaKind::Program).map_err(|err| AppError::Setup {
+            reason: format!(
+                "failed to load Dragon binary program {}: {err}",
+                bin.display()
+            ),
+        })?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            "program-1",
+            MediaKind::Program,
+            &loaded.bytes,
+        ));
+        session.load_media(&media)?;
+        if let Some(summary) = session.machine().program_summary() {
+            println!(
+                "Loaded DragonDOS BIN: {} bytes at ${:04X}, exec ${:04X}",
+                summary.len, summary.load_address, summary.exec_address
+            );
+        }
     }
 
     if let Some(snapshot) = &cli.snapshot {
@@ -571,6 +596,7 @@ where
             "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
+            "--bin" => cli.bin = Some(PathBuf::from(next_arg(&mut iter, "--bin"))),
             "--snapshot" => cli.snapshot = Some(PathBuf::from(next_arg(&mut iter, "--snapshot"))),
             "--autoload" => cli.autoload = true,
             "--scale" => {
@@ -927,6 +953,7 @@ mod tests {
                 rom: Some(PathBuf::from("dragon32.rom")),
                 tape: None,
                 cart: None,
+                bin: None,
                 snapshot: None,
                 autoload: false,
                 scale: 3,
@@ -973,6 +1000,19 @@ mod tests {
 
         assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
         assert_eq!(cli.snapshot, Some(PathBuf::from("game.pak")));
+    }
+
+    #[test]
+    fn parse_cli_accepts_bin_path() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--bin".to_owned(),
+            "game.bin".to_owned(),
+        ]);
+
+        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
+        assert_eq!(cli.bin, Some(PathBuf::from("game.bin")));
     }
 
     #[test]
@@ -1053,6 +1093,7 @@ mod tests {
             rom: Some(rom),
             tape: Some(tape),
             cart: None,
+            bin: None,
             snapshot: None,
             autoload: true,
             scale: DEFAULT_SCALE,
