@@ -144,12 +144,14 @@ incomplete:
 - Audio uses measured/reference gains and offsets, but not full analogue
   filtering.
 - Native host gamepad left-stick input now reaches the Dragon analogue
-  comparator path continuously; headless smoke injection is still digital-only.
+  comparator path continuously; headless smoke can now inject explicit
+  normalized analogue axis values.
 - Cartridge audio and AY expansions are not implemented.
 
 Required resolution:
 
-1. Add explicit analogue axis injection to Dragon smoke tooling.
+1. Add comparator-focused smoke fixtures that sweep analogue axis values against
+   joystick-reading software.
 2. Add analogue filtering and expansion audio only after core timing is stable.
 
 ## Validation Plan
@@ -213,3 +215,5 @@ Progress:
 - The shared shell input surface now has analogue axis events, and the native
   Dragon shell maps left-stick X/Y to continuous Dragon joystick 1 comparator
   values while preserving D-pad/button digital controls.
+- `emu198x-script-dragon` now exposes `--smoke-joystick-axis`, so headless CAS
+  smoke can drive continuous comparator values without a physical gamepad.

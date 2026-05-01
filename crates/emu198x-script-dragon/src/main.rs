@@ -86,6 +86,9 @@ Execution:
     --smoke-joystick PORT,CONTROL,FRAMES
                        after start, hold joystick control on port 1/2 for N frames;
                        CONTROL is up, down, left, right, fire, or idle; may be repeated
+    --smoke-joystick-axis PORT,AXIS,VALUE,FRAMES
+                       after start, hold analogue axis x/y on port 1/2 at VALUE for N frames;
+                       VALUE is normalized from -1.0 to 1.0; may be repeated
     --smoke-idle-after-start FRAMES
                        after start, run N frames without extra input and capture idle output
     --xroar-bin PATH   patched XRoar binary used to write reference PNGs
@@ -129,6 +132,7 @@ struct Cli {
     smoke_screenshot_format: SmokeScreenshotFormat,
     smoke_audio_dir: Option<PathBuf>,
     smoke_joystick: Vec<SmokeJoystickStep>,
+    smoke_joystick_axis: Vec<SmokeJoystickAxisStep>,
     smoke_idle_after_start: u32,
     xroar_bin: Option<PathBuf>,
     xroar_reference_dir: Option<PathBuf>,
@@ -380,6 +384,8 @@ struct CasRuntimeSmoke {
     idle_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     joystick_steps: Vec<SmokeJoystickStep>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    joystick_axis_steps: Vec<SmokeJoystickAxisStep>,
     joystick_visible_change: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     joystick_screen_text: Option<Vec<String>>,
@@ -473,6 +479,14 @@ struct SmokeJoystickStep {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+struct SmokeJoystickAxisStep {
+    port: u8,
+    axis: SmokeJoystickAxis,
+    value: i16,
+    frames: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum SmokeJoystickControl {
     Up,
@@ -496,6 +510,22 @@ impl SmokeJoystickControl {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum SmokeJoystickAxis {
+    X,
+    Y,
+}
+
+impl SmokeJoystickAxis {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::X => "x",
+            Self::Y => "y",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct RuntimeSmokeOptions<'a> {
     run_limit: usize,
@@ -503,6 +533,7 @@ struct RuntimeSmokeOptions<'a> {
     screenshot_format: SmokeScreenshotFormat,
     audio_stem: Option<&'a Path>,
     joystick: &'a [SmokeJoystickStep],
+    joystick_axis: &'a [SmokeJoystickAxisStep],
     idle_after_start_frames: u32,
     xroar: Option<&'a XroarReferenceConfig>,
     xroar_stem: Option<&'a Path>,
@@ -658,6 +689,7 @@ where
     let mut smoke_screenshot_format = SmokeScreenshotFormat::Diagnostic;
     let mut smoke_audio_dir = None;
     let mut smoke_joystick = Vec::new();
+    let mut smoke_joystick_axis = Vec::new();
     let mut smoke_idle_after_start = 0;
     let mut xroar_bin = None;
     let mut xroar_reference_dir = None;
@@ -773,6 +805,12 @@ where
                     "--smoke-joystick",
                 )?)?);
             }
+            "--smoke-joystick-axis" => {
+                smoke_joystick_axis.push(parse_smoke_joystick_axis_step(&next_value(
+                    &mut iter,
+                    "--smoke-joystick-axis",
+                )?)?);
+            }
             "--smoke-idle-after-start" => {
                 smoke_idle_after_start = parse_u32(
                     &next_value(&mut iter, "--smoke-idle-after-start")?,
@@ -845,6 +883,7 @@ where
         smoke_screenshot_format,
         smoke_audio_dir,
         smoke_joystick,
+        smoke_joystick_axis,
         smoke_idle_after_start,
         xroar_bin,
         xroar_reference_dir,
@@ -1005,6 +1044,80 @@ fn parse_smoke_joystick_control(value: &str) -> Result<SmokeJoystickControl, Str
     }
 }
 
+fn parse_smoke_joystick_axis_step(value: &str) -> Result<SmokeJoystickAxisStep, String> {
+    let mut parts = value.split(',');
+    let port = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_axis_value(value))?;
+    let axis = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_axis_value(value))?;
+    let axis_value = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_axis_value(value))?;
+    let frames = parts
+        .next()
+        .ok_or_else(|| invalid_smoke_joystick_axis_value(value))?;
+    if parts.next().is_some() {
+        return Err(invalid_smoke_joystick_axis_value(value));
+    }
+
+    let port = parse_u8(port, "--smoke-joystick-axis port")?;
+    if !matches!(port, 1 | 2) {
+        return Err(format!(
+            "invalid --smoke-joystick-axis port {port}; expected 1 or 2"
+        ));
+    }
+    let value = parse_smoke_axis_value(axis_value)?;
+    let frames = parse_u32(frames, "--smoke-joystick-axis frames")?;
+    if frames == 0 {
+        return Err("--smoke-joystick-axis frames must be greater than zero".to_owned());
+    }
+    Ok(SmokeJoystickAxisStep {
+        port,
+        axis: parse_smoke_joystick_axis(axis)?,
+        value,
+        frames,
+    })
+}
+
+fn invalid_smoke_joystick_axis_value(value: &str) -> String {
+    format!("invalid --smoke-joystick-axis value {value}; expected PORT,AXIS,VALUE,FRAMES")
+}
+
+fn parse_smoke_joystick_axis(value: &str) -> Result<SmokeJoystickAxis, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "x" => Ok(SmokeJoystickAxis::X),
+        "y" => Ok(SmokeJoystickAxis::Y),
+        _ => Err(format!(
+            "invalid --smoke-joystick-axis axis {value}; expected x or y"
+        )),
+    }
+}
+
+fn parse_smoke_axis_value(value: &str) -> Result<i16, String> {
+    let parsed: f32 = value
+        .parse()
+        .map_err(|err| format!("invalid --smoke-joystick-axis value {value}: {err}"))?;
+    if !parsed.is_finite() || !(-1.0..=1.0).contains(&parsed) {
+        return Err(format!(
+            "--smoke-joystick-axis value {value} must be a finite number from -1.0 to 1.0"
+        ));
+    }
+    Ok(normalize_axis_value(parsed))
+}
+
+fn normalize_axis_value(value: f32) -> i16 {
+    let clamped = value.clamp(-1.0, 1.0);
+    if clamped <= -1.0 {
+        i16::MIN
+    } else if clamped >= 1.0 {
+        i16::MAX
+    } else {
+        (clamped * f32::from(i16::MAX)) as i16
+    }
+}
+
 fn parse_matrix_key(value: &str) -> Result<MatrixKey, String> {
     let (row, column) = value
         .split_once(',')
@@ -1075,6 +1188,7 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
                 screenshot_format: cli.smoke_screenshot_format,
                 audio_stem: audio_stem.as_deref(),
                 joystick: &cli.smoke_joystick,
+                joystick_axis: &cli.smoke_joystick_axis,
                 idle_after_start_frames: cli.smoke_idle_after_start,
                 xroar: xroar.as_ref(),
                 xroar_stem: xroar_stem.as_deref(),
@@ -1715,6 +1829,7 @@ fn run_runtime_smoke_inner(
     let screenshot_format = smoke_options.screenshot_format;
     let audio_stem = smoke_options.audio_stem;
     let joystick_steps = smoke_options.joystick;
+    let joystick_axis_steps = smoke_options.joystick_axis;
     let idle_after_start_frames = smoke_options.idle_after_start_frames;
     let mut session = boot_runtime_session(rom)?;
     let mut media = MediaSet::new();
@@ -1834,10 +1949,11 @@ fn run_runtime_smoke_inner(
         )
     };
     let (joystick_visible_change, joystick_screen_text, joystick_screenshot) =
-        if joystick_steps.is_empty() {
+        if joystick_steps.is_empty() && joystick_axis_steps.is_empty() {
             (false, None, None)
         } else {
             apply_smoke_joystick_steps(&mut session, joystick_steps)?;
+            apply_smoke_joystick_axis_steps(&mut session, joystick_axis_steps)?;
             let joystick_frame = session
                 .screenshot_png_bytes()
                 .map_err(|err| format!("failed to capture post-joystick frame: {err}"))?;
@@ -1905,6 +2021,7 @@ fn run_runtime_smoke_inner(
         idle_screen_text,
         idle_screenshot,
         joystick_steps: joystick_steps.to_vec(),
+        joystick_axis_steps: joystick_axis_steps.to_vec(),
         joystick_visible_change,
         joystick_screen_text,
         joystick_screenshot,
@@ -3542,6 +3659,7 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
         idle_screen_text: None,
         idle_screenshot: None,
         joystick_steps: Vec::new(),
+        joystick_axis_steps: Vec::new(),
         joystick_visible_change: false,
         joystick_screen_text: None,
         joystick_screenshot: None,
@@ -3666,6 +3784,38 @@ fn apply_smoke_joystick_steps(
         session
             .run_frames(KEY_EDGE_FRAMES)
             .map_err(|err| format!("joystick release port {} {name} failed: {err}", step.port))?;
+    }
+    Ok(())
+}
+
+fn apply_smoke_joystick_axis_steps(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    steps: &[SmokeJoystickAxisStep],
+) -> Result<(), String> {
+    for step in steps {
+        let name = step.axis.name();
+        session.queue_input(InputEvent::Axis {
+            port: step.port,
+            name: name.into(),
+            value: step.value,
+        });
+        session.run_frames(step.frames).map_err(|err| {
+            format!(
+                "joystick axis port {} {name}={} for {} frames failed: {err}",
+                step.port, step.value, step.frames
+            )
+        })?;
+        session.queue_input(InputEvent::Axis {
+            port: step.port,
+            name: name.into(),
+            value: 0,
+        });
+        session.run_frames(KEY_EDGE_FRAMES).map_err(|err| {
+            format!(
+                "joystick axis reset port {} {name} failed: {err}",
+                step.port
+            )
+        })?;
     }
     Ok(())
 }
@@ -4726,6 +4876,8 @@ mod tests {
             "1,fire,20".to_owned(),
             "--smoke-joystick".to_owned(),
             "1,right,30".to_owned(),
+            "--smoke-joystick-axis".to_owned(),
+            "1,x,-0.5,40".to_owned(),
             "--smoke-idle-after-start".to_owned(),
             "492".to_owned(),
         ])
@@ -4751,6 +4903,15 @@ mod tests {
                     frames: 30,
                 },
             ]
+        );
+        assert_eq!(
+            cli.smoke_joystick_axis,
+            vec![SmokeJoystickAxisStep {
+                port: 1,
+                axis: SmokeJoystickAxis::X,
+                value: -16_383,
+                frames: 40,
+            }]
         );
         assert_eq!(
             cli.smoke_screenshot_format,
@@ -5080,6 +5241,31 @@ mod tests {
         ])
         .expect_err("invalid joystick control should fail");
         assert!(bad_control.contains("expected up, down, left, right, fire, or idle"));
+
+        let bad_axis = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--smoke-joystick-axis".to_owned(),
+            "1,z,0.5,20".to_owned(),
+        ])
+        .expect_err("invalid joystick axis should fail");
+        assert!(bad_axis.contains("expected x or y"));
+
+        let bad_value = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--smoke-joystick-axis".to_owned(),
+            "1,x,1.5,20".to_owned(),
+        ])
+        .expect_err("invalid joystick axis value should fail");
+        assert!(bad_value.contains("must be a finite number from -1.0 to 1.0"));
+    }
+
+    #[test]
+    fn smoke_axis_values_match_shared_normalized_range() {
+        assert_eq!(parse_smoke_axis_value("-1.0"), Ok(i16::MIN));
+        assert_eq!(parse_smoke_axis_value("0.0"), Ok(0));
+        assert_eq!(parse_smoke_axis_value("1.0"), Ok(i16::MAX));
     }
 
     #[test]
