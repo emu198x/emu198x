@@ -407,6 +407,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "commodore-agnus-ecs"
+version = "0.1.0"
+dependencies = [
+ "commodore-agnus-ocs",
+]
+
+[[package]]
 name = "commodore-agnus-ocs"
 version = "0.1.0"
 dependencies = [
@@ -418,6 +425,13 @@ name = "commodore-amiga-autoconfig"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "commodore-denise-ecs"
+version = "0.1.0"
+dependencies = [
+ "commodore-denise-ocs",
 ]
 
 [[package]]
@@ -2657,6 +2671,7 @@ name = "runtime-dragon"
 version = "0.1.0"
 dependencies = [
  "emu198x-shell",
+ "format-dragon-bin",
  "format-dragon-cas",
  "format-dragon-pak",
  "machine-dragon-32",

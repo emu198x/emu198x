@@ -1,0 +1,12 @@
+[package]
+name = "commodore-denise-ecs"
+description = "Commodore Super Denise (ECS) — thin wrapper over commodore-denise-ocs that adds the BPLCON3 register and ECS display-mode extensions. Used by ECS machines (A500+, A600, A3000) and consumed by commodore-denise-aga via Lisa."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+commodore-denise-ocs = { path = "../commodore-denise-ocs" }
+
+[lints]
+workspace = true

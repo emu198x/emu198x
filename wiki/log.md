@@ -4,6 +4,57 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-01 — Amiga ECS chip ports: agnus-ecs + denise-ecs lifted from archive
+
+**Type:** archive port (lift-and-shift). Pure foundation work for the next tracks (ECS machine variants, AGA, eventually SAGA/Vampire/RTG).
+**Trigger:** the open-queue "Amiga ECS variants" item, immediately after the NTSC variants landed earlier today. The user's call: "let's go ECS, baby" — push on with momentum but pick a tight scope.
+**Scope chosen:** **chip ports only.** Lift `commodore-agnus-ecs` (988 lines) and `commodore-denise-ecs` (383 lines) from `~/Projects/Emu198x-Oldest/crates/`. Both are deltas-on-OCS via `Deref/DerefMut` wrappers, so the lifts are mechanical: copy `src/lib.rs`, copy `Cargo.toml` (drop `repository.workspace = true` which isn't in this workspace's `[workspace.package]`), register in workspace `members`. **No machine wiring, no new runtime variants.** ECS is now present in the workspace but no machine uses it yet — that's next session.
+
+### Why scope-A this session
+
+The alternative — chip ports + a new `machine-commodore-amiga-ecs` crate paralleling `machine-commodore-amiga-ocs` (~2000+ lines mirrored chip wiring) + `AmigaEcs` `AmigaMachine` impl + at least one ECS Model entry — is genuinely 2-3 sessions of work. Trying to ship machine wiring in the same session as the chip lifts would risk a half-baked AmigaEcs that doesn't actually boot anything. Splitting the work means each commit is honest about what it ships.
+
+### What landed
+
+**`crates/commodore-agnus-ecs/`** — ECS Agnus wrapper (Super Agnus 8372A / 8375):
+- Wraps `commodore-agnus-ocs::Agnus` via `Deref/DerefMut` so all OCS behaviour passes through unchanged
+- Adds `BEAMCON0` register handling (15 bit constants: HSYTRUE, VSYTRUE, CSYTRUE, BLANKEN, VARCSYEN, PAL, DUAL, VARBEAMEN, VARHSYEN, VARVSYEN, CSCBEN, LOLDIS, VARVBEN, LPENDIS, HARDDIS)
+- Adds programmable sync generator with `SyncPinLevels` output (hsync, vsync, csync, blank pin levels)
+- Adds programmable beam-counter comparator support for VARBEAMEN
+- 20 inline tests covering BEAMCON0 round-trip, sync polarity flipping, programmable horizontal/vertical sync windows, programmable vertical blank window, frame-zero wraparound for VARVSYEN/VARVBEN, OCS pass-through baseline
+
+**`crates/commodore-denise-ecs/`** — ECS Denise wrapper (Super Denise 8362R6 / 8373):
+- Wraps `commodore-denise-ocs::DeniseOcs` via `Deref/DerefMut`
+- Adds the `BPLCON3` register the ECS layer owns (palette banking later consumed by AGA Lisa, BRDRBLNK / BRDNTRAN border control, KILLEHB, ENBPLCN3)
+- 12 inline tests covering BPLCON3 round-trip, KILLEHB interaction with HAM/dual-playfield, OCS pass-through baseline
+
+Both crates use exactly the same archive content as `Emu198x-Oldest` — zero source-level drift between the archive snapshot and the current OCS chip surface. The lift was pure copy-paste plus one clippy fix (`empty_line_after_doc_comments` on a multi-line BEAMCON0 doc block — converted to `//` comments).
+
+### What's NOT in this session
+
+- **No `machine-commodore-amiga-ecs` crate.** The chip ports compile and self-test; nothing uses them yet.
+- **No new `Model` entries.** The runtime layer is unchanged. There's still no `A500PlusEcs*` / `A600Ecs*` / `A3000Ecs*` model variant to construct an ECS-backed runtime from.
+- **No conversion of existing variants.** The current `A500PlusOcsPal/Ntsc` entries are technically anachronistic (the real A500+ shipped with ECS Agnus 8375, not OCS), but reclassifying them risks breaking the existing PAL goldens. Deferred until a real ECS machine wrapper exists and we can compare boot behaviour.
+- **No AGA / SAGA / Vampire / PiStorm / RTG.** All remain research/lift-first. AGA chip crates are in the archive (`commodore-agnus-aga` 278 lines, `commodore-denise-aga` 372 lines) for whenever the AGA track begins.
+
+### Verification
+
+- `cargo build -p commodore-agnus-ecs -p commodore-denise-ecs` clean
+- `cargo test -p commodore-agnus-ecs --lib`: **20 passed, 0 failed**
+- `cargo test -p commodore-denise-ecs --lib`: **12 passed, 0 failed**
+- `cargo clippy -p commodore-agnus-ecs -p commodore-denise-ecs --lib --tests -- -D warnings` clean
+- `cargo build -p machine-commodore-amiga-ocs -p runtime-commodore-amiga` still clean — workspace addition didn't disturb anything
+
+### Next sessions (ordered)
+
+1. **Build `machine-commodore-amiga-ecs`** — parallel to `machine-commodore-amiga-ocs` but using `AgnusEcs` and `DeniseEcs` for the chip slots. The two `AmigaMachine` impls (OCS and ECS) will sit side-by-side in `runtime-commodore-amiga/src/variants.rs`.
+2. **Add ECS `Model` variants** — A500+, A600, A3000 each in PAL/NTSC = 6 new Model entries. The A500+ PAL/NTSC entries get reclassified at this point if the new ECS machine boots cleanly.
+3. **AGA chip lifts** — `commodore-agnus-aga` + `commodore-denise-aga` from archive (analogous to today's lift).
+4. **AGA machines + Models** — A1200, A4000.
+5. **Vampire / SAGA / PiStorm / RTG** — research-first.
+
+---
+
 ## 2026-05-01 — Amiga NTSC: chip-layer line alternation + 5 NTSC OCS variants
 
 **Type:** chip + machine + runtime work in one cohesive session, per the open-queue plan that bundled NTSC's chip-level alternation with the matching runtime variants.

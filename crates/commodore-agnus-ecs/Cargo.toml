@@ -1,0 +1,12 @@
+[package]
+name = "commodore-agnus-ecs"
+description = "Commodore Super Agnus (ECS) — thin wrapper over commodore-agnus-ocs that adds the BEAMCON0 register, programmable sync generator, and ECS-specific timing extensions. Used by ECS machines (A500+, A600, A3000)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
+
+[lints]
+workspace = true
