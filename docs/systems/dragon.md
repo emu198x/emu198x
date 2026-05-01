@@ -14,13 +14,14 @@ the Dragon's analogue joystick comparator path.
 Dragon 64 is represented as a distinct PAL runtime profile. It cold-boots in
 the real hardware's Dragon 32-compatible mode, adds the Dragon 64 ACIA decode
 at `$FF04-$FF07`, keeps the SAM-backed 64K RAM paging model, and now supports
-the native `EXEC 48000` transition. PIA1 PB2 selects between the compatible and
-64-mode internal BASIC ROMs at `$8000-$BFFF`, while SAM map type 1 exposes RAM
-below the `$FFxx` device/vector page. The runtime rejects obviously bad Dragon
-64 firmware pairs, including duplicated ROMs and known swapped compatible/mode
-ROM CRCs, without requiring every alternate valid dump to match a catalogued
-CRC. CoCo variants, cartridge expansion hardware beyond the documented audio
-input pin, and DragonDOS disk support remain future work.
+the native `EXEC 48000` transition into usable 64-mode BASIC. PIA1 PB2 selects
+between the compatible and 64-mode internal BASIC ROMs at `$8000-$BFFF`, while
+SAM map type 1 exposes RAM below the `$FFxx` device/vector page. The runtime
+rejects obviously bad Dragon 64 firmware pairs, including duplicated ROMs and
+known swapped compatible/mode ROM CRCs, without requiring every alternate valid
+dump to match a catalogued CRC. CoCo variants, cartridge expansion hardware
+beyond the documented audio input pin, and DragonDOS disk support remain future
+work.
 
 ## What Works
 
@@ -305,9 +306,10 @@ cargo run --release -q -p emu198x-script-dragon -- \
    to the current 372x243 diagnostic visible area and XRoar zoomed comparison
    bridge. A fuller PAL timing/overscan model can come later.
 5. Dragon 64 cold-boot and native `EXEC 48000` 64-mode BASIC entry are in
-   place, including PIA1 PB2 ROM selection and `$FF04-$FF07` ACIA decode.
-   Full RS-232 behavior, cartridge expansion hardware beyond the documented
-   `SND` input pin, and DragonDOS/WD2797 disk support are not implemented.
+   place, including PIA1 PB2 ROM selection, `$FF04-$FF07` ACIA decode, and a
+   post-transition BASIC command smoke. Full RS-232 behavior, cartridge
+   expansion hardware beyond the documented `SND` input pin, and
+   DragonDOS/WD2797 disk support are not implemented.
 
 For the source-backed accuracy audit and implementation sequence, see
 [`dragon-accuracy-audit.md`](dragon-accuracy-audit.md).
@@ -351,7 +353,7 @@ emulator-vs-emulator pixel matching.
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 16: source horizontal geometry/crop split, text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
 | Harness | 24: CLI, ROM loading, direct `.BIN` argument, keyboard labels, text dumps, direct screenshots, CAS smoke options, PAK snapshot smoke, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
-| Runtime | Dragon 32 and Dragon 64 profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, direct `.BIN` mounting, cartridge mounting, PAK snapshot mounting, joystick button-to-hardware mapping, real-ROM screenshot, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
+| Runtime | Dragon 32 and Dragon 64 profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, direct `.BIN` mounting, cartridge mounting, PAK snapshot mounting, joystick button-to-hardware mapping, real-ROM screenshot, Dragon 64 `EXEC 48000` plus post-transition BASIC smoke, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
 | Native | CLI, CAS tape argument, direct `.BIN` argument, cartridge argument, snapshot argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping, gamepad-to-joystick mapping |
 | CAS format | 7: block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors |
 | BIN format | 4: DragonDOS sentinel, machine-code type, header fields, payload length validation |

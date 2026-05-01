@@ -227,8 +227,9 @@ Progress:
   cycle timing but not actual memory reads/writes.
 - Dragon 64 now has a distinct PAL runtime profile that cold-boots from the
   Dragon 64 compatible BASIC ROM, decodes the Dragon 64 6551 ACIA range at
-  `$FF04-$FF07`, and enters 64-mode BASIC through `EXEC 48000`. Full RS-232
-  behavior remains pending.
+  `$FF04-$FF07`, enters 64-mode BASIC through `EXEC 48000`, and then accepts
+  and evaluates a post-transition BASIC command. Full RS-232 behavior remains
+  pending.
 - Dragon 64 firmware construction now rejects obviously bad ROM pairs:
   identical compatible/mode images and catalogued CRCs supplied in the wrong
   slot. Unknown 16 KiB alternates are still accepted so valid uncatalogued dumps

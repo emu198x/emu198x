@@ -106,6 +106,29 @@ fn dragon64_exec_48000_enters_sixty_four_kib_mode() {
         query_u64(&session, "dragon.pia1.pins_b"),
         screen_text_lines(&session).join("\n")
     );
+
+    for name in ["p", "r", "i", "n", "t", "space", "1", "enter"] {
+        tap_key(&mut session, name);
+    }
+    if let Err(err) = session.wait_for_query_text_contains("screen.text.lines", "PRINT 1", 60) {
+        panic!(
+            "Dragon 64 64-mode BASIC should echo input after EXEC 48000: {err}; pc=${:04X} s=${:04X}\n{}",
+            query_u64(&session, "dragon.cpu.pc"),
+            query_u64(&session, "dragon.cpu.s"),
+            screen_text_lines(&session).join("\n")
+        );
+    }
+    session
+        .run_frames(60)
+        .expect("Dragon 64 64-mode BASIC should evaluate PRINT 1");
+    let lines = screen_text_lines(&session);
+    assert!(
+        lines.iter().any(|line| line.trim() == "1"),
+        "Dragon 64 64-mode BASIC should print a numeric result after EXEC 48000; pc=${:04X} s=${:04X}\n{}",
+        query_u64(&session, "dragon.cpu.pc"),
+        query_u64(&session, "dragon.cpu.s"),
+        lines.join("\n")
+    );
 }
 
 #[test]
