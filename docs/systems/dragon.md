@@ -130,6 +130,26 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --smoke-idle-after-start 300
 ```
 
+Known joystick comparator fixture:
+
+```sh
+cargo run -p emu198x-script-dragon -- \
+  --rom '/Users/stevehill/Projects/Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)(Dragon Data).zip' \
+  --smoke-root '/Users/stevehill/Projects/Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Applications/[CAS]/Joystick Test (198x)(-).zip' \
+  --smoke-run-limit 1 \
+  --smoke-report target/dragon-joystick-sweep.json \
+  --smoke-screenshot-dir target/dragon-joystick-sweep \
+  --smoke-joystick-axis-sweep 1,x,-1.0,1.0,5,120 \
+  --smoke-joystick-axis-sweep 1,y,-1.0,1.0,5,120 \
+  --smoke-idle-after-start 120
+```
+
+This archived CAS fixture loads as `JOY TEST`, starts via `RUN`, reaches a
+stable idle frame, then reports visible changes for comparator sweep points on
+both X and Y axes. The 2026-05-01 run produced valid CAS checksums,
+`classification=started-text-drawing`, `idle_visible_change=false`, and
+`joystick_visible_change=true`.
+
 Headless smoke over one PC-Dragon PAK snapshot tree:
 
 ```sh
@@ -199,8 +219,9 @@ For the source-backed accuracy audit and implementation sequence, see
    traces from matched initial machine state.
 2. Validate Dragon audio filtering and audible software behavior against XRoar
    or hardware captures once we have sound-producing CAS fixtures.
-3. Build a small comparator-sensitive software fixture set and run the new
-   smoke axis sweep against it in CI or local smoke matrices.
+3. Promote the real `JOY TEST` comparator sweep into the regular local smoke
+   matrix, and add a synthetic fixture only if we need deterministic text
+   assertions independent of archived media availability.
 4. Revisit PAL geometry and external video reference captures after the current
    practical usability loop is smoother.
 

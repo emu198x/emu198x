@@ -146,12 +146,16 @@ incomplete:
 - Native host gamepad left-stick input now reaches the Dragon analogue
   comparator path continuously; headless smoke can now inject explicit
   normalized analogue axis values and sweep them across a range.
+- The archived `JOY TEST` CAS now serves as the first real comparator-sensitive
+  fixture: it loads through the ROM, idles stably, and reports visible changes
+  across X/Y analogue sweep points.
 - Cartridge audio and AY expansions are not implemented.
 
 Required resolution:
 
-1. Add comparator-focused smoke fixtures that sweep analogue axis values against
-   joystick-reading software.
+1. Promote the `JOY TEST` comparator sweep fixture into the regular local smoke
+   matrix, adding a synthetic fixture only if archived media availability makes
+   deterministic assertions awkward.
 2. Add analogue filtering and expansion audio only after core timing is stable.
 
 ## Validation Plan
@@ -219,3 +223,6 @@ Progress:
   `--smoke-joystick-axis-sweep`, so headless CAS smoke can drive continuous
   comparator values without a physical gamepad and record which sweep points
   visibly affect software output.
+- The archived `JOY TEST` CAS loads and runs under the ROM, remains visually
+  stable after start, and then visibly reacts to X/Y analogue comparator sweep
+  points from the headless smoke harness.
