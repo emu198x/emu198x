@@ -928,3 +928,217 @@ fn pentagon_boot_status_returns_not_detected_until_banner_confirmed() {
     assert_eq!(detected.value, serde_json::json!(false));
     assert_eq!(reason.value, serde_json::json!("copyright banner not visible"));
 }
+
+// ---- ROM-backed banner regression + diagnostic ----
+//
+// The TC2048 banner is confirmed and asserted as a regression. The
+// other six variants are diagnostic-only — running
+// `probe_all_variant_banners` with `--ignored --nocapture` prints
+// each variant's boot screen so future contributors can investigate
+// what's blocking banner detection for the paged-ROM variants
+// (128K family) and graphic-splash variants (Pentagon, Scorpion,
+// TS2068). See `BLOCKED 2026-05-01` notes in `src/variants.rs` for
+// the per-variant rationale.
+
+fn rom_dir(suffix: &str) -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(suffix))
+}
+
+fn print_screen(label: &str, lines: &[String]) {
+    eprintln!("\n=== {label} ===");
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_end();
+        if !trimmed.is_empty() {
+            eprintln!("  row {i:2}: {line:?}");
+        }
+    }
+}
+
+fn run_frames<M: SpectrumMachine>(rt: &mut SpectrumRuntime<M>, n: u32) {
+    use emu198x_shell::NullAudioSink;
+    let mut frame = RecordingFrameSink::default();
+    let mut audio = NullAudioSink;
+    let mut trace = NullTraceSink;
+    let hc_per_frame = u64::from(rt.machine().frame_halfcycles());
+    let target_hc = hc_per_frame * u64::from(n);
+    rt.run_until(
+        MachineTime::new(target_hc),
+        &mut HostIo {
+            input_events: &[],
+            frame_sink: &mut frame,
+            audio_sink: &mut audio,
+            trace_sink: &mut trace,
+        },
+    )
+    .expect("variant runtime should run");
+}
+
+fn screen_lines<M: SpectrumMachine>(rt: &SpectrumRuntime<M>) -> Vec<String> {
+    let provider = SpectrumSessionQueryProvider;
+    let result = provider
+        .query(rt, "screen.text.lines")
+        .expect("screen.text.lines should not error")
+        .expect("screen.text.lines should resolve");
+    let arr = result.value.as_array().expect("array");
+    arr.iter()
+        .map(|v| v.as_str().expect("string").to_owned())
+        .collect()
+}
+
+/// Regression for the TC2048 banner confirmed in
+/// `src/variants.rs::TIMEX_TC2048_BANNERS`. Boots the local ROM and
+/// asserts the boot status matches.
+#[test]
+#[ignore = "requires local Timex TC2048 ROM at ~/.emu198x/roms/timex-tc2048/tc2048.rom"]
+fn tc2048_boot_banner_is_detected_with_real_rom() {
+    let dir = rom_dir(".emu198x/roms/timex-tc2048").expect("HOME set");
+    let path = dir.join("tc2048.rom");
+    if !path.exists() {
+        eprintln!("TC2048 ROM not at {} — skipping", path.display());
+        return;
+    }
+    let rom = std::fs::read(&path).expect("read TC2048 ROM");
+    let mut m = TimexTC2048::new();
+    m.memory.load_rom_data(&rom);
+    let mut rt = TimexTC2048Runtime::new(Model::TimexTC2048, m);
+    run_frames(&mut rt, 200);
+
+    let provider = SpectrumSessionQueryProvider;
+    let detected = provider
+        .query(&rt, "boot.detected")
+        .expect("boot.detected resolves")
+        .expect("provider owns boot.detected");
+    let reason = provider
+        .query(&rt, "boot.reason")
+        .expect("boot.reason resolves")
+        .expect("provider owns boot.reason");
+    assert_eq!(detected.value, serde_json::json!(true));
+    let reason_str = reason.value.as_str().expect("reason is string");
+    assert!(
+        reason_str.contains("copyright banner") && reason_str.contains("row"),
+        "TC2048 boot.reason should announce a copyright-banner row hit; got {reason_str:?}",
+    );
+
+    // The decoded screen should literally contain the verified
+    // Sinclair banner string so the regression catches a reader-side
+    // change too.
+    let lines = screen_lines(&rt);
+    assert!(
+        lines.iter().any(|line| line.contains("Sinclair Research Ltd")),
+        "TC2048 screen.text.lines should contain 'Sinclair Research Ltd'; got {lines:?}",
+    );
+}
+
+#[test]
+#[ignore = "diagnostic — boots six variants from ~/.emu198x/roms and prints banners"]
+fn probe_all_variant_banners() {
+    if let Some(dir) = rom_dir(".emu198x/roms/sinclair-zx-spectrum-128k") {
+        let r0 = std::fs::read(dir.join("128-0.rom"));
+        let r1 = std::fs::read(dir.join("128-1.rom"));
+        if let (Ok(rom0), Ok(rom1)) = (r0, r1) {
+            let mut m = Spectrum128K::new();
+            m.memory.load_roms(&rom0, &rom1);
+            let mut rt = Spectrum128kRuntime::new(Model::Spectrum128KPal, m);
+            run_frames(&mut rt, 200);
+            print_screen("Spectrum 128K (200 frames)", &screen_lines(&rt));
+        } else {
+            eprintln!("128K ROMs missing");
+        }
+    }
+
+    if let Some(dir) = rom_dir(".emu198x/roms/amstrad-zx-spectrum-plus2") {
+        let r0 = std::fs::read(dir.join("plus2-0.rom"));
+        let r1 = std::fs::read(dir.join("plus2-1.rom"));
+        if let (Ok(rom0), Ok(rom1)) = (r0, r1) {
+            // The grey +2 used 128K-style 2 ROMs. Boot it through the
+            // Spectrum128K machine.
+            let mut m = Spectrum128K::new();
+            m.memory.load_roms(&rom0, &rom1);
+            let mut rt = Spectrum128kRuntime::new(Model::Spectrum128KPal, m);
+            run_frames(&mut rt, 200);
+            print_screen("Spectrum +2 grey (via 128K machine, 200 frames)", &screen_lines(&rt));
+        } else {
+            eprintln!("+2 ROMs missing");
+        }
+    }
+
+    if let Some(dir) = rom_dir(".emu198x/roms/amstrad-zx-spectrum-plus3") {
+        let r0 = std::fs::read(dir.join("plus3-0.rom"));
+        let r1 = std::fs::read(dir.join("plus3-1.rom"));
+        let r2 = std::fs::read(dir.join("plus3-2.rom"));
+        let r3 = std::fs::read(dir.join("plus3-3.rom"));
+        if let (Ok(rom0), Ok(rom1), Ok(rom2), Ok(rom3)) = (r0, r1, r2, r3) {
+            for model in [PlusModel::Plus2A, PlusModel::Plus2B, PlusModel::Plus3] {
+                let mut m = SpectrumPlus::new(model);
+                m.memory.load_roms(&rom0, &rom1, &rom2, &rom3);
+                let runtime_model = match model {
+                    PlusModel::Plus2A => Model::SpectrumPlus2A,
+                    PlusModel::Plus2B => Model::SpectrumPlus2B,
+                    PlusModel::Plus3 => Model::SpectrumPlus3,
+                };
+                let mut rt = SpectrumPlusRuntime::new(runtime_model, m);
+                run_frames(&mut rt, 250);
+                print_screen(&format!("Spectrum {model:?} (250 frames)"), &screen_lines(&rt));
+            }
+        } else {
+            eprintln!("+3 ROMs missing");
+        }
+    }
+
+    if let Some(dir) = rom_dir(".emu198x/roms/pentagon-128") {
+        let r0 = std::fs::read(dir.join("pentagon-0.rom"));
+        let r1 = std::fs::read(dir.join("pentagon-1.rom"));
+        if let (Ok(rom0), Ok(rom1)) = (r0, r1) {
+            let mut m = Pentagon128::new();
+            m.memory.load_roms(&rom0, &rom1);
+            let mut rt = Pentagon128Runtime::new(Model::Pentagon128, m);
+            run_frames(&mut rt, 200);
+            print_screen("Pentagon 128 (200 frames)", &screen_lines(&rt));
+        } else {
+            eprintln!("Pentagon ROMs missing");
+        }
+    }
+
+    if let Some(dir) = rom_dir(".emu198x/roms/scorpion-zs256") {
+        let r0 = std::fs::read(dir.join("scorpion-0.rom"));
+        let r1 = std::fs::read(dir.join("scorpion-1.rom"));
+        let r2 = std::fs::read(dir.join("scorpion-2.rom"));
+        let r3 = std::fs::read(dir.join("scorpion-3.rom"));
+        if let (Ok(rom0), Ok(rom1), Ok(rom2), Ok(rom3)) = (r0, r1, r2, r3) {
+            let mut m = ScorpionZS256::new();
+            m.memory.load_roms(&rom0, &rom1, &rom2, &rom3);
+            let mut rt = ScorpionZS256Runtime::new(Model::ScorpionZS256, m);
+            run_frames(&mut rt, 250);
+            print_screen("Scorpion ZS-256 (250 frames)", &screen_lines(&rt));
+        } else {
+            eprintln!("Scorpion ROMs missing");
+        }
+    }
+
+    if let Some(dir) = rom_dir(".emu198x/roms/timex-tc2048") {
+        if let Ok(rom) = std::fs::read(dir.join("tc2048.rom")) {
+            let mut m = TimexTC2048::new();
+            m.memory.load_rom_data(&rom);
+            let mut rt = TimexTC2048Runtime::new(Model::TimexTC2048, m);
+            run_frames(&mut rt, 200);
+            print_screen("Timex TC2048 (200 frames)", &screen_lines(&rt));
+        } else {
+            eprintln!("TC2048 ROM missing");
+        }
+    }
+
+    if let Some(dir) = rom_dir(".emu198x/roms/timex-ts2068") {
+        let main_path = dir.join("ts2068.rom");
+        let exrom_path = dir.join("exrom.rom");
+        if main_path.exists() && exrom_path.exists() {
+            let mut m = TimexTS2068::new(TimexModel::TS2068);
+            m.memory.load_rom(&main_path).expect("ts2068 main ROM");
+            m.memory.load_exrom(&exrom_path).expect("ts2068 exrom");
+            let mut rt = TimexTS2068Runtime::new(Model::TimexTS2068, m);
+            run_frames(&mut rt, 200);
+            print_screen("Timex TS2068 (200 frames)", &screen_lines(&rt));
+        } else {
+            eprintln!("TS2068 ROMs missing");
+        }
+    }
+}

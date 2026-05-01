@@ -4,6 +4,66 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-01 — Spectrum variant boot banners: TC2048 confirmed, others architecturally blocked
+
+**Type:** investigation + small fix (post-`dc0e200` follow-up — confirm the per-variant boot banners stubbed in the previous commit)
+**Trigger:** the previous commit generalised `SpectrumSessionQueryProvider` across all 7 Spectrum variants but left six variants' `BOOT_BANNER` constants empty (`detected = false`) pending ROM-backed transcription. The plan was to boot each variant from local ROMs, capture screen text via the now-generic `screen.text.lines` query, and transcribe the actual banner string.
+
+**Result:** **one variant confirmed** (TC2048 — same Sinclair 1982 banner as 48K). The other five variants are architecturally blocked by limitations of the screen-text decoder that became visible only by booting them. Documented per-variant in `src/variants.rs` with `BLOCKED 2026-05-01` notes and a diagnostic probe test that future contributors can use to investigate.
+
+### What got confirmed
+
+**Timex TC2048**: row 23 reads `"© 1982 Sinclair Research Ltd"` after 200 frames — the same banner as the 48K, because the TC2048 ships an enhanced 48K-compatible ROM (sold by Timex of Portugal as the Timex Computer 2048). The decoder works directly: 16K single ROM, no paging, glyph table at $3D00 in the standard place.
+
+`TIMEX_TC2048_BANNERS` updated to the verified ASCII / unicode / fallback triple (mirroring the 48K pattern). New `#[ignore]`d regression test `tc2048_boot_banner_is_detected_with_real_rom` boots the local ROM, runs 200 frames, and asserts `boot.detected = true` plus the screen contains "Sinclair Research Ltd".
+
+### Architectural blockers discovered (per-variant)
+
+The probe test booted each variant for 200-250 frames and printed all 24 screen rows. Findings:
+
+1. **Spectrum 128K, +2 grey, +2A, +2B, +3** — boot screens *are* textual but the screen-text decoder reads ROM glyphs from `$3D00`, and after boot the 128K family pages **ROM 0** (the 128 BASIC editor / +3 boot ROM) at `$0000-$3FFF`. ROM 0 doesn't carry the standard glyph table at `$3D00` — only ROM 1 (48 BASIC) does. The probe shows the boot screens contain a recognisable model identifier on row 7 ("+2A BASIC", "+3 BASIC", etc.) plus an "Amstrad" credit on rows 22-23, but every glyph decodes as `?` because the lookup hits the wrong ROM bank.
+
+   **Fix needed:** paging-aware glyph reader that always pulls `$3D00` from ROM 1 regardless of which ROM is currently mapped. The architecture for this needs a small addition to the `MemoryBus` trait (or a Spectrum-specific helper) — non-trivial but not gnarly.
+
+2. **Pentagon 128, Scorpion ZS-256** — boot screens are pure graphic splashes (full-screen bitmaps — Pentagon shows its custom logo; Scorpion shows a stylised "ZS-256" graphic). No glyphs at all. The probe shows uniform `?????` across all 24 rows because the screen-RAM bytes don't correspond to any ROM glyph indices.
+
+   **Fix needed:** different boot signal. Either (a) match against a known bitmap pattern from the splash logo (per-variant), or (b) wait for the BASIC editor's idle state and detect via I/O register state. Option (b) is more robust but needs more boot frames.
+
+3. **Timex TS2068** — uses a different ROM glyph table from the standard Sinclair `$3D00` layout (the TS2068 ROM is a Timex-of-America rewrite, not a 48K derivative). The probe shows alternating `? ` cells: the decoder is reading the right screen RAM but interpreting each cell against the wrong glyph table.
+
+   **Fix needed:** TS2068-specific glyph table address (likely in the Timex EXROM at a different offset), or a different decoder strategy for non-Sinclair-derived ROMs.
+
+### Changes landed
+
+| File | Change |
+|---|---|
+| `src/variants.rs` | `TIMEX_TC2048_BANNERS` filled with verified Sinclair triple. Five other variants' `BOOT_BANNER` constants kept at `&[]` but with new `BLOCKED 2026-05-01` notes documenting the per-variant blocker discovered above. |
+| `tests/variants.rs` | New `tc2048_boot_banner_is_detected_with_real_rom` ROM-gated regression test. New `probe_all_variant_banners` ROM-gated diagnostic test that boots all six remaining variants and prints their full 24-row screen output. Both `#[ignore]`d. |
+
+### Verification
+
+- `cargo test -p runtime-sinclair-zx-spectrum --lib --tests` — **87 passed, 8 ignored** (was 87 / 6 — added 2 new `#[ignore]`d ROM-gated tests, no regression).
+- `cargo test -p runtime-sinclair-zx-spectrum --test variants tc2048_boot_banner_is_detected_with_real_rom -- --ignored` — passes against the local TC2048 ROM.
+- `cargo clippy -p runtime-sinclair-zx-spectrum --all-targets -- -D warnings` — clean.
+
+### Surprises
+
+- **`pentagon_boot_status_returns_not_detected_until_banner_confirmed` test still useful.** That test (from the previous Cov-5b work) explicitly asserts the TODO-stubbed variants return `detected = false` — it now becomes a regression check that prevents accidentally enabling banner detection for a variant where the architectural fix hasn't landed yet. Kept verbatim.
+- **The probe diagnostic stays in-tree.** It was tempting to delete it after the investigation, but it's the canonical research tool for whoever does the architectural fix work next — they'll boot the same six variants and want exactly this output. It's `#[ignore]`d so it doesn't run in CI.
+
+### Implications for the open queue
+
+The original Cov-5d open-queue item "ROM-backed banner verification for the six TODO-stubbed variants" decomposes into:
+
+- ✅ **TC2048** — done.
+- 🔧 **128K family (5 variants)** — blocked on paging-aware glyph reader. Bounded architectural fix in `common-sinclair-zx-spectrum` or a new `read_glyph` method on the `SpectrumMachine` trait. Probably 50-100 lines of code + per-variant impls + tests. Next-on-the-track candidate.
+- 🔧 **Pentagon, Scorpion** — blocked on splash-screen detection strategy. Needs a different approach (bitmap pattern match or I/O state probe). More research-heavy than the paging fix.
+- 🔧 **TS2068** — blocked on TS2068-specific glyph table location. Smallest of the three remaining fixes — probably one constant + per-variant decoder override.
+
+The open queue otherwise unchanged: AY register exposure, verifier-binary smoke tests, coverage-script `--ignored` toggle, Amiga ECS/AGA/SAGA conversion.
+
+---
+
 ## 2026-04-30 — Generalise SpectrumSessionQueryProvider across all 7 variants
 
 **Type:** feature (extending an existing capability to additional family members)

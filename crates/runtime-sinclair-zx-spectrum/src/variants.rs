@@ -66,40 +66,63 @@ const SPECTRUM_48K_BANNERS: &[&str] = &[
     "1982 Sinclair Research Ltd",
 ];
 
-// TODO: confirm Spectrum 128K boot banner. The Sinclair 128K ROM is
-// reported to display a "© 1986 Sinclair Research Ltd" banner under
-// the 128 BASIC start menu, but the exact spacing has not been
-// verified against the ROM in this workspace. Returning detected =
-// false until a ROM-backed boot test fixes the banner.
+// BLOCKED 2026-05-01: the screen-text decoder reads ROM glyphs from
+// $3D00, but the 128K family pages ROM 0 (128 BASIC editor) at
+// $0000-$3FFF after boot — and ROM 0 doesn't carry the standard glyph
+// table at $3D00, only ROM 1 (48 BASIC) does. Banner detection on
+// these variants needs a paging-aware glyph reader (look up ROM 1's
+// $3D00 regardless of which ROM is currently mapped). Until that
+// architectural change lands, the boot screen text is rendered but
+// not decodable.
+//
+// The probe test `probe_all_variant_banners` confirms the boot
+// screens *do* contain a recognisable model identifier text on row 7
+// (e.g. "+2A BASIC", "+3 BASIC") — only the glyph lookup is
+// blocked, not the runtime itself.
 const SPECTRUM_128K_BANNERS: &[&str] = &[];
 
-// TODO: confirm SpectrumPlus (+2A / +2B / +3) boot banner. The Amstrad
-// gate-array ROMs display "© 1986 Amstrad Consumer Electronics plc"
-// under the menu but the exact on-screen rendering has not been
-// captured in this workspace. Returning detected = false until
-// confirmed.
+// BLOCKED 2026-05-01: same paging-aware-glyph-reader issue as
+// SPECTRUM_128K_BANNERS. Probe shows the +2A/+2B/+3 boot screen does
+// render the model identifier on row 7 plus an "Amstrad" credit on
+// rows 22-23, but the glyphs decode as `?` because the +3 ROM 0 (the
+// boot ROM) doesn't carry the table at $3D00 either.
 const SPECTRUM_PLUS_BANNERS: &[&str] = &[];
 
-// TODO: confirm Pentagon 128 boot banner. The Pentagon ROM is a
-// modified 128K image — banner string is variant-specific to the
-// Pentagon revision. Returning detected = false until confirmed.
+// BLOCKED 2026-05-01: the Pentagon boot screen is a graphic splash
+// (full-screen bitmap), not text rendered through the standard ROM
+// glyph table. Banner detection here needs a different signal —
+// either a screen-RAM bitmap pattern match, or an I/O / register
+// state check (e.g. once the BASIC editor's idle state is reached).
+// The probe test confirms 200 frames produces a uniformly graphic
+// screen with no text-glyph cells.
 const PENTAGON_128_BANNERS: &[&str] = &[];
 
-// TODO: confirm Scorpion ZS-256 boot banner. The Scorpion ROM
-// displays a Russian-language "Scorpion ZS-256" banner that has not
-// been verified in this workspace. Returning detected = false until
-// confirmed.
+// BLOCKED 2026-05-01: same as Pentagon — the Scorpion boot screen is
+// a graphic splash, not text. Banner detection needs a different
+// signal mechanism.
 const SCORPION_ZS256_BANNERS: &[&str] = &[];
 
-// TODO: confirm Timex TC2048 boot banner. The Timex ROM is a 48K
-// derivative with a Portuguese-market splash. Banner not yet
-// verified. Returning detected = false until confirmed.
-const TIMEX_TC2048_BANNERS: &[&str] = &[];
+// Confirmed 2026-05-01 by booting `~/.emu198x/roms/timex-tc2048/tc2048.rom`
+// for 200 frames and inspecting `screen.text.lines`: row 23 reads
+// `"© 1982 Sinclair Research Ltd"` — same banner as the 48K because the
+// TC2048 ships an enhanced 48K-compatible ROM (Timex of Portugal sold
+// it as the Timex Computer 2048 for the European market). The decoder
+// works directly on TC2048 because the ROM is a single 16K image — no
+// paging, glyph table at $3D00 just like the 48K.
+const TIMEX_TC2048_BANNERS: &[&str] = &[
+    "(C) 1982 Sinclair Research Ltd",
+    "© 1982 Sinclair Research Ltd",
+    "1982 Sinclair Research Ltd",
+];
 
-// TODO: confirm Timex TC2068 / TS2068 boot banner. The Timex 2068
-// ROM displays a "TIMEX SINCLAIR 2068" splash but the exact
-// on-screen text has not been captured. Returning detected = false
-// until confirmed.
+// BLOCKED 2026-05-01: the TS2068 uses a different ROM glyph table
+// from the standard Sinclair $3D00 layout (the TS2068's ROM is a
+// rewrite by Timex of America, not a 48K derivative like the TC2048).
+// The probe test shows alternating `? ` cells which means the
+// decoder is reading the right screen RAM but applying the wrong
+// glyph table to interpret each cell. Banner detection needs either
+// a TS2068-specific glyph table address or a different decoder
+// strategy for non-Sinclair-derived ROMs.
 const TIMEX_TS2068_BANNERS: &[&str] = &[];
 
 const COMMON_BOOT_PATHS: &[&str] = &["boot.detected", "boot.reason", "boot.row"];
