@@ -204,7 +204,7 @@ For the source-backed accuracy audit and implementation sequence, see
 | Component | Tests |
 |-----------|-------|
 | Machine | ROM mapping, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
-| PIA | 5: DDR, control, IRQ, input pins, mixed I/O |
+| PIA | 12: DDR, control, IRQ, input pins, mixed I/O, Cx1 edge selection, Cx2 input/output, Cx1-restored Cx2 strobe modes |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 16: source horizontal geometry/crop split, text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
 | Harness | 23: CLI, ROM loading, keyboard labels, text dumps, direct screenshots, CAS smoke options, PAK snapshot smoke, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |

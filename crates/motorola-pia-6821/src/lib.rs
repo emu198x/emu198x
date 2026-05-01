@@ -16,6 +16,7 @@ const CTRL_IRQ1_ENABLE: u8 = 0x01;
 
 const C2_RESET: u8 = 0x10;
 const C2_SET: u8 = 0x18;
+const C2_STROBE_C1: u8 = 0x00;
 const C2_STROBE_E: u8 = 0x08;
 
 /// PIA port selector.
@@ -63,7 +64,11 @@ pub struct Pia6821 {
     ddr_b: u8,
     ca1: bool,
     cb1: bool,
+    #[serde(default)]
+    ca2_strobe_c1: bool,
     ca2_strobe_e: bool,
+    #[serde(default)]
+    cb2_strobe_c1: bool,
     cb2_strobe_e: bool,
 }
 
@@ -86,7 +91,9 @@ impl Pia6821 {
             ddr_b: 0,
             ca1: false,
             cb1: false,
+            ca2_strobe_c1: false,
             ca2_strobe_e: false,
+            cb2_strobe_c1: false,
             cb2_strobe_e: false,
         };
         pia.update_ports();
@@ -245,7 +252,7 @@ impl Pia6821 {
 
     fn read_port_a(&mut self) -> u8 {
         if self.data_selected(PiaPort::A) {
-            if self.ca2_strobe_e {
+            if self.ca2_strobe_c1 || self.ca2_strobe_e {
                 self.ca2 = false;
             }
             let value = self.mixed_port_a();
@@ -275,7 +282,7 @@ impl Pia6821 {
                 PiaPort::A => self.data_a = value,
                 PiaPort::B => {
                     self.data_b = value;
-                    if self.cb2_strobe_e {
+                    if self.cb2_strobe_c1 || self.cb2_strobe_e {
                         self.cb2 = false;
                     }
                 }
@@ -310,20 +317,41 @@ impl Pia6821 {
     fn update_c2(&mut self, port: PiaPort, control: u8) {
         let c2_is_output = control & CTRL_C2_DDR != 0;
         if !c2_is_output {
+            match port {
+                PiaPort::A => {
+                    self.ca2_strobe_c1 = false;
+                    self.ca2_strobe_e = false;
+                }
+                PiaPort::B => {
+                    self.cb2_strobe_c1 = false;
+                    self.cb2_strobe_e = false;
+                }
+            }
             return;
         }
 
         match control & CTRL_C2_MODE {
             C2_RESET => self.set_c2(port, false),
             C2_SET => self.set_c2(port, true),
+            C2_STROBE_C1 => self.set_c2_strobe(port, true),
             C2_STROBE_E => match port {
-                PiaPort::A => self.ca2_strobe_e = true,
-                PiaPort::B => self.cb2_strobe_e = true,
+                PiaPort::A => {
+                    self.ca2 = true;
+                    self.ca2_strobe_c1 = false;
+                    self.ca2_strobe_e = true;
+                }
+                PiaPort::B => {
+                    self.cb2 = true;
+                    self.cb2_strobe_c1 = false;
+                    self.cb2_strobe_e = true;
+                }
             },
             _ => {
                 if port == PiaPort::A {
+                    self.ca2_strobe_c1 = false;
                     self.ca2_strobe_e = false;
                 } else {
+                    self.cb2_strobe_c1 = false;
                     self.cb2_strobe_e = false;
                 }
             }
@@ -334,11 +362,28 @@ impl Pia6821 {
         match port {
             PiaPort::A => {
                 self.ca2 = value;
+                self.ca2_strobe_c1 = false;
                 self.ca2_strobe_e = false;
             }
             PiaPort::B => {
                 self.cb2 = value;
+                self.cb2_strobe_c1 = false;
                 self.cb2_strobe_e = false;
+            }
+        }
+    }
+
+    fn set_c2_strobe(&mut self, port: PiaPort, restore_on_c1: bool) {
+        match port {
+            PiaPort::A => {
+                self.ca2 = true;
+                self.ca2_strobe_c1 = restore_on_c1;
+                self.ca2_strobe_e = !restore_on_c1;
+            }
+            PiaPort::B => {
+                self.cb2 = true;
+                self.cb2_strobe_c1 = restore_on_c1;
+                self.cb2_strobe_e = !restore_on_c1;
             }
         }
     }
@@ -356,6 +401,7 @@ impl Pia6821 {
         let control = self.control(port);
         if c1_active_level(control) == level {
             self.latch_irq1(port);
+            self.restore_c2_on_c1(port);
         }
     }
 
@@ -398,6 +444,20 @@ impl Pia6821 {
         match port {
             PiaPort::A => self.ctrl_a &= !CTRL_IRQ2,
             PiaPort::B => self.ctrl_b &= !CTRL_IRQ2,
+        }
+    }
+
+    fn restore_c2_on_c1(&mut self, port: PiaPort) {
+        match port {
+            PiaPort::A if self.ca2_strobe_c1 => {
+                self.ca2 = true;
+                self.ca2_strobe_c1 = false;
+            }
+            PiaPort::B if self.cb2_strobe_c1 => {
+                self.cb2 = true;
+                self.cb2_strobe_c1 = false;
+            }
+            _ => {}
         }
     }
 
@@ -599,5 +659,54 @@ mod tests {
 
         pia.write(3, 0x30);
         assert!(!pia.cb2);
+    }
+
+    #[test]
+    fn ca2_read_strobe_can_restore_on_active_ca1_edge() {
+        let mut pia = Pia6821::new();
+
+        pia.write(1, 0x24); // CA2 read strobe with CA1 restore, port A data selected.
+        assert!(pia.ca2);
+
+        assert_eq!(pia.read(0), 0xff);
+        assert!(!pia.ca2);
+
+        pia.set_signal_level(PiaSignal::Ca1, true);
+        assert!(!pia.ca2);
+        pia.set_signal_level(PiaSignal::Ca1, false);
+        assert!(pia.ca2);
+        assert_eq!(pia.control(PiaPort::A) & CTRL_IRQ1, CTRL_IRQ1);
+    }
+
+    #[test]
+    fn cb2_write_strobe_can_restore_on_active_cb1_edge() {
+        let mut pia = Pia6821::new();
+
+        pia.write(3, 0x24); // CB2 write strobe with CB1 restore, port B data selected.
+        assert!(pia.cb2);
+
+        pia.write(2, 0x55);
+        assert!(!pia.cb2);
+
+        pia.set_signal_level(PiaSignal::Cb1, true);
+        assert!(!pia.cb2);
+        pia.set_signal_level(PiaSignal::Cb1, false);
+        assert!(pia.cb2);
+        assert_eq!(pia.control(PiaPort::B) & CTRL_IRQ1, CTRL_IRQ1);
+    }
+
+    #[test]
+    fn c2_input_mode_disables_output_strobe_state() {
+        let mut pia = Pia6821::new();
+
+        pia.write(1, 0x24); // CA2 read strobe with CA1 restore.
+        pia.read(0);
+        assert!(!pia.ca2);
+
+        pia.write(1, 0x04); // CA2 input mode, port A data selected.
+        pia.set_signal_level(PiaSignal::Ca1, true);
+        pia.set_signal_level(PiaSignal::Ca1, false);
+
+        assert!(!pia.ca2);
     }
 }

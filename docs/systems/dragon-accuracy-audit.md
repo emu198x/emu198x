@@ -137,7 +137,9 @@ Required resolution:
 ### PIA And Analogue Paths
 
 The PIA register model and Dragon keyboard/joystick wiring are good enough for
-current usability, but analogue behavior is still incomplete:
+current usability, and the MC6821 interrupt/strobe coverage now includes
+source-backed Cx1/Cx2 edge and strobe behavior. Analogue behavior is still
+incomplete:
 
 - Audio uses measured/reference gains and offsets, but not full analogue
   filtering.
@@ -148,9 +150,7 @@ current usability, but analogue behavior is still incomplete:
 Required resolution:
 
 1. Add continuous analogue axis events to the shared input surface.
-2. Validate PIA interrupt edge behavior against MC6821 documentation with
-   targeted tests.
-3. Add analogue filtering and expansion audio only after core timing is stable.
+2. Add analogue filtering and expansion audio only after core timing is stable.
 
 ## Validation Plan
 
@@ -165,10 +165,9 @@ Required resolution:
 ## Immediate Next Engineering Step
 
 Move to analogue/audio validation. CPU phase stepping, SAM display-offset
-timing, VDG fetch-to-display timing, and VDG source-vs-crop horizontal geometry
-are now documented and tested. The next accuracy gap is validating PIA edge
-behavior and the Dragon analogue paths beyond the current measured-level audio
-model.
+timing, VDG fetch-to-display timing, VDG source-vs-crop horizontal geometry, and
+PIA edge/strobe behavior are now documented and tested. The next accuracy gap is
+the Dragon analogue path beyond the current measured-level audio model.
 
 Progress:
 
@@ -201,3 +200,7 @@ Progress:
 - `motorola-vdg-6847` now exposes source-derived MC6847 horizontal geometry
   constants separately from the runtime crop constants, with tests pinning both
   the raw 386-half-pixel span and the existing 372-half-pixel crop.
+- `motorola-pia-6821` now models MC6821 Cx2 output strobe modes that restore on
+  the next configured Cx1 active edge. Tests cover CA2 read strobe with CA1
+  restore, CB2 write strobe with CB1 restore, and stale strobe-state clearing
+  when Cx2 returns to input mode.
