@@ -204,19 +204,40 @@ except (KeyError, IndexError, TypeError) as exc:
     raise SystemExit(f"missing runtime start_audio in {report_path}: {exc}") from exc
 
 with wave.open(wav_path, "rb") as wav:
-    if wav.getnchannels() != 1 or wav.getframerate() != 48_000:
+    channels = wav.getnchannels()
+    sample_rate = wav.getframerate()
+    sample_width = wav.getsampwidth()
+    frame_count = wav.getnframes()
+    if channels != 1 or sample_rate != 48_000 or sample_width != 2:
         raise SystemExit(
-            f"unexpected WAV format in {wav_path}: {wav.getnchannels()} ch {wav.getframerate()} Hz"
+            "unexpected WAV format in "
+            f"{wav_path}: {channels} ch {sample_rate} Hz {sample_width * 8}-bit"
         )
-    data = wav.readframes(wav.getnframes())
+    data = wav.readframes(frame_count)
 
 samples = struct.unpack("<" + "h" * (len(data) // 2), data) if data else ()
 nonzero = sum(1 for sample in samples if sample != 0)
 peak = max((abs(sample) for sample in samples), default=0)
+distinct = len(set(samples))
+transitions = sum(1 for left, right in zip(samples, samples[1:]) if left != right)
+if len(samples) < 48_000:
+    raise SystemExit(f"short Dragon audio capture: {wav_path} samples={len(samples)}")
 if nonzero == 0 or peak == 0:
     raise SystemExit(f"silent Dragon audio capture: {wav_path}")
+if distinct < 3:
+    raise SystemExit(f"Dragon audio capture is effectively DC: {wav_path} distinct={distinct}")
+if transitions < 1_000:
+    raise SystemExit(
+        f"Dragon audio capture has too few level transitions: {wav_path} transitions={transitions}"
+    )
+if peak < 1_000:
+    raise SystemExit(f"Dragon audio capture peak is unexpectedly low: {wav_path} peak={peak}")
 
-print(f"non-silent Dragon audio: {wav_path} nonzero={nonzero} peak={peak}")
+print(
+    "active Dragon audio: "
+    f"{wav_path} samples={len(samples)} nonzero={nonzero} peak={peak} "
+    f"distinct={distinct} transitions={transitions}"
+)
 PY
 }
 

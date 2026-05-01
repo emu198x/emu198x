@@ -142,7 +142,9 @@ source-backed Cx1/Cx2 edge and strobe behavior. Analogue behavior is still
 incomplete:
 
 - Audio uses measured/reference gains and offsets, but not full analogue
-  filtering.
+  filtering. The local Backgammon smoke now asserts active 48 kHz mono output
+  with multiple sample levels and sustained transitions, so runtime audio can no
+  longer regress to silence or DC without tripping the verifier.
 - Native host gamepad left-stick input now reaches the Dragon analogue
   comparator path continuously; headless smoke can now inject explicit
   normalized analogue axis values and sweep them across a range.
@@ -155,7 +157,8 @@ Required resolution:
 
 1. Add a synthetic comparator fixture only if archived `JOY TEST` media
    availability makes deterministic assertions awkward.
-2. Add analogue filtering and expansion audio only after core timing is stable.
+2. Add analogue filtering and expansion audio only after core timing is stable
+   and after we have source material for the Dragon analogue output stage.
 
 ## Validation Plan
 

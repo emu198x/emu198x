@@ -81,15 +81,17 @@ future work.
 - **Smoke harness:** `emu198x-script-dragon --smoke-root` classifies real CAS
   loads as load errors, BASIC errors, visible text changes, machine-code
   auto-runs, video-control changes, blank graphics screens, or graphics that
-  continue drawing after the post-start settle window. `--snapshot-smoke-root`
-  scans PC-Dragon PAK snapshots, resumes each selected snapshot, classifies
+  continue drawing after the post-start settle window. The regular Backgammon
+  audio smoke writes a WAV capture and verifies active 48 kHz mono output with
+  multiple levels and sustained transitions. `--snapshot-smoke-root` scans
+  PC-Dragon PAK snapshots, resumes each selected snapshot, classifies
   running/halting and visible/blank output, writes a deterministic
   `trace_signature` over CPU fetches, VDG samples, VDG mode writes, video
   phase, text, and framebuffer data, and can write diagnostic or XRoar-zoomed
-  screenshots. CAS smoke can write patched-XRoar references after ROM
-  tape-load traps; PAK smoke can still produce patched-XRoar references, but
-  the regular verifier now uses repeated internal trace signatures as the
-  stable PAK alignment gate.
+  screenshots. CAS smoke can write patched-XRoar references after ROM tape-load
+  traps; PAK smoke can still produce patched-XRoar references, but the regular
+  verifier now uses repeated internal trace signatures as the stable PAK
+  alignment gate.
 - **Trace probes:** `emu198x-script-dragon` can retain bounded opcode-fetch
   and bus-write traces. `--watch-fetch A[-B]` and `--watch-write A[-B]` may be
   repeated, which lets investigations correlate state variables, framebuffer
@@ -228,8 +230,10 @@ cargo run --release -q -p emu198x-script-dragon -- \
 ## Current Gaps
 
 1. Audio now follows the Dragon PIA DAC/mux/single-bit/cassette signal path and
-   uses XRoar's measured level model, but it does not yet model analogue
-   filtering, cartridge audio, or AY expansion audio.
+   uses XRoar's measured level model. The local Backgammon audio gate now checks
+   for active mono 48 kHz output with multiple levels and sustained transitions,
+   but the emulator does not yet model analogue filtering, cartridge audio, or
+   AY expansion audio.
 2. Native gamepad left-stick movement and Dragon script smoke runs can now feed
    continuous analogue axis values into the Dragon comparator path.
 3. PAK-vs-XRoar screenshots remain advisory because the synthetic XRoar
@@ -249,8 +253,9 @@ For the source-backed accuracy audit and implementation sequence, see
 1. Extend the deterministic PAK trace-alignment set only when a new fixture
    proves a distinct behaviour that the current Skramble, Doodle Bug, and
    Hunchback set does not cover.
-2. Validate Dragon audio filtering and audible software behavior against XRoar
-   or hardware captures once we have sound-producing CAS fixtures.
+2. Add source-backed analogue filtering once we have Dragon circuit references
+   or hardware captures; keep the current Backgammon activity gate as a runtime
+   regression check, not as proof of analogue accuracy.
 3. Add a synthetic comparator fixture only if we need deterministic text
    assertions independent of archived `JOY TEST` media availability.
 4. Revisit PAL geometry and external video reference captures after the current
