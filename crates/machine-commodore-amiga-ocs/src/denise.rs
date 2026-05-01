@@ -21,7 +21,6 @@
 //! delegation per wiki/amiga/denise-ocs-porting-gap-list.md Phase 2b.
 
 use crate::memory::Memory;
-use commodore_agnus_ocs::PAL_CCKS_PER_LINE;
 use commodore_denise_ocs::DeniseOcs;
 
 /// Display dimensions for PAL Standard (line-doubled, lores → 4:3).
@@ -466,7 +465,7 @@ impl Denise {
             // remaining FB columns. `resolve_color_rgb12(0)` matches
             // the value we already write for pre-DDF / post-DIW
             // pixels, keeping the border a single uniform colour.
-            if phase == 1 && hpos == PAL_CCKS_PER_LINE - 1 {
+            if phase == 1 && hpos == agnus.current_line_ccks() - 1 {
                 let tail_start = u32::from(hpos - VIEWPORT_H_START_CCK + 1) * 4;
                 if tail_start < FB_WIDTH {
                     let rgb12_bg = self.ocs.resolve_color_rgb12(0);

@@ -34,20 +34,39 @@ pub mod bits {
 
 pub const PAL_CCKS_PER_LINE: u16 = 227;
 pub const PAL_LINES_PER_FRAME: u16 = 312;
-/// Nominal NTSC short-line length. Per HRM p. 785 the NTSC beam
-/// alternates between 227 and 228 CCKs per line; the per-line
-/// alternation is not yet modelled (all NTSC lines count 227 in this
-/// build). PAL uses a fixed 227 every line.
-#[allow(dead_code)]
+
+/// NTSC short-line length (227 CCKs). On NTSC, lines alternate
+/// between short (227) and long (228) every line — see
+/// `Agnus::lol` / `Agnus::lol_toggle`. The alternation provides the
+/// half-line phase shift the colour subcarrier needs and gives
+/// NTSC its average 227.5 CCK/line. PAL has a fixed 227 every line
+/// (no alternation).
 pub const NTSC_CCKS_PER_LINE_SHORT: u16 = 227;
-#[allow(dead_code)]
+/// NTSC long-line length (228 CCKs). See `NTSC_CCKS_PER_LINE_SHORT`.
 pub const NTSC_CCKS_PER_LINE_LONG: u16 = 228;
-/// Backwards-compatible alias — equal to the short-line length.
-#[allow(dead_code)]
-pub const NTSC_CCKS_PER_LINE: u16 = NTSC_CCKS_PER_LINE_SHORT;
 /// NTSC uses 262 lines per frame (vs PAL's 312).
-#[allow(dead_code)]
 pub const NTSC_LINES_PER_FRAME: u16 = 262;
+
+/// Total CCKs per non-interlace NTSC frame: 131 short × 227 + 131
+/// long × 228 = 59,605. Equivalent to 262 × 227.5.
+pub const NTSC_CCKS_PER_FRAME: u32 =
+    131 * NTSC_CCKS_PER_LINE_SHORT as u32 + 131 * NTSC_CCKS_PER_LINE_LONG as u32;
+
+/// Total CCKs per non-interlace PAL frame: 312 × 227 = 70,824.
+pub const PAL_CCKS_PER_FRAME: u32 = PAL_LINES_PER_FRAME as u32 * PAL_CCKS_PER_LINE as u32;
+
+/// Selected video region. Drives the Agnus revision-ID byte, frame
+/// line count, and the per-line short/long alternation flipflop.
+/// PAL is the default. Future ECS/AGA Agnus variants override the
+/// agnus_id but reuse this enum for region selection.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgnusRegion {
+    /// PAL: 50 Hz, 312 lines/frame, 227 CCKs every line.
+    #[default]
+    Pal,
+    /// NTSC: 60 Hz, 262 lines/frame, line length alternates 227/228.
+    Ntsc,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlotOwner {
@@ -347,6 +366,23 @@ pub struct Agnus {
     /// ECS NTSC (8372A) = $20, ECS PAL (8372A) = $30.
     pub agnus_id: u16,
 
+    /// Selected video region. PAL or NTSC. Drives `lines_per_frame`,
+    /// `agnus_id`, and `lol_toggle`.
+    pub region: AgnusRegion,
+
+    /// Long-line flipflop (LOL). When true, the current line is 228
+    /// CCKs instead of 227. Toggles at end-of-line if `lol_toggle`
+    /// is set (NTSC default). Starts false on every region; the
+    /// first NTSC line is short (227), the second is long (228), and
+    /// so on — see HRM p. 785 and vAmiga's `Beam::eol`.
+    pub lol: bool,
+
+    /// Whether `lol` toggles at end-of-line. False on PAL (every
+    /// line is the same length). True on NTSC by default; can be
+    /// disabled via the BPLCON3 LOLDIS bit on ECS+ machines (not
+    /// modelled in OCS — ECS BPLCON3 is a separate add).
+    pub lol_toggle: bool,
+
     /// Total VBLs since construction. Diagnostic — incremented every
     /// time `tick_cck` wraps vpos.
     pub vbl_count: u64,
@@ -398,17 +434,65 @@ impl Agnus {
             fmode: 0,
             lof: true,
             lines_per_frame: PAL_LINES_PER_FRAME,
-            agnus_id: 0x00,
+            agnus_id: 0x10,
+            region: AgnusRegion::Pal,
+            lol: false,
+            lol_toggle: false,
             vbl_count: 0,
         }
     }
 
     /// Create a new Agnus with the specified lines-per-frame count.
+    /// Kept for backward compatibility with existing call sites that
+    /// only need to override the line count; new callers should use
+    /// `new_with_region` for explicit PAL/NTSC selection.
     #[must_use]
     pub fn new_with_region_lines(lines_per_frame: u16) -> Self {
         let mut agnus = Self::new();
         agnus.lines_per_frame = lines_per_frame;
         agnus
+    }
+
+    /// Create a new Agnus configured for the named video region.
+    /// PAL is the existing default — every line is 227 CCKs, frame
+    /// is 312 lines, agnus_id = $10. NTSC alternates short/long
+    /// lines (227/228) per HRM p. 785, frame is 262 lines, agnus_id
+    /// = $00. The first NTSC line is short; the alternation is
+    /// strict (every other line) until ECS adds the LOLDIS bit on
+    /// BPLCON3.
+    #[must_use]
+    pub fn new_with_region(region: AgnusRegion) -> Self {
+        let mut agnus = Self::new();
+        match region {
+            AgnusRegion::Pal => {
+                agnus.region = AgnusRegion::Pal;
+                agnus.lines_per_frame = PAL_LINES_PER_FRAME;
+                agnus.agnus_id = 0x10;
+                agnus.lol = false;
+                agnus.lol_toggle = false;
+            }
+            AgnusRegion::Ntsc => {
+                agnus.region = AgnusRegion::Ntsc;
+                agnus.lines_per_frame = NTSC_LINES_PER_FRAME;
+                agnus.agnus_id = 0x00;
+                agnus.lol = false;
+                agnus.lol_toggle = true;
+            }
+        }
+        agnus
+    }
+
+    /// Length of the current scanline in CCKs. PAL is always 227;
+    /// NTSC returns 227 (short) or 228 (long) depending on the LOL
+    /// flipflop. Used by Denise's end-of-line border-fill logic to
+    /// know where the last paintable CCK lives.
+    #[must_use]
+    pub fn current_line_ccks(&self) -> u16 {
+        if self.lol {
+            NTSC_CCKS_PER_LINE_LONG
+        } else {
+            NTSC_CCKS_PER_LINE_SHORT
+        }
     }
 
     pub fn num_bitplanes(&self) -> u8 {
@@ -1061,8 +1145,14 @@ impl Agnus {
     /// Tick one CCK (8 crystal ticks).
     pub fn tick_cck(&mut self) {
         self.hpos += 1;
-        if self.hpos >= PAL_CCKS_PER_LINE {
+        if self.hpos >= self.current_line_ccks() {
             self.hpos = 0;
+            // End-of-line: toggle the long-line flipflop on regions
+            // that alternate (NTSC default). PAL has lol_toggle=false
+            // so the flipflop stays at 0 (every line is 227).
+            if self.lol_toggle {
+                self.lol = !self.lol;
+            }
             self.vpos += 1;
             // Interlace: long frame has one extra line (313 PAL, 263 NTSC).
             let interlace = (self.bplcon0 & 0x0004) != 0;
@@ -1657,5 +1747,93 @@ mod tests {
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Stall
         );
+    }
+
+    // ---------- region + line-length alternation ----------
+
+    #[test]
+    fn pal_default_keeps_lol_zero_and_lines_at_227() {
+        let agnus = Agnus::new_with_region(AgnusRegion::Pal);
+        assert_eq!(agnus.region, AgnusRegion::Pal);
+        assert_eq!(agnus.lines_per_frame, PAL_LINES_PER_FRAME);
+        assert_eq!(agnus.agnus_id, 0x10);
+        assert!(!agnus.lol);
+        assert!(!agnus.lol_toggle);
+        assert_eq!(agnus.current_line_ccks(), PAL_CCKS_PER_LINE);
+    }
+
+    #[test]
+    fn ntsc_starts_short_and_alternates_per_line() {
+        let mut agnus = Agnus::new_with_region(AgnusRegion::Ntsc);
+        assert_eq!(agnus.region, AgnusRegion::Ntsc);
+        assert_eq!(agnus.lines_per_frame, NTSC_LINES_PER_FRAME);
+        assert_eq!(agnus.agnus_id, 0x00);
+        assert!(!agnus.lol);
+        assert!(agnus.lol_toggle);
+        // First line = short (227).
+        assert_eq!(agnus.current_line_ccks(), NTSC_CCKS_PER_LINE_SHORT);
+
+        // Tick through the first 227 CCKs — still on line 0 (short).
+        for _ in 0..NTSC_CCKS_PER_LINE_SHORT {
+            agnus.tick_cck();
+        }
+        // hpos wrapped, vpos advanced, lol flipped to true → second
+        // line is long (228).
+        assert_eq!(agnus.hpos, 0);
+        assert_eq!(agnus.vpos, 1);
+        assert!(agnus.lol);
+        assert_eq!(agnus.current_line_ccks(), NTSC_CCKS_PER_LINE_LONG);
+
+        // Tick through the long line: 228 CCKs.
+        for _ in 0..NTSC_CCKS_PER_LINE_LONG {
+            agnus.tick_cck();
+        }
+        assert_eq!(agnus.hpos, 0);
+        assert_eq!(agnus.vpos, 2);
+        assert!(!agnus.lol);
+        assert_eq!(agnus.current_line_ccks(), NTSC_CCKS_PER_LINE_SHORT);
+    }
+
+    #[test]
+    fn ntsc_full_frame_totals_match_canonical_count() {
+        // 262 lines, alternating short / long starting from short.
+        // Even line indices (0, 2, 4, …, 260) are short; odd indices
+        // are long. 131 of each → 131*227 + 131*228 = 59,605 CCK.
+        let mut agnus = Agnus::new_with_region(AgnusRegion::Ntsc);
+        let mut total_ccks: u32 = 0;
+        let starting_vbl = agnus.vbl_count;
+        // Run until vpos wraps once (one full frame).
+        while agnus.vbl_count == starting_vbl {
+            agnus.tick_cck();
+            total_ccks += 1;
+        }
+        assert_eq!(total_ccks, NTSC_CCKS_PER_FRAME);
+        assert_eq!(total_ccks, 59_605);
+    }
+
+    #[test]
+    fn pal_full_frame_totals_match_canonical_count() {
+        // 312 lines × 227 = 70,824 CCK.
+        let mut agnus = Agnus::new_with_region(AgnusRegion::Pal);
+        let mut total_ccks: u32 = 0;
+        let starting_vbl = agnus.vbl_count;
+        while agnus.vbl_count == starting_vbl {
+            agnus.tick_cck();
+            total_ccks += 1;
+        }
+        assert_eq!(total_ccks, PAL_CCKS_PER_FRAME);
+        assert_eq!(total_ccks, 70_824);
+    }
+
+    #[test]
+    fn pal_lol_stays_false_for_full_frame() {
+        // PAL has lol_toggle = false, so lol must remain false for
+        // every line of the frame.
+        let mut agnus = Agnus::new_with_region(AgnusRegion::Pal);
+        let starting_vbl = agnus.vbl_count;
+        while agnus.vbl_count == starting_vbl {
+            assert!(!agnus.lol, "PAL must never set lol");
+            agnus.tick_cck();
+        }
     }
 }

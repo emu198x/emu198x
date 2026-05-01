@@ -14,8 +14,9 @@ mod memory;
 mod rtc;
 
 pub use agnus::{
-    Agnus, CckBusPlan, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS, SlotOwner,
-    VBL_END_LINE, bits,
+    Agnus, AgnusRegion, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_FRAME_TICKS, NTSC_LINES_PER_FRAME,
+    PAL_CCKS_PER_FRAME, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS,
+    PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
 };
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
@@ -494,8 +495,23 @@ impl AmigaOcs {
     /// Zorro-II fast-RAM board is attached and starts unconfigured;
     /// `expansion.library` discovers it during boot and assigns its
     /// base address.
+    ///
+    /// PAL Agnus is used; the matching NTSC entry point is
+    /// `with_ram_config_ntsc`.
     #[must_use]
     pub fn with_ram_config(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
+        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Pal)
+    }
+
+    /// NTSC counterpart of `with_ram_config`. Same RAM/autoconfig
+    /// rules; the Agnus is constructed with NTSC line/frame counts
+    /// and the per-line short/long alternation enabled.
+    #[must_use]
+    pub fn with_ram_config_ntsc(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
+        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Ntsc)
+    }
+
+    fn with_ram_config_region(kickstart: Vec<u8>, cfg: RamConfig, region: AgnusRegion) -> Self {
         assert!(
             cfg.is_valid(),
             "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
@@ -506,7 +522,7 @@ impl AmigaOcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, true)
+        Self::with_memory_config(memory, cfg, true, region)
     }
 
     /// Build a real A1000-style machine: a small bootstrap ROM at
@@ -514,9 +530,26 @@ impl AmigaOcs {
     /// window. The WOM remains writable through `$FC0000-$FFFFFF`
     /// until the bootstrap writes into `$F80000-$FBFFFF`, at which
     /// point the bootstrap ROM disappears and the WOM becomes
-    /// read-only Kickstart.
+    /// read-only Kickstart. PAL Agnus.
     #[must_use]
     pub fn with_a1000_bootstrap_rom(boot_rom: Vec<u8>, cfg: RamConfig) -> Self {
+        Self::with_a1000_bootstrap_rom_region(boot_rom, cfg, AgnusRegion::Pal)
+    }
+
+    /// NTSC counterpart of `with_a1000_bootstrap_rom`. The A1000
+    /// shipped in both PAL (Europe) and NTSC (US) configurations
+    /// with identical bootstrap ROMs; only the Agnus revision
+    /// differs.
+    #[must_use]
+    pub fn with_a1000_bootstrap_rom_ntsc(boot_rom: Vec<u8>, cfg: RamConfig) -> Self {
+        Self::with_a1000_bootstrap_rom_region(boot_rom, cfg, AgnusRegion::Ntsc)
+    }
+
+    fn with_a1000_bootstrap_rom_region(
+        boot_rom: Vec<u8>,
+        cfg: RamConfig,
+        region: AgnusRegion,
+    ) -> Self {
         assert!(
             cfg.is_valid(),
             "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
@@ -527,10 +560,15 @@ impl AmigaOcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, true)
+        Self::with_memory_config(memory, cfg, true, region)
     }
 
-    fn with_memory_config(memory: Memory, cfg: RamConfig, slow_ram_decode: bool) -> Self {
+    fn with_memory_config(
+        memory: Memory,
+        cfg: RamConfig,
+        slow_ram_decode: bool,
+        region: AgnusRegion,
+    ) -> Self {
         // Autoconfig only supports the eight Zorro-II sizes; other
         // (still-valid) fast_kb values are rounded down to the nearest
         // supported size, dropping the remainder. In practice the
@@ -593,7 +631,7 @@ impl AmigaOcs {
             port0_left_button_pressed: false,
             port1_left_button_pressed: false,
             joystick1: JoystickState::default(),
-            agnus: Agnus::new(),
+            agnus: Agnus::new_with_region(region),
             copper: Copper::new(),
             denise: Denise::new(),
             tick_count: 0,
@@ -645,6 +683,15 @@ impl AmigaOcs {
     #[must_use]
     pub fn agnus(&self) -> &Agnus {
         &self.agnus
+    }
+
+    /// Active video region — PAL or NTSC. Drives runtime frame timing
+    /// and is exposed to the runtime layer so query callers and the
+    /// `AmigaMachine` impl can ask the machine which region it's
+    /// emulating without poking into Agnus directly.
+    #[must_use]
+    pub fn region(&self) -> AgnusRegion {
+        self.agnus.region
     }
 
     /// Read-only Copper access.

@@ -378,7 +378,10 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
             slot: slot.to_owned(),
             reason: reason.to_string(),
         })?;
-        let change_pending = self.model == Model::A1000OcsPal;
+        // Both A1000 PAL and A1000 NTSC need disk-change-pending
+        // bookkeeping during the bootstrap-to-Kickstart-disk handoff.
+        // Other (Kickstart-resident) variants insert without it.
+        let change_pending = self.model.is_a1000();
         self.machine.insert_floppy0(adf, change_pending);
         self.floppy0_bytes = Some(bytes.to_vec());
         Ok(())
@@ -519,30 +522,26 @@ impl AmigaRuntime<AmigaOcs> {
 }
 
 fn build_amiga_ocs(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> AmigaOcs {
-    match model {
-        Model::A1000OcsPal => AmigaOcs::with_a1000_bootstrap_rom(firmware_rom.to_vec(), ram_config),
-        Model::A500OcsPal
-        | Model::A500OcsPalA501
-        | Model::A500PlusOcsPal
-        | Model::A500OcsPalMaxed => {
-            // Every A500-family layout in the current `Model`
-            // catalogue routes through the same autoconfig-aware
-            // constructor. A Zorro-II fast-RAM board is attached
-            // automatically when `ram_config.fast_kb > 0`; the ROM's
-            // `expansion.library` picks it up during boot without
-            // runtime cooperation.
-            AmigaOcs::with_ram_config(firmware_rom.to_vec(), ram_config)
-        }
+    // Cross product of two model axes:
+    //   - A1000 (bootstrap ROM into WOM) vs A500-family (Kickstart)
+    //   - PAL vs NTSC Agnus
+    // Every A500-family layout routes through the same autoconfig-
+    // aware constructor; the Zorro-II fast-RAM board is attached
+    // automatically when `ram_config.fast_kb > 0`.
+    let firmware = firmware_rom.to_vec();
+    match (model.is_a1000(), model.is_ntsc()) {
+        (true, false) => AmigaOcs::with_a1000_bootstrap_rom(firmware, ram_config),
+        (true, true) => AmigaOcs::with_a1000_bootstrap_rom_ntsc(firmware, ram_config),
+        (false, false) => AmigaOcs::with_ram_config(firmware, ram_config),
+        (false, true) => AmigaOcs::with_ram_config_ntsc(firmware, ram_config),
     }
 }
 
 fn firmware_id_for_model(model: Model) -> &'static str {
-    match model {
-        Model::A1000OcsPal => A1000_BOOTSTRAP_ROM_ID,
-        Model::A500OcsPal
-        | Model::A500OcsPalA501
-        | Model::A500PlusOcsPal
-        | Model::A500OcsPalMaxed => KICKSTART_ROM_ID,
+    if model.is_a1000() {
+        A1000_BOOTSTRAP_ROM_ID
+    } else {
+        KICKSTART_ROM_ID
     }
 }
 
@@ -577,22 +576,18 @@ pub(crate) fn blank_a1000_bootstrap_rom() -> Vec<u8> {
 }
 
 fn blank_firmware_rom(model: Model) -> Vec<u8> {
-    match model {
-        Model::A1000OcsPal => blank_a1000_bootstrap_rom(),
-        Model::A500OcsPal
-        | Model::A500OcsPalA501
-        | Model::A500PlusOcsPal
-        | Model::A500OcsPalMaxed => blank_standard_kickstart_rom(),
+    if model.is_a1000() {
+        blank_a1000_bootstrap_rom()
+    } else {
+        blank_standard_kickstart_rom()
     }
 }
 
 fn validate_firmware_rom(model: Model, firmware_rom: &[u8]) -> Result<(), MachineError> {
-    let (valid_sizes, firmware_id) = match model {
-        Model::A1000OcsPal => (VALID_A1000_BOOTSTRAP_SIZES, A1000_BOOTSTRAP_ROM_ID),
-        Model::A500OcsPal
-        | Model::A500OcsPalA501
-        | Model::A500PlusOcsPal
-        | Model::A500OcsPalMaxed => (VALID_KICKSTART_SIZES, KICKSTART_ROM_ID),
+    let (valid_sizes, firmware_id) = if model.is_a1000() {
+        (VALID_A1000_BOOTSTRAP_SIZES, A1000_BOOTSTRAP_ROM_ID)
+    } else {
+        (VALID_KICKSTART_SIZES, KICKSTART_ROM_ID)
     };
     if valid_sizes.contains(&firmware_rom.len()) {
         return Ok(());

@@ -87,10 +87,18 @@ fn ram_variant_presets_construct_cleanly() {
 }
 
 fn expected_chip(model: Model) -> usize {
+    // Same chip-RAM size for the PAL/NTSC pair of every variant —
+    // only Agnus differs between regions.
     match model {
-        Model::A500OcsPal | Model::A500OcsPalA501 => 512 * 1024,
-        Model::A500PlusOcsPal | Model::A500OcsPalMaxed => 1024 * 1024,
-        Model::A1000OcsPal => 256 * 1024,
+        Model::A500OcsPal
+        | Model::A500OcsPalA501
+        | Model::A500OcsNtsc
+        | Model::A500OcsNtscA501 => 512 * 1024,
+        Model::A500PlusOcsPal
+        | Model::A500OcsPalMaxed
+        | Model::A500PlusOcsNtsc
+        | Model::A500OcsNtscMaxed => 1024 * 1024,
+        Model::A1000OcsPal | Model::A1000OcsNtsc => 256 * 1024,
     }
 }
 

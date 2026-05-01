@@ -16,7 +16,9 @@
 
 use emu198x_shell::QueryError;
 use format_commodore_amiga_adf::Adf;
-use machine_commodore_amiga_ocs::{AmigaOcs, AmigaOcsSnapshot, FB_HEIGHT, FB_WIDTH, RamConfig};
+use machine_commodore_amiga_ocs::{
+    AgnusRegion, AmigaOcs, AmigaOcsSnapshot, FB_HEIGHT, FB_WIDTH, RamConfig,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -187,11 +189,21 @@ impl AmigaMachine for AmigaOcs {
     }
 
     fn frame_ticks(&self) -> u64 {
-        crate::A500_PAL_FRAME_TICKS
+        // Region-aware: PAL = 141,648 ticks (312 × 227 × 2). NTSC =
+        // 119,210 ticks (131 × 227 + 131 × 228, then × 2). The
+        // chip-layer alternation handles the per-line short/long
+        // distinction; the runtime needs only the frame total.
+        match self.region() {
+            AgnusRegion::Pal => crate::A500_PAL_FRAME_TICKS,
+            AgnusRegion::Ntsc => crate::A500_NTSC_FRAME_TICKS,
+        }
     }
 
     fn cck_hz(&self) -> u64 {
-        crate::A500_PAL_CCK_HZ
+        match self.region() {
+            AgnusRegion::Pal => crate::A500_PAL_CCK_HZ,
+            AgnusRegion::Ntsc => crate::A500_NTSC_CCK_HZ,
+        }
     }
 
     fn chipset_framebuffer(&self) -> &[u32] {

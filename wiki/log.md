@@ -4,6 +4,72 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-01 — Amiga NTSC: chip-layer line alternation + 5 NTSC OCS variants
+
+**Type:** chip + machine + runtime work in one cohesive session, per the open-queue plan that bundled NTSC's chip-level alternation with the matching runtime variants.
+**Trigger:** the open queue's "NTSC variants" item, immediately after the runtime conversion landed earlier today. The generic `AmigaRuntime<M: AmigaMachine>` shape needed a real second variant to validate, and NTSC was the logical first one — same chip stack, same machine struct, just a different Agnus region.
+**Result:** chip layer models the NTSC short/long-line alternation per HRM p. 785; machine layer exposes NTSC constructors and a `region()` accessor; runtime layer adds 5 NTSC `Model` variants alongside the existing 5 PAL variants and threads `Region::Ntsc` through profile metadata. The same `AmigaOcs` machine struct serves both regions; the trait method `frame_ticks()` returns the correct value for whichever region was selected at construction.
+
+### Source for the alternation pattern
+
+vAmiga's `Beam.h` / `Beam.cpp` (Hoffmann, MPL-2). The model:
+
+- `lol` (Line Of Long): bool flipping between 0 (short, 227 CCK) and 1 (long, 228 CCK) per line.
+- `lol_toggle`: bool that controls whether `lol` flips at end-of-line.
+- PAL: `lol = false`, `lol_toggle = false` → every line is 227 CCK.
+- NTSC default: `lol = false`, `lol_toggle = true` → strict alternation (line 0 short, line 1 long, line 2 short, ...).
+- ECS+ machines have a `LOLDIS` bit on BPLCON3 that disables the toggle (not modelled here — OCS only).
+
+### Frame totals confirmed by chip-crate tests
+
+| Region | Lines | Total CCK | Total ticks |
+|---|---:|---:|---:|
+| PAL | 312 (all short) | 70,824 | 141,648 |
+| NTSC | 262 (131 short + 131 long) | 59,605 | 119,210 |
+
+### Chip layer (`commodore-agnus-ocs`)
+
+- New `AgnusRegion { Pal, Ntsc }` enum with `#[derive(Default)]` → PAL.
+- New `Agnus::new_with_region(region)` constructor — sets `lines_per_frame`, `agnus_id` ($00 NTSC / $10 PAL), `lol`, `lol_toggle` together.
+- New `Agnus::current_line_ccks() -> u16` accessor returning 227 or 228.
+- `tick_cck()` now wraps at `current_line_ccks()` instead of `PAL_CCKS_PER_LINE`, and toggles `lol` at end-of-line if `lol_toggle`.
+- New constants: `NTSC_CCKS_PER_LINE_SHORT/LONG`, `NTSC_LINES_PER_FRAME`, `NTSC_CCKS_PER_FRAME`, `PAL_CCKS_PER_FRAME`.
+- 5 new tests prove the pattern: alternation per line, frame totals match canonical values, PAL stays at 0 lol for full frames.
+
+### Machine layer (`machine-commodore-amiga-ocs`)
+
+- New constructors: `AmigaOcs::with_ram_config_ntsc`, `AmigaOcs::with_a1000_bootstrap_rom_ntsc`. Existing PAL constructors unchanged — 80+ existing tests don't move.
+- New private helpers `with_ram_config_region` / `with_a1000_bootstrap_rom_region` thread `AgnusRegion` to a single `with_memory_config(memory, cfg, slow_ram_decode, region)` factory.
+- New `AmigaOcs::region()` accessor delegating to `agnus.region`.
+- `denise.rs:469` now uses `agnus.current_line_ccks() - 1` for the end-of-line border-fill check instead of `PAL_CCKS_PER_LINE - 1`. Removes the last hard-coded PAL constant in the machine impl.
+- New constant `NTSC_FRAME_TICKS = NTSC_CCKS_PER_FRAME × 2`.
+
+### Runtime layer (`runtime-commodore-amiga`)
+
+- 5 new `Model` enum variants: `A1000OcsNtsc`, `A500OcsNtsc`, `A500OcsNtscA501`, `A500PlusOcsNtsc`, `A500OcsNtscMaxed`.
+- New constants: `A500_NTSC_FRAME_CCKS = 59,605`, `A500_NTSC_FRAME_TICKS = 119,210`, `A500_NTSC_CCK_HZ = 28,636,360 / 8 = 3,579,545`.
+- New `Model::is_a1000()` / `Model::is_ntsc()` predicates that fold the PAL/NTSC pairs at the points where they previously used per-variant matches (`firmware_id_for_model`, `validate_firmware_rom`, `blank_firmware_rom`, `build_amiga_ocs`, the disk-change-pending check).
+- `profile_for(model)` now returns `Region::Ntsc` and `A500_NTSC_CCK_HZ` for NTSC variants. NTSC profiles get their own summary string flagging "boot validation still pending" — no NTSC ROM/disk fixtures bundled in this session.
+- `impl AmigaMachine for AmigaOcs::frame_ticks()` and `cck_hz()` are now region-aware via `self.region()`. The trait surface is unchanged; the OCS impl just resolves the right value at runtime.
+- `profiles()` returns 10 entries (5 PAL + 5 NTSC) instead of 5.
+
+### Tests
+
+- chip-crate (`commodore-agnus-ocs`): 23 passed (18 existing + 5 new region/alternation/frame-total).
+- machine-crate (`machine-commodore-amiga-ocs`): 49 passed (lib unit tests; integration tests are PAL-specific and unchanged).
+- runtime-crate (`runtime-commodore-amiga`): 77 passed (72 existing + 5 new NTSC smoke tests), 16 ignored (ROM-gated as before), 0 failed.
+- Verifier binaries (`emu198x-amiga`, `emu198x-script-amiga`) build clean.
+- `cargo clippy --lib --tests -- -D warnings` clean across the affected stack.
+
+### Honest exclusions
+
+- **No NTSC ROM/disk fixtures.** All 5 NTSC variants accept blank firmware and run the frame loop, but no boot-to-Workbench validation is included — that needs NTSC-region Kickstart and Workbench images, which aren't in any bundled archive. Future work: add NTSC ROM dump paths to `~/.emu198x/roms/commodore-amiga` and replicate the existing PAL golden-matrix tests for NTSC.
+- **No interlace handling.** The chip alternation models the non-interlace short-frame case (262 lines for NTSC, 312 for PAL). Interlace long-frame (263 / 313) and the field-dependent line counts that go with it are still in `lines_per_frame + 1` shape — the `frame_ticks()` constants assume non-interlace.
+- **LOLDIS bit not modelled.** ECS+ machines can disable the alternation via BPLCON3 bit 11. OCS machines don't have BPLCON3 in this implementation; if/when ECS lands, the LOLDIS bit becomes a per-write update to `agnus.lol_toggle`.
+- **Audio sample-rate downsampler still uses cached `tick_hz`.** The runtime caches `tick_hz = cck_hz × 2` at construction. NTSC machines get a slightly different value (7,159,090 ticks/sec vs PAL 7,093,790). The cached approach is correct for fixed-region machines; if/when a future variant changes its clock at runtime (Vampire-with-clock-mod), this cache would need invalidation.
+
+---
+
 ## 2026-05-01 — Amiga runtime: generic conversion to `AmigaRuntime<M: AmigaMachine>`
 
 **Type:** architectural conversion. Zero new chip code, zero new variants — pure shape change matching the Spectrum playbook in `wiki/decisions/runtime-internal-shape.md`.

@@ -534,3 +534,88 @@ fn run_until_drops_unrouted_input_events() {
         )
         .expect("one frame should run");
 }
+
+// =====================================================================
+// NTSC variant smoke tests
+//
+// The chip-layer alternation logic + region wiring is covered by the
+// `commodore-agnus-ocs` unit tests. These tests prove the runtime
+// layer correctly:
+//   * constructs every NTSC variant from blank firmware
+//   * advertises Region::Ntsc + the NTSC clock rate in profile metadata
+//   * drives one full NTSC frame at the NTSC frame_ticks count
+// Software boot validation against real NTSC ROMs is deferred — no
+// NTSC firmware fixtures are bundled with this session.
+// =====================================================================
+
+#[test]
+fn blank_constructor_builds_every_ntsc_variant() {
+    let _ = AmigaOcsRuntime::blank(Model::A1000OcsNtsc);
+    let _ = AmigaOcsRuntime::blank(Model::A500OcsNtsc);
+    let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscA501);
+    let _ = AmigaOcsRuntime::blank(Model::A500PlusOcsNtsc);
+    let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscMaxed);
+}
+
+#[test]
+fn ntsc_profile_advertises_ntsc_region_and_ntsc_clock_rate() {
+    use emu198x_shell::Region;
+    use runtime_commodore_amiga::A500_NTSC_CCK_HZ;
+
+    let profile = profile_for(Model::A500OcsNtsc);
+    assert_eq!(profile.region, Region::Ntsc);
+    assert_eq!(profile.clock.rate.numerator_hz, A500_NTSC_CCK_HZ);
+    assert_eq!(profile.clock.rate.denominator_hz, 1);
+
+    let pal = profile_for(Model::A500OcsPal);
+    assert_eq!(pal.region, Region::Pal);
+    assert_ne!(pal.clock.rate.numerator_hz, A500_NTSC_CCK_HZ);
+}
+
+#[test]
+fn ntsc_runtime_runs_one_frame_at_ntsc_tick_count() {
+    use runtime_commodore_amiga::A500_NTSC_FRAME_TICKS;
+
+    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsNtsc);
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+    runtime
+        .run_until(
+            MachineTime::new(A500_NTSC_FRAME_TICKS),
+            &mut HostIo {
+                input_events: &[],
+                frame_sink: &mut frame_sink,
+                audio_sink: &mut audio_sink,
+                trace_sink: &mut trace_sink,
+            },
+        )
+        .expect("one NTSC frame should run");
+    assert_eq!(runtime.time(), MachineTime::new(A500_NTSC_FRAME_TICKS));
+}
+
+#[test]
+fn ntsc_frame_ticks_constant_is_smaller_than_pal() {
+    use runtime_commodore_amiga::{A500_NTSC_FRAME_TICKS, A500_PAL_FRAME_TICKS};
+    // Sanity: NTSC has fewer lines per frame even with line
+    // alternation, so the frame is shorter in absolute ticks even
+    // though it advances at slightly higher CCK Hz. Pinned to exact
+    // values so a future tweak to either constant has to update this
+    // test deliberately.
+    assert_eq!(A500_NTSC_FRAME_TICKS, 119_210);
+    assert_eq!(A500_PAL_FRAME_TICKS, 141_648);
+}
+
+#[test]
+fn ntsc_a1000_uses_bootstrap_firmware_path() {
+    // A1000 NTSC must accept 64 KiB bootstrap-ROM firmware and
+    // reject 256 KiB Kickstart firmware (the size validation is
+    // model-driven and shared between PAL and NTSC A1000).
+    let bootstrap = dummy_a1000_bootstrap_rom();
+    let kickstart = dummy_kickstart();
+    assert!(AmigaOcsRuntime::new(Model::A1000OcsNtsc, bootstrap).is_ok());
+    assert!(matches!(
+        AmigaOcsRuntime::new(Model::A1000OcsNtsc, kickstart),
+        Err(MachineError::InvalidFirmware { .. })
+    ));
+}
