@@ -44,9 +44,42 @@ mkdir -p target/llvm-cov
 #      test in any crate (often Codex iterating on Dragon code) used
 #      to kill the entire run before any reports were generated.
 #      Failures are now noted but don't suppress the report.
+#
+# `--include-ignored` opts in to the CPU-corpus regressions
+# (Tom Harte 6502/Z80/68000, Wolfgang Lorenz, Dormann, ZEX, Adam
+# Tennant SM83, mooneye Game Boy diagnostics, Amiga Kickstart
+# fixtures, …). They're `#[ignore]`'d in normal runs because they
+# require external fixtures (1 GiB+ corpora outside the repo) and
+# run for minutes. With the flag, llvm-cov instruments them and the
+# resulting coverage figures reflect the broader instruction-set
+# surface — at the cost of a substantially longer wall-clock run
+# and disk-space pressure. Tests whose fixtures aren't present
+# self-skip with `eprintln "skipping"` rather than failing.
+extra_cargo_args=()
+libtest_args=()
+for arg in "$@"; do
+    case "$arg" in
+        --include-ignored)
+            libtest_args+=(--include-ignored)
+            ;;
+        *)
+            extra_cargo_args+=("$arg")
+            ;;
+    esac
+done
+
+cargo_cmd=(
+    cargo llvm-cov --workspace --lib --tests --no-fail-fast --no-report
+)
+if [ ${#extra_cargo_args[@]} -gt 0 ]; then
+    cargo_cmd+=("${extra_cargo_args[@]}")
+fi
+if [ ${#libtest_args[@]} -gt 0 ]; then
+    cargo_cmd+=(-- "${libtest_args[@]}")
+fi
+
 test_status=0
-cargo llvm-cov --workspace --lib --tests --no-fail-fast --no-report "$@" \
-    || test_status=$?
+"${cargo_cmd[@]}" || test_status=$?
 
 if [ "${test_status}" -ne 0 ]; then
     echo
