@@ -108,16 +108,19 @@ Implemented behavior:
 
 ### VDG Horizontal And Fetch Timing
 
-Current VDG vertical shape is defensible. Byte-fetch lead time is now
-source-backed, but horizontal placement still needs a clearer derivation because
-the MC6847 text describes the active display window relative to the
-blanking-to-blanking screen span, while our beam model stores a cropped visible
-framebuffer plus separate PAL overscan expansion.
+Current VDG vertical shape is defensible. Byte-fetch lead time is source-backed,
+and horizontal placement now has an explicit source-vs-crop split. The MC6847
+text describes the active display window relative to the blanking-to-blanking
+screen span; our runtime framebuffer remains the existing cropped visible frame.
 
-- `TEXT_LEFT_BORDER_PIXELS = 60`
-- `TEXT_RIGHT_BORDER_PIXELS = 56`
-- `VDG_LINE_MASTER_TICKS = 912`
-- `VDG_LEFT_BORDER_TICKS = 120`
+- Source MC6847 blanking-to-blanking span: 193.1 clocks, rounded to 386
+  half-pixels.
+- Source MC6847 active offset: 28.3 clocks, rounded to 57 half-pixels.
+- Source MC6847 active width: 128 clocks, equal to 256 half-pixels.
+- Source MC6847 right border from those rounded values: 73 half-pixels.
+- Runtime crop: 372 half-pixels wide, with active display at x=60 and a
+  56-half-pixel right border. This is deliberately documented as a crop, not the
+  raw MC6847 blanking-to-blanking span.
 
 The MC6847 documentation states the display window timing, the 192-line active
 height, the 25-line top offset, and that display memory data must be stable four
@@ -127,14 +130,9 @@ short-cycle and long-cycle fetch timing.
 
 Required resolution:
 
-1. Re-derive horizontal blank, display-window start, and visible border crop
-   from the MC6847 and SAM timing descriptions.
-2. Decide whether `TEXT_LEFT_BORDER_PIXELS`/`TEXT_RIGHT_BORDER_PIXELS` should
-   represent the MC6847 blanking-to-blanking screen span, the Dragon PAL crop,
-   or only the runtime-visible framebuffer.
-3. Add beam tests that assert the chosen horizontal origin against the source
-   derivation.
-4. Keep XRoar comparisons as regression smoke only, not as the timing authority.
+1. Decide whether we want to expose a separate raw MC6847 blanking-to-blanking
+   framebuffer in addition to the current cropped runtime framebuffer.
+2. Keep XRoar comparisons as regression smoke only, not as the timing authority.
 
 ### PIA And Analogue Paths
 
@@ -159,20 +157,18 @@ Required resolution:
 1. Stabilize `motorola-6809` as a source-backed CPU core: table-driven opcode
    timing, pin-state traces, interrupt sampling tests, and RMW/vector `BUSY`
    behavior.
-2. Re-derive VDG horizontal placement from primary sources, then update
-   constants and tests.
-3. Re-run Dragon CAS and PAK smoke after each timing change, but treat those as
+2. Re-run Dragon CAS and PAK smoke after each timing change, but treat those as
    integration checks rather than proof of accuracy.
-4. Only after CPU/SAM/VDG timing is source-backed, revisit audio filtering,
+3. Only after CPU/SAM/VDG timing is source-backed, revisit audio filtering,
    cartridge audio, Dragon 64 mode, and disk hardware.
 
 ## Immediate Next Engineering Step
 
-Move to VDG horizontal placement. CPU phase stepping is in place, SAM
-display-offset writes are frame-sync delayed, and VDG fetch-to-display timing is
-now derived from the MC6847 four/eight-clock data-stability requirement. The
-remaining core raster question is exactly what our visible framebuffer crop
-should represent relative to the MC6847 blanking-to-blanking screen span.
+Move to analogue/audio validation. CPU phase stepping, SAM display-offset
+timing, VDG fetch-to-display timing, and VDG source-vs-crop horizontal geometry
+are now documented and tested. The next accuracy gap is validating PIA edge
+behavior and the Dragon analogue paths beyond the current measured-level audio
+model.
 
 Progress:
 
@@ -202,3 +198,6 @@ Progress:
   modes latch four VDG clocks before display, while long-cycle modes latch
   eight VDG clocks before display. Beam tests now cover writes just before and
   just after the latch point.
+- `motorola-vdg-6847` now exposes source-derived MC6847 horizontal geometry
+  constants separately from the runtime crop constants, with tests pinning both
+  the raw 386-half-pixel span and the existing 372-half-pixel crop.

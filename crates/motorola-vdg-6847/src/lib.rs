@@ -18,9 +18,32 @@ pub const TEXT_FRAMEBUFFER_WIDTH: usize = TEXT_COLUMNS * TEXT_CELL_WIDTH;
 pub const TEXT_FRAMEBUFFER_HEIGHT: usize = TEXT_ROWS * TEXT_CELL_HEIGHT;
 /// Text-mode framebuffer size in pixels.
 pub const TEXT_FRAMEBUFFER_PIXELS: usize = TEXT_FRAMEBUFFER_WIDTH * TEXT_FRAMEBUFFER_HEIGHT;
-/// Left text-mode border width in pixels.
+/// MC6847 horizontal blanking-to-blanking span, in 3.58 MHz clock tenths.
+///
+/// Motorola documents this as 193.1 clock periods.
+pub const MC6847_SCREEN_CLOCK_PERIOD_TENTHS: usize = 1931;
+/// MC6847 active display offset from the blanking-to-blanking left edge.
+///
+/// Motorola documents this as 28.3 clock periods. One clock period is two VDG
+/// half-pixels in this framebuffer model.
+pub const MC6847_ACTIVE_OFFSET_CLOCK_PERIOD_TENTHS: usize = 283;
+/// MC6847 active display width in 3.58 MHz clock periods.
+pub const MC6847_ACTIVE_CLOCK_PERIODS: usize = 128;
+/// MC6847 horizontal blanking-to-blanking span rounded to VDG half-pixels.
+pub const MC6847_SCREEN_HALF_PIXELS: usize = (MC6847_SCREEN_CLOCK_PERIOD_TENTHS * 2 + 5) / 10;
+/// MC6847 active display offset rounded to VDG half-pixels.
+pub const MC6847_ACTIVE_OFFSET_HALF_PIXELS: usize =
+    (MC6847_ACTIVE_OFFSET_CLOCK_PERIOD_TENTHS * 2 + 5) / 10;
+/// MC6847 blanking-to-blanking right border rounded to VDG half-pixels.
+pub const MC6847_RIGHT_BORDER_HALF_PIXELS: usize =
+    MC6847_SCREEN_HALF_PIXELS - MC6847_ACTIVE_OFFSET_HALF_PIXELS - TEXT_FRAMEBUFFER_WIDTH;
+/// Left text-mode border width in the current cropped framebuffer.
+///
+/// This framebuffer is a runtime-visible crop, not the full MC6847
+/// blanking-to-blanking span. Keep the source-derived MC6847 constants above
+/// separate so crop changes remain explicit.
 pub const TEXT_LEFT_BORDER_PIXELS: usize = 60;
-/// Right text-mode border width in pixels.
+/// Right text-mode border width in the current cropped framebuffer.
 pub const TEXT_RIGHT_BORDER_PIXELS: usize = 56;
 /// Top text-mode border height in scanlines.
 pub const TEXT_TOP_BORDER_LINES: usize = 25;
@@ -1343,6 +1366,19 @@ const FONT_6847: [u8; 64 * TEXT_CELL_HEIGHT] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_horizontal_geometry_is_kept_separate_from_runtime_crop() {
+        assert_eq!(MC6847_SCREEN_HALF_PIXELS, 386);
+        assert_eq!(MC6847_ACTIVE_OFFSET_HALF_PIXELS, 57);
+        assert_eq!(MC6847_RIGHT_BORDER_HALF_PIXELS, 73);
+        assert_eq!(MC6847_ACTIVE_CLOCK_PERIODS * 2, TEXT_FRAMEBUFFER_WIDTH);
+
+        assert_eq!(TEXT_VISIBLE_FRAMEBUFFER_WIDTH, 372);
+        assert_ne!(TEXT_VISIBLE_FRAMEBUFFER_WIDTH, MC6847_SCREEN_HALF_PIXELS);
+        assert_ne!(TEXT_LEFT_BORDER_PIXELS, MC6847_ACTIVE_OFFSET_HALF_PIXELS);
+        assert_ne!(TEXT_RIGHT_BORDER_PIXELS, MC6847_RIGHT_BORDER_HALF_PIXELS);
+    }
 
     #[test]
     fn decodes_basic_alphanumeric_codes() {
