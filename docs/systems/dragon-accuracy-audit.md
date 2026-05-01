@@ -162,8 +162,9 @@ Required resolution:
 1. Stabilize `motorola-6809` as a source-backed CPU core: table-driven opcode
    timing, pin-state traces, interrupt sampling tests, and RMW/vector `BUSY`
    behavior.
-2. Re-run Dragon CAS and PAK smoke after each timing change, but treat those as
-   integration checks rather than proof of accuracy.
+2. Re-run Dragon CAS and deterministic PAK trace-signature smoke after each
+   timing change, treating XRoar screenshots as advisory regression artifacts
+   rather than proof of accuracy.
 3. Only after CPU/SAM/VDG timing is source-backed, revisit audio filtering,
    cartridge audio, Dragon 64 mode, and disk hardware.
 
@@ -225,3 +226,7 @@ Progress:
 - The archived `JOY TEST` CAS loads and runs under the ROM, remains visually
   stable after start, and then visibly reacts to X/Y analogue comparator sweep
   points from the headless smoke harness.
+- PAK smoke now emits deterministic `trace_signature` values over retained CPU
+  fetches, VDG samples, VDG mode writes, video phase, text, and framebuffer
+  data. The local verifier runs Skramble twice and compares those signatures as
+  the stable PAK alignment gate.

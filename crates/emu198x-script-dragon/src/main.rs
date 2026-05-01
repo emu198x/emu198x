@@ -262,6 +262,7 @@ struct SnapshotRuntimeSmoke {
     #[serde(skip_serializing_if = "Option::is_none")]
     screenshot_frame_phase_cycles: Option<u64>,
     video_phase: VideoPhaseSummary,
+    trace_signature: SnapshotTraceSignature,
     #[serde(skip_serializing_if = "Option::is_none")]
     xroar_reference_screenshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -299,6 +300,15 @@ struct VdgTraceSummary {
     dropped_device_accesses: usize,
     samples: Vec<VdgSampleSummary>,
     mode_writes: Vec<VdgModeWriteSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct SnapshotTraceSignature {
+    hash: String,
+    trace_entries: usize,
+    vdg_samples: usize,
+    vdg_mode_writes: usize,
+    framebuffer_words: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -1602,6 +1612,7 @@ fn run_snapshot_smoke(
             .framebuffer_cycles
             .map(|_| report.video_phase.frame_master_tick),
         video_phase: video_phase_summary(report.video_phase),
+        trace_signature: snapshot_trace_signature(&report, framebuffer),
         xroar_reference_screenshot,
         xroar_reference_settle_seconds: smoke.xroar.map(|_| xroar_reference_settle_seconds),
         xroar_reference_trap_pc: xroar_reference_trap.map(|trap| trap.pc),
@@ -1644,6 +1655,7 @@ fn failed_snapshot_smoke(
             .framebuffer_cycles
             .map(|_| report.video_phase.frame_master_tick),
         video_phase: video_phase_summary(report.video_phase),
+        trace_signature: snapshot_trace_signature(&report, &[]),
         xroar_reference_screenshot: None,
         xroar_reference_settle_seconds: None,
         xroar_reference_trap_pc: None,
@@ -1716,6 +1728,152 @@ const fn video_phase_summary(phase: DragonVideoPhase) -> VideoPhaseSummary {
         visible_line: phase.visible_line,
         active_y: phase.active_y,
         active_x: phase.active_x,
+    }
+}
+
+fn snapshot_trace_signature(report: &HarnessReport, framebuffer: &[u32]) -> SnapshotTraceSignature {
+    let mut hasher = StableTraceHasher::new();
+    hasher.write_u8(match report.stop_reason {
+        StopReason::CycleLimit => 0,
+        StopReason::CpuHalted => 1,
+    });
+    hasher.write_u64(report.cycles);
+    hasher.write_u64(report.master_ticks);
+    hasher.write_u64(report.instructions);
+    hasher.write_u16(report.pc);
+    hasher.write_u16(report.addr);
+    hasher.write_bool(report.rw);
+    hasher.write_u16(report.text_screen_base);
+    write_video_phase_signature(&mut hasher, report.video_phase);
+    hasher.write_usize(report.dropped_trace);
+    for fetch in &report.trace {
+        hasher.write_u64(fetch.cycle);
+        hasher.write_u64(fetch.master_tick);
+        hasher.write_u16(fetch.pc);
+        hasher.write_u8(fetch.opcode);
+    }
+    hasher.write_usize(report.dropped_vdg_samples);
+    for sample in &report.vdg_samples {
+        hasher.write_u64(sample.cycle);
+        hasher.write_u64(sample.frame_master_tick);
+        hasher.write_u64(sample.fetch_frame_master_tick);
+        hasher.write_usize(sample.line);
+        hasher.write_usize(sample.active_y);
+        hasher.write_usize(sample.byte_x);
+        hasher.write_usize(sample.display_offset);
+        hasher.write_u8(sample.raw);
+        hasher.write_u16(sample.display_base);
+        hasher.write_u8(sample.sam_video_mode);
+        hasher.write_u8(sample.sam_display_offset);
+        hasher.write_u8(sample.pia1_pb);
+        hasher.write_bool(sample.graphics);
+        hasher.write_bool(sample.css);
+        hasher.write_bool(sample.int_ext);
+        hasher.write_u8(sample.gm);
+    }
+    hasher.write_usize(report.dropped_vdg_mode_writes);
+    for write in &report.vdg_mode_writes {
+        hasher.write_u64(write.cycle);
+        hasher.write_u64(write.frame_master_tick);
+        hasher.write_option_usize(write.line);
+        hasher.write_option_usize(write.active_y);
+        hasher.write_option_usize(write.active_x);
+        hasher.write_u16(write.addr);
+        hasher.write_u8(write.value);
+        hasher.write_bool(write.graphics);
+        hasher.write_bool(write.css);
+        hasher.write_bool(write.int_ext);
+        hasher.write_u8(write.gm);
+    }
+    hasher.write_usize(framebuffer.len());
+    for &pixel in framebuffer {
+        hasher.write_u32(pixel);
+    }
+    if let Some(text) = &report.text_screen {
+        hasher.write_str(text);
+    }
+
+    SnapshotTraceSignature {
+        hash: hasher.finish_hex(),
+        trace_entries: report.trace.len(),
+        vdg_samples: report.vdg_samples.len(),
+        vdg_mode_writes: report.vdg_mode_writes.len(),
+        framebuffer_words: framebuffer.len(),
+    }
+}
+
+fn write_video_phase_signature(hasher: &mut StableTraceHasher, phase: DragonVideoPhase) {
+    hasher.write_u64(phase.frame_master_tick);
+    hasher.write_usize(phase.physical_line);
+    hasher.write_u64(phase.line_master_tick);
+    hasher.write_option_usize(phase.visible_line);
+    hasher.write_option_usize(phase.active_y);
+    hasher.write_option_usize(phase.active_x);
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StableTraceHasher {
+    hash: u64,
+}
+
+impl StableTraceHasher {
+    const OFFSET: u64 = 0xCBF2_9CE4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01B3;
+
+    const fn new() -> Self {
+        Self { hash: Self::OFFSET }
+    }
+
+    fn write_u8(&mut self, value: u8) {
+        self.hash ^= u64::from(value);
+        self.hash = self.hash.wrapping_mul(Self::PRIME);
+    }
+
+    fn write_bool(&mut self, value: bool) {
+        self.write_u8(u8::from(value));
+    }
+
+    fn write_u16(&mut self, value: u16) {
+        for byte in value.to_le_bytes() {
+            self.write_u8(byte);
+        }
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        for byte in value.to_le_bytes() {
+            self.write_u8(byte);
+        }
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        for byte in value.to_le_bytes() {
+            self.write_u8(byte);
+        }
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+
+    fn write_option_usize(&mut self, value: Option<usize>) {
+        match value {
+            Some(value) => {
+                self.write_bool(true);
+                self.write_usize(value);
+            }
+            None => self.write_bool(false),
+        }
+    }
+
+    fn write_str(&mut self, value: &str) {
+        self.write_usize(value.len());
+        for &byte in value.as_bytes() {
+            self.write_u8(byte);
+        }
+    }
+
+    fn finish_hex(self) -> String {
+        format!("{:016x}", self.hash)
     }
 }
 

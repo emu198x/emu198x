@@ -83,11 +83,13 @@ future work.
   auto-runs, video-control changes, blank graphics screens, or graphics that
   continue drawing after the post-start settle window. `--snapshot-smoke-root`
   scans PC-Dragon PAK snapshots, resumes each selected snapshot, classifies
-  running/halting and visible/blank output, and can write diagnostic or
-  XRoar-zoomed screenshots. CAS smoke can write patched-XRoar references after
-  ROM tape-load traps; PAK smoke converts PC-Dragon snapshots into temporary
-  XRoar v1 snapshots, captures patched-XRoar reference PNGs, and records
-  pixel-difference summaries.
+  running/halting and visible/blank output, writes a deterministic
+  `trace_signature` over CPU fetches, VDG samples, VDG mode writes, video
+  phase, text, and framebuffer data, and can write diagnostic or XRoar-zoomed
+  screenshots. CAS smoke can write patched-XRoar references after ROM
+  tape-load traps; PAK smoke can still produce patched-XRoar references, but
+  the regular verifier now uses repeated internal trace signatures as the
+  stable PAK alignment gate.
 - **Trace probes:** `emu198x-script-dragon` can retain bounded opcode-fetch
   and bus-write traces. `--watch-fetch A[-B]` and `--watch-write A[-B]` may be
   repeated, which lets investigations correlate state variables, framebuffer
@@ -95,9 +97,10 @@ future work.
 - **XRoar comparison:** the current 12-title application smoke batch is 11/12
   exact against patched XRoar. The remaining non-exact case, Dragon Composer,
   differs by capture/timing phase rather than by a static VDG decode error.
-  PAK snapshot comparisons are currently advisory: the PC-Dragon-to-XRoar
-  snapshot bridge does not yet restore enough CPU/PIA/SAM/event state to be a
-  hard reference after the initial resumed frame.
+  PAK-vs-XRoar snapshot comparisons are advisory: the PC-Dragon-to-XRoar
+  snapshot bridge does not restore enough CPU/PIA/SAM/event state to be a hard
+  reference after the initial resumed frame. PAK regression coverage now comes
+  from deterministic internal trace-signature comparisons.
 
 ## Launch Commands
 
@@ -173,6 +176,12 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --xroar-settle-seconds 0.2
 ```
 
+The regular local verifier runs a deterministic PAK trace-alignment check when
+`EMU198X_DRAGON_PAK` or the standard Skramble reference PAK is available. It
+runs the same snapshot twice with completed-frame capture and compares the
+reported `trace_signature`; the signature includes retained CPU fetches, VDG
+samples, VDG mode writes, video phase, text, and framebuffer data.
+
 Patched-XRoar comparison, when the local patched XRoar binary is available:
 
 ```sh
@@ -214,9 +223,9 @@ cargo run --release -q -p emu198x-script-dragon -- \
    filtering, cartridge audio, or AY expansion audio.
 2. Native gamepad left-stick movement and Dragon script smoke runs can now feed
    continuous analogue axis values into the Dragon comparator path.
-3. PAK-vs-XRoar screenshots currently rely on a synthetic XRoar snapshot import
-   path. That path is useful for broad smoke triage, but it is not yet reliable
-   enough to prove per-pixel renderer bugs in isolation.
+3. PAK-vs-XRoar screenshots remain advisory because the synthetic XRoar
+   snapshot import path is not a hard state reference after resume. The regular
+   PAK gate now compares deterministic internal trace signatures instead.
 4. The beam framebuffer is in place, but the display model is still calibrated
    to the current 372x243 diagnostic visible area and XRoar zoomed comparison
    bridge. A fuller PAL timing/overscan model can come later.
@@ -228,9 +237,8 @@ For the source-backed accuracy audit and implementation sequence, see
 
 ## Near-Term Plan
 
-1. Replace the synthetic PAK screenshot oracle with a state-alignment harness:
-   either export complete enough XRoar state or compare deterministic bus/video
-   traces from matched initial machine state.
+1. Broaden the deterministic PAK trace-alignment gate from one default snapshot
+   to a curated set covering text, semigraphics, and graphics modes.
 2. Validate Dragon audio filtering and audible software behavior against XRoar
    or hardware captures once we have sound-producing CAS fixtures.
 3. Add a synthetic comparator fixture only if we need deterministic text
