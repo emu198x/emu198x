@@ -176,10 +176,11 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --xroar-settle-seconds 0.2
 ```
 
-The regular local verifier runs a deterministic PAK trace-alignment check when
-`EMU198X_DRAGON_PAK` or the standard Skramble reference PAK is available. It
-runs the same snapshot twice with completed-frame capture and compares the
-reported `trace_signature`; the signature includes retained CPU fetches, VDG
+The regular local verifier runs deterministic PAK trace-alignment checks when
+`EMU198X_DRAGON_PAK` or the standard reference archive is available. With no
+override, it uses Skramble, Doodle Bug, and Hunchback as a compact curated set;
+each snapshot is run twice with completed-frame capture and compared by the
+reported `trace_signature`. The signature includes retained CPU fetches, VDG
 samples, VDG mode writes, video phase, text, and framebuffer data.
 
 Patched-XRoar comparison, when the local patched XRoar binary is available:
@@ -237,8 +238,9 @@ For the source-backed accuracy audit and implementation sequence, see
 
 ## Near-Term Plan
 
-1. Broaden the deterministic PAK trace-alignment gate from one default snapshot
-   to a curated set covering text, semigraphics, and graphics modes.
+1. Add stricter semantic assertions to the deterministic PAK trace-alignment
+   gate once we have named fixtures for specific text, semigraphics, and
+   graphics behaviours.
 2. Validate Dragon audio filtering and audible software behavior against XRoar
    or hardware captures once we have sound-producing CAS fixtures.
 3. Add a synthetic comparator fixture only if we need deterministic text

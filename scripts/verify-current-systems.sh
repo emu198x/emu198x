@@ -36,8 +36,9 @@ Environment:
     EMU198X_DRAGON_AUDIO_CAS     Dragon CAS expected to produce non-silent audio
     EMU198X_DRAGON_JOYSTICK_CAS  Dragon CAS used for scripted joystick smoke
                                   and analogue comparator sweep smoke
-    EMU198X_DRAGON_PAK           Dragon PAK snapshot used for deterministic
-                                  trace-alignment smoke
+    EMU198X_DRAGON_PAK           Optional single Dragon PAK snapshot used for
+                                  deterministic trace-alignment smoke; when
+                                  unset, a curated local reference set is used
     EMU198X_DRAGON_JOYSTICK_GAME_CAS
                                   Optional Dragon game CAS used for longer
                                   joystick-vs-idle smoke
@@ -336,15 +337,16 @@ PY
 run_dragon_pak_trace_alignment_smoke() {
     local rom="$1"
     local pak="$2"
-    local first_report="$3"
-    local second_report="$4"
-    local artifact_root="$5"
+    local label="$3"
+    local artifact_root="$4"
+    local first_report="${artifact_root}/dragon-pak-trace-${label}-a.json"
+    local second_report="${artifact_root}/dragon-pak-trace-${label}-b.json"
     local first_screen_dir
     local second_screen_dir
 
     mkdir -p "${artifact_root}"
-    first_screen_dir="$(mktemp -d "${artifact_root}/dragon-pak-trace-a.XXXXXX")"
-    second_screen_dir="$(mktemp -d "${artifact_root}/dragon-pak-trace-b.XXXXXX")"
+    first_screen_dir="$(mktemp -d "${artifact_root}/dragon-pak-trace-${label}-a.XXXXXX")"
+    second_screen_dir="$(mktemp -d "${artifact_root}/dragon-pak-trace-${label}-b.XXXXXX")"
 
     cargo run -q -p emu198x-script-dragon -- \
         --rom "${rom}" \
@@ -566,11 +568,18 @@ if [[ "${mode}" != "unit" ]]; then
             || true)"
     fi
 
-    dragon_pak="${EMU198X_DRAGON_PAK:-}"
-    if [[ -z "${dragon_pak}" ]]; then
-        dragon_pak="$(first_existing_file \
+    dragon_paks=()
+    if [[ -n "${EMU198X_DRAGON_PAK:-}" ]]; then
+        dragon_paks+=("${EMU198X_DRAGON_PAK}")
+    else
+        for candidate in \
             "${reference_root}/dragon/Dragon/Games/[PAK]/Skramble (1983)(Microdeal).zip" \
-            || true)"
+            "${reference_root}/dragon/Dragon/Games/[PAK]/Doodle Bug (1985)(Microdeal).zip" \
+            "${reference_root}/dragon/Dragon/Games/[PAK]/Hunchback (1983)(Ocean).zip"; do
+            if [[ -f "${candidate}" ]]; then
+                dragon_paks+=("${candidate}")
+            fi
+        done
     fi
 
     dragon_joystick_game_cas="${EMU198X_DRAGON_JOYSTICK_GAME_CAS:-}"
@@ -649,16 +658,23 @@ if [[ "${mode}" != "unit" ]]; then
         skip_step "dragon-joystick-axis-sweep" "missing Dragon ROM or joystick CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_JOYSTICK_CAS"
     fi
 
-    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_pak}" && -f "${dragon_pak}" ]]; then
-        run_step "dragon-pak-trace-alignment" \
-            run_dragon_pak_trace_alignment_smoke \
-                "${dragon_rom}" \
-                "${dragon_pak}" \
-                "${out_dir}/dragon-pak-trace-a.json" \
-                "${out_dir}/dragon-pak-trace-b.json" \
-                "${out_dir}"
+    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && "${#dragon_paks[@]}" -gt 0 ]]; then
+        dragon_pak_index=0
+        for dragon_pak in "${dragon_paks[@]}"; do
+            dragon_pak_index=$((dragon_pak_index + 1))
+            if [[ -f "${dragon_pak}" ]]; then
+                run_step "dragon-pak-trace-alignment-${dragon_pak_index}" \
+                    run_dragon_pak_trace_alignment_smoke \
+                        "${dragon_rom}" \
+                        "${dragon_pak}" \
+                        "${dragon_pak_index}" \
+                        "${out_dir}"
+            else
+                skip_step "dragon-pak-trace-alignment-${dragon_pak_index}" "missing Dragon PAK snapshot at ${dragon_pak}"
+            fi
+        done
     else
-        skip_step "dragon-pak-trace-alignment" "missing Dragon ROM or PAK snapshot; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_PAK"
+        skip_step "dragon-pak-trace-alignment" "missing Dragon ROM or PAK snapshots; set EMU198X_DRAGON32_ROM and optionally EMU198X_DRAGON_PAK"
     fi
 
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_joystick_game_cas}" && -f "${dragon_joystick_game_cas}" ]]; then

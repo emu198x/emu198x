@@ -228,5 +228,5 @@ Progress:
   points from the headless smoke harness.
 - PAK smoke now emits deterministic `trace_signature` values over retained CPU
   fetches, VDG samples, VDG mode writes, video phase, text, and framebuffer
-  data. The local verifier runs Skramble twice and compares those signatures as
-  the stable PAK alignment gate.
+  data. The local verifier runs a curated Skramble, Doodle Bug, and Hunchback
+  set twice and compares those signatures as the stable PAK alignment gate.
