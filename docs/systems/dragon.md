@@ -11,8 +11,8 @@ patched-XRoar screenshot comparison coverage for cassette smoke runs, and now
 routes native gamepad input through the Dragon's analogue joystick comparator
 path.
 
-Dragon 64, CoCo variants, cartridge audio, and DragonDOS disk support are still
-future work.
+Dragon 64, CoCo variants, cartridge expansion hardware beyond the documented
+audio input pin, and DragonDOS disk support are still future work.
 
 ## What Works
 
@@ -54,9 +54,11 @@ future work.
 - **Audio:** `machine-dragon-32` now derives 48 kHz mono audio from the Dragon
   PIA sound wiring: PIA1 PA2-PA7 DAC level, PIA0 CA2/CB2 mux source, PIA1 CB2
   mux enable, PIA1 PB1 single-bit sound, and cassette input when the mux selects
-  tape. DAC, tape, and single-bit levels are pinned to XRoar's measured-voltage
-  gain/offset model; cartridge/AY sources are silent until those expansions
-  exist.
+  tape. The documented expansion connector pin 35 `SND` input is exposed as a
+  normalized cartridge sound level when the mux selects the cartridge source.
+  DAC, tape, cartridge input, and single-bit levels are pinned to XRoar's
+  measured-voltage gain/offset model; the fourth mux input remains unused and
+  silent.
 - **Cartridge/snapshot media:** `format-dragon-pak` normalises Dragon ROM/DGN
   cartridge images using XRoar-compatible header skipping for
   non-256-byte-aligned files, and parses PC-Dragon PAK snapshots as restored
@@ -229,11 +231,11 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 ## Current Gaps
 
-1. Audio now follows the Dragon PIA DAC/mux/single-bit/cassette signal path and
-   uses XRoar's measured level model. The local Backgammon audio gate now checks
-   for active mono 48 kHz output with multiple levels and sustained transitions,
-   but the emulator does not yet model analogue filtering, cartridge audio, or
-   AY expansion audio.
+1. Audio now follows the Dragon PIA DAC/mux/single-bit/cassette/cartridge-SND
+   signal path and uses XRoar's measured level model. The local Backgammon audio
+   gate now checks for active mono 48 kHz output with multiple levels and
+   sustained transitions, but the emulator does not yet model analogue
+   filtering or non-standard expansion audio hardware.
 2. Native gamepad left-stick movement and Dragon script smoke runs can now feed
    continuous analogue axis values into the Dragon comparator path.
 3. PAK-vs-XRoar screenshots remain advisory because the synthetic XRoar
@@ -242,8 +244,9 @@ cargo run --release -q -p emu198x-script-dragon -- \
 4. The beam framebuffer is in place, but the display model is still calibrated
    to the current 372x243 diagnostic visible area and XRoar zoomed comparison
    bridge. A fuller PAL timing/overscan model can come later.
-5. Dragon 64 memory mode, cartridge audio, `.BIN` convenience loading, and
-   DragonDOS/WD2797 disk support are not implemented.
+5. Dragon 64 memory mode, cartridge expansion hardware beyond the documented
+   `SND` input pin, `.BIN` convenience loading, and DragonDOS/WD2797 disk
+   support are not implemented.
 
 For the source-backed accuracy audit and implementation sequence, see
 [`dragon-accuracy-audit.md`](dragon-accuracy-audit.md).
@@ -271,7 +274,7 @@ coverage rather than initial bring-up.
 
 To complete Dragon 32, the main gaps are: full source-backed MC6809 timing and
 interrupt edge cases, PAL video geometry calibrated against hardware captures,
-analogue audio filtering and expansion-source mixing, Dragon 64 memory mode,
+analogue audio filtering and expansion-device mixing, Dragon 64 memory mode,
 DragonDOS/WD2797 disks, `.BIN` convenience loading, and a trusted fixture suite
 for joystick/audio/video behaviours that does not depend on emulator-vs-emulator
 pixel matching.
@@ -280,7 +283,7 @@ pixel matching.
 
 | Component | Tests |
 |-----------|-------|
-| Machine | ROM mapping, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/single-bit audio |
+| Machine | ROM mapping, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/cartridge-SND/single-bit audio |
 | PIA | 12: DDR, control, IRQ, input pins, mixed I/O, Cx1 edge selection, Cx2 input/output, Cx1-restored Cx2 strobe modes |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 16: source horizontal geometry/crop split, text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |

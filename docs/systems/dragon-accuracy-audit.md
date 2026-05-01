@@ -141,24 +141,27 @@ current usability, and the MC6821 interrupt/strobe coverage now includes
 source-backed Cx1/Cx2 edge and strobe behavior. Analogue behavior is still
 incomplete:
 
-- Audio uses measured/reference gains and offsets, but not full analogue
-  filtering. The local Backgammon smoke now asserts active 48 kHz mono output
-  with multiple sample levels and sustained transitions, so runtime audio can no
-  longer regress to silence or DC without tripping the verifier.
+- Audio uses measured/reference gains and offsets for the documented DAC, tape,
+  cartridge `SND`, and single-bit paths, but not full analogue filtering. The
+  local Backgammon smoke now asserts active 48 kHz mono output with multiple
+  sample levels and sustained transitions, so runtime audio can no longer
+  regress to silence or DC without tripping the verifier.
 - Native host gamepad left-stick input now reaches the Dragon analogue
   comparator path continuously; headless smoke can now inject explicit
   normalized analogue axis values and sweep them across a range.
 - The archived `JOY TEST` CAS now serves as the first regular local-smoke
   comparator fixture: it loads through the ROM, idles stably, and reports
   visible changes across X/Y analogue sweep points.
-- Cartridge audio and AY expansions are not implemented.
+- Cartridge expansion hardware beyond the documented `SND` input pin is not
+  implemented. The fourth Dragon sound mux selection is unused and silent.
 
 Required resolution:
 
 1. Add a synthetic comparator fixture only if archived `JOY TEST` media
    availability makes deterministic assertions awkward.
-2. Add analogue filtering and expansion audio only after core timing is stable
-   and after we have source material for the Dragon analogue output stage.
+2. Add analogue filtering and expansion-device audio only after core timing is
+   stable and after we have source material for the Dragon analogue output
+   stage or specific expansion hardware.
 
 ## Validation Plan
 
@@ -169,7 +172,7 @@ Required resolution:
    timing change, treating XRoar screenshots as advisory regression artifacts
    rather than proof of accuracy.
 3. Only after CPU/SAM/VDG timing is source-backed, revisit audio filtering,
-   cartridge audio, Dragon 64 mode, and disk hardware.
+   cartridge expansion devices, Dragon 64 mode, and disk hardware.
 
 ## Immediate Next Engineering Step
 
@@ -218,7 +221,11 @@ Progress:
 - Dragon joystick comparator tests now pin the PIA1 PA2-PA7 DAC threshold,
   ignored PA0/PA1 bits, and the exact `axis >= threshold` edge.
 - Dragon audio tests now pin PIA1 CB2 mux enable and the four PIA0 CA2/CB2 mux
-  source selections: DAC, cassette tape, cartridge, and AY.
+  source selections: DAC, cassette tape, cartridge `SND`, and the unused mux
+  input.
+- Dragon audio tests now pin normalized cartridge `SND` input clamping and
+  verify that the cartridge input reaches the runtime audio stream only when the
+  mux selects it.
 - The shared shell input surface now has analogue axis events, and the native
   Dragon shell maps left-stick X/Y to continuous Dragon joystick 1 comparator
   values while preserving D-pad/button digital controls.

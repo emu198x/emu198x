@@ -79,11 +79,7 @@ const XROAR_AUDIO_SOURCE_GAIN: [[f32; 3]; 6] = [
         2.84 / XROAR_AUDIO_MAX_V,
         3.40 / XROAR_AUDIO_MAX_V,
     ],
-    [
-        4.70 / XROAR_AUDIO_MAX_V,
-        2.84 / XROAR_AUDIO_MAX_V,
-        3.40 / XROAR_AUDIO_MAX_V,
-    ],
+    [0.0, 0.0, 0.0],
     [0.0, 0.0, 0.0],
     [0.0, 0.0, 0.0],
 ];
@@ -103,11 +99,7 @@ const XROAR_AUDIO_SOURCE_OFFSET: [[f32; 3]; 6] = [
         0.18 / XROAR_AUDIO_MAX_V,
         1.30 / XROAR_AUDIO_MAX_V,
     ],
-    [
-        0.00 / XROAR_AUDIO_MAX_V,
-        0.18 / XROAR_AUDIO_MAX_V,
-        1.30 / XROAR_AUDIO_MAX_V,
-    ],
+    [0.0, 0.0, 0.0],
     [0.0, 0.0, 0.0],
     [0.0, 0.0, 3.90 / XROAR_AUDIO_MAX_V],
 ];
@@ -340,7 +332,7 @@ enum DragonAudioSource {
     Dac,
     Tape,
     Cart,
-    Ay,
+    UnusedMuxInput,
     None,
     SingleBit,
 }
@@ -351,7 +343,7 @@ impl DragonAudioSource {
             Self::Dac => 0,
             Self::Tape => 1,
             Self::Cart => 2,
-            Self::Ay => 3,
+            Self::UnusedMuxInput => 3,
             Self::None => 4,
             Self::SingleBit => 5,
         }
@@ -1245,6 +1237,7 @@ struct DragonMemory {
     joystick: DragonJoystick,
     cassette: CassettePlayback,
     cartridge: Option<DragonCartridge>,
+    cartridge_sound_level: f32,
 }
 
 impl DragonMemory {
@@ -1260,6 +1253,7 @@ impl DragonMemory {
             joystick: DragonJoystick::new(),
             cassette: CassettePlayback::default(),
             cartridge: None,
+            cartridge_sound_level: 0.0,
         }
     }
 
@@ -1360,6 +1354,14 @@ impl DragonMemory {
 
     fn clear_cartridge(&mut self) {
         self.cartridge = None;
+    }
+
+    fn set_cartridge_sound_level(&mut self, level: f32) {
+        self.cartridge_sound_level = if level.is_finite() {
+            level.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
     }
 
     fn restore_snapshot_peripherals(&mut self, peripherals: DragonSnapshotPeripherals) {
@@ -1472,8 +1474,8 @@ impl DragonMemory {
                 DragonAudioSource::Tape,
                 if self.cassette.line_level() { 1.0 } else { 0.0 },
             ),
-            2 => (DragonAudioSource::Cart, 0.0),
-            _ => (DragonAudioSource::Ay, 0.0),
+            2 => (DragonAudioSource::Cart, self.cartridge_sound_level),
+            _ => (DragonAudioSource::UnusedMuxInput, 0.0),
         }
     }
 
@@ -2294,6 +2296,15 @@ impl Dragon32 {
     /// Remove any emulated cartridge.
     pub fn clear_cartridge(&mut self) {
         self.memory.clear_cartridge();
+    }
+
+    /// Set the normalized analogue level present on expansion connector pin 35 (`SND`).
+    ///
+    /// The Dragon hardware routes this external cartridge/expansion audio input through
+    /// the sound mux when PIA0 selects the cartridge source. The exact voltage levels
+    /// are cartridge-defined, so this API accepts a normalized `0.0..=1.0` level.
+    pub fn set_cartridge_sound_level(&mut self, level: f32) {
+        self.memory.set_cartridge_sound_level(level);
     }
 
     /// Load RAM and CPU state from a PC-Dragon snapshot.
@@ -3929,11 +3940,70 @@ mod tests {
         memory.pia0.write(0x03, 0x3C); // PIA0 CB2 high.
         assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Cart, 0.0));
         assert_sample_near(memory.audio_sample(), 0.0);
+        memory.set_cartridge_sound_level(1.0);
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Cart, 1.0));
+        assert_sample_near(memory.audio_sample(), 0.7);
 
         memory.pia0.write(0x01, 0x3C); // PIA0 CA2 high.
         memory.pia0.write(0x03, 0x3C); // PIA0 CB2 high.
-        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Ay, 0.0));
+        assert_eq!(
+            memory.muxed_audio_source(),
+            (DragonAudioSource::UnusedMuxInput, 0.0)
+        );
         assert_sample_near(memory.audio_sample(), 0.0);
+
+        memory.pia1.write(0x03, 0x38); // PIA1 CB2 high, port B DDR selected.
+        memory.pia1.write(0x02, 0x02); // PIA1 PB1 drives single-bit sound.
+        memory.pia1.write(0x03, 0x3C); // Keep PIA1 CB2 high: enable sound mux.
+        memory.pia1.write(0x02, 0x02); // PB1 high must not leak into the unused mux input.
+        assert_sample_near(memory.audio_sample(), 0.0);
+    }
+
+    #[test]
+    fn cartridge_snd_pin_reaches_audio_output_when_mux_selects_cartridge() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine.memory.pia0.write(0x01, 0x34); // PIA0 CA2 low.
+        machine.memory.pia0.write(0x03, 0x3C); // PIA0 CB2 high: cartridge source.
+        machine.memory.pia1.write(0x03, 0x3C); // PIA1 CB2 high: enable sound mux.
+
+        machine.set_cartridge_sound_level(0.0);
+        let _ = machine.run_cycles(128, 0);
+        let mut low_samples = Vec::new();
+        machine.drain_audio_samples(&mut low_samples);
+
+        machine.set_cartridge_sound_level(1.0);
+        let _ = machine.run_cycles(128, 0);
+        let mut high_samples = Vec::new();
+        machine.drain_audio_samples(&mut high_samples);
+
+        assert!(!low_samples.is_empty());
+        assert!(!high_samples.is_empty());
+        assert!(low_samples.iter().all(|sample| *sample == 0.0));
+        assert!(high_samples.iter().all(|sample| *sample > 0.69));
+    }
+
+    #[test]
+    fn cartridge_snd_pin_is_normalized_before_mixing() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.pia0.write(0x03, 0x3C); // PIA0 CB2 high: cartridge source with CA2 low.
+        memory.pia1.write(0x03, 0x3C); // PIA1 CB2 high: enable sound mux.
+
+        memory.set_cartridge_sound_level(-1.0);
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Cart, 0.0));
+        assert_sample_near(memory.audio_sample(), 0.0);
+
+        memory.set_cartridge_sound_level(0.5);
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Cart, 0.5));
+        assert_sample_near(memory.audio_sample(), 0.35);
+
+        memory.set_cartridge_sound_level(f32::NAN);
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Cart, 0.0));
+
+        memory.set_cartridge_sound_level(2.0);
+        assert_eq!(memory.muxed_audio_source(), (DragonAudioSource::Cart, 1.0));
+        assert_sample_near(memory.audio_sample(), 0.7);
     }
 
     #[test]
