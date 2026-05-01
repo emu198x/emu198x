@@ -181,7 +181,15 @@ The regular local verifier runs deterministic PAK trace-alignment checks when
 override, it uses Skramble, Doodle Bug, and Hunchback as a compact curated set;
 each snapshot is run twice with completed-frame capture and compared by the
 reported `trace_signature`. The signature includes retained CPU fetches, VDG
-samples, VDG mode writes, video phase, text, and framebuffer data.
+samples, VDG mode writes, video phase, text, and framebuffer data. The curated
+entries also assert `running-visible`, minimum colour counts, required VDG mode
+writes where expected, and known-good signatures:
+
+| PAK | Signature |
+| --- | --- |
+| Skramble | `fede4df2995a9500` |
+| Doodle Bug | `5779963295a0d25d` |
+| Hunchback | `ec699c8d30c606e5` |
 
 Patched-XRoar comparison, when the local patched XRoar binary is available:
 
@@ -238,9 +246,9 @@ For the source-backed accuracy audit and implementation sequence, see
 
 ## Near-Term Plan
 
-1. Add stricter semantic assertions to the deterministic PAK trace-alignment
-   gate once we have named fixtures for specific text, semigraphics, and
-   graphics behaviours.
+1. Extend the deterministic PAK trace-alignment set only when a new fixture
+   proves a distinct behaviour that the current Skramble, Doodle Bug, and
+   Hunchback set does not cover.
 2. Validate Dragon audio filtering and audible software behavior against XRoar
    or hardware captures once we have sound-producing CAS fixtures.
 3. Add a synthetic comparator fixture only if we need deterministic text

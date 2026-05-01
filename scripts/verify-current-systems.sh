@@ -338,7 +338,11 @@ run_dragon_pak_trace_alignment_smoke() {
     local rom="$1"
     local pak="$2"
     local label="$3"
-    local artifact_root="$4"
+    local expected_classification="$4"
+    local min_colors="$5"
+    local min_vdg_mode_writes="$6"
+    local expected_hash="$7"
+    local artifact_root="$8"
     local first_report="${artifact_root}/dragon-pak-trace-${label}-a.json"
     local second_report="${artifact_root}/dragon-pak-trace-${label}-b.json"
     local first_screen_dir
@@ -368,11 +372,28 @@ run_dragon_pak_trace_alignment_smoke() {
         --smoke-screenshot-dir "${second_screen_dir}" \
         --screenshot-phase completed-frame
 
-    python3 - "${first_report}" "${second_report}" <<'PY'
+    python3 - \
+        "${first_report}" \
+        "${second_report}" \
+        "${label}" \
+        "${expected_classification}" \
+        "${min_colors}" \
+        "${min_vdg_mode_writes}" \
+        "${expected_hash}" <<'PY'
 import json
 import sys
 
-first_report, second_report = sys.argv[1:3]
+(
+    first_report,
+    second_report,
+    label,
+    expected_classification,
+    min_colors,
+    min_vdg_mode_writes,
+    expected_hash,
+) = sys.argv[1:8]
+min_colors = int(min_colors)
+min_vdg_mode_writes = int(min_vdg_mode_writes)
 
 def runtime(path):
     with open(path, "r", encoding="utf-8") as handle:
@@ -387,23 +408,40 @@ def runtime(path):
 
 first = runtime(first_report)
 second = runtime(second_report)
+if first.get("classification") != expected_classification:
+    raise SystemExit(
+        f"{label}: expected classification {expected_classification}, got {first.get('classification')}"
+    )
+if first.get("distinct_colors", 0) < min_colors:
+    raise SystemExit(
+        f"{label}: expected at least {min_colors} colours, got {first.get('distinct_colors')}"
+    )
 first_signature = first.get("trace_signature")
 second_signature = second.get("trace_signature")
 if not first_signature or not second_signature:
-    raise SystemExit("missing PAK trace signatures")
+    raise SystemExit(f"{label}: missing PAK trace signatures")
 if first_signature != second_signature:
     raise SystemExit(
-        "PAK trace signatures differ:\n"
+        f"{label}: PAK trace signatures differ:\n"
         + json.dumps(first_signature, sort_keys=True)
         + "\n"
         + json.dumps(second_signature, sort_keys=True)
     )
 if first_signature.get("vdg_samples", 0) == 0:
-    raise SystemExit("PAK trace signature did not include VDG samples")
+    raise SystemExit(f"{label}: PAK trace signature did not include VDG samples")
 if first_signature.get("framebuffer_words", 0) == 0:
-    raise SystemExit("PAK trace signature did not include framebuffer data")
+    raise SystemExit(f"{label}: PAK trace signature did not include framebuffer data")
+if first_signature.get("vdg_mode_writes", 0) < min_vdg_mode_writes:
+    raise SystemExit(
+        f"{label}: expected at least {min_vdg_mode_writes} VDG mode writes, "
+        f"got {first_signature.get('vdg_mode_writes')}"
+    )
+if expected_hash and first_signature.get("hash") != expected_hash:
+    raise SystemExit(
+        f"{label}: expected signature {expected_hash}, got {first_signature.get('hash')}"
+    )
 
-print(f"Dragon PAK trace signature stable: {first_signature['hash']}")
+print(f"Dragon PAK trace signature stable for {label}: {first_signature['hash']}")
 PY
 }
 
@@ -570,14 +608,15 @@ if [[ "${mode}" != "unit" ]]; then
 
     dragon_paks=()
     if [[ -n "${EMU198X_DRAGON_PAK:-}" ]]; then
-        dragon_paks+=("${EMU198X_DRAGON_PAK}")
+        dragon_paks+=("${EMU198X_DRAGON_PAK}|custom|running-visible|2|0|")
     else
-        for candidate in \
-            "${reference_root}/dragon/Dragon/Games/[PAK]/Skramble (1983)(Microdeal).zip" \
-            "${reference_root}/dragon/Dragon/Games/[PAK]/Doodle Bug (1985)(Microdeal).zip" \
-            "${reference_root}/dragon/Dragon/Games/[PAK]/Hunchback (1983)(Ocean).zip"; do
+        for spec in \
+            "${reference_root}/dragon/Dragon/Games/[PAK]/Skramble (1983)(Microdeal).zip|skramble|running-visible|3|1|fede4df2995a9500" \
+            "${reference_root}/dragon/Dragon/Games/[PAK]/Doodle Bug (1985)(Microdeal).zip|doodle-bug|running-visible|3|0|5779963295a0d25d" \
+            "${reference_root}/dragon/Dragon/Games/[PAK]/Hunchback (1983)(Ocean).zip|hunchback|running-visible|8|0|ec699c8d30c606e5"; do
+            IFS='|' read -r candidate _label _classification _colors _writes _hash <<< "${spec}"
             if [[ -f "${candidate}" ]]; then
-                dragon_paks+=("${candidate}")
+                dragon_paks+=("${spec}")
             fi
         done
     fi
@@ -660,14 +699,19 @@ if [[ "${mode}" != "unit" ]]; then
 
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && "${#dragon_paks[@]}" -gt 0 ]]; then
         dragon_pak_index=0
-        for dragon_pak in "${dragon_paks[@]}"; do
+        for dragon_pak_spec in "${dragon_paks[@]}"; do
             dragon_pak_index=$((dragon_pak_index + 1))
+            IFS='|' read -r dragon_pak dragon_pak_label dragon_pak_classification dragon_pak_min_colors dragon_pak_min_writes dragon_pak_hash <<< "${dragon_pak_spec}"
             if [[ -f "${dragon_pak}" ]]; then
-                run_step "dragon-pak-trace-alignment-${dragon_pak_index}" \
+                run_step "dragon-pak-trace-alignment-${dragon_pak_label}" \
                     run_dragon_pak_trace_alignment_smoke \
                         "${dragon_rom}" \
                         "${dragon_pak}" \
-                        "${dragon_pak_index}" \
+                        "${dragon_pak_label}" \
+                        "${dragon_pak_classification}" \
+                        "${dragon_pak_min_colors}" \
+                        "${dragon_pak_min_writes}" \
+                        "${dragon_pak_hash}" \
                         "${out_dir}"
             else
                 skip_step "dragon-pak-trace-alignment-${dragon_pak_index}" "missing Dragon PAK snapshot at ${dragon_pak}"

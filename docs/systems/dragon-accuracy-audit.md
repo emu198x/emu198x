@@ -230,3 +230,5 @@ Progress:
   fetches, VDG samples, VDG mode writes, video phase, text, and framebuffer
   data. The local verifier runs a curated Skramble, Doodle Bug, and Hunchback
   set twice and compares those signatures as the stable PAK alignment gate.
+  The gate also pins expected `running-visible` classification, minimum colour
+  counts, required VDG mode writes where expected, and known-good hashes.
