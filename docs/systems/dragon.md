@@ -13,10 +13,12 @@ the Dragon's analogue joystick comparator path.
 
 Dragon 64 is represented as a distinct PAL runtime profile. It cold-boots in
 the real hardware's Dragon 32-compatible mode, adds the Dragon 64 ACIA decode
-at `$FF04-$FF07`, and keeps the SAM-backed 64K RAM paging model. Native
-`EXEC 48000` 64-mode entry using the Dragon 64 BASIC ROM is still future work,
-as are CoCo variants, cartridge expansion hardware beyond the documented audio
-input pin, and DragonDOS disk support.
+at `$FF04-$FF07`, keeps the SAM-backed 64K RAM paging model, and now supports
+the native `EXEC 48000` transition. PIA1 PB2 selects between the compatible and
+64-mode internal BASIC ROMs at `$8000-$BFFF`, while SAM map type 1 exposes RAM
+below the `$FFxx` device/vector page. CoCo variants, cartridge expansion
+hardware beyond the documented audio input pin, and DragonDOS disk support
+remain future work.
 
 ## What Works
 
@@ -300,11 +302,10 @@ cargo run --release -q -p emu198x-script-dragon -- \
 4. The beam framebuffer is in place, but the display model is still calibrated
    to the current 372x243 diagnostic visible area and XRoar zoomed comparison
    bridge. A fuller PAL timing/overscan model can come later.
-5. Dragon 64 cold-boot profile support is in place, including the real
-   hardware's Dragon 32-compatible reset mode and `$FF04-$FF07` ACIA decode.
-   Native `EXEC 48000` 64-mode BASIC entry, cartridge expansion hardware beyond
-   the documented `SND` input pin, and DragonDOS/WD2797 disk support are not
-   implemented.
+5. Dragon 64 cold-boot and native `EXEC 48000` 64-mode BASIC entry are in
+   place, including PIA1 PB2 ROM selection and `$FF04-$FF07` ACIA decode.
+   Full RS-232 behavior, cartridge expansion hardware beyond the documented
+   `SND` input pin, and DragonDOS/WD2797 disk support are not implemented.
 
 For the source-backed accuracy audit and implementation sequence, see
 [`dragon-accuracy-audit.md`](dragon-accuracy-audit.md).
@@ -328,16 +329,16 @@ Dragon 32 is at a practical-use baseline: real BASIC ROM boot, keyboard, CAS
 autoload, cartridges, PAK snapshots, beam-updated VDG output, cassette input,
 PIA/SAM timing, mono audio, native windowing, gamepad input, and smoke tooling
 are all in place. Dragon 64 now cold-boots through a separate runtime profile in
-the hardware's Dragon 32-compatible reset mode. The remaining work to call the
-family complete is accuracy, 64-mode entry, and coverage rather than initial
-bring-up.
+the hardware's Dragon 32-compatible reset mode and enters 64-mode BASIC with
+`EXEC 48000`. The remaining work to call the family complete is accuracy,
+peripheral coverage, and disk support rather than initial bring-up.
 
 To complete Dragon 32, the main gaps are: full source-backed MC6809 timing and
 interrupt edge cases, PAL video geometry calibrated against hardware captures,
-analogue audio filtering and expansion-device mixing, Dragon 64 `EXEC 48000`
-mode switching, DragonDOS/WD2797 disks, and a trusted fixture suite for
-joystick/audio/video behaviours that does not depend on emulator-vs-emulator
-pixel matching.
+analogue audio filtering and expansion-device mixing, deeper Dragon 64
+post-transition software coverage, DragonDOS/WD2797 disks, and a trusted
+fixture suite for joystick/audio/video behaviours that does not depend on
+emulator-vs-emulator pixel matching.
 
 ## Test Coverage
 
@@ -361,7 +362,8 @@ Place the Dragon BASIC ROMs at:
 | File | Size | Description |
 |------|------|-------------|
 | `~/.emu198x/roms/dragon/dragon32.rom` | 16KB | Dragon 32 BASIC ROM |
-| `~/.emu198x/roms/dragon/dragon64.rom` | 16KB | Optional Dragon 64 BASIC ROM for future 64-mode entry |
+| `~/.emu198x/roms/dragon/dragon64-compat.rom` | 16KB | Dragon 64 compatible-mode BASIC ROM used at cold boot |
+| `~/.emu198x/roms/dragon/dragon64.rom` | 16KB | Dragon 64 64-mode BASIC ROM selected by `EXEC 48000` |
 
 The native and script runners also accept a zip containing one suitable
 ROM/bin candidate.

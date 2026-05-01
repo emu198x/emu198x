@@ -68,6 +68,47 @@ fn dragon64_real_rom_reaches_basic_prompt() {
 }
 
 #[test]
+fn dragon64_exec_48000_enters_sixty_four_kib_mode() {
+    let Some(mut session) = booted_dragon64_session() else {
+        return;
+    };
+
+    let boot = session
+        .wait_for_boot(BOOT_FRAME_BUDGET)
+        .expect("Dragon 64 ROM should reach BASIC prompt before EXEC 48000");
+    assert_eq!(boot.reason, "basic-ok-prompt");
+    session
+        .run_frames(30)
+        .expect("Dragon 64 ROM should idle after reaching BASIC prompt");
+
+    for name in [
+        "e", "x", "e", "c", "space", "4", "8", "0", "0", "0", "enter",
+    ] {
+        tap_key(&mut session, name);
+    }
+    session
+        .run_frames(200)
+        .expect("Dragon 64 mode transition should advance");
+
+    let model = session
+        .query("dragon.hardware.model")
+        .expect("hardware model query should work")
+        .value;
+    assert_eq!(
+        model,
+        serde_json::json!("dragon64-mode"),
+        "Dragon 64 EXEC 48000 did not enter 64K mode; pc=${:04X} s=${:04X} pia1_cb=${:02X} pia1_ddrb=${:02X} pia1_ob=${:02X} pia1_pb=${:02X}\n{}",
+        query_u64(&session, "dragon.cpu.pc"),
+        query_u64(&session, "dragon.cpu.s"),
+        query_u64(&session, "dragon.pia1.control_b"),
+        query_u64(&session, "dragon.pia1.ddr_b"),
+        query_u64(&session, "dragon.pia1.output_b"),
+        query_u64(&session, "dragon.pia1.pins_b"),
+        screen_text_lines(&session).join("\n")
+    );
+}
+
+#[test]
 fn dragon32_real_rom_echoes_basic_keyboard_input() {
     let Some(mut session) = booted_dragon_session() else {
         return;
@@ -403,28 +444,30 @@ fn booted_dragon_session() -> Option<HeadlessSession<DragonRuntime, DragonSessio
 }
 
 fn booted_dragon64_session() -> Option<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>> {
-    let Some(rom_path) = dragon32_rom_path() else {
-        eprintln!("skipping Dragon 64 real-ROM smoke: set EMU198X_DRAGON32_ROM");
+    let Some(compat_rom_path) = dragon64_compatible_rom_path() else {
+        eprintln!("skipping Dragon 64 real-ROM smoke: set EMU198X_DRAGON64_COMPAT_ROM");
+        return None;
+    };
+    let Some(mode_rom_path) = dragon64_rom_path() else {
+        eprintln!("skipping Dragon 64 real-ROM smoke: set EMU198X_DRAGON64_ROM");
         return None;
     };
 
-    let loaded = read_firmware_asset(&rom_path)
-        .unwrap_or_else(|err| panic!("read Dragon 32 ROM at {}: {err}", rom_path.display()));
+    let loaded = read_firmware_asset(&compat_rom_path).unwrap_or_else(|err| {
+        panic!(
+            "read Dragon 64 compatible-mode ROM at {}: {err}",
+            compat_rom_path.display()
+        )
+    });
     let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
-    let mut dragon64_rom = None;
-    if let Some(rom_path) = dragon64_rom_path() {
-        let loaded = read_firmware_asset(&rom_path).unwrap_or_else(|err| {
-            panic!(
-                "read optional Dragon 64 ROM at {}: {err}",
-                rom_path.display()
-            )
-        });
-        dragon64_rom = Some(loaded.bytes);
-    }
-    if let Some(bytes) = &dragon64_rom {
-        firmware.push(FirmwareImage::new("dragon64-basic-rom", bytes));
-    }
+    firmware.push(FirmwareImage::new("dragon64-compatible-rom", &loaded.bytes));
+    let mode_rom = read_firmware_asset(&mode_rom_path).unwrap_or_else(|err| {
+        panic!(
+            "read Dragon 64 mode ROM at {}: {err}",
+            mode_rom_path.display()
+        )
+    });
+    firmware.push(FirmwareImage::new("dragon64-basic-rom", &mode_rom.bytes));
     let runtime = DragonRuntime::from_firmware(Model::Dragon64Pal, &firmware)
         .expect("real Dragon 64 ROM should create runtime");
     Some(HeadlessSession::new_with_query_provider(
@@ -485,6 +528,30 @@ fn dragon32_rom_path() -> Option<PathBuf> {
     let sibling_archive = repo_root
         .parent()?
         .join("Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)(Dragon Data).zip");
+    if sibling_archive.exists() {
+        return Some(sibling_archive);
+    }
+
+    None
+}
+
+fn dragon64_compatible_rom_path() -> Option<PathBuf> {
+    if let Some(path) = existing_env_path("EMU198X_DRAGON64_COMPAT_ROM") {
+        return Some(path);
+    }
+
+    if let Some(path) = home_path(".emu198x/roms/dragon/dragon64-compat.rom") {
+        return Some(path);
+    }
+
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)?;
+    // This image reaches the Dragon 64 compatible-mode BASIC prompt and is one
+    // of XRoar's accepted Dragon 64 32K-mode ROM CRCs.
+    let sibling_archive = repo_root
+        .parent()?
+        .join("Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 64 BIOS (1983)(Dragon Data)[24Kb RAM].zip");
     if sibling_archive.exists() {
         return Some(sibling_archive);
     }

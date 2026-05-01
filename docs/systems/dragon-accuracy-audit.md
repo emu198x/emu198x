@@ -35,9 +35,10 @@ Motorola/Dragon source material are the authority when behavior differs.
   `$0000-$7FFF`. In map type 1, MPU reads/writes below `$FF00` use contiguous
   RAM while the `$FFxx` device/vector page remains decoded.
 - Dragon 64 cold boot is modeled as Dragon 32-compatible reset mode with the
-  extra Dragon 64 ACIA decode at `$FF04-$FF07`. The Dragon Archive memory map
-  and Dragon 64 references describe 64 mode as a later `EXEC 48000` transition,
-  not as direct cold boot from the high BASIC image.
+  extra Dragon 64 ACIA decode at `$FF04-$FF07`. The native `EXEC 48000`
+  transition is modeled through PIA1 PB2 ROMSEL: the selected internal BASIC ROM
+  appears at `$8000-$BFFF`, and SAM TY exposes RAM below the `$FFxx`
+  device/vector page.
 - The vertical active display shape is source-aligned at the practical level.
   The MC6847 documentation describes 192 display lines offset 25 lines from the
   top of the visible VDG picture. `motorola-vdg-6847` uses a 256x192 active text
@@ -184,8 +185,8 @@ Required resolution:
    timing change, treating XRoar screenshots as advisory regression artifacts
    rather than proof of accuracy.
 3. Only after CPU/SAM/VDG timing is source-backed, revisit audio filtering,
-   cartridge expansion devices, Dragon 64 64-mode BASIC entry, and disk
-   hardware.
+   cartridge expansion devices, deeper Dragon 64 64-mode software coverage, and
+   disk hardware.
 
 ## Immediate Next Engineering Step
 
@@ -225,9 +226,9 @@ Progress:
   `$FFxx` device/vector page. This fixes the prior mismatch where TY affected
   cycle timing but not actual memory reads/writes.
 - Dragon 64 now has a distinct PAL runtime profile that cold-boots from the
-  Dragon 32 ROM on Dragon 64-compatible hardware. The machine also decodes the
-  Dragon 64 6551 ACIA range at `$FF04-$FF07`; full RS-232 behavior and native
-  `EXEC 48000` 64-mode BASIC entry remain pending.
+  Dragon 64 compatible BASIC ROM, decodes the Dragon 64 6551 ACIA range at
+  `$FF04-$FF07`, and enters 64-mode BASIC through `EXEC 48000`. Full RS-232
+  behavior remains pending.
 - VDG byte fetch lead time is now mode-aware and source-derived: short-cycle
   modes latch four VDG clocks before display, while long-cycle modes latch
   eight VDG clocks before display. Beam tests now cover writes just before and

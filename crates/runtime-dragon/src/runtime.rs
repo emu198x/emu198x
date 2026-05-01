@@ -29,6 +29,7 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "dragon.cpu.instructions",
     "dragon.cpu.pc",
     "dragon.cpu.s",
+    "dragon.hardware.model",
     "dragon.machine.halted",
     "dragon.pia0.control_a",
     "dragon.pia0.control_b",
@@ -102,6 +103,7 @@ pub struct DragonRuntime {
     profile: MachineProfile,
     model: Model,
     firmware_rom: [u8; ROM_SIZE],
+    dragon64_mode_rom: Option<[u8; ROM_SIZE]>,
     machine: Dragon32,
     joystick: DragonJoystickInputState,
     time: MachineTime,
@@ -130,9 +132,18 @@ impl DragonRuntime {
             .ok_or_else(|| MachineError::MissingFirmware {
                 id: rom_id.to_owned(),
             })?;
-        Self::new(model, rom).map_err(|reason| MachineError::InvalidFirmware {
-            id: rom_id.to_owned(),
-            reason,
+        let dragon64_mode_rom =
+            dragon64_mode_rom_from_firmware(model, firmware).map_err(|reason| {
+                MachineError::InvalidFirmware {
+                    id: "dragon64-basic-rom".to_owned(),
+                    reason,
+                }
+            })?;
+        Self::with_roms(model, rom, dragon64_mode_rom).map_err(|reason| {
+            MachineError::InvalidFirmware {
+                id: rom_id.to_owned(),
+                reason,
+            }
         })
     }
 
@@ -142,17 +153,27 @@ impl DragonRuntime {
     ///
     /// Returns an error if the supplied ROM is not exactly 16 KiB.
     pub fn new(model: Model, rom: &[u8]) -> Result<Self, String> {
+        Self::with_roms(model, rom, None)
+    }
+
+    fn with_roms(
+        model: Model,
+        rom: &[u8],
+        dragon64_mode_rom: Option<[u8; ROM_SIZE]>,
+    ) -> Result<Self, String> {
         let firmware_rom: [u8; ROM_SIZE] = rom.try_into().map_err(|_| {
             format!(
                 "{} ROM must be exactly {ROM_SIZE} bytes",
                 model.display_name()
             )
         })?;
+        let machine = machine_for_model(model, &firmware_rom, dragon64_mode_rom.as_ref());
         Ok(Self {
             profile: profile_for(model),
             model,
             firmware_rom,
-            machine: machine_for_model(model, &firmware_rom),
+            dragon64_mode_rom,
+            machine,
             joystick: DragonJoystickInputState::default(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::with_capacity(
@@ -175,7 +196,8 @@ impl DragonRuntime {
             profile: profile_for(model),
             model,
             firmware_rom,
-            machine: machine_for_model(model, &firmware_rom),
+            dragon64_mode_rom: None,
+            machine: machine_for_model(model, &firmware_rom, None),
             joystick: DragonJoystickInputState::default(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::with_capacity(
@@ -223,7 +245,11 @@ impl DragonRuntime {
     }
 
     fn rebuild_machine(&mut self) {
-        self.machine = machine_for_model(self.model, &self.firmware_rom);
+        self.machine = machine_for_model(
+            self.model,
+            &self.firmware_rom,
+            self.dragon64_mode_rom.as_ref(),
+        );
         self.joystick = DragonJoystickInputState::default();
         if !self.tape_bytes.is_empty() {
             self.machine.load_cassette_bytes(self.tape_bytes.clone());
@@ -437,6 +463,14 @@ const fn dragon_axis_value(value: i16) -> u16 {
     (value as i32 + 32_768) as u16
 }
 
+const fn hardware_model_label(model: DragonHardwareModel) -> &'static str {
+    match model {
+        DragonHardwareModel::Dragon32 => "dragon32",
+        DragonHardwareModel::Dragon64Compat => "dragon64-compatible",
+        DragonHardwareModel::Dragon64Mode => "dragon64-mode",
+    }
+}
+
 const fn dragon_joystick_port(port: u8) -> Option<u8> {
     match port {
         1 => Some(0),
@@ -452,12 +486,41 @@ const fn machine_cartridge_kind(kind: ParsedDragonCartridgeKind) -> DragonCartri
     }
 }
 
-fn machine_for_model(model: Model, rom: &[u8; ROM_SIZE]) -> Dragon32 {
+fn dragon64_mode_rom_from_firmware(
+    model: Model,
+    firmware: &FirmwareSet<'_>,
+) -> Result<Option<[u8; ROM_SIZE]>, String> {
+    if model != Model::Dragon64Pal {
+        return Ok(None);
+    }
+
+    let bytes = firmware
+        .bytes("dragon64-basic-rom")
+        .ok_or_else(|| "Dragon 64 BASIC ROM is required for 64-mode entry".to_owned())?;
+    let rom = bytes
+        .try_into()
+        .map_err(|_| format!("Dragon 64 BASIC ROM must be exactly {ROM_SIZE} bytes"))?;
+    Ok(Some(rom))
+}
+
+fn machine_for_model(
+    model: Model,
+    rom: &[u8; ROM_SIZE],
+    dragon64_mode_rom: Option<&[u8; ROM_SIZE]>,
+) -> Dragon32 {
     let hardware = match model {
         Model::Dragon32Pal => DragonHardwareModel::Dragon32,
         Model::Dragon64Pal => DragonHardwareModel::Dragon64Compat,
     };
-    Dragon32::new_with_keyboard_and_model(rom, machine_dragon_32::DragonKeyboard::new(), hardware)
+    let mut machine = Dragon32::new_with_keyboard_and_model(
+        rom,
+        machine_dragon_32::DragonKeyboard::new(),
+        hardware,
+    );
+    if let Some(rom) = dragon64_mode_rom {
+        machine.install_dragon64_mode_rom(rom);
+    }
+    machine
 }
 
 fn load_snapshot_into_machine(machine: &mut Dragon32, snapshot: &PcDragonSnapshot) {
@@ -687,6 +750,9 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
             "dragon.cpu.instructions" => json!(machine.machine.instructions()),
             "dragon.cpu.pc" => json!(machine.machine.pc()),
             "dragon.cpu.s" => json!(machine.machine.stack_pointer()),
+            "dragon.hardware.model" => {
+                json!(hardware_model_label(machine.machine.hardware_model()))
+            }
             "dragon.machine.halted" => json!(machine.machine.is_halted()),
             "dragon.pia0.control_a" => json!(machine.machine.pia0_control_a()),
             "dragon.pia0.control_b" => json!(machine.machine.pia0_control_b()),

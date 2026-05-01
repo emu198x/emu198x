@@ -1272,6 +1272,8 @@ pub struct RunReport {
 struct DragonMemory {
     ram: Box<[u8; FULL_RAM_SIZE]>,
     rom: Box<[u8; ROM_SIZE]>,
+    dragon64_compat_rom: Option<Box<[u8; ROM_SIZE]>>,
+    dragon64_mode_rom: Option<Box<[u8; ROM_SIZE]>>,
     model: DragonHardwareModel,
     pia0: Pia6821,
     pia1: Pia6821,
@@ -1295,9 +1297,16 @@ impl DragonMemory {
         keyboard: DragonKeyboard,
         model: DragonHardwareModel,
     ) -> Self {
+        let dragon64_compat_rom = matches!(
+            model,
+            DragonHardwareModel::Dragon64Compat | DragonHardwareModel::Dragon64Mode
+        )
+        .then(|| Box::new(*rom));
         Self {
             ram: Box::new([0; FULL_RAM_SIZE]),
             rom: Box::new(*rom),
+            dragon64_compat_rom,
+            dragon64_mode_rom: None,
             model,
             pia0: Pia6821::new(),
             pia1: Pia6821::new(),
@@ -1389,6 +1398,7 @@ impl DragonMemory {
                 DeviceRegion::Pia1 => {
                     self.pia1.write(offset, value);
                     self.refresh_pia_inputs();
+                    self.sync_dragon64_rom_select();
                 }
                 DeviceRegion::Sam => unreachable!("SAM is not a PIA"),
                 DeviceRegion::Acia => unreachable!("ACIA is not a PIA"),
@@ -1426,6 +1436,31 @@ impl DragonMemory {
         self.cartridge = Some(DragonCartridge::new(kind, rom, autorun));
     }
 
+    fn install_dragon64_mode_rom(&mut self, rom: &[u8; ROM_SIZE]) {
+        self.dragon64_mode_rom = Some(Box::new(*rom));
+        self.sync_dragon64_rom_select();
+    }
+
+    fn sync_dragon64_rom_select(&mut self) {
+        if !matches!(
+            self.model,
+            DragonHardwareModel::Dragon64Compat | DragonHardwareModel::Dragon64Mode
+        ) {
+            return;
+        }
+
+        if self.pia1.pb & 0x04 == 0 {
+            let Some(rom) = &self.dragon64_mode_rom else {
+                return;
+            };
+            self.rom = rom.clone();
+            self.model = DragonHardwareModel::Dragon64Mode;
+        } else if let Some(rom) = &self.dragon64_compat_rom {
+            self.rom = rom.clone();
+            self.model = DragonHardwareModel::Dragon64Compat;
+        }
+    }
+
     fn clear_cartridge(&mut self) {
         self.cartridge = None;
     }
@@ -1452,6 +1487,7 @@ impl DragonMemory {
         self.pia1.write(0x03, 0x04);
         self.pia1.write(0x02, peripherals.ff22);
         self.refresh_pia_inputs();
+        self.sync_dragon64_rom_select();
     }
 
     fn tick_cartridge_autorun(&mut self, cycles: u64) {
@@ -1497,6 +1533,7 @@ impl DragonMemory {
         if self.pia1.ca2 {
             self.cassette.advance_ticks(master_ticks);
             self.refresh_pia_inputs();
+            self.sync_dragon64_rom_select();
         }
     }
 
@@ -1524,27 +1561,34 @@ impl DragonMemory {
 
     fn mpu_ram_index(&self, addr: u16) -> Option<usize> {
         if self.sam.ty() {
-            return (addr < 0xFF00).then_some(usize::from(addr));
+            return (addr < 0xFF00).then_some(self.sam_physical_ram_index(addr));
         }
         if addr < 0x8000 {
-            let page = if self.sam.page_select() { RAM_SIZE } else { 0 };
-            return Some(page + usize::from(addr));
-        }
-        if self.model == DragonHardwareModel::Dragon64Mode && addr < 0xC000 {
-            return Some(usize::from(addr));
+            return Some(self.sam_physical_ram_index(addr));
         }
         None
     }
 
+    fn sam_physical_ram_index(&self, addr: u16) -> usize {
+        let page = if self.sam.page_select() { RAM_SIZE } else { 0 };
+        usize::from(addr) | page
+    }
+
+    fn internal_rom_window(addr: u16) -> bool {
+        if addr >= 0xFFE0 {
+            return true;
+        }
+        (0x8000..CART_ROM_START).contains(&addr)
+    }
+
     fn rom_read(&self, addr: u16) -> Option<u8> {
         let index = match self.model {
-            DragonHardwareModel::Dragon32 | DragonHardwareModel::Dragon64Compat
-                if !(CART_ROM_START..=CART_ROM_END).contains(&addr) =>
+            DragonHardwareModel::Dragon32
+            | DragonHardwareModel::Dragon64Compat
+            | DragonHardwareModel::Dragon64Mode
+                if Self::internal_rom_window(addr) =>
             {
                 (usize::from(addr).wrapping_sub(RAM_SIZE)) & (ROM_SIZE - 1)
-            }
-            DragonHardwareModel::Dragon64Mode if addr >= CART_ROM_START => {
-                usize::from(addr - CART_ROM_START) & (ROM_SIZE - 1)
             }
             _ => return None,
         };
@@ -2311,6 +2355,12 @@ impl Dragon32 {
         self.cpu.regs.pc
     }
 
+    /// Current Dragon hardware memory-decode model.
+    #[must_use]
+    pub const fn hardware_model(&self) -> DragonHardwareModel {
+        self.memory.model
+    }
+
     /// Current CPU bus address.
     #[must_use]
     pub fn bus_addr(&self) -> u16 {
@@ -2420,6 +2470,11 @@ impl Dragon32 {
     /// Load a Dragon cartridge image.
     pub fn load_cartridge(&mut self, kind: DragonCartridgeKind, rom: &[u8], autorun: bool) {
         self.memory.load_cartridge(kind, rom, autorun);
+    }
+
+    /// Install the Dragon 64 high BASIC ROM used after the 64-mode transition.
+    pub fn install_dragon64_mode_rom(&mut self, rom: &[u8; ROM_SIZE]) {
+        self.memory.install_dragon64_mode_rom(rom);
     }
 
     /// Remove any emulated cartridge.
@@ -3457,25 +3512,22 @@ mod tests {
     }
 
     #[test]
-    fn dragon64_mode_maps_base_ram_and_system_rom_at_c000() {
-        let mut rom = rom_with_reset_vector(0xC000);
+    fn dragon64_mode_selects_internal_rom_and_leaves_cartridge_window_external() {
+        let mut rom = rom_with_reset_vector(0x8000);
         rom[0] = 0x12;
-        rom[0x3FFE] = 0xC0;
+        rom[0x3FFE] = 0x80;
         rom[0x3FFF] = 0x00;
 
-        let mut memory = DragonMemory::new_with_keyboard_and_model(
+        let memory = DragonMemory::new_with_keyboard_and_model(
             &rom,
             DragonKeyboard::new(),
             DragonHardwareModel::Dragon64Mode,
         );
 
-        memory.write(0x8000, 0x34);
-        memory.write(0xBFFF, 0x56);
-
-        assert_eq!(memory.read_fetch(0x8000), 0x34);
-        assert_eq!(memory.read_fetch(0xBFFF), 0x56);
-        assert_eq!(memory.read_fetch(0xC000), 0x12);
-        assert_eq!(memory.read_fetch(0xFFFE), 0xC0);
+        assert_eq!(memory.read_fetch(0x8000), 0x12);
+        assert_eq!(memory.read_fetch(0xC000), NO_CARTRIDGE_BUS_VALUE);
+        assert_eq!(memory.read_fetch(0xFEFF), NO_CARTRIDGE_BUS_VALUE);
+        assert_eq!(memory.read_fetch(0xFFFE), 0x80);
         assert_eq!(memory.read_fetch(0xFFFF), 0x00);
     }
 
@@ -3499,6 +3551,39 @@ mod tests {
                 value: ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY,
             })
         );
+    }
+
+    #[test]
+    fn dragon64_pia1_pb2_selects_installed_mode_rom() {
+        let mut compat_rom = rom_with_reset_vector(0x8000);
+        compat_rom[0] = 0x18;
+        let mut mode_rom = rom_with_reset_vector(0x8000);
+        mode_rom[0] = 0x42;
+        let mut memory = DragonMemory::new_with_keyboard_and_model(
+            &compat_rom,
+            DragonKeyboard::new(),
+            DragonHardwareModel::Dragon64Compat,
+        );
+        memory.install_dragon64_mode_rom(&mode_rom);
+        memory.ram[0x8000] = 0x24;
+
+        memory.write(0xFF22, 0x04); // PIA1 DDRB: PB2 drives the Dragon 64 ROM select line.
+        memory.write(0xFF23, 0x04); // PIA1 control B: select port data register.
+        memory.write(0xFF22, 0x00); // PB2 low selects the 64K BASIC ROM.
+
+        assert_eq!(memory.model, DragonHardwareModel::Dragon64Mode);
+        assert_eq!(memory.read_fetch(0x8000), 0x42);
+        assert_eq!(memory.read_fetch(0xC000), NO_CARTRIDGE_BUS_VALUE);
+        assert_eq!(memory.read_fetch(0xFFFE), 0x80);
+        assert_eq!(memory.read_fetch(0xFFFF), 0x00);
+        memory.write(0xFFDF, 0x00); // SAM TY set: selected ROM is replaced by RAM below the device page.
+        assert_eq!(memory.read_fetch(0x8000), 0x24);
+        memory.write(0xFFDE, 0x00); // SAM TY clear: expose the selected internal ROM again.
+
+        memory.write(0xFF22, 0x04); // PB2 high returns to compatible BASIC ROM.
+
+        assert_eq!(memory.model, DragonHardwareModel::Dragon64Compat);
+        assert_eq!(memory.read_fetch(0x8000), 0x18);
     }
 
     #[test]

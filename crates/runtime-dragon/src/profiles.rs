@@ -38,7 +38,7 @@ impl Model {
     pub const fn firmware_id(self) -> &'static str {
         match self {
             Self::Dragon32Pal => "dragon32-basic-rom",
-            Self::Dragon64Pal => "dragon32-basic-rom",
+            Self::Dragon64Pal => "dragon64-compatible-rom",
         }
     }
 
@@ -125,11 +125,15 @@ pub fn profile_for(model: Model) -> MachineProfile {
             region: Region::Pal,
             support_tier: SupportTier::Boots,
             release_year: 1983,
-            summary: "Dragon 64 PAL runtime. It cold-boots in Dragon 32-compatible mode from the standard BASIC ROM, adds the Dragon 64 ACIA decode and SAM-backed 64K RAM paging, and keeps the same cassette, cartridge, snapshot, program, keyboard, joystick, framebuffer, and mono audio surfaces as the Dragon 32 profile. Native 64-mode BASIC entry is pending.".into(),
+            summary: "Dragon 64 PAL runtime. It cold-boots in Dragon 32-compatible mode from the compatible BASIC ROM, switches to the high BASIC ROM for EXEC 48000 64-mode entry, adds the Dragon 64 ACIA decode and SAM-backed 64K RAM paging, and keeps the same cassette, cartridge, snapshot, program, keyboard, joystick, framebuffer, and mono audio surfaces as the Dragon 32 profile.".into(),
             clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(894_886)),
             firmware: vec![
-                FirmwareRequirement::new(model.firmware_id(), "Dragon 32 BASIC ROM", false),
-                FirmwareRequirement::new("dragon64-basic-rom", model.firmware_label(), true),
+                FirmwareRequirement::new(
+                    model.firmware_id(),
+                    "Dragon 64 compatible-mode BASIC ROM",
+                    false,
+                ),
+                FirmwareRequirement::new("dragon64-basic-rom", model.firmware_label(), false),
             ],
             media_slots: vec![
                 MediaSlot::new(
@@ -210,10 +214,10 @@ mod tests {
         assert_eq!(profile.family, Family::Dragon);
         assert_eq!(profile.region, Region::Pal);
         assert_eq!(profile.firmware.len(), 2);
-        assert_eq!(profile.firmware[0].id.as_ref(), "dragon32-basic-rom");
+        assert_eq!(profile.firmware[0].id.as_ref(), "dragon64-compatible-rom");
         assert!(!profile.firmware[0].optional);
         assert_eq!(profile.firmware[1].id.as_ref(), "dragon64-basic-rom");
-        assert!(profile.firmware[1].optional);
+        assert!(!profile.firmware[1].optional);
         assert_eq!(profile.media_slots.len(), 4);
     }
 }
