@@ -92,9 +92,10 @@ work.
   media in slot `cartridge-1`, and PC-Dragon PAK snapshots in `snapshot-1`.
 - **Native shell:** `emu198x-dragon` opens a native window, presents the Dragon
   framebuffer through the shared `wgpu` presenter with `raw`/`lcd`/`crt`
-  filters, emits live host audio, accepts `--rom`, `--tape`, `--bin`, `--cart`,
-  and `--snapshot`, supports `--autoload`, maps keyboard input into Dragon key
-  events, and maps gamepad input into Dragon joystick 1.
+  filters, emits live host audio, accepts `--model dragon32|dragon64`,
+  `--rom`, Dragon 64 `--rom64`, `--tape`, `--bin`, `--cart`, and `--snapshot`,
+  supports `--autoload`, maps keyboard input into Dragon key events, and maps
+  gamepad input into Dragon joystick 1.
 - **CAS format/media/playback:** `format-dragon-cas` parses framed Dragon CAS
   blocks, exposes checksum validity, and decodes the standard 15-byte namefile
   header. Runtime playback converts CAS blocks into motor-gated cassette input
@@ -137,6 +138,16 @@ cargo run --release -p emu198x-dragon -- \
   --snapshot game.pak \
   --tape game.cas \
   --autoload \
+  --video crt
+```
+
+Native Dragon 64 window:
+
+```sh
+cargo run --release -p emu198x-dragon -- \
+  --model dragon64 \
+  --rom ~/.emu198x/roms/dragon/dragon64-compat.rom \
+  --rom64 ~/.emu198x/roms/dragon/dragon64.rom \
   --video crt
 ```
 

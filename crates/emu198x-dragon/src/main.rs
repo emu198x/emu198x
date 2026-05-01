@@ -1,4 +1,4 @@
-//! `emu198x-dragon` — minimal native Dragon 32 verifier shell.
+//! `emu198x-dragon` — minimal native Dragon verifier shell.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -37,7 +37,6 @@ const MAX_AUDIO_BUFFER_MS: u32 = 250;
 const AUTOLOAD_BOOT_FRAMES: u32 = 100;
 const AUTOLOAD_KEY_EDGE_FRAMES: u32 = 4;
 const AUTOLOAD_START_SETTLE_FRAMES: u32 = 60;
-const WINDOW_TITLE: &str = "Emu198x Dragon 32";
 const DRAGON_GAMEPAD_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Up, ButtonTarget::new(1, "up")),
     (HostControl::Down, ButtonTarget::new(1, "down")),
@@ -57,7 +56,9 @@ const USAGE: &str = "\
 Usage: emu198x-dragon [OPTIONS] --rom PATH
 
 Options:
-    --rom PATH       Dragon 32 BASIC ROM, or zip containing one ROM/bin candidate
+    --model MODEL    dragon32 | dragon64 [default: dragon32]
+    --rom PATH       Dragon 32 BASIC ROM, or Dragon 64 compatible-mode ROM
+    --rom64 PATH     Dragon 64 64-mode BASIC ROM, required with --model dragon64
     --tape PATH      Dragon CAS tape image, or zip containing one .cas member
     --cart PATH      Dragon cartridge ROM/DGN image, or zip containing one cartridge member
     --bin PATH       DragonDOS .BIN program, or zip containing one .bin member
@@ -88,7 +89,9 @@ Controls:
 
 #[derive(Debug, PartialEq, Eq)]
 struct Cli {
+    model: Model,
     rom: Option<PathBuf>,
+    mode_rom: Option<PathBuf>,
     tape: Option<PathBuf>,
     cart: Option<PathBuf>,
     bin: Option<PathBuf>,
@@ -101,7 +104,9 @@ struct Cli {
 impl Default for Cli {
     fn default() -> Self {
         Self {
+            model: Model::Dragon32Pal,
             rom: None,
+            mode_rom: None,
             tape: None,
             cart: None,
             bin: None,
@@ -208,9 +213,43 @@ fn runtime_from_cli(cli: &Cli) -> Result<DragonRuntime, AppError> {
     let loaded = read_firmware_asset(rom).map_err(|err| AppError::Setup {
         reason: format!("failed to load Dragon ROM {}: {err}", rom.display()),
     })?;
+    let loaded_mode_rom = if cli.model == Model::Dragon64Pal {
+        let mode_rom = cli.mode_rom.as_ref().ok_or_else(|| AppError::Setup {
+            reason: "--model dragon64 requires --rom64 PATH".to_owned(),
+        })?;
+        Some(
+            read_firmware_asset(mode_rom).map_err(|err| AppError::Setup {
+                reason: format!(
+                    "failed to load Dragon 64 mode ROM {}: {err}",
+                    mode_rom.display()
+                ),
+            })?,
+        )
+    } else {
+        None
+    };
     let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
-    let runtime = DragonRuntime::from_firmware(Model::Dragon32Pal, &firmware)?;
+    match cli.model {
+        Model::Dragon32Pal => {
+            if cli.mode_rom.is_some() {
+                return Err(AppError::Setup {
+                    reason: "--rom64 requires --model dragon64".to_owned(),
+                });
+            }
+            firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
+        }
+        Model::Dragon64Pal => {
+            let loaded_mode_rom = loaded_mode_rom
+                .as_ref()
+                .expect("Dragon 64 mode ROM should be loaded before firmware construction");
+            firmware.push(FirmwareImage::new("dragon64-compatible-rom", &loaded.bytes));
+            firmware.push(FirmwareImage::new(
+                "dragon64-basic-rom",
+                &loaded_mode_rom.bytes,
+            ));
+        }
+    }
+    let runtime = DragonRuntime::from_firmware(cli.model, &firmware)?;
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         DRAGON_FRAME_CYCLES,
@@ -356,8 +395,12 @@ impl DragonApp {
 
         let frame_width = VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32;
         let frame_height = VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT as u32;
+        let window_title = format!(
+            "Emu198x {}",
+            self.runner.runtime.profile().display_name.as_ref()
+        );
         let attributes = WindowAttributes::default()
-            .with_title(WINDOW_TITLE)
+            .with_title(window_title)
             .with_inner_size(LogicalSize::new(
                 f64::from(frame_width.saturating_mul(self.scale)),
                 f64::from(frame_height.saturating_mul(self.scale)),
@@ -593,7 +636,9 @@ where
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
+            "--model" => cli.model = parse_model(&next_arg(&mut iter, "--model")),
             "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
+            "--rom64" => cli.mode_rom = Some(PathBuf::from(next_arg(&mut iter, "--rom64"))),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
             "--bin" => cli.bin = Some(PathBuf::from(next_arg(&mut iter, "--bin"))),
@@ -625,6 +670,14 @@ where
     }
 
     cli
+}
+
+fn parse_model(value: &str) -> Model {
+    match value {
+        "dragon32" | "dragon-32" | "dragon-32-pal" => Model::Dragon32Pal,
+        "dragon64" | "dragon-64" | "dragon-64-pal" => Model::Dragon64Pal,
+        _ => die("--model expects dragon32 or dragon64"),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -950,7 +1003,9 @@ mod tests {
         assert_eq!(
             cli,
             Cli {
+                model: Model::Dragon32Pal,
                 rom: Some(PathBuf::from("dragon32.rom")),
+                mode_rom: None,
                 tape: None,
                 cart: None,
                 bin: None,
@@ -963,6 +1018,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_cli_accepts_dragon64_model_and_mode_rom() {
+        let cli = parse_cli([
+            "--model".to_owned(),
+            "dragon64".to_owned(),
+            "--rom".to_owned(),
+            "dragon64-compat.rom".to_owned(),
+            "--rom64".to_owned(),
+            "dragon64.rom".to_owned(),
+        ]);
+
+        assert_eq!(cli.model, Model::Dragon64Pal);
+        assert_eq!(cli.rom, Some(PathBuf::from("dragon64-compat.rom")));
+        assert_eq!(cli.mode_rom, Some(PathBuf::from("dragon64.rom")));
+    }
+
+    #[test]
     fn parse_cli_accepts_tape_path() {
         let cli = parse_cli([
             "--rom".to_owned(),
@@ -971,6 +1042,7 @@ mod tests {
             "program.cas".to_owned(),
         ]);
 
+        assert_eq!(cli.model, Model::Dragon32Pal);
         assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
         assert_eq!(cli.tape, Some(PathBuf::from("program.cas")));
         assert!(!cli.autoload);
@@ -986,6 +1058,7 @@ mod tests {
         ]);
 
         assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
+        assert_eq!(cli.mode_rom, None);
         assert_eq!(cli.cart, Some(PathBuf::from("game.dgn")));
     }
 
@@ -1090,7 +1163,9 @@ mod tests {
         };
 
         let runtime = runtime_from_cli(&Cli {
+            model: Model::Dragon32Pal,
             rom: Some(rom),
+            mode_rom: None,
             tape: Some(tape),
             cart: None,
             bin: None,
@@ -1106,6 +1181,28 @@ mod tests {
             "autoload should have consumed tape data"
         );
         assert!(runtime.time().0 > 0, "autoload should have advanced time");
+    }
+
+    #[test]
+    fn native_runtime_builds_dragon64_when_available() {
+        let Some(compat_rom) = dragon64_compatible_rom_path() else {
+            eprintln!("skipping native Dragon 64 smoke: missing compatible-mode ROM");
+            return;
+        };
+        let Some(mode_rom) = dragon64_mode_rom_path() else {
+            eprintln!("skipping native Dragon 64 smoke: missing 64-mode ROM");
+            return;
+        };
+
+        let runtime = runtime_from_cli(&Cli {
+            model: Model::Dragon64Pal,
+            rom: Some(compat_rom),
+            mode_rom: Some(mode_rom),
+            ..Cli::default()
+        })
+        .expect("native Dragon 64 runtime should build from paired ROMs");
+
+        assert_eq!(runtime.profile().profile_id.as_str(), "dragon-64-pal");
     }
 
     #[test]
@@ -1302,6 +1399,28 @@ mod tests {
         existing_file(home_path(".emu198x/roms/dragon/dragon32.rom")?).or_else(|| {
             existing_file(
                 home_path("Projects/Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)(Dragon Data).zip")?,
+            )
+        })
+    }
+
+    fn dragon64_compatible_rom_path() -> Option<PathBuf> {
+        if let Ok(path) = env::var("EMU198X_DRAGON64_COMPAT_ROM") {
+            return existing_file(path);
+        }
+        existing_file(home_path(".emu198x/roms/dragon/dragon64-compat.rom")?).or_else(|| {
+            existing_file(
+                home_path("Projects/Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 64 BIOS (1983)(Dragon Data)[24Kb RAM].zip")?,
+            )
+        })
+    }
+
+    fn dragon64_mode_rom_path() -> Option<PathBuf> {
+        if let Ok(path) = env::var("EMU198X_DRAGON64_ROM") {
+            return existing_file(path);
+        }
+        existing_file(home_path(".emu198x/roms/dragon/dragon64.rom")?).or_else(|| {
+            existing_file(
+                home_path("Projects/Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 64 BIOS (1983)(Dragon Data)[48Kb RAM].zip")?,
             )
         })
     }
