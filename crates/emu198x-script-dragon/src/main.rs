@@ -27,7 +27,9 @@ use machine_dragon_32::{
     RunReport, StopReason, VdgModeWriteTrace, VdgSampleTrace, WatchedFetchTrace,
 };
 use motorola_vdg_6847::{
-    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette, VdgPalette,
+    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
+    VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
+    VDG_PAL_OVERSCAN_VISIBLE_X, VDG_PAL_OVERSCAN_VISIBLE_Y, VdgPalette,
 };
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 use serde::Serialize;
@@ -2296,36 +2298,74 @@ fn write_smoke_audio(
 }
 
 fn xroar_zoomed_png_bytes(frame: &CapturedFrame) -> Result<Vec<u8>, String> {
-    if frame.format != PixelFormat::Rgba8888
-        || frame.width != TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32
-        || frame.height != TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32
-    {
+    if frame.format != PixelFormat::Rgba8888 {
         return Err(format!(
-            "xroar-zoomed smoke screenshots require diagnostic RGBA frames of {}x{}; got {:?} {}x{}",
-            TEXT_VISIBLE_FRAMEBUFFER_WIDTH,
-            TEXT_VISIBLE_FRAMEBUFFER_HEIGHT,
-            frame.format,
-            frame.width,
-            frame.height
+            "xroar-zoomed smoke screenshots require RGBA frames; got {:?}",
+            frame.format
         ));
     }
+    let source = XroarZoomSource::from_frame(frame)?;
 
     let mut rgba = Vec::with_capacity((XROAR_ZOOMED_WIDTH * XROAR_ZOOMED_HEIGHT * 4) as usize);
-    let source_width = TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
-    let source_x_origin = motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS;
-    let source_y_origin = motorola_vdg_6847::TEXT_TOP_BORDER_LINES;
     for y in 0..motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT {
         for _ in 0..2 {
-            for x in 0..motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH {
-                let offset = ((source_y_origin + y) * source_width + source_x_origin + x) * 4;
+            for x in 0..source.active_width {
+                let offset = source.pixel_offset(x, y);
                 let pixel = &frame.pixels[offset..offset + 4];
                 rgba.extend_from_slice(pixel);
-                rgba.extend_from_slice(pixel);
+                if source.duplicate_x {
+                    rgba.extend_from_slice(pixel);
+                }
             }
         }
     }
 
     encode_rgba_png(XROAR_ZOOMED_WIDTH, XROAR_ZOOMED_HEIGHT, &rgba)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct XroarZoomSource {
+    frame_width: usize,
+    active_x: usize,
+    active_y: usize,
+    active_width: usize,
+    duplicate_x: bool,
+}
+
+impl XroarZoomSource {
+    fn from_frame(frame: &CapturedFrame) -> Result<Self, String> {
+        match (frame.width as usize, frame.height as usize) {
+            (TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TEXT_VISIBLE_FRAMEBUFFER_HEIGHT) => Ok(Self {
+                frame_width: TEXT_VISIBLE_FRAMEBUFFER_WIDTH,
+                active_x: motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS,
+                active_y: motorola_vdg_6847::TEXT_TOP_BORDER_LINES,
+                active_width: motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH,
+                duplicate_x: true,
+            }),
+            (VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH, VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT) => Ok(Self {
+                frame_width: VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
+                active_x: VDG_PAL_OVERSCAN_VISIBLE_X
+                    + motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS * 2,
+                active_y: VDG_PAL_OVERSCAN_VISIBLE_Y + motorola_vdg_6847::TEXT_TOP_BORDER_LINES,
+                active_width: motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH * 2,
+                duplicate_x: false,
+            }),
+            (width, height) => Err(format!(
+                "xroar-zoomed smoke screenshots require RGBA frames of {}x{} or {}x{}; got {:?} {}x{}",
+                TEXT_VISIBLE_FRAMEBUFFER_WIDTH,
+                TEXT_VISIBLE_FRAMEBUFFER_HEIGHT,
+                VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
+                VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT,
+                frame.format,
+                width,
+                height
+            )),
+        }
+    }
+
+    fn pixel_offset(self, x: usize, y: usize) -> usize {
+        ((self.active_y + y) * self.frame_width + self.active_x + x) * 4
+    }
 }
 
 fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
@@ -5591,6 +5631,33 @@ mod tests {
         assert_eq!(&output[..4], &[0x12, 0x34, 0x56, 0xFF]);
         assert_eq!(&output[4..8], &[0x12, 0x34, 0x56, 0xFF]);
         assert_eq!(info.color_type, png::ColorType::Rgba);
+    }
+
+    #[test]
+    fn xroar_zoomed_screenshot_accepts_pal_overscan_frames() {
+        let mut pixels =
+            vec![0; VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH * VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT * 4];
+        let active_offset = ((VDG_PAL_OVERSCAN_VISIBLE_Y
+            + motorola_vdg_6847::TEXT_TOP_BORDER_LINES)
+            * VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH
+            + VDG_PAL_OVERSCAN_VISIBLE_X
+            + motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS * 2)
+            * 4;
+        pixels[active_offset..active_offset + 4].copy_from_slice(&[0xAB, 0xCD, 0xEF, 0xFF]);
+        let frame = CapturedFrame {
+            timestamp: emu198x_shell::MachineTime(0),
+            format: PixelFormat::Rgba8888,
+            width: VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32,
+            height: VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT as u32,
+            palette: None,
+            pixels,
+        };
+
+        let png = xroar_zoomed_png_bytes(&frame).expect("zoomed PNG should encode");
+        let decoded = decode_png_rgba(&png).expect("zoomed screenshot should decode");
+        assert_eq!(decoded.width, XROAR_ZOOMED_WIDTH);
+        assert_eq!(decoded.height, XROAR_ZOOMED_HEIGHT);
+        assert_eq!(&decoded.rgba[..4], &[0xAB, 0xCD, 0xEF, 0xFF]);
     }
 
     #[test]

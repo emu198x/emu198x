@@ -189,8 +189,10 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 This comparison is explicit opt-in through `EMU198X_XROAR_BIN` in
 `scripts/verify-current-systems.sh`. It is kept as a regression aid only, and
-the current PAL overscan framebuffer means older `xroar-zoomed` comparison
-commands need revisiting before being treated as a routine gate.
+`xroar-zoomed` screenshots are normalized from the current PAL overscan
+framebuffer into XRoar's 512x384 active-area reference size before comparison.
+Textstar is exact through this path, but XRoar remains an opt-in regression aid
+rather than a timing or accuracy authority.
 
 Focused trace probe for a running PAK snapshot:
 
