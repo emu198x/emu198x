@@ -31,8 +31,15 @@ Environment:
     EMU198X_GB_BLARGG_ROOT       Game Boy Blargg test ROM root
     EMU198X_GB_MOONEYE_ROOT      Game Boy mooneye-gb test ROM root
     EMU198X_DRAGON32_ROM         Dragon 32 BASIC ROM or zip archive
+    EMU198X_DRAGON64_COMPAT_ROM  Dragon 64 compatible-mode ROM or zip archive
+    EMU198X_DRAGON64_ROM         Dragon 64 64-mode BASIC ROM or zip archive
     EMU198X_DRAGON_TEXTSTAR_CAS  Dragon Textstar CAS or zip archive
     EMU198X_DRAGON_CLOADM_CAS    Dragon machine-code CAS or zip archive
+    EMU198X_DRAGON64_TEXTSTAR_CAS
+                                  Optional Dragon 64 CAS smoke input; defaults
+                                  to EMU198X_DRAGON_TEXTSTAR_CAS or archive
+    EMU198X_DRAGON64_BIN         Optional Dragon 64 .BIN smoke input
+    EMU198X_DRAGON64_PAK         Optional Dragon 64 PAK smoke input
     EMU198X_DRAGON_AUDIO_CAS     Dragon CAS expected to produce non-silent audio
     EMU198X_DRAGON_JOYSTICK_CAS  Dragon CAS used for scripted joystick smoke
                                   and analogue comparator sweep smoke
@@ -598,10 +605,47 @@ if [[ "${mode}" != "unit" ]]; then
             || true)"
     fi
 
+    dragon64_compat_rom="${EMU198X_DRAGON64_COMPAT_ROM:-}"
+    if [[ -z "${dragon64_compat_rom}" ]]; then
+        dragon64_compat_rom="$(first_existing_file \
+            "${HOME}/.emu198x/roms/dragon/dragon64-compat.rom" \
+            "${reference_root}/dragon/Dragon/Firmware/Dragon Data Dragon 64 BIOS (1983)(Dragon Data)[24Kb RAM].zip" \
+            || true)"
+    fi
+
+    dragon64_rom="${EMU198X_DRAGON64_ROM:-}"
+    if [[ -z "${dragon64_rom}" ]]; then
+        dragon64_rom="$(first_existing_file \
+            "${HOME}/.emu198x/roms/dragon/dragon64.rom" \
+            "${reference_root}/dragon/Dragon/Firmware/Dragon Data Dragon 64 BIOS (1983)(Dragon Data)[48Kb RAM].zip" \
+            || true)"
+    fi
+
     dragon_textstar_cas="${EMU198X_DRAGON_TEXTSTAR_CAS:-}"
     if [[ -z "${dragon_textstar_cas}" ]]; then
         dragon_textstar_cas="$(first_existing_file \
             "${reference_root}/dragon/Dragon/Applications/[CAS]/Textstar (1982)(Personal Software Services).zip" \
+            || true)"
+    fi
+
+    dragon64_textstar_cas="${EMU198X_DRAGON64_TEXTSTAR_CAS:-${dragon_textstar_cas}}"
+    if [[ -z "${dragon64_textstar_cas}" ]]; then
+        dragon64_textstar_cas="$(first_existing_file \
+            "${reference_root}/dragon/Dragon/Applications/[CAS]/Textstar (1982)(Personal Software Services).zip" \
+            || true)"
+    fi
+
+    dragon64_bin="${EMU198X_DRAGON64_BIN:-}"
+    if [[ -z "${dragon64_bin}" ]]; then
+        dragon64_bin="$(first_existing_file \
+            "${reference_root}/dragon/Dragon/Games/[BIN]/Cross Chase (2021-05-13)(Caruso, Fabrizio).zip" \
+            || true)"
+    fi
+
+    dragon64_pak="${EMU198X_DRAGON64_PAK:-}"
+    if [[ -z "${dragon64_pak}" ]]; then
+        dragon64_pak="$(first_existing_file \
+            "${reference_root}/dragon/Dragon/Games/[PAK]/Skramble (1983)(Microdeal).zip" \
             || true)"
     fi
 
@@ -653,6 +697,17 @@ if [[ "${mode}" != "unit" ]]; then
         skip_step "dragon-real-rom-runtime" "missing Dragon 32 ROM; set EMU198X_DRAGON32_ROM"
     fi
 
+    if [[ -n "${dragon64_compat_rom}" && -f "${dragon64_compat_rom}" && -n "${dragon64_rom}" && -f "${dragon64_rom}" ]]; then
+        run_step "dragon64-real-rom-runtime" \
+            env \
+                EMU198X_DRAGON64_COMPAT_ROM="${dragon64_compat_rom}" \
+                EMU198X_DRAGON64_ROM="${dragon64_rom}" \
+            cargo test -p runtime-dragon --test golden_basic \
+                dragon64_exec_48000_enters_sixty_four_kib_mode -- --exact
+    else
+        skip_step "dragon64-real-rom-runtime" "missing Dragon 64 ROM pair; set EMU198X_DRAGON64_COMPAT_ROM and EMU198X_DRAGON64_ROM"
+    fi
+
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_textstar_cas}" && -f "${dragon_textstar_cas}" ]]; then
         run_step_expect_file "dragon-textstar-cload-run" \
             "${out_dir}/dragon-textstar-smoke.json" \
@@ -665,6 +720,56 @@ if [[ "${mode}" != "unit" ]]; then
                 --smoke-screenshot-dir "${out_dir}/dragon-textstar-screens"
     else
         skip_step "dragon-textstar-cload-run" "missing Dragon ROM or Textstar CAS; set EMU198X_DRAGON32_ROM and EMU198X_DRAGON_TEXTSTAR_CAS"
+    fi
+
+    if [[ -n "${dragon64_compat_rom}" && -f "${dragon64_compat_rom}" && -n "${dragon64_rom}" && -f "${dragon64_rom}" && -n "${dragon64_textstar_cas}" && -f "${dragon64_textstar_cas}" ]]; then
+        run_step_expect_file "dragon64-textstar-cload-run" \
+            "${out_dir}/dragon64-textstar-smoke.json" \
+            '"classification": "started-text-drawing"' \
+            cargo run -q -p emu198x-script-dragon -- \
+                --model dragon64 \
+                --rom "${dragon64_compat_rom}" \
+                --rom64 "${dragon64_rom}" \
+                --smoke-root "${dragon64_textstar_cas}" \
+                --smoke-run-limit 1 \
+                --smoke-report "${out_dir}/dragon64-textstar-smoke.json" \
+                --smoke-screenshot-dir "${out_dir}/dragon64-textstar-screens"
+    else
+        skip_step "dragon64-textstar-cload-run" "missing Dragon 64 ROM pair or Textstar CAS; set EMU198X_DRAGON64_COMPAT_ROM, EMU198X_DRAGON64_ROM, and EMU198X_DRAGON64_TEXTSTAR_CAS"
+    fi
+
+    if [[ -n "${dragon64_compat_rom}" && -f "${dragon64_compat_rom}" && -n "${dragon64_rom}" && -f "${dragon64_rom}" && -n "${dragon64_bin}" && -f "${dragon64_bin}" ]]; then
+        run_step_expect_file "dragon64-bin-smoke" \
+            "${out_dir}/dragon64-bin-smoke.json" \
+            '"classification": "running-visible"' \
+            cargo run -q -p emu198x-script-dragon -- \
+                --model dragon64 \
+                --rom "${dragon64_compat_rom}" \
+                --rom64 "${dragon64_rom}" \
+                --bin-smoke-root "${dragon64_bin}" \
+                --smoke-run-limit 1 \
+                --cycles 3000000 \
+                --smoke-report "${out_dir}/dragon64-bin-smoke.json" \
+                --smoke-screenshot-dir "${out_dir}/dragon64-bin-screens"
+    else
+        skip_step "dragon64-bin-smoke" "missing Dragon 64 ROM pair or .BIN input; set EMU198X_DRAGON64_COMPAT_ROM, EMU198X_DRAGON64_ROM, and EMU198X_DRAGON64_BIN"
+    fi
+
+    if [[ -n "${dragon64_compat_rom}" && -f "${dragon64_compat_rom}" && -n "${dragon64_rom}" && -f "${dragon64_rom}" && -n "${dragon64_pak}" && -f "${dragon64_pak}" ]]; then
+        run_step_expect_file "dragon64-pak-smoke" \
+            "${out_dir}/dragon64-pak-smoke.json" \
+            '"classification": "running-visible"' \
+            cargo run -q -p emu198x-script-dragon -- \
+                --model dragon64 \
+                --rom "${dragon64_compat_rom}" \
+                --rom64 "${dragon64_rom}" \
+                --snapshot-smoke-root "${dragon64_pak}" \
+                --smoke-run-limit 1 \
+                --cycles 200000 \
+                --smoke-report "${out_dir}/dragon64-pak-smoke.json" \
+                --smoke-screenshot-dir "${out_dir}/dragon64-pak-screens"
+    else
+        skip_step "dragon64-pak-smoke" "missing Dragon 64 ROM pair or PAK input; set EMU198X_DRAGON64_COMPAT_ROM, EMU198X_DRAGON64_ROM, and EMU198X_DRAGON64_PAK"
     fi
 
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_cloadm_cas}" && -f "${dragon_cloadm_cas}" ]]; then
