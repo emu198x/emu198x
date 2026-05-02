@@ -1,9 +1,11 @@
 //! Runtime wrapper for the Dragon family.
 
+use std::borrow::Cow;
+
 use emu198x_shell::{
     AudioPacket, CapabilitySet, FirmwareSet, FramePacket, HostIo, InputEvent, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError,
-    QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason,
+    QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason, TraceEvent,
 };
 use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
 use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
@@ -26,6 +28,7 @@ const DRAGON64_COMPATIBLE_ROM_ID: &str = "dragon64-compatible-rom";
 const DRAGON64_MODE_ROM_ID: &str = "dragon64-basic-rom";
 const DRAGON64_COMPATIBLE_ROM_CRC32S: &[u32] = &[0x60A4_634C, 0x84F6_8BF9];
 const DRAGON64_MODE_ROM_CRC32S: &[u32] = &[0x1789_3A42];
+const RUNTIME_TRACE_LIMIT: usize = 8_192;
 
 const DRAGON_QUERY_PATHS: &[&str] = &[
     "boot.detected",
@@ -804,8 +807,58 @@ impl MachineCore for DragonRuntime {
         }
 
         let cycles_to_run = target.0.saturating_sub(self.time.0);
-        let report = self.machine.run_cycles(cycles_to_run, 0);
+        let report = self.machine.run_cycles(cycles_to_run, RUNTIME_TRACE_LIMIT);
         self.time = self.time.saturating_add(report.cycles);
+        for access in &report.device_accesses {
+            let payload = serde_json::to_vec(&json!({
+                "cycle": access.cycle,
+                "rw": if access.rw { "read" } else { "write" },
+                "device": format!("{:?}", access.device),
+                "addr": access.addr,
+                "value": access.value,
+            }))
+            .map_err(|reason| MachineError::Host {
+                reason: format!("failed to encode Dragon device trace: {reason}"),
+            })?;
+            host.trace_sink.push_trace(TraceEvent {
+                timestamp: self.time,
+                kind: Cow::Borrowed("dragon.device_access"),
+                payload: &payload,
+            })?;
+        }
+        for accept in &report.interrupt_accepts {
+            let payload = serde_json::to_vec(&json!({
+                "cycle": accept.cycle,
+                "kind": format!("{:?}", accept.kind),
+                "pc": accept.pc,
+                "cc": accept.cc,
+            }))
+            .map_err(|reason| MachineError::Host {
+                reason: format!("failed to encode Dragon interrupt trace: {reason}"),
+            })?;
+            host.trace_sink.push_trace(TraceEvent {
+                timestamp: self.time,
+                kind: Cow::Borrowed("dragon.interrupt_accept"),
+                payload: &payload,
+            })?;
+        }
+        for line in &report.interrupt_lines {
+            let payload = serde_json::to_vec(&json!({
+                "cycle": line.cycle,
+                "kind": format!("{:?}", line.kind),
+                "level": line.level,
+                "pc": line.pc,
+                "cc": line.cc,
+            }))
+            .map_err(|reason| MachineError::Host {
+                reason: format!("failed to encode Dragon interrupt line trace: {reason}"),
+            })?;
+            host.trace_sink.push_trace(TraceEvent {
+                timestamp: self.time,
+                kind: Cow::Borrowed("dragon.interrupt_line"),
+                payload: &payload,
+            })?;
+        }
         self.update_framebuffer();
         self.audio_buffer.clear();
         self.machine.drain_audio_samples(&mut self.audio_buffer);

@@ -91,9 +91,10 @@ complete WD2797 timing/write implementation.
   track, and 256-byte sectors. `machine-dragon-32` exposes the DragonDOS P2
   controller range at `$FF40-$FF5F`, including command/status, track, sector,
   data, and drive-control registers, and can satisfy single-sector read
-  transfers from mounted VDK media. Write-sector commands currently report
-  write-protect rather than mutating images; index timing, IRQ timing, and full
-  WD2797 write/format behavior remain to be implemented.
+  transfers from mounted VDK media. Real DragonDOS ROM directory reads now run
+  through the WD2797-style DRQ/FIRQ and INTRQ/NMI paths. Write-sector commands
+  currently report write-protect rather than mutating images; index pulse
+  timing and full WD2797 write/format behavior remain to be implemented.
 - **Runtime:** `runtime-dragon` implements the shared `MachineCore` boundary,
   exposes separate Dragon 32 PAL and Dragon 64 PAL profiles, builds from
   profile-declared BASIC firmware, emits RGBA8888 frames and mono audio
@@ -186,13 +187,13 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --cart dragon-dos.rom \
   --disk game.vdk \
   --cycles 2000000 \
-  --dump-text
+  --type-command DIR
 ```
 
 VDK mounting exercises the live DragonDOS P2 controller registers at
-`$FF40-$FF5F`. The current implementation can return sector data from mounted
-media and is intended as the next real-ROM smoke path; it is not yet a full
-WD2797 timing, write, or format implementation.
+`$FF40-$FF5F`. The current implementation can run `DIR` through the real
+DragonDOS ROM and return directory data from mounted media; it is not yet a
+full WD2797 write, format, or index-pulse implementation.
 
 Headless smoke over a DragonDOS `.BIN` tree:
 
@@ -370,9 +371,9 @@ cargo run --release -q -p emu198x-script-dragon -- \
    post-transition BASIC command smoke. Full RS-232 behavior, cartridge
    expansion hardware beyond the documented `SND` input pin, and complete
    WD2797 disk timing/write behavior are not implemented.
-6. DragonDOS VDK support is intentionally narrow at this stage: sector reads are
-   available through the P2 controller register path, while write-sector,
-   format, index pulse timing, and interrupt timing still need source-backed
+6. DragonDOS VDK support is intentionally narrow at this stage: sector reads and
+   real-ROM `DIR` work through the P2 controller register path, while
+   write-sector, format, and index pulse timing still need source-backed
    implementation and real-ROM smoke coverage.
 
 For the source-backed accuracy audit and implementation sequence, see

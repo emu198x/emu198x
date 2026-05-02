@@ -67,6 +67,7 @@ const NO_CARTRIDGE_BUS_VALUE: u8 = 0xFF;
 const CART_AUTORUN_FIRQ_CYCLES: u64 = DRAGON_CPU_HZ / 10;
 const ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY: u8 = 0x10;
 const DRAGON_DISK_DRIVES: usize = 4;
+const DRAGON_DOS_SIGNATURE: &[u8; 2] = b"DK";
 
 /// Dragon board-level memory decode variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -264,6 +265,8 @@ const WD_STATUS_TRACK_ZERO: u8 = 0x04;
 const WD_STATUS_RECORD_NOT_FOUND: u8 = 0x10;
 const WD_STATUS_WRITE_PROTECT: u8 = 0x40;
 const WD_STATUS_NOT_READY: u8 = 0x80;
+const DRAGON_DOS_COMMAND_COMPLETE_CYCLES: u32 = 2_048;
+const DRAGON_DOS_BYTE_CYCLES: u32 = 32;
 
 #[derive(Debug, Clone)]
 struct DragonDosController {
@@ -279,6 +282,9 @@ struct DragonDosController {
     sector_position: usize,
     drq: bool,
     intrq: bool,
+    pending_nmi_edge: bool,
+    pending_intrq_cycles: u32,
+    pending_drq_cycles: u32,
     disks: [Option<DragonDiskImage>; DRAGON_DISK_DRIVES],
 }
 
@@ -297,6 +303,9 @@ impl DragonDosController {
             sector_position: 0,
             drq: false,
             intrq: false,
+            pending_nmi_edge: false,
+            pending_intrq_cycles: 0,
+            pending_drq_cycles: 0,
             disks: [None, None, None, None],
         }
     }
@@ -358,6 +367,9 @@ impl DragonDosController {
 
     fn execute_command(&mut self, command: u8) {
         self.intrq = false;
+        self.pending_nmi_edge = false;
+        self.pending_intrq_cycles = 0;
+        self.pending_drq_cycles = 0;
         self.drq = false;
         self.status &= !(WD_STATUS_BUSY | WD_STATUS_DRQ | WD_STATUS_RECORD_NOT_FOUND);
 
@@ -365,85 +377,90 @@ impl DragonDosController {
             0x00 => {
                 self.command = DragonDosCommand::Restore;
                 self.track = 0;
-                self.status = WD_STATUS_TRACK_ZERO;
+                self.status = WD_STATUS_BUSY | WD_STATUS_TRACK_ZERO;
                 self.refresh_ready_status();
-                self.intrq = true;
+                self.schedule_intrq();
             }
             0x10 => {
                 self.command = DragonDosCommand::Seek;
                 self.track = self.data;
                 self.status = if self.track == 0 {
-                    WD_STATUS_TRACK_ZERO
+                    WD_STATUS_BUSY | WD_STATUS_TRACK_ZERO
                 } else {
-                    0
+                    WD_STATUS_BUSY
                 };
                 self.refresh_ready_status();
-                self.intrq = true;
+                self.schedule_intrq();
             }
             0x20 | 0x30 => {
                 self.command = DragonDosCommand::Step;
                 self.status = if self.track == 0 {
-                    WD_STATUS_TRACK_ZERO
+                    WD_STATUS_BUSY | WD_STATUS_TRACK_ZERO
                 } else {
-                    0
+                    WD_STATUS_BUSY
                 };
                 self.refresh_ready_status();
-                self.intrq = true;
+                self.schedule_intrq();
             }
             0x40 | 0x50 => {
                 self.command = DragonDosCommand::Step;
                 self.track = self.track.saturating_add(1);
-                self.status = 0;
+                self.status = WD_STATUS_BUSY;
                 self.refresh_ready_status();
-                self.intrq = true;
+                self.schedule_intrq();
             }
             0x60 | 0x70 => {
                 self.command = DragonDosCommand::Step;
                 self.track = self.track.saturating_sub(1);
                 self.status = if self.track == 0 {
-                    WD_STATUS_TRACK_ZERO
+                    WD_STATUS_BUSY | WD_STATUS_TRACK_ZERO
                 } else {
-                    0
+                    WD_STATUS_BUSY
                 };
                 self.refresh_ready_status();
-                self.intrq = true;
+                self.schedule_intrq();
             }
-            0x80 | 0x90 => self.start_read_sector(),
+            0x80 | 0x90 => self.start_read_sector(command),
             0xa0 | 0xb0 => {
                 self.command = DragonDosCommand::WriteSector;
                 self.status = WD_STATUS_WRITE_PROTECT;
                 self.refresh_ready_status();
-                self.intrq = true;
+                self.raise_intrq();
                 self.command = DragonDosCommand::None;
             }
             0xd0 => {
                 self.command = DragonDosCommand::ForceInterrupt;
                 self.status &= !(WD_STATUS_BUSY | WD_STATUS_DRQ);
                 self.drq = false;
-                self.intrq = command & 0x0f != 0;
+                if command & 0x0f != 0 {
+                    self.raise_intrq();
+                } else {
+                    self.intrq = false;
+                }
                 self.command = DragonDosCommand::None;
             }
             _ => {
                 self.command = DragonDosCommand::None;
                 self.status = 0;
                 self.refresh_ready_status();
-                self.intrq = true;
+                self.raise_intrq();
             }
         }
     }
 
-    fn start_read_sector(&mut self) {
+    fn start_read_sector(&mut self, command: u8) {
         self.command = DragonDosCommand::ReadSector;
+        self.selected_side = u8::from(command & 0x02 != 0);
         let Some(disk) = self.disks[self.selected_drive].as_ref() else {
             self.status = WD_STATUS_NOT_READY;
-            self.intrq = true;
+            self.raise_intrq();
             self.command = DragonDosCommand::None;
             return;
         };
         let side = self.selected_side.min(disk.sides.saturating_sub(1));
         let Some(sector) = disk.sector(self.track, side, self.sector) else {
             self.status = WD_STATUS_RECORD_NOT_FOUND;
-            self.intrq = true;
+            self.raise_intrq();
             self.command = DragonDosCommand::None;
             return;
         };
@@ -466,19 +483,40 @@ impl DragonDosController {
             .unwrap_or(0);
         self.data = value;
         self.sector_position = self.sector_position.saturating_add(1);
+        self.drq = false;
+        self.status &= !WD_STATUS_DRQ;
         if self.sector_position >= self.sector_buffer.len() {
-            self.drq = false;
-            self.status &= !(WD_STATUS_BUSY | WD_STATUS_DRQ);
-            self.intrq = true;
-            self.command = DragonDosCommand::None;
+            self.pending_intrq_cycles = DRAGON_DOS_BYTE_CYCLES;
+        } else {
+            self.pending_drq_cycles = DRAGON_DOS_BYTE_CYCLES;
         }
         value
+    }
+
+    fn tick(&mut self) {
+        if self.pending_drq_cycles != 0 {
+            self.pending_drq_cycles = self.pending_drq_cycles.saturating_sub(1);
+            if self.pending_drq_cycles == 0 && matches!(self.command, DragonDosCommand::ReadSector)
+            {
+                self.drq = true;
+                self.status |= WD_STATUS_DRQ;
+            }
+        }
+        if self.pending_intrq_cycles == 0 {
+            return;
+        }
+        self.pending_intrq_cycles = self.pending_intrq_cycles.saturating_sub(1);
+        if self.pending_intrq_cycles != 0 {
+            return;
+        }
+        self.status &= !WD_STATUS_BUSY;
+        self.raise_intrq();
+        self.command = DragonDosCommand::None;
     }
 
     fn write_control(&mut self, value: u8) {
         self.control = value;
         self.selected_drive = usize::from(value & 0x03).min(DRAGON_DISK_DRIVES - 1);
-        self.selected_side = u8::from(value & 0x04 != 0);
         self.refresh_ready_status();
     }
 
@@ -511,6 +549,27 @@ impl DragonDosController {
             self.status &= !WD_STATUS_NOT_READY;
         }
     }
+
+    fn raise_intrq(&mut self) {
+        self.intrq = true;
+        if self.control & 0x20 != 0 {
+            self.pending_nmi_edge = true;
+        }
+    }
+
+    fn schedule_intrq(&mut self) {
+        self.pending_intrq_cycles = DRAGON_DOS_COMMAND_COMPLETE_CYCLES;
+    }
+
+    fn take_nmi_edge(&mut self) -> bool {
+        let pending = self.pending_nmi_edge;
+        self.pending_nmi_edge = false;
+        pending
+    }
+
+    fn drq_line(&self) -> bool {
+        self.drq
+    }
 }
 
 impl DragonCartridge {
@@ -525,7 +584,7 @@ impl DragonCartridge {
             rom: rom.into(),
             bank: 0,
             bank_mask,
-            autorun,
+            autorun: autorun && !is_dragon_dos_rom(rom),
             next_firq_cycle: CART_AUTORUN_FIRQ_CYCLES,
         }
     }
@@ -553,6 +612,10 @@ impl DragonCartridge {
             .saturating_add(CART_AUTORUN_FIRQ_CYCLES);
         true
     }
+}
+
+fn is_dragon_dos_rom(rom: &[u8]) -> bool {
+    rom.starts_with(DRAGON_DOS_SIGNATURE)
 }
 
 /// Dragon analogue joystick axis.
@@ -1365,6 +1428,8 @@ pub struct PiaSignalTrace {
 /// CPU interrupt input kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CpuInterruptKind {
+    /// Non-maskable interrupt input.
+    Nmi,
     /// Standard IRQ input.
     Irq,
     /// Fast IRQ input.
@@ -1641,6 +1706,26 @@ impl DragonMemory {
         }
 
         self.rom_read(addr).unwrap_or(NO_CARTRIDGE_BUS_VALUE)
+    }
+
+    fn tick_disk_controller(&mut self) {
+        if let Some(controller) = &mut self.disk_controller {
+            controller.tick();
+        }
+    }
+
+    fn take_disk_nmi_edge(&mut self) -> bool {
+        self.disk_controller
+            .as_mut()
+            .is_some_and(DragonDosController::take_nmi_edge)
+    }
+
+    fn sync_disk_drq_signal(&mut self) {
+        let level = self
+            .disk_controller
+            .as_ref()
+            .is_some_and(DragonDosController::drq_line);
+        self.pia1.set_signal_level(PiaSignal::Cb1, level);
     }
 
     fn read_bus(&mut self, addr: u16) -> (u8, Option<MemoryEvent>) {
@@ -3193,6 +3278,11 @@ impl Dragon32 {
         let phase_ticks = CpuPhaseMasterTicks::split(master_ticks);
 
         self.memory.tick_cartridge_autorun(self.cycles);
+        self.memory.tick_disk_controller();
+        self.memory.sync_disk_drq_signal();
+        if self.memory.take_disk_nmi_edge() {
+            self.cpu.nmi = true;
+        }
 
         self.advance_phase_window(phase_ticks.q_high, diagnostics.as_deref_mut());
         self.cpu.tick_phase();
@@ -3346,6 +3436,7 @@ impl Dragon32 {
         let mut vdg_mode_writes = Vec::new();
         let mut dropped_vdg_mode_writes = 0usize;
         let mut last_fetch = None;
+        let mut last_nmi = self.cpu.nmi;
         let mut last_irq = self.cpu.irq;
         let mut last_firq = self.cpu.firq;
         let mut run_instructions = 0u64;
@@ -3354,7 +3445,19 @@ impl Dragon32 {
 
         for run_cycle in 0..cycle_limit {
             if self.cpu.instruction_boundary() && self.cpu.rw {
-                if self.cpu.firq && !self.cpu.regs.firq_masked() {
+                if self.cpu.nmi {
+                    retain_interrupt_accept(
+                        &mut interrupt_accepts,
+                        &mut dropped_interrupt_accepts,
+                        trace_limit,
+                        CpuInterruptAcceptTrace {
+                            cycle: run_cycle,
+                            kind: CpuInterruptKind::Nmi,
+                            pc: self.cpu.regs.pc,
+                            cc: self.cpu.regs.cc,
+                        },
+                    );
+                } else if self.cpu.firq && !self.cpu.regs.firq_masked() {
                     retain_interrupt_accept(
                         &mut interrupt_accepts,
                         &mut dropped_interrupt_accepts,
@@ -3432,6 +3535,21 @@ impl Dragon32 {
             );
             run_cycles = run_cycle.saturating_add(1);
 
+            if self.cpu.nmi != last_nmi {
+                last_nmi = self.cpu.nmi;
+                retain_interrupt_line(
+                    &mut interrupt_lines,
+                    &mut dropped_interrupt_lines,
+                    trace_limit,
+                    CpuInterruptLineTrace {
+                        cycle: run_cycle,
+                        kind: CpuInterruptKind::Nmi,
+                        level: self.cpu.nmi,
+                        pc: self.cpu.regs.pc,
+                        cc: self.cpu.regs.cc,
+                    },
+                );
+            }
             if self.cpu.irq != last_irq {
                 last_irq = self.cpu.irq;
                 retain_interrupt_line(
@@ -4130,6 +4248,17 @@ mod tests {
     }
 
     #[test]
+    fn dragon_dos_cartridge_signature_suppresses_periodic_autorun_firq() {
+        let mut cart = vec![0xff; 0x2000];
+        cart[0] = b'D';
+        cart[1] = b'K';
+
+        let mut cartridge = DragonCartridge::new(DragonCartridgeKind::Rom, &cart, true);
+
+        assert!(!cartridge.should_signal_autorun(CART_AUTORUN_FIRQ_CYCLES));
+    }
+
+    #[test]
     fn games_master_cartridge_switches_sixteen_kib_banks() {
         let rom = rom_with_reset_vector(0x8000);
         let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
@@ -4174,14 +4303,65 @@ mod tests {
 
         let (first, _) = machine.memory.read_bus(0xFF43);
         for _ in 1..255 {
+            for _ in 0..DRAGON_DOS_BYTE_CYCLES {
+                machine.memory.tick_disk_controller();
+            }
             let _ = machine.memory.read_bus(0xFF43);
         }
+        for _ in 0..DRAGON_DOS_BYTE_CYCLES {
+            machine.memory.tick_disk_controller();
+        }
         let (last, _) = machine.memory.read_bus(0xFF43);
+        for _ in 0..DRAGON_DOS_BYTE_CYCLES {
+            machine.memory.tick_disk_controller();
+        }
         let (status, _) = machine.memory.read_bus(0xFF40);
 
         assert_eq!(first, 0x55);
         assert_eq!(last, 0xaa);
         assert_eq!(status & WD_STATUS_BUSY, 0);
+    }
+
+    #[test]
+    fn dragon_dos_final_byte_allows_pia_drq_ack_before_intrq() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine
+            .insert_disk(0, test_disk(|payload| {
+                payload[255] = 0xaa;
+            }))
+            .expect("drive 0 insert should succeed");
+
+        machine.memory.write(0xFF23, 0x37); // PIA1 CRB: CB1 rising-edge FIRQ enabled.
+        machine.memory.write(0xFF48, 0x20); // DragonDOS latch: drive 0, NMI enabled.
+        machine.memory.write(0xFF42, 1);
+        machine.memory.write(0xFF40, 0x80);
+
+        for _ in 0..255 {
+            machine.memory.sync_disk_drq_signal();
+            let _ = machine.memory.read_bus(0xFF43);
+            machine.memory.sync_disk_drq_signal();
+            let _ = machine.memory.read_bus(0xFF22);
+            for _ in 0..DRAGON_DOS_BYTE_CYCLES {
+                machine.memory.tick_disk_controller();
+            }
+        }
+
+        machine.memory.sync_disk_drq_signal();
+        let (last, _) = machine.memory.read_bus(0xFF43);
+        machine.memory.sync_disk_drq_signal();
+        let _ = machine.memory.read_bus(0xFF22);
+
+        assert_eq!(last, 0xaa);
+        assert!(!machine.memory.pia1.irq_b());
+        assert!(!machine.memory.take_disk_nmi_edge());
+
+        for _ in 0..DRAGON_DOS_BYTE_CYCLES {
+            machine.memory.tick_disk_controller();
+        }
+
+        assert!(machine.memory.take_disk_nmi_edge());
+        assert!(!machine.memory.pia1.irq_b());
     }
 
     #[test]

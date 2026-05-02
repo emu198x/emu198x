@@ -12,8 +12,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use emu198x_shell::StopReason as RuntimeStopReason;
 use emu198x_shell::{
-    CapturedFrame, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineTime,
-    MediaImage, MediaKind, MediaSet, PixelFormat, read_media_asset,
+    CapturedFrame, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineError,
+    MachineTime, MediaImage, MediaKind, MediaSet, PixelFormat, TraceEvent, TraceSink,
+    read_media_asset,
 };
 use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
 use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
@@ -46,6 +47,8 @@ const DEFAULT_XROAR_TIMEOUT_SECONDS: f32 = 45.0;
 const XROAR_ZOOMED_WIDTH: u32 = 512;
 const XROAR_ZOOMED_HEIGHT: u32 = 384;
 const BOOT_FRAME_BUDGET: u32 = 100;
+const TYPED_COMMAND_BOOT_FRAME_BUDGET: u32 = 600;
+const TYPED_COMMAND_POST_BOOT_SETTLE_FRAMES: u32 = 1_000;
 const DIRECT_PROGRAM_BOOT_SETTLE_FRAMES: u64 = 30;
 const KEY_EDGE_FRAMES: u32 = 8;
 // Completed-frame screenshots are taken on CPU bus-cycle boundaries; the SAM
@@ -68,6 +71,7 @@ Firmware:
 
 Execution:
     --cycles N         maximum MC6809 bus cycles to run [default: 100000]
+    --type-command S   boot through the runtime path, type a BASIC/DragonDOS command, then run --cycles
     --trace-limit N    number of recent instruction fetches to retain [default: 64]
     --watch-fetch A[-B]
                        retain opcode fetches in inclusive hex/decimal address range A..B; may be repeated
@@ -136,6 +140,7 @@ struct Cli {
     bin: Option<PathBuf>,
     snapshot: Option<PathBuf>,
     cycles: u64,
+    type_command: Option<String>,
     trace_limit: usize,
     fetch_watch: Vec<AddressRange>,
     write_watch: Vec<AddressRange>,
@@ -760,6 +765,15 @@ fn run_main() -> Result<(), String> {
         }
         return Ok(());
     }
+    if let Some(command) = &cli.type_command {
+        let report = run_typed_command(&cli, &firmware, command)?;
+        print_typed_command_report(&report);
+        if let Some(path) = &cli.screenshot {
+            fs::write(path, &report.screenshot_png)
+                .map_err(|err| format!("failed to write screenshot {}: {err}", path.display()))?;
+        }
+        return Ok(());
+    }
 
     ensure_dragon32_harness(&cli, "direct harness mode")?;
     let keyboard =
@@ -829,6 +843,7 @@ where
     let mut bin = None;
     let mut snapshot = None;
     let mut cycles = DEFAULT_CYCLES;
+    let mut type_command = None;
     let mut trace_limit = DEFAULT_TRACE_LIMIT;
     let mut fetch_watch = Vec::new();
     let mut write_watch = Vec::new();
@@ -885,6 +900,9 @@ where
             }
             "--cycles" => {
                 cycles = parse_u64(&next_value(&mut iter, "--cycles")?, "--cycles")?;
+            }
+            "--type-command" => {
+                type_command = Some(next_value(&mut iter, "--type-command")?);
             }
             "--trace-limit" => {
                 trace_limit =
@@ -1061,6 +1079,7 @@ where
         bin,
         snapshot,
         cycles,
+        type_command,
         trace_limit,
         fetch_watch,
         write_watch,
@@ -2295,6 +2314,209 @@ struct RuntimeSmokeState {
     screen_text_for_hash: Vec<String>,
     framebuffer: Vec<u32>,
     diagnostic_png: Vec<u8>,
+}
+
+struct TypedCommandReport {
+    command: String,
+    boot_frames: u32,
+    boot_reason: String,
+    frames_after_command: u32,
+    cycles: u64,
+    instructions: u64,
+    pc: u16,
+    text_screen_base: u16,
+    screen_text: Vec<String>,
+    screenshot_png: Vec<u8>,
+    device_traces: Vec<String>,
+    disk_traces: Vec<String>,
+    interrupt_traces: Vec<String>,
+}
+
+#[derive(Default)]
+struct RecentTraceCollector {
+    entries: Vec<String>,
+    disk_entries: Vec<String>,
+    interrupt_entries: Vec<String>,
+    limit: usize,
+    disk_limit: usize,
+}
+
+impl RecentTraceCollector {
+    fn new(limit: usize, disk_limit: usize) -> Self {
+        Self {
+            entries: Vec::new(),
+            disk_entries: Vec::new(),
+            interrupt_entries: Vec::new(),
+            limit,
+            disk_limit,
+        }
+    }
+}
+
+impl TraceSink for RecentTraceCollector {
+    fn push_trace(&mut self, event: TraceEvent<'_>) -> Result<(), MachineError> {
+        match event.kind.as_ref() {
+            "dragon.device_access" => {
+                let payload = String::from_utf8_lossy(event.payload);
+                self.entries.push(format!("{} {}", event.timestamp.0, payload));
+                if self.entries.len() > self.limit {
+                    self.entries.remove(0);
+                }
+                if payload.contains(r#""device":"DiskController""#) {
+                    self.disk_entries
+                        .push(format!("{} {}", event.timestamp.0, payload));
+                    if self.disk_entries.len() > self.disk_limit {
+                        self.disk_entries.remove(0);
+                    }
+                }
+            }
+            "dragon.interrupt_accept" | "dragon.interrupt_line" => {
+                let payload = String::from_utf8_lossy(event.payload);
+                self.interrupt_entries
+                    .push(format!("{} {}", event.timestamp.0, payload));
+                if self.interrupt_entries.len() > self.limit {
+                    self.interrupt_entries.remove(0);
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+fn run_typed_command(
+    cli: &Cli,
+    firmware: &LoadedDragonFirmware,
+    command: &str,
+) -> Result<TypedCommandReport, String> {
+    let mut session = runtime_session(firmware)?;
+    let mut cart_bytes = None;
+    let mut disk_bytes = None;
+    let mut program_bytes = None;
+    let mut snapshot_bytes = None;
+
+    if let Some(path) = &cli.cart {
+        cart_bytes = Some(
+            read_media_asset(path, MediaKind::Cartridge)
+                .map_err(|err| {
+                    format!("failed to load Dragon cartridge {}: {err}", path.display())
+                })?
+                .bytes,
+        );
+    }
+    if let Some(path) = &cli.disk {
+        disk_bytes = Some(
+            read_media_asset(path, MediaKind::Disk)
+                .map_err(|err| format!("failed to load Dragon disk {}: {err}", path.display()))?
+                .bytes,
+        );
+    }
+    if let Some(path) = &cli.bin {
+        program_bytes = Some(
+            read_media_asset(path, MediaKind::Program)
+                .map_err(|err| format!("failed to load Dragon program {}: {err}", path.display()))?
+                .bytes,
+        );
+    }
+    if let Some(path) = &cli.snapshot {
+        snapshot_bytes = Some(
+            read_media_asset(path, MediaKind::Snapshot)
+                .map_err(|err| format!("failed to load Dragon snapshot {}: {err}", path.display()))?
+                .bytes,
+        );
+    }
+
+    let mut media = MediaSet::new();
+    if let Some(bytes) = &cart_bytes {
+        media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, bytes));
+    }
+    if let Some(bytes) = &disk_bytes {
+        media.push(MediaImage::new("drive-1", MediaKind::Disk, bytes));
+    }
+    if let Some(bytes) = &program_bytes {
+        media.push(MediaImage::new("program-1", MediaKind::Program, bytes));
+    }
+    if let Some(bytes) = &snapshot_bytes {
+        media.push(MediaImage::new("snapshot-1", MediaKind::Snapshot, bytes));
+    }
+    if !media.is_empty() {
+        session
+            .load_media(&media)
+            .map_err(|err| format!("failed to load runtime media: {err}"))?;
+    }
+
+    let boot = session
+        .wait_for_boot(TYPED_COMMAND_BOOT_FRAME_BUDGET)
+        .map_err(|err| format!("Dragon runtime did not report boot after media load: {err}"))?;
+    session
+        .run_frames(TYPED_COMMAND_POST_BOOT_SETTLE_FRAMES)
+        .map_err(|err| format!("Dragon runtime did not idle after boot: {err}"))?;
+    let frames_after_command = frames_for_cycles(cli.cycles);
+    let mut trace_collector = RecentTraceCollector::new(64, 512);
+    type_basic_command_with_trace(&mut session, command, &mut trace_collector)?;
+    session
+        .run_frames_with_trace_sink(frames_after_command, &mut trace_collector)
+        .map_err(|err| format!("runtime failed after typing command {command:?}: {err}"))?;
+    let screenshot_png = session
+        .screenshot_png_bytes()
+        .map_err(|err| format!("failed to capture typed-command screenshot: {err}"))?;
+
+    Ok(TypedCommandReport {
+        command: command.to_owned(),
+        boot_frames: boot.frames,
+        boot_reason: boot.reason,
+        frames_after_command,
+        cycles: query_u64(&session, "dragon.cpu.cycles")?,
+        instructions: query_u64(&session, "dragon.cpu.instructions")?,
+        pc: query_u16(&session, "dragon.cpu.pc")?,
+        text_screen_base: query_u16(&session, "dragon.text.base")?,
+        screen_text: screen_text_lines(&session)?,
+        screenshot_png,
+        device_traces: trace_collector.entries,
+        disk_traces: trace_collector.disk_entries,
+        interrupt_traces: trace_collector.interrupt_entries,
+    })
+}
+
+fn print_typed_command_report(report: &TypedCommandReport) {
+    println!("dragon typed-command summary");
+    println!("command: {}", report.command);
+    println!(
+        "boot: reason={} frames={}",
+        report.boot_reason, report.boot_frames
+    );
+    println!("frames after command: {}", report.frames_after_command);
+    println!("cycles: {}", report.cycles);
+    println!("instructions: {}", report.instructions);
+    println!("pc: ${:04X}", report.pc);
+    println!("text screen base: ${:04X}", report.text_screen_base);
+    println!("text screen:");
+    for line in &report.screen_text {
+        println!("  |{line}|");
+    }
+    if !report.device_traces.is_empty() {
+        println!("device traces:");
+        for trace in &report.device_traces {
+            println!("  {trace}");
+        }
+    }
+    if !report.disk_traces.is_empty() {
+        println!("disk traces:");
+        for trace in &report.disk_traces {
+            println!("  {trace}");
+        }
+    }
+    if !report.interrupt_traces.is_empty() {
+        println!("interrupt traces:");
+        for trace in &report.interrupt_traces {
+            println!("  {trace}");
+        }
+    }
+}
+
+fn frames_for_cycles(cycles: u64) -> u32 {
+    let frames = cycles.div_ceil(DRAGON_FRAME_CYCLES);
+    u32::try_from(frames.max(1)).unwrap_or(u32::MAX)
 }
 
 fn runtime_smoke_state(
@@ -4862,6 +5084,17 @@ fn type_basic_command(
     tap_key(session, "enter")
 }
 
+fn type_basic_command_with_trace(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    command: &str,
+    trace_sink: &mut impl TraceSink,
+) -> Result<(), String> {
+    for ch in command.chars() {
+        tap_key_with_trace(session, &ch.to_ascii_lowercase().to_string(), trace_sink)?;
+    }
+    tap_key_with_trace(session, "enter", trace_sink)
+}
+
 fn tap_key(
     session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
     name: &str,
@@ -4879,6 +5112,28 @@ fn tap_key(
     });
     session
         .run_frames(KEY_EDGE_FRAMES)
+        .map_err(|err| format!("key release {name} failed: {err}"))?;
+    Ok(())
+}
+
+fn tap_key_with_trace(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    name: &str,
+    trace_sink: &mut impl TraceSink,
+) -> Result<(), String> {
+    session.queue_input(InputEvent::Key {
+        name: name.to_owned().into(),
+        pressed: true,
+    });
+    session
+        .run_frames_with_trace_sink(KEY_EDGE_FRAMES, trace_sink)
+        .map_err(|err| format!("key press {name} failed: {err}"))?;
+    session.queue_input(InputEvent::Key {
+        name: name.to_owned().into(),
+        pressed: false,
+    });
+    session
+        .run_frames_with_trace_sink(KEY_EDGE_FRAMES, trace_sink)
         .map_err(|err| format!("key release {name} failed: {err}"))?;
     Ok(())
 }
@@ -5746,6 +6001,7 @@ fn print_report(report: &HarnessReport) {
 
 fn format_interrupt_kind(kind: CpuInterruptKind) -> &'static str {
     match kind {
+        CpuInterruptKind::Nmi => "nmi",
         CpuInterruptKind::Irq => "irq",
         CpuInterruptKind::Firq => "firq",
     }
@@ -6139,6 +6395,26 @@ mod tests {
         assert_eq!(cli.pressed_keys, Vec::new());
         assert_eq!(cli.dump_ram, Some(PathBuf::from("ram.bin")));
         assert!(cli.dump_text);
+    }
+
+    #[test]
+    fn cli_parses_typed_command() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--type-command".to_owned(),
+            "DIR".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.type_command, Some("DIR".to_owned()));
+    }
+
+    #[test]
+    fn typed_command_cycle_budget_rounds_up_to_frames() {
+        assert_eq!(frames_for_cycles(1), 1);
+        assert_eq!(frames_for_cycles(DRAGON_FRAME_CYCLES), 1);
+        assert_eq!(frames_for_cycles(DRAGON_FRAME_CYCLES + 1), 2);
     }
 
     #[test]
