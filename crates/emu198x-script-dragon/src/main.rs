@@ -11,8 +11,8 @@ use std::process::{self, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use emu198x_shell::{
-    CapturedFrame, HeadlessSession, InputEvent, MachineTime, MediaImage, MediaKind, MediaSet,
-    PixelFormat, read_media_asset,
+    CapturedFrame, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineTime,
+    MediaImage, MediaKind, MediaSet, PixelFormat, read_media_asset,
 };
 use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
 use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
@@ -56,7 +56,9 @@ const USAGE: &str = "\
 Usage: emu198x-script-dragon --rom PATH [OPTIONS]
 
 Firmware:
-    --rom PATH          Dragon 32 BASIC ROM, exactly 16 KiB; .zip archives are accepted
+    --model MODEL       dragon32 | dragon64 [default: dragon32]
+    --rom PATH          Dragon 32 BASIC ROM, or Dragon 64 compatible-mode ROM; .zip archives are accepted
+    --rom64 PATH        Dragon 64 64-mode BASIC ROM, required with --model dragon64
     --cart PATH         Dragon cartridge ROM/DGN image; .zip archives are accepted
     --bin PATH          DragonDOS .BIN program image; .zip archives are accepted
     --snapshot PATH     PC-Dragon PAK snapshot; .zip archives are accepted
@@ -123,7 +125,9 @@ Other:
 
 #[derive(Debug, Clone, PartialEq)]
 struct Cli {
+    model: Model,
     rom: PathBuf,
+    mode_rom: Option<PathBuf>,
     cart: Option<PathBuf>,
     bin: Option<PathBuf>,
     snapshot: Option<PathBuf>,
@@ -157,6 +161,12 @@ struct Cli {
     xroar_motoroff: Option<usize>,
     xroar_settle_seconds: f32,
     xroar_timeout_seconds: f32,
+}
+
+struct LoadedDragonFirmware {
+    model: Model,
+    rom: [u8; ROM_SIZE],
+    mode_rom: Option<[u8; ROM_SIZE]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -684,7 +694,8 @@ fn run_main() -> Result<(), String> {
     }
 
     let cli = parse_cli(args)?;
-    let rom = load_rom(&cli.rom)?;
+    let firmware = load_dragon_firmware(&cli)?;
+    let rom = &firmware.rom;
     let cart = cli
         .cart
         .as_ref()
@@ -701,6 +712,7 @@ fn run_main() -> Result<(), String> {
         .map(|path| load_snapshot(path))
         .transpose()?;
     if let Some(path) = &cli.xroar_snapshot_out {
+        ensure_dragon32_harness(&cli, "--xroar-snapshot-out")?;
         let snapshot = snapshot
             .as_ref()
             .ok_or_else(|| "--xroar-snapshot-out requires --snapshot".to_owned())?;
@@ -708,7 +720,7 @@ fn run_main() -> Result<(), String> {
         println!("xroar snapshot: {}", path.display());
     }
     if cli.smoke_root.is_some() {
-        let report = run_smoke_matrix(&cli, &rom)?;
+        let report = run_smoke_matrix(&cli, &firmware)?;
         let json = serde_json::to_string_pretty(&report)
             .map_err(|err| format!("failed to serialize smoke matrix report: {err}"))?;
         if let Some(path) = &cli.smoke_report {
@@ -720,7 +732,8 @@ fn run_main() -> Result<(), String> {
         return Ok(());
     }
     if cli.bin_smoke_root.is_some() {
-        let report = run_bin_smoke_matrix(&cli, &rom)?;
+        ensure_dragon32_harness(&cli, "--bin-smoke-root")?;
+        let report = run_bin_smoke_matrix(&cli, rom)?;
         let json = serde_json::to_string_pretty(&report)
             .map_err(|err| format!("failed to serialize BIN smoke report: {err}"))?;
         if let Some(path) = &cli.smoke_report {
@@ -732,7 +745,8 @@ fn run_main() -> Result<(), String> {
         return Ok(());
     }
     if cli.snapshot_smoke_root.is_some() {
-        let report = run_snapshot_smoke_matrix(&cli, &rom)?;
+        ensure_dragon32_harness(&cli, "--snapshot-smoke-root")?;
+        let report = run_snapshot_smoke_matrix(&cli, rom)?;
         let json = serde_json::to_string_pretty(&report)
             .map_err(|err| format!("failed to serialize snapshot smoke report: {err}"))?;
         if let Some(path) = &cli.smoke_report {
@@ -744,10 +758,11 @@ fn run_main() -> Result<(), String> {
         return Ok(());
     }
 
+    ensure_dragon32_harness(&cli, "direct harness mode")?;
     let keyboard =
         DragonKeyboard::with_pressed_keys(&cli.pressed_keys).map_err(|err| err.to_string())?;
     let report = run_harness_with_keyboard(
-        &rom,
+        rom,
         keyboard,
         HarnessRunOptions {
             cartridge: cart.as_ref(),
@@ -802,7 +817,9 @@ fn parse_cli<I>(args: I) -> Result<Cli, String>
 where
     I: IntoIterator<Item = String>,
 {
+    let mut model = Model::Dragon32Pal;
     let mut rom = None;
+    let mut mode_rom = None;
     let mut cart = None;
     let mut bin = None;
     let mut snapshot = None;
@@ -840,8 +857,14 @@ where
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
+            "--model" => {
+                model = parse_model(&next_value(&mut iter, "--model")?)?;
+            }
             "--rom" => {
                 rom = Some(PathBuf::from(next_value(&mut iter, "--rom")?));
+            }
+            "--rom64" => {
+                mode_rom = Some(PathBuf::from(next_value(&mut iter, "--rom64")?));
             }
             "--cart" => {
                 cart = Some(PathBuf::from(next_value(&mut iter, "--cart")?));
@@ -1022,7 +1045,9 @@ where
     }
 
     Ok(Cli {
+        model,
         rom: rom.ok_or_else(|| format!("missing required --rom PATH\n\n{USAGE}"))?,
+        mode_rom,
         cart,
         bin,
         snapshot,
@@ -1065,6 +1090,14 @@ where
 {
     iter.next()
         .ok_or_else(|| format!("{flag} requires a value\n\n{USAGE}"))
+}
+
+fn parse_model(value: &str) -> Result<Model, String> {
+    match value {
+        "dragon32" | "dragon-32" | "dragon-32-pal" => Ok(Model::Dragon32Pal),
+        "dragon64" | "dragon-64" | "dragon-64-pal" => Ok(Model::Dragon64Pal),
+        _ => Err("--model expects dragon32 or dragon64".to_owned()),
+    }
 }
 
 fn parse_u64(value: &str, flag: &str) -> Result<u64, String> {
@@ -1365,11 +1398,22 @@ fn parse_dragon_key(value: &str) -> Result<DragonKey, String> {
     })
 }
 
-fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport, String> {
+fn run_smoke_matrix(
+    cli: &Cli,
+    firmware: &LoadedDragonFirmware,
+) -> Result<SmokeMatrixReport, String> {
     let root = cli
         .smoke_root
         .as_deref()
         .ok_or_else(|| "--smoke-root is required".to_owned())?;
+    if cli.model == Model::Dragon64Pal
+        && (cli.xroar_bin.is_some() || cli.xroar_reference_dir.is_some())
+    {
+        return Err(
+            "Dragon 64 --smoke-root does not support XRoar references because the script only supplies one ROM to XRoar"
+                .to_owned(),
+        );
+    }
     let xroar = xroar_reference_config(cli)?;
     let mut tapes = Vec::new();
     collect_tape_candidates(root, &mut tapes)?;
@@ -1409,7 +1453,7 @@ fn run_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<SmokeMatrixReport
             .map(|dir| dir.join(format!("{index:04}-{}", safe_stem(tape_path))));
         let row = scan_tape_candidate(
             tape_path,
-            rom,
+            firmware,
             &mut runtime_smokes,
             RuntimeSmokeOptions {
                 run_limit: cli.smoke_run_limit,
@@ -2307,7 +2351,7 @@ fn framebuffer_stats(framebuffer: &[u32]) -> (usize, usize) {
 
 fn scan_tape_candidate(
     path: &Path,
-    rom: &[u8; ROM_SIZE],
+    firmware: &LoadedDragonFirmware,
     runtime_smokes: &mut usize,
     smoke: RuntimeSmokeOptions<'_>,
 ) -> SmokeMatrixRow {
@@ -2358,7 +2402,7 @@ fn scan_tape_candidate(
         && *runtime_smokes < smoke.run_limit;
     let runtime = if should_smoke {
         *runtime_smokes += 1;
-        Some(run_runtime_smoke(rom, &loaded.bytes, &parsed, smoke))
+        Some(run_runtime_smoke(firmware, &loaded.bytes, &parsed, smoke))
     } else {
         None
     };
@@ -2382,7 +2426,7 @@ fn scan_tape_candidate(
 }
 
 fn run_runtime_smoke(
-    rom: &[u8; ROM_SIZE],
+    firmware: &LoadedDragonFirmware,
     tape_bytes: &[u8],
     tape: &CasImage,
     smoke_options: RuntimeSmokeOptions<'_>,
@@ -2399,7 +2443,7 @@ fn run_runtime_smoke(
         return failed_runtime_smoke("", "unsupported tape file type");
     }
 
-    match run_runtime_smoke_inner(rom, tape_bytes, command, smoke_options) {
+    match run_runtime_smoke_inner(firmware, tape_bytes, command, smoke_options) {
         Ok(mut smoke) => {
             if let (Some(config), Some(stem)) = (smoke_options.xroar, smoke_options.xroar_stem) {
                 let comparison_screenshot = smoke
@@ -2408,7 +2452,7 @@ fn run_runtime_smoke(
                     .or(smoke.load_screenshot.as_ref());
                 match capture_best_xroar_reference(
                     config,
-                    rom,
+                    &firmware.rom,
                     tape_bytes,
                     command,
                     xroar_start_command(&smoke),
@@ -2431,7 +2475,7 @@ fn run_runtime_smoke(
 }
 
 fn run_runtime_smoke_inner(
-    rom: &[u8; ROM_SIZE],
+    firmware: &LoadedDragonFirmware,
     tape_bytes: &[u8],
     command: &str,
     smoke_options: RuntimeSmokeOptions<'_>,
@@ -2443,7 +2487,7 @@ fn run_runtime_smoke_inner(
     let joystick_axis_steps = smoke_options.joystick_axis;
     let joystick_axis_sweeps = smoke_options.joystick_axis_sweep;
     let idle_after_start_frames = smoke_options.idle_after_start_frames;
-    let mut session = boot_runtime_session(rom)?;
+    let mut session = boot_runtime_session(firmware)?;
     let mut media = MediaSet::new();
     media.push(MediaImage::new("tape-1", MediaKind::Tape, tape_bytes));
     session
@@ -4367,9 +4411,24 @@ fn wait_for_tape_load_stop(
 }
 
 fn boot_runtime_session(
-    rom: &[u8; ROM_SIZE],
+    firmware: &LoadedDragonFirmware,
 ) -> Result<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>, String> {
-    let runtime = DragonRuntime::new(Model::Dragon32Pal, rom)?;
+    let mut firmware_set = FirmwareSet::new();
+    match firmware.model {
+        Model::Dragon32Pal => {
+            firmware_set.push(FirmwareImage::new("dragon32-basic-rom", &firmware.rom));
+        }
+        Model::Dragon64Pal => {
+            let mode_rom = firmware
+                .mode_rom
+                .as_ref()
+                .ok_or_else(|| "Dragon 64 runtime requires --rom64 PATH".to_owned())?;
+            firmware_set.push(FirmwareImage::new("dragon64-compatible-rom", &firmware.rom));
+            firmware_set.push(FirmwareImage::new("dragon64-basic-rom", mode_rom));
+        }
+    }
+    let runtime = DragonRuntime::from_firmware(firmware.model, &firmware_set)
+        .map_err(|err| format!("failed to build Dragon runtime: {err}"))?;
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         DRAGON_FRAME_CYCLES,
@@ -4697,6 +4756,39 @@ fn load_rom(path: &Path) -> Result<[u8; ROM_SIZE], String> {
     let bytes =
         fs::read(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     exact_rom_from_bytes(path, bytes)
+}
+
+fn load_dragon_firmware(cli: &Cli) -> Result<LoadedDragonFirmware, String> {
+    if cli.model == Model::Dragon32Pal && cli.mode_rom.is_some() {
+        return Err("--rom64 requires --model dragon64".to_owned());
+    }
+
+    let mode_rom_path = match cli.model {
+        Model::Dragon32Pal => None,
+        Model::Dragon64Pal => Some(
+            cli.mode_rom
+                .as_deref()
+                .ok_or_else(|| "--model dragon64 requires --rom64 PATH".to_owned())?,
+        ),
+    };
+    let rom = load_rom(&cli.rom)?;
+    let mode_rom = mode_rom_path.map(load_rom).transpose()?;
+
+    Ok(LoadedDragonFirmware {
+        model: cli.model,
+        rom,
+        mode_rom,
+    })
+}
+
+fn ensure_dragon32_harness(cli: &Cli, feature: &str) -> Result<(), String> {
+    if cli.model == Model::Dragon32Pal {
+        return Ok(());
+    }
+
+    Err(format!(
+        "{feature} currently uses the low-level Dragon 32 harness; use --model dragon64 with --smoke-root for runtime-backed CAS smoke"
+    ))
 }
 
 fn load_rom_from_zip(path: &Path) -> Result<[u8; ROM_SIZE], String> {
@@ -5346,6 +5438,7 @@ fn format_device_region(device: DeviceRegion) -> &'static str {
         DeviceRegion::Pia0 => "pia0",
         DeviceRegion::Pia1 => "pia1",
         DeviceRegion::Sam => "sam",
+        DeviceRegion::Acia => "acia",
         DeviceRegion::Cartridge => "cartridge",
     }
 }
@@ -5517,6 +5610,89 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_dragon64_firmware_paths() {
+        let cli = parse_cli([
+            "--model".to_owned(),
+            "dragon64".to_owned(),
+            "--rom".to_owned(),
+            "dragon64-compat.rom".to_owned(),
+            "--rom64".to_owned(),
+            "dragon64.rom".to_owned(),
+            "--smoke-root".to_owned(),
+            "tapes".to_owned(),
+        ])
+        .expect("Dragon 64 CLI should parse");
+
+        assert_eq!(cli.model, Model::Dragon64Pal);
+        assert_eq!(cli.rom, PathBuf::from("dragon64-compat.rom"));
+        assert_eq!(cli.mode_rom, Some(PathBuf::from("dragon64.rom")));
+        assert_eq!(cli.smoke_root, Some(PathBuf::from("tapes")));
+    }
+
+    #[test]
+    fn dragon64_firmware_requires_mode_rom() {
+        let cli = parse_cli([
+            "--model".to_owned(),
+            "dragon64".to_owned(),
+            "--rom".to_owned(),
+            "dragon64-compat.rom".to_owned(),
+        ])
+        .expect("CLI parsing should not require ROM files");
+
+        let err = match load_dragon_firmware(&cli) {
+            Ok(_) => panic!("missing --rom64 should fail"),
+            Err(err) => err,
+        };
+        assert!(err.contains("--model dragon64 requires --rom64"));
+    }
+
+    #[test]
+    fn dragon32_rejects_mode_rom_argument() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--rom64".to_owned(),
+            "dragon64.rom".to_owned(),
+        ])
+        .expect("CLI parsing should accept syntax before firmware validation");
+
+        let err = match load_dragon_firmware(&cli) {
+            Ok(_) => panic!("Dragon 32 should reject --rom64"),
+            Err(err) => err,
+        };
+        assert!(err.contains("--rom64 requires --model dragon64"));
+    }
+
+    #[test]
+    fn load_dragon_firmware_accepts_dragon64_pair() {
+        let compat_rom = rom_with_reset_vector(0x8000);
+        let mut mode_rom = rom_with_reset_vector(0x8000);
+        mode_rom[0] = 0x12;
+        let stem = format!("emu198x-dragon64-firmware-test-{}", std::process::id());
+        let compat_path = env::temp_dir().join(format!("{stem}-compat.rom"));
+        let mode_path = env::temp_dir().join(format!("{stem}-mode.rom"));
+        fs::write(&compat_path, compat_rom).expect("compatible ROM fixture should be writable");
+        fs::write(&mode_path, mode_rom).expect("mode ROM fixture should be writable");
+
+        let cli = parse_cli([
+            "--model".to_owned(),
+            "dragon64".to_owned(),
+            "--rom".to_owned(),
+            compat_path.display().to_string(),
+            "--rom64".to_owned(),
+            mode_path.display().to_string(),
+        ])
+        .expect("Dragon 64 CLI should parse");
+        let firmware = load_dragon_firmware(&cli).expect("Dragon 64 firmware should load");
+
+        fs::remove_file(&compat_path).expect("compatible ROM fixture should be removable");
+        fs::remove_file(&mode_path).expect("mode ROM fixture should be removable");
+        assert_eq!(firmware.model, Model::Dragon64Pal);
+        assert_eq!(firmware.rom, compat_rom);
+        assert_eq!(firmware.mode_rom, Some(mode_rom));
+    }
+
+    #[test]
     fn cli_parses_hex_cycles_and_trace_limit() {
         let cli = parse_cli([
             "--rom".to_owned(),
@@ -5532,6 +5708,8 @@ mod tests {
         .expect("valid CLI should parse");
 
         assert_eq!(cli.rom, PathBuf::from("dragon32.rom"));
+        assert_eq!(cli.model, Model::Dragon32Pal);
+        assert_eq!(cli.mode_rom, None);
         assert_eq!(cli.cycles, 32);
         assert_eq!(cli.trace_limit, 3);
         assert!(cli.fetch_watch.is_empty());

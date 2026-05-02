@@ -208,6 +208,24 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --smoke-idle-after-start 300
 ```
 
+Dragon 64 CAS smoke uses the same runtime-backed path with the Dragon 64
+compatible-mode ROM and the separate 64-mode BASIC ROM:
+
+```sh
+cargo run --release -q -p emu198x-script-dragon -- \
+  --model dragon64 \
+  --rom ~/.emu198x/roms/dragon/dragon64-compat.rom \
+  --rom64 ~/.emu198x/roms/dragon/dragon64.rom \
+  --smoke-root '/path/to/Dragon/Applications/[CAS]' \
+  --smoke-run-limit 8 \
+  --smoke-report target/dragon64-smoke.json
+```
+
+The Dragon 64 script path currently covers runtime-backed CAS smoke. Direct
+`.BIN`, PAK snapshot, XRoar-reference, and direct low-level harness modes still
+use the Dragon 32 harness and reject `--model dragon64` rather than silently
+running the wrong model.
+
 Known joystick comparator fixture:
 
 ```sh
