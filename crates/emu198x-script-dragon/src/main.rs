@@ -17,6 +17,7 @@ use emu198x_shell::{
 };
 use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
 use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
+use format_dragon_disk::{DragonDiskImage, parse_vdk};
 use format_dragon_pak::{
     DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonPeripherals,
     PcDragonSnapshot, parse_dragon_pak, parse_pcdragon_snapshot,
@@ -61,6 +62,7 @@ Firmware:
     --rom PATH          Dragon 32 BASIC ROM, or Dragon 64 compatible-mode ROM; .zip archives are accepted
     --rom64 PATH        Dragon 64 64-mode BASIC ROM, required with --model dragon64
     --cart PATH         Dragon cartridge ROM/DGN image; .zip archives are accepted
+    --disk PATH         DragonDOS VDK disk image; .zip archives are accepted
     --bin PATH          DragonDOS .BIN program image; .zip archives are accepted
     --snapshot PATH     PC-Dragon PAK snapshot; .zip archives are accepted
 
@@ -130,6 +132,7 @@ struct Cli {
     rom: PathBuf,
     mode_rom: Option<PathBuf>,
     cart: Option<PathBuf>,
+    disk: Option<PathBuf>,
     bin: Option<PathBuf>,
     snapshot: Option<PathBuf>,
     cycles: u64,
@@ -702,6 +705,7 @@ fn run_main() -> Result<(), String> {
         .as_ref()
         .map(|path| load_cartridge(path))
         .transpose()?;
+    let disk = cli.disk.as_ref().map(|path| load_disk(path)).transpose()?;
     let bin = cli
         .bin
         .as_ref()
@@ -765,6 +769,7 @@ fn run_main() -> Result<(), String> {
         keyboard,
         HarnessRunOptions {
             cartridge: cart.as_ref(),
+            disk: disk.as_ref(),
             program: bin.as_ref(),
             snapshot: snapshot.as_ref(),
             cycle_limit: cli.cycles,
@@ -820,6 +825,7 @@ where
     let mut rom = None;
     let mut mode_rom = None;
     let mut cart = None;
+    let mut disk = None;
     let mut bin = None;
     let mut snapshot = None;
     let mut cycles = DEFAULT_CYCLES;
@@ -867,6 +873,9 @@ where
             }
             "--cart" => {
                 cart = Some(PathBuf::from(next_value(&mut iter, "--cart")?));
+            }
+            "--disk" => {
+                disk = Some(PathBuf::from(next_value(&mut iter, "--disk")?));
             }
             "--bin" => {
                 bin = Some(PathBuf::from(next_value(&mut iter, "--bin")?));
@@ -1048,6 +1057,7 @@ where
         rom: rom.ok_or_else(|| format!("missing required --rom PATH\n\n{USAGE}"))?,
         mode_rom,
         cart,
+        disk,
         bin,
         snapshot,
         cycles,
@@ -1808,6 +1818,7 @@ fn run_snapshot_smoke(
         DragonKeyboard::new(),
         HarnessRunOptions {
             cartridge: None,
+            disk: None,
             program: None,
             snapshot: Some(snapshot),
             cycle_limit: smoke.cycle_limit,
@@ -2059,6 +2070,7 @@ fn run_bin_smoke(
         DragonKeyboard::new(),
         HarnessRunOptions {
             cartridge: None,
+            disk: None,
             program: Some(program),
             snapshot: None,
             cycle_limit: smoke.cycle_limit,
@@ -2450,6 +2462,7 @@ fn xroar_snapshot_reference_trap(
         DragonKeyboard::new(),
         HarnessRunOptions {
             cartridge: None,
+            disk: None,
             program: None,
             snapshot: Some(snapshot),
             cycle_limit: target_cycles,
@@ -2470,6 +2483,7 @@ fn xroar_snapshot_reference_trap(
         DragonKeyboard::new(),
         HarnessRunOptions {
             cartridge: None,
+            disk: None,
             program: None,
             snapshot: Some(snapshot),
             cycle_limit: target_cycles,
@@ -5247,6 +5261,13 @@ fn load_cartridge(path: &Path) -> Result<DragonPakImage, String> {
         .map_err(|err| format!("failed to parse Dragon cartridge {}: {err}", path.display()))
 }
 
+fn load_disk(path: &Path) -> Result<DragonDiskImage, String> {
+    let loaded = read_media_asset(path, MediaKind::Disk)
+        .map_err(|err| format!("failed to load Dragon disk {}: {err}", path.display()))?;
+    parse_vdk(&loaded.bytes)
+        .map_err(|err| format!("failed to parse Dragon disk {}: {err}", path.display()))
+}
+
 fn load_binary_program(path: &Path) -> Result<DragonBinImage, String> {
     let loaded = read_media_asset(path, MediaKind::Program).map_err(|err| {
         format!(
@@ -5279,6 +5300,7 @@ const fn machine_cartridge_kind(kind: ParsedDragonCartridgeKind) -> DragonCartri
 #[derive(Clone, Debug)]
 struct HarnessRunOptions<'a> {
     cartridge: Option<&'a DragonPakImage>,
+    disk: Option<&'a DragonDiskImage>,
     program: Option<&'a DragonBinImage>,
     snapshot: Option<&'a PcDragonSnapshot>,
     cycle_limit: u64,
@@ -5311,6 +5333,10 @@ fn run_harness_with_keyboard(
     let mut machine = Dragon32::new_with_keyboard(rom, keyboard);
     if let Some(cartridge) = options.cartridge {
         machine.load_cartridge(machine_cartridge_kind(cartridge.kind), &cartridge.rom, true);
+    }
+    if let Some(disk) = options.disk {
+        let result = machine.insert_disk(0, disk.clone());
+        debug_assert!(result.is_ok());
     }
     if let Some(snapshot) = options.snapshot {
         machine.load_pcdragon_snapshot(
@@ -5832,6 +5858,7 @@ fn format_device_region(device: DeviceRegion) -> &'static str {
         DeviceRegion::Sam => "sam",
         DeviceRegion::Acia => "acia",
         DeviceRegion::Cartridge => "cartridge",
+        DeviceRegion::DiskController => "disk-controller",
     }
 }
 
@@ -5871,6 +5898,7 @@ mod tests {
             DragonKeyboard::new(),
             HarnessRunOptions {
                 cartridge: None,
+                disk: None,
                 program: None,
                 snapshot: None,
                 cycle_limit: 128,
@@ -5926,6 +5954,7 @@ mod tests {
             DragonKeyboard::new(),
             HarnessRunOptions {
                 cartridge: None,
+                disk: None,
                 program: None,
                 snapshot: None,
                 cycle_limit: 1,
@@ -5963,6 +5992,7 @@ mod tests {
             DragonKeyboard::new(),
             HarnessRunOptions {
                 cartridge: None,
+                disk: None,
                 program: None,
                 snapshot: None,
                 cycle_limit: 16,
@@ -6159,6 +6189,19 @@ mod tests {
         .expect("valid CLI should parse");
 
         assert_eq!(cli.cart, Some(PathBuf::from("game.dgn")));
+    }
+
+    #[test]
+    fn cli_parses_disk_path() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--disk".to_owned(),
+            "game.vdk".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.disk, Some(PathBuf::from("game.vdk")));
     }
 
     #[test]

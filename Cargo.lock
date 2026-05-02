@@ -806,6 +806,7 @@ dependencies = [
  "emu198x-shell",
  "format-dragon-bin",
  "format-dragon-cas",
+ "format-dragon-disk",
  "format-dragon-pak",
  "machine-dragon-32",
  "motorola-vdg-6847",
@@ -1006,6 +1007,13 @@ dependencies = [
 
 [[package]]
 name = "format-dragon-cas"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "format-dragon-disk"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.18",
@@ -1597,6 +1605,7 @@ dependencies = [
 name = "machine-dragon-32"
 version = "0.1.0"
 dependencies = [
+ "format-dragon-disk",
  "motorola-6809",
  "motorola-pia-6821",
  "motorola-sam-6883",
@@ -2707,6 +2716,7 @@ dependencies = [
  "emu198x-shell",
  "format-dragon-bin",
  "format-dragon-cas",
+ "format-dragon-disk",
  "format-dragon-pak",
  "machine-dragon-32",
  "motorola-vdg-6847",

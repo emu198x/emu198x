@@ -11,6 +11,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt;
 
+use format_dragon_disk::DragonDiskImage;
 use motorola_6809::{Mc6809, Mc6809ClockPhase};
 use motorola_pia_6821::{Pia6821, PiaPort, PiaSignal};
 use motorola_sam_6883::Sam6883;
@@ -65,6 +66,7 @@ const CART_IO_END: u16 = 0xFF5F;
 const NO_CARTRIDGE_BUS_VALUE: u8 = 0xFF;
 const CART_AUTORUN_FIRQ_CYCLES: u64 = DRAGON_CPU_HZ / 10;
 const ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY: u8 = 0x10;
+const DRAGON_DISK_DRIVES: usize = 4;
 
 /// Dragon board-level memory decode variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -198,6 +200,43 @@ impl fmt::Display for DragonProgramLoadError {
 
 impl Error for DragonProgramLoadError {}
 
+/// Failure while addressing a DragonDOS floppy drive.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DragonDiskError {
+    /// The requested drive number is outside DragonDOS drive 1-4.
+    DriveOutOfRange {
+        /// Zero-based drive index.
+        drive: usize,
+    },
+}
+
+impl fmt::Display for DragonDiskError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DriveOutOfRange { drive } => write!(
+                f,
+                "DragonDOS drive index {drive} is out of range; expected 0..{}",
+                DRAGON_DISK_DRIVES - 1
+            ),
+        }
+    }
+}
+
+impl Error for DragonDiskError {}
+
+/// Summary of a mounted DragonDOS floppy disk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DragonDiskSummary {
+    /// Tracks per side.
+    pub tracks: u8,
+    /// Number of sides.
+    pub sides: u8,
+    /// Sectors per track.
+    pub sectors_per_track: u8,
+    /// Bytes per sector.
+    pub sector_size: u16,
+}
+
 #[derive(Debug, Clone)]
 struct DragonCartridge {
     kind: DragonCartridgeKind,
@@ -206,6 +245,272 @@ struct DragonCartridge {
     bank_mask: usize,
     autorun: bool,
     next_firq_cycle: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DragonDosCommand {
+    None,
+    Restore,
+    Seek,
+    Step,
+    ReadSector,
+    WriteSector,
+    ForceInterrupt,
+}
+
+const WD_STATUS_BUSY: u8 = 0x01;
+const WD_STATUS_DRQ: u8 = 0x02;
+const WD_STATUS_TRACK_ZERO: u8 = 0x04;
+const WD_STATUS_RECORD_NOT_FOUND: u8 = 0x10;
+const WD_STATUS_WRITE_PROTECT: u8 = 0x40;
+const WD_STATUS_NOT_READY: u8 = 0x80;
+
+#[derive(Debug, Clone)]
+struct DragonDosController {
+    status: u8,
+    track: u8,
+    sector: u8,
+    data: u8,
+    command: DragonDosCommand,
+    control: u8,
+    selected_drive: usize,
+    selected_side: u8,
+    sector_buffer: Vec<u8>,
+    sector_position: usize,
+    drq: bool,
+    intrq: bool,
+    disks: [Option<DragonDiskImage>; DRAGON_DISK_DRIVES],
+}
+
+impl DragonDosController {
+    fn new() -> Self {
+        Self {
+            status: WD_STATUS_NOT_READY,
+            track: 0,
+            sector: 1,
+            data: 0,
+            command: DragonDosCommand::None,
+            control: 0,
+            selected_drive: 0,
+            selected_side: 0,
+            sector_buffer: Vec::new(),
+            sector_position: 0,
+            drq: false,
+            intrq: false,
+            disks: [None, None, None, None],
+        }
+    }
+
+    fn insert_disk(&mut self, drive: usize, image: DragonDiskImage) -> Result<(), DragonDiskError> {
+        let Some(slot) = self.disks.get_mut(drive) else {
+            return Err(DragonDiskError::DriveOutOfRange { drive });
+        };
+        *slot = Some(image);
+        self.refresh_ready_status();
+        Ok(())
+    }
+
+    fn eject_disk(&mut self, drive: usize) -> Result<(), DragonDiskError> {
+        let Some(slot) = self.disks.get_mut(drive) else {
+            return Err(DragonDiskError::DriveOutOfRange { drive });
+        };
+        *slot = None;
+        self.refresh_ready_status();
+        Ok(())
+    }
+
+    fn disk_summary(&self, drive: usize) -> Option<DragonDiskSummary> {
+        self.disks
+            .get(drive)?
+            .as_ref()
+            .map(|image| DragonDiskSummary {
+                tracks: image.tracks,
+                sides: image.sides,
+                sectors_per_track: image.sectors_per_track,
+                sector_size: image.sector_size,
+            })
+    }
+
+    fn read(&mut self, offset: u8) -> u8 {
+        match offset & 0x0f {
+            0x00 => {
+                self.intrq = false;
+                self.current_status()
+            }
+            0x01 => self.track,
+            0x02 => self.sector,
+            0x03 => self.read_data(),
+            0x08 => self.control_status(),
+            _ => NO_CARTRIDGE_BUS_VALUE,
+        }
+    }
+
+    fn write(&mut self, offset: u8, value: u8) {
+        match offset & 0x0f {
+            0x00 => self.execute_command(value),
+            0x01 => self.track = value,
+            0x02 => self.sector = value,
+            0x03 => self.data = value,
+            0x08 => self.write_control(value),
+            _ => {}
+        }
+    }
+
+    fn execute_command(&mut self, command: u8) {
+        self.intrq = false;
+        self.drq = false;
+        self.status &= !(WD_STATUS_BUSY | WD_STATUS_DRQ | WD_STATUS_RECORD_NOT_FOUND);
+
+        match command & 0xf0 {
+            0x00 => {
+                self.command = DragonDosCommand::Restore;
+                self.track = 0;
+                self.status = WD_STATUS_TRACK_ZERO;
+                self.refresh_ready_status();
+                self.intrq = true;
+            }
+            0x10 => {
+                self.command = DragonDosCommand::Seek;
+                self.track = self.data;
+                self.status = if self.track == 0 {
+                    WD_STATUS_TRACK_ZERO
+                } else {
+                    0
+                };
+                self.refresh_ready_status();
+                self.intrq = true;
+            }
+            0x20 | 0x30 => {
+                self.command = DragonDosCommand::Step;
+                self.status = if self.track == 0 {
+                    WD_STATUS_TRACK_ZERO
+                } else {
+                    0
+                };
+                self.refresh_ready_status();
+                self.intrq = true;
+            }
+            0x40 | 0x50 => {
+                self.command = DragonDosCommand::Step;
+                self.track = self.track.saturating_add(1);
+                self.status = 0;
+                self.refresh_ready_status();
+                self.intrq = true;
+            }
+            0x60 | 0x70 => {
+                self.command = DragonDosCommand::Step;
+                self.track = self.track.saturating_sub(1);
+                self.status = if self.track == 0 {
+                    WD_STATUS_TRACK_ZERO
+                } else {
+                    0
+                };
+                self.refresh_ready_status();
+                self.intrq = true;
+            }
+            0x80 | 0x90 => self.start_read_sector(),
+            0xa0 | 0xb0 => {
+                self.command = DragonDosCommand::WriteSector;
+                self.status = WD_STATUS_WRITE_PROTECT;
+                self.refresh_ready_status();
+                self.intrq = true;
+                self.command = DragonDosCommand::None;
+            }
+            0xd0 => {
+                self.command = DragonDosCommand::ForceInterrupt;
+                self.status &= !(WD_STATUS_BUSY | WD_STATUS_DRQ);
+                self.drq = false;
+                self.intrq = command & 0x0f != 0;
+                self.command = DragonDosCommand::None;
+            }
+            _ => {
+                self.command = DragonDosCommand::None;
+                self.status = 0;
+                self.refresh_ready_status();
+                self.intrq = true;
+            }
+        }
+    }
+
+    fn start_read_sector(&mut self) {
+        self.command = DragonDosCommand::ReadSector;
+        let Some(disk) = self.disks[self.selected_drive].as_ref() else {
+            self.status = WD_STATUS_NOT_READY;
+            self.intrq = true;
+            self.command = DragonDosCommand::None;
+            return;
+        };
+        let side = self.selected_side.min(disk.sides.saturating_sub(1));
+        let Some(sector) = disk.sector(self.track, side, self.sector) else {
+            self.status = WD_STATUS_RECORD_NOT_FOUND;
+            self.intrq = true;
+            self.command = DragonDosCommand::None;
+            return;
+        };
+        self.sector_buffer.clear();
+        self.sector_buffer.extend_from_slice(sector);
+        self.sector_position = 0;
+        self.drq = true;
+        self.status = WD_STATUS_BUSY | WD_STATUS_DRQ;
+    }
+
+    fn read_data(&mut self) -> u8 {
+        if !matches!(self.command, DragonDosCommand::ReadSector) || !self.drq {
+            return self.data;
+        }
+
+        let value = self
+            .sector_buffer
+            .get(self.sector_position)
+            .copied()
+            .unwrap_or(0);
+        self.data = value;
+        self.sector_position = self.sector_position.saturating_add(1);
+        if self.sector_position >= self.sector_buffer.len() {
+            self.drq = false;
+            self.status &= !(WD_STATUS_BUSY | WD_STATUS_DRQ);
+            self.intrq = true;
+            self.command = DragonDosCommand::None;
+        }
+        value
+    }
+
+    fn write_control(&mut self, value: u8) {
+        self.control = value;
+        self.selected_drive = usize::from(value & 0x03).min(DRAGON_DISK_DRIVES - 1);
+        self.selected_side = u8::from(value & 0x04 != 0);
+        self.refresh_ready_status();
+    }
+
+    fn control_status(&self) -> u8 {
+        let mut value = self.control & 0x3f;
+        if self.drq {
+            value |= 0x40;
+        }
+        if self.intrq {
+            value |= 0x80;
+        }
+        value
+    }
+
+    fn current_status(&self) -> u8 {
+        let mut status = self.status;
+        if self.drq {
+            status |= WD_STATUS_DRQ;
+        }
+        if self.disks[self.selected_drive].is_none() {
+            status |= WD_STATUS_NOT_READY;
+        }
+        status
+    }
+
+    fn refresh_ready_status(&mut self) {
+        if self.disks[self.selected_drive].is_none() {
+            self.status |= WD_STATUS_NOT_READY;
+        } else {
+            self.status &= !WD_STATUS_NOT_READY;
+        }
+    }
 }
 
 impl DragonCartridge {
@@ -910,6 +1215,8 @@ pub enum DeviceRegion {
     Acia,
     /// Cartridge I/O range.
     Cartridge,
+    /// DragonDOS WD2797-compatible disk-controller range.
+    DiskController,
 }
 
 /// Instruction fetch trace entry.
@@ -1283,6 +1590,7 @@ struct DragonMemory {
     joystick: DragonJoystick,
     cassette: CassettePlayback,
     cartridge: Option<DragonCartridge>,
+    disk_controller: Option<DragonDosController>,
     cartridge_sound_level: f32,
 }
 
@@ -1316,6 +1624,7 @@ impl DragonMemory {
             joystick: DragonJoystick::new(),
             cassette: CassettePlayback::default(),
             cartridge: None,
+            disk_controller: None,
             cartridge_sound_level: 0.0,
         }
     }
@@ -1355,6 +1664,7 @@ impl DragonMemory {
                 DeviceRegion::Sam => unreachable!("SAM is not a PIA"),
                 DeviceRegion::Acia => unreachable!("ACIA is not a PIA"),
                 DeviceRegion::Cartridge => unreachable!("cartridge is not a PIA"),
+                DeviceRegion::DiskController => unreachable!("disk controller is not a PIA"),
             };
             return (
                 value,
@@ -1368,6 +1678,20 @@ impl DragonMemory {
 
         if let Some(index) = self.mpu_ram_index(addr) {
             return (self.ram[index], None);
+        }
+
+        if let Some(offset) = decode_dragon_dos(addr)
+            && let Some(controller) = &mut self.disk_controller
+        {
+            let value = controller.read(offset);
+            return (
+                value,
+                Some(MemoryEvent::DeviceRead {
+                    device: DeviceRegion::DiskController,
+                    addr,
+                    value,
+                }),
+            );
         }
 
         if let Some(cartridge) = &self.cartridge
@@ -1403,6 +1727,7 @@ impl DragonMemory {
                 DeviceRegion::Sam => unreachable!("SAM is not a PIA"),
                 DeviceRegion::Acia => unreachable!("ACIA is not a PIA"),
                 DeviceRegion::Cartridge => unreachable!("cartridge is not a PIA"),
+                DeviceRegion::DiskController => unreachable!("disk controller is not a PIA"),
             }
             Some(MemoryEvent::DeviceWrite {
                 device,
@@ -1415,6 +1740,15 @@ impl DragonMemory {
             }
             Some(MemoryEvent::DeviceWrite {
                 device,
+                addr,
+                value,
+            })
+        } else if let Some(offset) = decode_dragon_dos(addr)
+            && let Some(controller) = &mut self.disk_controller
+        {
+            controller.write(offset, value);
+            Some(MemoryEvent::DeviceWrite {
+                device: DeviceRegion::DiskController,
                 addr,
                 value,
             })
@@ -1463,6 +1797,28 @@ impl DragonMemory {
 
     fn clear_cartridge(&mut self) {
         self.cartridge = None;
+    }
+
+    fn insert_disk(&mut self, drive: usize, image: DragonDiskImage) -> Result<(), DragonDiskError> {
+        self.disk_controller
+            .get_or_insert_with(DragonDosController::new)
+            .insert_disk(drive, image)
+    }
+
+    fn eject_disk(&mut self, drive: usize) -> Result<(), DragonDiskError> {
+        if let Some(controller) = &mut self.disk_controller {
+            controller.eject_disk(drive)
+        } else if drive < DRAGON_DISK_DRIVES {
+            Ok(())
+        } else {
+            Err(DragonDiskError::DriveOutOfRange { drive })
+        }
+    }
+
+    fn disk_summary(&self, drive: usize) -> Option<DragonDiskSummary> {
+        self.disk_controller
+            .as_ref()
+            .and_then(|controller| controller.disk_summary(drive))
     }
 
     fn set_cartridge_sound_level(&mut self, level: f32) {
@@ -2482,6 +2838,42 @@ impl Dragon32 {
         self.memory.clear_cartridge();
     }
 
+    /// Insert a DragonDOS disk image into a zero-based floppy drive slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DragonDiskError`] when `drive` is outside the four DragonDOS
+    /// drive slots.
+    pub fn insert_disk(
+        &mut self,
+        drive: usize,
+        image: DragonDiskImage,
+    ) -> Result<(), DragonDiskError> {
+        self.memory.insert_disk(drive, image)
+    }
+
+    /// Eject a DragonDOS disk image from a zero-based floppy drive slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DragonDiskError`] when `drive` is outside the four DragonDOS
+    /// drive slots.
+    pub fn eject_disk(&mut self, drive: usize) -> Result<(), DragonDiskError> {
+        self.memory.eject_disk(drive)
+    }
+
+    /// Return a summary of a mounted DragonDOS disk.
+    #[must_use]
+    pub fn disk_summary(&self, drive: usize) -> Option<DragonDiskSummary> {
+        self.memory.disk_summary(drive)
+    }
+
+    /// Returns whether any disk is mounted in the selected drive.
+    #[must_use]
+    pub fn disk_inserted(&self, drive: usize) -> bool {
+        self.disk_summary(drive).is_some()
+    }
+
     /// Set the normalized analogue level present on expansion connector pin 35 (`SND`).
     ///
     /// The Dragon hardware routes this external cartridge/expansion audio input through
@@ -3441,6 +3833,12 @@ fn decode_acia(model: DragonHardwareModel, addr: u16) -> Option<u8> {
     .then_some((addr & 0x03) as u8)
 }
 
+fn decode_dragon_dos(addr: u16) -> Option<u8> {
+    (CART_IO_START..=CART_IO_END)
+        .contains(&addr)
+        .then_some((addr & 0x1f) as u8)
+}
+
 fn acia_read(addr: u16) -> u8 {
     match addr & 0x03 {
         0x01 => ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY,
@@ -3744,6 +4142,61 @@ mod tests {
         assert_eq!(memory.read_fetch(0xC000), 0x10);
         memory.write(0xFF40, 0x01);
         assert_eq!(memory.read_fetch(0xC000), 0x20);
+    }
+
+    fn test_disk(fill: impl FnOnce(&mut [u8])) -> DragonDiskImage {
+        let mut bytes = vec![0; 12 + 40 * 18 * 256];
+        bytes[0] = b'd';
+        bytes[1] = b'k';
+        bytes[2] = 12;
+        bytes[8] = 40;
+        bytes[9] = 1;
+        fill(&mut bytes[12..]);
+        format_dragon_disk::parse_vdk(&bytes).expect("test VDK should parse")
+    }
+
+    #[test]
+    fn dragon_dos_controller_reads_sector_through_p2_registers() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        let disk = test_disk(|payload| {
+            payload[0] = 0x55;
+            payload[255] = 0xaa;
+        });
+
+        machine
+            .insert_disk(0, disk)
+            .expect("drive 0 insert should succeed");
+        machine.memory.write(0xFF48, 0x00);
+        machine.memory.write(0xFF41, 0);
+        machine.memory.write(0xFF42, 1);
+        machine.memory.write(0xFF40, 0x80);
+
+        let (first, _) = machine.memory.read_bus(0xFF43);
+        for _ in 1..255 {
+            let _ = machine.memory.read_bus(0xFF43);
+        }
+        let (last, _) = machine.memory.read_bus(0xFF43);
+        let (status, _) = machine.memory.read_bus(0xFF40);
+
+        assert_eq!(first, 0x55);
+        assert_eq!(last, 0xaa);
+        assert_eq!(status & WD_STATUS_BUSY, 0);
+    }
+
+    #[test]
+    fn dragon_dos_controller_reports_record_not_found() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine
+            .insert_disk(0, test_disk(|_| {}))
+            .expect("drive 0 insert should succeed");
+
+        machine.memory.write(0xFF42, 19);
+        machine.memory.write(0xFF40, 0x80);
+        let (status, _) = machine.memory.read_bus(0xFF40);
+
+        assert_ne!(status & WD_STATUS_RECORD_NOT_FOUND, 0);
     }
 
     #[test]

@@ -71,7 +71,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             region: Region::Pal,
             support_tier: SupportTier::Boots,
             release_year: 1982,
-            summary: "Dragon 32 PAL bring-up runtime. It boots the real BASIC ROM through the shared MC6809/PIA/SAM/VDG machine substrate, mounts CAS tapes, ROM/DGN cartridges, and PC-Dragon PAK snapshots, emits the current MC6847 text, semigraphics, or graphics framebuffer, produces mono audio from the PIA DAC/mux path, and exposes Dragon analogue joystick hardware; Dragon 64 remains pending.".into(),
+            summary: "Dragon 32 PAL bring-up runtime. It boots the real BASIC ROM through the shared MC6809/PIA/SAM/VDG machine substrate, mounts CAS tapes, VDK disks, ROM/DGN cartridges, and PC-Dragon PAK snapshots, emits the current MC6847 text, semigraphics, or graphics framebuffer, produces mono audio from the PIA DAC/mux path, and exposes Dragon analogue joystick hardware.".into(),
             clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(894_886)),
             firmware: vec![FirmwareRequirement::new(
                 "dragon32-basic-rom",
@@ -94,6 +94,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
                     WritebackPolicy::InMemoryOnly,
                 ),
                 MediaSlot::new(
+                    "drive-1",
+                    "DragonDOS drive 1",
+                    MediaKind::Disk,
+                    false,
+                    WritebackPolicy::InMemoryOnly,
+                ),
+                MediaSlot::new(
                     "snapshot-1",
                     "PC-Dragon snapshot",
                     MediaKind::Snapshot,
@@ -111,6 +118,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             capabilities: CapabilitySet::with_all([
                 known_capability("cassette-media"),
                 known_capability("cartridge-media"),
+                known_capability("disk-media"),
                 known_capability("joystick-input"),
                 known_capability("keyboard-matrix"),
                 known_capability("scripted-input"),
@@ -125,7 +133,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             region: Region::Pal,
             support_tier: SupportTier::Boots,
             release_year: 1983,
-            summary: "Dragon 64 PAL runtime. It cold-boots in Dragon 32-compatible mode from the compatible BASIC ROM, switches to the high BASIC ROM for EXEC 48000 64-mode entry, adds the Dragon 64 ACIA decode and SAM-backed 64K RAM paging, and keeps the same cassette, cartridge, snapshot, program, keyboard, joystick, framebuffer, and mono audio surfaces as the Dragon 32 profile.".into(),
+            summary: "Dragon 64 PAL runtime. It cold-boots in Dragon 32-compatible mode from the compatible BASIC ROM, switches to the high BASIC ROM for EXEC 48000 64-mode entry, adds the Dragon 64 ACIA decode and SAM-backed 64K RAM paging, and keeps the same cassette, VDK disk, cartridge, snapshot, program, keyboard, joystick, framebuffer, and mono audio surfaces as the Dragon 32 profile.".into(),
             clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(894_886)),
             firmware: vec![
                 FirmwareRequirement::new(
@@ -151,6 +159,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
                     WritebackPolicy::InMemoryOnly,
                 ),
                 MediaSlot::new(
+                    "drive-1",
+                    "DragonDOS drive 1",
+                    MediaKind::Disk,
+                    false,
+                    WritebackPolicy::InMemoryOnly,
+                ),
+                MediaSlot::new(
                     "snapshot-1",
                     "PC-Dragon snapshot",
                     MediaKind::Snapshot,
@@ -168,6 +183,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             capabilities: CapabilitySet::with_all([
                 known_capability("cassette-media"),
                 known_capability("cartridge-media"),
+                known_capability("disk-media"),
                 known_capability("joystick-input"),
                 known_capability("keyboard-matrix"),
                 known_capability("scripted-input"),
@@ -200,15 +216,17 @@ mod tests {
         assert_eq!(profile.region, Region::Pal);
         assert_eq!(profile.firmware.len(), 1);
         assert_eq!(profile.firmware[0].id.as_ref(), "dragon32-basic-rom");
-        assert_eq!(profile.media_slots.len(), 4);
+        assert_eq!(profile.media_slots.len(), 5);
         assert_eq!(profile.media_slots[0].id.as_ref(), "tape-1");
         assert_eq!(profile.media_slots[0].kind, MediaKind::Tape);
         assert_eq!(profile.media_slots[1].id.as_ref(), "cartridge-1");
         assert_eq!(profile.media_slots[1].kind, MediaKind::Cartridge);
-        assert_eq!(profile.media_slots[2].id.as_ref(), "snapshot-1");
-        assert_eq!(profile.media_slots[2].kind, MediaKind::Snapshot);
-        assert_eq!(profile.media_slots[3].id.as_ref(), "program-1");
-        assert_eq!(profile.media_slots[3].kind, MediaKind::Program);
+        assert_eq!(profile.media_slots[2].id.as_ref(), "drive-1");
+        assert_eq!(profile.media_slots[2].kind, MediaKind::Disk);
+        assert_eq!(profile.media_slots[3].id.as_ref(), "snapshot-1");
+        assert_eq!(profile.media_slots[3].kind, MediaKind::Snapshot);
+        assert_eq!(profile.media_slots[4].id.as_ref(), "program-1");
+        assert_eq!(profile.media_slots[4].kind, MediaKind::Program);
 
         let profile = profile_for(Model::Dragon64Pal);
         assert_eq!(profile.family, Family::Dragon);
@@ -218,6 +236,6 @@ mod tests {
         assert!(!profile.firmware[0].optional);
         assert_eq!(profile.firmware[1].id.as_ref(), "dragon64-basic-rom");
         assert!(!profile.firmware[1].optional);
-        assert_eq!(profile.media_slots.len(), 4);
+        assert_eq!(profile.media_slots.len(), 5);
     }
 }

@@ -7,6 +7,7 @@ use emu198x_shell::{
 };
 use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
 use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
+use format_dragon_disk::{DragonDiskImage, parse_vdk};
 use format_dragon_pak::{
     DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
     parse_dragon_pak, parse_pcdragon_snapshot,
@@ -36,6 +37,11 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "dragon.cpu.s",
     "dragon.hardware.model",
     "dragon.machine.halted",
+    "dragon.disk.drive1.inserted",
+    "dragon.disk.drive1.sector_size",
+    "dragon.disk.drive1.sectors_per_track",
+    "dragon.disk.drive1.sides",
+    "dragon.disk.drive1.tracks",
     "dragon.pia0.control_a",
     "dragon.pia0.control_b",
     "dragon.pia0.ddr_a",
@@ -117,6 +123,7 @@ pub struct DragonRuntime {
     tape: Option<CasImage>,
     tape_bytes: Vec<u8>,
     cartridge: Option<DragonPakImage>,
+    disk: Option<DragonDiskImage>,
     program: Option<DragonBinImage>,
     snapshot: Option<PcDragonSnapshot>,
 }
@@ -183,6 +190,7 @@ impl DragonRuntime {
             tape: None,
             tape_bytes: Vec::new(),
             cartridge: None,
+            disk: None,
             program: None,
             snapshot: None,
         })
@@ -207,6 +215,7 @@ impl DragonRuntime {
             tape: None,
             tape_bytes: Vec::new(),
             cartridge: None,
+            disk: None,
             program: None,
             snapshot: None,
         }
@@ -263,6 +272,10 @@ impl DragonRuntime {
         }
         if let Some(snapshot) = &self.snapshot {
             load_snapshot_into_machine(&mut self.machine, snapshot);
+        }
+        if let Some(disk) = &self.disk {
+            let result = self.machine.insert_disk(0, disk.clone());
+            debug_assert!(result.is_ok());
         }
         if let Some(program) = &self.program {
             load_program_into_machine(&mut self.machine, program);
@@ -711,6 +724,25 @@ impl MachineCore for DragonRuntime {
                         slot: slot.to_owned(),
                     });
                 }
+                MediaKind::Disk if slot == "drive-1" => {
+                    let disk =
+                        parse_vdk(image.bytes).map_err(|reason| MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        })?;
+                    self.machine
+                        .insert_disk(0, disk.clone())
+                        .map_err(|reason| MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        })?;
+                    self.disk = Some(disk);
+                }
+                MediaKind::Disk => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
                 MediaKind::Snapshot if slot == "snapshot-1" => {
                     let snapshot = parse_pcdragon_snapshot(image.bytes).map_err(|reason| {
                         MachineError::InvalidMedia {
@@ -844,6 +876,24 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                 json!(hardware_model_label(machine.machine.hardware_model()))
             }
             "dragon.machine.halted" => json!(machine.machine.is_halted()),
+            "dragon.disk.drive1.inserted" => json!(machine.machine.disk_inserted(0)),
+            "dragon.disk.drive1.tracks" => {
+                json!(machine.machine.disk_summary(0).map(|disk| disk.tracks))
+            }
+            "dragon.disk.drive1.sides" => {
+                json!(machine.machine.disk_summary(0).map(|disk| disk.sides))
+            }
+            "dragon.disk.drive1.sectors_per_track" => {
+                json!(
+                    machine
+                        .machine
+                        .disk_summary(0)
+                        .map(|disk| disk.sectors_per_track)
+                )
+            }
+            "dragon.disk.drive1.sector_size" => {
+                json!(machine.machine.disk_summary(0).map(|disk| disk.sector_size))
+            }
             "dragon.pia0.control_a" => json!(machine.machine.pia0_control_a()),
             "dragon.pia0.control_b" => json!(machine.machine.pia0_control_b()),
             "dragon.pia0.ddr_a" => json!(machine.machine.pia0_ddr_a()),
@@ -1443,6 +1493,44 @@ mod tests {
         media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &cart));
 
         runtime.load_media(&media).expect("cartridge should load");
+    }
+
+    fn dragon_vdk() -> Vec<u8> {
+        let mut bytes = vec![0; 12 + 40 * 18 * 256];
+        bytes[0] = b'd';
+        bytes[1] = b'k';
+        bytes[2] = 12;
+        bytes[8] = 40;
+        bytes[9] = 1;
+        bytes
+    }
+
+    #[test]
+    fn load_media_accepts_dragon_disk() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let disk = dragon_vdk();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("drive-1", MediaKind::Disk, &disk));
+
+        runtime.load_media(&media).expect("disk should load");
+
+        let provider = DragonSessionQueryProvider;
+        assert_eq!(
+            provider
+                .query(&runtime, "dragon.disk.drive1.inserted")
+                .expect("query should not fail")
+                .expect("query should be owned")
+                .value,
+            json!(true)
+        );
+        assert_eq!(
+            provider
+                .query(&runtime, "dragon.disk.drive1.sectors_per_track")
+                .expect("query should not fail")
+                .expect("query should be owned")
+                .value,
+            json!(18)
+        );
     }
 
     #[test]

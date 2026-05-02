@@ -13,6 +13,7 @@ path = "src/main.rs"
 emu198x-shell = { path = "../emu198x-shell" }
 format-dragon-bin = { path = "../format-dragon-bin" }
 format-dragon-cas = { path = "../format-dragon-cas" }
+format-dragon-disk = { path = "../format-dragon-disk" }
 format-dragon-pak = { path = "../format-dragon-pak" }
 machine-dragon-32 = { path = "../machine-dragon-32" }
 motorola-vdg-6847 = { path = "../motorola-vdg-6847" }

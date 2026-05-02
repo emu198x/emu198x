@@ -99,7 +99,7 @@ As of April 28, 2026, the fresh Rust workspace currently provides:
     MC6883 SAM, and MC6847 VDG
   - native verifier UI using the shared `wgpu` presenter, semantic keyboard
     input, gamepad-to-keyboard controls, CAS media, ROM/DGN cartridge
-    mounting, PC-Dragon PAK snapshot mounting, native
+    mounting, DragonDOS VDK disk mounting, PC-Dragon PAK snapshot mounting, native
     `--autoload`, and beam-updated MC6847 framebuffer
   - headless CAS smoke harness that loads BASIC and machine-code tapes through
     the real ROM `CLOAD`/`CLOADM` paths and can compare screenshots against a
@@ -107,8 +107,8 @@ As of April 28, 2026, the fresh Rust workspace currently provides:
 
 Notably not claimed yet:
 
-- no Dragon 64, cartridge audio, or disk
-  support
+- no claim that DragonDOS disk support is complete beyond the initial VDK
+  sector-read controller path
 - no claim that disk/tape/cartridge support exists unless the corresponding
   hardware path is actually modeled
 
@@ -147,6 +147,9 @@ Examples:
   cassette input path.
 - `--cart cartridge.dgn` for the current Dragon runner mounts ROM/DGN
   cartridge media through the emulated cartridge ROM/GMC banking path.
+- `--disk game.vdk` for the current Dragon script runner mounts a DragonDOS VDK
+  image through the emulated P2 disk-controller register path; this is not yet a
+  complete WD2797 timing or write implementation.
 - `--snapshot game.pak` for the current Dragon runner restores a PC-Dragon
   PAK snapshot as machine state; it is not treated as cartridge media.
 

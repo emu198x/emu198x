@@ -1,0 +1,12 @@
+[package]
+name = "format-dragon-disk"
+description = "DragonDOS VDK disk image parsing"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
