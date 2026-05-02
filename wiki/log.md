@@ -4,7 +4,62 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
-## 2026-05-01 — KS 2.04 boot probe: stalls in ROM string area on BOTH chip stacks
+## 2026-05-02 — KS 2.04 boots A500+ ECS to insert-disk in ~50M ticks
+
+**Type:** real-boot validation. Closes the ECS A500+ track that landed yesterday.
+**Trigger:** prior session committed a non-asserting probe that surfaced what looked like a stall. Today: extract the ROM, debug the "stall", flip the assertion to a real waypoint.
+
+### What actually happened
+
+Yesterday's diagnostic dumped PCs as decimal integers and the analysis mis-decoded the hex. PC=16253158 is `$F800E6` (the ROM checksum loop body), **not** `$F80026` (string territory). The CPU was never off the rails — it was correctly executing the 256 KiB checksum loop at `$F800E2-$F800EA`:
+
+```
+$F800E2: add.l (A0)+, D5
+$F800E4: bcc.s   $F800E8
+$F800E6: addq.l #1, D5
+$F800E8: dbge    D1, $F800E2     ; (disassembler prints this as `sf A1 / dc.w $FFF8`)
+```
+
+Yesterday's 2.5M-tick window simply wasn't long enough for KS 2.04's cold-boot path. Pushing the probe out: by **5M ticks** the checksum loop completes and overlay clears (`$F8010C: clr.b $00BFE001`); by 20M ticks DMA is enabled (`dmacon = $03F0`); by **50M ticks** Paula interrupts are wired (`intena = $602C`) and the framebuffer reads as `boot.detected = true reason="display-active"`.
+
+### What landed
+
+- `tests/boot_invariants.rs::kickstart_204_reaches_insert_disk_screen_a500_plus_pal` — window bumped 2.5M → 50M ticks; **assertion flipped to require `boot.detected = true`**. KS 2.04 now has the same kind of ROM-gated waypoint test that KS 1.3 has had on the OCS A500 path.
+- `tests/boot_invariants.rs::kickstart_204_disassemble_cold_boot` — kept as a reusable diagnostic. Walks the disassembler from `$F800D2` and prints ~80 instructions. Useful for inspecting any region of any KS ROM by tweaking the address bounds. Surfaced 2026-05-02 the disassembler's `DBcc` decoding gap (next bullet).
+- The four other KS-2.04 diagnostic tests added during yesterday's debugging (PC trace, OCS-vs-ECS comparison, min-repro, long-trace, extended-probe) are removed — they served their purpose finding the timing window and don't pull their weight as standing tests.
+
+### Disassembler bug to log separately
+
+`motorola_68000::disasm::disassemble` mis-decodes `DBcc` instructions (e.g. `DBge D1, label`). The bytes `0x5xCx 0xFFFy` are presented as `Scc An / dc.w $FFFy` instead. Real-machine code reads cleanly except for the loop back-edges; loops have to be re-decoded by hand from the raw bytes for now. Not a correctness issue (the executor handles `DBcc` fine), just a disassembler-output gap. **Action item for next session.**
+
+### Verification
+
+- `kickstart_204_reaches_insert_disk_screen_a500_plus_pal` (was non-asserting) → **`boot.detected = true` after 50M ticks ≈ 7s wall**.
+- All 82 hermetic runtime tests still green; 18 ignored (was 16, +2 ROM-gated KS 2.04 entries), 0 failed.
+- `cargo clippy -p runtime-commodore-amiga --lib --tests -- -D warnings` clean.
+- Existing OCS A500 + KS 1.3 path untouched.
+
+### Track status
+
+The ECS A500+ track is now genuinely complete in the same way the OCS A500 + KS 1.3 path is:
+- Chip ports landed yesterday ✓
+- Machine wrapper landed yesterday ✓
+- Runtime + Model reclassification landed yesterday ✓
+- Real Kickstart boots to insert-disk **today** ✓
+
+Same chip swap pattern (`AgnusEcs` / `DeniseEcs` Deref-wrappers + parallel `machine-commodore-amiga-ecs` crate) is the template for: A600 (needs Gayle port first), A2000B, A3000 (needs Fat Gary + Ramsey), and eventually AGA (A1200 / A4000) and SAGA (Apollo Vampire).
+
+### Next session candidates
+
+1. **Workbench 2.04 boot validation** — the same shape as the existing KS 1.3 + WB 1.3 golden test. Need a Workbench 2.04 ADF; the existing snapshot+resume path should work.
+2. **Verifier-binary dispatch refactor** — `--model a500-plus` currently still constructs `AmigaOcsRuntime`; the dispatch refactor lets it pick the right runtime by `model.is_ecs()`.
+3. **A600 — port `commodore-gayle`** (3175 lines lift), then a parallel A600 machine variant + Models.
+4. **Disassembler DBcc fix** — single-file change in `motorola-68000/src/disasm.rs`.
+5. **AGA chip lifts** — `commodore-agnus-aga` (278) + `commodore-denise-aga` (372). Sets up A1200 / A4000.
+
+---
+
+## 2026-05-01 — KS 2.04 boot probe: stalls in ROM string area on BOTH chip stacks (SUPERSEDED — see 2026-05-02)
 
 **Type:** diagnostic / structural finding. Documents the first reality check on the ECS path landed earlier today.
 **Trigger:** "one more push" — extract the KS 2.04 ROM, run the ECS A500+ boot probe, see what happens.

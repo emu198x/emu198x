@@ -253,14 +253,21 @@ fn workbench_13_reaches_desktop() -> Result<(), Box<dyn Error>> {
 /// Waypoint: Kickstart 2.04 boots an A500+ ECS machine to the
 /// insert-disk screen.
 ///
-/// **Structural check, not a passing baseline.** This session ships
-/// the AmigaEcs machine wrapper + AmigaEcsRuntime + A500+ Model
-/// reclassification, but doesn't validate that Kickstart 2.04
-/// actually reaches insert-disk yet. KS 2.04 may exercise BEAMCON0
-/// or BPLCON3 paths that the current ECS chip wrappers stub out.
-/// The first real run of this test from a freshly-extracted KS 2.04
-/// ROM is expected to surface those gaps; treat regressions found
-/// here as the input to the next ECS session.
+/// **Validated 2026-05-01:** the AmigaEcs chip stack reaches
+/// insert-disk on KS 2.04 r37.175 in ~50M ticks (~7 seconds wall
+/// time at PAL = ~350 frames). KS 2.04's cold-boot path is
+/// substantially longer than KS 1.3's: the 256 KiB ROM checksum
+/// loop (`add.l (A0)+,D5; bcc.s; addq.l #1,D5; dbge D1,…` at
+/// $F800E2-$F800EA) consumes the first ~4M ticks alone, then
+/// overlay clears (CIA-A PRA bit 0 at $BFE001 written at $F8010C),
+/// memlist setup, exec.library init, and graphics.library init
+/// take the rest.
+///
+/// Catches regression: any bus-arbitration / overlay / interrupt
+/// regression that breaks the ECS A500+ boot path. Runs on the
+/// `AmigaEcsRuntime` (the chip-correct A500+ runtime) — see also
+/// `kickstart_13_reaches_insert_disk_screen` for the OCS A500
+/// equivalent on KS 1.3.
 #[test]
 #[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom (KS 2.04 r37.175)"]
 fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal()
@@ -278,77 +285,41 @@ fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal()
     let firmware = std::fs::read(&kickstart_path)?;
     let mut runtime = AmigaEcsRuntime::new(Model::A500PlusEcsPal, firmware)?;
 
+    let mut host = null_host();
+    // 50M ticks ≈ 350 PAL frames ≈ 7 seconds wall time. Picked from
+    // the 2026-05-01 extended-probe diagnostic: detected=true
+    // appears reliably from ~50M onwards.
+    runtime.run_until(MachineTime::new(50_000_000), &mut host)?;
+
     let provider = runtime_commodore_amiga::AmigaSessionQueryProvider;
     use emu198x_shell::SessionQueryProvider;
-
-    // Tick in 100k-tick increments and snapshot diagnostic state at
-    // each window so we can see exactly where the boot path stalls.
-    // Each window is roughly 35 KS frames at PAL.
-    let probes = [100_000u64, 250_000, 500_000, 1_000_000, 2_500_000];
-    let mut prior = 0u64;
-    for &target in &probes {
-        let delta = target - prior;
-        let mut host = null_host();
-        runtime.run_until(MachineTime::new(target), &mut host)?;
-        prior = target;
-
-        let pc = provider
-            .query(&runtime, "amiga.cpu.pc")?
-            .expect("amiga.cpu.pc")
-            .value;
-        let ipl = provider
-            .query(&runtime, "amiga.cpu.ipl")?
-            .expect("amiga.cpu.ipl")
-            .value;
-        let vpos = provider
-            .query(&runtime, "amiga.agnus.vpos")?
-            .expect("amiga.agnus.vpos")
-            .value;
-        let dmacon = provider
-            .query(&runtime, "amiga.agnus.dmacon")?
-            .expect("amiga.agnus.dmacon")
-            .value;
-        let intena = provider
-            .query(&runtime, "amiga.paula.intena")?
-            .expect("amiga.paula.intena")
-            .value;
-        let intreq = provider
-            .query(&runtime, "amiga.paula.intreq")?
-            .expect("amiga.paula.intreq")
-            .value;
-        let bplcon0 = provider
-            .query(&runtime, "amiga.agnus.bplcon0")?
-            .expect("amiga.agnus.bplcon0")
-            .value;
-        let overlay = provider
-            .query(&runtime, "amiga.memory.overlay")?
-            .expect("amiga.memory.overlay")
-            .value;
-        let detected = provider
-            .query(&runtime, "boot.detected")?
-            .expect("boot.detected")
-            .value;
-        let reason = provider
-            .query(&runtime, "boot.reason")?
-            .expect("boot.reason")
-            .value;
-        eprintln!(
-            "[{:>10} ticks (+{:>8})] PC={pc} IPL={ipl} vpos={vpos} \
-             dmacon={dmacon} intena={intena} intreq={intreq} \
-             bplcon0={bplcon0} overlay={overlay} \
-             boot.detected={detected} boot.reason={reason}",
-            target, delta
-        );
-    }
+    let result = provider
+        .query(&runtime, "boot.detected")?
+        .expect("boot.detected should be available");
+    assert_eq!(
+        result.value,
+        serde_json::Value::Bool(true),
+        "Kickstart 2.04 should reach insert-disk within 50M ticks (A500+ ECS PAL)"
+    );
     Ok(())
 }
 
-/// Diagnostic: same KS 2.04 ROM, but constructed against
-/// AmigaOcsRuntime instead of AmigaEcsRuntime. Lets us tell whether
-/// the early stall is ECS-specific or KS-2.04-specific.
+/// Diagnostic: disassemble the KS 2.04 boot path from $F800D2.
+/// Reusable for inspecting any region of any KS ROM — bump the
+/// `pc`/`end` pair to walk further, or change the ROM file path
+/// to point at a different Kickstart. Surfaced
+/// 2026-05-01 the ROM checksum loop at $F800E2-$F800EA, which
+/// confirmed why early probes saw PC oscillate inside that window
+/// for the first ~4M ticks.
+///
+/// Known limitation: the disassembler currently mis-decodes `DBcc`
+/// instructions as `Scc + dc.w` (e.g. `0x5CC9 0xFFF8` should print
+/// as `dbge D1, …` but prints as `sf A1; dc.w $FFF8`). Code reads
+/// fine for branch / move / arithmetic; DBcc loops need manual
+/// re-decoding from the raw bytes for now.
 #[test]
-#[ignore = "diagnostic — KS 2.04 against OCS chip stack"]
-fn kickstart_204_diagnostic_on_ocs_runtime() -> Result<(), Box<dyn Error>> {
+#[ignore = "diagnostic — disassemble KS 2.04 cold-boot from $F800D2"]
+fn kickstart_204_disassemble_cold_boot() -> Result<(), Box<dyn Error>> {
     let Some(rom_dir) = home_rom_dir() else {
         eprintln!("skip: no Amiga ROM dir");
         return Ok(());
@@ -359,25 +330,27 @@ fn kickstart_204_diagnostic_on_ocs_runtime() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let firmware = std::fs::read(&kickstart_path)?;
-    // Construct against OCS for diagnostic purposes — A500+ is now
-    // ECS in profile metadata, but AmigaOcsRuntime accepts the model
-    // and routes to OCS chips for this sort of comparison.
-    let mut runtime = AmigaOcsRuntime::new(Model::A500PlusEcsPal, firmware)?;
+    // ROM lives at $F80000 (the reset vector points to $F800D2).
+    let rom_base = 0x00F8_0000u32;
+    let read = |abs_addr: u32| -> u8 {
+        let off = abs_addr.wrapping_sub(rom_base) as usize;
+        firmware.get(off).copied().unwrap_or(0)
+    };
 
-    let provider = runtime_commodore_amiga::AmigaSessionQueryProvider;
-    use emu198x_shell::SessionQueryProvider;
-
-    let probes = [100_000u64, 250_000, 500_000, 1_000_000, 2_500_000];
-    for &target in &probes {
-        let mut host = null_host();
-        runtime.run_until(MachineTime::new(target), &mut host)?;
-        let pc = provider.query(&runtime, "amiga.cpu.pc")?.expect("pc").value;
-        let dmacon = provider.query(&runtime, "amiga.agnus.dmacon")?.expect("dmacon").value;
-        let detected = provider.query(&runtime, "boot.detected")?.expect("detected").value;
-        eprintln!(
-            "[OCS @ {:>10}] PC={pc} dmacon={dmacon} boot.detected={detected}",
-            target
-        );
+    // Disassemble from $F800D2 forward. Walk by the byte length each
+    // disassembled instruction reports.
+    let mut pc: u32 = 0x00F8_00D2;
+    let end: u32 = 0x00F8_0200; // first 302 bytes — should be ~80-150 instructions
+    eprintln!("\n--- KS 2.04 cold-boot disassembly (${pc:08X} .. ${end:08X}) ---");
+    while pc < end {
+        let (mnemonic, len) = motorola_68000::disasm::disassemble(pc, read);
+        eprintln!("${pc:08X}: {mnemonic}");
+        if len == 0 {
+            eprintln!("    (length=0; aborting)");
+            break;
+        }
+        pc = pc.saturating_add(u32::from(len));
     }
     Ok(())
 }
+

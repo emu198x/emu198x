@@ -16,6 +16,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+motorola-68000 = { path = "../motorola-68000" }
 peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy" }
 png = { workspace = true }
 

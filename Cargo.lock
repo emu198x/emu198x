@@ -2674,6 +2674,7 @@ dependencies = [
  "format-commodore-amiga-adf",
  "machine-commodore-amiga-ecs",
  "machine-commodore-amiga-ocs",
+ "motorola-68000",
  "peripheral-commodore-amiga-floppy",
  "png",
  "postcard",
