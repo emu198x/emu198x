@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use emu198x_shell::StopReason as RuntimeStopReason;
 use emu198x_shell::{
     CapturedFrame, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineTime,
     MediaImage, MediaKind, MediaSet, PixelFormat, read_media_asset,
@@ -732,8 +733,7 @@ fn run_main() -> Result<(), String> {
         return Ok(());
     }
     if cli.bin_smoke_root.is_some() {
-        ensure_dragon32_harness(&cli, "--bin-smoke-root")?;
-        let report = run_bin_smoke_matrix(&cli, rom)?;
+        let report = run_bin_smoke_matrix(&cli, &firmware)?;
         let json = serde_json::to_string_pretty(&report)
             .map_err(|err| format!("failed to serialize BIN smoke report: {err}"))?;
         if let Some(path) = &cli.smoke_report {
@@ -745,8 +745,7 @@ fn run_main() -> Result<(), String> {
         return Ok(());
     }
     if cli.snapshot_smoke_root.is_some() {
-        ensure_dragon32_harness(&cli, "--snapshot-smoke-root")?;
-        let report = run_snapshot_smoke_matrix(&cli, rom)?;
+        let report = run_snapshot_smoke_matrix(&cli, &firmware)?;
         let json = serde_json::to_string_pretty(&report)
             .map_err(|err| format!("failed to serialize snapshot smoke report: {err}"))?;
         if let Some(path) = &cli.smoke_report {
@@ -1480,12 +1479,20 @@ fn run_smoke_matrix(
 
 fn run_snapshot_smoke_matrix(
     cli: &Cli,
-    rom: &[u8; ROM_SIZE],
+    firmware: &LoadedDragonFirmware,
 ) -> Result<SnapshotSmokeMatrixReport, String> {
     let root = cli
         .snapshot_smoke_root
         .as_deref()
         .ok_or_else(|| "--snapshot-smoke-root is required".to_owned())?;
+    if cli.model == Model::Dragon64Pal
+        && (cli.xroar_bin.is_some() || cli.xroar_reference_dir.is_some())
+    {
+        return Err(
+            "Dragon 64 --snapshot-smoke-root does not support XRoar references because the script only supplies one ROM to XRoar"
+                .to_owned(),
+        );
+    }
     let xroar = xroar_reference_config(cli)?;
     let mut snapshots = Vec::new();
     collect_snapshot_candidates(root, &mut snapshots)?;
@@ -1517,7 +1524,7 @@ fn run_snapshot_smoke_matrix(
         });
         let row = scan_snapshot_candidate(
             snapshot_path,
-            rom,
+            firmware,
             &mut runtime_smokes,
             SnapshotSmokeOptions {
                 run_limit: cli.smoke_run_limit,
@@ -1540,7 +1547,10 @@ fn run_snapshot_smoke_matrix(
     })
 }
 
-fn run_bin_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<BinSmokeMatrixReport, String> {
+fn run_bin_smoke_matrix(
+    cli: &Cli,
+    firmware: &LoadedDragonFirmware,
+) -> Result<BinSmokeMatrixReport, String> {
     let root = cli
         .bin_smoke_root
         .as_deref()
@@ -1562,7 +1572,7 @@ fn run_bin_smoke_matrix(cli: &Cli, rom: &[u8; ROM_SIZE]) -> Result<BinSmokeMatri
             .map(|dir| dir.join(format!("{index:04}-{}.png", safe_stem(program_path))));
         let row = scan_bin_candidate(
             program_path,
-            rom,
+            firmware,
             &mut runtime_smokes,
             BinSmokeOptions {
                 run_limit: cli.smoke_run_limit,
@@ -1672,7 +1682,7 @@ fn is_bin_candidate_path(path: &Path) -> bool {
 
 fn scan_bin_candidate(
     path: &Path,
-    rom: &[u8; ROM_SIZE],
+    firmware: &LoadedDragonFirmware,
     runtime_smokes: &mut usize,
     smoke: BinSmokeOptions<'_>,
 ) -> BinSmokeRow {
@@ -1712,7 +1722,7 @@ fn scan_bin_candidate(
 
     let runtime = if *runtime_smokes < smoke.run_limit {
         *runtime_smokes += 1;
-        Some(run_bin_smoke(rom, &program, smoke))
+        Some(run_bin_smoke(firmware, &loaded.bytes, &program, smoke))
     } else {
         None
     };
@@ -1732,7 +1742,7 @@ fn scan_bin_candidate(
 
 fn scan_snapshot_candidate(
     path: &Path,
-    rom: &[u8; ROM_SIZE],
+    firmware: &LoadedDragonFirmware,
     runtime_smokes: &mut usize,
     smoke: SnapshotSmokeOptions<'_>,
 ) -> SnapshotSmokeRow {
@@ -1764,7 +1774,12 @@ fn scan_snapshot_candidate(
 
     let runtime = if *runtime_smokes < smoke.run_limit {
         *runtime_smokes += 1;
-        Some(run_snapshot_smoke(rom, &snapshot, smoke))
+        Some(run_snapshot_smoke(
+            firmware,
+            &loaded.bytes,
+            &snapshot,
+            smoke,
+        ))
     } else {
         None
     };
@@ -1779,12 +1794,17 @@ fn scan_snapshot_candidate(
 }
 
 fn run_snapshot_smoke(
-    rom: &[u8; ROM_SIZE],
+    firmware: &LoadedDragonFirmware,
+    snapshot_bytes: &[u8],
     snapshot: &PcDragonSnapshot,
     smoke: SnapshotSmokeOptions<'_>,
 ) -> SnapshotRuntimeSmoke {
+    if firmware.model == Model::Dragon64Pal {
+        return run_snapshot_smoke_runtime(firmware, snapshot_bytes, snapshot, smoke);
+    }
+
     let report = run_harness_with_keyboard(
-        rom,
+        &firmware.rom,
         DragonKeyboard::new(),
         HarnessRunOptions {
             cartridge: None,
@@ -1843,7 +1863,12 @@ fn run_snapshot_smoke(
         xroar_snapshot_settle_seconds(screenshot_cycles, screenshot_master_ticks);
     let xroar_reference_trap =
         if smoke.xroar.is_some() && smoke.xroar_stem.is_some() && !use_master_timed_reference {
-            xroar_snapshot_reference_trap(rom, snapshot, screenshot_cycles, smoke.trace_limit)
+            xroar_snapshot_reference_trap(
+                &firmware.rom,
+                snapshot,
+                screenshot_cycles,
+                smoke.trace_limit,
+            )
         } else {
             None
         };
@@ -1851,7 +1876,7 @@ fn run_snapshot_smoke(
         match (smoke.xroar, smoke.xroar_stem) {
             (Some(config), Some(stem)) => match capture_xroar_snapshot_reference(
                 config,
-                rom,
+                &firmware.rom,
                 snapshot,
                 comparison_screenshot,
                 stem,
@@ -1950,13 +1975,87 @@ fn failed_snapshot_smoke(
     }
 }
 
+fn run_snapshot_smoke_runtime(
+    firmware: &LoadedDragonFirmware,
+    snapshot_bytes: &[u8],
+    snapshot: &PcDragonSnapshot,
+    smoke: SnapshotSmokeOptions<'_>,
+) -> SnapshotRuntimeSmoke {
+    match run_snapshot_smoke_runtime_inner(firmware, snapshot_bytes, snapshot, smoke) {
+        Ok(smoke) => smoke,
+        Err(error) => failed_snapshot_runtime_smoke(snapshot, error),
+    }
+}
+
+fn run_snapshot_smoke_runtime_inner(
+    firmware: &LoadedDragonFirmware,
+    snapshot_bytes: &[u8],
+    snapshot: &PcDragonSnapshot,
+    smoke: SnapshotSmokeOptions<'_>,
+) -> Result<SnapshotRuntimeSmoke, String> {
+    let mut session = runtime_session(firmware)?;
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "snapshot-1",
+        MediaKind::Snapshot,
+        snapshot_bytes,
+    ));
+    session
+        .load_media(&media)
+        .map_err(|err| format!("failed to load snapshot into runtime: {err}"))?;
+    let target = session.time().saturating_add(smoke.cycle_limit);
+    let result = session
+        .run_until(target)
+        .map_err(|err| format!("snapshot runtime failed: {err}"))?;
+    runtime_snapshot_smoke_from_session(&session, result.stop_reason, snapshot, smoke)
+}
+
+fn failed_snapshot_runtime_smoke(
+    snapshot: &PcDragonSnapshot,
+    error: String,
+) -> SnapshotRuntimeSmoke {
+    SnapshotRuntimeSmoke {
+        classification: SnapshotSmokeClassification::Error,
+        stop_reason: "error".to_owned(),
+        cycles: 0,
+        instructions: 0,
+        pc: snapshot.registers.pc,
+        load_address: snapshot.load_address,
+        ram_len: snapshot.ram.len(),
+        text_screen_base: 0,
+        distinct_colors: 0,
+        non_background_pixels: 0,
+        screen_text: Vec::new(),
+        screenshot: None,
+        screenshot_cycles: None,
+        screenshot_master_ticks: None,
+        screenshot_frame_phase_cycles: None,
+        video_phase: runtime_video_phase_summary(),
+        trace_signature: runtime_trace_signature(0, 0, &[], &[]),
+        xroar_reference_screenshot: None,
+        xroar_reference_settle_seconds: None,
+        xroar_reference_trap_pc: None,
+        xroar_reference_trap_count: None,
+        xroar_reference_error: None,
+        xroar_reference_comparison: None,
+        xroar_reference_comparison_error: None,
+        vdg_trace: None,
+        error: Some(error),
+    }
+}
+
 fn run_bin_smoke(
-    rom: &[u8; ROM_SIZE],
+    firmware: &LoadedDragonFirmware,
+    program_bytes: &[u8],
     program: &DragonBinImage,
     smoke: BinSmokeOptions<'_>,
 ) -> BinRuntimeSmoke {
+    if firmware.model == Model::Dragon64Pal {
+        return run_bin_smoke_runtime(firmware, program_bytes, smoke);
+    }
+
     let report = run_harness_with_keyboard(
-        rom,
+        &firmware.rom,
         DragonKeyboard::new(),
         HarnessRunOptions {
             cartridge: None,
@@ -2017,6 +2116,293 @@ fn run_bin_smoke(
         trace_signature: snapshot_trace_signature(&report, framebuffer),
         vdg_trace: vdg_trace_summary(&report),
         error: None,
+    }
+}
+
+fn run_bin_smoke_runtime(
+    firmware: &LoadedDragonFirmware,
+    program_bytes: &[u8],
+    smoke: BinSmokeOptions<'_>,
+) -> BinRuntimeSmoke {
+    match run_bin_smoke_runtime_inner(firmware, program_bytes, smoke) {
+        Ok(smoke) => smoke,
+        Err(error) => failed_bin_runtime_smoke(error),
+    }
+}
+
+fn run_bin_smoke_runtime_inner(
+    firmware: &LoadedDragonFirmware,
+    program_bytes: &[u8],
+    smoke: BinSmokeOptions<'_>,
+) -> Result<BinRuntimeSmoke, String> {
+    let mut session = runtime_session(firmware)?;
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "program-1",
+        MediaKind::Program,
+        program_bytes,
+    ));
+    session
+        .load_media(&media)
+        .map_err(|err| format!("failed to load program into runtime: {err}"))?;
+    let target = session.time().saturating_add(smoke.cycle_limit);
+    let result = session
+        .run_until(target)
+        .map_err(|err| format!("program runtime failed: {err}"))?;
+    runtime_bin_smoke_from_session(&session, result.stop_reason, smoke)
+}
+
+fn failed_bin_runtime_smoke(error: String) -> BinRuntimeSmoke {
+    BinRuntimeSmoke {
+        classification: SnapshotSmokeClassification::Error,
+        stop_reason: "error".to_owned(),
+        cycles: 0,
+        instructions: 0,
+        pc: 0,
+        text_screen_base: 0,
+        distinct_colors: 0,
+        non_background_pixels: 0,
+        screen_text: Vec::new(),
+        screenshot: None,
+        screenshot_cycles: None,
+        screenshot_master_ticks: None,
+        screenshot_frame_phase_cycles: None,
+        video_phase: runtime_video_phase_summary(),
+        trace_signature: runtime_trace_signature(0, 0, &[], &[]),
+        vdg_trace: None,
+        error: Some(error),
+    }
+}
+
+fn runtime_snapshot_smoke_from_session(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    stop_reason: RuntimeStopReason,
+    snapshot: &PcDragonSnapshot,
+    smoke: SnapshotSmokeOptions<'_>,
+) -> Result<SnapshotRuntimeSmoke, String> {
+    let state = runtime_smoke_state(session)?;
+    let screenshot = write_runtime_screenshot(
+        smoke.screenshot_path,
+        smoke.screenshot_format,
+        session,
+        &state.diagnostic_png,
+    )?;
+    let classification = classify_snapshot_smoke(
+        runtime_stop_reason(stop_reason),
+        state.distinct_colors,
+        state.non_background_pixels,
+    );
+
+    Ok(SnapshotRuntimeSmoke {
+        classification,
+        stop_reason: format_runtime_stop_reason(stop_reason),
+        cycles: state.cycles,
+        instructions: state.instructions,
+        pc: state.pc,
+        load_address: snapshot.load_address,
+        ram_len: snapshot.ram.len(),
+        text_screen_base: state.text_screen_base,
+        distinct_colors: state.distinct_colors,
+        non_background_pixels: state.non_background_pixels,
+        screen_text: state.screen_text,
+        screenshot,
+        screenshot_cycles: Some(state.cycles),
+        screenshot_master_ticks: None,
+        screenshot_frame_phase_cycles: None,
+        video_phase: runtime_video_phase_summary(),
+        trace_signature: runtime_trace_signature(
+            state.cycles,
+            state.pc,
+            &state.framebuffer,
+            &state.screen_text_for_hash,
+        ),
+        xroar_reference_screenshot: None,
+        xroar_reference_settle_seconds: None,
+        xroar_reference_trap_pc: None,
+        xroar_reference_trap_count: None,
+        xroar_reference_error: None,
+        xroar_reference_comparison: None,
+        xroar_reference_comparison_error: None,
+        vdg_trace: None,
+        error: None,
+    })
+}
+
+fn runtime_bin_smoke_from_session(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    stop_reason: RuntimeStopReason,
+    smoke: BinSmokeOptions<'_>,
+) -> Result<BinRuntimeSmoke, String> {
+    let state = runtime_smoke_state(session)?;
+    let screenshot = write_runtime_screenshot(
+        smoke.screenshot_path,
+        smoke.screenshot_format,
+        session,
+        &state.diagnostic_png,
+    )?;
+    let classification = classify_snapshot_smoke(
+        runtime_stop_reason(stop_reason),
+        state.distinct_colors,
+        state.non_background_pixels,
+    );
+
+    Ok(BinRuntimeSmoke {
+        classification,
+        stop_reason: format_runtime_stop_reason(stop_reason),
+        cycles: state.cycles,
+        instructions: state.instructions,
+        pc: state.pc,
+        text_screen_base: state.text_screen_base,
+        distinct_colors: state.distinct_colors,
+        non_background_pixels: state.non_background_pixels,
+        screen_text: state.screen_text,
+        screenshot,
+        screenshot_cycles: Some(state.cycles),
+        screenshot_master_ticks: None,
+        screenshot_frame_phase_cycles: None,
+        video_phase: runtime_video_phase_summary(),
+        trace_signature: runtime_trace_signature(
+            state.cycles,
+            state.pc,
+            &state.framebuffer,
+            &state.screen_text_for_hash,
+        ),
+        vdg_trace: None,
+        error: None,
+    })
+}
+
+struct RuntimeSmokeState {
+    cycles: u64,
+    instructions: u64,
+    pc: u16,
+    text_screen_base: u16,
+    distinct_colors: usize,
+    non_background_pixels: usize,
+    screen_text: Vec<String>,
+    screen_text_for_hash: Vec<String>,
+    framebuffer: Vec<u32>,
+    diagnostic_png: Vec<u8>,
+}
+
+fn runtime_smoke_state(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+) -> Result<RuntimeSmokeState, String> {
+    let framebuffer = runtime_framebuffer_argb(session)?;
+    let (distinct_colors, non_background_pixels) = framebuffer_stats(&framebuffer);
+    let screen_text = screen_text_lines(session)?;
+    let diagnostic_png = session
+        .screenshot_png_bytes()
+        .map_err(|err| format!("failed to capture runtime smoke screenshot: {err}"))?;
+
+    Ok(RuntimeSmokeState {
+        cycles: query_u64(session, "dragon.cpu.cycles")?,
+        instructions: query_u64(session, "dragon.cpu.instructions")?,
+        pc: query_u16(session, "dragon.cpu.pc")?,
+        text_screen_base: query_u16(session, "dragon.text.base")?,
+        distinct_colors,
+        non_background_pixels,
+        screen_text_for_hash: screen_text.clone(),
+        screen_text,
+        framebuffer,
+        diagnostic_png,
+    })
+}
+
+fn runtime_framebuffer_argb(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+) -> Result<Vec<u32>, String> {
+    let frame = session
+        .latest_frame()
+        .ok_or_else(|| "runtime smoke did not emit a frame".to_owned())?;
+    let rgba = frame
+        .rgba_pixels()
+        .map_err(|err| format!("failed to read runtime frame pixels: {err}"))?;
+    let mut pixels = Vec::with_capacity(rgba.len() / 4);
+    for chunk in rgba.chunks_exact(4) {
+        let [r, g, b, a] = [chunk[0], chunk[1], chunk[2], chunk[3]];
+        pixels
+            .push((u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b));
+    }
+    Ok(pixels)
+}
+
+fn write_runtime_screenshot(
+    path: Option<&Path>,
+    format: SmokeScreenshotFormat,
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    diagnostic_png: &[u8],
+) -> Result<Option<String>, String> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let png = match format {
+        SmokeScreenshotFormat::Diagnostic => diagnostic_png.to_vec(),
+        SmokeScreenshotFormat::XroarZoomed => {
+            xroar_zoomed_png_bytes(session.latest_frame().ok_or_else(|| {
+                "cannot write xroar-zoomed runtime screenshot before a frame has been captured"
+                    .to_owned()
+            })?)?
+        }
+    };
+    fs::write(path, png).map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    Ok(Some(path.display().to_string()))
+}
+
+fn runtime_video_phase_summary() -> VideoPhaseSummary {
+    VideoPhaseSummary {
+        frame_master_tick: 0,
+        physical_line: 0,
+        line_master_tick: 0,
+        visible_line: None,
+        active_y: None,
+        active_x: None,
+    }
+}
+
+fn runtime_stop_reason(reason: RuntimeStopReason) -> StopReason {
+    match reason {
+        RuntimeStopReason::Halted => StopReason::CpuHalted,
+        RuntimeStopReason::ReachedTarget
+        | RuntimeStopReason::WaitingForInput
+        | RuntimeStopReason::Breakpoint => StopReason::CycleLimit,
+        _ => StopReason::CycleLimit,
+    }
+}
+
+fn format_runtime_stop_reason(reason: RuntimeStopReason) -> String {
+    match reason {
+        RuntimeStopReason::ReachedTarget => "reached-target",
+        RuntimeStopReason::WaitingForInput => "waiting-for-input",
+        RuntimeStopReason::Breakpoint => "breakpoint",
+        RuntimeStopReason::Halted => "halted",
+        _ => "unknown",
+    }
+    .to_owned()
+}
+
+fn runtime_trace_signature(
+    cycles: u64,
+    pc: u16,
+    framebuffer: &[u32],
+    screen_text: &[String],
+) -> SnapshotTraceSignature {
+    let mut hasher = StableTraceHasher::new();
+    hasher.write_u64(cycles);
+    hasher.write_u16(pc);
+    hasher.write_usize(framebuffer.len());
+    for &pixel in framebuffer {
+        hasher.write_u32(pixel);
+    }
+    for line in screen_text {
+        hasher.write_str(line);
+    }
+    SnapshotTraceSignature {
+        hash: hasher.finish_hex(),
+        trace_entries: 0,
+        vdg_samples: 0,
+        vdg_mode_writes: 0,
+        framebuffer_words: framebuffer.len(),
     }
 }
 
@@ -4410,7 +4796,7 @@ fn wait_for_tape_load_stop(
     Ok(TapeLoadStop::FrameLimit)
 }
 
-fn boot_runtime_session(
+fn runtime_session(
     firmware: &LoadedDragonFirmware,
 ) -> Result<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>, String> {
     let mut firmware_set = FirmwareSet::new();
@@ -4429,11 +4815,17 @@ fn boot_runtime_session(
     }
     let runtime = DragonRuntime::from_firmware(firmware.model, &firmware_set)
         .map_err(|err| format!("failed to build Dragon runtime: {err}"))?;
-    let mut session = HeadlessSession::new_with_query_provider(
+    Ok(HeadlessSession::new_with_query_provider(
         runtime,
         DRAGON_FRAME_CYCLES,
         DragonSessionQueryProvider,
-    );
+    ))
+}
+
+fn boot_runtime_session(
+    firmware: &LoadedDragonFirmware,
+) -> Result<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>, String> {
+    let mut session = runtime_session(firmware)?;
     let boot = session
         .wait_for_boot(BOOT_FRAME_BUDGET)
         .map_err(|err| format!("Dragon BASIC boot did not complete: {err}"))?;
@@ -5992,8 +6384,13 @@ mod tests {
         ])
         .expect("valid BIN smoke CLI should parse");
 
+        let firmware = LoadedDragonFirmware {
+            model: Model::Dragon32Pal,
+            rom,
+            mode_rom: None,
+        };
         let report =
-            run_bin_smoke_matrix(&cli, &rom).expect("synthetic BIN smoke matrix should run");
+            run_bin_smoke_matrix(&cli, &firmware).expect("synthetic BIN smoke matrix should run");
         let _ = fs::remove_dir_all(&root);
 
         assert_eq!(report.program_count, 1);

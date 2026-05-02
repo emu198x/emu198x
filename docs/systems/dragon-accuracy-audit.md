@@ -264,9 +264,11 @@ Progress:
   structured parse/runtime/screenshot regression reports. The script crate also
   has a synthetic real-ROM `.BIN` smoke regression, so the EXEC path is covered
   without committing archived program binaries. `emu198x-script-dragon --model
-  dragon64 --rom ... --rom64 ...` now routes CAS smoke through the Dragon 64
-  runtime profile; low-level direct, `.BIN`, and PAK smoke remain Dragon 32-only
-  until those paths move behind the shared runtime boundary.
+  dragon64 --rom ... --rom64 ...` now routes CAS, `.BIN`, and PAK smoke through
+  the Dragon 64 runtime profile. Dragon 32 `.BIN` and PAK smoke intentionally
+  keep the older trace-rich harness for now so existing deterministic trace
+  signatures remain stable; direct low-level and XRoar-reference modes still
+  reject Dragon 64.
 - The shared shell input surface now has analogue axis events, and the native
   Dragon shell maps left-stick X/Y to continuous Dragon joystick 1 comparator
   values while preserving D-pad/button digital controls.

@@ -221,10 +221,13 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --smoke-report target/dragon64-smoke.json
 ```
 
-The Dragon 64 script path currently covers runtime-backed CAS smoke. Direct
-`.BIN`, PAK snapshot, XRoar-reference, and direct low-level harness modes still
-use the Dragon 32 harness and reject `--model dragon64` rather than silently
-running the wrong model.
+Dragon 64 also works through runtime-backed `.BIN` and PAK smoke by using the
+same `--model dragon64 --rom ... --rom64 ...` firmware arguments with
+`--bin-smoke-root` or `--snapshot-smoke-root`. Dragon 32 keeps the older
+trace-rich low-level harness for `.BIN` and PAK smoke so existing deterministic
+trace signatures remain stable. Dragon 64 XRoar-reference and direct low-level
+harness modes still reject `--model dragon64` rather than silently running the
+wrong model.
 
 Known joystick comparator fixture:
 
@@ -381,7 +384,7 @@ emulator-vs-emulator pixel matching.
 | PIA | 12: DDR, control, IRQ, input pins, mixed I/O, Cx1 edge selection, Cx2 input/output, Cx1-restored Cx2 strobe modes |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 16: source horizontal geometry/crop split, text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
-| Harness | 24: CLI, ROM loading, direct `.BIN` argument, keyboard labels, text dumps, direct screenshots, CAS smoke options, PAK snapshot smoke, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
+| Harness | 24: CLI, Dragon 32/64 ROM loading, direct `.BIN` argument, keyboard labels, text dumps, direct screenshots, CAS smoke options, Dragon 64 runtime `.BIN`/PAK smoke, Dragon 32 trace-backed PAK snapshot smoke, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
 | Runtime | Dragon 32 and Dragon 64 profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, direct `.BIN` mounting, cartridge mounting, PAK snapshot mounting, joystick button-to-hardware mapping, real-ROM screenshot, Dragon 64 `EXEC 48000` plus post-transition BASIC smoke, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
 | Native | CLI, CAS tape argument, direct `.BIN` argument, cartridge argument, snapshot argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping, gamepad-to-joystick mapping |
 | CAS format | 7: block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors |
