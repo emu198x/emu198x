@@ -90,11 +90,12 @@ complete WD2797 timing/write implementation.
   observed Dragon archive geometry of 40 tracks, one side, 18 sectors per
   track, and 256-byte sectors. `machine-dragon-32` exposes the DragonDOS P2
   controller range at `$FF40-$FF5F`, including command/status, track, sector,
-  data, and drive-control registers, and can satisfy single-sector read
-  transfers from mounted VDK media. Real DragonDOS ROM directory reads now run
-  through the WD2797-style DRQ/FIRQ and INTRQ/NMI paths. Write-sector commands
-  currently report write-protect rather than mutating images; index pulse
-  timing and full WD2797 write/format behavior remain to be implemented.
+  data, and drive-control registers, and can satisfy single-sector read and
+  in-memory write transfers from mounted VDK media. Write-protected mounted
+  media reports the WD write-protect status without mutating sectors. Real
+  DragonDOS ROM directory reads now run through the WD2797-style DRQ/FIRQ and
+  INTRQ/NMI paths. Index pulse timing, host writeback, and full WD2797 format
+  behavior remain to be implemented.
 - **Runtime:** `runtime-dragon` implements the shared `MachineCore` boundary,
   exposes separate Dragon 32 PAL and Dragon 64 PAL profiles, builds from
   profile-declared BASIC firmware, emits RGBA8888 frames and mono audio
@@ -192,8 +193,10 @@ cargo run --release -q -p emu198x-script-dragon -- \
 
 VDK mounting exercises the live DragonDOS P2 controller registers at
 `$FF40-$FF5F`. The current implementation can run `DIR` through the real
-DragonDOS ROM and return directory data from mounted media; it is not yet a
-full WD2797 write, format, or index-pulse implementation.
+DragonDOS ROM and return directory data from mounted media. Sector writes are
+handled in memory for the mounted image, with an explicit in-memory
+write-protect state for protected-media tests. Host writeback, formatting, and
+index-pulse timing remain future work.
 
 The real-ROM DragonDOS `DIR` path has an opt-in regression test. Point the
 environment variables at a Dragon 32 ROM, DragonDOS ROM, and the Disk Doctor
@@ -204,6 +207,16 @@ EMU198X_DRAGON32_ROM=/path/to/dragon32.rom \
 EMU198X_DRAGON_DOS_ROM=/path/to/dragon-dos.rom \
 EMU198X_DRAGON_DOS_DIR_VDK=/path/to/disk-doctor.vdk \
 cargo test -p emu198x-script-dragon dragon_dos_dir_command_lists_vdk_directory
+```
+
+The matching write-path smoke uses the same ROM variables plus a scratch VDK
+path. The mounted image is mutated only in memory:
+
+```sh
+EMU198X_DRAGON32_ROM=/path/to/dragon32.rom \
+EMU198X_DRAGON_DOS_ROM=/path/to/dragon-dos.rom \
+EMU198X_DRAGON_DOS_SAVE_VDK=/path/to/scratch.vdk \
+cargo test -p emu198x-script-dragon dragon_dos_save_command_returns_ok_on_vdk
 ```
 
 Headless smoke over a DragonDOS `.BIN` tree:
@@ -419,7 +432,7 @@ bring-up.
 To complete Dragon 32, the main gaps are: full source-backed MC6809 timing and
 interrupt edge cases, PAL video geometry calibrated against hardware captures,
 analogue audio filtering and expansion-device mixing, deeper Dragon 64
-post-transition software coverage, full DragonDOS/WD2797 timing/write behavior,
+post-transition software coverage, DragonDOS/WD2797 index and format behavior,
 and a trusted fixture suite for joystick/audio/video behaviours that does not
 depend on emulator-vs-emulator pixel matching.
 

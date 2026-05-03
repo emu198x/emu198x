@@ -2358,7 +2358,8 @@ impl TraceSink for RecentTraceCollector {
         match event.kind.as_ref() {
             "dragon.device_access" => {
                 let payload = String::from_utf8_lossy(event.payload);
-                self.entries.push(format!("{} {}", event.timestamp.0, payload));
+                self.entries
+                    .push(format!("{} {}", event.timestamp.0, payload));
                 if self.entries.len() > self.limit {
                     self.entries.remove(0);
                 }
@@ -5079,7 +5080,7 @@ fn type_basic_command(
     command: &str,
 ) -> Result<(), String> {
     for ch in command.chars() {
-        tap_key(session, &ch.to_ascii_lowercase().to_string())?;
+        tap_basic_char(session, ch)?;
     }
     tap_key(session, "enter")
 }
@@ -5090,9 +5091,44 @@ fn type_basic_command_with_trace(
     trace_sink: &mut impl TraceSink,
 ) -> Result<(), String> {
     for ch in command.chars() {
-        tap_key_with_trace(session, &ch.to_ascii_lowercase().to_string(), trace_sink)?;
+        tap_basic_char_with_trace(session, ch, trace_sink)?;
     }
     tap_key_with_trace(session, "enter", trace_sink)
+}
+
+fn tap_basic_char(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    ch: char,
+) -> Result<(), String> {
+    if let Some(combo) = dragon_basic_key_combo(ch) {
+        return tap_key_combo(session, combo);
+    }
+    tap_key(session, &dragon_basic_key_name(ch))
+}
+
+fn tap_basic_char_with_trace(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    ch: char,
+    trace_sink: &mut impl TraceSink,
+) -> Result<(), String> {
+    if let Some(combo) = dragon_basic_key_combo(ch) {
+        return tap_key_combo_with_trace(session, combo, trace_sink);
+    }
+    tap_key_with_trace(session, &dragon_basic_key_name(ch), trace_sink)
+}
+
+fn dragon_basic_key_combo(ch: char) -> Option<&'static [&'static str]> {
+    match ch {
+        '"' => Some(&["shift", "2"]),
+        _ => None,
+    }
+}
+
+fn dragon_basic_key_name(ch: char) -> String {
+    match ch {
+        ' ' => "space".to_owned(),
+        _ => ch.to_ascii_lowercase().to_string(),
+    }
 }
 
 fn tap_key(
@@ -5135,6 +5171,57 @@ fn tap_key_with_trace(
     session
         .run_frames_with_trace_sink(KEY_EDGE_FRAMES, trace_sink)
         .map_err(|err| format!("key release {name} failed: {err}"))?;
+    Ok(())
+}
+
+fn tap_key_combo(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    names: &[&str],
+) -> Result<(), String> {
+    for name in names {
+        session.queue_input(InputEvent::Key {
+            name: (*name).to_owned().into(),
+            pressed: true,
+        });
+    }
+    session
+        .run_frames(KEY_EDGE_FRAMES)
+        .map_err(|err| format!("key combo press {names:?} failed: {err}"))?;
+    for name in names.iter().rev() {
+        session.queue_input(InputEvent::Key {
+            name: (*name).to_owned().into(),
+            pressed: false,
+        });
+    }
+    session
+        .run_frames(KEY_EDGE_FRAMES)
+        .map_err(|err| format!("key combo release {names:?} failed: {err}"))?;
+    Ok(())
+}
+
+fn tap_key_combo_with_trace(
+    session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    names: &[&str],
+    trace_sink: &mut impl TraceSink,
+) -> Result<(), String> {
+    for name in names {
+        session.queue_input(InputEvent::Key {
+            name: (*name).to_owned().into(),
+            pressed: true,
+        });
+    }
+    session
+        .run_frames_with_trace_sink(KEY_EDGE_FRAMES, trace_sink)
+        .map_err(|err| format!("key combo press {names:?} failed: {err}"))?;
+    for name in names.iter().rev() {
+        session.queue_input(InputEvent::Key {
+            name: (*name).to_owned().into(),
+            pressed: false,
+        });
+    }
+    session
+        .run_frames_with_trace_sink(KEY_EDGE_FRAMES, trace_sink)
+        .map_err(|err| format!("key combo release {names:?} failed: {err}"))?;
     Ok(())
 }
 
@@ -6411,6 +6498,13 @@ mod tests {
     }
 
     #[test]
+    fn typed_command_maps_basic_quotes_to_shifted_digit_two() {
+        assert_eq!(dragon_basic_key_name('S'), "s");
+        assert_eq!(dragon_basic_key_name(' '), "space");
+        assert_eq!(dragon_basic_key_combo('"'), Some(&["shift", "2"][..]));
+    }
+
+    #[test]
     fn typed_command_cycle_budget_rounds_up_to_frames() {
         assert_eq!(frames_for_cycles(1), 1);
         assert_eq!(frames_for_cycles(DRAGON_FRAME_CYCLES), 1);
@@ -6466,6 +6560,63 @@ mod tests {
                 .iter()
                 .any(|trace| trace.contains(r#""device":"DiskController""#)),
             "DragonDOS DIR should exercise the FDC register path; screen:\n{}",
+            report.screen_text.join("\n")
+        );
+    }
+
+    #[test]
+    fn dragon_dos_save_command_returns_ok_on_vdk() {
+        let Some(rom_path) = test_required_env_path("EMU198X_DRAGON32_ROM") else {
+            return;
+        };
+        let Some(dos_rom_path) = test_required_env_path("EMU198X_DRAGON_DOS_ROM") else {
+            return;
+        };
+        let Some(disk_path) = test_required_env_path("EMU198X_DRAGON_DOS_SAVE_VDK") else {
+            return;
+        };
+
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            rom_path.display().to_string(),
+            "--cart".to_owned(),
+            dos_rom_path.display().to_string(),
+            "--disk".to_owned(),
+            disk_path.display().to_string(),
+            "--type-command".to_owned(),
+            "SAVE\"CODX\"".to_owned(),
+            "--cycles".to_owned(),
+            "5000000".to_owned(),
+        ])
+        .expect("valid DragonDOS SAVE CLI should parse");
+        let firmware = load_dragon_firmware(&cli).unwrap_or_else(|err| {
+            panic!("load Dragon 32 firmware from {}: {err}", rom_path.display())
+        });
+
+        let report = run_typed_command(&cli, &firmware, "SAVE\"CODX\"")
+            .expect("DragonDOS SAVE should complete");
+
+        assert_screen_contains(&report.screen_text, "DRAGONDOS 1.0");
+        assert_screen_contains(&report.screen_text, "SAVE\"CODX\"");
+        assert!(
+            report
+                .screen_text
+                .iter()
+                .any(|line| line.trim_end() == "OK"),
+            "DragonDOS SAVE should return to OK prompt; screen:\n{}",
+            report.screen_text.join("\n")
+        );
+        assert!(
+            !report.screen_text.iter().any(|line| line.contains("ERROR")),
+            "DragonDOS SAVE should not report an error; screen:\n{}",
+            report.screen_text.join("\n")
+        );
+        assert!(
+            report
+                .disk_traces
+                .iter()
+                .any(|trace| trace.contains(r#""rw":"write""#)),
+            "DragonDOS SAVE should exercise disk-controller writes; screen:\n{}",
             report.screen_text.join("\n")
         );
     }

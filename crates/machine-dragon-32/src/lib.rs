@@ -286,6 +286,7 @@ struct DragonDosController {
     pending_intrq_cycles: u32,
     pending_drq_cycles: u32,
     disks: [Option<DragonDiskImage>; DRAGON_DISK_DRIVES],
+    write_protected: [bool; DRAGON_DISK_DRIVES],
 }
 
 impl DragonDosController {
@@ -307,6 +308,7 @@ impl DragonDosController {
             pending_intrq_cycles: 0,
             pending_drq_cycles: 0,
             disks: [None, None, None, None],
+            write_protected: [false; DRAGON_DISK_DRIVES],
         }
     }
 
@@ -315,6 +317,7 @@ impl DragonDosController {
             return Err(DragonDiskError::DriveOutOfRange { drive });
         };
         *slot = Some(image);
+        self.write_protected[drive] = false;
         self.refresh_ready_status();
         Ok(())
     }
@@ -324,7 +327,20 @@ impl DragonDosController {
             return Err(DragonDiskError::DriveOutOfRange { drive });
         };
         *slot = None;
+        self.write_protected[drive] = false;
         self.refresh_ready_status();
+        Ok(())
+    }
+
+    fn set_write_protected(
+        &mut self,
+        drive: usize,
+        protected: bool,
+    ) -> Result<(), DragonDiskError> {
+        let Some(slot) = self.write_protected.get_mut(drive) else {
+            return Err(DragonDiskError::DriveOutOfRange { drive });
+        };
+        *slot = protected;
         Ok(())
     }
 
@@ -359,7 +375,7 @@ impl DragonDosController {
             0x00 => self.execute_command(value),
             0x01 => self.track = value,
             0x02 => self.sector = value,
-            0x03 => self.data = value,
+            0x03 => self.write_data(value),
             0x08 => self.write_control(value),
             _ => {}
         }
@@ -421,13 +437,7 @@ impl DragonDosController {
                 self.schedule_intrq();
             }
             0x80 | 0x90 => self.start_read_sector(command),
-            0xa0 | 0xb0 => {
-                self.command = DragonDosCommand::WriteSector;
-                self.status = WD_STATUS_WRITE_PROTECT;
-                self.refresh_ready_status();
-                self.raise_intrq();
-                self.command = DragonDosCommand::None;
-            }
+            0xa0 | 0xb0 => self.start_write_sector(command),
             0xd0 => {
                 self.command = DragonDosCommand::ForceInterrupt;
                 self.status &= !(WD_STATUS_BUSY | WD_STATUS_DRQ);
@@ -471,6 +481,35 @@ impl DragonDosController {
         self.status = WD_STATUS_BUSY | WD_STATUS_DRQ;
     }
 
+    fn start_write_sector(&mut self, command: u8) {
+        self.command = DragonDosCommand::WriteSector;
+        self.selected_side = u8::from(command & 0x02 != 0);
+        let Some(disk) = self.disks[self.selected_drive].as_ref() else {
+            self.status = WD_STATUS_NOT_READY;
+            self.raise_intrq();
+            self.command = DragonDosCommand::None;
+            return;
+        };
+        if self.write_protected[self.selected_drive] {
+            self.status = WD_STATUS_WRITE_PROTECT;
+            self.raise_intrq();
+            self.command = DragonDosCommand::None;
+            return;
+        }
+        let side = self.selected_side.min(disk.sides.saturating_sub(1));
+        let Some(sector_size) = disk.sector(self.track, side, self.sector).map(<[u8]>::len) else {
+            self.status = WD_STATUS_RECORD_NOT_FOUND;
+            self.raise_intrq();
+            self.command = DragonDosCommand::None;
+            return;
+        };
+        self.sector_buffer.clear();
+        self.sector_buffer.resize(sector_size, 0);
+        self.sector_position = 0;
+        self.drq = true;
+        self.status = WD_STATUS_BUSY | WD_STATUS_DRQ;
+    }
+
     fn read_data(&mut self) -> u8 {
         if !matches!(self.command, DragonDosCommand::ReadSector) || !self.drq {
             return self.data;
@@ -493,10 +532,47 @@ impl DragonDosController {
         value
     }
 
+    fn write_data(&mut self, value: u8) {
+        self.data = value;
+        if !matches!(self.command, DragonDosCommand::WriteSector) || !self.drq {
+            return;
+        }
+
+        if let Some(slot) = self.sector_buffer.get_mut(self.sector_position) {
+            *slot = value;
+        }
+        self.sector_position = self.sector_position.saturating_add(1);
+        self.drq = false;
+        self.status &= !WD_STATUS_DRQ;
+        if self.sector_position >= self.sector_buffer.len() {
+            self.commit_written_sector();
+            self.pending_intrq_cycles = DRAGON_DOS_BYTE_CYCLES;
+        } else {
+            self.pending_drq_cycles = DRAGON_DOS_BYTE_CYCLES;
+        }
+    }
+
+    fn commit_written_sector(&mut self) {
+        let Some(disk) = self.disks[self.selected_drive].as_mut() else {
+            self.status = WD_STATUS_NOT_READY;
+            return;
+        };
+        let side = self.selected_side.min(disk.sides.saturating_sub(1));
+        let Some(sector) = disk.sector_mut(self.track, side, self.sector) else {
+            self.status = WD_STATUS_RECORD_NOT_FOUND;
+            return;
+        };
+        sector.copy_from_slice(&self.sector_buffer);
+    }
+
     fn tick(&mut self) {
         if self.pending_drq_cycles != 0 {
             self.pending_drq_cycles = self.pending_drq_cycles.saturating_sub(1);
-            if self.pending_drq_cycles == 0 && matches!(self.command, DragonDosCommand::ReadSector)
+            if self.pending_drq_cycles == 0
+                && matches!(
+                    self.command,
+                    DragonDosCommand::ReadSector | DragonDosCommand::WriteSector
+                )
             {
                 self.drq = true;
                 self.status |= WD_STATUS_DRQ;
@@ -1900,6 +1976,16 @@ impl DragonMemory {
         }
     }
 
+    fn set_disk_write_protected(
+        &mut self,
+        drive: usize,
+        protected: bool,
+    ) -> Result<(), DragonDiskError> {
+        self.disk_controller
+            .get_or_insert_with(DragonDosController::new)
+            .set_write_protected(drive, protected)
+    }
+
     fn disk_summary(&self, drive: usize) -> Option<DragonDiskSummary> {
         self.disk_controller
             .as_ref()
@@ -2945,6 +3031,20 @@ impl Dragon32 {
     /// drive slots.
     pub fn eject_disk(&mut self, drive: usize) -> Result<(), DragonDiskError> {
         self.memory.eject_disk(drive)
+    }
+
+    /// Set the in-memory write-protect state for a DragonDOS drive.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DragonDiskError`] when `drive` is outside the four DragonDOS
+    /// drive slots.
+    pub fn set_disk_write_protected(
+        &mut self,
+        drive: usize,
+        protected: bool,
+    ) -> Result<(), DragonDiskError> {
+        self.memory.set_disk_write_protected(drive, protected)
     }
 
     /// Return a summary of a mounted DragonDOS disk.
@@ -4327,9 +4427,12 @@ mod tests {
         let rom = rom_with_reset_vector(0x8000);
         let mut machine = Dragon32::new(&rom);
         machine
-            .insert_disk(0, test_disk(|payload| {
-                payload[255] = 0xaa;
-            }))
+            .insert_disk(
+                0,
+                test_disk(|payload| {
+                    payload[255] = 0xaa;
+                }),
+            )
             .expect("drive 0 insert should succeed");
 
         machine.memory.write(0xFF23, 0x37); // PIA1 CRB: CB1 rising-edge FIRQ enabled.
@@ -4362,6 +4465,97 @@ mod tests {
 
         assert!(machine.memory.take_disk_nmi_edge());
         assert!(!machine.memory.pia1.irq_b());
+    }
+
+    #[test]
+    fn dragon_dos_controller_writes_sector_through_p2_registers() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine
+            .insert_disk(0, test_disk(|_| {}))
+            .expect("drive 0 insert should succeed");
+
+        machine.memory.write(0xFF48, 0x00);
+        machine.memory.write(0xFF41, 0);
+        machine.memory.write(0xFF42, 2);
+        machine.memory.write(0xFF40, 0xA0);
+
+        let (initial_status, _) = machine.memory.read_bus(0xFF40);
+        assert_eq!(
+            initial_status & (WD_STATUS_BUSY | WD_STATUS_DRQ),
+            WD_STATUS_BUSY | WD_STATUS_DRQ
+        );
+
+        for index in 0..256 {
+            for _ in 0..DRAGON_DOS_BYTE_CYCLES {
+                machine.memory.tick_disk_controller();
+            }
+            let value = match index {
+                0 => 0x55,
+                255 => 0xaa,
+                _ => index as u8,
+            };
+            let _ = machine.memory.write(0xFF43, value);
+        }
+        for _ in 0..DRAGON_DOS_BYTE_CYCLES {
+            machine.memory.tick_disk_controller();
+        }
+        let (final_status, _) = machine.memory.read_bus(0xFF40);
+
+        let controller = machine
+            .memory
+            .disk_controller
+            .as_ref()
+            .expect("disk controller should exist");
+        let disk = controller.disks[0]
+            .as_ref()
+            .expect("drive 0 should contain disk");
+        let sector = disk.sector(0, 0, 2).expect("sector 2 should exist");
+        assert_eq!(sector[0], 0x55);
+        assert_eq!(sector[1], 0x01);
+        assert_eq!(sector[255], 0xaa);
+        assert_eq!(final_status & (WD_STATUS_BUSY | WD_STATUS_DRQ), 0);
+    }
+
+    #[test]
+    fn dragon_dos_write_sector_respects_write_protect() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine
+            .insert_disk(
+                0,
+                test_disk(|payload| {
+                    payload[18 * 256] = 0x33;
+                }),
+            )
+            .expect("drive 0 insert should succeed");
+        machine
+            .set_disk_write_protected(0, true)
+            .expect("drive 0 write-protect should succeed");
+
+        machine.memory.write(0xFF48, 0x00);
+        machine.memory.write(0xFF41, 1);
+        machine.memory.write(0xFF42, 1);
+        machine.memory.write(0xFF40, 0xA0);
+        let (command_status, _) = machine.memory.read_bus(0xFF40);
+        assert_eq!(
+            command_status & WD_STATUS_WRITE_PROTECT,
+            WD_STATUS_WRITE_PROTECT
+        );
+        let _ = machine.memory.write(0xFF43, 0x99);
+        let (status, _) = machine.memory.read_bus(0xFF40);
+
+        let controller = machine
+            .memory
+            .disk_controller
+            .as_ref()
+            .expect("disk controller should exist");
+        let disk = controller.disks[0]
+            .as_ref()
+            .expect("drive 0 should contain disk");
+        assert_eq!(status & WD_STATUS_WRITE_PROTECT, WD_STATUS_WRITE_PROTECT);
+        assert_eq!(status & (WD_STATUS_BUSY | WD_STATUS_DRQ), 0);
+        assert_eq!(disk.sector(1, 0, 1).expect("sector 1")[0], 0x33);
     }
 
     #[test]

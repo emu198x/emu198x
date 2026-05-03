@@ -30,6 +30,20 @@ impl DragonDiskImage {
     /// Returns a sector by track, side, and one-based sector number.
     #[must_use]
     pub fn sector(&self, track: u8, side: u8, sector: u8) -> Option<&[u8]> {
+        let offset = self.sector_offset(track, side, sector)?;
+        let sector_size = usize::from(self.sector_size);
+        self.data.get(offset..offset + sector_size)
+    }
+
+    /// Returns a mutable sector by track, side, and one-based sector number.
+    #[must_use]
+    pub fn sector_mut(&mut self, track: u8, side: u8, sector: u8) -> Option<&mut [u8]> {
+        let offset = self.sector_offset(track, side, sector)?;
+        let sector_size = usize::from(self.sector_size);
+        self.data.get_mut(offset..offset + sector_size)
+    }
+
+    fn sector_offset(&self, track: u8, side: u8, sector: u8) -> Option<usize> {
         if track >= self.tracks
             || side >= self.sides
             || sector == 0
@@ -41,9 +55,7 @@ impl DragonDiskImage {
         let sector_size = usize::from(self.sector_size);
         let linear_track = usize::from(track) * usize::from(self.sides) + usize::from(side);
         let sector_index = usize::from(sector - 1);
-        let offset =
-            (linear_track * usize::from(self.sectors_per_track) + sector_index) * sector_size;
-        self.data.get(offset..offset + sector_size)
+        Some((linear_track * usize::from(self.sectors_per_track) + sector_index) * sector_size)
     }
 
     /// Returns the raw sector payload bytes without the VDK header.
@@ -190,6 +202,16 @@ mod tests {
         assert!(image.sector(0, 0, 0).is_none());
         assert!(image.sector(0, 0, 19).is_none());
         assert!(image.sector(40, 0, 1).is_none());
+    }
+
+    #[test]
+    fn mutable_sector_updates_backing_payload() {
+        let mut image = parse_vdk(&minimal_vdk()).expect("VDK should parse");
+
+        image.sector_mut(0, 0, 1).expect("sector 1")[1] = 0x42;
+
+        assert_eq!(image.sector(0, 0, 1).expect("sector 1")[1], 0x42);
+        assert_eq!(image.data()[1], 0x42);
     }
 
     #[test]
