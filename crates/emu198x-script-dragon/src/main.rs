@@ -6418,6 +6418,59 @@ mod tests {
     }
 
     #[test]
+    fn dragon_dos_dir_command_lists_vdk_directory() {
+        let Some(rom_path) = test_required_env_path("EMU198X_DRAGON32_ROM") else {
+            return;
+        };
+        let Some(dos_rom_path) = test_required_env_path("EMU198X_DRAGON_DOS_ROM") else {
+            return;
+        };
+        let Some(disk_path) = test_required_env_path("EMU198X_DRAGON_DOS_DIR_VDK") else {
+            return;
+        };
+
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            rom_path.display().to_string(),
+            "--cart".to_owned(),
+            dos_rom_path.display().to_string(),
+            "--disk".to_owned(),
+            disk_path.display().to_string(),
+            "--type-command".to_owned(),
+            "DIR".to_owned(),
+            "--cycles".to_owned(),
+            "3000000".to_owned(),
+        ])
+        .expect("valid DragonDOS DIR CLI should parse");
+        let firmware = load_dragon_firmware(&cli).unwrap_or_else(|err| {
+            panic!("load Dragon 32 firmware from {}: {err}", rom_path.display())
+        });
+
+        let report =
+            run_typed_command(&cli, &firmware, "DIR").expect("DragonDOS DIR should complete");
+
+        assert_screen_contains(&report.screen_text, "DRAGONDOS 1.0");
+        assert_screen_contains(&report.screen_text, "DOCTOR  .BAS  270");
+        assert_screen_contains(&report.screen_text, "LINK    .BIN  94");
+        assert_screen_contains(&report.screen_text, "FILE    .BIN  18");
+        assert_screen_contains(&report.screen_text, "PROGLINK.BIN  21");
+        assert_screen_contains(&report.screen_text, "VERIFY  .BAS  177");
+        assert_screen_contains(&report.screen_text, "76800 FREE BYTES");
+        assert_ne!(
+            report.pc, 0xC7B5,
+            "DragonDOS DIR should not end in the previous FIRQ storm path"
+        );
+        assert!(
+            report
+                .disk_traces
+                .iter()
+                .any(|trace| trace.contains(r#""device":"DiskController""#)),
+            "DragonDOS DIR should exercise the FDC register path; screen:\n{}",
+            report.screen_text.join("\n")
+        );
+    }
+
+    #[test]
     fn cli_parses_write_watch_range() {
         let cli = parse_cli([
             "--rom".to_owned(),
@@ -7422,6 +7475,24 @@ mod tests {
         }
 
         None
+    }
+
+    fn test_required_env_path(var: &str) -> Option<PathBuf> {
+        match existing_env_path(var) {
+            Some(path) => Some(path),
+            None => {
+                eprintln!("skipping DragonDOS DIR regression: set {var}");
+                None
+            }
+        }
+    }
+
+    fn assert_screen_contains(lines: &[String], expected: &str) {
+        assert!(
+            lines.iter().any(|line| line.contains(expected)),
+            "screen text missing {expected:?}:\n{}",
+            lines.join("\n")
+        );
     }
 
     fn existing_env_path(var: &str) -> Option<PathBuf> {

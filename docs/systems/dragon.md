@@ -195,6 +195,17 @@ VDK mounting exercises the live DragonDOS P2 controller registers at
 DragonDOS ROM and return directory data from mounted media; it is not yet a
 full WD2797 write, format, or index-pulse implementation.
 
+The real-ROM DragonDOS `DIR` path has an opt-in regression test. Point the
+environment variables at a Dragon 32 ROM, DragonDOS ROM, and the Disk Doctor
+VDK sample before running it:
+
+```sh
+EMU198X_DRAGON32_ROM=/path/to/dragon32.rom \
+EMU198X_DRAGON_DOS_ROM=/path/to/dragon-dos.rom \
+EMU198X_DRAGON_DOS_DIR_VDK=/path/to/disk-doctor.vdk \
+cargo test -p emu198x-script-dragon dragon_dos_dir_command_lists_vdk_directory
+```
+
 Headless smoke over a DragonDOS `.BIN` tree:
 
 ```sh
