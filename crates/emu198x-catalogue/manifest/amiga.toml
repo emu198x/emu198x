@@ -17,6 +17,12 @@ files = [
     { id = "commodore-amiga-kickstart-rom", path = "commodore-amiga/kick13.rom" },
 ]
 
+[[system.firmware]]
+variant = "a500-plus-ecs-pal"
+files = [
+    { id = "commodore-amiga-kickstart-rom", path = "commodore-amiga/kick204.rom" },
+]
+
 [[entry]]
 id = "workbench-1.3-desktop"
 title = "Amiga Workbench 1.3 desktop boot"
@@ -51,3 +57,94 @@ frame_hash = "xxh64:59787c4d45822282"
 from_frame = 60
 secs = 2.0
 hash = "xxh64:f6389c53ba66240d"
+
+[[entry]]
+id = "workbench-2.04-desktop"
+title = "Amiga Workbench 2.04 desktop boot (ECS A500+)"
+year = 1991
+publisher = "Commodore"
+variant = "a500-plus-ecs-pal"
+
+[entry.media]
+# DF0 floppy slot. The ECS A500+ uses Kickstart 2.04 + Workbench 2.04.
+# Different chip stack to OCS A500 (Agnus 8375 / Denise 8373 / 1 MiB
+# chip RAM); validates the ECS path end-to-end.
+kind = "disk"
+slot = "floppy-0"
+path = "/Users/stevehill/.emu198x/media/commodore-amiga/workbench-2.04.adf"
+
+[entry.boot]
+# WB 2.04 boot is even longer than WB 1.3. Captures the canonical
+# 2.04 boot logo: rainbow checkmark + "2.0 Roms (37.175) / Copyright
+# © 1985-1991 / Commodore-Amiga, Inc. / All Rights Reserved" with
+# the A500 disk drive showing the insert-disk prompt.
+wait_frames = 1500
+frame_hash = "xxh64:1ab637314805711f"
+
+[entry.audio]
+# Workbench desktop has no music or sound effects.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:f6389c53ba66240d"
+
+[[entry]]
+id = "barbarian"
+title = "Barbarian - The Ultimate Warrior"
+year = 1988
+publisher = "Palace"
+variant = "a500-ocs-pal-a501"
+
+[entry.media]
+# OCS A500 boot-block trackloaded game (cracker release, pre-extracted
+# to .adf). Validates the trackloader path beyond Workbench.
+kind = "disk"
+slot = "floppy-0"
+path = "/Users/stevehill/Projects/Code198x/Amiga/extracted/Barbarian - The Ultimate Warrior (1988)(Palace)[cr BS1 - TKT - INA].adf"
+
+[entry.boot]
+# Boot-block trackloaded — captures the Bamiga Sector One cracker
+# intro mid-scroll. The cracker intro loops indefinitely waiting for
+# user input (any key) to launch the actual Palace title; the catalogue
+# accepts the intro as the boot waypoint because it proves the
+# Amiga's full chip-stack-running-real-software path: trackloader,
+# copper effects, Paula mod audio, sprites. The actual title needs
+# scripted-input support for keyboard "any key" — follow-up.
+wait_frames = 8000
+frame_hash = "xxh64:6fe5b0e930f8dc4e"
+
+[entry.audio]
+# Captures a 2 s window of the BSO crew's mod tune playing through
+# Paula. Unique waveform — validates the audio path end-to-end.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:628ce9fac0528c1e"
+
+[[entry]]
+id = "1943"
+title = "1943 - The Battle of Midway"
+year = 1989
+publisher = "GO!"
+variant = "a500-ocs-pal-a501"
+
+[entry.media]
+# OCS A500 single-disk Capcom arcade port (PNA = Paranoimia cracker
+# release). Different publisher + different cracker group + different
+# mod tune than Barbarian — broader validation of the trackloader
+# and Paula audio paths.
+kind = "disk"
+slot = "floppy-0"
+path = "/Users/stevehill/Projects/Code198x/Amiga/Games/[ADF]/1943 - The Battle of Midway (1989)(GO!)[cr PNA].zip"
+
+[entry.boot]
+# Paranoimia cracker intro — "Paranoimia" logo + "Paranoimia Germany:
+# P.O.BOX 052600 C / 5100 Aachen 22 / Bahnhofpostlagernd". Same
+# cracker-intro-before-game pattern as Barbarian.
+wait_frames = 5000
+frame_hash = "xxh64:2c8debec59f59bf2"
+
+[entry.audio]
+# Captures Paranoimia's mod tune through Paula — different waveform
+# from BSO's Barbarian intro.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:0a912dcc5c9172fe"
