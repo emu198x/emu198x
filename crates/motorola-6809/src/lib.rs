@@ -3309,6 +3309,26 @@ mod tests {
         panic!("instruction did not reach boundary, wait, or halt");
     }
 
+    fn collect_pin_trace_until_boundary_or_wait_or_halt(
+        cpu: &mut Mc6809,
+        memory: &mut [u8; 0x10000],
+    ) -> Vec<PinTraceEntry> {
+        let mut trace = Vec::new();
+
+        for _ in 0..128 {
+            trace.push(cpu.pins().into());
+            run_cycle(cpu, memory);
+            if cpu.instruction_boundary()
+                || cpu.halt
+                || matches!(cpu.state, CpuState::WaitForInterrupt { .. })
+            {
+                return trace;
+            }
+        }
+
+        panic!("instruction did not reach boundary, wait, or halt");
+    }
+
     fn cpu_at(pc: u16) -> Mc6809 {
         let mut cpu = Mc6809::new();
         cpu.regs.pc = pc;
@@ -3476,6 +3496,33 @@ mod tests {
         opcode: u8,
         byte_count: OfficialByteCount,
         cycles: OfficialCycleCount,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct PinTraceEntry {
+        addr: u16,
+        rw: bool,
+        avma: bool,
+        lic: bool,
+        sync: bool,
+        busy: bool,
+        addr_driven: bool,
+        bus_status: Mc6809BusStatus,
+    }
+
+    impl From<Mc6809Pins> for PinTraceEntry {
+        fn from(pins: Mc6809Pins) -> Self {
+            Self {
+                addr: pins.addr,
+                rw: pins.rw,
+                avma: pins.avma,
+                lic: pins.lic,
+                sync: pins.sync,
+                busy: pins.busy,
+                addr_driven: pins.addr_driven,
+                bus_status: pins.bus_status,
+            }
+        }
     }
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -6914,6 +6961,115 @@ mod tests {
                     cpu.instruction_boundary(),
                     "{spec:?} indexed mode {} did not end at instruction boundary",
                     case.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn official_opcode_bus_traces_consume_documented_instruction_bytes() {
+        for spec in official_opcode_specs() {
+            if matches!(spec.cycles, OfficialCycleCount::Prefix) {
+                continue;
+            }
+
+            let bytes = official_opcode_spec_bytes(spec);
+            if let OfficialByteCount::Fixed(byte_count) = spec.byte_count {
+                assert_eq!(bytes.len(), usize::from(byte_count), "{spec:?} byte count");
+            }
+
+            let mut memory = [0; 0x10000];
+            let mut cpu = cpu_at(0x4000);
+            prepare_official_opcode_spec(spec, &mut cpu, &mut memory);
+            if matches!(
+                spec.cycles,
+                OfficialCycleCount::ConditionalLongBranch { .. }
+            ) {
+                cpu.regs.cc = long_branch_not_taken_cc(spec.opcode);
+            }
+
+            let trace = collect_pin_trace_until_boundary_or_wait_or_halt(&mut cpu, &mut memory);
+
+            for (offset, &byte) in bytes.iter().enumerate() {
+                let entry = trace
+                    .get(offset)
+                    .unwrap_or_else(|| panic!("{spec:?} missing byte-fetch cycle {offset}"));
+                assert_eq!(
+                    entry.addr,
+                    0x4000 + offset as u16,
+                    "{spec:?} byte-fetch address {offset}"
+                );
+                assert!(
+                    entry.rw && entry.addr_driven && entry.avma,
+                    "{spec:?} byte-fetch pin state {offset}: {entry:?}"
+                );
+                assert_eq!(
+                    entry.bus_status,
+                    Mc6809BusStatus::Normal,
+                    "{spec:?} byte-fetch bus status {offset}"
+                );
+                assert_eq!(
+                    memory[entry.addr as usize], byte,
+                    "{spec:?} byte-fetch value {offset}"
+                );
+            }
+
+            let forbidden_pc_window = 0x4000 + bytes.len() as u16..0x4000 + bytes.len() as u16 + 4;
+            for entry in trace.iter().skip(bytes.len()) {
+                assert!(
+                    !forbidden_pc_window.contains(&entry.addr),
+                    "{spec:?} performed an undocumented extra PC-window access at ${:04X}: {entry:?}",
+                    entry.addr
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn official_opcode_internal_dummy_cycles_use_documented_pin_shape() {
+        for spec in official_opcode_specs() {
+            if matches!(spec.cycles, OfficialCycleCount::Prefix) {
+                continue;
+            }
+
+            let bytes = official_opcode_spec_bytes(spec);
+            let mut memory = [0; 0x10000];
+            let mut cpu = cpu_at(0x4000);
+            prepare_official_opcode_spec(spec, &mut cpu, &mut memory);
+            if matches!(
+                spec.cycles,
+                OfficialCycleCount::ConditionalLongBranch { .. }
+            ) {
+                cpu.regs.cc = long_branch_not_taken_cc(spec.opcode);
+            }
+
+            let trace = collect_pin_trace_until_boundary_or_wait_or_halt(&mut cpu, &mut memory);
+
+            for entry in trace.iter().skip(bytes.len()) {
+                if entry.addr != 0xFFFF || entry.bus_status != Mc6809BusStatus::Normal {
+                    continue;
+                }
+
+                assert!(entry.rw, "{spec:?} dummy cycle should be read: {entry:?}");
+                assert!(
+                    entry.addr_driven,
+                    "{spec:?} dummy cycle should drive address bus: {entry:?}"
+                );
+                assert!(
+                    entry.avma,
+                    "{spec:?} dummy cycle should assert AVMA: {entry:?}"
+                );
+                assert!(
+                    !entry.busy,
+                    "{spec:?} dummy cycle should not assert BUSY: {entry:?}"
+                );
+                assert!(
+                    !entry.lic,
+                    "{spec:?} dummy cycle should not assert LIC: {entry:?}"
+                );
+                assert!(
+                    !entry.sync,
+                    "{spec:?} dummy cycle should not assert SYNC: {entry:?}"
                 );
             }
         }

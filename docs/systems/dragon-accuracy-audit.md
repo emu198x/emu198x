@@ -86,16 +86,17 @@ dummy read in the compatibility pin model. External `HALT` now stops at an
 instruction boundary, acknowledges with `BA/BS = 1/1`, and inserts the documented
 bus-reacquire dead cycle after release. External `TSC` now three-states the CPU
 address/data/`R/W` buffers without asserting `BA`, and Dragon machine stepping
-skips CPU memory transactions while those buffers are not driven. It is still
-not a complete external bus model for a separate DMA master or every
-invalid-vs-valid memory access cycle.
+skips CPU memory transactions while those buffers are not driven. Table-driven
+pin-trace tests now walk every transcribed documented opcode row and assert that
+the core fetches exactly the documented instruction bytes before operand/effective
+memory cycles, with no stray PC-window reads from internal cycles; dummy internal
+cycles are pinned to the documented `$FFFF`, read, normal-bus, non-`BUSY`,
+non-`LIC`, non-`SYNC` shape. It is still not a complete external bus model for a
+separate DMA master.
 
 Required resolution:
 
-1. Expand bus-trace tests for remaining invalid-vs-valid memory access cycles
-   and any instruction families that need more than the current compatibility
-   pin snapshot.
-2. Add a real external DMA-master harness around `TSC` if/when a Dragon
+1. Add a real external DMA-master harness around `TSC` if/when a Dragon
    expansion needs it.
 
 ### MC6809 Opcode Validation
@@ -107,21 +108,22 @@ branches, explicit stack operations, accumulator and memory RMW families, the
 families. Directed tests now pin `JMP/JSR` indexed timing, indexed-indirect
 subroutine/vector cases, `RTI` 6/15-cycle paths, `CWAI` 20-cycle wait entry,
 `SYNC` 4-cycle wait entry, IRQ/FIRQ interrupt entry timing, documented
-primary/`$10`/`$11` opcode-page slots versus unused diagnostic traps, and
-source-backed byte-count/cycle-count metadata for the documented opcode pages.
-The metadata tests now also exercise variable-cycle rows for conditional long
-branches, `SYNC`, `CWAI`, `RTI`, and indexed postbyte additions across every
-documented indexed opcode family.
+primary/`$10`/`$11` opcode-page slots versus unused diagnostic traps,
+source-backed byte-count/cycle-count metadata for the documented opcode pages,
+and table-driven pin traces over every transcribed opcode row. The metadata tests
+now also exercise variable-cycle rows for conditional long branches, `SYNC`,
+`CWAI`, `RTI`, and indexed postbyte additions across every documented indexed
+opcode family.
 
 Required resolution:
 
-1. Finish transcribing the official opcode, addressing-mode, byte-count, and
-   cycle-count tables into generated or table-driven test fixtures.
-2. Complete table-driven coverage for primary, `$10`, and `$11` opcode pages.
-3. Extend indexed postbyte timing coverage beyond the current `LDA`, `LEA`,
+1. Keep the transcribed official opcode, addressing-mode, byte-count, and
+   cycle-count metadata aligned with the Motorola tables; replace it with a
+   generated fixture only if we later extract cleaner machine-readable tables.
+2. Extend indexed postbyte timing coverage beyond the current `LDA`, `LEA`,
    `JMP`, and `JSR` representatives if a new instruction family proves it has
    distinct bus-cycle behavior.
-4. Keep the current diagnostic illegal-opcode trap for development builds, but
+3. Keep the current diagnostic illegal-opcode trap for development builds, but
    document it as a diagnostic shortcut. The source says unused opcodes are
    undefined and illegal; a clean emulator halt is not hardware behavior.
 
@@ -216,9 +218,10 @@ Required resolution:
 Finish the remaining MC6809 source-backed validation before moving back to
 analogue/audio. CPU phase stepping, interrupt wait states, SAM display-offset
 timing, VDG fetch-to-display timing, VDG source-vs-crop horizontal geometry, and
-PIA edge/strobe behavior are now documented and tested. The next CPU gap is
-fuller opcode-table transcription plus bus-trace validation for any real
-external DMA master that asserts `TSC`.
+PIA edge/strobe behavior, opcode metadata, and documented-row bus traces are now
+tested. The next CPU gap is only needed if we emulate a real external DMA master
+that asserts `TSC`; otherwise the remaining Dragon work is outside the core CPU
+accuracy path.
 
 Progress:
 
@@ -266,6 +269,9 @@ Progress:
   three-state behavior. Dragon machine stepping now uses the CPU pin-drive
   snapshot so high-impedance CPU cycles do not perform synthetic memory
   transactions.
+- MC6809 documented-row bus trace tests now assert exact instruction-byte fetch
+  windows for every transcribed official opcode row and pin `$FFFF` internal
+  dummy cycles to the documented read/normal-bus/non-`BUSY` shape.
 - Dragon rendering now separates immediate SAM display-offset latches from the
   VDG-effective display base. `dragon.sam.display_offset` changes immediately,
   while VDG fetches and `dragon.video.display_base` update on frame-sync fall.
