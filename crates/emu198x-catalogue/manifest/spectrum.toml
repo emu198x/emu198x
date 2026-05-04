@@ -1,0 +1,42 @@
+# Spectrum catalogue. See wiki/decisions/october-catalogue.md.
+#
+# Coverage target: 10 entries spanning 48K, 128K, +3 (DSK), Pentagon
+# (TR-DOS), and Timex (DOCK). This file lands narrow with one entry —
+# additional entries land per the staged rollout in the decision doc.
+#
+# Frame and audio paths are resolved against:
+#   EMU198X_CATALOGUE_MEDIA_ROOT     (default: ~/Projects/Emu198x-Unclean/Reference)
+#   EMU198X_CATALOGUE_FIRMWARE_ROOT  (default: ~/.emu198x/roms)
+
+[system]
+id = "spectrum"
+firmware_id = "sinclair-zx-spectrum-48k-rom"
+firmware_path = "sinclair-zx-spectrum-48k/48.rom"
+
+[[entry]]
+id = "manic-miner"
+title = "Manic Miner"
+year = 1983
+publisher = "Bug-Byte"
+variant = "48k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Manic Miner (1983)(Bug-Byte)[a3].zip"
+
+[entry.boot]
+# Frames after the tape load completes, before capturing the title-screen
+# frame ("MANIC MINER / PRESS ENTER TO START"). Captured for paste-into-
+# manifest via:
+#   cargo run -p emu198x-catalogue --bin catalogue -- capture --entry manic-miner
+wait_frames = 60
+frame_hash = "xxh64:30284edfffd9c628"
+
+[entry.audio]
+# Frames after the boot waypoint to start the 2 s audio capture window.
+# Captures the iconic "In the Hall of the Mountain King" loop on the
+# title screen.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:4aa1053c8758f416"

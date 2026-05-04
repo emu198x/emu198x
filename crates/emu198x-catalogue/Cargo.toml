@@ -1,0 +1,22 @@
+[package]
+name = "emu198x-catalogue"
+description = "Cross-system curated catalogue: 10-title regression bench per October-launch system"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+emu198x-shell = { path = "../emu198x-shell" }
+runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+twox-hash = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "catalogue"
+path = "src/bin/catalogue.rs"
