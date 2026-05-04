@@ -1566,6 +1566,35 @@ mod tests {
         bytes
     }
 
+    fn dragon_vdk_with_directory_entry(name: &[u8], extension: &[u8]) -> Vec<u8> {
+        let mut bytes = dragon_vdk();
+        let entry = 12 + 1;
+        bytes[entry..entry + name.len()].copy_from_slice(name);
+        bytes[entry + 8..entry + 8 + extension.len()].copy_from_slice(extension);
+        bytes
+    }
+
+    fn dragon_dos_directory_contains(
+        image: &DragonDiskImage,
+        name: &[u8],
+        extension: &[u8],
+    ) -> bool {
+        let mut padded_name = [0; 8];
+        let mut padded_extension = [0; 3];
+        padded_name[..name.len()].copy_from_slice(name);
+        padded_extension[..extension.len()].copy_from_slice(extension);
+
+        image.data().chunks_exact(256).any(|sector| {
+            [0, 1].into_iter().any(|base| {
+                (0..10).any(|entry| {
+                    let offset = base + entry * 25;
+                    sector[offset..offset + 8] == padded_name
+                        && sector[offset + 8..offset + 11] == padded_extension
+                })
+            })
+        })
+    }
+
     #[test]
     fn load_media_accepts_dragon_disk() {
         let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
@@ -1614,6 +1643,23 @@ mod tests {
         let reparsed = parse_vdk(&exported).expect("exported VDK should parse");
 
         assert_eq!(reparsed.sector(0, 0, 1).expect("sector 1")[0], 0x5a);
+    }
+
+    #[test]
+    fn export_drive_vdk_preserves_dragon_dos_directory_entries() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let disk = dragon_vdk_with_directory_entry(b"CODX", b"BAS");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("drive-1", MediaKind::Disk, &disk));
+        runtime.load_media(&media).expect("disk should load");
+
+        let exported = runtime.export_drive_vdk(0).expect("drive 1 should export");
+        let reparsed = parse_vdk(&exported).expect("exported VDK should parse");
+
+        assert!(
+            dragon_dos_directory_contains(&reparsed, b"CODX", b"BAS"),
+            "exported VDK should preserve CODX.BAS directory entry"
+        );
     }
 
     #[test]
