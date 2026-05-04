@@ -80,6 +80,7 @@ Execution:
     --press KEY        hold a named Dragon key closed; may be repeated
     --press-matrix R,C hold a raw keyboard matrix switch closed; may be repeated
     --dump-ram P       write the current 32 KiB RAM image as raw bytes
+    --disk-output P    write the current mutated drive-1 VDK image to PATH
     --dump-text        print the current 32x16 MC6847 text snapshot
     --dump-text-png P  write the current border-inclusive MC6847 text framebuffer as a PNG
     --screenshot P     write the current border-inclusive MC6847 framebuffer as a PNG
@@ -146,6 +147,7 @@ struct Cli {
     write_watch: Vec<AddressRange>,
     pressed_keys: Vec<MatrixKey>,
     dump_ram: Option<PathBuf>,
+    disk_output: Option<PathBuf>,
     dump_text: bool,
     dump_text_png: Option<PathBuf>,
     screenshot: Option<PathBuf>,
@@ -216,6 +218,7 @@ struct HarnessReport {
     framebuffer_cycles: Option<u64>,
     framebuffer_master_ticks: Option<u64>,
     video_phase: DragonVideoPhase,
+    disk_vdk: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -772,6 +775,10 @@ fn run_main() -> Result<(), String> {
             fs::write(path, &report.screenshot_png)
                 .map_err(|err| format!("failed to write screenshot {}: {err}", path.display()))?;
         }
+        if let Some(path) = &cli.disk_output {
+            write_exported_disk(path, report.disk_vdk.as_deref())?;
+            println!("disk: {}", path.display());
+        }
         return Ok(());
     }
 
@@ -792,6 +799,7 @@ fn run_main() -> Result<(), String> {
             write_watch: cli.write_watch.clone(),
             dump_text: cli.dump_text,
             dump_ram: cli.dump_ram.is_some(),
+            export_disk: cli.disk_output.is_some(),
             dump_text_framebuffer: cli.dump_text_png.is_some(),
             capture_framebuffer: cli.screenshot.is_some(),
             capture_framebuffer_phase: cli.screenshot_phase,
@@ -806,6 +814,10 @@ fn run_main() -> Result<(), String> {
             .ok_or_else(|| "RAM was not captured".to_owned())?;
         fs::write(path, ram).map_err(|err| format!("failed to write {}: {err}", path.display()))?;
         println!("ram: {}", path.display());
+    }
+    if let Some(path) = &cli.disk_output {
+        write_exported_disk(path, report.disk_vdk.as_deref())?;
+        println!("disk: {}", path.display());
     }
     if let Some(path) = &cli.dump_text_png {
         let framebuffer = report
@@ -849,6 +861,7 @@ where
     let mut write_watch = Vec::new();
     let mut pressed_keys = Vec::new();
     let mut dump_ram = None;
+    let mut disk_output = None;
     let mut dump_text = false;
     let mut dump_text_png = None;
     let mut screenshot = None;
@@ -929,6 +942,9 @@ where
             }
             "--dump-ram" => {
                 dump_ram = Some(PathBuf::from(next_value(&mut iter, "--dump-ram")?));
+            }
+            "--disk-output" => {
+                disk_output = Some(PathBuf::from(next_value(&mut iter, "--disk-output")?));
             }
             "--dump-text" => {
                 dump_text = true;
@@ -1085,6 +1101,7 @@ where
         write_watch,
         pressed_keys,
         dump_ram,
+        disk_output,
         dump_text,
         dump_text_png,
         screenshot,
@@ -1846,6 +1863,7 @@ fn run_snapshot_smoke(
             write_watch: Vec::new(),
             dump_text: true,
             dump_ram: false,
+            export_disk: false,
             dump_text_framebuffer: false,
             capture_framebuffer: true,
             capture_framebuffer_phase: smoke.screenshot_phase,
@@ -2098,6 +2116,7 @@ fn run_bin_smoke(
             write_watch: Vec::new(),
             dump_text: true,
             dump_ram: false,
+            export_disk: false,
             dump_text_framebuffer: false,
             capture_framebuffer: true,
             capture_framebuffer_phase: smoke.screenshot_phase,
@@ -2327,6 +2346,7 @@ struct TypedCommandReport {
     text_screen_base: u16,
     screen_text: Vec<String>,
     screenshot_png: Vec<u8>,
+    disk_vdk: Option<Vec<u8>>,
     device_traces: Vec<String>,
     disk_traces: Vec<String>,
     interrupt_traces: Vec<String>,
@@ -2461,6 +2481,11 @@ fn run_typed_command(
     let screenshot_png = session
         .screenshot_png_bytes()
         .map_err(|err| format!("failed to capture typed-command screenshot: {err}"))?;
+    let disk_vdk = cli
+        .disk_output
+        .is_some()
+        .then(|| session.machine().export_drive_vdk(0))
+        .flatten();
 
     Ok(TypedCommandReport {
         command: command.to_owned(),
@@ -2473,6 +2498,7 @@ fn run_typed_command(
         text_screen_base: query_u16(&session, "dragon.text.base")?,
         screen_text: screen_text_lines(&session)?,
         screenshot_png,
+        disk_vdk,
         device_traces: trace_collector.entries,
         disk_traces: trace_collector.disk_entries,
         interrupt_traces: trace_collector.interrupt_entries,
@@ -2694,6 +2720,7 @@ fn xroar_snapshot_reference_trap(
             write_watch: Vec::new(),
             dump_text: false,
             dump_ram: false,
+            export_disk: false,
             dump_text_framebuffer: false,
             capture_framebuffer: false,
             capture_framebuffer_phase: SmokeScreenshotPhase::Immediate,
@@ -2715,6 +2742,7 @@ fn xroar_snapshot_reference_trap(
             write_watch: Vec::new(),
             dump_text: false,
             dump_ram: false,
+            export_disk: false,
             dump_text_framebuffer: false,
             capture_framebuffer: false,
             capture_framebuffer_phase: SmokeScreenshotPhase::Immediate,
@@ -5610,6 +5638,16 @@ fn load_disk(path: &Path) -> Result<DragonDiskImage, String> {
         .map_err(|err| format!("failed to parse Dragon disk {}: {err}", path.display()))
 }
 
+fn write_exported_disk(path: &Path, bytes: Option<&[u8]>) -> Result<(), String> {
+    let bytes = bytes.ok_or_else(|| {
+        format!(
+            "cannot write {}; no DragonDOS disk is mounted in drive 1",
+            path.display()
+        )
+    })?;
+    fs::write(path, bytes).map_err(|err| format!("failed to write {}: {err}", path.display()))
+}
+
 fn load_binary_program(path: &Path) -> Result<DragonBinImage, String> {
     let loaded = read_media_asset(path, MediaKind::Program).map_err(|err| {
         format!(
@@ -5651,6 +5689,7 @@ struct HarnessRunOptions<'a> {
     write_watch: Vec<AddressRange>,
     dump_text: bool,
     dump_ram: bool,
+    export_disk: bool,
     dump_text_framebuffer: bool,
     capture_framebuffer: bool,
     capture_framebuffer_phase: SmokeScreenshotPhase,
@@ -5665,6 +5704,7 @@ struct HarnessCaptures {
     framebuffer_cycles: Option<u64>,
     framebuffer_master_ticks: Option<u64>,
     video_phase: DragonVideoPhase,
+    disk_vdk: Option<Vec<u8>>,
 }
 
 fn run_harness_with_keyboard(
@@ -5742,6 +5782,10 @@ fn run_harness_with_keyboard(
         .dump_text_framebuffer
         .then(|| machine.render_visible_text_argb(TextPalette::default()));
     let ram = options.dump_ram.then(|| machine.ram().to_vec());
+    let disk_vdk = options
+        .export_disk
+        .then(|| machine.disk_image(0).map(DragonDiskImage::to_vdk_bytes))
+        .flatten();
     let framebuffer = options.capture_framebuffer.then(|| {
         framebuffer_cycles = Some(machine.cycles());
         framebuffer_master_ticks = Some(machine.master_ticks());
@@ -5759,6 +5803,7 @@ fn run_harness_with_keyboard(
         framebuffer_cycles,
         framebuffer_master_ticks,
         video_phase: machine.video_phase(),
+        disk_vdk,
     })
 }
 
@@ -5849,6 +5894,7 @@ impl IntoHarnessReport for RunReport {
             framebuffer_cycles: captures.framebuffer_cycles,
             framebuffer_master_ticks: captures.framebuffer_master_ticks,
             video_phase: captures.video_phase,
+            disk_vdk: captures.disk_vdk,
         }
     }
 }
@@ -6250,6 +6296,7 @@ mod tests {
                 write_watch: Vec::new(),
                 dump_text: true,
                 dump_ram: false,
+                export_disk: false,
                 dump_text_framebuffer: true,
                 capture_framebuffer: true,
                 capture_framebuffer_phase: SmokeScreenshotPhase::Immediate,
@@ -6306,6 +6353,7 @@ mod tests {
                 write_watch: Vec::new(),
                 dump_text: false,
                 dump_ram: false,
+                export_disk: false,
                 dump_text_framebuffer: false,
                 capture_framebuffer: true,
                 capture_framebuffer_phase: SmokeScreenshotPhase::CompletedFrame,
@@ -6344,6 +6392,7 @@ mod tests {
                 write_watch: Vec::new(),
                 dump_text: false,
                 dump_ram: false,
+                export_disk: false,
                 dump_text_framebuffer: false,
                 capture_framebuffer: true,
                 capture_framebuffer_phase: SmokeScreenshotPhase::CompletedFrame,
@@ -6365,6 +6414,45 @@ mod tests {
             0,
             "fast SAM timing must not use nominal slow-cycle frame modulo"
         );
+    }
+
+    #[test]
+    fn harness_exports_mounted_disk_as_vdk() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut disk_bytes = vec![0; 12 + 40 * 18 * 256];
+        disk_bytes[0] = b'd';
+        disk_bytes[1] = b'k';
+        disk_bytes[2] = 12;
+        disk_bytes[8] = 40;
+        disk_bytes[9] = 1;
+        disk_bytes[12] = 0x5a;
+        let disk = parse_vdk(&disk_bytes).expect("test VDK should parse");
+
+        let report = run_harness_with_keyboard(
+            &rom,
+            DragonKeyboard::new(),
+            HarnessRunOptions {
+                cartridge: None,
+                disk: Some(&disk),
+                program: None,
+                snapshot: None,
+                cycle_limit: 0,
+                trace_limit: 0,
+                fetch_watch: Vec::new(),
+                write_watch: Vec::new(),
+                dump_text: false,
+                dump_ram: false,
+                export_disk: true,
+                dump_text_framebuffer: false,
+                capture_framebuffer: false,
+                capture_framebuffer_phase: SmokeScreenshotPhase::Immediate,
+                capture_framebuffer_source: ScreenshotSource::Beam,
+            },
+        );
+        let exported = report.disk_vdk.expect("disk export should be captured");
+        let reparsed = parse_vdk(&exported).expect("exported VDK should parse");
+
+        assert_eq!(reparsed.sector(0, 0, 1).expect("sector 1")[0], 0x5a);
     }
 
     #[test]
@@ -6682,6 +6770,19 @@ mod tests {
         .expect("valid CLI should parse");
 
         assert_eq!(cli.disk, Some(PathBuf::from("game.vdk")));
+    }
+
+    #[test]
+    fn cli_parses_disk_output_path() {
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--disk-output".to_owned(),
+            "saved.vdk".to_owned(),
+        ])
+        .expect("valid CLI should parse");
+
+        assert_eq!(cli.disk_output, Some(PathBuf::from("saved.vdk")));
     }
 
     #[test]

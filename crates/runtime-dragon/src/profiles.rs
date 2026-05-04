@@ -98,7 +98,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                     "DragonDOS drive 1",
                     MediaKind::Disk,
                     false,
-                    WritebackPolicy::InMemoryOnly,
+                    WritebackPolicy::SidecarOnly,
                 ),
                 MediaSlot::new(
                     "snapshot-1",
@@ -119,6 +119,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("cassette-media"),
                 known_capability("cartridge-media"),
                 known_capability("disk-media"),
+                known_capability("disk-writeback"),
                 known_capability("joystick-input"),
                 known_capability("keyboard-matrix"),
                 known_capability("scripted-input"),
@@ -163,7 +164,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                     "DragonDOS drive 1",
                     MediaKind::Disk,
                     false,
-                    WritebackPolicy::InMemoryOnly,
+                    WritebackPolicy::SidecarOnly,
                 ),
                 MediaSlot::new(
                     "snapshot-1",
@@ -184,6 +185,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("cassette-media"),
                 known_capability("cartridge-media"),
                 known_capability("disk-media"),
+                known_capability("disk-writeback"),
                 known_capability("joystick-input"),
                 known_capability("keyboard-matrix"),
                 known_capability("scripted-input"),

@@ -7,6 +7,7 @@
 use thiserror::Error;
 
 const VDK_SIGNATURE: &[u8; 2] = b"dk";
+const VDK_HEADER_LEN: usize = 12;
 const DEFAULT_TRACKS: u8 = 40;
 const DEFAULT_SIDES: u8 = 1;
 const DEFAULT_SECTORS_PER_TRACK: u8 = 18;
@@ -62,6 +63,20 @@ impl DragonDiskImage {
     #[must_use]
     pub fn data(&self) -> &[u8] {
         &self.data
+    }
+
+    /// Serializes the disk as a standard VDK image.
+    #[must_use]
+    pub fn to_vdk_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(VDK_HEADER_LEN + self.data.len());
+        bytes.extend_from_slice(VDK_SIGNATURE);
+        bytes.extend_from_slice(&(VDK_HEADER_LEN as u16).to_le_bytes());
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+        bytes.push(self.tracks);
+        bytes.push(self.sides);
+        bytes.extend_from_slice(&[0, 0]);
+        bytes.extend_from_slice(&self.data);
+        bytes
     }
 }
 
@@ -172,14 +187,14 @@ mod tests {
     use super::*;
 
     fn minimal_vdk() -> Vec<u8> {
-        let mut bytes = vec![0; 12 + 40 * 18 * 256];
+        let mut bytes = vec![0; VDK_HEADER_LEN + 40 * 18 * 256];
         bytes[0] = b'd';
         bytes[1] = b'k';
-        bytes[2] = 12;
+        bytes[2] = VDK_HEADER_LEN as u8;
         bytes[8] = 40;
         bytes[9] = 1;
-        bytes[12] = 0x55;
-        bytes[12 + 255] = 0xaa;
+        bytes[VDK_HEADER_LEN] = 0x55;
+        bytes[VDK_HEADER_LEN + 255] = 0xaa;
         bytes
     }
 
@@ -212,6 +227,24 @@ mod tests {
 
         assert_eq!(image.sector(0, 0, 1).expect("sector 1")[1], 0x42);
         assert_eq!(image.data()[1], 0x42);
+    }
+
+    #[test]
+    fn serializes_mutated_image_as_vdk() {
+        let mut image = parse_vdk(&minimal_vdk()).expect("VDK should parse");
+        image.sector_mut(0, 0, 1).expect("sector 1")[1] = 0x42;
+
+        let bytes = image.to_vdk_bytes();
+        let reparsed = parse_vdk(&bytes).expect("serialized VDK should parse");
+
+        assert_eq!(&bytes[..2], VDK_SIGNATURE);
+        assert_eq!(
+            u16::from_le_bytes([bytes[2], bytes[3]]),
+            VDK_HEADER_LEN as u16
+        );
+        assert_eq!(bytes[8], 40);
+        assert_eq!(bytes[9], 1);
+        assert_eq!(reparsed.sector(0, 0, 1).expect("sector 1")[1], 0x42);
     }
 
     #[test]

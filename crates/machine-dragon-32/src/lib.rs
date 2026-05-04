@@ -375,6 +375,10 @@ impl DragonDosController {
             })
     }
 
+    fn disk_image(&self, drive: usize) -> Option<&DragonDiskImage> {
+        self.disks.get(drive)?.as_ref()
+    }
+
     fn read(&mut self, offset: u8) -> u8 {
         match offset & 0x0f {
             0x00 => {
@@ -2108,6 +2112,12 @@ impl DragonMemory {
             .and_then(|controller| controller.disk_summary(drive))
     }
 
+    fn disk_image(&self, drive: usize) -> Option<&DragonDiskImage> {
+        self.disk_controller
+            .as_ref()
+            .and_then(|controller| controller.disk_image(drive))
+    }
+
     fn set_cartridge_sound_level(&mut self, level: f32) {
         self.cartridge_sound_level = if level.is_finite() {
             level.clamp(0.0, 1.0)
@@ -3167,6 +3177,12 @@ impl Dragon32 {
     #[must_use]
     pub fn disk_summary(&self, drive: usize) -> Option<DragonDiskSummary> {
         self.memory.disk_summary(drive)
+    }
+
+    /// Return the currently mounted disk image for a zero-based drive slot.
+    #[must_use]
+    pub fn disk_image(&self, drive: usize) -> Option<&DragonDiskImage> {
+        self.memory.disk_image(drive)
     }
 
     /// Returns whether any disk is mounted in the selected drive.

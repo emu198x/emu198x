@@ -256,6 +256,14 @@ impl DragonRuntime {
         })
     }
 
+    /// Serializes the current mutated VDK image from a zero-based DragonDOS drive.
+    #[must_use]
+    pub fn export_drive_vdk(&self, drive: usize) -> Option<Vec<u8>> {
+        self.machine
+            .disk_image(drive)
+            .map(DragonDiskImage::to_vdk_bytes)
+    }
+
     fn rebuild_machine(&mut self) {
         self.machine = machine_for_model(
             self.model,
@@ -1584,6 +1592,28 @@ mod tests {
                 .value,
             json!(18)
         );
+    }
+
+    #[test]
+    fn export_drive_vdk_returns_live_machine_disk_image() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let disk = dragon_vdk();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("drive-1", MediaKind::Disk, &disk));
+        runtime.load_media(&media).expect("disk should load");
+
+        let mut updated = dragon_vdk();
+        updated[12] = 0x5a;
+        let updated = parse_vdk(&updated).expect("updated disk should parse");
+        runtime
+            .machine
+            .insert_disk(0, updated)
+            .expect("updated disk should mount");
+
+        let exported = runtime.export_drive_vdk(0).expect("drive 1 should export");
+        let reparsed = parse_vdk(&exported).expect("exported VDK should parse");
+
+        assert_eq!(reparsed.sector(0, 0, 1).expect("sector 1")[0], 0x5a);
     }
 
     #[test]

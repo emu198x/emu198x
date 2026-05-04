@@ -95,9 +95,11 @@ complete WD2797 timing/write implementation.
   media reports the WD write-protect status without mutating sectors. Type-I
   status reports a periodic index pulse, and WD write-track commands now run a
   sector-backed format path that clears the current VDK track after a synthetic
-  raw-track transfer. Real DragonDOS ROM directory reads now run through the
-  WD2797-style DRQ/FIRQ and INTRQ/NMI paths. Host writeback and raw WD2797
-  address-mark/gap-level format behavior remain to be implemented.
+  raw-track transfer. Mutated drive images remain in memory unless the script
+  harness is given `--disk-output PATH`, which writes a sidecar VDK rather than
+  overwriting the source image. Real DragonDOS ROM directory reads now run
+  through the WD2797-style DRQ/FIRQ and INTRQ/NMI paths. Raw WD2797
+  address-mark/gap-level format behavior remains to be implemented.
 - **Runtime:** `runtime-dragon` implements the shared `MachineCore` boundary,
   exposes separate Dragon 32 PAL and Dragon 64 PAL profiles, builds from
   profile-declared BASIC firmware, emits RGBA8888 frames and mono audio
@@ -189,6 +191,7 @@ cargo run --release -q -p emu198x-script-dragon -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --cart dragon-dos.rom \
   --disk game.vdk \
+  --disk-output game-out.vdk \
   --cycles 2000000 \
   --type-command DIR
 ```
@@ -399,8 +402,8 @@ cargo run --release -q -p emu198x-script-dragon -- \
    WD2797-level disk encoding behavior are not implemented.
 6. DragonDOS VDK support is intentionally sector-backed: sector reads/writes,
    real-ROM `DIR`/`SAVE` smokes, write-protect handling, type-I index status,
-   and synthetic write-track formatting work through the P2 controller register
-   path, while host image writeback and raw address-mark/gap parsing remain.
+   synthetic write-track formatting, and opt-in sidecar VDK export work through
+   the P2 controller register path, while raw address-mark/gap parsing remains.
 
 For the source-backed accuracy audit and implementation sequence, see
 [`dragon-accuracy-audit.md`](dragon-accuracy-audit.md).
@@ -442,16 +445,16 @@ depend on emulator-vs-emulator pixel matching.
 
 | Component | Tests |
 |-----------|-------|
-| Machine | Dragon 32/64 ROM mapping, Dragon 64 ACIA decode, SAM P/TY RAM paging, direct DragonDOS `.BIN` program RAM/EXEC loading, DragonDOS P2 disk-sector reads/writes, DragonDOS write-protect, index pulse, and synthetic write-track format behavior, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/cartridge-SND/single-bit audio |
+| Machine | Dragon 32/64 ROM mapping, Dragon 64 ACIA decode, SAM P/TY RAM paging, direct DragonDOS `.BIN` program RAM/EXEC loading, DragonDOS P2 disk-sector reads/writes, DragonDOS write-protect, index pulse, synthetic write-track format behavior, and live disk image export, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/cartridge-SND/single-bit audio |
 | PIA | 12: DDR, control, IRQ, input pins, mixed I/O, Cx1 edge selection, Cx2 input/output, Cx1-restored Cx2 strobe modes |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 16: source horizontal geometry/crop split, text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
-| Harness | 25: CLI, Dragon 32/64 ROM loading, VDK disk argument, direct `.BIN` argument, keyboard labels, text dumps, direct screenshots, CAS smoke options, Dragon 64 runtime `.BIN`/PAK smoke, Dragon 32 trace-backed PAK snapshot smoke, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
+| Harness | 27: CLI, Dragon 32/64 ROM loading, VDK disk argument/export, direct `.BIN` argument, keyboard labels, text dumps, direct screenshots, CAS smoke options, Dragon 64 runtime `.BIN`/PAK smoke, Dragon 32 trace-backed PAK snapshot smoke, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
 | Runtime | Dragon 32 and Dragon 64 profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, VDK disk mounting, direct `.BIN` mounting, cartridge mounting, PAK snapshot mounting, joystick button-to-hardware mapping, real-ROM screenshot, Dragon 64 `EXEC 48000` plus post-transition BASIC smoke, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
 | Native | CLI, CAS tape argument, VDK disk argument, direct `.BIN` argument, cartridge argument, snapshot argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping, gamepad-to-joystick mapping |
 | CAS format | 7: block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors |
 | BIN format | 4: DragonDOS sentinel, machine-code type, header fields, payload length validation |
-| VDK disk format | 4: VDK signature/header decode, fixed Dragon sample geometry, one-based sector lookup, truncated payload rejection |
+| VDK disk format | 5: VDK signature/header decode, fixed Dragon sample geometry, one-based sector lookup, mutated image serialization, truncated payload rejection |
 | PAK format | 4: aligned ROM images, XRoar-style cartridge header skip, empty image rejection, PC-Dragon snapshot decode |
 
 ## ROMs
