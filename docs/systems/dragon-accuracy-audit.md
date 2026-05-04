@@ -103,6 +103,9 @@ subroutine/vector cases, `RTI` 6/15-cycle paths, `CWAI` 20-cycle wait entry,
 `SYNC` 4-cycle wait entry, IRQ/FIRQ interrupt entry timing, documented
 primary/`$10`/`$11` opcode-page slots versus unused diagnostic traps, and
 source-backed byte-count/cycle-count metadata for the documented opcode pages.
+The metadata tests now also exercise variable-cycle rows for conditional long
+branches, `SYNC`, `CWAI`, `RTI`, and indexed postbyte additions across every
+documented indexed opcode family.
 
 Required resolution:
 
@@ -243,6 +246,10 @@ Progress:
 - MC6809 opcode metadata now transcribes documented byte-count shapes and
   fixed/base cycle counts by instruction family, and tests prove that metadata
   covers each documented opcode page exactly once.
+- MC6809 metadata tests now execute variable-cycle rows: conditional long
+  branches in taken/not-taken form, `SYNC`/`CWAI` wait-entry timing, `RTI`
+  short/full-frame timing, and indexed addressing additions across the indexed
+  opcode families.
 - MC6809 pin tests now pin reset/opcode/vector fetch state, represented
   `LIC`, `AVMA`, `BA/BS`, and `BUSY` behavior for the compatibility pin model.
   The pin snapshot corrected reset high-vector `BUSY` and `LIC` during

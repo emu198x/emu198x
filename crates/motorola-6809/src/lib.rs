@@ -3200,6 +3200,18 @@ mod tests {
         cpu.total_cycles - start
     }
 
+    fn run_until_wait_cycles(cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) -> u64 {
+        let start = cpu.total_cycles;
+        run_cycle(cpu, memory);
+        for _ in 0..128 {
+            if matches!(cpu.state, CpuState::WaitForInterrupt { .. }) {
+                return cpu.total_cycles - start;
+            }
+            run_cycle(cpu, memory);
+        }
+        panic!("instruction did not reach wait state");
+    }
+
     fn run_until_boundary_or_wait_or_halt(cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
         run_cycle(cpu, memory);
         for _ in 0..128 {
@@ -5777,18 +5789,26 @@ mod tests {
 
         match spec.byte_count {
             OfficialByteCount::Fixed(byte_count) => {
-                while bytes.len() < usize::from(byte_count) {
-                    let operand = match spec.cycles {
-                        OfficialCycleCount::StackPostbyteBase(_) => 0x00,
-                        _ => {
-                            if bytes.len() + 1 == usize::from(byte_count) {
-                                0x00
-                            } else {
-                                0x34
+                if matches!(
+                    spec.cycles,
+                    OfficialCycleCount::ConditionalLongBranch { .. }
+                ) {
+                    bytes.push(0x00);
+                    bytes.push(0x05);
+                } else {
+                    while bytes.len() < usize::from(byte_count) {
+                        let operand = match spec.cycles {
+                            OfficialCycleCount::StackPostbyteBase(_) => 0x00,
+                            _ => {
+                                if bytes.len() + 1 == usize::from(byte_count) {
+                                    0x00
+                                } else {
+                                    0x34
+                                }
                             }
-                        }
-                    };
-                    bytes.push(operand);
+                        };
+                        bytes.push(operand);
+                    }
                 }
             }
             OfficialByteCount::Indexed => bytes.push(0x84),
@@ -5835,6 +5855,75 @@ mod tests {
         ] {
             memory[addr] = hi;
             memory[addr + 1] = lo;
+        }
+    }
+
+    fn prepare_official_indexed_opcode_spec(
+        spec: OfficialOpcodeSpec,
+        case: IndexedTimingCase,
+        cpu: &mut Mc6809,
+        memory: &mut [u8; 0x10000],
+    ) {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(spec.page.prefix());
+        bytes.push(spec.opcode);
+        bytes.push(case.postbyte);
+        bytes.extend_from_slice(case.operand);
+        memory[0x4000..0x4000 + bytes.len()].copy_from_slice(&bytes);
+
+        cpu.regs.x = 0x2200;
+        cpu.regs.s = 0x8000;
+        cpu.regs.a = 0x05;
+        cpu.regs.b = 0x05;
+
+        memory[0x21F0..=0x2210].fill(0x80);
+        memory[0x2200] = 0x23;
+        memory[0x2201] = 0x00;
+        memory[0x2205] = 0x23;
+        memory[0x2206] = 0x00;
+        memory[0x21FE] = 0x23;
+        memory[0x21FF] = 0x00;
+        memory[0x2300] = 0x80;
+    }
+
+    fn long_branch_taken_cc(opcode: u8) -> Option<u8> {
+        match opcode {
+            0x21 => None,
+            0x22 => Some(0),
+            0x23 => Some(FLAG_C),
+            0x24 => Some(0),
+            0x25 => Some(FLAG_C),
+            0x26 => Some(0),
+            0x27 => Some(FLAG_Z),
+            0x28 => Some(0),
+            0x29 => Some(FLAG_V),
+            0x2A => Some(0),
+            0x2B => Some(FLAG_N),
+            0x2C => Some(0),
+            0x2D => Some(FLAG_N),
+            0x2E => Some(0),
+            0x2F => Some(FLAG_Z),
+            _ => None,
+        }
+    }
+
+    fn long_branch_not_taken_cc(opcode: u8) -> u8 {
+        match opcode {
+            0x22 => FLAG_Z,
+            0x23 => 0,
+            0x24 => FLAG_C,
+            0x25 => 0,
+            0x26 => FLAG_Z,
+            0x27 => 0,
+            0x28 => FLAG_V,
+            0x29 => 0,
+            0x2A => FLAG_N,
+            0x2B => 0,
+            0x2C => FLAG_N,
+            0x2D => 0,
+            0x2E => FLAG_Z,
+            0x2F => 0,
+            _ => 0,
         }
     }
 
@@ -6526,6 +6615,136 @@ mod tests {
                 cpu.instruction_boundary(),
                 "{spec:?} did not end at instruction boundary"
             );
+        }
+    }
+
+    #[test]
+    fn official_opcode_metadata_variable_cycle_rows_match_current_core() {
+        for spec in official_opcode_specs() {
+            match spec.cycles {
+                OfficialCycleCount::ConditionalLongBranch { not_taken, taken } => {
+                    let mut memory = [0; 0x10000];
+                    let mut cpu = cpu_at(0x4000);
+                    prepare_official_opcode_spec(spec, &mut cpu, &mut memory);
+                    cpu.regs.cc = long_branch_not_taken_cc(spec.opcode);
+
+                    let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+                    assert_eq!(cycles, u64::from(not_taken), "{spec:?} not taken");
+                    assert_eq!(cpu.regs.pc, 0x4004, "{spec:?} not-taken PC");
+
+                    if let Some(cc) = long_branch_taken_cc(spec.opcode) {
+                        let mut memory = [0; 0x10000];
+                        let mut cpu = cpu_at(0x4000);
+                        prepare_official_opcode_spec(spec, &mut cpu, &mut memory);
+                        cpu.regs.cc = cc;
+
+                        let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+                        assert_eq!(cycles, u64::from(taken), "{spec:?} taken");
+                        assert_eq!(cpu.regs.pc, 0x4009, "{spec:?} taken PC");
+                    }
+                }
+                OfficialCycleCount::SyncWait => {
+                    let mut memory = [0; 0x10000];
+                    let mut cpu = cpu_at(0x4000);
+                    prepare_official_opcode_spec(spec, &mut cpu, &mut memory);
+
+                    let cycles = run_until_wait_cycles(&mut cpu, &mut memory);
+
+                    assert_eq!(cycles, 4, "{spec:?}");
+                    assert_eq!(cpu.regs.pc, 0x4001);
+                    assert!(matches!(
+                        cpu.state,
+                        CpuState::WaitForInterrupt { stacked: false }
+                    ));
+                }
+                OfficialCycleCount::CwaiWait => {
+                    let mut memory = [0; 0x10000];
+                    let mut cpu = cpu_at(0x4000);
+                    prepare_official_opcode_spec(spec, &mut cpu, &mut memory);
+                    cpu.regs.cc = FLAG_I | FLAG_C;
+
+                    let cycles = run_until_wait_cycles(&mut cpu, &mut memory);
+
+                    assert_eq!(cycles, 20, "{spec:?}");
+                    assert_eq!(cpu.regs.pc, 0x4002);
+                    assert_eq!(cpu.regs.s, 0x7FF4);
+                    assert!(matches!(
+                        cpu.state,
+                        CpuState::WaitForInterrupt { stacked: true }
+                    ));
+                }
+                OfficialCycleCount::RtiShortOrFull => {
+                    let mut memory = [0; 0x10000];
+                    memory[0x4000] = spec.opcode;
+                    memory[0x8000] = 0x00;
+                    memory[0x8001] = 0x45;
+                    memory[0x8002] = 0x00;
+                    let mut cpu = cpu_at(0x4000);
+                    cpu.regs.s = 0x8000;
+
+                    let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+                    assert_eq!(cycles, 6, "{spec:?} short frame");
+                    assert_eq!(cpu.regs.pc, 0x4500);
+                    assert_eq!(cpu.regs.s, 0x8003);
+
+                    let mut memory = [0; 0x10000];
+                    memory[0x4000] = spec.opcode;
+                    memory[0x8000..=0x800B].copy_from_slice(&[
+                        FLAG_E, 0x9A, 0x78, 0x56, 0x12, 0x34, 0xC0, 0xD0, 0xA0, 0xB0, 0x46, 0x00,
+                    ]);
+                    let mut cpu = cpu_at(0x4000);
+                    cpu.regs.s = 0x8000;
+
+                    let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+                    assert_eq!(cycles, 15, "{spec:?} full frame");
+                    assert_eq!(cpu.regs.pc, 0x4600);
+                    assert_eq!(cpu.regs.s, 0x800C);
+                }
+                OfficialCycleCount::Fixed(_)
+                | OfficialCycleCount::IndexedBase(_)
+                | OfficialCycleCount::StackPostbyteBase(_)
+                | OfficialCycleCount::Prefix => {}
+            }
+        }
+    }
+
+    #[test]
+    fn official_opcode_metadata_indexed_addition_rows_match_current_core() {
+        for spec in official_opcode_specs() {
+            let base_cycles = match spec.cycles {
+                OfficialCycleCount::IndexedBase(cycles) => cycles,
+                _ => continue,
+            };
+            let cases = if spec.page == OpcodePage::Primary && (0x30..=0x33).contains(&spec.opcode)
+            {
+                OFFICIAL_INDEXED_LEA_TIMING_CASES
+            } else {
+                OFFICIAL_INDEXED_LDA_TIMING_CASES
+            };
+
+            for &case in cases {
+                let mut memory = [0; 0x10000];
+                let mut cpu = cpu_at(0x4000);
+                prepare_official_indexed_opcode_spec(spec, case, &mut cpu, &mut memory);
+
+                let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+                let expected_cycles = u64::from(base_cycles) + (case.expected_cycles - 4);
+
+                assert_eq!(
+                    cycles, expected_cycles,
+                    "{spec:?} indexed mode {}",
+                    case.name
+                );
+                assert!(
+                    cpu.instruction_boundary(),
+                    "{spec:?} indexed mode {} did not end at instruction boundary",
+                    case.name
+                );
+            }
         }
     }
 
