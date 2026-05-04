@@ -97,6 +97,8 @@ Execution:
                        recursively scan .pak/.zip PC-Dragon snapshots
     --disk-smoke-root PATH
                        recursively scan .vdk/.zip DragonDOS disks and run DIR
+    --disk-smoke-launch
+                       with --disk-smoke-root, launch the first BASIC/BIN program instead of DIR
     --smoke-run-limit N
                        run real-ROM CLOAD/CLOADM or snapshot smoke for first N parsed media [default: 8]
     --smoke-report P   write smoke matrix JSON to PATH
@@ -160,6 +162,7 @@ struct Cli {
     bin_smoke_root: Option<PathBuf>,
     snapshot_smoke_root: Option<PathBuf>,
     disk_smoke_root: Option<PathBuf>,
+    disk_smoke_launch: bool,
     smoke_run_limit: usize,
     smoke_report: Option<PathBuf>,
     smoke_screenshot_dir: Option<PathBuf>,
@@ -291,9 +294,17 @@ struct DiskSmokeRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     directory_entries: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    directory: Option<Vec<DragonDosDirectoryEntrySummary>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     runtime: Option<DiskRuntimeSmoke>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DragonDosDirectoryEntrySummary {
+    name: String,
+    extension: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -346,11 +357,14 @@ struct BinRuntimeSmoke {
 #[derive(Debug, Serialize)]
 struct DiskRuntimeSmoke {
     classification: DiskSmokeClassification,
+    command: String,
     stop_reason: String,
     cycles: u64,
     instructions: u64,
     pc: u16,
     text_screen_base: u16,
+    distinct_colors: usize,
+    non_background_pixels: usize,
     screen_text: Vec<String>,
     disk_trace_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -367,6 +381,10 @@ enum DiskSmokeClassification {
     NoDiskAccess,
     DirectoryError,
     DirectoryVisible,
+    NoLaunchCandidate,
+    LaunchError,
+    LaunchVisible,
+    LaunchBlank,
 }
 
 #[derive(Debug, Serialize)]
@@ -950,6 +968,7 @@ where
     let mut bin_smoke_root = None;
     let mut snapshot_smoke_root = None;
     let mut disk_smoke_root = None;
+    let mut disk_smoke_launch = false;
     let mut smoke_run_limit = DEFAULT_SMOKE_RUN_LIMIT;
     let mut smoke_report = None;
     let mut smoke_screenshot_dir = None;
@@ -1066,6 +1085,9 @@ where
             }
             "--disk-smoke-root" => {
                 disk_smoke_root = Some(PathBuf::from(next_value(&mut iter, "--disk-smoke-root")?));
+            }
+            "--disk-smoke-launch" => {
+                disk_smoke_launch = true;
             }
             "--smoke-run-limit" => {
                 smoke_run_limit = parse_usize(
@@ -1195,6 +1217,7 @@ where
         bin_smoke_root,
         snapshot_smoke_root,
         disk_smoke_root,
+        disk_smoke_launch,
         smoke_run_limit,
         smoke_report,
         smoke_screenshot_dir,
@@ -1898,6 +1921,7 @@ fn scan_disk_candidate(
                 sectors_per_track: None,
                 sector_size: None,
                 directory_entries: None,
+                directory: None,
                 runtime: None,
                 error: Some(err.to_string()),
             };
@@ -1916,15 +1940,30 @@ fn scan_disk_candidate(
                 sectors_per_track: None,
                 sector_size: None,
                 directory_entries: None,
+                directory: None,
                 runtime: None,
                 error: Some(err.to_string()),
             };
         }
     };
+    let directory = dragon_dos_directory_entries(&disk);
+    let launch_command = cli
+        .disk_smoke_launch
+        .then(|| choose_dragon_dos_launch_command(&directory));
 
     let runtime = if *runtime_smokes < smoke.run_limit {
         *runtime_smokes += 1;
-        Some(run_disk_dir_smoke(cli, firmware, &loaded.bytes, smoke))
+        Some(match launch_command {
+            Some(Some(command)) => {
+                run_disk_command_smoke(cli, firmware, &loaded.bytes, &command, true, smoke)
+            }
+            Some(None) => failed_disk_runtime_smoke(
+                "no BASIC or BIN DragonDOS launch candidate was found".to_owned(),
+                "AUTO".to_owned(),
+                DiskSmokeClassification::NoLaunchCandidate,
+            ),
+            None => run_disk_command_smoke(cli, firmware, &loaded.bytes, "DIR", false, smoke),
+        })
     } else {
         None
     };
@@ -1937,28 +1976,35 @@ fn scan_disk_candidate(
         sides: Some(disk.sides),
         sectors_per_track: Some(disk.sectors_per_track),
         sector_size: Some(disk.sector_size),
-        directory_entries: Some(count_dragon_dos_directory_entries(&disk)),
+        directory_entries: Some(directory.len()),
+        directory: Some(directory),
         runtime,
         error: None,
     }
 }
 
-fn run_disk_dir_smoke(
+fn run_disk_command_smoke(
     cli: &Cli,
     firmware: &LoadedDragonFirmware,
     disk_bytes: &[u8],
+    command: &str,
+    launch: bool,
     smoke: DiskSmokeOptions<'_>,
 ) -> DiskRuntimeSmoke {
-    match run_disk_dir_smoke_inner(cli, firmware, disk_bytes, smoke) {
+    match run_disk_command_smoke_inner(cli, firmware, disk_bytes, command, launch, smoke) {
         Ok(smoke) => smoke,
-        Err(error) => failed_disk_runtime_smoke(error),
+        Err(error) => {
+            failed_disk_runtime_smoke(error, command.to_owned(), DiskSmokeClassification::Error)
+        }
     }
 }
 
-fn run_disk_dir_smoke_inner(
+fn run_disk_command_smoke_inner(
     cli: &Cli,
     firmware: &LoadedDragonFirmware,
     disk_bytes: &[u8],
+    command: &str,
+    launch: bool,
     smoke: DiskSmokeOptions<'_>,
 ) -> Result<DiskRuntimeSmoke, String> {
     let cart_path = cli
@@ -1993,10 +2039,29 @@ fn run_disk_dir_smoke_inner(
         .map_err(|err| format!("DragonDOS runtime did not idle after boot: {err}"))?;
 
     let mut trace_collector = RecentTraceCollector::new(64, 512);
-    type_basic_command_with_trace(&mut session, "DIR", &mut trace_collector)?;
-    let result = session
-        .run_frames_with_trace_sink(frames_for_cycles(smoke.cycle_limit), &mut trace_collector)
-        .map_err(|err| format!("runtime failed after typing DragonDOS DIR: {err}"))?;
+    let mut result = None;
+    let commands: Vec<_> = command
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if commands.is_empty() {
+        return Err("DragonDOS smoke command is empty".to_owned());
+    }
+    for command in commands {
+        type_basic_command_with_trace(&mut session, command, &mut trace_collector)?;
+        result = Some(
+            session
+                .run_frames_with_trace_sink(
+                    frames_for_cycles(smoke.cycle_limit),
+                    &mut trace_collector,
+                )
+                .map_err(|err| {
+                    format!("runtime failed after typing DragonDOS command {command:?}: {err}")
+                })?,
+        );
+    }
+    let result = result.ok_or_else(|| "DragonDOS smoke command did not run".to_owned())?;
     let state = runtime_smoke_state(&session)?;
     let screenshot = write_runtime_screenshot(
         smoke.screenshot_path,
@@ -2005,15 +2070,24 @@ fn run_disk_dir_smoke_inner(
         &state.diagnostic_png,
     )?;
     let disk_trace_count = trace_collector.disk_entries.len();
-    let classification = classify_disk_dir_smoke(&state.screen_text, disk_trace_count);
+    let classification = classify_disk_smoke(
+        launch,
+        &state.screen_text,
+        disk_trace_count,
+        state.distinct_colors,
+        state.non_background_pixels,
+    );
 
     Ok(DiskRuntimeSmoke {
         classification,
+        command: command.to_owned(),
         stop_reason: format_runtime_stop_reason(result.stop_reason),
         cycles: state.cycles,
         instructions: state.instructions,
         pc: state.pc,
         text_screen_base: state.text_screen_base,
+        distinct_colors: state.distinct_colors,
+        non_background_pixels: state.non_background_pixels,
         screen_text: state.screen_text,
         disk_trace_count,
         screenshot,
@@ -2027,14 +2101,21 @@ fn run_disk_dir_smoke_inner(
     })
 }
 
-fn failed_disk_runtime_smoke(error: String) -> DiskRuntimeSmoke {
+fn failed_disk_runtime_smoke(
+    error: String,
+    command: String,
+    classification: DiskSmokeClassification,
+) -> DiskRuntimeSmoke {
     DiskRuntimeSmoke {
-        classification: DiskSmokeClassification::Error,
+        classification,
+        command,
         stop_reason: "error".to_owned(),
         cycles: 0,
         instructions: 0,
         pc: 0,
         text_screen_base: 0,
+        distinct_colors: 0,
+        non_background_pixels: 0,
         screen_text: Vec::new(),
         disk_trace_count: 0,
         screenshot: None,
@@ -2043,12 +2124,26 @@ fn failed_disk_runtime_smoke(error: String) -> DiskRuntimeSmoke {
     }
 }
 
-fn classify_disk_dir_smoke(
+fn classify_disk_smoke(
+    launch: bool,
     screen_text: &[String],
     disk_trace_count: usize,
+    distinct_colors: usize,
+    non_background_pixels: usize,
 ) -> DiskSmokeClassification {
+    if launch && screen_text.iter().any(|line| line.contains("ERROR")) {
+        return DiskSmokeClassification::LaunchError;
+    }
     if disk_trace_count == 0 {
         return DiskSmokeClassification::NoDiskAccess;
+    }
+    if launch {
+        let visible = distinct_colors > 1 && non_background_pixels > 0;
+        return if visible {
+            DiskSmokeClassification::LaunchVisible
+        } else {
+            DiskSmokeClassification::LaunchBlank
+        };
     }
     if screen_text.iter().any(|line| line.contains("FREE BYTES")) {
         return DiskSmokeClassification::DirectoryVisible;
@@ -2056,7 +2151,7 @@ fn classify_disk_dir_smoke(
     DiskSmokeClassification::DirectoryError
 }
 
-fn count_dragon_dos_directory_entries(disk: &DragonDiskImage) -> usize {
+fn dragon_dos_directory_entries(disk: &DragonDiskImage) -> Vec<DragonDosDirectoryEntrySummary> {
     let sector_size = usize::from(disk.sector_size);
     let mut entries = Vec::new();
     for sector in disk.data().chunks_exact(sector_size) {
@@ -2064,39 +2159,59 @@ fn count_dragon_dos_directory_entries(disk: &DragonDiskImage) -> usize {
             collect_directory_entries_in_sector_layout(sector, base, &mut entries);
         }
     }
-    entries.len()
+    entries
 }
 
 fn collect_directory_entries_in_sector_layout(
     sector: &[u8],
     base: usize,
-    entries: &mut Vec<[u8; 11]>,
+    entries: &mut Vec<DragonDosDirectoryEntrySummary>,
 ) {
     for entry in 0..10 {
         let offset = base + entry * 25;
         let Some(raw_entry) = sector.get(offset..offset + 25) else {
             continue;
         };
-        let Some(name_and_extension) = dragon_dos_directory_name(raw_entry) else {
+        let Some(entry) = dragon_dos_directory_entry(raw_entry) else {
             continue;
         };
-        if !entries.contains(&name_and_extension) {
-            entries.push(name_and_extension);
+        if !entries.contains(&entry) {
+            entries.push(entry);
         }
     }
 }
 
-fn dragon_dos_directory_name(entry: &[u8]) -> Option<[u8; 11]> {
+fn dragon_dos_directory_entry(entry: &[u8]) -> Option<DragonDosDirectoryEntrySummary> {
     let name = entry.get(0..8)?;
     let extension = entry.get(8..11)?;
-    if entry.get(11).copied()? != 0x01 || !is_plausible_dragon_dos_directory_entry(name, extension)
-    {
+    if entry.get(11).copied()? > 0x01 || !is_plausible_dragon_dos_directory_entry(name, extension) {
         return None;
     }
-    let mut name_and_extension = [0; 11];
-    name_and_extension[..8].copy_from_slice(name);
-    name_and_extension[8..].copy_from_slice(extension);
-    Some(name_and_extension)
+    Some(DragonDosDirectoryEntrySummary {
+        name: dragon_dos_field_to_string(name),
+        extension: dragon_dos_field_to_string(extension),
+    })
+}
+
+fn choose_dragon_dos_launch_command(entries: &[DragonDosDirectoryEntrySummary]) -> Option<String> {
+    entries
+        .iter()
+        .find(|entry| entry.extension == "BAS")
+        .map(|entry| format!("RUN\"{}\"", entry.name))
+        .or_else(|| {
+            entries
+                .iter()
+                .any(|entry| entry.extension == "BIN")
+                .then(|| "BOOT".to_owned())
+        })
+}
+
+fn dragon_dos_field_to_string(bytes: &[u8]) -> String {
+    let end = bytes
+        .iter()
+        .rposition(|byte| !matches!(*byte, 0x00 | b' '))
+        .map_or(0, |index| index + 1);
+    String::from_utf8_lossy(&bytes[..end]).to_string()
 }
 
 fn is_plausible_dragon_dos_directory_entry(name: &[u8], extension: &[u8]) -> bool {
@@ -7395,6 +7510,7 @@ mod tests {
             "dragondos.rom".to_owned(),
             "--disk-smoke-root".to_owned(),
             "disks".to_owned(),
+            "--disk-smoke-launch".to_owned(),
             "--smoke-run-limit".to_owned(),
             "2".to_owned(),
             "--smoke-screenshot-dir".to_owned(),
@@ -7406,6 +7522,7 @@ mod tests {
 
         assert_eq!(cli.cart, Some(PathBuf::from("dragondos.rom")));
         assert_eq!(cli.disk_smoke_root, Some(PathBuf::from("disks")));
+        assert!(cli.disk_smoke_launch);
         assert_eq!(cli.smoke_run_limit, 2);
         assert_eq!(cli.smoke_screenshot_dir, Some(PathBuf::from("screens")));
         assert_eq!(
@@ -7429,8 +7546,17 @@ mod tests {
         disk_bytes[12 + 1 + 25 + 8..12 + 1 + 25 + 11].copy_from_slice(b"BIN");
         disk_bytes[12 + 1 + 25 + 11] = 0x01;
         let disk = parse_vdk(&disk_bytes).expect("test VDK should parse");
+        let entries = dragon_dos_directory_entries(&disk);
 
-        assert_eq!(count_dragon_dos_directory_entries(&disk), 2);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            choose_dragon_dos_launch_command(&entries),
+            Some("RUN\"ZERO\"".to_owned())
+        );
+        assert_eq!(
+            choose_dragon_dos_launch_command(&entries[1..]),
+            Some("BOOT".to_owned())
+        );
     }
 
     #[test]

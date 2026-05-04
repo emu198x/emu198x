@@ -45,6 +45,9 @@ Environment:
                                   and analogue comparator sweep smoke
     EMU198X_DRAGON_DOS_ROM       DragonDOS cartridge ROM or zip archive
     EMU198X_DRAGON_DOS_VDK       DragonDOS VDK disk or zip archive for DIR smoke
+    EMU198X_DRAGON_DOS_LAUNCH_VDK
+                                  Optional DragonDOS VDK expected to launch
+                                  visibly; defaults to Disk Doctor when present
     EMU198X_DRAGON_PAK           Optional single Dragon PAK snapshot used for
                                   deterministic trace-alignment smoke; when
                                   unset, a curated local reference set is used
@@ -688,6 +691,13 @@ if [[ "${mode}" != "unit" ]]; then
             || true)"
     fi
 
+    dragon_dos_launch_vdk="${EMU198X_DRAGON_DOS_LAUNCH_VDK:-}"
+    if [[ -z "${dragon_dos_launch_vdk}" ]]; then
+        dragon_dos_launch_vdk="$(first_existing_file \
+            "${reference_root}/dragon/Dragon/Applications/[VDK]/Disk Doctor (198x)(Domino Computing).zip" \
+            || true)"
+    fi
+
     dragon_paks=()
     if [[ -n "${EMU198X_DRAGON_PAK:-}" ]]; then
         dragon_paks+=("${EMU198X_DRAGON_PAK}|custom|running-visible|2|0|")
@@ -817,6 +827,23 @@ if [[ "${mode}" != "unit" ]]; then
                 --smoke-screenshot-dir "${out_dir}/dragon-dos-vdk-screens"
     else
         skip_step "dragon-dos-vdk-dir-smoke" "missing Dragon ROM, DragonDOS ROM, or VDK input; set EMU198X_DRAGON32_ROM, EMU198X_DRAGON_DOS_ROM, and EMU198X_DRAGON_DOS_VDK"
+    fi
+
+    if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_dos_rom}" && -f "${dragon_dos_rom}" && -n "${dragon_dos_launch_vdk}" && -f "${dragon_dos_launch_vdk}" ]]; then
+        run_step_expect_file "dragon-dos-vdk-launch-smoke" \
+            "${out_dir}/dragon-dos-vdk-launch-smoke.json" \
+            '"classification": "launch-visible"' \
+            cargo run -q -p emu198x-script-dragon -- \
+                --rom "${dragon_rom}" \
+                --cart "${dragon_dos_rom}" \
+                --disk-smoke-root "${dragon_dos_launch_vdk}" \
+                --disk-smoke-launch \
+                --smoke-run-limit 1 \
+                --cycles 3000000 \
+                --smoke-report "${out_dir}/dragon-dos-vdk-launch-smoke.json" \
+                --smoke-screenshot-dir "${out_dir}/dragon-dos-vdk-launch-screens"
+    else
+        skip_step "dragon-dos-vdk-launch-smoke" "missing Dragon ROM, DragonDOS ROM, or launch VDK input; set EMU198X_DRAGON32_ROM, EMU198X_DRAGON_DOS_ROM, and EMU198X_DRAGON_DOS_LAUNCH_VDK"
     fi
 
     if [[ -n "${dragon_rom}" && -f "${dragon_rom}" && -n "${dragon_audio_cas}" && -f "${dragon_audio_cas}" ]]; then
