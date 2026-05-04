@@ -2201,8 +2201,8 @@ fn choose_dragon_dos_launch_command(entries: &[DragonDosDirectoryEntrySummary]) 
         .or_else(|| {
             entries
                 .iter()
-                .any(|entry| entry.extension == "BIN")
-                .then(|| "BOOT".to_owned())
+                .find(|entry| entry.extension == "BIN")
+                .map(|entry| format!("LOAD\"{}.BIN\":EXEC", entry.name))
         })
 }
 
@@ -7555,7 +7555,7 @@ mod tests {
         );
         assert_eq!(
             choose_dragon_dos_launch_command(&entries[1..]),
-            Some("BOOT".to_owned())
+            Some("LOAD\"ONE.BIN\":EXEC".to_owned())
         );
     }
 
