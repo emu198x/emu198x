@@ -5,28 +5,34 @@
 //! asserts a boot frame hash, optional scripted-input progression, and an
 //! audio-window hash.
 //!
-//! The crate starts narrow with Spectrum 48K. Schema and runner extend as
-//! the C64, NES, and Amiga runtimes are wired in.
+//! Currently wired: Spectrum 48K + 128K. Schema and runner extend as the
+//! +3, Pentagon, Timex, C64, NES, and Amiga runtimes are wired in.
 
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 
-use common_sinclair_zx_spectrum::timing::TIMING_48K;
+use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K};
 use emu198x_shell::{
-    FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MediaImage, MediaKind, MediaSet,
-    read_firmware_asset, read_media_asset,
+    ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineCore,
+    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
+use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime, SpectrumSessionQueryProvider,
-    autoload_basic_tape,
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, Spectrum48kRuntime, Spectrum128kRuntime,
+    SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 use serde::Deserialize;
 use thiserror::Error;
 use twox_hash::XxHash64;
 
 /// Safety cap on the tape-load wait. At PAL 50 fps this is ~20 minutes
-/// of emulation time — far longer than any 48K loader needs.
+/// of emulation time — far longer than any 48K/128K loader needs.
 const MAX_TAPE_LOAD_FRAMES: u32 = 60_000;
+
+/// Frame budget for waiting on the 128K menu boot banner before pressing
+/// ENTER for Tape Loader.
+const DEFAULT_128K_BOOT_FRAMES: u32 = 250;
 
 /// Top-level manifest shape (one TOML file per system).
 #[derive(Debug, Deserialize)]
@@ -35,15 +41,33 @@ pub struct Manifest {
     pub entry: Vec<Entry>,
 }
 
-/// System-level defaults that apply to every entry in the file.
+/// System-level metadata. Firmware is variant-scoped because variants
+/// within a family (48K vs 128K vs +3) can need a different ROM count
+/// and layout.
 #[derive(Debug, Deserialize)]
 pub struct SystemMeta {
     /// Stable system identifier (e.g. `spectrum`, `c64`, `nes`, `amiga`).
     pub id: String,
-    /// Firmware identifier consumed by the per-system runtime.
-    pub firmware_id: String,
-    /// Firmware path relative to the firmware root.
-    pub firmware_path: String,
+    /// Per-variant firmware lookup.
+    pub firmware: Vec<VariantFirmware>,
+}
+
+/// Firmware files required to boot one variant. The runner reads each
+/// file in declared order and feeds the bytes to the variant's
+/// constructor.
+#[derive(Debug, Deserialize)]
+pub struct VariantFirmware {
+    /// Variant identifier matching `Entry.variant`.
+    pub variant: String,
+    pub files: Vec<FirmwareSpec>,
+}
+
+/// One firmware file: stable id (consumed by the shell's firmware set)
+/// plus a path resolved against the firmware root.
+#[derive(Debug, Deserialize)]
+pub struct FirmwareSpec {
+    pub id: String,
+    pub path: String,
 }
 
 /// One catalogue entry: a single curated title with its assertions.
@@ -111,11 +135,17 @@ pub enum EntryOutcome {
 }
 
 /// Captured hashes plus pass/fail outcome for one entry.
+///
+/// `boot_png` and `audio_wav` are populated for the catalogue CLI's
+/// paste-into-manifest workflow (so a human can visually confirm the
+/// hash captures what they expect). The integration test ignores them.
 #[derive(Debug)]
 pub struct RunResult {
     pub boot_hash: String,
     pub audio_hash: String,
     pub outcome: EntryOutcome,
+    pub boot_png: Vec<u8>,
+    pub audio_wav: Vec<u8>,
 }
 
 #[derive(Debug, Error)]
@@ -136,6 +166,14 @@ pub enum CatalogueError {
     UnsupportedMediaKind(String),
     #[error("entry not found: {0}")]
     EntryNotFound(String),
+    #[error("firmware not declared for variant: {0}")]
+    FirmwareNotDeclared(String),
+    #[error("variant {variant} expects {expected} firmware file(s), manifest declares {actual}")]
+    FirmwareCountMismatch {
+        variant: String,
+        expected: usize,
+        actual: usize,
+    },
 }
 
 /// Loads and parses one TOML manifest file.
@@ -166,13 +204,13 @@ pub fn hash_xxh64(bytes: &[u8]) -> String {
 /// Runs one catalogue entry against the appropriate system runtime.
 ///
 /// `media_root` resolves `entry.media.path`; `firmware_root` resolves
-/// `manifest.system.firmware_path`. The runner returns the captured
-/// hashes plus a pass/fail outcome — assertion is the caller's concern.
+/// each firmware file path declared in `manifest.system.firmware`.
 ///
 /// # Errors
 ///
 /// Returns `UnsupportedSystem` for systems other than `spectrum`,
-/// `UnsupportedVariant` for variants not yet wired, and `Session` for
+/// `UnsupportedVariant` for variants not yet wired, `FirmwareNotDeclared`
+/// when a variant is missing from `system.firmware`, and `Session` for
 /// firmware/media/runtime failures.
 pub fn run_entry(
     manifest: &Manifest,
@@ -192,22 +230,34 @@ fn run_spectrum_entry(
     media_root: &Path,
     firmware_root: &Path,
 ) -> Result<RunResult, CatalogueError> {
-    if entry.variant != "48k" {
-        return Err(CatalogueError::UnsupportedVariant(entry.variant.clone()));
+    match entry.variant.as_str() {
+        "48k" => run_spectrum_48k_entry(manifest, entry, media_root, firmware_root),
+        "128k" => run_spectrum_128k_entry(manifest, entry, media_root, firmware_root),
+        other => Err(CatalogueError::UnsupportedVariant(other.into())),
     }
+}
 
-    let firmware_path = firmware_root.join(&manifest.system.firmware_path);
-    let firmware = read_firmware_asset(&firmware_path)
-        .map_err(|err| CatalogueError::Session(format!("firmware {firmware_path:?}: {err}")))?;
+fn run_spectrum_48k_entry(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 1 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 1,
+            actual: files.len(),
+        });
+    }
+    let rom_bytes = read_firmware_bytes(firmware_root, &files[0])?;
 
     let mut firmware_set = FirmwareSet::new();
-    firmware_set.push(FirmwareImage::new(
-        manifest.system.firmware_id.clone(),
-        &firmware.bytes,
-    ));
+    firmware_set.push(FirmwareImage::new(files[0].id.clone(), &rom_bytes));
 
     let runtime = Spectrum48kRuntime::from_firmware(&firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("runtime: {err}")))?;
+        .map_err(|err| CatalogueError::Session(format!("48K runtime: {err}")))?;
 
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
@@ -215,6 +265,116 @@ fn run_spectrum_entry(
         SpectrumSessionQueryProvider,
     );
 
+    let media_kind = load_entry_media(&mut session, entry, media_root)?;
+
+    autoload_basic_tape(
+        &mut session,
+        &entry.media.slot,
+        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    )
+    .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
+
+    run_assertions(
+        &mut session,
+        entry,
+        spectrum_frames_per_sec(&TIMING_48K),
+        media_kind,
+        "spectrum.tape.playing",
+    )
+}
+
+fn run_spectrum_128k_entry(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 2 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 2,
+            actual: files.len(),
+        });
+    }
+    let rom0 = read_firmware_bytes(firmware_root, &files[0])?;
+    let rom1 = read_firmware_bytes(firmware_root, &files[1])?;
+
+    let mut machine = Spectrum128K::new();
+    machine.memory.load_roms(&rom0, &rom1);
+    let runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, machine);
+
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_128K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media_kind = load_entry_media(&mut session, entry, media_root)?;
+
+    autoload_128k_tape_loader(&mut session, &entry.media.slot, DEFAULT_128K_BOOT_FRAMES)?;
+
+    run_assertions(
+        &mut session,
+        entry,
+        spectrum_frames_per_sec(&TIMING_128K),
+        media_kind,
+        "spectrum.tape.playing",
+    )
+}
+
+/// 128K-equivalent of the 48K `autoload_basic_tape`. Waits for the 128K
+/// menu, presses ENTER (which selects the highlighted "Tape Loader"
+/// option), and starts tape transport.
+fn autoload_128k_tape_loader<Q>(
+    session: &mut HeadlessSession<Spectrum128kRuntime, Q>,
+    slot: &str,
+    max_boot_frames: u32,
+) -> Result<(), CatalogueError>
+where
+    Q: SessionQueryProvider<Spectrum128kRuntime>,
+{
+    session
+        .wait_for_boot(max_boot_frames)
+        .map_err(|err| CatalogueError::Session(format!("128K boot wait: {err}")))?;
+
+    session.queue_input(InputEvent::Key {
+        name: "enter".into(),
+        pressed: true,
+    });
+    session
+        .run_frames(2)
+        .map_err(|err| CatalogueError::Session(format!("128K enter press: {err}")))?;
+    session.queue_input(InputEvent::Key {
+        name: "enter".into(),
+        pressed: false,
+    });
+    session
+        .run_frames(10)
+        .map_err(|err| CatalogueError::Session(format!("128K enter settle: {err}")))?;
+
+    session
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            slot.to_owned(),
+            MediaTransportAction::Start,
+        )))
+        .map_err(|err| CatalogueError::Session(format!("128K tape start: {err}")))?;
+
+    Ok(())
+}
+
+/// Media-loading shared between 48K and 128K (and any future Spectrum
+/// variant). Pushes the entry's media into the session and returns the
+/// resolved `MediaKind`.
+fn load_entry_media<M, Q>(
+    session: &mut HeadlessSession<M, Q>,
+    entry: &Entry,
+    media_root: &Path,
+) -> Result<MediaKind, CatalogueError>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
     let media_path = media_root.join(&entry.media.path);
     let media_kind = parse_media_kind(&entry.media.kind)?;
     let media_loaded = read_media_asset(&media_path, media_kind)
@@ -231,23 +391,30 @@ fn run_spectrum_entry(
         .prepare(&media_set, &[])
         .map_err(|err| CatalogueError::Session(format!("prepare: {err}")))?;
 
-    autoload_basic_tape(
-        &mut session,
-        &entry.media.slot,
-        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    )
-    .map_err(|err| CatalogueError::Session(format!("autoload: {err}")))?;
+    Ok(media_kind)
+}
 
-    // For tape media: wait for the tape transport to stop before running
-    // boot.wait_frames. This makes wait_frames mean "frames after tape
-    // load completes" which is the user-meaningful waypoint.
+/// Generic assertion runner. Once the per-variant setup has the session
+/// loaded, autoloaded, and at the start of the boot phase, this advances
+/// the timeline through tape-stop wait → boot waypoint → scripted input
+/// → audio window, and computes pass/fail.
+fn run_assertions<M, Q>(
+    session: &mut HeadlessSession<M, Q>,
+    entry: &Entry,
+    frames_per_sec: f64,
+    media_kind: MediaKind,
+    tape_query_path: &str,
+) -> Result<RunResult, CatalogueError>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
     if media_kind == MediaKind::Tape {
         session
-            .wait_for_query_bool("spectrum.tape.playing", false, MAX_TAPE_LOAD_FRAMES)
+            .wait_for_query_bool(tape_query_path, false, MAX_TAPE_LOAD_FRAMES)
             .map_err(|err| CatalogueError::Session(format!("tape stop: {err}")))?;
     }
 
-    // Boot waypoint: run wait_frames more frames, then hash the frame.
     session
         .run_frames(entry.boot.wait_frames)
         .map_err(|err| CatalogueError::Session(format!("boot wait: {err}")))?;
@@ -259,8 +426,10 @@ fn run_spectrum_entry(
         .rgba_pixels()
         .map_err(|err| CatalogueError::Session(format!("rgba: {err}")))?;
     let boot_hash = hash_xxh64(&boot_rgba);
+    let boot_png = boot_frame
+        .png_bytes()
+        .map_err(|err| CatalogueError::Session(format!("boot png: {err}")))?;
 
-    // Scripted input. `at_frame` is counted from the boot waypoint.
     let mut frames_since_boot: u32 = 0;
     for step in &entry.script {
         if step.at_frame > frames_since_boot {
@@ -287,7 +456,6 @@ fn run_spectrum_entry(
         frames_since_boot = frames_since_boot.saturating_add(4);
     }
 
-    // Audio window. `from_frame` is counted from the boot waypoint.
     if entry.audio.from_frame > frames_since_boot {
         let advance = entry.audio.from_frame - frames_since_boot;
         session
@@ -297,8 +465,6 @@ fn run_spectrum_entry(
 
     session.clear_audio_capture();
 
-    let frames_per_sec =
-        (TIMING_48K.master_hz as f64) / f64::from(TIMING_48K.halfcycles_per_frame);
     let audio_frames = (f64::from(entry.audio.secs) * frames_per_sec).round() as u32;
     session
         .run_frames(audio_frames)
@@ -327,7 +493,32 @@ fn run_spectrum_entry(
         boot_hash,
         audio_hash,
         outcome,
+        boot_png,
+        audio_wav,
     })
+}
+
+fn lookup_firmware<'m>(
+    manifest: &'m Manifest,
+    variant: &str,
+) -> Result<&'m [FirmwareSpec], CatalogueError> {
+    manifest
+        .system
+        .firmware
+        .iter()
+        .find(|vf| vf.variant == variant)
+        .map(|vf| vf.files.as_slice())
+        .ok_or_else(|| CatalogueError::FirmwareNotDeclared(variant.into()))
+}
+
+fn read_firmware_bytes(
+    firmware_root: &Path,
+    spec: &FirmwareSpec,
+) -> Result<Vec<u8>, CatalogueError> {
+    let path = firmware_root.join(&spec.path);
+    let loaded = read_firmware_asset(&path)
+        .map_err(|err| CatalogueError::Session(format!("firmware {path:?}: {err}")))?;
+    Ok(loaded.bytes)
 }
 
 fn parse_media_kind(kind: &str) -> Result<MediaKind, CatalogueError> {
@@ -342,6 +533,10 @@ fn parse_media_kind(kind: &str) -> Result<MediaKind, CatalogueError> {
     }
 }
 
+fn spectrum_frames_per_sec(timing: &common_sinclair_zx_spectrum::timing::FrameTiming) -> f64 {
+    (timing.master_hz as f64) / f64::from(timing.halfcycles_per_frame)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,17 +546,27 @@ mod tests {
         let h = hash_xxh64(b"hello world");
         assert!(h.starts_with("xxh64:"), "got: {h}");
         assert_eq!(h.len(), "xxh64:".len() + 16);
-        // Re-hashing the same bytes must produce the same string.
         assert_eq!(h, hash_xxh64(b"hello world"));
     }
 
     #[test]
-    fn manifest_parses_minimal_entry() {
+    fn manifest_parses_variant_firmware_layout() {
         let toml_text = r#"
 [system]
 id = "spectrum"
-firmware_id = "sinclair-zx-spectrum-48k-rom"
-firmware_path = "sinclair-zx-spectrum-48k/48.rom"
+
+[[system.firmware]]
+variant = "48k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "128k"
+files = [
+    { id = "sinclair-zx-spectrum-128k-rom-0", path = "sinclair-zx-spectrum-128k/128-0.rom" },
+    { id = "sinclair-zx-spectrum-128k-rom-1", path = "sinclair-zx-spectrum-128k/128-1.rom" },
+]
 
 [[entry]]
 id = "manic-miner"
@@ -376,18 +581,59 @@ slot = "tape-1"
 path = "spectrum/manic-miner.tap"
 
 [entry.boot]
-wait_frames = 600
+wait_frames = 60
 frame_hash = "xxh64:0000000000000000"
 
 [entry.audio]
-from_frame = 700
+from_frame = 100
 secs = 2.0
 hash = "xxh64:0000000000000000"
 "#;
         let manifest: Manifest = toml::from_str(toml_text).expect("manifest parses");
         assert_eq!(manifest.system.id, "spectrum");
-        assert_eq!(manifest.entry.len(), 1);
-        assert_eq!(manifest.entry[0].id, "manic-miner");
-        assert!(manifest.entry[0].script.is_empty());
+        assert_eq!(manifest.system.firmware.len(), 2);
+        assert_eq!(manifest.system.firmware[0].variant, "48k");
+        assert_eq!(manifest.system.firmware[0].files.len(), 1);
+        assert_eq!(manifest.system.firmware[1].variant, "128k");
+        assert_eq!(manifest.system.firmware[1].files.len(), 2);
+    }
+
+    #[test]
+    fn lookup_firmware_finds_variant() {
+        let manifest = Manifest {
+            system: SystemMeta {
+                id: "spectrum".into(),
+                firmware: vec![
+                    VariantFirmware {
+                        variant: "48k".into(),
+                        files: vec![FirmwareSpec {
+                            id: "rom".into(),
+                            path: "48.rom".into(),
+                        }],
+                    },
+                    VariantFirmware {
+                        variant: "128k".into(),
+                        files: vec![
+                            FirmwareSpec {
+                                id: "rom0".into(),
+                                path: "128-0.rom".into(),
+                            },
+                            FirmwareSpec {
+                                id: "rom1".into(),
+                                path: "128-1.rom".into(),
+                            },
+                        ],
+                    },
+                ],
+            },
+            entry: vec![],
+        };
+
+        assert_eq!(lookup_firmware(&manifest, "48k").expect("48k").len(), 1);
+        assert_eq!(lookup_firmware(&manifest, "128k").expect("128k").len(), 2);
+        assert!(matches!(
+            lookup_firmware(&manifest, "+3"),
+            Err(CatalogueError::FirmwareNotDeclared(_))
+        ));
     }
 }

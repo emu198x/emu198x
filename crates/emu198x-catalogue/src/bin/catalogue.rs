@@ -17,6 +17,7 @@ use emu198x_catalogue::{
 const USAGE: &str = "\
 Usage:
     catalogue capture --entry <id> [--manifest PATH]
+                      [--save-screenshot PATH] [--save-audio PATH]
     catalogue run [--entry <id>] [--manifest PATH]
 
 Resolves media and firmware against:
@@ -53,6 +54,8 @@ fn main() {
 struct Args {
     entry: Option<String>,
     manifest: Option<PathBuf>,
+    save_screenshot: Option<PathBuf>,
+    save_audio: Option<PathBuf>,
 }
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
@@ -71,6 +74,18 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 args.manifest = Some(PathBuf::from(
                     iter.next()
                         .ok_or_else(|| "--manifest requires a path".to_string())?,
+                ));
+            }
+            "--save-screenshot" => {
+                args.save_screenshot = Some(PathBuf::from(
+                    iter.next()
+                        .ok_or_else(|| "--save-screenshot requires a path".to_string())?,
+                ));
+            }
+            "--save-audio" => {
+                args.save_audio = Some(PathBuf::from(
+                    iter.next()
+                        .ok_or_else(|| "--save-audio requires a path".to_string())?,
                 ));
             }
             other => return Err(format!("unknown flag: {other}")),
@@ -132,6 +147,14 @@ fn cmd_capture(argv: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let entry = find_entry(&manifest, &entry_id)?;
     let result = run_entry(&manifest, entry, &media_root(), &firmware_root())?;
     print_capture(&entry_id, &result);
+    if let Some(path) = &args.save_screenshot {
+        std::fs::write(path, &result.boot_png)?;
+        println!("  saved screenshot  = {}", path.display());
+    }
+    if let Some(path) = &args.save_audio {
+        std::fs::write(path, &result.audio_wav)?;
+        println!("  saved audio       = {}", path.display());
+    }
     Ok(())
 }
 

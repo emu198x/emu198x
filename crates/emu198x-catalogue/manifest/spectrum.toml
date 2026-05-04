@@ -10,8 +10,19 @@
 
 [system]
 id = "spectrum"
-firmware_id = "sinclair-zx-spectrum-48k-rom"
-firmware_path = "sinclair-zx-spectrum-48k/48.rom"
+
+[[system.firmware]]
+variant = "48k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "128k"
+files = [
+    { id = "sinclair-zx-spectrum-128k-rom-0", path = "sinclair-zx-spectrum-128k/128-0.rom" },
+    { id = "sinclair-zx-spectrum-128k-rom-1", path = "sinclair-zx-spectrum-128k/128-1.rom" },
+]
 
 [[entry]]
 id = "manic-miner"
@@ -40,3 +51,171 @@ frame_hash = "xxh64:30284edfffd9c628"
 from_frame = 100
 secs = 2.0
 hash = "xxh64:4aa1053c8758f416"
+
+[[entry]]
+id = "knight-lore"
+title = "Knight Lore"
+year = 1984
+publisher = "Ultimate Play The Game"
+variant = "48k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Knight Lore (1984)(Ultimate Play The Game)[a].zip"
+
+[entry.boot]
+# Filmation isometric engine — pressure-tests sprite-heavy frame timing.
+# Captures the post-load controls menu ("1 KEYBOARD / ... / 0 START GAME").
+wait_frames = 60
+frame_hash = "xxh64:074e242db0720e42"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:995ce6ad30bb2985"
+
+[[entry]]
+id = "jet-set-willy"
+title = "Jet Set Willy"
+year = 1984
+publisher = "Software Projects"
+variant = "48k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Jet Set Willy (1984)(Software Projects).zip"
+
+[entry.boot]
+# Different tape header to Manic Miner — exercises a second loader path.
+# Captures the famous "Enter Code at grid location" anti-piracy screen.
+wait_frames = 60
+frame_hash = "xxh64:b19f8efb6d02d8b9"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "atic-atac"
+title = "Atic Atac"
+year = 1983
+publisher = "Ultimate Play The Game"
+variant = "48k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Atic Atac (1983)(Ultimate Play The Game).zip"
+
+[entry.boot]
+# Top-down arcade-adventure — different engine class to Knight Lore.
+# Captures the "ATICATAC GAME SELECTION" controls menu.
+wait_frames = 60
+frame_hash = "xxh64:81301d5c0b355bf9"
+
+[entry.audio]
+# 2 s of silence — the controls menu has no music; the hash here
+# confirms no spurious audio output, not a unique waveform.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "skool-daze"
+title = "Skool Daze"
+year = 1984
+publisher = "Microsphere"
+variant = "48k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Skool Daze (1984)(Microsphere).zip"
+
+[entry.boot]
+# Sandbox school sim with AI characters — wholly different game shape.
+# Captures the SKOOL DAZE title art (Eric being chased by a teacher).
+wait_frames = 60
+frame_hash = "xxh64:bc2fd766878aeab9"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:817161b15857e08e"
+
+[[entry]]
+id = "chuckie-egg"
+title = "Chuckie Egg"
+year = 1983
+publisher = "A'n'F"
+variant = "48k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Chuckie Egg (1983)(A'n'F)[a2].zip"
+
+[entry.boot]
+# Pre-Manic-Miner platform classic — earliest era of 48K platformers.
+# Captures the title screen with high score table sidebar.
+wait_frames = 60
+frame_hash = "xxh64:90f9e7b9c5e31ae5"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:4aed7fa2bef1d06d"
+
+[[entry]]
+id = "saboteur"
+title = "Saboteur!"
+year = 1985
+publisher = "Durell"
+variant = "48k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a2].zip"
+
+[entry.boot]
+# Late-period 48K with stealth mechanics — Clive Townsend.
+# Captures the famous "WATCH OUT!" anti-piracy warning screen.
+wait_frames = 60
+frame_hash = "xxh64:6f237601c8b47779"
+
+[entry.audio]
+# 2 s of silence (warning screen has no music). Same caveat as Atic Atac.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "chase-hq"
+title = "Chase H.Q."
+year = 1989
+publisher = "Ocean"
+variant = "128k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+# First 128K entry — exercises the AY music path and the 128K menu
+# autoload (wait for menu, press ENTER for Tape Loader, start tape).
+# Captures the "CHASE H Q / © 1989 OCEAN SOFTWARE / © 1988 TAITO" title
+# screen with the SCORE/TIME/SPEED HUD and police lights.
+wait_frames = 60
+frame_hash = "xxh64:b1e9d5b8c017e5a7"
+
+[entry.audio]
+# Captures the AY title-screen music — the reason 128K Chase H.Q. exists
+# as a distinct release from the 48K version.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c72266bc84d56bc3"
