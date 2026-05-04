@@ -654,7 +654,7 @@ impl Mc6809 {
                 bus_status,
                 Mc6809BusStatus::SyncAcknowledge | Mc6809BusStatus::HaltAcknowledge
             ),
-            lic: self.instruction_boundary(),
+            lic: self.lic_pin(bus_status),
             busy: self.busy_pin(),
             ba,
             bs,
@@ -682,16 +682,25 @@ impl Mc6809 {
     }
 
     fn busy_pin(&self) -> bool {
-        matches!(
-            self.state,
-            CpuState::ReadImm16Hi(_)
-                | CpuState::ReadMem16Hi { .. }
-                | CpuState::ReadRmwValue { .. }
-                | CpuState::WriteValue
-                | CpuState::WriteValueThenInternal { .. }
-                | CpuState::Write16Lo { .. }
-                | CpuState::ReadVectorHi(_)
-        )
+        self.reset_phase == 2
+            || matches!(
+                self.state,
+                CpuState::ReadImm16Hi(_)
+                    | CpuState::ReadMem16Hi { .. }
+                    | CpuState::ReadRmwValue { .. }
+                    | CpuState::WriteValue
+                    | CpuState::WriteValueThenInternal { .. }
+                    | CpuState::Write16Lo { .. }
+                    | CpuState::ReadVectorHi(_)
+            )
+    }
+
+    fn lic_pin(&self, bus_status: Mc6809BusStatus) -> bool {
+        self.instruction_boundary()
+            || matches!(
+                bus_status,
+                Mc6809BusStatus::SyncAcknowledge | Mc6809BusStatus::HaltAcknowledge
+            )
     }
 
     fn tick_instruction(&mut self) {
@@ -4985,6 +4994,75 @@ mod tests {
     }
 
     #[test]
+    fn pins_report_reset_vector_fetches_and_first_opcode_fetch() {
+        let mut cpu = Mc6809::new();
+        cpu.reset();
+        let pins = cpu.pins();
+        assert_eq!(pins.addr, 0xFFFE);
+        assert!(pins.rw);
+        assert_eq!(
+            pins.bus_status,
+            Mc6809BusStatus::InterruptOrResetAcknowledge
+        );
+        assert!(!pins.ba);
+        assert!(pins.bs);
+        assert!(pins.avma);
+        assert!(pins.busy, "reset high-vector byte is a vector fetch");
+        assert!(!pins.lic);
+
+        cpu.data_in = 0xC0;
+        cpu.tick();
+        let pins = cpu.pins();
+        assert_eq!(pins.addr, 0xFFFF);
+        assert!(pins.rw);
+        assert_eq!(
+            pins.bus_status,
+            Mc6809BusStatus::InterruptOrResetAcknowledge
+        );
+        assert!(!pins.busy, "reset low-vector byte should not assert BUSY");
+        assert!(!pins.lic);
+
+        cpu.data_in = 0x00;
+        cpu.tick();
+        let pins = cpu.pins();
+        assert_eq!(pins.addr, 0xC000);
+        assert!(pins.rw);
+        assert_eq!(pins.bus_status, Mc6809BusStatus::Normal);
+        assert!(pins.avma);
+        assert!(
+            pins.lic,
+            "first opcode fetch is the next last-instruction cycle"
+        );
+        assert!(pins.sync);
+    }
+
+    #[test]
+    fn pins_report_fetch_and_internal_cycles() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x12; // NOP
+        let mut cpu = cpu_at(0x4000);
+
+        let pins = cpu.pins();
+        assert_eq!(pins.addr, 0x4000);
+        assert_eq!(pins.bus_status, Mc6809BusStatus::Normal);
+        assert!(pins.rw);
+        assert!(pins.avma);
+        assert!(pins.lic);
+        assert!(pins.sync);
+        assert!(!pins.busy);
+
+        run_cycle(&mut cpu, &mut memory);
+        let pins = cpu.pins();
+        assert_eq!(pins.addr, 0x4001);
+        assert_eq!(pins.bus_status, Mc6809BusStatus::Normal);
+        assert!(pins.rw);
+        assert!(pins.avma);
+        assert!(!pins.lic);
+        assert!(!pins.sync);
+        assert!(!pins.busy);
+    }
+
+    #[test]
     fn pins_decode_reset_sync_halt_and_vector_acknowledge_states() {
         let mut memory = [0; 0x10000];
         let mut cpu = Mc6809::new();
@@ -5007,6 +5085,7 @@ mod tests {
         assert!(pins.ba);
         assert!(!pins.bs);
         assert!(!pins.avma);
+        assert!(pins.lic);
 
         let mut cpu = cpu_at(0x4000);
         memory[0x4000] = 0x3F; // SWI
@@ -5022,6 +5101,7 @@ mod tests {
         );
         assert!(!cpu.pins().ba);
         assert!(cpu.pins().bs);
+        assert!(cpu.pins().busy);
 
         let mut cpu = cpu_at(0x4000);
         memory[0x4000] = 0x01; // illegal/undefined opcode in our diagnostic mode
@@ -5031,6 +5111,7 @@ mod tests {
         assert!(pins.ba);
         assert!(pins.bs);
         assert!(!pins.avma);
+        assert!(pins.lic);
     }
 
     #[test]
@@ -5234,6 +5315,63 @@ mod tests {
         assert!(pins.busy, "first vector-fetch byte should assert BUSY");
         assert!(pins.rw);
         assert_eq!(pins.addr, 0xFFFA);
+    }
+
+    #[test]
+    fn pins_report_hardware_interrupt_vector_fetches() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x12; // would be fetched if IRQ were not pending
+        memory[0xFFF8] = 0x45;
+        memory[0xFFF9] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.cc = 0;
+        cpu.irq = true;
+
+        for _ in 0..17 {
+            run_cycle(&mut cpu, &mut memory);
+        }
+        let pins = cpu.pins();
+        assert_eq!(
+            pins.bus_status,
+            Mc6809BusStatus::InterruptOrResetAcknowledge
+        );
+        assert_eq!(pins.addr, 0xFFF8);
+        assert!(pins.busy);
+        assert!(pins.rw);
+        assert!(pins.avma);
+        assert!(!pins.lic);
+
+        run_cycle(&mut cpu, &mut memory);
+        let pins = cpu.pins();
+        assert_eq!(
+            pins.bus_status,
+            Mc6809BusStatus::InterruptOrResetAcknowledge
+        );
+        assert_eq!(pins.addr, 0xFFF9);
+        assert!(!pins.busy);
+        assert!(pins.rw);
+
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x12;
+        memory[0xFFF6] = 0x46;
+        memory[0xFFF7] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.cc = 0;
+        cpu.firq = true;
+
+        for _ in 0..8 {
+            run_cycle(&mut cpu, &mut memory);
+        }
+        let pins = cpu.pins();
+        assert_eq!(
+            pins.bus_status,
+            Mc6809BusStatus::InterruptOrResetAcknowledge
+        );
+        assert_eq!(pins.addr, 0xFFF6);
+        assert!(pins.busy);
+        assert!(pins.rw);
     }
 
     #[test]

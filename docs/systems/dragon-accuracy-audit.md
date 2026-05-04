@@ -78,13 +78,17 @@ uses `tick_phase()` around SAM master-tick windows. This is enough to put
 interrupt sampling and read-data latching at the documented falling-Q and
 falling-E points. Tests now cover falling-Q interrupt sampling during normal
 execution, `SYNC`, and `CWAI`, plus the one-cycle synchronization delay before
-service. It is still not a complete external bus model for DMA, halt/three-state
-ownership, or every invalid-vs-valid memory access cycle.
+service. Pin tests now cover reset vector fetches, normal opcode fetch/internal
+cycles, `SYNC` acknowledge, diagnostic halt acknowledge, software and hardware
+interrupt vector fetches, vector-fetch `BUSY`, `AVMA`, `BA/BS`, and represented
+`LIC` states. It is still not a complete external bus model for DMA, true
+external HALT/TSC ownership, or every invalid-vs-valid memory access cycle.
 
 Required resolution:
 
-1. Expand bus-trace tests for reset, fetch, RMW, double-byte operations, vector
-   fetches, `HALT`, and remaining invalid-vs-valid memory access cycles.
+1. Expand bus-trace tests for remaining invalid-vs-valid memory access cycles
+   and any instruction families that need more than the current compatibility
+   pin snapshot.
 2. Model the remaining external ownership pins and DMA/three-state behavior
    once a machine needs them.
 
@@ -231,6 +235,10 @@ Progress:
   external IRQ/FIRQ entry timing, and indexed `JMP/JSR` direct and indirect
   timing. These tests corrected prior shortcuts in full-frame `RTI`, `SYNC`,
   `CWAI`, external interrupt entry, and indexed `JMP`.
+- MC6809 pin tests now pin reset/opcode/vector fetch state, represented
+  `LIC`, `AVMA`, `BA/BS`, and `BUSY` behavior for the compatibility pin model.
+  The pin snapshot corrected reset high-vector `BUSY` and `LIC` during
+  represented `SYNC`/halt acknowledge states.
 - Dragon rendering now separates immediate SAM display-offset latches from the
   VDG-effective display base. `dragon.sam.display_offset` changes immediately,
   while VDG fetches and `dragon.video.display_base` update on frame-sync fall.
