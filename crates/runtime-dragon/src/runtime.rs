@@ -7,22 +7,23 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError,
     QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason, TraceEvent,
 };
-use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
-use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
-use format_dragon_disk::{DragonDiskImage, parse_vdk};
+use format_dragon_bin::{parse_dragon_bin, DragonBinImage};
+use format_dragon_cas::{parse_cas_tolerant, CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE};
+use format_dragon_disk::{parse_vdk, DragonDiskImage};
 use format_dragon_pak::{
-    DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
-    parse_dragon_pak, parse_pcdragon_snapshot,
+    parse_dragon_pak, parse_pcdragon_snapshot, DragonCartridgeKind as ParsedDragonCartridgeKind,
+    DragonPakImage, PcDragonSnapshot,
 };
 use machine_dragon_32::{
-    DRAGON_AUDIO_SAMPLE_RATE, DRAGON_FRAME_CYCLES, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX,
-    DRAGON_JOYSTICK_MIN, Dragon32, DragonCartridgeKind, DragonHardwareModel, DragonJoystickAxis,
-    DragonKey, DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
+    Dragon32, DragonCartridgeKind, DragonHardwareModel, DragonJoystickAxis, DragonKey,
+    DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, DRAGON_AUDIO_SAMPLE_RATE,
+    DRAGON_FRAME_CYCLES, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX, DRAGON_JOYSTICK_MIN,
+    ROM_SIZE,
 };
 use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
 use serde_json::json;
 
-use crate::{Model, profile_for};
+use crate::{profile_for, Model};
 
 const DRAGON64_COMPATIBLE_ROM_ID: &str = "dragon64-compatible-rom";
 const DRAGON64_MODE_ROM_ID: &str = "dragon64-basic-rom";
@@ -945,12 +946,10 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                 json!(machine.machine.disk_summary(0).map(|disk| disk.sides))
             }
             "dragon.disk.drive1.sectors_per_track" => {
-                json!(
-                    machine
-                        .machine
-                        .disk_summary(0)
-                        .map(|disk| disk.sectors_per_track)
-                )
+                json!(machine
+                    .machine
+                    .disk_summary(0)
+                    .map(|disk| disk.sectors_per_track))
             }
             "dragon.disk.drive1.sector_size" => {
                 json!(machine.machine.disk_summary(0).map(|disk| disk.sector_size))
@@ -984,22 +983,18 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
             "dragon.tape.motor_on" => json!(machine.machine.cassette_motor_on()),
             "dragon.tape.position_bits" => json!(machine.machine.cassette_position_bits()),
             "dragon.tape.header.name" => {
-                json!(
-                    machine
-                        .tape
-                        .as_ref()
-                        .and_then(CasImage::first_header)
-                        .map(|header| header.name.as_str())
-                )
+                json!(machine
+                    .tape
+                    .as_ref()
+                    .and_then(CasImage::first_header)
+                    .map(|header| header.name.as_str()))
             }
             "dragon.tape.header.file_type" => {
-                json!(
-                    machine
-                        .tape
-                        .as_ref()
-                        .and_then(CasImage::first_header)
-                        .map(|header| cas_file_type_label(header.file_type))
-                )
+                json!(machine
+                    .tape
+                    .as_ref()
+                    .and_then(CasImage::first_header)
+                    .map(|header| cas_file_type_label(header.file_type)))
             }
             "dragon.program.loaded" => json!(machine.program.is_some()),
             "dragon.program.load_address" => {
@@ -1009,12 +1004,10 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                 json!(machine.program.as_ref().map(|program| program.exec_address))
             }
             "dragon.program.length" => {
-                json!(
-                    machine
-                        .program
-                        .as_ref()
-                        .map(|program| program.payload.len())
-                )
+                json!(machine
+                    .program
+                    .as_ref()
+                    .map(|program| program.payload.len()))
             }
             "dragon.text.base" => json!(machine.machine.text_screen_base()),
             "dragon.video.display_base" => json!(machine.machine.video_display_base()),
@@ -1125,7 +1118,7 @@ mod tests {
         AudioCapture, FirmwareImage, FirmwareSet, FramePacket, FrameSink, HostIo, MachineCore,
         MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink, NullTraceSink, PixelFormat,
     };
-    use format_dragon_cas::{LEADER_BYTE, SYNC_BYTE, checksum_for};
+    use format_dragon_cas::{checksum_for, LEADER_BYTE, SYNC_BYTE};
     use motorola_vdg_6847::{
         TEXT_ROWS, VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
     };
@@ -1282,12 +1275,10 @@ mod tests {
                 pressed: true,
             })
             .expect("joystick fire press should apply");
-        assert!(
-            runtime
-                .machine()
-                .joystick_button(1)
-                .expect("joystick fire button 1 should exist")
-        );
+        assert!(runtime
+            .machine()
+            .joystick_button(1)
+            .expect("joystick fire button 1 should exist"));
     }
 
     #[test]
@@ -1574,27 +1565,6 @@ mod tests {
         bytes
     }
 
-    fn dragon_dos_directory_contains(
-        image: &DragonDiskImage,
-        name: &[u8],
-        extension: &[u8],
-    ) -> bool {
-        let mut padded_name = [0; 8];
-        let mut padded_extension = [0; 3];
-        padded_name[..name.len()].copy_from_slice(name);
-        padded_extension[..extension.len()].copy_from_slice(extension);
-
-        image.data().chunks_exact(256).any(|sector| {
-            [0, 1].into_iter().any(|base| {
-                (0..10).any(|entry| {
-                    let offset = base + entry * 25;
-                    sector[offset..offset + 8] == padded_name
-                        && sector[offset + 8..offset + 11] == padded_extension
-                })
-            })
-        })
-    }
-
     #[test]
     fn load_media_accepts_dragon_disk() {
         let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
@@ -1657,7 +1627,7 @@ mod tests {
         let reparsed = parse_vdk(&exported).expect("exported VDK should parse");
 
         assert!(
-            dragon_dos_directory_contains(&reparsed, b"CODX", b"BAS"),
+            reparsed.contains_directory_entry(b"CODX", b"BAS"),
             "exported VDK should preserve CODX.BAS directory entry"
         );
     }

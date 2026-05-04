@@ -65,6 +65,29 @@ impl DragonDiskImage {
         &self.data
     }
 
+    /// Returns whether the disk contains a DragonDOS directory entry with the
+    /// supplied unpadded file name and extension bytes.
+    #[must_use]
+    pub fn contains_directory_entry(&self, name: &[u8], extension: &[u8]) -> bool {
+        let Some(padded_name) = padded_field::<8>(name) else {
+            return false;
+        };
+        let Some(padded_extension) = padded_field::<3>(extension) else {
+            return false;
+        };
+
+        let sector_size = usize::from(self.sector_size);
+        self.data.chunks_exact(sector_size).any(|sector| {
+            [0, 1].into_iter().any(|base| {
+                (0..10).any(|entry| {
+                    let offset = base + entry * 25;
+                    sector[offset..offset + 8] == padded_name
+                        && sector[offset + 8..offset + 11] == padded_extension
+                })
+            })
+        })
+    }
+
     /// Serializes the disk as a standard VDK image.
     #[must_use]
     pub fn to_vdk_bytes(&self) -> Vec<u8> {
@@ -78,6 +101,16 @@ impl DragonDiskImage {
         bytes.extend_from_slice(&self.data);
         bytes
     }
+}
+
+fn padded_field<const N: usize>(bytes: &[u8]) -> Option<[u8; N]> {
+    if bytes.len() > N {
+        return None;
+    }
+
+    let mut padded = [0; N];
+    padded[..bytes.len()].copy_from_slice(bytes);
+    Some(padded)
 }
 
 /// Dragon disk image parse failure.
@@ -198,6 +231,17 @@ mod tests {
         bytes
     }
 
+    fn write_directory_entry(
+        bytes: &mut [u8],
+        sector_offset: usize,
+        name: &[u8],
+        extension: &[u8],
+    ) {
+        let entry = VDK_HEADER_LEN + sector_offset;
+        bytes[entry..entry + name.len()].copy_from_slice(name);
+        bytes[entry + 8..entry + 8 + extension.len()].copy_from_slice(extension);
+    }
+
     #[test]
     fn parses_headered_vdk() {
         let image = parse_vdk(&minimal_vdk()).expect("VDK should parse");
@@ -245,6 +289,34 @@ mod tests {
         assert_eq!(bytes[8], 40);
         assert_eq!(bytes[9], 1);
         assert_eq!(reparsed.sector(0, 0, 1).expect("sector 1")[1], 0x42);
+    }
+
+    #[test]
+    fn finds_dragon_dos_directory_entries() {
+        let mut bytes = minimal_vdk();
+        write_directory_entry(&mut bytes, 1 + 7 * 25, b"CODX", b"BAS");
+        let image = parse_vdk(&bytes).expect("VDK should parse");
+
+        assert!(image.contains_directory_entry(b"CODX", b"BAS"));
+        assert!(!image.contains_directory_entry(b"MISS", b"BAS"));
+        assert!(!image.contains_directory_entry(b"CODX", b"BIN"));
+    }
+
+    #[test]
+    fn finds_zero_based_directory_entries() {
+        let mut bytes = minimal_vdk();
+        write_directory_entry(&mut bytes, 7 * 25, b"CODX", b"BAS");
+        let image = parse_vdk(&bytes).expect("VDK should parse");
+
+        assert!(image.contains_directory_entry(b"CODX", b"BAS"));
+    }
+
+    #[test]
+    fn rejects_overlong_directory_entry_queries() {
+        let image = parse_vdk(&minimal_vdk()).expect("VDK should parse");
+
+        assert!(!image.contains_directory_entry(b"TOO-LONG!", b"BAS"));
+        assert!(!image.contains_directory_entry(b"CODX", b"LONG"));
     }
 
     #[test]

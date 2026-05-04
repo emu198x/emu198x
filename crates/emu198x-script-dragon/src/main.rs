@@ -12,28 +12,27 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use emu198x_shell::StopReason as RuntimeStopReason;
 use emu198x_shell::{
-    CapturedFrame, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineError,
-    MachineTime, MediaImage, MediaKind, MediaSet, PixelFormat, TraceEvent, TraceSink,
-    read_media_asset,
+    read_media_asset, CapturedFrame, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent,
+    MachineError, MachineTime, MediaImage, MediaKind, MediaSet, PixelFormat, TraceEvent, TraceSink,
 };
-use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
-use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
-use format_dragon_disk::{DragonDiskImage, parse_vdk};
+use format_dragon_bin::{parse_dragon_bin, DragonBinImage};
+use format_dragon_cas::{parse_cas_tolerant, CasFileType, CasHeader, CasImage};
+use format_dragon_disk::{parse_vdk, DragonDiskImage};
 use format_dragon_pak::{
-    DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonPeripherals,
-    PcDragonSnapshot, parse_dragon_pak, parse_pcdragon_snapshot,
+    parse_dragon_pak, parse_pcdragon_snapshot, DragonCartridgeKind as ParsedDragonCartridgeKind,
+    DragonPakImage, PcDragonPeripherals, PcDragonSnapshot,
 };
 use machine_dragon_32::{
     AddressRange, CpuInterruptAcceptTrace, CpuInterruptKind, CpuInterruptLineTrace,
-    CpuRegisterTrace, DRAGON_CPU_HZ, DRAGON_FRAME_CYCLES, DRAGON_MASTER_HZ, DeviceAccess,
-    DeviceRegion, Dragon32, DragonCartridgeKind, DragonKey, DragonKeyboard, DragonVideoPhase,
-    FetchTrace, MatrixKey, MemoryWriteTrace, PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions,
-    RunReport, StopReason, VdgModeWriteTrace, VdgSampleTrace, WatchedFetchTrace,
+    CpuRegisterTrace, DeviceAccess, DeviceRegion, Dragon32, DragonCartridgeKind, DragonKey,
+    DragonKeyboard, DragonVideoPhase, FetchTrace, MatrixKey, MemoryWriteTrace, PiaSignalTrace,
+    ReadonlyWrite, RunOptions, RunReport, StopReason, VdgModeWriteTrace, VdgSampleTrace,
+    WatchedFetchTrace, DRAGON_CPU_HZ, DRAGON_FRAME_CYCLES, DRAGON_MASTER_HZ, ROM_SIZE,
 };
 use motorola_vdg_6847::{
-    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
+    TextPalette, VdgPalette, TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH,
     VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
-    VDG_PAL_OVERSCAN_VISIBLE_X, VDG_PAL_OVERSCAN_VISIBLE_Y, VdgPalette,
+    VDG_PAL_OVERSCAN_VISIBLE_X, VDG_PAL_OVERSCAN_VISIBLE_Y,
 };
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 use serde::Serialize;
@@ -6715,7 +6714,7 @@ mod tests {
             .expect("DragonDOS SAVE should capture an exported VDK image");
         let reparsed = parse_vdk(exported).expect("exported DragonDOS VDK should reparse");
         assert!(
-            dragon_dos_directory_contains(&reparsed, b"CODX", b"BAS"),
+            reparsed.contains_directory_entry(b"CODX", b"BAS"),
             "exported VDK should contain CODX.BAS in a DragonDOS directory entry"
         );
     }
@@ -7758,35 +7757,22 @@ mod tests {
         );
     }
 
-    fn dragon_dos_directory_contains(
-        image: &DragonDiskImage,
-        name: &[u8],
-        extension: &[u8],
-    ) -> bool {
-        let mut padded_name = [0; 8];
-        let mut padded_extension = [0; 3];
-        padded_name[..name.len()].copy_from_slice(name);
-        padded_extension[..extension.len()].copy_from_slice(extension);
-
-        image.data().chunks_exact(256).any(|sector| {
-            [0, 1].into_iter().any(|base| {
-                (0..10).any(|entry| {
-                    let offset = base + entry * 25;
-                    sector[offset..offset + 8] == padded_name
-                        && sector[offset + 8..offset + 11] == padded_extension
-                })
-            })
-        })
-    }
-
     fn existing_env_path(var: &str) -> Option<PathBuf> {
         let path = PathBuf::from(env::var_os(var)?);
-        if path.exists() { Some(path) } else { None }
+        if path.exists() {
+            Some(path)
+        } else {
+            None
+        }
     }
 
     fn home_path(relative: &str) -> Option<PathBuf> {
         let path = PathBuf::from(env::var_os("HOME")?).join(relative);
-        if path.exists() { Some(path) } else { None }
+        if path.exists() {
+            Some(path)
+        } else {
+            None
+        }
     }
 
     fn xroar_v1_chunk(bytes: &[u8], section: u8) -> Option<&[u8]> {
