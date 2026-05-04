@@ -150,6 +150,15 @@ impl Model {
                 | Self::A500OcsNtscMaxed
         )
     }
+
+    /// Whether this model uses the ECS chip stack (`AmigaEcs`).
+    /// Drives the dispatch in `AmigaRuntimeKind::new`. Today only
+    /// the A500+ Models are ECS; A600 / A2000B / A3000 will join
+    /// once their machine-specific chips are ported.
+    #[must_use]
+    pub const fn is_ecs(self) -> bool {
+        matches!(self, Self::A500PlusEcsPal | Self::A500PlusEcsNtsc)
+    }
 }
 
 /// Returns the initial Amiga family catalogue.

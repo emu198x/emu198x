@@ -20,7 +20,9 @@ use emu198x_shell::{
     StopReason,
 };
 use format_commodore_amiga_adf::Adf;
-use machine_commodore_amiga_ecs::{AmigaEcs, AudioControls as EcsAudioControls, PaulaChannel as EcsPaulaChannel};
+use machine_commodore_amiga_ecs::{
+    AmigaEcs, AudioControls as EcsAudioControls, PaulaChannel as EcsPaulaChannel,
+};
 use machine_commodore_amiga_ocs::{
     AmigaOcs, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
 };

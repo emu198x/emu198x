@@ -270,8 +270,7 @@ fn workbench_13_reaches_desktop() -> Result<(), Box<dyn Error>> {
 /// equivalent on KS 1.3.
 #[test]
 #[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom (KS 2.04 r37.175)"]
-fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal()
--> Result<(), Box<dyn Error>> {
+fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal() -> Result<(), Box<dyn Error>> {
     use runtime_commodore_amiga::AmigaEcsRuntime;
     let Some(rom_dir) = home_rom_dir() else {
         eprintln!("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
@@ -300,6 +299,61 @@ fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal()
         result.value,
         serde_json::Value::Bool(true),
         "Kickstart 2.04 should reach insert-disk within 50M ticks (A500+ ECS PAL)"
+    );
+    Ok(())
+}
+
+/// Waypoint: Kickstart 2.04 + Workbench 2.04 ADF reaches a steady
+/// post-boot screen on the A500+ ECS chip stack. Parallels the
+/// existing `workbench_13_reaches_desktop` waypoint that proves the
+/// equivalent OCS A500 + KS 1.3 + WB 1.3 boot path.
+///
+/// Catches regression: disk DMA + MFM decode + autoconfig + trackdisk
+/// path on the ECS chip stack — the single most expensive ECS
+/// regression to reproduce by hand. Window is 50M ticks (insert-disk)
+/// plus 25M (Workbench load) for 75M total, generous for the longer
+/// KS 2.04 cold-boot path.
+#[test]
+#[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom and ~/.emu198x/media/commodore-amiga/workbench-2.04.adf"]
+fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
+    use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+    use runtime_commodore_amiga::AmigaEcsRuntime;
+
+    let Some(rom_dir) = home_rom_dir() else {
+        eprintln!("skip: no Amiga ROM dir");
+        return Ok(());
+    };
+    let Some(media_dir) = home_media_dir() else {
+        eprintln!("skip: no Amiga media dir");
+        return Ok(());
+    };
+    let kickstart_path = rom_dir.join("kick204.rom");
+    let adf_path = media_dir.join("workbench-2.04.adf");
+    if !kickstart_path.exists() || !adf_path.exists() {
+        eprintln!("skip: missing kickstart or workbench ADF");
+        return Ok(());
+    }
+
+    let firmware = std::fs::read(&kickstart_path)?;
+    let adf = std::fs::read(&adf_path)?;
+    let mut runtime = AmigaEcsRuntime::new(Model::A500PlusEcsPal, firmware)?;
+
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("floppy-0", MediaKind::Disk, &adf));
+    runtime.load_media(&media)?;
+
+    let mut host = null_host();
+    runtime.run_until(MachineTime::new(75_000_000), &mut host)?;
+
+    let provider = runtime_commodore_amiga::AmigaSessionQueryProvider;
+    use emu198x_shell::SessionQueryProvider;
+    let result = provider
+        .query(&runtime, "boot.detected")?
+        .expect("boot.detected should be available");
+    assert_eq!(
+        result.value,
+        serde_json::Value::Bool(true),
+        "Workbench 2.04 should reach desktop within 75M ticks (A500+ ECS PAL)"
     );
     Ok(())
 }
@@ -353,4 +407,3 @@ fn kickstart_204_disassemble_cold_boot() -> Result<(), Box<dyn Error>> {
     }
     Ok(())
 }
-

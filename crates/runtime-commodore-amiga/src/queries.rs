@@ -120,6 +120,36 @@ impl<M: AmigaMachine> SessionQueryProvider<AmigaRuntime<M>> for AmigaSessionQuer
     }
 }
 
+/// Same provider, but dispatching over the runtime-time
+/// `AmigaRuntimeKind` enum so verifier binaries that store
+/// `AmigaRuntimeKind` (rather than a concrete `AmigaOcsRuntime` /
+/// `AmigaEcsRuntime`) can use this provider directly. The OCS and
+/// ECS impl blocks share the same query catalogue today, so the
+/// dispatch is trivial.
+impl SessionQueryProvider<crate::variants::AmigaRuntimeKind> for AmigaSessionQueryProvider {
+    fn query_paths(
+        &self,
+        machine: &crate::variants::AmigaRuntimeKind,
+        prefix: Option<&str>,
+    ) -> Vec<String> {
+        match machine {
+            crate::variants::AmigaRuntimeKind::Ocs(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::Ecs(rt) => self.query_paths(rt, prefix),
+        }
+    }
+
+    fn query(
+        &self,
+        machine: &crate::variants::AmigaRuntimeKind,
+        path: &str,
+    ) -> Result<Option<QueryResult>, QueryError> {
+        match machine {
+            crate::variants::AmigaRuntimeKind::Ocs(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::Ecs(rt) => self.query(rt, path),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::SHARED_QUERY_PATHS;

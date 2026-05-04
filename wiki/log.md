@@ -4,6 +4,72 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-04 — Phase 0 closed: WB 2.04 desktop + verifier-binary dispatch
+
+**Type:** Amiga track close-out. Two pieces matching the agreed Phase 0 scope.
+**Trigger:** the user's call after the KS 2.04 insert-disk validation: "Phase 0 sorted, then Phase 1 cross-system inventory." This commit ships Phase 0; Phase 1 begins next session with eyes on the October 2026 launch (5 months out).
+
+### Piece 1 — Workbench 2.04 reaches desktop on A500+ ECS
+
+Extracted the verified-good dump:
+```
+~/Projects/Emu198x-Unclean/Reference/amiga/Operating Systems/Workbench/
+  Workbench v2.04 rev 37.67 (1991)(Commodore)(Disk 1 of 4)(Workbench).zip
+```
+(901,120 bytes = 880 KiB DD ADF) to `~/.emu198x/media/commodore-amiga/workbench-2.04.adf`.
+
+New ROM-gated waypoint test in `tests/boot_invariants.rs`:
+`workbench_204_reaches_desktop_a500_plus_pal` — KS 2.04 + WB 2.04 ADF on `AmigaEcsRuntime::new(Model::A500PlusEcsPal, ...)`, runs 75M ticks (≈10 s wall time at PAL: 50M for insert-disk + 25M for Workbench load), asserts `boot.detected = true reason="display-active"`. Test passes on first run — the ECS chip stack handles disk DMA + MFM + autoconfig + trackdisk identically to OCS.
+
+This is the ECS counterpart to the existing `workbench_13_reaches_desktop` (KS 1.3 + WB 1.3 + OCS A500 + A501) waypoint, completing the symmetry. Both chip stacks now have a "real-software-runs-end-to-end" regression gate.
+
+### Piece 2 — Verifier-binary dispatch refactor
+
+New public type `runtime_commodore_amiga::AmigaRuntimeKind`:
+
+```rust
+pub enum AmigaRuntimeKind {
+    Ocs(AmigaOcsRuntime),
+    Ecs(AmigaEcsRuntime),
+}
+```
+
+Constructors (`new`, `from_firmware`, `blank`) dispatch to the inner case via `Model::is_ecs()`. Implements `MachineCore` by forwarding every method to the wrapped runtime. Mirrors the audio control surface (`audio_controls`, `set_audio_controls`, `set_audio_channel_enabled`, `set_audio_channel_gain`) the same way. New `Model::is_ecs()` predicate drives the dispatch (today: A500+ PAL/NTSC; future: A600 / A2000B / A3000).
+
+`AmigaSessionQueryProvider` gets a parallel `impl SessionQueryProvider<AmigaRuntimeKind>` that dispatches to the matching inner case so `HeadlessSession<AmigaRuntimeKind, AmigaSessionQueryProvider>` works without further glue.
+
+Verifier binaries flipped:
+- `emu198x-amiga`: `runtime: AmigaOcsRuntime` → `runtime: AmigaRuntimeKind` (single field, all five method call sites adjust mechanically through `MachineCore`).
+- `emu198x-script-amiga`: closures + `HeadlessSession<...>` type parameter switch from `AmigaOcsRuntime` to `AmigaRuntimeKind`.
+
+`--model a500-plus` now correctly constructs `AmigaEcsRuntime` (was: silently routed through OCS chips despite the ECS-flavoured Model).
+
+### Phase 0 status: closed
+
+Both pieces of Phase 0 done. The Amiga ECS A500+ track is now fully shippable for October:
+- Chip ports ✓ (`commodore-agnus-ecs` + `commodore-denise-ecs`)
+- Machine wrapper ✓ (`machine-commodore-amiga-ecs`)
+- Runtime + Model reclassification ✓ (`AmigaEcsRuntime` + `A500PlusEcsPal/Ntsc`)
+- KS 2.04 boots to insert-disk ✓ (50M ticks, asserting test)
+- WB 2.04 reaches desktop ✓ (75M ticks, asserting test)
+- Verifier binaries dispatch correctly ✓ (`AmigaRuntimeKind`)
+
+### Verification
+
+- `workbench_204_reaches_desktop_a500_plus_pal` passes (ROM-gated, ≈78 s wall to run).
+- All 82 hermetic runtime tests still green; 19 ignored (was 18, +1 for WB 2.04), 0 failed.
+- `cargo build -p emu198x-amiga -p emu198x-script-amiga` clean.
+- `cargo clippy --lib --tests --bins -- -D warnings` clean across the full Amiga stack.
+- Existing OCS A500 + KS 1.3 + WB 1.3 path untouched.
+
+### Next session — Phase 1: cross-system inventory
+
+The October 2026 CRASH! Live launch (per `wiki/decisions/product-roadmap.md`) targets four systems in priority order: Spectrum, C64, NES, Amiga. The Amiga track is in good shape — the next investment is pivoting to assess what each other October system needs.
+
+Concrete first move: read `wiki/systems/*` for each target, identify the actual gap to "ship as October platform" for each (game compatibility, capture pipeline support, CRT filter, launcher infra). The gap list becomes Phase 1's scope. **Do not pull the A600 / A2000B / A3000 / AGA Amiga work forward** — per the roadmap that's all post-October.
+
+---
+
 ## 2026-05-02 — KS 2.04 boots A500+ ECS to insert-disk in ~50M ticks
 
 **Type:** real-boot validation. Closes the ECS A500+ track that landed yesterday.

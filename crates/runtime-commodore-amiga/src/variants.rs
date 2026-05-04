@@ -24,7 +24,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use crate::AmigaRuntime;
+use crate::{AmigaRuntime, Model};
 
 /// Per-variant machine surface for the Amiga family.
 ///
@@ -437,6 +437,211 @@ impl AmigaMachine for AmigaEcs {
 /// chips (Gayle, Ramsey, Fat Gary) are ported. The chip stack is
 /// AgnusEcs + DeniseEcs over the existing OCS Paula + CIA pair.
 pub type AmigaEcsRuntime = AmigaRuntime<AmigaEcs>;
+
+// ===================================================================
+// AmigaRuntimeKind — runtime-time dispatch over OCS / ECS.
+//
+// Verifier binaries (emu198x-amiga, emu198x-script-amiga) take a
+// `--model` argument that may pick either an OCS or an ECS variant.
+// Storing a concrete `AmigaOcsRuntime` field in the binary forces
+// every model through OCS chips even when the Model is ECS-flavoured
+// (e.g. `A500PlusEcsPal`). `AmigaRuntimeKind` is the dispatcher: it
+// wraps either runtime type and forwards the `MachineCore` surface
+// to the inner case based on `Model::is_ecs()`.
+// ===================================================================
+
+/// Runtime-time dispatch over the available Amiga machine kinds.
+/// Constructed via `AmigaRuntimeKind::new(model, firmware)` (or
+/// `from_firmware` / `blank`); the inner case is picked by
+/// `Model::is_ecs()`. Implements `MachineCore` so callers can drive
+/// it like any other runtime.
+pub enum AmigaRuntimeKind {
+    /// OCS chip stack — A1000, A500, A500-A501, A500-Maxed (PAL/NTSC).
+    Ocs(AmigaOcsRuntime),
+    /// ECS chip stack — A500+ today (PAL/NTSC); A600 / A2000B / A3000
+    /// will land here once their machine-specific chips are ported.
+    Ecs(AmigaEcsRuntime),
+}
+
+impl AmigaRuntimeKind {
+    /// Construct using the model's preset RAM layout. Picks OCS or
+    /// ECS based on `Model::is_ecs()`.
+    ///
+    /// # Errors
+    /// Returns the underlying `MachineError` from the dispatched
+    /// runtime constructor.
+    pub fn new(
+        model: Model,
+        firmware_rom: Vec<u8>,
+    ) -> Result<Self, emu198x_shell::MachineError> {
+        if model.is_ecs() {
+            AmigaEcsRuntime::new(model, firmware_rom).map(Self::Ecs)
+        } else {
+            AmigaOcsRuntime::new(model, firmware_rom).map(Self::Ocs)
+        }
+    }
+
+    /// Construct from the profile's firmware set.
+    ///
+    /// # Errors
+    /// Returns the underlying `MachineError` from the dispatched
+    /// runtime constructor.
+    pub fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, emu198x_shell::MachineError> {
+        if model.is_ecs() {
+            AmigaEcsRuntime::from_firmware(model, firmware).map(Self::Ecs)
+        } else {
+            AmigaOcsRuntime::from_firmware(model, firmware).map(Self::Ocs)
+        }
+    }
+
+    /// Construct with a zero-filled placeholder firmware. Useful for
+    /// tests and verifier dry-runs.
+    #[must_use]
+    pub fn blank(model: Model) -> Self {
+        if model.is_ecs() {
+            Self::Ecs(AmigaEcsRuntime::blank(model))
+        } else {
+            Self::Ocs(AmigaOcsRuntime::blank(model))
+        }
+    }
+
+    /// Active model — same on both inner cases.
+    #[must_use]
+    pub fn model(&self) -> Model {
+        match self {
+            Self::Ocs(rt) => rt.model(),
+            Self::Ecs(rt) => rt.model(),
+        }
+    }
+
+    /// Read-back: was this runtime constructed against the ECS chip
+    /// stack? Equivalent to `self.model().is_ecs()` but reads the
+    /// dispatched-case directly.
+    #[must_use]
+    pub fn is_ecs(&self) -> bool {
+        matches!(self, Self::Ecs(_))
+    }
+}
+
+impl emu198x_shell::MachineCore for AmigaRuntimeKind {
+    fn profile(&self) -> &emu198x_shell::MachineProfile {
+        match self {
+            Self::Ocs(rt) => rt.profile(),
+            Self::Ecs(rt) => rt.profile(),
+        }
+    }
+
+    fn time(&self) -> emu198x_shell::MachineTime {
+        match self {
+            Self::Ocs(rt) => rt.time(),
+            Self::Ecs(rt) => rt.time(),
+        }
+    }
+
+    fn reset(&mut self, kind: emu198x_shell::ResetKind) {
+        match self {
+            Self::Ocs(rt) => rt.reset(kind),
+            Self::Ecs(rt) => rt.reset(kind),
+        }
+    }
+
+    fn load_media(
+        &mut self,
+        media: &emu198x_shell::MediaSet<'_>,
+    ) -> Result<(), emu198x_shell::MachineError> {
+        match self {
+            Self::Ocs(rt) => rt.load_media(media),
+            Self::Ecs(rt) => rt.load_media(media),
+        }
+    }
+
+    fn run_until(
+        &mut self,
+        target: emu198x_shell::MachineTime,
+        host: &mut emu198x_shell::HostIo<'_>,
+    ) -> Result<emu198x_shell::RunResult, emu198x_shell::MachineError> {
+        match self {
+            Self::Ocs(rt) => rt.run_until(target, host),
+            Self::Ecs(rt) => rt.run_until(target, host),
+        }
+    }
+
+    fn snapshot(&self) -> Result<Vec<u8>, emu198x_shell::MachineError> {
+        match self {
+            Self::Ocs(rt) => rt.snapshot(),
+            Self::Ecs(rt) => rt.snapshot(),
+        }
+    }
+
+    fn restore(&mut self, bytes: &[u8]) -> Result<(), emu198x_shell::MachineError> {
+        match self {
+            Self::Ocs(rt) => rt.restore(bytes),
+            Self::Ecs(rt) => rt.restore(bytes),
+        }
+    }
+
+    fn command(
+        &mut self,
+        command: &emu198x_shell::ControlCommand,
+    ) -> Result<(), emu198x_shell::MachineError> {
+        match self {
+            Self::Ocs(rt) => rt.command(command),
+            Self::Ecs(rt) => rt.command(command),
+        }
+    }
+
+    fn capabilities(&self) -> emu198x_shell::CapabilitySet {
+        match self {
+            Self::Ocs(rt) => rt.capabilities(),
+            Self::Ecs(rt) => rt.capabilities(),
+        }
+    }
+}
+
+// Audio-control surface. AudioControls and PaulaChannel are the same
+// types in both machine crates (re-exported from commodore-paula-8364),
+// so the wrapper just dispatches.
+impl AmigaRuntimeKind {
+    #[must_use]
+    pub fn audio_controls(&self) -> machine_commodore_amiga_ocs::AudioControls {
+        match self {
+            Self::Ocs(rt) => rt.audio_controls(),
+            Self::Ecs(rt) => rt.audio_controls(),
+        }
+    }
+
+    pub fn set_audio_controls(&mut self, controls: machine_commodore_amiga_ocs::AudioControls) {
+        match self {
+            Self::Ocs(rt) => rt.set_audio_controls(controls),
+            Self::Ecs(rt) => rt.set_audio_controls(controls),
+        }
+    }
+
+    pub fn set_audio_channel_enabled(
+        &mut self,
+        channel: machine_commodore_amiga_ocs::PaulaChannel,
+        enabled: bool,
+    ) {
+        match self {
+            Self::Ocs(rt) => rt.set_audio_channel_enabled(channel, enabled),
+            Self::Ecs(rt) => rt.set_audio_channel_enabled(channel, enabled),
+        }
+    }
+
+    pub fn set_audio_channel_gain(
+        &mut self,
+        channel: machine_commodore_amiga_ocs::PaulaChannel,
+        gain: f32,
+    ) {
+        match self {
+            Self::Ocs(rt) => rt.set_audio_channel_gain(channel, gain),
+            Self::Ecs(rt) => rt.set_audio_channel_gain(channel, gain),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

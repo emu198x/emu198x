@@ -14,4 +14,4 @@ pub use profiles::{
 };
 pub use queries::AmigaSessionQueryProvider;
 pub use runtime::{AmigaRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH};
-pub use variants::{AmigaEcsRuntime, AmigaMachine, AmigaOcsRuntime};
+pub use variants::{AmigaEcsRuntime, AmigaMachine, AmigaOcsRuntime, AmigaRuntimeKind};
