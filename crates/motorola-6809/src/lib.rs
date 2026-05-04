@@ -3246,6 +3246,13 @@ mod tests {
         extended_opcode: u8,
     }
 
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct AccumulatorRmwTimingCase {
+        mnemonic: &'static str,
+        a_opcode: u8,
+        b_opcode: u8,
+    }
+
     // Source: Motorola MC6809E HMOS Microprocessor Programming Model opcode
     // timing tables in docs/source-extracts/dragon-primary. These fixtures are
     // intentionally small but table-driven; expand them as we transcribe the
@@ -4457,6 +4464,66 @@ mod tests {
         },
     ];
 
+    // Source: MC6809E opcode map accumulator read-modify-write timing rows.
+    // These are inherent one-byte instructions and all take 2 cycles.
+    const OFFICIAL_ACCUMULATOR_RMW_TIMING_CASES: &[AccumulatorRmwTimingCase] = &[
+        AccumulatorRmwTimingCase {
+            mnemonic: "NEG",
+            a_opcode: 0x40,
+            b_opcode: 0x50,
+        },
+        AccumulatorRmwTimingCase {
+            mnemonic: "COM",
+            a_opcode: 0x43,
+            b_opcode: 0x53,
+        },
+        AccumulatorRmwTimingCase {
+            mnemonic: "LSR",
+            a_opcode: 0x44,
+            b_opcode: 0x54,
+        },
+        AccumulatorRmwTimingCase {
+            mnemonic: "ROR",
+            a_opcode: 0x46,
+            b_opcode: 0x56,
+        },
+        AccumulatorRmwTimingCase {
+            mnemonic: "ASR",
+            a_opcode: 0x47,
+            b_opcode: 0x57,
+        },
+        AccumulatorRmwTimingCase {
+            mnemonic: "ASL",
+            a_opcode: 0x48,
+            b_opcode: 0x58,
+        },
+        AccumulatorRmwTimingCase {
+            mnemonic: "ROL",
+            a_opcode: 0x49,
+            b_opcode: 0x59,
+        },
+        AccumulatorRmwTimingCase {
+            mnemonic: "DEC",
+            a_opcode: 0x4A,
+            b_opcode: 0x5A,
+        },
+        AccumulatorRmwTimingCase {
+            mnemonic: "INC",
+            a_opcode: 0x4C,
+            b_opcode: 0x5C,
+        },
+        AccumulatorRmwTimingCase {
+            mnemonic: "TST",
+            a_opcode: 0x4D,
+            b_opcode: 0x5D,
+        },
+        AccumulatorRmwTimingCase {
+            mnemonic: "CLR",
+            a_opcode: 0x4F,
+            b_opcode: 0x5F,
+        },
+    ];
+
     fn apply_timing_setup_kind(setup: TimingSetup, cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
         match setup {
             TimingSetup::None => {}
@@ -4564,6 +4631,32 @@ mod tests {
             "{} {} did not end at instruction boundary",
             case.mnemonic,
             mode
+        );
+    }
+
+    fn assert_accumulator_rmw_timing(
+        case: AccumulatorRmwTimingCase,
+        accumulator: &str,
+        opcode: u8,
+    ) {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = opcode;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.a = 0x80;
+        cpu.regs.b = 0x80;
+
+        let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+        assert_eq!(
+            cycles, 2,
+            "{}{} accumulator timing",
+            case.mnemonic, accumulator
+        );
+        assert!(
+            cpu.instruction_boundary(),
+            "{}{} did not end at instruction boundary",
+            case.mnemonic,
+            accumulator
         );
     }
 
@@ -4856,6 +4949,14 @@ mod tests {
 
             let extended = [case.extended_opcode, 0x23, 0x45];
             assert_rmw_timing(case, "extended", &extended, TimingSetup::None, 7);
+        }
+    }
+
+    #[test]
+    fn official_accumulator_rmw_timing_fixture_matches_current_core() {
+        for &case in OFFICIAL_ACCUMULATOR_RMW_TIMING_CASES {
+            assert_accumulator_rmw_timing(case, "A", case.a_opcode);
+            assert_accumulator_rmw_timing(case, "B", case.b_opcode);
         }
     }
 
