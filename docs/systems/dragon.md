@@ -434,12 +434,12 @@ the hardware's Dragon 32-compatible reset mode and enters 64-mode BASIC with
 peripheral coverage, and complete disk-controller behavior rather than initial
 bring-up.
 
-To complete Dragon 32, the main gaps are: full source-backed MC6809 timing and
-interrupt edge cases, PAL video geometry calibrated against hardware captures,
-analogue audio filtering and expansion-device mixing, deeper Dragon 64
-post-transition software coverage, DragonDOS/WD2797 index and format behavior,
-and a trusted fixture suite for joystick/audio/video behaviours that does not
-depend on emulator-vs-emulator pixel matching.
+To complete Dragon 32, the main gaps are: completing the remaining source-backed
+MC6809 opcode-table and bus-trace validation, PAL video geometry calibrated
+against hardware captures, analogue audio filtering and expansion-device mixing,
+deeper Dragon 64 post-transition software coverage, DragonDOS/WD2797 index and
+format behavior, and a trusted fixture suite for joystick/audio/video behaviours
+that does not depend on emulator-vs-emulator pixel matching.
 
 ## Test Coverage
 

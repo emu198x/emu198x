@@ -2300,7 +2300,7 @@ impl Mc6809 {
             IndexedOp::Store16(op) => self.prepare_store16(op, addr, 1),
             IndexedOp::Jmp => {
                 self.regs.pc = addr;
-                self.next_fetch();
+                self.start_internal_cycles(1);
             }
             IndexedOp::Jsr => self.prepare_push_word(
                 self.regs.pc,
@@ -5095,6 +5095,94 @@ mod tests {
     }
 
     #[test]
+    fn sync_samples_interrupt_on_falling_q_and_services_next_cycle() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x13; // SYNC
+        memory[0x4001] = 0x12; // must not be consumed while synchronizing
+        memory[0xFFFC] = 0x49;
+        memory[0xFFFD] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+
+        for _ in 0..4 {
+            run_phase_cycle(&mut cpu, &mut memory);
+        }
+        assert!(matches!(
+            cpu.state,
+            CpuState::WaitForInterrupt { stacked: false }
+        ));
+
+        cpu.tick_phase();
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::EHigh);
+        cpu.nmi = true;
+        cpu.tick_phase();
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::QLow);
+        cpu.tick_phase();
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::ELow);
+        assert!(matches!(
+            cpu.state,
+            CpuState::WaitForInterrupt { stacked: false }
+        ));
+        assert_eq!(cpu.regs.pc, 0x4001);
+        assert_eq!(cpu.regs.s, 0x8000);
+
+        cpu.tick_phase();
+        for _ in 0..32 {
+            if cpu.instruction_boundary() && cpu.regs.pc == 0x4900 {
+                return;
+            }
+            run_phase_cycle(&mut cpu, &mut memory);
+        }
+
+        panic!("SYNC interrupt sampled on falling Q did not vector on a later cycle");
+    }
+
+    #[test]
+    fn cwai_samples_interrupt_on_falling_q_without_restacking() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x3C; // CWAI #$EF clears I after stacking the full frame.
+        memory[0x4001] = 0xEF;
+        memory[0xFFF8] = 0x47;
+        memory[0xFFF9] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.cc = FLAG_I | FLAG_C;
+
+        for _ in 0..20 {
+            run_phase_cycle(&mut cpu, &mut memory);
+        }
+        assert!(matches!(
+            cpu.state,
+            CpuState::WaitForInterrupt { stacked: true }
+        ));
+        assert_eq!(cpu.regs.s, 0x7FF4);
+
+        cpu.tick_phase();
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::EHigh);
+        cpu.irq = true;
+        cpu.tick_phase();
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::QLow);
+        cpu.tick_phase();
+        assert_eq!(cpu.clock_phase(), Mc6809ClockPhase::ELow);
+        assert!(matches!(
+            cpu.state,
+            CpuState::WaitForInterrupt { stacked: true }
+        ));
+        assert_eq!(cpu.regs.s, 0x7FF4);
+
+        cpu.tick_phase();
+        for _ in 0..8 {
+            if cpu.instruction_boundary() && cpu.regs.pc == 0x4700 {
+                assert_eq!(cpu.regs.s, 0x7FF4);
+                return;
+            }
+            run_phase_cycle(&mut cpu, &mut memory);
+        }
+
+        panic!("CWAI interrupt sampled on falling Q did not vector without restacking");
+    }
+
+    #[test]
     fn pins_report_busy_for_documented_multi_cycle_bus_windows() {
         let mut memory = [0; 0x10000];
         memory[0x4000] = 0x8E; // LDX #$1234
@@ -6128,6 +6216,51 @@ mod tests {
     }
 
     #[test]
+    fn jsr_indexed_indirect_uses_documented_extra_cycles() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xAD; // JSR [,X]
+        memory[0x4001] = 0x94;
+        memory[0x4500] = 0x46;
+        memory[0x4501] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.x = 0x4500;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 10);
+        assert_eq!(cpu.regs.pc, 0x4600);
+        assert_eq!(&memory[0x7FFE..=0x7FFF], &[0x40, 0x02]);
+
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xAD; // JSR [8-bit offset,X]
+        memory[0x4001] = 0x98;
+        memory[0x4002] = 0x05;
+        memory[0x4505] = 0x46;
+        memory[0x4506] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.x = 0x4500;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 11);
+        assert_eq!(cpu.regs.pc, 0x4600);
+        assert_eq!(&memory[0x7FFE..=0x7FFF], &[0x40, 0x03]);
+
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xAD; // JSR [16-bit offset,X]
+        memory[0x4001] = 0x99;
+        memory[0x4002] = 0x00;
+        memory[0x4003] = 0x05;
+        memory[0x4505] = 0x46;
+        memory[0x4506] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.x = 0x4500;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 14);
+        assert_eq!(cpu.regs.pc, 0x4600);
+        assert_eq!(&memory[0x7FFE..=0x7FFF], &[0x40, 0x04]);
+    }
+
+    #[test]
     fn swi_stacks_full_frame_and_rti_restores_it() {
         let mut memory = [0; 0x10000];
         memory[0x4000] = 0x3F; // SWI
@@ -6587,11 +6720,44 @@ mod tests {
         memory[0x4002] = 0x03;
         let mut cpu = cpu_at(0x4000);
 
-        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 3);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
 
         assert_eq!(cpu.regs.pc, 0x4006);
         assert_eq!(cpu.addr, 0x4006);
         assert!(cpu.instruction_boundary());
+    }
+
+    #[test]
+    fn jmp_indexed_uses_documented_base_and_indexed_extra_cycles() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x6E; // JMP ,X
+        memory[0x4001] = 0x84;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.x = 0x4500;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 3);
+        assert_eq!(cpu.regs.pc, 0x4500);
+
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x6E; // JMP 5,X
+        memory[0x4001] = 0x05;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.x = 0x4500;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 4);
+        assert_eq!(cpu.regs.pc, 0x4505);
+
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x6E; // JMP [8-bit offset,X]
+        memory[0x4001] = 0x98;
+        memory[0x4002] = 0x05;
+        memory[0x4505] = 0x46;
+        memory[0x4506] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.x = 0x4500;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
+        assert_eq!(cpu.regs.pc, 0x4600);
     }
 
     #[test]

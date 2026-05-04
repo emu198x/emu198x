@@ -1,6 +1,6 @@
 # Dragon Accuracy Audit
 
-Last updated: 2026-05-01.
+Last updated: 2026-05-04.
 
 This audit is about our own Dragon 32/64 emulation accuracy, not matching another
 emulator. Other emulators are still useful as smoke references, but hardware and
@@ -44,9 +44,10 @@ Motorola/Dragon source material are the authority when behavior differs.
   top of the visible VDG picture. `motorola-vdg-6847` uses a 256x192 active text
   framebuffer and a 25-line top border.
 - Current `motorola-6809` instruction tests pass and cover real ROM-loader
-  paths, arithmetic flags, stack frames, indexed addressing, branch timing, and
-  the official opcode map enough to avoid accidental illegal-opcode traps during
-  normal documented execution.
+  paths, arithmetic flags, stack frames, indexed addressing, branch timing,
+  `RTI`, `SYNC`, `CWAI`, external interrupt entry, and enough of the official
+  opcode map to avoid accidental illegal-opcode traps during normal documented
+  execution.
 
 ## Known Accuracy Gaps
 
@@ -75,29 +76,36 @@ The CPU core now has an additive phase-visible API. The compatibility `tick()`
 path still advances one bus-visible CPU cycle, while Dragon machine stepping
 uses `tick_phase()` around SAM master-tick windows. This is enough to put
 interrupt sampling and read-data latching at the documented falling-Q and
-falling-E points, but it is not yet a complete external bus model for DMA,
-halt/three-state ownership, or every invalid-vs-valid memory access cycle.
+falling-E points. Tests now cover falling-Q interrupt sampling during normal
+execution, `SYNC`, and `CWAI`, plus the one-cycle synchronization delay before
+service. It is still not a complete external bus model for DMA, halt/three-state
+ownership, or every invalid-vs-valid memory access cycle.
 
 Required resolution:
 
 1. Expand bus-trace tests for reset, fetch, RMW, double-byte operations, vector
-   fetches, `SYNC`, `CWAI`, `HALT`, and interrupt entry.
+   fetches, `HALT`, and remaining invalid-vs-valid memory access cycles.
 2. Model the remaining external ownership pins and DMA/three-state behavior
    once a machine needs them.
 
 ### MC6809 Opcode Validation
 
 The CPU has useful unit coverage, but it is not yet an exhaustive validation
-suite against the Motorola tables. Cycle counts are tested opportunistically
-inside instruction tests rather than from a single source-backed opcode matrix.
+suite against the Motorola tables. Table-driven timing fixtures now cover
+branches, explicit stack operations, accumulator and memory RMW families, the
+8-bit ALU matrix, indexed `LDA`/`LEA` postbyte additions, and broad base opcode
+families. Directed tests now pin `JMP/JSR` indexed timing, indexed-indirect
+subroutine/vector cases, `RTI` 6/15-cycle paths, `CWAI` 20-cycle wait entry,
+`SYNC` 4-cycle wait entry, and IRQ/FIRQ interrupt entry timing.
 
 Required resolution:
 
-1. Transcribe the official opcode, addressing-mode, byte-count, and cycle-count
-   tables into test fixtures.
-2. Generate table-driven tests for primary, `$10`, and `$11` opcode pages.
-3. Cover indexed postbyte timing variants explicitly, because indexed timing is
-   where many 6809 compatibility bugs hide.
+1. Finish transcribing the official opcode, addressing-mode, byte-count, and
+   cycle-count tables into generated or table-driven test fixtures.
+2. Complete table-driven coverage for primary, `$10`, and `$11` opcode pages.
+3. Extend indexed postbyte timing coverage beyond the current `LDA`, `LEA`,
+   `JMP`, and `JSR` representatives if a new instruction family proves it has
+   distinct bus-cycle behavior.
 4. Keep the current diagnostic illegal-opcode trap for development builds, but
    document it as a diagnostic shortcut. The source says unused opcodes are
    undefined and illegal; a clean emulator halt is not hardware behavior.
@@ -190,12 +198,12 @@ Required resolution:
 
 ## Immediate Next Engineering Step
 
-Move to analogue/audio validation. CPU phase stepping, SAM display-offset
+Finish the remaining MC6809 source-backed validation before moving back to
+analogue/audio. CPU phase stepping, interrupt wait states, SAM display-offset
 timing, VDG fetch-to-display timing, VDG source-vs-crop horizontal geometry, and
-PIA edge/strobe behavior are now documented and tested. Native host input now
-has a continuous analogue axis path for Dragon left-stick movement. The next
-accuracy gap is headless analogue stimulus and audio output beyond the current
-measured-level model.
+PIA edge/strobe behavior are now documented and tested. The next CPU gap is
+fuller opcode-table transcription plus bus-trace validation for HALT, reset, and
+remaining valid/invalid external cycles.
 
 Progress:
 
@@ -218,6 +226,11 @@ Progress:
   Q-low, and E-low master-tick windows. Video, cassette, PIA sync lines, and
   diagnostic VDG traces advance through those windows; CPU memory data is
   supplied at the falling-E point instead of after a whole-cycle video lump.
+- MC6809 timing tests now pin `RTI` short/full-frame timing, `SYNC` and `CWAI`
+  wait-entry timing, falling-Q interrupt sampling during those wait states,
+  external IRQ/FIRQ entry timing, and indexed `JMP/JSR` direct and indirect
+  timing. These tests corrected prior shortcuts in full-frame `RTI`, `SYNC`,
+  `CWAI`, external interrupt entry, and indexed `JMP`.
 - Dragon rendering now separates immediate SAM display-offset latches from the
   VDG-effective display base. `dragon.sam.display_offset` changes immediately,
   while VDG fetches and `dragon.video.display_base` update on frame-sync fall.
