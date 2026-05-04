@@ -226,10 +226,12 @@ Each parsed row reports VDK geometry, a conservative directory-entry count, and
 for runtime-smoked rows a `directory-visible`, `directory-error`, or
 `no-disk-access` classification plus the number of disk-controller trace events.
 Add `--disk-smoke-launch` when the smoke should run software instead of listing
-the directory. The launch path boots DragonDOS and types `RUN"name"` for the
-first BASIC loader found. If a disk only exposes `.BIN` entries, it types
-`LOAD"name.BIN":EXEC`, which exercises DragonDOS's disk file loader rather than
-the cassette-only `CLOADM` path. Launch rows classify as `launch-visible`,
+the directory. The launch path boots DragonDOS and first prefers a `.BIN` entry
+whose name matches the archive title, because some game disks list utility BASIC
+files before the real game binary. It then falls back to `RUN"name"` for the
+first BASIC loader found, or `LOAD"name.BIN":EXEC` for the first `.BIN` entry,
+which exercises DragonDOS's disk file loader rather than the cassette-only
+`CLOADM` path. Launch rows classify as `launch-visible`,
 `launch-error`, `launch-blank`, or `no-launch-candidate`, and still include disk
 trace counts and screenshots for failure triage.
 

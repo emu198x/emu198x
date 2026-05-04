@@ -1949,7 +1949,7 @@ fn scan_disk_candidate(
     let directory = dragon_dos_directory_entries(&disk);
     let launch_command = cli
         .disk_smoke_launch
-        .then(|| choose_dragon_dos_launch_command(&directory));
+        .then(|| choose_dragon_dos_launch_command(path, &directory));
 
     let runtime = if *runtime_smokes < smoke.run_limit {
         *runtime_smokes += 1;
@@ -2193,17 +2193,69 @@ fn dragon_dos_directory_entry(entry: &[u8]) -> Option<DragonDosDirectoryEntrySum
     })
 }
 
-fn choose_dragon_dos_launch_command(entries: &[DragonDosDirectoryEntrySummary]) -> Option<String> {
-    entries
-        .iter()
-        .find(|entry| entry.extension == "BAS")
-        .map(|entry| format!("RUN\"{}\"", entry.name))
+fn choose_dragon_dos_launch_command(
+    media_path: &Path,
+    entries: &[DragonDosDirectoryEntrySummary],
+) -> Option<String> {
+    choose_dragon_dos_media_matched_binary(media_path, entries)
+        .map(|entry| format!("LOAD\"{}.BIN\":EXEC", entry.name))
+        .or_else(|| {
+            entries
+                .iter()
+                .find(|entry| entry.extension == "BAS")
+                .map(|entry| format!("RUN\"{}\"", entry.name))
+        })
         .or_else(|| {
             entries
                 .iter()
                 .find(|entry| entry.extension == "BIN")
                 .map(|entry| format!("LOAD\"{}.BIN\":EXEC", entry.name))
         })
+}
+
+fn choose_dragon_dos_media_matched_binary<'a>(
+    media_path: &Path,
+    entries: &'a [DragonDosDirectoryEntrySummary],
+) -> Option<&'a DragonDosDirectoryEntrySummary> {
+    let media_tokens = dragon_dos_media_title_tokens(media_path);
+    if media_tokens.is_empty() {
+        return None;
+    }
+    entries.iter().find(|entry| {
+        entry.extension == "BIN" && dragon_dos_name_matches_title(&entry.name, &media_tokens)
+    })
+}
+
+fn dragon_dos_media_title_tokens(media_path: &Path) -> Vec<String> {
+    let title = media_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default()
+        .split_once(" (")
+        .map_or_else(
+            || {
+                media_path
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .unwrap_or_default()
+            },
+            |(title, _)| title,
+        );
+    title
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|token| token.len() >= 4)
+        .map(|token| token.to_ascii_uppercase())
+        .collect()
+}
+
+fn dragon_dos_name_matches_title(name: &str, media_tokens: &[String]) -> bool {
+    let name = name.to_ascii_uppercase();
+    media_tokens.iter().any(|token| {
+        name == *token
+            || name.contains(token)
+            || token.contains(&name)
+            || token.get(..4).is_some_and(|prefix| name.contains(prefix))
+    })
 }
 
 fn dragon_dos_field_to_string(bytes: &[u8]) -> String {
@@ -7550,12 +7602,45 @@ mod tests {
 
         assert_eq!(entries.len(), 2);
         assert_eq!(
-            choose_dragon_dos_launch_command(&entries),
+            choose_dragon_dos_launch_command(Path::new("Zero Program.vdk"), &entries),
             Some("RUN\"ZERO\"".to_owned())
         );
         assert_eq!(
-            choose_dragon_dos_launch_command(&entries[1..]),
+            choose_dragon_dos_launch_command(Path::new("One Program.vdk"), &entries[1..]),
             Some("LOAD\"ONE.BIN\":EXEC".to_owned())
+        );
+    }
+
+    #[test]
+    fn disk_launch_prefers_title_matched_binary_over_utility_basic() {
+        let entries = vec![
+            DragonDosDirectoryEntrySummary {
+                name: "ICONDRAW".to_owned(),
+                extension: "BAS".to_owned(),
+            },
+            DragonDosDirectoryEntrySummary {
+                name: "CWALKER".to_owned(),
+                extension: "BIN".to_owned(),
+            },
+            DragonDosDirectoryEntrySummary {
+                name: "DUNGEON".to_owned(),
+                extension: "BIN".to_owned(),
+            },
+        ];
+
+        assert_eq!(
+            choose_dragon_dos_launch_command(
+                Path::new("Cuthbert Goes Walkabout (1984)(Microdeal).zip"),
+                &entries
+            ),
+            Some("LOAD\"CWALKER.BIN\":EXEC".to_owned())
+        );
+        assert_eq!(
+            choose_dragon_dos_launch_command(
+                Path::new("Dungeon Raid (1984)(Microdeal).zip"),
+                &entries
+            ),
+            Some("LOAD\"DUNGEON.BIN\":EXEC".to_owned())
         );
     }
 
