@@ -34,3 +34,100 @@ frame_hash = "xxh64:45173ac7294ac723"
 from_frame = 60
 secs = 2.0
 hash = "xxh64:89393e2c4184241a"
+
+[[entry]]
+id = "contra"
+title = "Contra"
+year = 1988
+publisher = "Konami"
+variant = "ntsc"
+
+[entry.media]
+kind = "cartridge"
+slot = "cartridge-1"
+path = "nintendo/nes/Contra (1988-02)(Konami)(US).nes"
+
+[entry.boot]
+# UxROM mapper — different bank-switching path to NROM.
+# Captures the canonical KONAMI / CONTRA title with "PLAY SELECT".
+wait_frames = 240
+frame_hash = "xxh64:929fb589e81e0143"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:bc7c56728ebe5ee6"
+
+[[entry]]
+id = "zelda-2"
+title = "Zelda II - The Adventure of Link"
+year = 1988
+publisher = "Nintendo"
+variant = "ntsc"
+
+[entry.media]
+kind = "cartridge"
+slot = "cartridge-1"
+path = "nintendo/nes/Zelda II - The Adventure of Link (1988-12)(Nintendo)(US).nes"
+
+[entry.boot]
+# MMC1 mapper + battery save (PRG-RAM at $6000-$7FFF).
+# Captures the iconic sword-in-the-pedestal attract sequence.
+wait_frames = 240
+frame_hash = "xxh64:b5bb85e96c59462b"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:6c778f131ec536f1"
+
+[[entry]]
+id = "tetris"
+title = "Tetris"
+year = 1989
+publisher = "Nintendo"
+variant = "ntsc"
+
+[entry.media]
+kind = "cartridge"
+slot = "cartridge-1"
+path = "nintendo/nes/Tetris (1989-11)(Nintendo)(US).nes"
+
+[entry.boot]
+# NROM mapper (same as SMB) — different game shape exercises a
+# different code path within the same simplest mapper.
+# Captures the Pajitnov / Elorg legal credits screen (pre-title).
+wait_frames = 240
+frame_hash = "xxh64:97b874e69eb923b9"
+
+[entry.audio]
+# 2 s of silence (legal screen has no music). Same shared-hash
+# caveat as the silent-screen Spectrum entries.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:64cde9b38cba92c3"
+
+[[entry]]
+id = "tmnt-2-arcade"
+title = "Teenage Mutant Ninja Turtles II - The Arcade Game"
+year = 1990
+publisher = "Ultra Soft"
+variant = "ntsc"
+
+[entry.media]
+kind = "cartridge"
+slot = "cartridge-1"
+path = "nintendo/nes/Teenage Mutant Ninja Turtles II - The Arcade Game (1990-12)(Ultra Soft)(US).nes"
+
+[entry.boot]
+# MMC3 mapper — bank-switching + scanline IRQ counter, the most
+# widely used NES mapper. Captures the Mirage Studios / Konami
+# copyright notice (pre-title legal screen).
+wait_frames = 240
+frame_hash = "xxh64:14e09209ac82f45f"
+
+[entry.audio]
+# 2 s of silence (legal screen). Same caveat as Tetris.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:64cde9b38cba92c3"
