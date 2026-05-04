@@ -3322,6 +3322,24 @@ mod tests {
             expected_cycles: 5,
         },
         TimingCase {
+            name: "STB direct",
+            bytes: &[0xD7, 0x34],
+            setup: TimingSetup::Store8,
+            expected_cycles: 4,
+        },
+        TimingCase {
+            name: "STB indexed ,X",
+            bytes: &[0xE7, 0x84],
+            setup: TimingSetup::Store8,
+            expected_cycles: 4,
+        },
+        TimingCase {
+            name: "STB extended",
+            bytes: &[0xF7, 0x23, 0x45],
+            setup: TimingSetup::Store8,
+            expected_cycles: 5,
+        },
+        TimingCase {
             name: "STA direct",
             bytes: &[0x97, 0x34],
             setup: TimingSetup::Store8,
@@ -3442,6 +3460,24 @@ mod tests {
             expected_cycles: 4,
         },
         TimingCase {
+            name: "CMPX direct",
+            bytes: &[0x9C, 0x34],
+            setup: TimingSetup::Direct16,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "CMPX indexed ,X",
+            bytes: &[0xAC, 0x84],
+            setup: TimingSetup::Indexed16,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "CMPX extended",
+            bytes: &[0xBC, 0x23, 0x45],
+            setup: TimingSetup::None,
+            expected_cycles: 7,
+        },
+        TimingCase {
             name: "LDX direct",
             bytes: &[0x9E, 0x34],
             setup: TimingSetup::Direct16,
@@ -3474,6 +3510,48 @@ mod tests {
         TimingCase {
             name: "STX extended",
             bytes: &[0xBF, 0x23, 0x45],
+            setup: TimingSetup::Store16,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "LDU immediate",
+            bytes: &[0xCE, 0x12, 0x34],
+            setup: TimingSetup::None,
+            expected_cycles: 3,
+        },
+        TimingCase {
+            name: "LDU direct",
+            bytes: &[0xDE, 0x34],
+            setup: TimingSetup::Direct16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "LDU indexed ,X",
+            bytes: &[0xEE, 0x84],
+            setup: TimingSetup::Indexed16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "LDU extended",
+            bytes: &[0xFE, 0x23, 0x45],
+            setup: TimingSetup::None,
+            expected_cycles: 6,
+        },
+        TimingCase {
+            name: "STU direct",
+            bytes: &[0xDF, 0x34],
+            setup: TimingSetup::Store16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "STU indexed ,X",
+            bytes: &[0xEF, 0x84],
+            setup: TimingSetup::Store16,
+            expected_cycles: 5,
+        },
+        TimingCase {
+            name: "STU extended",
+            bytes: &[0xFF, 0x23, 0x45],
             setup: TimingSetup::Store16,
             expected_cycles: 6,
         },
@@ -4701,6 +4779,7 @@ mod tests {
             }
             TimingSetup::Store8 => {
                 cpu.regs.a = 0x5A;
+                cpu.regs.b = 0x5A;
                 cpu.regs.x = 0x2200;
             }
             TimingSetup::Store16 => {
