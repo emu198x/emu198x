@@ -10,7 +10,8 @@ can load and start
 representative BASIC and machine-code tapes, opens a native `wgpu` verifier
 window, and has native CAS autoload plus patched-XRoar screenshot comparison
 coverage for cassette smoke runs, and now routes native gamepad input through
-the Dragon's analogue joystick comparator path.
+the Dragon's analogue joystick comparator path. DragonDOS VDK media can also be
+scanned through a real-ROM `DIR` smoke matrix for broad disk-software triage.
 
 Dragon 64 is represented as a distinct PAL runtime profile. It cold-boots in
 the real hardware's Dragon 32-compatible mode, adds the Dragon 64 ACIA decode
@@ -123,7 +124,10 @@ complete WD2797 timing/write implementation.
   continue drawing after the post-start settle window. The regular Backgammon
   audio smoke writes a WAV capture and verifies active 48 kHz mono output with
   multiple levels and sustained transitions. Direct script runs can mount VDK
-  disk images with `--disk`. `--snapshot-smoke-root` scans
+  disk images with `--disk`, and `--disk-smoke-root` scans `.vdk`/`.zip` disk
+  images, parses their VDK geometry, counts plausible DragonDOS directory
+  entries, and optionally boots DragonDOS to run `DIR` against the first
+  `--smoke-run-limit` disks. `--snapshot-smoke-root` scans
   PC-Dragon PAK snapshots, resumes each selected snapshot, classifies
   running/halting and visible/blank output, writes a deterministic
   `trace_signature` over CPU fetches, VDG samples, VDG mode writes, video
@@ -200,8 +204,27 @@ VDK mounting exercises the live DragonDOS P2 controller registers at
 `$FF40-$FF5F`. The current implementation can run `DIR` through the real
 DragonDOS ROM and return directory data from mounted media. Sector writes are
 handled in memory for the mounted image, with an explicit in-memory
-write-protect state for protected-media tests. Host writeback, formatting, and
-index-pulse timing remain future work.
+write-protect state for protected-media tests. Type-I index status and a
+sector-backed write-track format path are implemented; raw address-mark/gap
+encoding remains future work.
+
+Headless smoke over a DragonDOS VDK disk tree:
+
+```sh
+cargo run --release -q -p emu198x-script-dragon -- \
+  --rom ~/.emu198x/roms/dragon/dragon32.rom \
+  --cart dragon-dos.rom \
+  --disk-smoke-root '/path/to/Dragon/Applications/[VDK]' \
+  --smoke-run-limit 8 \
+  --cycles 3000000 \
+  --smoke-report target/dragon-disk-smoke.json \
+  --smoke-screenshot-dir target/dragon-disk-smoke-screens \
+  --smoke-screenshot-format xroar-zoomed
+```
+
+Each parsed row reports VDK geometry, a conservative directory-entry count, and
+for runtime-smoked rows a `directory-visible`, `directory-error`, or
+`no-disk-access` classification plus the number of disk-controller trace events.
 
 The real-ROM DragonDOS `DIR` path has an opt-in regression test. Point the
 environment variables at a Dragon 32 ROM, DragonDOS ROM, and the Disk Doctor
@@ -221,7 +244,7 @@ path. The mounted image is mutated only in memory:
 EMU198X_DRAGON32_ROM=/path/to/dragon32.rom \
 EMU198X_DRAGON_DOS_ROM=/path/to/dragon-dos.rom \
 EMU198X_DRAGON_DOS_SAVE_VDK=/path/to/scratch.vdk \
-cargo test -p emu198x-script-dragon dragon_dos_save_command_returns_ok_on_vdk
+cargo test -p emu198x-script-dragon dragon_dos_save_command_exports_persisted_vdk_entry
 ```
 
 Headless smoke over a DragonDOS `.BIN` tree:
@@ -418,8 +441,9 @@ For the source-backed accuracy audit and implementation sequence, see
    regression check, not as proof of analogue accuracy.
 3. Add a synthetic comparator fixture only if we need deterministic text
    assertions independent of archived `JOY TEST` media availability.
-4. Run DragonDOS ROM plus VDK software smokes through the new disk-controller
-   path and use the failures to prioritize exact WD2797 status/timing behavior.
+4. Run the VDK disk smoke matrix over a larger curated DragonDOS corpus and use
+   `directory-error`/`no-disk-access` rows to prioritize exact WD2797
+   status/timing behavior.
 5. Revisit PAL geometry and external video reference captures after the current
    practical usability loop is smoother.
 
@@ -449,7 +473,7 @@ that does not depend on emulator-vs-emulator pixel matching.
 | PIA | 12: DDR, control, IRQ, input pins, mixed I/O, Cx1 edge selection, Cx2 input/output, Cx1-restored Cx2 strobe modes |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 16: source horizontal geometry/crop split, text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |
-| Harness | 27: CLI, Dragon 32/64 ROM loading, VDK disk argument/export, direct `.BIN` argument, keyboard labels, text dumps, direct screenshots, CAS smoke options, Dragon 64 runtime `.BIN`/PAK smoke, Dragon 32 trace-backed PAK snapshot smoke, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
+| Harness | 29: CLI, Dragon 32/64 ROM loading, VDK disk argument/export, VDK disk smoke matrix, direct `.BIN` argument, keyboard labels, text dumps, direct screenshots, CAS smoke options, Dragon 64 runtime `.BIN`/PAK smoke, Dragon 32 trace-backed PAK snapshot smoke, XRoar-compatible screenshots, XRoar reference comparison, smoke classification |
 | Runtime | Dragon 32 and Dragon 64 profile metadata, firmware construction, framebuffer/audio emission, queries, boot status, CAS mounting/playback, VDK disk mounting, direct `.BIN` mounting, cartridge mounting, PAK snapshot mounting, joystick button-to-hardware mapping, real-ROM screenshot, Dragon 64 `EXEC 48000` plus post-transition BASIC smoke, Textstar CLOAD/RUN, machine-code CAS smoke, keyboard echo |
 | Native | CLI, CAS tape argument, VDK disk argument, direct `.BIN` argument, cartridge argument, snapshot argument, CAS autoload command selection, real Textstar autoload smoke, host key mapping, gamepad-to-joystick mapping |
 | CAS format | 7: block framing, header decode, real archive prefix, EOF, checksum visibility, truncation errors |
