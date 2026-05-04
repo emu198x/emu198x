@@ -1,5 +1,5 @@
-//! Catalogue regression test: iterates the per-system manifests and
-//! reports a per-entry pass/fail grid.
+//! Catalogue regression test: iterates every per-system manifest under
+//! `manifest/` and reports a per-entry pass/fail grid.
 //!
 //! Marked `#[ignore]` because catalogue runs need real ROMs and media
 //! that we don't check into the repo. To run locally:
@@ -42,38 +42,51 @@ fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
+fn manifest_files() -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(manifest_dir())
+        .expect("manifest dir is readable")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "toml"))
+        .collect();
+    paths.sort();
+    paths
+}
+
 #[test]
 #[ignore]
-fn spectrum_catalogue_passes_every_entry() {
-    let manifest_path = manifest_dir().join("spectrum.toml");
-    let manifest = load_manifest(&manifest_path).expect("spectrum manifest loads");
-
+fn catalogue_passes_every_entry() {
     let media_root = media_root();
     let firmware_root = firmware_root();
 
     let mut failures: Vec<String> = Vec::new();
-    for entry in &manifest.entry {
-        let result = run_entry(&manifest, entry, &media_root, &firmware_root)
-            .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id));
-        match result.outcome {
-            EntryOutcome::Pass => {
-                println!("[PASS] {} — {}", entry.id, entry.title);
-            }
-            EntryOutcome::BootHashMismatch { expected, actual } => {
-                let line = format!(
-                    "[FAIL] {} — boot frame hash: expected {expected}, got {actual}",
-                    entry.id
-                );
-                println!("{line}");
-                failures.push(line);
-            }
-            EntryOutcome::AudioHashMismatch { expected, actual } => {
-                let line = format!(
-                    "[FAIL] {} — audio hash: expected {expected}, got {actual}",
-                    entry.id
-                );
-                println!("{line}");
-                failures.push(line);
+    for manifest_path in manifest_files() {
+        let manifest = load_manifest(&manifest_path)
+            .unwrap_or_else(|err| panic!("loading {manifest_path:?}: {err}"));
+        println!("=== {} ({} entries)", manifest.system.id, manifest.entry.len());
+        for entry in &manifest.entry {
+            let result = run_entry(&manifest, entry, &media_root, &firmware_root)
+                .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id));
+            match result.outcome {
+                EntryOutcome::Pass => {
+                    println!("[PASS] {} — {}", entry.id, entry.title);
+                }
+                EntryOutcome::BootHashMismatch { expected, actual } => {
+                    let line = format!(
+                        "[FAIL] {} — boot frame hash: expected {expected}, got {actual}",
+                        entry.id
+                    );
+                    println!("{line}");
+                    failures.push(line);
+                }
+                EntryOutcome::AudioHashMismatch { expected, actual } => {
+                    let line = format!(
+                        "[FAIL] {} — audio hash: expected {expected}, got {actual}",
+                        entry.id
+                    );
+                    println!("{line}");
+                    failures.push(line);
+                }
             }
         }
     }

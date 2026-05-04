@@ -9,6 +9,7 @@ license.workspace = true
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 emu198x-shell = { path = "../emu198x-shell" }
 machine-sinclair-zx-spectrum-128k = { path = "../machine-sinclair-zx-spectrum-128k" }
+runtime-nintendo-nes = { path = "../runtime-nintendo-nes" }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
 serde = { workspace = true }
 thiserror = { workspace = true }

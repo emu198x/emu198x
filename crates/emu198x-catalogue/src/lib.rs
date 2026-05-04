@@ -18,6 +18,7 @@ use emu198x_shell::{
     SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
+use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, Spectrum48kRuntime, Spectrum128kRuntime,
     SpectrumSessionQueryProvider, autoload_basic_tape,
@@ -34,6 +35,13 @@ const MAX_TAPE_LOAD_FRAMES: u32 = 60_000;
 /// ENTER for Tape Loader.
 const DEFAULT_128K_BOOT_FRAMES: u32 = 250;
 
+/// PPU dots per frame for NTSC NES (341 dots × 262 scanlines).
+const NES_NTSC_FRAME_TICKS: u64 = 341 * 262;
+
+/// Frames per second for NTSC NES. Master clock 21.477 MHz / (PPU divisor
+/// 4 × 89,342 dots per frame) ≈ 60.0988 Hz.
+const NES_NTSC_FRAMES_PER_SEC: f64 = 60.098_8;
+
 /// Top-level manifest shape (one TOML file per system).
 #[derive(Debug, Deserialize)]
 pub struct Manifest {
@@ -43,12 +51,13 @@ pub struct Manifest {
 
 /// System-level metadata. Firmware is variant-scoped because variants
 /// within a family (48K vs 128K vs +3) can need a different ROM count
-/// and layout.
+/// and layout. Firmware is optional — NES has no BIOS, for example.
 #[derive(Debug, Deserialize)]
 pub struct SystemMeta {
     /// Stable system identifier (e.g. `spectrum`, `c64`, `nes`, `amiga`).
     pub id: String,
-    /// Per-variant firmware lookup.
+    /// Per-variant firmware lookup. Empty for systems without a BIOS.
+    #[serde(default)]
     pub firmware: Vec<VariantFirmware>,
 }
 
@@ -220,6 +229,7 @@ pub fn run_entry(
 ) -> Result<RunResult, CatalogueError> {
     match manifest.system.id.as_str() {
         "spectrum" => run_spectrum_entry(manifest, entry, media_root, firmware_root),
+        "nes" => run_nes_entry(entry, media_root),
         other => Err(CatalogueError::UnsupportedSystem(other.into())),
     }
 }
@@ -274,13 +284,8 @@ fn run_spectrum_48k_entry(
     )
     .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
 
-    run_assertions(
-        &mut session,
-        entry,
-        spectrum_frames_per_sec(&TIMING_48K),
-        media_kind,
-        "spectrum.tape.playing",
-    )
+    wait_for_tape_stop(&mut session, media_kind)?;
+    run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
 }
 
 fn run_spectrum_128k_entry(
@@ -314,13 +319,44 @@ fn run_spectrum_128k_entry(
 
     autoload_128k_tape_loader(&mut session, &entry.media.slot, DEFAULT_128K_BOOT_FRAMES)?;
 
-    run_assertions(
-        &mut session,
-        entry,
-        spectrum_frames_per_sec(&TIMING_128K),
-        media_kind,
-        "spectrum.tape.playing",
-    )
+    wait_for_tape_stop(&mut session, media_kind)?;
+    run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_128K))
+}
+
+fn run_nes_entry(entry: &Entry, media_root: &Path) -> Result<RunResult, CatalogueError> {
+    if entry.variant != "ntsc" {
+        return Err(CatalogueError::UnsupportedVariant(entry.variant.clone()));
+    }
+
+    let runtime = NesRuntime::blank(NesModel::NesNtsc);
+
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        NES_NTSC_FRAME_TICKS,
+        NesSessionQueryProvider,
+    );
+
+    let _ = load_entry_media(&mut session, entry, media_root)?;
+    // No autoload: NES cartridge code runs from frame 0.
+    // No tape-stop wait: cartridge boots instantly.
+
+    run_assertions(&mut session, entry, NES_NTSC_FRAMES_PER_SEC)
+}
+
+fn wait_for_tape_stop<M, Q>(
+    session: &mut HeadlessSession<M, Q>,
+    media_kind: MediaKind,
+) -> Result<(), CatalogueError>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
+    if media_kind == MediaKind::Tape {
+        session
+            .wait_for_query_bool("spectrum.tape.playing", false, MAX_TAPE_LOAD_FRAMES)
+            .map_err(|err| CatalogueError::Session(format!("tape stop: {err}")))?;
+    }
+    Ok(())
 }
 
 /// 128K-equivalent of the 48K `autoload_basic_tape`. Waits for the 128K
@@ -394,27 +430,19 @@ where
     Ok(media_kind)
 }
 
-/// Generic assertion runner. Once the per-variant setup has the session
-/// loaded, autoloaded, and at the start of the boot phase, this advances
-/// the timeline through tape-stop wait → boot waypoint → scripted input
-/// → audio window, and computes pass/fail.
+/// Generic assertion runner. Once the per-system/variant setup has the
+/// session loaded and at the boot phase (tape stopped, cartridge running,
+/// disk seated, etc.), this advances the timeline through boot waypoint
+/// → scripted input → audio window, and computes pass/fail.
 fn run_assertions<M, Q>(
     session: &mut HeadlessSession<M, Q>,
     entry: &Entry,
     frames_per_sec: f64,
-    media_kind: MediaKind,
-    tape_query_path: &str,
 ) -> Result<RunResult, CatalogueError>
 where
     M: MachineCore,
     Q: SessionQueryProvider<M>,
 {
-    if media_kind == MediaKind::Tape {
-        session
-            .wait_for_query_bool(tape_query_path, false, MAX_TAPE_LOAD_FRAMES)
-            .map_err(|err| CatalogueError::Session(format!("tape stop: {err}")))?;
-    }
-
     session
         .run_frames(entry.boot.wait_frames)
         .map_err(|err| CatalogueError::Session(format!("boot wait: {err}")))?;

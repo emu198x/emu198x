@@ -1,0 +1,36 @@
+# NES catalogue. See wiki/decisions/october-catalogue.md.
+#
+# Coverage target: 10 entries spanning NROM, UxROM, MMC1, MMC3, MMC5,
+# AxROM, and PAL NES. NES has no BIOS so the [system.firmware] section
+# is empty.
+#
+# Media paths resolve against:
+#   EMU198X_CATALOGUE_MEDIA_ROOT  (default: ~/Projects/Emu198x-Unclean/Reference)
+
+[system]
+id = "nes"
+
+[[entry]]
+id = "super-mario-bros"
+title = "Super Mario Bros."
+year = 1985
+publisher = "Nintendo"
+variant = "ntsc"
+
+[entry.media]
+kind = "cartridge"
+slot = "cartridge-1"
+path = "nintendo/nes/Super Mario Bros. (1985-09-13)(Nintendo)(JP-US).nes"
+
+[entry.boot]
+# NES has no BIOS — cartridge code runs from frame 0. SMB shows the
+# Nintendo title with "1 PLAYER GAME / 2 PLAYER GAME" by ~frame 240.
+# Captures the canonical "SUPER MARIO BROS. / ©1985 NINTENDO" title.
+wait_frames = 240
+frame_hash = "xxh64:45173ac7294ac723"
+
+[entry.audio]
+# Captures the title-screen 2A03 melody.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:89393e2c4184241a"
