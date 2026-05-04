@@ -3253,6 +3253,15 @@ mod tests {
         b_opcode: u8,
     }
 
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Alu8TimingCase {
+        name: &'static str,
+        immediate_opcode: u8,
+        direct_opcode: u8,
+        indexed_opcode: u8,
+        extended_opcode: u8,
+    }
+
     // Source: Motorola MC6809E HMOS Microprocessor Programming Model opcode
     // timing tables in docs/source-extracts/dragon-primary. These fixtures are
     // intentionally small but table-driven; expand them as we transcribe the
@@ -4524,6 +4533,151 @@ mod tests {
         },
     ];
 
+    // Source: MC6809E opcode map 8-bit accumulator ALU timing rows. Immediate
+    // operations are 2 cycles, direct/indexed are 4, and extended are 5.
+    const OFFICIAL_ALU8_TIMING_CASES: &[Alu8TimingCase] = &[
+        Alu8TimingCase {
+            name: "SUBA",
+            immediate_opcode: 0x80,
+            direct_opcode: 0x90,
+            indexed_opcode: 0xA0,
+            extended_opcode: 0xB0,
+        },
+        Alu8TimingCase {
+            name: "CMPA",
+            immediate_opcode: 0x81,
+            direct_opcode: 0x91,
+            indexed_opcode: 0xA1,
+            extended_opcode: 0xB1,
+        },
+        Alu8TimingCase {
+            name: "SBCA",
+            immediate_opcode: 0x82,
+            direct_opcode: 0x92,
+            indexed_opcode: 0xA2,
+            extended_opcode: 0xB2,
+        },
+        Alu8TimingCase {
+            name: "ANDA",
+            immediate_opcode: 0x84,
+            direct_opcode: 0x94,
+            indexed_opcode: 0xA4,
+            extended_opcode: 0xB4,
+        },
+        Alu8TimingCase {
+            name: "BITA",
+            immediate_opcode: 0x85,
+            direct_opcode: 0x95,
+            indexed_opcode: 0xA5,
+            extended_opcode: 0xB5,
+        },
+        Alu8TimingCase {
+            name: "LDA",
+            immediate_opcode: 0x86,
+            direct_opcode: 0x96,
+            indexed_opcode: 0xA6,
+            extended_opcode: 0xB6,
+        },
+        Alu8TimingCase {
+            name: "EORA",
+            immediate_opcode: 0x88,
+            direct_opcode: 0x98,
+            indexed_opcode: 0xA8,
+            extended_opcode: 0xB8,
+        },
+        Alu8TimingCase {
+            name: "ADCA",
+            immediate_opcode: 0x89,
+            direct_opcode: 0x99,
+            indexed_opcode: 0xA9,
+            extended_opcode: 0xB9,
+        },
+        Alu8TimingCase {
+            name: "ORA",
+            immediate_opcode: 0x8A,
+            direct_opcode: 0x9A,
+            indexed_opcode: 0xAA,
+            extended_opcode: 0xBA,
+        },
+        Alu8TimingCase {
+            name: "ADDA",
+            immediate_opcode: 0x8B,
+            direct_opcode: 0x9B,
+            indexed_opcode: 0xAB,
+            extended_opcode: 0xBB,
+        },
+        Alu8TimingCase {
+            name: "SUBB",
+            immediate_opcode: 0xC0,
+            direct_opcode: 0xD0,
+            indexed_opcode: 0xE0,
+            extended_opcode: 0xF0,
+        },
+        Alu8TimingCase {
+            name: "CMPB",
+            immediate_opcode: 0xC1,
+            direct_opcode: 0xD1,
+            indexed_opcode: 0xE1,
+            extended_opcode: 0xF1,
+        },
+        Alu8TimingCase {
+            name: "SBCB",
+            immediate_opcode: 0xC2,
+            direct_opcode: 0xD2,
+            indexed_opcode: 0xE2,
+            extended_opcode: 0xF2,
+        },
+        Alu8TimingCase {
+            name: "ANDB",
+            immediate_opcode: 0xC4,
+            direct_opcode: 0xD4,
+            indexed_opcode: 0xE4,
+            extended_opcode: 0xF4,
+        },
+        Alu8TimingCase {
+            name: "BITB",
+            immediate_opcode: 0xC5,
+            direct_opcode: 0xD5,
+            indexed_opcode: 0xE5,
+            extended_opcode: 0xF5,
+        },
+        Alu8TimingCase {
+            name: "LDB",
+            immediate_opcode: 0xC6,
+            direct_opcode: 0xD6,
+            indexed_opcode: 0xE6,
+            extended_opcode: 0xF6,
+        },
+        Alu8TimingCase {
+            name: "EORB",
+            immediate_opcode: 0xC8,
+            direct_opcode: 0xD8,
+            indexed_opcode: 0xE8,
+            extended_opcode: 0xF8,
+        },
+        Alu8TimingCase {
+            name: "ADCB",
+            immediate_opcode: 0xC9,
+            direct_opcode: 0xD9,
+            indexed_opcode: 0xE9,
+            extended_opcode: 0xF9,
+        },
+        Alu8TimingCase {
+            name: "ORB",
+            immediate_opcode: 0xCA,
+            direct_opcode: 0xDA,
+            indexed_opcode: 0xEA,
+            extended_opcode: 0xFA,
+        },
+        Alu8TimingCase {
+            name: "ADDB",
+            immediate_opcode: 0xCB,
+            direct_opcode: 0xDB,
+            indexed_opcode: 0xEB,
+            extended_opcode: 0xFB,
+        },
+    ];
+
     fn apply_timing_setup_kind(setup: TimingSetup, cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
         match setup {
             TimingSetup::None => {}
@@ -4657,6 +4811,31 @@ mod tests {
             "{}{} did not end at instruction boundary",
             case.mnemonic,
             accumulator
+        );
+    }
+
+    fn assert_alu8_timing(
+        case: Alu8TimingCase,
+        mode: &str,
+        bytes: &[u8],
+        setup: TimingSetup,
+        expected_cycles: u64,
+    ) {
+        let mut memory = [0; 0x10000];
+        memory[0x4000..0x4000 + bytes.len()].copy_from_slice(bytes);
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.a = 0x55;
+        cpu.regs.b = 0x55;
+        apply_timing_setup_kind(setup, &mut cpu, &mut memory);
+
+        let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+        assert_eq!(cycles, expected_cycles, "{} {} timing", case.name, mode);
+        assert!(
+            cpu.instruction_boundary(),
+            "{} {} did not end at instruction boundary",
+            case.name,
+            mode
         );
     }
 
@@ -4957,6 +5136,23 @@ mod tests {
         for &case in OFFICIAL_ACCUMULATOR_RMW_TIMING_CASES {
             assert_accumulator_rmw_timing(case, "A", case.a_opcode);
             assert_accumulator_rmw_timing(case, "B", case.b_opcode);
+        }
+    }
+
+    #[test]
+    fn official_alu8_timing_fixture_matches_current_core() {
+        for &case in OFFICIAL_ALU8_TIMING_CASES {
+            let immediate = [case.immediate_opcode, 0x11];
+            assert_alu8_timing(case, "immediate", &immediate, TimingSetup::None, 2);
+
+            let direct = [case.direct_opcode, 0x34];
+            assert_alu8_timing(case, "direct", &direct, TimingSetup::Direct8, 4);
+
+            let indexed = [case.indexed_opcode, 0x84];
+            assert_alu8_timing(case, "indexed ,X", &indexed, TimingSetup::Indexed8, 4);
+
+            let extended = [case.extended_opcode, 0x23, 0x45];
+            assert_alu8_timing(case, "extended", &extended, TimingSetup::None, 5);
         }
     }
 
