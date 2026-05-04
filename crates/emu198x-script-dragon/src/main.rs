@@ -6653,7 +6653,7 @@ mod tests {
     }
 
     #[test]
-    fn dragon_dos_save_command_returns_ok_on_vdk() {
+    fn dragon_dos_save_command_exports_persisted_vdk_entry() {
         let Some(rom_path) = test_required_env_path("EMU198X_DRAGON32_ROM") else {
             return;
         };
@@ -6675,6 +6675,8 @@ mod tests {
             "SAVE\"CODX\"".to_owned(),
             "--cycles".to_owned(),
             "5000000".to_owned(),
+            "--disk-output".to_owned(),
+            "saved.vdk".to_owned(),
         ])
         .expect("valid DragonDOS SAVE CLI should parse");
         let firmware = load_dragon_firmware(&cli).unwrap_or_else(|err| {
@@ -6706,6 +6708,15 @@ mod tests {
                 .any(|trace| trace.contains(r#""rw":"write""#)),
             "DragonDOS SAVE should exercise disk-controller writes; screen:\n{}",
             report.screen_text.join("\n")
+        );
+        let exported = report
+            .disk_vdk
+            .as_deref()
+            .expect("DragonDOS SAVE should capture an exported VDK image");
+        let reparsed = parse_vdk(exported).expect("exported DragonDOS VDK should reparse");
+        assert!(
+            dragon_dos_directory_contains(&reparsed, b"CODX", b"BAS"),
+            "exported VDK should contain CODX.BAS in a DragonDOS directory entry"
         );
     }
 
@@ -7745,6 +7756,27 @@ mod tests {
             "screen text missing {expected:?}:\n{}",
             lines.join("\n")
         );
+    }
+
+    fn dragon_dos_directory_contains(
+        image: &DragonDiskImage,
+        name: &[u8],
+        extension: &[u8],
+    ) -> bool {
+        let mut padded_name = [0; 8];
+        let mut padded_extension = [0; 3];
+        padded_name[..name.len()].copy_from_slice(name);
+        padded_extension[..extension.len()].copy_from_slice(extension);
+
+        image.data().chunks_exact(256).any(|sector| {
+            [0, 1].into_iter().any(|base| {
+                (0..10).any(|entry| {
+                    let offset = base + entry * 25;
+                    sector[offset..offset + 8] == padded_name
+                        && sector[offset + 8..offset + 11] == padded_extension
+                })
+            })
+        })
     }
 
     fn existing_env_path(var: &str) -> Option<PathBuf> {
