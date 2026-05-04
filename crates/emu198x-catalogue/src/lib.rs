@@ -11,6 +11,7 @@
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 
+use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K};
 use emu198x_shell::{
     ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineCore,
@@ -18,6 +19,9 @@ use emu198x_shell::{
     SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
+use runtime_commodore_c64::{
+    C64Runtime, C64SessionQueryProvider, Model as C64Model, autoload_basic_disk,
+};
 use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, Spectrum48kRuntime, Spectrum128kRuntime,
@@ -41,6 +45,13 @@ const NES_NTSC_FRAME_TICKS: u64 = 341 * 262;
 /// Frames per second for NTSC NES. Master clock 21.477 MHz / (PPU divisor
 /// 4 × 89,342 dots per frame) ≈ 60.0988 Hz.
 const NES_NTSC_FRAMES_PER_SEC: f64 = 60.098_8;
+
+/// Frame budget for waiting on C64 KERNAL to reach READY.
+const DEFAULT_C64_BOOT_FRAMES: u32 = 240;
+
+/// Frame budget for the C64 disk autoload to see the "SEARCHING FOR"
+/// prompt after issuing LOAD.
+const DEFAULT_C64_DISK_PROMPT_FRAMES: u32 = 600;
 
 /// Top-level manifest shape (one TOML file per system).
 #[derive(Debug, Deserialize)]
@@ -88,7 +99,9 @@ pub struct Entry {
     pub publisher: String,
     /// Variant identifier within the system (e.g. `48k`, `128k`, `+3`).
     pub variant: String,
-    pub media: Media,
+    /// Media slot. Optional — entries that test the firmware path alone
+    /// (e.g. C64 boot-to-READY) leave this empty.
+    pub media: Option<Media>,
     pub boot: Boot,
     #[serde(default)]
     pub script: Vec<ScriptStep>,
@@ -108,9 +121,12 @@ pub struct Media {
     pub path: String,
 }
 
-/// Boot waypoint. The runner waits for tape load to finish (when the
-/// media is a tape), then runs `wait_frames` more frames, then captures
-/// the frame for hashing.
+/// Boot waypoint. After the system's setup phase completes (tape stops,
+/// cartridge boots, KERNAL reaches READY) the runner runs any
+/// `script[]` steps, then waits `wait_frames` more frames, then captures
+/// the frame. For games that need a LOAD-then-RUN sequence (e.g. C64
+/// disk titles), the scripted RUN happens before this capture so the
+/// boot frame lands on the actual title screen.
 #[derive(Debug, Deserialize)]
 pub struct Boot {
     pub wait_frames: u32,
@@ -118,15 +134,19 @@ pub struct Boot {
     pub frame_hash: String,
 }
 
-/// One scripted input step. `at_frame` is counted from the boot waypoint.
+/// One scripted input step. `at_frame` is counted from the start of the
+/// script phase (which is immediately after the system's setup phase
+/// completes — tape stop, cartridge boot, etc.). Each press consumes
+/// 4 frames (queue press → 2 frames → queue release → 2 frames).
 #[derive(Debug, Deserialize)]
 pub struct ScriptStep {
     pub at_frame: u32,
-    /// Spectrum-style key name (e.g. `enter`, `space`, `0`, `a`).
+    /// Key name (e.g. `enter`, `space`, `r`, `0`).
     pub press: String,
 }
 
-/// Audio capture window. `from_frame` is counted from the boot waypoint.
+/// Audio capture window. `from_frame` is counted from the boot waypoint
+/// capture (i.e. after script + wait_frames have completed).
 #[derive(Debug, Deserialize)]
 pub struct Audio {
     pub from_frame: u32,
@@ -230,6 +250,7 @@ pub fn run_entry(
     match manifest.system.id.as_str() {
         "spectrum" => run_spectrum_entry(manifest, entry, media_root, firmware_root),
         "nes" => run_nes_entry(entry, media_root),
+        "c64" => run_c64_entry(manifest, entry, media_root, firmware_root),
         other => Err(CatalogueError::UnsupportedSystem(other.into())),
     }
 }
@@ -275,11 +296,15 @@ fn run_spectrum_48k_entry(
         SpectrumSessionQueryProvider,
     );
 
-    let media_kind = load_entry_media(&mut session, entry, media_root)?;
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("48K entry requires media".into()))?;
+    let media_kind = load_media_spec(&mut session, media, media_root)?;
 
     autoload_basic_tape(
         &mut session,
-        &entry.media.slot,
+        &media.slot,
         DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
     )
     .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
@@ -315,9 +340,13 @@ fn run_spectrum_128k_entry(
         SpectrumSessionQueryProvider,
     );
 
-    let media_kind = load_entry_media(&mut session, entry, media_root)?;
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("128K entry requires media".into()))?;
+    let media_kind = load_media_spec(&mut session, media, media_root)?;
 
-    autoload_128k_tape_loader(&mut session, &entry.media.slot, DEFAULT_128K_BOOT_FRAMES)?;
+    autoload_128k_tape_loader(&mut session, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
 
     wait_for_tape_stop(&mut session, media_kind)?;
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_128K))
@@ -336,11 +365,86 @@ fn run_nes_entry(entry: &Entry, media_root: &Path) -> Result<RunResult, Catalogu
         NesSessionQueryProvider,
     );
 
-    let _ = load_entry_media(&mut session, entry, media_root)?;
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("NES entry requires cartridge media".into()))?;
+    let _ = load_media_spec(&mut session, media, media_root)?;
     // No autoload: NES cartridge code runs from frame 0.
     // No tape-stop wait: cartridge boots instantly.
 
     run_assertions(&mut session, entry, NES_NTSC_FRAMES_PER_SEC)
+}
+
+fn run_c64_entry(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
+    let model = match entry.variant.as_str() {
+        "pal" => C64Model::C64PalBreadbin,
+        "ntsc" => C64Model::C64NtscBreadbin,
+        other => return Err(CatalogueError::UnsupportedVariant(other.into())),
+    };
+
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    // C64 needs 3 ROMs minimum (KERNAL/BASIC/CHARGEN). When disk media
+    // is attached, the 1541 DOS ROM must also be loaded — declare it
+    // up-front in the manifest. Tolerate either count here so manifests
+    // can choose to omit the drive ROM for entries that never use disk.
+    if !(3..=4).contains(&files.len()) {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 3,
+            actual: files.len(),
+        });
+    }
+    let bytes_storage: Vec<Vec<u8>> = files
+        .iter()
+        .map(|spec| read_firmware_bytes(firmware_root, spec))
+        .collect::<Result<_, _>>()?;
+
+    let mut firmware_set = FirmwareSet::new();
+    for (spec, bytes) in files.iter().zip(bytes_storage.iter()) {
+        firmware_set.push(FirmwareImage::new(spec.id.clone(), bytes));
+    }
+
+    let runtime = C64Runtime::from_firmware(model, &firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("C64 runtime: {err}")))?;
+
+    let timing = match model {
+        C64Model::C64PalBreadbin => &TIMING_PAL_BREADBIN,
+        C64Model::C64NtscBreadbin => &TIMING_NTSC_BREADBIN,
+    };
+
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(timing.cycles_per_frame),
+        C64SessionQueryProvider,
+    );
+
+    if let Some(media) = entry.media.as_ref() {
+        let media_kind = load_media_spec(&mut session, media, media_root)?;
+        if media_kind == MediaKind::Disk {
+            autoload_basic_disk(
+                &mut session,
+                &media.slot,
+                DEFAULT_C64_BOOT_FRAMES,
+                DEFAULT_C64_DISK_PROMPT_FRAMES,
+            )
+            .map_err(|err| CatalogueError::Session(format!("C64 disk autoload: {err}")))?;
+        }
+        // Tape autoload deferred until first C64 tape entry lands.
+    } else {
+        prepare_session_no_media(&mut session)?;
+        session
+            .wait_for_boot(DEFAULT_C64_BOOT_FRAMES)
+            .map_err(|err| CatalogueError::Session(format!("C64 boot wait: {err}")))?;
+    }
+
+    let frames_per_sec = (timing.cpu_hz as f64) / f64::from(timing.cycles_per_frame);
+    run_assertions(&mut session, entry, frames_per_sec)
 }
 
 fn wait_for_tape_stop<M, Q>(
@@ -399,26 +503,26 @@ where
     Ok(())
 }
 
-/// Media-loading shared between 48K and 128K (and any future Spectrum
-/// variant). Pushes the entry's media into the session and returns the
-/// resolved `MediaKind`.
-fn load_entry_media<M, Q>(
+/// Media-loading shared across systems. Pushes one media spec into the
+/// session and returns the resolved `MediaKind`. The session must be
+/// `prepare`d separately if no media is loaded.
+fn load_media_spec<M, Q>(
     session: &mut HeadlessSession<M, Q>,
-    entry: &Entry,
+    media: &Media,
     media_root: &Path,
 ) -> Result<MediaKind, CatalogueError>
 where
     M: MachineCore,
     Q: SessionQueryProvider<M>,
 {
-    let media_path = media_root.join(&entry.media.path);
-    let media_kind = parse_media_kind(&entry.media.kind)?;
+    let media_path = media_root.join(&media.path);
+    let media_kind = parse_media_kind(&media.kind)?;
     let media_loaded = read_media_asset(&media_path, media_kind)
         .map_err(|err| CatalogueError::Session(format!("media {media_path:?}: {err}")))?;
 
     let mut media_set = MediaSet::new();
     media_set.push(MediaImage::new(
-        entry.media.slot.clone(),
+        media.slot.clone(),
         media_kind,
         &media_loaded.bytes,
     ));
@@ -430,10 +534,36 @@ where
     Ok(media_kind)
 }
 
+/// Prepares the session with no media. Some catalogue entries (e.g.
+/// C64 boot-to-READY) test the firmware path alone.
+fn prepare_session_no_media<M, Q>(
+    session: &mut HeadlessSession<M, Q>,
+) -> Result<(), CatalogueError>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
+    let media_set = MediaSet::new();
+    session
+        .prepare(&media_set, &[])
+        .map_err(|err| CatalogueError::Session(format!("prepare (no media): {err}")))
+}
+
 /// Generic assertion runner. Once the per-system/variant setup has the
-/// session loaded and at the boot phase (tape stopped, cartridge running,
-/// disk seated, etc.), this advances the timeline through boot waypoint
-/// → scripted input → audio window, and computes pass/fail.
+/// session loaded and at the start of the script phase (tape stopped,
+/// cartridge running, READY shown, etc.), this advances the timeline:
+///
+///   1. Run `script[]` steps (each `at_frame` is relative to start of
+///      this phase). Lets disk-loaded titles type RUN, multi-stage
+///      loaders advance through prompts, etc.
+///   2. Wait `boot.wait_frames` more frames.
+///   3. Capture boot frame.
+///   4. Wait `audio.from_frame` more frames.
+///   5. Capture `audio.secs`-second audio window.
+///
+/// Putting script before the boot capture means disk-game titles can
+/// land on their real post-RUN title screen as the boot waypoint
+/// rather than the (boring) post-LOAD READY prompt.
 fn run_assertions<M, Q>(
     session: &mut HeadlessSession<M, Q>,
     entry: &Entry,
@@ -443,29 +573,14 @@ where
     M: MachineCore,
     Q: SessionQueryProvider<M>,
 {
-    session
-        .run_frames(entry.boot.wait_frames)
-        .map_err(|err| CatalogueError::Session(format!("boot wait: {err}")))?;
-
-    let boot_frame = session
-        .latest_frame()
-        .ok_or_else(|| CatalogueError::Session("no frame at boot waypoint".into()))?;
-    let boot_rgba = boot_frame
-        .rgba_pixels()
-        .map_err(|err| CatalogueError::Session(format!("rgba: {err}")))?;
-    let boot_hash = hash_xxh64(&boot_rgba);
-    let boot_png = boot_frame
-        .png_bytes()
-        .map_err(|err| CatalogueError::Session(format!("boot png: {err}")))?;
-
-    let mut frames_since_boot: u32 = 0;
+    let mut frames_consumed: u32 = 0;
     for step in &entry.script {
-        if step.at_frame > frames_since_boot {
-            let advance = step.at_frame - frames_since_boot;
+        if step.at_frame > frames_consumed {
+            let advance = step.at_frame - frames_consumed;
             session
                 .run_frames(advance)
                 .map_err(|err| CatalogueError::Session(format!("script advance: {err}")))?;
-            frames_since_boot = step.at_frame;
+            frames_consumed = step.at_frame;
         }
         session.queue_input(InputEvent::Key {
             name: step.press.clone().into(),
@@ -481,13 +596,27 @@ where
         session
             .run_frames(2)
             .map_err(|err| CatalogueError::Session(format!("release: {err}")))?;
-        frames_since_boot = frames_since_boot.saturating_add(4);
+        frames_consumed = frames_consumed.saturating_add(4);
     }
 
-    if entry.audio.from_frame > frames_since_boot {
-        let advance = entry.audio.from_frame - frames_since_boot;
+    session
+        .run_frames(entry.boot.wait_frames)
+        .map_err(|err| CatalogueError::Session(format!("boot wait: {err}")))?;
+
+    let boot_frame = session
+        .latest_frame()
+        .ok_or_else(|| CatalogueError::Session("no frame at boot waypoint".into()))?;
+    let boot_rgba = boot_frame
+        .rgba_pixels()
+        .map_err(|err| CatalogueError::Session(format!("rgba: {err}")))?;
+    let boot_hash = hash_xxh64(&boot_rgba);
+    let boot_png = boot_frame
+        .png_bytes()
+        .map_err(|err| CatalogueError::Session(format!("boot png: {err}")))?;
+
+    if entry.audio.from_frame > 0 {
         session
-            .run_frames(advance)
+            .run_frames(entry.audio.from_frame)
             .map_err(|err| CatalogueError::Session(format!("audio gap: {err}")))?;
     }
 

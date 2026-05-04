@@ -1,0 +1,90 @@
+# C64 catalogue. See wiki/decisions/october-catalogue.md.
+#
+# Coverage target: 10 entries spanning D64 disk, TAP datasette, NTSC,
+# and named SID showcases. Cartridges deferred until subsystem lands.
+#
+# Media paths resolve against:
+#   EMU198X_CATALOGUE_MEDIA_ROOT     (default: ~/Projects/Emu198x-Unclean/Reference)
+#   EMU198X_CATALOGUE_FIRMWARE_ROOT  (default: ~/.emu198x/roms)
+
+[system]
+id = "c64"
+
+[[system.firmware]]
+variant = "pal"
+files = [
+    { id = "commodore-c64-kernal-rom",    path = "commodore-c64/kernal.rom" },
+    { id = "commodore-c64-basic-rom",     path = "commodore-c64/basic.rom" },
+    { id = "commodore-c64-character-rom", path = "commodore-c64/chargen.rom" },
+    # 1541 DOS ROM is required when disk media is attached. Loaded
+    # always so the same firmware list works for boot-to-READY and
+    # disk-loaded entries on the same variant.
+    { id = "commodore-1541-dos-rom",      path = "commodore-c64/1541.rom" },
+]
+
+[[entry]]
+id = "boot-to-ready"
+title = "C64 KERNAL boot to READY"
+year = 1982
+publisher = "Commodore"
+variant = "pal"
+
+# No media — pure firmware boot. Validates the C64 runtime path
+# end-to-end without needing a real game image.
+
+[entry.boot]
+# Boot detection fires when "COMMODORE 64 BASIC V2" appears, before
+# the rest of the boot banner renders. Wait some frames so the full
+# "**** COMMODORE 64 BASIC V2 ****  /  64K RAM SYSTEM 38911 BASIC
+# BYTES FREE  /  READY." banner has settled.
+wait_frames = 60
+frame_hash = "xxh64:78b237c0b923ded5"
+
+[entry.audio]
+# C64 boots silent — no music, no sound effects.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:2d2d7c5231ec57ab"
+
+[[entry]]
+id = "bruce-lee"
+title = "Bruce Lee"
+year = 1984
+publisher = "Datasoft"
+variant = "pal"
+
+[entry.media]
+kind = "disk"
+slot = "drive-8"
+path = "commodore/c64/Games/Arcade/[D64]/Bruce Lee (1984)(Datasoft).zip"
+
+# Disk autoload sends LOAD"*",8,1 + RETURN, then waits for "SEARCHING
+# FOR". The script then waits for the loader to finish (~2500 frames
+# returns to BASIC at READY), types R-U-N-RETURN to start the program.
+[[entry.script]]
+at_frame = 2500
+press = "r"
+[[entry.script]]
+at_frame = 2504
+press = "u"
+[[entry.script]]
+at_frame = 2508
+press = "n"
+[[entry.script]]
+at_frame = 2512
+press = "return"
+
+[entry.boot]
+# After RUN, the program loads further into memory and reaches its
+# title screen. ~16000 frames (≈5 minutes emulated time) is the safety
+# margin per the existing disk_autoload regression test.
+# Captures the canonical Bruce Lee playfield (mountains + temple +
+# Bruce Lee + the Ninja + the Yamo).
+wait_frames = 16000
+frame_hash = "xxh64:5b0e05c456a04115"
+
+[entry.audio]
+# Captures the in-game SID music.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:0c1b42a7f3f5f7b5"
