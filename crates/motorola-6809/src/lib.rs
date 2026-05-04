@@ -732,8 +732,7 @@ impl Mc6809 {
                         // NOP is a two-cycle instruction: opcode fetch plus
                         // one internal cycle.
                         self.state = CpuState::NopInternal;
-                        self.addr = self.regs.pc;
-                        self.rw = true;
+                        self.start_dummy_access();
                     }
                     0x13 => self.start_wait_for_interrupt_internal_cycles(3, false),
                     0x16 => {
@@ -869,7 +868,8 @@ impl Mc6809 {
                     }
                     0x4F => {
                         self.clear_a();
-                        self.read_next(CpuState::ClrAInternal);
+                        self.state = CpuState::ClrAInternal;
+                        self.start_dummy_access();
                     }
                     0x50 => {
                         self.regs.b = self.rmw8(Rmw8Op::Neg, self.regs.b).unwrap_or(self.regs.b);
@@ -913,7 +913,8 @@ impl Mc6809 {
                     }
                     0x5F => {
                         self.clear_b();
-                        self.read_next(CpuState::ClrBInternal);
+                        self.state = CpuState::ClrBInternal;
+                        self.start_dummy_access();
                     }
                     0x60 => {
                         self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Neg)))
@@ -1406,9 +1407,7 @@ impl Mc6809 {
                     self.state = CpuState::Internal {
                         remaining: remaining - 1,
                     };
-                    self.addr = self.regs.pc;
-                    self.rw = true;
-                    self.sync = false;
+                    self.start_dummy_access();
                 }
             }
             CpuState::ClrAInternal | CpuState::ClrBInternal => {
@@ -1609,9 +1608,7 @@ impl Mc6809 {
                         addr,
                         remaining: remaining - 1,
                     };
-                    self.addr = self.regs.pc;
-                    self.rw = true;
-                    self.sync = false;
+                    self.start_dummy_access();
                 }
             }
             CpuState::ReadStackPostbyte(op) => {
@@ -1764,9 +1761,7 @@ impl Mc6809 {
                     self.state = CpuState::StackOpInternal {
                         remaining: remaining - 1,
                     };
-                    self.addr = self.regs.pc;
-                    self.rw = true;
-                    self.sync = false;
+                    self.start_dummy_access();
                 }
             }
             CpuState::StackRead => {
@@ -1831,6 +1826,8 @@ impl Mc6809 {
                         remaining: remaining - 1,
                         stacked,
                     };
+                    self.start_dummy_access();
+                    return;
                 }
                 self.addr = self.regs.pc;
                 self.rw = true;
@@ -1862,9 +1859,7 @@ impl Mc6809 {
                         vector,
                         remaining: remaining - 1,
                     };
-                    self.addr = self.regs.pc;
-                    self.rw = true;
-                    self.sync = false;
+                    self.start_dummy_access();
                 }
             }
             CpuState::ReadVectorHi(vector) => {
@@ -1899,14 +1894,18 @@ impl Mc6809 {
         self.sync = true;
     }
 
+    fn start_dummy_access(&mut self) {
+        self.addr = 0xFFFF;
+        self.rw = true;
+        self.sync = false;
+    }
+
     fn start_internal_cycles(&mut self, remaining: u8) {
         if remaining == 0 {
             self.next_fetch();
         } else {
             self.state = CpuState::Internal { remaining };
-            self.addr = self.regs.pc;
-            self.rw = true;
-            self.sync = false;
+            self.start_dummy_access();
         }
     }
 
@@ -2036,6 +2035,8 @@ impl Mc6809 {
             self.state = CpuState::WaitForInterrupt { stacked };
         } else {
             self.state = CpuState::WaitForInterruptAfterInternal { remaining, stacked };
+            self.start_dummy_access();
+            return;
         }
         self.addr = self.regs.pc;
         self.rw = true;
@@ -2047,9 +2048,7 @@ impl Mc6809 {
             self.read_vector(vector);
         } else {
             self.state = CpuState::ReadVectorAfterInternal { vector, remaining };
-            self.addr = self.regs.pc;
-            self.rw = true;
-            self.sync = false;
+            self.start_dummy_access();
         }
     }
 
@@ -2282,9 +2281,7 @@ impl Mc6809 {
                 addr,
                 remaining: extra_cycles,
             };
-            self.addr = self.regs.pc;
-            self.rw = true;
-            self.sync = false;
+            self.start_dummy_access();
         }
     }
 
@@ -2725,9 +2722,7 @@ impl Mc6809 {
             self.schedule_stack_work();
         } else {
             self.state = CpuState::StackOpInternal { remaining };
-            self.addr = self.regs.pc;
-            self.rw = true;
-            self.sync = false;
+            self.start_dummy_access();
         }
     }
 
@@ -6010,13 +6005,29 @@ mod tests {
 
         run_cycle(&mut cpu, &mut memory);
         let pins = cpu.pins();
-        assert_eq!(pins.addr, 0x4001);
+        assert_eq!(pins.addr, 0xFFFF);
         assert_eq!(pins.bus_status, Mc6809BusStatus::Normal);
         assert!(pins.rw);
         assert!(pins.avma);
         assert!(!pins.lic);
         assert!(!pins.sync);
         assert!(!pins.busy);
+    }
+
+    #[test]
+    fn pins_report_dummy_access_for_internal_cycles() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x4F; // CLRA: opcode fetch plus one internal cycle.
+        let mut cpu = cpu_at(0x4000);
+
+        run_cycle(&mut cpu, &mut memory);
+        let pins = cpu.pins();
+
+        assert_eq!(pins.addr, 0xFFFF);
+        assert!(pins.rw);
+        assert!(pins.avma);
+        assert_eq!(pins.bus_status, Mc6809BusStatus::Normal);
+        assert!(!pins.sync);
     }
 
     #[test]
@@ -6522,7 +6533,7 @@ mod tests {
 
         cpu.tick();
         assert_eq!(cpu.regs.pc, 0x4001);
-        assert_eq!(cpu.addr, 0x4001);
+        assert_eq!(cpu.addr, 0xFFFF);
         assert!(!cpu.sync);
         assert!(!cpu.halt);
 

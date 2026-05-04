@@ -81,8 +81,10 @@ execution, `SYNC`, and `CWAI`, plus the one-cycle synchronization delay before
 service. Pin tests now cover reset vector fetches, normal opcode fetch/internal
 cycles, `SYNC` acknowledge, diagnostic halt acknowledge, software and hardware
 interrupt vector fetches, vector-fetch `BUSY`, `AVMA`, `BA/BS`, and represented
-`LIC` states. It is still not a complete external bus model for DMA, true
-external HALT/TSC ownership, or every invalid-vs-valid memory access cycle.
+`LIC` states. Internal/non-access cycles now expose the documented `$FFFF`
+dummy read in the compatibility pin model. It is still not a complete external
+bus model for DMA, true external HALT/TSC ownership, or every invalid-vs-valid
+memory access cycle.
 
 Required resolution:
 
@@ -211,8 +213,8 @@ Finish the remaining MC6809 source-backed validation before moving back to
 analogue/audio. CPU phase stepping, interrupt wait states, SAM display-offset
 timing, VDG fetch-to-display timing, VDG source-vs-crop horizontal geometry, and
 PIA edge/strobe behavior are now documented and tested. The next CPU gap is
-fuller opcode-table transcription plus bus-trace validation for HALT, reset, and
-remaining valid/invalid external cycles.
+fuller opcode-table transcription plus bus-trace validation for true external
+HALT/TSC/DMA ownership.
 
 Progress:
 
@@ -252,8 +254,9 @@ Progress:
   opcode families.
 - MC6809 pin tests now pin reset/opcode/vector fetch state, represented
   `LIC`, `AVMA`, `BA/BS`, and `BUSY` behavior for the compatibility pin model.
-  The pin snapshot corrected reset high-vector `BUSY` and `LIC` during
-  represented `SYNC`/halt acknowledge states.
+  The pin snapshot corrected reset high-vector `BUSY`, `LIC` during represented
+  `SYNC`/halt acknowledge states, and `$FFFF` dummy reads during internal
+  non-access cycles.
 - Dragon rendering now separates immediate SAM display-offset latches from the
   VDG-effective display base. `dragon.sam.display_offset` changes immediately,
   while VDG fetches and `dragon.video.display_base` update on frame-sync fall.
