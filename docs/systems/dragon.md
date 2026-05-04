@@ -92,10 +92,12 @@ complete WD2797 timing/write implementation.
   controller range at `$FF40-$FF5F`, including command/status, track, sector,
   data, and drive-control registers, and can satisfy single-sector read and
   in-memory write transfers from mounted VDK media. Write-protected mounted
-  media reports the WD write-protect status without mutating sectors. Real
-  DragonDOS ROM directory reads now run through the WD2797-style DRQ/FIRQ and
-  INTRQ/NMI paths. Index pulse timing, host writeback, and full WD2797 format
-  behavior remain to be implemented.
+  media reports the WD write-protect status without mutating sectors. Type-I
+  status reports a periodic index pulse, and WD write-track commands now run a
+  sector-backed format path that clears the current VDK track after a synthetic
+  raw-track transfer. Real DragonDOS ROM directory reads now run through the
+  WD2797-style DRQ/FIRQ and INTRQ/NMI paths. Host writeback and raw WD2797
+  address-mark/gap-level format behavior remain to be implemented.
 - **Runtime:** `runtime-dragon` implements the shared `MachineCore` boundary,
   exposes separate Dragon 32 PAL and Dragon 64 PAL profiles, builds from
   profile-declared BASIC firmware, emits RGBA8888 frames and mono audio
@@ -393,12 +395,12 @@ cargo run --release -q -p emu198x-script-dragon -- \
 5. Dragon 64 cold-boot and native `EXEC 48000` 64-mode BASIC entry are in
    place, including PIA1 PB2 ROM selection, `$FF04-$FF07` ACIA decode, and a
    post-transition BASIC command smoke. Full RS-232 behavior, cartridge
-   expansion hardware beyond the documented `SND` input pin, and complete
-   WD2797 disk timing/write behavior are not implemented.
-6. DragonDOS VDK support is intentionally narrow at this stage: sector reads and
-   real-ROM `DIR` work through the P2 controller register path, while
-   write-sector, format, and index pulse timing still need source-backed
-   implementation and real-ROM smoke coverage.
+   expansion hardware beyond the documented `SND` input pin, and raw
+   WD2797-level disk encoding behavior are not implemented.
+6. DragonDOS VDK support is intentionally sector-backed: sector reads/writes,
+   real-ROM `DIR`/`SAVE` smokes, write-protect handling, type-I index status,
+   and synthetic write-track formatting work through the P2 controller register
+   path, while host image writeback and raw address-mark/gap parsing remain.
 
 For the source-backed accuracy audit and implementation sequence, see
 [`dragon-accuracy-audit.md`](dragon-accuracy-audit.md).
@@ -440,7 +442,7 @@ depend on emulator-vs-emulator pixel matching.
 
 | Component | Tests |
 |-----------|-------|
-| Machine | Dragon 32/64 ROM mapping, Dragon 64 ACIA decode, SAM P/TY RAM paging, direct DragonDOS `.BIN` program RAM/EXEC loading, DragonDOS P2 disk-sector reads, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/cartridge-SND/single-bit audio |
+| Machine | Dragon 32/64 ROM mapping, Dragon 64 ACIA decode, SAM P/TY RAM paging, direct DragonDOS `.BIN` program RAM/EXEC loading, DragonDOS P2 disk-sector reads/writes, DragonDOS write-protect, index pulse, and synthetic write-track format behavior, cartridge ROM/GMC overlay, device access reporting, keyboard, cassette input, analogue joystick comparator/fire wiring, SAM text base, frame-sync-delayed VDG display base, source-backed VDG byte-fetch timing, text framebuffer, graphics rendering, XRoar-pinned PIA DAC/tape/cartridge-SND/single-bit audio |
 | PIA | 12: DDR, control, IRQ, input pins, mixed I/O, Cx1 edge selection, Cx2 input/output, Cx1-restored Cx2 strobe modes |
 | SAM | 4: defaults, set/clear, video offset, all-RAM |
 | VDG | 16: source horizontal geometry/crop split, text decode/rendering, inverse text, SG4, RG6, CG6, scanline rendering, byte-position rendering |

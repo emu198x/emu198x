@@ -256,21 +256,34 @@ enum DragonDosCommand {
     Step,
     ReadSector,
     WriteSector,
+    WriteTrack,
     ForceInterrupt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DragonDosStatusKind {
+    TypeI,
+    Data,
 }
 
 const WD_STATUS_BUSY: u8 = 0x01;
 const WD_STATUS_DRQ: u8 = 0x02;
+const WD_STATUS_INDEX: u8 = 0x02;
 const WD_STATUS_TRACK_ZERO: u8 = 0x04;
 const WD_STATUS_RECORD_NOT_FOUND: u8 = 0x10;
 const WD_STATUS_WRITE_PROTECT: u8 = 0x40;
 const WD_STATUS_NOT_READY: u8 = 0x80;
 const DRAGON_DOS_COMMAND_COMPLETE_CYCLES: u32 = 2_048;
 const DRAGON_DOS_BYTE_CYCLES: u32 = 32;
+const DRAGON_DOS_INDEX_PERIOD_CYCLES: u32 = (DRAGON_CPU_HZ / 5) as u32;
+const DRAGON_DOS_INDEX_PULSE_CYCLES: u32 = (DRAGON_CPU_HZ / 250) as u32;
+const DRAGON_DOS_RAW_TRACK_BYTES: usize = 6_250;
+const DRAGON_DOS_FORMAT_FILL: u8 = 0x00;
 
 #[derive(Debug, Clone)]
 struct DragonDosController {
     status: u8,
+    status_kind: DragonDosStatusKind,
     track: u8,
     sector: u8,
     data: u8,
@@ -285,6 +298,7 @@ struct DragonDosController {
     pending_nmi_edge: bool,
     pending_intrq_cycles: u32,
     pending_drq_cycles: u32,
+    index_cycle: u32,
     disks: [Option<DragonDiskImage>; DRAGON_DISK_DRIVES],
     write_protected: [bool; DRAGON_DISK_DRIVES],
 }
@@ -293,6 +307,7 @@ impl DragonDosController {
     fn new() -> Self {
         Self {
             status: WD_STATUS_NOT_READY,
+            status_kind: DragonDosStatusKind::TypeI,
             track: 0,
             sector: 1,
             data: 0,
@@ -307,6 +322,7 @@ impl DragonDosController {
             pending_nmi_edge: false,
             pending_intrq_cycles: 0,
             pending_drq_cycles: 0,
+            index_cycle: 0,
             disks: [None, None, None, None],
             write_protected: [false; DRAGON_DISK_DRIVES],
         }
@@ -318,6 +334,9 @@ impl DragonDosController {
         };
         *slot = Some(image);
         self.write_protected[drive] = false;
+        if drive == self.selected_drive {
+            self.index_cycle = 0;
+        }
         self.refresh_ready_status();
         Ok(())
     }
@@ -392,6 +411,7 @@ impl DragonDosController {
         match command & 0xf0 {
             0x00 => {
                 self.command = DragonDosCommand::Restore;
+                self.status_kind = DragonDosStatusKind::TypeI;
                 self.track = 0;
                 self.status = WD_STATUS_BUSY | WD_STATUS_TRACK_ZERO;
                 self.refresh_ready_status();
@@ -399,6 +419,7 @@ impl DragonDosController {
             }
             0x10 => {
                 self.command = DragonDosCommand::Seek;
+                self.status_kind = DragonDosStatusKind::TypeI;
                 self.track = self.data;
                 self.status = if self.track == 0 {
                     WD_STATUS_BUSY | WD_STATUS_TRACK_ZERO
@@ -410,6 +431,7 @@ impl DragonDosController {
             }
             0x20 | 0x30 => {
                 self.command = DragonDosCommand::Step;
+                self.status_kind = DragonDosStatusKind::TypeI;
                 self.status = if self.track == 0 {
                     WD_STATUS_BUSY | WD_STATUS_TRACK_ZERO
                 } else {
@@ -420,6 +442,7 @@ impl DragonDosController {
             }
             0x40 | 0x50 => {
                 self.command = DragonDosCommand::Step;
+                self.status_kind = DragonDosStatusKind::TypeI;
                 self.track = self.track.saturating_add(1);
                 self.status = WD_STATUS_BUSY;
                 self.refresh_ready_status();
@@ -427,6 +450,7 @@ impl DragonDosController {
             }
             0x60 | 0x70 => {
                 self.command = DragonDosCommand::Step;
+                self.status_kind = DragonDosStatusKind::TypeI;
                 self.track = self.track.saturating_sub(1);
                 self.status = if self.track == 0 {
                     WD_STATUS_BUSY | WD_STATUS_TRACK_ZERO
@@ -438,8 +462,10 @@ impl DragonDosController {
             }
             0x80 | 0x90 => self.start_read_sector(command),
             0xa0 | 0xb0 => self.start_write_sector(command),
+            0xf0 => self.start_write_track(command),
             0xd0 => {
                 self.command = DragonDosCommand::ForceInterrupt;
+                self.status_kind = DragonDosStatusKind::TypeI;
                 self.status &= !(WD_STATUS_BUSY | WD_STATUS_DRQ);
                 self.drq = false;
                 if command & 0x0f != 0 {
@@ -451,6 +477,7 @@ impl DragonDosController {
             }
             _ => {
                 self.command = DragonDosCommand::None;
+                self.status_kind = DragonDosStatusKind::TypeI;
                 self.status = 0;
                 self.refresh_ready_status();
                 self.raise_intrq();
@@ -460,6 +487,7 @@ impl DragonDosController {
 
     fn start_read_sector(&mut self, command: u8) {
         self.command = DragonDosCommand::ReadSector;
+        self.status_kind = DragonDosStatusKind::Data;
         self.selected_side = u8::from(command & 0x02 != 0);
         let Some(disk) = self.disks[self.selected_drive].as_ref() else {
             self.status = WD_STATUS_NOT_READY;
@@ -483,6 +511,7 @@ impl DragonDosController {
 
     fn start_write_sector(&mut self, command: u8) {
         self.command = DragonDosCommand::WriteSector;
+        self.status_kind = DragonDosStatusKind::Data;
         self.selected_side = u8::from(command & 0x02 != 0);
         let Some(disk) = self.disks[self.selected_drive].as_ref() else {
             self.status = WD_STATUS_NOT_READY;
@@ -505,6 +534,36 @@ impl DragonDosController {
         };
         self.sector_buffer.clear();
         self.sector_buffer.resize(sector_size, 0);
+        self.sector_position = 0;
+        self.drq = true;
+        self.status = WD_STATUS_BUSY | WD_STATUS_DRQ;
+    }
+
+    fn start_write_track(&mut self, command: u8) {
+        self.command = DragonDosCommand::WriteTrack;
+        self.status_kind = DragonDosStatusKind::Data;
+        self.selected_side = u8::from(command & 0x02 != 0);
+        let Some(disk) = self.disks[self.selected_drive].as_ref() else {
+            self.status = WD_STATUS_NOT_READY;
+            self.raise_intrq();
+            self.command = DragonDosCommand::None;
+            return;
+        };
+        if self.write_protected[self.selected_drive] {
+            self.status = WD_STATUS_WRITE_PROTECT;
+            self.raise_intrq();
+            self.command = DragonDosCommand::None;
+            return;
+        }
+        if self.track >= disk.tracks {
+            self.status = WD_STATUS_RECORD_NOT_FOUND;
+            self.raise_intrq();
+            self.command = DragonDosCommand::None;
+            return;
+        }
+
+        self.sector_buffer.clear();
+        self.sector_buffer.resize(DRAGON_DOS_RAW_TRACK_BYTES, 0);
         self.sector_position = 0;
         self.drq = true;
         self.status = WD_STATUS_BUSY | WD_STATUS_DRQ;
@@ -534,10 +593,14 @@ impl DragonDosController {
 
     fn write_data(&mut self, value: u8) {
         self.data = value;
-        if !matches!(self.command, DragonDosCommand::WriteSector) || !self.drq {
-            return;
+        match self.command {
+            DragonDosCommand::WriteSector if self.drq => self.write_sector_data(value),
+            DragonDosCommand::WriteTrack if self.drq => self.write_track_data(value),
+            _ => {}
         }
+    }
 
+    fn write_sector_data(&mut self, value: u8) {
         if let Some(slot) = self.sector_buffer.get_mut(self.sector_position) {
             *slot = value;
         }
@@ -546,6 +609,21 @@ impl DragonDosController {
         self.status &= !WD_STATUS_DRQ;
         if self.sector_position >= self.sector_buffer.len() {
             self.commit_written_sector();
+            self.pending_intrq_cycles = DRAGON_DOS_BYTE_CYCLES;
+        } else {
+            self.pending_drq_cycles = DRAGON_DOS_BYTE_CYCLES;
+        }
+    }
+
+    fn write_track_data(&mut self, value: u8) {
+        if let Some(slot) = self.sector_buffer.get_mut(self.sector_position) {
+            *slot = value;
+        }
+        self.sector_position = self.sector_position.saturating_add(1);
+        self.drq = false;
+        self.status &= !WD_STATUS_DRQ;
+        if self.sector_position >= self.sector_buffer.len() {
+            self.format_current_track();
             self.pending_intrq_cycles = DRAGON_DOS_BYTE_CYCLES;
         } else {
             self.pending_drq_cycles = DRAGON_DOS_BYTE_CYCLES;
@@ -565,13 +643,33 @@ impl DragonDosController {
         sector.copy_from_slice(&self.sector_buffer);
     }
 
+    fn format_current_track(&mut self) {
+        let Some(disk) = self.disks[self.selected_drive].as_mut() else {
+            self.status = WD_STATUS_NOT_READY;
+            return;
+        };
+        let side = self.selected_side.min(disk.sides.saturating_sub(1));
+        if self.track >= disk.tracks {
+            self.status = WD_STATUS_RECORD_NOT_FOUND;
+            return;
+        }
+        for sector_number in 1..=disk.sectors_per_track {
+            if let Some(sector) = disk.sector_mut(self.track, side, sector_number) {
+                sector.fill(DRAGON_DOS_FORMAT_FILL);
+            }
+        }
+    }
+
     fn tick(&mut self) {
+        self.tick_index();
         if self.pending_drq_cycles != 0 {
             self.pending_drq_cycles = self.pending_drq_cycles.saturating_sub(1);
             if self.pending_drq_cycles == 0
                 && matches!(
                     self.command,
-                    DragonDosCommand::ReadSector | DragonDosCommand::WriteSector
+                    DragonDosCommand::ReadSector
+                        | DragonDosCommand::WriteSector
+                        | DragonDosCommand::WriteTrack
                 )
             {
                 self.drq = true;
@@ -588,6 +686,13 @@ impl DragonDosController {
         self.status &= !WD_STATUS_BUSY;
         self.raise_intrq();
         self.command = DragonDosCommand::None;
+    }
+
+    fn tick_index(&mut self) {
+        self.index_cycle = self.index_cycle.saturating_add(1);
+        if self.index_cycle >= DRAGON_DOS_INDEX_PERIOD_CYCLES {
+            self.index_cycle = 0;
+        }
     }
 
     fn write_control(&mut self, value: u8) {
@@ -611,11 +716,22 @@ impl DragonDosController {
         let mut status = self.status;
         if self.drq {
             status |= WD_STATUS_DRQ;
+        } else if self.status_uses_index_bit() && self.index_pulse_active() {
+            status |= WD_STATUS_INDEX;
         }
         if self.disks[self.selected_drive].is_none() {
             status |= WD_STATUS_NOT_READY;
         }
         status
+    }
+
+    fn status_uses_index_bit(&self) -> bool {
+        matches!(self.status_kind, DragonDosStatusKind::TypeI)
+    }
+
+    fn index_pulse_active(&self) -> bool {
+        self.disks[self.selected_drive].is_some()
+            && self.index_cycle < DRAGON_DOS_INDEX_PULSE_CYCLES
     }
 
     fn refresh_ready_status(&mut self) {
@@ -4515,6 +4631,121 @@ mod tests {
         assert_eq!(sector[1], 0x01);
         assert_eq!(sector[255], 0xaa);
         assert_eq!(final_status & (WD_STATUS_BUSY | WD_STATUS_DRQ), 0);
+    }
+
+    #[test]
+    fn dragon_dos_type_i_status_reports_periodic_index_pulse() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine
+            .insert_disk(0, test_disk(|_| {}))
+            .expect("drive 0 insert should succeed");
+
+        machine.memory.write(0xFF48, 0x00);
+        let (initial_status, _) = machine.memory.read_bus(0xFF40);
+        assert_eq!(initial_status & WD_STATUS_INDEX, WD_STATUS_INDEX);
+
+        for _ in 0..DRAGON_DOS_INDEX_PULSE_CYCLES {
+            machine.memory.tick_disk_controller();
+        }
+        let (between_pulses, _) = machine.memory.read_bus(0xFF40);
+        assert_eq!(between_pulses & WD_STATUS_INDEX, 0);
+
+        for _ in 0..(DRAGON_DOS_INDEX_PERIOD_CYCLES - DRAGON_DOS_INDEX_PULSE_CYCLES) {
+            machine.memory.tick_disk_controller();
+        }
+        let (next_pulse, _) = machine.memory.read_bus(0xFF40);
+        assert_eq!(next_pulse & WD_STATUS_INDEX, WD_STATUS_INDEX);
+    }
+
+    #[test]
+    fn dragon_dos_write_track_formats_current_vdk_track() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine
+            .insert_disk(
+                0,
+                test_disk(|payload| {
+                    let track_2_start = 2 * 18 * 256;
+                    payload[track_2_start..track_2_start + 18 * 256].fill(0x5a);
+                }),
+            )
+            .expect("drive 0 insert should succeed");
+
+        machine.memory.write(0xFF48, 0x00);
+        machine.memory.write(0xFF41, 2);
+        machine.memory.write(0xFF40, 0xF0);
+        let (initial_status, _) = machine.memory.read_bus(0xFF40);
+        assert_eq!(
+            initial_status & (WD_STATUS_BUSY | WD_STATUS_DRQ),
+            WD_STATUS_BUSY | WD_STATUS_DRQ
+        );
+
+        for index in 0..DRAGON_DOS_RAW_TRACK_BYTES {
+            for _ in 0..DRAGON_DOS_BYTE_CYCLES {
+                machine.memory.tick_disk_controller();
+            }
+            let _ = machine.memory.write(0xFF43, index as u8);
+        }
+        for _ in 0..DRAGON_DOS_BYTE_CYCLES {
+            machine.memory.tick_disk_controller();
+        }
+        let (final_status, _) = machine.memory.read_bus(0xFF40);
+
+        let controller = machine
+            .memory
+            .disk_controller
+            .as_ref()
+            .expect("disk controller should exist");
+        let disk = controller.disks[0]
+            .as_ref()
+            .expect("drive 0 should contain disk");
+        for sector_number in 1..=18 {
+            assert!(
+                disk.sector(2, 0, sector_number)
+                    .expect("formatted sector should exist")
+                    .iter()
+                    .all(|&byte| byte == DRAGON_DOS_FORMAT_FILL)
+            );
+        }
+        assert_eq!(final_status & (WD_STATUS_BUSY | WD_STATUS_DRQ), 0);
+    }
+
+    #[test]
+    fn dragon_dos_write_track_respects_write_protect() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom);
+        machine
+            .insert_disk(
+                0,
+                test_disk(|payload| {
+                    payload[0] = 0x33;
+                }),
+            )
+            .expect("drive 0 insert should succeed");
+        machine
+            .set_disk_write_protected(0, true)
+            .expect("drive 0 write-protect should succeed");
+
+        machine.memory.write(0xFF48, 0x00);
+        machine.memory.write(0xFF40, 0xF0);
+        let (command_status, _) = machine.memory.read_bus(0xFF40);
+        let _ = machine.memory.write(0xFF43, 0x99);
+
+        let controller = machine
+            .memory
+            .disk_controller
+            .as_ref()
+            .expect("disk controller should exist");
+        let disk = controller.disks[0]
+            .as_ref()
+            .expect("drive 0 should contain disk");
+        assert_eq!(
+            command_status & WD_STATUS_WRITE_PROTECT,
+            WD_STATUS_WRITE_PROTECT
+        );
+        assert_eq!(command_status & (WD_STATUS_BUSY | WD_STATUS_DRQ), 0);
+        assert_eq!(disk.sector(0, 0, 1).expect("sector 1")[0], 0x33);
     }
 
     #[test]
