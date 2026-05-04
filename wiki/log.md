@@ -4,6 +4,109 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-04 — Phase 1 plan: cross-system inventory for October launch
+
+**Type:** plan brief — written at the close of Phase 0 to be the next session's starting point. Deliberately self-contained so a fresh-context session can execute against it without re-reading 6 days of Amiga commits.
+
+### Anchor
+
+The October 2026 CRASH! Live launch (per [product roadmap](decisions/product-roadmap.md)) targets four systems in priority order: **Spectrum, C64, NES, Amiga**. Today is 2026-05-04 — five months out. **Amiga is the documented cut candidate if we're behind schedule.**
+
+The roadmap also names three must-haves for October:
+- **Capture pipeline** — headless mode, PNG screenshots, video capture, input scripting, MCP
+- **CRT filter** — shared across all systems
+- **Serialisation traits** — built into every system from the start
+
+### Phase 0 close-out (just landed, do not redo)
+
+Amiga is in shippable shape. OCS A500 + KS 1.3 + WB 1.3 desktop and ECS A500+ + KS 2.04 + WB 2.04 desktop both have asserting boot-invariant tests. `--model a500-plus` dispatches to the right chip stack via `AmigaRuntimeKind`. Six Amiga commits over three days; track is closed for Phase 1.
+
+**Drift trigger for the next session: do not pull A600 / A2000B / A3000 / AGA Amiga work forward.** Per the roadmap that's Wave 2 (post-October). Today's Amiga state is October-ready.
+
+### Phase 1 scope
+
+Read `wiki/systems/<name>/overview.md` for **Spectrum**, **C64**, and **NES** (and skim the existing Amiga overview for parity-of-bar). For each, build an honest answer to **one question**:
+
+> "What is the gap between the current state and 'ships as a working October platform'?"
+
+The output is a short per-system gap list. That list becomes Phase 2's scope.
+
+### Specific things to look for per system
+
+**Common across all four systems (capture pipeline + CRT + snapshot infra):**
+
+- Does the headless verifier (`emu198x-script-<name>`) emit screenshots / audio capture / scripted input?
+- Does the native verifier (`emu198x-<name>`) integrate with the shared `emu198x-native-video` presenter?
+- Is the snapshot envelope versioned + serde-derived end-to-end?
+- Is there a CRT filter pass (existing or pending)?
+
+**Spectrum** (most mature — likely smallest gap):
+- 11 variants. Are all 11 reachable through the verifier UI / script CLI?
+- Tape transport (TAP / TZX) — verified end-to-end?
+- AY register exposure landed earlier — any other AY-era gaps?
+- Does Signal Part 3 (the existing demo waypoint) run end-to-end through the verifier?
+
+**C64** (KERNAL boots to READY):
+- D64 / 1541 path — does a real game disk load and run?
+- TAP datasette flow — verified end-to-end?
+- VIC-II raster IRQ + bad lines — known-correct on a representative game?
+- SID audio — does it sound right on a representative tune?
+
+**NES** (Super Mario Bros renders):
+- Mappers: NROM / MMC1 / UxROM / CNROM / MMC3 / AxROM / BxROM / NINA-001 / Camerica per the inventory. Which actually run a representative ROM end-to-end vs. "compiled in but untested"?
+- APU: 2A03 implemented — does a famous tune (SMB underwater? Mega Man 2?) sound right?
+- PAL NES — supported at all?
+- Save RAM / battery saves — wired?
+
+**Amiga** (ECS A500+ + KS 2.04 + WB 2.04 just landed):
+- A500 OCS + A500+ ECS both reach Workbench. **No further game / app validation done yet.**
+- Does an actual game ADF (Lemmings? Shadow of the Beast?) play through the verifier?
+- Audio — Paula DMA + CIA TOD all wired, but no real tune validated.
+
+### Decisions the next session needs to surface
+
+Three things the user needs to decide once the gap list is concrete:
+
+1. **Where does the time go?** Five months × ~15 sessions/month = ~75 sessions. Split: how much per system + how much on shared infra (capture, CRT, launcher)?
+2. **What's the "October platform" bar?** Boots to first screen? Runs one game per system? Runs a curated catalogue? The roadmap's must-haves answer the infra side; the per-system bar is open.
+3. **Cut candidate? Amiga is documented as cuttable — but the work just done has actually advanced it. Is the cut still on the table or has the equation shifted?**
+
+### Concrete first move next session
+
+Read these in order, take notes:
+- `wiki/systems/spectrum/overview.md`
+- `wiki/systems/commodore-c64.md`
+- `wiki/systems/nintendo-nes.md`
+- `wiki/systems/commodore-amiga.md` (skim — for parity-of-bar)
+
+Then write the gap list as four short sections (one per system), each answering "what's missing from October-ready?" That gap list is the input to a brainstorming session with the user about which gaps to close in what order. **Do not start implementing fixes** until the gap list is reviewed — Phase 1 is inventory, not execution.
+
+### What NOT to do next session
+
+- Implement A600 / A2000B / A3000 / AGA / SAGA (Wave 2, post-October)
+- Implement Wave 2 systems (Atari 2600, BBC, MSX, Master System) — also post-October
+- Refactor things "while I'm in there" — Phase 1 is reading + note-taking
+- Speculate on infra beyond the three documented must-haves (capture, CRT, snapshot)
+- Touch the disassembler DBcc bug — it's logged, not urgent (executor handles it fine; only output formatting affected)
+
+### Open queue (carry-over, post-Phase-1)
+
+These are real items that have come up across the Amiga work but aren't October-blocking:
+
+- Disassembler `DBcc` decoding fix (single-file change in `motorola-68000/src/disasm.rs`)
+- 97 mismatched-data warnings in the workspace coverage run (cargo-llvm-cov quirk; figures still trustworthy)
+- NTSC software validation on Amiga (need NTSC ROM/disk fixtures)
+- Verifier-binary smoke tests (declined — see prior decision)
+
+### Why this plan is the next session's brief
+
+Three reasons it's worth writing this now and clearing context:
+- Amiga-deep context bias (3 days of it). Fresh context will read each system's wiki page without "but I just built X for Amiga" tunnel vision.
+- The plan above is genuinely self-contained — no Amiga internals required to execute it.
+- Phase 1 output is a *gap list*, not code. Reading + writing notes on three systems is exactly what a clean context is good at.
+
+---
+
 ## 2026-05-04 — Phase 0 closed: WB 2.04 desktop + verifier-binary dispatch
 
 **Type:** Amiga track close-out. Two pieces matching the agreed Phase 0 scope.
