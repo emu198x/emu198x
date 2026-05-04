@@ -121,6 +121,10 @@ enum CpuState {
     RtiReadCc,
     ReadDirectJmpOperand,
     ReadCwaiMask,
+    WaitForInterruptAfterInternal {
+        remaining: u8,
+        stacked: bool,
+    },
     WaitForInterrupt {
         stacked: bool,
     },
@@ -325,6 +329,7 @@ enum AfterStack {
     ReadVector(Vector),
     ReadVectorAfterInternal { vector: Vector, cycles: u8 },
     WaitForInterrupt,
+    WaitForInterruptAfterInternal { cycles: u8 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -404,6 +409,7 @@ enum StackWork {
         len: u8,
         index: u8,
         hi: u8,
+        post_cycles: u8,
     },
 }
 
@@ -720,12 +726,7 @@ impl Mc6809 {
                         self.addr = self.regs.pc;
                         self.rw = true;
                     }
-                    0x13 => {
-                        self.state = CpuState::WaitForInterrupt { stacked: false };
-                        self.addr = self.regs.pc;
-                        self.rw = true;
-                        self.sync = false;
-                    }
+                    0x13 => self.start_wait_for_interrupt_internal_cycles(3, false),
                     0x16 => {
                         self.read_next(CpuState::ReadRel16Hi(Rel16Op::Branch(
                             BranchCondition::Always,
@@ -1798,7 +1799,7 @@ impl Mc6809 {
                 self.regs.cc = self.data_in;
                 self.regs.s = self.regs.s.wrapping_add(1);
                 if self.regs.flag(FLAG_E) {
-                    self.start_stack_pull(StackPointer::S, 0xFE);
+                    self.start_stack_pull_after_internal(StackPointer::S, 0xFE, 2);
                 } else {
                     self.prepare_pull_word(Pull16Op::Pc);
                 }
@@ -1807,7 +1808,24 @@ impl Mc6809 {
                 self.regs.cc &= self.data_in;
                 self.regs.pc = self.regs.pc.wrapping_add(1);
                 self.regs.set_flag(FLAG_E, true);
-                self.start_stack_push(StackPointer::S, 0xFF, AfterStack::WaitForInterrupt);
+                self.start_stack_push(
+                    StackPointer::S,
+                    0xFF,
+                    AfterStack::WaitForInterruptAfterInternal { cycles: 6 },
+                );
+            }
+            CpuState::WaitForInterruptAfterInternal { remaining, stacked } => {
+                if remaining <= 1 {
+                    self.state = CpuState::WaitForInterrupt { stacked };
+                } else {
+                    self.state = CpuState::WaitForInterruptAfterInternal {
+                        remaining: remaining - 1,
+                        stacked,
+                    };
+                }
+                self.addr = self.regs.pc;
+                self.rw = true;
+                self.sync = false;
             }
             CpuState::WaitForInterrupt { stacked } => {
                 if let Some(vector) = self.pending_interrupt() {
@@ -1927,7 +1945,7 @@ impl Mc6809 {
         self.start_stack_push(
             StackPointer::S,
             mask,
-            AfterStack::ReadVectorAfterInternal { vector, cycles: 5 },
+            AfterStack::ReadVectorAfterInternal { vector, cycles: 4 },
         );
     }
 
@@ -1994,7 +2012,25 @@ impl Mc6809 {
                     self.sync = false;
                 }
             }
+            AfterStack::WaitForInterruptAfterInternal { cycles } => {
+                if cycles == 0 {
+                    self.after_stack(AfterStack::WaitForInterrupt);
+                } else {
+                    self.start_wait_for_interrupt_internal_cycles(cycles, true);
+                }
+            }
         }
+    }
+
+    fn start_wait_for_interrupt_internal_cycles(&mut self, remaining: u8, stacked: bool) {
+        if remaining == 0 {
+            self.state = CpuState::WaitForInterrupt { stacked };
+        } else {
+            self.state = CpuState::WaitForInterruptAfterInternal { remaining, stacked };
+        }
+        self.addr = self.regs.pc;
+        self.rw = true;
+        self.sync = false;
     }
 
     fn start_vector_internal_cycles(&mut self, vector: Vector, remaining: u8) {
@@ -2551,7 +2587,7 @@ impl Mc6809 {
                 self.start_stack_op_internal_cycles(3);
             }
             StackOp::PullS => {
-                self.prepare_stack_pull(StackPointer::S, mask);
+                self.prepare_stack_pull(StackPointer::S, mask, 0);
                 self.start_stack_op_internal_cycles(3);
             }
             StackOp::PushU => {
@@ -2559,7 +2595,7 @@ impl Mc6809 {
                 self.start_stack_op_internal_cycles(3);
             }
             StackOp::PullU => {
-                self.prepare_stack_pull(StackPointer::U, mask);
+                self.prepare_stack_pull(StackPointer::U, mask, 0);
                 self.start_stack_op_internal_cycles(3);
             }
         }
@@ -2612,12 +2648,12 @@ impl Mc6809 {
         };
     }
 
-    fn start_stack_pull(&mut self, ptr: StackPointer, mask: u8) {
-        self.prepare_stack_pull(ptr, mask);
+    fn start_stack_pull_after_internal(&mut self, ptr: StackPointer, mask: u8, post_cycles: u8) {
+        self.prepare_stack_pull(ptr, mask, post_cycles);
         self.schedule_stack_work();
     }
 
-    fn prepare_stack_pull(&mut self, ptr: StackPointer, mask: u8) {
+    fn prepare_stack_pull(&mut self, ptr: StackPointer, mask: u8, post_cycles: u8) {
         let mut targets = [StackTarget::None; MAX_STACK_BYTES];
         let mut len = 0;
 
@@ -2671,6 +2707,7 @@ impl Mc6809 {
             len: len as u8,
             index: 0,
             hi: 0,
+            post_cycles,
         };
     }
 
@@ -2738,10 +2775,14 @@ impl Mc6809 {
                 }
             }
             StackWork::Pull {
-                ptr, len, index, ..
+                ptr,
+                len,
+                index,
+                post_cycles,
+                ..
             } => {
                 if index >= len {
-                    self.next_fetch();
+                    self.start_internal_cycles(post_cycles);
                 } else {
                     self.addr = self.stack_pointer(ptr);
                     self.rw = true;
@@ -2779,6 +2820,7 @@ impl Mc6809 {
             len,
             index,
             hi,
+            post_cycles,
         } = self.stack_work
         {
             let next_hi = self.apply_stack_target(targets[index as usize], hi, self.data_in);
@@ -2790,6 +2832,7 @@ impl Mc6809 {
                 len,
                 index: index + 1,
                 hi: next_hi,
+                post_cycles,
             };
         }
         self.schedule_stack_work();
@@ -4956,6 +4999,8 @@ mod tests {
 
         let mut cpu = cpu_at(0x4000);
         memory[0x4000] = 0x13; // SYNC
+        run_cycles(&mut cpu, &mut memory, 3);
+        assert_eq!(cpu.pins().bus_status, Mc6809BusStatus::Normal);
         run_cycle(&mut cpu, &mut memory);
         let pins = cpu.pins();
         assert_eq!(pins.bus_status, Mc6809BusStatus::SyncAcknowledge);
@@ -6044,6 +6089,45 @@ mod tests {
     }
 
     #[test]
+    fn jsr_indexed_uses_documented_base_and_indexed_extra_cycles() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xAD; // JSR ,X
+        memory[0x4001] = 0x84;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.x = 0x4500;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 7);
+        assert_eq!(cpu.regs.pc, 0x4500);
+        assert_eq!(cpu.regs.s, 0x7FFE);
+        assert_eq!(&memory[0x7FFE..=0x7FFF], &[0x40, 0x02]);
+
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xAD; // JSR 5,X
+        memory[0x4001] = 0x05;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.x = 0x4500;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 8);
+        assert_eq!(cpu.regs.pc, 0x4505);
+        assert_eq!(&memory[0x7FFE..=0x7FFF], &[0x40, 0x02]);
+
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0xAD; // JSR 16-bit offset,X
+        memory[0x4001] = 0x89;
+        memory[0x4002] = 0x00;
+        memory[0x4003] = 0x05;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+        cpu.regs.x = 0x4500;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 11);
+        assert_eq!(cpu.regs.pc, 0x4505);
+        assert_eq!(&memory[0x7FFE..=0x7FFF], &[0x40, 0x04]);
+    }
+
+    #[test]
     fn swi_stacks_full_frame_and_rti_restores_it() {
         let mut memory = [0; 0x10000];
         memory[0x4000] = 0x3F; // SWI
@@ -6103,7 +6187,7 @@ mod tests {
         cpu.regs.cc = 0;
         cpu.irq = true;
 
-        run_until_boundary(&mut cpu, &mut memory);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 19);
 
         assert_eq!(cpu.regs.pc, 0x4500);
         assert_eq!(cpu.regs.s, 0x7FF4);
@@ -6120,7 +6204,7 @@ mod tests {
         cpu.regs.cc = 0;
         cpu.firq = true;
 
-        run_until_boundary(&mut cpu, &mut memory);
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 10);
 
         assert_eq!(cpu.regs.pc, 0x4600);
         assert_eq!(cpu.regs.s, 0x7FFD);
@@ -6206,9 +6290,20 @@ mod tests {
         cpu.regs.s = 0x8000;
         cpu.regs.cc = FLAG_I | FLAG_C;
 
-        run_cycles(&mut cpu, &mut memory, 14);
+        run_cycles(&mut cpu, &mut memory, 19);
+        assert_eq!(cpu.regs.s, 0x7FF4);
+        assert!(
+            !matches!(cpu.state, CpuState::WaitForInterrupt { stacked: true }),
+            "CWAI must not enter the wait state before its documented 20th cycle"
+        );
+
+        run_cycle(&mut cpu, &mut memory);
         assert_eq!(cpu.regs.s, 0x7FF4);
         assert_eq!(memory[0x7FF4], FLAG_E | FLAG_C);
+        assert!(matches!(
+            cpu.state,
+            CpuState::WaitForInterrupt { stacked: true }
+        ));
         assert!(!cpu.instruction_boundary());
 
         cpu.irq = true;
@@ -6217,6 +6312,39 @@ mod tests {
         assert_eq!(cpu.regs.pc, 0x4700);
         assert_eq!(cpu.regs.s, 0x7FF4);
         assert!(cpu.regs.flag(FLAG_I));
+    }
+
+    #[test]
+    fn rti_short_and_full_frame_paths_use_documented_cycles() {
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x3B; // RTI with E clear: pull CC and PC only.
+        memory[0x8000] = 0x00;
+        memory[0x8001] = 0x45;
+        memory[0x8002] = 0x00;
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 6);
+        assert_eq!(cpu.regs.pc, 0x4500);
+        assert_eq!(cpu.regs.s, 0x8003);
+
+        let mut memory = [0; 0x10000];
+        memory[0x4000] = 0x3B; // RTI with E set: pull the whole interrupt frame.
+        memory[0x8000..=0x800B].copy_from_slice(&[
+            FLAG_E, 0x9A, 0x78, 0x56, 0x12, 0x34, 0xC0, 0xD0, 0xA0, 0xB0, 0x46, 0x00,
+        ]);
+        let mut cpu = cpu_at(0x4000);
+        cpu.regs.s = 0x8000;
+
+        assert_eq!(run_instruction_cycles(&mut cpu, &mut memory), 15);
+        assert_eq!(cpu.regs.pc, 0x4600);
+        assert_eq!(cpu.regs.s, 0x800C);
+        assert_eq!(cpu.regs.u, 0xA0B0);
+        assert_eq!(cpu.regs.y, 0xC0D0);
+        assert_eq!(cpu.regs.x, 0x1234);
+        assert_eq!(cpu.regs.dp, 0x56);
+        assert_eq!(cpu.regs.b, 0x78);
+        assert_eq!(cpu.regs.a, 0x9A);
     }
 
     #[test]
