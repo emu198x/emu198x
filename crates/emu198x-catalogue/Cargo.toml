@@ -10,6 +10,7 @@ common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 emu198x-shell = { path = "../emu198x-shell" }
 common-commodore-c64 = { path = "../common-commodore-c64" }
 machine-sinclair-zx-spectrum-128k = { path = "../machine-sinclair-zx-spectrum-128k" }
+runtime-commodore-amiga = { path = "../runtime-commodore-amiga" }
 runtime-commodore-c64 = { path = "../runtime-commodore-c64" }
 runtime-nintendo-nes = { path = "../runtime-nintendo-nes" }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }

@@ -1,0 +1,53 @@
+# Amiga catalogue. See wiki/decisions/october-catalogue.md.
+#
+# Coverage target: 10 entries spanning OCS A500 + ECS A500+, KS 1.3
+# + KS 2.04, AmigaDOS-friendly + boot-block trackloaded games, NTSC
+# validation. AGA / A1200 are post-October per the product roadmap.
+#
+# Media paths resolve against:
+#   EMU198X_CATALOGUE_MEDIA_ROOT     (default: ~/Projects/Emu198x-Unclean/Reference)
+#   EMU198X_CATALOGUE_FIRMWARE_ROOT  (default: ~/.emu198x/roms)
+
+[system]
+id = "amiga"
+
+[[system.firmware]]
+variant = "a500-ocs-pal-a501"
+files = [
+    { id = "commodore-amiga-kickstart-rom", path = "commodore-amiga/kick13.rom" },
+]
+
+[[entry]]
+id = "workbench-1.3-desktop"
+title = "Amiga Workbench 1.3 desktop boot"
+year = 1988
+publisher = "Commodore"
+variant = "a500-ocs-pal-a501"
+
+[entry.media]
+# DF0 floppy slot. The runtime auto-DMAs the boot block off the disk
+# once Kickstart reaches the insert-disk screen.
+kind = "disk"
+slot = "floppy-0"
+# Workbench 1.3 ADF stored alongside the ROMs. EMU198X_CATALOGUE_MEDIA_ROOT
+# defaults to ~/Projects/Emu198x-Unclean/Reference but Workbench is at
+# ~/.emu198x/media/commodore-amiga/. Override with the full path when
+# running this entry, OR symlink the file under the catalogue media root.
+path = "/Users/stevehill/.emu198x/media/commodore-amiga/workbench-1.3.adf"
+
+[entry.boot]
+# Workbench 1.3 boot is long. The existing boot_invariants regression
+# uses 25M ticks ≈ ~175 frames at PAL. Catalogue overshoots to 600 to
+# give margin for the AmigaDOS startup window to render fully.
+# Captures the canonical AmigaDOS splash:
+#   "Copyright ©1987 Commodore-Amiga, Inc. / All rights reserved.
+#    Release 1.3 / A500/A2000 U.K. Workbench disk. Release 1.3 version 34.20"
+# with the orange cursor on the classic blue Workbench background.
+wait_frames = 600
+frame_hash = "xxh64:59787c4d45822282"
+
+[entry.audio]
+# Workbench desktop has no music or sound effects.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:f6389c53ba66240d"

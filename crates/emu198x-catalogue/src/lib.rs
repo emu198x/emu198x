@@ -19,6 +19,10 @@ use emu198x_shell::{
     SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
+use runtime_commodore_amiga::{
+    A500_NTSC_FRAME_TICKS, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider,
+    Model as AmigaModel,
+};
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, Model as C64Model, autoload_basic_disk,
     autoload_basic_tape as c64_autoload_basic_tape,
@@ -53,6 +57,12 @@ const DEFAULT_C64_BOOT_FRAMES: u32 = 240;
 /// Frame budget for the C64 disk autoload to see the "SEARCHING FOR"
 /// prompt after issuing LOAD.
 const DEFAULT_C64_DISK_PROMPT_FRAMES: u32 = 600;
+
+/// Amiga PAL frames per second (50.08 Hz at 28.375 MHz master / 8 / 70908 CCKs).
+const AMIGA_PAL_FRAMES_PER_SEC: f64 = 50.0;
+
+/// Amiga NTSC frames per second (~59.94 Hz).
+const AMIGA_NTSC_FRAMES_PER_SEC: f64 = 59.94;
 
 /// Top-level manifest shape (one TOML file per system).
 #[derive(Debug, Deserialize)]
@@ -252,8 +262,83 @@ pub fn run_entry(
         "spectrum" => run_spectrum_entry(manifest, entry, media_root, firmware_root),
         "nes" => run_nes_entry(entry, media_root),
         "c64" => run_c64_entry(manifest, entry, media_root, firmware_root),
+        "amiga" => run_amiga_entry(manifest, entry, media_root, firmware_root),
         other => Err(CatalogueError::UnsupportedSystem(other.into())),
     }
+}
+
+fn amiga_model_from_variant(variant: &str) -> Option<AmigaModel> {
+    match variant {
+        "a500-ocs-pal" => Some(AmigaModel::A500OcsPal),
+        "a500-ocs-ntsc" => Some(AmigaModel::A500OcsNtsc),
+        "a500-ocs-pal-a501" => Some(AmigaModel::A500OcsPalA501),
+        "a500-ocs-ntsc-a501" => Some(AmigaModel::A500OcsNtscA501),
+        "a500-plus-ecs-pal" => Some(AmigaModel::A500PlusEcsPal),
+        "a500-plus-ecs-ntsc" => Some(AmigaModel::A500PlusEcsNtsc),
+        _ => None,
+    }
+}
+
+fn amiga_frame_ticks(model: AmigaModel) -> u64 {
+    match model {
+        AmigaModel::A500OcsNtsc
+        | AmigaModel::A500OcsNtscA501
+        | AmigaModel::A500PlusEcsNtsc => A500_NTSC_FRAME_TICKS,
+        _ => A500_PAL_FRAME_TICKS,
+    }
+}
+
+fn run_amiga_entry(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
+    let model = amiga_model_from_variant(&entry.variant)
+        .ok_or_else(|| CatalogueError::UnsupportedVariant(entry.variant.clone()))?;
+
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 1 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 1,
+            actual: files.len(),
+        });
+    }
+    let firmware_bytes = read_firmware_bytes(firmware_root, &files[0])?;
+
+    let mut firmware_set = FirmwareSet::new();
+    firmware_set.push(FirmwareImage::new(files[0].id.clone(), &firmware_bytes));
+
+    let runtime = AmigaRuntimeKind::from_firmware(model, &firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("Amiga runtime: {err}")))?;
+
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        amiga_frame_ticks(model),
+        AmigaSessionQueryProvider,
+    );
+
+    if let Some(media) = entry.media.as_ref() {
+        let _ = load_media_spec(&mut session, media, media_root)?;
+        // No autoload for Amiga: Kickstart boots itself, then auto-DMAs
+        // the boot block off DF0 if a disk is inserted.
+    } else {
+        prepare_session_no_media(&mut session)?;
+    }
+
+    let frames_per_sec = if matches!(
+        model,
+        AmigaModel::A500OcsNtsc
+            | AmigaModel::A500OcsNtscA501
+            | AmigaModel::A500PlusEcsNtsc
+    ) {
+        AMIGA_NTSC_FRAMES_PER_SEC
+    } else {
+        AMIGA_PAL_FRAMES_PER_SEC
+    };
+
+    run_assertions(&mut session, entry, frames_per_sec)
 }
 
 fn run_spectrum_entry(
