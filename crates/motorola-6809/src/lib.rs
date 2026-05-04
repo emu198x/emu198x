@@ -3238,6 +3238,14 @@ mod tests {
         expected_cycles: u64,
     }
 
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct RmwTimingCase {
+        mnemonic: &'static str,
+        direct_opcode: u8,
+        indexed_opcode: u8,
+        extended_opcode: u8,
+    }
+
     // Source: Motorola MC6809E HMOS Microprocessor Programming Model opcode
     // timing tables in docs/source-extracts/dragon-primary. These fixtures are
     // intentionally small but table-driven; expand them as we transcribe the
@@ -4378,8 +4386,79 @@ mod tests {
         },
     ];
 
-    fn apply_timing_setup(case: TimingCase, cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
-        match case.setup {
+    // Source: MC6809E opcode map read-modify-write timing rows. Direct and
+    // indexed RMW instructions are 6 cycles, extended RMW instructions are 7.
+    const OFFICIAL_RMW_TIMING_CASES: &[RmwTimingCase] = &[
+        RmwTimingCase {
+            mnemonic: "NEG",
+            direct_opcode: 0x00,
+            indexed_opcode: 0x60,
+            extended_opcode: 0x70,
+        },
+        RmwTimingCase {
+            mnemonic: "COM",
+            direct_opcode: 0x03,
+            indexed_opcode: 0x63,
+            extended_opcode: 0x73,
+        },
+        RmwTimingCase {
+            mnemonic: "LSR",
+            direct_opcode: 0x04,
+            indexed_opcode: 0x64,
+            extended_opcode: 0x74,
+        },
+        RmwTimingCase {
+            mnemonic: "ROR",
+            direct_opcode: 0x06,
+            indexed_opcode: 0x66,
+            extended_opcode: 0x76,
+        },
+        RmwTimingCase {
+            mnemonic: "ASR",
+            direct_opcode: 0x07,
+            indexed_opcode: 0x67,
+            extended_opcode: 0x77,
+        },
+        RmwTimingCase {
+            mnemonic: "ASL",
+            direct_opcode: 0x08,
+            indexed_opcode: 0x68,
+            extended_opcode: 0x78,
+        },
+        RmwTimingCase {
+            mnemonic: "ROL",
+            direct_opcode: 0x09,
+            indexed_opcode: 0x69,
+            extended_opcode: 0x79,
+        },
+        RmwTimingCase {
+            mnemonic: "DEC",
+            direct_opcode: 0x0A,
+            indexed_opcode: 0x6A,
+            extended_opcode: 0x7A,
+        },
+        RmwTimingCase {
+            mnemonic: "INC",
+            direct_opcode: 0x0C,
+            indexed_opcode: 0x6C,
+            extended_opcode: 0x7C,
+        },
+        RmwTimingCase {
+            mnemonic: "TST",
+            direct_opcode: 0x0D,
+            indexed_opcode: 0x6D,
+            extended_opcode: 0x7D,
+        },
+        RmwTimingCase {
+            mnemonic: "CLR",
+            direct_opcode: 0x0F,
+            indexed_opcode: 0x6F,
+            extended_opcode: 0x7F,
+        },
+    ];
+
+    fn apply_timing_setup_kind(setup: TimingSetup, cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
+        match setup {
             TimingSetup::None => {}
             TimingSetup::Direct8 => {
                 cpu.regs.dp = 0x12;
@@ -4414,6 +4493,10 @@ mod tests {
                 memory[0x8001] = 0x00;
             }
         }
+    }
+
+    fn apply_timing_setup(case: TimingCase, cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
+        apply_timing_setup_kind(case.setup, cpu, memory);
     }
 
     fn prepare_indexed_timing_case(
@@ -4459,6 +4542,29 @@ mod tests {
         ];
         memory[0x8000..0x8000 + frame.len()].copy_from_slice(&frame);
         memory[0x9000..0x9000 + frame.len()].copy_from_slice(&frame);
+    }
+
+    fn assert_rmw_timing(
+        case: RmwTimingCase,
+        mode: &str,
+        bytes: &[u8],
+        setup: TimingSetup,
+        expected_cycles: u64,
+    ) {
+        let mut memory = [0; 0x10000];
+        memory[0x4000..0x4000 + bytes.len()].copy_from_slice(bytes);
+        let mut cpu = cpu_at(0x4000);
+        apply_timing_setup_kind(setup, &mut cpu, &mut memory);
+
+        let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+        assert_eq!(cycles, expected_cycles, "{} {} timing", case.mnemonic, mode);
+        assert!(
+            cpu.instruction_boundary(),
+            "{} {} did not end at instruction boundary",
+            case.mnemonic,
+            mode
+        );
     }
 
     #[test]
@@ -4736,6 +4842,20 @@ mod tests {
                 "{} did not end at instruction boundary",
                 case.name
             );
+        }
+    }
+
+    #[test]
+    fn official_rmw_timing_fixture_matches_current_core() {
+        for &case in OFFICIAL_RMW_TIMING_CASES {
+            let direct = [case.direct_opcode, 0x34];
+            assert_rmw_timing(case, "direct", &direct, TimingSetup::Direct8, 6);
+
+            let indexed = [case.indexed_opcode, 0x84];
+            assert_rmw_timing(case, "indexed ,X", &indexed, TimingSetup::Indexed8, 6);
+
+            let extended = [case.extended_opcode, 0x23, 0x45];
+            assert_rmw_timing(case, "extended", &extended, TimingSetup::None, 7);
         }
     }
 
