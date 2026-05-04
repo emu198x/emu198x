@@ -342,9 +342,9 @@ writes where expected, and known-good signatures:
 
 | PAK | Signature |
 | --- | --- |
-| Skramble | `fede4df2995a9500` |
-| Doodle Bug | `5779963295a0d25d` |
-| Hunchback | `ec699c8d30c606e5` |
+| Skramble | `86aec469c4e6efb4` |
+| Doodle Bug | `fd9140a4845213a3` |
+| Hunchback | `7c813caa7f3d32fe` |
 
 Patched-XRoar comparison, when the local patched XRoar binary is available:
 

@@ -676,9 +676,9 @@ if [[ "${mode}" != "unit" ]]; then
         dragon_paks+=("${EMU198X_DRAGON_PAK}|custom|running-visible|2|0|")
     else
         for spec in \
-            "${reference_root}/dragon/Dragon/Games/[PAK]/Skramble (1983)(Microdeal).zip|skramble|running-visible|3|1|fede4df2995a9500" \
-            "${reference_root}/dragon/Dragon/Games/[PAK]/Doodle Bug (1985)(Microdeal).zip|doodle-bug|running-visible|3|0|5779963295a0d25d" \
-            "${reference_root}/dragon/Dragon/Games/[PAK]/Hunchback (1983)(Ocean).zip|hunchback|running-visible|8|0|ec699c8d30c606e5"; do
+            "${reference_root}/dragon/Dragon/Games/[PAK]/Skramble (1983)(Microdeal).zip|skramble|running-visible|3|1|86aec469c4e6efb4" \
+            "${reference_root}/dragon/Dragon/Games/[PAK]/Doodle Bug (1985)(Microdeal).zip|doodle-bug|running-visible|3|0|fd9140a4845213a3" \
+            "${reference_root}/dragon/Dragon/Games/[PAK]/Hunchback (1983)(Ocean).zip|hunchback|running-visible|8|0|7c813caa7f3d32fe"; do
             IFS='|' read -r candidate _label _classification _colors _writes _hash <<< "${spec}"
             if [[ -f "${candidate}" ]]; then
                 dragon_paks+=("${spec}")
