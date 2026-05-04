@@ -9,6 +9,7 @@
 //! Timing reconstruction belongs in the machine cassette peripheral; this crate
 //! only parses and validates the byte container.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Leader byte written before cassette blocks.
@@ -18,7 +19,7 @@ pub const LEADER_BYTE: u8 = 0x55;
 pub const SYNC_BYTE: u8 = 0x3c;
 
 /// Parsed Dragon CAS image.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CasImage {
     /// Blocks in tape order.
     pub blocks: Vec<CasBlock>,
@@ -53,7 +54,7 @@ impl CasImage {
 }
 
 /// One CAS block.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CasBlock {
     /// Offset of the block leader, or the sync byte when no leader was present.
     pub offset: usize,
@@ -78,7 +79,7 @@ pub struct CasBlock {
 }
 
 /// One non-CAS byte range skipped by tolerant parsing.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CasIgnoredBytes {
     /// Offset of the first ignored byte.
     pub offset: usize,
@@ -87,7 +88,7 @@ pub struct CasIgnoredBytes {
 }
 
 /// CAS block type.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CasBlockKind {
     /// Standard namefile header block.
     Header,
@@ -111,7 +112,7 @@ impl CasBlockKind {
 }
 
 /// Standard 15-byte namefile header payload.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CasHeader {
     /// Raw eight-byte filename field.
     pub raw_name: [u8; 8],
@@ -151,7 +152,7 @@ impl CasHeader {
 }
 
 /// File type stored in a namefile header.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CasFileType {
     /// Tokenized BASIC program.
     Basic,

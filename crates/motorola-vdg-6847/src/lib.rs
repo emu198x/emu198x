@@ -4,6 +4,8 @@
 //! ROM bring-up. It deliberately exposes a text snapshot before pixel rendering
 //! so we can validate the video RAM contents and SAM display-base wiring.
 
+use serde::{Deserialize, Serialize};
+
 /// Alphanumeric text columns.
 pub const TEXT_COLUMNS: usize = 32;
 /// Alphanumeric text rows.
@@ -92,7 +94,7 @@ pub const DEFAULT_TEXT_BACKGROUND: u32 = 0xFF00_1000;
 pub const DEFAULT_TEXT_FOREGROUND: u32 = 0xFF1D_AA1D;
 
 /// Decoded MC6847 text cell.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextCell {
     /// Original byte read from display memory.
     pub raw: u8,
@@ -211,7 +213,7 @@ impl TextScreen {
 }
 
 /// Text-mode render palette.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextPalette {
     /// Border colour, ARGB8888.
     pub border: u32,
@@ -249,7 +251,7 @@ pub const DEFAULT_VDG_MAGENTA: u32 = 0xFFFF_46FF;
 pub const DEFAULT_VDG_ORANGE: u32 = 0xFFFF_5C1D;
 
 /// Full MC6847 render palette.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VdgPalette {
     /// Border colour, ARGB8888.
     pub border: u32,
@@ -296,7 +298,7 @@ impl From<TextPalette> for VdgPalette {
 }
 
 /// MC6847 control-line state.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VdgControl {
     /// A/G line. `true` selects full graphics.
     pub graphics: bool,
@@ -425,7 +427,7 @@ pub fn render_visible_argb_byte_line_into(
 pub const VDG_BEAM_BYTE_MAX_PIXELS: usize = 16;
 
 /// Decoded pixels for one active display byte on one scanline.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VdgBeamByte {
     pixels: [u32; VDG_BEAM_BYTE_MAX_PIXELS],
     width: usize,

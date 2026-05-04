@@ -7,24 +7,25 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError,
     QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason, TraceEvent,
 };
-use format_dragon_bin::{parse_dragon_bin, DragonBinImage};
-use format_dragon_cas::{parse_cas_tolerant, CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE};
-use format_dragon_disk::{parse_vdk, DragonDiskImage};
+use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
+use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
+use format_dragon_disk::{DragonDiskImage, parse_vdk};
 use format_dragon_pak::{
-    parse_dragon_pak, parse_pcdragon_snapshot, DragonCartridgeKind as ParsedDragonCartridgeKind,
-    DragonPakImage, PcDragonSnapshot,
+    DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
+    parse_dragon_pak, parse_pcdragon_snapshot,
 };
 use machine_dragon_32::{
-    Dragon32, DragonCartridgeKind, DragonHardwareModel, DragonJoystickAxis, DragonKey,
-    DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, DRAGON_AUDIO_SAMPLE_RATE,
-    DRAGON_FRAME_CYCLES, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX, DRAGON_JOYSTICK_MIN,
-    ROM_SIZE,
+    DRAGON_AUDIO_SAMPLE_RATE, DRAGON_FRAME_CYCLES, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX,
+    DRAGON_JOYSTICK_MIN, Dragon32, DragonCartridgeKind, DragonHardwareModel, DragonJoystickAxis,
+    DragonKey, DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
 };
 use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::{profile_for, Model};
+use crate::{Model, profile_for};
 
+const SNAPSHOT_VERSION: u32 = 1;
 const DRAGON64_COMPATIBLE_ROM_ID: &str = "dragon64-compatible-rom";
 const DRAGON64_MODE_ROM_ID: &str = "dragon64-basic-rom";
 const DRAGON64_COMPATIBLE_ROM_CRC32S: &[u32] = &[0x60A4_634C, 0x84F6_8BF9];
@@ -124,6 +125,24 @@ pub struct DragonRuntime {
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     audio_buffer: Vec<f32>,
+    tape: Option<CasImage>,
+    tape_bytes: Vec<u8>,
+    cartridge: Option<DragonPakImage>,
+    disk: Option<DragonDiskImage>,
+    program: Option<DragonBinImage>,
+    snapshot: Option<PcDragonSnapshot>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DragonRuntimeSnapshotV1 {
+    version: u32,
+    profile_id: String,
+    model: Model,
+    firmware_rom: Vec<u8>,
+    dragon64_mode_rom: Option<Vec<u8>>,
+    machine: Dragon32,
+    joystick: DragonJoystickInputState,
+    time: MachineTime,
     tape: Option<CasImage>,
     tape_bytes: Vec<u8>,
     cartridge: Option<DragonPakImage>,
@@ -265,6 +284,91 @@ impl DragonRuntime {
             .map(DragonDiskImage::to_vdk_bytes)
     }
 
+    fn encode_snapshot(&self) -> Result<Vec<u8>, MachineError> {
+        postcard::to_allocvec(&DragonRuntimeSnapshotV1 {
+            version: SNAPSHOT_VERSION,
+            profile_id: self.profile.profile_id.as_str().to_owned(),
+            model: self.model,
+            firmware_rom: self.firmware_rom.to_vec(),
+            dragon64_mode_rom: self.dragon64_mode_rom.map(|rom| rom.to_vec()),
+            machine: self.machine.clone(),
+            joystick: self.joystick.clone(),
+            time: self.time,
+            tape: self.tape.clone(),
+            tape_bytes: self.tape_bytes.clone(),
+            cartridge: self.cartridge.clone(),
+            disk: self
+                .machine
+                .disk_image(0)
+                .cloned()
+                .or_else(|| self.disk.clone()),
+            program: self.program.clone(),
+            snapshot: self.snapshot.clone(),
+        })
+        .map_err(|reason| MachineError::InvalidSnapshot {
+            reason: format!("encode failed: {reason}"),
+        })
+    }
+
+    fn decode_snapshot(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        let snapshot: DragonRuntimeSnapshotV1 =
+            postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
+                reason: format!("decode failed: {reason}"),
+            })?;
+
+        if snapshot.version != SNAPSHOT_VERSION {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!("unsupported snapshot version {}", snapshot.version),
+            });
+        }
+        if snapshot.profile_id != self.profile.profile_id.as_str() {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!(
+                    "snapshot profile {} does not match runtime profile {}",
+                    snapshot.profile_id,
+                    self.profile.profile_id.as_str()
+                ),
+            });
+        }
+
+        let firmware_rom: [u8; ROM_SIZE] =
+            snapshot.firmware_rom.try_into().map_err(|bytes: Vec<u8>| {
+                MachineError::InvalidSnapshot {
+                    reason: format!("firmware ROM is {} bytes, expected {ROM_SIZE}", bytes.len()),
+                }
+            })?;
+        let dragon64_mode_rom = snapshot
+            .dragon64_mode_rom
+            .map(|bytes| {
+                bytes
+                    .try_into()
+                    .map_err(|bytes: Vec<u8>| MachineError::InvalidSnapshot {
+                        reason: format!(
+                            "Dragon 64 mode ROM is {} bytes, expected {ROM_SIZE}",
+                            bytes.len()
+                        ),
+                    })
+            })
+            .transpose()?;
+
+        self.profile = profile_for(snapshot.model);
+        self.model = snapshot.model;
+        self.firmware_rom = firmware_rom;
+        self.dragon64_mode_rom = dragon64_mode_rom;
+        self.machine = snapshot.machine;
+        self.joystick = snapshot.joystick;
+        self.time = snapshot.time;
+        self.tape = snapshot.tape;
+        self.tape_bytes = snapshot.tape_bytes;
+        self.cartridge = snapshot.cartridge;
+        self.disk = self.machine.disk_image(0).cloned().or(snapshot.disk);
+        self.program = snapshot.program;
+        self.snapshot = snapshot.snapshot;
+        self.update_framebuffer();
+        self.audio_buffer.clear();
+        Ok(())
+    }
+
     fn rebuild_machine(&mut self) {
         self.machine = machine_for_model(
             self.model,
@@ -347,7 +451,7 @@ impl DragonRuntime {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct DragonJoystickInputState {
     ports: [DragonJoystickPortState; 2],
 }
@@ -427,7 +531,7 @@ impl DragonJoystickInputState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 struct DragonJoystickPortState {
     left: bool,
     right: bool,
@@ -895,15 +999,11 @@ impl MachineCore for DragonRuntime {
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: "snapshot",
-        })
+        self.encode_snapshot()
     }
 
-    fn restore(&mut self, _bytes: &[u8]) -> Result<(), MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: "restore",
-        })
+    fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        self.decode_snapshot(bytes)
     }
 
     fn capabilities(&self) -> CapabilitySet {
@@ -946,10 +1046,12 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                 json!(machine.machine.disk_summary(0).map(|disk| disk.sides))
             }
             "dragon.disk.drive1.sectors_per_track" => {
-                json!(machine
-                    .machine
-                    .disk_summary(0)
-                    .map(|disk| disk.sectors_per_track))
+                json!(
+                    machine
+                        .machine
+                        .disk_summary(0)
+                        .map(|disk| disk.sectors_per_track)
+                )
             }
             "dragon.disk.drive1.sector_size" => {
                 json!(machine.machine.disk_summary(0).map(|disk| disk.sector_size))
@@ -983,18 +1085,22 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
             "dragon.tape.motor_on" => json!(machine.machine.cassette_motor_on()),
             "dragon.tape.position_bits" => json!(machine.machine.cassette_position_bits()),
             "dragon.tape.header.name" => {
-                json!(machine
-                    .tape
-                    .as_ref()
-                    .and_then(CasImage::first_header)
-                    .map(|header| header.name.as_str()))
+                json!(
+                    machine
+                        .tape
+                        .as_ref()
+                        .and_then(CasImage::first_header)
+                        .map(|header| header.name.as_str())
+                )
             }
             "dragon.tape.header.file_type" => {
-                json!(machine
-                    .tape
-                    .as_ref()
-                    .and_then(CasImage::first_header)
-                    .map(|header| cas_file_type_label(header.file_type)))
+                json!(
+                    machine
+                        .tape
+                        .as_ref()
+                        .and_then(CasImage::first_header)
+                        .map(|header| cas_file_type_label(header.file_type))
+                )
             }
             "dragon.program.loaded" => json!(machine.program.is_some()),
             "dragon.program.load_address" => {
@@ -1004,10 +1110,12 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                 json!(machine.program.as_ref().map(|program| program.exec_address))
             }
             "dragon.program.length" => {
-                json!(machine
-                    .program
-                    .as_ref()
-                    .map(|program| program.payload.len()))
+                json!(
+                    machine
+                        .program
+                        .as_ref()
+                        .map(|program| program.payload.len())
+                )
             }
             "dragon.text.base" => json!(machine.machine.text_screen_base()),
             "dragon.video.display_base" => json!(machine.machine.video_display_base()),
@@ -1118,7 +1226,7 @@ mod tests {
         AudioCapture, FirmwareImage, FirmwareSet, FramePacket, FrameSink, HostIo, MachineCore,
         MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink, NullTraceSink, PixelFormat,
     };
-    use format_dragon_cas::{checksum_for, LEADER_BYTE, SYNC_BYTE};
+    use format_dragon_cas::{LEADER_BYTE, SYNC_BYTE, checksum_for};
     use motorola_vdg_6847::{
         TEXT_ROWS, VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
     };
@@ -1275,10 +1383,12 @@ mod tests {
                 pressed: true,
             })
             .expect("joystick fire press should apply");
-        assert!(runtime
-            .machine()
-            .joystick_button(1)
-            .expect("joystick fire button 1 should exist"));
+        assert!(
+            runtime
+                .machine()
+                .joystick_button(1)
+                .expect("joystick fire button 1 should exist")
+        );
     }
 
     #[test]
@@ -1630,6 +1740,80 @@ mod tests {
             reparsed.contains_directory_entry(b"CODX", b"BAS"),
             "exported VDK should preserve CODX.BAS directory entry"
         );
+    }
+
+    #[test]
+    fn snapshot_then_restore_then_snapshot_is_a_fixed_point() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        runtime
+            .apply_input_event(&InputEvent::Button {
+                port: 1,
+                name: "right".into(),
+                pressed: true,
+            })
+            .expect("joystick input should apply before snapshot");
+        let snapshot = runtime.snapshot().expect("snapshot should encode");
+
+        let mut restored = DragonRuntime::blank(Model::Dragon32Pal);
+        restored
+            .restore(&snapshot)
+            .expect("snapshot should restore into same profile");
+        let round_trip = restored
+            .snapshot()
+            .expect("restored runtime should snapshot");
+
+        assert_eq!(round_trip, snapshot);
+        assert_eq!(
+            restored
+                .machine()
+                .joystick_axis(0, DragonJoystickAxis::X)
+                .expect("restored joystick axis should exist"),
+            DRAGON_JOYSTICK_MAX
+        );
+    }
+
+    #[test]
+    fn restore_rejects_corrupt_snapshot_bytes() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+
+        let err = runtime
+            .restore(&[0xff, 0xff, 0xff, 0xff])
+            .expect_err("corrupt snapshot bytes should fail");
+
+        assert!(matches!(err, MachineError::InvalidSnapshot { .. }));
+    }
+
+    #[test]
+    fn restore_rejects_snapshot_from_different_profile() {
+        let snapshot = DragonRuntime::blank(Model::Dragon32Pal)
+            .snapshot()
+            .expect("snapshot should encode");
+        let mut runtime = DragonRuntime::blank(Model::Dragon64Pal);
+
+        let err = runtime
+            .restore(&snapshot)
+            .expect_err("cross-profile snapshot restore should fail");
+
+        assert!(matches!(err, MachineError::InvalidSnapshot { .. }));
+    }
+
+    #[test]
+    fn restore_remounts_persisted_dragon_dos_disk_image() {
+        let mut runtime = DragonRuntime::blank(Model::Dragon32Pal);
+        let disk = dragon_vdk_with_directory_entry(b"CODX", b"BAS");
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("drive-1", MediaKind::Disk, &disk));
+        runtime.load_media(&media).expect("disk should load");
+        let snapshot = runtime.snapshot().expect("snapshot should encode");
+
+        let mut restored = DragonRuntime::blank(Model::Dragon32Pal);
+        restored
+            .restore(&snapshot)
+            .expect("snapshot should restore");
+        let exported = restored.export_drive_vdk(0).expect("drive 1 should export");
+        let reparsed = parse_vdk(&exported).expect("exported VDK should parse");
+
+        assert!(reparsed.contains_directory_entry(b"CODX", b"BAS"));
     }
 
     #[test]

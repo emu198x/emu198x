@@ -4,6 +4,7 @@
 //! raw 256-byte sector data in track order. The sample corpus used here stores
 //! 40-track, single-sided, 18-sector DragonDOS disks.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const VDK_SIGNATURE: &[u8; 2] = b"dk";
@@ -14,7 +15,7 @@ const DEFAULT_SECTORS_PER_TRACK: u8 = 18;
 const DEFAULT_SECTOR_SIZE: u16 = 256;
 
 /// Parsed DragonDOS disk image.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DragonDiskImage {
     /// Tracks per side.
     pub tracks: u8,

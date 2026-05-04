@@ -8,6 +8,7 @@
 //! The known Dragon machine-code files use file type `0x02`, matching the CAS
 //! namefile machine-code type.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// DragonDOS `.BIN` sentinel byte.
@@ -22,7 +23,7 @@ pub const DRAGON_BIN_PAYLOAD_SEPARATOR: u8 = 0xaa;
 const DRAGON_BIN_HEADER_LEN: usize = 9;
 
 /// Parsed DragonDOS binary program.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DragonBinImage {
     /// Raw DragonDOS file type byte.
     pub file_type: u8,

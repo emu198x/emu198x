@@ -13,6 +13,8 @@ format-dragon-disk = { path = "../format-dragon-disk" }
 format-dragon-pak = { path = "../format-dragon-pak" }
 machine-dragon-32 = { path = "../machine-dragon-32" }
 motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
+postcard = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]

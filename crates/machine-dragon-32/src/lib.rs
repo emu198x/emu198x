@@ -19,6 +19,7 @@ use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS, TextPalette, TextScreen,
     VdgControl, VdgPalette,
 };
+use serde::{Deserialize, Serialize};
 
 /// Dragon 32 RAM size.
 pub const RAM_SIZE: usize = 0x8000;
@@ -70,7 +71,7 @@ const DRAGON_DISK_DRIVES: usize = 4;
 const DRAGON_DOS_SIGNATURE: &[u8; 2] = b"DK";
 
 /// Dragon board-level memory decode variant.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DragonHardwareModel {
     /// Dragon 32: 32 KiB base RAM, internal ROM at `$8000-$BFFF`, cartridge ROM at `$C000-$FEFF`.
     Dragon32,
@@ -134,7 +135,7 @@ fn joystick_threshold_from_dac(value: u8) -> u16 {
 }
 
 /// Dragon cartridge hardware model.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DragonCartridgeKind {
     /// Plain ROM cartridge mapped at `$C000-$FEFF`.
     Rom,
@@ -238,7 +239,7 @@ pub struct DragonDiskSummary {
     pub sector_size: u16,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct DragonCartridge {
     kind: DragonCartridgeKind,
     rom: Box<[u8]>,
@@ -248,7 +249,7 @@ struct DragonCartridge {
     next_firq_cycle: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum DragonDosCommand {
     None,
     Restore,
@@ -260,7 +261,7 @@ enum DragonDosCommand {
     ForceInterrupt,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum DragonDosStatusKind {
     TypeI,
     Data,
@@ -280,7 +281,7 @@ const DRAGON_DOS_INDEX_PULSE_CYCLES: u32 = (DRAGON_CPU_HZ / 250) as u32;
 const DRAGON_DOS_RAW_TRACK_BYTES: usize = 6_250;
 const DRAGON_DOS_FORMAT_FILL: u8 = 0x00;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct DragonDosController {
     status: u8,
     status_kind: DragonDosStatusKind,
@@ -857,7 +858,7 @@ impl fmt::Display for DragonJoystickError {
 
 impl Error for DragonJoystickError {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct DragonJoystick {
     axes: [[u16; 2]; 2],
     buttons: u8,
@@ -932,7 +933,7 @@ impl Default for DragonJoystick {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum DragonAudioSource {
     Dac,
     Tape,
@@ -1347,7 +1348,7 @@ impl fmt::Display for KeyboardMatrixError {
 impl Error for KeyboardMatrixError {}
 
 /// Dragon keyboard matrix state.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DragonKeyboard {
     rows: [u8; 8],
 }
@@ -1661,7 +1662,7 @@ pub struct CpuInterruptAcceptTrace {
 }
 
 /// VDG byte-render sampling trace entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VdgSampleTrace {
     /// Bus cycle that advanced the beam far enough to sample this byte.
     pub cycle: u64,
@@ -1725,7 +1726,7 @@ pub struct VdgModeWriteTrace {
 }
 
 /// Current MC6847 beam position within the emulated PAL frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DragonVideoPhase {
     /// Master-tick offset within the current video frame.
     pub frame_master_tick: u64,
@@ -1853,6 +1854,95 @@ struct DragonMemory {
     cartridge: Option<DragonCartridge>,
     disk_controller: Option<DragonDosController>,
     cartridge_sound_level: f32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DragonMemorySnapshot {
+    ram: Vec<u8>,
+    rom: Vec<u8>,
+    dragon64_compat_rom: Option<Vec<u8>>,
+    dragon64_mode_rom: Option<Vec<u8>>,
+    model: DragonHardwareModel,
+    pia0: Pia6821,
+    pia1: Pia6821,
+    sam: Sam6883,
+    vdg_display_base: u16,
+    keyboard: DragonKeyboard,
+    joystick: DragonJoystick,
+    cassette: CassettePlayback,
+    cartridge: Option<DragonCartridge>,
+    disk_controller: Option<DragonDosController>,
+    cartridge_sound_level: f32,
+}
+
+impl Serialize for DragonMemory {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        DragonMemorySnapshot {
+            ram: self.ram.to_vec(),
+            rom: self.rom.to_vec(),
+            dragon64_compat_rom: self.dragon64_compat_rom.as_ref().map(|rom| rom.to_vec()),
+            dragon64_mode_rom: self.dragon64_mode_rom.as_ref().map(|rom| rom.to_vec()),
+            model: self.model,
+            pia0: self.pia0.clone(),
+            pia1: self.pia1.clone(),
+            sam: self.sam.clone(),
+            vdg_display_base: self.vdg_display_base,
+            keyboard: self.keyboard.clone(),
+            joystick: self.joystick.clone(),
+            cassette: self.cassette.clone(),
+            cartridge: self.cartridge.clone(),
+            disk_controller: self.disk_controller.clone(),
+            cartridge_sound_level: self.cartridge_sound_level,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DragonMemory {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let snapshot = DragonMemorySnapshot::deserialize(deserializer)?;
+        Ok(Self {
+            ram: boxed_array::<FULL_RAM_SIZE, D::Error>(snapshot.ram, "RAM")?,
+            rom: boxed_array::<ROM_SIZE, D::Error>(snapshot.rom, "ROM")?,
+            dragon64_compat_rom: snapshot
+                .dragon64_compat_rom
+                .map(|rom| boxed_array::<ROM_SIZE, D::Error>(rom, "Dragon 64 compatible ROM"))
+                .transpose()?,
+            dragon64_mode_rom: snapshot
+                .dragon64_mode_rom
+                .map(|rom| boxed_array::<ROM_SIZE, D::Error>(rom, "Dragon 64 mode ROM"))
+                .transpose()?,
+            model: snapshot.model,
+            pia0: snapshot.pia0,
+            pia1: snapshot.pia1,
+            sam: snapshot.sam,
+            vdg_display_base: snapshot.vdg_display_base,
+            keyboard: snapshot.keyboard,
+            joystick: snapshot.joystick,
+            cassette: snapshot.cassette,
+            cartridge: snapshot.cartridge,
+            disk_controller: snapshot.disk_controller,
+            cartridge_sound_level: snapshot.cartridge_sound_level,
+        })
+    }
+}
+
+fn boxed_array<const N: usize, E>(bytes: Vec<u8>, label: &str) -> Result<Box<[u8; N]>, E>
+where
+    E: serde::de::Error,
+{
+    bytes
+        .into_boxed_slice()
+        .try_into()
+        .map_err(|bytes: Box<[u8]>| {
+            serde::de::Error::custom(format!("{label} is {} bytes, expected {N}", bytes.len()))
+        })
 }
 
 impl DragonMemory {
@@ -2290,7 +2380,7 @@ impl DragonMemory {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BeamVideo {
     frame: Vec<u32>,
     cycle_in_frame: u64,
@@ -2645,7 +2735,7 @@ impl BeamVideo {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct ActiveByteRender {
     line: usize,
     byte_x: usize,
@@ -2660,7 +2750,7 @@ impl ActiveByteRender {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct PrefetchedByte {
     offset: usize,
     raw: u8,
@@ -2694,7 +2784,7 @@ impl CpuPhaseMasterTicks {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct SamCycleTiming {
     running_fast: bool,
     extend_slow_cycle: bool,
@@ -2816,7 +2906,7 @@ fn vdg_byte_fetch_offset(
     (byte_x < row_bytes).then_some((active_y / y_scale * row_bytes + byte_x, byte_width))
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct CassettePlayback {
     bytes: Vec<u8>,
     bit_index: usize,
@@ -2890,7 +2980,7 @@ impl CassettePlayback {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct DragonAudio {
     cycle_accumulator: u64,
     samples: Vec<f32>,
@@ -2934,7 +3024,7 @@ fn sam_video_mode_from_vdg_pins(vdg_mode: u8) -> u8 {
 }
 
 /// Tickable Dragon 32 machine.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Dragon32 {
     cpu: Mc6809,
     memory: DragonMemory,

@@ -4,9 +4,10 @@ use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
     MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
 };
+use serde::{Deserialize, Serialize};
 
 /// Dragon family model.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Model {
     /// Dragon Data Dragon 32, PAL.
     Dragon32Pal,

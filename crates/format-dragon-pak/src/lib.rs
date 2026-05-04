@@ -5,6 +5,7 @@
 //! same skip. PC-Dragon `.pak` files are snapshots, not cartridges, and are
 //! parsed through the snapshot path.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Maximum size XRoar keeps in a single cartridge ROM image.
@@ -12,7 +13,7 @@ pub const MAX_CART_ROM_SIZE: usize = 0x40000;
 const ROM_CART_LIMIT: usize = 0x4000;
 
 /// Dragon cartridge hardware model inferred from an image.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DragonCartridgeKind {
     /// Plain ROM cartridge mapped at `$C000-$FEFF`.
     Rom,
@@ -21,7 +22,7 @@ pub enum DragonCartridgeKind {
 }
 
 /// Parsed Dragon cartridge image.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DragonPakImage {
     /// Inferred cartridge hardware model.
     pub kind: DragonCartridgeKind,
@@ -32,7 +33,7 @@ pub struct DragonPakImage {
 }
 
 /// PC-Dragon snapshot register state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PcDragonRegisters {
     /// Program counter.
     pub pc: u16,
@@ -55,7 +56,7 @@ pub struct PcDragonRegisters {
 }
 
 /// Snapshot peripheral bytes captured from PC-Dragon's V1.4 display state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PcDragonPeripherals {
     /// Stored value for `$FF02`, Dragon PIA0 port B.
     pub ff02: u8,
@@ -66,7 +67,7 @@ pub struct PcDragonPeripherals {
 }
 
 /// Parsed PC-Dragon `.pak` snapshot.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PcDragonSnapshot {
     /// RAM bytes starting at `load_address`.
     pub ram: Box<[u8]>,
