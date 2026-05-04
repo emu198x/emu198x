@@ -21,6 +21,7 @@ use emu198x_shell::{
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, Model as C64Model, autoload_basic_disk,
+    autoload_basic_tape as c64_autoload_basic_tape,
 };
 use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
 use runtime_sinclair_zx_spectrum::{
@@ -309,7 +310,7 @@ fn run_spectrum_48k_entry(
     )
     .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
 
-    wait_for_tape_stop(&mut session, media_kind)?;
+    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
 }
 
@@ -348,7 +349,7 @@ fn run_spectrum_128k_entry(
 
     autoload_128k_tape_loader(&mut session, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
 
-    wait_for_tape_stop(&mut session, media_kind)?;
+    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_128K))
 }
 
@@ -426,16 +427,42 @@ fn run_c64_entry(
 
     if let Some(media) = entry.media.as_ref() {
         let media_kind = load_media_spec(&mut session, media, media_root)?;
-        if media_kind == MediaKind::Disk {
-            autoload_basic_disk(
-                &mut session,
-                &media.slot,
-                DEFAULT_C64_BOOT_FRAMES,
-                DEFAULT_C64_DISK_PROMPT_FRAMES,
-            )
-            .map_err(|err| CatalogueError::Session(format!("C64 disk autoload: {err}")))?;
+        match media_kind {
+            MediaKind::Disk => {
+                autoload_basic_disk(
+                    &mut session,
+                    &media.slot,
+                    DEFAULT_C64_BOOT_FRAMES,
+                    DEFAULT_C64_DISK_PROMPT_FRAMES,
+                )
+                .map_err(|err| CatalogueError::Session(format!("C64 disk autoload: {err}")))?;
+                // Match the existing disk_autoload regression tests:
+                // wait dynamically for "LOADING" text after SEARCHING
+                // FOR. The catalogue script's at_frame is then "frames
+                // after LOADING appears" rather than "after SEARCHING
+                // FOR".
+                session
+                    .wait_for_query_text_contains("screen.text.lines", "LOADING", 1_500)
+                    .map_err(|err| CatalogueError::Session(format!("C64 LOADING wait: {err}")))?;
+            }
+            MediaKind::Tape => {
+                c64_autoload_basic_tape(
+                    &mut session,
+                    &media.slot,
+                    DEFAULT_C64_BOOT_FRAMES,
+                    DEFAULT_C64_DISK_PROMPT_FRAMES,
+                )
+                .map_err(|err| CatalogueError::Session(format!("C64 tape autoload: {err}")))?;
+                // No tape-stop wait: per the existing tape_autoload
+                // regression tests, the C64 tape autoload returns
+                // after PRESS PLAY ON TAPE has been simulated, and the
+                // game's bootloader handles the rest. wait_frames in
+                // the entry covers the full load-to-menu duration.
+            }
+            other => {
+                return Err(CatalogueError::UnsupportedMediaKind(format!("c64: {other:?}")));
+            }
         }
-        // Tape autoload deferred until first C64 tape entry lands.
     } else {
         prepare_session_no_media(&mut session)?;
         session
@@ -450,6 +477,7 @@ fn run_c64_entry(
 fn wait_for_tape_stop<M, Q>(
     session: &mut HeadlessSession<M, Q>,
     media_kind: MediaKind,
+    tape_query_path: &str,
 ) -> Result<(), CatalogueError>
 where
     M: MachineCore,
@@ -457,7 +485,7 @@ where
 {
     if media_kind == MediaKind::Tape {
         session
-            .wait_for_query_bool("spectrum.tape.playing", false, MAX_TAPE_LOAD_FRAMES)
+            .wait_for_query_bool(tape_query_path, false, MAX_TAPE_LOAD_FRAMES)
             .map_err(|err| CatalogueError::Session(format!("tape stop: {err}")))?;
     }
     Ok(())
@@ -573,6 +601,9 @@ where
     M: MachineCore,
     Q: SessionQueryProvider<M>,
 {
+    // Per-step timing matches runtime-commodore-c64::tests::common::press_key:
+    // queue press → run 3 frames → queue release. The release event fires
+    // on the next `run_frames` (next step's advance or the boot wait).
     let mut frames_consumed: u32 = 0;
     for step in &entry.script {
         if step.at_frame > frames_consumed {
@@ -587,16 +618,13 @@ where
             pressed: true,
         });
         session
-            .run_frames(2)
+            .run_frames(3)
             .map_err(|err| CatalogueError::Session(format!("press: {err}")))?;
         session.queue_input(InputEvent::Key {
             name: step.press.clone().into(),
             pressed: false,
         });
-        session
-            .run_frames(2)
-            .map_err(|err| CatalogueError::Session(format!("release: {err}")))?;
-        frames_consumed = frames_consumed.saturating_add(4);
+        frames_consumed = frames_consumed.saturating_add(3);
     }
 
     session
