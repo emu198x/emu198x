@@ -3616,12 +3616,17 @@ impl Dragon32 {
 
         self.advance_phase_window(phase_ticks.q_low, diagnostics.as_deref_mut());
         let previous_pia1_pb = self.memory.pia1.pb;
-        let event = if self.cpu.rw {
-            let (value, event) = self.memory.read_bus(self.cpu.addr);
-            self.cpu.data_in = value;
-            event
+        let pins = self.cpu.pins();
+        let event = if pins.addr_driven {
+            if pins.rw {
+                let (value, event) = self.memory.read_bus(pins.addr);
+                self.cpu.data_in = value;
+                event
+            } else {
+                self.memory.write(pins.addr, pins.data)
+            }
         } else {
-            self.memory.write(self.cpu.addr, self.cpu.data)
+            None
         };
         if previous_pia1_pb != self.memory.pia1.pb {
             self.video.apply_vdg_control_change(&self.memory);

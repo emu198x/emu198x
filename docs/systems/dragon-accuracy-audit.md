@@ -82,17 +82,21 @@ service. Pin tests now cover reset vector fetches, normal opcode fetch/internal
 cycles, `SYNC` acknowledge, diagnostic halt acknowledge, software and hardware
 interrupt vector fetches, vector-fetch `BUSY`, `AVMA`, `BA/BS`, and represented
 `LIC` states. Internal/non-access cycles now expose the documented `$FFFF`
-dummy read in the compatibility pin model. It is still not a complete external
-bus model for DMA, true external HALT/TSC ownership, or every invalid-vs-valid
-memory access cycle.
+dummy read in the compatibility pin model. External `HALT` now stops at an
+instruction boundary, acknowledges with `BA/BS = 1/1`, and inserts the documented
+bus-reacquire dead cycle after release. External `TSC` now three-states the CPU
+address/data/`R/W` buffers without asserting `BA`, and Dragon machine stepping
+skips CPU memory transactions while those buffers are not driven. It is still
+not a complete external bus model for a separate DMA master or every
+invalid-vs-valid memory access cycle.
 
 Required resolution:
 
 1. Expand bus-trace tests for remaining invalid-vs-valid memory access cycles
    and any instruction families that need more than the current compatibility
    pin snapshot.
-2. Model the remaining external ownership pins and DMA/three-state behavior
-   once a machine needs them.
+2. Add a real external DMA-master harness around `TSC` if/when a Dragon
+   expansion needs it.
 
 ### MC6809 Opcode Validation
 
@@ -213,8 +217,8 @@ Finish the remaining MC6809 source-backed validation before moving back to
 analogue/audio. CPU phase stepping, interrupt wait states, SAM display-offset
 timing, VDG fetch-to-display timing, VDG source-vs-crop horizontal geometry, and
 PIA edge/strobe behavior are now documented and tested. The next CPU gap is
-fuller opcode-table transcription plus bus-trace validation for true external
-HALT/TSC/DMA ownership.
+fuller opcode-table transcription plus bus-trace validation for any real
+external DMA master that asserts `TSC`.
 
 Progress:
 
@@ -257,6 +261,11 @@ Progress:
   The pin snapshot corrected reset high-vector `BUSY`, `LIC` during represented
   `SYNC`/halt acknowledge states, and `$FFFF` dummy reads during internal
   non-access cycles.
+- External MC6809 ownership tests now pin logical `HALT` input behavior,
+  bus-reacquire dead-cycle behavior after `HALT` release, and `TSC`
+  three-state behavior. Dragon machine stepping now uses the CPU pin-drive
+  snapshot so high-impedance CPU cycles do not perform synthetic memory
+  transactions.
 - Dragon rendering now separates immediate SAM display-offset latches from the
   VDG-effective display base. `dragon.sam.display_offset` changes immediately,
   while VDG fetches and `dragon.video.display_base` update on frame-sync fall.

@@ -471,6 +471,16 @@ pub struct Mc6809Pins {
     pub sync: bool,
     /// Current E/Q phase in the additive phase-visible API.
     pub phase: Mc6809ClockPhase,
+    /// External `HALT` input is asserted.
+    pub halt_input: bool,
+    /// External three-state-control input is asserted.
+    pub tsc: bool,
+    /// The CPU is actively driving the address bus.
+    pub addr_driven: bool,
+    /// The CPU is actively driving the `R/W` bus-control output.
+    pub rw_driven: bool,
+    /// The CPU is actively driving the data bus.
+    pub data_driven: bool,
 }
 
 /// Motorola MC6809 CPU state exposed to machine crates.
@@ -487,6 +497,14 @@ pub struct Mc6809 {
     pub firq: bool,
     pub nmi: bool,
     pub halt: bool,
+    #[serde(default)]
+    halt_input: bool,
+    #[serde(default)]
+    external_halt_ack: bool,
+    #[serde(default)]
+    tsc: bool,
+    #[serde(default)]
+    bus_reacquire_dead_cycle: bool,
     pub reset_phase: u8,
     #[serde(default)]
     phase: Mc6809ClockPhase,
@@ -522,6 +540,10 @@ impl Mc6809 {
             firq: false,
             nmi: false,
             halt: false,
+            halt_input: false,
+            external_halt_ack: false,
+            tsc: false,
+            bus_reacquire_dead_cycle: false,
             reset_phase: 0,
             phase: Mc6809ClockPhase::QHigh,
             sampled_irq: false,
@@ -549,6 +571,10 @@ impl Mc6809 {
         self.firq = false;
         self.nmi = false;
         self.halt = false;
+        self.halt_input = false;
+        self.external_halt_ack = false;
+        self.tsc = false;
+        self.bus_reacquire_dead_cycle = false;
         self.reset_phase = 2;
         self.phase = Mc6809ClockPhase::QHigh;
         self.sampled_irq = false;
@@ -603,6 +629,15 @@ impl Mc6809 {
             return;
         }
 
+        if self.bus_reacquire_dead_cycle {
+            self.bus_reacquire_dead_cycle = false;
+            self.addr = self.regs.pc;
+            self.rw = true;
+            self.sync = true;
+            self.total_cycles = self.total_cycles.saturating_add(1);
+            return;
+        }
+
         match self.reset_phase {
             2 => {
                 self.vector_hi = self.data_in;
@@ -619,6 +654,10 @@ impl Mc6809 {
                 self.reset_phase = 0;
             }
             _ => self.tick_instruction(),
+        }
+
+        if self.halt_input && self.reset_phase == 0 && self.instruction_boundary() {
+            self.enter_external_halt();
         }
 
         self.total_cycles = self.total_cycles.saturating_add(1);
@@ -644,6 +683,7 @@ impl Mc6809 {
             Mc6809BusStatus::SyncAcknowledge => (true, false),
             Mc6809BusStatus::HaltAcknowledge => (true, true),
         };
+        let bus_high_impedance = matches!(bus_status, Mc6809BusStatus::HaltAcknowledge) || self.tsc;
 
         Mc6809Pins {
             addr: self.addr,
@@ -661,7 +701,49 @@ impl Mc6809 {
             bus_status,
             sync: self.sync,
             phase: self.phase,
+            halt_input: self.halt_input,
+            tsc: self.tsc,
+            addr_driven: !bus_high_impedance,
+            rw_driven: !bus_high_impedance,
+            data_driven: !bus_high_impedance && !self.rw,
         }
+    }
+
+    /// Assert or release the external active-low `HALT` input.
+    ///
+    /// The boolean is logical: `true` means the external pin is asserted. The
+    /// CPU enters halt acknowledge at the next instruction boundary and inserts
+    /// the documented dead cycle before reacquiring the bus after release.
+    pub fn set_halt_input(&mut self, asserted: bool) {
+        self.halt_input = asserted;
+        if asserted || !self.external_halt_ack {
+            return;
+        }
+
+        self.external_halt_ack = false;
+        self.halt = false;
+        self.bus_reacquire_dead_cycle = true;
+        self.start_dummy_access();
+    }
+
+    /// Return whether the external `HALT` input is asserted.
+    #[must_use]
+    pub const fn halt_input(&self) -> bool {
+        self.halt_input
+    }
+
+    /// Assert or release the external three-state-control input.
+    ///
+    /// `TSC` only controls the address, data, and `R/W` output buffers. It does
+    /// not assert `BA`; the control pins remain driven.
+    pub fn set_tsc(&mut self, asserted: bool) {
+        self.tsc = asserted;
+    }
+
+    /// Return whether the external three-state-control input is asserted.
+    #[must_use]
+    pub const fn tsc(&self) -> bool {
+        self.tsc
     }
 
     fn bus_status(&self) -> Mc6809BusStatus {
@@ -701,6 +783,12 @@ impl Mc6809 {
                 bus_status,
                 Mc6809BusStatus::SyncAcknowledge | Mc6809BusStatus::HaltAcknowledge
             )
+    }
+
+    fn enter_external_halt(&mut self) {
+        self.external_halt_ack = true;
+        self.halt = true;
+        self.sync = false;
     }
 
     fn tick_instruction(&mut self) {
@@ -6080,6 +6168,78 @@ mod tests {
         assert!(pins.bs);
         assert!(!pins.avma);
         assert!(pins.lic);
+    }
+
+    #[test]
+    fn external_halt_enters_acknowledge_at_instruction_boundary() {
+        let mut memory = [0x12; 0x10000];
+        memory[0x4000] = 0x86; // LDA #$5A
+        memory[0x4001] = 0x5A;
+        let mut cpu = cpu_at(0x4000);
+        cpu.set_halt_input(true);
+
+        run_cycle(&mut cpu, &mut memory);
+        assert!(!cpu.halt, "HALT must not stop mid-instruction");
+        run_cycle(&mut cpu, &mut memory);
+
+        let pins = cpu.pins();
+        assert_eq!(cpu.regs.a, 0x5A);
+        assert_eq!(cpu.regs.pc, 0x4002);
+        assert!(cpu.halt);
+        assert!(cpu.halt_input());
+        assert_eq!(pins.bus_status, Mc6809BusStatus::HaltAcknowledge);
+        assert!(pins.ba);
+        assert!(pins.bs);
+        assert!(!pins.avma);
+        assert!(!pins.addr_driven);
+        assert!(!pins.rw_driven);
+        assert!(!pins.data_driven);
+    }
+
+    #[test]
+    fn external_halt_release_inserts_bus_reacquire_dead_cycle() {
+        let mut memory = [0x12; 0x10000];
+        let mut cpu = cpu_at(0x4000);
+        cpu.set_halt_input(true);
+        run_cycle(&mut cpu, &mut memory);
+        run_cycle(&mut cpu, &mut memory);
+        assert!(cpu.halt);
+
+        cpu.set_halt_input(false);
+        let pins = cpu.pins();
+        assert_eq!(pins.bus_status, Mc6809BusStatus::Normal);
+        assert!(!pins.ba);
+        assert!(!pins.bs);
+        assert!(pins.addr_driven);
+        assert_eq!(pins.addr, 0xFFFF);
+
+        run_cycle(&mut cpu, &mut memory);
+        assert!(!cpu.halt);
+        assert_eq!(cpu.addr, cpu.regs.pc);
+        assert!(cpu.sync);
+    }
+
+    #[test]
+    fn tsc_three_states_cpu_bus_without_asserting_ba() {
+        let mut cpu = cpu_at(0x4000);
+        cpu.rw = false;
+        cpu.data = 0xA5;
+        let pins = cpu.pins();
+        assert!(pins.addr_driven);
+        assert!(pins.rw_driven);
+        assert!(pins.data_driven);
+
+        cpu.set_tsc(true);
+        let pins = cpu.pins();
+        assert!(cpu.tsc());
+        assert!(pins.tsc);
+        assert_eq!(pins.bus_status, Mc6809BusStatus::Normal);
+        assert!(!pins.ba, "TSC must not assert bus available");
+        assert!(!pins.bs);
+        assert!(pins.avma);
+        assert!(!pins.addr_driven);
+        assert!(!pins.rw_driven);
+        assert!(!pins.data_driven);
     }
 
     #[test]
