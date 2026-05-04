@@ -59,6 +59,7 @@
 - [Product roadmap](decisions/product-roadmap.md) — 35+ systems long-term, four by October 2026, wave plan, chip reuse map
 - [Native UI strategy](decisions/native-ui-strategy.md) — platform-specific frontends (SwiftUI/GTK4/WinUI), SDL2+native menus for October
 - [Save state format](decisions/save-state-format.md) — serde + postcard, derive on everything from day one
+- [October catalogue](decisions/october-catalogue.md) — 10-title curated bench per system (40 total), shared `emu198x-catalogue` crate, TOML manifests, xxhash64 frame/audio assertions; defines the October-ready bar
 - [System-specific run loops](decisions/system-specific-run-loops.md) — no universal tick pattern, each system matches its hardware
 - [Within-family layering](decisions/within-family-layering.md) — five-piece structure (common / chip / format / machine / runtime) every family follows; copy-this-shape blueprint for adding Game Boy, SG-1000, etc.
 - [Runtime internal shape](decisions/runtime-internal-shape.md) — four per-concern modules (`runtime` / `queries` / `snapshot` / `input`) inside every `runtime-{family}` crate, with the per-variant generic axis layered on top when the family grows variants

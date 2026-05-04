@@ -4,6 +4,74 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-04 — Phase 1 closed + Phase 2 catalogue locked in
+
+**Type:** session close-out + plan brief. Phase 1 inventory ran in this session against the 2026-05-04 Phase 1 plan brief below. Phase 2 architectural choices were made in the same session. Written as the next session's starting point.
+
+### Phase 1 result — gap list
+
+Read `wiki/systems/{spectrum/overview.md,commodore-c64.md,nintendo-nes.md,commodore-amiga.md}` and adjacent pages. Per-system gap to "October-ready":
+
+- **Spectrum** — 4 of 11 catalogue models have a real-ROM boot (48K, 128K, +3, Pentagon). 7 model classes lack proof. No real-game tape regression analogous to C64. No real-disk +3 game proof. Signal Part 3 passing (the existing acid test).
+- **C64** — strongest real-software bench of the four (4 tape titles, 3 disk titles named). Gaps: SID famous-tune validation, NTSC PAL-parity, cartridges (whole subsystem deferred), VIC-II raster-effect representative-game proof, 1541 writeback.
+- **NES** — broadest mapper coverage and strongest CPU-correctness proof (`nestest` 8,991/8,991, 627/629 ROM smoke matrix). Gaps: PAL NES (whole branch absent), battery-backed save RAM, APU famous-tune validation, mapper snapshot compat policy.
+- **Amiga** — deepest boot proofs of the four (KS 1.3 insert-disk, WB 1.3 desktop, WB 2.04 desktop, A1000 bootstrap). Zero real-game proofs. No Paula real-tune validation. NTSC unvalidated.
+
+Cross-system infra status: capture pipeline exists per system minus MCP wrapper; CRT filter exists in `emu198x-native-video` but per-system tuning unset; serialisation locked in (serde + postcard) with each runtime carrying a `snapshot.rs`. Unified `emu198x` launcher binary not in workspace.
+
+### Phase 1 decisions resolved this session
+
+1. **Time allocation across ~75 sessions** — answered by Phase 2 staged plan below (~14–15 sessions for catalogue, leaves ~60 for everything else).
+2. **October bar definition** — answered by [October catalogue decision](decisions/october-catalogue.md): 10 titles per system, all assertions pass.
+3. **Amiga cut/keep** — keep. Phase 0 advanced Amiga materially; cut equation has shifted.
+
+User also descoped the unified launcher binary from October. CRT per-system tuning falls out of producing the catalogue screenshots and MCP wrapper is the only true cross-cutting feature work remaining beyond the catalogue.
+
+### Phase 2 = catalogue first
+
+Captured as a binding decision in [`decisions/october-catalogue.md`](decisions/october-catalogue.md). Summary:
+
+- **Bar:** 10 titles per system, 40 total, three assertions per entry (boot waypoint, scripted-input state-change, audio window).
+- **Shape:** shared `emu198x-catalogue` crate, depends on all four runtime crates, driven by per-system TOML manifests.
+- **Format:** xxhash64 frame and audio hashes, TOML manifests co-located in the crate at `crates/emu198x-catalogue/manifest/{spectrum,c64,nes,amiga}.toml`.
+
+Title list per system: see the decision doc's "Catalogue contents" section pointing at the manifests; the manifests do not exist in the workspace yet — they land in step 2 below.
+
+### Concrete next session: stand up the harness, prove Manic Miner end-to-end
+
+1. Create `crates/emu198x-catalogue/` skeleton: `Cargo.toml` depending on `runtime-sinclair-zx-spectrum` (only — other systems wired in later steps), `src/{lib.rs,runner.rs,assertions.rs,media.rs}`, empty `manifest/spectrum.toml`.
+2. Define manifest schema as serde structs in `runner.rs`. Start narrow: `id`, `title`, `system`, `variant`, `media { kind, path }`, `boot { frames, frame_hash }`, `audio { window { from_frame, secs }, hash }`, `script[] { at_frame, press }`. Extend as the second-system pickup forces it.
+3. Land Manic Miner end-to-end: write `manifest/spectrum.toml` with one entry, write the runner that reads it and asserts via the Spectrum 48K runtime.
+4. Add `bin/catalogue.rs` with a `capture --entry <id>` subcommand that runs the entry and prints the actual frame and audio hashes — paste-into-manifest workflow.
+5. Add `tests/run.rs` that iterates the manifest and reports per-entry pass/fail. One test target, one report grid.
+
+Stop after Manic Miner passes. Spectrum entries 2–10 are step 4 of the staged rollout, separate session.
+
+### What NOT to do next session
+
+- Pull C64/NES/Amiga runtime crates into `emu198x-catalogue`'s deps until Manic Miner passes — schema changes are likely once the second system lands, easier to refactor with one consumer than four.
+- Add an 11th title to anyone's catalogue — see drift triggers in the decision doc.
+- Touch the per-system smoke matrix (NES has 627/629 — that's a different question).
+- Start MCP wrapper or CRT per-system tuning — both are Phase 2 work-streams but the catalogue is the load-bearing one (CRT tuning needs the catalogue's reference frames).
+
+### Open queue (carry-over from Phase 1, post-catalogue)
+
+- Disassembler `DBcc` decoding fix (single-file change in `motorola-68000/src/disasm.rs`)
+- 97 mismatched-data warnings in the workspace coverage run
+- NTSC software validation on Amiga (catalogue covers it via *It Came from the Desert* in step 6)
+- Verifier-binary smoke tests (declined — see prior decision)
+- MCP wrapper on the `emu198x-script-<sys>` headless runners
+- Snapshot mapper-state compat policy (NES flagged "version-1 internal")
+- Archive grep for catalogue-needed media (Pentagon TR-DOS, TS2068 cart, NTSC titles) before steps 4–6
+
+### Why this brief
+
+Two reasons it's worth writing this now and clearing context:
+- Phase 1 spent its context budget on reading + writing the gap list. Step-2 implementation work (creating a new crate) deserves a fresh window.
+- The decision doc is binding from this session forward; the brief is the bridge that tells the next session which step to execute first without re-reading 5 hours of brainstorm.
+
+---
+
 ## 2026-05-04 — Phase 1 plan: cross-system inventory for October launch
 
 **Type:** plan brief — written at the close of Phase 0 to be the next session's starting point. Deliberately self-contained so a fresh-context session can execute against it without re-reading 6 days of Amiga commits.
