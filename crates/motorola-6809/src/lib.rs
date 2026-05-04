@@ -3872,10 +3872,34 @@ mod tests {
             expected_cycles: 3,
         },
         TimingCase {
+            name: "JMP indexed ,X",
+            bytes: &[0x6E, 0x84],
+            setup: TimingSetup::None,
+            expected_cycles: 3,
+        },
+        TimingCase {
             name: "JMP extended",
             bytes: &[0x7E, 0x23, 0x45],
             setup: TimingSetup::None,
             expected_cycles: 4,
+        },
+        TimingCase {
+            name: "JSR direct",
+            bytes: &[0x9D, 0x34],
+            setup: TimingSetup::Stack,
+            expected_cycles: 7,
+        },
+        TimingCase {
+            name: "JSR indexed ,X",
+            bytes: &[0xAD, 0x84],
+            setup: TimingSetup::Stack,
+            expected_cycles: 7,
+        },
+        TimingCase {
+            name: "JSR extended",
+            bytes: &[0xBD, 0x23, 0x45],
+            setup: TimingSetup::Stack,
+            expected_cycles: 8,
         },
         TimingCase {
             name: "ORCC immediate",
@@ -4215,6 +4239,93 @@ mod tests {
             postbyte: 0x8D,
             operand: &[0x00, 0x05],
             expected_cycles: 9,
+        },
+    ];
+
+    const OFFICIAL_INDEXED_LEA_REGISTER_TIMING_CASES: &[IndexedTimingCase] = &[
+        IndexedTimingCase {
+            name: "LEAX ,X",
+            opcode: 0x30,
+            postbyte: 0x84,
+            operand: &[],
+            expected_cycles: 4,
+        },
+        IndexedTimingCase {
+            name: "LEAY ,X",
+            opcode: 0x31,
+            postbyte: 0x84,
+            operand: &[],
+            expected_cycles: 4,
+        },
+        IndexedTimingCase {
+            name: "LEAS ,X",
+            opcode: 0x32,
+            postbyte: 0x84,
+            operand: &[],
+            expected_cycles: 4,
+        },
+        IndexedTimingCase {
+            name: "LEAU ,X",
+            opcode: 0x33,
+            postbyte: 0x84,
+            operand: &[],
+            expected_cycles: 4,
+        },
+        IndexedTimingCase {
+            name: "LEAX 8-bit offset,X",
+            opcode: 0x30,
+            postbyte: 0x88,
+            operand: &[0x05],
+            expected_cycles: 5,
+        },
+        IndexedTimingCase {
+            name: "LEAY 8-bit offset,X",
+            opcode: 0x31,
+            postbyte: 0x88,
+            operand: &[0x05],
+            expected_cycles: 5,
+        },
+        IndexedTimingCase {
+            name: "LEAS 8-bit offset,X",
+            opcode: 0x32,
+            postbyte: 0x88,
+            operand: &[0x05],
+            expected_cycles: 5,
+        },
+        IndexedTimingCase {
+            name: "LEAU 8-bit offset,X",
+            opcode: 0x33,
+            postbyte: 0x88,
+            operand: &[0x05],
+            expected_cycles: 5,
+        },
+        IndexedTimingCase {
+            name: "LEAX 16-bit offset,X",
+            opcode: 0x30,
+            postbyte: 0x89,
+            operand: &[0x00, 0x05],
+            expected_cycles: 8,
+        },
+        IndexedTimingCase {
+            name: "LEAY 16-bit offset,X",
+            opcode: 0x31,
+            postbyte: 0x89,
+            operand: &[0x00, 0x05],
+            expected_cycles: 8,
+        },
+        IndexedTimingCase {
+            name: "LEAS 16-bit offset,X",
+            opcode: 0x32,
+            postbyte: 0x89,
+            operand: &[0x00, 0x05],
+            expected_cycles: 8,
+        },
+        IndexedTimingCase {
+            name: "LEAU 16-bit offset,X",
+            opcode: 0x33,
+            postbyte: 0x89,
+            operand: &[0x00, 0x05],
+            expected_cycles: 8,
         },
     ];
 
@@ -5414,6 +5525,24 @@ mod tests {
     #[test]
     fn official_indexed_lea_timing_fixture_matches_current_core() {
         for &case in OFFICIAL_INDEXED_LEA_TIMING_CASES {
+            let mut memory = [0; 0x10000];
+            let mut cpu = cpu_at(0x4000);
+            prepare_indexed_timing_case(case, &mut cpu, &mut memory);
+
+            let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+            assert_eq!(cycles, case.expected_cycles, "{}", case.name);
+            assert!(
+                cpu.instruction_boundary(),
+                "{} did not end at instruction boundary",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn official_indexed_lea_register_timing_fixture_matches_current_core() {
+        for &case in OFFICIAL_INDEXED_LEA_REGISTER_TIMING_CASES {
             let mut memory = [0; 0x10000];
             let mut cpu = cpu_at(0x4000);
             prepare_indexed_timing_case(case, &mut cpu, &mut memory);
