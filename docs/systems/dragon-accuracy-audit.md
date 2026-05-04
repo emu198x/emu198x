@@ -100,8 +100,9 @@ branches, explicit stack operations, accumulator and memory RMW families, the
 8-bit ALU matrix, indexed `LDA`/`LEA` postbyte additions, and broad base opcode
 families. Directed tests now pin `JMP/JSR` indexed timing, indexed-indirect
 subroutine/vector cases, `RTI` 6/15-cycle paths, `CWAI` 20-cycle wait entry,
-`SYNC` 4-cycle wait entry, IRQ/FIRQ interrupt entry timing, and the documented
-primary, `$10`, and `$11` opcode-page slots versus unused diagnostic traps.
+`SYNC` 4-cycle wait entry, IRQ/FIRQ interrupt entry timing, documented
+primary/`$10`/`$11` opcode-page slots versus unused diagnostic traps, and
+source-backed byte-count/cycle-count metadata for the documented opcode pages.
 
 Required resolution:
 
@@ -239,6 +240,9 @@ Progress:
 - MC6809 opcode-page tests now scan every primary, `$10`, and `$11` slot,
   asserting that documented slots dispatch and unused Motorola table slots hit
   the current diagnostic illegal-opcode trap.
+- MC6809 opcode metadata now transcribes documented byte-count shapes and
+  fixed/base cycle counts by instruction family, and tests prove that metadata
+  covers each documented opcode page exactly once.
 - MC6809 pin tests now pin reset/opcode/vector fetch state, represented
   `LIC`, `AVMA`, `BA/BS`, and `BUSY` behavior for the compatibility pin model.
   The pin snapshot corrected reset high-vector `BUSY` and `LIC` during

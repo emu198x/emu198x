@@ -3332,6 +3332,79 @@ mod tests {
         extended_opcode: u8,
     }
 
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum OpcodePage {
+        Primary,
+        Prefix10,
+        Prefix11,
+    }
+
+    impl OpcodePage {
+        const fn prefix(self) -> &'static [u8] {
+            match self {
+                Self::Primary => &[],
+                Self::Prefix10 => &[0x10],
+                Self::Prefix11 => &[0x11],
+            }
+        }
+
+        const fn documented_opcodes(self) -> &'static [u8] {
+            match self {
+                Self::Primary => OFFICIAL_PRIMARY_OPCODE_PAGE,
+                Self::Prefix10 => OFFICIAL_PREFIX_10_OPCODE_PAGE,
+                Self::Prefix11 => OFFICIAL_PREFIX_11_OPCODE_PAGE,
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum OfficialByteCount {
+        Fixed(u8),
+        Indexed,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum OfficialCycleCount {
+        Fixed(u8),
+        IndexedBase(u8),
+        StackPostbyteBase(u8),
+        RtiShortOrFull,
+        SyncWait,
+        CwaiWait,
+        ConditionalLongBranch { not_taken: u8, taken: u8 },
+        Prefix,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct OfficialOpcodeSpec {
+        page: OpcodePage,
+        opcode: u8,
+        byte_count: OfficialByteCount,
+        cycles: OfficialCycleCount,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct WordReadFamily {
+        immediate_opcode: u8,
+        direct_opcode: u8,
+        indexed_opcode: u8,
+        extended_opcode: u8,
+        immediate_cycles: u8,
+        direct_cycles: u8,
+        indexed_base_cycles: u8,
+        extended_cycles: u8,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct WordStoreFamily {
+        direct_opcode: u8,
+        indexed_opcode: u8,
+        extended_opcode: u8,
+        direct_cycles: u8,
+        indexed_base_cycles: u8,
+        extended_cycles: u8,
+    }
+
     // Source: Motorola MC6809E HMOS Microprocessor Programming Model opcode
     // timing tables in docs/source-extracts/dragon-primary. These fixtures are
     // intentionally small but table-driven; expand them as we transcribe the
@@ -3362,6 +3435,577 @@ mod tests {
 
     const OFFICIAL_PREFIX_11_OPCODE_PAGE: &[u8] =
         &[0x3F, 0x83, 0x8C, 0x93, 0x9C, 0xA3, 0xAC, 0xB3, 0xBC];
+
+    fn push_opcode_spec(
+        specs: &mut Vec<OfficialOpcodeSpec>,
+        page: OpcodePage,
+        opcode: u8,
+        byte_count: OfficialByteCount,
+        cycles: OfficialCycleCount,
+    ) {
+        specs.push(OfficialOpcodeSpec {
+            page,
+            opcode,
+            byte_count,
+            cycles,
+        });
+    }
+
+    fn push_word_read_family(
+        specs: &mut Vec<OfficialOpcodeSpec>,
+        page: OpcodePage,
+        family: WordReadFamily,
+    ) {
+        let prefix_len = page.prefix().len() as u8;
+        push_opcode_spec(
+            specs,
+            page,
+            family.immediate_opcode,
+            OfficialByteCount::Fixed(prefix_len + 3),
+            OfficialCycleCount::Fixed(family.immediate_cycles),
+        );
+        push_opcode_spec(
+            specs,
+            page,
+            family.direct_opcode,
+            OfficialByteCount::Fixed(prefix_len + 2),
+            OfficialCycleCount::Fixed(family.direct_cycles),
+        );
+        push_opcode_spec(
+            specs,
+            page,
+            family.indexed_opcode,
+            OfficialByteCount::Indexed,
+            OfficialCycleCount::IndexedBase(family.indexed_base_cycles),
+        );
+        push_opcode_spec(
+            specs,
+            page,
+            family.extended_opcode,
+            OfficialByteCount::Fixed(prefix_len + 3),
+            OfficialCycleCount::Fixed(family.extended_cycles),
+        );
+    }
+
+    fn push_word_store_family(
+        specs: &mut Vec<OfficialOpcodeSpec>,
+        page: OpcodePage,
+        family: WordStoreFamily,
+    ) {
+        let prefix_len = page.prefix().len() as u8;
+        push_opcode_spec(
+            specs,
+            page,
+            family.direct_opcode,
+            OfficialByteCount::Fixed(prefix_len + 2),
+            OfficialCycleCount::Fixed(family.direct_cycles),
+        );
+        push_opcode_spec(
+            specs,
+            page,
+            family.indexed_opcode,
+            OfficialByteCount::Indexed,
+            OfficialCycleCount::IndexedBase(family.indexed_base_cycles),
+        );
+        push_opcode_spec(
+            specs,
+            page,
+            family.extended_opcode,
+            OfficialByteCount::Fixed(prefix_len + 3),
+            OfficialCycleCount::Fixed(family.extended_cycles),
+        );
+    }
+
+    fn official_opcode_specs() -> Vec<OfficialOpcodeSpec> {
+        let mut specs = Vec::new();
+
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x10,
+            OfficialByteCount::Fixed(1),
+            OfficialCycleCount::Prefix,
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x11,
+            OfficialByteCount::Fixed(1),
+            OfficialCycleCount::Prefix,
+        );
+
+        for &opcode in &[0x12, 0x19, 0x1D] {
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                opcode,
+                OfficialByteCount::Fixed(1),
+                OfficialCycleCount::Fixed(2),
+            );
+        }
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x13,
+            OfficialByteCount::Fixed(1),
+            OfficialCycleCount::SyncWait,
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x16,
+            OfficialByteCount::Fixed(3),
+            OfficialCycleCount::Fixed(5),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x17,
+            OfficialByteCount::Fixed(3),
+            OfficialCycleCount::Fixed(9),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x1A,
+            OfficialByteCount::Fixed(2),
+            OfficialCycleCount::Fixed(3),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x1C,
+            OfficialByteCount::Fixed(2),
+            OfficialCycleCount::Fixed(3),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x1E,
+            OfficialByteCount::Fixed(2),
+            OfficialCycleCount::Fixed(8),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x1F,
+            OfficialByteCount::Fixed(2),
+            OfficialCycleCount::Fixed(6),
+        );
+        for opcode in 0x20..=0x2F {
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                opcode,
+                OfficialByteCount::Fixed(2),
+                OfficialCycleCount::Fixed(3),
+            );
+        }
+        for opcode in 0x30..=0x33 {
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                opcode,
+                OfficialByteCount::Indexed,
+                OfficialCycleCount::IndexedBase(4),
+            );
+        }
+        for opcode in 0x34..=0x37 {
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                opcode,
+                OfficialByteCount::Fixed(2),
+                OfficialCycleCount::StackPostbyteBase(5),
+            );
+        }
+        for &(opcode, cycles) in &[(0x39, 5), (0x3A, 3), (0x3D, 11)] {
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                opcode,
+                OfficialByteCount::Fixed(1),
+                OfficialCycleCount::Fixed(cycles),
+            );
+        }
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x3B,
+            OfficialByteCount::Fixed(1),
+            OfficialCycleCount::RtiShortOrFull,
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x3C,
+            OfficialByteCount::Fixed(2),
+            OfficialCycleCount::CwaiWait,
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x3F,
+            OfficialByteCount::Fixed(1),
+            OfficialCycleCount::Fixed(19),
+        );
+
+        for &case in OFFICIAL_ACCUMULATOR_RMW_TIMING_CASES {
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                case.a_opcode,
+                OfficialByteCount::Fixed(1),
+                OfficialCycleCount::Fixed(2),
+            );
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                case.b_opcode,
+                OfficialByteCount::Fixed(1),
+                OfficialCycleCount::Fixed(2),
+            );
+        }
+        for &case in OFFICIAL_RMW_TIMING_CASES {
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                case.direct_opcode,
+                OfficialByteCount::Fixed(2),
+                OfficialCycleCount::Fixed(6),
+            );
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                case.indexed_opcode,
+                OfficialByteCount::Indexed,
+                OfficialCycleCount::IndexedBase(6),
+            );
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                case.extended_opcode,
+                OfficialByteCount::Fixed(3),
+                OfficialCycleCount::Fixed(7),
+            );
+        }
+        for &case in OFFICIAL_ALU8_TIMING_CASES {
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                case.immediate_opcode,
+                OfficialByteCount::Fixed(2),
+                OfficialCycleCount::Fixed(2),
+            );
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                case.direct_opcode,
+                OfficialByteCount::Fixed(2),
+                OfficialCycleCount::Fixed(4),
+            );
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                case.indexed_opcode,
+                OfficialByteCount::Indexed,
+                OfficialCycleCount::IndexedBase(4),
+            );
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                case.extended_opcode,
+                OfficialByteCount::Fixed(3),
+                OfficialCycleCount::Fixed(5),
+            );
+        }
+        for &(direct_opcode, indexed_opcode, extended_opcode) in
+            &[(0x97, 0xA7, 0xB7), (0xD7, 0xE7, 0xF7)]
+        {
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                direct_opcode,
+                OfficialByteCount::Fixed(2),
+                OfficialCycleCount::Fixed(4),
+            );
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                indexed_opcode,
+                OfficialByteCount::Indexed,
+                OfficialCycleCount::IndexedBase(4),
+            );
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Primary,
+                extended_opcode,
+                OfficialByteCount::Fixed(3),
+                OfficialCycleCount::Fixed(5),
+            );
+        }
+
+        for family in [
+            WordReadFamily {
+                immediate_opcode: 0x83,
+                direct_opcode: 0x93,
+                indexed_opcode: 0xA3,
+                extended_opcode: 0xB3,
+                immediate_cycles: 4,
+                direct_cycles: 6,
+                indexed_base_cycles: 6,
+                extended_cycles: 7,
+            },
+            WordReadFamily {
+                immediate_opcode: 0x8C,
+                direct_opcode: 0x9C,
+                indexed_opcode: 0xAC,
+                extended_opcode: 0xBC,
+                immediate_cycles: 4,
+                direct_cycles: 6,
+                indexed_base_cycles: 6,
+                extended_cycles: 7,
+            },
+            WordReadFamily {
+                immediate_opcode: 0x8E,
+                direct_opcode: 0x9E,
+                indexed_opcode: 0xAE,
+                extended_opcode: 0xBE,
+                immediate_cycles: 3,
+                direct_cycles: 5,
+                indexed_base_cycles: 5,
+                extended_cycles: 6,
+            },
+            WordReadFamily {
+                immediate_opcode: 0xC3,
+                direct_opcode: 0xD3,
+                indexed_opcode: 0xE3,
+                extended_opcode: 0xF3,
+                immediate_cycles: 4,
+                direct_cycles: 6,
+                indexed_base_cycles: 6,
+                extended_cycles: 7,
+            },
+            WordReadFamily {
+                immediate_opcode: 0xCC,
+                direct_opcode: 0xDC,
+                indexed_opcode: 0xEC,
+                extended_opcode: 0xFC,
+                immediate_cycles: 3,
+                direct_cycles: 5,
+                indexed_base_cycles: 5,
+                extended_cycles: 6,
+            },
+            WordReadFamily {
+                immediate_opcode: 0xCE,
+                direct_opcode: 0xDE,
+                indexed_opcode: 0xEE,
+                extended_opcode: 0xFE,
+                immediate_cycles: 3,
+                direct_cycles: 5,
+                indexed_base_cycles: 5,
+                extended_cycles: 6,
+            },
+        ] {
+            push_word_read_family(&mut specs, OpcodePage::Primary, family);
+        }
+        for family in [
+            WordStoreFamily {
+                direct_opcode: 0x9F,
+                indexed_opcode: 0xAF,
+                extended_opcode: 0xBF,
+                direct_cycles: 5,
+                indexed_base_cycles: 5,
+                extended_cycles: 6,
+            },
+            WordStoreFamily {
+                direct_opcode: 0xDD,
+                indexed_opcode: 0xED,
+                extended_opcode: 0xFD,
+                direct_cycles: 5,
+                indexed_base_cycles: 5,
+                extended_cycles: 6,
+            },
+            WordStoreFamily {
+                direct_opcode: 0xDF,
+                indexed_opcode: 0xEF,
+                extended_opcode: 0xFF,
+                direct_cycles: 5,
+                indexed_base_cycles: 5,
+                extended_cycles: 6,
+            },
+        ] {
+            push_word_store_family(&mut specs, OpcodePage::Primary, family);
+        }
+
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x0E,
+            OfficialByteCount::Fixed(2),
+            OfficialCycleCount::Fixed(3),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x6E,
+            OfficialByteCount::Indexed,
+            OfficialCycleCount::IndexedBase(3),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x7E,
+            OfficialByteCount::Fixed(3),
+            OfficialCycleCount::Fixed(4),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x8D,
+            OfficialByteCount::Fixed(2),
+            OfficialCycleCount::Fixed(7),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0x9D,
+            OfficialByteCount::Fixed(2),
+            OfficialCycleCount::Fixed(7),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0xAD,
+            OfficialByteCount::Indexed,
+            OfficialCycleCount::IndexedBase(7),
+        );
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Primary,
+            0xBD,
+            OfficialByteCount::Fixed(3),
+            OfficialCycleCount::Fixed(8),
+        );
+
+        for opcode in 0x21..=0x2F {
+            push_opcode_spec(
+                &mut specs,
+                OpcodePage::Prefix10,
+                opcode,
+                OfficialByteCount::Fixed(4),
+                OfficialCycleCount::ConditionalLongBranch {
+                    not_taken: 5,
+                    taken: 6,
+                },
+            );
+        }
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Prefix10,
+            0x3F,
+            OfficialByteCount::Fixed(2),
+            OfficialCycleCount::Fixed(20),
+        );
+        for family in [
+            WordReadFamily {
+                immediate_opcode: 0x83,
+                direct_opcode: 0x93,
+                indexed_opcode: 0xA3,
+                extended_opcode: 0xB3,
+                immediate_cycles: 5,
+                direct_cycles: 7,
+                indexed_base_cycles: 7,
+                extended_cycles: 8,
+            },
+            WordReadFamily {
+                immediate_opcode: 0x8C,
+                direct_opcode: 0x9C,
+                indexed_opcode: 0xAC,
+                extended_opcode: 0xBC,
+                immediate_cycles: 5,
+                direct_cycles: 7,
+                indexed_base_cycles: 7,
+                extended_cycles: 8,
+            },
+            WordReadFamily {
+                immediate_opcode: 0x8E,
+                direct_opcode: 0x9E,
+                indexed_opcode: 0xAE,
+                extended_opcode: 0xBE,
+                immediate_cycles: 4,
+                direct_cycles: 6,
+                indexed_base_cycles: 6,
+                extended_cycles: 7,
+            },
+            WordReadFamily {
+                immediate_opcode: 0xCE,
+                direct_opcode: 0xDE,
+                indexed_opcode: 0xEE,
+                extended_opcode: 0xFE,
+                immediate_cycles: 4,
+                direct_cycles: 6,
+                indexed_base_cycles: 6,
+                extended_cycles: 7,
+            },
+        ] {
+            push_word_read_family(&mut specs, OpcodePage::Prefix10, family);
+        }
+        for family in [
+            WordStoreFamily {
+                direct_opcode: 0x9F,
+                indexed_opcode: 0xAF,
+                extended_opcode: 0xBF,
+                direct_cycles: 6,
+                indexed_base_cycles: 6,
+                extended_cycles: 7,
+            },
+            WordStoreFamily {
+                direct_opcode: 0xDF,
+                indexed_opcode: 0xEF,
+                extended_opcode: 0xFF,
+                direct_cycles: 6,
+                indexed_base_cycles: 6,
+                extended_cycles: 7,
+            },
+        ] {
+            push_word_store_family(&mut specs, OpcodePage::Prefix10, family);
+        }
+
+        push_opcode_spec(
+            &mut specs,
+            OpcodePage::Prefix11,
+            0x3F,
+            OfficialByteCount::Fixed(2),
+            OfficialCycleCount::Fixed(20),
+        );
+        for family in [
+            WordReadFamily {
+                immediate_opcode: 0x83,
+                direct_opcode: 0x93,
+                indexed_opcode: 0xA3,
+                extended_opcode: 0xB3,
+                immediate_cycles: 5,
+                direct_cycles: 7,
+                indexed_base_cycles: 7,
+                extended_cycles: 8,
+            },
+            WordReadFamily {
+                immediate_opcode: 0x8C,
+                direct_opcode: 0x9C,
+                indexed_opcode: 0xAC,
+                extended_opcode: 0xBC,
+                immediate_cycles: 5,
+                direct_cycles: 7,
+                indexed_base_cycles: 7,
+                extended_cycles: 8,
+            },
+        ] {
+            push_word_read_family(&mut specs, OpcodePage::Prefix11, family);
+        }
+
+        specs
+    }
 
     const OFFICIAL_BASE_TIMING_CASES: &[TimingCase] = &[
         TimingCase {
@@ -5126,6 +5770,74 @@ mod tests {
         );
     }
 
+    fn official_opcode_spec_bytes(spec: OfficialOpcodeSpec) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(spec.page.prefix());
+        bytes.push(spec.opcode);
+
+        match spec.byte_count {
+            OfficialByteCount::Fixed(byte_count) => {
+                while bytes.len() < usize::from(byte_count) {
+                    let operand = match spec.cycles {
+                        OfficialCycleCount::StackPostbyteBase(_) => 0x00,
+                        _ => {
+                            if bytes.len() + 1 == usize::from(byte_count) {
+                                0x00
+                            } else {
+                                0x34
+                            }
+                        }
+                    };
+                    bytes.push(operand);
+                }
+            }
+            OfficialByteCount::Indexed => bytes.push(0x84),
+        }
+
+        bytes
+    }
+
+    fn prepare_official_opcode_spec(
+        spec: OfficialOpcodeSpec,
+        cpu: &mut Mc6809,
+        memory: &mut [u8; 0x10000],
+    ) {
+        let bytes = official_opcode_spec_bytes(spec);
+        memory[0x4000..0x4000 + bytes.len()].copy_from_slice(&bytes);
+
+        cpu.regs.dp = 0x50;
+        cpu.regs.x = 0x5000;
+        cpu.regs.y = 0x5000;
+        cpu.regs.u = 0x9000;
+        cpu.regs.s = 0x8000;
+        cpu.regs.a = 0x12;
+        cpu.regs.b = 0x34;
+        cpu.regs.cc = 0;
+
+        memory[0x3400] = 0x12;
+        memory[0x3401] = 0x34;
+        memory[0x5000] = 0x12;
+        memory[0x5001] = 0x34;
+        memory[0x5034] = 0x12;
+        memory[0x5035] = 0x34;
+        memory[0x7FFE] = 0x40;
+        memory[0x7FFF] = 0x02;
+        memory[0x8000] = 0x40;
+        memory[0x8001] = 0x02;
+
+        for &(addr, hi, lo) in &[
+            (0xFFF2, 0x50, 0x00),
+            (0xFFF4, 0x50, 0x00),
+            (0xFFF6, 0x50, 0x00),
+            (0xFFF8, 0x50, 0x00),
+            (0xFFFA, 0x50, 0x00),
+            (0xFFFC, 0x50, 0x00),
+        ] {
+            memory[addr] = hi;
+            memory[addr + 1] = lo;
+        }
+    }
+
     #[test]
     fn reset_fetches_vector_big_endian() {
         let mut cpu = Mc6809::new();
@@ -5754,6 +6466,66 @@ mod tests {
         }
         for &opcode in OFFICIAL_PREFIX_11_OPCODE_PAGE {
             assert_opcode_dispatches(&[0x11, opcode], format_args!("11 ${opcode:02X}"));
+        }
+    }
+
+    #[test]
+    fn official_opcode_metadata_covers_documented_pages_once() {
+        let specs = official_opcode_specs();
+
+        for page in [
+            OpcodePage::Primary,
+            OpcodePage::Prefix10,
+            OpcodePage::Prefix11,
+        ] {
+            let mut actual: Vec<u8> = specs
+                .iter()
+                .filter(|spec| spec.page == page)
+                .map(|spec| spec.opcode)
+                .collect();
+            actual.sort_unstable();
+
+            let mut deduped = actual.clone();
+            deduped.dedup();
+            assert_eq!(actual, deduped, "{page:?} metadata contains duplicate rows");
+            assert_eq!(
+                actual,
+                page.documented_opcodes(),
+                "{page:?} metadata diverges from documented opcode page"
+            );
+        }
+    }
+
+    #[test]
+    fn official_opcode_metadata_fixed_cycle_rows_match_current_core() {
+        for spec in official_opcode_specs() {
+            let expected_cycles = match spec.cycles {
+                OfficialCycleCount::Fixed(cycles)
+                | OfficialCycleCount::IndexedBase(cycles)
+                | OfficialCycleCount::StackPostbyteBase(cycles) => cycles,
+                OfficialCycleCount::RtiShortOrFull
+                | OfficialCycleCount::SyncWait
+                | OfficialCycleCount::CwaiWait
+                | OfficialCycleCount::ConditionalLongBranch { .. }
+                | OfficialCycleCount::Prefix => continue,
+            };
+
+            let bytes = official_opcode_spec_bytes(spec);
+            if let OfficialByteCount::Fixed(byte_count) = spec.byte_count {
+                assert_eq!(bytes.len(), usize::from(byte_count), "{spec:?} byte count");
+            }
+
+            let mut memory = [0; 0x10000];
+            let mut cpu = cpu_at(0x4000);
+            prepare_official_opcode_spec(spec, &mut cpu, &mut memory);
+
+            let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+            assert_eq!(cycles, u64::from(expected_cycles), "{spec:?}");
+            assert!(
+                cpu.instruction_boundary(),
+                "{spec:?} did not end at instruction boundary"
+            );
         }
     }
 
