@@ -4509,6 +4509,51 @@ mod tests {
     }
 
     #[test]
+    fn sam_cycle_timing_defaults_to_slow_mpu_cycles() {
+        let sam = Sam6883::new();
+        let mut timing = SamCycleTiming::default();
+
+        assert_eq!(timing.tick(&sam, 0x8000), 16);
+        assert_eq!(timing.tick(&sam, 0x0000), 16);
+        assert_eq!(timing.tick(&sam, 0xFF00), 16);
+    }
+
+    #[test]
+    fn sam_fast_rate_uses_entry_fast_and_aligned_fast_cycles() {
+        let mut sam = Sam6883::new();
+        let mut timing = SamCycleTiming::default();
+        sam.write(0xFFD9); // Set SAM R1: high-speed MPU mode.
+
+        assert_eq!(timing.tick(&sam, 0x8000), 15);
+        assert_eq!(timing.tick(&sam, 0x8001), 8);
+        assert_eq!(timing.tick(&sam, 0x8002), 8);
+
+        sam.write(0xFFD8); // Clear SAM R1: return to slow mode.
+        assert_eq!(timing.tick(&sam, 0x8003), 17);
+        assert_eq!(timing.tick(&sam, 0x8004), 16);
+
+        sam.write(0xFFD9); // Re-enter high-speed MPU mode.
+        assert_eq!(timing.tick(&sam, 0x8005), 15);
+        assert_eq!(timing.tick(&sam, 0x8006), 8);
+        sam.write(0xFFD8); // Odd aligned fast cycle needs the compensating slow cycle.
+        assert_eq!(timing.tick(&sam, 0x8007), 25);
+        assert_eq!(timing.tick(&sam, 0x8008), 16);
+    }
+
+    #[test]
+    fn sam_address_dependent_rate_keeps_ram_and_io0_slow() {
+        let mut sam = Sam6883::new();
+        let mut timing = SamCycleTiming::default();
+        sam.write(0xFFD7); // Set SAM R0: fast except RAM and IO0.
+
+        assert_eq!(timing.tick(&sam, 0x8000), 15);
+        assert_eq!(timing.tick(&sam, 0x8001), 8);
+        assert_eq!(timing.tick(&sam, 0x0000), 25);
+        assert_eq!(timing.tick(&sam, 0xFF00), 16);
+        assert_eq!(timing.tick(&sam, 0xFF20), 15);
+    }
+
+    #[test]
     fn vdg_horizontal_timing_uses_mc6847_clock_periods() {
         assert_eq!(VDG_LINE_MASTER_TICKS, 228 * VDG_CLOCK_MASTER_TICKS);
         assert_eq!(
@@ -5397,6 +5442,34 @@ mod tests {
         memory.advance_cassette(CASSETTE_ONE_HALF_PERIOD_TICKS);
         let (high_value, _) = memory.read_bus(0xFF20);
         assert_eq!(high_value & 0x01, 1);
+    }
+
+    #[test]
+    fn cassette_playback_uses_lsb_first_zero_and_one_periods() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut memory = DragonMemory::new_with_keyboard(&rom, DragonKeyboard::new());
+        memory.cassette.load(vec![0x02]);
+        memory.pia1.write(0x01, 0x3C); // PIA1 CA2 high: cassette motor relay on.
+
+        memory.advance_cassette(CASSETTE_ZERO_HALF_PERIOD_TICKS - 1);
+        assert_eq!(memory.cassette.position_bits(), 0);
+        assert!(!memory.cassette.line_level());
+
+        memory.advance_cassette(1);
+        assert_eq!(memory.cassette.position_bits(), 0);
+        assert!(memory.cassette.line_level());
+
+        memory.advance_cassette(CASSETTE_ZERO_HALF_PERIOD_TICKS);
+        assert_eq!(memory.cassette.position_bits(), 1);
+        assert!(!memory.cassette.line_level());
+
+        memory.advance_cassette(CASSETTE_ONE_HALF_PERIOD_TICKS);
+        assert_eq!(memory.cassette.position_bits(), 1);
+        assert!(memory.cassette.line_level());
+
+        memory.advance_cassette(CASSETTE_ONE_HALF_PERIOD_TICKS);
+        assert_eq!(memory.cassette.position_bits(), 2);
+        assert!(!memory.cassette.line_level());
     }
 
     #[test]
