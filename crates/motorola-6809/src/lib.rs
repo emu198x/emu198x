@@ -103,6 +103,9 @@ enum CpuState {
         lo: u8,
         post_cycles: u8,
     },
+    StackOpInternal {
+        remaining: u8,
+    },
     StackRead,
     StackWrite,
     PushWordHi {
@@ -1744,6 +1747,18 @@ impl Mc6809 {
                 self.rw = false;
                 self.sync = false;
             }
+            CpuState::StackOpInternal { remaining } => {
+                if remaining <= 1 {
+                    self.schedule_stack_work();
+                } else {
+                    self.state = CpuState::StackOpInternal {
+                        remaining: remaining - 1,
+                    };
+                    self.addr = self.regs.pc;
+                    self.rw = true;
+                    self.sync = false;
+                }
+            }
             CpuState::StackRead => {
                 self.finish_stack_read();
             }
@@ -2531,14 +2546,31 @@ impl Mc6809 {
 
     fn start_stack_op(&mut self, op: StackOp, mask: u8) {
         match op {
-            StackOp::PushS => self.start_stack_push(StackPointer::S, mask, AfterStack::Fetch),
-            StackOp::PullS => self.start_stack_pull(StackPointer::S, mask),
-            StackOp::PushU => self.start_stack_push(StackPointer::U, mask, AfterStack::Fetch),
-            StackOp::PullU => self.start_stack_pull(StackPointer::U, mask),
+            StackOp::PushS => {
+                self.prepare_stack_push(StackPointer::S, mask, AfterStack::Fetch);
+                self.start_stack_op_internal_cycles(3);
+            }
+            StackOp::PullS => {
+                self.prepare_stack_pull(StackPointer::S, mask);
+                self.start_stack_op_internal_cycles(3);
+            }
+            StackOp::PushU => {
+                self.prepare_stack_push(StackPointer::U, mask, AfterStack::Fetch);
+                self.start_stack_op_internal_cycles(3);
+            }
+            StackOp::PullU => {
+                self.prepare_stack_pull(StackPointer::U, mask);
+                self.start_stack_op_internal_cycles(3);
+            }
         }
     }
 
     fn start_stack_push(&mut self, ptr: StackPointer, mask: u8, after: AfterStack) {
+        self.prepare_stack_push(ptr, mask, after);
+        self.schedule_stack_work();
+    }
+
+    fn prepare_stack_push(&mut self, ptr: StackPointer, mask: u8, after: AfterStack) {
         let mut bytes = [0; MAX_STACK_BYTES];
         let mut len = 0;
 
@@ -2578,10 +2610,14 @@ impl Mc6809 {
             index: 0,
             after,
         };
-        self.schedule_stack_work();
     }
 
     fn start_stack_pull(&mut self, ptr: StackPointer, mask: u8) {
+        self.prepare_stack_pull(ptr, mask);
+        self.schedule_stack_work();
+    }
+
+    fn prepare_stack_pull(&mut self, ptr: StackPointer, mask: u8) {
         let mut targets = [StackTarget::None; MAX_STACK_BYTES];
         let mut len = 0;
 
@@ -2636,7 +2672,17 @@ impl Mc6809 {
             index: 0,
             hi: 0,
         };
-        self.schedule_stack_work();
+    }
+
+    fn start_stack_op_internal_cycles(&mut self, remaining: u8) {
+        if remaining == 0 {
+            self.schedule_stack_work();
+        } else {
+            self.state = CpuState::StackOpInternal { remaining };
+            self.addr = self.regs.pc;
+            self.rw = true;
+            self.sync = false;
+        }
     }
 
     fn append_stack_word(bytes: &mut [u8; MAX_STACK_BYTES], len: usize, value: u16) -> usize {
@@ -3182,6 +3228,13 @@ mod tests {
         bytes: &'static [u8],
         cc: u8,
         expected_pc: u16,
+        expected_cycles: u64,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct StackTimingCase {
+        name: &'static str,
+        bytes: &'static [u8],
         expected_cycles: u64,
     }
 
@@ -4255,6 +4308,76 @@ mod tests {
         },
     ];
 
+    // Source: MC6809E opcode map stack timing note. PSHS, PSHU, PULS, and
+    // PULU are 5 cycles plus one cycle for each byte transferred.
+    const OFFICIAL_STACK_TIMING_CASES: &[StackTimingCase] = &[
+        StackTimingCase {
+            name: "PSHS none",
+            bytes: &[0x34, 0x00],
+            expected_cycles: 5,
+        },
+        StackTimingCase {
+            name: "PSHS CC",
+            bytes: &[0x34, 0x01],
+            expected_cycles: 6,
+        },
+        StackTimingCase {
+            name: "PSHS A+B+DP",
+            bytes: &[0x34, 0x0E],
+            expected_cycles: 8,
+        },
+        StackTimingCase {
+            name: "PSHS X",
+            bytes: &[0x34, 0x10],
+            expected_cycles: 7,
+        },
+        StackTimingCase {
+            name: "PSHS all",
+            bytes: &[0x34, 0xFF],
+            expected_cycles: 17,
+        },
+        StackTimingCase {
+            name: "PULS none",
+            bytes: &[0x35, 0x00],
+            expected_cycles: 5,
+        },
+        StackTimingCase {
+            name: "PULS CC",
+            bytes: &[0x35, 0x01],
+            expected_cycles: 6,
+        },
+        StackTimingCase {
+            name: "PULS X",
+            bytes: &[0x35, 0x10],
+            expected_cycles: 7,
+        },
+        StackTimingCase {
+            name: "PULS all",
+            bytes: &[0x35, 0xFF],
+            expected_cycles: 17,
+        },
+        StackTimingCase {
+            name: "PSHU S",
+            bytes: &[0x36, 0x40],
+            expected_cycles: 7,
+        },
+        StackTimingCase {
+            name: "PSHU all",
+            bytes: &[0x36, 0xFF],
+            expected_cycles: 17,
+        },
+        StackTimingCase {
+            name: "PULU S",
+            bytes: &[0x37, 0x40],
+            expected_cycles: 7,
+        },
+        StackTimingCase {
+            name: "PULU all",
+            bytes: &[0x37, 0xFF],
+            expected_cycles: 17,
+        },
+    ];
+
     fn apply_timing_setup(case: TimingCase, cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
         match case.setup {
             TimingSetup::None => {}
@@ -4314,6 +4437,28 @@ mod tests {
         memory[0x21FE] = 0x23;
         memory[0x21FF] = 0x00;
         memory[0x2300] = 0x80;
+    }
+
+    fn prepare_stack_timing_case(
+        case: StackTimingCase,
+        cpu: &mut Mc6809,
+        memory: &mut [u8; 0x10000],
+    ) {
+        memory[0x4000..0x4000 + case.bytes.len()].copy_from_slice(case.bytes);
+        cpu.regs.s = 0x8000;
+        cpu.regs.u = 0x9000;
+        cpu.regs.y = 0xC0D0;
+        cpu.regs.x = 0x1234;
+        cpu.regs.dp = 0x56;
+        cpu.regs.b = 0x78;
+        cpu.regs.a = 0x9A;
+        cpu.regs.cc = 0xA5;
+
+        let frame = [
+            0xA5, 0x9A, 0x78, 0x56, 0x12, 0x34, 0xC0, 0xD0, 0x11, 0x22, 0x40, 0x02,
+        ];
+        memory[0x8000..0x8000 + frame.len()].copy_from_slice(&frame);
+        memory[0x9000..0x9000 + frame.len()].copy_from_slice(&frame);
     }
 
     #[test]
@@ -4568,6 +4713,24 @@ mod tests {
 
             assert_eq!(cycles, case.expected_cycles, "{}", case.name);
             assert_eq!(cpu.regs.pc, case.expected_pc, "{}", case.name);
+            assert!(
+                cpu.instruction_boundary(),
+                "{} did not end at instruction boundary",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn official_stack_timing_fixture_matches_current_core() {
+        for &case in OFFICIAL_STACK_TIMING_CASES {
+            let mut memory = [0; 0x10000];
+            let mut cpu = cpu_at(0x4000);
+            prepare_stack_timing_case(case, &mut cpu, &mut memory);
+
+            let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+            assert_eq!(cycles, case.expected_cycles, "{}", case.name);
             assert!(
                 cpu.instruction_boundary(),
                 "{} did not end at instruction boundary",
@@ -5577,7 +5740,7 @@ mod tests {
         cpu.regs.a = 0x9A;
         cpu.regs.cc = 0xA5;
 
-        run_cycles(&mut cpu, &mut memory, 14);
+        run_cycles(&mut cpu, &mut memory, 17);
 
         assert_eq!(cpu.regs.s, 0x7FF4);
         assert_eq!(
@@ -5596,7 +5759,7 @@ mod tests {
         cpu.regs.a = 0;
         cpu.regs.cc = 0;
 
-        run_cycles(&mut cpu, &mut memory, 14);
+        run_cycles(&mut cpu, &mut memory, 17);
 
         assert_eq!(cpu.regs.s, 0x8000);
         assert_eq!(cpu.regs.u, 0xA0B0);
@@ -5621,7 +5784,7 @@ mod tests {
         cpu.regs.s = 0x1234;
         cpu.regs.u = 0x9000;
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        run_cycles(&mut cpu, &mut memory, 7);
 
         assert_eq!(cpu.regs.u, 0x8FFE);
         assert_eq!(memory[0x8FFE], 0x12);
@@ -5630,7 +5793,7 @@ mod tests {
 
         cpu.regs.s = 0;
 
-        run_cycles(&mut cpu, &mut memory, 4);
+        run_cycles(&mut cpu, &mut memory, 7);
 
         assert_eq!(cpu.regs.s, 0x1234);
         assert_eq!(cpu.regs.u, 0x9000);

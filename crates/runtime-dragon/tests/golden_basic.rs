@@ -289,10 +289,11 @@ fn dragon_runtime_loads_real_textstar_cas_to_basic_prompt_when_available() {
     session
         .wait_for_query_bool("dragon.tape.motor_on", false, 3_500)
         .expect("Dragon ROM should turn the cassette motor off after loading Textstar");
+    let returned_to_prompt = wait_for_ok_prompt_without_error(&mut session, 180);
     let lines = screen_text_lines(&session);
     let prompt_count = ok_prompt_count(&lines);
     assert!(
-        prompt_count >= 1 && !lines.iter().any(|line| line.contains("ERROR")),
+        returned_to_prompt,
         "Dragon BASIC should return to OK after loading Textstar; prompts={prompt_count} position={}/{} finished={} motor={}\n{}",
         query_u64(&session, "dragon.tape.position_bits"),
         query_u64(&session, "dragon.tape.length_bits"),
