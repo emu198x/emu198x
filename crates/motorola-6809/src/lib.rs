@@ -1480,12 +1480,10 @@ impl Mc6809 {
                         if taken {
                             self.regs.pc = target;
                         }
-                        let cycles = if condition == BranchCondition::Always {
+                        let cycles = if condition == BranchCondition::Always || taken {
                             2
-                        } else if taken {
-                            3
                         } else {
-                            2
+                            1
                         };
                         self.start_internal_cycles(cycles);
                     }
@@ -3178,6 +3176,15 @@ mod tests {
         expected_cycles: u64,
     }
 
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct BranchTimingCase {
+        name: &'static str,
+        bytes: &'static [u8],
+        cc: u8,
+        expected_pc: u16,
+        expected_cycles: u64,
+    }
+
     // Source: Motorola MC6809E HMOS Microprocessor Programming Model opcode
     // timing tables in docs/source-extracts/dragon-primary. These fixtures are
     // intentionally small but table-driven; expand them as we transcribe the
@@ -4004,6 +4011,250 @@ mod tests {
         },
     ];
 
+    // Source: MC6809E opcode map branch timing notes. Short conditional
+    // branches are always 3 cycles; long conditionals are 5 cycles not taken
+    // and 6 cycles taken. LBRA is fixed at 5 cycles.
+    const OFFICIAL_BRANCH_TIMING_CASES: &[BranchTimingCase] = &[
+        BranchTimingCase {
+            name: "BRA taken",
+            bytes: &[0x20, 0x05],
+            cc: 0,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BRN not taken",
+            bytes: &[0x21, 0x05],
+            cc: 0,
+            expected_pc: 0x4002,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BHI taken",
+            bytes: &[0x22, 0x05],
+            cc: 0,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BHI not taken",
+            bytes: &[0x22, 0x05],
+            cc: FLAG_Z,
+            expected_pc: 0x4002,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BLS taken",
+            bytes: &[0x23, 0x05],
+            cc: FLAG_C,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BCC taken",
+            bytes: &[0x24, 0x05],
+            cc: 0,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BCS taken",
+            bytes: &[0x25, 0x05],
+            cc: FLAG_C,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BNE taken",
+            bytes: &[0x26, 0x05],
+            cc: 0,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BEQ taken",
+            bytes: &[0x27, 0x05],
+            cc: FLAG_Z,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BVC taken",
+            bytes: &[0x28, 0x05],
+            cc: 0,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BVS taken",
+            bytes: &[0x29, 0x05],
+            cc: FLAG_V,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BPL taken",
+            bytes: &[0x2A, 0x05],
+            cc: 0,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BMI taken",
+            bytes: &[0x2B, 0x05],
+            cc: FLAG_N,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BGE taken",
+            bytes: &[0x2C, 0x05],
+            cc: FLAG_N | FLAG_V,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BLT taken",
+            bytes: &[0x2D, 0x05],
+            cc: FLAG_N,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BGT taken",
+            bytes: &[0x2E, 0x05],
+            cc: 0,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "BLE taken",
+            bytes: &[0x2F, 0x05],
+            cc: FLAG_Z,
+            expected_pc: 0x4007,
+            expected_cycles: 3,
+        },
+        BranchTimingCase {
+            name: "LBRA taken",
+            bytes: &[0x16, 0x00, 0x05],
+            cc: 0,
+            expected_pc: 0x4008,
+            expected_cycles: 5,
+        },
+        BranchTimingCase {
+            name: "LBRN not taken",
+            bytes: &[0x10, 0x21, 0x00, 0x05],
+            cc: 0,
+            expected_pc: 0x4004,
+            expected_cycles: 5,
+        },
+        BranchTimingCase {
+            name: "LBHI taken",
+            bytes: &[0x10, 0x22, 0x00, 0x05],
+            cc: 0,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBHI not taken",
+            bytes: &[0x10, 0x22, 0x00, 0x05],
+            cc: FLAG_Z,
+            expected_pc: 0x4004,
+            expected_cycles: 5,
+        },
+        BranchTimingCase {
+            name: "LBLS taken",
+            bytes: &[0x10, 0x23, 0x00, 0x05],
+            cc: FLAG_C,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBCC taken",
+            bytes: &[0x10, 0x24, 0x00, 0x05],
+            cc: 0,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBCS taken",
+            bytes: &[0x10, 0x25, 0x00, 0x05],
+            cc: FLAG_C,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBNE taken",
+            bytes: &[0x10, 0x26, 0x00, 0x05],
+            cc: 0,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBEQ taken",
+            bytes: &[0x10, 0x27, 0x00, 0x05],
+            cc: FLAG_Z,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBVC taken",
+            bytes: &[0x10, 0x28, 0x00, 0x05],
+            cc: 0,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBVS taken",
+            bytes: &[0x10, 0x29, 0x00, 0x05],
+            cc: FLAG_V,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBPL taken",
+            bytes: &[0x10, 0x2A, 0x00, 0x05],
+            cc: 0,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBMI taken",
+            bytes: &[0x10, 0x2B, 0x00, 0x05],
+            cc: FLAG_N,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBGE taken",
+            bytes: &[0x10, 0x2C, 0x00, 0x05],
+            cc: FLAG_N | FLAG_V,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBLT taken",
+            bytes: &[0x10, 0x2D, 0x00, 0x05],
+            cc: FLAG_N,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBGT taken",
+            bytes: &[0x10, 0x2E, 0x00, 0x05],
+            cc: 0,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+        BranchTimingCase {
+            name: "LBLE taken",
+            bytes: &[0x10, 0x2F, 0x00, 0x05],
+            cc: FLAG_Z,
+            expected_pc: 0x4009,
+            expected_cycles: 6,
+        },
+    ];
+
     fn apply_timing_setup(case: TimingCase, cpu: &mut Mc6809, memory: &mut [u8; 0x10000]) {
         match case.setup {
             TimingSetup::None => {}
@@ -4297,6 +4548,26 @@ mod tests {
             let cycles = run_instruction_cycles(&mut cpu, &mut memory);
 
             assert_eq!(cycles, case.expected_cycles, "{}", case.name);
+            assert!(
+                cpu.instruction_boundary(),
+                "{} did not end at instruction boundary",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn official_branch_timing_fixture_matches_current_core() {
+        for &case in OFFICIAL_BRANCH_TIMING_CASES {
+            let mut memory = [0; 0x10000];
+            memory[0x4000..0x4000 + case.bytes.len()].copy_from_slice(case.bytes);
+            let mut cpu = cpu_at(0x4000);
+            cpu.regs.cc = case.cc;
+
+            let cycles = run_instruction_cycles(&mut cpu, &mut memory);
+
+            assert_eq!(cycles, case.expected_cycles, "{}", case.name);
+            assert_eq!(cpu.regs.pc, case.expected_pc, "{}", case.name);
             assert!(
                 cpu.instruction_boundary(),
                 "{} did not end at instruction boundary",
