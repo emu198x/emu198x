@@ -400,19 +400,36 @@ impl Denise {
             // viewport. DDF controls fetch timing, not an immediate "display
             // blank" edge: pixels already sitting in the shifter remain
             // visible until they drain. If we both stop ticking *and* blank
-            // on DDF close, the previous line wraps into the next one first,
-            // and after fixing that we clip the trailing edge of the line.
+            // on DDF close, the previous line wraps into the next one first.
             //
-            // So:
-            // - keep ticking through the full viewport
-            // - only use the DIW-visible line gate here
-            // - let an empty shifter naturally fall back to COLOR00
+            // We DO need an explicit horizontal DIW gate, though: without
+            // one, content that's still in the shift register past DIWSTOP
+            // continues drawing to the right edge of the viewport (the
+            // "wraparound" effect visible on KS 2.x boot screens — text
+            // re-rendering past the disk-drive icon). On real Denise the
+            // DIWSTRT/DIWSTOP comparator blanks both playfields and sprites
+            // outside the window, only COLOR00 is output. Apply that gate
+            // here in addition to the per-line vertical gate.
+            //
+            // Horizontal DIW values live in DIWSTRT/DIWSTOP low bytes and
+            // are in lores-pixel units (= half-CCK). beam_x_lores combines
+            // hpos (CCK) and phase (half-CCK). DIWSTRT has implicit H8=0
+            // (range 0-255); DIWSTOP has implicit H8=1 (range 256-511).
+            // No DENISE_H_OFFSET applies here — the WinUAE-aligned
+            // BPLCON1 scroll comparator already accounts for the
+            // Agnus→Denise pipeline delay one stage downstream.
+            let beam_x_lores = u32::from(hpos) * 2 + u32::from(phase);
+            let hstart = u32::from(agnus.diwstrt & 0x00FF);
+            let hstop = 0x0100u32 | u32::from(agnus.diwstop & 0x00FF);
+            let in_visible_h = beam_x_lores >= hstart && beam_x_lores < hstop;
+            let playfield_gate = in_visible_line && in_visible_h;
+
             let dbg = self.ocs.output_pixel_with_beam_and_playfield_gate(
                 pipeline_x,
                 pipeline_y,
                 pipeline_x,
                 pipeline_y,
-                in_visible_line,
+                playfield_gate,
             );
             let cols = if dbg.called {
                 match dbg.source_pixels_per_fb_pixel.min(2) {
