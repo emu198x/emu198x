@@ -89,14 +89,48 @@ from_frame = 60
 secs = 2.0
 hash = "xxh64:0c1b42a7f3f5f7b5"
 
-# Aztec Challenge: deferred. The same script pattern that works for
-# Bruce Lee + the existing disk_autoload regression test (which
-# passes for Aztec — verified by running it directly) consistently
-# captures a stable mid-load state in the catalogue rather than the
-# expected player-select screen. The catalogue mirrors the test's
-# autoload + LOADING-wait + frame budget + keypress timing as
-# closely as possible. Some other interaction with this specific
-# title's loader needs investigation; tracked as a follow-up.
+[[entry]]
+id = "aztec-challenge"
+title = "Aztec Challenge"
+year = 1983
+publisher = "Cosmi"
+variant = "pal"
+
+[entry.media]
+kind = "disk"
+slot = "drive-8"
+path = "commodore/c64/Games/Arcade/[D64]/Aztec Challenge (1983)(Cosmi).zip"
+
+# Same LOAD-RUN pattern as Bruce Lee, with Aztec's longer initial
+# loader stage (4000 frames after LOADING vs Bruce Lee's 2400).
+[[entry.script]]
+at_frame = 4000
+press = "r"
+[[entry.script]]
+at_frame = 4003
+press = "u"
+[[entry.script]]
+at_frame = 4006
+press = "n"
+[[entry.script]]
+at_frame = 4009
+press = "return"
+
+[entry.boot]
+# Captures the post-RUN player-select state. Aztec's player-select
+# uses a custom graphical rendering rather than standard text mode,
+# so the captured pixel hash looks "scrambled" relative to a
+# typical menu. The existing disk_autoload regression test asserts
+# text on row 3 via screen_text_lines (which reads character data),
+# confirming the screen IS at player-select even though pixels
+# render with custom CHARGEN.
+wait_frames = 5000
+frame_hash = "xxh64:50ac92431d569e94"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:e0195795f803f884"
 
 [[entry]]
 id = "bomb-jack"

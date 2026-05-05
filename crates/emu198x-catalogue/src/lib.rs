@@ -148,12 +148,13 @@ pub struct Boot {
 
 /// One scripted input step. `at_frame` is counted from the start of the
 /// script phase (which is immediately after the system's setup phase
-/// completes — tape stop, cartridge boot, etc.). Each press/click
-/// consumes 3 frames between queueing the press and queueing the
-/// release.
+/// completes — tape stop, cartridge boot, etc.). Each press/click/
+/// button consumes 3 frames between queueing the press and queueing
+/// the release.
 ///
-/// Untagged enum: TOML chooses between `press` (keyboard) and `click`
-/// (mouse port-0 button) based on which field is present.
+/// Untagged enum: TOML chooses between `press` (keyboard), `click`
+/// (mouse port-0 button), and `button`+`port` (joystick port button)
+/// based on which fields are present.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum ScriptStep {
@@ -164,12 +165,22 @@ pub enum ScriptStep {
     /// `middle`. Currently only honoured on Amiga; other systems
     /// silently drop pointer events.
     Click { at_frame: u32, click: String },
+    /// Joystick button press on a controller port. `port` is 0 or 1
+    /// (Amiga port-0 mouse / port-1 joystick; C64 port-1 / port-2).
+    /// `button` is `fire`, `button1`, etc. — system-specific.
+    Button {
+        at_frame: u32,
+        port: u8,
+        button: String,
+    },
 }
 
 impl ScriptStep {
     fn at_frame(&self) -> u32 {
         match self {
-            Self::Press { at_frame, .. } | Self::Click { at_frame, .. } => *at_frame,
+            Self::Press { at_frame, .. }
+            | Self::Click { at_frame, .. }
+            | Self::Button { at_frame, .. } => *at_frame,
         }
     }
 }
@@ -833,6 +844,21 @@ where
                 session.queue_input(InputEvent::PointerButton {
                     device: "mouse-1".into(),
                     button: click.clone().into(),
+                    pressed: false,
+                });
+            }
+            ScriptStep::Button { port, button, .. } => {
+                session.queue_input(InputEvent::Button {
+                    port: *port,
+                    name: button.clone().into(),
+                    pressed: true,
+                });
+                session
+                    .run_frames(3)
+                    .map_err(|err| CatalogueError::Session(format!("button: {err}")))?;
+                session.queue_input(InputEvent::Button {
+                    port: *port,
+                    name: button.clone().into(),
                     pressed: false,
                 });
             }

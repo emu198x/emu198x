@@ -101,26 +101,25 @@ kind = "disk"
 slot = "floppy-0"
 path = "/Users/stevehill/Projects/Code198x/Amiga/extracted/Barbarian - The Ultimate Warrior (1988)(Palace)[cr BS1 - TKT - INA].adf"
 
+[[entry.script]]
+# BSO cracker intros respond to joystick port-1 FIRE button.
+at_frame = 1500
+port = 1
+button = "fire"
+
 [entry.boot]
-# Boot-block trackloaded — captures the Bamiga Sector One cracker
-# intro mid-scroll. The cracker intro loops indefinitely; attempted
-# `press="space"` and `click="left"` script steps both produced
-# identical state to no-input runs, suggesting BSO intros expect
-# joystick port-1 FIRE rather than mouse or keyboard. Joystick
-# button support in the script[] schema is a follow-up.
-#
-# The cracker intro itself is honest validation of the full Amiga
-# chip-stack-running-real-software path: trackloader, copper effects,
-# Paula mod audio, sprites.
-wait_frames = 8000
-frame_hash = "xxh64:6fe5b0e930f8dc4e"
+# After FIRE the BSO cracker intro hands off to the actual Palace
+# Barbarian title. wait_frames covers the post-FIRE load.
+# Captures the canonical "BARBARIAN" title (Palace logo + score
+# header + snake-coiled tree pillars + "DEMONSTRATION" subtitle).
+wait_frames = 6000
+frame_hash = "xxh64:6265d00efcf40768"
 
 [entry.audio]
-# Captures a 2 s window of the BSO crew's mod tune playing through
-# Paula. Unique waveform — validates the audio path end-to-end.
+# Title attract sequence — silent at this 2 s window.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:628ce9fac0528c1e"
+hash = "xxh64:f6389c53ba66240d"
 
 [[entry]]
 id = "1943"
@@ -138,16 +137,24 @@ kind = "disk"
 slot = "floppy-0"
 path = "/Users/stevehill/Projects/Code198x/Amiga/Games/[ADF]/1943 - The Battle of Midway (1989)(GO!)[cr PNA].zip"
 
+[[entry.script]]
+# Paranoimia cracker intros also respond to joystick port-1 FIRE.
+at_frame = 1500
+port = 1
+button = "fire"
+
 [entry.boot]
-# Paranoimia cracker intro — "Paranoimia" logo + "Paranoimia Germany:
-# P.O.BOX 052600 C / 5100 Aachen 22 / Bahnhofpostlagernd". Same
-# cracker-intro-before-game pattern as Barbarian.
-wait_frames = 5000
-frame_hash = "xxh64:2c8debec59f59bf2"
+# After FIRE the Paranoimia cracker intro hands off to the actual
+# 1943 game. wait_frames covers the post-FIRE load. Captures the
+# canonical 1943 title: "1943™ / THE BATTLE OF MIDWAY / F1 - ONE
+# PLAYER / Joystick control only / PRESS FIRE ON JOYSTICK TO START
+# / © 1987 CAPCOM".
+wait_frames = 6000
+frame_hash = "xxh64:99d5044f70a3bb21"
 
 [entry.audio]
-# Captures Paranoimia's mod tune through Paula — different waveform
-# from BSO's Barbarian intro.
+# Title attract sequence — silent at this 2 s window (waiting for
+# joystick FIRE to start the game).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:0a912dcc5c9172fe"
+hash = "xxh64:f6389c53ba66240d"

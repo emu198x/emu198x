@@ -255,11 +255,17 @@ path = "sinclair/spectrum/Games/[DSK]/Chase H.Q. (1989)(Ocean)(+3).zip"
 #   - DSK file parsed via format-amstrad-dsk::parse
 #   - Disk inserted via load_disk_image into the NEC µPD765A FDC
 #   - Boot reached interactive menu state
-# Pushing past the menu to the actual game requires either ENTER on
-# the +3 menu (autoload attempt didn't take effect — the menu sits
-# unchanged for thousands of frames) or per-title menu navigation.
-# Tracked as a follow-up; the menu boot is genuine +3 + DSK
-# regression coverage.
+# Pushing past the menu requires ENTER on Loader; tested with
+# `script[]` press="enter" at_frame=5000, which DOES change the
+# screen state (different hash from no-script run), proving ENTER
+# is received. But the post-Loader-select state stalls at the
+# minimal "Loader" bottom-bar without progressing to the actual
+# disk load. Likely cause: the +3 Loader reads a DISK system file
+# that this archive's DSK doesn't include, or there's a
+# format-amstrad-dsk gap when the +3 ROM tries to read program
+# data. Tracked as a follow-up: needs +3 disk subsystem
+# investigation. The menu boot is genuine +3 + DSK regression
+# coverage.
 wait_frames = 8000
 frame_hash = "xxh64:4e00d0998410913a"
 
