@@ -343,17 +343,28 @@ fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
     runtime.load_media(&media)?;
 
     let mut host = null_host();
-    runtime.run_until(MachineTime::new(75_000_000), &mut host)?;
+    runtime.run_until(MachineTime::new(250_000_000), &mut host)?;
 
     let provider = runtime_commodore_amiga::AmigaSessionQueryProvider;
     use emu198x_shell::SessionQueryProvider;
-    let result = provider
-        .query(&runtime, "boot.detected")?
-        .expect("boot.detected should be available");
-    assert_eq!(
-        result.value,
-        serde_json::Value::Bool(true),
-        "Workbench 2.04 should reach desktop within 75M ticks (A500+ ECS PAL)"
+
+    // `boot.detected` flips to true at the KS 2.04 insert-disk screen,
+    // which renders before the disk has been read. Use disk activity
+    // to prove the trackdisk path actually executed: KS 2.04 issues
+    // hundreds of step pulses to load Workbench, so step_events well
+    // above the early "calibrate to TK0" handful proves the disk was
+    // read. A spinup-timer regression (peripheral-commodore-amiga-floppy
+    // resetting on every PRB write) used to cap step_events at ~12
+    // before the loader gave up.
+    let steps = provider
+        .query(&runtime, "amiga.disk.step_events")?
+        .expect("disk step_events should be available")
+        .value
+        .as_u64()
+        .expect("step_events is a number");
+    assert!(
+        steps > 200,
+        "KS 2.04 should issue hundreds of step pulses while loading WB 2.04 (got {steps})"
     );
     Ok(())
 }

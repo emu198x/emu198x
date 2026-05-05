@@ -225,11 +225,17 @@ impl AmigaFloppyDrive {
             if motor && !motor_on_before {
                 // Motor turning on — reset the ID shift cursor so the
                 // next motor-off + select sequence starts a fresh ID
-                // stream at bit 31 (MSB).
+                // stream at bit 31 (MSB), and start the spin-up timer
+                // from zero. Resetting the timer on every PRB write
+                // (the previous behaviour) pegged it at zero whenever
+                // the ROM polled the drive during spin-up — KS 1.3
+                // tolerated that, KS 2.04 polls aggressively enough
+                // that the motor never reached spin-up speed and the
+                // boot block was never read.
                 self.id_bit = 0;
-            }
-            if motor && !self.motor_spinning {
-                self.spin_timer = 0;
+                if !self.motor_spinning {
+                    self.spin_timer = 0;
+                }
             }
             if !motor {
                 self.motor_spinning = false;
@@ -544,6 +550,26 @@ mod tests {
             assert!(!drive.tick());
         }
         assert!(drive.status().ready);
+    }
+
+    /// Repeated motor-on PRB writes during spin-up must not reset the
+    /// spin timer. KS 2.04 polls the drive aggressively while waiting
+    /// for /DSKRDY; the previous behaviour pegged the timer at 0 and
+    /// left the drive permanently spun-down.
+    #[test]
+    fn spinup_completes_under_repeated_motor_on_writes() {
+        let mut drive = AmigaFloppyDrive::new();
+        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        drive.insert_disk(adf);
+        drive.acknowledge_disk_change();
+        drive.update_control(false, false, false, true, true);
+
+        // Poll the motor-on PRB pattern every tick while spin-up runs.
+        for _ in 0..MOTOR_SPINUP_TICKS {
+            drive.update_control(false, false, false, true, true);
+            drive.tick();
+        }
+        assert!(drive.status().ready, "motor must reach spin-up under polling");
     }
 
     #[test]
