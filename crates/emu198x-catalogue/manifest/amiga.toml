@@ -74,12 +74,21 @@ slot = "floppy-0"
 path = "/Users/stevehill/.emu198x/media/commodore-amiga/workbench-2.04.adf"
 
 [entry.boot]
-# WB 2.04 boot is even longer than WB 1.3. Captures the canonical
-# 2.04 boot logo: rainbow checkmark + "2.0 Roms (37.175) / Copyright
-# © 1985-1991 / Commodore-Amiga, Inc. / All Rights Reserved" with
-# the A500 disk drive showing the insert-disk prompt.
+# WB 2.04 boot is longer than WB 1.3. The boot block loads, the OS
+# brings up libraries, and the AmigaDOS startup-sequence runs. With
+# the floppy spin-up regression fixed (peripheral-commodore-amiga-
+# floppy 2026-05-05) the disk loads cleanly and we land on the
+# canonical "KeyMap Selection" prompt the WB 2.04 startup-sequence
+# raises when no Extras disk is in DF1:
+#   "KeyMap Selection / This procedure will copy a selected keymap
+#    from the Extras disk onto your Workbench disk. / Please ensure
+#    that you are working with a copy of your Workbench disk. / Do
+#    you wish to continue? (1 = Yes / 0 = No)"
+# This is the strongest single-frame proof that WB 2.04 actually
+# booted: it requires the boot block to have run, libraries to have
+# initialised, and the startup-sequence script to have executed.
 wait_frames = 1500
-frame_hash = "xxh64:1ab637314805711f"
+frame_hash = "xxh64:f13c054d5b989d12"
 
 [entry.audio]
 # Workbench desktop has no music or sound effects.
@@ -155,6 +164,80 @@ frame_hash = "xxh64:99d5044f70a3bb21"
 [entry.audio]
 # Title attract sequence — silent at this 2 s window (waiting for
 # joystick FIRE to start the game).
+from_frame = 60
+secs = 2.0
+hash = "xxh64:f6389c53ba66240d"
+
+[[entry]]
+id = "arkanoid-revenge-of-doh"
+title = "Arkanoid - Revenge of Doh"
+year = 1988
+publisher = "Imagine"
+variant = "a500-ocs-pal-a501"
+
+[entry.media]
+# OCS single-disk Imagine port. Ackerlight cracker release; the
+# Ackerlight intro responds to joystick FIRE which hands off to the
+# actual title attract loop.
+kind = "disk"
+slot = "floppy-0"
+path = "/Users/stevehill/Projects/Code198x/Amiga/Games/[ADF]/Arkanoid - Revenge of Doh (1988-11-05)(Imagine)[cr Ackerlight].zip"
+
+[[entry.script]]
+at_frame = 1500
+port = 1
+button = "fire"
+
+[entry.boot]
+# Captures the canonical Imagine title — TAITO COIN-OP / ARKANOID /
+# REVENGE OF DOH / Imagine "..the name of the game" / "(C)1987 TAITO
+# (C)1988 IMAGINE / CONVERSION BY PETER JOHNSON".
+wait_frames = 6000
+frame_hash = "xxh64:5155963b4ae77b9d"
+
+[entry.audio]
+# Title attract is silent at this 2 s window.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:f6389c53ba66240d"
+
+[[entry]]
+id = "bad-dudes-ecs"
+title = "Bad Dudes vs. Dragon Ninja (ECS A500+)"
+year = 1989
+publisher = "Imagine"
+variant = "a500-plus-ecs-pal"
+
+[entry.media]
+# OCS-era arcade port (Imagine 1989) running on the ECS A500+ chip
+# stack with Kickstart 2.04. Validates that the ECS chip stack
+# (Agnus 8375 / Denise 8373 / 1 MiB chip RAM) runs an older OCS
+# game end-to-end via the trackloader. The disk-load fix in commit
+# 504ada6 (floppy spin-up regression) was needed for KS 2.04 to read
+# the boot block at all.
+kind = "disk"
+slot = "floppy-0"
+path = "/Users/stevehill/Projects/Code198x/Amiga/Games/[ADF]/Bad Dudes vs. Dragon Ninja (1989)(Imagine)[cr OCL][t +3 OCL].zip"
+
+[[entry.script]]
+# OCL cracker intro prompts "(RETURN)" at the bottom right. RETURN
+# is queued at frame 4000 but the cracker doesn't appear to respond
+# in the headless harness — the captured frame stays on the cracker
+# greetings ("DRAGON NINJA + TRAINER / CRACKED & TRAINED BY WEETIBIX
+# IN 1989"). The cracker intro is itself the ECS waypoint: it proves
+# disk DMA, MFM decode, trackloader, and Denise rendering all work
+# on the ECS chip stack. Reaching the actual game proper requires
+# either a working RETURN-on-cracker scripting path or a
+# crack-stripped ADF.
+at_frame = 4000
+press = "return"
+
+[entry.boot]
+wait_frames = 6000
+frame_hash = "xxh64:7c76c827d285b2cf"
+
+[entry.audio]
+# Cracker intro is silent at this window.
 from_frame = 60
 secs = 2.0
 hash = "xxh64:f6389c53ba66240d"
