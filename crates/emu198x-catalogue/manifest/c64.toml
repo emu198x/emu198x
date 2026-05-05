@@ -154,3 +154,74 @@ frame_hash = "xxh64:d759a955247befc9"
 from_frame = 60
 secs = 2.0
 hash = "xxh64:2d2d7c5231ec57ab"
+
+[[entry]]
+id = "wizball"
+title = "Wizball"
+year = 1987
+publisher = "Ocean"
+variant = "pal"
+
+[entry.media]
+# D64 — Rob Hubbard SID showcase + colour-cycling palette effects.
+kind = "disk"
+slot = "drive-8"
+path = "commodore/c64/Games/Shoot'em Up/[D64]/Wizball (1987)(Ocean).zip"
+
+# Same LOAD-RUN pattern as Bruce Lee. Initial loader stage runs ~2400
+# frames after LOADING text, then RUN starts the program.
+[[entry.script]]
+at_frame = 2400
+press = "r"
+[[entry.script]]
+at_frame = 2403
+press = "u"
+[[entry.script]]
+at_frame = 2406
+press = "n"
+[[entry.script]]
+at_frame = 2409
+press = "return"
+
+[entry.boot]
+# After RUN, Wizball loads further and reaches its post-load attract
+# state — captures the high-score table screen with the WIZBALL logo
+# and Hubbard's SID music looping.
+wait_frames = 16000
+frame_hash = "xxh64:7198001e82e55d1c"
+
+[entry.audio]
+# Captures the Rob Hubbard title-screen SID — first non-silent
+# audio assertion of any disk-loaded C64 entry.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:bd062d499a95f419"
+
+[[entry]]
+id = "monty-on-the-run"
+title = "Monty on the Run"
+year = 1985
+publisher = "Gremlin"
+variant = "pal"
+
+[entry.media]
+# TAP — THE canonical Rob Hubbard SID showcase. The "Monty on the
+# Run" song is one of the most-arranged C64 tunes ever. Standard
+# Gremlin tape loader (no turbo-loader).
+kind = "tape"
+slot = "tape-1"
+path = "commodore/c64/Games/Arcade/[TAP]/Monty on the Run (1985)(Gremlin).zip"
+
+[entry.boot]
+# Standard Gremlin tape loader. Captures the post-load attract state:
+# Monty / High Scores header + score table + scrolling credits + the
+# "MONTY FREEDOM KIT" controls panel.
+wait_frames = 50000
+frame_hash = "xxh64:19ab24d6cc2121e3"
+
+[entry.audio]
+# Captures Hubbard's "Monty on the Run" theme — first non-silent
+# audio assertion on a tape-loaded C64 entry.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:48d312528aed7a75"
