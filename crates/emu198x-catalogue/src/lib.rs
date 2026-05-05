@@ -12,13 +12,14 @@ use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
-use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K};
+use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K, TIMING_PLUS2A};
 use emu198x_shell::{
     ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineCore,
     MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
     SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
+use machine_sinclair_zx_spectrum_plus::{Model as PlusModel, SpectrumPlus};
 use runtime_commodore_amiga::{
     A500_NTSC_FRAME_TICKS, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider,
     Model as AmigaModel,
@@ -30,7 +31,7 @@ use runtime_commodore_c64::{
 use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, Spectrum48kRuntime, Spectrum128kRuntime,
-    SpectrumSessionQueryProvider, autoload_basic_tape,
+    SpectrumPlusRuntime, SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 use serde::Deserialize;
 use thiserror::Error;
@@ -147,13 +148,30 @@ pub struct Boot {
 
 /// One scripted input step. `at_frame` is counted from the start of the
 /// script phase (which is immediately after the system's setup phase
-/// completes — tape stop, cartridge boot, etc.). Each press consumes
-/// 4 frames (queue press → 2 frames → queue release → 2 frames).
+/// completes — tape stop, cartridge boot, etc.). Each press/click
+/// consumes 3 frames between queueing the press and queueing the
+/// release.
+///
+/// Untagged enum: TOML chooses between `press` (keyboard) and `click`
+/// (mouse port-0 button) based on which field is present.
 #[derive(Debug, Deserialize)]
-pub struct ScriptStep {
-    pub at_frame: u32,
-    /// Key name (e.g. `enter`, `space`, `r`, `0`).
-    pub press: String,
+#[serde(untagged)]
+pub enum ScriptStep {
+    /// Keyboard key press. `press` is a key name (`enter`, `space`,
+    /// `r`, `0`, etc.) — system-specific name lookup applies.
+    Press { at_frame: u32, press: String },
+    /// Mouse port-0 button click. `click` is `left`, `right`, or
+    /// `middle`. Currently only honoured on Amiga; other systems
+    /// silently drop pointer events.
+    Click { at_frame: u32, click: String },
+}
+
+impl ScriptStep {
+    fn at_frame(&self) -> u32 {
+        match self {
+            Self::Press { at_frame, .. } | Self::Click { at_frame, .. } => *at_frame,
+        }
+    }
 }
 
 /// Audio capture window. `from_frame` is counted from the boot waypoint
@@ -350,6 +368,7 @@ fn run_spectrum_entry(
     match entry.variant.as_str() {
         "48k" => run_spectrum_48k_entry(manifest, entry, media_root, firmware_root),
         "128k" => run_spectrum_128k_entry(manifest, entry, media_root, firmware_root),
+        "plus3" => run_spectrum_plus3_entry(manifest, entry, media_root, firmware_root),
         other => Err(CatalogueError::UnsupportedVariant(other.into())),
     }
 }
@@ -576,6 +595,95 @@ where
     Ok(())
 }
 
+fn run_spectrum_plus3_entry(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 4 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 4,
+            actual: files.len(),
+        });
+    }
+    let r0 = read_firmware_bytes(firmware_root, &files[0])?;
+    let r1 = read_firmware_bytes(firmware_root, &files[1])?;
+    let r2 = read_firmware_bytes(firmware_root, &files[2])?;
+    let r3 = read_firmware_bytes(firmware_root, &files[3])?;
+
+    let mut machine = SpectrumPlus::new(PlusModel::Plus3);
+    machine.memory.load_roms(&r0, &r1, &r2, &r3);
+    let runtime = SpectrumPlusRuntime::new(Model::SpectrumPlus3, machine);
+
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_PLUS2A.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("+3 entry requires media".into()))?;
+    let media_kind = load_media_spec(&mut session, media, media_root)?;
+
+    // Defer autoload: rely on entry.script[] to send the menu keypress
+    // for +3, since the menu's behaviour with a disk inserted is
+    // title-specific (some auto-run, others wait for ENTER).
+    // autoload_plus3_loader(&mut session, DEFAULT_128K_BOOT_FRAMES)?;
+
+    // For tape media on +3, the standard tape-stop wait still applies.
+    // For disk, the +3 disk loader runs autonomously after Loader is
+    // selected — wait_frames in the entry covers the full load.
+    if media_kind == MediaKind::Tape {
+        wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+    }
+
+    run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_PLUS2A))
+}
+
+/// +3 autoload: wait for the +3 menu boot banner, press ENTER (selects
+/// the highlighted "Loader" option which auto-runs the disk's first
+/// program). The disk must already be inserted via load_media_spec.
+fn autoload_plus3_loader<Q>(
+    session: &mut HeadlessSession<SpectrumPlusRuntime, Q>,
+    max_boot_frames: u32,
+) -> Result<(), CatalogueError>
+where
+    Q: SessionQueryProvider<SpectrumPlusRuntime>,
+{
+    session
+        .wait_for_boot(max_boot_frames)
+        .map_err(|err| CatalogueError::Session(format!("+3 boot wait: {err}")))?;
+
+    // Give the +3 menu extra time to fully paint after boot detection
+    // before pressing ENTER. boot.detected fires on the Amstrad
+    // copyright text appearing, but the menu input handler may not
+    // be ready for several more frames.
+    session
+        .run_frames(50)
+        .map_err(|err| CatalogueError::Session(format!("+3 menu settle: {err}")))?;
+
+    session.queue_input(InputEvent::Key {
+        name: "enter".into(),
+        pressed: true,
+    });
+    session
+        .run_frames(5)
+        .map_err(|err| CatalogueError::Session(format!("+3 enter press: {err}")))?;
+    session.queue_input(InputEvent::Key {
+        name: "enter".into(),
+        pressed: false,
+    });
+    session
+        .run_frames(20)
+        .map_err(|err| CatalogueError::Session(format!("+3 enter settle: {err}")))?;
+    Ok(())
+}
+
 /// 128K-equivalent of the 48K `autoload_basic_tape`. Waits for the 128K
 /// menu, presses ENTER (which selects the highlighted "Tape Loader"
 /// option), and starts tape transport.
@@ -691,24 +799,44 @@ where
     // on the next `run_frames` (next step's advance or the boot wait).
     let mut frames_consumed: u32 = 0;
     for step in &entry.script {
-        if step.at_frame > frames_consumed {
-            let advance = step.at_frame - frames_consumed;
+        let at_frame = step.at_frame();
+        if at_frame > frames_consumed {
+            let advance = at_frame - frames_consumed;
             session
                 .run_frames(advance)
                 .map_err(|err| CatalogueError::Session(format!("script advance: {err}")))?;
-            frames_consumed = step.at_frame;
+            frames_consumed = at_frame;
         }
-        session.queue_input(InputEvent::Key {
-            name: step.press.clone().into(),
-            pressed: true,
-        });
-        session
-            .run_frames(3)
-            .map_err(|err| CatalogueError::Session(format!("press: {err}")))?;
-        session.queue_input(InputEvent::Key {
-            name: step.press.clone().into(),
-            pressed: false,
-        });
+        match step {
+            ScriptStep::Press { press, .. } => {
+                session.queue_input(InputEvent::Key {
+                    name: press.clone().into(),
+                    pressed: true,
+                });
+                session
+                    .run_frames(3)
+                    .map_err(|err| CatalogueError::Session(format!("press: {err}")))?;
+                session.queue_input(InputEvent::Key {
+                    name: press.clone().into(),
+                    pressed: false,
+                });
+            }
+            ScriptStep::Click { click, .. } => {
+                session.queue_input(InputEvent::PointerButton {
+                    device: "mouse-1".into(),
+                    button: click.clone().into(),
+                    pressed: true,
+                });
+                session
+                    .run_frames(3)
+                    .map_err(|err| CatalogueError::Session(format!("click: {err}")))?;
+                session.queue_input(InputEvent::PointerButton {
+                    device: "mouse-1".into(),
+                    button: click.clone().into(),
+                    pressed: false,
+                });
+            }
+        }
         frames_consumed = frames_consumed.saturating_add(3);
     }
 

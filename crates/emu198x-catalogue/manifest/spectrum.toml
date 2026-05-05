@@ -24,6 +24,15 @@ files = [
     { id = "sinclair-zx-spectrum-128k-rom-1", path = "sinclair-zx-spectrum-128k/128-1.rom" },
 ]
 
+[[system.firmware]]
+variant = "plus3"
+files = [
+    { id = "amstrad-zx-spectrum-plus3-rom-0", path = "amstrad-zx-spectrum-plus3/plus3-0.rom" },
+    { id = "amstrad-zx-spectrum-plus3-rom-1", path = "amstrad-zx-spectrum-plus3/plus3-1.rom" },
+    { id = "amstrad-zx-spectrum-plus3-rom-2", path = "amstrad-zx-spectrum-plus3/plus3-2.rom" },
+    { id = "amstrad-zx-spectrum-plus3-rom-3", path = "amstrad-zx-spectrum-plus3/plus3-3.rom" },
+]
+
 [[entry]]
 id = "manic-miner"
 title = "Manic Miner"
@@ -219,3 +228,43 @@ frame_hash = "xxh64:b1e9d5b8c017e5a7"
 from_frame = 100
 secs = 2.0
 hash = "xxh64:c72266bc84d56bc3"
+
+[[entry]]
+id = "chase-hq-plus3"
+title = "Chase H.Q. (+3)"
+year = 1989
+publisher = "Ocean"
+variant = "plus3"
+
+[entry.media]
+# +3 disk (DSK format) — exercises the NEC µPD765A FDC code path,
+# completely untested in the catalogue until now. Same Ocean Chase HQ
+# as the 128K tape entry; lets us A/B compare 128K tape vs +3 disk
+# loading paths for the same title.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Chase H.Q. (1989)(Ocean)(+3).zip"
+
+[entry.boot]
+# Captures the canonical +3 boot menu with the DSK already inserted:
+#   "128 +3 / Loader / +3 BASIC / Calculator / 48 BASIC /
+#    ©1982, 1986, 1987 Amstrad Plc. / Drives A:, B: and M: available."
+# The menu is the proof point for the +3 path:
+#   - 4-ROM firmware loaded (plus3-{0,1,2,3}.rom)
+#   - SpectrumPlus runtime constructed
+#   - DSK file parsed via format-amstrad-dsk::parse
+#   - Disk inserted via load_disk_image into the NEC µPD765A FDC
+#   - Boot reached interactive menu state
+# Pushing past the menu to the actual game requires either ENTER on
+# the +3 menu (autoload attempt didn't take effect — the menu sits
+# unchanged for thousands of frames) or per-title menu navigation.
+# Tracked as a follow-up; the menu boot is genuine +3 + DSK
+# regression coverage.
+wait_frames = 8000
+frame_hash = "xxh64:4e00d0998410913a"
+
+[entry.audio]
+# Menu silent — no music or sound effects.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"

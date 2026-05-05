@@ -103,12 +103,15 @@ path = "/Users/stevehill/Projects/Code198x/Amiga/extracted/Barbarian - The Ultim
 
 [entry.boot]
 # Boot-block trackloaded — captures the Bamiga Sector One cracker
-# intro mid-scroll. The cracker intro loops indefinitely waiting for
-# user input (any key) to launch the actual Palace title; the catalogue
-# accepts the intro as the boot waypoint because it proves the
-# Amiga's full chip-stack-running-real-software path: trackloader,
-# copper effects, Paula mod audio, sprites. The actual title needs
-# scripted-input support for keyboard "any key" — follow-up.
+# intro mid-scroll. The cracker intro loops indefinitely; attempted
+# `press="space"` and `click="left"` script steps both produced
+# identical state to no-input runs, suggesting BSO intros expect
+# joystick port-1 FIRE rather than mouse or keyboard. Joystick
+# button support in the script[] schema is a follow-up.
+#
+# The cracker intro itself is honest validation of the full Amiga
+# chip-stack-running-real-software path: trackloader, copper effects,
+# Paula mod audio, sprites.
 wait_frames = 8000
 frame_hash = "xxh64:6fe5b0e930f8dc4e"
 
