@@ -148,7 +148,10 @@ fn extract_viewport_deinterlace_halves_height_and_takes_every_other_row() {
 
     let img = d.extract_viewport(ViewportPreset::Standard, true, true);
     let v_lines = u32::from(bounds.v_end_line - bounds.v_start_line);
-    assert_eq!(img.height, v_lines, "deinterlace should halve the row count");
+    assert_eq!(
+        img.height, v_lines,
+        "deinterlace should halve the row count"
+    );
     // First pixel of first row should be the top row's marker, not the bottom.
     assert_eq!(img.pixels[0], 0xFFAA_BBCC);
 }

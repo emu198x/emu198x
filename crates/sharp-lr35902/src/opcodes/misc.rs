@@ -238,5 +238,4 @@ mod tests {
         assert_eq!(cpu.a, 0x02);
         assert_eq!(cpu.pc, 0x0102);
     }
-
 }

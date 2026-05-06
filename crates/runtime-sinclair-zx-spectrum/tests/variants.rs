@@ -749,7 +749,10 @@ fn assert_shared_query_paths_resolve<M: SpectrumMachine>(runtime: &SpectrumRunti
     assert_eq!(cols.value, serde_json::json!(32));
     assert_eq!(rows.value, serde_json::json!(24));
     assert!(kbd.value.is_array());
-    assert_eq!(kbd.value.as_array().expect("rows must be JSON array").len(), 8);
+    assert_eq!(
+        kbd.value.as_array().expect("rows must be JSON array").len(),
+        8
+    );
     assert!(tape_loaded.value.is_boolean());
     assert!(tape_playing.value.is_boolean());
     assert!(hc.value.is_u64());
@@ -982,10 +985,8 @@ fn spectrum_128k_runtime_exposes_ay_register_queries() {
 
 #[test]
 fn spectrum_plus2a_runtime_exposes_ay_register_queries() {
-    let mut runtime = SpectrumPlusRuntime::new(
-        Model::SpectrumPlus2A,
-        SpectrumPlus::new(PlusModel::Plus2A),
-    );
+    let mut runtime =
+        SpectrumPlusRuntime::new(Model::SpectrumPlus2A, SpectrumPlus::new(PlusModel::Plus2A));
     assert_ay_query_round_trip(&mut runtime);
 }
 
@@ -1080,7 +1081,10 @@ fn scorpion_boot_status_returns_not_detected_until_banner_confirmed() {
         .expect("boot.reason should resolve")
         .expect("provider must own boot.reason");
     assert_eq!(detected.value, serde_json::json!(false));
-    assert_eq!(reason.value, serde_json::json!("copyright banner not visible"));
+    assert_eq!(
+        reason.value,
+        serde_json::json!("copyright banner not visible")
+    );
 }
 
 // ---- ROM-backed banner regression + diagnostic ----
@@ -1178,7 +1182,9 @@ fn tc2048_boot_banner_is_detected_with_real_rom() {
     // change too.
     let lines = screen_lines(&rt);
     assert!(
-        lines.iter().any(|line| line.contains("Sinclair Research Ltd")),
+        lines
+            .iter()
+            .any(|line| line.contains("Sinclair Research Ltd")),
         "TC2048 screen.text.lines should contain 'Sinclair Research Ltd'; got {lines:?}",
     );
 }
@@ -1209,7 +1215,9 @@ fn spectrum_128k_boot_banner_is_detected_with_real_rom() {
     assert_eq!(detected.value, serde_json::json!(true));
     let lines = screen_lines(&rt);
     assert!(
-        lines.iter().any(|line| line.contains("Sinclair Research Ltd")),
+        lines
+            .iter()
+            .any(|line| line.contains("Sinclair Research Ltd")),
         "128K screen.text.lines should contain 'Sinclair Research Ltd'; got {lines:?}",
     );
 }
@@ -1275,7 +1283,9 @@ fn pentagon_128_boot_banner_is_detected_with_real_rom() {
     assert_eq!(detected.value, serde_json::json!(true));
     let lines = screen_lines(&rt);
     assert!(
-        lines.iter().any(|line| line.contains("1993 Sinclair Research Ltd")),
+        lines
+            .iter()
+            .any(|line| line.contains("1993 Sinclair Research Ltd")),
         "Pentagon screen.text.lines should contain '1993 Sinclair Research Ltd'; got {lines:?}",
     );
 }
@@ -1322,7 +1332,9 @@ fn probe_scorpion_screen_ram() {
     // Sample some bytes from a few specific addresses that text
     // would touch (top of screen, middle, near the bottom).
     eprintln!("\nSample bytes at common text positions (visible at $4000-$5AFF):");
-    for addr in [0x4000u16, 0x4020, 0x4400, 0x4800, 0x5000, 0x5800, 0x5820, 0x5A00] {
+    for addr in [
+        0x4000u16, 0x4020, 0x4400, 0x4800, 0x5000, 0x5800, 0x5820, 0x5A00,
+    ] {
         eprintln!("  ${addr:04X} = ${:02X}", rt.machine().read_byte(addr));
     }
 
@@ -1414,7 +1426,10 @@ fn probe_all_variant_banners() {
             m.memory.load_roms(&rom0, &rom1);
             let mut rt = Spectrum128kRuntime::new(Model::Spectrum128KPal, m);
             run_frames(&mut rt, 200);
-            print_screen("Spectrum +2 grey (via 128K machine, 200 frames)", &screen_lines(&rt));
+            print_screen(
+                "Spectrum +2 grey (via 128K machine, 200 frames)",
+                &screen_lines(&rt),
+            );
         } else {
             eprintln!("+2 ROMs missing");
         }
@@ -1436,7 +1451,10 @@ fn probe_all_variant_banners() {
                 };
                 let mut rt = SpectrumPlusRuntime::new(runtime_model, m);
                 run_frames(&mut rt, 250);
-                print_screen(&format!("Spectrum {model:?} (250 frames)"), &screen_lines(&rt));
+                print_screen(
+                    &format!("Spectrum {model:?} (250 frames)"),
+                    &screen_lines(&rt),
+                );
             }
         } else {
             eprintln!("+3 ROMs missing");

@@ -30,7 +30,11 @@ fn num_bitplanes_aga_decodes_4_bit_bpu_via_max_bitplanes_8() {
 
     // BPU hi3 = 0b011 (3), bit 4 = 1 → bpu = 8 + 3 = 11, capped to 8
     d.bplcon0 = (3u16 << 12) | (1u16 << 4);
-    assert_eq!(d.num_bitplanes(), 8, "AGA BPU should be capped at max_bitplanes");
+    assert_eq!(
+        d.num_bitplanes(),
+        8,
+        "AGA BPU should be capped at max_bitplanes"
+    );
 }
 
 #[test]
@@ -38,7 +42,11 @@ fn num_bitplanes_ocs_ignores_bplcon0_bit_4() {
     // With max_bitplanes=6 (OCS default), bit 4 must not extend BPU.
     let mut d = DeniseOcs::new();
     d.bplcon0 = (3u16 << 12) | (1u16 << 4); // hi3=3, bit4=1
-    assert_eq!(d.num_bitplanes(), 3, "OCS path takes only the 3-bit BPU field");
+    assert_eq!(
+        d.num_bitplanes(),
+        3,
+        "OCS path takes only the 3-bit BPU field"
+    );
 }
 
 #[test]
@@ -57,7 +65,10 @@ fn shres_consumes_four_source_pixels_per_output_call() {
         dbg.source_pixels_per_fb_pixel, 4,
         "SHRES should consume 4 source pixels per output call"
     );
-    assert_eq!(d.shift_count, 12, "SHRES drains 4 from the 16-pixel register");
+    assert_eq!(
+        d.shift_count, 12,
+        "SHRES drains 4 from the 16-pixel register"
+    );
 }
 
 #[test]
@@ -213,5 +224,8 @@ fn defer_shift_load_with_count_greater_than_one_decrements_per_pixel() {
         assert_eq!(dbg.final_color_idx, 0, "pixel {x} pre-deferred-load");
     }
     let dbg = d.output_pixel_with_beam(3, 0, 3, 0);
-    assert_eq!(dbg.final_color_idx, 1, "deferred load should fire on pixel 3");
+    assert_eq!(
+        dbg.final_color_idx, 1,
+        "deferred load should fire on pixel 3"
+    );
 }

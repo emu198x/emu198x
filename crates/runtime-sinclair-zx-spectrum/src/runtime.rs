@@ -160,10 +160,7 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
     /// Returns `QueryError` only when the path is recognised but
     /// resolution fails (e.g. transient unavailability). Unknown paths
     /// must return `Ok(None)`, not an error.
-    fn resolve_variant_query(
-        &self,
-        _path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn resolve_variant_query(&self, _path: &str) -> Result<Option<QueryResult>, QueryError> {
         Ok(None)
     }
 }

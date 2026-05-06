@@ -283,7 +283,16 @@ mod tests {
 
     #[test]
     fn divisor_table_covers_every_code() {
-        let cases = [(0u8, 4u32), (1, 8), (2, 16), (3, 24), (4, 32), (5, 40), (6, 48), (7, 56)];
+        let cases = [
+            (0u8, 4u32),
+            (1, 8),
+            (2, 16),
+            (3, 24),
+            (4, 32),
+            (5, 40),
+            (6, 48),
+            (7, 56),
+        ];
         for (code, expected) in cases {
             let mut n = Noise::new();
             n.divisor_code = code;

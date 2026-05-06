@@ -589,5 +589,4 @@ mod tests {
         bus.run(&mut cpu, 2);
         assert_eq!(cpu.sp, 0x1234);
     }
-
 }

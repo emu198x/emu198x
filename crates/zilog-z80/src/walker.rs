@@ -289,7 +289,10 @@ mod tests {
         assert_eq!(w.staged.disp, 0);
         // Sequence is owned by the caller (Z80 sets it after decode);
         // begin_instruction must not touch it.
-        assert!(std::ptr::eq(w.sequence.as_ptr(), mcycle::SEQ_LD_R_N.as_ptr()));
+        assert!(std::ptr::eq(
+            w.sequence.as_ptr(),
+            mcycle::SEQ_LD_R_N.as_ptr()
+        ));
     }
 
     #[test]

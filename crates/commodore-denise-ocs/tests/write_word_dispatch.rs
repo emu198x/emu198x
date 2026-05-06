@@ -184,13 +184,25 @@ fn write_word_unknown_offset_is_silently_ignored() {
     // Anything outside the documented Denise slice is a no-op.
     let mut d = DeniseOcs::new();
     let before = (
-        d.bplcon0, d.bplcon1, d.bplcon2, d.bplcon4, d.clxcon, d.palette[0], d.bpl_data[0],
+        d.bplcon0,
+        d.bplcon1,
+        d.bplcon2,
+        d.bplcon4,
+        d.clxcon,
+        d.palette[0],
+        d.bpl_data[0],
     );
     d.write_word(0x000, 0xFFFF); // out of range
     d.write_word(0x300, 0xFFFF); // out of range
     d.write_word(0x07E, 0xFFFF); // intregister, not Denise
     let after = (
-        d.bplcon0, d.bplcon1, d.bplcon2, d.bplcon4, d.clxcon, d.palette[0], d.bpl_data[0],
+        d.bplcon0,
+        d.bplcon1,
+        d.bplcon2,
+        d.bplcon4,
+        d.clxcon,
+        d.palette[0],
+        d.bpl_data[0],
     );
     assert_eq!(before, after, "unknown offsets must not mutate state");
 }

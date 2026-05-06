@@ -733,8 +733,14 @@ dependencies = [
 name = "emu198x-catalogue"
 version = "0.1.0"
 dependencies = [
+ "common-commodore-c64",
  "common-sinclair-zx-spectrum",
  "emu198x-shell",
+ "machine-sinclair-zx-spectrum-128k",
+ "machine-sinclair-zx-spectrum-plus",
+ "runtime-commodore-amiga",
+ "runtime-commodore-c64",
+ "runtime-nintendo-nes",
  "runtime-sinclair-zx-spectrum",
  "serde",
  "thiserror 2.0.18",
@@ -1015,6 +1021,7 @@ dependencies = [
 name = "format-dragon-bin"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1022,6 +1029,7 @@ dependencies = [
 name = "format-dragon-cas"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1029,6 +1037,7 @@ dependencies = [
 name = "format-dragon-disk"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1036,6 +1045,7 @@ dependencies = [
 name = "format-dragon-pak"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1623,6 +1633,7 @@ dependencies = [
  "motorola-pia-6821",
  "motorola-sam-6883",
  "motorola-vdg-6847",
+ "serde",
 ]
 
 [[package]]
@@ -1919,6 +1930,9 @@ dependencies = [
 [[package]]
 name = "motorola-vdg-6847"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "naga"
@@ -2773,6 +2787,8 @@ dependencies = [
  "machine-dragon-32",
  "motorola-vdg-6847",
  "png",
+ "postcard",
+ "serde",
  "serde_json",
 ]
 

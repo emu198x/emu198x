@@ -175,10 +175,7 @@ const COMMON_BOOT_PATHS: &[&str] = &["boot.detected", "boot.reason", "boot.row"]
 /// AY-3-8912 query paths shared by every variant that owns an AY chip
 /// (128K, +2A/+2B/+3, Pentagon, Scorpion, TS2068). The 48K and TC2048
 /// have no AY and never expose these. Resolved by [`resolve_ay_path`].
-const AY_QUERY_PATHS: &[&str] = &[
-    "spectrum.ay.selected_register",
-    "spectrum.ay.registers",
-];
+const AY_QUERY_PATHS: &[&str] = &["spectrum.ay.selected_register", "spectrum.ay.registers"];
 
 const SPECTRUM_48K_QUERY_PATHS: &[&str] = &[
     "boot.detected",
@@ -239,10 +236,7 @@ const TIMEX_TS2068_QUERY_PATHS: &[&str] = &[
     "spectrum.ay.registers",
 ];
 
-fn boot_status_query<M: SpectrumMachine>(
-    machine: &M,
-    banners: &[&str],
-) -> SpectrumBootStatus {
+fn boot_status_query<M: SpectrumMachine>(machine: &M, banners: &[&str]) -> SpectrumBootStatus {
     if banners.is_empty() {
         return SpectrumBootStatus::not_detected();
     }
@@ -349,10 +343,7 @@ impl SpectrumMachine for Spectrum48k {
         SPECTRUM_48K_QUERY_PATHS
     }
 
-    fn resolve_variant_query(
-        &self,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, SPECTRUM_48K_BANNERS, path);
         }
@@ -432,10 +423,7 @@ impl SpectrumMachine for Spectrum128K {
         SPECTRUM_128K_QUERY_PATHS
     }
 
-    fn resolve_variant_query(
-        &self,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, SPECTRUM_128K_BANNERS, path);
         }
@@ -524,10 +512,7 @@ impl SpectrumMachine for SpectrumPlus {
         SPECTRUM_PLUS_QUERY_PATHS
     }
 
-    fn resolve_variant_query(
-        &self,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, SPECTRUM_PLUS_BANNERS, path);
         }
@@ -611,10 +596,7 @@ impl SpectrumMachine for Pentagon128 {
         PENTAGON_128_QUERY_PATHS
     }
 
-    fn resolve_variant_query(
-        &self,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, PENTAGON_128_BANNERS, path);
         }
@@ -695,10 +677,7 @@ impl SpectrumMachine for ScorpionZS256 {
         SCORPION_ZS256_QUERY_PATHS
     }
 
-    fn resolve_variant_query(
-        &self,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, SCORPION_ZS256_BANNERS, path);
         }
@@ -774,10 +753,7 @@ impl SpectrumMachine for TimexTC2048 {
         TIMEX_TC2048_QUERY_PATHS
     }
 
-    fn resolve_variant_query(
-        &self,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, TIMEX_TC2048_BANNERS, path);
         }
@@ -853,10 +829,7 @@ impl SpectrumMachine for TimexTS2068 {
         TIMEX_TS2068_QUERY_PATHS
     }
 
-    fn resolve_variant_query(
-        &self,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
         if COMMON_BOOT_PATHS.contains(&path) {
             return resolve_boot_path(self, TIMEX_TS2068_BANNERS, path);
         }
