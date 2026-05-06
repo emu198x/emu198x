@@ -2,6 +2,24 @@
 
 Hard constraints. Non-negotiable. If you find yourself breaking one, stop and rethink.
 
+## Session start
+
+Before writing any code, state in the conversation which October artefact this session serves.
+
+**Public October launch (Crash! Live):** Spectrum only. **Spectrum SOLID** is the October-public goal — full criteria locked at [`wiki/decisions/october-catalogue.md`](wiki/decisions/october-catalogue.md#october-bar-definition). Headline: 8 in-scope variants (16K, 48K, Spectrum+, 128K, +2, +2A, +2B, +3); 10 catalogue entries per variant; single `emu198x-spectrum` binary with `--ui`/`--script`/`--mcp` modes; MCP server functional; pipeline tied to every Code198x curriculum unit's screenshot/video.
+
+**Engineering quality bar:** All four systems (Spectrum, C64, NES, Amiga) have catalogue manifests. Non-Spectrum systems progress as engineering bar in priority order (C64 → NES → Amiga), with no October deadline. The amended public-vs-bar split is documented at the top of [`october-catalogue.md`](wiki/decisions/october-catalogue.md).
+
+Anchor every session against one of:
+
+- **Spectrum SOLID work** — Spectrum catalogue entry, runtime/chip/format gate, variant stability, real-hardware validation, Code198x pipeline reliability. October-public path.
+- **Spectrum-supporting infrastructure** — capture pipeline, CRT filter, serialisation, native UI for Spectrum demo. Spectrum SOLID depends on it.
+- **Non-Spectrum catalogue progress** (C64, NES, Amiga in that priority order) — engineering bar, no October deadline. Only after Spectrum SOLID is closer to done.
+
+If the requested work doesn't fit one of these — Game Boy, Dragon 32, accuracy work past what manifests assert, jumping to non-Spectrum catalogue work before Spectrum SOLID is closer to done — **name it as deferred**, and ask whether to proceed. Don't silently expand the October-public pile or jump ahead of Spectrum sequencing. Once the user confirms, proceed; the rule is to flag, not refuse.
+
+The October-public system is Spectrum. Everything else is engineering bar (C64/NES/Amiga) or post-launch (Game Boy, Dragon 32, Wave 2+) per [`wiki/decisions/product-roadmap.md`](wiki/decisions/product-roadmap.md).
+
 ## Clock
 
 1. The master oscillator drives the loop. Not the CPU. Not the ULA. The crystal.

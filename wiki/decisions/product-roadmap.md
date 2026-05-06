@@ -4,16 +4,20 @@
 
 Rebuild all 35+ systems from the old codebase at the new accuracy standard. Every CPU core cycle-perfect. Every system correct from day one. Ship as per-system standalone binaries plus a unified launcher.
 
-## October 2026 (CRASH! Live launch)
+## October 2026
 
-Four Code198x platforms, in order:
+**Amended 2026-05-06.** Originally this section listed four October platforms in priority order with Amiga as the cut candidate. The framing changed when Code198x narrowed to Spectrum-only for its October launch. See [October catalogue Log](october-catalogue.md#log) for the cross-project rationale.
 
-1. **Spectrum** — done (6 variants, 100% Tom Harte, Signal Part 3)
-2. **C64** — next (6502 tick core exists, VIC-II timing well-documented)
-3. **NES** — third (shares 6502 core, PPU is the challenge)
-4. **Amiga** — last (68000 + custom chipset, most complex, most dev time)
+**Public launch (Crash! Live):** Spectrum only. The system Code198x ships and Crash! Live's audience cares about. **Spectrum SOLID** — variants stable across all 11 supported variants, all 10 [October catalogue](october-catalogue.md) entries pass, real-hardware validated against Spectrum Next + Fuse, Code198x screenshot/video pipeline reliable — is the October-public goal.
 
-If behind schedule, Amiga is the cut candidate.
+**Engineering bar (priority order, no October deadline):**
+
+1. **Spectrum** — 13 variants in the codebase (12 listed in the wiki overview plus Spectrum+ added 2026-05-06). **8 in October SOLID scope:** 16K, 48K, Spectrum+, 128K, +2, +2A, +2B, +3. **Deferred to post-October:** Pentagon, Scorpion, TC2048, TC2068, TS2068. 100% Tom Harte, Signal Part 3 working. Full SOLID criteria locked in [October catalogue](october-catalogue.md#october-bar-definition).
+2. **C64** — 6502 + CIA + VIC-II + SID; KERNAL boots end-to-end, 1541 path operational. Catalogue passes when it passes.
+3. **NES** — 2A03 + 2C02 + APU; nestest 8991/8991, Super Mario Bros. renders. Catalogue passes when it passes.
+4. **Amiga** — 68000 + OCS chipset; Workbench 1.3 desktop, A1000 / A500-family runtimes. Catalogue passes when it passes.
+
+C64, NES, and Amiga continue as engineering bars. They progress in this priority order, but none have an October deadline. Spectrum SOLID is the gate that opens attention to non-Spectrum catalogue completion.
 
 ## Must-haves for October
 
@@ -71,11 +75,12 @@ Roadmaps drift through scope creep and reprioritization, not code patterns. If I
 
 **Scope drift to reject:**
 
-- Adding any system to the October list beyond Spectrum / C64 / NES / Amiga
-- Reordering the October priorities (Spectrum → C64 → NES → Amiga is fixed)
-- Cutting October must-haves (capture pipeline, CRT filter, serialisation traits)
-- Starting Wave 2 work before October has shipped
-- Adding "nice-to-haves" to the October scope
+- Treating any system other than Spectrum as October-public ("we need C64 done by October too")
+- Reordering the engineering-bar priorities (Spectrum SOLID first; then C64 → NES → Amiga; Wave 2 systems are post all of these)
+- Cutting Spectrum SOLID's must-haves (capture pipeline, CRT filter, serialisation traits)
+- Starting Wave 2 work before Spectrum SOLID
+- Adding "nice-to-haves" to the Spectrum SOLID scope
+- Inferring an October deadline for C64/NES/Amiga from the pre-2026-05-06 framing — the public October system is Spectrum only
 
 **Accuracy drift to reject:**
 
@@ -93,13 +98,12 @@ Roadmaps drift through scope creep and reprioritization, not code patterns. If I
 
 **Phrases that signal drift:**
 
-- "We can cut X from the October scope"
-- "Let's add [other system] before the launch"
+- "We can cut X from Spectrum SOLID"
+- "Let's add [other system] before Spectrum SOLID"
 - "The accuracy bar for [system] can be lower"
-- "Maybe Amiga doesn't need to ship in October" — Amiga *is* the documented cut candidate, so if I'm proposing this without the user raising it first, I'm not reading the roadmap
-- "Let's just do one system well instead of four"
+- "Maybe we should ship C64 too at Crash! Live" — Crash! Live is Spectrum-only public scope; if I'm proposing C64/NES/Amiga as October-public without the user raising it first, I'm working from the pre-2026-05-06 roadmap
 
-**What to do when triggered:** the October 2026 CRASH! Live launch is a hard deadline. Any roadmap change is a user decision, not mine. Raise scope concerns explicitly and early; do not silently narrow or expand scope.
+**What to do when triggered:** the October 2026 Crash! Live launch is a hard deadline for **Spectrum SOLID**. Engineering-bar work on C64/NES/Amiga has no October deadline. Any roadmap change is a user decision, not mine. Raise scope concerns explicitly and early; do not silently narrow or expand scope.
 
 ## Related
 

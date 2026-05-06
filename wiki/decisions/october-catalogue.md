@@ -4,11 +4,45 @@
 
 ## The decision
 
-The October 2026 launch bar for each of the four systems (Spectrum, C64, NES, Amiga) is a **curated 10-title catalogue per system, 40 titles total**. The catalogue is implemented as a shared crate `emu198x-catalogue`, driven by per-system TOML manifests, with frame and audio assertions hashed via **xxhash64**. One harness, four manifests, one cross-system green/red grid as the test output.
+**Amended 2026-05-06.** This decision originally framed all four systems as October-public. It now separates public October scope from the engineering quality bar. See Log at the bottom for the rationale.
+
+**Public October launch (Crash! Live):** Spectrum only. Spectrum is the system Code198x ships, the system Crash! Live's audience cares about, and the system whose screenshots and videos Code198x's QR-code visitors will see. **Spectrum SOLID** is the October-public goal — locked criteria in the next section.
+
+**Engineering quality bar:** A curated 10-title catalogue per system across Spectrum, C64, NES, and Amiga — 40 titles total. Implemented as a shared crate `emu198x-catalogue`, driven by per-system TOML manifests, with frame and audio assertions hashed via **xxhash64**. One harness, four manifests, one cross-system green/red grid as the test output. The bar is the same for every system; only the public deadline differs.
+
+**Sequencing:** Spectrum SOLID first. Then C64, NES, Amiga in that priority order, as engineering bar without October hard deadline. The four-system catalogue infrastructure is built once and applied to whichever system is up next; nothing forces all four to be hit by October.
+
+**Status of non-Spectrum systems for October:** engineering progress, no public deadline. C64/NES/Amiga catalogues pass when they pass.
 
 ## October bar definition
 
-"October-ready" for any of the four systems means: **all 10 catalogue entries pass — boot waypoint, scripted-input state-change, and audio-window assertion.**
+**Catalogue-ready (per non-Spectrum system)** is the engineering quality bar for C64, NES, and Amiga: all 10 catalogue entries pass — boot waypoint, scripted-input state-change, audio-window assertion. No October deadline.
+
+**Spectrum SOLID** is the October-public deliverable. Locked 2026-05-06. All eleven criteria below are binding:
+
+1. **Catalogue.** 10 entries per in-scope variant. With 8 variants in scope and reasonable title overlap (a 48K-universal title produces an entry on every compatible variant; +3-disk-only titles are unique), this is roughly 80 manifest entries from a smaller set of unique titles. Each entry passes boot waypoint, scripted-input state-change, and audio-window assertion. Frame and audio hashes match manifest.
+
+2. **Variants in scope.** 16K, 48K, **Spectrum+**, 128K, +2, +2A, +2B, +3 — each boots reliably and passes its 10 catalogue entries. The Spectrum+ is electrically identical to the 48K (same ROM/RAM/ULA/keyboard matrix); it's included in SOLID for catalogue regression coverage and variant-selector consistency, not because it differs at the chip level. **Deferred to post-October:** Pentagon, Scorpion, TC2048, TC2068, TS2068.
+
+3. **Formats.** TAP, TZX, SNA, Z80 across all eight in-scope variants; DSK/EDSK on +3. TR-DOS and DOCK formats defer with Pentagon and Timex respectively.
+
+4. **Pipeline.** `emu198x-spectrum` is the single binary for the Spectrum family, with three modes: `--ui` (default, native interactive), `--script` (headless capture), `--mcp` (MCP server). Byte-stable output for the same input. For every Code198x curriculum unit with an associated screenshot or video per Code198x's [Definition of Done](../../../Code198x/wiki/curriculum/revamp.md#definition-of-done-per-unit), the pipeline succeeds reliably.
+
+5. **MCP.** Spectrum MCP server functional and exercised by at least one Code198x skill.
+
+6. **CRT filter.** Functional, with at least one acceptable preset. Final taste-tuning is post-October.
+
+7. **Native UI.** Machine variant selection across the 8 in-scope variants, load snapshot/tape/disk, run/pause/reset, save/load state, volume, window sizing. Anything beyond that is post-launch.
+
+8. **Save state.** Postcard round-trip on every variant + title combination in the catalogue. Not "one per family" — every cell of the variant × title grid round-trips.
+
+9. **Code quality.** No `.unwrap()` and no stubs in Spectrum-side library code.
+
+10. **Regressions.** Tom Harte 100%, ZEXDOC, ZEXALL stay green.
+
+11. **Code coverage.** All Spectrum-specific crates achieve ≥90% line coverage measured by `cargo-llvm-cov`. CI gate enforces the threshold. Branch coverage measured for visibility but not gated. Scope is Spectrum-specific: `zilog-z80`, `ferranti-ula-6c001e`, `sinclair-ula-7k010e`, `amstrad-ula-40077`, `gi-ay-3-8912`, `nec-upd765a`, `format-amstrad-dsk`, all `format-sinclair-zx-spectrum-*` crates, all `machine-sinclair-zx-spectrum-*` crates, `runtime-sinclair-zx-spectrum`, `common-sinclair-zx-spectrum`, `beta-disk-interface`, and the consolidated `emu198x-spectrum` binary. Shared infrastructure (`emu198x-catalogue`, `emu198x-shell`, `emu198x-native-video`) is measured for visibility but not gated by SOLID. **Data-only exemption (added 2026-05-06):** a Spectrum-specific crate that contains only type definitions (no functions, no logic) is exempt — line coverage on type definitions is undefined. Round-trip tests in consumer crates provide the regression coverage instead. Currently exempt: `format-sinclair-zx-spectrum-snapshot`.
+
+The single-binary pattern (`emu198x-<family>` with `--ui`/`--script`/`--mcp` modes) propagates to C64, NES, and Amiga as those systems mature. No timeline lock for the propagation; it follows the Spectrum-first sequencing.
 
 This sits between two rejected alternatives:
 
@@ -113,11 +147,43 @@ Catalogue drift comes dressed as scope creep or "while I'm in here" tidying. If 
 - "The catalogue is too restrictive, let's run the smoke matrix instead"
 - "While I'm in here, let me add a test for Z"
 
-**What to do when triggered:** the October bar is the curated 40-title catalogue. Variations are user decisions, not mine. Raise scope or shape concerns explicitly; do not silently expand or contract.
+**Public-vs-bar drift to reject (added 2026-05-06):**
+
+- Promoting C64/NES/Amiga catalogue completion to October-public ("Crash! Live needs C64 too")
+- Treating non-Spectrum catalogue progress as October-launch progress when reporting status
+- Working on C64/NES/Amiga catalogue passes before Spectrum SOLID is closer to done — the sequencing is Spectrum first, others after
+- Inferring an October deadline for non-Spectrum catalogues from the original framing in this doc — read the amended top section and the Log
+
+**Spectrum SOLID drift to reject (locked 2026-05-06):**
+
+- Promoting deferred variants (Pentagon, Scorpion, TC2048, TC2068, TS2068) to in-scope without an explicit decision update
+- Adding TR-DOS or DOCK format support to October scope (deferred with their respective variants)
+- Reintroducing real-hardware validation as a SOLID requirement (explicitly excluded — frame hashes are the regression bar)
+- Splitting `emu198x-spectrum` back into separate UI and headless binaries (the single-binary pattern is binding and propagates to other families)
+- Treating "catalogue passes" alone as SOLID — pipeline reliability, MCP, native UI, save-state, and CRT filter are equally binding criteria
+- Lowering the per-variant catalogue bar below 10 entries
+- Decoupling the Code198x curriculum DoD from Emu198x pipeline reliability
+- Lowering the 90% line-coverage threshold for any Spectrum-specific crate without an explicit decision update
+- Excluding Spectrum-specific crates from the coverage measurement to inflate the gated number
+- Treating coverage as aspiration rather than an enforced CI gate
+
+**What to do when triggered:** the October-public bar is Spectrum SOLID. The engineering quality bar is the 40-title catalogue. Variations are user decisions, not mine. Raise scope or shape concerns explicitly; do not silently expand or contract.
+
+## Log
+
+| Date | Event |
+|---|---|
+| 2026-05-04 | Decision created. 40-title catalogue across four systems framed as the October launch bar. |
+| 2026-05-06 | **Amended.** Codex's evaluation of Code198x and Emu198x surfaced a tension with the Code198x launch spec (locked earlier the same day): Code198x is Spectrum-only at October, while this decision committed Emu198x to four-system catalogue completion by October. Resolved by separating public October scope from the engineering quality bar. The 40-title catalogue stays as a quality bar; only Spectrum is publicly October-bound (Spectrum SOLID). C64/NES/Amiga catalogues progress on engineering merit without October deadline. Sequencing locked: Spectrum SOLID first, then C64, NES, Amiga in priority order. |
+| 2026-05-06 | **Spectrum SOLID locked.** Ten binding criteria (catalogue, variants, formats, pipeline, MCP, CRT, UI, save state, code quality, regressions). 7 variants in scope (16K, 48K, 128K, +2, +2A, +2B, +3); Pentagon, Scorpion, TC2048, TC2068, TS2068 deferred. 10 catalogue entries per variant — roughly 70 manifest entries via title overlap. Single `emu198x-spectrum` binary with `--ui`/`--script`/`--mcp` modes (pattern propagates to other families later). Real-hardware validation explicitly dropped (frame hashes carry the regression bar). Code198x curriculum DoD coupled to Emu198x pipeline reliability — every unit with a screenshot/video must capture cleanly. |
+| 2026-05-06 | **Spectrum+ added to SOLID.** 7 → 8 in-scope variants. Spectrum+ is electrically identical to the 48K but treated as a first-class variant for catalogue regression coverage and variant-selector consistency. Manifest entry count rises from ~70 to ~80. The catalogue duplicates 48K's title set against the Spectrum+ crate so any future drift between the `-48k` and `-plus` machine crates surfaces immediately. |
+| 2026-05-06 | **Criterion 11 added: code coverage.** ≥90% line coverage on all Spectrum-specific crates, measured by `cargo-llvm-cov`, gated in CI. Branch coverage measured but not gated. Shared infrastructure crates (catalogue, shell, native-video) measured for visibility but not gated by SOLID. Phase 1 work expands to include baseline measurement and CI gate setup. |
+| 2026-05-06 | **D7 — Snapshot types extracted to dedicated crate.** New `format-sinclair-zx-spectrum-snapshot` crate owns `Snapshot` (renamed from `Z80Snapshot`) and `SnapshotModel`. Format crates (z80, sna) and all consumer machine crates updated. Data-only exemption added to criterion 11 (data-only crates have no executable code to count; round-trip tests in consumers cover the regression need). |
 
 ## Related
 
-- [Product roadmap](product-roadmap.md) — names the four October systems and the must-haves
+- [Product roadmap](product-roadmap.md) — Spectrum-public + four-system engineering bar, must-haves, post-October waves
 - [Save state format](save-state-format.md) — adjacent test-infrastructure decision; postcard snapshots already have round-trip proofs
 - [Runtime internal shape](runtime-internal-shape.md) — the per-runtime four-module shape the catalogue harness consumes
 - [Phase 1 inventory + Phase 2 plan](../log.md) — the gap analysis the catalogue addresses
+- [Code198x October launch spec](../../../Code198x/wiki/decisions/october-2026-launch-spec.md) — the cross-project Spectrum-only October scope this decision aligns with

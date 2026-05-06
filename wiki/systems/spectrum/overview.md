@@ -63,7 +63,9 @@ No Bus trait. The machine inspects [Z80](../../chips/zilog-z80.md) signals (`add
 | `machine-timex-ts2068` | Timex TC2068/TS2068 (SCLD + DOCK/EXROM paging) |
 | `format-sinclair-zx-spectrum-tap` | TAP tape parser |
 | `format-sinclair-zx-spectrum-tzx` | TZX tape parser (15+ block types) |
-| `format-sinclair-zx-spectrum-z80` | .Z80 (v1/v2/v3) and .SNA (48K/128K) snapshot loader |
+| `format-sinclair-zx-spectrum-snapshot` | Shared `Snapshot` and `SnapshotModel` types, consumed by every snapshot format parser and every machine crate. Pure data — no parsing logic. |
+| `format-sinclair-zx-spectrum-z80` | .Z80 (v1/v2/v3) snapshot loader. Produces a `Snapshot` from the shared types crate. |
+| `format-sinclair-zx-spectrum-sna` | .SNA (48K/128K) snapshot loader. Produces a `Snapshot` from the shared types crate. |
 | `runtime-sinclair-zx-spectrum` | Shared `MachineCore` runtime layer: bespoke 48K runtime plus generic wrappers for the other variants |
 | `emu198x-spectrum` | Native `winit` runner above the shared runtime and shell boundary, rendering through `emu198x-native-video`/`wgpu` |
 

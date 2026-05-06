@@ -38,6 +38,7 @@
 - [Overview](systems/dragon-32.md) — sixth family, Codex-owned active development; reaches BASIC, real CAS tape media, ROM/DGN cartridges, PC-Dragon PAK snapshots, audio, joystick, XRoar smoke comparison at 11/12 exact matches; not in October launch scope
 
 ### ZX Spectrum
+- [SOLID status](systems/spectrum/solid-status.md) — live tracker against the October catalogue Spectrum SOLID criteria; 3 done, 5 partial, 2 not started as of 2026-05-06
 - [Overview](systems/spectrum/overview.md) — 11 variants (16K, 48K, 128K, +2, +2A, +2B, +3, Pentagon, Scorpion, TC2048, TC2068, TS2068), ULA-drives architecture, 48K bespoke runtime plus generic runtimes for the rest
 - [Contention](systems/spectrum/contention.md) — three ULA implementations, I/O contention, internal contention
 - [Variants](systems/spectrum/variants.md) — memory maps, paging, I/O ports, ROMs, floating bus
@@ -56,10 +57,10 @@
 - [Half-cycle signals](decisions/half-cycle-signals.md) — half-cycle granularity for accurate signal timing
 - [Fresh start rationale](decisions/fresh-start-rationale.md) — why full rewrite, what carried forward
 - [Crate naming](decisions/crate-naming.md) — manufacturer-chipname convention
-- [Product roadmap](decisions/product-roadmap.md) — 35+ systems long-term, four by October 2026, wave plan, chip reuse map
+- [Product roadmap](decisions/product-roadmap.md) — 35+ systems long-term, Spectrum public-October + four-system engineering bar, wave plan, chip reuse map
 - [Native UI strategy](decisions/native-ui-strategy.md) — platform-specific frontends (SwiftUI/GTK4/WinUI), SDL2+native menus for October
 - [Save state format](decisions/save-state-format.md) — serde + postcard, derive on everything from day one
-- [October catalogue](decisions/october-catalogue.md) — 10-title curated bench per system (40 total), shared `emu198x-catalogue` crate, TOML manifests, xxhash64 frame/audio assertions; defines the October-ready bar
+- [October catalogue](decisions/october-catalogue.md) — 10-title curated bench per system (40 total) as engineering quality bar; **Spectrum SOLID is the October-public deliverable**, C64/NES/Amiga are engineering bar without October deadline (amended 2026-05-06)
 - [System-specific run loops](decisions/system-specific-run-loops.md) — no universal tick pattern, each system matches its hardware
 - [Within-family layering](decisions/within-family-layering.md) — five-piece structure (common / chip / format / machine / runtime) every family follows; copy-this-shape blueprint for adding Game Boy, SG-1000, etc.
 - [Runtime internal shape](decisions/runtime-internal-shape.md) — four per-concern modules (`runtime` / `queries` / `snapshot` / `input`) inside every `runtime-{family}` crate, with the per-variant generic axis layered on top when the family grows variants

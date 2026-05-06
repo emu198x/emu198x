@@ -21,7 +21,7 @@ use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::{
-    Z80Snapshot, apply_128k_bank_pages, apply_ay_registers, apply_z80_registers,
+    Snapshot, apply_128k_bank_pages, apply_ay_registers, apply_z80_registers,
 };
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_PENTAGON};
@@ -110,7 +110,7 @@ impl Pentagon128 {
     /// Apply a parsed `.z80` snapshot. Pentagon shares the 128K page
     /// layout (8 banked RAM pages, `$7FFD` paging, AY register file) —
     /// it has no `$1FFD`.
-    pub fn apply_snapshot(&mut self, snap: &Z80Snapshot) {
+    pub fn apply_snapshot(&mut self, snap: &Snapshot) {
         apply_z80_registers(&mut self.z80, snap);
         self.ula.write_fe(snap.border);
         apply_128k_bank_pages(snap, &mut self.memory);

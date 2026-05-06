@@ -1,72 +1,16 @@
-/// Spectrum snapshot format parsers (.z80 and .sna).
-///
-/// Both formats produce the same `Z80Snapshot` struct, which the machine
-/// crate uses to restore state.
-pub mod sna;
+//! .z80 snapshot format parser.
+//!
+//! Supports v1, v2, and v3 formats. Decompresses ED ED-compressed data
+//! and maps hardware types to Spectrum models. The `.sna` format lives
+//! in the sibling `format-sinclair-zx-spectrum-sna` crate; both produce
+//! the same `Snapshot` value defined in `format-sinclair-zx-spectrum-snapshot`.
+//!
+//! Format reference: <https://worldofspectrum.org/faq/reference/z80format.htm>
 
-/// .z80 snapshot format parser.
-///
-/// Supports v1, v2, and v3 formats. Decompresses ED ED-compressed data
-/// and maps hardware types to Spectrum models.
-///
-/// Format reference: https://worldofspectrum.org/faq/reference/z80format.htm
-/// Parsed .z80 snapshot — machine-agnostic representation.
-#[derive(Clone, Debug)]
-pub struct Z80Snapshot {
-    // Z80 registers
-    pub af: u16,
-    pub bc: u16,
-    pub de: u16,
-    pub hl: u16,
-    pub af_alt: u16,
-    pub bc_alt: u16,
-    pub de_alt: u16,
-    pub hl_alt: u16,
-    pub ix: u16,
-    pub iy: u16,
-    pub sp: u16,
-    pub pc: u16,
-    pub i: u8,
-    pub r: u8,
-    pub im: u8,
-    pub iff1: bool,
-    pub iff2: bool,
-
-    /// Border colour (0-7).
-    pub border: u8,
-
-    /// Hardware model.
-    pub model: SnapshotModel,
-
-    /// Port $7FFD value (128K paging state). 0 for 48K snapshots.
-    pub port_7ffd: u8,
-    /// Port $1FFD value (+2A/+3 paging). 0 if not applicable.
-    pub port_1ffd: u8,
-    /// Port $FFFD value (AY register select). 0 if not applicable.
-    pub ay_register: u8,
-    /// AY register contents (16 bytes).
-    pub ay_regs: [u8; 16],
-
-    /// Memory pages: (page_number, 16384 bytes).
-    /// Page numbering: 0-7 = RAM banks, 8 = ROM 0, etc.
-    /// For 48K v1 snapshots: pages 5, 2, 0 (= $4000, $8000, $C000).
-    pub pages: Vec<(u8, Vec<u8>)>,
-}
-
-/// Which Spectrum model the snapshot targets.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum SnapshotModel {
-    Spectrum48K,
-    Spectrum128K,
-    SpectrumPlus2,
-    SpectrumPlus2A,
-    SpectrumPlus3,
-    Pentagon128,
-    Scorpion256,
-}
+use format_sinclair_zx_spectrum_snapshot::{Snapshot, SnapshotModel};
 
 /// Parse a .z80 file.
-pub fn parse_z80(data: &[u8]) -> Result<Z80Snapshot, String> {
+pub fn parse_z80(data: &[u8]) -> Result<Snapshot, String> {
     if data.len() < 30 {
         return Err("File too short for .z80 header".into());
     }
@@ -113,7 +57,7 @@ pub fn parse_z80(data: &[u8]) -> Result<Z80Snapshot, String> {
             (5, mem[32768..49152].to_vec()),
         ];
 
-        return Ok(Z80Snapshot {
+        return Ok(Snapshot {
             af,
             bc,
             de,
@@ -213,7 +157,7 @@ pub fn parse_z80(data: &[u8]) -> Result<Z80Snapshot, String> {
         }
     }
 
-    Ok(Z80Snapshot {
+    Ok(Snapshot {
         af,
         bc,
         de,

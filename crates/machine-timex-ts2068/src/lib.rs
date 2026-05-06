@@ -27,7 +27,7 @@ use common_sinclair_zx_spectrum::timing::{
 };
 use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::ula_engine;
-use format_sinclair_zx_spectrum_z80::Z80Snapshot;
+use format_sinclair_zx_spectrum_snapshot::Snapshot;
 use gi_ay_3_8912::Ay3_8912;
 use timex_scld::TimexScld;
 use zilog_z80::Z80;
@@ -165,7 +165,7 @@ impl TimexTS2068 {
     /// Apply a parsed `.z80` snapshot. Treats the Timex as a stock 48K
     /// for snapshot purposes — the page-to-base map matches the 48K
     /// convention. AY state is not carried in `.z80` v2/v3 for Timex.
-    pub fn apply_snapshot(&mut self, snap: &Z80Snapshot) {
+    pub fn apply_snapshot(&mut self, snap: &Snapshot) {
         apply_z80_registers(&mut self.z80, snap);
         self.ula.write_fe(snap.border);
         for (page, data) in &snap.pages {

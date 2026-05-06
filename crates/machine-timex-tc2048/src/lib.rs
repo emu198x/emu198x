@@ -25,7 +25,7 @@ use common_sinclair_zx_spectrum::snapshot::apply_z80_registers;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH_HIRES, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
-use format_sinclair_zx_spectrum_z80::Z80Snapshot;
+use format_sinclair_zx_spectrum_snapshot::Snapshot;
 use timex_scld::TimexScld;
 use zilog_z80::Z80;
 
@@ -104,7 +104,7 @@ impl TimexTC2048 {
     /// Apply a parsed `.z80` snapshot. TC2048 shares the 48K's flat
     /// 48K memory layout, so the page-to-base mapping is the standard
     /// 48K convention: 4 → $8000, 5 → $C000, 8 → $4000.
-    pub fn apply_snapshot(&mut self, snap: &Z80Snapshot) {
+    pub fn apply_snapshot(&mut self, snap: &Snapshot) {
         apply_z80_registers(&mut self.z80, snap);
         self.ula.write_fe(snap.border);
         for (page, data) in &snap.pages {

@@ -4,6 +4,60 @@ Append-only record of ingests, queries, and lint passes.
 
 ---
 
+## 2026-05-06 — Spectrum SOLID locked, Phase 0 close-out
+
+**Type:** session close-out + decision-amendment cluster + audit
+
+**Pages created:**
+- `systems/spectrum/solid-status.md` (live tracker for Spectrum SOLID)
+
+**Pages updated:**
+- `decisions/october-catalogue.md` (public-vs-bar split, Spectrum SOLID 11 criteria, drift triggers expanded, log)
+- `decisions/product-roadmap.md` (October scope reframed, drift triggers updated, Spectrum entry expanded)
+- `decisions/native-ui-strategy.md` (winit + muda + rfd locked for October baseline, permitted-deps section added)
+- `../RULES.md` (session-start anchor reframed around Spectrum SOLID)
+- `index.md` (descriptions updated; `solid-status.md` surfaced under ZX Spectrum)
+
+**Cross-project pages updated:**
+- `~/Projects/wiki/relationships.md` — Emu198x ↔ Code198x scope alignment, both projects' October-public is Spectrum
+- `~/Projects/Code198x/wiki/decisions/october-2026-launch-spec.md` (created — Spectrum-only October spec mirroring this side)
+- `~/Projects/Code198x/docs/CLAUDE.md` — session-start launch anchor for that project
+- `~/Projects/Code198x/wiki/SCHEMA.md`, `~/Projects/Emu198x/wiki/SCHEMA.md`, `~/Projects/NetNodes/wiki/SCHEMA.md` — freshness/staleness conventions added (precedence, supersede markers, "as of" dating, archive treatment)
+- `~/Projects/NetNodes/wiki/decisions/{design-system,css-native-migration}.md` (created — promoted from memory)
+
+### Key decisions
+
+1. **Public October scope is Spectrum only.** Codex's evaluation surfaced a tension: Code198x narrowed to Spectrum-only but Emu198x committed to four-system catalogue completion by October. Resolved by separating *engineering quality bar* (40-title catalogue across four systems) from *public October launch* (Spectrum SOLID only). Sequencing: Spectrum SOLID first; C64, NES, Amiga catalogues progress on engineering merit without October deadline.
+
+2. **Spectrum SOLID = 11 binding criteria.** Catalogue (10 entries per variant), variants (8 in scope), formats, single binary, MCP, CRT filter, native UI, save state, code quality, regressions, code coverage (≥90% line gated in CI). All eleven equally binding.
+
+3. **8 variants in scope.** 16K, 48K, Spectrum+, 128K, +2, +2A, +2B, +3. Pentagon, Scorpion, TC2048, TC2068, TS2068 deferred post-October.
+
+4. **One machine crate per SOLID variant.** D1: 16K added. D2: original +2 added. D5: Spectrum+ added (using the freed `-plus` name post-extraction). D6: +2A/+2B/+3 extracted from the existing `-plus` Model-enum crate into `-plus2a`, `-plus2b`, `-plus3`. Eight machine crates after Phase 1 Track 1A — full per-variant separation, no shared Model enum.
+
+5. **SNA format split out.** D3: relocate `format-sinclair-zx-spectrum-z80/src/sna.rs` into a new `format-sinclair-zx-spectrum-sna` crate.
+
+6. **UI: winit + `muda` + `rfd`.** D4. Native menus (NSMenu / GTK4 menu / Win32 menu) and file dialogs (NSOpenPanel / GtkFileChooser / IFileOpenDialog) via thin platform-API wrappers. Per-platform SwiftUI/GTK4/WinUI remain post-October.
+
+7. **Single binary per family.** `emu198x-spectrum` consolidates `emu198x-script-spectrum` with `--ui` (default), `--script`, `--mcp` modes. Pattern propagates to other system families post-Spectrum.
+
+8. **Real-hardware validation explicitly dropped from SOLID.** Frame and audio hashes carry the regression bar; manual hardware comparison is too expensive at scale and not on the critical path.
+
+### Audit (current state vs. Spectrum SOLID)
+
+3 done, 6 partial, 2 not started. **Done:** CRT filter, code quality (no `.unwrap()` or stubs in Spectrum-side library code), regressions (ZEXDOC/ZEXALL pass — CI gate pending). **Partial:** catalogue (9 of ~80 entries authored), variants (5 of 8 present in code), formats (TAP/TZX/Z80/SNA-as-module/DSK exist), native UI (winit shell with run/pause/reset, no menus/dialogs/save-state UI), save state (per-variant round-trips work in `runtime-sinclair-zx-spectrum/tests/variants.rs`, catalogue doesn't drive them), coverage (unmeasured — `cargo-llvm-cov` not installed). **Not started:** single-binary consolidation, MCP server. Full audit and per-criterion evidence at [`systems/spectrum/solid-status.md`](systems/spectrum/solid-status.md).
+
+### Phase 1 scope (four tracks, parallelisable)
+
+- **1A — Foundations.** Scaffold 16K, +2, +2A, +2B, +3 machine crates (extracting +2A/+2B/+3 from old `-plus`, retire it, then create the new `-plus` for Spectrum+). Split SNA into its own crate. Runtime aliases for new variants. Boot tests per variant. Coverage tests authored alongside each crate.
+- **1B — Single binary.** Consolidate `emu198x-script-spectrum` into `emu198x-spectrum --script`; add `--mcp` mode stub. Update Code198x screenshot/video skills.
+- **1C — Native menus.** Add `muda` and `rfd` deps; native menu bar (File / Machine / State / View) with file dialogs.
+- **1D — CI lock-ins.** Gate ZEXDOC, ZEXALL, save-state round-trip in CI. Install `cargo-llvm-cov`; capture baseline; CI gate at ≥90% line coverage on Spectrum-specific crates.
+
+Phase 1 closes when all 8 variants compile and boot; SNA is a discoverable crate; `emu198x-spectrum` has three modes; native menus and file dialogs are working; CI gates the regression suite and coverage threshold. Phase 2 (catalogue authoring across all 8 variants → ~80 manifest entries) becomes unblocked.
+
+---
+
 ## 2026-05-04 — Phase 1 closed + Phase 2 catalogue locked in
 
 **Type:** session close-out + plan brief. Phase 1 inventory ran in this session against the 2026-05-04 Phase 1 plan brief below. Phase 2 architectural choices were made in the same session. Written as the next session's starting point.

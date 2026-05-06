@@ -36,6 +36,8 @@ members = [
     "crates/format-commodore-amiga-adf",
     "crates/format-nintendo-game-boy-cartridge",
     "crates/format-nintendo-nes-ines",
+    "crates/format-sinclair-zx-spectrum-sna",
+    "crates/format-sinclair-zx-spectrum-snapshot",
     "crates/format-sinclair-zx-spectrum-tap",
     "crates/format-sinclair-zx-spectrum-tzx",
     "crates/format-sinclair-zx-spectrum-z80",

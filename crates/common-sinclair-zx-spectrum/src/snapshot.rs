@@ -42,7 +42,7 @@
 //! self.ay.select_register(snap.ay_register);
 //! ```
 
-pub use format_sinclair_zx_spectrum_z80::Z80Snapshot;
+pub use format_sinclair_zx_spectrum_snapshot::{Snapshot, SnapshotModel};
 use zilog_z80::Z80;
 
 use crate::memory::MemoryBus;
@@ -59,7 +59,7 @@ pub trait Paged128kMemory: MemoryBus {
 /// Handles every register the snapshot format stores: AF/BC/DE/HL and
 /// their primes, IX/IY, SP, PC, I, R, IM, IFF1, IFF2. Does not touch
 /// memory or peripherals.
-pub fn apply_z80_registers(z80: &mut Z80, snap: &Z80Snapshot) {
+pub fn apply_z80_registers(z80: &mut Z80, snap: &Snapshot) {
     z80.regs.af = snap.af;
     z80.regs.bc = snap.bc;
     z80.regs.de = snap.de;
@@ -134,7 +134,7 @@ impl SnapshotBankTarget {
 /// must then write `snap.port_7ffd` to restore it.
 ///
 /// Used by: 128K, +2A/+3, Pentagon, Scorpion.
-pub fn apply_128k_bank_pages<M: Paged128kMemory>(snap: &Z80Snapshot, memory: &mut M) {
+pub fn apply_128k_bank_pages<M: Paged128kMemory>(snap: &Snapshot, memory: &mut M) {
     for (page, data) in &snap.pages {
         let Some(target) = SnapshotBankTarget::for_page(*page) else {
             continue;
@@ -156,7 +156,7 @@ pub fn apply_128k_bank_pages<M: Paged128kMemory>(snap: &Z80Snapshot, memory: &mu
 /// and leaves the AY with `snap.ay_register` selected so subsequent
 /// `IN`/`OUT` on the data port target the same register the snapshot
 /// captured.
-pub fn apply_ay_registers(snap: &Z80Snapshot, ay: &mut gi_ay_3_8912::Ay3_8912) {
+pub fn apply_ay_registers(snap: &Snapshot, ay: &mut gi_ay_3_8912::Ay3_8912) {
     for (reg, &val) in snap.ay_regs.iter().enumerate() {
         ay.select_register(reg as u8);
         ay.write_data(val);
@@ -218,9 +218,9 @@ mod tests {
         }
     }
 
-    /// Build a fully-populated `Z80Snapshot` for register-restore tests.
-    fn populated_snapshot() -> Z80Snapshot {
-        Z80Snapshot {
+    /// Build a fully-populated `Snapshot` for register-restore tests.
+    fn populated_snapshot() -> Snapshot {
+        Snapshot {
             af: 0x1122,
             bc: 0x3344,
             de: 0x5566,
@@ -239,7 +239,7 @@ mod tests {
             iff1: true,
             iff2: false,
             border: 5,
-            model: format_sinclair_zx_spectrum_z80::SnapshotModel::Spectrum128K,
+            model: SnapshotModel::Spectrum128K,
             port_7ffd: 0x10,
             port_1ffd: 0x04,
             ay_register: 0x07,

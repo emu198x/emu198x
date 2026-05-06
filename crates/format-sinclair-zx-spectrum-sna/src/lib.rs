@@ -7,10 +7,10 @@
 ///
 /// The 48K format stores PC on the stack (SP points to it). The loader
 /// must pop it to get the real PC and adjust SP += 2.
-use super::{SnapshotModel, Z80Snapshot};
+use format_sinclair_zx_spectrum_snapshot::{Snapshot, SnapshotModel};
 
 /// Parse a .SNA file.
-pub fn parse_sna(data: &[u8]) -> Result<Z80Snapshot, String> {
+pub fn parse_sna(data: &[u8]) -> Result<Snapshot, String> {
     if data.len() < 49179 {
         return Err(format!(
             ".SNA too short: {} bytes (need at least 49179)",
@@ -67,7 +67,7 @@ pub fn parse_sna(data: &[u8]) -> Result<Z80Snapshot, String> {
         }
 
         // AY registers: not stored in .SNA format
-        Ok(Z80Snapshot {
+        Ok(Snapshot {
             af,
             bc,
             de,
@@ -106,7 +106,7 @@ pub fn parse_sna(data: &[u8]) -> Result<Z80Snapshot, String> {
             (5, ram[32768..49152].to_vec()), // $C000-$FFFF
         ];
 
-        Ok(Z80Snapshot {
+        Ok(Snapshot {
             af,
             bc,
             de,

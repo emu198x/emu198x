@@ -480,7 +480,7 @@ dependencies = [
 name = "common-sinclair-zx-spectrum"
 version = "0.1.0"
 dependencies = [
- "format-sinclair-zx-spectrum-z80",
+ "format-sinclair-zx-spectrum-snapshot",
  "gi-ay-3-8912",
  "serde",
  "serde-big-array",
@@ -1067,6 +1067,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-sinclair-zx-spectrum-sna"
+version = "0.1.0"
+dependencies = [
+ "format-sinclair-zx-spectrum-snapshot",
+]
+
+[[package]]
+name = "format-sinclair-zx-spectrum-snapshot"
+version = "0.1.0"
+
+[[package]]
 name = "format-sinclair-zx-spectrum-tap"
 version = "0.1.0"
 
@@ -1080,6 +1091,9 @@ dependencies = [
 [[package]]
 name = "format-sinclair-zx-spectrum-z80"
 version = "0.1.0"
+dependencies = [
+ "format-sinclair-zx-spectrum-snapshot",
+]
 
 [[package]]
 name = "futures-core"
@@ -1728,7 +1742,7 @@ name = "machine-timex-tc2048"
 version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
- "format-sinclair-zx-spectrum-z80",
+ "format-sinclair-zx-spectrum-snapshot",
  "serde",
  "serde-big-array",
  "timex-scld",
@@ -1740,7 +1754,7 @@ name = "machine-timex-ts2068"
 version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
- "format-sinclair-zx-spectrum-z80",
+ "format-sinclair-zx-spectrum-snapshot",
  "gi-ay-3-8912",
  "serde",
  "serde-big-array",

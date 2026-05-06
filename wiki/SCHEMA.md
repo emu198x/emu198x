@@ -26,6 +26,20 @@ wiki/
 - **One topic per page.** If a page covers two unrelated things, split it.
 - **Correct, not comprehensive.** Every claim must reflect the current codebase. Remove outdated information rather than marking it stale.
 
+## Freshness and staleness
+
+When sources disagree, this is the precedence:
+
+1. **RULES.md** at the project root is the highest authority. Hard constraints.
+2. **Decision docs** in `decisions/` are binding within their topic.
+3. **System / chip / concept pages** describe the current code. Per "Correct, not comprehensive": outdated content is removed rather than marked stale.
+4. **`log.md`** is append-only history. Past events, not current truth.
+5. **Memory** (LLM-managed at `~/.claude/projects/-Users-stevehill-Projects/memory/`) is point-in-time and decays. Defer to wiki and RULES.md when they disagree.
+
+A decision that supersedes an older one adds `**Status: SUPERSEDED by [link]**` to the top of the older doc. Check that line before quoting a decision.
+
+The three sibling archives (`~/Projects/Emu198x-archive`, `~/Projects/Emu198x-archive-april2026`, `~/Projects/Emu198x-backup`) are dead reference material per RULES.md §25-29. Do not surface them in normal grep or search unless a port wave is explicitly underway. Cycle-accuracy code in archives is suspect (the April 2026 fresh start changed the model); format crates and tools are usually portable.
+
 ## Page naming
 
 - Chips: `{manufacturer}-{chipname}.md` matching crate names (e.g. `zilog-z80.md`, `ferranti-6c001e.md`)

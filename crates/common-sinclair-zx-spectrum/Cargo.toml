@@ -6,7 +6,7 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
-format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" }
+format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot" }
 gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
