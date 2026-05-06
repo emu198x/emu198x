@@ -22,7 +22,7 @@ pub use audio::{AudioControls, BeeperAudio, SpeakerChannel, SpeakerMixer};
 pub use driver::SpectrumDriver;
 pub use error::RomImageError;
 pub use keyboard::{KeyboardMatrix, SpectrumKey};
-pub use memory::{Bank16K, MemoryBus, Spectrum48kMemory};
+pub use memory::{Bank16K, MemoryBus, Spectrum16kMemory, Spectrum48kMemory};
 pub use palette::SPECTRUM_PALETTE;
 pub use peripheral::Peripheral;
 pub use snapshot::{
