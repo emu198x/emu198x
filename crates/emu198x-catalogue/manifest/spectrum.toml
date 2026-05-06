@@ -258,14 +258,22 @@ path = "sinclair/spectrum/Games/[DSK]/Chase H.Q. (1989)(Ocean)(+3).zip"
 # Pushing past the menu requires ENTER on Loader; tested with
 # `script[]` press="enter" at_frame=5000, which DOES change the
 # screen state (different hash from no-script run), proving ENTER
-# is received. But the post-Loader-select state stalls at the
-# minimal "Loader" bottom-bar without progressing to the actual
-# disk load. Likely cause: the +3 Loader reads a DISK system file
-# that this archive's DSK doesn't include, or there's a
-# format-amstrad-dsk gap when the +3 ROM tries to read program
-# data. Tracked as a follow-up: needs +3 disk subsystem
-# investigation. The menu boot is genuine +3 + DSK regression
-# coverage.
+# is received. The post-Loader-select state stalls at the minimal
+# "Loader" bottom-bar without progressing to the actual disk load.
+#
+# Confirmed 2026-05-06: this stall is NOT a regression. The archived
+# Emu198x-Oldest emu-sinclair-zx-spectrum (commit 3f7e4722, "Add ZX
+# Spectrum +3 with NEC uPD765 FDC and DSK disk loading") stalls on
+# Chase HQ, ACE 2, and Action Fighter at the same Loader screen.
+# The +3 ROM `Loader` reads system files (DISK.SYS, etc.) the
+# upd765/format-amstrad-dsk path doesn't fully service in either
+# codebase. The Insector Hecti / Bustout compat screenshots in the
+# archive that show real gameplay are TAP/TZX/Z80 boots, not DSK.
+#
+# Tracked as a follow-up: needs +3 disk subsystem completion (FDC
+# READ ID + sector-by-sector boot block + DISK.SYS load). The menu
+# boot is genuine +3 + DSK regression coverage on its own — proves
+# 4-ROM firmware, FDC port handling, and DSK parsing.
 wait_frames = 8000
 frame_hash = "xxh64:4e00d0998410913a"
 
