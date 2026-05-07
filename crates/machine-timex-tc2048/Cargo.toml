@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 timex-scld = { path = "../timex-scld" }

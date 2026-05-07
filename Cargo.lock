@@ -494,6 +494,7 @@ version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "gi-ay-3-8912",
+ "peripheral-kempston-joystick",
  "serde",
  "sinclair-ula-7k010e",
  "zilog-z80",
@@ -505,6 +506,7 @@ version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "ferranti-ula-6c001e",
+ "peripheral-kempston-joystick",
  "serde",
  "zilog-z80",
 ]
@@ -1719,6 +1721,7 @@ dependencies = [
  "format-sinclair-zx-spectrum-z80",
  "gi-ay-3-8912",
  "pentagon-ula",
+ "peripheral-kempston-joystick",
  "serde",
  "zilog-z80",
 ]
@@ -1731,6 +1734,7 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "format-sinclair-zx-spectrum-z80",
  "gi-ay-3-8912",
+ "peripheral-kempston-joystick",
  "scorpion-ula",
  "serde",
  "zilog-z80",
@@ -1813,6 +1817,7 @@ version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "format-sinclair-zx-spectrum-snapshot",
+ "peripheral-kempston-joystick",
  "serde",
  "serde-big-array",
  "timex-scld",
@@ -1826,6 +1831,7 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "format-sinclair-zx-spectrum-snapshot",
  "gi-ay-3-8912",
+ "peripheral-kempston-joystick",
  "serde",
  "serde-big-array",
  "timex-scld",
@@ -2544,6 +2550,14 @@ dependencies = [
 name = "peripheral-commodore-amiga-keyboard"
 version = "0.1.0"
 dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "peripheral-kempston-joystick"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
  "serde",
 ]
 

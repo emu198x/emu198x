@@ -37,9 +37,19 @@
 //!   they're integral to each machine and stay hand-decoded inside
 //!   `io_read`/`io_write`.
 //!
-//! - **Kempston joystick.** It's a single byte with a one-line port
-//!   read. Making it a `Peripheral` would be over-engineering the
-//!   simplest possible case. Kempston stays as a `u8` field.
+//! - ~~**Kempston joystick.**~~ **Now a peripheral.** Pre-2026-05-07
+//!   the trait carved out Kempston as too simple to abstract — "a
+//!   single byte and a one-line port read." The reasoning ignored
+//!   *optionality*: a `pub kempston: u8` field is always present, so
+//!   every machine emulated a permanently-attached interface. Real
+//!   hardware: most rubber-key 48Ks didn't ship with one, and the
+//!   Amstrad +2A / +2B / +3 broke the rear connector pinout in 1987
+//!   so classic Kempston interfaces don't physically fit those
+//!   machines. The peripheral pattern lets each machine declare
+//!   whether it can host a Kempston by simply not owning one. See
+//!   `peripheral-kempston-joystick` for the implementation and
+//!   `wiki/decisions/spectrum-joystick-architecture.md` for the
+//!   rationale trail.
 
 /// Uniform trait implemented by every Spectrum edge-connector
 /// peripheral. All methods default to a no-op or a neutral return, so

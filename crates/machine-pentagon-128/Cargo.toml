@@ -11,5 +11,6 @@ common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" }
 gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
 pentagon-ula = { path = "../pentagon-ula" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick" }
 serde = { workspace = true }
 zilog-z80 = { path = "../zilog-z80" }

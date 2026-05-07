@@ -21,11 +21,13 @@ pub mod memory;
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::apply_z80_registers;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH_HIRES, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use format_sinclair_zx_spectrum_snapshot::Snapshot;
+use peripheral_kempston_joystick::KempstonJoystick;
 use timex_scld::TimexScld;
 use zilog_z80::Z80;
 
@@ -40,7 +42,8 @@ pub struct TimexTC2048 {
     pub memory: MemoryTC2048,
     pub framebuffer: Vec<u8>,
     pub keyboard: [u8; 8],
-    pub kempston: u8,
+    /// Kempston Interface joystick. Defaults to unattached.
+    pub kempston: KempstonJoystick,
     pub tape: TapePlayer,
     pub audio: BeeperAudio,
     pub audio_frame: Vec<f32>,
@@ -60,7 +63,7 @@ impl TimexTC2048 {
             memory: MemoryTC2048::new(),
             framebuffer: vec![0u8; SCREEN_WIDTH_HIRES * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
-            kempston: 0,
+            kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, TIMING_48K.tstates_per_frame, cpu_hz),
             audio_frame: vec![0.0; samples_per_frame],
@@ -147,6 +150,11 @@ impl TimexTC2048 {
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
+        // Kempston is a separate add-on board with its own (partial)
+        // decoding — the SCLD's full decoding doesn't constrain it.
+        if self.kempston.claims_port(port) {
+            return self.kempston.read(port);
+        }
         // TC2048 uses full low-byte I/O decoding (exact match).
         match port & 0xFF {
             0xFE => {
@@ -156,7 +164,6 @@ impl TimexTC2048 {
                 }
                 val
             }
-            0x1F => self.kempston,
             0xFF => self.ula.read_ff(),
             _ => 0xFF,
         }

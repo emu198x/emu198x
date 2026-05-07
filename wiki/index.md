@@ -75,7 +75,7 @@
 - [Amiga architecture review](decisions/amiga-architecture-review.md) — five seams to tighten before the Amiga scales (disk DMA, CPU bus, byte-lane, merge latch, boot invariants); spine unchanged
 - [Amiga Denise BPU=0 rendering](decisions/amiga-denise-bpu-zero-rendering.md) — resolved investigation into Denise's bitplane behaviour when BPLCON0 BPU=0; preserved as worked-example reference
 - [SM83 abstraction level](decisions/sm83-abstraction-level.md) — Game Boy CPU ticks at m-cycle, not T-cycle; general rule is "match the finest-grained observation any bus client makes of the CPU"
-- [Spectrum joystick architecture](decisions/spectrum-joystick-architecture.md) — DEFERRED: Kempston should be a peripheral, +2/+2A/+2B/+3 need Sinclair Interface 2 keyboard mapping; preserved as a known wart through Phase 1A
+- [Spectrum joystick architecture](decisions/spectrum-joystick-architecture.md) — Kempston is now a `Peripheral`, attached only to machines whose rear connector accepts one (not +2A/+2B/+3); Sinclair Interface 2 keyboard mapping deferred
 
 ## Tests
 - [Spectrum](tests/spectrum.md) — Z80 100% Tom Harte, ZEXDOC/ALL pass, 11 variants boot, Signal Part 3 working

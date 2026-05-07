@@ -18,10 +18,12 @@ use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::error::RomImageError;
 use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
 use common_sinclair_zx_spectrum::memory::{MemoryBus, Spectrum16kMemory, Spectrum48kMemory};
+use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use ferranti_ula_6c001e::{BoardIssue, FerrantiUla};
+use peripheral_kempston_joystick::KempstonJoystick;
 use zilog_z80::Z80;
 
 use crate::tape_input::TapeInput;
@@ -49,6 +51,11 @@ pub struct SpectrumMachineCore<M: MemoryBus> {
     ula: FerrantiUla,
     memory: M,
     keyboard: KeyboardMatrix,
+    /// Kempston Interface joystick. Defaults to unattached — the
+    /// peripheral only claims the `$1F`-mirror port range when a real
+    /// user plugs in the interface (matching real hardware, where a
+    /// disconnected port reads floating bus, not zero).
+    pub kempston: KempstonJoystick,
     tape: TapePlayer,
     tape_input: TapeInput,
     audio: BeeperAudio,
@@ -70,6 +77,7 @@ impl<M: MemoryBus> SpectrumMachineCore<M> {
             ula: FerrantiUla::new(issue),
             memory,
             keyboard: KeyboardMatrix::new(),
+            kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
             tape_input: TapeInput::new(),
             audio,
@@ -78,6 +86,15 @@ impl<M: MemoryBus> SpectrumMachineCore<M> {
             framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
             hc: 0,
         }
+    }
+
+    /// Returns mutable access to the Kempston joystick peripheral.
+    ///
+    /// The runtime layer's joystick input mapping reaches in here to
+    /// flip button bits when a host gamepad event arrives.
+    #[must_use]
+    pub fn kempston_mut(&mut self) -> &mut KempstonJoystick {
+        &mut self.kempston
     }
 
     /// Returns the configured board issue.
@@ -309,7 +326,10 @@ impl<M: MemoryBus> SpectrumMachineCore<M> {
         }
     }
 
-    fn io_read(&self, port: u16) -> u8 {
+    fn io_read(&mut self, port: u16) -> u8 {
+        if self.kempston.claims_port(port) {
+            return self.kempston.read(port);
+        }
         if port & 0x01 == 0 {
             self.read_fe(port)
         } else {
@@ -682,10 +702,39 @@ mod tests {
     }
 
     #[test]
-    fn unattached_odd_port_reads_idle_floating_bus() {
-        let machine = Spectrum48k::new();
-
+    fn odd_port_outside_kempston_range_reads_floating_bus() {
+        // $FFFF has A5 set, so it's outside the Kempston decode mask.
+        // The ULA's idle floating bus returns $FF regardless of
+        // whether a Kempston is attached.
+        let mut machine = Spectrum48k::new();
         assert_eq!(machine.io_read(0xffff), 0xff);
+    }
+
+    #[test]
+    fn unattached_kempston_does_not_claim_port_one_f() {
+        // Default state: no Kempston plugged in. A port read at $1F
+        // falls through to the ULA floating bus.
+        let mut machine = Spectrum48k::new();
+        assert_eq!(machine.io_read(0x1F), 0xff);
+    }
+
+    #[test]
+    fn attached_kempston_returns_state_byte_at_one_f() {
+        let mut machine = Spectrum48k::new();
+        machine.kempston.attached = true;
+        machine.kempston.state = 0b0001_0001; // right + fire
+        assert_eq!(machine.io_read(0x1F), 0b0001_0001);
+        // Any port with A5=0 and A0=1 mirrors the read.
+        assert_eq!(machine.io_read(0x001F), 0b0001_0001);
+        assert_eq!(machine.io_read(0xFF1F), 0b0001_0001);
+    }
+
+    #[test]
+    fn kempston_mut_writes_through_to_io_read() {
+        let mut machine = Spectrum48k::new();
+        machine.kempston_mut().attached = true;
+        machine.kempston_mut().state = 0b0000_1000; // up
+        assert_eq!(machine.io_read(0x1F), 0b0000_1000);
     }
 
     #[test]

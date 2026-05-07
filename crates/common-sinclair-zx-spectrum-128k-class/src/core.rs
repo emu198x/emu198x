@@ -16,6 +16,7 @@ use std::marker::PhantomData;
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::{
     Snapshot, apply_128k_bank_pages, apply_ay_registers, apply_z80_registers,
 };
@@ -23,6 +24,7 @@ use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_128K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use gi_ay_3_8912::Ay3_8912;
+use peripheral_kempston_joystick::KempstonJoystick;
 use sinclair_ula_7k010e::SinclairUla;
 use zilog_z80::Z80;
 
@@ -42,16 +44,6 @@ const AUDIO_SAMPLES_PER_FRAME: usize = 882;
 /// Amstrad-built grey +2 (`V = AmstradPlus2Marker`). The two are the same
 /// hardware; the marker distinguishes catalogue identity and keeps
 /// snapshots type-bound.
-///
-/// Kempston joystick state currently lives here for back-compat with the
-/// pre-extraction 128K crate. **Hardware-accurately**, the Kempston
-/// Interface was an add-on peripheral plugged into the rear edge
-/// connector — not built into the 128K family. The +2/+2A/+2B/+3 in fact
-/// shipped with built-in Sinclair Interface 2-style joystick ports
-/// (mapped to keys 1-5 / 6-0), not Kempston. Migrating Kempston to a
-/// peripheral and adding the Sinclair joystick is tracked as follow-up
-/// work; the field is preserved here so this extraction is a pure
-/// refactor with no behaviour change.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Spectrum128kClassCore<V: Class128kVariant> {
     pub z80: Z80,
@@ -59,7 +51,9 @@ pub struct Spectrum128kClassCore<V: Class128kVariant> {
     pub memory: Memory128K,
     pub framebuffer: Vec<u8>,
     pub keyboard: [u8; 8],
-    pub kempston: u8,
+    /// Kempston Interface joystick. Defaults to unattached; user code
+    /// flips `attached = true` when the host plugs the interface in.
+    pub kempston: KempstonJoystick,
     pub tape: TapePlayer,
     pub ay: Ay3_8912,
     pub audio: BeeperAudio,
@@ -83,7 +77,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             memory: Memory128K::new(),
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
-            kempston: 0,
+            kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
             ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME),
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, TIMING_128K.tstates_per_frame, cpu_hz),
@@ -176,6 +170,9 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     }
 
     pub(crate) fn io_read(&mut self, port: u16) -> u8 {
+        if self.kempston.claims_port(port) {
+            return self.kempston.read(port);
+        }
         if port & 0x0001 == 0 {
             // ULA port ($FE). Bit 6 picks up the tape EAR if playing.
             let mut val = self.ula.read_fe(port, &self.keyboard);
@@ -186,9 +183,6 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         } else if port & 0xC002 == 0xC000 {
             // AY register read ($FFFD).
             self.ay.read_data()
-        } else if port & 0x00E0 == 0x0000 && port & 0x0001 != 0 {
-            // Kempston joystick (active when A5=0 and A0=1).
-            self.kempston
         } else {
             self.ula.floating_bus()
         }
@@ -313,7 +307,8 @@ mod tests {
         assert_eq!(m.model_id(), "sinclair-zx-spectrum-128k");
         assert_eq!(m.framebuffer.len(), SCREEN_WIDTH * SCREEN_HEIGHT);
         assert_eq!(m.keyboard, [0xFF; 8]);
-        assert_eq!(m.kempston, 0);
+        assert!(!m.kempston.attached, "Kempston defaults to unattached");
+        assert_eq!(m.kempston.state, 0);
     }
 
     #[test]

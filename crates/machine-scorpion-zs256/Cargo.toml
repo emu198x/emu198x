@@ -10,6 +10,7 @@ beta-disk-interface = { path = "../beta-disk-interface" }
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" }
 gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick" }
 scorpion-ula = { path = "../scorpion-ula" }
 serde = { workspace = true }
 zilog-z80 = { path = "../zilog-z80" }

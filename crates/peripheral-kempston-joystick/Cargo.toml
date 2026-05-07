@@ -1,0 +1,13 @@
+[package]
+name = "peripheral-kempston-joystick"
+description = "Kempston Interface joystick — Spectrum edge-connector peripheral"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+serde = { workspace = true }
+
+[lints]
+workspace = true

@@ -7,11 +7,13 @@
 //! type identity (so snapshots can't cross variants) and gates the
 //! FDC's `enabled` flag, but otherwise contributes no state.
 //!
-//! **Kempston joystick state and the µPD765A FDC currently live in this
-//! core for back-compat with the pre-D6 `-plus` crate.** Both should
-//! migrate to peripherals attached via the bus dispatch — see
-//! `wiki/decisions/spectrum-joystick-architecture.md`. The fields stay
-//! here so this extraction is a pure refactor with no behaviour change.
+//! The µPD765A FDC lives on the core (gated on `Plus3Marker::HAS_FDC`)
+//! because +2A and +2B reuse the same struct shape with `enabled =
+//! false`. Real-hardware-accurately the +2A/+2B/+3 broke the rear edge
+//! connector pinout, so a Kempston Interface doesn't physically fit
+//! these machines — there is intentionally no `KempstonJoystick`
+//! peripheral on this core. See
+//! `wiki/decisions/spectrum-joystick-architecture.md`.
 
 use std::marker::PhantomData;
 
@@ -53,7 +55,6 @@ pub struct SpectrumAmstradClassCore<V: AmstradVariant> {
     pub memory: MemoryPlus,
     pub framebuffer: Vec<u8>,
     pub keyboard: [u8; 8],
-    pub kempston: u8,
     pub tape: TapePlayer,
     pub ay: Ay3_8912,
     pub fdc: Upd765a,
@@ -83,7 +84,6 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             memory: MemoryPlus::new(),
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
-            kempston: 0,
             tape: TapePlayer::new(),
             ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME),
             fdc,
@@ -190,10 +190,11 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             val
         } else if port & 0xC002 == 0xC000 {
             self.ay.read_data()
-        } else if port & 0x00E0 == 0x0000 && port & 0x0001 != 0 {
-            self.kempston
         } else {
-            // Amstrad gate array does not expose a floating bus.
+            // Amstrad gate array does not expose a floating bus, and
+            // the rear connector pinout change in 1987 means classic
+            // Kempston interfaces don't physically fit — so the +2A /
+            // +2B / +3 host no joystick peripheral here.
             0xFF
         }
     }

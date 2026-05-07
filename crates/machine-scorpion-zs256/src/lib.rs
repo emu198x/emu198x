@@ -26,6 +26,7 @@ use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_SCORPION};
 use common_sinclair_zx_spectrum::ula::Ula;
 use gi_ay_3_8912::Ay3_8912;
+use peripheral_kempston_joystick::KempstonJoystick;
 use scorpion_ula::ScorpionUla;
 use zilog_z80::Z80;
 
@@ -41,7 +42,8 @@ pub struct ScorpionZS256 {
     pub memory: MemoryScorpion,
     pub framebuffer: Vec<u8>,
     pub keyboard: [u8; 8],
-    pub kempston: u8,
+    /// Kempston Interface joystick. Defaults to unattached.
+    pub kempston: KempstonJoystick,
     pub tape: TapePlayer,
     pub ay: Ay3_8912,
     pub beta: BetaDisk,
@@ -63,7 +65,7 @@ impl ScorpionZS256 {
             memory: MemoryScorpion::new(),
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
-            kempston: 0,
+            kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
             ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME),
             beta: BetaDisk::new(),
@@ -154,6 +156,9 @@ impl ScorpionZS256 {
         if self.beta.claims_port(port) {
             return self.beta.read(port);
         }
+        if self.kempston.claims_port(port) {
+            return self.kempston.read(port);
+        }
         if port & 0x0001 == 0 {
             let mut val = self.ula.read_fe(port, &self.keyboard);
             if self.tape.is_playing() {
@@ -162,8 +167,6 @@ impl ScorpionZS256 {
             val
         } else if port & 0xC002 == 0xC000 {
             self.ay.read_data()
-        } else if port & 0x00E0 == 0x0000 && port & 0x0001 != 0 {
-            self.kempston
         } else {
             0xFF
         }

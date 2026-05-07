@@ -93,6 +93,7 @@ members = [
     "crates/motorola-sam-6883",
     "crates/motorola-vdg-6847",
     "crates/nec-upd765a",
+    "crates/peripheral-kempston-joystick",
     "crates/nintendo-game-boy-apu",
     "crates/nintendo-game-boy-mbc",
     "crates/nintendo-game-boy-ppu",

@@ -812,7 +812,7 @@ impl SpectrumMachine for Pentagon128 {
             return resolve_ay_path(&self.ay, path);
         }
         let value = match path {
-            "spectrum.kempston.state" => json!(self.kempston),
+            "spectrum.kempston.state" => json!(self.kempston.state),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -893,7 +893,7 @@ impl SpectrumMachine for ScorpionZS256 {
             return resolve_ay_path(&self.ay, path);
         }
         let value = match path {
-            "spectrum.kempston.state" => json!(self.kempston),
+            "spectrum.kempston.state" => json!(self.kempston.state),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -966,7 +966,7 @@ impl SpectrumMachine for TimexTC2048 {
             return resolve_boot_path(self, TIMEX_TC2048_BANNERS, path);
         }
         let value = match path {
-            "spectrum.kempston.state" => json!(self.kempston),
+            "spectrum.kempston.state" => json!(self.kempston.state),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -1045,7 +1045,7 @@ impl SpectrumMachine for TimexTS2068 {
             return resolve_ay_path(&self.ay, path);
         }
         let value = match path {
-            "spectrum.kempston.state" => json!(self.kempston),
+            "spectrum.kempston.state" => json!(self.kempston.state),
             "spectrum.timex.model" => json!(match self.model {
                 TimexModel::TC2068 => "tc2068",
                 TimexModel::TS2068 => "ts2068",

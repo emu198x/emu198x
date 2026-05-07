@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick" }
 serde = { workspace = true }
 zilog-z80 = { path = "../zilog-z80" }
 
