@@ -2937,6 +2937,7 @@ dependencies = [
  "machine-sinclair-zx-spectrum-plus3",
  "machine-timex-tc2048",
  "machine-timex-ts2068",
+ "png",
  "postcard",
  "serde",
  "serde_json",
