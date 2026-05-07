@@ -70,6 +70,11 @@ pub enum AppCommand {
 /// pointing at the current variant.
 pub struct AppMenu {
     /// Owned root menu so it stays alive for the duration of the app.
+    /// On macOS `install_for_nsapp` reads it to attach to NSApp. On
+    /// Linux / Windows nothing reads it yet (the install path is a
+    /// no-op TODO), but the field still has to own the `Menu` so its
+    /// items don't get dropped — hence the lint suppression.
+    #[allow(dead_code)]
     pub root: Menu,
     /// Per-variant check items, parallel to `MachineKind::all()`.
     pub machine_items: Vec<(MachineKind, CheckMenuItem)>,
