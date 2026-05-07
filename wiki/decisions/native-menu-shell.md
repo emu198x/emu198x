@@ -118,7 +118,7 @@ Commands run *between* frames. A `SwitchMachine` mid-frame would tear down
 state the frame is using; processing at the boundary avoids that class of
 bug. Same logic applies to `LoadState`.
 
-## The live machine: enum, not trait object
+## The live machine: trait + blanket impl + `Box<dyn>`
 
 The problem: each variant produces a different concrete type at compile
 time (`Spectrum48kRuntime`, `Spectrum128kRuntime`, etc. are eight distinct
@@ -128,46 +128,72 @@ all match arms to produce the same type, so a literal
 `let machine = match user_choice { ... }` over different concrete runtimes
 won't compile.
 
-Three ways to give it one type:
+The first sketch of this doc proposed an `enum LiveMachine` with 8 arms.
+That was the right answer in the abstract but the wrong abstraction for
+the binary's actual usage pattern: `SpectrumRunner` touches the runtime
+in ~30 places (time, run_until, command, audio_controls, audio
+mutation methods, reset, profile, etc.), and an enum requires every
+method to be an 8-arm match where every arm dispatches identically —
+~240 lines of match boilerplate carrying zero information.
+
+The trait + blanket impl approach is much cleaner here:
 
 | Option | Tradeoff |
 |---|---|
-| `Box<dyn SpectrumMachine>` | Loses some inherent methods, dyn-dispatch overhead, requires the trait to expose every callable surface. Object-safety constraints leak into the trait. |
-| `enum LiveMachine { M16K(Spectrum16kRuntime), M48K(Spectrum48kRuntime), ... }` | Verbose (8 variants × match arms), but exhaustive, type-safe, zero overhead. The variant set is fixed at 8. |
+| `enum LiveMachine { M16K(Spectrum16kRuntime), M48K(Spectrum48kRuntime), ... }` | Compile-time exhaustive over the closed variant set, but ~240 lines of match boilerplate where every arm dispatches identically — zero information per arm. |
+| `Box<dyn LiveSpectrumRuntime>` with a trait + single blanket impl over `SpectrumRuntime<M>` | One blanket impl covers all 8 variants; adding a new variant doesn't touch this code at all. Dyn-dispatch overhead is negligible (per-frame call sites, not cycle-level). |
 | Restart the loop with a new generic instantiation | Complex; main-loop state is non-trivial to recreate; window persistence becomes awkward. |
 
-**Decision: enum.** The variant set is closed, the dispatch sites are small
-(run_frame, framebuffer access, input dispatch, snapshot save/load), and
-exhaustiveness tells us at compile time when a new variant lands and
-forgets to wire one of the match arms. Could generate the enum via a
-macro later if maintenance becomes painful; for 8 entries, manual is
-fine. Naming is bikeshed — `LiveMachine`, `CurrentMachine`, or
-`RunningMachine` all work.
-
-Sketch:
+**Decision: trait + blanket impl + `Box<dyn LiveSpectrumRuntime>`.**
 
 ```rust
-enum LiveMachine {
-    M16K(Spectrum16kRuntime),
-    M48K(Spectrum48kRuntime),
-    MPlus(SpectrumPlusRuntime),
-    M128K(Spectrum128kRuntime),
-    MPlus2(SpectrumPlus2Runtime),
-    MPlus2A(SpectrumPlus2ARuntime),
-    MPlus2B(SpectrumPlus2BRuntime),
-    MPlus3(SpectrumPlus3Runtime),
+trait LiveSpectrumRuntime {
+    fn time(&self) -> u64;
+    fn run_until(&mut self, target: u64, host: &mut HostIo) -> Result<RunResult, MachineError>;
+    fn command(&mut self, cmd: &ControlCommand) -> Result<(), MachineError>;
+    fn audio_controls(&self) -> &AudioControls;
+    fn set_audio_controls(&mut self, controls: AudioControls);
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool);
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32);
+    fn reset(&mut self, kind: ResetKind);
+    fn profile(&self) -> &Profile;
+    fn machine_kind(&self) -> MachineKind;
+    // … exact surface emerges from refactoring SpectrumRunner
 }
 
-impl LiveMachine {
-    fn run_frame(&mut self) { match self { Self::M16K(r) => r.run_frame(), ... } }
-    fn framebuffer(&self) -> &[u8] { match self { Self::M16K(r) => r.framebuffer(), ... } }
-    fn kind(&self) -> MachineKind { ... }
-    // etc.
+impl<M: SpectrumMachine> LiveSpectrumRuntime for SpectrumRuntime<M> {
+    fn time(&self) -> u64 { SpectrumRuntime::time(self) }
+    // … one block, covers all 8 variants
 }
 ```
 
-A switch is simply `*self.machine = LiveMachine::new(target_kind)`. Boot
-firmware load, framebuffer rebind, audio reset all happen in `LiveMachine::new`.
+The blanket impl is itself exhaustive over the bound — there's nothing
+to enumerate when one block covers everything matching `M:
+SpectrumMachine`. A new variant is automatically picked up. The trait
+lives in a binary-local module (`live_machine.rs`) since this is a
+binary-side concern, not a runtime-library surface.
+
+A factory function constructs a fresh boxed runtime per variant:
+
+```rust
+fn build_runtime(kind: MachineKind, firmware: &FirmwareSet)
+    -> Result<Box<dyn LiveSpectrumRuntime>, AppError>
+{
+    Ok(match kind {
+        MachineKind::Spectrum16K => Box::new(Spectrum16kRuntime::from_firmware(firmware)?),
+        MachineKind::Spectrum48K => Box::new(Spectrum48kRuntime::from_firmware(firmware)?),
+        // ... 6 more
+    })
+}
+```
+
+This is the only place where the closed variant set surfaces — one match
+arm per variant, each constructing the right concrete runtime. After this
+the binary works through the trait object.
+
+A switch becomes `*self.runtime = build_runtime(target_kind, firmware)?`.
+Audio reset and any other host-side teardown happens at the App level
+since those resources aren't bound to the runtime.
 
 ## Per-menu mechanics
 
@@ -175,8 +201,9 @@ firmware load, framebuffer rebind, audio reset all happen in `LiveMachine::new`.
 
 - Top-level `Machine` menu with 8 radio items, current variant checked.
 - Each item builds an `AppCommand::SwitchMachine(kind)`.
-- `handle_command` for `SwitchMachine` constructs a fresh `LiveMachine`,
-  drops the old one, updates the window title to reflect the variant.
+- `handle_command` for `SwitchMachine` constructs a fresh boxed runtime
+  via `build_runtime`, drops the old one, updates the window title to
+  reflect the variant.
 - Default boot: 48K (current behaviour) until the first switch.
 - **No keyboard shortcuts.** Menu access only — eight variants is too
   many to map to memorable shortcuts, and the menu is one click away.
@@ -201,7 +228,7 @@ exists per-variant; State adds the header so Load can validate.
   `AppCommand::SaveState(path)` → write magic + machine-id + postcard
   bytes.
 - **Load State…** — rfd open dialog → `AppCommand::LoadState(path)` →
-  parse header, check machine-id matches current `LiveMachine` kind. **First
+  parse header, check machine-id matches current runtime's `machine_kind()`. **First
   cut: error if mismatch.** Auto-switching the machine would be a bigger
   scope decision (would the user expect their unsaved work to be tossed?
   what about open tape/disk media? defer).
@@ -236,13 +263,9 @@ no runtime interaction.
 1. Does muda's macOS NSMenu integration require a specific `winit` feature
    flag or `EventLoopBuilderExtMacOS::with_default_menu(false)` call to
    suppress winit's default menu? Confirm in implementation.
-2. Where does `LiveMachine` actually live in the existing code? Probably
-   a new `crates/emu198x-spectrum/src/live_machine.rs` module rather than
-   adding to runtime — the enum is binary-specific, not runtime-library
-   surface. The runtime crate stays generic.
-3. Are there any per-variant audio resampler quirks that mean a fresh
-   `LiveMachine::new` needs special teardown of the cpal stream? Probably
-   not — cpal stream is bound to the App, not the machine — but verify
+2. Are there any per-variant audio resampler quirks that mean a fresh
+   `build_runtime` needs special teardown of the cpal stream? Probably
+   not — cpal stream is bound to the App, not the runtime — but verify
    when we switch and the audio doesn't glitch.
 
 ## Pointer
@@ -250,7 +273,9 @@ no runtime interaction.
 Implementation lands in:
 - `crates/emu198x-spectrum/Cargo.toml` — add `muda`, `rfd` deps.
 - `crates/emu198x-spectrum/src/main.rs` — channel, command handling.
-- `crates/emu198x-spectrum/src/live_machine.rs` (new) — `LiveMachine` enum.
+- `crates/emu198x-spectrum/src/live_machine.rs` (new) — `LiveSpectrumRuntime`
+  trait, blanket impl over `SpectrumRuntime<M>`, and `build_runtime`
+  factory.
 - `crates/emu198x-spectrum/src/menu.rs` (new) — muda menu construction +
   `MenuId → AppCommand` map.
 

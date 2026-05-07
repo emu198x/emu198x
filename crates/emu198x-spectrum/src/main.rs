@@ -5,11 +5,18 @@
 //! verification. It sits above the existing runtime and shared shell boundary;
 //! it does not introduce a parallel emulation stack.
 
+mod menu;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
+
+use muda::MenuEvent;
+
+use crate::menu::{AppCommand, AppMenu, MachineKind};
 
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use emu198x_native_video::{
@@ -340,6 +347,11 @@ struct SpectrumApp {
     video: Option<WgpuVideoPresenter>,
     presentation: PresentationProfile,
     fatal_error: Option<AppError>,
+    menu: AppMenu,
+    menu_installed: bool,
+    current_machine: MachineKind,
+    command_tx: Sender<AppCommand>,
+    command_rx: Receiver<AppCommand>,
 }
 
 impl SpectrumApp {
@@ -355,6 +367,9 @@ impl SpectrumApp {
 
         let slice_ticks = subframe_ticks(runner.native_frame_ticks);
         let slice_duration = subframe_duration(spectrum_frame_duration());
+        let current_machine = MachineKind::Spectrum48K;
+        let menu = AppMenu::new(current_machine);
+        let (command_tx, command_rx) = mpsc::channel();
         Ok(Self {
             runner,
             scale,
@@ -368,6 +383,11 @@ impl SpectrumApp {
             video: None,
             presentation: PresentationProfile::for_filter(video),
             fatal_error: None,
+            menu,
+            menu_installed: false,
+            current_machine,
+            command_tx,
+            command_rx,
         })
     }
 
@@ -603,12 +623,44 @@ impl SpectrumApp {
         let gain = self.runner.cycle_audio_channel_gain(channel);
         eprintln!("audio: {} gain {:.0}%", channel.label(), gain * 100.0);
     }
+
+    /// Processes one queued AppCommand. Phase 1 only handles
+    /// `SwitchMachine` for the current variant (no-op) — switching to
+    /// a different variant logs a "not yet wired" notice. Phase 2
+    /// will replace the no-op with an actual runtime swap once
+    /// per-variant `from_firmware` constructors are lifted into the
+    /// runtime crate. See wiki/decisions/native-menu-shell.md.
+    fn handle_command(&mut self, cmd: AppCommand) {
+        match cmd {
+            AppCommand::SwitchMachine(kind) => {
+                if kind == self.current_machine {
+                    return;
+                }
+                eprintln!(
+                    "menu: switch to {} requested — Phase 2 will wire the runtime swap",
+                    kind.label()
+                );
+                // Keep the radio indicator pinned to the actually-running
+                // machine until Phase 2 makes the swap real, otherwise the
+                // checkmark would lie about what's running.
+                self.menu.set_current_machine(self.current_machine);
+            }
+        }
+    }
 }
 
 impl ApplicationHandler for SpectrumApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Err(err) = self.create_window(event_loop) {
             self.fail(event_loop, err);
+            return;
+        }
+        if !self.menu_installed {
+            // muda's macOS menu attaches to NSApp once the application is
+            // up. Other platforms use init_for_hwnd / init_for_gtk_window —
+            // see crates/emu198x-spectrum/src/menu.rs.
+            self.menu.install_for_nsapp();
+            self.menu_installed = true;
         }
     }
 
@@ -657,6 +709,20 @@ impl ApplicationHandler for SpectrumApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Drain menu events into the command channel, then drain the
+        // channel and process every queued command. Both happen at the
+        // frame boundary so a command never tears down state mid-frame.
+        // Same path will carry rfd dialog replies and MCP commands in
+        // future cuts; see wiki/decisions/native-menu-shell.md.
+        while let Ok(event) = MenuEvent::receiver().try_recv() {
+            if let Some(cmd) = self.menu.action_map.get(&event.id) {
+                let _ = self.command_tx.send(cmd.clone());
+            }
+        }
+        while let Ok(cmd) = self.command_rx.try_recv() {
+            self.handle_command(cmd);
+        }
+
         match self.advance_machine() {
             Ok(true) => {
                 if let Some(window) = &self.window {

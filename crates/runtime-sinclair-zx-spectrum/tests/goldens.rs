@@ -29,9 +29,9 @@
 //! Code198x curriculum pipeline is the consumer that exercises them.
 
 use common_sinclair_zx_spectrum::SPECTRUM_PALETTE;
-use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_16k::Spectrum16K;
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
+use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
 use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
