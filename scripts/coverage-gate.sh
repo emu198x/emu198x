@@ -14,9 +14,16 @@
 # future systems (zilog-z80 also covers MSX / CPC / Master System;
 # gi-ay-3-8912 also covers MSX / CPC / Mockingboard), but they ship
 # today as Spectrum-driving infrastructure and are part of the
-# October-launch quality bar. The list is the authoritative scope of
-# the SOLID coverage criterion until the catalogue widens to other
-# systems.
+# October-launch quality bar.
+#
+# The gate splits the scope in two:
+#   - GATED:    the 8 in-scope October-public variants and their
+#               shared infrastructure. Must meet the threshold.
+#   - REPORTED: family-bar variants (Pentagon, Scorpion, Timex, Beta)
+#               with no October deadline. Coverage is shown for
+#               visibility but not enforced. They graduate to GATED
+#               when the engineering bar work for those variants
+#               lands.
 
 set -euo pipefail
 
@@ -47,7 +54,9 @@ threshold = float(sys.argv[2])
 # Matched against the filename (which is an absolute path emitted by
 # llvm-cov). The regexes are deliberately verbose — easy to scan and
 # easy to edit when a new variant lands.
-SPECTRUM_CRATES = [
+# Crates the gate enforces — October-public scope (8 in-scope
+# variants and their shared infrastructure).
+GATED_CRATES = [
     # Family commons + class layers
     "common-sinclair-zx-spectrum",
     "common-sinclair-zx-spectrum-48k-class",
@@ -58,10 +67,7 @@ SPECTRUM_CRATES = [
     "ferranti-ula-6c001e",
     "gi-ay-3-8912",
     "nec-upd765a",
-    "pentagon-ula",
-    "scorpion-ula",
     "sinclair-ula-7k010e",
-    "timex-scld",
     "zilog-z80",
     # Format crates
     "format-amstrad-dsk",
@@ -70,9 +76,7 @@ SPECTRUM_CRATES = [
     "format-sinclair-zx-spectrum-tap",
     "format-sinclair-zx-spectrum-tzx",
     "format-sinclair-zx-spectrum-z80",
-    # Machine crates
-    "machine-pentagon-128",
-    "machine-scorpion-zs256",
+    # Machine crates — the 8 in-scope October-public variants
     "machine-sinclair-zx-spectrum-16k",
     "machine-sinclair-zx-spectrum-48k",
     "machine-sinclair-zx-spectrum-128k",
@@ -81,13 +85,24 @@ SPECTRUM_CRATES = [
     "machine-sinclair-zx-spectrum-plus2a",
     "machine-sinclair-zx-spectrum-plus2b",
     "machine-sinclair-zx-spectrum-plus3",
-    "machine-timex-tc2048",
-    "machine-timex-ts2068",
     # Peripheral crates
-    "beta-disk-interface",
     "peripheral-kempston-joystick",
     # Runtime
     "runtime-sinclair-zx-spectrum",
+]
+
+# Crates the gate reports but does not enforce — family-bar variants
+# without an October deadline. Promoted into GATED_CRATES when their
+# engineering bar work lands.
+REPORTED_CRATES = [
+    "beta-disk-interface",
+    "machine-pentagon-128",
+    "machine-scorpion-zs256",
+    "machine-timex-tc2048",
+    "machine-timex-ts2068",
+    "pentagon-ula",
+    "scorpion-ula",
+    "timex-scld",
 ]
 
 # Data-only crates exempt from the line-coverage gate per
@@ -102,7 +117,9 @@ EXEMPT_CRATES = {
 # longest-name match wins (e.g. `common-sinclair-zx-spectrum-48k-class`
 # beats `common-sinclair-zx-spectrum`).
 crate_re = re.compile(r"/crates/([^/]+)/")
-crate_set = set(SPECTRUM_CRATES)
+gated_set = set(GATED_CRATES)
+reported_set = set(REPORTED_CRATES)
+all_set = gated_set | reported_set
 
 per_crate: dict[str, dict[str, int]] = {}
 
@@ -115,7 +132,7 @@ for entry in data["data"][0]["files"]:
     if not match:
         continue
     crate = match.group(1)
-    if crate not in crate_set:
+    if crate not in all_set:
         continue
     if crate in EXEMPT_CRATES:
         continue
@@ -127,66 +144,71 @@ for entry in data["data"][0]["files"]:
     bucket["covered"] += line["covered"]
     bucket["files"] += 1
 
-# Compute per-crate percentages, sort by ascending coverage so the
-# worst offenders surface first.
-results = []
-for crate in sorted(per_crate):
-    bucket = per_crate[crate]
-    if bucket["count"] == 0:
-        # No executable lines — should be in EXEMPT_CRATES if expected.
-        # Surface as a warning so scope drift is visible.
-        results.append((crate, None, bucket["files"]))
-        continue
-    pct = 100.0 * bucket["covered"] / bucket["count"]
-    results.append((crate, pct, bucket["files"]))
 
-# Crates listed in scope but absent from the coverage report — usually
-# means they have no tests at all, or weren't exercised by the run.
-seen = set(per_crate)
-missing = sorted(crate_set - seen - EXEMPT_CRATES)
+def render(title: str, crates: list[str], enforce: bool) -> list[tuple[str, float]]:
+    print(title)
+    print()
+    print(f"{'crate':<48} {'lines':>10} {'percent':>10}")
+    print("-" * 70)
+    failing: list[tuple[str, float]] = []
+    for crate in sorted(crates):
+        bucket = per_crate.get(crate)
+        if bucket is None or bucket["count"] == 0:
+            print(f"{crate:<48} {'-':>10}   no data")
+            continue
+        pct = 100.0 * bucket["covered"] / bucket["count"]
+        line_str = f"{bucket['covered']}/{bucket['count']}"
+        pct_str = f"{pct:.2f}%"
+        suffix = ""
+        if pct < threshold:
+            if enforce:
+                suffix = "  BELOW THRESHOLD"
+                failing.append((crate, pct))
+            else:
+                suffix = "  (informational, not gated)"
+        print(f"{crate:<48} {line_str:>10} {pct_str:>10}{suffix}")
+    print()
+    return failing
+
 
 print(f"Spectrum-side coverage gate (threshold: {threshold:.1f}%)")
 print()
-print(f"{'crate':<48} {'lines':>10} {'percent':>10}")
-print("-" * 70)
 
-below = []
-for crate, pct, _ in results:
-    if pct is None:
-        marker = "  no executable lines"
-        print(f"{crate:<48} {'-':>10} {marker}")
-        continue
-    bucket = per_crate[crate]
-    line_str = f"{bucket['covered']}/{bucket['count']}"
-    pct_str = f"{pct:.2f}%"
-    suffix = ""
-    if pct < threshold:
-        suffix = "  BELOW THRESHOLD"
-        below.append((crate, pct))
-    print(f"{crate:<48} {line_str:>10} {pct_str:>10}{suffix}")
+below = render(
+    "Gated — October-public scope:",
+    GATED_CRATES,
+    enforce=True,
+)
+
+render(
+    "Reported only — family-bar variants without October deadline:",
+    REPORTED_CRATES,
+    enforce=False,
+)
+
+# Gated crates absent from the coverage report — usually means tests
+# are not running or the crate is misconfigured.
+seen = set(per_crate)
+missing = sorted(gated_set - seen - EXEMPT_CRATES)
 
 if missing:
-    print()
-    print("Spectrum-side crates with no coverage data:")
+    print("Gated crates with no coverage data:")
     for crate in missing:
         print(f"  - {crate}")
-
-print()
-
-if missing:
+    print()
     print(
-        f"FAIL: {len(missing)} Spectrum-side crate(s) have no coverage data — "
+        f"FAIL: {len(missing)} gated crate(s) have no coverage data — "
         f"either tests are not running or the crate is misconfigured."
     )
     sys.exit(1)
 
 if below:
     print(
-        f"FAIL: {len(below)} crate(s) below {threshold:.1f}% line coverage:"
+        f"FAIL: {len(below)} gated crate(s) below {threshold:.1f}% line coverage:"
     )
     for crate, pct in below:
         print(f"  - {crate} at {pct:.2f}%")
     sys.exit(1)
 
-print(f"OK: all {len(results)} Spectrum-side crates meet the {threshold:.1f}% threshold.")
+print(f"OK: all {len(GATED_CRATES) - len(EXEMPT_CRATES & gated_set)} gated crates meet the {threshold:.1f}% threshold.")
 PY
