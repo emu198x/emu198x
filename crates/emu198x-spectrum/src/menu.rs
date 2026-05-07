@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use muda::{CheckMenuItem, Menu, MenuId, Submenu};
+use muda::{AboutMetadata, CheckMenuItem, Menu, MenuId, PredefinedMenuItem, Submenu};
 
 /// The eight in-scope October-public variants.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -81,8 +81,35 @@ impl AppMenu {
     /// Builds the menu structure with `current` checked.
     pub fn new(current: MachineKind) -> Self {
         let root = Menu::new();
-        let machine_submenu = Submenu::new("Machine", true);
 
+        // macOS treats the first submenu as the application menu and
+        // replaces its title with the bundle/app name. Convention is to
+        // put About / Hide / Quit there so the system places them where
+        // users expect. On other platforms these predefined items still
+        // render in their submenu — they just don't get the special
+        // treatment.
+        let about_metadata = AboutMetadata {
+            name: Some("Emu198x Spectrum".to_owned()),
+            version: Some(env!("CARGO_PKG_VERSION").to_owned()),
+            copyright: Some("© 2026 Steve Hill".to_owned()),
+            website: Some("https://code198x.com".to_owned()),
+            ..Default::default()
+        };
+        let app_submenu = Submenu::new("Emu198x Spectrum", true);
+        app_submenu
+            .append_items(&[
+                &PredefinedMenuItem::about(Some("About Emu198x Spectrum"), Some(about_metadata)),
+                &PredefinedMenuItem::separator(),
+                &PredefinedMenuItem::hide(None),
+                &PredefinedMenuItem::hide_others(None),
+                &PredefinedMenuItem::show_all(None),
+                &PredefinedMenuItem::separator(),
+                &PredefinedMenuItem::quit(None),
+            ])
+            .expect("append app menu items");
+        root.append(&app_submenu).expect("append app submenu");
+
+        let machine_submenu = Submenu::new("Machine", true);
         let mut machine_items = Vec::with_capacity(8);
         let mut action_map = HashMap::new();
 
