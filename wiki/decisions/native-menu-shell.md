@@ -53,7 +53,7 @@ enum AppCommand {
     LoadState(PathBuf),
 
     // View menu (deferred)
-    SetWindowScale(u32), // 1, 2, 3 → 1×/2×/3× of the 352×296 framebuffer
+    SetWindowScale(u32), // 1, 2, 3, 4 → 1×/2×/3×/4× of the 352×296 framebuffer
 
     // Plumbing
     Exit,
@@ -120,8 +120,15 @@ bug. Same logic applies to `LoadState`.
 
 ## The live machine: enum, not trait object
 
-The runtime types are generic (`SpectrumRuntime<M: SpectrumMachine>`).
-Switching between them requires a runtime-typed handle. Three options:
+The problem: each variant produces a different concrete type at compile
+time (`Spectrum48kRuntime`, `Spectrum128kRuntime`, etc. are eight distinct
+types from the generic `SpectrumRuntime<M>`). The app needs **one** variable
+that holds "whichever machine the user is currently running." Rust requires
+all match arms to produce the same type, so a literal
+`let machine = match user_choice { ... }` over different concrete runtimes
+won't compile.
+
+Three ways to give it one type:
 
 | Option | Tradeoff |
 |---|---|
@@ -131,9 +138,11 @@ Switching between them requires a runtime-typed handle. Three options:
 
 **Decision: enum.** The variant set is closed, the dispatch sites are small
 (run_frame, framebuffer access, input dispatch, snapshot save/load), and
-exhaustiveness tells us at compile time when a new variant lands. Could
-generate the enum via a macro later if maintenance becomes painful; for 8
-entries, manual is fine.
+exhaustiveness tells us at compile time when a new variant lands and
+forgets to wire one of the match arms. Could generate the enum via a
+macro later if maintenance becomes painful; for 8 entries, manual is
+fine. Naming is bikeshed — `LiveMachine`, `CurrentMachine`, or
+`RunningMachine` all work.
 
 Sketch:
 
@@ -169,9 +178,8 @@ firmware load, framebuffer rebind, audio reset all happen in `LiveMachine::new`.
 - `handle_command` for `SwitchMachine` constructs a fresh `LiveMachine`,
   drops the old one, updates the window title to reflect the variant.
 - Default boot: 48K (current behaviour) until the first switch.
-- Keyboard shortcuts: TBD — possibly Cmd+1..Cmd+8 for the eight variants
-  on macOS. Out of scope for the first cut; can add via the same channel
-  later.
+- **No keyboard shortcuts.** Menu access only — eight variants is too
+  many to map to memorable shortcuts, and the menu is one click away.
 
 ### File (deferred)
 
@@ -200,18 +208,25 @@ exists per-variant; State adds the header so Load can validate.
 
 ### View (deferred)
 
-Window scale options (1×, 2×, 3×) translate to
-`window.set_inner_size(LogicalSize::new(352*scale, 296*scale))`. Cmd+1/2/3
-shortcuts. Trivial; no runtime interaction.
+Window scale options (1×, 2×, 3×, 4×) translate to
+`window.set_inner_size(LogicalSize::new(352*scale, 296*scale))`. **No
+keyboard shortcuts** — menu access only, consistent with Machine. Trivial;
+no runtime interaction.
 
 ## Out of scope for 1C
 
 - **MCP server.** SOLID criterion 5, separate engineering effort.
   Track 1B's `--mcp` mode flag wires into the same `AppCommand` channel
   later — MCP commands become another channel sender.
-- **Per-platform native frontends.** SwiftUI / GTK4 / WinUI rewrites are
-  post-October per `wiki/decisions/native-ui-strategy.md`. 1C is the
-  cross-platform muda layer that ships in October.
+- **Per-platform native frontends.** SwiftUI / GTK4 / WinUI rewrites
+  were originally framed as post-October work in
+  `wiki/decisions/native-ui-strategy.md`. **The 1C scope below may make
+  them unnecessary** — if muda's NSMenu / GTK4 menu / Win32 menu gives a
+  sufficiently native feel and rfd's dialogs satisfy file UX, the
+  cross-platform muda layer might *be* the long-term frontend rather
+  than a stopgap. Decision deferred until 1C lands and we can judge it
+  in use; if we keep 1C as final, update `native-ui-strategy.md` to
+  reflect the simplification.
 - **Multi-window support.** One window per app process for now.
 - **Drag-and-drop file open.** Could fold into File later via the same
   command channel — drop event becomes a sender.
