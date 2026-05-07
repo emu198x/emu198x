@@ -40,7 +40,16 @@ jobs:
       - name: Run coverage suite
         run: ./scripts/coverage.sh
 
+      - name: Run Spectrum-side coverage gate
+        # Gates the SOLID criterion 11 floor (≥90% line coverage on
+        # Spectrum-specific crates). The summary step below runs
+        # regardless via the `if: always()` guard, so even when the
+        # gate fails the publish/upload steps still capture the
+        # report — making it easy to diagnose what fell below.
+        run: ./scripts/coverage-gate.sh
+
       - name: Publish coverage summary
+        if: always()
         run: |
           total_line="$(grep '^TOTAL' target/llvm-cov/coverage-summary.txt | tail -n 1)"
           {
@@ -58,6 +67,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload coverage summary artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-summary
@@ -67,6 +77,7 @@ jobs:
             target/llvm-cov/lcov.info
 
       - name: Upload HTML coverage report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-html

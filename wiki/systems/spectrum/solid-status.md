@@ -78,7 +78,9 @@ Existing test surface produces decent coverage on the CPU (Tom Harte / ZEXDOC / 
 - `format-sinclair-zx-spectrum-sna`: 100% line, 100% region, 100% function (5 tests).
 - `format-sinclair-zx-spectrum-snapshot`: data-only crate (struct + enum, no executable logic) — exempt from line-coverage gating by definition. Postcard round-trip exercises the type construction via `runtime-sinclair-zx-spectrum/tests/variants.rs`.
 
-**Pending:** baseline measurement across the full Spectrum-specific crate set, CI gate at ≥90% line coverage, TDD discipline for new variant scaffolding.
+**Coverage gate landed 2026-05-07.** `scripts/coverage-gate.sh` parses `target/llvm-cov/coverage-summary.json`, filters to Spectrum-specific crates (full list in the script — currently 30 crates: 4 commons + class layers, 9 chip crates, 6 format crates, 12 machine crates, 1 peripheral, 1 runtime), groups per-crate, and fails if any crate's line coverage falls below the threshold (default 90%, overrideable via `COVERAGE_GATE_THRESHOLD`). Wired into `.github/workflows/coverage.yml` after the existing coverage run; the publish/upload steps run with `if: always()` so the report is captured even when the gate fails. Data-only crates (`format-sinclair-zx-spectrum-snapshot`) are exempt by name.
+
+**Pending:** baseline measurement across the full Spectrum-specific crate set (CI's first run will produce the floor); add tests where any crate falls below the gate; turn TDD discipline on for new variant scaffolding so coverage stays above the floor as the catalogue grows.
 
 **Data-only exemption** (locked 2026-05-06): a Spectrum-specific crate that contains only type definitions (no functions, no logic, no executable code) is exempt from the 90% gate. The exemption is by construction — `cargo-llvm-cov` reports 0 functions / 0 lines for such crates and a coverage percentage is undefined. Currently exempt: `format-sinclair-zx-spectrum-snapshot`. Future data-only crates qualify on the same basis. Round-trip tests against postcard serialisation in consumer crates (e.g. `runtime-sinclair-zx-spectrum/tests/variants.rs`) provide the regression coverage that line counting can't.
 

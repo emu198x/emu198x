@@ -35,7 +35,8 @@ mod tests {
         let m = Spectrum128K::new();
         assert_eq!(m.framebuffer.len(), SCREEN_WIDTH * SCREEN_HEIGHT);
         assert_eq!(m.keyboard, [0xFF; 8]);
-        assert_eq!(m.kempston, 0);
+        assert!(!m.kempston.attached, "Kempston defaults to unattached");
+        assert_eq!(m.kempston.state, 0);
     }
 
     #[test]
