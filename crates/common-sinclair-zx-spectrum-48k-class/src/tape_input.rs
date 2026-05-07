@@ -1,11 +1,10 @@
-//! ZX Spectrum 48K tape EAR line state.
+//! External tape EAR line state shared by every 48K-class Spectrum.
 //!
-//! Source references:
-//! - `wiki/systems/spectrum/variants.md`
-//!
-//! The actual `$FE` port logic now lives in the Ferranti ULA crate. This
-//! module keeps only an external tape input override for cases where the
-//! machine is being driven by something other than the built-in tape player.
+//! The actual `$FE` port logic lives in the Ferranti ULA crate. This type
+//! captures an external tape input override for cases where the machine is
+//! being driven by something other than the built-in tape player. Lives in
+//! the layer crate because it's part of the 48K-class composition; the 48K
+//! machine crate re-exports it for callers that import it from there today.
 
 /// External tape EAR line state visible to port `$FE`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -19,9 +19,15 @@ use emu198x_shell::{QueryError, QueryResult};
 use gi_ay_3_8912::Ay3_8912;
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
+use machine_sinclair_zx_spectrum_16k::Spectrum16K;
 use machine_sinclair_zx_spectrum_48k::{BoardIssue, Spectrum48k};
+use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-use machine_sinclair_zx_spectrum_plus::{Model as PlusModel, SpectrumPlus};
+use common_sinclair_zx_spectrum_amstrad_class::{AmstradVariant, SpectrumAmstradClassCore};
+use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
+use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
+use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
+use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
 use serde_json::json;
@@ -29,14 +35,32 @@ use serde_json::json;
 use crate::queries::{SpectrumBootStatus, boot_status_from_banners, screen_text_lines};
 use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 
+/// ZX Spectrum 16K runtime.
+pub type Spectrum16kRuntime = SpectrumRuntime<Spectrum16K>;
+
 /// ZX Spectrum 48K runtime.
 pub type Spectrum48kRuntime = SpectrumRuntime<Spectrum48k>;
+
+/// ZX Spectrum+ runtime. The Spectrum+ is electrically identical to the
+/// 48K — same Ferranti ULA, same 16 KiB ROM, same 48 KiB RAM — so the
+/// underlying machine type is `SpectrumMachineCore<Spectrum48kMemory>`,
+/// the same as the 48K's. Catalogue identity comes from `Model::SpectrumPlus`.
+pub type SpectrumPlusRuntime = SpectrumRuntime<SpectrumPlus>;
 
 /// ZX Spectrum 128K / +2 runtime.
 pub type Spectrum128kRuntime = SpectrumRuntime<Spectrum128K>;
 
-/// ZX Spectrum +2A / +2B / +3 runtime.
-pub type SpectrumPlusRuntime = SpectrumRuntime<SpectrumPlus>;
+/// Sinclair-branded Amstrad-built grey +2 runtime.
+pub type SpectrumPlus2Runtime = SpectrumRuntime<SpectrumPlus2>;
+
+/// ZX Spectrum +2A runtime.
+pub type SpectrumPlus2ARuntime = SpectrumRuntime<SpectrumPlus2A>;
+
+/// ZX Spectrum +2B runtime.
+pub type SpectrumPlus2BRuntime = SpectrumRuntime<SpectrumPlus2B>;
+
+/// ZX Spectrum +3 runtime.
+pub type SpectrumPlus3Runtime = SpectrumRuntime<SpectrumPlus3>;
 
 /// Pentagon 128 runtime.
 pub type Pentagon128Runtime = SpectrumRuntime<Pentagon128>;
@@ -87,6 +111,11 @@ const SPECTRUM_128K_BANNERS: &[&str] = &[
     "(C) 1986 Sinclair Research Ltd",
     "Amstrad Consumer Electronics plc",
 ];
+
+// The grey +2 boots to "©1986, ©1982 Amstrad Consumer Electronics plc"
+// across rows 22-23. The "Amstrad Consumer Electronics plc" substring
+// is what every variant of the splash actually contains.
+const SPECTRUM_PLUS2_BANNERS: &[&str] = &["Amstrad Consumer Electronics plc"];
 
 // Confirmed 2026-05-01 by booting `~/.emu198x/roms/amstrad-zx-spectrum-plus3/
 // plus3-{0,1,2,3}.rom` for 250 frames against each of Plus2A, Plus2B,
@@ -184,7 +213,30 @@ const SPECTRUM_48K_QUERY_PATHS: &[&str] = &[
     "spectrum.machine.issue",
 ];
 
+// 16K shares the 48K ROM image (same banner) and ships in the same
+// Issue 2 / Issue 3 boards, so it exposes exactly the same query
+// surface. Kept as its own constant rather than aliased so any future
+// 16K-only path lands in one obvious place.
+const SPECTRUM_16K_QUERY_PATHS: &[&str] = &[
+    "boot.detected",
+    "boot.reason",
+    "boot.row",
+    "spectrum.machine.issue",
+];
+
+const SPECTRUM_16K_BANNERS: &[&str] = SPECTRUM_48K_BANNERS;
+
 const SPECTRUM_128K_QUERY_PATHS: &[&str] = &[
+    "boot.detected",
+    "boot.reason",
+    "boot.row",
+    "spectrum.ay.selected_register",
+    "spectrum.ay.registers",
+];
+
+// +2 shares the 128K's chip set and so exposes the same query surface.
+// Distinct constant so any future +2-only path lands in one place.
+const SPECTRUM_PLUS2_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
@@ -358,6 +410,79 @@ impl SpectrumMachine for Spectrum48k {
     }
 }
 
+impl SpectrumMachine for Spectrum16K {
+    const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
+    const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
+
+    fn frame_halfcycles(&self) -> u32 {
+        TIMING_48K.halfcycles_per_frame
+    }
+    fn run_frame(&mut self) {
+        Spectrum16K::run_frame(self);
+    }
+    fn framebuffer(&self) -> &[u8] {
+        Spectrum16K::framebuffer(self)
+    }
+    fn audio_frame(&self) -> &[f32] {
+        Spectrum16K::audio_frame(self)
+    }
+    fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
+        *self.keyboard_mut().rows_mut() = *rows;
+    }
+    fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
+        Spectrum16K::load_tape_blocks(self, blocks);
+    }
+    fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
+        Spectrum16K::load_tape_stream(self, stream);
+    }
+    fn tape_play(&mut self) {
+        self.play_tape();
+    }
+    fn tape_stop(&mut self) {
+        self.stop_tape();
+    }
+    fn reset_machine(&mut self) {
+        self.reset();
+    }
+
+    fn read_byte(&self, addr: u16) -> u8 {
+        <Self as MemoryBus>::read(self, addr)
+    }
+    fn keyboard_rows(&self) -> &[u8; 8] {
+        Spectrum16K::keyboard(self).rows()
+    }
+    fn tape_is_loaded(&self) -> bool {
+        Spectrum16K::tape_is_loaded(self)
+    }
+    fn tape_is_playing(&self) -> bool {
+        Spectrum16K::tape_is_playing(self)
+    }
+    fn half_cycle_in_frame(&self) -> u32 {
+        Spectrum16K::hc(self)
+    }
+    fn tstate_in_frame(&self) -> u32 {
+        Spectrum16K::tstate_in_frame(self)
+    }
+
+    fn variant_query_paths() -> &'static [&'static str] {
+        SPECTRUM_16K_QUERY_PATHS
+    }
+
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
+        if COMMON_BOOT_PATHS.contains(&path) {
+            return resolve_boot_path(self, SPECTRUM_16K_BANNERS, path);
+        }
+        let value = match path {
+            "spectrum.machine.issue" => json!(board_issue_name(self.issue())),
+            _ => return Ok(None),
+        };
+        Ok(Some(QueryResult {
+            path: path.to_owned(),
+            value,
+        }))
+    }
+}
+
 impl SpectrumMachine for Spectrum128K {
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
@@ -434,15 +559,15 @@ impl SpectrumMachine for Spectrum128K {
     }
 }
 
-impl SpectrumMachine for SpectrumPlus {
+impl SpectrumMachine for SpectrumPlus2 {
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
 
     fn frame_halfcycles(&self) -> u32 {
-        TIMING_PLUS2A.halfcycles_per_frame
+        TIMING_128K.halfcycles_per_frame
     }
     fn run_frame(&mut self) {
-        SpectrumPlus::run_frame(self);
+        SpectrumPlus2::run_frame(self);
     }
     fn framebuffer(&self) -> &[u8] {
         &self.framebuffer
@@ -454,23 +579,102 @@ impl SpectrumMachine for SpectrumPlus {
         self.keyboard = *rows;
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
-        SpectrumPlus::load_tape_blocks(self, blocks);
+        SpectrumPlus2::load_tape_blocks(self, blocks);
     }
     fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
-        SpectrumPlus::load_tape_stream(self, stream);
+        SpectrumPlus2::load_tape_stream(self, stream);
     }
     fn tape_play(&mut self) {
-        SpectrumPlus::tape_play(self);
+        SpectrumPlus2::tape_play(self);
     }
     fn tape_stop(&mut self) {
-        SpectrumPlus::tape_stop(self);
+        SpectrumPlus2::tape_stop(self);
     }
     fn reset_machine(&mut self) {
-        SpectrumPlus::reset(self);
+        SpectrumPlus2::reset(self);
+    }
+
+    fn read_byte(&self, addr: u16) -> u8 {
+        self.memory.read(addr)
+    }
+    /// +2 keeps the standard glyph table in ROM 1 (48 BASIC), same as
+    /// the 128K. Read ROM 1 directly via the paging-aware accessor.
+    fn glyph_byte(&self, offset: u16) -> u8 {
+        self.memory.read_rom_byte(1, 0x3D00u16.wrapping_add(offset))
+    }
+    fn keyboard_rows(&self) -> &[u8; 8] {
+        &self.keyboard
+    }
+    fn tape_is_loaded(&self) -> bool {
+        self.tape.has_tape()
+    }
+    fn tape_is_playing(&self) -> bool {
+        self.tape.is_playing()
+    }
+    fn half_cycle_in_frame(&self) -> u32 {
+        <Self as SpectrumDriver>::hc(self)
+    }
+    fn tstate_in_frame(&self) -> u32 {
+        <Self as SpectrumDriver>::hc(self) / TIMING_128K.cpu_divisor
+    }
+
+    fn variant_query_paths() -> &'static [&'static str] {
+        SPECTRUM_PLUS2_QUERY_PATHS
+    }
+
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
+        if COMMON_BOOT_PATHS.contains(&path) {
+            return resolve_boot_path(self, SPECTRUM_PLUS2_BANNERS, path);
+        }
+        if AY_QUERY_PATHS.contains(&path) {
+            return resolve_ay_path(&self.ay, path);
+        }
+        Ok(None)
+    }
+}
+
+// Blanket impl across the Amstrad-class variants — +2A, +2B, +3 share
+// every method. Variant-specific behaviour (disk slot acceptance,
+// model id) comes from the marker trait's associated consts. This
+// keeps `variants.rs` to one impl block instead of three near-identical
+// copies.
+impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
+    const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
+    const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
+
+    fn frame_halfcycles(&self) -> u32 {
+        TIMING_PLUS2A.halfcycles_per_frame
+    }
+    fn run_frame(&mut self) {
+        SpectrumAmstradClassCore::<V>::run_frame(self);
+    }
+    fn framebuffer(&self) -> &[u8] {
+        &self.framebuffer
+    }
+    fn audio_frame(&self) -> &[f32] {
+        &self.audio_frame
+    }
+    fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
+        self.keyboard = *rows;
+    }
+    fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
+        SpectrumAmstradClassCore::<V>::load_tape_blocks(self, blocks);
+    }
+    fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
+        SpectrumAmstradClassCore::<V>::load_tape_stream(self, stream);
+    }
+    fn tape_play(&mut self) {
+        SpectrumAmstradClassCore::<V>::tape_play(self);
+    }
+    fn tape_stop(&mut self) {
+        SpectrumAmstradClassCore::<V>::tape_stop(self);
+    }
+    fn reset_machine(&mut self) {
+        SpectrumAmstradClassCore::<V>::reset(self);
     }
 
     fn supports_disk_slot(&self, slot: &str) -> bool {
-        matches!(self.model, PlusModel::Plus3) && slot == "disk-a"
+        V::HAS_DISK_SLOT && slot == "disk-a"
     }
 
     fn load_disk_image(&mut self, slot: &str, bytes: &[u8]) -> Result<(), String> {
@@ -478,7 +682,11 @@ impl SpectrumMachine for SpectrumPlus {
             return Err(format!("unsupported disk slot `{slot}`"));
         }
         let image = format_amstrad_dsk::parse(bytes)?;
-        self.insert_disk(image);
+        // Insert via the FDC field directly — the +3-specific
+        // `insert_disk` inherent only exists on Plus3Marker, but the
+        // disk-slot guard above proves V::HAS_DISK_SLOT, so the FDC
+        // is enabled and accepts the image.
+        self.fdc.insert_disk(0, image);
         Ok(())
     }
 

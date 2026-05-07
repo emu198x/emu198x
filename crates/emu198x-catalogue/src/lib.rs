@@ -19,7 +19,7 @@ use emu198x_shell::{
     SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-use machine_sinclair_zx_spectrum_plus::{Model as PlusModel, SpectrumPlus};
+use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use runtime_commodore_amiga::{
     A500_NTSC_FRAME_TICKS, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider,
     Model as AmigaModel,
@@ -31,7 +31,7 @@ use runtime_commodore_c64::{
 use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, Spectrum48kRuntime, Spectrum128kRuntime,
-    SpectrumPlusRuntime, SpectrumSessionQueryProvider, autoload_basic_tape,
+    SpectrumPlus3Runtime, SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 use serde::Deserialize;
 use thiserror::Error;
@@ -625,9 +625,9 @@ fn run_spectrum_plus3_entry(
     let r2 = read_firmware_bytes(firmware_root, &files[2])?;
     let r3 = read_firmware_bytes(firmware_root, &files[3])?;
 
-    let mut machine = SpectrumPlus::new(PlusModel::Plus3);
+    let mut machine = SpectrumPlus3::new();
     machine.memory.load_roms(&r0, &r1, &r2, &r3);
-    let runtime = SpectrumPlusRuntime::new(Model::SpectrumPlus3, machine);
+    let runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, machine);
 
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
@@ -660,11 +660,11 @@ fn run_spectrum_plus3_entry(
 /// the highlighted "Loader" option which auto-runs the disk's first
 /// program). The disk must already be inserted via load_media_spec.
 fn autoload_plus3_loader<Q>(
-    session: &mut HeadlessSession<SpectrumPlusRuntime, Q>,
+    session: &mut HeadlessSession<SpectrumPlus3Runtime, Q>,
     max_boot_frames: u32,
 ) -> Result<(), CatalogueError>
 where
-    Q: SessionQueryProvider<SpectrumPlusRuntime>,
+    Q: SessionQueryProvider<SpectrumPlus3Runtime>,
 {
     session
         .wait_for_boot(max_boot_frames)

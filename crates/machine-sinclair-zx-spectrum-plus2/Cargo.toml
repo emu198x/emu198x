@@ -1,6 +1,6 @@
 [package]
-name = "machine-sinclair-zx-spectrum-128k"
-description = "ZX Spectrum 128K machine — thin wrapper over the 128K-class core"
+name = "machine-sinclair-zx-spectrum-plus2"
+description = "Sinclair-branded Amstrad-built grey ZX Spectrum +2 — thin wrapper over the 128K-class core"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

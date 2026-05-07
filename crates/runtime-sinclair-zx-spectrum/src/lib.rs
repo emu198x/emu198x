@@ -29,6 +29,7 @@ pub use profiles::{Model, profile_for, profiles};
 pub use queries::{SpectrumBootStatus, SpectrumSessionQueryProvider};
 pub use runtime::{SpectrumMachine, SpectrumRuntime};
 pub use variants::{
-    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum48kRuntime, Spectrum128kRuntime,
-    SpectrumPlusRuntime, TimexTC2048Runtime, TimexTS2068Runtime,
+    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kRuntime,
+    Spectrum128kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
+    SpectrumPlus3Runtime, SpectrumPlusRuntime, TimexTC2048Runtime, TimexTS2068Runtime,
 };

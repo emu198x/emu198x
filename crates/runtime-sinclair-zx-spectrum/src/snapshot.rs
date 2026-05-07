@@ -100,10 +100,10 @@ mod tests {
     use super::*;
     use crate::Model;
     use crate::Spectrum48kRuntime;
-    use crate::variants::{Spectrum128kRuntime, SpectrumPlusRuntime};
+    use crate::variants::{Spectrum128kRuntime, SpectrumPlus3Runtime};
     use emu198x_shell::MachineCore;
     use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-    use machine_sinclair_zx_spectrum_plus::{Model as PlusModel, SpectrumPlus};
+    use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 
     fn synthetic_envelope(profile_id: &str, version: u32) -> Vec<u8> {
         // Hand-rolled v1 envelope around a default-constructed 128K so we
@@ -174,11 +174,11 @@ mod tests {
         // variant so the whole serde-generic path stays exercised even
         // when the Plus3-specific runtime is constructed.
         let runtime =
-            SpectrumPlusRuntime::new(Model::SpectrumPlus3, SpectrumPlus::new(PlusModel::Plus3));
+            SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
         let bytes = runtime.snapshot().expect("Plus3 snapshot should encode");
 
         let mut restored =
-            SpectrumPlusRuntime::new(Model::SpectrumPlus3, SpectrumPlus::new(PlusModel::Plus3));
+            SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
         restored
             .restore(&bytes)
             .expect("Plus3 snapshot should round-trip through the generic envelope");

@@ -3,7 +3,11 @@
 //! Source references:
 //! - `wiki/systems/spectrum/variants.md`
 //! - `wiki/systems/spectrum/contention.md`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/machine-sinclair-zx-spectrum-128k/src/memory.rs`
+//!
+//! Lives in the 128K-class layer crate because the Sinclair 128K and the
+//! Sinclair-branded Amstrad-built +2 share the same memory layout
+//! exactly. The 48K-class layer's split into a generic-over-`M` core
+//! doesn't apply here — both variants take the same `Memory128K`.
 
 use common_sinclair_zx_spectrum::memory::{Bank16K, MemoryBus};
 use common_sinclair_zx_spectrum::snapshot::Paged128kMemory;

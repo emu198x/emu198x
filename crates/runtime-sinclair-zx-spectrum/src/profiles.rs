@@ -21,8 +21,12 @@ use emu198x_shell::{
 /// (e.g. `Spectrum128kRuntime`, `Pentagon128Runtime`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
+    /// ZX Spectrum 16K PAL.
+    Spectrum16KPal,
     /// ZX Spectrum 48K PAL.
     Spectrum48KPal,
+    /// ZX Spectrum+ PAL (1984, full-stroke keyboard, electrically identical to 48K).
+    SpectrumPlus,
     /// ZX Spectrum 128K PAL ("toastrack").
     Spectrum128KPal,
     /// ZX Spectrum +2 (Sinclair-branded, Amstrad-built, 128K-compatible).
@@ -50,7 +54,9 @@ impl Model {
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
+            Self::Spectrum16KPal => "sinclair-zx-spectrum-16k",
             Self::Spectrum48KPal => "sinclair-zx-spectrum-48k",
+            Self::SpectrumPlus => "sinclair-zx-spectrum-plus",
             Self::Spectrum128KPal => "sinclair-zx-spectrum-128k",
             Self::SpectrumPlus2 => "sinclair-zx-spectrum-plus2",
             Self::SpectrumPlus2A => "sinclair-zx-spectrum-plus2a",
@@ -68,7 +74,9 @@ impl Model {
     #[must_use]
     pub const fn profile_id(self) -> &'static str {
         match self {
+            Self::Spectrum16KPal => "sinclair-zx-spectrum-16k-pal",
             Self::Spectrum48KPal => "sinclair-zx-spectrum-48k-pal",
+            Self::SpectrumPlus => "sinclair-zx-spectrum-plus-pal",
             Self::Spectrum128KPal => "sinclair-zx-spectrum-128k-pal",
             Self::SpectrumPlus2 => "sinclair-zx-spectrum-plus2-pal",
             Self::SpectrumPlus2A => "sinclair-zx-spectrum-plus2a-pal",
@@ -86,7 +94,9 @@ impl Model {
     #[must_use]
     pub const fn display_name(self) -> &'static str {
         match self {
+            Self::Spectrum16KPal => "ZX Spectrum 16K (PAL)",
             Self::Spectrum48KPal => "ZX Spectrum 48K (PAL)",
+            Self::SpectrumPlus => "ZX Spectrum+ (PAL)",
             Self::Spectrum128KPal => "ZX Spectrum 128K (PAL)",
             Self::SpectrumPlus2 => "ZX Spectrum +2 (PAL)",
             Self::SpectrumPlus2A => "ZX Spectrum +2A (PAL)",
@@ -104,7 +114,8 @@ impl Model {
     #[must_use]
     pub const fn release_year(self) -> u16 {
         match self {
-            Self::Spectrum48KPal => 1982,
+            Self::Spectrum16KPal | Self::Spectrum48KPal => 1982,
+            Self::SpectrumPlus => 1984,
             Self::Spectrum128KPal | Self::TimexTC2048 => 1985,
             Self::SpectrumPlus2 | Self::SpectrumPlus2A | Self::SpectrumPlus3 => 1986,
             Self::SpectrumPlus2B => 1988,
@@ -121,7 +132,9 @@ impl Model {
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
     vec![
+        profile_for(Model::Spectrum16KPal),
         profile_for(Model::Spectrum48KPal),
+        profile_for(Model::SpectrumPlus),
         profile_for(Model::Spectrum128KPal),
         profile_for(Model::SpectrumPlus2),
         profile_for(Model::SpectrumPlus2A),
@@ -166,6 +179,34 @@ fn ay_capabilities() -> CapabilitySet {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     match model {
+        Model::Spectrum16KPal => MachineProfile {
+            machine_id: MachineId::from("sinclair-zx-spectrum"),
+            profile_id: ProfileId::from(model.profile_id()),
+            display_name: model.display_name().into(),
+            family: Family::Spectrum,
+            region: Region::Pal,
+            support_tier: SupportTier::Research,
+            release_year: 1982,
+            summary:
+                "16K PAL — the half-RAM 1982 Spectrum. Same Ferranti ULA, same 48K ROM, upper 32 KiB electrically disconnected."
+                    .into(),
+            clock: ClockDesc::new("master-cycle", ClockRate::from_hz(14_000_000)),
+            firmware: vec![FirmwareRequirement::new(
+                "sinclair-zx-spectrum-48k-rom",
+                "ZX Spectrum 48K ROM",
+                false,
+            )],
+            media_slots: vec![tape_slot()],
+            capabilities: CapabilitySet::with_all([
+                known_capability("beeper-audio"),
+                known_capability("keyboard-matrix"),
+                known_capability("snapshot-export"),
+                known_capability("tape-input"),
+                known_capability("tape-transport-control"),
+                known_capability("snapshot-import"),
+                known_capability("scripted-input"),
+            ]),
+        },
         Model::Spectrum48KPal => MachineProfile {
             machine_id: MachineId::from("sinclair-zx-spectrum"),
             profile_id: ProfileId::from(model.profile_id()),
@@ -188,6 +229,34 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 false,
                 WritebackPolicy::InMemoryOnly,
             )],
+            capabilities: CapabilitySet::with_all([
+                known_capability("beeper-audio"),
+                known_capability("keyboard-matrix"),
+                known_capability("snapshot-export"),
+                known_capability("tape-input"),
+                known_capability("tape-transport-control"),
+                known_capability("snapshot-import"),
+                known_capability("scripted-input"),
+            ]),
+        },
+        Model::SpectrumPlus => MachineProfile {
+            machine_id: MachineId::from("sinclair-zx-spectrum"),
+            profile_id: ProfileId::from(model.profile_id()),
+            display_name: model.display_name().into(),
+            family: Family::Spectrum,
+            region: Region::Pal,
+            support_tier: SupportTier::Research,
+            release_year: 1984,
+            summary:
+                "1984 ZX Spectrum+ — full-stroke keyboard with reset button. Electrically identical to the 48K (same Ferranti ULA, same 48K ROM, same RAM), distinct catalogue identity."
+                    .into(),
+            clock: ClockDesc::new("master-cycle", ClockRate::from_hz(14_000_000)),
+            firmware: vec![FirmwareRequirement::new(
+                "sinclair-zx-spectrum-48k-rom",
+                "ZX Spectrum 48K ROM",
+                false,
+            )],
+            media_slots: vec![tape_slot()],
             capabilities: CapabilitySet::with_all([
                 known_capability("beeper-audio"),
                 known_capability("keyboard-matrix"),
@@ -461,7 +530,9 @@ mod tests {
         // from the corresponding `profile_id`. Pre-Cov-5b nothing called
         // `Model::model_id`, so the match arms had no coverage.
         let models = [
+            Model::Spectrum16KPal,
             Model::Spectrum48KPal,
+            Model::SpectrumPlus,
             Model::Spectrum128KPal,
             Model::SpectrumPlus2,
             Model::SpectrumPlus2A,
@@ -488,7 +559,9 @@ mod tests {
         // 1982-1991 covers the entire family — 1983 is the earliest
         // (Timex) and 1991 is the latest (Scorpion ZS-256). Without this
         // test the standalone TimexTC2068/Plus2B/Pentagon arms never run.
+        assert_eq!(Model::Spectrum16KPal.release_year(), 1982);
         assert_eq!(Model::Spectrum48KPal.release_year(), 1982);
+        assert_eq!(Model::SpectrumPlus.release_year(), 1984);
         assert_eq!(Model::TimexTC2068.release_year(), 1983);
         assert_eq!(Model::TimexTS2068.release_year(), 1983);
         assert_eq!(Model::Spectrum128KPal.release_year(), 1985);
@@ -505,9 +578,14 @@ mod tests {
     fn display_name_returns_a_human_readable_string_per_variant() {
         // Drives every arm of `display_name`.
         assert_eq!(
+            Model::Spectrum16KPal.display_name(),
+            "ZX Spectrum 16K (PAL)"
+        );
+        assert_eq!(
             Model::Spectrum48KPal.display_name(),
             "ZX Spectrum 48K (PAL)"
         );
+        assert_eq!(Model::SpectrumPlus.display_name(), "ZX Spectrum+ (PAL)");
         assert_eq!(
             Model::Spectrum128KPal.display_name(),
             "ZX Spectrum 128K (PAL)"

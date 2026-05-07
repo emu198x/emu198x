@@ -1,17 +1,18 @@
-//! ZX Spectrum 48K machine-local state.
+//! ZX Spectrum 48K machine wrapper.
 //!
-//! This crate owns the first integrated 48K machine slice for the fresh
-//! workspace: memory, the pin-level Z80, the Ferranti ULA, and the first
-//! honest frame loop. The keyboard matrix lives in
-//! `common-sinclair-zx-spectrum` since every Spectrum variant shares it.
+//! The 48K hardware composition (Z80 + Ferranti ULA + beeper + tape) is
+//! shared with the 16K and Spectrum+ via
+//! [`common_sinclair_zx_spectrum_48k_class::SpectrumMachineCore`]. This
+//! crate exposes the 48K alias plus the host-boundary
+//! [`machine::ApplyInputEvent`] extension trait — the only part of the
+//! machine surface that depends on `emu198x-shell`.
 
 pub mod machine;
-pub mod port;
 
 pub use common_sinclair_zx_spectrum::{
     AudioControls, SpeakerChannel,
     keyboard::{KeyboardMatrix, SpectrumKey},
 };
+pub use common_sinclair_zx_spectrum_48k_class::TapeInput;
 pub use ferranti_ula_6c001e::BoardIssue;
-pub use machine::Spectrum48k;
-pub use port::TapeInput;
+pub use machine::{ApplyInputEvent, Spectrum48k};

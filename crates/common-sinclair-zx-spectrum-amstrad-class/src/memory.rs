@@ -1,3 +1,13 @@
+//! ZX Spectrum +2A/+2B/+3 memory map.
+//!
+//! Source references:
+//! - `wiki/systems/spectrum/variants.md`
+//! - `wiki/systems/spectrum/contention.md`
+//!
+//! Lives in the Amstrad-class layer crate because the +2A, +2B, and +3
+//! all share the same memory layout exactly. Lifted verbatim from the
+//! pre-D6 `machine-sinclair-zx-spectrum-plus/src/memory.rs`.
+
 use common_sinclair_zx_spectrum::memory::{Bank16K, MemoryBus};
 use common_sinclair_zx_spectrum::snapshot::Paged128kMemory;
 use std::path::Path;

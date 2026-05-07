@@ -489,6 +489,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-sinclair-zx-spectrum-128k-class"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "gi-ay-3-8912",
+ "serde",
+ "sinclair-ula-7k010e",
+ "zilog-z80",
+]
+
+[[package]]
+name = "common-sinclair-zx-spectrum-48k-class"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "ferranti-ula-6c001e",
+ "serde",
+ "zilog-z80",
+]
+
+[[package]]
+name = "common-sinclair-zx-spectrum-amstrad-class"
+version = "0.1.0"
+dependencies = [
+ "amstrad-ula-40077",
+ "common-sinclair-zx-spectrum",
+ "gi-ay-3-8912",
+ "nec-upd765a",
+ "serde",
+ "zilog-z80",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -737,7 +770,7 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-shell",
  "machine-sinclair-zx-spectrum-128k",
- "machine-sinclair-zx-spectrum-plus",
+ "machine-sinclair-zx-spectrum-plus3",
  "runtime-commodore-amiga",
  "runtime-commodore-c64",
  "runtime-nintendo-nes",
@@ -1708,10 +1741,16 @@ name = "machine-sinclair-zx-spectrum-128k"
 version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
- "gi-ay-3-8912",
- "serde",
- "sinclair-ula-7k010e",
- "zilog-z80",
+ "common-sinclair-zx-spectrum-128k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-16k"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+ "ferranti-ula-6c001e",
 ]
 
 [[package]]
@@ -1719,6 +1758,7 @@ name = "machine-sinclair-zx-spectrum-48k"
 version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
  "emu198x-shell",
  "ferranti-ula-6c001e",
  "serde",
@@ -1729,12 +1769,42 @@ dependencies = [
 name = "machine-sinclair-zx-spectrum-plus"
 version = "0.1.0"
 dependencies = [
- "amstrad-ula-40077",
  "common-sinclair-zx-spectrum",
- "gi-ay-3-8912",
+ "common-sinclair-zx-spectrum-48k-class",
+ "ferranti-ula-6c001e",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-plus2"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-128k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-plus2a"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-amstrad-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-plus2b"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-amstrad-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-plus3"
+version = "0.1.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-amstrad-class",
  "nec-upd765a",
- "serde",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2835,6 +2905,7 @@ name = "runtime-sinclair-zx-spectrum"
 version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-amstrad-class",
  "emu198x-shell",
  "format-amstrad-dsk",
  "format-sinclair-zx-spectrum-tap",
@@ -2843,8 +2914,13 @@ dependencies = [
  "machine-pentagon-128",
  "machine-scorpion-zs256",
  "machine-sinclair-zx-spectrum-128k",
+ "machine-sinclair-zx-spectrum-16k",
  "machine-sinclair-zx-spectrum-48k",
  "machine-sinclair-zx-spectrum-plus",
+ "machine-sinclair-zx-spectrum-plus2",
+ "machine-sinclair-zx-spectrum-plus2a",
+ "machine-sinclair-zx-spectrum-plus2b",
+ "machine-sinclair-zx-spectrum-plus3",
  "machine-timex-tc2048",
  "machine-timex-ts2068",
  "postcard",

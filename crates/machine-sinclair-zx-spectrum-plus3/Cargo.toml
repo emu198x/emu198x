@@ -1,0 +1,14 @@
+[package]
+name = "machine-sinclair-zx-spectrum-plus3"
+description = "ZX Spectrum +3 — thin wrapper over the Amstrad-class core, with built-in 3\" floppy drive"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+common-sinclair-zx-spectrum-amstrad-class = { path = "../common-sinclair-zx-spectrum-amstrad-class" }
+nec-upd765a = { path = "../nec-upd765a" }
+
+[lints]
+workspace = true

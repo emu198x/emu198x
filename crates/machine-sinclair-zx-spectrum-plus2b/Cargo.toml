@@ -1,0 +1,13 @@
+[package]
+name = "machine-sinclair-zx-spectrum-plus2b"
+description = "ZX Spectrum +2B — thin wrapper over the Amstrad-class core"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
+common-sinclair-zx-spectrum-amstrad-class = { path = "../common-sinclair-zx-spectrum-amstrad-class" }
+
+[lints]
+workspace = true
