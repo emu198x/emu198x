@@ -295,20 +295,12 @@ impl SpectrumRunner {
             .unwrap_or(false)
     }
 
-    fn query_text_line(&self, path: &str, line_index: usize) -> Option<String> {
-        self.query(path)
-            .ok()
-            .and_then(|result| result.value.as_array().cloned())
-            .and_then(|lines| lines.get(line_index).cloned())
-            .and_then(|line| line.as_str().map(str::to_owned))
-    }
-
     fn window_title(&self) -> String {
-        let boot = if self.query_bool("boot.detected") {
-            "booted"
-        } else {
-            "booting"
-        };
+        // Kept deliberately cheap so the per-frame title update doesn't
+        // walk the screen-text grid. Tape state is two flag reads; the
+        // boot-banner / row-23-prompt decoration that used to live here
+        // ran a full 24×32 cell decode against 96 ROM glyphs twice per
+        // frame and dominated the GUI's frame budget.
         let tape = match (
             self.query_bool("spectrum.tape.loaded"),
             self.query_bool("spectrum.tape.playing"),
@@ -317,16 +309,7 @@ impl SpectrumRunner {
             (true, false) => "tape loaded",
             (false, _) => "no tape",
         };
-        let prompt = self
-            .query_text_line("screen.text.lines", 23)
-            .unwrap_or_default();
-        let prompt = prompt.trim();
-
-        if prompt.is_empty() {
-            format!("{WINDOW_TITLE_BASE} | {boot} | {tape}")
-        } else {
-            format!("{WINDOW_TITLE_BASE} | {boot} | {tape} | {prompt}")
-        }
+        format!("{WINDOW_TITLE_BASE} | {tape}")
     }
 
     fn tape_playing(&self) -> bool {
