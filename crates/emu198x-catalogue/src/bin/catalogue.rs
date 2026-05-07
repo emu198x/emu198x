@@ -77,10 +77,10 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 ));
             }
             "--save-screenshot" => {
-                args.save_screenshot = Some(PathBuf::from(
-                    iter.next()
-                        .ok_or_else(|| "--save-screenshot requires a path".to_string())?,
-                ));
+                args.save_screenshot =
+                    Some(PathBuf::from(iter.next().ok_or_else(|| {
+                        "--save-screenshot requires a path".to_string()
+                    })?));
             }
             "--save-audio" => {
                 args.save_audio = Some(PathBuf::from(
@@ -122,10 +122,7 @@ fn dirs_home() -> PathBuf {
 }
 
 fn load(args: &Args) -> Result<Manifest, CatalogueError> {
-    let path = args
-        .manifest
-        .clone()
-        .unwrap_or_else(default_manifest_path);
+    let path = args.manifest.clone().unwrap_or_else(default_manifest_path);
     load_manifest(&path)
 }
 
@@ -139,10 +136,7 @@ fn find_entry<'m>(manifest: &'m Manifest, id: &str) -> Result<&'m Entry, Catalog
 
 fn cmd_capture(argv: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args(argv)?;
-    let entry_id = args
-        .entry
-        .clone()
-        .ok_or("capture requires --entry <id>")?;
+    let entry_id = args.entry.clone().ok_or("capture requires --entry <id>")?;
     let manifest = load(&args)?;
     let entry = find_entry(&manifest, &entry_id)?;
     let result = run_entry(&manifest, entry, &media_root(), &firmware_root())?;
@@ -189,7 +183,9 @@ fn cmd_run(argv: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let result = run_entry(&manifest, entry, &media_root, &firmware_root)?;
         let mark = match &result.outcome {
             EntryOutcome::Pass => "PASS",
-            EntryOutcome::BootHashMismatch { .. } | EntryOutcome::AudioHashMismatch { .. } => "FAIL",
+            EntryOutcome::BootHashMismatch { .. } | EntryOutcome::AudioHashMismatch { .. } => {
+                "FAIL"
+            }
         };
         println!("[{mark}] {} ({})", entry.id, entry.title);
         if !matches!(result.outcome, EntryOutcome::Pass) {

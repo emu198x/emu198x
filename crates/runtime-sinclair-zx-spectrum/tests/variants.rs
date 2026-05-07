@@ -12,6 +12,7 @@ use common_sinclair_zx_spectrum::timing::{
     SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_WIDTH_HIRES, TIMING_48K, TIMING_128K, TIMING_PENTAGON,
     TIMING_PLUS2A, TIMING_SCORPION,
 };
+use common_sinclair_zx_spectrum_amstrad_class::{AmstradVariant, SpectrumAmstradClassCore};
 use emu198x_shell::{
     AudioPacket, AudioSink, ControlCommand, FramePacket, FrameSink, HostIo, InputEvent,
     MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, MediaTransportAction,
@@ -22,9 +23,8 @@ use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
 use machine_sinclair_zx_spectrum_16k::Spectrum16K;
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
-use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-use common_sinclair_zx_spectrum_amstrad_class::{AmstradVariant, SpectrumAmstradClassCore};
+use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
 use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
@@ -263,8 +263,7 @@ fn spectrum_128k_runtime_round_trips_through_snapshot() {
 
 #[test]
 fn spectrum_plus3_accepts_disk_slot_via_machine_core() {
-    let mut runtime =
-        SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+    let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
     let mut media = MediaSet::new();
     let dsk = minimal_standard_dsk();
     media.push(MediaImage::new("disk-a", MediaKind::Disk, &dsk));
@@ -276,8 +275,7 @@ fn spectrum_plus3_accepts_disk_slot_via_machine_core() {
 
 #[test]
 fn spectrum_plus2a_rejects_disk_slot() {
-    let mut runtime =
-        SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
+    let mut runtime = SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
     let mut media = MediaSet::new();
     let dsk = minimal_standard_dsk();
     media.push(MediaImage::new("disk-a", MediaKind::Disk, &dsk));
@@ -484,8 +482,7 @@ fn spectrum_128k_runtime_resets_via_machine_core() {
 
 #[test]
 fn spectrum_plus2a_runtime_runs_frame_loads_tape_and_resets() {
-    let mut runtime =
-        SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
+    let mut runtime = SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
     run_one_frame_with_inputs(&mut runtime, TIMING_PLUS2A.halfcycles_per_frame, &[]);
     load_tape_into_runtime(&mut runtime, &minimal_tap());
     runtime
@@ -506,8 +503,7 @@ fn spectrum_plus2a_runtime_runs_frame_loads_tape_and_resets() {
 
 #[test]
 fn spectrum_plus2a_runtime_round_trips_through_snapshot() {
-    let mut runtime =
-        SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
+    let mut runtime = SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
     run_one_frame_with_inputs(&mut runtime, TIMING_PLUS2A.halfcycles_per_frame, &[]);
     snapshot_round_trip_is_fixed_point(&mut runtime, || {
         SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new())
@@ -516,8 +512,7 @@ fn spectrum_plus2a_runtime_round_trips_through_snapshot() {
 
 #[test]
 fn spectrum_plus2b_runtime_runs_frame_and_resets() {
-    let mut runtime =
-        SpectrumPlus2BRuntime::new(Model::SpectrumPlus2B, SpectrumPlus2B::new());
+    let mut runtime = SpectrumPlus2BRuntime::new(Model::SpectrumPlus2B, SpectrumPlus2B::new());
     run_one_frame_with_inputs(&mut runtime, TIMING_PLUS2A.halfcycles_per_frame, &[]);
     load_tape_into_runtime(&mut runtime, &minimal_tap());
     runtime.reset(ResetKind::Hard);
@@ -526,8 +521,7 @@ fn spectrum_plus2b_runtime_runs_frame_and_resets() {
 
 #[test]
 fn spectrum_plus3_runtime_runs_frame_loads_tape_and_resets() {
-    let mut runtime =
-        SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+    let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
     run_one_frame_with_inputs(&mut runtime, TIMING_PLUS2A.halfcycles_per_frame, &[]);
     load_tape_into_runtime(&mut runtime, &minimal_tap());
     runtime
@@ -542,8 +536,7 @@ fn spectrum_plus3_runtime_runs_frame_loads_tape_and_resets() {
 
 #[test]
 fn spectrum_plus3_runtime_round_trips_through_snapshot() {
-    let mut runtime =
-        SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+    let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
     run_one_frame_with_inputs(&mut runtime, TIMING_PLUS2A.halfcycles_per_frame, &[]);
     snapshot_round_trip_is_fixed_point(&mut runtime, || {
         SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new())
@@ -552,8 +545,7 @@ fn spectrum_plus3_runtime_round_trips_through_snapshot() {
 
 #[test]
 fn spectrum_plus3_runtime_rejects_malformed_disk_image() {
-    let mut runtime =
-        SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+    let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
     let mut media = MediaSet::new();
     let bogus = vec![0u8; 32];
     media.push(MediaImage::new("disk-a", MediaKind::Disk, &bogus));
@@ -776,8 +768,7 @@ fn each_variant_accepts_tzx_via_runtime() {
     let mut runtime128 = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
     load_tape_into_runtime(&mut runtime128, &minimal_tzx());
 
-    let mut plus2a =
-        SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
+    let mut plus2a = SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
     load_tape_into_runtime(&mut plus2a, &minimal_tzx());
 
     let mut pentagon = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
@@ -911,8 +902,7 @@ fn spectrum_128k_runtime_exposes_shared_and_variant_query_paths() {
 
 #[test]
 fn spectrum_plus_runtime_resolves_disk_slot_query() {
-    let runtime3 =
-        SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+    let runtime3 = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
     assert_shared_query_paths_resolve(&runtime3);
     assert_boot_paths_wired(&runtime3);
 
@@ -923,8 +913,7 @@ fn spectrum_plus_runtime_resolves_disk_slot_query() {
         .expect("provider must own disk_slot_supported");
     assert_eq!(plus3_disk.value, serde_json::json!(true));
 
-    let runtime2a =
-        SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
+    let runtime2a = SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
     let plus2a_disk = provider
         .query(&runtime2a, "spectrum.plus.disk_slot_supported")
         .expect("disk slot query should resolve")
@@ -1089,8 +1078,7 @@ fn spectrum_128k_runtime_exposes_ay_register_queries() {
 
 #[test]
 fn spectrum_plus2a_runtime_exposes_ay_register_queries() {
-    let mut runtime =
-        SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
+    let mut runtime = SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
     assert_ay_query_round_trip(&mut runtime);
 }
 

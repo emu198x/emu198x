@@ -569,7 +569,10 @@ mod tests {
             drive.update_control(false, false, false, true, true);
             drive.tick();
         }
-        assert!(drive.status().ready, "motor must reach spin-up under polling");
+        assert!(
+            drive.status().ready,
+            "motor must reach spin-up under polling"
+        );
     }
 
     #[test]

@@ -310,9 +310,9 @@ fn amiga_model_from_variant(variant: &str) -> Option<AmigaModel> {
 
 fn amiga_frame_ticks(model: AmigaModel) -> u64 {
     match model {
-        AmigaModel::A500OcsNtsc
-        | AmigaModel::A500OcsNtscA501
-        | AmigaModel::A500PlusEcsNtsc => A500_NTSC_FRAME_TICKS,
+        AmigaModel::A500OcsNtsc | AmigaModel::A500OcsNtscA501 | AmigaModel::A500PlusEcsNtsc => {
+            A500_NTSC_FRAME_TICKS
+        }
         _ => A500_PAL_FRAME_TICKS,
     }
 }
@@ -358,9 +358,7 @@ fn run_amiga_entry(
 
     let frames_per_sec = if matches!(
         model,
-        AmigaModel::A500OcsNtsc
-            | AmigaModel::A500OcsNtscA501
-            | AmigaModel::A500PlusEcsNtsc
+        AmigaModel::A500OcsNtsc | AmigaModel::A500OcsNtscA501 | AmigaModel::A500PlusEcsNtsc
     ) {
         AMIGA_NTSC_FRAMES_PER_SEC
     } else {
@@ -418,12 +416,8 @@ fn run_spectrum_48k_entry(
         .ok_or_else(|| CatalogueError::Session("48K entry requires media".into()))?;
     let media_kind = load_media_spec(&mut session, media, media_root)?;
 
-    autoload_basic_tape(
-        &mut session,
-        &media.slot,
-        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    )
-    .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
+    autoload_basic_tape(&mut session, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
 
     wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
@@ -575,7 +569,9 @@ fn run_c64_entry(
                 // the entry covers the full load-to-menu duration.
             }
             other => {
-                return Err(CatalogueError::UnsupportedMediaKind(format!("c64: {other:?}")));
+                return Err(CatalogueError::UnsupportedMediaKind(format!(
+                    "c64: {other:?}"
+                )));
             }
         }
     } else {
@@ -768,9 +764,7 @@ where
 
 /// Prepares the session with no media. Some catalogue entries (e.g.
 /// C64 boot-to-READY) test the firmware path alone.
-fn prepare_session_no_media<M, Q>(
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<(), CatalogueError>
+fn prepare_session_no_media<M, Q>(session: &mut HeadlessSession<M, Q>) -> Result<(), CatalogueError>
 where
     M: MachineCore,
     Q: SessionQueryProvider<M>,

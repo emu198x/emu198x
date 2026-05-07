@@ -63,7 +63,11 @@ fn catalogue_passes_every_entry() {
     for manifest_path in manifest_files() {
         let manifest = load_manifest(&manifest_path)
             .unwrap_or_else(|err| panic!("loading {manifest_path:?}: {err}"));
-        println!("=== {} ({} entries)", manifest.system.id, manifest.entry.len());
+        println!(
+            "=== {} ({} entries)",
+            manifest.system.id,
+            manifest.entry.len()
+        );
         for entry in &manifest.entry {
             let result = run_entry(&manifest, entry, &media_root, &firmware_root)
                 .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id));

@@ -111,13 +111,8 @@ fn dump_vic_state_at_aztec_player_select() {
         .map(|r| r.value);
     println!("\n=== Memory bank ===");
     println!("  CIA2.PA = {cia2_pa:?}");
-    let bank_bits = !u8::try_from(
-        cia2_pa
-            .as_ref()
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0xFF),
-    )
-    .unwrap_or(0)
+    let bank_bits = !u8::try_from(cia2_pa.as_ref().and_then(|v| v.as_u64()).unwrap_or(0xFF))
+        .unwrap_or(0)
         & 0x03;
     println!("  VIC bank bits (inverted CIA2.PA[0:1]) = {bank_bits}");
     println!(

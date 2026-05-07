@@ -58,7 +58,8 @@ mod tests {
         let mut rom = vec![0u8; 16 * 1024];
         rom[0x0000] = 0xc0;
         rom[0x3fff] = 0xc1;
-        m.load_rom_bytes(&rom).expect("16 KiB ROM image should load");
+        m.load_rom_bytes(&rom)
+            .expect("16 KiB ROM image should load");
         assert_eq!(m.read(0x0000), 0xc0);
         assert_eq!(m.read(0x3fff), 0xc1);
     }

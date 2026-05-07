@@ -44,13 +44,7 @@ mod tests {
 
     #[test]
     fn variant_markers_advertise_distinct_model_ids() {
-        assert_eq!(
-            Sinclair128KMarker::MODEL_ID,
-            "sinclair-zx-spectrum-128k"
-        );
-        assert_eq!(
-            AmstradPlus2Marker::MODEL_ID,
-            "sinclair-zx-spectrum-plus2"
-        );
+        assert_eq!(Sinclair128KMarker::MODEL_ID, "sinclair-zx-spectrum-128k");
+        assert_eq!(AmstradPlus2Marker::MODEL_ID, "sinclair-zx-spectrum-plus2");
     }
 }

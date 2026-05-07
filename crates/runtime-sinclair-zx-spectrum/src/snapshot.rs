@@ -173,12 +173,10 @@ mod tests {
         // Round-trips through the generic envelope on a non-128K, non-48K
         // variant so the whole serde-generic path stays exercised even
         // when the Plus3-specific runtime is constructed.
-        let runtime =
-            SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+        let runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
         let bytes = runtime.snapshot().expect("Plus3 snapshot should encode");
 
-        let mut restored =
-            SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+        let mut restored = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
         restored
             .restore(&bytes)
             .expect("Plus3 snapshot should round-trip through the generic envelope");

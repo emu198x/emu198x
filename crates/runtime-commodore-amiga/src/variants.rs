@@ -470,10 +470,7 @@ impl AmigaRuntimeKind {
     /// # Errors
     /// Returns the underlying `MachineError` from the dispatched
     /// runtime constructor.
-    pub fn new(
-        model: Model,
-        firmware_rom: Vec<u8>,
-    ) -> Result<Self, emu198x_shell::MachineError> {
+    pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, emu198x_shell::MachineError> {
         if model.is_ecs() {
             AmigaEcsRuntime::new(model, firmware_rom).map(Self::Ecs)
         } else {

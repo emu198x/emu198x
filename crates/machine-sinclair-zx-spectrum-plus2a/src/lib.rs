@@ -36,7 +36,10 @@ mod tests {
     #[test]
     fn fdc_is_dormant_on_plus2a() {
         let m = SpectrumPlus2A::new();
-        assert!(!m.fdc.enabled, "+2A has no floppy drive — FDC must stay dormant");
+        assert!(
+            !m.fdc.enabled,
+            "+2A has no floppy drive — FDC must stay dormant"
+        );
     }
 
     #[test]

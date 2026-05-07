@@ -15,15 +15,15 @@ use common_sinclair_zx_spectrum::timing::{
     SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_WIDTH_HIRES, TIMING_48K, TIMING_128K, TIMING_PENTAGON,
     TIMING_PLUS2A, TIMING_SCORPION,
 };
+use common_sinclair_zx_spectrum_amstrad_class::{AmstradVariant, SpectrumAmstradClassCore};
 use emu198x_shell::{QueryError, QueryResult};
 use gi_ay_3_8912::Ay3_8912;
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
 use machine_sinclair_zx_spectrum_16k::Spectrum16K;
 use machine_sinclair_zx_spectrum_48k::{BoardIssue, Spectrum48k};
-use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-use common_sinclair_zx_spectrum_amstrad_class::{AmstradVariant, SpectrumAmstradClassCore};
+use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
 use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
