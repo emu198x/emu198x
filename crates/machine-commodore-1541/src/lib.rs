@@ -840,10 +840,8 @@ impl Drive1541 {
                 self.clear_byte_ready_level();
             }
             0x02 => self.refresh_drive_mechanics(),
-            0x0C => {
-                if !self.is_read_mode() || !self.byte_ready_active() {
-                    self.clear_byte_ready();
-                }
+            0x0C if !self.is_read_mode() || !self.byte_ready_active() => {
+                self.clear_byte_ready();
             }
             _ => {}
         }

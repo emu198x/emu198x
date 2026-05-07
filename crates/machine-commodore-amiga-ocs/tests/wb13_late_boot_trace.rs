@@ -4789,7 +4789,7 @@ fn trace_wb13_workbench_screen_blits() {
 
     eprintln!("\nunique BLTCON0/1 pairs touching screen:");
     let mut sorted = counts.into_iter().collect::<Vec<_>>();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
     for ((c0, c1), count) in sorted {
         eprintln!(
             "  ${c0:04X}/${c1:04X} × {count}  line={} desc={} fill={} useA={} useB={} useC={} useD={}",

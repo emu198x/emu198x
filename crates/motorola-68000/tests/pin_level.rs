@@ -120,30 +120,24 @@ fn service_bus(cpu: &mut Cpu68000, mem: &mut TestMem) {
             data,
             cycle_count,
             ..
-        } => {
-            if *cycle_count >= 3 {
-                if *fc == motorola_68000::bus::FunctionCode::InterruptAck {
-                    // Autovector: return vector number = 24 + level.
-                    cpu.bus_status = BusStatus::Ready(24 + u16::from(cpu.ipl));
-                } else if *is_read {
-                    let val = if *is_word {
-                        mem.read_word(*addr)
-                    } else {
-                        u16::from(mem.read_byte(*addr))
-                    };
-                    cpu.bus_status = BusStatus::Ready(val);
+        } if *cycle_count >= 3 => {
+            if *fc == motorola_68000::bus::FunctionCode::InterruptAck {
+                cpu.bus_status = BusStatus::Ready(24 + u16::from(cpu.ipl));
+            } else if *is_read {
+                let val = if *is_word {
+                    mem.read_word(*addr)
                 } else {
-                    // Write.
-                    let val = data.unwrap_or(0);
-                    if *is_word {
-                        mem.write_word(*addr, val);
-                    } else {
-                        mem.write_byte(*addr, val as u8);
-                    }
-                    cpu.bus_status = BusStatus::Ready(0);
-                }
+                    u16::from(mem.read_byte(*addr))
+                };
+                cpu.bus_status = BusStatus::Ready(val);
             } else {
-                cpu.bus_status = BusStatus::Wait;
+                let val = data.unwrap_or(0);
+                if *is_word {
+                    mem.write_word(*addr, val);
+                } else {
+                    mem.write_byte(*addr, val as u8);
+                }
+                cpu.bus_status = BusStatus::Ready(0);
             }
         }
         _ => {

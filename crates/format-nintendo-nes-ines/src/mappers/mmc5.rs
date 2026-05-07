@@ -484,10 +484,8 @@ impl Mapper for Mmc5 {
                 self.pcm_irq_enabled = value & 0x80 != 0;
                 self.pcm_mode_read = value & 1 != 0;
             }
-            0x5011 => {
-                if !self.pcm_mode_read {
-                    self.write_pcm(value);
-                }
+            0x5011 if !self.pcm_mode_read => {
+                self.write_pcm(value);
             }
             0x5015 => {
                 self.audio_pulses[0].set_enabled(value & 0x01 != 0);

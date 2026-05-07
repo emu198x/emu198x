@@ -146,13 +146,7 @@ impl Mmc3 {
 impl Mapper for Mmc3 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
-            0x6000..=0x7FFF => {
-                if self.prg_ram_enable {
-                    self.prg_ram[usize::from(addr - 0x6000)]
-                } else {
-                    0
-                }
-            }
+            0x6000..=0x7FFF if self.prg_ram_enable => self.prg_ram[usize::from(addr - 0x6000)],
             0x8000..=0x9FFF => {
                 let offset = usize::from(addr - 0x8000);
                 if self.bank_select & 0x40 == 0 {
@@ -183,10 +177,8 @@ impl Mapper for Mmc3 {
 
     fn cpu_write(&mut self, addr: u16, value: u8) {
         match addr {
-            0x6000..=0x7FFF => {
-                if self.prg_ram_enable && !self.prg_ram_write_protect {
-                    self.prg_ram[usize::from(addr - 0x6000)] = value;
-                }
+            0x6000..=0x7FFF if self.prg_ram_enable && !self.prg_ram_write_protect => {
+                self.prg_ram[usize::from(addr - 0x6000)] = value;
             }
             0x8000..=0x9FFF if addr & 1 == 0 => self.bank_select = value,
             0x8000..=0x9FFF => {

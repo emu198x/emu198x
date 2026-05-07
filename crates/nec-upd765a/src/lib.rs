@@ -173,17 +173,13 @@ impl Upd765a {
     /// Read data register (port $3FFD on +3).
     pub fn read_data(&mut self) -> u8 {
         match self.phase {
-            Phase::Execution => {
-                if self.exec_pos < self.exec_buf.len() {
-                    let byte = self.exec_buf[self.exec_pos];
-                    self.exec_pos += 1;
-                    if self.exec_pos >= self.exec_buf.len() {
-                        self.enter_result_phase();
-                    }
-                    byte
-                } else {
-                    0xFF
+            Phase::Execution if self.exec_pos < self.exec_buf.len() => {
+                let byte = self.exec_buf[self.exec_pos];
+                self.exec_pos += 1;
+                if self.exec_pos >= self.exec_buf.len() {
+                    self.enter_result_phase();
                 }
+                byte
             }
             Phase::Result => {
                 if self.result_pos < self.result_buf.len() {
