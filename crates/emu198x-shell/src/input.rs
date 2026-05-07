@@ -215,10 +215,10 @@ impl NativeGamepadInput {
                         output.push(input);
                     }
                 }
-                EventType::AxisChanged(axis, value, _) => {
-                    if !emit_analogue_axis(axis, value, axis_map, output) {
-                        self.update_axis(event.id, axis, value, button_map, output);
-                    }
+                EventType::AxisChanged(axis, value, _)
+                    if !emit_analogue_axis(axis, value, axis_map, output) =>
+                {
+                    self.update_axis(event.id, axis, value, button_map, output);
                 }
                 _ => {}
             }

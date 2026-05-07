@@ -1,11 +1,11 @@
 //! Shared 48K-class machine composition.
 //!
 //! The 48K, 16K, and Spectrum+ are electrically identical apart from
-//! memory size and badge. This type holds the Z80 + Ferranti ULA + beeper
-//! + tape composition that's shared across them, parameterised over the
-//! memory map. Variant crates alias it (`pub type Spectrum48k =
-//! SpectrumMachineCore<Spectrum48kMemory>;`) and add only their own
-//! variant-specific surface.
+//! memory size and badge. This type holds the Ferranti-ULA-driven
+//! composition (Z80, beeper, tape) that's shared across them,
+//! parameterised over the memory map. Variant crates alias it
+//! (`pub type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory>;`)
+//! and add only their own variant-specific surface.
 //!
 //! Variants outside the 48K-class — 128K-family, Pentagon, Scorpion,
 //! Timex — have their own ULAs and additional state (AY, paging, FDC)

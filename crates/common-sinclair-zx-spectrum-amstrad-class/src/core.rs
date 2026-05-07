@@ -64,7 +64,7 @@ pub struct SpectrumAmstradClassCore<V: AmstradVariant> {
     pub(crate) hc: u32,
     speaker: SpeakerMixer,
 
-    #[serde(skip, default = "PhantomData::default")]
+    #[serde(skip)]
     _variant: PhantomData<V>,
 }
 

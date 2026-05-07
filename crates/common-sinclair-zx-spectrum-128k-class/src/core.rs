@@ -62,7 +62,7 @@ pub struct Spectrum128kClassCore<V: Class128kVariant> {
     pub(crate) hc: u32,
     speaker: SpeakerMixer,
 
-    #[serde(skip, default = "PhantomData::default")]
+    #[serde(skip)]
     _variant: PhantomData<V>,
 }
 

@@ -1,9 +1,9 @@
 //! ZX Spectrum 128K machine wrapper.
 //!
-//! The hardware composition (Z80 + Sinclair 7K010E ULA + Memory128K + AY
-//! + beeper + tape) lives in
-//! [`common_sinclair_zx_spectrum_128k_class::Spectrum128kClassCore`] and is
-//! shared with the Sinclair-branded Amstrad-built grey +2. This crate
+//! The hardware composition (Z80 + Sinclair 7K010E ULA + Memory128K + AY +
+//! beeper + tape) lives in
+//! [`common_sinclair_zx_spectrum_128k_class::Spectrum128kClassCore`] and
+//! is shared with the Sinclair-branded Amstrad-built grey +2. This crate
 //! exposes only the 128K-flavoured type alias plus re-exports of the
 //! memory map and snapshot helpers that downstream crates (runtime,
 //! catalogue, snapshot import) reach through `m.memory`.

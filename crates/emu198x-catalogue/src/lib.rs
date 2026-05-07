@@ -655,6 +655,11 @@ fn run_spectrum_plus3_entry(
 /// +3 autoload: wait for the +3 menu boot banner, press ENTER (selects
 /// the highlighted "Loader" option which auto-runs the disk's first
 /// program). The disk must already be inserted via load_media_spec.
+///
+/// Currently unused scaffolding — kept for future +3 catalogue
+/// authoring (Chase H.Q. +3 / disk-loader manifests). Remove the
+/// `#[allow(dead_code)]` when wiring it into a manifest run.
+#[allow(dead_code)]
 fn autoload_plus3_loader<Q>(
     session: &mut HeadlessSession<SpectrumPlus3Runtime, Q>,
     max_boot_frames: u32,

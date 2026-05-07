@@ -79,15 +79,15 @@ mod tests {
 
     #[test]
     fn fdc_enabled_only_on_plus3() {
-        assert!(!Plus2AMarker::HAS_FDC);
-        assert!(!Plus2BMarker::HAS_FDC);
-        assert!(Plus3Marker::HAS_FDC);
+        const { assert!(!Plus2AMarker::HAS_FDC) };
+        const { assert!(!Plus2BMarker::HAS_FDC) };
+        const { assert!(Plus3Marker::HAS_FDC) };
     }
 
     #[test]
     fn disk_slot_exposed_only_on_plus3() {
-        assert!(!Plus2AMarker::HAS_DISK_SLOT);
-        assert!(!Plus2BMarker::HAS_DISK_SLOT);
-        assert!(Plus3Marker::HAS_DISK_SLOT);
+        const { assert!(!Plus2AMarker::HAS_DISK_SLOT) };
+        const { assert!(!Plus2BMarker::HAS_DISK_SLOT) };
+        const { assert!(Plus3Marker::HAS_DISK_SLOT) };
     }
 }

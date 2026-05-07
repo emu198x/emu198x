@@ -14,9 +14,7 @@
 mod common;
 
 use common_commodore_c64::timing::TIMING_PAL_BREADBIN;
-use emu198x_shell::{
-    HeadlessSession, MediaImage, MediaKind, MediaSet, SessionQueryProvider, read_media_asset,
-};
+use emu198x_shell::{HeadlessSession, MediaImage, MediaKind, MediaSet, read_media_asset};
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
     DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model,
