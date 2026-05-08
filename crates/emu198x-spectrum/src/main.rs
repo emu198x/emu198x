@@ -437,29 +437,36 @@ impl SpectrumApp {
         self.next_slice_at = Instant::now() + self.slice_duration;
     }
 
-    fn advance_machine(&mut self) -> Result<bool, AppError> {
+    /// Returns the number of emulator frames completed during this
+    /// call. The caller can sum the returns over a wall-clock window
+    /// to compute actual emu frames per second — important because
+    /// the catch-up loop may complete multiple frames in one pass and
+    /// a bool return would silently coalesce them.
+    fn advance_machine(&mut self) -> Result<u32, AppError> {
         if self.turbo_tape_active() {
-            let mut ran_frames = 0;
+            let mut ran_frames = 0u32;
             while ran_frames < MAX_TURBO_TAPE_FRAMES && self.turbo_tape_active() {
                 let inputs = std::mem::take(&mut self.pending_inputs);
                 self.runner.run_frame(&inputs)?;
                 ran_frames += 1;
             }
             self.next_slice_at = Instant::now() + self.slice_duration;
-            return Ok(ran_frames != 0);
+            return Ok(ran_frames);
         }
 
         let now = Instant::now();
         if now < self.next_slice_at {
-            return Ok(false);
+            return Ok(0);
         }
 
         let mut ran_slices = 0;
         let max_catch_up_slices = MAX_CATCH_UP_FRAMES.saturating_mul(INPUT_SLICES_PER_FRAME);
-        let mut frame_completed = false;
+        let mut frames_completed = 0u32;
         while Instant::now() >= self.next_slice_at && ran_slices < max_catch_up_slices {
             let inputs = std::mem::take(&mut self.pending_inputs);
-            frame_completed |= self.runner.run_ticks(&inputs, self.slice_ticks)?;
+            if self.runner.run_ticks(&inputs, self.slice_ticks)? {
+                frames_completed += 1;
+            }
             self.next_slice_at += self.slice_duration;
             ran_slices += 1;
         }
@@ -468,7 +475,7 @@ impl SpectrumApp {
             self.next_slice_at = Instant::now() + self.slice_duration;
         }
 
-        Ok(frame_completed)
+        Ok(frames_completed)
     }
 
     fn render(&mut self) -> Result<(), AppError> {
@@ -711,21 +718,22 @@ impl ApplicationHandler for SpectrumApp {
         }
 
         match self.advance_machine() {
-            Ok(true) => {
-                self.fps_window_frames += 1;
-                let elapsed = self.fps_window_start.elapsed();
-                if elapsed >= Duration::from_secs(1) {
-                    let fps = self.fps_window_frames as f64 / elapsed.as_secs_f64();
-                    eprintln!("emu fps: {fps:.1}");
-                    self.fps_window_start = Instant::now();
-                    self.fps_window_frames = 0;
-                }
-                if let Some(window) = &self.window {
-                    window.set_title(&self.window_title());
-                    window.request_redraw();
+            Ok(frames_completed) => {
+                if frames_completed > 0 {
+                    self.fps_window_frames += frames_completed;
+                    let elapsed = self.fps_window_start.elapsed();
+                    if elapsed >= Duration::from_secs(1) {
+                        let fps = f64::from(self.fps_window_frames) / elapsed.as_secs_f64();
+                        eprintln!("emu fps: {fps:.1}");
+                        self.fps_window_start = Instant::now();
+                        self.fps_window_frames = 0;
+                    }
+                    if let Some(window) = &self.window {
+                        window.set_title(&self.window_title());
+                        window.request_redraw();
+                    }
                 }
             }
-            Ok(false) => {}
             Err(err) => {
                 self.fail(event_loop, err);
                 return;
