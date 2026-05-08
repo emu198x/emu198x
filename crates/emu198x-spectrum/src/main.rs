@@ -5,6 +5,7 @@
 //! verification. It sits above the existing runtime and shared shell boundary;
 //! it does not introduce a parallel emulation stack.
 
+mod live_machine;
 mod menu;
 
 use std::collections::HashMap;
@@ -16,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use muda::MenuEvent;
 
+use crate::live_machine::{LiveSpectrumRuntime, build_runtime};
 use crate::menu::{AppCommand, AppMenu, MachineKind};
 
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
@@ -25,10 +27,10 @@ use emu198x_native_video::{
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
     AssetLoadError, CapturedFrame, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession,
-    HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind,
-    MediaSet, MediaTransportAction, MediaTransportCommand, NativeAudioError, NativeAudioOutput,
-    NullTraceSink, QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider,
-    read_firmware_asset, read_media_asset,
+    HostIo, InputEvent, LatestFrameCapture, MachineError, MediaImage, MediaKind, MediaSet,
+    MediaTransportAction, MediaTransportCommand, NativeAudioError, NativeAudioOutput,
+    NullTraceSink, QueryError, QueryResult, ResetKind, RunResult, read_firmware_asset,
+    read_media_asset,
 };
 use runtime_sinclair_zx_spectrum::{
     AudioControls, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpeakerChannel,
@@ -46,7 +48,6 @@ use winit::window::{Window, WindowAttributes, WindowId};
 const DEFAULT_ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
 const DEFAULT_SCALE: u32 = 2;
-const WINDOW_TITLE_BASE: &str = "Emu198x Spectrum 48K";
 /// Sub-divisions per emulator frame for input quantisation. The
 /// runtime's `run_until` actually advances in whole-frame increments
 /// (`machine.run_frame()` runs the full 279552 half-cycles regardless
@@ -149,8 +150,7 @@ enum AppError {
 }
 
 struct SpectrumRunner {
-    runtime: Spectrum48kRuntime,
-    query_provider: SpectrumSessionQueryProvider,
+    runtime: Box<dyn LiveSpectrumRuntime>,
     frame_capture: LatestFrameCapture,
     audio_output: NativeAudioOutput,
     last_run_result: Option<RunResult>,
@@ -205,18 +205,32 @@ impl SpectrumRunner {
             )))?;
         }
 
-        let runtime = session.into_machine();
+        let runtime: Box<dyn LiveSpectrumRuntime> = Box::new(session.into_machine());
+        let native_frame_ticks = u64::from(runtime.frame_halfcycles());
         let audio_output = NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)?;
         let mut runner = Self {
             runtime,
-            query_provider: SpectrumSessionQueryProvider,
             frame_capture: LatestFrameCapture::default(),
             audio_output,
             last_run_result: None,
-            native_frame_ticks: u64::from(TIMING_48K.halfcycles_per_frame),
+            native_frame_ticks,
         };
         runner.run_frame(&[])?;
         Ok(runner)
+    }
+
+    /// Replaces the live runtime in-place. Drops the previous boxed
+    /// runtime, swaps in the new one, recomputes the per-variant frame
+    /// length, and clears host-side state (audio output, last frame,
+    /// last run result) so frame timestamps and audio continuity start
+    /// fresh. Pacing constants on the App must also be refreshed since
+    /// `frame_halfcycles` and `frame_duration` differ across variants.
+    fn replace_runtime(&mut self, runtime: Box<dyn LiveSpectrumRuntime>) {
+        self.runtime = runtime;
+        self.native_frame_ticks = u64::from(self.runtime.frame_halfcycles());
+        self.frame_capture = LatestFrameCapture::default();
+        self.audio_output.clear();
+        self.last_run_result = None;
     }
 
     fn reset(&mut self) -> Result<(), AppError> {
@@ -250,6 +264,10 @@ impl SpectrumRunner {
         };
         self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
         Ok(self.frame().map(|frame| frame.timestamp) != previous_frame_timestamp)
+    }
+
+    fn frame_duration(&self) -> Duration {
+        self.runtime.frame_duration()
     }
 
     fn frame(&self) -> Option<&CapturedFrame> {
@@ -286,8 +304,8 @@ impl SpectrumRunner {
         ) {
             Ok(result) => Ok(result),
             Err(QueryError::UnknownPath { .. }) => self
-                .query_provider
-                .query(&self.runtime, path)?
+                .runtime
+                .query(path)?
                 .ok_or_else(|| QueryError::UnknownPath {
                     path: path.to_owned(),
                 })
@@ -308,7 +326,9 @@ impl SpectrumRunner {
         // walk the screen-text grid. Tape state is two flag reads; the
         // boot-banner / row-23-prompt decoration that used to live here
         // ran a full 24×32 cell decode against 96 ROM glyphs twice per
-        // frame and dominated the GUI's frame budget.
+        // frame and dominated the GUI's frame budget. Variant identity
+        // comes from the live runtime's profile.display_name — updates
+        // on Machine-menu switch.
         let tape = match (
             self.query_bool("spectrum.tape.loaded"),
             self.query_bool("spectrum.tape.playing"),
@@ -317,7 +337,8 @@ impl SpectrumRunner {
             (true, false) => "tape loaded",
             (false, _) => "no tape",
         };
-        format!("{WINDOW_TITLE_BASE} | {tape}")
+        let display_name = self.runtime.profile().display_name.as_ref();
+        format!("Emu198x | {display_name} | {tape}")
     }
 
     fn tape_playing(&self) -> bool {
@@ -359,7 +380,7 @@ impl SpectrumApp {
         }
 
         let slice_ticks = subframe_ticks(runner.native_frame_ticks);
-        let slice_duration = subframe_duration(spectrum_frame_duration());
+        let slice_duration = subframe_duration(runner.frame_duration());
         let current_machine = MachineKind::Spectrum48K;
         let menu = AppMenu::new(current_machine);
         let (command_tx, command_rx) = mpsc::channel();
@@ -626,28 +647,67 @@ impl SpectrumApp {
         eprintln!("audio: {} gain {:.0}%", channel.label(), gain * 100.0);
     }
 
-    /// Processes one queued AppCommand. Phase 1 only handles
-    /// `SwitchMachine` for the current variant (no-op) — switching to
-    /// a different variant logs a "not yet wired" notice. Phase 2
-    /// will replace the no-op with an actual runtime swap once
-    /// per-variant `from_firmware` constructors are lifted into the
-    /// runtime crate. See wiki/decisions/native-menu-shell.md.
+    /// Processes one queued [`AppCommand`] at a frame boundary. Each
+    /// command runs *between* frames so a switch never tears down state
+    /// the runtime is currently using; same channel will carry rfd
+    /// dialog replies and MCP commands in future cuts. See
+    /// `wiki/decisions/native-menu-shell.md`.
     fn handle_command(&mut self, cmd: AppCommand) {
         match cmd {
-            AppCommand::SwitchMachine(kind) => {
-                if kind == self.current_machine {
-                    return;
-                }
-                eprintln!(
-                    "menu: switch to {} requested — Phase 2 will wire the runtime swap",
-                    kind.label()
-                );
-                // Keep the radio indicator pinned to the actually-running
-                // machine until Phase 2 makes the swap real, otherwise the
-                // checkmark would lie about what's running.
-                self.menu.set_current_machine(self.current_machine);
-            }
+            AppCommand::SwitchMachine(kind) => self.switch_machine(kind),
         }
+    }
+
+    /// Replaces the running runtime with a fresh one for `kind`. Loads
+    /// the variant's ROM bundle, builds the boxed runtime via
+    /// [`build_runtime`], and updates host-side state (pacing
+    /// constants, audio buffer, window title, menu indicator).
+    /// On firmware-missing or build failure, logs the error and keeps
+    /// the menu indicator pinned to the actually-running machine so
+    /// the checkmark never lies about what's loaded.
+    fn switch_machine(&mut self, kind: MachineKind) {
+        if kind == self.current_machine {
+            return;
+        }
+
+        let images = match read_variant_firmware(kind) {
+            Ok(images) => images,
+            Err(err) => {
+                eprintln!("menu: cannot switch to {}: {err}", kind.label());
+                self.menu.set_current_machine(self.current_machine);
+                return;
+            }
+        };
+        let mut firmware = FirmwareSet::new();
+        for (id, bytes) in &images {
+            firmware.push(FirmwareImage::new(*id, bytes));
+        }
+        let runtime = match build_runtime(kind, &firmware) {
+            Ok(runtime) => runtime,
+            Err(err) => {
+                eprintln!("menu: cannot switch to {}: {err}", kind.label());
+                self.menu.set_current_machine(self.current_machine);
+                return;
+            }
+        };
+
+        // Drop the old box, install the new one, refresh per-variant
+        // pacing. Turbo-tape resets too — different variant, no carry-
+        // over from the previous tape session.
+        self.runner.replace_runtime(runtime);
+        self.slice_ticks = subframe_ticks(self.runner.native_frame_ticks);
+        self.slice_duration = subframe_duration(self.runner.frame_duration());
+        self.next_slice_at = Instant::now();
+        self.turbo_tape = false;
+        self.pending_inputs.clear();
+        self.pressed_keys.clear();
+        self.current_machine = kind;
+        self.menu.set_current_machine(kind);
+        if let Some(window) = &self.window {
+            window.set_title(&self.window_title());
+            window.request_redraw();
+        }
+        eprintln!("menu: switched to {}", kind.label());
     }
 }
 
@@ -866,12 +926,108 @@ fn default_rom_path() -> PathBuf {
     Path::new(&home).join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom")
 }
 
-fn spectrum_frame_duration() -> Duration {
-    spectrum_duration_for_ticks(u64::from(TIMING_48K.halfcycles_per_frame))
+/// `~/.emu198x/roms` — the on-disk firmware bundle convention shared
+/// with the `runtime-sinclair-zx-spectrum` golden tests. Returns `None`
+/// only on hosts without a `HOME` environment variable, which never
+/// happens on macOS / Linux but keeps unwrap-free behaviour explicit.
+fn rom_root() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".emu198x/roms"))
 }
 
-fn spectrum_duration_for_ticks(halfcycles: u64) -> Duration {
-    Duration::from_secs_f64(halfcycles as f64 / TIMING_48K.master_hz as f64)
+/// Per-variant ROM bundle: list of `(firmware_id, on-disk path)` pairs
+/// that the runtime crate's `from_firmware` constructor expects for
+/// the given variant.
+///
+/// Path conventions follow `runtime-sinclair-zx-spectrum/tests/goldens.rs`:
+/// 16K/48K/+ share `sinclair-zx-spectrum-48k/48.rom`; 128K, +2, +2A/+3,
+/// and +2B each have their own bundle directory. The +2A and +3 share
+/// `amstrad-zx-spectrum-plus3/plus3-{0..3}.rom` (ROM v4.0); the +2B
+/// uses its own `amstrad-zx-spectrum-plus2b/plus3-{0..3}.rom` (ROM v4.1).
+fn variant_rom_bundle(kind: MachineKind, root: &Path) -> Vec<(&'static str, PathBuf)> {
+    match kind {
+        MachineKind::Spectrum16K
+        | MachineKind::Spectrum48K
+        | MachineKind::SpectrumPlus => vec![(
+            "sinclair-zx-spectrum-48k-rom",
+            root.join("sinclair-zx-spectrum-48k/48.rom"),
+        )],
+        MachineKind::Spectrum128K => vec![
+            (
+                "sinclair-zx-spectrum-128k-rom-0",
+                root.join("sinclair-zx-spectrum-128k/128-0.rom"),
+            ),
+            (
+                "sinclair-zx-spectrum-128k-rom-1",
+                root.join("sinclair-zx-spectrum-128k/128-1.rom"),
+            ),
+        ],
+        MachineKind::SpectrumPlus2 => vec![
+            (
+                "sinclair-zx-spectrum-plus2-rom-0",
+                root.join("amstrad-zx-spectrum-plus2/plus2-0.rom"),
+            ),
+            (
+                "sinclair-zx-spectrum-plus2-rom-1",
+                root.join("amstrad-zx-spectrum-plus2/plus2-1.rom"),
+            ),
+        ],
+        MachineKind::SpectrumPlus2A | MachineKind::SpectrumPlus3 => (0..4)
+            .map(|i| {
+                let id: &'static str = match i {
+                    0 => "sinclair-zx-spectrum-plus3-rom-0",
+                    1 => "sinclair-zx-spectrum-plus3-rom-1",
+                    2 => "sinclair-zx-spectrum-plus3-rom-2",
+                    _ => "sinclair-zx-spectrum-plus3-rom-3",
+                };
+                (
+                    id,
+                    root.join(format!("amstrad-zx-spectrum-plus3/plus3-{i}.rom")),
+                )
+            })
+            .collect(),
+        MachineKind::SpectrumPlus2B => (0..4)
+            .map(|i| {
+                let id: &'static str = match i {
+                    0 => "sinclair-zx-spectrum-plus3-rom-0",
+                    1 => "sinclair-zx-spectrum-plus3-rom-1",
+                    2 => "sinclair-zx-spectrum-plus3-rom-2",
+                    _ => "sinclair-zx-spectrum-plus3-rom-3",
+                };
+                (
+                    id,
+                    root.join(format!("amstrad-zx-spectrum-plus2b/plus3-{i}.rom")),
+                )
+            })
+            .collect(),
+    }
+}
+
+/// Reads every ROM the variant declares from disk into owned byte
+/// vectors. Caller assembles a `FirmwareSet` by borrowing into the
+/// returned vec — the bytes must outlive the set, so the caller holds
+/// both.
+///
+/// # Errors
+///
+/// Returns [`AppError::MissingRom`] if `HOME` is unset or any required
+/// ROM is absent on disk; surfaces filesystem errors via the `From<io::Error>`
+/// arm.
+fn read_variant_firmware(kind: MachineKind) -> Result<Vec<(&'static str, Vec<u8>)>, AppError> {
+    let root = rom_root().ok_or_else(|| AppError::MissingRom {
+        path: "$HOME unset; cannot locate ROM bundle".to_owned(),
+    })?;
+    let bundle = variant_rom_bundle(kind, &root);
+    let mut images = Vec::with_capacity(bundle.len());
+    for (id, path) in bundle {
+        if !path.is_file() {
+            return Err(AppError::MissingRom {
+                path: path.display().to_string(),
+            });
+        }
+        let bytes = std::fs::read(&path)?;
+        images.push((id, bytes));
+    }
+    Ok(images)
 }
 
 fn subframe_ticks(frame_ticks: u64) -> u64 {
@@ -1100,9 +1256,15 @@ mod tests {
 
     #[test]
     fn subframe_helpers_preserve_timing_budget() {
+        // 48K reference values: 14 MHz master, 280032 hc/frame. The
+        // pacing helpers are variant-agnostic (they take a frame
+        // length and divide), so 48K is just one representative case.
         let frame_ticks = u64::from(TIMING_48K.halfcycles_per_frame);
+        let frame_duration = Duration::from_secs_f64(
+            frame_ticks as f64 / TIMING_48K.master_hz as f64,
+        );
         let slice_ticks = subframe_ticks(frame_ticks);
-        let slice_duration = subframe_duration(spectrum_frame_duration());
+        let slice_duration = subframe_duration(frame_duration);
 
         // The non-strict bounds let `INPUT_SLICES_PER_FRAME = 1`
         // (frame-level pacing) pass — that's the configuration that
@@ -1111,7 +1273,6 @@ mod tests {
         // sub-frame slicing; it doesn't.
         assert!(slice_ticks <= frame_ticks);
         assert!(slice_ticks * u64::from(INPUT_SLICES_PER_FRAME) >= frame_ticks);
-        assert!(slice_duration <= spectrum_frame_duration());
-        assert!(spectrum_duration_for_ticks(slice_ticks) <= spectrum_frame_duration());
+        assert!(slice_duration <= frame_duration);
     }
 }
