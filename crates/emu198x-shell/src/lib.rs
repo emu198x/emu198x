@@ -20,6 +20,7 @@ pub mod query;
 pub mod script;
 pub mod session;
 pub mod time;
+pub mod video;
 
 pub use asset::{
     AssetLoadError, LoadedAsset, read_firmware_asset, read_media_asset, read_program_asset,
@@ -54,3 +55,4 @@ pub use script::{
 };
 pub use session::{HeadlessSession, QueryBoolWaitResult, QueryTextWaitResult, SessionError};
 pub use time::{ClockDesc, ClockRate, MachineTime};
+pub use video::{VideoRecorder, VideoRecordingError, VideoRecordingSummary, find_ffmpeg};
