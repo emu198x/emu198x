@@ -28,6 +28,14 @@ use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "screen.text.cols",
     "screen.text.lines",
+    "spectrum.basic.prog",
+    "spectrum.basic.vars",
+    "spectrum.basic.e_line",
+    "spectrum.basic.worksp",
+    "spectrum.basic.e_ppc",
+    "spectrum.basic.newppc",
+    "spectrum.basic.flags",
+    "spectrum.basic.mode",
     "screen.text.rows",
     "spectrum.keyboard.rows",
     "spectrum.machine.half_cycle_in_frame",
@@ -141,6 +149,10 @@ fn screen_cell<M: SpectrumMachine>(machine: &M, text_row: usize, text_col: usize
     cell
 }
 
+fn read_word_le<M: SpectrumMachine>(machine: &M, addr: u16) -> u16 {
+    u16::from(machine.read_byte(addr)) | (u16::from(machine.read_byte(addr.wrapping_add(1))) << 8)
+}
+
 fn decode_screen_char(glyphs: &[[u8; 8]], cell: [u8; 8]) -> char {
     for (glyph_index, glyph) in glyphs.iter().enumerate() {
         if *glyph == cell {
@@ -192,6 +204,14 @@ impl<M: SpectrumMachine> SessionQueryProvider<SpectrumRuntime<M>> for SpectrumSe
             "spectrum.machine.tstate_in_frame" => json!(machine.tstate_in_frame()),
             "spectrum.tape.loaded" => json!(machine.tape_is_loaded()),
             "spectrum.tape.playing" => json!(machine.tape_is_playing()),
+            "spectrum.basic.prog" => json!(read_word_le(machine, 0x5C53)),
+            "spectrum.basic.vars" => json!(read_word_le(machine, 0x5C4B)),
+            "spectrum.basic.e_line" => json!(read_word_le(machine, 0x5C59)),
+            "spectrum.basic.worksp" => json!(read_word_le(machine, 0x5C61)),
+            "spectrum.basic.e_ppc" => json!(read_word_le(machine, 0x5C49)),
+            "spectrum.basic.newppc" => json!(read_word_le(machine, 0x5C42)),
+            "spectrum.basic.flags" => json!(machine.read_byte(0x5C3B)),
+            "spectrum.basic.mode" => json!(machine.read_byte(0x5C41)),
             _ => return machine.resolve_variant_query(path),
         };
 

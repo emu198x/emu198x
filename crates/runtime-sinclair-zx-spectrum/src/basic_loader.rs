@@ -44,6 +44,7 @@ const TRAILING_BYTES: [u8; 3] = [0x80, 0x0D, 0x80];
 
 const VARS_SYSVAR: u16 = 0x5C4B;
 const E_LINE_SYSVAR: u16 = 0x5C59;
+const K_CUR_SYSVAR: u16 = 0x5C5B;
 const WORKSP_SYSVAR: u16 = 0x5C61;
 const STKBOT_SYSVAR: u16 = 0x5C63;
 const STKEND_SYSVAR: u16 = 0x5C65;
@@ -204,6 +205,15 @@ fn update_system_variables(
     let machine = session.machine_mut().machine_mut();
     write_word_le(machine, VARS_SYSVAR, vars);
     write_word_le(machine, E_LINE_SYSVAR, e_line);
+    // K_CUR is the editor's cursor inside the current edit-line buffer.
+    // After boot it points at E_LINE; if we move E_LINE without updating
+    // K_CUR, the next keypress lands at the OLD K_CUR position — which
+    // is now inside the program area — and the inserted byte corrupts
+    // the program's line header, with the LIST display then interpreting
+    // bytes 0..1 of the program as a wrong line number. Park it at the
+    // start of the now-empty edit area so the editor accepts new input
+    // there.
+    write_word_le(machine, K_CUR_SYSVAR, e_line);
     write_word_le(machine, WORKSP_SYSVAR, worksp);
     write_word_le(machine, STKBOT_SYSVAR, worksp);
     write_word_le(machine, STKEND_SYSVAR, worksp);
