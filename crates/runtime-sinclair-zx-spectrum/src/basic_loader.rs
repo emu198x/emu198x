@@ -136,6 +136,12 @@ pub fn load_basic_program(
 
     let _ = session.wait_for_boot(max_boot_frames)?;
 
+    // Boot detection fires while the copyright banner is still visible
+    // on row 23. One ENTER tap clears the banner and exposes the K
+    // prompt — same shape as autoload_basic_tape.
+    if decoded_prompt_line(session)?.trim_end() != "K" {
+        tap_key(session, "enter")?;
+    }
     let prompt = decoded_prompt_line(session)?;
     if prompt.trim_end() != "K" {
         return Err(LoadBasicError::PromptNotReady { line: prompt });
