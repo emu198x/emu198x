@@ -17,6 +17,7 @@ ui = ["dep:emu198x-native-video", "dep:muda", "dep:winit"]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 emu198x-native-video = { path = "../emu198x-native-video", optional = true }
 emu198x-shell = { path = "../emu198x-shell" }
+format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas" }
 muda = { workspace = true, optional = true }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
 serde = { workspace = true }

@@ -19,9 +19,10 @@ use emu198x_shell::{
     MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, ScriptError,
     ScriptObservation, ScriptStep, read_firmware_asset, read_media_asset,
 };
+use format_sinclair_zx_spectrum_bas::tokenise;
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime, SpectrumSessionQueryProvider,
-    autoload_basic_tape,
+    DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime,
+    SpectrumSessionQueryProvider, autoload_basic_tape, load_basic_program,
 };
 use serde::Serialize;
 
@@ -149,6 +150,9 @@ fn execute_step(
             slot,
             max_boot_frames,
         } => execute_autoload_tape(session, slot, *max_boot_frames).map(Some),
+        ScriptStep::LoadBasicProgram { path, run } => {
+            execute_load_basic_program(session, path, *run).map(Some)
+        }
         other => other
             .execute_collect(session)
             .map_err(map_script_error),
@@ -167,6 +171,33 @@ fn execute_autoload_tape(
     Ok(ScriptObservation::AutoloadTape {
         slot: result.slot,
         boot_frames: result.boot.frames,
+    })
+}
+
+/// Reads one BASIC source file from disk, tokenises it, and installs
+/// the result as the live machine's program via the runtime helper.
+fn execute_load_basic_program(
+    session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+    path: &PathBuf,
+    run: bool,
+) -> Result<ScriptObservation, AppError> {
+    let source = std::fs::read_to_string(path).map_err(|err| {
+        AppError::Io(std::io::Error::other(format!(
+            "failed to read BASIC source {}: {err}",
+            path.display()
+        )))
+    })?;
+    let program = tokenise(&source).map_err(|reason| AppError::Io(std::io::Error::other(
+        format!("failed to tokenise BASIC source {}: {reason}", path.display()),
+    )))?;
+    let result = load_basic_program(session, &program, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
+        .map_err(|err| AppError::Io(std::io::Error::other(format!(
+            "BASIC loader failed for {}: {err}",
+            path.display()
+        ))))?;
+    Ok(ScriptObservation::LoadBasicProgram {
+        program_bytes: result.program_bytes,
+        ran: result.ran,
     })
 }
 
