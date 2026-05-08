@@ -14,8 +14,10 @@
 //! phase shape.
 
 use std::collections::HashMap;
+use std::io::{self, BufRead, Write};
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use thiserror::Error;
 
 /// JSON-RPC 2.0 protocol version literal.
@@ -365,6 +367,225 @@ impl<C> ToolRegistry<C> {
     }
 }
 
+/// MCP protocol version implemented by this server.
+pub const PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// Server identity reported in the `initialize` response.
+#[derive(Debug, Clone)]
+pub struct ServerInfo {
+    /// Stable server name (e.g. `"emu198x-spectrum"`).
+    pub name: String,
+    /// Server version string (typically the cargo `pkg_version!`).
+    pub version: String,
+}
+
+impl ServerInfo {
+    /// Builds a [`ServerInfo`] from string-like parts.
+    #[must_use]
+    pub fn new(name: impl Into<String>, version: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            version: version.into(),
+        }
+    }
+}
+
+/// MCP server: holds the tool registry, handles JSON-RPC method
+/// dispatch, and tracks the initialize-handshake state.
+pub struct Server<C> {
+    info: ServerInfo,
+    registry: ToolRegistry<C>,
+    initialized: bool,
+}
+
+impl<C> Server<C> {
+    /// Builds a new server with an empty registry.
+    #[must_use]
+    pub fn new(info: ServerInfo) -> Self {
+        Self {
+            info,
+            registry: ToolRegistry::new(),
+            initialized: false,
+        }
+    }
+
+    /// Returns a mutable handle on the registry so the binary can
+    /// register its tools after construction.
+    pub fn registry_mut(&mut self) -> &mut ToolRegistry<C> {
+        &mut self.registry
+    }
+
+    /// Returns a read-only handle on the registry.
+    #[must_use]
+    pub fn registry(&self) -> &ToolRegistry<C> {
+        &self.registry
+    }
+
+    /// Returns whether the client has completed the initialize handshake.
+    #[must_use]
+    pub const fn is_initialized(&self) -> bool {
+        self.initialized
+    }
+
+    /// Dispatches one JSON-RPC frame.
+    ///
+    /// Returns `Some(response)` for requests and `None` for notifications
+    /// (per JSON-RPC 2.0; servers must not respond to notifications).
+    pub fn handle(
+        &mut self,
+        request: JsonRpcRequest,
+        context: &mut C,
+    ) -> Option<JsonRpcResponse> {
+        if request.is_notification() {
+            self.handle_notification(&request);
+            return None;
+        }
+
+        let id = request.id.clone()?;
+        let response = match request.method.as_str() {
+            "initialize" => self.handle_initialize(request.params),
+            "tools/list" => self.handle_tools_list(),
+            "tools/call" => self.handle_tools_call(request.params, context),
+            other => Err(JsonRpcError::method_not_found(other)),
+        };
+
+        Some(match response {
+            Ok(value) => JsonRpcResponse::success(id, value),
+            Err(error) => JsonRpcResponse::error(id, error),
+        })
+    }
+
+    fn handle_notification(&mut self, request: &JsonRpcRequest) {
+        if request.method == "notifications/initialized" {
+            self.initialized = true;
+        }
+    }
+
+    fn handle_initialize(
+        &mut self,
+        _params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
+        Ok(json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "capabilities": {
+                "tools": {},
+            },
+            "serverInfo": {
+                "name": self.info.name,
+                "version": self.info.version,
+            },
+        }))
+    }
+
+    fn handle_tools_list(&self) -> Result<serde_json::Value, JsonRpcError> {
+        Ok(json!({ "tools": self.registry.descriptors() }))
+    }
+
+    fn handle_tools_call(
+        &self,
+        params: Option<serde_json::Value>,
+        context: &mut C,
+    ) -> Result<serde_json::Value, JsonRpcError> {
+        let params = params.ok_or_else(|| {
+            JsonRpcError::invalid_params("tools/call requires a params object")
+        })?;
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| JsonRpcError::invalid_params("tools/call params.name is required"))?;
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+
+        let tool = self.registry.get(name).ok_or_else(|| {
+            JsonRpcError::invalid_params(format!("unknown tool: {name}"))
+        })?;
+
+        let response = match tool.call(arguments, context) {
+            Ok(response) => response,
+            Err(err) => ToolResponse::error_text(err.to_string()),
+        };
+        serde_json::to_value(&response).map_err(|err| {
+            JsonRpcError::internal_error(format!("failed to serialize tool response: {err}"))
+        })
+    }
+}
+
+/// Reads newline-delimited JSON-RPC frames from `reader`, dispatches
+/// each one through `server`, and writes responses to `writer`.
+///
+/// Notifications produce no output; parse errors and dispatch errors
+/// produce JSON-RPC error responses (with `id: null` for parse errors,
+/// per the spec). The loop ends when `reader` reaches EOF.
+///
+/// # Errors
+///
+/// Returns the underlying `io::Error` when reading or writing fails.
+/// Tool execution failures are surfaced via `tools/call` responses
+/// with `isError: true` rather than as I/O errors.
+pub fn serve<R, W, C>(
+    server: &mut Server<C>,
+    context: &mut C,
+    reader: R,
+    mut writer: W,
+) -> io::Result<()>
+where
+    R: BufRead,
+    W: Write,
+{
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Some(response) = process_line(server, context, &line) {
+            writeln!(writer, "{response}")?;
+            writer.flush()?;
+        }
+    }
+    Ok(())
+}
+
+/// Convenience wrapper around [`serve`] that uses process stdio.
+///
+/// # Errors
+///
+/// Propagates any I/O error from stdin or stdout.
+pub fn serve_stdio<C>(server: &mut Server<C>, context: &mut C) -> io::Result<()> {
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    serve(server, context, stdin.lock(), stdout.lock())
+}
+
+/// Parses one JSON-RPC line and returns the serialized response (or
+/// `None` for notifications).
+fn process_line<C>(server: &mut Server<C>, context: &mut C, line: &str) -> Option<String> {
+    match serde_json::from_str::<JsonRpcRequest>(line) {
+        Ok(request) => {
+            let response = server.handle(request, context)?;
+            Some(serde_json::to_string(&response).unwrap_or_else(|_| {
+                String::from(r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"failed to serialize response"}}"#)
+            }))
+        }
+        Err(err) => Some(parse_error_response(&err.to_string())),
+    }
+}
+
+fn parse_error_response(message: &str) -> String {
+    serde_json::to_string(&json!({
+        "jsonrpc": JSONRPC_VERSION,
+        "id": null,
+        "error": {
+            "code": error_code::PARSE_ERROR,
+            "message": message,
+        }
+    }))
+    .unwrap_or_else(|_| {
+        String::from(r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}"#)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,6 +783,182 @@ mod tests {
         let mut ctx = ();
         let err = tool.call(json!({}), &mut ctx).expect_err("missing text");
         assert!(matches!(err, ToolError::InvalidArguments(_)));
+    }
+
+    fn build_server_with_echo() -> Server<()> {
+        let mut server = Server::new(ServerInfo::new("test-server", "0.0.1"));
+        server
+            .registry_mut()
+            .register(Box::new(EchoTool { name: "echo" }));
+        server
+    }
+
+    #[test]
+    fn initialize_response_advertises_tools_capability_and_server_info() {
+        let mut server = build_server_with_echo();
+        let request: JsonRpcRequest =
+            serde_json::from_str(r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#)
+                .expect("parse");
+        let response = server.handle(request, &mut ()).expect("response");
+        let result = response.result.expect("success");
+        assert_eq!(result["protocolVersion"], json!(PROTOCOL_VERSION));
+        assert!(result["capabilities"]["tools"].is_object());
+        assert_eq!(result["serverInfo"]["name"], json!("test-server"));
+        assert_eq!(result["serverInfo"]["version"], json!("0.0.1"));
+    }
+
+    #[test]
+    fn notifications_initialized_marks_server_initialized_and_returns_no_response() {
+        let mut server = build_server_with_echo();
+        assert!(!server.is_initialized());
+        let request: JsonRpcRequest =
+            serde_json::from_str(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+                .expect("parse");
+        let response = server.handle(request, &mut ());
+        assert!(response.is_none());
+        assert!(server.is_initialized());
+    }
+
+    #[test]
+    fn tools_list_returns_descriptors_in_insertion_order() {
+        let mut server = Server::new(ServerInfo::new("test", "0"));
+        server
+            .registry_mut()
+            .register(Box::new(EchoTool { name: "alpha" }));
+        server
+            .registry_mut()
+            .register(Box::new(EchoTool { name: "beta" }));
+        let request: JsonRpcRequest =
+            serde_json::from_str(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#)
+                .expect("parse");
+        let response = server.handle(request, &mut ()).expect("response");
+        let tools = response.result.expect("success")["tools"].clone();
+        let names: Vec<_> = tools
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .map(|t| t["name"].as_str().expect("name").to_owned())
+            .collect();
+        assert_eq!(names, vec!["alpha", "beta"]);
+    }
+
+    #[test]
+    fn tools_call_dispatches_to_the_named_tool() {
+        let mut server = build_server_with_echo();
+        let request: JsonRpcRequest = serde_json::from_str(
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"text":"hi"}}}"#,
+        )
+        .expect("parse");
+        let response = server.handle(request, &mut ()).expect("response");
+        let result = response.result.expect("success");
+        // isError is skipped on serialization when false; both shapes
+        // are spec-compliant. Verify it's absent or explicitly false.
+        let is_error = result.get("isError").and_then(|v| v.as_bool()).unwrap_or(false);
+        assert!(!is_error);
+        let content = &result["content"];
+        assert_eq!(content[0]["type"], json!("text"));
+        assert_eq!(content[0]["text"], json!("hi"));
+    }
+
+    #[test]
+    fn tools_call_unknown_tool_returns_invalid_params() {
+        let mut server = build_server_with_echo();
+        let request: JsonRpcRequest = serde_json::from_str(
+            r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nope","arguments":{}}}"#,
+        )
+        .expect("parse");
+        let response = server.handle(request, &mut ()).expect("response");
+        let error = response.error.expect("error");
+        assert_eq!(error.code, error_code::INVALID_PARAMS);
+        assert!(error.message.contains("nope"));
+    }
+
+    #[test]
+    fn tools_call_with_failing_tool_returns_iserror_response_not_jsonrpc_error() {
+        let mut server = build_server_with_echo();
+        // Echo tool requires `text`; missing it triggers ToolError.
+        let request: JsonRpcRequest = serde_json::from_str(
+            r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"echo","arguments":{}}}"#,
+        )
+        .expect("parse");
+        let response = server.handle(request, &mut ()).expect("response");
+        let result = response.result.expect("not a JSON-RPC error");
+        assert_eq!(result["isError"], json!(true));
+        assert!(result["content"][0]["text"]
+            .as_str()
+            .expect("text")
+            .contains("text must be a string"));
+    }
+
+    #[test]
+    fn unknown_method_returns_method_not_found() {
+        let mut server = build_server_with_echo();
+        let request: JsonRpcRequest =
+            serde_json::from_str(r#"{"jsonrpc":"2.0","id":6,"method":"who/knows"}"#)
+                .expect("parse");
+        let response = server.handle(request, &mut ()).expect("response");
+        let error = response.error.expect("error");
+        assert_eq!(error.code, error_code::METHOD_NOT_FOUND);
+    }
+
+    #[test]
+    fn serve_runs_a_full_handshake_through_buffered_io() {
+        let mut server = build_server_with_echo();
+        let input = concat!(
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"text":"hello"}}}"#,
+            "\n",
+        );
+        let mut output = Vec::new();
+        serve(&mut server, &mut (), input.as_bytes(), &mut output)
+            .expect("serve should drain the input cleanly");
+
+        let lines: Vec<&str> = std::str::from_utf8(&output)
+            .expect("utf-8 output")
+            .lines()
+            .collect();
+        // initialize → tools/list → tools/call produce 3 response lines;
+        // the notification produces nothing.
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("protocolVersion"));
+        assert!(lines[1].contains(r#""tools":["#));
+        assert!(lines[2].contains(r#""text":"hello""#));
+        assert!(server.is_initialized());
+    }
+
+    #[test]
+    fn serve_emits_parse_error_with_null_id_for_malformed_input() {
+        let mut server = build_server_with_echo();
+        let mut output = Vec::new();
+        serve(
+            &mut server,
+            &mut (),
+            "not json\n".as_bytes(),
+            &mut output,
+        )
+        .expect("serve should keep going past parse errors");
+        let line = std::str::from_utf8(&output).expect("utf-8");
+        assert!(line.contains(r#""id":null"#));
+        assert!(line.contains(r#""code":-32700"#));
+    }
+
+    #[test]
+    fn serve_skips_blank_lines_silently() {
+        let mut server = build_server_with_echo();
+        let mut output = Vec::new();
+        serve(
+            &mut server,
+            &mut (),
+            "\n   \n\n".as_bytes(),
+            &mut output,
+        )
+        .expect("blank input should be a no-op");
+        assert!(output.is_empty());
     }
 
     #[test]
