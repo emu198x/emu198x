@@ -12,50 +12,7 @@ use std::collections::HashMap;
 
 use muda::{AboutMetadata, CheckMenuItem, Menu, MenuId, PredefinedMenuItem, Submenu};
 
-/// The eight in-scope October-public variants.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum MachineKind {
-    Spectrum16K,
-    Spectrum48K,
-    SpectrumPlus,
-    Spectrum128K,
-    SpectrumPlus2,
-    SpectrumPlus2A,
-    SpectrumPlus2B,
-    SpectrumPlus3,
-}
-
-impl MachineKind {
-    /// Display label used in the Machine menu.
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Spectrum16K => "ZX Spectrum 16K",
-            Self::Spectrum48K => "ZX Spectrum 48K",
-            Self::SpectrumPlus => "ZX Spectrum+",
-            Self::Spectrum128K => "ZX Spectrum 128",
-            Self::SpectrumPlus2 => "ZX Spectrum +2",
-            Self::SpectrumPlus2A => "ZX Spectrum +2A",
-            Self::SpectrumPlus2B => "ZX Spectrum +2B",
-            Self::SpectrumPlus3 => "ZX Spectrum +3",
-        }
-    }
-
-    /// All eight variants in catalogue order (16K → 48K → Plus → 128K
-    /// → +2 → +2A → +2B → +3). Stable iteration order matters for the
-    /// menu layout and the radio-style "current" indicator.
-    pub const fn all() -> [Self; 8] {
-        [
-            Self::Spectrum16K,
-            Self::Spectrum48K,
-            Self::SpectrumPlus,
-            Self::Spectrum128K,
-            Self::SpectrumPlus2,
-            Self::SpectrumPlus2A,
-            Self::SpectrumPlus2B,
-            Self::SpectrumPlus3,
-        ]
-    }
-}
+use crate::machine::MachineKind;
 
 /// Commands the App processes at frame boundaries. The same enum is
 /// pushed by every event source (muda menu clicks today; winit

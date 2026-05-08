@@ -29,7 +29,7 @@ use runtime_sinclair_zx_spectrum::{
     SpectrumPlus3Runtime, SpectrumPlusRuntime, SpectrumRuntime, SpectrumSessionQueryProvider,
 };
 
-use crate::menu::MachineKind;
+use crate::machine::MachineKind;
 
 /// Object-safe surface every Spectrum runtime exposes to the binary.
 ///
