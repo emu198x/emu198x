@@ -729,12 +729,15 @@ impl ApplicationHandler for SpectrumApp {
             Ok(frames_completed) => {
                 if frames_completed > 0 {
                     self.fps_window_frames += frames_completed;
-                    let elapsed = self.fps_window_start.elapsed();
-                    if elapsed >= Duration::from_secs(1) {
-                        let fps = f64::from(self.fps_window_frames) / elapsed.as_secs_f64();
-                        eprintln!("emu fps: {fps:.1}");
-                        self.fps_window_start = Instant::now();
-                        self.fps_window_frames = 0;
+                    if std::env::var_os("EMU198X_FPS").is_some() {
+                        let elapsed = self.fps_window_start.elapsed();
+                        if elapsed >= Duration::from_secs(1) {
+                            let fps =
+                                f64::from(self.fps_window_frames) / elapsed.as_secs_f64();
+                            eprintln!("emu fps: {fps:.1}");
+                            self.fps_window_start = Instant::now();
+                            self.fps_window_frames = 0;
+                        }
                     }
                     if let Some(window) = &self.window {
                         window.set_title(&self.window_title());
