@@ -335,6 +335,8 @@ struct SpectrumApp {
     current_machine: MachineKind,
     command_tx: Sender<AppCommand>,
     command_rx: Receiver<AppCommand>,
+    fps_window_start: Instant,
+    fps_window_frames: u32,
 }
 
 impl SpectrumApp {
@@ -371,6 +373,8 @@ impl SpectrumApp {
             current_machine,
             command_tx,
             command_rx,
+            fps_window_start: Instant::now(),
+            fps_window_frames: 0,
         })
     }
 
@@ -708,6 +712,14 @@ impl ApplicationHandler for SpectrumApp {
 
         match self.advance_machine() {
             Ok(true) => {
+                self.fps_window_frames += 1;
+                let elapsed = self.fps_window_start.elapsed();
+                if elapsed >= Duration::from_secs(1) {
+                    let fps = self.fps_window_frames as f64 / elapsed.as_secs_f64();
+                    eprintln!("emu fps: {fps:.1}");
+                    self.fps_window_start = Instant::now();
+                    self.fps_window_frames = 0;
+                }
                 if let Some(window) = &self.window {
                     window.set_title(&self.window_title());
                     window.request_redraw();
