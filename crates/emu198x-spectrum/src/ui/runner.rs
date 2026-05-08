@@ -304,6 +304,12 @@ impl SpectrumRunner {
     }
 
     fn tap_key(&mut self, name: &'static str) -> Result<(), AppError> {
+        // Two frames per state change matches the runtime crate's
+        // `autoload::tap_key` (KEY_EDGE_FRAMES = 2). Holding the press
+        // for two frames is what makes the editor reliably register
+        // each keystroke; cutting it to one frame works on tap_key in
+        // isolation but breaks tap_symbol_combo because the chord is
+        // held for too short a window between state changes.
         self.run_frame(&[InputEvent::Key {
             name: name.into(),
             pressed: true,
@@ -318,22 +324,32 @@ impl SpectrumRunner {
     }
 
     fn tap_symbol_combo(&mut self, name: &'static str) -> Result<(), AppError> {
+        // Eight frames total — symbol down (hold 2), name down (hold 2,
+        // chord held), name up (hold 2, symbol still down), symbol up
+        // (hold 2). Matches `autoload::tap_symbol_combo` so the editor
+        // sees both keys overlap long enough to register the symbol
+        // shift, and the gap before the next combo lets the editor
+        // settle so consecutive `"` insertions don't collapse.
         self.run_frame(&[InputEvent::Key {
             name: "symbol".into(),
             pressed: true,
         }])?;
+        self.run_frame(&[])?;
         self.run_frame(&[InputEvent::Key {
             name: name.into(),
             pressed: true,
         }])?;
+        self.run_frame(&[])?;
         self.run_frame(&[InputEvent::Key {
             name: name.into(),
             pressed: false,
         }])?;
+        self.run_frame(&[])?;
         self.run_frame(&[InputEvent::Key {
             name: "symbol".into(),
             pressed: false,
         }])?;
+        self.run_frame(&[])?;
         Ok(())
     }
 
