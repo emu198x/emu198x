@@ -78,7 +78,7 @@ impl SpectrumApp {
         let slice_ticks = subframe_ticks(runner.native_frame_ticks);
         let slice_duration = subframe_duration(runner.frame_duration());
         let current_machine = MachineKind::Spectrum48K;
-        let menu = AppMenu::new(current_machine, runner.supports_disk_slot());
+        let menu = AppMenu::new(current_machine, runner.supports_disk_slot(), scale, video);
         let (command_tx, command_rx) = mpsc::channel();
         Ok(Self {
             runner,
@@ -355,8 +355,41 @@ impl SpectrumApp {
             AppCommand::OpenTape => self.open_tape(),
             AppCommand::OpenDisk => self.open_disk(),
             AppCommand::SaveSnapshot => self.save_snapshot(),
+            AppCommand::SetWindowScale(scale) => self.set_window_scale(scale),
+            AppCommand::SetVideoFilter(filter) => self.set_video_filter(filter),
             AppCommand::OpenUrl(url) => Self::open_url(url),
         }
+    }
+
+    /// Resizes the window to `scale × native frame` and refreshes the
+    /// View menu radio so only the new scale is checked. winit's
+    /// `request_inner_size` tells the OS the new size; the resize
+    /// event then drives the wgpu surface reconfigure.
+    fn set_window_scale(&mut self, scale: u32) {
+        if scale == 0 {
+            eprintln!("view: rejecting zero scale");
+            return;
+        }
+        self.scale = scale;
+        if let Some(window) = &self.window {
+            let logical_width = f64::from((SCREEN_WIDTH as u32).saturating_mul(scale));
+            let logical_height = f64::from((SCREEN_HEIGHT as u32).saturating_mul(scale));
+            let _ = window.request_inner_size(LogicalSize::new(logical_width, logical_height));
+            window.request_redraw();
+        }
+        self.menu.set_current_scale(scale);
+        eprintln!("view: window scale → {scale}×");
+    }
+
+    /// Switches the post-framebuffer video filter and refreshes the
+    /// View menu radio.
+    fn set_video_filter(&mut self, filter: VideoFilter) {
+        self.presentation = PresentationProfile::for_filter(filter);
+        self.menu.set_current_filter(filter);
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+        eprintln!("view: video filter → {filter:?}");
     }
 
     /// Pops a snapshot file picker and restores the selection if the

@@ -10,9 +10,18 @@
 
 use std::collections::HashMap;
 
+use emu198x_native_video::VideoFilter;
 use muda::{AboutMetadata, CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
 use crate::machine::MachineKind;
+
+/// Window-scale values exposed in the View menu's radio group.
+pub const SCALE_OPTIONS: &[u32] = &[1, 2, 3, 4];
+
+/// Video-filter values exposed in the View menu's radio group, in the
+/// order they appear.
+pub const FILTER_OPTIONS: &[VideoFilter] =
+    &[VideoFilter::Raw, VideoFilter::Lcd, VideoFilter::Crt];
 
 /// Commands the App processes at frame boundaries. The same enum is
 /// pushed by every event source (muda menu clicks; winit keyboard
@@ -21,6 +30,10 @@ use crate::machine::MachineKind;
 pub enum AppCommand {
     /// Switch the live machine to one of the eight in-scope variants.
     SwitchMachine(MachineKind),
+    /// Resize the window to one integer multiple of the native frame.
+    SetWindowScale(u32),
+    /// Switch the post-framebuffer video filter.
+    SetVideoFilter(VideoFilter),
     /// Pop a file picker for a snapshot file (`.sna` / `.z80`) and
     /// restore it into the live machine.
     OpenSnapshot,
@@ -62,13 +75,22 @@ pub struct AppMenu {
     /// when the live variant's disk-slot support changes (only +3
     /// today).
     pub open_disk_item: MenuItem,
+    /// View > Window Scale radio items, parallel to [`SCALE_OPTIONS`].
+    pub scale_items: Vec<(u32, CheckMenuItem)>,
+    /// View > Video Filter radio items, parallel to [`FILTER_OPTIONS`].
+    pub filter_items: Vec<(VideoFilter, CheckMenuItem)>,
     /// Maps a clicked item's ID back to the command it represents.
     pub action_map: HashMap<MenuId, AppCommand>,
 }
 
 impl AppMenu {
-    /// Builds the menu structure with `current` checked.
-    pub fn new(current: MachineKind, supports_disk: bool) -> Self {
+    /// Builds the menu structure with `current` machine, scale, and filter checked.
+    pub fn new(
+        current: MachineKind,
+        supports_disk: bool,
+        current_scale: u32,
+        current_filter: VideoFilter,
+    ) -> Self {
         let root = Menu::new();
 
         // macOS treats the first submenu as the application menu and
@@ -127,6 +149,28 @@ impl AppMenu {
         root.append(&machine_submenu)
             .expect("append Machine submenu");
 
+        let view_submenu = Submenu::new("View", true);
+        let mut scale_items = Vec::with_capacity(SCALE_OPTIONS.len());
+        for &scale in SCALE_OPTIONS {
+            let label = format!("Window Scale {scale}×");
+            let item = CheckMenuItem::new(label, true, scale == current_scale, None);
+            action_map.insert(item.id().clone(), AppCommand::SetWindowScale(scale));
+            view_submenu.append(&item).expect("append scale item");
+            scale_items.push((scale, item));
+        }
+        view_submenu
+            .append(&PredefinedMenuItem::separator())
+            .expect("append view separator");
+        let mut filter_items = Vec::with_capacity(FILTER_OPTIONS.len());
+        for &filter in FILTER_OPTIONS {
+            let item =
+                CheckMenuItem::new(filter_label(filter), true, filter == current_filter, None);
+            action_map.insert(item.id().clone(), AppCommand::SetVideoFilter(filter));
+            view_submenu.append(&item).expect("append filter item");
+            filter_items.push((filter, item));
+        }
+        root.append(&view_submenu).expect("append View submenu");
+
         let state_submenu = Submenu::new("State", true);
         let save_snapshot_item = MenuItem::new("Save Snapshot...", true, None);
         let load_snapshot_item = MenuItem::new("Load Snapshot...", true, None);
@@ -154,6 +198,8 @@ impl AppMenu {
             root,
             machine_items,
             open_disk_item,
+            scale_items,
+            filter_items,
             action_map,
         }
     }
@@ -186,5 +232,34 @@ impl AppMenu {
         for (kind, item) in &self.machine_items {
             item.set_checked(*kind == current);
         }
+    }
+
+    /// Refreshes the View > Window Scale radio so only `scale` is
+    /// checked. `scale` outside [`SCALE_OPTIONS`] leaves no item
+    /// checked — accurate for callers running at a non-menu scale.
+    pub fn set_current_scale(&self, scale: u32) {
+        for (option, item) in &self.scale_items {
+            item.set_checked(*option == scale);
+        }
+    }
+
+    /// Refreshes the View > Video Filter radio so only `filter` is
+    /// checked.
+    pub fn set_current_filter(&self, filter: VideoFilter) {
+        for (option, item) in &self.filter_items {
+            item.set_checked(*option == filter);
+        }
+    }
+}
+
+fn filter_label(filter: VideoFilter) -> &'static str {
+    // VideoFilter is #[non_exhaustive] so the match needs a fallback;
+    // future additions surface as a generic label until they're given
+    // a proper one here.
+    match filter {
+        VideoFilter::Raw => "Video Filter: Raw",
+        VideoFilter::Lcd => "Video Filter: LCD",
+        VideoFilter::Crt => "Video Filter: CRT",
+        _ => "Video Filter",
     }
 }
