@@ -172,6 +172,21 @@ pub enum ScriptStep {
         /// before failing the autoload.
         max_boot_frames: u32,
     },
+    /// Tokenise one plain-text `.bas` file and install it as the
+    /// machine's current BASIC program.
+    ///
+    /// System-specific (the tokeniser and RAM-poke routines are per
+    /// dialect); same dispatch pattern as [`Self::SetMachine`] —
+    /// the binary intercepts this step before delegation. When `run`
+    /// is `true` (the default), the binary also drives the editor's
+    /// RUN keyword so the program starts executing.
+    LoadBasicProgram {
+        /// Path to the plain-text BASIC source file on disk.
+        path: PathBuf,
+        /// Whether to immediately RUN the program after installing it.
+        #[serde(default = "default_true")]
+        run: bool,
+    },
     /// Begin recording the live framebuffer + audio to one MP4 file.
     ///
     /// Subsequent `RunFrames` / wait steps tee every emitted frame into the
@@ -273,6 +288,14 @@ pub enum ScriptObservation {
         slot: String,
         /// Number of native frames spent waiting for boot.
         boot_frames: u32,
+    },
+    /// Result of installing one tokenised BASIC program.
+    LoadBasicProgram {
+        /// Tokenised program length in bytes.
+        program_bytes: u16,
+        /// Whether the binary drove the editor to `RUN` the program
+        /// after installing it.
+        ran: bool,
     },
     /// Result of finalising one video recording.
     StopVideoRecording {
@@ -460,6 +483,9 @@ impl ScriptStep {
             }),
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
+            }),
+            Self::LoadBasicProgram { .. } => Err(ScriptError::SystemSpecificStep {
+                step: "load_basic_program",
             }),
             Self::StartVideoRecording { path } => {
                 session.start_video_recording(path.clone())?;
@@ -968,6 +994,66 @@ mod tests {
             Err(ScriptError::SystemSpecificStep { step }) => assert_eq!(step, "autoload_tape"),
             other => panic!("expected SystemSpecificStep error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn load_basic_program_round_trips_through_json() {
+        let json = r#"[{"action":"load_basic_program","path":"hello.bas","run":true}]"#;
+        let script = HeadlessScript::from_json_str(json).expect("script should parse");
+        assert_eq!(
+            script.steps,
+            vec![ScriptStep::LoadBasicProgram {
+                path: PathBuf::from("hello.bas"),
+                run: true,
+            }]
+        );
+        let serialized = serde_json::to_string(&script.steps).expect("re-serialize");
+        assert_eq!(serialized, json);
+    }
+
+    #[test]
+    fn load_basic_program_defaults_run_to_true_when_omitted() {
+        let json = r#"[{"action":"load_basic_program","path":"hello.bas"}]"#;
+        let script = HeadlessScript::from_json_str(json).expect("script should parse");
+        assert_eq!(
+            script.steps,
+            vec![ScriptStep::LoadBasicProgram {
+                path: PathBuf::from("hello.bas"),
+                run: true,
+            }]
+        );
+    }
+
+    #[test]
+    fn load_basic_program_step_returns_system_specific_error_from_shell_executor() {
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+        let step = ScriptStep::LoadBasicProgram {
+            path: PathBuf::from("hello.bas"),
+            run: true,
+        };
+        match step.execute_collect(&mut session) {
+            Err(ScriptError::SystemSpecificStep { step }) => {
+                assert_eq!(step, "load_basic_program");
+            }
+            other => panic!("expected SystemSpecificStep, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_basic_program_observation_serializes_summary_fields() {
+        let observation = ScriptObservation::LoadBasicProgram {
+            program_bytes: 42,
+            ran: true,
+        };
+        let json = serde_json::to_string(&observation).expect("serialize");
+        assert_eq!(
+            json,
+            r#"{"kind":"load_basic_program","program_bytes":42,"ran":true}"#
+        );
     }
 
     #[test]
