@@ -32,6 +32,8 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna" }
+format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" }
 png = { workspace = true }
 
 [lints]

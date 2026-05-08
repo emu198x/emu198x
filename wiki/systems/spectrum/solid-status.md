@@ -41,10 +41,17 @@ Phantom variant markers keep every SOLID variant type-distinct, including pairs 
 
 TAP (`format-sinclair-zx-spectrum-tap`), TZX (`format-sinclair-zx-spectrum-tzx`), Z80 (`format-sinclair-zx-spectrum-z80`), and SNA (`format-sinclair-zx-spectrum-sna`) all implemented as separate crates. Shared `Snapshot` and `SnapshotModel` types live in `format-sinclair-zx-spectrum-snapshot`. DSK/EDSK shared with Amstrad CPC via `format-amstrad-dsk`. SNA / Z80 *import* now wires end-to-end (parser → `apply_snapshot` per-variant → live runtime, landed 2026-05-08).
 
-PARTIAL because:
+**Cross-variant format-load matrix landed 2026-05-08** at `crates/runtime-sinclair-zx-spectrum/tests/format_matrix.rs`. 33 tests, all green, no `#[ignore]`, no real-ROM dependency: every (variant, format) cell that should load actually loads. Fixtures are synthetic minimum-valid files built inline. Pairings:
+
+- **TAP / TZX** — all 8 variants.
+- **SNA-48K / Z80-v1** — 16K, 48K, Spectrum+ (48K-class).
+- **SNA-128K / Z80-v2** — 128K, +2, +2A, +2B, +3 (128K-family).
+- **DSK** — +3 only; asserts `load_media` succeeds.
+
+Still PARTIAL because:
 
 - DSK/EDSK *loading* on the +3 sits on the Loader screen and never advances — the format parses correctly and reaches `fdc.insert_disk`, but the µPD765A ↔ +3 BIOS command path isn't completing end-to-end. Captured at `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md`. Not blocking October — Code198x's curriculum is tape-only.
-- Cross-variant format coverage hasn't been exercised systematically: every format crate has its own parser tests, but the "load *this* format on *that* variant" matrix isn't tested in CI.
+- Cross-class loads (e.g., 48K SNA on 128K) aren't exercised; users always pair format flavour to machine, but a graceful-error follow-up would harden the surface further.
 
 ### 4. Pipeline / single binary — DONE
 
