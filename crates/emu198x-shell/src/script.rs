@@ -141,6 +141,37 @@ pub enum ScriptStep {
         #[serde(default = "default_true")]
         reset_after: bool,
     },
+    /// Switch the live machine to the named variant, loading its
+    /// default ROM bundle from the conventional on-disk location.
+    ///
+    /// `machine` is a system-specific identifier (e.g.
+    /// `"spectrum_48k"`, `"spectrum_128k"`) that the binary translates
+    /// to its native machine kind and ROM-bundle resolver. The shell
+    /// crate stays system-agnostic and surfaces this step via
+    /// [`ScriptError::SystemSpecificStep`] when its built-in executor
+    /// is asked to run it without a binary-side handler.
+    ///
+    /// Always resets in-progress state — loaded media, snapshots,
+    /// frame counter, audio buffer. Use this as the first step of
+    /// any script that targets a non-default variant.
+    SetMachine {
+        /// Snake-case variant identifier (binary-defined vocabulary).
+        machine: String,
+    },
+    /// Wait for boot, then drive the BASIC editor to type `LOAD ""`
+    /// and start tape transport on the named slot.
+    ///
+    /// Wraps the existing host-side `autoload_basic_tape` helper.
+    /// System-specific (the helper currently lives in
+    /// `runtime-sinclair-zx-spectrum`); same dispatch pattern as
+    /// [`Self::SetMachine`].
+    AutoloadTape {
+        /// Stable slot identifier carrying the tape (e.g. `"tape-1"`).
+        slot: String,
+        /// Maximum number of native frames to spend waiting for boot
+        /// before failing the autoload.
+        max_boot_frames: u32,
+    },
 }
 
 /// One JSON script made of ordered shared steps.
@@ -210,6 +241,22 @@ pub enum ScriptObservation {
     QueryPaths {
         /// Query-path listing response.
         result: QueryPathsResult,
+    },
+    /// Result of switching the live machine.
+    SetMachine {
+        /// The variant identifier requested by the script.
+        machine: String,
+        /// Resolved profile id reached after the switch.
+        profile_id: String,
+        /// Resolved display name reached after the switch.
+        display_name: String,
+    },
+    /// Result of an autoload-tape sequence.
+    AutoloadTape {
+        /// Slot the tape was autoloaded from.
+        slot: String,
+        /// Number of native frames spent waiting for boot.
+        boot_frames: u32,
     },
 }
 
@@ -381,6 +428,12 @@ impl ScriptStep {
                 }
                 Ok(None)
             }
+            Self::SetMachine { .. } => Err(ScriptError::SystemSpecificStep {
+                step: "set_machine",
+            }),
+            Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
+                step: "autoload_tape",
+            }),
         }
     }
 }
@@ -407,6 +460,15 @@ pub enum ScriptError {
     /// Query resolution failed.
     #[error(transparent)]
     Query(#[from] QueryError),
+
+    /// One step requires a binary-side handler the shell crate does
+    /// not own (e.g. `SetMachine`, `AutoloadTape`). Per-system binaries
+    /// intercept these steps before delegating to the shell executor.
+    #[error("script step `{step}` requires a system-specific handler")]
+    SystemSpecificStep {
+        /// The step's serde tag (e.g. `"set_machine"`, `"autoload_tape"`).
+        step: &'static str,
+    },
 }
 
 const fn default_true() -> bool {
@@ -798,6 +860,92 @@ mod tests {
                 frames: 2,
                 reached: MachineTime::new(139_776),
             }]
+        );
+    }
+
+    #[test]
+    fn set_machine_round_trips_through_json() {
+        let json = r#"[{"action":"set_machine","machine":"spectrum_48k"}]"#;
+        let script = HeadlessScript::from_json_str(json).expect("script should parse");
+        assert_eq!(
+            script.steps,
+            vec![ScriptStep::SetMachine {
+                machine: "spectrum_48k".to_owned(),
+            }]
+        );
+        let serialized = serde_json::to_string(&script.steps).expect("re-serialize");
+        assert_eq!(
+            serialized,
+            r#"[{"action":"set_machine","machine":"spectrum_48k"}]"#
+        );
+    }
+
+    #[test]
+    fn set_machine_step_returns_system_specific_error_from_shell_executor() {
+        // Shell-level executor stays system-agnostic; the binary
+        // intercepts SetMachine before delegating. Calling the shell
+        // executor directly surfaces the error the binary uses to
+        // detect "this is one of mine".
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+        let step = ScriptStep::SetMachine {
+            machine: "spectrum_48k".to_owned(),
+        };
+        match step.execute_collect(&mut session) {
+            Err(ScriptError::SystemSpecificStep { step }) => assert_eq!(step, "set_machine"),
+            other => panic!("expected SystemSpecificStep error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn autoload_tape_round_trips_through_json() {
+        let json = r#"[{"action":"autoload_tape","slot":"tape-1","max_boot_frames":250}]"#;
+        let script = HeadlessScript::from_json_str(json).expect("script should parse");
+        assert_eq!(
+            script.steps,
+            vec![ScriptStep::AutoloadTape {
+                slot: "tape-1".to_owned(),
+                max_boot_frames: 250,
+            }]
+        );
+    }
+
+    #[test]
+    fn autoload_tape_step_returns_system_specific_error_from_shell_executor() {
+        let mut session = HeadlessSession::new_with_query_provider(
+            DummyMachine::new(),
+            69_888,
+            DummyQueryProvider,
+        );
+        let step = ScriptStep::AutoloadTape {
+            slot: "tape-1".to_owned(),
+            max_boot_frames: 100,
+        };
+        match step.execute_collect(&mut session) {
+            Err(ScriptError::SystemSpecificStep { step }) => assert_eq!(step, "autoload_tape"),
+            other => panic!("expected SystemSpecificStep error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn set_machine_observation_uses_machine_field_to_avoid_kind_tag_clash() {
+        // The ScriptObservation enum is internally tagged with
+        // `kind: <variant_name>`. A field literally named `kind`
+        // collides; we use `machine` instead. This regression test
+        // freezes the JSON shape so a future "rename for symmetry"
+        // edit doesn't accidentally break Code198x's report parsers.
+        let observation = ScriptObservation::SetMachine {
+            machine: "spectrum_48k".to_owned(),
+            profile_id: "sinclair-zx-spectrum-48k-pal".to_owned(),
+            display_name: "ZX Spectrum 48K (PAL)".to_owned(),
+        };
+        let json = serde_json::to_string(&observation).expect("serialize observation");
+        assert_eq!(
+            json,
+            r#"{"kind":"set_machine","machine":"spectrum_48k","profile_id":"sinclair-zx-spectrum-48k-pal","display_name":"ZX Spectrum 48K (PAL)"}"#
         );
     }
 }
