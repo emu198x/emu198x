@@ -1,6 +1,6 @@
 //! Shared headless session state above one machine runtime.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
@@ -9,13 +9,16 @@ use crate::control::ControlCommand;
 use crate::error::MachineError;
 use crate::headless::prepare_machine;
 use crate::host::{HostIo, InputEvent, NullTraceSink, TraceSink};
-use crate::machine::{MachineCore, RunResult};
+use crate::machine::{MachineCore, RunResult, StopReason};
 use crate::media::MediaSet;
 use crate::query::{
     NoAdditionalQueries, QueryError, QueryPathsResult, QueryResult, SessionQueryProvider,
     query_paths, query_value,
 };
 use crate::time::MachineTime;
+use crate::video::{
+    VideoRecorder, VideoRecordingError, VideoRecordingSummary, compute_fps,
+};
 
 /// Error surfaced by shared headless session helpers.
 #[derive(Debug, Error)]
@@ -74,6 +77,18 @@ pub enum SessionError {
         expected: bool,
         /// Maximum number of frames the wait helper was allowed to run.
         max_frames: u32,
+    },
+
+    /// One video recording operation failed.
+    #[error(transparent)]
+    Video(#[from] VideoRecordingError),
+
+    /// One state-mutating operation was rejected because a video recording
+    /// is in flight (e.g. snapshot restore would jump-cut the clip).
+    #[error("operation `{operation}` is not allowed while video recording is active")]
+    DisallowedDuringRecording {
+        /// The rejected operation's stable name.
+        operation: &'static str,
     },
 }
 
@@ -137,6 +152,7 @@ pub struct HeadlessSession<M, Q = NoAdditionalQueries> {
     trace_sink: NullTraceSink,
     last_run_result: Option<RunResult>,
     query_provider: Q,
+    recorder: Option<VideoRecorder>,
 }
 
 impl<M> HeadlessSession<M, NoAdditionalQueries> {
@@ -161,6 +177,7 @@ impl<M, Q> HeadlessSession<M, Q> {
             trace_sink: NullTraceSink,
             last_run_result: None,
             query_provider,
+            recorder: None,
         }
     }
 
@@ -512,8 +529,15 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     ///
     /// # Errors
     ///
-    /// Returns an error if snapshot restore fails.
+    /// Returns an error if snapshot restore fails, or
+    /// [`SessionError::DisallowedDuringRecording`] when a video recording is
+    /// in flight (a snapshot restore would jump-cut the clip).
     pub fn restore_snapshot(&mut self, bytes: &[u8]) -> Result<(), SessionError> {
+        if self.recorder.is_some() {
+            return Err(SessionError::DisallowedDuringRecording {
+                operation: "restore_snapshot",
+            });
+        }
         self.machine.restore(bytes)?;
         Ok(())
     }
@@ -539,11 +563,22 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
 
     /// Runs the machine until the requested target time.
     ///
+    /// While a video recording is active, the call is internally chunked into
+    /// native-frame-sized steps so every emitted frame can be teed into the
+    /// recorder.
+    ///
     /// # Errors
     ///
     /// Returns an error if the machine or one host-side sink rejects the
-    /// execution request.
+    /// execution request, or if writing to the active recorder fails.
     pub fn run_until(&mut self, target: MachineTime) -> Result<RunResult, SessionError> {
+        if self.recorder.is_some() {
+            return self.run_until_recording(target);
+        }
+        self.run_until_inner(target)
+    }
+
+    fn run_until_inner(&mut self, target: MachineTime) -> Result<RunResult, SessionError> {
         let inputs = std::mem::take(&mut self.queued_input);
         let mut host = HostIo {
             input_events: &inputs,
@@ -554,6 +589,33 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         let result = self.machine.run_until(target, &mut host)?;
         self.last_run_result = Some(result);
         Ok(result)
+    }
+
+    fn run_until_recording(&mut self, target: MachineTime) -> Result<RunResult, SessionError> {
+        let mut last = RunResult::new(self.machine.time(), StopReason::ReachedTarget);
+        while self.machine.time() < target {
+            let chunk_end = self
+                .machine
+                .time()
+                .saturating_add(self.native_frame_ticks)
+                .get()
+                .min(target.get());
+            last = self.run_until_inner(MachineTime::new(chunk_end))?;
+            self.tee_frame_to_recorder()?;
+        }
+        Ok(last)
+    }
+
+    fn tee_frame_to_recorder(&mut self) -> Result<(), SessionError> {
+        let Self {
+            frame_capture,
+            recorder,
+            ..
+        } = self;
+        if let (Some(recorder), Some(frame)) = (recorder.as_mut(), frame_capture.frame()) {
+            recorder.push_frame(frame)?;
+        }
+        Ok(())
     }
 
     /// Runs the machine until the requested target time, emitting trace events
@@ -650,6 +712,61 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         self.audio_capture = AudioCapture::default();
     }
 
+    /// Returns whether a video recording is currently in flight.
+    #[must_use]
+    pub const fn is_recording(&self) -> bool {
+        self.recorder.is_some()
+    }
+
+    /// Begins a video recording, writing the final MP4 to `output_path`.
+    ///
+    /// Width and height are taken from the latest emitted frame, so callers
+    /// must run at least one frame before invoking this. Frame rate is
+    /// derived from the machine profile's clock and the session's native
+    /// frame timing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::Video`] wrapping [`VideoRecordingError::AlreadyRecording`]
+    /// when a recording is already in flight, [`VideoRecordingError::NoFrameYet`]
+    /// when no frame has been emitted yet, or [`VideoRecordingError::FfmpegNotFound`]
+    /// / [`VideoRecordingError::FfmpegSpawn`] when ffmpeg cannot start.
+    pub fn start_video_recording(&mut self, output_path: PathBuf) -> Result<(), SessionError> {
+        if self.recorder.is_some() {
+            return Err(SessionError::Video(VideoRecordingError::AlreadyRecording));
+        }
+        let Some(frame) = self.frame_capture.frame() else {
+            return Err(SessionError::Video(VideoRecordingError::NoFrameYet));
+        };
+        let fps = compute_fps(self.machine.profile().clock.rate, self.native_frame_ticks);
+        let recorder = VideoRecorder::start(
+            output_path,
+            frame.width,
+            frame.height,
+            fps,
+            self.machine.time(),
+        )?;
+        self.recorder = Some(recorder);
+        Ok(())
+    }
+
+    /// Finalises the in-flight video recording.
+    ///
+    /// Audio captured between start and stop is muxed into the final MP4.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VideoRecordingError::NotRecording`] when no recording is in
+    /// flight, or surfaces ffmpeg failures from the finalisation pass.
+    pub fn stop_video_recording(&mut self) -> Result<VideoRecordingSummary, SessionError> {
+        let recorder = self
+            .recorder
+            .take()
+            .ok_or(SessionError::Video(VideoRecordingError::NotRecording))?;
+        let summary = recorder.finish(self.audio_capture.audio())?;
+        Ok(summary)
+    }
+
     fn boot_query_state(&self) -> Result<BootQueryState, SessionError> {
         let detected = self.query_bool("boot.detected")?;
         let reason = self
@@ -739,6 +856,8 @@ mod tests {
     use crate::{MediaImage, MediaKind};
     use serde_json::json;
 
+    const DUMMY_FRAME_PIXELS: [u8; 32 * 32] = [1; 32 * 32];
+
     struct DummyMachine {
         profile: MachineProfile,
         time: MachineTime,
@@ -760,7 +879,7 @@ mod tests {
                     support_tier: SupportTier::Research,
                     release_year: 1982,
                     summary: "dummy".into(),
-                    clock: ClockDesc::new("master-cycle", ClockRate::from_hz(1)),
+                    clock: ClockDesc::new("master-cycle", ClockRate::from_hz(3_500_000)),
                     firmware: vec![FirmwareRequirement::new("rom-0", "ROM 0", false)],
                     media_slots: vec![MediaSlot::new(
                         "tape-1",
@@ -809,10 +928,10 @@ mod tests {
             host.frame_sink.push_frame(FramePacket {
                 timestamp: target,
                 format: PixelFormat::Indexed8,
-                width: 1,
-                height: 1,
+                width: 32,
+                height: 32,
                 palette: Some(&[0x000000FF, 0xFFFFFFFF]),
-                pixels: &[1],
+                pixels: &DUMMY_FRAME_PIXELS,
             })?;
 
             host.audio_sink.push_audio(AudioPacket {
@@ -1168,6 +1287,140 @@ mod tests {
                 reached: MachineTime::new(139_776),
             }
         );
+    }
+
+    #[test]
+    fn start_video_recording_rejects_when_no_frame_has_been_emitted() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-session-no-frame-{}.mp4",
+            std::process::id()
+        ));
+        let err = session
+            .start_video_recording(path)
+            .expect_err("should refuse pre-frame start");
+        assert!(matches!(
+            err,
+            SessionError::Video(crate::video::VideoRecordingError::NoFrameYet)
+        ));
+        assert!(!session.is_recording());
+    }
+
+    #[test]
+    fn restore_snapshot_is_blocked_while_recording_is_active() {
+        if crate::video::find_ffmpeg().is_none() {
+            eprintln!("skipping: ffmpeg not on PATH");
+            return;
+        }
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
+        session.run_frames(1).expect("frame should run");
+
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-session-guard-{}-{}.mp4",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after unix epoch")
+                .as_nanos()
+        ));
+        session
+            .start_video_recording(path.clone())
+            .expect("recording should start");
+        assert!(session.is_recording());
+
+        let err = session
+            .restore_snapshot(&[0x00])
+            .expect_err("snapshot restore should be blocked");
+        assert!(matches!(
+            err,
+            SessionError::DisallowedDuringRecording {
+                operation: "restore_snapshot",
+            }
+        ));
+
+        let summary = session
+            .stop_video_recording()
+            .expect("recording should stop cleanly");
+        assert!(!session.is_recording());
+        let _ = std::fs::remove_file(summary.path);
+    }
+
+    #[test]
+    fn nested_start_video_recording_is_rejected() {
+        if crate::video::find_ffmpeg().is_none() {
+            eprintln!("skipping: ffmpeg not on PATH");
+            return;
+        }
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
+        session.run_frames(1).expect("frame should run");
+
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-session-nested-{}-{}.mp4",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after unix epoch")
+                .as_nanos()
+        ));
+        session
+            .start_video_recording(path.clone())
+            .expect("first start should succeed");
+
+        let err = session
+            .start_video_recording(path.clone())
+            .expect_err("second start should be rejected");
+        assert!(matches!(
+            err,
+            SessionError::Video(crate::video::VideoRecordingError::AlreadyRecording)
+        ));
+
+        let summary = session.stop_video_recording().expect("stop should succeed");
+        let _ = std::fs::remove_file(summary.path);
+    }
+
+    #[test]
+    fn stop_video_recording_without_start_errors() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
+        let err = session
+            .stop_video_recording()
+            .expect_err("stop without start should error");
+        assert!(matches!(
+            err,
+            SessionError::Video(crate::video::VideoRecordingError::NotRecording)
+        ));
+    }
+
+    #[test]
+    fn run_frames_during_recording_tees_each_frame_into_the_recorder() {
+        if crate::video::find_ffmpeg().is_none() {
+            eprintln!("skipping: ffmpeg not on PATH");
+            return;
+        }
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
+        session.run_frames(1).expect("warmup frame");
+
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-session-tee-{}-{}.mp4",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after unix epoch")
+                .as_nanos()
+        ));
+        session
+            .start_video_recording(path.clone())
+            .expect("start should succeed");
+        session
+            .run_frames(10)
+            .expect("ten frames should run while recording");
+
+        let summary = session
+            .stop_video_recording()
+            .expect("stop should succeed");
+        assert_eq!(summary.frames, 10);
+        assert!(summary.path.is_file());
+        assert!(std::fs::metadata(&summary.path).expect("metadata").len() > 0);
+        let _ = std::fs::remove_file(summary.path);
     }
 
     #[test]

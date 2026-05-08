@@ -172,6 +172,22 @@ pub enum ScriptStep {
         /// before failing the autoload.
         max_boot_frames: u32,
     },
+    /// Begin recording the live framebuffer + audio to one MP4 file.
+    ///
+    /// Subsequent `RunFrames` / wait steps tee every emitted frame into the
+    /// recorder. While a recording is active, `LoadSnapshot`, nested
+    /// `StartVideoRecording`, and (binary-side) `SetMachine` are rejected
+    /// because each would jump-cut the clip.
+    StartVideoRecording {
+        /// Final output path for the MP4 file.
+        path: PathBuf,
+    },
+    /// Finalise the in-flight video recording.
+    ///
+    /// Closes the ffmpeg pipe, waits for the video pass, and (when audio has
+    /// been captured) runs a second ffmpeg pass to mux audio into the final
+    /// MP4. Emits [`ScriptObservation::StopVideoRecording`].
+    StopVideoRecording,
 }
 
 /// One JSON script made of ordered shared steps.
@@ -257,6 +273,17 @@ pub enum ScriptObservation {
         slot: String,
         /// Number of native frames spent waiting for boot.
         boot_frames: u32,
+    },
+    /// Result of finalising one video recording.
+    StopVideoRecording {
+        /// Final MP4 file path.
+        path: PathBuf,
+        /// Total frames captured during the recording window.
+        frames: u64,
+        /// Approximate duration of the captured clip in milliseconds.
+        duration_ms: u64,
+        /// Whether the final MP4 contains a muxed audio track.
+        has_audio: bool,
     },
 }
 
@@ -434,6 +461,19 @@ impl ScriptStep {
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
             }),
+            Self::StartVideoRecording { path } => {
+                session.start_video_recording(path.clone())?;
+                Ok(None)
+            }
+            Self::StopVideoRecording => {
+                let summary = session.stop_video_recording()?;
+                Ok(Some(ScriptObservation::StopVideoRecording {
+                    path: summary.path,
+                    frames: summary.frames,
+                    duration_ms: summary.duration_ms,
+                    has_audio: summary.has_audio,
+                }))
+            }
         }
     }
 }
@@ -928,6 +968,44 @@ mod tests {
             Err(ScriptError::SystemSpecificStep { step }) => assert_eq!(step, "autoload_tape"),
             other => panic!("expected SystemSpecificStep error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn start_video_recording_round_trips_through_json() {
+        let json = r#"[{"action":"start_video_recording","path":"clip.mp4"}]"#;
+        let script = HeadlessScript::from_json_str(json).expect("script should parse");
+        assert_eq!(
+            script.steps,
+            vec![ScriptStep::StartVideoRecording {
+                path: PathBuf::from("clip.mp4"),
+            }]
+        );
+        let serialized = serde_json::to_string(&script.steps).expect("re-serialize");
+        assert_eq!(serialized, json);
+    }
+
+    #[test]
+    fn stop_video_recording_round_trips_through_json() {
+        let json = r#"[{"action":"stop_video_recording"}]"#;
+        let script = HeadlessScript::from_json_str(json).expect("script should parse");
+        assert_eq!(script.steps, vec![ScriptStep::StopVideoRecording]);
+        let serialized = serde_json::to_string(&script.steps).expect("re-serialize");
+        assert_eq!(serialized, json);
+    }
+
+    #[test]
+    fn stop_video_recording_observation_serializes_the_summary_fields() {
+        let observation = ScriptObservation::StopVideoRecording {
+            path: PathBuf::from("/tmp/clip.mp4"),
+            frames: 250,
+            duration_ms: 5_000,
+            has_audio: true,
+        };
+        let json = serde_json::to_string(&observation).expect("serialize");
+        assert_eq!(
+            json,
+            r#"{"kind":"stop_video_recording","path":"/tmp/clip.mp4","frames":250,"duration_ms":5000,"has_audio":true}"#
+        );
     }
 
     #[test]

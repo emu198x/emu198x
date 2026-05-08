@@ -18,7 +18,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use thiserror::Error;
 
 use crate::capture::{CaptureError, CapturedAudio, CapturedFrame};
-use crate::time::MachineTime;
+use crate::time::{ClockRate, MachineTime};
 
 /// Failure surfaced by the video recorder.
 #[derive(Debug, Error)]
@@ -26,6 +26,20 @@ pub enum VideoRecordingError {
     /// `ffmpeg` was not found on `PATH`.
     #[error("ffmpeg not found on PATH; install ffmpeg to enable video capture")]
     FfmpegNotFound,
+
+    /// `start_video_recording` was called while a recording was already
+    /// in flight on the same session.
+    #[error("video recording is already in progress")]
+    AlreadyRecording,
+
+    /// `stop_video_recording` was called with no recording in flight.
+    #[error("no video recording is in progress")]
+    NotRecording,
+
+    /// `start_video_recording` was called before any frame was emitted, so
+    /// the recorder has no width/height to configure ffmpeg with.
+    #[error("cannot start video recording before the first frame is emitted")]
+    NoFrameYet,
 
     /// Spawning the ffmpeg subprocess failed.
     #[error("failed to spawn ffmpeg: {0}")]
@@ -288,6 +302,25 @@ impl Drop for VideoRecorder {
     }
 }
 
+/// Computes an integer frame-per-second value from one machine clock rate
+/// and the number of clock ticks per native video frame.
+///
+/// Rounds to the nearest integer; returns `0` if the clock or frame timing
+/// is degenerate.
+#[must_use]
+pub fn compute_fps(clock: ClockRate, native_frame_ticks: u64) -> u32 {
+    if native_frame_ticks == 0 || clock.numerator_hz == 0 || clock.denominator_hz == 0 {
+        return 0;
+    }
+    let ticks_per_frame = native_frame_ticks.saturating_mul(clock.denominator_hz);
+    if ticks_per_frame == 0 {
+        return 0;
+    }
+    let half = ticks_per_frame / 2;
+    let rounded = (clock.numerator_hz.saturating_add(half)) / ticks_per_frame;
+    u32::try_from(rounded).unwrap_or(u32::MAX)
+}
+
 /// Locates the `ffmpeg` executable on `PATH`.
 #[must_use]
 pub fn find_ffmpeg() -> Option<PathBuf> {
@@ -492,6 +525,26 @@ mod tests {
             .position(|arg| arg == "-c:a")
             .expect("audio codec flag");
         assert_eq!(args[aac_index + 1], "aac");
+    }
+
+    #[test]
+    fn compute_fps_rounds_spectrum_clock_to_fifty() {
+        // 3.5 MHz / 69_888 ticks/frame ≈ 50.08 → 50.
+        let clock = ClockRate::from_hz(3_500_000);
+        assert_eq!(compute_fps(clock, 69_888), 50);
+    }
+
+    #[test]
+    fn compute_fps_handles_rational_clock() {
+        // 60-Hz NTSC modelled as 60 / 1.001 ≈ 59.94.
+        let clock = ClockRate::from_ratio(60_000, 1_001);
+        assert_eq!(compute_fps(clock, 1), 60);
+    }
+
+    #[test]
+    fn compute_fps_returns_zero_for_degenerate_inputs() {
+        assert_eq!(compute_fps(ClockRate::from_hz(0), 100), 0);
+        assert_eq!(compute_fps(ClockRate::from_hz(50), 0), 0);
     }
 
     #[test]
