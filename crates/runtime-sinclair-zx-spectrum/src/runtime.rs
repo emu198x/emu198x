@@ -15,6 +15,7 @@
 use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
+use common_sinclair_zx_spectrum::snapshot::Snapshot;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
@@ -80,6 +81,13 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
 
     /// Soft-resets the machine's CPU, timing, and audio state.
     fn reset_machine(&mut self);
+
+    /// Applies one parsed `.sna` / `.z80` snapshot to the machine's
+    /// CPU registers, border, memory pages, and (where applicable)
+    /// paging / AY register state. Used by the binary's
+    /// `File > Open Snapshot...` and the script step
+    /// `LoadPortableSnapshot` (when that lands).
+    fn apply_snapshot(&mut self, snap: &Snapshot);
 
     /// Returns `true` when this machine accepts a disk image at the
     /// given media slot. Default: `false` (tape-only machines).

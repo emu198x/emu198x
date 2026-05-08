@@ -1193,6 +1193,8 @@ dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
  "format-sinclair-zx-spectrum-bas",
+ "format-sinclair-zx-spectrum-sna",
+ "format-sinclair-zx-spectrum-z80",
  "muda",
  "rfd",
  "runtime-sinclair-zx-spectrum",

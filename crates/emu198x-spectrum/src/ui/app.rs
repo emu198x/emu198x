@@ -351,7 +351,8 @@ impl SpectrumApp {
     fn handle_command(&mut self, cmd: AppCommand) {
         match cmd {
             AppCommand::SwitchMachine(kind) => self.switch_machine(kind),
-            AppCommand::OpenSnapshot | AppCommand::LoadSnapshot => self.open_snapshot(),
+            AppCommand::OpenSnapshot => self.open_snapshot(),
+            AppCommand::LoadSnapshot => self.load_state(),
             AppCommand::OpenTape => self.open_tape(),
             AppCommand::OpenDisk => self.open_disk(),
             AppCommand::SaveSnapshot => self.save_snapshot(),
@@ -405,7 +406,7 @@ impl SpectrumApp {
         else {
             return;
         };
-        if let Err(err) = self.runner.load_snapshot_from_path(&path) {
+        if let Err(err) = self.runner.import_portable_snapshot_from_path(&path) {
             eprintln!("file: failed to load snapshot {}: {err}", path.display());
             return;
         }
@@ -459,22 +460,51 @@ impl SpectrumApp {
         eprintln!("file: loaded disk {}", path.display());
     }
 
-    /// Pops a save dialog and writes the current snapshot to the
-    /// selected location.
+    /// Pops a save dialog and writes the current emulator state to the
+    /// selected location. Uses the runtime's postcard save format with
+    /// the `.emu198x-state` extension — an emu198x-internal save state,
+    /// not a portable `.sna` / `.z80` snapshot. Save the latter via
+    /// future export tooling; for now this menu item supports the
+    /// quick-save / quick-load workflow the State menu owns.
     fn save_snapshot(&mut self) {
         let Some(path) = rfd::FileDialog::new()
-            .set_title("Save Snapshot")
-            .add_filter("Spectrum snapshots", &["sna", "z80"])
-            .set_file_name("snapshot.sna")
+            .set_title("Save State")
+            .add_filter("emu198x quick state", &["emu198x-state"])
+            .set_file_name("state.emu198x-state")
             .save_file()
         else {
             return;
         };
         if let Err(err) = self.runner.save_snapshot_to_path(&path) {
-            eprintln!("state: failed to save snapshot {}: {err}", path.display());
+            eprintln!("state: failed to save state {}: {err}", path.display());
             return;
         }
-        eprintln!("state: saved snapshot {}", path.display());
+        eprintln!("state: saved state {}", path.display());
+    }
+
+    /// Pops an open dialog accepting any of the three snapshot formats
+    /// (postcard `.emu198x-state`, portable `.sna` / `.z80`) and
+    /// dispatches via the auto-detect runner helper.
+    fn load_state(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Load State")
+            .add_filter("Snapshots", &["emu198x-state", "sna", "z80"])
+            .add_filter("emu198x quick state", &["emu198x-state"])
+            .add_filter("Spectrum snapshots", &["sna", "z80"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        else {
+            return;
+        };
+        if let Err(err) = self.runner.load_any_snapshot_from_path(&path) {
+            eprintln!("state: failed to load state {}: {err}", path.display());
+            return;
+        }
+        if let Some(window) = &self.window {
+            window.set_title(&self.window_title());
+            window.request_redraw();
+        }
+        eprintln!("state: loaded state {}", path.display());
     }
 
     /// Launches `url` in the system browser. macOS-first via the

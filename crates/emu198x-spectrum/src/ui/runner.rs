@@ -387,6 +387,61 @@ impl SpectrumRunner {
         Ok(())
     }
 
+    /// Imports a portable `.sna` or `.z80` snapshot. Detects the format
+    /// by extension, parses via the matching format crate, and applies
+    /// the parsed `Snapshot` into the live machine via the runtime
+    /// trait's `apply_snapshot`. Distinct from `load_snapshot_from_path`,
+    /// which decodes the runtime's own postcard save state.
+    pub fn import_portable_snapshot_from_path(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<(), AppError> {
+        let bytes = std::fs::read(path)?;
+        let extension = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(str::to_ascii_lowercase);
+        let snapshot = match extension.as_deref() {
+            Some("sna") => format_sinclair_zx_spectrum_sna::parse_sna(&bytes)
+                .map_err(|err| AppError::Io(std::io::Error::other(err)))?,
+            Some("z80") => format_sinclair_zx_spectrum_z80::parse_z80(&bytes)
+                .map_err(|err| AppError::Io(std::io::Error::other(err)))?,
+            _ => {
+                return Err(AppError::Io(std::io::Error::other(format!(
+                    "unrecognised snapshot extension on {} (expected .sna or .z80)",
+                    path.display()
+                ))));
+            }
+        };
+        self.runtime.apply_snapshot(&snapshot);
+        self.frame_capture = LatestFrameCapture::default();
+        self.audio_output.clear();
+        self.last_run_result = None;
+        self.run_frame(&[])?;
+        Ok(())
+    }
+
+    /// Loads any of the three snapshot formats, picked by extension —
+    /// `.sna` / `.z80` (portable, parsed via the format crates and
+    /// applied through `apply_snapshot`) or anything else (assumed
+    /// postcard, the runtime's own save state, decoded via
+    /// `restore_snapshot`). Used by `State > Load Snapshot...` so the
+    /// user can pick either a quick-state file they saved earlier or a
+    /// portable snapshot from elsewhere.
+    pub fn load_any_snapshot_from_path(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<(), AppError> {
+        let extension = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(str::to_ascii_lowercase);
+        match extension.as_deref() {
+            Some("sna") | Some("z80") => self.import_portable_snapshot_from_path(path),
+            _ => self.load_snapshot_from_path(path),
+        }
+    }
+
     pub fn window_title(&self) -> String {
         // Kept deliberately cheap so the per-frame title update doesn't
         // walk the screen-text grid. Tape state is two flag reads; the

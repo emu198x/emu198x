@@ -172,8 +172,8 @@ impl AppMenu {
         root.append(&view_submenu).expect("append View submenu");
 
         let state_submenu = Submenu::new("State", true);
-        let save_snapshot_item = MenuItem::new("Save Snapshot...", true, None);
-        let load_snapshot_item = MenuItem::new("Load Snapshot...", true, None);
+        let save_snapshot_item = MenuItem::new("Save State...", true, None);
+        let load_snapshot_item = MenuItem::new("Load State...", true, None);
         action_map.insert(save_snapshot_item.id().clone(), AppCommand::SaveSnapshot);
         action_map.insert(load_snapshot_item.id().clone(), AppCommand::LoadSnapshot);
         state_submenu

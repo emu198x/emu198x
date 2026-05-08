@@ -22,6 +22,7 @@ use common_sinclair_zx_spectrum::error::RomImageError;
 use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
 use common_sinclair_zx_spectrum::memory::{MemoryBus, Spectrum16kMemory, Spectrum48kMemory};
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
+use common_sinclair_zx_spectrum::snapshot::{Snapshot, apply_48k_pages, apply_z80_registers};
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
@@ -305,6 +306,16 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         self.hc = 0;
         self.framebuffer.fill(0);
         self.sync_ear_level();
+    }
+
+    /// Applies a parsed `.sna` / `.z80` snapshot. The 48K-mode page
+    /// numbering (8/4/5 → $4000/$8000/$C000) is the .z80 v2/v3 spec's
+    /// region-based scheme, distinct from 128K-class bank-numbered
+    /// pages.
+    pub fn apply_snapshot(&mut self, snap: &Snapshot) {
+        apply_z80_registers(&mut self.z80, snap);
+        self.ula.write_fe(snap.border);
+        apply_48k_pages(snap, &mut self.memory);
     }
 
     /// Runs one native 48K video frame. Delegates to `SpectrumDriver::run_frame`.

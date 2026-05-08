@@ -24,6 +24,7 @@
 
 use std::time::Duration;
 
+use common_sinclair_zx_spectrum::snapshot::Snapshot;
 use emu198x_shell::{
     ControlCommand, FirmwareSet, HostIo, MachineCore, MachineError, MachineProfile, MachineTime,
     MediaSet, QueryError, QueryResult, ResetKind, RunResult,
@@ -73,6 +74,11 @@ pub trait LiveSpectrumRuntime {
     /// Restores a previously serialized machine state for
     /// `State > Load Snapshot...`.
     fn restore_snapshot(&mut self, bytes: &[u8]) -> Result<(), MachineError>;
+
+    /// Applies a parsed `.sna` / `.z80` snapshot. The portable
+    /// snapshot path — distinct from `restore_snapshot`, which decodes
+    /// the runtime's own postcard save state.
+    fn apply_snapshot(&mut self, snap: &Snapshot);
 
     /// Variant profile (display name, clock, capabilities).
     fn profile(&self) -> &MachineProfile;
@@ -138,6 +144,10 @@ impl<M: SpectrumMachine> LiveSpectrumRuntime for SpectrumRuntime<M> {
 
     fn restore_snapshot(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
         MachineCore::restore(self, bytes)
+    }
+
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        SpectrumMachine::apply_snapshot(SpectrumRuntime::machine_mut(self), snap);
     }
 
     fn profile(&self) -> &MachineProfile {

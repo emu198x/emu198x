@@ -122,6 +122,38 @@ impl SnapshotBankTarget {
     }
 }
 
+/// Apply the 48K-mode page layout from a `.sna` or `.z80` snapshot.
+///
+/// The .z80 v2/v3 spec maps 48K-mode pages by *region*, not by bank
+/// number: page 8 → `$4000`, page 4 → `$8000`, page 5 → `$C000`. This
+/// is distinct from the bank-numbering convention used by 128K-mode
+/// snapshots (where page 4 is bank 1 and page 5 is bank 2). The `.sna`
+/// 48K parser produces the same `(8, 4, 5)` triple.
+///
+/// Used by 16K / 48K / Spectrum+ runtimes whose memory map exposes the
+/// three RAM regions at their fixed CPU-visible addresses. The
+/// `MemoryBus::write` path is the same code the CPU uses, so ROM
+/// region writes are silently dropped.
+pub fn apply_48k_pages<M: MemoryBus>(snap: &Snapshot, memory: &mut M) {
+    for (page, data) in &snap.pages {
+        let Some(base) = page_48k_base(*page) else {
+            continue;
+        };
+        for (i, &byte) in data.iter().enumerate() {
+            memory.write(base.wrapping_add(i as u16), byte);
+        }
+    }
+}
+
+const fn page_48k_base(page: u8) -> Option<u16> {
+    match page {
+        8 => Some(0x4000),
+        4 => Some(0x8000),
+        5 => Some(0xC000),
+        _ => None,
+    }
+}
+
 /// Apply the 128K-family `$7FFD` page layout from a `.z80` snapshot.
 ///
 /// Takes `&mut M` directly (rather than closures) so the caller only

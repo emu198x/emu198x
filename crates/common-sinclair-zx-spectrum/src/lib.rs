@@ -26,7 +26,7 @@ pub use memory::{Bank16K, MemoryBus, Spectrum16kMemory, Spectrum48kMemory};
 pub use palette::SPECTRUM_PALETTE;
 pub use peripheral::Peripheral;
 pub use snapshot::{
-    Paged128kMemory, SnapshotBankTarget, apply_128k_bank_pages, apply_ay_registers,
-    apply_z80_registers,
+    Paged128kMemory, SnapshotBankTarget, apply_128k_bank_pages, apply_48k_pages,
+    apply_ay_registers, apply_z80_registers,
 };
 pub use tape::{TapeBlock, TapePlayer, TapeSpan};

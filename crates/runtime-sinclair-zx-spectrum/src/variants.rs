@@ -11,6 +11,7 @@
 use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::snapshot::Snapshot;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{
     SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_WIDTH_HIRES, TIMING_48K, TIMING_128K, TIMING_PENTAGON,
@@ -397,6 +398,9 @@ impl SpectrumMachine for Spectrum48k {
     fn write_byte(&mut self, addr: u16, value: u8) {
         <Self as MemoryBus>::write(self, addr, value);
     }
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        Spectrum48k::apply_snapshot(self, snap);
+    }
     fn keyboard_rows(&self) -> &[u8; 8] {
         Spectrum48k::keyboard(self).rows()
     }
@@ -484,6 +488,9 @@ impl SpectrumMachine for Spectrum16K {
     }
     fn write_byte(&mut self, addr: u16, value: u8) {
         <Self as MemoryBus>::write(self, addr, value);
+    }
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        Spectrum16K::apply_snapshot(self, snap);
     }
     fn keyboard_rows(&self) -> &[u8; 8] {
         Spectrum16K::keyboard(self).rows()
@@ -578,6 +585,9 @@ impl SpectrumMachine for SpectrumPlus {
     fn write_byte(&mut self, addr: u16, value: u8) {
         <Self as MemoryBus>::write(self, addr, value);
     }
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        SpectrumPlus::apply_snapshot(self, snap);
+    }
     fn keyboard_rows(&self) -> &[u8; 8] {
         SpectrumPlus::keyboard(self).rows()
     }
@@ -658,6 +668,10 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn reset_machine(&mut self) {
         Spectrum128K::reset(self);
+    }
+
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        Spectrum128K::apply_snapshot(self, snap);
     }
 
     fn read_byte(&self, addr: u16) -> u8 {
@@ -749,6 +763,10 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn reset_machine(&mut self) {
         SpectrumPlus2::reset(self);
+    }
+
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        SpectrumPlus2::apply_snapshot(self, snap);
     }
 
     fn read_byte(&self, addr: u16) -> u8 {
@@ -843,6 +861,10 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
     fn reset_machine(&mut self) {
         SpectrumAmstradClassCore::<V>::reset(self);
+    }
+
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        SpectrumAmstradClassCore::<V>::apply_snapshot(self, snap);
     }
 
     fn supports_disk_slot(&self, slot: &str) -> bool {
@@ -962,6 +984,10 @@ impl SpectrumMachine for Pentagon128 {
         Pentagon128::reset(self);
     }
 
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        Pentagon128::apply_snapshot(self, snap);
+    }
+
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }
@@ -1057,6 +1083,10 @@ impl SpectrumMachine for ScorpionZS256 {
     }
     fn reset_machine(&mut self) {
         ScorpionZS256::reset(self);
+    }
+
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        ScorpionZS256::apply_snapshot(self, snap);
     }
 
     fn read_byte(&self, addr: u16) -> u8 {
@@ -1155,6 +1185,10 @@ impl SpectrumMachine for TimexTC2048 {
         TimexTC2048::reset(self);
     }
 
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        TimexTC2048::apply_snapshot(self, snap);
+    }
+
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }
@@ -1244,6 +1278,10 @@ impl SpectrumMachine for TimexTS2068 {
     }
     fn reset_machine(&mut self) {
         TimexTS2068::reset(self);
+    }
+
+    fn apply_snapshot(&mut self, snap: &Snapshot) {
+        TimexTS2068::apply_snapshot(self, snap);
     }
 
     fn read_byte(&self, addr: u16) -> u8 {
