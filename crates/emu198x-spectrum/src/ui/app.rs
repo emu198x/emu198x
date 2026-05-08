@@ -78,7 +78,7 @@ impl SpectrumApp {
         let slice_ticks = subframe_ticks(runner.native_frame_ticks);
         let slice_duration = subframe_duration(runner.frame_duration());
         let current_machine = MachineKind::Spectrum48K;
-        let menu = AppMenu::new(current_machine);
+        let menu = AppMenu::new(current_machine, runner.supports_disk_slot());
         let (command_tx, command_rx) = mpsc::channel();
         Ok(Self {
             runner,
@@ -351,6 +351,111 @@ impl SpectrumApp {
     fn handle_command(&mut self, cmd: AppCommand) {
         match cmd {
             AppCommand::SwitchMachine(kind) => self.switch_machine(kind),
+            AppCommand::OpenSnapshot | AppCommand::LoadSnapshot => self.open_snapshot(),
+            AppCommand::OpenTape => self.open_tape(),
+            AppCommand::OpenDisk => self.open_disk(),
+            AppCommand::SaveSnapshot => self.save_snapshot(),
+            AppCommand::OpenUrl(url) => Self::open_url(url),
+        }
+    }
+
+    /// Pops a snapshot file picker and restores the selection if the
+    /// user picked one. Errors are logged and the running session
+    /// continues — the user sees a dialog dismiss without any other
+    /// side effect.
+    fn open_snapshot(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Open Snapshot")
+            .add_filter("Spectrum snapshots", &["sna", "z80"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        else {
+            return;
+        };
+        if let Err(err) = self.runner.load_snapshot_from_path(&path) {
+            eprintln!("file: failed to load snapshot {}: {err}", path.display());
+            return;
+        }
+        if let Some(window) = &self.window {
+            window.set_title(&self.window_title());
+            window.request_redraw();
+        }
+        eprintln!("file: loaded snapshot {}", path.display());
+    }
+
+    /// Pops a tape file picker and (on selection) loads the tape into
+    /// slot tape-1 and starts transport so the program begins loading.
+    /// F10 stops the tape if the user wants to inspect editor state
+    /// instead.
+    fn open_tape(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Open Tape")
+            .add_filter("Spectrum tapes", &["tap", "tzx"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        else {
+            return;
+        };
+        if let Err(err) = self.runner.load_tape_from_path(&path, true) {
+            eprintln!("file: failed to load tape {}: {err}", path.display());
+            return;
+        }
+        if let Some(window) = &self.window {
+            window.set_title(&self.window_title());
+            window.request_redraw();
+        }
+        eprintln!("file: loaded tape {}", path.display());
+    }
+
+    /// Pops a disk file picker and inserts the selection into the +3's
+    /// drive. Only reachable when the live variant supports disks; the
+    /// menu item is disabled otherwise.
+    fn open_disk(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Open Disk")
+            .add_filter("Amstrad / +3 disks", &["dsk"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        else {
+            return;
+        };
+        if let Err(err) = self.runner.load_disk_from_path(&path) {
+            eprintln!("file: failed to load disk {}: {err}", path.display());
+            return;
+        }
+        eprintln!("file: loaded disk {}", path.display());
+    }
+
+    /// Pops a save dialog and writes the current snapshot to the
+    /// selected location.
+    fn save_snapshot(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Save Snapshot")
+            .add_filter("Spectrum snapshots", &["sna", "z80"])
+            .set_file_name("snapshot.sna")
+            .save_file()
+        else {
+            return;
+        };
+        if let Err(err) = self.runner.save_snapshot_to_path(&path) {
+            eprintln!("state: failed to save snapshot {}: {err}", path.display());
+            return;
+        }
+        eprintln!("state: saved snapshot {}", path.display());
+    }
+
+    /// Launches `url` in the system browser. macOS-first via the
+    /// `open` command; other platforms get a stub error.
+    fn open_url(url: &'static str) {
+        #[cfg(target_os = "macos")]
+        {
+            if let Err(err) = std::process::Command::new("open").arg(url).status() {
+                eprintln!("help: failed to open {url}: {err}");
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            eprintln!("help: opening URLs is macOS-only for now ({url})");
         }
     }
 
@@ -399,6 +504,7 @@ impl SpectrumApp {
         self.pressed_keys.clear();
         self.current_machine = kind;
         self.menu.set_current_machine(kind);
+        self.menu.set_disk_supported(self.runner.supports_disk_slot());
         if let Some(window) = &self.window {
             window.set_title(&self.window_title());
             window.request_redraw();

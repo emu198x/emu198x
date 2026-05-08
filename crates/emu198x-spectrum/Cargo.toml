@@ -11,7 +11,7 @@ license.workspace = true
 # `--script` and `--mcp` modes still work, only `--ui` errors out at
 # runtime with a "rebuild with --features ui" message.
 default = ["ui"]
-ui = ["dep:emu198x-native-video", "dep:muda", "dep:winit"]
+ui = ["dep:emu198x-native-video", "dep:muda", "dep:rfd", "dep:winit"]
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
@@ -19,6 +19,7 @@ emu198x-native-video = { path = "../emu198x-native-video", optional = true }
 emu198x-shell = { path = "../emu198x-shell" }
 format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas" }
 muda = { workspace = true, optional = true }
+rfd = { workspace = true, optional = true }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -203,6 +203,65 @@ impl SpectrumRunner {
             .unwrap_or(false)
     }
 
+    /// Loads a tape image from disk into slot `tape-1` and (if
+    /// `autoload`) drives the BASIC autoload sequence so the program
+    /// starts loading immediately.
+    pub fn load_tape_from_path(
+        &mut self,
+        path: &std::path::Path,
+        autoload: bool,
+    ) -> Result<(), AppError> {
+        let loaded = read_media_asset(path, MediaKind::Tape)?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_TAPE_SLOT,
+            MediaKind::Tape,
+            &loaded.bytes,
+        ));
+        self.runtime.load_media(&media)?;
+        if autoload {
+            self.command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                DEFAULT_TAPE_SLOT,
+                MediaTransportAction::Start,
+            )))?;
+        }
+        Ok(())
+    }
+
+    /// Loads a disk image from disk into slot `disk-1`. Caller checks
+    /// [`Self::supports_disk_slot`] first; the variant's media handler
+    /// rejects the slot otherwise.
+    pub fn load_disk_from_path(&mut self, path: &std::path::Path) -> Result<(), AppError> {
+        let loaded = read_media_asset(path, MediaKind::Disk)?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("disk-1", MediaKind::Disk, &loaded.bytes));
+        self.runtime.load_media(&media)?;
+        Ok(())
+    }
+
+    /// Whether the live runtime exposes a disk slot.
+    pub fn supports_disk_slot(&self) -> bool {
+        self.runtime.supports_disk_slot("disk-1")
+    }
+
+    /// Saves the current machine state to a snapshot file.
+    pub fn save_snapshot_to_path(&self, path: &std::path::Path) -> Result<(), AppError> {
+        let bytes = self.runtime.snapshot_bytes()?;
+        std::fs::write(path, bytes).map_err(AppError::from)
+    }
+
+    /// Loads and restores a snapshot file. Replaces the live machine
+    /// state in place; tape state and audio buffers are cleared.
+    pub fn load_snapshot_from_path(&mut self, path: &std::path::Path) -> Result<(), AppError> {
+        let bytes = std::fs::read(path)?;
+        self.runtime.restore_snapshot(&bytes)?;
+        self.frame_capture = LatestFrameCapture::default();
+        self.audio_output.clear();
+        self.last_run_result = None;
+        self.run_frame(&[])?;
+        Ok(())
+    }
+
     pub fn window_title(&self) -> String {
         // Kept deliberately cheap so the per-frame title update doesn't
         // walk the screen-text grid. Tape state is two flag reads; the

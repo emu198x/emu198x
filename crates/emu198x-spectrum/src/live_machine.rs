@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use emu198x_shell::{
     ControlCommand, FirmwareSet, HostIo, MachineCore, MachineError, MachineProfile, MachineTime,
-    QueryError, QueryResult, ResetKind, RunResult,
+    MediaSet, QueryError, QueryResult, ResetKind, RunResult,
 };
 use runtime_sinclair_zx_spectrum::{
     AudioControls, SpeakerChannel, Spectrum128kRuntime, Spectrum16kRuntime, Spectrum48kRuntime,
@@ -58,6 +58,21 @@ pub trait LiveSpectrumRuntime {
 
     /// Hard- or soft-resets the runtime.
     fn reset(&mut self, kind: ResetKind);
+
+    /// Loads media images into the runtime's slots.
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError>;
+
+    /// Returns whether the current variant has a disk slot named `slot`.
+    /// Drives the File > Open Disk... menu's enabled state — only +3
+    /// returns `true` today.
+    fn supports_disk_slot(&self, slot: &str) -> bool;
+
+    /// Serializes the current machine state for `State > Save Snapshot...`.
+    fn snapshot_bytes(&self) -> Result<Vec<u8>, MachineError>;
+
+    /// Restores a previously serialized machine state for
+    /// `State > Load Snapshot...`.
+    fn restore_snapshot(&mut self, bytes: &[u8]) -> Result<(), MachineError>;
 
     /// Variant profile (display name, clock, capabilities).
     fn profile(&self) -> &MachineProfile;
@@ -107,6 +122,22 @@ impl<M: SpectrumMachine> LiveSpectrumRuntime for SpectrumRuntime<M> {
 
     fn reset(&mut self, kind: ResetKind) {
         MachineCore::reset(self, kind);
+    }
+
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+        MachineCore::load_media(self, media)
+    }
+
+    fn supports_disk_slot(&self, slot: &str) -> bool {
+        SpectrumMachine::supports_disk_slot(SpectrumRuntime::machine(self), slot)
+    }
+
+    fn snapshot_bytes(&self) -> Result<Vec<u8>, MachineError> {
+        MachineCore::snapshot(self)
+    }
+
+    fn restore_snapshot(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        MachineCore::restore(self, bytes)
     }
 
     fn profile(&self) -> &MachineProfile {
