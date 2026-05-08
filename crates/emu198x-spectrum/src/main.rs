@@ -8,29 +8,42 @@
 //!
 //! See `docs/brainstorms/2026-05-08-track-1b-single-binary-brainstorm.md`
 //! for the design that drove this layout.
+//!
+//! # Cargo features
+//!
+//! - `ui` (default) — compiles in winit + wgpu + muda for the
+//!   interactive Machine / File / State / View menus and the framed
+//!   audio/video loop. Required for `--ui` mode.
+//! - Without `ui` — `--script` and `--mcp` modes still work; `--ui`
+//!   errors at runtime with a "rebuild with `--features ui`" message.
+//!   Code198x's headless screenshot/video pipeline uses this build to
+//!   skip the heavy graphics stack.
 
 mod live_machine;
 mod machine;
 mod mcp;
 mod script;
+
+#[cfg(feature = "ui")]
 mod ui;
 
 use std::process;
 
-use emu198x_native_video::VideoPresenterError;
 use emu198x_shell::{
     AssetLoadError, MachineError, NativeAudioError, QueryError,
 };
 use thiserror::Error;
+
+#[cfg(feature = "ui")]
+use emu198x_native_video::VideoPresenterError;
+#[cfg(feature = "ui")]
 use winit::error::{EventLoopError, OsError};
 
 use crate::machine::FirmwareError;
 
-/// Top-level error type used across every mode. Mode-specific error
-/// arms (UI: window/audio/video; script: file I/O; MCP: protocol) all
-/// land here via `From` impls. Cargo feature gating in a follow-up
-/// will conditionally compile mode-specific arms; until then every
-/// arm is unconditionally available.
+/// Top-level error type used across every mode. UI-only error arms
+/// (window/audio/video) are gated behind the `ui` feature so headless
+/// builds don't pull winit / wgpu / native-video unnecessarily.
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error(transparent)]
@@ -51,15 +64,21 @@ pub enum AppError {
     #[error(transparent)]
     SpectrumAutoload(#[from] runtime_sinclair_zx_spectrum::SpectrumAutoloadError),
 
+    /// `NativeAudioError` lives in `emu198x-shell` (which always
+    /// pulls cpal), so this arm is available regardless of the `ui`
+    /// feature. The error itself is only constructed by the UI mode.
     #[error(transparent)]
     Audio(#[from] NativeAudioError),
 
+    #[cfg(feature = "ui")]
     #[error(transparent)]
     Video(#[from] VideoPresenterError),
 
+    #[cfg(feature = "ui")]
     #[error(transparent)]
     EventLoop(#[from] EventLoopError),
 
+    #[cfg(feature = "ui")]
     #[error(transparent)]
     Os(#[from] OsError),
 
@@ -93,6 +112,14 @@ pub enum AppError {
     /// caller doesn't think it succeeded.
     #[error("--mcp mode is not yet implemented")]
     McpNotImplemented,
+
+    /// `--ui` mode requested but the binary was built without the
+    /// `ui` Cargo feature. Surfaces only on `--no-default-features`
+    /// headless builds.
+    #[error(
+        "this binary was built without the `ui` feature; rebuild with `--features ui` for interactive mode, or use --script / --mcp instead"
+    )]
+    UiNotCompiledIn,
 }
 
 /// Mode-flag detection. Scans args for `--mcp` / `--headless` /
@@ -121,10 +148,7 @@ fn main() {
     let mode = detect_mode(&args);
 
     let result = match mode {
-        Mode::Ui => {
-            let cli = ui::parse_cli(args);
-            ui::run(cli)
-        }
+        Mode::Ui => run_ui(args),
         Mode::Script => {
             let cli = script::parse_cli(args);
             script::run(cli)
@@ -136,6 +160,17 @@ fn main() {
         eprintln!("error: {err}");
         process::exit(1);
     }
+}
+
+#[cfg(feature = "ui")]
+fn run_ui(args: Vec<String>) -> Result<(), AppError> {
+    let cli = ui::parse_cli(args);
+    ui::run(cli)
+}
+
+#[cfg(not(feature = "ui"))]
+fn run_ui(_args: Vec<String>) -> Result<(), AppError> {
+    Err(AppError::UiNotCompiledIn)
 }
 
 #[cfg(test)]
@@ -167,5 +202,14 @@ mod tests {
             "boot.json".to_owned(),
         ];
         assert_eq!(detect_mode(&args), Mode::Mcp);
+    }
+
+    #[cfg(not(feature = "ui"))]
+    #[test]
+    fn run_ui_returns_not_compiled_in_when_feature_off() {
+        assert!(matches!(
+            run_ui(vec![]),
+            Err(AppError::UiNotCompiledIn)
+        ));
     }
 }

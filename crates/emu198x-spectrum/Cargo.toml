@@ -4,16 +4,25 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# UI mode is on by default for interactive / dev builds. Code198x's
+# headless screenshot/video pipeline builds with `--no-default-features`
+# to skip the heavy graphics stack (winit + wgpu + muda) — the
+# `--script` and `--mcp` modes still work, only `--ui` errors out at
+# runtime with a "rebuild with --features ui" message.
+default = ["ui"]
+ui = ["dep:emu198x-native-video", "dep:muda", "dep:winit"]
+
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
-emu198x-native-video = { path = "../emu198x-native-video" }
+emu198x-native-video = { path = "../emu198x-native-video", optional = true }
 emu198x-shell = { path = "../emu198x-shell" }
-muda.workspace = true
+muda = { workspace = true, optional = true }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror.workspace = true
-winit.workspace = true
+winit = { workspace = true, optional = true }
 
 [lints]
 workspace = true

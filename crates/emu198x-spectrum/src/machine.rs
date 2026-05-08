@@ -9,6 +9,14 @@
 //! `~/.emu198x/roms/<system>/<file>.rom` convention shared with the
 //! goldens harness in `runtime-sinclair-zx-spectrum/tests/goldens.rs`.
 
+// Most of this module's surface is consumed by `ui::menu` (label, all)
+// and the forthcoming script-mode SetMachine handler (script_id,
+// from_script_id, read_variant_firmware). On `--no-default-features`
+// headless builds with SetMachine support not yet wired, those items
+// are dead code; suppress the warning so CI's `-D warnings` flag
+// doesn't flip on something that's transient.
+#![cfg_attr(not(feature = "ui"), allow(dead_code))]
+
 use std::path::{Path, PathBuf};
 
 /// The eight in-scope October-public variants.
@@ -40,6 +48,7 @@ impl MachineKind {
     }
 
     /// Snake-case identifier used by `set_machine` script steps.
+    #[allow(dead_code)] // wired when script-mode SetMachine support lands
     pub const fn script_id(self) -> &'static str {
         match self {
             Self::Spectrum16K => "spectrum_16k",
@@ -54,6 +63,7 @@ impl MachineKind {
     }
 
     /// Parses a snake-case identifier from a script step.
+    #[allow(dead_code)] // wired when script-mode SetMachine support lands
     #[must_use]
     pub fn from_script_id(id: &str) -> Option<Self> {
         Some(match id {

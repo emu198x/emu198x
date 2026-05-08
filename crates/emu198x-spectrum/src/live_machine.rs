@@ -17,6 +17,11 @@
 //! Per-frame call sites (`time`, `run_until`, etc.) tolerate dyn-dispatch
 //! cost happily — they're called once per frame, not per cycle.
 
+// UI mode is the only consumer in this commit. Script mode will start
+// using `LiveSpectrumRuntime` + `build_runtime` when SetMachine support
+// lands; until then, headless builds see them as dead code.
+#![cfg_attr(not(feature = "ui"), allow(dead_code))]
+
 use std::time::Duration;
 
 use emu198x_shell::{
