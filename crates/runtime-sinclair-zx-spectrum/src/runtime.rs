@@ -112,6 +112,12 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
     /// reads ROM glyphs at $3D00 and screen RAM at $4000.
     fn read_byte(&self, addr: u16) -> u8;
 
+    /// Writes one byte into the machine's CPU-visible address space.
+    /// Writes to ROM regions are silently dropped by the underlying
+    /// memory bus. Used by host-side helpers that poke RAM directly,
+    /// e.g. installing a tokenised BASIC program at `PROG`.
+    fn write_byte(&mut self, addr: u16, value: u8);
+
     /// Returns one byte of the machine's standard ROM glyph table —
     /// `offset` is `0..768` (96 glyphs × 8 bytes), starting at the
     /// space character (0x20) and ending at code 0x7F (the

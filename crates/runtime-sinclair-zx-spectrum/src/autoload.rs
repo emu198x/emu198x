@@ -20,8 +20,8 @@ pub const DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES: u32 = 250;
 /// Stable tape slot used by the current 48K runtime.
 pub const DEFAULT_TAPE_AUTOLOAD_SLOT: &str = "tape-1";
 
-const BASIC_PROMPT_ROW: usize = 23;
-const KEY_EDGE_FRAMES: u32 = 2;
+pub(crate) const BASIC_PROMPT_ROW: usize = 23;
+pub(crate) const KEY_EDGE_FRAMES: u32 = 2;
 const COMMAND_SETTLE_FRAMES: u32 = 10;
 
 /// Result returned after the standard 48K tape autoload command has been
@@ -131,7 +131,7 @@ fn basic_prompt_ready(
     Ok(decoded_prompt_line(session)?.trim_end() == "K")
 }
 
-fn decoded_prompt_line(
+pub(crate) fn decoded_prompt_line(
     session: &HeadlessSession<Spectrum48kRuntime, impl SessionQueryProvider<Spectrum48kRuntime>>,
 ) -> Result<String, SessionError> {
     let result = session.query("screen.text.lines")?;
@@ -151,7 +151,7 @@ fn decoded_prompt_line(
     Ok(line.to_owned())
 }
 
-fn tap_key(
+pub(crate) fn tap_key(
     session: &mut HeadlessSession<
         Spectrum48kRuntime,
         impl SessionQueryProvider<Spectrum48kRuntime>,

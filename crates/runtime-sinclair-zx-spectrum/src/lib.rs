@@ -12,6 +12,7 @@
 //! trait's variant-query hooks.
 
 mod autoload;
+mod basic_loader;
 mod input;
 mod profiles;
 mod queries;
@@ -30,6 +31,9 @@ mod variants;
 pub use autoload::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumAutoloadError,
     SpectrumTapeAutoloadResult, autoload_basic_tape,
+};
+pub use basic_loader::{
+    DEFAULT_BASIC_LOADER_BOOT_FRAMES, LoadBasicError, LoadBasicResult, load_basic_program,
 };
 pub use common_sinclair_zx_spectrum::{AudioControls, SpeakerChannel};
 pub use profiles::{Model, profile_for, profiles};

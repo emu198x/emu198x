@@ -394,6 +394,9 @@ impl SpectrumMachine for Spectrum48k {
     fn read_byte(&self, addr: u16) -> u8 {
         <Self as MemoryBus>::read(self, addr)
     }
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        <Self as MemoryBus>::write(self, addr, value);
+    }
     fn keyboard_rows(&self) -> &[u8; 8] {
         Spectrum48k::keyboard(self).rows()
     }
@@ -478,6 +481,9 @@ impl SpectrumMachine for Spectrum16K {
 
     fn read_byte(&self, addr: u16) -> u8 {
         <Self as MemoryBus>::read(self, addr)
+    }
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        <Self as MemoryBus>::write(self, addr, value);
     }
     fn keyboard_rows(&self) -> &[u8; 8] {
         Spectrum16K::keyboard(self).rows()
@@ -569,6 +575,9 @@ impl SpectrumMachine for SpectrumPlus {
     fn read_byte(&self, addr: u16) -> u8 {
         <Self as MemoryBus>::read(self, addr)
     }
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        <Self as MemoryBus>::write(self, addr, value);
+    }
     fn keyboard_rows(&self) -> &[u8; 8] {
         SpectrumPlus::keyboard(self).rows()
     }
@@ -653,6 +662,9 @@ impl SpectrumMachine for Spectrum128K {
 
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
+    }
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        self.memory.write(addr, value);
     }
     /// 128K keeps the standard glyph table in ROM 1 (48 BASIC). After
     /// boot ROM 0 (the 128 BASIC editor) is mapped at $0000-$3FFF, so
@@ -741,6 +753,9 @@ impl SpectrumMachine for SpectrumPlus2 {
 
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
+    }
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        self.memory.write(addr, value);
     }
     /// +2 keeps the standard glyph table in ROM 1 (48 BASIC), same as
     /// the 128K. Read ROM 1 directly via the paging-aware accessor.
@@ -850,6 +865,9 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        self.memory.write(addr, value);
+    }
     /// +2A/+2B/+3 keep the standard glyph table in ROM 3 (the 48
     /// BASIC sub-ROM). After boot ROM 0 (the +3 editor) is mapped at
     /// $0000-$3FFF, so the default glyph reader would miss. Reach
@@ -947,6 +965,9 @@ impl SpectrumMachine for Pentagon128 {
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        self.memory.write(addr, value);
+    }
     /// Pentagon is a 128K-derivative; its ROM 1 (48 BASIC) carries
     /// the standard glyph table. After boot ROM 0 is mapped at
     /// $0000-$3FFF, so we reach ROM 1 directly.
@@ -1041,6 +1062,9 @@ impl SpectrumMachine for ScorpionZS256 {
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        self.memory.write(addr, value);
+    }
     /// Scorpion is 128K-derivative — ROM 1 (48 BASIC) holds the
     /// standard glyph table. ROMs 2 and 3 are TR-DOS / Service ROM.
     fn glyph_byte(&self, offset: u16) -> u8 {
@@ -1134,6 +1158,9 @@ impl SpectrumMachine for TimexTC2048 {
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        self.memory.write(addr, value);
+    }
     fn keyboard_rows(&self) -> &[u8; 8] {
         &self.keyboard
     }
@@ -1221,6 +1248,9 @@ impl SpectrumMachine for TimexTS2068 {
 
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
+    }
+    fn write_byte(&mut self, addr: u16, value: u8) {
+        self.memory.write(addr, value);
     }
     fn keyboard_rows(&self) -> &[u8; 8] {
         &self.keyboard

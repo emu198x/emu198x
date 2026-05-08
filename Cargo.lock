@@ -1184,6 +1184,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-sinclair-zx-spectrum-bas"
+version = "0.1.0"
+
+[[package]]
 name = "format-sinclair-zx-spectrum-sna"
 version = "0.1.0"
 dependencies = [
@@ -3417,6 +3421,7 @@ dependencies = [
  "common-sinclair-zx-spectrum-amstrad-class",
  "emu198x-shell",
  "format-amstrad-dsk",
+ "format-sinclair-zx-spectrum-bas",
  "format-sinclair-zx-spectrum-tap",
  "format-sinclair-zx-spectrum-tzx",
  "gi-ay-3-8912",
