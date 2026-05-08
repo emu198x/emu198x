@@ -47,7 +47,15 @@ const DEFAULT_ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
 const DEFAULT_SCALE: u32 = 2;
 const WINDOW_TITLE_BASE: &str = "Emu198x Spectrum 48K";
-const INPUT_SLICES_PER_FRAME: u32 = 8;
+/// Sub-divisions per emulator frame for input quantisation. The
+/// runtime's `run_until` actually advances in whole-frame increments
+/// (`machine.run_frame()` runs the full 279552 half-cycles regardless
+/// of the `target` we pass), so a slice smaller than a frame still
+/// runs a full frame's worth of emulation. Setting this to 1 aligns
+/// the binary's pacing with the runtime's true granularity. Inputs
+/// land at frame boundaries (~20 ms latency), which matches real
+/// hardware: the keyboard matrix is scanned once per frame anyway.
+const INPUT_SLICES_PER_FRAME: u32 = 1;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_TURBO_TAPE_FRAMES: u32 = 32;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
@@ -1093,9 +1101,14 @@ mod tests {
         let slice_ticks = subframe_ticks(frame_ticks);
         let slice_duration = subframe_duration(spectrum_frame_duration());
 
-        assert!(slice_ticks < frame_ticks);
+        // The non-strict bounds let `INPUT_SLICES_PER_FRAME = 1`
+        // (frame-level pacing) pass — that's the configuration that
+        // matches the runtime's real granularity. Strict `<` was
+        // appropriate when we believed the runtime supported
+        // sub-frame slicing; it doesn't.
+        assert!(slice_ticks <= frame_ticks);
         assert!(slice_ticks * u64::from(INPUT_SLICES_PER_FRAME) >= frame_ticks);
-        assert!(slice_duration < spectrum_frame_duration());
-        assert!(spectrum_duration_for_ticks(slice_ticks) < spectrum_frame_duration());
+        assert!(slice_duration <= spectrum_frame_duration());
+        assert!(spectrum_duration_for_ticks(slice_ticks) <= spectrum_frame_duration());
     }
 }
