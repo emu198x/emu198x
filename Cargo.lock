@@ -973,17 +973,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "emu198x-script-spectrum"
-version = "0.1.0"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "emu198x-shell",
- "runtime-sinclair-zx-spectrum",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "emu198x-shell"
 version = "0.1.0"
 dependencies = [

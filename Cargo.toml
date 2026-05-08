@@ -23,7 +23,6 @@ members = [
     "crates/emu198x-script-nes",
     "crates/emu198x-spectrum",
     "crates/emu198x-script-c64",
-    "crates/emu198x-script-spectrum",
     "crates/emu198x-shell",
     "crates/ferranti-ula-6c001e",
     "crates/format-commodore-c64-bas",
