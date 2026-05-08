@@ -1099,13 +1099,19 @@ fn map_spectrum_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Space => &["space"],
         KeyCode::ShiftLeft | KeyCode::ShiftRight => &["caps"],
         KeyCode::AltLeft | KeyCode::AltRight => &["symbol"],
-        // Host arrow keys are gameplay aliases for 5/6/7/8 in the minimal
-        // verifier shell. Synthesizing literal Caps Shift cursor combos causes
-        // false extra controls in games that read the matrix directly.
-        KeyCode::ArrowLeft => &["5"],
-        KeyCode::ArrowDown => &["6"],
-        KeyCode::ArrowUp => &["7"],
-        KeyCode::ArrowRight => &["8"],
+        // The Spectrum+ (1984) and every later model — 128K, +2, +2A,
+        // +2B, +3 — have full-stroke keyboards with labelled cursor
+        // keys whose membrane wiring closes the exact same matrix
+        // contacts as Caps Shift + 5/6/7/8. The ROM never sees a
+        // dedicated "cursor" scancode; it sees Caps held and a number
+        // key pressed. So this *is* the hardware mapping, not a
+        // synthesis. Boot menus on the 128K-family rely on it; games
+        // that read the matrix directly see exactly what the real
+        // hardware would send.
+        KeyCode::ArrowLeft => &["caps", "5"],
+        KeyCode::ArrowDown => &["caps", "6"],
+        KeyCode::ArrowUp => &["caps", "7"],
+        KeyCode::ArrowRight => &["caps", "8"],
         KeyCode::Backspace => &["caps", "0"],
         KeyCode::Quote => &["symbol", "p"],
         _ => return None,
@@ -1230,10 +1236,25 @@ mod tests {
     }
 
     #[test]
-    fn cursor_keys_map_to_game_key_aliases() {
-        assert_eq!(map_spectrum_keys(KeyCode::ArrowLeft), Some(&["5"][..]));
-        assert_eq!(map_spectrum_keys(KeyCode::ArrowUp), Some(&["7"][..]));
-        assert_eq!(map_spectrum_keys(KeyCode::ArrowRight), Some(&["8"][..]));
+    fn cursor_keys_map_to_caps_shift_combos() {
+        // Matches Spectrum+ / 128K-family hardware: physical cursor
+        // keys are membrane-wired as Caps Shift + 5/6/7/8.
+        assert_eq!(
+            map_spectrum_keys(KeyCode::ArrowLeft),
+            Some(&["caps", "5"][..])
+        );
+        assert_eq!(
+            map_spectrum_keys(KeyCode::ArrowDown),
+            Some(&["caps", "6"][..])
+        );
+        assert_eq!(
+            map_spectrum_keys(KeyCode::ArrowUp),
+            Some(&["caps", "7"][..])
+        );
+        assert_eq!(
+            map_spectrum_keys(KeyCode::ArrowRight),
+            Some(&["caps", "8"][..])
+        );
         assert_eq!(map_spectrum_keys(KeyCode::AltLeft), Some(&["symbol"][..]));
     }
 
