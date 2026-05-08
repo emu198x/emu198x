@@ -359,14 +359,14 @@ impl SpectrumRunner {
     pub fn load_disk_from_path(&mut self, path: &std::path::Path) -> Result<(), AppError> {
         let loaded = read_media_asset(path, MediaKind::Disk)?;
         let mut media = MediaSet::new();
-        media.push(MediaImage::new("disk-1", MediaKind::Disk, &loaded.bytes));
+        media.push(MediaImage::new("disk-a", MediaKind::Disk, &loaded.bytes));
         self.runtime.load_media(&media)?;
         Ok(())
     }
 
     /// Whether the live runtime exposes a disk slot.
     pub fn supports_disk_slot(&self) -> bool {
-        self.runtime.supports_disk_slot("disk-1")
+        self.runtime.supports_disk_slot("disk-a")
     }
 
     /// Saves the current machine state to a snapshot file.

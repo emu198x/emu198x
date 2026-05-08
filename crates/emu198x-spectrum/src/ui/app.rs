@@ -446,7 +446,7 @@ impl SpectrumApp {
     fn open_disk(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .set_title("Open Disk")
-            .add_filter("Amstrad / +3 disks", &["dsk"])
+            .add_filter("Amstrad / +3 disks", &["dsk", "edsk"])
             .add_filter("All files", &["*"])
             .pick_file()
         else {
