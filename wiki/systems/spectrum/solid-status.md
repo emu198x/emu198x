@@ -1,13 +1,13 @@
 # Spectrum SOLID Status
 
-**As of 2026-05-06.** Live tracker, audited against the [October catalogue Spectrum SOLID criteria](../../decisions/october-catalogue.md#october-bar-definition). Update as criteria flip.
+**As of 2026-05-08.** Live tracker, audited against the [October catalogue Spectrum SOLID criteria](../../decisions/october-catalogue.md#october-bar-definition). Update as criteria flip.
 
 ## Headline
 
 | Score | Count | Criteria |
 |---|---|---|
 | DONE | 4 | Variants, CRT filter, code quality, regressions |
-| PARTIAL | 5 | Catalogue, formats, native UI, save state, code coverage (unmeasured) |
+| PARTIAL | 5 | Catalogue, formats, native UI, save state, code coverage |
 | NOT STARTED | 2 | Single binary, MCP |
 
 ## Per-criterion
@@ -23,7 +23,7 @@ All eight in-scope variants present in code, each in its own crate:
 |---|---|---|
 | 16K | `machine-sinclair-zx-spectrum-16k` | `SpectrumMachineCore<Spectrum16kMemory>` |
 | 48K | `machine-sinclair-zx-spectrum-48k` | `SpectrumMachineCore<Spectrum48kMemory>` |
-| Spectrum+ | `machine-sinclair-zx-spectrum-plus` | `SpectrumMachineCore<Spectrum48kMemory>` (same type as 48K; catalogue identity via `Model::SpectrumPlus`) |
+| Spectrum+ | `machine-sinclair-zx-spectrum-plus` | `SpectrumMachineCore<Spectrum48kMemory, SpectrumPlusMarker>` |
 | 128K | `machine-sinclair-zx-spectrum-128k` | `Spectrum128kClassCore<Sinclair128KMarker>` |
 | Grey +2 | `machine-sinclair-zx-spectrum-plus2` | `Spectrum128kClassCore<AmstradPlus2Marker>` |
 | +2A | `machine-sinclair-zx-spectrum-plus2a` | `SpectrumAmstradClassCore<Plus2AMarker>` |
@@ -35,15 +35,15 @@ Three layer crates host the shared compositions:
 - `common-sinclair-zx-spectrum-128k-class` — Sinclair 7K010E ULA + Z80 + Memory128K + AY, used by 128K / grey +2.
 - `common-sinclair-zx-spectrum-amstrad-class` — Amstrad 40077 + Z80 + MemoryPlus + AY + FDC, used by +2A / +2B / +3 (FDC enabled only on +3 via the marker's `HAS_FDC` const).
 
-Phantom variant markers keep variants type-distinct where the hardware genuinely differs (snapshot type-binding, disk-slot dispatch). The 48K and Spectrum+ are the only pair that share a Rust type — they really are the same hardware, so catalogue identity comes from the `Model` enum alone.
+Phantom variant markers keep every SOLID variant type-distinct, including pairs whose hardware is electrically identical (48K vs Spectrum+). The 48K-class layer crate now parameterises its core as `SpectrumMachineCore<M: MemoryBus, V: Variant48kClass>` (mirroring the 128K-class and Amstrad-class shapes). Snapshots can't cross variants and per-machine metadata (release year, marketing copy, future imagery) attaches at the marker level rather than the runtime — the original "share a Rust type" decision was reversed 2026-05-08; see the log entry for that date.
 
 ### 3. Formats — PARTIAL
 
 TAP (`format-sinclair-zx-spectrum-tap`), TZX (`format-sinclair-zx-spectrum-tzx`), Z80 (`format-sinclair-zx-spectrum-z80`), and SNA (`format-sinclair-zx-spectrum-sna`) all implemented as separate crates. Shared `Snapshot` and `SnapshotModel` types live in `format-sinclair-zx-spectrum-snapshot`. DSK/EDSK shared with Amstrad CPC via `format-amstrad-dsk`. PARTIAL because the criterion requires every format working across all in-scope variants — the new variants (16K, +2, Spectrum+, +2A, +2B, +3 once extracted) need format support exercised against them, which can't happen until the variant crates exist.
 
-### 4. Pipeline / single binary — NOT STARTED
+### 4. Pipeline / single binary — NOT STARTED *(next track to tackle)*
 
-Two separate binaries today: `emu198x-spectrum` (winit UI) and `emu198x-script-spectrum` (headless). The locked criterion requires one `emu198x-spectrum` binary with `--ui` (default), `--script`, `--mcp` modes. UI binary's CLI is `--rom`, `--tape`, `--play-tape`, `--autoload-tape`, `--scale`, `--video` — no mode flag.
+Two separate binaries today: `emu198x-spectrum` (winit UI) and `emu198x-script-spectrum` (headless). The locked criterion requires one `emu198x-spectrum` binary with `--ui` (default), `--script`, `--mcp` modes. UI binary's CLI is `--rom`, `--tape`, `--play-tape`, `--autoload-tape`, `--scale`, `--video` — no mode flag. **Next track up** — Code198x's curriculum DoD (every unit's screenshot/video) couples directly to this criterion, so it unblocks cross-project work in addition to closing a SOLID gap.
 
 ### 5. MCP — NOT STARTED
 
@@ -55,7 +55,11 @@ No MCP crate, no MCP code anywhere in the workspace. `grep -l "mcp"` returns onl
 
 ### 7. Native UI — PARTIAL
 
-winit-based UI exists with run/pause/reset, volume, window sizing, tape transport. Keyboard shortcuts: Esc (quit), F9/F10 (tape), F11 (turbo), F12 (reset), Numpad 1/2/0 (audio). **Missing for SOLID:** variant selection (no machine menu), runtime file picker, snapshot save/load buttons. Files load at startup only, via CLI flags.
+winit-based UI with native macOS NSMenu via `muda`. **Variant selection landed 2026-05-08** — Machine menu lists all 8 in-scope variants, clicking swaps the runtime in-place via the `LiveSpectrumRuntime` trait + `build_runtime` factory in `crates/emu198x-spectrum/src/live_machine.rs`. Window title retitles to the new variant's `profile().display_name`. Per-variant pacing recomputes (48K-class 14 MHz vs 128K-class 17.7 MHz). On firmware-missing, the menu indicator pins back to the running machine and logs the failure — the checkmark never lies.
+
+Existing run/pause/reset, volume, window sizing, tape transport. Keyboard shortcuts: Esc (quit), F9/F10 (tape), F11 (turbo), F12 (reset), Numpad 1/2/0 (audio). **Cursor keys** map to Caps Shift + 5/6/7/8 (real Spectrum+ membrane wiring) so 128K-family boot menus navigate naturally — same hardware-accurate combo as the real cursor keys close on the membrane.
+
+**Missing for SOLID:** runtime file picker (File menu — Open Snapshot/Tape/Disk via `rfd`), snapshot save/load (State menu), runtime window-scale selector (View menu). All three slot into the same `AppCommand` channel that drives Machine; the trait+factory infrastructure is settled. Each is a per-menu task, not another foundation pass.
 
 ### 8. Save state — PARTIAL
 
@@ -130,9 +134,13 @@ Phase 1 splits into three tracks. Foundations and pipeline can run in parallel; 
 
 **Track 1C — Native menu shell:**
 
-9. Add `muda` and `rfd` dependencies.
-10. Native menu bar with: **File** (Open Snapshot / Tape / Disk via `rfd`), **Machine** (variant selector across all 7), **State** (Save / Load), **View** (window sizing options).
-11. Wire menu actions to existing keyboard-shortcut equivalents (avoid duplicate logic paths).
+9. ~~Add `muda` and `rfd` dependencies.~~ **muda landed 2026-05-08; rfd deferred until File menu work begins.**
+10. Native menu bar:
+    - **Machine** (variant selector across all 8) — ~~Phase 1 (menu shell, no-op SwitchMachine)~~ **Phase 2 (actual runtime swap)** both **landed 2026-05-08**.
+    - **File** (Open Snapshot / Tape / Disk via `rfd`) — pending.
+    - **State** (Save / Load) — pending.
+    - **View** (window sizing options) — pending.
+11. Wire menu actions to existing keyboard-shortcut equivalents (avoid duplicate logic paths). *Open per pending menus.*
 
 **Track 1D — Quality lock-ins:**
 
@@ -164,3 +172,6 @@ Phase 1 splits into three tracks. Foundations and pipeline can run in parallel; 
 | 2026-05-07 | **Coverage gate threshold dropped to 75%.** Tightened gate produced an honest 8 in-scope crates below the 90% target; rather than block on grindy test-writing or perpetually-red CI, dropped the default threshold to 75% (the current low-water mark) so the gate enforces no-regression rather than aspirational coverage. The 90% target remains in criterion 11; ratchet up as new tests land. `scripts/coverage-gate.sh` default updated; `COVERAGE_GATE_THRESHOLD` env var still overrides for stricter local runs. |
 | 2026-05-07 | **Boot-screen golden tests landed.** New harness in `crates/runtime-sinclair-zx-spectrum/tests/goldens.rs` boots each of the 8 in-scope variants from real ROMs (`~/.emu198x/roms/<system>/`), runs 200–250 frames, encodes the framebuffer as a 16-colour indexed PNG through `SPECTRUM_PALETTE`, and either writes a new golden (with `UPDATE_GOLDENS=1`) or compares byte-for-byte against the checked-in PNG. All 8 goldens locked. Found two issues invisible to the existing nonzero-bytes boot tests: (1) `~/.emu198x/roms/sinclair-zx-spectrum-128k/128-0.rom` was a duplicate of `128-1.rom` so 128K booted into 48 BASIC; restored from the canonical Derby split. (2) +2B was sharing v4.0 ROMs with +2A; created `~/.emu198x/roms/amstrad-zx-spectrum-plus2b/` with v4.1 split. The +2A and +2B goldens are byte-identical because real Amstrad +2B hardware running stock firmware also displays "+2A" — `wiki/decisions/spectrum-plus2b-boot-screen.md` documents the finding. |
 | 2026-05-06 | **128K-class layer crate + +2 wrapper landed.** New `common-sinclair-zx-spectrum-128k-class` hosts `Spectrum128kClassCore<V: Class128kVariant>` with the Sinclair 7K010E ULA, AY-3-8912, Memory128K, and TIMING_128K baked in. Phantom variant marker (`Sinclair128KMarker`, `AmstradPlus2Marker`) gives distinct types per variant. The 128K crate dropped from 342+279 lines to ~50 (lib.rs alone, no memory.rs); the new `-plus2` crate is ~100 lines with 7 tests (model id, defaults, frame cadence, ROM loader, paging, contention, dimensions). Wired into runtime as `SpectrumPlus2Runtime` with full `SpectrumMachine` impl, dedicated `SPECTRUM_PLUS2_BANNERS` ("Amstrad Consumer Electronics plc"), and three integration tests including a snapshot type-bound test (a 128K snapshot can't restore into a +2 runtime). Runtime variant test count: 46 → 49. SOLID criterion 2 advances: 6 → 7 of 8 (only Spectrum+ left, blocked on D6). |
+| 2026-05-08 | **Runtime prework for native-menu Phase 2 (commit 8a9570c).** Lifted four audio methods (`audio_controls`, `set_audio_controls`, `set_audio_channel_enabled`, `set_audio_channel_gain`) onto the `SpectrumMachine` trait + `SpectrumRuntime` generic-over-M passthrough — every variant has a uniform audio surface. Added inherent passthrough on the four non-SOLID machine types (Pentagon, Scorpion, TC2048, TS2068) and the 128K-class + Amstrad-class cores. **Reversed the "48K and Spectrum+ share a Rust type" decision** — `SpectrumMachineCore<M>` becomes `SpectrumMachineCore<M, V: Variant48kClass>` with phantom markers `Spectrum16kMarker`, `Spectrum48kMarker`, `SpectrumPlusMarker`. Mirrors the 128K-class / Amstrad-class shapes; future per-machine metadata (release year, discontinuation, marketing copy) attaches at the marker level. Added `from_firmware` constructors on every SOLID variant runtime (16K, +, 128K, +2, +2A, +2B, +3) — each in a per-variant runtime file, mirroring the 48K's existing shape. 17 Spectrum-stack lib tests still pass (215 tests, 0 failures); 51 runtime integration tests pass; SpectrumPlus snapshot round-trip proves the marker change is serde-clean. |
+| 2026-05-08 | **Track 1C Phase 2 landed (commit 981faf1).** New `crates/emu198x-spectrum/src/live_machine.rs` defines a `LiveSpectrumRuntime` trait covering every method the binary calls on the runtime, with one blanket impl over `SpectrumRuntime<M: SpectrumMachine>`. New variants need only a match arm in the closed `build_runtime(MachineKind, &FirmwareSet)` factory — every other call site works through the trait object. `SpectrumRunner.runtime` flipped from `Spectrum48kRuntime` to `Box<dyn LiveSpectrumRuntime>`; query provider field dropped (now hidden behind the trait). `handle_command(SwitchMachine(kind))` resolves the variant's ROM bundle via `read_variant_firmware`, builds the new boxed runtime, replaces it in-place, recomputes pacing constants, clears audio + frame buffers, refreshes window title from `profile().display_name`, updates menu indicator. On ROM-missing: logs error, pins indicator back, no exit. ROM path conventions match `runtime-sinclair-zx-spectrum/tests/goldens.rs`. Hardcoded `WINDOW_TITLE_BASE = "Emu198x Spectrum 48K"` deleted; title format now `"Emu198x \| <display name> \| <tape state>"`. |
+| 2026-05-08 | **Cursor keys mapped to Caps Shift + 5/6/7/8 (commit 9296cc8).** Spectrum+ (1984) and every later model — 128K, +2, +2A, +2B, +3 — shipped with full-stroke keyboards whose labelled cursor keys are membrane-wired as Caps Shift + 5/6/7/8 at the matrix level. There's no separate cursor-key scancode in the hardware. The previous mapping (host arrow → bare 5/6/7/8) was a 48K-only verifier convenience; reversed now that the binary is the SOLID native UI for eight variants and four of them have boot menus that need real cursor keys. The new mapping is exact hardware emulation, not a synthesis — the membrane closes the same two contacts the real keyboard would. Games that genuinely need bare 5/6/7/8 still have the number row. |

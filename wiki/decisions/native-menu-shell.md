@@ -1,7 +1,10 @@
 # Decision: Native menu shell architecture (Track 1C)
 
-**Status:** Design sketch. First-cut implementation lands the Machine menu only;
-File / State / View are designed for in this doc but deferred to follow-up cuts.
+**Status:** Machine menu fully wired (Phase 1 + Phase 2 landed 2026-05-08).
+File / State / View are designed for in this doc but deferred to
+follow-up cuts. The trait+factory infrastructure required by those menus
+(`LiveSpectrumRuntime`, `build_runtime`) is in place, so each is a
+small per-menu task rather than another foundation pass.
 
 **Drift trigger:** if you find yourself building a menu wiring pattern that
 doesn't go through the central `AppCommand` channel — or proposing
