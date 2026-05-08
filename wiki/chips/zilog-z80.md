@@ -65,3 +65,21 @@ As of 2026-04-12 in the fresh Rust workspace, the Tom Harte corpus passes in ful
 | ZEXDOC | Pass — end-to-end rerun locally on 2026-04-12 |
 | ZEXALL | Pass — end-to-end rerun locally on 2026-04-12 |
 | FUSE | 1,350 / 1,356 exact matches, 6 accepted disagreements, 0 unexpected — exact event trace rerun locally on 2026-04-12 |
+
+## Sources
+
+**Primary documentation**
+- *Z80 CPU User Manual* (Zilog, UM008011-0816) — opcode set, signal protocol, M-cycle/T-state timing diagrams.
+- *The Undocumented Z80 Documented* — Sean Young — undocumented opcodes, block I/O flag behaviour, MEMPTR (WZ register).
+
+**Test corpora**
+- **Tom Harte single-step tests** — JSON corpus at `~/Projects/Emu198x-Unclean/ProcessorTests/z80/v1`.
+- **ZEXDOC / ZEXALL** — Frank Cringle's documented/all flag exerciser.
+- **FUSE test suite** — `tests.in` / `tests.expected` event traces from the FUSE source tree.
+
+**Reference emulators consulted**
+- **SpecIde** (C++) — half-cycle ULA/Z80 interleaving model, closest in shape to ours. See [references/emulators.md](../references/emulators.md).
+- **FUSE** (C) — authoritative timing data; event-driven architecture, not our approach.
+- **z80cpp** (C++) — clean standalone core, sanity-check on instruction decode.
+
+Block I/O flag formulas (§ above) derived from Sean Young's notes, validated against Tom Harte. See [decisions/half-cycle-signals.md](../decisions/half-cycle-signals.md) for why we chose the signal-level model over event-driven.
