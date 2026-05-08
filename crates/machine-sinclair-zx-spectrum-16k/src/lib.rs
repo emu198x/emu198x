@@ -13,6 +13,6 @@ pub use common_sinclair_zx_spectrum::{
     AudioControls, SpeakerChannel,
     keyboard::{KeyboardMatrix, SpectrumKey},
 };
-pub use common_sinclair_zx_spectrum_48k_class::TapeInput;
+pub use common_sinclair_zx_spectrum_48k_class::{Spectrum16kMarker, TapeInput};
 pub use ferranti_ula_6c001e::BoardIssue;
 pub use machine::Spectrum16K;

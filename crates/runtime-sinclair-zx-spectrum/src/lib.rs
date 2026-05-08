@@ -17,7 +17,14 @@ mod profiles;
 mod queries;
 mod runtime;
 mod snapshot;
+mod spectrum_16k;
 mod spectrum_48k;
+mod spectrum_128k;
+mod spectrum_plus;
+mod spectrum_plus2;
+mod spectrum_plus2a;
+mod spectrum_plus2b;
+mod spectrum_plus3;
 mod variants;
 
 pub use autoload::{

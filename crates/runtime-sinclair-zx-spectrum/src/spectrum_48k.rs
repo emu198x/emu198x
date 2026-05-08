@@ -6,7 +6,6 @@
 //! The runtime itself is the generic `SpectrumRuntime<Spectrum48k>` —
 //! everything below builds on that, not around it.
 
-use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::error::RomImageError;
 use emu198x_shell::{
     CapabilitySet, FirmwareSet, MachineError, MachineProfile, SupportTier, known_capability,
@@ -67,28 +66,6 @@ impl SpectrumRuntime<Spectrum48k> {
     pub fn blank() -> Self {
         Self::new_48k([0; 16 * 1024])
     }
-
-    /// Current host-side speaker audio controls.
-    #[must_use]
-    pub fn audio_controls(&self) -> AudioControls {
-        self.machine().audio_controls()
-    }
-
-    /// Replace all host-side speaker audio controls.
-    pub fn set_audio_controls(&mut self, controls: AudioControls) {
-        self.machine_mut().set_audio_controls(controls);
-    }
-
-    /// Enable or disable the speaker in host output.
-    pub fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
-        self.machine_mut()
-            .set_audio_channel_enabled(channel, enabled);
-    }
-
-    /// Set speaker host-side gain.
-    pub fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
-        self.machine_mut().set_audio_channel_gain(channel, gain);
-    }
 }
 
 /// 48K-only profile that bumps `support_tier` to `Boots` and advertises
@@ -112,6 +89,7 @@ fn boots_profile_with_export() -> MachineProfile {
 mod tests {
     use super::*;
     use crate::variants::Spectrum48kRuntime;
+    use common_sinclair_zx_spectrum::audio::SpeakerChannel;
     use emu198x_shell::FirmwareImage;
 
     #[test]

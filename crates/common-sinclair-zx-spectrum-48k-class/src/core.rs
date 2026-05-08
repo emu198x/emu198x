@@ -1,15 +1,18 @@
 //! Shared 48K-class machine composition.
 //!
-//! The 48K, 16K, and Spectrum+ are electrically identical apart from
-//! memory size and badge. This type holds the Ferranti-ULA-driven
-//! composition (Z80, beeper, tape) that's shared across them,
-//! parameterised over the memory map. Variant crates alias it
-//! (`pub type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory>;`)
-//! and add only their own variant-specific surface.
+//! The 16K, 48K, and Spectrum+ share the same Ferranti-ULA-driven
+//! composition (Z80, beeper, tape). This type carries that composition
+//! parameterised over both the memory map (`M`) and a phantom variant
+//! marker (`V`). Variant crates alias it (e.g.
+//! `pub type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;`)
+//! so that snapshots cannot cross variants and per-machine metadata can
+//! attach at the marker level.
 //!
 //! Variants outside the 48K-class — 128K-family, Pentagon, Scorpion,
 //! Timex — have their own ULAs and additional state (AY, paging, FDC)
 //! and keep their own machine implementations.
+
+use std::marker::PhantomData;
 
 use common_sinclair_zx_spectrum::audio::{
     AudioControls, BeeperAudio, SpeakerChannel, SpeakerMixer,
@@ -27,6 +30,7 @@ use peripheral_kempston_joystick::KempstonJoystick;
 use zilog_z80::Z80;
 
 use crate::tape_input::TapeInput;
+use crate::variant::Variant48kClass;
 
 const AUDIO_SAMPLE_RATE: u32 = 44_100;
 
@@ -44,9 +48,11 @@ fn make_audio() -> BeeperAudio {
 /// `M`, the shared keyboard matrix, the tape player + EAR line, and the
 /// beeper / speaker mixer feeding a single `audio_frame`. The half-cycle
 /// counter `hc` and the `framebuffer` are owned here; everything else is
-/// re-used from `common-sinclair-zx-spectrum`.
+/// re-used from `common-sinclair-zx-spectrum`. The phantom `V` marker
+/// distinguishes variants that share a memory map (48K vs Spectrum+) at
+/// the type level.
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct SpectrumMachineCore<M: MemoryBus> {
+pub struct SpectrumMachineCore<M: MemoryBus, V: Variant48kClass> {
     z80: Z80,
     ula: FerrantiUla,
     memory: M,
@@ -63,9 +69,12 @@ pub struct SpectrumMachineCore<M: MemoryBus> {
     speaker: SpeakerMixer,
     framebuffer: Vec<u8>,
     hc: u32,
+
+    #[serde(skip)]
+    _variant: PhantomData<V>,
 }
 
-impl<M: MemoryBus> SpectrumMachineCore<M> {
+impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     /// Creates a 48K-class machine for the requested board issue and
     /// caller-supplied memory map.
     #[must_use]
@@ -85,6 +94,7 @@ impl<M: MemoryBus> SpectrumMachineCore<M> {
             speaker: SpeakerMixer::default(),
             framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
             hc: 0,
+            _variant: PhantomData,
         }
     }
 
@@ -376,7 +386,7 @@ impl<M: MemoryBus> SpectrumMachineCore<M> {
     }
 }
 
-impl<M: MemoryBus> SpectrumDriver for SpectrumMachineCore<M> {
+impl<M: MemoryBus, V: Variant48kClass> SpectrumDriver for SpectrumMachineCore<M, V> {
     #[inline(always)]
     fn hc(&self) -> u32 {
         self.hc
@@ -438,7 +448,7 @@ impl<M: MemoryBus> SpectrumDriver for SpectrumMachineCore<M> {
     }
 }
 
-impl<M: MemoryBus> MemoryBus for SpectrumMachineCore<M> {
+impl<M: MemoryBus, V: Variant48kClass> MemoryBus for SpectrumMachineCore<M, V> {
     fn read(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }
@@ -456,21 +466,22 @@ impl<M: MemoryBus> MemoryBus for SpectrumMachineCore<M> {
     }
 }
 
-// 48K-specific shortcuts.
-impl SpectrumMachineCore<Spectrum48kMemory> {
-    /// Creates an Issue 3 48K machine with deterministic startup state.
+// 48K-class shortcuts (Spectrum48kMemory backed: 48K + Spectrum+).
+impl<V: Variant48kClass> SpectrumMachineCore<Spectrum48kMemory, V> {
+    /// Creates an Issue 3 48K-class machine with deterministic startup
+    /// state.
     #[must_use]
     pub fn new() -> Self {
         Self::with_issue(BoardIssue::Issue3)
     }
 
-    /// Creates a 48K machine for the requested board issue.
+    /// Creates a 48K-class machine for the requested board issue.
     #[must_use]
     pub fn with_issue(issue: BoardIssue) -> Self {
         Self::with_issue_and_memory(issue, Spectrum48kMemory::new())
     }
 
-    /// Creates a 48K machine with the supplied 16 KiB ROM image.
+    /// Creates a 48K-class machine with the supplied 16 KiB ROM image.
     #[must_use]
     pub fn with_rom(issue: BoardIssue, rom: [u8; 16 * 1024]) -> Self {
         Self::with_issue_and_memory(issue, Spectrum48kMemory::with_rom(rom))
@@ -486,15 +497,16 @@ impl SpectrumMachineCore<Spectrum48kMemory> {
     }
 }
 
-impl Default for SpectrumMachineCore<Spectrum48kMemory> {
+impl<V: Variant48kClass> Default for SpectrumMachineCore<Spectrum48kMemory, V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-// 16K-specific shortcuts. The 16K wrapper crate (Phase 1A step 5) aliases
-// `SpectrumMachineCore<Spectrum16kMemory>` and inherits these.
-impl SpectrumMachineCore<Spectrum16kMemory> {
+// 16K-specific shortcuts. Only `Spectrum16kMarker` uses this memory map,
+// so the V parameter is fixed to that marker — no other variant currently
+// shares the half-RAM hardware.
+impl SpectrumMachineCore<Spectrum16kMemory, crate::variant::Spectrum16kMarker> {
     /// Creates an Issue 3 16K machine with deterministic startup state.
     #[must_use]
     pub fn new() -> Self {
@@ -523,7 +535,7 @@ impl SpectrumMachineCore<Spectrum16kMemory> {
     }
 }
 
-impl Default for SpectrumMachineCore<Spectrum16kMemory> {
+impl Default for SpectrumMachineCore<Spectrum16kMemory, crate::variant::Spectrum16kMarker> {
     fn default() -> Self {
         Self::new()
     }
@@ -533,7 +545,9 @@ impl Default for SpectrumMachineCore<Spectrum16kMemory> {
 mod tests {
     use super::*;
 
-    type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory>;
+    use crate::variant::Spectrum48kMarker;
+
+    type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;
 
     #[derive(Clone, Copy, Debug)]
     struct CpuTraceSample {

@@ -8,6 +8,7 @@
 //! text, keyboard, tape state, frame timing) is shared in
 //! [`crate::queries`].
 
+use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
@@ -226,6 +227,12 @@ const SPECTRUM_16K_QUERY_PATHS: &[&str] = &[
 
 const SPECTRUM_16K_BANNERS: &[&str] = SPECTRUM_48K_BANNERS;
 
+// Spectrum+ boots the same 48K ROM, so banner detection runs against
+// the same set as the 48K and 16K. Its catalogue identity comes from
+// `Model::SpectrumPlus`, not from a different banner.
+const SPECTRUM_PROPER_PLUS_BANNERS: &[&str] = SPECTRUM_48K_BANNERS;
+const SPECTRUM_PROPER_PLUS_QUERY_PATHS: &[&str] = SPECTRUM_16K_QUERY_PATHS;
+
 const SPECTRUM_128K_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
@@ -353,6 +360,18 @@ impl SpectrumMachine for Spectrum48k {
     fn audio_frame(&self) -> &[f32] {
         Spectrum48k::audio_frame(self)
     }
+    fn audio_controls(&self) -> AudioControls {
+        Spectrum48k::audio_controls(self)
+    }
+    fn set_audio_controls(&mut self, controls: AudioControls) {
+        Spectrum48k::set_audio_controls(self, controls);
+    }
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        Spectrum48k::set_audio_channel_enabled(self, channel, enabled);
+    }
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        Spectrum48k::set_audio_channel_gain(self, channel, gain);
+    }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         *self.keyboard_mut().rows_mut() = *rows;
     }
@@ -426,6 +445,18 @@ impl SpectrumMachine for Spectrum16K {
     fn audio_frame(&self) -> &[f32] {
         Spectrum16K::audio_frame(self)
     }
+    fn audio_controls(&self) -> AudioControls {
+        Spectrum16K::audio_controls(self)
+    }
+    fn set_audio_controls(&mut self, controls: AudioControls) {
+        Spectrum16K::set_audio_controls(self, controls);
+    }
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        Spectrum16K::set_audio_channel_enabled(self, channel, enabled);
+    }
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        Spectrum16K::set_audio_channel_gain(self, channel, gain);
+    }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         *self.keyboard_mut().rows_mut() = *rows;
     }
@@ -483,6 +514,96 @@ impl SpectrumMachine for Spectrum16K {
     }
 }
 
+// Spectrum+ shares the 48K's hardware and ROM. Its impl mirrors the 48K
+// — same timing, same Ferranti ULA, same 48 BASIC ROM — but the
+// phantom marker keeps it as a distinct Rust type so snapshots can't
+// cross between the two and per-variant metadata can attach to the
+// marker rather than the runtime.
+impl SpectrumMachine for SpectrumPlus {
+    const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
+    const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
+
+    fn frame_halfcycles(&self) -> u32 {
+        TIMING_48K.halfcycles_per_frame
+    }
+    fn run_frame(&mut self) {
+        SpectrumPlus::run_frame(self);
+    }
+    fn framebuffer(&self) -> &[u8] {
+        SpectrumPlus::framebuffer(self)
+    }
+    fn audio_frame(&self) -> &[f32] {
+        SpectrumPlus::audio_frame(self)
+    }
+    fn audio_controls(&self) -> AudioControls {
+        SpectrumPlus::audio_controls(self)
+    }
+    fn set_audio_controls(&mut self, controls: AudioControls) {
+        SpectrumPlus::set_audio_controls(self, controls);
+    }
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        SpectrumPlus::set_audio_channel_enabled(self, channel, enabled);
+    }
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        SpectrumPlus::set_audio_channel_gain(self, channel, gain);
+    }
+    fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
+        *self.keyboard_mut().rows_mut() = *rows;
+    }
+    fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
+        SpectrumPlus::load_tape_blocks(self, blocks);
+    }
+    fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
+        SpectrumPlus::load_tape_stream(self, stream);
+    }
+    fn tape_play(&mut self) {
+        self.play_tape();
+    }
+    fn tape_stop(&mut self) {
+        self.stop_tape();
+    }
+    fn reset_machine(&mut self) {
+        self.reset();
+    }
+
+    fn read_byte(&self, addr: u16) -> u8 {
+        <Self as MemoryBus>::read(self, addr)
+    }
+    fn keyboard_rows(&self) -> &[u8; 8] {
+        SpectrumPlus::keyboard(self).rows()
+    }
+    fn tape_is_loaded(&self) -> bool {
+        SpectrumPlus::tape_is_loaded(self)
+    }
+    fn tape_is_playing(&self) -> bool {
+        SpectrumPlus::tape_is_playing(self)
+    }
+    fn half_cycle_in_frame(&self) -> u32 {
+        SpectrumPlus::hc(self)
+    }
+    fn tstate_in_frame(&self) -> u32 {
+        SpectrumPlus::tstate_in_frame(self)
+    }
+
+    fn variant_query_paths() -> &'static [&'static str] {
+        SPECTRUM_PROPER_PLUS_QUERY_PATHS
+    }
+
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
+        if COMMON_BOOT_PATHS.contains(&path) {
+            return resolve_boot_path(self, SPECTRUM_PROPER_PLUS_BANNERS, path);
+        }
+        let value = match path {
+            "spectrum.machine.issue" => json!(board_issue_name(self.issue())),
+            _ => return Ok(None),
+        };
+        Ok(Some(QueryResult {
+            path: path.to_owned(),
+            value,
+        }))
+    }
+}
+
 impl SpectrumMachine for Spectrum128K {
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
@@ -498,6 +619,18 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
+    }
+    fn audio_controls(&self) -> AudioControls {
+        Spectrum128K::audio_controls(self)
+    }
+    fn set_audio_controls(&mut self, controls: AudioControls) {
+        Spectrum128K::set_audio_controls(self, controls);
+    }
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        Spectrum128K::set_audio_channel_enabled(self, channel, enabled);
+    }
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        Spectrum128K::set_audio_channel_gain(self, channel, gain);
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
@@ -574,6 +707,18 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
+    }
+    fn audio_controls(&self) -> AudioControls {
+        SpectrumPlus2::audio_controls(self)
+    }
+    fn set_audio_controls(&mut self, controls: AudioControls) {
+        SpectrumPlus2::set_audio_controls(self, controls);
+    }
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        SpectrumPlus2::set_audio_channel_enabled(self, channel, enabled);
+    }
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        SpectrumPlus2::set_audio_channel_gain(self, channel, gain);
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
@@ -653,6 +798,18 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
     fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
+    }
+    fn audio_controls(&self) -> AudioControls {
+        SpectrumAmstradClassCore::<V>::audio_controls(self)
+    }
+    fn set_audio_controls(&mut self, controls: AudioControls) {
+        SpectrumAmstradClassCore::<V>::set_audio_controls(self, controls);
+    }
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        SpectrumAmstradClassCore::<V>::set_audio_channel_enabled(self, channel, enabled);
+    }
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        SpectrumAmstradClassCore::<V>::set_audio_channel_gain(self, channel, gain);
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
@@ -756,6 +913,18 @@ impl SpectrumMachine for Pentagon128 {
     fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
     }
+    fn audio_controls(&self) -> AudioControls {
+        Pentagon128::audio_controls(self)
+    }
+    fn set_audio_controls(&mut self, controls: AudioControls) {
+        Pentagon128::set_audio_controls(self, controls);
+    }
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        Pentagon128::set_audio_channel_enabled(self, channel, enabled);
+    }
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        Pentagon128::set_audio_channel_gain(self, channel, gain);
+    }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
     }
@@ -838,6 +1007,18 @@ impl SpectrumMachine for ScorpionZS256 {
     fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
     }
+    fn audio_controls(&self) -> AudioControls {
+        ScorpionZS256::audio_controls(self)
+    }
+    fn set_audio_controls(&mut self, controls: AudioControls) {
+        ScorpionZS256::set_audio_controls(self, controls);
+    }
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        ScorpionZS256::set_audio_channel_enabled(self, channel, enabled);
+    }
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        ScorpionZS256::set_audio_channel_gain(self, channel, gain);
+    }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
     }
@@ -919,6 +1100,18 @@ impl SpectrumMachine for TimexTC2048 {
     fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
     }
+    fn audio_controls(&self) -> AudioControls {
+        TimexTC2048::audio_controls(self)
+    }
+    fn set_audio_controls(&mut self, controls: AudioControls) {
+        TimexTC2048::set_audio_controls(self, controls);
+    }
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        TimexTC2048::set_audio_channel_enabled(self, channel, enabled);
+    }
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        TimexTC2048::set_audio_channel_gain(self, channel, gain);
+    }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
     }
@@ -994,6 +1187,18 @@ impl SpectrumMachine for TimexTS2068 {
     }
     fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
+    }
+    fn audio_controls(&self) -> AudioControls {
+        TimexTS2068::audio_controls(self)
+    }
+    fn set_audio_controls(&mut self, controls: AudioControls) {
+        TimexTS2068::set_audio_controls(self, controls);
+    }
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        TimexTS2068::set_audio_channel_enabled(self, channel, enabled);
+    }
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        TimexTS2068::set_audio_channel_gain(self, channel, gain);
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;

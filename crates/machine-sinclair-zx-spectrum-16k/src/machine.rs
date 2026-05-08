@@ -8,10 +8,10 @@
 //! keyboard, tape, framebuffer, timing — is the 48K-class core.
 
 use common_sinclair_zx_spectrum::memory::Spectrum16kMemory;
-use common_sinclair_zx_spectrum_48k_class::SpectrumMachineCore;
+use common_sinclair_zx_spectrum_48k_class::{Spectrum16kMarker, SpectrumMachineCore};
 
 /// Machine-local state for a stock ZX Spectrum 16K.
-pub type Spectrum16K = SpectrumMachineCore<Spectrum16kMemory>;
+pub type Spectrum16K = SpectrumMachineCore<Spectrum16kMemory, Spectrum16kMarker>;
 
 #[cfg(test)]
 mod tests {

@@ -202,6 +202,38 @@ impl ScorpionZS256 {
     pub fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
     }
+
+    /// Current host-side speaker audio controls.
+    #[must_use]
+    pub fn audio_controls(&self) -> common_sinclair_zx_spectrum::audio::AudioControls {
+        self.audio.audio_controls()
+    }
+
+    /// Replaces the host-side speaker audio controls wholesale.
+    pub fn set_audio_controls(
+        &mut self,
+        controls: common_sinclair_zx_spectrum::audio::AudioControls,
+    ) {
+        self.audio.set_audio_controls(controls);
+    }
+
+    /// Enables or disables one host-side audio channel.
+    pub fn set_audio_channel_enabled(
+        &mut self,
+        channel: common_sinclair_zx_spectrum::audio::SpeakerChannel,
+        enabled: bool,
+    ) {
+        self.audio.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Sets the host-side gain for one audio channel.
+    pub fn set_audio_channel_gain(
+        &mut self,
+        channel: common_sinclair_zx_spectrum::audio::SpeakerChannel,
+        gain: f32,
+    ) {
+        self.audio.set_audio_channel_gain(channel, gain);
+    }
 }
 
 impl Default for ScorpionZS256 {
@@ -297,5 +329,22 @@ mod tests {
         let mut m = ScorpionZS256::new();
         m.run_frame();
         assert_eq!(m.hc, 0);
+    }
+
+    #[test]
+    fn audio_controls_passthrough_round_trips() {
+        use common_sinclair_zx_spectrum::audio::SpeakerChannel;
+        let mut m = ScorpionZS256::new();
+        let initial = m.audio_controls();
+        assert!(initial.channel(SpeakerChannel::Speaker).enabled());
+
+        m.set_audio_channel_enabled(SpeakerChannel::Speaker, false);
+        m.set_audio_channel_gain(SpeakerChannel::Speaker, 0.25);
+        let after = m.audio_controls();
+        assert!(!after.channel(SpeakerChannel::Speaker).enabled());
+        assert!((after.channel(SpeakerChannel::Speaker).gain() - 0.25).abs() < f32::EPSILON);
+
+        m.set_audio_controls(initial);
+        assert!(m.audio_controls().channel(SpeakerChannel::Speaker).enabled());
     }
 }

@@ -15,22 +15,23 @@
 //!
 //! The hardware composition lives in
 //! [`common_sinclair_zx_spectrum_48k_class::SpectrumMachineCore`] and
-//! is shared with the 48K and 16K. Because the Spectrum+ shares the
-//! 48K's exact memory layout, the type alias is identical to the 48K's
-//! — there is no phantom variant marker. Catalogue distinctness comes
-//! from the runtime's `Model::SpectrumPlus` profile entry.
+//! is shared with the 48K and 16K. The phantom variant marker
+//! [`SpectrumPlusMarker`] makes the Spectrum+ a distinct Rust type from
+//! the 48K — snapshots can't cross between them, and per-variant
+//! metadata (release year, marketing copy) attaches at the marker
+//! level rather than at the runtime.
 
 pub use common_sinclair_zx_spectrum::memory::Spectrum48kMemory;
-pub use common_sinclair_zx_spectrum_48k_class::{SpectrumMachineCore, TapeInput};
+pub use common_sinclair_zx_spectrum_48k_class::{
+    SpectrumMachineCore, SpectrumPlusMarker, TapeInput,
+};
 pub use ferranti_ula_6c001e::BoardIssue;
 
 /// Machine-local state for a Sinclair ZX Spectrum+.
 ///
-/// Identical to `Spectrum48k` at the type level — both are
-/// `SpectrumMachineCore<Spectrum48kMemory>`. The runtime layer keeps the
-/// two distinct via separate `Model` enum entries and separate runtime
-/// aliases.
-pub type SpectrumPlus = SpectrumMachineCore<Spectrum48kMemory>;
+/// Type-distinct from `Spectrum48k` via the [`SpectrumPlusMarker`]
+/// phantom — same hardware composition, different catalogue identity.
+pub type SpectrumPlus = SpectrumMachineCore<Spectrum48kMemory, SpectrumPlusMarker>;
 
 #[cfg(test)]
 mod tests {

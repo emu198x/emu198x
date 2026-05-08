@@ -12,11 +12,11 @@
 
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
 use common_sinclair_zx_spectrum::memory::{MemoryBus, Spectrum48kMemory};
-use common_sinclair_zx_spectrum_48k_class::SpectrumMachineCore;
+use common_sinclair_zx_spectrum_48k_class::{Spectrum48kMarker, SpectrumMachineCore, Variant48kClass};
 use emu198x_shell::InputEvent;
 
 /// Machine-local state for a stock ZX Spectrum 48K.
-pub type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory>;
+pub type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;
 
 /// Maps a host-boundary [`InputEvent`] onto the Spectrum keyboard matrix.
 ///
@@ -31,7 +31,7 @@ pub trait ApplyInputEvent {
     fn apply_input_event(&mut self, event: &InputEvent) -> bool;
 }
 
-impl<M: MemoryBus> ApplyInputEvent for SpectrumMachineCore<M> {
+impl<M: MemoryBus, V: Variant48kClass> ApplyInputEvent for SpectrumMachineCore<M, V> {
     fn apply_input_event(&mut self, event: &InputEvent) -> bool {
         let InputEvent::Key { name, pressed } = event else {
             return false;

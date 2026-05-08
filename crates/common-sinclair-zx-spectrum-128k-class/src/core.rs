@@ -215,6 +215,38 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     pub fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
     }
+
+    /// Current host-side speaker audio controls.
+    #[must_use]
+    pub fn audio_controls(&self) -> common_sinclair_zx_spectrum::audio::AudioControls {
+        self.audio.audio_controls()
+    }
+
+    /// Replaces the host-side speaker audio controls wholesale.
+    pub fn set_audio_controls(
+        &mut self,
+        controls: common_sinclair_zx_spectrum::audio::AudioControls,
+    ) {
+        self.audio.set_audio_controls(controls);
+    }
+
+    /// Enables or disables one host-side audio channel.
+    pub fn set_audio_channel_enabled(
+        &mut self,
+        channel: common_sinclair_zx_spectrum::audio::SpeakerChannel,
+        enabled: bool,
+    ) {
+        self.audio.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Sets the host-side gain for one audio channel.
+    pub fn set_audio_channel_gain(
+        &mut self,
+        channel: common_sinclair_zx_spectrum::audio::SpeakerChannel,
+        gain: f32,
+    ) {
+        self.audio.set_audio_channel_gain(channel, gain);
+    }
 }
 
 impl<V: Class128kVariant> Default for Spectrum128kClassCore<V> {

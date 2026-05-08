@@ -12,6 +12,7 @@
 //! Snapshot/restore are thin delegators into [`crate::snapshot`].
 //! The per-event keyboard matrix update lives in [`crate::input`].
 
+use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
@@ -49,6 +50,18 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
 
     /// Returns the current audio sample buffer.
     fn audio_frame(&self) -> &[f32];
+
+    /// Current host-side speaker audio controls.
+    fn audio_controls(&self) -> AudioControls;
+
+    /// Replaces the host-side speaker audio controls wholesale.
+    fn set_audio_controls(&mut self, controls: AudioControls);
+
+    /// Enables or disables one host-side audio channel.
+    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool);
+
+    /// Sets the host-side gain for one audio channel.
+    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32);
 
     /// Copies fresh keyboard row bytes into the machine's scan matrix.
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]);
@@ -204,6 +217,31 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
     #[must_use]
     pub const fn time_value(&self) -> MachineTime {
         self.time
+    }
+
+    /// Current host-side speaker audio controls.
+    ///
+    /// Generic-over-`M` passthrough so binary call sites
+    /// (`runtime.audio_controls()`) work uniformly across every variant
+    /// without importing the [`SpectrumMachine`] trait.
+    #[must_use]
+    pub fn audio_controls(&self) -> AudioControls {
+        SpectrumMachine::audio_controls(&self.machine)
+    }
+
+    /// Replaces the host-side speaker audio controls wholesale.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        SpectrumMachine::set_audio_controls(&mut self.machine, controls);
+    }
+
+    /// Enables or disables one host-side audio channel.
+    pub fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
+        SpectrumMachine::set_audio_channel_enabled(&mut self.machine, channel, enabled);
+    }
+
+    /// Sets the host-side gain for one audio channel.
+    pub fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
+        SpectrumMachine::set_audio_channel_gain(&mut self.machine, channel, gain);
     }
 
     /// Returns mutable access to the runtime's machine profile so that
