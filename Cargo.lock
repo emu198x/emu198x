@@ -1006,6 +1006,8 @@ dependencies = [
  "emu198x-shell",
  "muda",
  "runtime-sinclair-zx-spectrum",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "winit",
 ]

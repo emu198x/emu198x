@@ -10,6 +10,8 @@ emu198x-native-video = { path = "../emu198x-native-video" }
 emu198x-shell = { path = "../emu198x-shell" }
 muda.workspace = true
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror.workspace = true
 winit.workspace = true
 

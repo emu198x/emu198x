@@ -11,6 +11,7 @@
 
 mod live_machine;
 mod machine;
+mod script;
 mod ui;
 
 use std::process;
@@ -75,15 +76,95 @@ pub enum AppError {
 
     #[error("--autoload-tape conflicts with --play-tape")]
     ConflictingTapeWorkflow,
+
+    /// One script step is recognised by the shell vocabulary but not
+    /// yet handled by this binary (currently `set_machine`).
+    #[error("script step `{step}` is unsupported: {reason}")]
+    ScriptUnsupported {
+        /// The step's serde tag (e.g. `"set_machine"`).
+        step: &'static str,
+        /// Human-readable reason for the binary's refusal.
+        reason: String,
+    },
+
+    /// `--mcp` mode is reserved by SOLID criterion 4 but its
+    /// implementation lands in a follow-up commit. Fail loudly so the
+    /// caller doesn't think it succeeded.
+    #[error("--mcp mode is not yet implemented")]
+    McpNotImplemented,
+}
+
+/// Mode-flag detection. Scans args for `--mcp` / `--headless` /
+/// `--script`; defaults to UI when none of those appear. The
+/// dispatcher then hands the same arg list to the per-mode parser
+/// (which knows how to consume its own flags).
+#[derive(Debug, PartialEq, Eq)]
+enum Mode {
+    Ui,
+    Script,
+    Mcp,
+}
+
+fn detect_mode(args: &[String]) -> Mode {
+    if args.iter().any(|a| a == "--mcp") {
+        Mode::Mcp
+    } else if args.iter().any(|a| a == "--headless" || a == "--script") {
+        Mode::Script
+    } else {
+        Mode::Ui
+    }
 }
 
 fn main() {
-    // Mode dispatch is currently UI-only; --headless / --script / --mcp
-    // arrive in a follow-up commit. For now, every invocation runs the
-    // UI path with the existing CLI surface.
-    let cli = ui::parse_cli(std::env::args().skip(1));
-    if let Err(err) = ui::run(cli) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mode = detect_mode(&args);
+
+    let result = match mode {
+        Mode::Ui => {
+            let cli = ui::parse_cli(args);
+            ui::run(cli)
+        }
+        Mode::Script => {
+            let cli = script::parse_cli(args);
+            script::run(cli)
+        }
+        Mode::Mcp => Err(AppError::McpNotImplemented),
+    };
+
+    if let Err(err) = result {
         eprintln!("error: {err}");
         process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_mode_defaults_to_ui_with_no_args() {
+        assert_eq!(detect_mode(&[]), Mode::Ui);
+    }
+
+    #[test]
+    fn detect_mode_recognises_script_via_script_flag() {
+        let args = vec!["--script".to_owned(), "boot.json".to_owned()];
+        assert_eq!(detect_mode(&args), Mode::Script);
+    }
+
+    #[test]
+    fn detect_mode_recognises_script_via_headless_flag() {
+        let args = vec!["--headless".to_owned()];
+        assert_eq!(detect_mode(&args), Mode::Script);
+    }
+
+    #[test]
+    fn detect_mode_mcp_takes_precedence_over_script() {
+        let args = vec![
+            "--mcp".to_owned(),
+            "--script".to_owned(),
+            "boot.json".to_owned(),
+        ];
+        assert_eq!(detect_mode(&args), Mode::Mcp);
     }
 }
