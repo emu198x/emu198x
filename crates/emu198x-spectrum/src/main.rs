@@ -11,6 +11,7 @@
 
 mod live_machine;
 mod machine;
+mod mcp;
 mod script;
 mod ui;
 
@@ -128,7 +129,7 @@ fn main() {
             let cli = script::parse_cli(args);
             script::run(cli)
         }
-        Mode::Mcp => Err(AppError::McpNotImplemented),
+        Mode::Mcp => mcp::run(),
     };
 
     if let Err(err) = result {
