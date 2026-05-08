@@ -400,7 +400,7 @@ impl SpectrumApp {
     fn open_snapshot(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .set_title("Open Snapshot")
-            .add_filter("Spectrum snapshots", &["sna", "z80"])
+            .add_filter("Spectrum snapshots", &["sna", "z80", "zip"])
             .add_filter("All files", &["*"])
             .pick_file()
         else {
@@ -424,7 +424,7 @@ impl SpectrumApp {
     fn open_tape(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .set_title("Open Tape")
-            .add_filter("Spectrum tapes", &["tap", "tzx"])
+            .add_filter("Spectrum tapes", &["tap", "tzx", "zip"])
             .add_filter("All files", &["*"])
             .pick_file()
         else {
@@ -447,7 +447,7 @@ impl SpectrumApp {
     fn open_disk(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .set_title("Open Disk")
-            .add_filter("Amstrad / +3 disks", &["dsk", "edsk"])
+            .add_filter("Amstrad / +3 disks", &["dsk", "edsk", "zip"])
             .add_filter("All files", &["*"])
             .pick_file()
         else {
@@ -488,9 +488,9 @@ impl SpectrumApp {
     fn load_state(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .set_title("Load State")
-            .add_filter("Snapshots", &["emu198x-state", "sna", "z80"])
+            .add_filter("Snapshots", &["emu198x-state", "sna", "z80", "zip"])
             .add_filter("emu198x quick state", &["emu198x-state"])
-            .add_filter("Spectrum snapshots", &["sna", "z80"])
+            .add_filter("Spectrum snapshots", &["sna", "z80", "zip"])
             .add_filter("All files", &["*"])
             .pick_file()
         else {

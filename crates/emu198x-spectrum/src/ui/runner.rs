@@ -387,31 +387,33 @@ impl SpectrumRunner {
         Ok(())
     }
 
-    /// Imports a portable `.sna` or `.z80` snapshot. Detects the format
-    /// by extension, parses via the matching format crate, and applies
-    /// the parsed `Snapshot` into the live machine via the runtime
-    /// trait's `apply_snapshot`. Distinct from `load_snapshot_from_path`,
-    /// which decodes the runtime's own postcard save state.
+    /// Imports a portable `.sna` or `.z80` snapshot. Routes through
+    /// the shell crate's asset loader so a `.zip` archive containing a
+    /// single matching snapshot file is auto-extracted; raw `.sna` /
+    /// `.z80` files load directly. Distinct from
+    /// `load_snapshot_from_path`, which decodes the runtime's own
+    /// postcard save state.
     pub fn import_portable_snapshot_from_path(
         &mut self,
         path: &std::path::Path,
     ) -> Result<(), AppError> {
-        let bytes = std::fs::read(path)?;
-        let extension = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(str::to_ascii_lowercase);
-        let snapshot = match extension.as_deref() {
-            Some("sna") => format_sinclair_zx_spectrum_sna::parse_sna(&bytes)
-                .map_err(|err| AppError::Io(std::io::Error::other(err)))?,
-            Some("z80") => format_sinclair_zx_spectrum_z80::parse_z80(&bytes)
-                .map_err(|err| AppError::Io(std::io::Error::other(err)))?,
-            _ => {
-                return Err(AppError::Io(std::io::Error::other(format!(
-                    "unrecognised snapshot extension on {} (expected .sna or .z80)",
-                    path.display()
-                ))));
-            }
+        let loaded = read_media_asset(path, MediaKind::Snapshot)?;
+        let inner_name = loaded
+            .archive_member
+            .as_deref()
+            .unwrap_or_else(|| path.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+        let inner_lower = inner_name.to_ascii_lowercase();
+        let snapshot = if inner_lower.ends_with(".sna") {
+            format_sinclair_zx_spectrum_sna::parse_sna(&loaded.bytes)
+                .map_err(|err| AppError::Io(std::io::Error::other(err)))?
+        } else if inner_lower.ends_with(".z80") {
+            format_sinclair_zx_spectrum_z80::parse_z80(&loaded.bytes)
+                .map_err(|err| AppError::Io(std::io::Error::other(err)))?
+        } else {
+            return Err(AppError::Io(std::io::Error::other(format!(
+                "unrecognised snapshot at {} (expected .sna or .z80, got {inner_name})",
+                path.display()
+            ))));
         };
         self.runtime.apply_snapshot(&snapshot);
         self.frame_capture = LatestFrameCapture::default();
@@ -437,7 +439,9 @@ impl SpectrumRunner {
             .and_then(|ext| ext.to_str())
             .map(str::to_ascii_lowercase);
         match extension.as_deref() {
-            Some("sna") | Some("z80") => self.import_portable_snapshot_from_path(path),
+            Some("sna") | Some("z80") | Some("zip") => {
+                self.import_portable_snapshot_from_path(path)
+            }
             _ => self.load_snapshot_from_path(path),
         }
     }
