@@ -204,8 +204,14 @@ impl SpectrumRunner {
     }
 
     /// Loads a tape image from disk into slot `tape-1` and (if
-    /// `autoload`) drives the BASIC autoload sequence so the program
-    /// starts loading immediately.
+    /// `autoload`) drives the BASIC autoload sequence — wait for the
+    /// K prompt, type `LOAD ""`, start tape transport — so the
+    /// program starts loading immediately.
+    ///
+    /// This re-implements the runtime crate's `autoload_basic_tape`
+    /// against the [`LiveSpectrumRuntime`] trait surface; the runtime
+    /// helper is bound to `HeadlessSession<Spectrum48kRuntime>` and
+    /// the GUI holds `Box<dyn LiveSpectrumRuntime>`.
     pub fn load_tape_from_path(
         &mut self,
         path: &std::path::Path,
@@ -220,11 +226,114 @@ impl SpectrumRunner {
         ));
         self.runtime.load_media(&media)?;
         if autoload {
-            self.command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
-                DEFAULT_TAPE_SLOT,
-                MediaTransportAction::Start,
-            )))?;
+            self.autoload_basic_tape()?;
         }
+        Ok(())
+    }
+
+    /// Drives the editor through `LOAD ""` and starts tape transport.
+    /// Mirrors the shape of `runtime-sinclair-zx-spectrum::autoload`'s
+    /// helper but without the `HeadlessSession` dependency, so it
+    /// works through `Box<dyn LiveSpectrumRuntime>`.
+    fn autoload_basic_tape(&mut self) -> Result<(), AppError> {
+        const MAX_BOOT_FRAMES: u32 = 250;
+
+        // Wait for boot detection.
+        let mut booted = false;
+        for _ in 0..MAX_BOOT_FRAMES {
+            if self.query_bool("boot.detected") {
+                booted = true;
+                break;
+            }
+            self.run_frame(&[])?;
+        }
+        if !booted {
+            eprintln!("file: tape autoload skipped — boot never detected");
+            return self.start_tape_transport();
+        }
+
+        // Boot detection fires while the copyright banner still shows
+        // on row 23. One ENTER tap clears the banner and exposes the K
+        // prompt — same shape as the runtime crate's autoload helper.
+        if !self.is_basic_k_prompt() {
+            self.tap_key("enter")?;
+        }
+        if !self.is_basic_k_prompt() {
+            eprintln!(
+                "file: tape autoload skipped — editor not at K prompt; starting tape regardless"
+            );
+            return self.start_tape_transport();
+        }
+
+        // Type LOAD "" + ENTER. In K mode: J → LOAD keyword,
+        // SymbolShift+P → ", repeated for the closing quote.
+        self.tap_key("j")?;
+        self.tap_symbol_combo("p")?;
+        self.tap_symbol_combo("p")?;
+        self.tap_key("enter")?;
+
+        // Settle so the parser executes LOAD "" before tape transport
+        // starts; otherwise the tape's leader pulses arrive at a
+        // machine that isn't listening.
+        for _ in 0..10 {
+            self.run_frame(&[])?;
+        }
+
+        self.start_tape_transport()
+    }
+
+    fn start_tape_transport(&mut self) -> Result<(), AppError> {
+        self.command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            DEFAULT_TAPE_SLOT,
+            MediaTransportAction::Start,
+        )))?;
+        Ok(())
+    }
+
+    fn is_basic_k_prompt(&self) -> bool {
+        let Ok(result) = self.query("screen.text.lines") else {
+            return false;
+        };
+        let Some(lines) = result.value.as_array() else {
+            return false;
+        };
+        lines
+            .get(23)
+            .and_then(|line| line.as_str())
+            .is_some_and(|line| line.trim_end() == "K")
+    }
+
+    fn tap_key(&mut self, name: &'static str) -> Result<(), AppError> {
+        self.run_frame(&[InputEvent::Key {
+            name: name.into(),
+            pressed: true,
+        }])?;
+        self.run_frame(&[])?;
+        self.run_frame(&[InputEvent::Key {
+            name: name.into(),
+            pressed: false,
+        }])?;
+        self.run_frame(&[])?;
+        Ok(())
+    }
+
+    fn tap_symbol_combo(&mut self, name: &'static str) -> Result<(), AppError> {
+        self.run_frame(&[InputEvent::Key {
+            name: "symbol".into(),
+            pressed: true,
+        }])?;
+        self.run_frame(&[InputEvent::Key {
+            name: name.into(),
+            pressed: true,
+        }])?;
+        self.run_frame(&[InputEvent::Key {
+            name: name.into(),
+            pressed: false,
+        }])?;
+        self.run_frame(&[InputEvent::Key {
+            name: "symbol".into(),
+            pressed: false,
+        }])?;
         Ok(())
     }
 
