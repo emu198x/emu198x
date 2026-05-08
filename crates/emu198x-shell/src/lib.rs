@@ -56,5 +56,6 @@ pub use script::{
 pub use session::{HeadlessSession, QueryBoolWaitResult, QueryTextWaitResult, SessionError};
 pub use time::{ClockDesc, ClockRate, MachineTime};
 pub use video::{
-    VideoRecorder, VideoRecordingError, VideoRecordingSummary, compute_fps, find_ffmpeg,
+    DEFAULT_RECORDING_FADE_MS, VideoRecorder, VideoRecordingError, VideoRecordingSummary,
+    compute_fps, find_ffmpeg, trim_audio_after, trim_audio_after_with_fade,
 };

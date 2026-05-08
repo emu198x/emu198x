@@ -17,7 +17,7 @@ use crate::query::{
 };
 use crate::time::MachineTime;
 use crate::video::{
-    VideoRecorder, VideoRecordingError, VideoRecordingSummary, compute_fps,
+    VideoRecorder, VideoRecordingError, VideoRecordingSummary, compute_fps, trim_audio_after,
 };
 
 /// Error surfaced by shared headless session helpers.
@@ -153,6 +153,7 @@ pub struct HeadlessSession<M, Q = NoAdditionalQueries> {
     last_run_result: Option<RunResult>,
     query_provider: Q,
     recorder: Option<VideoRecorder>,
+    audio_offset_at_recording_start: usize,
 }
 
 impl<M> HeadlessSession<M, NoAdditionalQueries> {
@@ -178,6 +179,7 @@ impl<M, Q> HeadlessSession<M, Q> {
             last_run_result: None,
             query_provider,
             recorder: None,
+            audio_offset_at_recording_start: 0,
         }
     }
 
@@ -746,6 +748,10 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
             fps,
             self.machine.time(),
         )?;
+        self.audio_offset_at_recording_start = self
+            .audio_capture
+            .audio()
+            .map_or(0, |a| a.samples.len());
         self.recorder = Some(recorder);
         Ok(())
     }
@@ -763,7 +769,12 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
             .recorder
             .take()
             .ok_or(SessionError::Video(VideoRecordingError::NotRecording))?;
-        let summary = recorder.finish(self.audio_capture.audio())?;
+        let trimmed = trim_audio_after(
+            self.audio_capture.audio(),
+            self.audio_offset_at_recording_start,
+        );
+        self.audio_offset_at_recording_start = 0;
+        let summary = recorder.finish(trimmed.as_ref())?;
         Ok(summary)
     }
 
@@ -1388,6 +1399,59 @@ mod tests {
             err,
             SessionError::Video(crate::video::VideoRecordingError::NotRecording)
         ));
+    }
+
+    #[test]
+    fn pre_recording_audio_is_trimmed_so_tape_loader_does_not_leak() {
+        if crate::video::find_ffmpeg().is_none() {
+            eprintln!("skipping: ffmpeg not on PATH");
+            return;
+        }
+        // Three warmup frames before recording — DummyMachine emits two
+        // audio samples per frame, so the capture buffer holds six
+        // samples by the time recording starts.
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
+        for _ in 0..3 {
+            session.run_frames(1).expect("warmup frame should run");
+        }
+        let pre_recording_samples = session
+            .audio_capture
+            .audio()
+            .expect("audio captured during warmup")
+            .samples
+            .len();
+        assert_eq!(pre_recording_samples, 6);
+
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-session-trim-{}-{}.mp4",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after unix epoch")
+                .as_nanos()
+        ));
+        session
+            .start_video_recording(path.clone())
+            .expect("start should succeed");
+        // The session must remember where audio capture stood at the
+        // moment recording began, so that stop can trim everything that
+        // came before — which on a real Spectrum boot includes the
+        // tape-loader audio.
+        assert_eq!(session.audio_offset_at_recording_start, pre_recording_samples);
+
+        session
+            .run_frames(5)
+            .expect("five frames should run while recording");
+
+        let summary = session
+            .stop_video_recording()
+            .expect("stop should succeed");
+        assert_eq!(summary.frames, 5);
+        assert!(summary.has_audio);
+        // Offset resets after stop so a second recording does not
+        // re-trim against a stale mark.
+        assert_eq!(session.audio_offset_at_recording_start, 0);
+        let _ = std::fs::remove_file(summary.path);
     }
 
     #[test]

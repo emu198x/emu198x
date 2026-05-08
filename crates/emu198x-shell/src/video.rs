@@ -302,6 +302,87 @@ impl Drop for VideoRecorder {
     }
 }
 
+/// Default fade-in / fade-out duration, in milliseconds, applied to the
+/// trimmed recording window.
+pub const DEFAULT_RECORDING_FADE_MS: u32 = 10;
+
+/// Returns a copy of `audio` containing only the interleaved samples
+/// emitted at or after `start_offset` (the recorder's start mark), with a
+/// short linear fade applied to both ends.
+///
+/// Audio that was already in the capture buffer when recording began would
+/// otherwise be muxed into the final clip and audibly precede the visual
+/// recording window — typical Code198x scripts boot, autoload a tape (loud),
+/// then start recording, and the loader noise must not leak into the
+/// captured clip.
+///
+/// The fade prevents the audible thunk that would otherwise occur at the
+/// recording boundaries when the trimmed waveform starts or ends mid-cycle
+/// at a non-zero amplitude.
+#[must_use]
+pub fn trim_audio_after(
+    audio: Option<&CapturedAudio>,
+    start_offset: usize,
+) -> Option<CapturedAudio> {
+    trim_audio_after_with_fade(audio, start_offset, DEFAULT_RECORDING_FADE_MS)
+}
+
+/// Variant of [`trim_audio_after`] with a caller-supplied fade duration.
+///
+/// `fade_ms` of zero disables the fade.
+#[must_use]
+pub fn trim_audio_after_with_fade(
+    audio: Option<&CapturedAudio>,
+    start_offset: usize,
+    fade_ms: u32,
+) -> Option<CapturedAudio> {
+    audio.map(|source| {
+        let mut samples = if start_offset >= source.samples.len() {
+            Vec::new()
+        } else {
+            source.samples[start_offset..].to_vec()
+        };
+        apply_edge_fade(
+            &mut samples,
+            source.sample_rate,
+            source.channels,
+            fade_ms,
+        );
+        CapturedAudio {
+            sample_rate: source.sample_rate,
+            channels: source.channels,
+            samples,
+        }
+    })
+}
+
+fn apply_edge_fade(samples: &mut [f32], sample_rate: u32, channels: u8, fade_ms: u32) {
+    if fade_ms == 0 || samples.is_empty() || channels == 0 {
+        return;
+    }
+    let frames_per_channel = samples.len() / channels as usize;
+    if frames_per_channel == 0 {
+        return;
+    }
+    let fade_frames = ((u64::from(sample_rate) * u64::from(fade_ms)) / 1000) as usize;
+    let fade_frames = fade_frames.min(frames_per_channel / 2).max(1);
+
+    for frame in 0..fade_frames {
+        // Linear ramp from silence to full volume across `fade_frames`.
+        // The tail walk is mirrored, so the same ramp index applied at
+        // index `total - 1 - frame` produces a fade-out — frame=0 lands
+        // on the very last sample (silenced) and frame=fade-1 lands on
+        // the start of the fade-out region (full volume).
+        let gain = (frame + 1) as f32 / fade_frames as f32;
+        for channel in 0..channels as usize {
+            let head = frame * channels as usize + channel;
+            let tail = (frames_per_channel - 1 - frame) * channels as usize + channel;
+            samples[head] *= gain;
+            samples[tail] *= gain;
+        }
+    }
+}
+
 /// Computes an integer frame-per-second value from one machine clock rate
 /// and the number of clock ticks per native video frame.
 ///
@@ -525,6 +606,90 @@ mod tests {
             .position(|arg| arg == "-c:a")
             .expect("audio codec flag");
         assert_eq!(args[aac_index + 1], "aac");
+    }
+
+    #[test]
+    fn trim_audio_after_with_fade_zero_drops_samples_before_start_offset() {
+        let audio = CapturedAudio {
+            sample_rate: 44_100,
+            channels: 1,
+            samples: (0..10).map(|i| i as f32 * 0.1).collect(),
+        };
+        let trimmed = trim_audio_after_with_fade(Some(&audio), 4, 0).expect("trim returns Some");
+        assert_eq!(trimmed.sample_rate, 44_100);
+        assert_eq!(trimmed.channels, 1);
+        assert_eq!(trimmed.samples.len(), 6);
+        assert!((trimmed.samples[0] - 0.4).abs() < 1e-6);
+        assert!((trimmed.samples[5] - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn trim_audio_after_returns_empty_when_offset_past_end() {
+        let audio = CapturedAudio {
+            sample_rate: 44_100,
+            channels: 2,
+            samples: vec![0.0, 0.1, 0.2, 0.3],
+        };
+        let trimmed = trim_audio_after(Some(&audio), 10).expect("trim returns Some");
+        assert!(trimmed.samples.is_empty());
+    }
+
+    #[test]
+    fn trim_audio_after_returns_none_for_no_audio() {
+        assert!(trim_audio_after(None, 0).is_none());
+    }
+
+    #[test]
+    fn trim_audio_after_fades_first_and_last_samples_to_silence() {
+        // 100 samples at 44.1 kHz: 10 ms covers ~441 frames; clamp to half
+        // the buffer (50 frames) for the fade region.
+        let audio = CapturedAudio {
+            sample_rate: 44_100,
+            channels: 1,
+            samples: vec![0.5; 100],
+        };
+        let trimmed = trim_audio_after(Some(&audio), 0).expect("trim returns Some");
+        assert_eq!(trimmed.samples.len(), 100);
+        // First and last samples reach the fade extremes.
+        assert!(trimmed.samples[0].abs() < trimmed.samples[49].abs());
+        assert!(trimmed.samples[99].abs() < trimmed.samples[50].abs());
+        // The fade is a linear ramp, so the sample halfway through the
+        // fade-in is roughly half the original amplitude.
+        let mid_in = trimmed.samples[24];
+        assert!((mid_in - 0.25).abs() < 0.05, "got {mid_in}");
+    }
+
+    #[test]
+    fn trim_audio_after_fade_is_disabled_with_fade_ms_zero() {
+        let audio = CapturedAudio {
+            sample_rate: 44_100,
+            channels: 1,
+            samples: vec![0.5; 10],
+        };
+        let trimmed =
+            trim_audio_after_with_fade(Some(&audio), 0, 0).expect("trim returns Some");
+        assert_eq!(trimmed.samples, vec![0.5; 10]);
+    }
+
+    #[test]
+    fn trim_audio_after_fade_handles_stereo_interleaving() {
+        let mut samples = Vec::with_capacity(400);
+        for _ in 0..200 {
+            samples.push(0.5);
+            samples.push(-0.5);
+        }
+        let audio = CapturedAudio {
+            sample_rate: 44_100,
+            channels: 2,
+            samples,
+        };
+        let trimmed = trim_audio_after_with_fade(Some(&audio), 0, 1)
+            .expect("trim returns Some"); // 1ms = ~44 frames
+        assert_eq!(trimmed.samples.len(), 400);
+        // Both interleaved channels of the very first frame should taper
+        // toward zero.
+        assert!(trimmed.samples[0].abs() < 0.5);
+        assert!(trimmed.samples[1].abs() < 0.5);
     }
 
     #[test]
