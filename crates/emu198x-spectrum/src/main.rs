@@ -107,12 +107,6 @@ pub enum AppError {
         reason: String,
     },
 
-    /// `--mcp` mode is reserved by SOLID criterion 4 but its
-    /// implementation lands in a follow-up commit. Fail loudly so the
-    /// caller doesn't think it succeeded.
-    #[error("--mcp mode is not yet implemented")]
-    McpNotImplemented,
-
     /// `--ui` mode requested but the binary was built without the
     /// `ui` Cargo feature. Surfaces only on `--no-default-features`
     /// headless builds.

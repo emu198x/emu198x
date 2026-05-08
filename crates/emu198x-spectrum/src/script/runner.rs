@@ -126,7 +126,11 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
 
 /// Executes one `ScriptStep`, intercepting the system-specific
 /// variants before delegating to the shell executor.
-fn execute_step(
+///
+/// Pub(crate) so the binary's MCP mode dispatches its tool calls
+/// through the same path script mode uses; SetMachine / AutoloadTape /
+/// LoadBasicProgram interception is shared across both modes.
+pub(crate) fn execute_step(
     step: &ScriptStep,
     session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
 ) -> Result<Option<ScriptObservation>, AppError> {
@@ -204,7 +208,10 @@ fn execute_load_basic_program(
 /// Eager-boot the default 48K runtime from the conventional ROM path
 /// (`~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom`). Returns
 /// `AppError::MissingRom` if the ROM isn't present.
-fn boot_eager_48k() -> Result<Spectrum48kRuntime, AppError> {
+///
+/// Pub(crate) so the binary's MCP mode reuses the same boot path —
+/// MCP's session lifecycle starts identically to script mode.
+pub(crate) fn boot_eager_48k() -> Result<Spectrum48kRuntime, AppError> {
     let root = rom_root().ok_or_else(|| AppError::MissingRom {
         path: "$HOME unset; cannot locate ROM bundle".to_owned(),
     })?;
