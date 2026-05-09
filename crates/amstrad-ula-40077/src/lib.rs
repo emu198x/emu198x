@@ -37,6 +37,17 @@ impl AmstradGateArray {
     pub fn border_color(&self) -> u8 {
         self.engine.border
     }
+
+    /// Reinstall the +2A/+3 timing config after a snapshot restore.
+    ///
+    /// `UlaEngine::config` is `#[serde(skip)]` and falls back to the
+    /// 48K config on deserialise (see `common_sinclair_zx_spectrum::
+    /// ula_engine::default_config`). The Amstrad gate-array uses
+    /// CONFIG_PLUS2A — different contention pattern, different line
+    /// length. Call once after `restore`.
+    pub fn reattach_config(&mut self) {
+        self.engine.set_config(&ula_engine::CONFIG_PLUS2A);
+    }
 }
 
 impl Default for AmstradGateArray {

@@ -41,6 +41,19 @@ impl FerrantiUla {
         self.engine.border
     }
 
+    /// Reinstall the 48K timing config after a snapshot restore.
+    ///
+    /// `UlaEngine::config` is `#[serde(skip)]` and falls back to the
+    /// 48K config on deserialise. The Ferranti happens to want the 48K
+    /// config too, so this method is currently a structural mirror of
+    /// the 128K and Amstrad cases — it documents that every variant
+    /// must reattach explicitly rather than relying on the fallback,
+    /// so the pattern doesn't silently break if the default ever
+    /// changes.
+    pub fn reattach_config(&mut self) {
+        self.engine.set_config(&ula_engine::CONFIG_48K);
+    }
+
     /// Compute the EAR feedback bit (bit 6) for a port-$FE read.
     ///
     /// With no tape signal driving the EAR line, real hardware reflects

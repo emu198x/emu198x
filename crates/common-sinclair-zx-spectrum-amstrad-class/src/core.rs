@@ -107,6 +107,16 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         self.hc
     }
 
+    /// Reattaches `&'static` references that don't survive serde's
+    /// `#[serde(skip)]` round-trip, and rehydrates the Z80 walker
+    /// sequence from `(prefix, opcode)`. Call once after restoring
+    /// a postcard snapshot. Without it the Amstrad gate-array reverts
+    /// to 48K timing on restore.
+    pub fn restore_volatile_refs(&mut self) {
+        self.z80.rehydrate_walker_sequence();
+        self.ula.reattach_config();
+    }
+
     pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         self.tape.load_blocks(blocks);
     }

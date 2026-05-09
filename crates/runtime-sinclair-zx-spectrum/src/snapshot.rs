@@ -92,6 +92,7 @@ pub(crate) fn decode<M: SpectrumMachine>(
     runtime.set_keyboard_rows(snapshot.keyboard_rows);
     let rows = *runtime.keyboard_rows();
     runtime.machine_mut().set_keyboard_rows(&rows);
+    runtime.machine_mut().after_restore();
     Ok(())
 }
 

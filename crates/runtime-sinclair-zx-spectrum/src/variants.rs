@@ -391,6 +391,9 @@ impl SpectrumMachine for Spectrum48k {
     fn reset_machine(&mut self) {
         self.reset();
     }
+    fn after_restore(&mut self) {
+        self.restore_volatile_refs();
+    }
 
     fn read_byte(&self, addr: u16) -> u8 {
         <Self as MemoryBus>::read(self, addr)
@@ -481,6 +484,9 @@ impl SpectrumMachine for Spectrum16K {
     }
     fn reset_machine(&mut self) {
         self.reset();
+    }
+    fn after_restore(&mut self) {
+        self.restore_volatile_refs();
     }
 
     fn read_byte(&self, addr: u16) -> u8 {
@@ -578,6 +584,9 @@ impl SpectrumMachine for SpectrumPlus {
     fn reset_machine(&mut self) {
         self.reset();
     }
+    fn after_restore(&mut self) {
+        self.restore_volatile_refs();
+    }
 
     fn read_byte(&self, addr: u16) -> u8 {
         <Self as MemoryBus>::read(self, addr)
@@ -668,6 +677,9 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn reset_machine(&mut self) {
         Spectrum128K::reset(self);
+    }
+    fn after_restore(&mut self) {
+        self.restore_volatile_refs();
     }
 
     fn apply_snapshot(&mut self, snap: &Snapshot) {
@@ -763,6 +775,9 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn reset_machine(&mut self) {
         SpectrumPlus2::reset(self);
+    }
+    fn after_restore(&mut self) {
+        self.restore_volatile_refs();
     }
 
     fn apply_snapshot(&mut self, snap: &Snapshot) {
@@ -861,6 +876,9 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
     fn reset_machine(&mut self) {
         SpectrumAmstradClassCore::<V>::reset(self);
+    }
+    fn after_restore(&mut self) {
+        self.restore_volatile_refs();
     }
 
     fn apply_snapshot(&mut self, snap: &Snapshot) {
@@ -983,6 +1001,9 @@ impl SpectrumMachine for Pentagon128 {
     fn reset_machine(&mut self) {
         Pentagon128::reset(self);
     }
+    fn after_restore(&mut self) {
+        self.z80.rehydrate_walker_sequence();
+    }
 
     fn apply_snapshot(&mut self, snap: &Snapshot) {
         Pentagon128::apply_snapshot(self, snap);
@@ -1084,6 +1105,9 @@ impl SpectrumMachine for ScorpionZS256 {
     fn reset_machine(&mut self) {
         ScorpionZS256::reset(self);
     }
+    fn after_restore(&mut self) {
+        self.z80.rehydrate_walker_sequence();
+    }
 
     fn apply_snapshot(&mut self, snap: &Snapshot) {
         ScorpionZS256::apply_snapshot(self, snap);
@@ -1184,6 +1208,9 @@ impl SpectrumMachine for TimexTC2048 {
     fn reset_machine(&mut self) {
         TimexTC2048::reset(self);
     }
+    fn after_restore(&mut self) {
+        self.z80.rehydrate_walker_sequence();
+    }
 
     fn apply_snapshot(&mut self, snap: &Snapshot) {
         TimexTC2048::apply_snapshot(self, snap);
@@ -1278,6 +1305,9 @@ impl SpectrumMachine for TimexTS2068 {
     }
     fn reset_machine(&mut self) {
         TimexTS2068::reset(self);
+    }
+    fn after_restore(&mut self) {
+        self.z80.rehydrate_walker_sequence();
     }
 
     fn apply_snapshot(&mut self, snap: &Snapshot) {

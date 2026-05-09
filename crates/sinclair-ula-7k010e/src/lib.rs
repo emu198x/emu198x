@@ -35,6 +35,17 @@ impl SinclairUla {
     pub fn border_color(&self) -> u8 {
         self.engine.border
     }
+
+    /// Reinstall the 128K timing config after a snapshot restore.
+    ///
+    /// `UlaEngine::config` is `#[serde(skip)]` and falls back to the
+    /// 48K config on deserialise (see `common_sinclair_zx_spectrum::
+    /// ula_engine::default_config`). For the 128K class that's wrong:
+    /// CPU divisor, line length, contention start, and the rest diverge.
+    /// Call once after `restore`.
+    pub fn reattach_config(&mut self) {
+        self.engine.set_config(&ula_engine::CONFIG_128K);
+    }
 }
 
 impl Default for SinclairUla {
