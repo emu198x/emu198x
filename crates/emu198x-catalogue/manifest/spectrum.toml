@@ -17,6 +17,16 @@ files = [
     { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
 ]
 
+# Spectrum+ is electrically identical to the 48K — same ROM image, same
+# memory map, same Ferranti ULA. The catalogue duplicates the 48K title
+# set against the dedicated -plus crate so any future drift between the
+# two surfaces immediately. See wiki/decisions/october-catalogue.md.
+[[system.firmware]]
+variant = "plus"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
 [[system.firmware]]
 variant = "128k"
 files = [
@@ -198,6 +208,162 @@ frame_hash = "xxh64:6f237601c8b47779"
 
 [entry.audio]
 # 2 s of silence (warning screen has no music). Same caveat as Atic Atac.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+# ─── Spectrum+ entries ──────────────────────────────────────────
+# Mirrors the 48K title set on the dedicated machine-sinclair-zx-
+# spectrum-plus crate. The two crates resolve to identical Rust
+# types today; the catalogue duplicate exists so any future drift
+# between -48k and -plus surfaces as a hash mismatch immediately.
+# Same TAP files, same boot.wait_frames, same audio.from_frame /
+# secs as the matching 48K entry — but hashes are captured against
+# SpectrumPlusRuntime, not Spectrum48kRuntime.
+
+[[entry]]
+id = "manic-miner-plus"
+title = "Manic Miner"
+year = 1983
+publisher = "Bug-Byte"
+variant = "plus"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Manic Miner (1983)(Bug-Byte)[a3].zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:30284edfffd9c628"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:4aa1053c8758f416"
+
+[[entry]]
+id = "knight-lore-plus"
+title = "Knight Lore"
+year = 1984
+publisher = "Ultimate Play The Game"
+variant = "plus"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Knight Lore (1984)(Ultimate Play The Game)[a].zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:074e242db0720e42"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:995ce6ad30bb2985"
+
+[[entry]]
+id = "jet-set-willy-plus"
+title = "Jet Set Willy"
+year = 1984
+publisher = "Software Projects"
+variant = "plus"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Jet Set Willy (1984)(Software Projects).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:b19f8efb6d02d8b9"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "atic-atac-plus"
+title = "Atic Atac"
+year = 1983
+publisher = "Ultimate Play The Game"
+variant = "plus"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Atic Atac (1983)(Ultimate Play The Game).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:81301d5c0b355bf9"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "skool-daze-plus"
+title = "Skool Daze"
+year = 1984
+publisher = "Microsphere"
+variant = "plus"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Skool Daze (1984)(Microsphere).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:bc2fd766878aeab9"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:817161b15857e08e"
+
+[[entry]]
+id = "chuckie-egg-plus"
+title = "Chuckie Egg"
+year = 1983
+publisher = "A'n'F"
+variant = "plus"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Chuckie Egg (1983)(A'n'F)[a2].zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:90f9e7b9c5e31ae5"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:4aed7fa2bef1d06d"
+
+[[entry]]
+id = "saboteur-plus"
+title = "Saboteur!"
+year = 1985
+publisher = "Durell"
+variant = "plus"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a2].zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:6f237601c8b47779"
+
+[entry.audio]
 from_frame = 100
 secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
