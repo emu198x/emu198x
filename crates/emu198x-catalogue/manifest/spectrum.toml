@@ -27,6 +27,17 @@ files = [
     { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
 ]
 
+# 16K Spectrum: same Z80, same Ferranti ULA, same 48 BASIC ROM as the
+# 48K — only RAM size differs (16 KiB vs 48 KiB). The catalogue picks
+# titles small enough to fit in 16K (typically 1982-83 single-screen
+# action games), exercising memory-bound behaviour the 48K and Spectrum+
+# entries can't.
+[[system.firmware]]
+variant = "16k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
 [[system.firmware]]
 variant = "128k"
 files = [
@@ -212,6 +223,83 @@ from_frame = 100
 secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
 
+[[entry]]
+id = "sabre-wulf"
+title = "Sabre Wulf"
+year = 1984
+publisher = "Ultimate Play The Game"
+variant = "48k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).zip"
+
+[entry.boot]
+# Pre-Filmation Ultimate engine — flick-screen scrolling, sprite-heavy
+# jungle adventure. Different shape to Knight Lore (Filmation isometric,
+# static screens). Captures the title screen.
+wait_frames = 60
+frame_hash = "xxh64:fdf7d2bc9a62a564"
+
+[entry.audio]
+# 2 s of the title-screen jingle — non-trivial audio, distinct from
+# the menu-silence hashes elsewhere.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:241d0000dac18585"
+
+[[entry]]
+id = "lords-of-midnight"
+title = "Lords of Midnight"
+year = 1984
+publisher = "Beyond"
+variant = "48k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Lords of Midnight, The (1984)(Beyond).zip"
+
+[entry.boot]
+# Mike Singleton's landscape engine — RPG / wargame hybrid with
+# panoramic landscape views. Wholly different engine class to anything
+# else in the catalogue. Captures the title screen.
+wait_frames = 60
+frame_hash = "xxh64:e60423cfb70c0734"
+
+[entry.audio]
+# 2 s of silence — the title screen has no music. Same hash as
+# Atic Atac / Saboteur (menu silence is reproducibly identical).
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "head-over-heels"
+title = "Head over Heels"
+year = 1987
+publisher = "Ocean"
+variant = "48k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Head over Heels (1987)(Ocean)(48K-128K)[aka Foot and Mouth].zip"
+
+[entry.boot]
+# Filmation II — Jon Ritman's late-period iteration of the Knight Lore
+# isometric engine, three years on. Pairs the two Filmation entries
+# at opposite ends of the engine's lifespan.
+wait_frames = 60
+frame_hash = "xxh64:a12b9cfffff2db1b"
+
+[entry.audio]
+# 2 s of menu silence — same hash as Atic Atac / Saboteur / Lords.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
 # ─── Spectrum+ entries ──────────────────────────────────────────
 # Mirrors the 48K title set on the dedicated machine-sinclair-zx-
 # spectrum-plus crate. The two crates resolve to identical Rust
@@ -369,6 +457,69 @@ secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
 
 [[entry]]
+id = "sabre-wulf-plus"
+title = "Sabre Wulf"
+year = 1984
+publisher = "Ultimate Play The Game"
+variant = "plus"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:fdf7d2bc9a62a564"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:241d0000dac18585"
+
+[[entry]]
+id = "lords-of-midnight-plus"
+title = "Lords of Midnight"
+year = 1984
+publisher = "Beyond"
+variant = "plus"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Lords of Midnight, The (1984)(Beyond).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:e60423cfb70c0734"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "head-over-heels-plus"
+title = "Head over Heels"
+year = 1987
+publisher = "Ocean"
+variant = "plus"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Head over Heels (1987)(Ocean)(48K-128K)[aka Foot and Mouth].zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:a12b9cfffff2db1b"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
 id = "chase-hq"
 title = "Chase H.Q."
 year = 1989
@@ -448,3 +599,242 @@ frame_hash = "xxh64:4e00d0998410913a"
 from_frame = 60
 secs = 2.0
 hash = "xxh64:c27195d1cabf3150"
+
+# ─── 16K entries ────────────────────────────────────────────────
+# 1982-83 titles small enough to fit in 16K of RAM. All use the same
+# 48 BASIC ROM and the same `LOAD ""` autoload path as the 48K-class
+# entries — only RAM size differs.
+
+[[entry]]
+id = "jet-pac"
+title = "Jet Pac"
+year = 1983
+publisher = "Ultimate Play The Game"
+variant = "16k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Jet Pac (1983)(Ultimate Play The Game)(16K).zip"
+
+[entry.boot]
+# Ultimate's debut title. Fixed-screen action with a procedurally-built
+# spaceship and refuelling. Captures the title screen.
+wait_frames = 60
+frame_hash = "xxh64:18f261b5e0277a4e"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "pssst"
+title = "Pssst"
+year = 1983
+publisher = "Ultimate Play The Game"
+variant = "16k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Pssst (1983)(Ultimate Play The Game)(16K).zip"
+
+[entry.boot]
+# Single-screen action — protect a flower from insects. Second of
+# Ultimate's 1983 trilogy of 16K classics.
+wait_frames = 60
+frame_hash = "xxh64:ad7192a9f447951f"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "cookie"
+title = "Cookie"
+year = 1983
+publisher = "Ultimate Play The Game"
+variant = "16k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Cookie (1983)(Ultimate Play The Game)(16K).zip"
+
+[entry.boot]
+# Single-screen kitchen battle — bake a cake while ingredients try
+# to escape. Third of Ultimate's 16K trilogy.
+wait_frames = 60
+frame_hash = "xxh64:3ab6ac4b00a5f58d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "tranz-am"
+title = "Tranz Am"
+year = 1983
+publisher = "Ultimate Play The Game"
+variant = "16k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Tranz Am (1983)(Ultimate Play The Game)(16K).zip"
+
+[entry.boot]
+# Top-down driving game across a wrap-around USA. Different engine
+# class to Ultimate's static-screen 16K trio.
+wait_frames = 60
+frame_hash = "xxh64:9196ee8a9192195f"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "hungry-horace"
+title = "Hungry Horace"
+year = 1982
+publisher = "Sinclair Research"
+variant = "16k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Hungry Horace (1982)(Sinclair Research)(16K).zip"
+
+[entry.boot]
+# Sinclair Research's house-published Pac-Man-alike. Earliest era of
+# Spectrum gaming; shipped with the machine itself.
+wait_frames = 60
+frame_hash = "xxh64:cd0deafdaaaf717f"
+
+[entry.audio]
+# Distinct title-screen jingle — non-trivial audio, distinct from
+# the menu-silence hash elsewhere.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:a8c921c411256dc2"
+
+[[entry]]
+id = "horace-goes-skiing"
+title = "Horace Goes Skiing"
+year = 1983
+publisher = "Sinclair Research"
+variant = "16k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Horace Goes Skiing (1983)(Sinclair Research)(16K).zip"
+
+[entry.boot]
+# Sequel — road-cross + skiing in two phases. Different engine to
+# Hungry Horace despite shared protagonist.
+wait_frames = 60
+frame_hash = "xxh64:8627f8ad3a3af3e7"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:1439075a3d045967"
+
+[[entry]]
+id = "penetrator"
+title = "Penetrator"
+year = 1982
+publisher = "Melbourne House"
+variant = "16k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Penetrator (1982)(Melbourne House).zip"
+
+[entry.boot]
+# Scramble-clone with a built-in level editor. Notable for the
+# customisation tape feature and Beam Software's smooth scrolling.
+wait_frames = 60
+frame_hash = "xxh64:b8b3b6f5e10f25b3"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "football-manager"
+title = "Football Manager"
+year = 1982
+publisher = "Addictive Games"
+variant = "16k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Football Manager (1982)(Addictive Games).zip"
+
+[entry.boot]
+# Kevin Toms's text-driven management classic. Genre-defining strategy
+# title for the 16K era; wholly different shape to anything else in
+# the catalogue.
+wait_frames = 60
+frame_hash = "xxh64:ae151fc89a61d707"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "time-gate"
+title = "4D Time-Gate"
+year = 1982
+publisher = "Quicksilva"
+variant = "16k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/4D Time-Gate (1982)(Quicksilva).zip"
+
+[entry.boot]
+# Vector wireframe space combat. Quicksilva's early-era technical
+# showpiece for what 16K could render in real-time 3D.
+wait_frames = 60
+frame_hash = "xxh64:600c03015607d685"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "gulpman"
+title = "Gulpman"
+year = 1982
+publisher = "Campbell Systems"
+variant = "16k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Gulpman (1982)(Campbell Systems)(16K).zip"
+
+[entry.boot]
+# Pac-Man-alike from the early independent era. Pre-dates Hungry
+# Horace by a few months; Campbell Systems was one of the first
+# Spectrum game publishers.
+wait_frames = 60
+frame_hash = "xxh64:c7d330b21b78a223"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
