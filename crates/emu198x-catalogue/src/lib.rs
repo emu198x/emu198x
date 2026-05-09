@@ -217,6 +217,40 @@ pub struct RunResult {
     pub audio_wav: Vec<u8>,
 }
 
+/// Outcome of one entry's snapshot fidelity check.
+///
+/// Returned alongside the per-entry [`RunResult`] by
+/// [`run_spectrum_entry_with_snapshot_check`]. `Pass` means the entry
+/// snapshotted at the boot waypoint, restored into a fresh-from-firmware
+/// runtime, and reproduced both the gap-end frame and the audio window
+/// byte-identically; the re-encoded snapshot also matched the original.
+#[derive(Debug)]
+pub enum SnapshotOutcome {
+    Pass,
+    EncodeFailed { reason: String },
+    RestoreFailed { reason: String },
+    FrameHashDrift { expected: String, actual: String },
+    AudioHashDrift { expected: String, actual: String },
+    BytesDrift { original_len: usize, reencoded_len: usize },
+}
+
+/// Per-stage data captured during a snapshot fidelity check.
+///
+/// Populated incrementally as the check progresses; later fields are
+/// `None` when an earlier stage failed. The integration test only
+/// inspects `outcome`, but the per-stage hashes are useful when
+/// debugging a drift surfaced for the first time.
+#[derive(Debug)]
+pub struct SnapshotCheckResult {
+    pub outcome: SnapshotOutcome,
+    pub encoded_len: usize,
+    pub reencoded_len: Option<usize>,
+    pub original_frame_hash: Option<String>,
+    pub restored_frame_hash: Option<String>,
+    pub original_audio_hash: Option<String>,
+    pub restored_audio_hash: Option<String>,
+}
+
 #[derive(Debug, Error)]
 pub enum CatalogueError {
     #[error("manifest not found: {0}")]
@@ -293,6 +327,53 @@ pub fn run_entry(
         "c64" => run_c64_entry(manifest, entry, media_root, firmware_root),
         "amiga" => run_amiga_entry(manifest, entry, media_root, firmware_root),
         other => Err(CatalogueError::UnsupportedSystem(other.into())),
+    }
+}
+
+/// Runs one Spectrum catalogue entry **and** proves save-state is
+/// lossless on it.
+///
+/// The entry is driven through the same path as [`run_entry`] (boot
+/// waypoint, scripted-input progression, audio-window capture). At the
+/// boot waypoint the session is snapshotted; a fresh-from-firmware
+/// runtime of the same variant decodes the snapshot, the bytes are
+/// re-encoded, and the audio window is re-captured against the
+/// restored runtime. The wrapper asserts five things, in order:
+///
+/// 1. Snapshot encode succeeds.
+/// 2. A fresh-from-firmware runtime decodes the snapshot.
+/// 3. Re-encoding the restored runtime yields bytes byte-identical
+///    to the original encode.
+/// 4. Restored runtime's gap-end frame hash matches original
+///    (when `audio.from_frame > 0`).
+/// 5. Restored runtime's audio hash matches original.
+///
+/// `RunResult` is the same shape `run_entry` would have returned;
+/// `SnapshotCheckResult` reports the per-stage outcome and hashes.
+///
+/// # Errors
+///
+/// Returns `UnsupportedSystem` when the manifest is not Spectrum,
+/// `UnsupportedVariant` for variants other than `48k`, `128k`, `plus3`,
+/// `FirmwareNotDeclared` / `FirmwareCountMismatch` when the manifest
+/// firmware section is incomplete, and `Session` for firmware/media/
+/// runtime failures during the original run.
+pub fn run_spectrum_entry_with_snapshot_check(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
+    if manifest.system.id != "spectrum" {
+        return Err(CatalogueError::UnsupportedSystem(
+            manifest.system.id.clone(),
+        ));
+    }
+    match entry.variant.as_str() {
+        "48k" => snapshot_check_48k(manifest, entry, media_root, firmware_root),
+        "128k" => snapshot_check_128k(manifest, entry, media_root, firmware_root),
+        "plus3" => snapshot_check_plus3(manifest, entry, media_root, firmware_root),
+        other => Err(CatalogueError::UnsupportedVariant(other.into())),
     }
 }
 
@@ -804,6 +885,55 @@ where
     M: MachineCore,
     Q: SessionQueryProvider<M>,
 {
+    let (boot_hash, boot_png) = run_script_then_capture_boot_frame(session, entry)?;
+    let (audio_hash, audio_wav, _gap_end_frame_hash) =
+        capture_audio_window(session, entry, frames_per_sec)?;
+    Ok(build_run_result(
+        entry, boot_hash, audio_hash, boot_png, audio_wav,
+    ))
+}
+
+fn build_run_result(
+    entry: &Entry,
+    boot_hash: String,
+    audio_hash: String,
+    boot_png: Vec<u8>,
+    audio_wav: Vec<u8>,
+) -> RunResult {
+    let outcome = if boot_hash != entry.boot.frame_hash {
+        EntryOutcome::BootHashMismatch {
+            expected: entry.boot.frame_hash.clone(),
+            actual: boot_hash.clone(),
+        }
+    } else if audio_hash != entry.audio.hash {
+        EntryOutcome::AudioHashMismatch {
+            expected: entry.audio.hash.clone(),
+            actual: audio_hash.clone(),
+        }
+    } else {
+        EntryOutcome::Pass
+    };
+
+    RunResult {
+        boot_hash,
+        audio_hash,
+        outcome,
+        boot_png,
+        audio_wav,
+    }
+}
+
+/// Runs the script phase, the post-script `boot.wait_frames` advance,
+/// and captures the boot waypoint frame. After this returns the session
+/// is sitting at the boot waypoint with the latest frame populated.
+fn run_script_then_capture_boot_frame<M, Q>(
+    session: &mut HeadlessSession<M, Q>,
+    entry: &Entry,
+) -> Result<(String, Vec<u8>), CatalogueError>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
     // Per-step timing matches runtime-commodore-c64::tests::common::press_key:
     // queue press → run 3 frames → queue release. The release event fires
     // on the next `run_frames` (next step's advance or the boot wait).
@@ -880,11 +1010,37 @@ where
         .png_bytes()
         .map_err(|err| CatalogueError::Session(format!("boot png: {err}")))?;
 
-    if entry.audio.from_frame > 0 {
+    Ok((boot_hash, boot_png))
+}
+
+/// Runs the post-waypoint `audio.from_frame` advance, then captures the
+/// `audio.secs` audio window. Returns `(audio_hash, audio_wav,
+/// gap_end_frame_hash)` — the gap-end frame hash is the rgba hash of
+/// the last frame emitted during the gap-advance, or `None` when
+/// `audio.from_frame == 0` (no gap to anchor against).
+fn capture_audio_window<M, Q>(
+    session: &mut HeadlessSession<M, Q>,
+    entry: &Entry,
+    frames_per_sec: f64,
+) -> Result<(String, Vec<u8>, Option<String>), CatalogueError>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
+    let gap_end_frame_hash = if entry.audio.from_frame > 0 {
         session
             .run_frames(entry.audio.from_frame)
             .map_err(|err| CatalogueError::Session(format!("audio gap: {err}")))?;
-    }
+        let frame = session
+            .latest_frame()
+            .ok_or_else(|| CatalogueError::Session("no frame at gap end".into()))?;
+        let rgba = frame
+            .rgba_pixels()
+            .map_err(|err| CatalogueError::Session(format!("gap rgba: {err}")))?;
+        Some(hash_xxh64(&rgba))
+    } else {
+        None
+    };
 
     session.clear_audio_capture();
 
@@ -898,27 +1054,299 @@ where
         .map_err(|err| CatalogueError::Session(format!("audio: {err}")))?;
     let audio_hash = hash_xxh64(&audio_wav);
 
-    let outcome = if boot_hash != entry.boot.frame_hash {
-        EntryOutcome::BootHashMismatch {
-            expected: entry.boot.frame_hash.clone(),
-            actual: boot_hash.clone(),
+    Ok((audio_hash, audio_wav, gap_end_frame_hash))
+}
+
+fn snapshot_check_48k(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 1 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 1,
+            actual: files.len(),
+        });
+    }
+    let rom_bytes = read_firmware_bytes(firmware_root, &files[0])?;
+
+    let mut firmware_set = FirmwareSet::new();
+    firmware_set.push(FirmwareImage::new(files[0].id.clone(), &rom_bytes));
+
+    let original_runtime = Spectrum48kRuntime::from_firmware(&firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("48K runtime: {err}")))?;
+    let mut original = HeadlessSession::new_with_query_provider(
+        original_runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("48K entry requires media".into()))?;
+    let media_kind = load_media_spec(&mut original, media, media_root)?;
+
+    autoload_basic_tape(&mut original, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
+    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+
+    let fresh_runtime = Spectrum48kRuntime::from_firmware(&firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("48K fresh runtime: {err}")))?;
+    let mut restored = HeadlessSession::new_with_query_provider(
+        fresh_runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    finalize_snapshot_check(
+        &mut original,
+        &mut restored,
+        entry,
+        spectrum_frames_per_sec(&TIMING_48K),
+    )
+}
+
+fn snapshot_check_128k(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 2 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 2,
+            actual: files.len(),
+        });
+    }
+    let rom0 = read_firmware_bytes(firmware_root, &files[0])?;
+    let rom1 = read_firmware_bytes(firmware_root, &files[1])?;
+
+    let original_runtime = build_128k_runtime(&rom0, &rom1);
+    let mut original = HeadlessSession::new_with_query_provider(
+        original_runtime,
+        u64::from(TIMING_128K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("128K entry requires media".into()))?;
+    let media_kind = load_media_spec(&mut original, media, media_root)?;
+
+    autoload_128k_tape_loader(&mut original, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
+    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+
+    let fresh_runtime = build_128k_runtime(&rom0, &rom1);
+    let mut restored = HeadlessSession::new_with_query_provider(
+        fresh_runtime,
+        u64::from(TIMING_128K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    finalize_snapshot_check(
+        &mut original,
+        &mut restored,
+        entry,
+        spectrum_frames_per_sec(&TIMING_128K),
+    )
+}
+
+fn snapshot_check_plus3(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 4 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 4,
+            actual: files.len(),
+        });
+    }
+    let r0 = read_firmware_bytes(firmware_root, &files[0])?;
+    let r1 = read_firmware_bytes(firmware_root, &files[1])?;
+    let r2 = read_firmware_bytes(firmware_root, &files[2])?;
+    let r3 = read_firmware_bytes(firmware_root, &files[3])?;
+
+    let original_runtime = build_plus3_runtime(&r0, &r1, &r2, &r3);
+    let mut original = HeadlessSession::new_with_query_provider(
+        original_runtime,
+        u64::from(TIMING_PLUS2A.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("+3 entry requires media".into()))?;
+    let media_kind = load_media_spec(&mut original, media, media_root)?;
+
+    if media_kind == MediaKind::Tape {
+        wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+    }
+
+    let fresh_runtime = build_plus3_runtime(&r0, &r1, &r2, &r3);
+    let mut restored = HeadlessSession::new_with_query_provider(
+        fresh_runtime,
+        u64::from(TIMING_PLUS2A.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    finalize_snapshot_check(
+        &mut original,
+        &mut restored,
+        entry,
+        spectrum_frames_per_sec(&TIMING_PLUS2A),
+    )
+}
+
+fn build_128k_runtime(rom0: &[u8], rom1: &[u8]) -> Spectrum128kRuntime {
+    let mut machine = Spectrum128K::new();
+    machine.memory.load_roms(rom0, rom1);
+    Spectrum128kRuntime::new(Model::Spectrum128KPal, machine)
+}
+
+fn build_plus3_runtime(r0: &[u8], r1: &[u8], r2: &[u8], r3: &[u8]) -> SpectrumPlus3Runtime {
+    let mut machine = SpectrumPlus3::new();
+    machine.memory.load_roms(r0, r1, r2, r3);
+    SpectrumPlus3Runtime::new(Model::SpectrumPlus3, machine)
+}
+
+/// Final stage of a snapshot fidelity check, shared across variants.
+///
+/// `original` is sitting at the post-setup phase (tape stopped, +3 disk
+/// inserted, etc.) and is about to run the script + boot wait. `restored`
+/// is a freshly-built session for the same variant with no media. The
+/// caller has confirmed both sessions are paired with the same timing.
+fn finalize_snapshot_check<M, Q>(
+    original: &mut HeadlessSession<M, Q>,
+    restored: &mut HeadlessSession<M, Q>,
+    entry: &Entry,
+    frames_per_sec: f64,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
+    let (boot_hash, boot_png) = run_script_then_capture_boot_frame(original, entry)?;
+
+    let original_bytes = match original.snapshot_bytes() {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            // Finish the original audio capture so the RunResult is honest
+            // about what the original entry produced.
+            let (audio_hash, audio_wav, _) = capture_audio_window(original, entry, frames_per_sec)?;
+            return Ok((
+                build_run_result(entry, boot_hash, audio_hash, boot_png, audio_wav),
+                SnapshotCheckResult {
+                    outcome: SnapshotOutcome::EncodeFailed {
+                        reason: err.to_string(),
+                    },
+                    encoded_len: 0,
+                    reencoded_len: None,
+                    original_frame_hash: None,
+                    restored_frame_hash: None,
+                    original_audio_hash: None,
+                    restored_audio_hash: None,
+                },
+            ));
         }
-    } else if audio_hash != entry.audio.hash {
-        EntryOutcome::AudioHashMismatch {
-            expected: entry.audio.hash.clone(),
-            actual: audio_hash.clone(),
+    };
+    let encoded_len = original_bytes.len();
+
+    if let Err(err) = restored.restore_snapshot(&original_bytes) {
+        let (audio_hash, audio_wav, _) = capture_audio_window(original, entry, frames_per_sec)?;
+        return Ok((
+            build_run_result(entry, boot_hash, audio_hash, boot_png, audio_wav),
+            SnapshotCheckResult {
+                outcome: SnapshotOutcome::RestoreFailed {
+                    reason: err.to_string(),
+                },
+                encoded_len,
+                reencoded_len: None,
+                original_frame_hash: None,
+                restored_frame_hash: None,
+                original_audio_hash: None,
+                restored_audio_hash: None,
+            },
+        ));
+    }
+
+    let reencoded_bytes = match restored.snapshot_bytes() {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            let (audio_hash, audio_wav, _) = capture_audio_window(original, entry, frames_per_sec)?;
+            return Ok((
+                build_run_result(entry, boot_hash, audio_hash, boot_png, audio_wav),
+                SnapshotCheckResult {
+                    outcome: SnapshotOutcome::EncodeFailed {
+                        reason: format!("re-encode: {err}"),
+                    },
+                    encoded_len,
+                    reencoded_len: None,
+                    original_frame_hash: None,
+                    restored_frame_hash: None,
+                    original_audio_hash: None,
+                    restored_audio_hash: None,
+                },
+            ));
+        }
+    };
+    let reencoded_len = reencoded_bytes.len();
+
+    let (orig_audio_hash, orig_audio_wav, orig_gap_hash) =
+        capture_audio_window(original, entry, frames_per_sec)?;
+    let (rest_audio_hash, _rest_audio_wav, rest_gap_hash) =
+        capture_audio_window(restored, entry, frames_per_sec)?;
+
+    let run_result = build_run_result(
+        entry,
+        boot_hash,
+        orig_audio_hash.clone(),
+        boot_png,
+        orig_audio_wav,
+    );
+
+    let outcome = if original_bytes != reencoded_bytes {
+        SnapshotOutcome::BytesDrift {
+            original_len: encoded_len,
+            reencoded_len,
+        }
+    } else if orig_gap_hash != rest_gap_hash {
+        SnapshotOutcome::FrameHashDrift {
+            expected: orig_gap_hash.clone().unwrap_or_else(|| "<none>".into()),
+            actual: rest_gap_hash.clone().unwrap_or_else(|| "<none>".into()),
+        }
+    } else if orig_audio_hash != rest_audio_hash {
+        SnapshotOutcome::AudioHashDrift {
+            expected: orig_audio_hash.clone(),
+            actual: rest_audio_hash.clone(),
         }
     } else {
-        EntryOutcome::Pass
+        SnapshotOutcome::Pass
     };
 
-    Ok(RunResult {
-        boot_hash,
-        audio_hash,
-        outcome,
-        boot_png,
-        audio_wav,
-    })
+    Ok((
+        run_result,
+        SnapshotCheckResult {
+            outcome,
+            encoded_len,
+            reencoded_len: Some(reencoded_len),
+            original_frame_hash: orig_gap_hash,
+            restored_frame_hash: rest_gap_hash,
+            original_audio_hash: Some(orig_audio_hash),
+            restored_audio_hash: Some(rest_audio_hash),
+        },
+    ))
 }
 
 fn lookup_firmware<'m>(

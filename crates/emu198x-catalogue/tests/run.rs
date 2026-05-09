@@ -13,7 +13,10 @@
 use std::env;
 use std::path::PathBuf;
 
-use emu198x_catalogue::{EntryOutcome, load_manifest, run_entry};
+use emu198x_catalogue::{
+    EntryOutcome, SnapshotOutcome, load_manifest, run_entry,
+    run_spectrum_entry_with_snapshot_check,
+};
 
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("manifest")
@@ -69,9 +72,21 @@ fn catalogue_passes_every_entry() {
             manifest.entry.len()
         );
         for entry in &manifest.entry {
-            let result = run_entry(&manifest, entry, &media_root, &firmware_root)
+            let run_result = if manifest.system.id == "spectrum" {
+                let (result, snapshot) = run_spectrum_entry_with_snapshot_check(
+                    &manifest,
+                    entry,
+                    &media_root,
+                    &firmware_root,
+                )
                 .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id));
-            match result.outcome {
+                report_snapshot_outcome(entry, &snapshot.outcome, &mut failures);
+                result
+            } else {
+                run_entry(&manifest, entry, &media_root, &firmware_root)
+                    .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id))
+            };
+            match run_result.outcome {
                 EntryOutcome::Pass => {
                     println!("[PASS] {} — {}", entry.id, entry.title);
                 }
@@ -101,4 +116,53 @@ fn catalogue_passes_every_entry() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+fn report_snapshot_outcome(
+    entry: &emu198x_catalogue::Entry,
+    outcome: &SnapshotOutcome,
+    failures: &mut Vec<String>,
+) {
+    match outcome {
+        SnapshotOutcome::Pass => {
+            println!("[SNAP-PASS] {}", entry.id);
+        }
+        SnapshotOutcome::EncodeFailed { reason } => {
+            let line = format!("[SNAP-FAIL] {} — encode failed: {reason}", entry.id);
+            println!("{line}");
+            failures.push(line);
+        }
+        SnapshotOutcome::RestoreFailed { reason } => {
+            let line = format!("[SNAP-FAIL] {} — restore failed: {reason}", entry.id);
+            println!("{line}");
+            failures.push(line);
+        }
+        SnapshotOutcome::FrameHashDrift { expected, actual } => {
+            let line = format!(
+                "[SNAP-FAIL] {} — gap-end frame hash drift: expected {expected}, got {actual}",
+                entry.id
+            );
+            println!("{line}");
+            failures.push(line);
+        }
+        SnapshotOutcome::AudioHashDrift { expected, actual } => {
+            let line = format!(
+                "[SNAP-FAIL] {} — audio hash drift: expected {expected}, got {actual}",
+                entry.id
+            );
+            println!("{line}");
+            failures.push(line);
+        }
+        SnapshotOutcome::BytesDrift {
+            original_len,
+            reencoded_len,
+        } => {
+            let line = format!(
+                "[SNAP-FAIL] {} — re-encoded bytes drift: orig {original_len} bytes, reencoded {reencoded_len} bytes",
+                entry.id
+            );
+            println!("{line}");
+            failures.push(line);
+        }
+    }
 }
