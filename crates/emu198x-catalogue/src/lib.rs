@@ -31,7 +31,7 @@ use runtime_commodore_c64::{
 use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, Spectrum48kRuntime, Spectrum128kRuntime,
-    SpectrumPlus3Runtime, SpectrumSessionQueryProvider, autoload_basic_tape,
+    SpectrumPlus3Runtime, SpectrumPlusRuntime, SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 use serde::Deserialize;
 use thiserror::Error;
@@ -371,6 +371,7 @@ pub fn run_spectrum_entry_with_snapshot_check(
     }
     match entry.variant.as_str() {
         "48k" => snapshot_check_48k(manifest, entry, media_root, firmware_root),
+        "plus" => snapshot_check_plus(manifest, entry, media_root, firmware_root),
         "128k" => snapshot_check_128k(manifest, entry, media_root, firmware_root),
         "plus3" => snapshot_check_plus3(manifest, entry, media_root, firmware_root),
         other => Err(CatalogueError::UnsupportedVariant(other.into())),
@@ -457,10 +458,52 @@ fn run_spectrum_entry(
 ) -> Result<RunResult, CatalogueError> {
     match entry.variant.as_str() {
         "48k" => run_spectrum_48k_entry(manifest, entry, media_root, firmware_root),
+        "plus" => run_spectrum_plus_entry(manifest, entry, media_root, firmware_root),
         "128k" => run_spectrum_128k_entry(manifest, entry, media_root, firmware_root),
         "plus3" => run_spectrum_plus3_entry(manifest, entry, media_root, firmware_root),
         other => Err(CatalogueError::UnsupportedVariant(other.into())),
     }
+}
+
+fn run_spectrum_plus_entry(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 1 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 1,
+            actual: files.len(),
+        });
+    }
+    let rom_bytes = read_firmware_bytes(firmware_root, &files[0])?;
+
+    let mut firmware_set = FirmwareSet::new();
+    firmware_set.push(FirmwareImage::new(files[0].id.clone(), &rom_bytes));
+
+    let runtime = SpectrumPlusRuntime::from_firmware(&firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("Spectrum+ runtime: {err}")))?;
+
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("Spectrum+ entry requires media".into()))?;
+    let media_kind = load_media_spec(&mut session, media, media_root)?;
+
+    autoload_basic_tape(&mut session, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .map_err(|err| CatalogueError::Session(format!("Spectrum+ autoload: {err}")))?;
+
+    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+    run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
 }
 
 fn run_spectrum_48k_entry(
@@ -1055,6 +1098,59 @@ where
     let audio_hash = hash_xxh64(&audio_wav);
 
     Ok((audio_hash, audio_wav, gap_end_frame_hash))
+}
+
+fn snapshot_check_plus(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 1 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 1,
+            actual: files.len(),
+        });
+    }
+    let rom_bytes = read_firmware_bytes(firmware_root, &files[0])?;
+
+    let mut firmware_set = FirmwareSet::new();
+    firmware_set.push(FirmwareImage::new(files[0].id.clone(), &rom_bytes));
+
+    let original_runtime = SpectrumPlusRuntime::from_firmware(&firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("Spectrum+ runtime: {err}")))?;
+    let mut original = HeadlessSession::new_with_query_provider(
+        original_runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("Spectrum+ entry requires media".into()))?;
+    let media_kind = load_media_spec(&mut original, media, media_root)?;
+
+    autoload_basic_tape(&mut original, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .map_err(|err| CatalogueError::Session(format!("Spectrum+ autoload: {err}")))?;
+    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+
+    let fresh_runtime = SpectrumPlusRuntime::from_firmware(&firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("Spectrum+ fresh runtime: {err}")))?;
+    let mut restored = HeadlessSession::new_with_query_provider(
+        fresh_runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    finalize_snapshot_check(
+        &mut original,
+        &mut restored,
+        entry,
+        spectrum_frames_per_sec(&TIMING_48K),
+    )
 }
 
 fn snapshot_check_48k(
