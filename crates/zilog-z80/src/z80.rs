@@ -249,6 +249,41 @@ impl Z80 {
         self.walker.instruction_complete
     }
 
+    /// Re-derives `walker.sequence` from the preserved `(prefix, opcode)`
+    /// after a snapshot restore.
+    ///
+    /// `walker.sequence` is `#[serde(skip)]` because it's a `&'static`
+    /// reference to one of the per-opcode MStep tables; serde defaults
+    /// it to `SEQ_NOP` on deserialise. For snapshots taken at instruction
+    /// boundaries that's fine — the next `tick()` fetches a fresh
+    /// instruction and overwrites the field. For snapshots taken
+    /// mid-instruction the restored Z80 would walk the wrong sequence
+    /// (or fall off `SEQ_NOP`'s single Execute step) and diverge from
+    /// the original.
+    ///
+    /// Call once after `restore`, before the next `tick()`. Idempotent;
+    /// safe to call when the walker is already at an instruction
+    /// boundary (the lookup returns the same sequence the next fetch
+    /// would have picked).
+    pub fn rehydrate_walker_sequence(&mut self) {
+        use crate::walker::Prefix;
+        self.walker.sequence = match self.walker.prefix {
+            Prefix::None => self.decode_opcode(self.walker.opcode),
+            Prefix::CB => self.decode_cb(self.walker.opcode),
+            Prefix::ED => self.decode_ed(self.walker.opcode),
+            Prefix::DD | Prefix::FD => self.decode_dd_fd(self.walker.opcode),
+            Prefix::DDCB | Prefix::FDCB => {
+                if self.walker.ddcb_fetch_phase {
+                    &DDCB_FETCH
+                } else if (self.walker.opcode >> 6) == 1 {
+                    mcycle::SEQ_DDCB_BIT
+                } else {
+                    mcycle::SEQ_DDCB_HL
+                }
+            }
+        };
+    }
+
     /// Advance one half-cycle of the master clock.
     ///
     /// After calling, inspect output signals and perform bus transactions:
@@ -1223,5 +1258,71 @@ mod tests {
         assert!(z80.instruction_complete());
         assert_eq!(z80.regs.pc, 1);
         assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
+    }
+
+    #[test]
+    fn rehydrate_mid_instruction_walker_matches_forward_execution() {
+        // LD A, n (opcode 0x3E) takes two M-cycles: M1 fetch (4 T-states)
+        // then a memory read for the immediate (3 T-states). Snapshotting
+        // mid-instruction via serde would default `walker.sequence` to
+        // SEQ_NOP. Without rehydration the restored Z80 walks the wrong
+        // sequence and diverges from the original.
+        let mut original = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0] = 0x3E; // LD A, n
+        mem[1] = 0x42; // n = 0x42
+        mem[2] = 0x00; // NOP follow-on
+
+        // Tick through M1 fetch (8 half-cycles) so the walker's sequence
+        // is now the LD A, n sequence and step_idx is mid-instruction.
+        for _ in 0..8 {
+            original.tick();
+            if original.mreq && original.rd {
+                original.data_in = mem[original.addr as usize];
+            }
+        }
+
+        assert!(
+            !original.instruction_complete(),
+            "expected mid-instruction state after LD A, n M1 fetch"
+        );
+        assert_eq!(original.walker.opcode, 0x3E);
+
+        // Round-trip via serde — same code path the Spectrum snapshot uses.
+        // serde_json is the in-tree dev-dep; serde format is irrelevant to the
+        // bug (the `#[serde(skip)]` fallback fires regardless of format).
+        let serialized = serde_json::to_string(&original).expect("encode");
+        let mut restored: Z80 = serde_json::from_str(&serialized).expect("decode");
+
+        // Without rehydration, walker.sequence has fallen back to SEQ_NOP.
+        // Rehydrate from (prefix, opcode) to restore the real sequence.
+        restored.rehydrate_walker_sequence();
+
+        // Run both forward through the rest of the instruction and one
+        // follow-on NOP. Bus transactions must be byte-identical.
+        let mut original_bus_trace: Vec<(u16, u8)> = Vec::new();
+        let mut restored_bus_trace: Vec<(u16, u8)> = Vec::new();
+
+        for _ in 0..16 {
+            original.tick();
+            if original.mreq && original.rd {
+                original.data_in = mem[original.addr as usize];
+                original_bus_trace.push((original.addr, original.data_in));
+            }
+
+            restored.tick();
+            if restored.mreq && restored.rd {
+                restored.data_in = mem[restored.addr as usize];
+                restored_bus_trace.push((restored.addr, restored.data_in));
+            }
+        }
+
+        assert_eq!(
+            original_bus_trace, restored_bus_trace,
+            "rehydrated Z80 must produce identical bus reads to the original"
+        );
+        assert_eq!(original.regs.a(), 0x42);
+        assert_eq!(restored.regs.a(), 0x42);
+        assert_eq!(original.regs.pc, restored.regs.pc);
     }
 }
