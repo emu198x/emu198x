@@ -105,6 +105,8 @@ Keyboard shortcuts kept from earlier work: Esc (quit), F9/F10 (tape transport), 
 
 Postcard round-trip works per-variant. Tests at `runtime-sinclair-zx-spectrum/tests/variants.rs` cover Spectrum48k, 128k, Plus2A, Plus3, Pentagon, TC2048, TS2068 (9 functions). Encode/decode at `runtime-sinclair-zx-spectrum/src/snapshot.rs`. **Catalogue harness does not yet drive save-state assertions** — every-variant-every-title coverage needs the harness extended.
 
+**Brainstorm drafted 2026-05-09** at `docs/brainstorms/2026-05-09-spectrum-save-state-catalogue-harness-brainstorm.md`. Shape: new `run_spectrum_entry_with_snapshot_check` wrapper that snapshots at the boot waypoint, restores into a fresh-from-firmware runtime, and asserts five things — encode OK, decode OK, restored frame matches original, restored audio matches original, re-encoded bytes match original. Catches both data-structure drift and behavioural drift on every catalogue entry. Scope: Spectrum-only (48K, 128K, +3) for now; same shape extends to C64/NES/Amiga later. **Next:** implementation Phase 1 (types + wrapper).
+
 ### 9. Code quality — DONE
 
 No `.unwrap()` in Spectrum-side library code outside test blocks (audited across `zilog-z80`, `ferranti-ula-6c001e`, `sinclair-ula-7k010e`, `amstrad-ula-40077`, `gi-ay-3-8912`, `nec-upd765a`, `format-sinclair-zx-spectrum-*`, `machine-sinclair-zx-spectrum-*`, `runtime-sinclair-zx-spectrum`, `common-sinclair-zx-spectrum`). No `todo!`/`unimplemented!`/STUB markers found.
