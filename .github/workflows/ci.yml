@@ -46,3 +46,26 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+
+  zex:
+    name: ZEXDOC + ZEXALL
+    runs-on: ubuntu-latest
+    # Frank Cringle's Z80 exerciser. Long-running (tens of minutes in
+    # release on the GitHub runner) but hermetic — `.com` corpus is
+    # checked in at test-data/zex/. Parallel to the main rust job so it
+    # doesn't slow PR feedback on lint / unit tests.
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: zex
+
+      - name: Run ZEXDOC + ZEXALL
+        run: cargo test --release -p zilog-z80 --test zex_tests -- --include-ignored --nocapture
