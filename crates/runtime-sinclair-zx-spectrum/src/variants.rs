@@ -111,13 +111,18 @@ const SPECTRUM_48K_BANNERS: &[&str] = &[
 const SPECTRUM_128K_BANNERS: &[&str] = &[
     "© 1986 Sinclair Research Ltd",
     "(C) 1986 Sinclair Research Ltd",
-    "Amstrad Consumer Electronics plc",
+    // The Amstrad-built grey +2 ROMs occasionally end up in 128K
+    // firmware paths; their banner wraps mid-phrase across rows 22-23
+    // so we match on the row-22 substring rather than the full string.
+    "Amstrad Consumer",
 ];
 
-// The grey +2 boots to "©1986, ©1982 Amstrad Consumer Electronics plc"
-// across rows 22-23. The "Amstrad Consumer Electronics plc" substring
-// is what every variant of the splash actually contains.
-const SPECTRUM_PLUS2_BANNERS: &[&str] = &["Amstrad Consumer Electronics plc"];
+// The grey +2 boots to "©1986, ©1982 Amstrad Consumer" on row 22 and
+// "Electronics plc" on row 23 — the banner wraps mid-phrase. The
+// banner-substring matcher works line-by-line, so the substring has to
+// fit within a single rendered row. "Amstrad Consumer" is distinctive
+// enough to match the +2 splash without false positives elsewhere.
+const SPECTRUM_PLUS2_BANNERS: &[&str] = &["Amstrad Consumer"];
 
 // Confirmed 2026-05-01 by booting `~/.emu198x/roms/amstrad-zx-spectrum-plus3/
 // plus3-{0,1,2,3}.rom` for 250 frames against each of Plus2A, Plus2B,
