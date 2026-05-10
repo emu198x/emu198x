@@ -1,6 +1,6 @@
 # Spectrum +3 disk loading is wired but doesn't actually load
 
-**Status:** Known limitation. Date: 2026-05-08.
+**Status:** Known limitation. Date: 2026-05-08, partial diagnosis 2026-05-10.
 
 ## Observation
 
@@ -74,3 +74,63 @@ expectations isn't completing. Possibilities (none investigated yet):
 This is criterion 3 (Formats) territory — DSK parsing is present
 but DSK *loading* on +3 isn't end-to-end. Tracking it under that
 criterion's existing PARTIAL state.
+
+## 2026-05-10 — partial diagnosis
+
+A temporary FDC command/result eprintln trace, driven by a one-off
+test that booted Chase H.Q. (+3) and pressed ENTER on Loader for
+3000 frames, captured the BIOS's actual sequence:
+
+```
+Specify(0x03 0x03 0x03)         ; pre-menu init
+SeekTrack(0xaf 0xaf 0xaf)       ; pre-menu init (note: bogus
+                                ;   parameters — junk on the bus
+                                ;   from earlier code, but the
+                                ;   FDC accepts and replies)
+Specify(0x03 0x03 0x03)
+SenseDriveStatus(drive=0)        → ST3=0x30 (T0|RY)
+=== ENTER pressed ===
+SenseDriveStatus(drive=0)        → ST3=0x30
+Recalibrate(drive=3)            ; probing all drives
+Recalibrate(drive=0)
+SenseInterruptStatus            → ST0=0x20, PCN=0  (drive 0 SE)
+SenseInterruptStatus            → ST0=0x23, PCN=0  (drive 3 SE)
+SenseInterruptStatus            → ST0=0x80, PCN=0  (no more pending)
+SenseInterruptStatus            → ST0=0x80, PCN=0
+SenseInterruptStatus            → ST0=0x80, PCN=0
+…(infinite loop)
+```
+
+The BIOS keeps polling SenseInterruptStatus indefinitely **even
+after the FDC reports ST0=0x80 (Invalid Command, "no pending
+interrupt")**. Per the µPD765A datasheet, ST0=0x80 is the
+documented "queue drained" signal. So the BIOS is using a
+different exit condition we don't model — most likely either a
+status-register bit transition (e.g. drive-busy bits D0B–D3B in
+MSR pulsing during seek) or the FDC's INT line going low. Our
+FDC's `interrupt` field exists but isn't wired to anything; our
+MSR doesn't model the per-drive busy bits.
+
+What landed in `nec-upd765a` from this session — strictly
+datasheet-correctness improvements, none enough to unblock the
+hang on its own:
+
+- **Per-drive `seek_pending: [Option<u8>; 4]`.** Multi-drive
+  recalibrate/seek now queues per-drive interrupts; SenseInt
+  walks the drives in order, returning each pending result then
+  ST0=0x80 once drained. Replaces the previous behaviour that
+  always returned the same cached ST0.
+- **Recalibrate without disk fails as Abnormal | Not Ready | EC
+  (ST0 = 0xD0 | drive).** Real µPD765A fails recalibrate on a
+  non-existent drive (TR0 signal never asserts, step counter
+  exhausts). Previously we returned Normal Termination for every
+  drive 0-3, so the BIOS thought all four drives existed.
+- **SenseDriveStatus ST3 includes HD + US bits from the command
+  byte and TS (two-sided) when a disk is present.** Previously
+  st3 was missing the head bit and never set TS, which would
+  make the BIOS treat every disk as single-sided.
+
+The infinite SenseInt loop persists with these fixes. The next
+investigative step is a side-by-side trace against FUSE running
+the same DSK — likely needed to identify which status bit
+transition the BIOS is waiting for.
