@@ -121,6 +121,20 @@ pub struct Upd765a {
     /// which is how the BIOS knows the queue is drained.
     seek_pending: [Option<u8>; 4],
 
+    /// Per-drive seek-completion countdown in `tick()` calls. While
+    /// non-zero the corresponding drive-busy bit (`1 << drive`) is OR'd
+    /// into the main status register's read value; the BIOS polls this
+    /// to wait for a Seek/Recalibrate to finish before issuing
+    /// `SenseInterruptStatus`. The staged ST0 lives in
+    /// `seek_staged_st0` until the countdown reaches zero, at which
+    /// point it moves into `seek_pending` and the busy bit clears.
+    seek_remaining: [u32; 4],
+
+    /// ST0 staged for each drive's in-flight Seek/Recalibrate. Moves
+    /// into `seek_pending[drive]` when `seek_remaining[drive]` reaches
+    /// zero.
+    seek_staged_st0: [Option<u8>; 4],
+
     /// Is this FDC electrically wired to the host's I/O bus?
     /// True on +3, false on +2A / +2B — both share the SpectrumPlus
     /// struct but only the +3 has an actual drive connector.
@@ -136,6 +150,15 @@ const MSR_CB: u8 = 0x10; // Controller busy
 const MSR_EXM: u8 = 0x20; // Execution mode
 const MSR_DIO: u8 = 0x40; // Data direction (1 = FDC → CPU)
 const MSR_RQM: u8 = 0x80; // Request for master (ready for data)
+
+/// Per-tick countdown for staged Seek/Recalibrate completion. Real
+/// µPD765A step rates land in the millisecond range per cylinder; at
+/// the +3's ~887 KHz T-state rate that's hundreds of T-states per
+/// step. We use a single short countdown rather than modelling the
+/// step-by-step process — long enough for a BIOS that polls MSR's
+/// drive-busy bits to observe the busy → idle transition, short
+/// enough that catalogue tests don't wait perceptibly.
+const SEEK_TICKS: u32 = 256;
 
 impl Upd765a {
     pub fn new() -> Self {
@@ -158,6 +181,8 @@ impl Upd765a {
             main_status: MSR_RQM,
             interrupt: false,
             seek_pending: [None, None, None, None],
+            seek_remaining: [0; 4],
+            seek_staged_st0: [None, None, None, None],
             enabled: false,
             disks: [None, None, None, None],
         }
@@ -177,8 +202,19 @@ impl Upd765a {
     }
 
     /// Read the main status register (port $2FFD on +3).
+    ///
+    /// Bits D0..D3 reflect per-drive seek-busy state (set while a
+    /// Seek/Recalibrate is in flight on that drive, cleared on
+    /// completion). The BIOS polls this register to wait for a seek
+    /// before issuing `SenseInterruptStatus`.
     pub fn read_status(&self) -> u8 {
-        self.main_status
+        let mut msr = self.main_status;
+        for drive in 0..4 {
+            if self.seek_remaining[drive] > 0 {
+                msr |= 1 << drive;
+            }
+        }
+        msr
     }
 
     /// Read data register (port $3FFD on +3).
@@ -297,7 +333,7 @@ impl Upd765a {
                 self.track[drive] = 0;
                 // ST0 IC bits: 00 = Normal Termination (real drive
                 // present, seek to track 0 succeeded). 11 + EC bit
-                // (0xD8 | drive) = Abnormal due to Drive Not Ready —
+                // (0xD0 | drive) = Abnormal due to Drive Not Ready —
                 // what the real µPD765A returns when a recalibrate is
                 // issued against a drive whose TRACK 0 signal never
                 // asserts (no drive connected). The +3 BIOS probes
@@ -310,8 +346,11 @@ impl Upd765a {
                     0xD0 | (drive as u8) // Abnormal | Not Ready | EC | drive
                 };
                 self.st0 = st0;
-                self.seek_pending[drive] = Some(st0);
-                self.interrupt = true;
+                // Stage the seek; the busy bit is read out of MSR via
+                // `seek_remaining`, and the interrupt is queued only
+                // after the countdown completes via `tick()`.
+                self.seek_staged_st0[drive] = Some(st0);
+                self.seek_remaining[drive] = SEEK_TICKS;
                 self.phase = Phase::Idle;
                 self.main_status = MSR_RQM;
             }
@@ -347,8 +386,8 @@ impl Upd765a {
                 self.track[drive] = new_track;
                 let st0 = 0x20 | (drive as u8); // Seek End | drive
                 self.st0 = st0;
-                self.seek_pending[drive] = Some(st0);
-                self.interrupt = true;
+                self.seek_staged_st0[drive] = Some(st0);
+                self.seek_remaining[drive] = SEEK_TICKS;
                 self.phase = Phase::Idle;
                 self.main_status = MSR_RQM;
             }
@@ -483,6 +522,29 @@ impl Peripheral for Upd765a {
             self.write_data(val);
         }
     }
+
+    /// Per-T-state housekeeping. Decrements each drive's seek
+    /// countdown; on transition to zero, moves the staged ST0 into
+    /// `seek_pending` (where `SenseInterruptStatus` will drain it) and
+    /// raises the interrupt flag. The drive-busy bit reads out of MSR
+    /// via `seek_remaining` directly, so no MSR fix-up is needed here.
+    fn tick(&mut self, _hc: u32) {
+        if !self.enabled {
+            return;
+        }
+        for drive in 0..4 {
+            if self.seek_remaining[drive] == 0 {
+                continue;
+            }
+            self.seek_remaining[drive] -= 1;
+            if self.seek_remaining[drive] == 0 {
+                if let Some(st0) = self.seek_staged_st0[drive].take() {
+                    self.seek_pending[drive] = Some(st0);
+                    self.interrupt = true;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -497,15 +559,26 @@ mod tests {
     }
 
     #[test]
-    fn recalibrate() {
+    fn recalibrate_zeros_track_then_completes_after_seek_ticks() {
         let mut fdc = Upd765a::new();
+        fdc.enabled = true;
         fdc.track[0] = 10;
 
         fdc.write_data(0x07); // Recalibrate
         fdc.write_data(0x00); // Drive 0
 
+        // Recalibrate is staged: track snaps to 0 immediately, but
+        // the interrupt is held until the seek-busy countdown expires
+        // and the drive-busy bit clears in MSR.
         assert_eq!(fdc.track[0], 0);
+        assert!(!fdc.interrupt);
+        assert_eq!(fdc.read_status() & 0x01, 0x01); // drive 0 busy
+
+        for _ in 0..SEEK_TICKS {
+            <Upd765a as Peripheral>::tick(&mut fdc, 0);
+        }
         assert!(fdc.interrupt);
+        assert_eq!(fdc.read_status() & 0x01, 0); // drive 0 idle
     }
 
     #[test]

@@ -129,8 +129,21 @@ hang on its own:
   byte and TS (two-sided) when a disk is present.** Previously
   st3 was missing the head bit and never set TS, which would
   make the BIOS treat every disk as single-sided.
+- **MSR drive-busy bits + seek timing.** A new
+  `seek_remaining: [u32; 4]` countdown, decremented on every
+  `Peripheral::tick`, holds the corresponding `1 << drive` bit
+  set in the main status register and defers the seek-end
+  interrupt until the countdown hits zero (per FUSE
+  `peripherals/disk/upd_fdc.c`). Previously seeks completed
+  instantly with no MSR transition for the BIOS to observe.
 
-The infinite SenseInt loop persists with these fixes. The next
+The infinite SenseInt loop persists with all four fixes in
+place: the BIOS still polls SenseInterruptStatus indefinitely
+even after MSR's drive-busy bits transition, both seek
+interrupts drain, and ST0=0x80 is returned. So whatever exit
+condition the BIOS uses isn't `MSR.D0..D3 == 0`, isn't
+`ST0 == 0x80`, and isn't multi-interrupt drain count. The next
 investigative step is a side-by-side trace against FUSE running
-the same DSK — likely needed to identify which status bit
-transition the BIOS is waiting for.
+the same DSK — likely needed to identify which status bit (or
+the FDC's INT line, which we don't currently route to the Z80
+on the +3) the BIOS is actually waiting on.
