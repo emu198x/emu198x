@@ -45,6 +45,36 @@ files = [
     { id = "sinclair-zx-spectrum-128k-rom-1", path = "sinclair-zx-spectrum-128k/128-1.rom" },
 ]
 
+# Grey +2 (Amstrad-built but Sinclair-class hardware, 1986). Two ROMs,
+# Sinclair 7K010E ULA, electrically identical to the 128K — only the
+# ROM bundle and copyright banner differ.
+[[system.firmware]]
+variant = "plus2"
+files = [
+    { id = "sinclair-zx-spectrum-plus2-rom-0", path = "amstrad-zx-spectrum-plus2/plus2-0.rom" },
+    { id = "sinclair-zx-spectrum-plus2-rom-1", path = "amstrad-zx-spectrum-plus2/plus2-1.rom" },
+]
+
+# +2A and +2B share the Amstrad gate-array (4 ROMs, plus3 firmware ids).
+# +2A uses v4.0 ROMs (same bundle as the +3); +2B uses v4.1 ROMs.
+[[system.firmware]]
+variant = "plus2a"
+files = [
+    { id = "sinclair-zx-spectrum-plus3-rom-0", path = "amstrad-zx-spectrum-plus3/plus3-0.rom" },
+    { id = "sinclair-zx-spectrum-plus3-rom-1", path = "amstrad-zx-spectrum-plus3/plus3-1.rom" },
+    { id = "sinclair-zx-spectrum-plus3-rom-2", path = "amstrad-zx-spectrum-plus3/plus3-2.rom" },
+    { id = "sinclair-zx-spectrum-plus3-rom-3", path = "amstrad-zx-spectrum-plus3/plus3-3.rom" },
+]
+
+[[system.firmware]]
+variant = "plus2b"
+files = [
+    { id = "sinclair-zx-spectrum-plus3-rom-0", path = "amstrad-zx-spectrum-plus2b/plus3-0.rom" },
+    { id = "sinclair-zx-spectrum-plus3-rom-1", path = "amstrad-zx-spectrum-plus2b/plus3-1.rom" },
+    { id = "sinclair-zx-spectrum-plus3-rom-2", path = "amstrad-zx-spectrum-plus2b/plus3-2.rom" },
+    { id = "sinclair-zx-spectrum-plus3-rom-3", path = "amstrad-zx-spectrum-plus2b/plus3-3.rom" },
+]
+
 [[system.firmware]]
 variant = "plus3"
 files = [
@@ -545,6 +575,453 @@ frame_hash = "xxh64:b1e9d5b8c017e5a7"
 from_frame = 100
 secs = 2.0
 hash = "xxh64:c72266bc84d56bc3"
+
+[[entry]]
+id = "robocop"
+title = "RoboCop"
+year = 1988
+publisher = "Ocean"
+variant = "128k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/RoboCop (1988)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+# Detects 128K and switches to Jonathan Dunn's iconic AY soundtrack —
+# the 48K version uses minimal beeper effects, the 128K title screen
+# is a continuous arrangement of the film's main theme.
+wait_frames = 60
+frame_hash = "xxh64:83312f1ae51eb790"
+
+[entry.audio]
+# Captured at 60+100 = 3.2 s post-tape-stop. RoboCop's title fade /
+# loader pause means the music driver hasn't started yet at this
+# waypoint — same hash as Operation Wolf / Out Run / etc., which is
+# the reproducible "128K silence" hash. Worth bumping wait_frames to
+# capture the actual AY soundtrack in a later pass.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "operation-wolf"
+title = "Operation Wolf"
+year = 1988
+publisher = "Ocean"
+variant = "128k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+# 128K-specific release — different release than the 48K-128K combo
+# tape; the 128K release uses extended AY music throughout play.
+path = "sinclair/spectrum/Games/[TAP]/Operation Wolf (1988)(Ocean)(128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:410ac0961745317f"
+
+[entry.audio]
+# Same "128K silence" hash as RoboCop — title music hasn't started
+# yet at this waypoint.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "out-run"
+title = "Out Run"
+year = 1987
+publisher = "U.S. Gold"
+variant = "128k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Out Run (1987)(U.S. Gold)(48K-128K).zip"
+
+[entry.boot]
+# 128K mode unlocks multiple AY radio tracks selectable in-game —
+# part of the canonical Out Run experience; the 48K version has only
+# beeper effects.
+wait_frames = 60
+frame_hash = "xxh64:62514cdbd5c90f1d"
+
+[entry.audio]
+# 128K silence hash — title hasn't reached its music phase yet at
+# this waypoint.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "rainbow-islands"
+title = "Rainbow Islands"
+year = 1990
+publisher = "Ocean"
+variant = "128k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+# Tim Follin's AY soundtrack on the 128K — bubbly, technically
+# accomplished arrangement that's a showpiece for the chip.
+wait_frames = 60
+frame_hash = "xxh64:622164f5fb580f1d"
+
+[entry.audio]
+# 128K silence hash — Tim Follin's music hasn't kicked in yet.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "bubble-bobble"
+title = "Bubble Bobble"
+year = 1987
+publisher = "Firebird"
+variant = "128k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+
+[entry.boot]
+# Wally Beben's chiptune AY conversion of the famous arcade theme —
+# instantly recognisable, very different to the 48K beeper version.
+wait_frames = 60
+frame_hash = "xxh64:f9c6d9feba779ec7"
+
+[entry.audio]
+# 128K silence hash — chiptune driver hasn't started yet.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "where-time-stood-still"
+title = "Where Time Stood Still"
+year = 1988
+publisher = "Ocean"
+variant = "128k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
+
+[entry.boot]
+# Denton Designs's atmospheric exploration game — 128K-only release,
+# wouldn't fit in 48K. Uses the extra memory for a much larger,
+# more populated landscape.
+wait_frames = 60
+frame_hash = "xxh64:da054f4e390841f7"
+
+[entry.audio]
+# Distinct audio at the captured waypoint — the only 128K-only entry
+# in the set whose music driver is fully running by 3.2 s post-load.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:00085454f6d27070"
+
+[[entry]]
+id = "total-eclipse"
+title = "Total Eclipse"
+year = 1988
+publisher = "Incentive"
+variant = "128k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
+
+[entry.boot]
+# Freescape engine — 3D vector landscape, Egyptian pyramid puzzle.
+# 128K version is the canonical release; 48K version exists but
+# loses much of the world detail.
+wait_frames = 60
+frame_hash = "xxh64:0e349fc9538d477d"
+
+[entry.audio]
+# 128K silence hash — Freescape's title screen has minimal sound.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "castle-master"
+title = "Castle Master"
+year = 1990
+publisher = "Domark"
+variant = "128k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
+
+[entry.boot]
+# Late Freescape — Domark / Incentive's 128K-only fantasy RPG with
+# vector graphics and AY music. Showcase of what the engine could do
+# with the full 128K memory budget.
+wait_frames = 60
+frame_hash = "xxh64:816cb1b0a9dd16e2"
+
+[entry.audio]
+# 128K silence hash — title music driver hasn't started yet.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "lords-of-chaos"
+title = "Lords of Chaos"
+year = 1990
+publisher = "Blade"
+variant = "128k"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
+
+[entry.boot]
+# Mythos Games's 128K-only tactical RPG (Julian Gollop, pre-X-COM).
+# Wholly different shape to anything else in the catalogue —
+# turn-based party combat with magic.
+wait_frames = 60
+frame_hash = "xxh64:67999b6437c4eecc"
+
+[entry.audio]
+# 128K silence hash — RPG title screen has no music.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+# ─── +2 entries (mirror of 128K) ────────────────────────────────
+# Grey +2 (Amstrad-built, 1986) is electrically identical to the 128K
+# — same Sinclair 7K010E ULA, same paging, same AY-3-8912. Only the
+# ROM bundle (different firmware checksum, "©1986 Amstrad" copyright
+# banner) and the rear connector pinout differ. Per-title hashes
+# differ from the 128K mirror because the +2 ROM produces a different
+# boot banner; everything past the boot waypoint should match.
+
+[[entry]]
+id = "chase-hq-plus2"
+title = "Chase H.Q."
+year = 1989
+publisher = "Ocean"
+variant = "plus2"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:b1e9d5b8c017e5a7"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c72266bc84d56bc3"
+
+[[entry]]
+id = "robocop-plus2"
+title = "RoboCop"
+year = 1988
+publisher = "Ocean"
+variant = "plus2"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/RoboCop (1988)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:83312f1ae51eb790"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "operation-wolf-plus2"
+title = "Operation Wolf"
+year = 1988
+publisher = "Ocean"
+variant = "plus2"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Operation Wolf (1988)(Ocean)(128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:410ac0961745317f"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "out-run-plus2"
+title = "Out Run"
+year = 1987
+publisher = "U.S. Gold"
+variant = "plus2"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Out Run (1987)(U.S. Gold)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:62514cdbd5c90f1d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "rainbow-islands-plus2"
+title = "Rainbow Islands"
+year = 1990
+publisher = "Ocean"
+variant = "plus2"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:622164f5fb580f1d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "bubble-bobble-plus2"
+title = "Bubble Bobble"
+year = 1987
+publisher = "Firebird"
+variant = "plus2"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:f9c6d9feba779ec7"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "where-time-stood-still-plus2"
+title = "Where Time Stood Still"
+year = 1988
+publisher = "Ocean"
+variant = "plus2"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:da054f4e390841f7"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:00085454f6d27070"
+
+[[entry]]
+id = "total-eclipse-plus2"
+title = "Total Eclipse"
+year = 1988
+publisher = "Incentive"
+variant = "plus2"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:0e349fc9538d477d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "castle-master-plus2"
+title = "Castle Master"
+year = 1990
+publisher = "Domark"
+variant = "plus2"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:816cb1b0a9dd16e2"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "lords-of-chaos-plus2"
+title = "Lords of Chaos"
+year = 1990
+publisher = "Blade"
+variant = "plus2"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:67999b6437c4eecc"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
 
 [[entry]]
 id = "chase-hq-plus3"
