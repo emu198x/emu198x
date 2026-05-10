@@ -19,6 +19,9 @@ use emu198x_shell::{
     SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
+use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
+use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
+use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use runtime_commodore_amiga::{
     A500_NTSC_FRAME_TICKS, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider,
@@ -31,8 +34,8 @@ use runtime_commodore_c64::{
 use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, Spectrum16kRuntime, Spectrum48kRuntime,
-    Spectrum128kRuntime, SpectrumPlus3Runtime, SpectrumPlusRuntime, SpectrumSessionQueryProvider,
-    autoload_basic_tape,
+    Spectrum128kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
+    SpectrumPlus3Runtime, SpectrumPlusRuntime, SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 use serde::Deserialize;
 use thiserror::Error;
@@ -375,6 +378,9 @@ pub fn run_spectrum_entry_with_snapshot_check(
         "48k" => snapshot_check_48k(manifest, entry, media_root, firmware_root),
         "plus" => snapshot_check_plus(manifest, entry, media_root, firmware_root),
         "128k" => snapshot_check_128k(manifest, entry, media_root, firmware_root),
+        "plus2" => snapshot_check_plus2(manifest, entry, media_root, firmware_root),
+        "plus2a" => snapshot_check_plus2a(manifest, entry, media_root, firmware_root),
+        "plus2b" => snapshot_check_plus2b(manifest, entry, media_root, firmware_root),
         "plus3" => snapshot_check_plus3(manifest, entry, media_root, firmware_root),
         other => Err(CatalogueError::UnsupportedVariant(other.into())),
     }
@@ -463,6 +469,9 @@ fn run_spectrum_entry(
         "48k" => run_spectrum_48k_entry(manifest, entry, media_root, firmware_root),
         "plus" => run_spectrum_plus_entry(manifest, entry, media_root, firmware_root),
         "128k" => run_spectrum_128k_entry(manifest, entry, media_root, firmware_root),
+        "plus2" => run_spectrum_plus2_entry(manifest, entry, media_root, firmware_root),
+        "plus2a" => run_spectrum_plus2a_entry(manifest, entry, media_root, firmware_root),
+        "plus2b" => run_spectrum_plus2b_entry(manifest, entry, media_root, firmware_root),
         "plus3" => run_spectrum_plus3_entry(manifest, entry, media_root, firmware_root),
         other => Err(CatalogueError::UnsupportedVariant(other.into())),
     }
@@ -589,6 +598,43 @@ fn run_spectrum_48k_entry(
 
     wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
+}
+
+fn run_spectrum_plus2_entry(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 2 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 2,
+            actual: files.len(),
+        });
+    }
+    let rom0 = read_firmware_bytes(firmware_root, &files[0])?;
+    let rom1 = read_firmware_bytes(firmware_root, &files[1])?;
+
+    let runtime = build_plus2_runtime(&rom0, &rom1);
+
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_128K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("+2 entry requires media".into()))?;
+    let media_kind = load_media_spec(&mut session, media, media_root)?;
+
+    autoload_128k_tape_loader(&mut session, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
+
+    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+    run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_128K))
 }
 
 fn run_spectrum_128k_entry(
@@ -770,6 +816,89 @@ where
     Ok(())
 }
 
+fn run_spectrum_plus2a_entry(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
+    run_spectrum_amstrad_class_entry(
+        manifest,
+        entry,
+        media_root,
+        firmware_root,
+        build_plus2a_runtime,
+        "+2A",
+    )
+}
+
+fn run_spectrum_plus2b_entry(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
+    run_spectrum_amstrad_class_entry(
+        manifest,
+        entry,
+        media_root,
+        firmware_root,
+        build_plus2b_runtime,
+        "+2B",
+    )
+}
+
+/// Shared entry runner for the disk-less Amstrad-class variants
+/// (+2A, +2B). Loads four ROMs, mounts tape media, drives the Amstrad
+/// boot menu's ENTER-for-Loader autoload, then waits for the tape to
+/// stop. The +3 keeps its own runner because the disk path is
+/// title-specific (some auto-run, some wait for ENTER) and stalls at
+/// the disk Loader screen anyway.
+fn run_spectrum_amstrad_class_entry<R, B>(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+    build_runtime: B,
+    variant_label: &str,
+) -> Result<RunResult, CatalogueError>
+where
+    R: emu198x_shell::MachineCore,
+    B: Fn(&[u8], &[u8], &[u8], &[u8]) -> R,
+    SpectrumSessionQueryProvider: SessionQueryProvider<R>,
+{
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 4 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 4,
+            actual: files.len(),
+        });
+    }
+    let r0 = read_firmware_bytes(firmware_root, &files[0])?;
+    let r1 = read_firmware_bytes(firmware_root, &files[1])?;
+    let r2 = read_firmware_bytes(firmware_root, &files[2])?;
+    let r3 = read_firmware_bytes(firmware_root, &files[3])?;
+
+    let runtime = build_runtime(&r0, &r1, &r2, &r3);
+
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_PLUS2A.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media = entry.media.as_ref().ok_or_else(|| {
+        CatalogueError::Session(format!("{variant_label} entry requires media"))
+    })?;
+    let media_kind = load_media_spec(&mut session, media, media_root)?;
+
+    autoload_128k_tape_loader(&mut session, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
+    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+
+    run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_PLUS2A))
+}
+
 fn run_spectrum_plus3_entry(
     manifest: &Manifest,
     entry: &Entry,
@@ -864,16 +993,19 @@ where
     Ok(())
 }
 
-/// 128K-equivalent of the 48K `autoload_basic_tape`. Waits for the 128K
-/// menu, presses ENTER (which selects the highlighted "Tape Loader"
-/// option), and starts tape transport.
-fn autoload_128k_tape_loader<Q>(
-    session: &mut HeadlessSession<Spectrum128kRuntime, Q>,
+/// 128K-class equivalent of the 48K `autoload_basic_tape`. Waits for
+/// the boot menu, presses ENTER (which selects the highlighted "Tape
+/// Loader" option), and starts tape transport. Generic over the
+/// concrete 128K-class machine so it works for both `Spectrum128K` and
+/// `SpectrumPlus2`.
+fn autoload_128k_tape_loader<M, Q>(
+    session: &mut HeadlessSession<M, Q>,
     slot: &str,
     max_boot_frames: u32,
 ) -> Result<(), CatalogueError>
 where
-    Q: SessionQueryProvider<Spectrum128kRuntime>,
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
 {
     session
         .wait_for_boot(max_boot_frames)
@@ -1303,6 +1435,54 @@ fn snapshot_check_48k(
     )
 }
 
+fn snapshot_check_plus2(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 2 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 2,
+            actual: files.len(),
+        });
+    }
+    let rom0 = read_firmware_bytes(firmware_root, &files[0])?;
+    let rom1 = read_firmware_bytes(firmware_root, &files[1])?;
+
+    let original_runtime = build_plus2_runtime(&rom0, &rom1);
+    let mut original = HeadlessSession::new_with_query_provider(
+        original_runtime,
+        u64::from(TIMING_128K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session("+2 entry requires media".into()))?;
+    let media_kind = load_media_spec(&mut original, media, media_root)?;
+
+    autoload_128k_tape_loader(&mut original, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
+    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+
+    let fresh_runtime = build_plus2_runtime(&rom0, &rom1);
+    let mut restored = HeadlessSession::new_with_query_provider(
+        fresh_runtime,
+        u64::from(TIMING_128K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    finalize_snapshot_check(
+        &mut original,
+        &mut restored,
+        entry,
+        spectrum_frames_per_sec(&TIMING_128K),
+    )
+}
+
 fn snapshot_check_128k(
     manifest: &Manifest,
     entry: &Entry,
@@ -1348,6 +1528,94 @@ fn snapshot_check_128k(
         &mut restored,
         entry,
         spectrum_frames_per_sec(&TIMING_128K),
+    )
+}
+
+fn snapshot_check_plus2a(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
+    snapshot_check_amstrad_class(
+        manifest,
+        entry,
+        media_root,
+        firmware_root,
+        build_plus2a_runtime,
+        "+2A",
+    )
+}
+
+fn snapshot_check_plus2b(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
+    snapshot_check_amstrad_class(
+        manifest,
+        entry,
+        media_root,
+        firmware_root,
+        build_plus2b_runtime,
+        "+2B",
+    )
+}
+
+fn snapshot_check_amstrad_class<R, B>(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+    build_runtime: B,
+    variant_label: &str,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError>
+where
+    R: emu198x_shell::MachineCore,
+    B: Fn(&[u8], &[u8], &[u8], &[u8]) -> R,
+    SpectrumSessionQueryProvider: SessionQueryProvider<R>,
+{
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 4 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 4,
+            actual: files.len(),
+        });
+    }
+    let r0 = read_firmware_bytes(firmware_root, &files[0])?;
+    let r1 = read_firmware_bytes(firmware_root, &files[1])?;
+    let r2 = read_firmware_bytes(firmware_root, &files[2])?;
+    let r3 = read_firmware_bytes(firmware_root, &files[3])?;
+
+    let original_runtime = build_runtime(&r0, &r1, &r2, &r3);
+    let mut original = HeadlessSession::new_with_query_provider(
+        original_runtime,
+        u64::from(TIMING_PLUS2A.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let media = entry.media.as_ref().ok_or_else(|| {
+        CatalogueError::Session(format!("{variant_label} entry requires media"))
+    })?;
+    let media_kind = load_media_spec(&mut original, media, media_root)?;
+
+    autoload_128k_tape_loader(&mut original, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
+    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+
+    let fresh_runtime = build_runtime(&r0, &r1, &r2, &r3);
+    let mut restored = HeadlessSession::new_with_query_provider(
+        fresh_runtime,
+        u64::from(TIMING_PLUS2A.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    finalize_snapshot_check(
+        &mut original,
+        &mut restored,
+        entry,
+        spectrum_frames_per_sec(&TIMING_PLUS2A),
     )
 }
 
@@ -1406,6 +1674,34 @@ fn build_128k_runtime(rom0: &[u8], rom1: &[u8]) -> Spectrum128kRuntime {
     let mut machine = Spectrum128K::new();
     machine.memory.load_roms(rom0, rom1);
     Spectrum128kRuntime::new(Model::Spectrum128KPal, machine)
+}
+
+fn build_plus2_runtime(rom0: &[u8], rom1: &[u8]) -> SpectrumPlus2Runtime {
+    let mut machine = SpectrumPlus2::new();
+    machine.memory.load_roms(rom0, rom1);
+    SpectrumPlus2Runtime::new(Model::SpectrumPlus2, machine)
+}
+
+fn build_plus2a_runtime(
+    r0: &[u8],
+    r1: &[u8],
+    r2: &[u8],
+    r3: &[u8],
+) -> SpectrumPlus2ARuntime {
+    let mut machine = SpectrumPlus2A::new();
+    machine.memory.load_roms(r0, r1, r2, r3);
+    SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, machine)
+}
+
+fn build_plus2b_runtime(
+    r0: &[u8],
+    r1: &[u8],
+    r2: &[u8],
+    r3: &[u8],
+) -> SpectrumPlus2BRuntime {
+    let mut machine = SpectrumPlus2B::new();
+    machine.memory.load_roms(r0, r1, r2, r3);
+    SpectrumPlus2BRuntime::new(Model::SpectrumPlus2B, machine)
 }
 
 fn build_plus3_runtime(r0: &[u8], r1: &[u8], r2: &[u8], r3: &[u8]) -> SpectrumPlus3Runtime {
