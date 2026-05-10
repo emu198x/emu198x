@@ -111,6 +111,16 @@ pub struct Upd765a {
     /// Interrupt pending.
     pub interrupt: bool,
 
+    /// Per-drive seek interrupt pending. The +3 BIOS issues
+    /// Recalibrate or Seek across multiple drives in a row, then drains
+    /// the resulting Seek End interrupts via repeated
+    /// `SenseInterruptStatus` calls. The handler walks the drives in
+    /// order and returns the first pending interrupt's ST0 + PCN; once
+    /// every drive's seek-pending bit is cleared, subsequent calls
+    /// return `ST0 = 0x80` (Invalid Command) per the µPD765A datasheet,
+    /// which is how the BIOS knows the queue is drained.
+    seek_pending: [Option<u8>; 4],
+
     /// Is this FDC electrically wired to the host's I/O bus?
     /// True on +3, false on +2A / +2B — both share the SpectrumPlus
     /// struct but only the +3 has an actual drive connector.
@@ -147,6 +157,7 @@ impl Upd765a {
             st3: 0,
             main_status: MSR_RQM,
             interrupt: false,
+            seek_pending: [None, None, None, None],
             enabled: false,
             disks: [None, None, None, None],
         }
@@ -284,19 +295,46 @@ impl Upd765a {
             Command::Recalibrate => {
                 let drive = (self.cmd_buf[1] & 0x03) as usize;
                 self.track[drive] = 0;
-                self.st0 = 0x20 | (drive as u8); // Seek end
+                // ST0 IC bits: 00 = Normal Termination (real drive
+                // present, seek to track 0 succeeded). 11 + EC bit
+                // (0xD8 | drive) = Abnormal due to Drive Not Ready —
+                // what the real µPD765A returns when a recalibrate is
+                // issued against a drive whose TRACK 0 signal never
+                // asserts (no drive connected). The +3 BIOS probes
+                // drives by recalibrating each in turn; falsely
+                // returning Normal Termination for non-existent drives
+                // makes it think every drive is real.
+                let st0 = if self.disks[drive].is_some() {
+                    0x20 | (drive as u8) // Seek End | drive
+                } else {
+                    0xD0 | (drive as u8) // Abnormal | Not Ready | EC | drive
+                };
+                self.st0 = st0;
+                self.seek_pending[drive] = Some(st0);
                 self.interrupt = true;
                 self.phase = Phase::Idle;
                 self.main_status = MSR_RQM;
             }
             Command::SenseInterruptStatus => {
                 self.result_buf.clear();
-                self.result_buf.push(self.st0);
-                self.result_buf.push(self.track[(self.st0 & 0x03) as usize]);
+                if let Some(drive) = (0..4).find(|d| self.seek_pending[*d].is_some()) {
+                    // Drain one pending seek interrupt.
+                    let st0 = self.seek_pending[drive].take().unwrap();
+                    self.st0 = st0;
+                    self.result_buf.push(st0);
+                    self.result_buf.push(self.track[drive]);
+                } else {
+                    // No pending interrupt — return ST0 = 0x80 (Invalid
+                    // Command). Per the µPD765A datasheet this tells the
+                    // BIOS the interrupt queue is drained.
+                    self.st0 = 0x80;
+                    self.result_buf.push(0x80);
+                    self.result_buf.push(0);
+                }
                 self.result_pos = 0;
                 self.phase = Phase::Result;
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
-                self.interrupt = false;
+                self.interrupt = self.seek_pending.iter().any(Option::is_some);
             }
             Command::Specify => {
                 // Just accept the parameters (step rate, head load/unload times)
@@ -307,16 +345,21 @@ impl Upd765a {
                 let drive = (self.cmd_buf[1] & 0x03) as usize;
                 let new_track = self.cmd_buf[2];
                 self.track[drive] = new_track;
-                self.st0 = 0x20 | (drive as u8); // Seek end
+                let st0 = 0x20 | (drive as u8); // Seek End | drive
+                self.st0 = st0;
+                self.seek_pending[drive] = Some(st0);
                 self.interrupt = true;
                 self.phase = Phase::Idle;
                 self.main_status = MSR_RQM;
             }
             Command::SenseDriveStatus => {
                 let drive = (self.cmd_buf[1] & 0x03) as usize;
-                self.st3 = (drive as u8)
-                    | if self.track[drive] == 0 { 0x10 } else { 0 }
-                    | if self.disks[drive].is_some() { 0x20 } else { 0 };
+                let head = (self.cmd_buf[1] >> 2) & 0x01;
+                let disk_present = self.disks[drive].is_some();
+                self.st3 = (self.cmd_buf[1] & 0x07)        // US0/US1/HD copied from command
+                    | if self.track[drive] == 0 { 0x10 } else { 0 } // T0 (track 0)
+                    | if disk_present { 0x08 | 0x20 } else { 0 };   // TS (two-sided) + RY
+                self.head = head;
                 self.result_buf.clear();
                 self.result_buf.push(self.st3);
                 self.result_pos = 0;
@@ -466,17 +509,41 @@ mod tests {
     }
 
     #[test]
-    fn sense_interrupt() {
+    fn sense_interrupt_drains_pending_then_returns_invalid_command() {
         let mut fdc = Upd765a::new();
-        fdc.st0 = 0x20; // Seek end
+        // Stage a pending seek interrupt for drive 0 (Seek End).
+        fdc.seek_pending[0] = Some(0x20);
 
         fdc.write_data(0x08); // Sense Interrupt Status
         assert_eq!(fdc.phase, Phase::Result);
+        assert_eq!(fdc.read_data(), 0x20); // ST0
+        assert_eq!(fdc.read_data(), 0); // PCN
 
-        let st0 = fdc.read_data();
-        assert_eq!(st0, 0x20);
-        let pcn = fdc.read_data();
-        assert_eq!(pcn, 0); // Track 0
+        // Second SenseInt with no pending must return ST0 = 0x80
+        // (Invalid Command) per the µPD765A datasheet — that's how the
+        // BIOS knows the interrupt queue is drained.
+        fdc.write_data(0x08);
+        assert_eq!(fdc.read_data(), 0x80);
+        assert_eq!(fdc.read_data(), 0);
+    }
+
+    #[test]
+    fn sense_interrupt_walks_drives_in_order() {
+        let mut fdc = Upd765a::new();
+        fdc.seek_pending[3] = Some(0x23); // Seek End | drive 3
+        fdc.seek_pending[0] = Some(0x20); // Seek End | drive 0
+
+        fdc.write_data(0x08);
+        assert_eq!(fdc.read_data(), 0x20);
+        assert_eq!(fdc.read_data(), 0);
+
+        fdc.write_data(0x08);
+        assert_eq!(fdc.read_data(), 0x23);
+        assert_eq!(fdc.read_data(), 0);
+
+        fdc.write_data(0x08);
+        assert_eq!(fdc.read_data(), 0x80);
+        assert_eq!(fdc.read_data(), 0);
     }
 
     #[test]
