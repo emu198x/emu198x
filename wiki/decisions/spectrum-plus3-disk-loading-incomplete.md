@@ -403,3 +403,51 @@ Robocop are all in TOSEC), author catalogue entries for each
 with frame/audio hash assertions tuned to a deterministic
 reproduction window, and run them under the same harness as
 the 51 existing tape-based entries.
+
+## 2026-05-11 morning — catalogue survey results
+
+`runtime-sinclair-zx-spectrum/tests/plus3_disk_survey.rs` boots
+each of ten TOSEC +3 DSKs with the autoload helper, runs 6000
+frames after pressing ENTER on the Loader menu, and dumps a PNG
+plus frame/audio xxh64 to `/tmp/plus3_survey_*.png`. Results:
+
+| Title (publisher / protection) | Outcome |
+| --- | --- |
+| Chase H.Q. (Ocean / Speedlock 7+) | **Full title screen.** Logo, cops, OCEAN logo, copyright lines for Ocean Software and Taito Corporation. |
+| Rainbow Islands (Ocean / Speedlock) | **Credits screen.** "RAINBOW PROJECT / PROGRAM BY DAVID O'CONNOR / GRAPHICS BY JOHN CUMMING / PRODUCED BY GRAFTGOLD LTD" with the 1UP / HI SCORE / CREDIT header. |
+| Cybernoid (Hewson / custom) | **Main menu.** Logo, "BY RAFFAELE CECCO / MUSIC BY DAVE ROGERS", 5-option control menu. |
+| Cybernoid II (Hewson / custom) | **Pre-game key blurb + Loader bar.** "NOTE KEY CHANGES / Y = SMART BOMBS / U = TRACERS / PRESS SPACE". |
+| Saboteur II (Durell / speed-up) | **Loader title bar.** "Saboteur 2 (Speed up)" in blue. Also the only +3 entry whose audio buffer captures non-silence — the Durell loader is pulsing the AY. |
+| Operation Wolf (Ocean / Speedlock) | ❌ Gray screen with "© 1982 Amstrad" — same exact framebuffer hash as RoboCop and Where Time Stood Still. The three Ocean Speedlock titles fail at the same state. |
+| RoboCop (Ocean / Speedlock) | ❌ Same gray-Amstrad state as Operation Wolf. |
+| Where Time Stood Still (Ocean / Speedlock) | ❌ Same gray-Amstrad state. |
+| Turrican (Rainbow Arts) | ❌ Black screen. The loader runs but doesn't paint anything visible within 6000 frames. |
+| Tetris (Mirrorsoft) | ❌ DSK parse error: "Track 12 (offset 58624): sector ID 0x07 runs past track block (need 8192 bytes at offset 14464)." Image is structurally invalid or uses a track-block layout `format-amstrad-dsk` doesn't yet handle. |
+
+So five titles land on stable, recognisable screens and are
+authored as catalogue entries in `manifest/spectrum.toml`. The
+five failures split into three independent unsolved problems:
+
+1. **The three Ocean Speedlock titles that share a hash with the
+   "© 1982 Amstrad" empty BIOS screen.** The fact that they all
+   stop at *exactly* the same framebuffer state means there's a
+   common code path the loader takes when a verification step
+   fails — probably an `OUT $1FFD` that resets the gate-array
+   into a state where the lower 32K is empty RAM and the BIOS's
+   © message is the only thing visible. Worth a side-by-side
+   trace against FUSE to find which check is failing.
+
+2. **Turrican's silent black screen.** The loader either runs
+   off into unreachable code or successfully decrypts data and
+   then waits for an interrupt-driven trigger we're not firing.
+   Same diagnostic-test setup as Chase H.Q. should reveal the
+   PC hot spot.
+
+3. **Tetris's DSK parse error.** A `format-amstrad-dsk` bug, not
+   an emulation issue — the parser uses the track's default N as
+   the data length when the EDSK per-sector length is zero, but
+   this image has zero data lengths in the SIL combined with a
+   N=2 default that exceeds the actual block. Either the image
+   is malformed (which several TOSEC entries are) or the parser
+   needs to fall back to the actual sector positions recorded in
+   the SIL.

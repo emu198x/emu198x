@@ -934,16 +934,21 @@ fn run_spectrum_plus3_entry(
         .ok_or_else(|| CatalogueError::Session("+3 entry requires media".into()))?;
     let media_kind = load_media_spec(&mut session, media, media_root)?;
 
-    // Defer autoload: rely on entry.script[] to send the menu keypress
-    // for +3, since the menu's behaviour with a disk inserted is
-    // title-specific (some auto-run, others wait for ENTER).
-    // autoload_plus3_loader(&mut session, DEFAULT_128K_BOOT_FRAMES)?;
-
-    // For tape media on +3, the standard tape-stop wait still applies.
-    // For disk, the +3 disk loader runs autonomously after Loader is
-    // selected — wait_frames in the entry covers the full load.
-    if media_kind == MediaKind::Tape {
-        wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+    match media_kind {
+        MediaKind::Disk => {
+            // The +3 BIOS boots to an interactive menu (Loader / +3
+            // BASIC / Calculator / 48 BASIC) and does NOT auto-run
+            // even with a disk in the drive. `autoload_plus3_loader`
+            // waits for the menu, presses ENTER (which selects the
+            // highlighted Loader option), and lets the disk loader
+            // take over — `wait_frames` in the entry then covers the
+            // rest of the load.
+            autoload_plus3_loader(&mut session, DEFAULT_128K_BOOT_FRAMES)?;
+        }
+        MediaKind::Tape => {
+            wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+        }
+        _ => {}
     }
 
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_PLUS2A))
@@ -952,11 +957,6 @@ fn run_spectrum_plus3_entry(
 /// +3 autoload: wait for the +3 menu boot banner, press ENTER (selects
 /// the highlighted "Loader" option which auto-runs the disk's first
 /// program). The disk must already be inserted via load_media_spec.
-///
-/// Currently unused scaffolding — kept for future +3 catalogue
-/// authoring (Chase H.Q. +3 / disk-loader manifests). Remove the
-/// `#[allow(dead_code)]` when wiring it into a manifest run.
-#[allow(dead_code)]
 fn autoload_plus3_loader<Q>(
     session: &mut HeadlessSession<SpectrumPlus3Runtime, Q>,
     max_boot_frames: u32,
@@ -1651,8 +1651,19 @@ fn snapshot_check_plus3(
         .ok_or_else(|| CatalogueError::Session("+3 entry requires media".into()))?;
     let media_kind = load_media_spec(&mut original, media, media_root)?;
 
-    if media_kind == MediaKind::Tape {
-        wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+    // Mirror `run_spectrum_plus3_entry`: tape entries wait for the
+    // bootloader to stop tape transport, disk entries press ENTER on
+    // the Loader menu to start the +3 BIOS's disk handover. Skipping
+    // the autoload here would leave every +3 disk entry sitting on
+    // the boot menu (same framebuffer hash for every title).
+    match media_kind {
+        MediaKind::Disk => {
+            autoload_plus3_loader(&mut original, DEFAULT_128K_BOOT_FRAMES)?;
+        }
+        MediaKind::Tape => {
+            wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+        }
+        _ => {}
     }
 
     let fresh_runtime = build_plus3_runtime(&r0, &r1, &r2, &r3);

@@ -22,9 +22,17 @@
 - **128K (10/10):** Chase H.Q., RoboCop (Jonathan Dunn AY soundtrack), Operation Wolf, Out Run, Rainbow Islands (Tim Follin), Bubble Bobble (Wally Beben), Where Time Stood Still (Denton Designs, 128K-only), Total Eclipse (Freescape), Castle Master (Domark, 128K-only), Lords of Chaos (Mythos Games, 128K-only). Genuine 128K-designed titles, biased toward 128K-only or 128K-canonical games rather than 48K-with-AY-overlay.
 - **+2 (10/10):** mirrors the 128K title set against the dedicated `-plus2` crate. Same byte-for-byte invariant as 48K↔Spectrum+: electrically identical to the 128K, only the ROM bundle differs.
 
-Plus 1 more variant entry: +3 / DSK (Chase H.Q. +3, vacuous SNAP-PASS due to disk Loader hang). **Missing:** +2A, +2B (need 10 entries each — runners are wired). +3 needs 9 more entries gated on the disk-load fix.
+Plus 5 +3 disk entries authored as of 2026-05-11 after the five-bug disk-loader fix landed:
 
-Save-state round-trip is gated by `run_spectrum_entry_with_snapshot_check` on every Spectrum entry; **51/51 SNAP-PASS** on the latest run (3004 s wall, ~50 min). The harness is the live regression bench — any future drift in serde-skipped state, runtime behaviour, or autoload timing surfaces as a hash mismatch.
+- **chase-hq-plus3** — Speedlock 7+ (Ocean) → full title screen with the "CHASE H.Q." logo, the cops, the Ocean and Taito copyright lines.
+- **rainbow-islands-plus3** — Speedlock (Ocean) → Graftgold credits screen.
+- **cybernoid-plus3** — Hewson custom loader → in-game main menu with all five control options visible.
+- **cybernoid-2-plus3** — Hewson custom loader → pre-game key blurb above the Loader progress bar.
+- **saboteur-ii-plus3** — Durell speed-up loader → "Saboteur 2 (Speed up)" title bar.
+
+All five pass the BOOT hash check *and* SNAP-PASS the snapshot round-trip in `tests/plus3_disk_entries.rs`, exercising three independent protection schemes (Speedlock, Hewson custom, Durell speed-up). **Missing:** +2A, +2B (need 10 entries each — runners are wired). +3 has five more entries-of-opportunity once the three "© 1982 Amstrad" Speedlock-failure titles (Operation Wolf, RoboCop, Where Time Stood Still) and the Turrican black-screen + Tetris DSK-parse-error cases are diagnosed.
+
+Save-state round-trip is gated by `run_spectrum_entry_with_snapshot_check` on every Spectrum entry; **51/51 SNAP-PASS** on the latest run (3004 s wall, ~50 min) plus 5/5 for the new +3 disk entries. The harness is the live regression bench — any future drift in serde-skipped state, runtime behaviour, or autoload timing surfaces as a hash mismatch.
 
 **Audio-window caveat for late-Ocean AY titles.** Most of the 128K AY-music conversions (RoboCop, Operation Wolf, Out Run, Rainbow Islands, Bubble Bobble, Castle Master) end up sharing the "128K silence" audio hash because the captured window (60+100 frames, ~3.2 s post-tape-stop) lands before the music driver actually starts playing. The hash is still a deterministic snapshot-check assertion, but it doesn't exercise the AY chip in the way the title's audio reputation would suggest. Tuning per-entry `wait_frames` to capture the actual AY soundtrack is a follow-up; non-blocking for the criterion's strictly-ordered bar.
 

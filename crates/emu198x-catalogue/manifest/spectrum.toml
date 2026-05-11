@@ -1023,6 +1023,22 @@ from_frame = 100
 secs = 2.0
 hash = "xxh64:c27195d1cabf3150"
 
+# ─── +3 disk entries ────────────────────────────────────────────
+# 3" floppy titles for the 1987 Amstrad-built +3. Every entry below
+# exercises the full µPD765A FDC + DSK / EDSK pipeline end-to-end:
+# the +3 BIOS boots its 4-ROM firmware to the interactive menu,
+# `autoload_plus3_loader` presses ENTER (Loader option), the FDC
+# streams sectors from the parsed disk image, and the protected
+# loader unpacks the game into RAM. See
+# `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md` for the
+# five-bug fix history that made this path work.
+#
+# Each title was picked to exercise a different copy-protection
+# scheme so a regression in any one path surfaces fast:
+#   - Ocean Speedlock 7+   → Chase H.Q., Rainbow Islands
+#   - Hewson custom loader → Cybernoid, Cybernoid II
+#   - Durell speed-up loader → Saboteur II
+
 [[entry]]
 id = "chase-hq-plus3"
 title = "Chase H.Q. (+3)"
@@ -1031,48 +1047,144 @@ publisher = "Ocean"
 variant = "plus3"
 
 [entry.media]
-# +3 disk (DSK format) — exercises the NEC µPD765A FDC code path,
-# completely untested in the catalogue until now. Same Ocean Chase HQ
-# as the 128K tape entry; lets us A/B compare 128K tape vs +3 disk
-# loading paths for the same title.
+# Speedlock 7+ — the protection that drove the bus_request, drive
+# mask, multi-sector ReadData, real-CHRN, and physical-track-lookup
+# fixes. Same Ocean Chase H.Q. as the 128K tape entry; lets us A/B
+# compare the 128K tape path against the +3 disk path for the same
+# title.
 kind = "disk"
 slot = "disk-a"
 path = "sinclair/spectrum/Games/[DSK]/Chase H.Q. (1989)(Ocean)(+3).zip"
 
 [entry.boot]
-# Captures the canonical +3 boot menu with the DSK already inserted:
-#   "128 +3 / Loader / +3 BASIC / Calculator / 48 BASIC /
-#    ©1982, 1986, 1987 Amstrad Plc. / Drives A:, B: and M: available."
-# The menu is the proof point for the +3 path:
-#   - 4-ROM firmware loaded (plus3-{0,1,2,3}.rom)
-#   - SpectrumPlus runtime constructed
-#   - DSK file parsed via format-amstrad-dsk::parse
-#   - Disk inserted via load_disk_image into the NEC µPD765A FDC
-#   - Boot reached interactive menu state
-# Pushing past the menu requires ENTER on Loader; tested with
-# `script[]` press="enter" at_frame=5000, which DOES change the
-# screen state (different hash from no-script run), proving ENTER
-# is received. The post-Loader-select state stalls at the minimal
-# "Loader" bottom-bar without progressing to the actual disk load.
-#
-# Confirmed 2026-05-06: this stall is NOT a regression. The archived
-# Emu198x-Oldest emu-sinclair-zx-spectrum (commit 3f7e4722, "Add ZX
-# Spectrum +3 with NEC uPD765 FDC and DSK disk loading") stalls on
-# Chase HQ, ACE 2, and Action Fighter at the same Loader screen.
-# The +3 ROM `Loader` reads system files (DISK.SYS, etc.) the
-# upd765/format-amstrad-dsk path doesn't fully service in either
-# codebase. The Insector Hecti / Bustout compat screenshots in the
-# archive that show real gameplay are TAP/TZX/Z80 boots, not DSK.
-#
-# Tracked as a follow-up: needs +3 disk subsystem completion (FDC
-# READ ID + sector-by-sector boot block + DISK.SYS load). The menu
-# boot is genuine +3 + DSK regression coverage on its own — proves
-# 4-ROM firmware, FDC port handling, and DSK parsing.
-wait_frames = 8000
-frame_hash = "xxh64:4e00d0998410913a"
+# Captures the rendered title screen — "CHASE H.Q." logo, the two
+# cops, city skyline, OCEAN logo, copyright lines for Ocean Software
+# and Taito Corporation. The loader reaches this screen after the
+# BIOS hands off, the boot sector decrypts itself, and the
+# Speedlock-protected sectors stream the title bitmap into screen
+# RAM.
+wait_frames = 6000
+frame_hash = "xxh64:13e8354d88a39eb0"
 
 [entry.audio]
-# Menu silent — no music or sound effects.
+# Loader is silent (no music) until the player interacts — the
+# audio-window hash here is the canonical "+3 disk loader idle"
+# silence pattern (matches every other silent +3 loader entry's
+# audio capture).
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "rainbow-islands-plus3"
+title = "Rainbow Islands (+3)"
+year = 1990
+publisher = "Ocean"
+variant = "plus3"
+
+[entry.media]
+# Speedlock — same protection class as Chase H.Q., useful as a
+# second data point that the Speedlock path isn't accidentally
+# overfit to one specific disk layout.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(+3).zip"
+
+[entry.boot]
+# Captures Graftgold's credits / scoreboard screen: "RAINBOW
+# PROJECT / PROGRAM BY DAVID O'CONNOR / GRAPHICS BY JOHN CUMMING /
+# PRODUCED BY GRAFTGOLD LTD" with the 1UP / HI SCORE / CREDIT
+# header. The Rainbow Islands loader cycles through this screen
+# before the actual title image.
+wait_frames = 6000
+frame_hash = "xxh64:205e453d1a8348d1"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "cybernoid-plus3"
+title = "Cybernoid - The Fighting Machine (+3)"
+year = 1988
+publisher = "Hewson Consultants"
+variant = "plus3"
+
+[entry.media]
+# Hewson's custom +3 loader — not Speedlock, different sector
+# layout and CRC scheme. Catches divergences between Speedlock-
+# specific assumptions and Hewson's protection.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Cybernoid - The Fighting Machine (1988)(Hewson Consultants)(+3).zip"
+
+[entry.boot]
+# Captures the in-game main menu: title logo, "BY RAFFAELE CECCO /
+# MUSIC BY DAVE ROGERS", and the five-option control menu
+# ("1 START GAME / 2 DEFINE KEYS / 3 INTERFACE 2 / 4 KEMPSTON /
+# S SOUND ON/OFF").
+wait_frames = 6000
+frame_hash = "xxh64:4370bc59143599df"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "cybernoid-2-plus3"
+title = "Cybernoid II - The Revenge (+3)"
+year = 1988
+publisher = "Hewson Consultants"
+variant = "plus3"
+
+[entry.media]
+# Sequel to Cybernoid using the same Hewson loader. The captured
+# state is mid-load — the loader paints the "NOTE KEY CHANGES /
+# Y = SMART BOMBS / U = TRACERS / PRESS SPACE" pre-game blurb at
+# the top of the screen and a Loader progress bar at the bottom.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Cybernoid II - The Revenge (1988)(Hewson Consultants)(+3).zip"
+
+[entry.boot]
+wait_frames = 6000
+frame_hash = "xxh64:3159ce47ab4ea584"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "saboteur-ii-plus3"
+title = "Saboteur II - Avenging Angel (+3)"
+year = 1987
+publisher = "Durell"
+variant = "plus3"
+
+[entry.media]
+# Durell's +3 loader. The DSK in the TOSEC corpus is the 2015
+# Alex Rider speed-up hack, which uses a different (faster) load
+# routine than the original — useful as a third independent loader
+# code path that doesn't share protection with Speedlock or the
+# Hewson scheme.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Saboteur II - Avenging Angel (1987)(Durell)(+3)[h Alex Rider, 2015][tr pl][Speed-up version].zip"
+
+[entry.boot]
+# Captures the loader title bar — "Saboteur 2 (Speed up)" in blue
+# at the top with the rest of the screen black. The actual gameplay
+# title screen comes later in the loader; this is the durable
+# intermediate state that's stable across runs.
+wait_frames = 6000
+frame_hash = "xxh64:70ef58e6577976c9"
+
+[entry.audio]
+# Loader silent at the captured window (the AY pulses we see in
+# the wider 6000-frame buffer aren't in the audio-window slice).
 from_frame = 60
 secs = 2.0
 hash = "xxh64:c27195d1cabf3150"
