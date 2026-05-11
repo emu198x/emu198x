@@ -22,15 +22,20 @@
 - **128K (10/10):** Chase H.Q., RoboCop (Jonathan Dunn AY soundtrack), Operation Wolf, Out Run, Rainbow Islands (Tim Follin), Bubble Bobble (Wally Beben), Where Time Stood Still (Denton Designs, 128K-only), Total Eclipse (Freescape), Castle Master (Domark, 128K-only), Lords of Chaos (Mythos Games, 128K-only). Genuine 128K-designed titles, biased toward 128K-only or 128K-canonical games rather than 48K-with-AY-overlay.
 - **+2 (10/10):** mirrors the 128K title set against the dedicated `-plus2` crate. Same byte-for-byte invariant as 48K↔Spectrum+: electrically identical to the 128K, only the ROM bundle differs.
 
-Plus 5 +3 disk entries authored as of 2026-05-11 after the five-bug disk-loader fix landed:
+Plus **10 +3 disk entries** authored over 2026-05-10 / -05-11 after the eight-bug disk-loader fix landed (five emulation bugs + ReadDeletedData/DDAM + per-sector ST1/ST2 propagation + EDSK zero-length sector handling):
 
-- **chase-hq-plus3** — Speedlock 7+ (Ocean) → full title screen with the "CHASE H.Q." logo, the cops, the Ocean and Taito copyright lines.
+- **chase-hq-plus3** — Speedlock 7+ (Ocean) → in-game options scoreboard with the AY chip actively driving title music.
 - **rainbow-islands-plus3** — Speedlock (Ocean) → Graftgold credits screen.
 - **cybernoid-plus3** — Hewson custom loader → in-game main menu with all five control options visible.
 - **cybernoid-2-plus3** — Hewson custom loader → pre-game key blurb above the Loader progress bar.
+- **stormlord-plus3** — Hewson Alkatraz late loader → "hewson presents s.t.o.r.m.l.o.r.d" title and the control select.
 - **saboteur-ii-plus3** — Durell speed-up loader → "Saboteur 2 (Speed up)" title bar.
+- **starglider-2-plus3** — Rainbird → "STARGLIDER 2" title with filled-vector ship over the starfield.
+- **lotus-esprit-plus3** — Gremlin → in-car dashboard / equipment screen.
+- **combat-school-plus3** — pre-Speedlock Ocean (1987) → "OCEAN SOFTWARE PRESENTS" compilation menu.
+- **sim-city-plus3** — Infogrames / **plain +3DOS** → difficulty-select screen. The unprotected coverage anchor — the only entry whose load path goes through the standard BIOS filesystem layer rather than a custom turbo loader, so a regression in the +3DOS LOAD "*" path surfaces independently of any protection code.
 
-All five pass the BOOT hash check *and* SNAP-PASS the snapshot round-trip in `tests/plus3_disk_entries.rs`, exercising three independent protection schemes (Speedlock, Hewson custom, Durell speed-up). **Missing:** +2A, +2B (need 10 entries each — runners are wired). +3 has five more entries-of-opportunity once the three "© 1982 Amstrad" Speedlock-failure titles (Operation Wolf, RoboCop, Where Time Stood Still) and the Turrican black-screen + Tetris DSK-parse-error cases are diagnosed.
+All ten pass BOOT hash check *and* SNAP-PASS the snapshot round-trip in `tests/plus3_disk_entries.rs` (~18 min total wall-clock). Seven distinct loader code paths now covered: Speedlock 7+, Speedlock pre-7 (Combat School), Hewson custom-early, Hewson Alkatraz-late, Durell speed-up, Rainbird, Gremlin, Infogrames +3DOS. **Missing:** +2A, +2B (need 10 entries each — runners are wired). Five more +3 entries-of-opportunity are pending diagnosis: the "Speedlock-6 cluster" (Operation Wolf, RoboCop, Where Time Stood Still, Bad Dudes vs Dragon Ninja — all share the same post-DDAM failure hash `5b942a2bc9de21c2`, all hang at the loader's sector-2 CRC check) and the black-screen titles (Turrican, Tetris).
 
 Save-state round-trip is gated by `run_spectrum_entry_with_snapshot_check` on every Spectrum entry; **51/51 SNAP-PASS** on the latest run (3004 s wall, ~50 min) plus 5/5 for the new +3 disk entries. The harness is the live regression bench — any future drift in serde-skipped state, runtime behaviour, or autoload timing surfaces as a hash mismatch.
 

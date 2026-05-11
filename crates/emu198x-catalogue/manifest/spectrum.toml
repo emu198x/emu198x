@@ -1196,6 +1196,168 @@ from_frame = 60
 secs = 2.0
 hash = "xxh64:c27195d1cabf3150"
 
+[[entry]]
+id = "sim-city-plus3"
+title = "Sim City (+3)"
+year = 1990
+publisher = "Infogrames"
+variant = "plus3"
+
+[entry.media]
+# Plain +3DOS title — boots via the standard BIOS filesystem path
+# rather than a custom turbo loader. The unprotected coverage data
+# point: a regression in the +3DOS LOAD "*" path that doesn't
+# touch any custom loader machinery shows up here first. Sim City
+# is a long-form utility-class game (city builder) so the DSK
+# layout is straightforward filesystem rather than the
+# track-by-track key sectors Speedlock and friends use.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Sim City (1990)(Infogrames)(+3)(FR)(en).zip"
+
+[entry.boot]
+# Captures the difficulty-select screen: the inverse "SYSTEM
+# OPTIONS DISASTERS WINDOWS" menu bar with the tool palette
+# below, then "ROAD $10 / HERESVILLE / FUNDS $20000 / JAN 1902"
+# header, the green-bordered SELECT DIFFICULTY LEVEL panel with
+# "1 - EASY / 2 - MEDIUM / 3 - DIFFICULT", and the "INPUT NEW
+# CITY NAME" prompt. The post-load steady state.
+wait_frames = 6000
+frame_hash = "xxh64:7366b73db470e3cc"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "stormlord-plus3"
+title = "Stormlord (+3)"
+year = 1989
+publisher = "Hewson Consultants"
+variant = "plus3"
+
+[entry.media]
+# Hewson 1989 — later loader than Cybernoid I/II, sometimes
+# called the Alkatraz protection scheme. Different code path
+# from Cybernoid's custom loader; pinning this entry separately
+# means a Hewson-late-vs-Hewson-early divergence shows up
+# without touching the earlier Cybernoid entries.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Stormlord (1989)(Hewson Consultants)(+3).zip"
+
+[entry.boot]
+# Captures the title / control-select screen: "hewson presents
+# s.t.o.r.m.l.o.r.d" with sun / moon decoration, "I keyboard /
+# II interface II / III kempston / fire to start" options, and
+# the row of sprite art (sphinx, plants, mushroom, skull) at the
+# bottom. The exact framebuffer hash depends on the +3 BIOS
+# autoload's 20-frame settle delay after ENTER — the survey
+# (which doesn't replicate that delay) hashes a slightly earlier
+# frame of the title-screen animation.
+wait_frames = 6000
+frame_hash = "xxh64:24509c24436aac0b"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "starglider-2-plus3"
+title = "Starglider 2 (+3)"
+year = 1989
+publisher = "Rainbird"
+variant = "plus3"
+
+[entry.media]
+# Rainbird (Telecomsoft / British Telecom's premium label) used
+# a distinct loader from Ocean / Hewson — not Speedlock, not
+# Alkatraz. Filled-vector 3D space combat title, the kind of
+# code Rainbird specialised in. Single-side disk.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Starglider 2 - The Egrons Strike Back (1989)(Rainbird)(+3).zip"
+
+[entry.boot]
+# Captures the title screen: large blue "STARGLIDER 2" logo over
+# a starfield, the rendered spaceship sprite (Egron) hovering
+# over a planet's horizon, and the "S R Dunn" artist signature
+# bottom-left. The starfield animates so the survey vs the
+# catalogue (with its 20-frame autoload settle) hash slightly
+# different intermediate frames.
+wait_frames = 6000
+frame_hash = "xxh64:d84aac252ecd9efd"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "lotus-esprit-plus3"
+title = "Lotus Esprit Turbo Challenge (+3)"
+year = 1990
+publisher = "Gremlin Graphics"
+variant = "plus3"
+
+[entry.media]
+# Gremlin's racing-game loader. Cyan colour palette throughout,
+# the post-load state is the in-car dashboard layout (interior
+# view of the Esprit with a labelled equipment panel). A
+# different graphics style and palette regime from the Ocean /
+# Hewson / Rainbird titles, so a colour-attribute or palette
+# regression surfaces here more clearly than on the others.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Lotus Esprit Turbo Challenge (1990)(Gremlin Graphics)(+3).zip"
+
+[entry.boot]
+# Captures the dashboard equipment screen: "INTERIOR /
+# DASHBOARD A B C D E F G H I" labels along the top, the
+# wireframe car / wheel diagram, and the lettered equipment
+# list (CENTRAL LOCKING / SEAT RESTRAINTS / ELECTROCHROMIC
+# MIRROR / etc.). A static post-load attract state.
+wait_frames = 6000
+frame_hash = "xxh64:0638e06299ac3f67"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "combat-school-plus3"
+title = "Combat School (+3)"
+year = 1987
+publisher = "Ocean"
+variant = "plus3"
+
+[entry.media]
+# Pre-Speedlock Ocean — 1987, a year before the full Speedlock
+# protection became standard on their +3 releases. The compilation
+# DSK ("Combat School + Gryzor Preview") leads with an Ocean
+# Software menu, useful as a third independent Ocean entry that
+# isn't running the same protection family as Chase H.Q. /
+# Rainbow Islands / RoboCop / etc.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Combat School + Gryzor Preview (1987)(Ocean)(+3).zip"
+
+[entry.boot]
+# Captures the cyan-banner Ocean compilation menu: "OCEAN
+# SOFTWARE PRESENTS" header, then the numbered choice
+# "1 - COMBAT SCHOOL / 2 - CRYZOR PREVIEW", and the
+# "PRESS THE NUMBER CORRESPONDING TO GAME REQUIRED" prompt.
+wait_frames = 6000
+frame_hash = "xxh64:57dcd2c21787f26b"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
 # ─── 16K entries ────────────────────────────────────────────────
 # 1982-83 titles small enough to fit in 16K of RAM. All use the same
 # 48 BASIC ROM and the same `LOAD ""` autoload path as the 48K-class

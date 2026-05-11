@@ -80,11 +80,6 @@ fn survey_titles() -> Vec<(&'static str, &'static str, &'static str)> {
             "Cybernoid II - The Revenge (1988)(Hewson Consultants)(+3).zip",
         ),
         (
-            "tetris-plus3",
-            "Tetris (+3) [Mirrorsoft, plain]",
-            "Tetris (1988)(Mirrorsoft)(+3).zip",
-        ),
-        (
             "saboteur-ii-plus3",
             "Saboteur II (+3) [Durell]",
             "Saboteur II - Avenging Angel (1987)(Durell)(+3)[h Alex Rider, 2015][tr pl][Speed-up version].zip",
@@ -93,6 +88,42 @@ fn survey_titles() -> Vec<(&'static str, &'static str, &'static str)> {
             "turrican-plus3",
             "Turrican (+3) Side A [Rainbow Arts]",
             "Turrican (1990)(Rainbow Arts)(+3)(Side A).zip",
+        ),
+        // ─── Wider protection coverage: distinct loader families ───
+        (
+            "stormlord-plus3",
+            "Stormlord (+3) [Hewson, Alkatraz]",
+            "Stormlord (1989)(Hewson Consultants)(+3).zip",
+        ),
+        (
+            "sim-city-plus3",
+            "Sim City (+3) [Infogrames, plain +3DOS]",
+            "Sim City (1990)(Infogrames)(+3)(FR)(en).zip",
+        ),
+        (
+            "starglider-2-plus3",
+            "Starglider 2 (+3) [Rainbird]",
+            "Starglider 2 - The Egrons Strike Back (1989)(Rainbird)(+3).zip",
+        ),
+        (
+            "lotus-esprit-plus3",
+            "Lotus Esprit Turbo Challenge (+3) [Gremlin]",
+            "Lotus Esprit Turbo Challenge (1990)(Gremlin Graphics)(+3).zip",
+        ),
+        (
+            "combat-school-plus3",
+            "Combat School (+3) [Ocean, pre-Speedlock]",
+            "Combat School + Gryzor Preview (1987)(Ocean)(+3).zip",
+        ),
+        (
+            "dragon-ninja-plus3",
+            "Bad Dudes vs. Dragon Ninja (+3) [Imagine/Ocean]",
+            "Bad Dudes vs. Dragon Ninja (1988)(Imagine)(+3).zip",
+        ),
+        (
+            "tetris-plus3",
+            "Tetris (+3) [Mirrorsoft, format-track protection]",
+            "Tetris (1988)(Mirrorsoft)(+3).zip",
         ),
     ]
 }

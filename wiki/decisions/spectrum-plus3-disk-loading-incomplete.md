@@ -451,3 +451,156 @@ five failures split into three independent unsolved problems:
    is malformed (which several TOSEC entries are) or the parser
    needs to fall back to the actual sector positions recorded in
    the SIL.
+
+## 2026-05-11 morning — ST1/ST2 + DDAM + EDSK zero-length fixes
+
+Three independent fidelity gaps, all surfaced by tracing failing
+catalogue titles. Committed in `caaa9df`.
+
+### Discovery: every TOSEC +3 DSK is actually EDSK
+
+Probing the file signatures of the survey set:
+
+```
+$ xxd -l 21 chase-hq.dsk
+00000000: 4558 5445 4e44 4544 2043 5043 2044 534b  EXTENDED CPC DSK
+00000010: 2046 696c 65                              File
+```
+
+…and every other +3 DSK in TOSEC for the protected titles looks
+the same. Standard DSK simply can't represent the metadata that
+protection schemes rely on (per-sector ST1 / ST2, variable
+length sectors, format-track-only sectors), so dumpers default
+to EDSK. The parser already handles EDSK; this realisation just
+clarifies that *all* the fidelity work below is on the
+"extended" path — the standard-DSK fallbacks below it are kept
+for the rare modern non-protected `.dsk` someone might author.
+
+### Bug 6: DDAM (Read Deleted Data) unimplemented
+
+Operation Wolf at PC=`$FEFE` issues `OUT $3FFD, $4C` after the
+BIOS-driven first read finishes. `$4C` is `ReadDeletedData`
+(opcode `0x0C` with MFM=1, SK=0). Our `decode_command` only
+matched `0x06` (ReadData), so the opcode fell into the
+`Command::None` arm and the FDC silently dropped the command.
+Speedlock writes protection-key sectors with a deleted data
+address mark (DDAM) and reads them back via this opcode; with
+the chip ignoring the request the loader got back garbage and
+gave up.
+
+`Command::ReadDeletedData` now shares the ReadData arm — the
+data-delivery path is identical, the difference is *which*
+address-mark type the chip is willing to match.
+
+### Bug 7: per-sector ST1 / ST2 dropped at parse time
+
+The DSK SIL stores eight bytes per sector: C, H, R, N, ST1,
+ST2, length_lo, length_hi. The parser was reading C/H/R/N and
+the length, then discarding the two status bytes. Those bytes
+are exactly what the chip would have returned reading the
+sector at dump time — ST1.DE (data CRC error), ST2.CM (deleted
+mark), ST2.DD (data field CRC error), ST1.ND (no data), and so
+on. Speedlock-protected disks deliberately record sectors with
+these bits set so a loader can verify "this is an original
+disk, not a copy from a tool that only knows about clean
+sectors."
+
+DiskSector now carries `st1` and `st2`. The ReadData arm OR's
+each delivered sector's recorded ST1/ST2 into the result-phase
+status block, so a loader reading a sector with recorded DE
+sees the same DE flag the real drive would have produced.
+Multi-sector reads terminate the moment they hit a recorded
+CRC error (real chip behaviour: it stops on the first sector
+where the data field's CRC mismatches), with ST0's
+abnormal-termination IC set.
+
+### Bug 8: EDSK zero-length sector treated as N's worth
+
+`Command::ReadData`'s parser fallback for "SIL length == 0"
+was 128 << N. Right on standard DSK where the SIL length
+column is unused; wrong on EDSK where length=0 specifically
+means "the dumper saw the address mark but couldn't or wouldn't
+capture data bytes." Tetris's track 12 is a format-track
+protection where sectors 7..15 are address-mark-only with N
+values up to 7 (claimed 16 KiB per sector); the parser
+computed 16384 bytes for sector 7 and walked off the end of
+the 14592-byte track block, panicking with "sector ID 0x07
+runs past track block."
+
+The parser now keys off the disk's extended-vs-standard
+signature: on EDSK, `length == 0` is taken at face value (the
+sector enters the image with an empty `data` Vec and the
+recorded ST1/ST2 flags tell the host what state the chip
+would see). On non-extended DSK we still fall back to track
+default size.
+
+### Effect on the survey
+
+| Title | Before | After |
+|---|---|---|
+| Chase H.Q. | Title screen | **In-game options scoreboard** with AY music active |
+| Operation Wolf | "© 1982 Amstrad" BIOS empty | Loader stripes (same new hash as RoboCop / WTSS — still hung at a later check) |
+| RoboCop | "© 1982 Amstrad" | Loader stripes |
+| Where Time Stood Still | "© 1982 Amstrad" | Loader stripes |
+| Tetris | DSK parse panic | Parses cleanly; loader runs, no visible output yet |
+| Rainbow Islands / Cybernoid I & II / Saboteur II | already passing | unchanged |
+
+So one of the three Speedlock failures (Chase H.Q.) progressed
+all the way to "ready to play"; the other three moved past the
+BIOS empty-screen state into the loader's progress display but
+hang at a later Speedlock check. Their identical post-fix hash
+(`5b942a2bc9de21c2`) means they're all hitting the same next
+bug — narrowing the next investigation.
+
+### Outstanding +3 disk diagnostics
+
+- **The "loader stripes" Speedlock-6 cluster.** Operation Wolf,
+  RoboCop, Where Time Stood Still, and Bad Dudes vs Dragon
+  Ninja (Imagine = Ocean's budget label, same protection
+  family) all hit `xxh64:5b942a2bc9de21c2` after the DDAM fix.
+  The loader at PC=`$FEA4` issues a fixed sequence (SeekTrack →
+  SenseInt → ReadID → ReadDeletedData on sector 2) and retries
+  it indefinitely. Sector 2 of Op Wolf's track 0 is recorded as
+  DAM (ST2.CM=0) with deliberate CRC error (ST1.DE=$20,
+  ST2.DD=$20). Our chip delivers data + flags CM (because the
+  loader asked for DDAM and got DAM) + flags DE (because the
+  sector has recorded CRC error). The loader must want a
+  different shape of response — possibly raw data without the
+  CM flag, or a specific ST0 pattern, or the chip's INT line
+  asserted in a way we don't model. Same code path across all
+  four titles so fixing it is leveraged. Needs a side-by-side
+  trace against FUSE.
+- **Turrican's / Tetris's black-screen loaders.** Loaders run,
+  PC moves through loaded RAM, but nothing visible paints
+  within 6 000 frames. Both share `xxh64:99bf46ee0b35abc0` (an
+  all-black framebuffer that hashes to the same value as the
+  Spectrum's clear-screen state). May be waiting on an
+  interrupt-driven event or stuck in self-modifying code.
+  Probably independent of the Speedlock-6 issue.
+
+### Catalogue coverage after 2026-05-11
+
+Ten +3 disk entries now in `manifest/spectrum.toml`, picked to
+exercise distinct loader code paths:
+
+| Entry | Publisher / loader | Captured state |
+| --- | --- | --- |
+| chase-hq-plus3 | Ocean / Speedlock 7+ | In-game options scoreboard, AY music live |
+| rainbow-islands-plus3 | Ocean / Speedlock | Graftgold credits screen |
+| operation-wolf-plus3 (todo) | Ocean / Speedlock 6 | loader stripes — hangs at sector-2 check |
+| robocop-plus3 (todo) | Ocean / Speedlock 6 | same |
+| where-time-stood-still-plus3 (todo) | Ocean / Speedlock 6 | same |
+| dragon-ninja-plus3 (todo) | Imagine / Speedlock 6 | same |
+| cybernoid-plus3 | Hewson / custom (early) | Main menu |
+| cybernoid-2-plus3 | Hewson / custom (early) | Pre-game blurb |
+| stormlord-plus3 | Hewson / Alkatraz (late) | Title + control select |
+| saboteur-ii-plus3 | Durell / speed-up | Loader title bar |
+| sim-city-plus3 | Infogrames / plain +3DOS | Difficulty-select screen — the unprotected coverage anchor |
+| starglider-2-plus3 | Rainbird | Title screen (filled-vector ship) |
+| lotus-esprit-plus3 | Gremlin | In-car dashboard |
+| combat-school-plus3 | Ocean (pre-Speedlock, 1987) | Compilation menu |
+
+Seven distinct loader code paths covered. One genuine
+"unprotected +3DOS LOAD" anchor (Sim City) so a regression in
+the BIOS filesystem layer surfaces independently of any
+copy-protection machinery.
