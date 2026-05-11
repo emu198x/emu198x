@@ -140,9 +140,30 @@ pub struct Upd765a {
     /// struct but only the +3 has an actual drive connector.
     pub enabled: bool,
 
+    /// AND-mask applied to the unit-select bits of every command byte
+    /// before indexing `disks[]`.
+    ///
+    /// Standalone µPD765A wires US0 + US1 (4 drives, mask = `0b11`).
+    /// The Spectrum +3 only routes US0 to its drive selector, so US1
+    /// is electrically a don't-care and drive byte `0x02` (US1=1) is
+    /// indistinguishable from `0x00` (US1=0) on the actual hardware
+    /// — i.e. drive 2 aliases drive 0 and drive 3 aliases drive 1.
+    /// The +3 BIOS's second-stage loader (after the boot sector
+    /// runs) issues `ReadData` with US1=1 deliberately; without this
+    /// mask we'd see "drive 2 not present" and the Loader would
+    /// abort. FUSE's `specplus3_765_init` documents the same wiring
+    /// quirk explicitly. Set to `0x01` on +3 via
+    /// [`Upd765a::set_drive_select_mask`].
+    #[serde(default = "default_drive_select_mask")]
+    drive_select_mask: u8,
+
     /// Disk images (up to 4 drives).
     #[serde(skip)]
     disks: [Option<DiskImage>; 4],
+}
+
+const fn default_drive_select_mask() -> u8 {
+    0x03
 }
 
 // Main status register bits
@@ -184,8 +205,17 @@ impl Upd765a {
             seek_remaining: [0; 4],
             seek_staged_st0: [None, None, None, None],
             enabled: false,
+            drive_select_mask: default_drive_select_mask(),
             disks: [None, None, None, None],
         }
+    }
+
+    /// Mask the unit-select bits of every command byte against `mask`
+    /// before indexing the per-drive state. Use `0x01` on the +3 (only
+    /// US0 wired) or leave the default `0x03` (full µPD765A,
+    /// US0+US1 → 4 drives).
+    pub fn set_drive_select_mask(&mut self, mask: u8) {
+        self.drive_select_mask = mask & 0x03;
     }
 
     /// Insert a parsed disk image into a drive.
@@ -302,34 +332,83 @@ impl Upd765a {
     fn execute_command(&mut self) {
         match self.command {
             Command::ReadData => {
-                let drive = (self.cmd_buf[1] & 0x03) as usize;
+                // `drive` indexes our per-drive state (disks/track) and
+                // is masked by the host's wiring (+3 only routes US0,
+                // so US1 is a don't-care). `drive_echo` keeps the
+                // original US0:US1 bits the BIOS sent, so ST0's drive
+                // bits reflect what the host requested even when the
+                // physical drive is an alias.
+                let drive_echo = self.cmd_buf[1] & 0x03;
+                let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 let head = (self.cmd_buf[1] >> 2) & 0x01;
                 let track = self.cmd_buf[2];
-                let sector = self.cmd_buf[4]; // R (sector ID)
-                let n = self.cmd_buf[5]; // N (sector size: 0=128, 1=256, 2=512)
+                let sector = self.cmd_buf[4]; // R (start sector ID)
+                let n = self.cmd_buf[5]; // N (sector size code: 0=128, 1=256, 2=512)
+                let eot = self.cmd_buf[6]; // EOT (last sector to read on this track)
                 let sector_size = 128usize << (n as usize);
 
                 self.head = head;
                 self.sector = sector;
 
-                if let Some(data) = self.read_sector(drive, track, head, sector, sector_size) {
-                    self.exec_buf = data;
+                // Multi-sector read: real µPD765A reads sectors R..=EOT
+                // back-to-back in one Execution phase, only stopping
+                // (and entering Result) when R passes EOT or the host
+                // signals TC. The +3 BIOS's second-stage loader relies
+                // on this — it asks for sectors 2..9 in a single
+                // command and would miss seven sectors of program data
+                // if we stopped after the first.
+                let mut buf = Vec::with_capacity(sector_size * 8);
+                let mut last_ok = sector;
+                let mut missing_after_some = false;
+                let mut r = sector;
+                loop {
+                    match self.read_sector(drive, track, head, r, sector_size) {
+                        Some(mut data) => {
+                            buf.append(&mut data);
+                            last_ok = r;
+                        }
+                        None => {
+                            if !buf.is_empty() {
+                                missing_after_some = true;
+                            }
+                            break;
+                        }
+                    }
+                    if r >= eot {
+                        break;
+                    }
+                    r = r.wrapping_add(1);
+                }
+
+                if !buf.is_empty() {
+                    self.exec_buf = buf;
                     self.exec_pos = 0;
                     self.phase = Phase::Execution;
                     self.main_status = MSR_RQM | MSR_EXM | MSR_DIO | MSR_CB;
-                    self.st0 = (head << 2) | (drive as u8);
-                    self.st1 = 0;
+                    if missing_after_some {
+                        self.st0 = 0x40 | (head << 2) | drive_echo; // Abnormal
+                        self.st1 = 0x04; // No data — caller learns where the run stopped
+                    } else {
+                        self.st0 = (head << 2) | drive_echo;
+                        self.st1 = 0;
+                    }
                     self.st2 = 0;
+                    // Result phase echoes the next sector ID after the
+                    // one last successfully read — what real hardware
+                    // reports for multi-sector terminations.
+                    self.cmd_buf[4] = last_ok.wrapping_add(1);
                 } else {
-                    // Sector not found
-                    self.st0 = 0x40 | (head << 2) | (drive as u8); // Abnormal termination
-                    self.st1 = 0x04; // No data
+                    // No sector found at all — skip Execution, go
+                    // straight to Result with abnormal termination.
+                    self.st0 = 0x40 | (head << 2) | drive_echo;
+                    self.st1 = 0x04;
                     self.st2 = 0;
                     self.setup_result_read(track, head, sector, n);
                 }
             }
             Command::Recalibrate => {
-                let drive = (self.cmd_buf[1] & 0x03) as usize;
+                let drive_echo = self.cmd_buf[1] & 0x03;
+                let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 self.track[drive] = 0;
                 // ST0 IC bits: 00 = Normal Termination (real drive
                 // present, seek to track 0 succeeded). 11 + EC bit
@@ -341,9 +420,9 @@ impl Upd765a {
                 // returning Normal Termination for non-existent drives
                 // makes it think every drive is real.
                 let st0 = if self.disks[drive].is_some() {
-                    0x20 | (drive as u8) // Seek End | drive
+                    0x20 | drive_echo // Seek End | drive
                 } else {
-                    0xD0 | (drive as u8) // Abnormal | Not Ready | EC | drive
+                    0xD0 | drive_echo // Abnormal | Not Ready | EC | drive
                 };
                 self.st0 = st0;
                 // Stage the seek; the busy bit is read out of MSR via
@@ -381,10 +460,11 @@ impl Upd765a {
                 self.main_status = MSR_RQM;
             }
             Command::SeekTrack => {
-                let drive = (self.cmd_buf[1] & 0x03) as usize;
+                let drive_echo = self.cmd_buf[1] & 0x03;
+                let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 let new_track = self.cmd_buf[2];
                 self.track[drive] = new_track;
-                let st0 = 0x20 | (drive as u8); // Seek End | drive
+                let st0 = 0x20 | drive_echo; // Seek End | drive
                 self.st0 = st0;
                 self.seek_staged_st0[drive] = Some(st0);
                 self.seek_remaining[drive] = SEEK_TICKS;
@@ -392,7 +472,7 @@ impl Upd765a {
                 self.main_status = MSR_RQM;
             }
             Command::SenseDriveStatus => {
-                let drive = (self.cmd_buf[1] & 0x03) as usize;
+                let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 let head = (self.cmd_buf[1] >> 2) & 0x01;
                 let disk_present = self.disks[drive].is_some();
                 self.st3 = (self.cmd_buf[1] & 0x07)        // US0/US1/HD copied from command
@@ -406,9 +486,10 @@ impl Upd765a {
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
             }
             Command::ReadId => {
-                let drive = (self.cmd_buf[1] & 0x03) as usize;
+                let drive_echo = self.cmd_buf[1] & 0x03;
+                let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 let head = (self.cmd_buf[1] >> 2) & 0x01;
-                self.st0 = (head << 2) | (drive as u8);
+                self.st0 = (head << 2) | drive_echo;
                 self.st1 = 0;
                 self.st2 = 0;
                 // Return current position

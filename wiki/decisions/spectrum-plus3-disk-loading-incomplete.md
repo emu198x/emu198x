@@ -1,6 +1,6 @@
 # Spectrum +3 disk loading is wired but doesn't actually load
 
-**Status:** Known limitation. Date: 2026-05-08, partial diagnosis 2026-05-10.
+**Status:** ~~Known limitation.~~ **Loader now runs end-to-end on Chase H.Q. (+3) as of 2026-05-10 afternoon.** Three root causes identified and fixed in one session: a Z80 IO bus multi-fire, a +3 drive-select wiring quirk, and a missing multi-sector ReadData path. PC histogram for the diagnostic trace now spends 0 % of frames in the boot menu and 81 % in loaded RAM (game code at $B100, $8200), with the µPD765A streaming through multiple seeks and ReadIDs across tracks. Title-screen visual confirmation still pending — the screen-text scraper reports blanks because the Loader splash is bitmap graphics that don't match the character ROM.
 
 ## Observation
 
@@ -147,3 +147,251 @@ investigative step is a side-by-side trace against FUSE running
 the same DSK — likely needed to identify which status bit (or
 the FDC's INT line, which we don't currently route to the Z80
 on the +3) the BIOS is actually waiting on.
+
+## 2026-05-10 afternoon — root cause was a Z80 IO bus multi-fire
+
+The infinite SenseInt loop wasn't a missing FDC signal at all.
+A single OUT/IN instruction on Z80 holds IORQ + RD (or IORQ +
+WR) **active for three consecutive half-cycles** — T2Rise, T2Fall,
+T3Rise. The Spectrum bus dispatcher (`handle_bus` in each
+machine class) was polling those signals every CPU clock tick:
+
+```rust
+} else if self.z80.iorq && self.z80.rd && !self.z80.m1 {
+    self.z80.data_in = self.io_read(self.z80.addr);
+} else if self.z80.iorq && self.z80.wr {
+    self.io_write(self.z80.addr, self.z80.data);
+}
+```
+
+So `io_read` fired **three times per `IN` instruction**. Each
+call consumed and advanced one byte of the FDC's result FIFO,
+so the BIOS only ever saw the first byte of a multi-byte status
+reply and read 0xFF for the rest. SenseInt's two-byte result
+(ST0, PCN) became one byte to the BIOS; ReadData's seven-byte
+status block became one. `io_write` had the same triple-fire
+shape — every BIOS `OUT (cmd_port), n` was being interpreted
+as `OUT n, OUT n, OUT n` by the FDC, which is exactly why the
+earlier trace showed bogus parameters like `Specify(0x03 0x03 0x03)`
+and `SeekTrack(0xaf 0xaf 0xaf)`. They weren't junk on the bus
+— they were the BIOS's intended single-byte command bytes,
+multi-fired into command-and-parameter sequences.
+
+**Fix:** introduced `Z80::bus_request() -> Option<BusOp>`
+(crate `zilog-z80`). It tracks edge-detection shadows of
+`(mreq && rd)`, `(mreq && wr)`, and `iorq`, and returns
+`Some(BusOp::…)` on the rising edge of each, `None` thereafter.
+All three Spectrum core classes (`48k-class`, `128k-class`,
+`amstrad-class`) now dispatch through this single method. The
+raw level pins remain on the Z80 for the FUSE corpus tests and
+unusual peripherals.
+
+**Effect on Chase H.Q. (+3) trace:**
+
+- The BIOS no longer loops on SenseInt. It drains pending
+  interrupts cleanly, issues a `Recalibrate(drive=0)`, then
+  `ReadID(drive=0)`, then `ReadData(0x66, drive=0, cyl=0,
+  head=0, sector=1, N=2, EOT=1)`.
+- Our FDC streams the boot sector's 512 bytes back; the bytes
+  are real Z80 code (CD BA FE = CALL $FEBA, 21 CA FE = LD HL,
+  $FECA, 3E 04 D3 FE = LD A,4 / OUT (FE),A — the Loader's
+  border-flash routine).
+- BIOS reads the result phase: `ST0=0x00, ST1=0x00, ST2=0x00,
+  C=0, H=0, R=1, N=2` — a clean Normal Termination.
+- BIOS now hands control to the loaded boot sector, which
+  begins issuing its own FDC commands (PC moves into RAM at
+  $FEB8 and similar — that's loaded code, not ROM).
+
+The boot sector executes. The +3 BIOS is no longer stuck.
+
+## 2026-05-10 afternoon — remaining issue: loaded code uses drive 2
+
+The post-fix trace shows a new failure mode. After the BIOS
+hands off, the loaded boot-sector code at PC ≈ $FEB8 issues:
+
+```
+OUT $3FFD, $46     ; ReadData (MFM, no SK)
+OUT $3FFD, $02     ; HD/Drive byte — bits 0-1 select drive 2 (US1=1, US0=0)
+OUT $3FFD, $00     ; cylinder
+OUT $3FFD, $00     ; head
+OUT $3FFD, $02     ; sector 2
+OUT $3FFD, $02     ; N=512
+OUT $3FFD, $09     ; EOT 9 — multi-sector read
+OUT $3FFD, $2a     ; gap
+OUT $3FFD, $ff     ; DTL
+```
+
+The drive byte's `US1:US0` selects drive 2. The BIOS's own
+loader code (PC ≈ $2126) had used drive 0 correctly for the
+first `ReadData`. So the loaded code is making a different
+choice — and our `insert_disk(0, image)` puts the disk in slot
+0, so the FDC returns "no disk" (ST0 = 0x42, abnormal
+termination).
+
+The screen sits on the boot menu indefinitely after this
+because the boot loader gets the not-ready error, retries a
+couple of times, and eventually returns control to the BIOS's
+menu loop.
+
+Hypotheses, none yet confirmed:
+
+1. **+3DOS drive numbering quirk** — Amstrad's BIOS may map
+   the `A:` drive to FDC US=2 in the boot loader's runtime
+   convention even though the BIOS's own ROM code uses US=0.
+   Would need a +3 BIOS / +3DOS disassembly or a side-by-side
+   FUSE trace to confirm.
+2. **Port `$1FFD` drive-select bits we ignore** — the +3 gate
+   array (port `$1FFD`) has bits beyond paging (notably bit 3
+   = motor on, possibly drive-select bits we don't honour).
+   The boot loader may be writing $1FFD with a drive-select
+   pattern, then expecting subsequent FDC commands to address
+   that drive. Our `MemoryPlus::write_1ffd` handles paging
+   only; if we're dropping a drive-select bit, the FDC's
+   internal "currently selected drive" wouldn't match the
+   command's US bits.
+3. **Memory paging bug exposing wrong sector content** —
+   PC $FEB8 is in upper RAM (banked $C000–$FFFF range). If
+   our paging puts a different bank than the BIOS expected,
+   the bytes the loader is executing wouldn't match the bytes
+   the loader **wrote** there from the boot sector. A subtle
+   off-by-one in `write_1ffd` paging could turn a "drive 0"
+   immediate operand into "drive 2" if the surrounding
+   instructions were also misaligned.
+4. **Disk-image-specific custom loader** — Chase H.Q. (+3)'s
+   loader could be using drive 2 deliberately to access a
+   "B: drive image" embedded in the same DSK. This would be
+   unusual but not impossible.
+
+Hypothesis (2) is the most testable: enumerate every `$1FFD`
+write the BIOS makes, compare to the +3 hardware doc's bit
+assignments, and see whether we're dropping a drive-select
+bit. If that's not it, (1) is next — likely needs a FUSE-side
+trace of the same DSK to compare.
+
+## 2026-05-10 afternoon (later) — drive-2 mystery solved by FUSE source
+
+Hypothesis (1) was correct. FUSE's `specplus3_765_init` in
+`machines/specplus3.c` documents the wiring quirk explicitly:
+
+```c
+/*!!!! the plus3 only use the US0 pin to select drives,
+ so drive 2 := drive 0 and drive 3 := drive 1 !!!!*/
+specplus3_fdc->drive[0] = &specplus3_drives[ 0 ];
+specplus3_fdc->drive[1] = &specplus3_drives[ 1 ];
+specplus3_fdc->drive[2] = &specplus3_drives[ 0 ];
+specplus3_fdc->drive[3] = &specplus3_drives[ 1 ];
+```
+
+The Spectrum +3 board only routes the µPD765A's US0 pin to its
+disk selector. US1 is electrically a don't-care, so a drive
+byte of `0x02` (US1=1, US0=0) addresses physical drive 0 —
+exactly the same as `0x00`. The +3 BIOS's second-stage loader
+takes advantage of this: after the boot sector runs, it
+issues `ReadData` with US1=1 deliberately (we don't yet know
+why — possibly to distinguish second-stage commands from the
+first-stage ROM's, or to share the drive-select latch with
+some other gate-array bit). On real hardware it Just Works
+because of the wiring.
+
+**Fix:** added `Upd765a::set_drive_select_mask(mask: u8)` and
+a `drive_select_mask: u8` field. The FDC ANDs the unit-select
+bits of every command byte against the mask before indexing
+its per-drive state (`disks`, `track`, `seek_pending`, etc.).
+On the +3 we set mask = `0x01`; everywhere else the default
+`0x03` keeps the full 4-drive standard µPD765A behaviour. The
+ST0 / ST3 status bytes still echo the *unmasked* US bits the
+BIOS sent, matching real-chip semantics where the chip does
+not know how the host's wiring routes them.
+
+## 2026-05-10 afternoon (later still) — multi-sector ReadData
+
+After the drive alias landed, the second-stage loader at
+PC=$FEB8 issued `ReadData(R=2, EOT=9)` and got back exactly
+one sector of data (512 bytes). The BIOS expected sectors
+2..9 (4 KiB) in a single Execution phase, then a Result
+phase. Our `read_sector` only ever returned one sector.
+
+**Fix:** in `Command::ReadData`, loop `r = sector..=eot`,
+calling `read_sector` for each and concatenating the bytes
+into `exec_buf`. Real µPD765A behaviour:
+
+- All sectors found → enter Execution with the full buffer,
+  ST0/ST1 = success, Result phase echoes
+  `R = last_ok.wrapping_add(1)`.
+- A sector goes missing mid-run → still enter Execution
+  with whatever was buffered so far, but flag ST0 with the
+  abnormal-termination IC and ST1 with No-Data. The host
+  reads the partial data, then sees the failure flags in
+  Result and retries from the missing sector.
+- No sector found at all → skip Execution, go straight to
+  Result with abnormal termination.
+
+## 2026-05-10 afternoon — current trace state
+
+After all three fixes (`bus_request` edge dispatch, +3
+drive-select mask, multi-sector ReadData) the diagnostic
+trace for Chase H.Q. (+3) now shows:
+
+- 0 frames in the boot menu loop ($1800 page) — the BIOS
+  has handed off completely.
+- 81 % of frames in RAM pages $B100 / $8200 — loaded game
+  code.
+- µPD765A streaming through SeekTrack → ReadID → ReadData
+  cycles across multiple cylinders, hundreds of OUTs and
+  thousands of data-byte reads.
+- Multi-sector ReadDatas at PC=$822F and PC=$FEB8 (loaded
+  code) — each fetching 4 KiB of program data per command.
+- Two SenseInt drains per Recalibrate, no spurious infinite
+  polling loops.
+
+**Visual confirmation:** the diagnostic test now dumps the
+framebuffer to `/tmp/plus3_disk_trace.png`. After ENTER on the
+Loader and ≥1000 frames the PNG shows a black main screen with
+multi-colour stripey borders — the classic Spectrum loader
+"progress stripes" pattern, written by the loader's `INC A /
+OUT (FE),A / JR -5` border-cycle loop.
+
+**The loader is hung in its error path, not the active load
+path.** Wider memory dumps reveal the actual code the loader
+is stuck on. At `$B197`:
+
+```
+$B197  LD A, ($B269)     ; expected magic byte
+$B19A  CP (IX+1)         ; compare against just-loaded data
+$B19D  RET Z             ; match → continue loading
+$B19E  LD BC, $1FFD      ; mismatch → motor off
+$B1A1  LD A, $00
+$B1A3  OUT ($1FFD), A
+$B1A5  INC A
+$B1A6  OUT (FE), A       ; stripey border (error hang)
+$B1A8  JR  $B1A5         ; loop forever
+```
+
+So the loader has detected that the data we delivered doesn't
+match an expected check byte and dropped into a deliberate
+hang. CPU state at the hang confirms it: `iff1 = false` (IRQs
+masked), so no service routine can unstick it.
+
+The likely culprit is **`ReadID` returning hardcoded `C=track,
+H=0, R=1, N=2`** instead of the actual sector header recorded
+on the disk. Trace shows the loader does `SeekTrack(track=7) +
+ReadID` (PC=$B23E) just before falling into the error path —
+on a Speedlock-protected DSK that track will have non-standard
+CHRN values, which the loader uses as part of its key/CRC
+verification. Our `format-amstrad-dsk` parser keeps per-sector
+header data, but the FDC's `ReadId` arm currently doesn't
+consult it. Plumbing the disk image's actual recorded CHRN
+back through `Command::ReadId` is the next obvious step. After
+that, look at multi-sector reads using the FDC's *internal*
+current-cylinder (set by Seek) for header verification rather
+than `cmd_buf[2]`, in case the loader is sending mismatched
+cyl headers across cylinders.
+
+This means criterion 3 (Formats) for the +3 should move from
+PARTIAL → DONE for `.dsk` / `.edsk` once a catalogue entry
+that actually exercises the +3 disk path lands. Plan: pick
+2–3 +3 DSKs (Chase H.Q., Daley Thompson's Olympic Challenge,
+Robocop are all in TOSEC), author catalogue entries for each
+with frame/audio hash assertions tuned to a deterministic
+reproduction window, and run them under the same harness as
+the 51 existing tape-based entries.

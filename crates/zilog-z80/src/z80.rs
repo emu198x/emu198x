@@ -106,6 +106,45 @@ pub struct Z80 {
     pub(crate) ei_pending: bool,
     /// Previous NMI state for edge detection.
     nmi_prev: bool,
+
+    /// Edge-detection state for `bus_request()`. The bus signals
+    /// (`mreq`, `iorq`, `rd`, `wr`) are level-driven and held high for
+    /// multiple half-cycles per M-cycle, so a `tick()` loop that polls
+    /// `(mreq && rd)` directly would re-fire each transaction once per
+    /// half-cycle. These shadow flags record the previous observation
+    /// of (mreq && rd), (mreq && wr), and iorq so `bus_request()` can
+    /// return `Some(BusOp)` exactly once per M-cycle (on the rising
+    /// edge) and `None` thereafter until the strobe falls.
+    #[serde(default)]
+    prev_mr: bool,
+    #[serde(default)]
+    prev_mw: bool,
+    #[serde(default)]
+    prev_iorq: bool,
+}
+
+/// One bus transaction the Z80 is asking the host to perform. Returned
+/// from [`Z80::bus_request`] exactly once per M-cycle's rising edge of
+/// the corresponding strobe(s) — the host inspects this to decide what
+/// to drive on the bus, and is guaranteed not to see the same M-cycle
+/// twice. The host is still responsible for setting `data_in` (read
+/// cycles) before the Z80 latches it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BusOp {
+    /// Memory read (M1 opcode fetch *or* operand read). Host drives
+    /// `data_in` from `addr`.
+    MemRead,
+    /// Memory write. Host writes `data` to `addr`.
+    MemWrite,
+    /// I/O read (`IN` instruction). Host drives `data_in` from the
+    /// peripheral selected by `addr`.
+    IoRead,
+    /// I/O write (`OUT` instruction). Host writes `data` to the
+    /// peripheral selected by `addr`.
+    IoWrite,
+    /// Interrupt acknowledge. Host drives the IM2 vector (or 0xFF for
+    /// IM1 / floating bus). M1 is held active alongside IORQ.
+    IntAck,
 }
 
 /// Internal half-cycle phase of the Z80 state machine.
@@ -234,6 +273,9 @@ impl Default for Z80 {
             walker: Walker::default(),
             ei_pending: false,
             nmi_prev: false,
+            prev_mr: false,
+            prev_mw: false,
+            prev_iorq: false,
         }
     }
 }
@@ -284,9 +326,71 @@ impl Z80 {
         };
     }
 
+    /// Edge-detected bus transaction request, if one fired this tick.
+    ///
+    /// Real Z80 bus strobes are level-driven and held active across
+    /// multiple half-cycles per M-cycle (e.g. IORQ+RD is high for three
+    /// consecutive phases of an `IN` instruction). A naïve dispatcher
+    /// that re-reads from the peripheral every tick where
+    /// `iorq && rd` would advance any FDC / AY / state-bearing port
+    /// machine multiple times per instruction — which actually broke
+    /// the +3 BIOS disk Loader, where the µPD765A's result FIFO was
+    /// drained three times per `IN` and the BIOS only saw the first
+    /// byte of each multi-byte status word.
+    ///
+    /// `bus_request` collapses the held strobes into one transaction
+    /// per M-cycle by detecting the rising edge of (mreq && rd),
+    /// (mreq && wr), and iorq, and returning `Some(BusOp)` only at
+    /// that instant. Every subsequent tick within the same M-cycle
+    /// returns `None`. The method is `&mut self` because it advances
+    /// the shadow flags; call it once per `tick()`.
+    ///
+    /// Hosts that already drive the bus from their own latch (e.g.
+    /// the FUSE-corpus integration test, which records every signal
+    /// transition) can keep using the raw `mreq` / `iorq` / `rd` /
+    /// `wr` pins; they remain part of the public surface and are
+    /// unchanged. `bus_request` is purely an ergonomic dispatcher
+    /// helper for "ordinary" machines.
+    #[must_use]
+    pub fn bus_request(&mut self) -> Option<BusOp> {
+        let mr = self.mreq && self.rd;
+        let mw = self.mreq && self.wr;
+        let iorq = self.iorq;
+
+        let mr_rising = mr && !self.prev_mr;
+        let mw_rising = mw && !self.prev_mw;
+        let iorq_rising = iorq && !self.prev_iorq;
+
+        self.prev_mr = mr;
+        self.prev_mw = mw;
+        self.prev_iorq = iorq;
+
+        // IntAck (iorq && m1) takes priority over plain io read,
+        // because m1 is asserted during the entire fetch+intack cycle
+        // and `iorq && m1` is the documented interrupt acknowledge
+        // contract on real hardware.
+        if iorq_rising && self.m1 {
+            Some(BusOp::IntAck)
+        } else if iorq_rising && self.rd {
+            Some(BusOp::IoRead)
+        } else if iorq_rising && self.wr {
+            Some(BusOp::IoWrite)
+        } else if mr_rising {
+            Some(BusOp::MemRead)
+        } else if mw_rising {
+            Some(BusOp::MemWrite)
+        } else {
+            None
+        }
+    }
+
     /// Advance one half-cycle of the master clock.
     ///
-    /// After calling, inspect output signals and perform bus transactions:
+    /// After calling, inspect output signals and perform bus transactions.
+    /// Prefer [`Self::bus_request`] for ordinary host dispatchers — it
+    /// collapses the held bus strobes into exactly one transaction per
+    /// M-cycle. The raw level-driven pins below are still exposed for
+    /// signal-trace tests and unusual peripherals:
     /// - `mreq && rd`: memory read — set `data_in = memory[addr]`
     /// - `mreq && wr`: memory write — `memory[addr] = data`
     /// - `iorq && rd && !m1`: I/O read — set `data_in = io_read(addr)`

@@ -26,7 +26,7 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
 use sinclair_ula_7k010e::SinclairUla;
-use zilog_z80::Z80;
+use zilog_z80::{BusOp, Z80};
 
 use crate::memory::Memory128K;
 use crate::variant::Class128kVariant;
@@ -166,16 +166,26 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     }
 
     fn handle_bus(&mut self) {
-        if self.z80.mreq && self.z80.rd {
-            self.z80.data_in = self.memory.read(self.z80.addr);
-        } else if self.z80.mreq && self.z80.wr {
-            self.memory.write(self.z80.addr, self.z80.data);
-        } else if self.z80.iorq && self.z80.rd && !self.z80.m1 {
-            self.z80.data_in = self.io_read(self.z80.addr);
-        } else if self.z80.iorq && self.z80.wr {
-            self.io_write(self.z80.addr, self.z80.data);
-        } else if self.z80.iorq && self.z80.m1 {
-            self.z80.data_in = 0xFF;
+        // See `amstrad-class::handle_bus` for the rationale — Z80 bus
+        // strobes are level-driven, so we use `bus_request` to collapse
+        // them into one transaction per M-cycle.
+        match self.z80.bus_request() {
+            Some(BusOp::MemRead) => {
+                self.z80.data_in = self.memory.read(self.z80.addr);
+            }
+            Some(BusOp::MemWrite) => {
+                self.memory.write(self.z80.addr, self.z80.data);
+            }
+            Some(BusOp::IoRead) => {
+                self.z80.data_in = self.io_read(self.z80.addr);
+            }
+            Some(BusOp::IoWrite) => {
+                self.io_write(self.z80.addr, self.z80.data);
+            }
+            Some(BusOp::IntAck) => {
+                self.z80.data_in = 0xFF;
+            }
+            None => {}
         }
     }
 

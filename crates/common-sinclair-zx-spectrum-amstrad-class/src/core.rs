@@ -30,7 +30,7 @@ use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_PL
 use common_sinclair_zx_spectrum::ula::Ula;
 use gi_ay_3_8912::Ay3_8912;
 use nec_upd765a::Upd765a;
-use zilog_z80::Z80;
+use zilog_z80::{BusOp, Z80};
 
 use crate::memory::MemoryPlus;
 use crate::variant::{AmstradVariant, Plus3Marker};
@@ -76,8 +76,16 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         // Only the +3 ships the floppy drive. +2A / +2B reuse the same
         // FDC instance with `enabled = false` so its `claims_port`
         // always reports false and the bus dispatch never lands on it.
+        // The +3 only routes the FDC's US0 pin to the drive selector;
+        // US1 is electrically a don't-care, so a `0x01` drive mask
+        // makes drive bits `00`/`10` both address physical drive 0
+        // and `01`/`11` both address drive 1 — matching real hardware
+        // and what the +3 BIOS's second-stage loader expects.
         let mut fdc = Upd765a::new();
         fdc.enabled = V::HAS_FDC;
+        if V::HAS_FDC {
+            fdc.set_drive_select_mask(0x01);
+        }
         Self {
             z80: Z80::new(),
             ula: AmstradGateArray::new(),
@@ -171,16 +179,29 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     }
 
     fn handle_bus(&mut self) {
-        if self.z80.mreq && self.z80.rd {
-            self.z80.data_in = self.memory.read(self.z80.addr);
-        } else if self.z80.mreq && self.z80.wr {
-            self.memory.write(self.z80.addr, self.z80.data);
-        } else if self.z80.iorq && self.z80.rd && !self.z80.m1 {
-            self.z80.data_in = self.io_read(self.z80.addr);
-        } else if self.z80.iorq && self.z80.wr {
-            self.io_write(self.z80.addr, self.z80.data);
-        } else if self.z80.iorq && self.z80.m1 {
-            self.z80.data_in = 0xFF;
+        // `bus_request` collapses the Z80's level-driven strobes into
+        // one event per M-cycle. The previous polling form fired
+        // `io_read` three times per `IN` instruction (T2Rise, T2Fall,
+        // T3Rise — every half-cycle that iorq+rd were both high),
+        // which silently advanced the µPD765A's result FIFO past
+        // multi-byte status replies and stuck the +3 disk Loader.
+        match self.z80.bus_request() {
+            Some(BusOp::MemRead) => {
+                self.z80.data_in = self.memory.read(self.z80.addr);
+            }
+            Some(BusOp::MemWrite) => {
+                self.memory.write(self.z80.addr, self.z80.data);
+            }
+            Some(BusOp::IoRead) => {
+                self.z80.data_in = self.io_read(self.z80.addr);
+            }
+            Some(BusOp::IoWrite) => {
+                self.io_write(self.z80.addr, self.z80.data);
+            }
+            Some(BusOp::IntAck) => {
+                self.z80.data_in = 0xFF;
+            }
+            None => {}
         }
     }
 
@@ -188,7 +209,14 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         // The FDC claims its own ports first — `claims_port` honours
         // the `enabled` flag, so +2A / +2B fall through here.
         if self.fdc.claims_port(port) {
-            return self.fdc.read(port);
+            let val = self.fdc.read(port);
+            if std::env::var("EMU198X_FDC_TRACE").is_ok() {
+                eprintln!(
+                    "[FDC] IN (${port:04x}) = ${val:02x}  pc=${:04x}",
+                    self.z80.regs.pc,
+                );
+            }
+            return val;
         }
 
         if port & 0x0001 == 0 {
@@ -211,6 +239,14 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
 
     pub(crate) fn io_write(&mut self, port: u16, data: u8) {
         if self.fdc.claims_port(port) {
+            if std::env::var("EMU198X_FDC_TRACE").is_ok() {
+                eprintln!(
+                    "[FDC] OUT (${port:04x}), ${data:02x}  pc=${:04x} bc=${:04x} de=${:04x}",
+                    self.z80.regs.pc,
+                    u16::from_le_bytes([self.z80.regs.c(), self.z80.regs.b()]),
+                    u16::from_le_bytes([self.z80.regs.e(), self.z80.regs.d()]),
+                );
+            }
             self.fdc.write(port, data);
             // Fall through: paging and AY decoding live on orthogonal
             // address bits and may still match the FDC port mask.

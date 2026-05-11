@@ -15,4 +15,4 @@ pub mod registers;
 pub mod walker;
 pub mod z80;
 
-pub use z80::Z80;
+pub use z80::{BusOp, Z80};
