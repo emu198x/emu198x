@@ -1,6 +1,14 @@
-# Spectrum +3 disk loading is wired but doesn't actually load
+# Spectrum +3 disk loading
 
-**Status:** ~~Known limitation.~~ **Loader now runs end-to-end on Chase H.Q. (+3) as of 2026-05-10 afternoon.** Three root causes identified and fixed in one session: a Z80 IO bus multi-fire, a +3 drive-select wiring quirk, and a missing multi-sector ReadData path. PC histogram for the diagnostic trace now spends 0 % of frames in the boot menu and 81 % in loaded RAM (game code at $B100, $8200), with the µPD765A streaming through multiple seeks and ReadIDs across tracks. Title-screen visual confirmation still pending — the screen-text scraper reports blanks because the Loader splash is bitmap graphics that don't match the character ROM.
+**Status:** ~~Known limitation.~~ ~~Loader runs end-to-end architecturally.~~ **Chase H.Q. (+3) loads to its full title screen as of 2026-05-10 (late afternoon).** Five root causes fixed in one session:
+
+1. Z80 IO bus multi-fire (host bus dispatcher polled level-driven IORQ/RD/WR every half-cycle, multi-firing every `IN` and `OUT`).
+2. +3 drive-select wiring (only US0 is routed, so drive 2 aliases drive 0).
+3. Multi-sector ReadData (chip reads R..=EOT in one Execution phase; we only delivered one sector).
+4. Real per-sector CHRN in `ReadId` (Speedlock disks deliberately record non-matching C/H/N that the loader checks against).
+5. Physical-track lookup in `ReadData` (the C parameter is the *expected* cylinder header to verify, not the index to look up sectors — Speedlock seeks to track 7 then asks for `C=2`).
+
+PC histogram now spends 0 % of frames in the boot menu and 89 % in the loaded game's idle loop at $81xx. Framebuffer PNG shows the full title screen: "CHASE H.Q." logo, the two cops, city skyline, OCEAN logo, copyright lines for Ocean Software and Taito Corporation.
 
 ## Observation
 
