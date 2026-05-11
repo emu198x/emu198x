@@ -1057,23 +1057,30 @@ slot = "disk-a"
 path = "sinclair/spectrum/Games/[DSK]/Chase H.Q. (1989)(Ocean)(+3).zip"
 
 [entry.boot]
-# Captures the rendered title screen — "CHASE H.Q." logo, the two
-# cops, city skyline, OCEAN logo, copyright lines for Ocean Software
-# and Taito Corporation. The loader reaches this screen after the
-# BIOS hands off, the boot sector decrypts itself, and the
-# Speedlock-protected sectors stream the title bitmap into screen
-# RAM.
+# Captures the in-game options screen: stage scoreboard at the top
+# ("SCORE / TIME / SPEED / GEAR / DISTANCE / STAGE 1 LO"), then the
+# CHASE H.Q. logo, "PRESS ENTER FOR OPTIONS", and the dual Ocean
+# Software / Taito Corporation copyright lines. This is the post-
+# load attract state — the loader streams the title bitmap and
+# hands off to the game's own main loop with interrupts enabled.
+# Earlier capture (xxh64:13e8354d88a39eb0) was the bare title
+# screen the loader paints *before* the full DDAM key sequence
+# completes; with the µPD765A's ReadDeletedData + ST1/ST2
+# propagation in place, Chase H.Q. now reaches the actual
+# ready-to-play state.
 wait_frames = 6000
-frame_hash = "xxh64:13e8354d88a39eb0"
+frame_hash = "xxh64:5cf0885094444d92"
 
 [entry.audio]
-# Loader is silent (no music) until the player interacts — the
-# audio-window hash here is the canonical "+3 disk loader idle"
-# silence pattern (matches every other silent +3 loader entry's
-# audio capture).
+# Game's main loop now drives the AY chip — title music plays
+# during the attract state, so the audio window captures
+# something other than silence (the canonical idle pattern from
+# the loader-only entries below). Distinct hash from every other
+# +3 disk entry because Chase H.Q. is the only one to fully
+# reach its post-load audio state.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:67ca80a86daeb33f"
 
 [[entry]]
 id = "rainbow-islands-plus3"

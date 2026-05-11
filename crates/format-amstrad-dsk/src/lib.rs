@@ -98,7 +98,7 @@ pub fn parse(data: &[u8]) -> Result<DiskImage, String> {
         }
 
         let track_block = &data[cursor..cursor + length];
-        let parsed = parse_track(track_block)
+        let parsed = parse_track(track_block, extended)
             .map_err(|e| format!("Track {} (offset {}): {}", entry, cursor, e))?;
         tracks_per_side_vec[side].push(parsed);
         cursor += length;
@@ -111,7 +111,7 @@ pub fn parse(data: &[u8]) -> Result<DiskImage, String> {
     })
 }
 
-fn parse_track(block: &[u8]) -> Result<DiskTrack, String> {
+fn parse_track(block: &[u8], extended: bool) -> Result<DiskTrack, String> {
     if block.len() < TRACK_HEADER_LEN {
         return Err("track block shorter than 256-byte header".into());
     }
@@ -135,12 +135,30 @@ fn parse_track(block: &[u8]) -> Result<DiskTrack, String> {
         return Err("sector info list runs past track block".into());
     }
 
-    // Parse the SIL into (c, h, r, n, length) tuples. The full
-    // address-mark CHRN is needed for `ReadId` and for header
+    // Parse the SIL into (C, H, R, N, ST1, ST2, length, source) tuples.
+    // The full address-mark CHRN is needed for `ReadId` and header
     // verification — copy-protected disks deliberately record
-    // mismatched values. EDSK records the actual (possibly per-sector)
-    // data length in bytes 6..8 of each entry; on standard DSK those
-    // bytes are unused so we fall back to the track default.
+    // mismatched values. The recorded ST1 / ST2 carry the FDC status
+    // the chip would have returned reading this sector at dump time:
+    // ST1.DE (data CRC error), ST2.CM (deleted-mark = DDAM), and the
+    // related error bits are how Speedlock / Alkatraz / Spectra hide
+    // their key sectors from a naïve sector-by-sector copier.
+    //
+    // EDSK records the actual (possibly per-sector) data length in
+    // bytes 6..8 of each entry. **Crucially, an EDSK length of 0
+    // means "this sector has no data bytes in the image"** — the
+    // dumper couldn't reliably read it, so it noted the address-mark
+    // CHRN + the FDC status bits but stored no data. We must NOT
+    // fall back to N for those: Tetris's track 12 is a format-only
+    // protection track with sectors whose N rises to 0x07 (claimed
+    // 16384 bytes) but whose stored data is zero. Falling back to
+    // 128<<N would advance the data cursor 16384 bytes past the
+    // end of the track block and trip the bounds check.
+    //
+    // Standard DSK (non-extended) is rare for protected titles and
+    // does use the N fallback because there's no per-sector length
+    // field. We honour that: when the EDSK signature ISN'T present
+    // we treat zero `edsk_len` as "use track default".
     let mut sectors_info = Vec::with_capacity(sector_count);
     for i in 0..sector_count {
         let off = 0x18 + i * SECTOR_INFO_LEN;
@@ -148,21 +166,29 @@ fn parse_track(block: &[u8]) -> Result<DiskTrack, String> {
         let h = block[off + 1];
         let id = block[off + 2];
         let n = block[off + 3];
+        let st1 = block[off + 4];
+        let st2 = block[off + 5];
         let edsk_len = u16::from_le_bytes([block[off + 6], block[off + 7]]) as usize;
-        let len = if edsk_len != 0 {
+        let len = if extended {
+            // EDSK: zero is meaningful — sector has no data bytes
+            // stored. The chip would still find the address mark
+            // (the SIL entry exists), so the loader can probe CHRN,
+            // but a read-data attempt either fails or returns
+            // garbage. We model that with an empty data Vec.
+            edsk_len
+        } else if edsk_len != 0 {
             edsk_len
         } else {
-            128usize << n.min(6) as usize
+            track_default_size
         };
-        let _ = track_default_size;
-        sectors_info.push((c, h, id, n, len));
+        sectors_info.push((c, h, id, n, st1, st2, len));
     }
 
     // Sector data follows the track header (256 bytes), packed in the
     // order listed in the SIL.
     let mut data_cursor = TRACK_HEADER_LEN;
     let mut sectors = Vec::with_capacity(sector_count);
-    for (c, h, id, n, len) in sectors_info {
+    for (c, h, id, n, st1, st2, len) in sectors_info {
         if data_cursor + len > block.len() {
             return Err(format!(
                 "sector ID {:#04x} runs past track block (need {} bytes at offset {})",
@@ -174,6 +200,8 @@ fn parse_track(block: &[u8]) -> Result<DiskTrack, String> {
             h,
             id,
             n,
+            st1,
+            st2,
             data: block[data_cursor..data_cursor + len].to_vec(),
         });
         data_cursor += len;
@@ -303,5 +331,72 @@ mod tests {
         assert_eq!(track.sectors[2].id, 0xC2);
         // Lookup by ID hits the right sector.
         assert_eq!(image.sector(0, 0, 0xC1).unwrap().data[0], 0xC1);
+    }
+
+    /// EDSK protection tracks (Tetris's track 12, for instance) list
+    /// sectors whose SIL `data length` is zero — the dumper saw the
+    /// sector's address mark but couldn't or wouldn't capture any
+    /// data bytes. The parser must treat that as "0 bytes of data
+    /// stored", not "fall back to 128 << N" (which can be 8 KiB+ on
+    /// these protection layouts and runs past the track block end).
+    #[test]
+    fn edsk_zero_length_sector_is_zero_bytes_not_n_fallback() {
+        const TRACK_HEADER_LEN: usize = 256;
+        const HEADER_LEN: usize = 256;
+        const SECTOR_INFO_LEN: usize = 8;
+
+        // Two sectors: one normal 512-byte sector, one "address-mark
+        // only" sector with N=7 (claimed 16 KiB) but stored length 0.
+        // If the parser fell back to 128 << 7 (=16384) it would
+        // try to copy 16 KiB starting after the first sector's 512
+        // bytes and run off the end of the track block.
+        let track_total = TRACK_HEADER_LEN + 512; // one real sector
+        let mut buf = vec![0u8; HEADER_LEN + track_total];
+        buf[..SIG_EXTENDED.len()].copy_from_slice(SIG_EXTENDED);
+        buf[0x30] = 1;
+        buf[0x31] = 1;
+        buf[0x34] = (track_total / 256) as u8;
+
+        let t = HEADER_LEN;
+        buf[t..t + b"Track-Info\r\n".len()].copy_from_slice(b"Track-Info\r\n");
+        buf[t + 0x14] = 2;
+        buf[t + 0x15] = 2; // two sectors
+
+        // Sector 1: normal, R=1, N=2 (512 bytes), stored len = 512.
+        let off1 = t + 0x18;
+        buf[off1 + 2] = 1;
+        buf[off1 + 3] = 2;
+        let len1 = 512u16.to_le_bytes();
+        buf[off1 + 6] = len1[0];
+        buf[off1 + 7] = len1[1];
+
+        // Sector 2: protection. R=2, N=7 (claims 16 KiB), stored len = 0.
+        // ST1.DE + ST2.DD set to mark the bad CRC the dumper saw.
+        let off2 = t + 0x18 + SECTOR_INFO_LEN;
+        buf[off2 + 2] = 2;
+        buf[off2 + 3] = 7;
+        buf[off2 + 4] = 0x20; // ST1.DE
+        buf[off2 + 5] = 0x20; // ST2.DD
+        // bytes 6..8 stay zero — that's the load-bearing bit
+
+        // Fill the one real sector's data.
+        for (i, b) in buf
+            .iter_mut()
+            .enumerate()
+            .skip(t + TRACK_HEADER_LEN)
+            .take(512)
+        {
+            *b = (i & 0xff) as u8;
+        }
+
+        let image = parse(&buf).expect("zero-length sector should parse cleanly");
+        let track = &image.tracks[0][0];
+        assert_eq!(track.sectors.len(), 2);
+        assert_eq!(track.sectors[0].id, 1);
+        assert_eq!(track.sectors[0].data.len(), 512);
+        assert_eq!(track.sectors[1].id, 2);
+        assert_eq!(track.sectors[1].data.len(), 0, "zero-length sector keeps an empty data Vec");
+        assert_eq!(track.sectors[1].st1 & 0x20, 0x20, "ST1.DE carried through");
+        assert_eq!(track.sectors[1].st2 & 0x20, 0x20, "ST2.DD carried through");
     }
 }

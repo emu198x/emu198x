@@ -29,13 +29,19 @@ fn home() -> PathBuf {
 }
 
 #[test]
-#[ignore = "diagnostic — needs +3 ROMs and the Chase H.Q. (+3) DSK"]
+#[ignore = "diagnostic — needs +3 ROMs and a +3 DSK (default: Chase H.Q.)"]
 fn trace_plus3_loader_pc_histogram() {
     let firmware_root = home().join(".emu198x/roms/amstrad-zx-spectrum-plus3");
-    let dsk_path = home().join(
-        "Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[DSK]/\
-         Chase H.Q. (1989)(Ocean)(+3).zip",
-    );
+    // Override target with `PLUS3_TRACE_DSK=<filename inside the reference [DSK] dir>`
+    // so the same diagnostic can be re-pointed at the failure cases
+    // (Operation Wolf, RoboCop, Where Time Stood Still, Turrican, …)
+    // without recompiling. Default is the title we know loads end-to-end.
+    let dsk_file = env::var("PLUS3_TRACE_DSK")
+        .unwrap_or_else(|_| "Chase H.Q. (1989)(Ocean)(+3).zip".to_owned());
+    let dsk_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[DSK]")
+        .join(&dsk_file);
+    eprintln!("=== Tracing {dsk_file} ===");
     if !firmware_root.exists() || !dsk_path.exists() {
         eprintln!("[skip] missing +3 ROMs or Chase H.Q. (+3) DSK");
         return;

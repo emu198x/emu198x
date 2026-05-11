@@ -39,12 +39,32 @@ pub struct DiskSector {
     /// loader's CRC checks rely on the recorded value.
     #[serde(default = "default_sector_n")]
     pub n: u8,
+    /// Recorded ST1 status the FDC would have returned reading this
+    /// sector at dump time. Bit 5 (`DE` data error / CRC mismatch in
+    /// the data field) is the load-bearing one for protection —
+    /// Alkatraz and similar schemes write CRC-broken sectors that
+    /// only succeed when the loader explicitly tolerates the error.
+    #[serde(default)]
+    pub st1: u8,
+    /// Recorded ST2 status. Bit 6 (`CM` = Control Mark) is the
+    /// DAM/DDAM flag: 0 = standard data address mark, 1 = deleted.
+    /// Speedlock writes key sectors with DDAM and reads them back via
+    /// the `ReadDeletedData` command (`0x0C`); a `ReadData` (`0x06`)
+    /// must either skip these (SK=1 in the command byte) or set
+    /// ST2.CM in its own result (SK=0). Bit 5 (`DD` data error in
+    /// data field) parallels ST1.DE.
+    #[serde(default)]
+    pub st2: u8,
     pub data: Vec<u8>,
 }
 
 const fn default_sector_n() -> u8 {
     2
 }
+
+/// ST2 bit mask for the Control Mark / DAM-vs-DDAM flag. Set when
+/// the sector was written with a *deleted* data address mark.
+pub const ST2_CM: u8 = 0x40;
 
 /// One physical track on one side of a floppy.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -86,6 +106,18 @@ enum Phase {
 enum Command {
     None,
     ReadData,
+    /// `ReadDeletedData` is the disk-protection cousin of `ReadData`:
+    /// same parameters, same result phase, same per-sector data
+    /// delivery, but matches sectors written with the *deleted* data
+    /// address mark (DDAM) rather than the standard DAM. Speedlock
+    /// (Ocean's +3 disk protection) writes its key sectors with DDAM
+    /// and reads them back via this opcode; a `ReadData` issued
+    /// against a DDAM sector would either skip it (SK=1) or flag
+    /// ST2.CM (SK=0), neither of which delivers the bytes Speedlock's
+    /// loader expects. Operation Wolf, RoboCop, and Where Time Stood
+    /// Still all stop at the +3 BIOS empty screen if the chip drops
+    /// this command on the floor.
+    ReadDeletedData,
     WriteData,
     ReadId,
     Recalibrate,
@@ -337,6 +369,7 @@ impl Upd765a {
     fn decode_command(byte: u8) -> (Command, usize) {
         match byte & 0x1F {
             0x06 => (Command::ReadData, 9),             // Read Data
+            0x0C => (Command::ReadDeletedData, 9),      // Read Deleted Data (Speedlock keys)
             0x05 => (Command::WriteData, 9),            // Write Data
             0x0A => (Command::ReadId, 2),               // Read ID
             0x07 => (Command::Recalibrate, 2),          // Recalibrate
@@ -350,7 +383,7 @@ impl Upd765a {
 
     fn execute_command(&mut self) {
         match self.command {
-            Command::ReadData => {
+            Command::ReadData | Command::ReadDeletedData => {
                 // `drive` indexes our per-drive state (disks/track) and
                 // is masked by the host's wiring (+3 only routes US0,
                 // so US1 is a don't-care). `drive_echo` keeps the
@@ -373,9 +406,22 @@ impl Upd765a {
                 let track = self.track[drive];
                 let _expected_c = self.cmd_buf[2];
                 let sector = self.cmd_buf[4]; // R (start sector ID)
-                let n = self.cmd_buf[5]; // N (sector size code: 0=128, 1=256, 2=512)
-                let eot = self.cmd_buf[6]; // EOT (last sector to read on this track)
+                let n = self.cmd_buf[5]; // N (sector size code)
+                let eot = self.cmd_buf[6]; // EOT (last sector to read)
                 let sector_size = 128usize << (n as usize);
+
+                // Command byte carries MT (bit 7), MFM (bit 6) and SK
+                // (bit 5). SK changes how the chip handles a sector
+                // whose recorded data mark *doesn't* match the
+                // command's expected mark: SK=1 → skip silently and
+                // advance R, SK=0 → read it anyway but set ST2.CM in
+                // the result. Speedlock probes the disk by issuing
+                // both commands and watching which sectors deliver
+                // data; getting SK or the mark-match wrong shows up
+                // as a CRC mismatch in the loader's check pass.
+                let cmd_byte = self.cmd_buf[0];
+                let sk = (cmd_byte & 0x20) != 0;
+                let want_deleted = matches!(self.command, Command::ReadDeletedData);
 
                 self.head = head;
                 self.sector = sector;
@@ -390,19 +436,84 @@ impl Upd765a {
                 let mut buf = Vec::with_capacity(sector_size * 8);
                 let mut last_ok = sector;
                 let mut missing_after_some = false;
+                // Did at least one sector during this run have a
+                // mismatched mark relative to the command? When this
+                // is set (and SK=0) the chip sets ST2.CM in the
+                // result phase, terminating after that sector.
+                let mut hit_mark_mismatch = false;
+                // Recorded ST1/ST2 from the last sector delivered.
+                // The chip OR's the address-mark error bits from each
+                // sector it reads into the eventual result-phase ST1
+                // and ST2 — so CRC errors recorded in the EDSK SIL
+                // ("this sector has bad data CRC") surface to the
+                // host exactly as the real drive would. Speedlock
+                // probes by reading sectors expected to flag DE/DD
+                // and bails when the chip claims a clean read.
+                let mut acc_st1: u8 = 0;
+                let mut acc_st2: u8 = 0;
                 let mut r = sector;
                 loop {
-                    match self.read_sector(drive, track, head, r, sector_size) {
-                        Some(mut data) => {
-                            buf.append(&mut data);
-                            last_ok = r;
+                    // Look up the recorded sector entry — we need its
+                    // ST2 to decide whether the mark matches before
+                    // copying data into the exec buffer.
+                    let sec = self
+                        .disks
+                        .get(drive)
+                        .and_then(|d| d.as_ref())
+                        .and_then(|img| img.tracks.get(head as usize))
+                        .and_then(|side| side.get(track as usize))
+                        .and_then(|trk| trk.sectors.iter().find(|s| s.id == r));
+
+                    let Some(sec) = sec else {
+                        // Sector ID not found on this track. For
+                        // multi-sector runs we treat the first miss
+                        // as a hard stop (real chip sets ST1.ND and
+                        // terminates with abnormal completion).
+                        if !buf.is_empty() {
+                            missing_after_some = true;
                         }
-                        None => {
-                            if !buf.is_empty() {
-                                missing_after_some = true;
+                        break;
+                    };
+
+                    let sec_is_deleted = (sec.st2 & ST2_CM) != 0;
+                    let mark_match = sec_is_deleted == want_deleted;
+                    if !mark_match {
+                        if sk {
+                            // Skip this sector silently, advance R.
+                            // The real chip can still terminate at EOT
+                            // even though it skipped, so we honour the
+                            // same loop end condition.
+                            if r >= eot {
+                                break;
                             }
-                            break;
+                            r = r.wrapping_add(1);
+                            continue;
                         }
+                        // SK=0: read the sector but flag CM and
+                        // terminate after this one (datasheet: "read
+                        // ID information…until the FDC encounters
+                        // mismatch, then stop").
+                        hit_mark_mismatch = true;
+                    }
+
+                    let take = sec.data.len().min(sector_size);
+                    buf.extend_from_slice(&sec.data[..take]);
+                    if take < sector_size {
+                        let fill = sec.data.last().copied().unwrap_or(0);
+                        buf.resize(buf.len() + (sector_size - take), fill);
+                    }
+                    last_ok = r;
+                    // Mix in whatever error bits the SIL recorded for
+                    // this sector. DE (ST1.5) / DD (ST2.5) terminate
+                    // the multi-sector run the same way CM does — the
+                    // chip stops on the first sector whose data field
+                    // has a CRC error.
+                    acc_st1 |= sec.st1;
+                    acc_st2 |= sec.st2;
+                    let sector_has_data_error = (sec.st1 & 0x20) != 0 || (sec.st2 & 0x20) != 0;
+
+                    if hit_mark_mismatch || sector_has_data_error {
+                        break;
                     }
                     if r >= eot {
                         break;
@@ -415,21 +526,34 @@ impl Upd765a {
                     self.exec_pos = 0;
                     self.phase = Phase::Execution;
                     self.main_status = MSR_RQM | MSR_EXM | MSR_DIO | MSR_CB;
+                    self.st0 = (head << 2) | drive_echo;
+                    // Carry forward the OR'd-in error bits from every
+                    // sector read in the run, then layer the
+                    // multi-sector outcome flags on top.
+                    self.st1 = acc_st1;
+                    self.st2 = acc_st2 & !ST2_CM; // CM gets set below if applicable
                     if missing_after_some {
-                        self.st0 = 0x40 | (head << 2) | drive_echo; // Abnormal
-                        self.st1 = 0x04; // No data — caller learns where the run stopped
-                    } else {
-                        self.st0 = (head << 2) | drive_echo;
-                        self.st1 = 0;
+                        self.st0 |= 0x40; // Abnormal termination
+                        self.st1 |= 0x04; // ND — caller learns where the run stopped
+                    } else if hit_mark_mismatch {
+                        // Datasheet: CM set + Abnormal Termination
+                        // when SK=0 and the mark didn't match.
+                        self.st0 |= 0x40;
+                        self.st2 |= ST2_CM;
+                    } else if (acc_st1 & 0x20) != 0 || (acc_st2 & 0x20) != 0 {
+                        // Real chip flags Abnormal Termination when a
+                        // sector's data CRC fails, even though it
+                        // still delivers the (corrupted) bytes.
+                        self.st0 |= 0x40;
                     }
-                    self.st2 = 0;
-                    // Result phase echoes the next sector ID after the
-                    // one last successfully read — what real hardware
-                    // reports for multi-sector terminations.
+                    // Result phase echoes the next sector ID after
+                    // the one last successfully delivered — what real
+                    // hardware reports for multi-sector terminations.
                     self.cmd_buf[4] = last_ok.wrapping_add(1);
                 } else {
-                    // No sector found at all — skip Execution, go
-                    // straight to Result with abnormal termination.
+                    // No sector found at all (or every one was
+                    // skipped via SK) — skip Execution and go straight
+                    // to Result with abnormal termination.
                     self.st0 = 0x40 | (head << 2) | drive_echo;
                     self.st1 = 0x04;
                     self.st2 = 0;
@@ -595,26 +719,6 @@ impl Upd765a {
         self.interrupt = true;
     }
 
-    /// Read a sector from a disk image by (track, head, sector ID).
-    ///
-    /// Returns the sector data truncated/padded to `sector_size` bytes,
-    /// matching the N parameter from the read command.
-    fn read_sector(
-        &self,
-        drive: usize,
-        track: u8,
-        head: u8,
-        sector: u8,
-        sector_size: usize,
-    ) -> Option<Vec<u8>> {
-        let disk = self.disks[drive].as_ref()?;
-        let sec = disk.sector(track, head, sector)?;
-        let mut out = Vec::with_capacity(sector_size);
-        let take = sec.data.len().min(sector_size);
-        out.extend_from_slice(&sec.data[..take]);
-        out.resize(sector_size, sec.data.last().copied().unwrap_or(0));
-        Some(out)
-    }
 }
 
 impl Default for Upd765a {
@@ -773,6 +877,8 @@ mod tests {
                 h: 0,
                 id: 1,
                 n: 2,
+                st1: 0,
+                st2: 0,
                 data: sector_data,
             }],
         };
@@ -822,6 +928,8 @@ mod tests {
                     h: 0,
                     id: 0xC2,
                     n: 2,
+                    st1: 0,
+                    st2: 0,
                     data: vec![0xAA; 512],
                 },
                 DiskSector {
@@ -829,6 +937,8 @@ mod tests {
                     h: 0,
                     id: 0xC1,
                     n: 2,
+                    st1: 0,
+                    st2: 0,
                     data: {
                         let mut d = vec![0xBB; 512];
                         d[0] = 0xEE;
@@ -856,5 +966,115 @@ mod tests {
 
         assert_eq!(fdc.phase, Phase::Execution);
         assert_eq!(fdc.read_data(), 0xEE);
+    }
+
+    /// `ReadDeletedData` reaches sectors that `ReadData` skips (with
+    /// SK=1) — Speedlock writes its protection keys with DDAM marks
+    /// and reads them back via 0x0C, expecting the chip to deliver
+    /// the bytes while 0x06 with SK either skips them or flags
+    /// ST2.CM and stops. Three cases here: SK=1 ReadData skips DDAM,
+    /// SK=0 ReadData flags CM and stops, ReadDeletedData reads DDAM
+    /// normally.
+    #[test]
+    fn read_deleted_data_matches_dam_then_ddam() {
+        let fdc = Upd765a::new();
+        let track = DiskTrack {
+            sectors: vec![
+                DiskSector {
+                    c: 0,
+                    h: 0,
+                    id: 1,
+                    n: 0, // N=0 → 128-byte sectors
+                    st1: 0,
+                    st2: 0,
+                    data: vec![0x11; 128],
+                },
+                DiskSector {
+                    c: 0,
+                    h: 0,
+                    id: 2,
+                    n: 0,
+                    st1: 0,
+                    st2: ST2_CM, // ← deleted data mark (Speedlock key sector)
+                    data: vec![0x22; 128],
+                },
+                DiskSector {
+                    c: 0,
+                    h: 0,
+                    id: 3,
+                    n: 0,
+                    st1: 0,
+                    st2: 0,
+                    data: vec![0x33; 128],
+                },
+            ],
+        };
+        let image = DiskImage {
+            sides: 1,
+            tracks_per_side: 1,
+            tracks: vec![vec![track]],
+        };
+
+        // Case A — ReadData with SK=1 across sectors 1..3 should
+        // skip the DDAM sector (2) silently and deliver 1's bytes
+        // and 3's bytes back-to-back.
+        let mut a = fdc.clone();
+        a.insert_disk(0, image.clone());
+        a.write_data(0x26); // ReadData, SK=1, MFM=1
+        a.write_data(0x00); // drive
+        a.write_data(0x00); // C
+        a.write_data(0x00); // H
+        a.write_data(0x01); // R = 1
+        a.write_data(0x00); // N = 128
+        a.write_data(0x03); // EOT
+        a.write_data(0x2A);
+        a.write_data(0xFF);
+        let bytes_a: Vec<u8> = (0..256).map(|_| a.read_data()).collect();
+        assert_eq!(bytes_a[0], 0x11, "sector 1 (DAM) first byte");
+        assert_eq!(bytes_a[127], 0x11, "sector 1 last byte");
+        assert_eq!(bytes_a[128], 0x33, "sector 3 (DAM) first — sector 2 (DDAM) was skipped");
+
+        // Case B — ReadData with SK=0 should deliver sectors 1 *and*
+        // 2 (CM gets flagged) then stop. ST2.CM must be set in the
+        // result phase and ST0's abnormal-termination bit must fire.
+        let mut b = fdc.clone();
+        b.insert_disk(0, image.clone());
+        b.write_data(0x06); // ReadData, SK=0
+        b.write_data(0x00);
+        b.write_data(0x00);
+        b.write_data(0x00);
+        b.write_data(0x01);
+        b.write_data(0x00);
+        b.write_data(0x03);
+        b.write_data(0x2A);
+        b.write_data(0xFF);
+        let bytes_b: Vec<u8> = (0..256).map(|_| b.read_data()).collect();
+        assert_eq!(bytes_b[0], 0x11, "sector 1 (DAM) delivered");
+        assert_eq!(bytes_b[128], 0x22, "sector 2 (DDAM) also delivered when SK=0");
+        // Now in result phase — read the 7-byte status block.
+        assert_eq!(b.phase, Phase::Result);
+        let st0 = b.read_data();
+        let _st1 = b.read_data();
+        let st2 = b.read_data();
+        assert_ne!(st0 & 0xC0, 0, "ST0 abnormal-termination IC set on mark mismatch");
+        assert_ne!(st2 & ST2_CM, 0, "ST2.CM set when ReadData found a DDAM with SK=0");
+
+        // Case C — ReadDeletedData (SK=1) should *skip* the DAM
+        // sectors and deliver sector 2 (DDAM). With R=1 EOT=3 we
+        // expect just one sector's worth of bytes.
+        let mut c = fdc.clone();
+        c.insert_disk(0, image);
+        c.write_data(0x2C); // ReadDeletedData, SK=1, MFM=1
+        c.write_data(0x00);
+        c.write_data(0x00);
+        c.write_data(0x00);
+        c.write_data(0x01);
+        c.write_data(0x00);
+        c.write_data(0x03);
+        c.write_data(0x2A);
+        c.write_data(0xFF);
+        let bytes_c: Vec<u8> = (0..128).map(|_| c.read_data()).collect();
+        assert_eq!(bytes_c[0], 0x22, "sector 2 (DDAM) delivered by ReadDeletedData");
+        assert_eq!(bytes_c[127], 0x22);
     }
 }
