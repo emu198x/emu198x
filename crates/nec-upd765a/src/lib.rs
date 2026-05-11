@@ -20,11 +20,30 @@ use common_sinclair_zx_spectrum::peripheral::Peripheral;
 /// A floppy sector parsed from a disk image.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DiskSector {
+    /// Cylinder (C) as recorded in the sector's address mark. May
+    /// differ from the sector's physical track on copy-protected
+    /// disks — Speedlock and similar schemes deliberately record
+    /// non-matching values to defeat naïve copiers.
+    #[serde(default)]
+    pub c: u8,
+    /// Head (H) as recorded in the address mark.
+    #[serde(default)]
+    pub h: u8,
     /// Sector ID (R) as it appears in the address mark — this is what
     /// the FDC matches against the sector ID in the read command, and
     /// it is *not* always equal to the physical position on the track.
     pub id: u8,
+    /// Sector size code (N): 0 = 128 bytes, 1 = 256, 2 = 512, 3 = 1024.
+    /// Copy-protected disks sometimes record N that doesn't match the
+    /// actual data length — the FDC reports it via ReadID and the
+    /// loader's CRC checks rely on the recorded value.
+    #[serde(default = "default_sector_n")]
+    pub n: u8,
     pub data: Vec<u8>,
+}
+
+const fn default_sector_n() -> u8 {
+    2
 }
 
 /// One physical track on one side of a floppy.
@@ -341,7 +360,18 @@ impl Upd765a {
                 let drive_echo = self.cmd_buf[1] & 0x03;
                 let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 let head = (self.cmd_buf[1] >> 2) & 0x01;
-                let track = self.cmd_buf[2];
+                // Real µPD765A reads from the physical cylinder the
+                // head is over (set by the last SeekTrack /
+                // Recalibrate), not from `cmd_buf[2]` — the `C`
+                // parameter is the *expected* cylinder header value
+                // the chip then verifies against the address mark.
+                // Speedlock-protected disks deliberately record
+                // cylinder values that don't match physical track
+                // number, and the loader knows the encoding; using
+                // `cmd_buf[2]` here means we'd look up sectors on the
+                // wrong physical track and miss the protected ones.
+                let track = self.track[drive];
+                let _expected_c = self.cmd_buf[2];
                 let sector = self.cmd_buf[4]; // R (start sector ID)
                 let n = self.cmd_buf[5]; // N (sector size code: 0=128, 1=256, 2=512)
                 let eot = self.cmd_buf[6]; // EOT (last sector to read on this track)
@@ -486,21 +516,49 @@ impl Upd765a {
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
             }
             Command::ReadId => {
+                // Return the address-mark CHRN of the next sector the
+                // head would see on the rotating medium. We don't
+                // model rotation, so use the first sector in the
+                // current track — but the *recorded* CHRN values, not
+                // hardcoded (C=track, R=1, N=2) defaults. Copy
+                // protection (Speedlock & friends) routinely records
+                // C / H / N values that don't match the physical
+                // track or sector size, and the loader compares the
+                // ReadID result against expected bytes to decide
+                // whether the disk has been tampered with. Hardcoded
+                // defaults fail that check and drop the loader into
+                // its error hang.
                 let drive_echo = self.cmd_buf[1] & 0x03;
                 let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 let head = (self.cmd_buf[1] >> 2) & 0x01;
-                self.st0 = (head << 2) | drive_echo;
                 self.st1 = 0;
                 self.st2 = 0;
-                // Return current position
+
+                let recorded = self
+                    .disks
+                    .get(drive)
+                    .and_then(|d| d.as_ref())
+                    .and_then(|img| img.tracks.get(head as usize))
+                    .and_then(|side| side.get(self.track[drive] as usize))
+                    .and_then(|trk| trk.sectors.first());
+
+                let (c, h, r, n) = match recorded {
+                    Some(s) => (s.c, s.h, s.id, s.n),
+                    // No disk or empty track — return the defaults so
+                    // a probe-during-empty-drive still gets a coherent
+                    // (if blank) reply.
+                    None => (self.track[drive], head, 1, 2),
+                };
+
+                self.st0 = (head << 2) | drive_echo;
                 self.result_buf.clear();
                 self.result_buf.push(self.st0);
                 self.result_buf.push(self.st1);
                 self.result_buf.push(self.st2);
-                self.result_buf.push(self.track[drive]);
-                self.result_buf.push(head);
-                self.result_buf.push(1); // Sector 1
-                self.result_buf.push(2); // N=2 (512 bytes)
+                self.result_buf.push(c);
+                self.result_buf.push(h);
+                self.result_buf.push(r);
+                self.result_buf.push(n);
                 self.result_pos = 0;
                 self.phase = Phase::Result;
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
@@ -711,7 +769,10 @@ mod tests {
         sector_data[511] = 0xAD;
         let track = DiskTrack {
             sectors: vec![DiskSector {
+                c: 0,
+                h: 0,
                 id: 1,
+                n: 2,
                 data: sector_data,
             }],
         };
@@ -757,11 +818,17 @@ mod tests {
         let track = DiskTrack {
             sectors: vec![
                 DiskSector {
+                    c: 0,
+                    h: 0,
                     id: 0xC2,
+                    n: 2,
                     data: vec![0xAA; 512],
                 },
                 DiskSector {
+                    c: 0,
+                    h: 0,
                     id: 0xC1,
+                    n: 2,
                     data: {
                         let mut d = vec![0xBB; 512];
                         d[0] = 0xEE;

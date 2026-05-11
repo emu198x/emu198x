@@ -135,13 +135,17 @@ fn parse_track(block: &[u8]) -> Result<DiskTrack, String> {
         return Err("sector info list runs past track block".into());
     }
 
-    // Parse the SIL into (id, length) pairs. EDSK records the actual
-    // (possibly per-sector) data length in bytes 6..8 of each entry; on
-    // standard DSK those bytes are unused so we fall back to the track
-    // default.
+    // Parse the SIL into (c, h, r, n, length) tuples. The full
+    // address-mark CHRN is needed for `ReadId` and for header
+    // verification — copy-protected disks deliberately record
+    // mismatched values. EDSK records the actual (possibly per-sector)
+    // data length in bytes 6..8 of each entry; on standard DSK those
+    // bytes are unused so we fall back to the track default.
     let mut sectors_info = Vec::with_capacity(sector_count);
     for i in 0..sector_count {
         let off = 0x18 + i * SECTOR_INFO_LEN;
+        let c = block[off];
+        let h = block[off + 1];
         let id = block[off + 2];
         let n = block[off + 3];
         let edsk_len = u16::from_le_bytes([block[off + 6], block[off + 7]]) as usize;
@@ -150,17 +154,15 @@ fn parse_track(block: &[u8]) -> Result<DiskTrack, String> {
         } else {
             128usize << n.min(6) as usize
         };
-        // The N from the address mark trumps the track default if they
-        // disagree — but if both are zero we use the track default.
         let _ = track_default_size;
-        sectors_info.push((id, len));
+        sectors_info.push((c, h, id, n, len));
     }
 
     // Sector data follows the track header (256 bytes), packed in the
     // order listed in the SIL.
     let mut data_cursor = TRACK_HEADER_LEN;
     let mut sectors = Vec::with_capacity(sector_count);
-    for (id, len) in sectors_info {
+    for (c, h, id, n, len) in sectors_info {
         if data_cursor + len > block.len() {
             return Err(format!(
                 "sector ID {:#04x} runs past track block (need {} bytes at offset {})",
@@ -168,7 +170,10 @@ fn parse_track(block: &[u8]) -> Result<DiskTrack, String> {
             ));
         }
         sectors.push(DiskSector {
+            c,
+            h,
             id,
+            n,
             data: block[data_cursor..data_cursor + len].to_vec(),
         });
         data_cursor += len;
