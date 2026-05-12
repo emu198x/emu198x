@@ -451,7 +451,19 @@ impl Upd765a {
                 // and bails when the chip claims a clean read.
                 let mut acc_st1: u8 = 0;
                 let mut acc_st2: u8 = 0;
+                let mut hit_data_error = false;
                 let mut r = sector;
+                // Tracks the sector ID the real chip would surface in
+                // the result phase's R field. FUSE's `upd_fdc.c`
+                // mirrors the µPD765A here: on abnormal termination
+                // (mark mismatch with SK=0, data CRC error, missing
+                // sector) the chip leaves R pointing at the offending
+                // sector; on normal multi-sector completion that
+                // reaches EOT, R advances one past EOT. Speedlock's
+                // sector-2 probe reads R back and checks `R == 2`
+                // to confirm "the chip just told me about sector 2",
+                // so an off-by-one here loops the loader forever.
+                let mut result_r = sector;
                 loop {
                     // Look up the recorded sector entry — we need its
                     // ST2 to decide whether the mark matches before
@@ -468,10 +480,14 @@ impl Upd765a {
                         // Sector ID not found on this track. For
                         // multi-sector runs we treat the first miss
                         // as a hard stop (real chip sets ST1.ND and
-                        // terminates with abnormal completion).
+                        // terminates with abnormal completion). The
+                        // result-phase R points at the missing sector
+                        // so the host can see exactly where the run
+                        // gave up.
                         if !buf.is_empty() {
                             missing_after_some = true;
                         }
+                        result_r = r;
                         break;
                     };
 
@@ -484,6 +500,7 @@ impl Upd765a {
                             // even though it skipped, so we honour the
                             // same loop end condition.
                             if r >= eot {
+                                result_r = r.wrapping_add(1);
                                 break;
                             }
                             r = r.wrapping_add(1);
@@ -511,11 +528,22 @@ impl Upd765a {
                     acc_st1 |= sec.st1;
                     acc_st2 |= sec.st2;
                     let sector_has_data_error = (sec.st1 & 0x20) != 0 || (sec.st2 & 0x20) != 0;
+                    if sector_has_data_error {
+                        hit_data_error = true;
+                    }
 
                     if hit_mark_mismatch || sector_has_data_error {
+                        // Abnormal-termination path — chip leaves R at
+                        // the offending sector, doesn't pre-increment.
+                        result_r = r;
                         break;
                     }
                     if r >= eot {
+                        // Normal multi-sector completion: chip ran the
+                        // post-read R++ before the next iteration's
+                        // EOT check found nothing left, so R ends one
+                        // past the last sector read.
+                        result_r = r.wrapping_add(1);
                         break;
                     }
                     r = r.wrapping_add(1);
@@ -540,16 +568,13 @@ impl Upd765a {
                         // when SK=0 and the mark didn't match.
                         self.st0 |= 0x40;
                         self.st2 |= ST2_CM;
-                    } else if (acc_st1 & 0x20) != 0 || (acc_st2 & 0x20) != 0 {
+                    } else if hit_data_error {
                         // Real chip flags Abnormal Termination when a
                         // sector's data CRC fails, even though it
                         // still delivers the (corrupted) bytes.
                         self.st0 |= 0x40;
                     }
-                    // Result phase echoes the next sector ID after
-                    // the one last successfully delivered — what real
-                    // hardware reports for multi-sector terminations.
-                    self.cmd_buf[4] = last_ok.wrapping_add(1);
+                    self.cmd_buf[4] = result_r;
                 } else {
                     // No sector found at all (or every one was
                     // skipped via SK) — skip Execution and go straight

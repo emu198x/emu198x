@@ -145,6 +145,30 @@ fn trace_plus3_loader_pc_histogram() {
         );
     }
 
+    // Optional second memory dump at a fixed address (for tracing the
+    // loader's *decision* code, which can be far from where execution
+    // ended up trapped). Set PLUS3_TRACE_DUMP=0xFEA4 to dump 256 bytes
+    // starting at $FEA4.
+    if let Ok(addr_s) = env::var("PLUS3_TRACE_DUMP") {
+        if let Some(s) = addr_s.strip_prefix("0x").or_else(|| addr_s.strip_prefix("0X")) {
+            if let Ok(addr) = u16::from_str_radix(s, 16) {
+                eprintln!("\n=== Memory dump at ${addr:04x}..+0x100 ===");
+                let mem = &session.machine().machine().memory;
+                for off in 0..0x100u16 {
+                    let a = addr.wrapping_add(off);
+                    let b = common_sinclair_zx_spectrum::memory::MemoryBus::read(mem, a);
+                    if off % 16 == 0 {
+                        eprint!("  ${a:04x}:");
+                    }
+                    eprint!(" {b:02x}");
+                    if off % 16 == 15 {
+                        eprintln!();
+                    }
+                }
+            }
+        }
+    }
+
     // Dump 256 bytes around the most-recent PC so we can disassemble
     // the polling loop the loader is stuck in.
     if let Some(&latest_pc) = last_pcs.last() {
