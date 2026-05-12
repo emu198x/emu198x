@@ -344,6 +344,7 @@ hash = "xxh64:d21bc79639a0edde"
 # isn't yet tight enough for Speedlock 7's cycle-counted byte read.
 # Documented at wiki/decisions/speedlock-tape-incomplete.md.
 
+
 [[entry]]
 id = "ace-of-aces-tape-alkatraz"
 title = "Ace of Aces (Alkatraz)"

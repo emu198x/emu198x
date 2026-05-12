@@ -33,11 +33,51 @@ Our pulse playback computes T-state countdowns as `u32` and ticks them down each
 
 None of these have been falsified yet.
 
-## What would unblock the fix
+## What we know about Speedlock-7's loader architecture (2026-05-12)
 
-1. **Side-by-side trace against FUSE on the same TZX.** Capture every `IN A,(0xFE)` execution, the surrounding T-state position, and the EAR bit FUSE returned at that exact moment. Compare against our run. The first divergence narrows hypothesis (1) / (2) / (3) to one.
-2. **Direct timing test.** Write a unit test that drives the TapePlayer through a known turbo block (`pilot=2165, sync1=714, sync2=714, zero=583, one=1166`) and samples `current_tape_level()` at every T-state, asserting the level transitions land at the expected T-state offsets. If we're off-by-one anywhere, the test surfaces it before any title-level diagnosis.
-3. **Audit the CPU's `IN A,(0xFE)` path on 48K.** Confirm the EAR bit (`0x40`) reads from `TapePlayer::ear_level()` and that the read happens at the same T-state phase real hardware would.
+Static analysis of the Op Wolf Speedlock 7 TZX bytes — extracted directly from the TZX without running the emulator — established the staging sequence the loader uses:
+
+### TZX block structure
+
+- **Block 0**: archive info (metadata, ignored).
+- **Block 1**: standard-speed `0x10`, 19 bytes, `flag = 0x00` — BASIC header for a `PROGRAM` named `WOLF48K`, claimed length 2743 bytes, autorun line 0, `var_offset = 2743` (no variable area).
+- **Block 2**: standard-speed `0x10`, 2745 bytes, `flag = 0xff` — the 2743-byte BASIC program payload (flag + 2743 + checksum).
+- **Block 3** onwards: grouped pure-tone + pulse-sequence + pure-data + turbo blocks containing the encrypted game data.
+
+### BASIC stub anatomy
+
+The 2743-byte BASIC program loads to `PROG` (system variable at `$5C53`). Layout:
+
+| Offset | Bytes | Decoded |
+|---|---|---|
+| 0..58 | 59 bytes | BASIC line 0: `INK 0 : PAPER 0 : RANDOMIZE USR (PEEK 23635 + 256 * PEEK 23636 + [stated 10 / actually 59])`. The `RANDOMIZE USR` argument evaluates to `PROG + 59` because Spectrum BASIC stores the digit string `"10"` separately from the floating-point representation, which is `0x3B` (= 59 decimal). Classic deception trick — listing shows `+10`, executes `+59`. |
+| 59..91 | 33 bytes | Bootstrap machine code: `DI ; LD HL,$5800 ; LD DE,$5801 ; LD BC,$03FF ; LD (HL),L ; LDIR ; XOR A ; OUT ($FE),A ; LD HL,($5C53) ; LD DE,$005C ; ADD HL,DE ; LD BC,$0A5A ; LD DE,$F48E ; PUSH DE ; LDIR ; RET`. Disables IRQs, fills attribute area with black, sets border black via `OUT ($FE),0`, copies 0x0A5A (2650) bytes from `PROG + 0x5C` to `$F48E`, pushes `$F48E` on the stack, `RET`s into it. |
+| 92..2741 | 2650 bytes | The actual loader payload, copied verbatim to `$F48E`. |
+
+### "All-black" symptom decoded
+
+The captured failure-state screenshot (uniform black with no border colour) isn't a wedge — it's the *intended* visual state after the bootstrap runs. The 33-byte bootstrap deliberately blacks out attributes (paper / ink → 0) and border (`OUT ($FE), 0`) **before** the loader starts streaming. So the "screen looks dead" symptom appears no later than the moment the BASIC autorun completes, which is *before* any data-stream pulse decoding begins. This is what we observed when the catalogue's `wait_for_tape_stop` returned and the runner captured the frame — the loader had got past the BASIC stub but was either still streaming or had already failed; either way the visible state is identical because the bootstrap pre-wipes the screen.
+
+### Encrypted loader at `$F48E`
+
+The 2650 bytes copied to `$F48E` are not directly executable. Static disassembly:
+
+- First few instructions: `LD A, $47 ; LD R, A` — set the Z80 refresh register `R` to `$47`. Classic Speedlock anti-debug; subsequent code checks `R` to detect single-step debuggers and breakpoint-driven execution where `R` is updated differently.
+- Then a small decryption / unscrambling pass operates on the bytes immediately following.
+- **Zero `IN A, ($FE)` instructions appear in the encrypted bytes** (zero `DB FE` opcodes, zero `ED 78` with `BC = 0xnnFE`). The byte-decoder lives *inside* the decrypted code, not in the visible layer.
+
+This means the EAR-polling routine we'd need to study to know what pulse-width thresholds the loader expects only exists at runtime, after the decryptor has run. Static analysis can't reach it.
+
+### Implications for fixing the gap
+
+Closing Speedlock-7 cleanly requires running our emulator until the decryptor finishes, dumping the RAM at `$F48E..+0x0A5A`, then disassembling that. That work is straightforward but requires new harness code (a 48K-tape equivalent of `plus3_disk_trace.rs` with a memory-dump trigger). Roughly half a day of focused work; deferred to a future session.
+
+## What would unblock the fix (operational)
+
+1. **Build the 48K-tape memory-dump harness.** Adapt `plus3_disk_trace.rs` to run a 48K runtime with a TZX, sample memory at `$F48E` at multiple frame counts (e.g. 100, 500, 1000, 5000), and emit hex dumps to stdout. Comparing dumps shows the decryption progressing; once the byte-decoder is visible, disassemble it.
+2. **Side-by-side trace against FUSE on the same TZX.** Capture every `IN A,(0xFE)` execution, the surrounding T-state position, and the EAR bit FUSE returned at that exact moment. Compare against our run. The first divergence narrows hypothesis (1) / (2) / (3) to one.
+3. **Direct timing test.** Write a unit test that drives the TapePlayer through a known turbo block (`pilot=2165, sync1=714, sync2=714, zero=583, one=1166`) and samples `current_tape_level()` at every T-state, asserting the level transitions land at the expected T-state offsets. If we're off-by-one anywhere, the test surfaces it before any title-level diagnosis.
+4. **Audit the CPU's `IN A,(0xFE)` path on 48K.** Confirm the EAR bit (`0x40`) reads from `TapePlayer::ear_level()` and that the read happens at the same T-state phase real hardware would.
 
 ## What this is *not*
 
