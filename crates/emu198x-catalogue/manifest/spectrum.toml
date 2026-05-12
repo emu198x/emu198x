@@ -374,6 +374,70 @@ from_frame = 100
 secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
 
+[[entry]]
+id = "back-to-skool-tape-microsphere"
+title = "Back to Skool (Microsphere)"
+year = 1985
+publisher = "Microsphere"
+variant = "48k"
+
+[entry.media]
+# Skool Daze sequel using Microsphere's custom fast loader (1985-
+# vintage turbo speed). Loads to in-game demo mode where Eric's
+# sprite walks the school corridor. Different protection family
+# from Speedlock (where 2/5/7 all fail) and Alkatraz.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/Back to Skool (1985)(Microsphere).zip"
+
+[entry.boot]
+# Captures the in-game demo-mode attract loop: yellow classroom
+# scene with "I hate groan-ups" speech bubble, "DEMO MODE"
+# banner, bottom HUD showing SCORE / LINES / HI-SC counters.
+wait_frames = 6000
+frame_hash = "xxh64:3e64abe49cce2d38"
+
+[entry.audio]
+# Demo-mode has its own AY-driven walking-sound effect, distinct
+# from the canonical "loader silence" hash. Confirms the audio
+# path is alive end-to-end through the Microsphere loader.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:efce7d9799feadaa"
+
+[[entry]]
+id = "back-to-the-future-tape-bleepload"
+title = "Back to the Future (Bleepload)"
+year = 1985
+publisher = "Electric Dreams"
+variant = "48k"
+
+[entry.media]
+# Don Priestley's Bleepload was Firebird / Electric Dreams' house
+# loader through 1985-86: custom pulse timings with audible
+# "bleeps" (whence the name) and a self-modifying byte-decode
+# routine. Distinct protection family from Speedlock, Alkatraz,
+# and Microsphere fast.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/Back to the Future (1985)(Electric Dreams)(48K-128K)[BleepLoad].zip"
+
+[entry.boot]
+# Captures the main menu: "BACK TO THE FUTURE" header, options
+# "START THE GAME 1 / SELECT LEVEL ◆ 2 / TERMINATE GAME 3 /
+# PAUSE/CONTINUE 4" with Doc and Marty character portraits, a
+# 00:00:00 clock display, and the "BY SOFTWARE IMAGES" credit.
+wait_frames = 6000
+frame_hash = "xxh64:507f199234e68b19"
+
+[entry.audio]
+# Bleepload's menu music — distinct from the canonical loader-
+# silence hash, confirming the loader's hand-off to game code is
+# clean enough for the AY to produce sound.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:124dd641d7824df2"
+
 # ─── Spectrum+ entries ──────────────────────────────────────────
 # Mirrors the 48K title set on the dedicated machine-sinclair-zx-
 # spectrum-plus crate. The two crates resolve to identical Rust

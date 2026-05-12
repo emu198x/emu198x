@@ -43,10 +43,20 @@ None of these have been falsified yet.
 
 This is not a stub or a candidate for ROM trapping (see `no-rom-trap-load.md`). Speedlock-tape loading on real hardware is a CPU-bound bit-banging routine; the right fix is to make our pulse stream + edge timing precise enough that the routine succeeds, not to short-circuit the routine.
 
+## Generation coverage
+
+A 2026-05-12 phase-1 sweep of three Speedlock-tape generations all hit the same wedge state:
+
+- **Speedlock 2** (Head over Heels, Hit Squad 1990 re-release) — red border + black screen.
+- **Speedlock 5** (Bubble Bobble, Hit Squad 1992 re-release) — pure-black screen with hash `99bf46ee0b35abc0` (same all-black state Turrican / Tetris land on).
+- **Speedlock 7** (Op Wolf, etc.) — blue border + black screen.
+
+Different visible *symptoms* per version but all fail before reaching a playable state. Confirms the issue is the Speedlock-family cycle-counted byte decoder, not version-specific behaviour. A fix should unlock all three generations at once.
+
 ## Catalogue scope today
 
-- **Alkatraz coverage:** `ace-of-aces-tape-alkatraz` (48K). Loads end-to-end via TZX turbo blocks.
-- **Speedlock-tape coverage:** none. Hit Squad re-release TZXs of Op Wolf / RoboCop / WTSS / Dragon Ninja remain in the reference library; entries can be authored once the timing-precision work above lands.
+- **Microsphere fast / Bleepload / Alkatraz coverage:** three entries (`back-to-skool-tape-microsphere`, `back-to-the-future-tape-bleepload`, `ace-of-aces-tape-alkatraz`) all load end-to-end via TZX turbo blocks. Validates the pulse-stream pipeline is correct for non-Speedlock custom loaders.
+- **Speedlock-tape coverage:** none. Hit Squad re-release TZXs of Op Wolf / RoboCop / WTSS / Dragon Ninja / Head over Heels / Bubble Bobble all remain in the reference library; entries can be authored once the timing-precision work above lands.
 - **Speedlock-disk coverage:** four entries via the marginal-encoding model (see `marginal-encoding-model.md`). Different mechanism, different bug, separately closed.
 
 ## Related rules and decisions
