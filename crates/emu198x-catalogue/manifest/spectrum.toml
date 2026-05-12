@@ -330,6 +330,50 @@ from_frame = 100
 secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
 
+# ─── 48K custom-pulse loaders ───────────────────────────────────
+# Every TAP entry above loads through the BASIC ROM's standard
+# LD-BYTES path. The Alkatraz entry below routes through TZX's
+# 0x11 turbo-speed blocks instead, exercising the
+# format-sinclair-zx-spectrum-tzx → TapeSpan pulse pipeline — a
+# regression in pulse timing or in the CPU's IN A,(0xFE) edge
+# polling under custom pulses surfaces here before any of the
+# TAP entries flinch.
+#
+# Speedlock-tape (Hit Squad re-releases of Ocean's 1988 titles)
+# remains unsupported — pulse-timing precision in our edge polling
+# isn't yet tight enough for Speedlock 7's cycle-counted byte read.
+# Documented at wiki/decisions/speedlock-tape-incomplete.md.
+
+[[entry]]
+id = "ace-of-aces-tape-alkatraz"
+title = "Ace of Aces (Alkatraz)"
+year = 1986
+publisher = "U.S. Gold"
+variant = "48k"
+
+[entry.media]
+# U.S. Gold WWII flight-sim, Alkatraz Protection System (Pavel
+# Cuk). Turbo-loader with self-modifying decryption — distinct
+# protection family from Speedlock; exercises a different
+# corner of the TZX parser / pulse pipeline. File is the 128K-
+# tagged TZX but the loader runs fine on 48K.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/Ace of Aces (1986)(U.S. Gold)(128K)[Alkatraz Protection System].zip"
+
+[entry.boot]
+# Captures the post-load input-select menu: "PLEASE SELECT: /
+# 1. KEYBOARD / 2. SINCLAIR JOYSTICK / 3. KEMPSTON JOYSTICK"
+# in cyan on black. The loader has finished, the title screen
+# has been drawn, and the game is waiting for input.
+wait_frames = 6000
+frame_hash = "xxh64:e184c28a12ba8aac"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
 # ─── Spectrum+ entries ──────────────────────────────────────────
 # Mirrors the 48K title set on the dedicated machine-sinclair-zx-
 # spectrum-plus crate. The two crates resolve to identical Rust

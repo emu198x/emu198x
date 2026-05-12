@@ -263,10 +263,12 @@ pub fn data_block_spans(
     }
 }
 
-/// Appends the documented TZX pause semantics.
+/// Appends pause-after-data spans. Called from the TAP/TZX data-
+/// block path (where pause_ms=0 means "no pause, run straight into
+/// the next block"). The TZX standalone Pause block (0x20) handles
+/// its own pause=0 → Stop semantic separately in its parser.
 pub fn append_pause_spans(pause_ms: u32, current_level: &mut bool, spans: &mut Vec<TapeSpan>) {
     if pause_ms == 0 {
-        spans.push(TapeSpan::Stop);
         return;
     }
 
@@ -461,13 +463,18 @@ mod tests {
     }
 
     #[test]
-    fn pause_zero_inserts_stop_span() {
+    fn pause_zero_emits_nothing() {
+        // TZX spec: pause=0 after a data block means "no pause,
+        // continue immediately to the next block." Speedlock 7 tapes
+        // chain dozens of pure-data blocks via pause=0; the old
+        // emit-Stop behaviour broke them by flipping tape.is_playing
+        // false mid-load.
         let mut spans = Vec::new();
         let mut current_level = true;
 
         append_pause_spans(0, &mut current_level, &mut spans);
 
-        assert_eq!(spans, vec![TapeSpan::Stop]);
-        assert!(current_level);
+        assert!(spans.is_empty());
+        assert!(current_level, "level unchanged when no pause is emitted");
     }
 }

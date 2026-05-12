@@ -361,7 +361,16 @@ fn parse_pause(
 ) -> Result<usize, String> {
     check_len(data, pos, 2, "Pause")?;
     let pause_ms = u32::from(read_u16(data, pos));
-    append_pause_spans(pause_ms, current_level, stream);
+    // The standalone Pause block (0x20) treats pause=0 as "stop the
+    // tape and wait for explicit resume" — distinct from the
+    // pause-after-data field in 0x10/0x11/0x14/0x15, where 0 means
+    // "no pause, continue immediately". `append_pause_spans` handles
+    // only the latter; we emit the Stop signal here.
+    if pause_ms == 0 {
+        stream.push(TapeSpan::Stop);
+    } else {
+        append_pause_spans(pause_ms, current_level, stream);
+    }
     Ok(pos + 2)
 }
 
@@ -396,9 +405,20 @@ fn append_data_spans(
     }
 }
 
+/// Pause-after-data emission for the data-bearing TZX blocks
+/// (0x10 / 0x11 / 0x14 / 0x15). The TZX spec defines pause=0 in
+/// those contexts as "no pause, continue immediately to the next
+/// block" — *not* as a stop signal. Speedlock 7 tapes chain
+/// dozens of pure-data blocks back-to-back via pause=0; misreading
+/// that as a Stop causes `tape.is_playing` to flip false mid-load
+/// and any catalogue runner that waits-for-tape-stop returns long
+/// before the loader has finished.
+///
+/// The standalone Pause block (0x20) has different semantics
+/// (pause=0 means "stop the tape") and emits a Stop directly from
+/// `parse_pause` rather than going through this function.
 fn append_pause_spans(pause_ms: u32, current_level: &mut bool, stream: &mut Vec<TapeSpan>) {
     if pause_ms == 0 {
-        stream.push(TapeSpan::Stop);
         return;
     }
 
@@ -557,6 +577,9 @@ mod tests {
         data.extend_from_slice(&1u32.to_le_bytes()[..3]);
         data.push(0b1111_0000);
 
+        // pause=0 after the direct-recording data means "no pause,
+        // continue to next block" per the TZX spec, so the stream
+        // should end after the recorded level holds with no Stop.
         let stream = tzx_to_stream(&data).expect("direct recording should parse");
         assert_eq!(
             stream,
@@ -569,7 +592,6 @@ mod tests {
                     duration: 40,
                     level: false,
                 },
-                TapeSpan::Stop,
             ]
         );
     }
