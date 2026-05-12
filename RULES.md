@@ -27,6 +27,8 @@ The October-public system is Spectrum. Everything else is engineering bar (C64/N
 3. Contention = the CPU's clock slot is skipped. No extra ticks. No catch-up logic.
 4. One clock, everything derives. `hc` is the only time counter.
 
+**Drift triggers.** If you find yourself writing `for _ in 0..tstates_per_frame`, STOP — you're wrong. No extra ticks inside bus calls. No catch-up logic.
+
 ## CPU
 
 5. The Z80 is a half-cycle signal-level state machine. No instruction-level abstraction. *Other CPUs we add* (6502, 68000, 6809, …) tick at *their* native granularity (cycle-level for the 6502, half-cycle for the 68000) — but always cycle-accurate, never instruction-accurate.
@@ -75,6 +77,10 @@ The October-public system is Spectrum. Everything else is engineering bar (C64/N
 27. **Document why an archive port was needed.** When porting non-trivially from an archive, mention the source path in a code comment. This preserves the audit trail and helps the next reader understand why the code is shaped the way it is.
 28. **Archives are temporary.** The lifecycle is *port → evaluate → clean up*. After each wave of porting, do a batched cleanup commit that removes the archive crates we ported (now duplicated in the workspace) and the ones we evaluated and judged not-portable. Cleanups are commits, not silent deletes — list what was removed, what was ported, what was rejected. When the archives contain only reference material we still consult, retire them entirely. See [`wiki/decisions/archives-as-source.md`](wiki/decisions/archives-as-source.md) for the full lifecycle.
 29. **Archives are "dead" reference material.** Once a wave of cleanup begins, the archives are not expected to compile. It is acceptable for an archive's internal Cargo dependency graph to be broken by deleting a leaf crate even if other archive crates depended on it. This unblocks tight-scope deletions that would otherwise grow into multi-crate audits.
+
+## Planning
+
+30. **Brainstorm before implementation.** Do not jump straight to code. Use `/workflow:brainstorm` or `AskUserQuestion` to align on approach first. We burned an entire session retrofitting accuracy because we skipped planning — the cost of pausing to think is always lower than the cost of unwinding the wrong design.
 
 ## Wiki
 

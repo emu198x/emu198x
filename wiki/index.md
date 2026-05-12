@@ -54,6 +54,7 @@
 ## Decisions
 - [ULA-drives model](decisions/ula-drives-model.md) — timing chip owns the clock, CPU is subordinate
 - [No Bus trait](decisions/no-bus-trait.md) — CPU exposes signals, machine handles transactions
+- [No ROM trap-load](decisions/no-rom-trap-load.md) — tape/disk loading stays cycle-accurate, no `LD-BYTES` shortcut; rule 20 / 21 worked example
 - [Half-cycle signals](decisions/half-cycle-signals.md) — half-cycle granularity for accurate signal timing
 - [Fresh start rationale](decisions/fresh-start-rationale.md) — why full rewrite, what carried forward
 - [Crate naming](decisions/crate-naming.md) — manufacturer-chipname convention
