@@ -205,7 +205,51 @@ The per-bit-position inner-delay calibration combined with the threshold table e
 - Walk the algorithm with all 4 delay values × all 8 positions for every reasonable input pulse width and figure out the inverse, OR
 - Capture FUSE's per-bit B values for the same TZX and compare.
 
-The second is the realistic path. Building FUSE-trace infrastructure is its own project but the only way to definitively pin this down.
+### FUSE-free trace via single-T-state stepping (2026-05-12)
+
+We never needed FUSE for the proximate observation. The trace test `trace_speedlock7_byte_decoder_b_values` in `speedlock7_tape_ram_dump.rs` runs Op Wolf to frame 1700, then drops to single-T-state stepping (`session.machine_mut().machine_mut().advance_tstates(1)` per loop, polling PC after each), and records every PC transition in `$fd5f..$fd6f` until the wipe zone (`$FBC0..$FBE0`) is hit.
+
+Recorded for Op Wolf SpeedLock 7 (Hit Squad TZX), frame 1700 onward:
+
+| Iter | Cumulative T (from frame 1700) | B at `$fd5f` | L before RL | L after RL (at `$fd65`) | Bit |
+|---|---|---|---|---|---|
+| 0 | +3 637 347 | $C1 | $04 | $09 | 1 (B > $BC) |
+| 1 | +3 638 802 | $AC | $09 | $12 | 0 |
+| 2 | +3 641 659 | $C3 | $12 | $25 | 1 |
+| 3 | +3 643 100 | $AC | $25 | $4A | 0 |
+| 4 | +3 644 490 | $AB | $4A | $94 | 0 |
+| 5 | +3 645 946 | $AC | $94 | $28 | 0 |
+| → wipe | +3 645 991 | (PC = `$fd6c`, `JP NZ $fbcb` taken) | | | |
+
+Bit sequence shifted into L (oldest → newest): `1 0 1 0 0 0`. After 6 iterations L = $28. The wipe fires immediately at `$fd6c` because L ≠ $3A — the loader didn't even wait for 8 bits; the bit-shift loop has its own early-exit at `JP NC $fd4f` (taken when B < $BC) that loops back for more pulses, and the `CP L != $3A` check fires whenever a bit is *successfully* shifted with CY=1 (i.e. B > $BC).
+
+Inter-call gaps (time from one `$fd5f` hit to the next):
+
+| Iter | Gap (T-states) | Approx pulse width |
+|---|---|---|
+| 0→1 | 1 455 | shorter pulse |
+| 1→2 | 2 857 | ≈ 2 × shorter |
+| 2→3 | 1 441 | shorter |
+| 3→4 | 1 390 | shorter |
+| 4→5 | 1 456 | shorter |
+
+The 2 857 T gap stands out as roughly 2 × the others — the classic ZERO/ONE FSK ratio. Mapping iters with high B (=$C1, $C3) to wide pulses and iters with low B (=$AC, $AB) to narrow pulses gives:
+
+- Wide pulse → bit = 1 (B > $BC)
+- Narrow pulse → bit = 0 (B < $BC)
+
+So our chip is decoding the pulse train as `1 0 1 0 0 0` — but the loader expects whatever sequence produces L = $3A (binary 0011 1010, oldest bit first = 0 0 1 1 1 0 1 0 over 8 iters).
+
+### What the trace tells us
+
+Two competing interpretations remain:
+
+1. **Our pulse stream is structurally wrong.** The TZX → TapePlayer pipeline doesn't preserve some piece of per-pulse information Speedlock encodes. The pulse widths at the input to the loader are not the widths Speedlock wrote.
+2. **Our pulse stream is right; the loader's per-bit-position delay/threshold logic is what makes the test position-sensitive.** Same physical pulse, different B value depending on which `LD A, $09/$0E/$13/$16` was used to seed `$FCDB`.
+
+Option 2 is testable: capture the actual `A` register on entry to `$FCDB` per iteration and compare against the 4-value rotation `$09/$0E/$13/$16`. If our trace shows the loader is sweeping delays but our chip is producing iter counts inconsistent with the delay × pulse-width math, we have a CPU-side timing issue. If iter counts match the math but the bit sequence is still wrong, the pulse stream is at fault.
+
+Either way, **we no longer need FUSE for the diagnosis** — only for cross-validation if option 2's analysis is inconclusive.
 
 ### Implications for fixing the gap
 
@@ -214,10 +258,11 @@ Three new findings narrow it further:
 2. Pulse-edge timing in our `TapePlayer` is exact (proven by unit tests).
 3. The loader's byte-decoder uses per-bit-position custom timing that's sensitive to *something* our chip + pulse delivery doesn't match. Likely candidates: T-state accounting through the `IN A,($FE)` cycle (we may be off by a few T-states due to contention model details), or the loader being sensitive to the exact phase of when pulse edges fall within the M3 cycle of the IN instruction.
 
-Next-investigation candidates (in suspicion order):
-1. **48K IN/OUT contention timing audit.** `IN A,($FE)` is a contended I/O cycle on the 48K — 4 (M1) + 3 (M2) + 4 (M3 with up to 4 added wait T-states). Our model needs verifying T-state-by-T-state against the FUSE reference. A few-T-state offset on every IN multiplies by ~30 iters per pulse → could shift B by 30+ T-states worth of iters, plausibly enough to flip a per-bit-position threshold check.
-2. **FUSE side-by-side iter-count capture.** Build FUSE with logging at each IN A,($FE), run Op Wolf, capture B values entering and exiting `CALL $FCD5`. Compare line-by-line with ours.
-3. **R-register check / floating-bus check** — lower-suspicion candidates from earlier, kept for completeness.
+Next-investigation candidates (in suspicion order, post-2026-05-12 trace):
+1. **Capture `A` (delay seed) per `$FCDB` entry.** Extend the trace test to also record `A` at the moment of CALL `$FCDB`. The 4-value rotation `$09/$0E/$13/$16` should be visible; if not, the pre-check phase isn't behaving as the static disassembly suggests. If yes, we can compute the expected B for each (delay, pulse-width) pair and compare against observed B — telling us whether the divergence is in the CPU's T-state accounting or the pulse stream.
+2. **Sample pulse widths directly through `TapePlayer::current_span`.** At the trace test's stop point (frame 1700 → wipe), iterate `current_span()` over the active stream and record (width, level) for the spans being consumed during iters 0..5. Compare against TZX-declared widths. If the spans differ from TZX-declared, the parser is dropping or merging spans somewhere.
+3. **48K IN/OUT contention timing audit.** `IN A,($FE)` is a contended I/O cycle on the 48K — 4 (M1) + 3 (M2) + 4 (M3 with up to 4 added wait T-states). Our model needs verifying T-state-by-T-state against the FUSE reference. A few-T-state offset on every IN multiplies by ~30 iters per pulse → could shift B by 30+ T-states worth of iters, plausibly enough to flip a per-bit-position threshold check.
+4. **R-register check / floating-bus check** — lower-suspicion candidates from earlier, kept for completeness.
 
 The RAM-dump harness (`crates/runtime-sinclair-zx-spectrum/tests/speedlock7_tape_ram_dump.rs`), decrypted-loader disassembly notes (in this doc), exact wipe-trigger location, threshold-table values, and edge-timing unit tests are all in place. The next person to pick this up has the full investigation context.
 
