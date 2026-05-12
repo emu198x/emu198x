@@ -462,6 +462,99 @@ mod tests {
         assert!(!current_level);
     }
 
+    /// Direct T-state-by-T-state validation that a `Pulse(N)` span
+    /// holds the EAR level for exactly N T-states before toggling.
+    /// Speedlock-7's pilot-detect threshold is a 2-iteration margin
+    /// on a 54-T-state-per-iter loop; if our edge timing is off by
+    /// one T-state per pulse the loader's pilot count drifts enough
+    /// to fail. This test pins the exact toggle moment.
+    #[test]
+    fn pulse_span_holds_level_for_exact_tstates_then_toggles() {
+        let mut player = TapePlayer::new();
+        // Two 5-T-state pulses back-to-back. Initial level is `false`,
+        // so after the first pulse the level becomes `true` and after
+        // the second it becomes `false` again.
+        player.load_pulses(vec![5, 5]);
+        player.play();
+
+        // After each `advance_tstates(1)` we read the level. The
+        // toggle for pulse 1 must land exactly at T-state 5 (i.e. on
+        // the 5th advance call, after that call the level is `true`).
+        let levels: Vec<bool> = (1..=10)
+            .map(|_| {
+                player.advance_tstates(1);
+                player.ear_level()
+            })
+            .collect();
+
+        // Pulse 1 (duration 5): level was `false` for T=1..4, toggles
+        // to `true` on T=5.
+        assert_eq!(
+            levels[..5],
+            [false, false, false, false, true],
+            "pulse 1 must toggle on the 5th T-state, not the 4th or 6th",
+        );
+        // Pulse 2 (duration 5): level holds `true` for T=6..9, toggles
+        // to `false` on T=10.
+        assert_eq!(
+            levels[5..10],
+            [true, true, true, true, false],
+            "pulse 2 must toggle on the 5th T-state of its own span",
+        );
+    }
+
+    /// Equivalent test using a bulk `advance_tstates(N)` call instead
+    /// of N×1. Both code paths run through the same inner loop but
+    /// the bulk-advance shortcut at the top of `advance_tstates`
+    /// (`if countdown > remaining { countdown -= remaining; return; }`)
+    /// hits a different branch — needs verifying separately.
+    #[test]
+    fn bulk_advance_lands_toggle_at_exact_tstate() {
+        let mut player = TapePlayer::new();
+        player.load_pulses(vec![100]);
+        player.play();
+
+        // 99 T-states in: level still false.
+        player.advance_tstates(99);
+        assert!(!player.ear_level(), "level must be unchanged at T=99");
+
+        // 1 more T-state lands the toggle: level becomes true at T=100.
+        player.advance_tstates(1);
+        assert!(player.ear_level(), "level must toggle exactly at T=100");
+    }
+
+    /// The pilot-detect threshold for Speedlock-7 requires a 40-
+    /// iteration count over a 2 165 T-state pilot pulse. If our edge
+    /// timing accumulates *any* drift over 32 consecutive pilot
+    /// pulses, the loader rejects. This test verifies 32 back-to-back
+    /// 2 165-T-state pulses produce exactly 32 edges at the
+    /// expected positions.
+    #[test]
+    fn speedlock7_pilot_pulses_produce_edges_at_exact_offsets() {
+        let mut player = TapePlayer::new();
+        player.load_pulses(vec![2165; 32]);
+        player.play();
+
+        let mut edges = 0;
+        let mut last_level = player.ear_level();
+        for t in 1..=(2165 * 32) {
+            player.advance_tstates(1);
+            let level = player.ear_level();
+            if level != last_level {
+                // Edge must land exactly on a multiple of 2165.
+                assert_eq!(
+                    t % 2165,
+                    0,
+                    "edge {} landed at T={t}, expected multiple of 2165",
+                    edges + 1,
+                );
+                edges += 1;
+                last_level = level;
+            }
+        }
+        assert_eq!(edges, 32, "exactly 32 edges expected for 32 pilot pulses");
+    }
+
     #[test]
     fn pause_zero_emits_nothing() {
         // TZX spec: pause=0 after a data block means "no pause,

@@ -68,9 +68,86 @@ The 2650 bytes copied to `$F48E` are not directly executable. Static disassembly
 
 This means the EAR-polling routine we'd need to study to know what pulse-width thresholds the loader expects only exists at runtime, after the decryptor has run. Static analysis can't reach it.
 
+### Decrypted-loader disassembly (2026-05-12 late afternoon)
+
+The 48K-tape RAM-dump harness now exists as `crates/runtime-sinclair-zx-spectrum/tests/speedlock7_tape_ram_dump.rs`. Two tests: a frame-ladder probe that walks 100/300/600/.../9600 frames sampling `$F48E` at each step, and a focused capture that runs to frame 1400 and writes the post-decryption RAM to `/tmp/speedlock7-decrypted-f48e.bin`.
+
+Timing of the loader's life cycle in our emulator:
+
+- **Frame 1200**: BASIC's auto-run has not yet fired. CPU sits in ROM's `LD-EDGE-1` at `$05ED-$05F9` loading the BASIC program block.
+- **Frame 1300**: Auto-run has fired. Bootstrap (`DI ; clear attrs ; OUT $FE,0 ; LDIR 2650 → $F48E ; RET`) has executed. 2 643 bytes appear at `$F48E`. PC is at `$F9FA` (deep in the loader).
+- **Frame 1400-1700**: PC is at `$FCE4` — the `IN A,($FE)` site inside the loader's byte-decoder. 3 `IN A,($FE)` instructions are now visible across `$F48E..+0x0A5A`. Loader is in pilot / byte detection.
+- **Frame 1800 onward**: anti-tamper wipe has fired. PROG (sysvar at `$5C53`) is corrupted to 0. PC is at `$FBD6` in an `INC IY ; JR -8` two-instruction loop. The loader region is mostly zeroed back out; only 7 bytes (`36 11 00 FD 23 18 F8` at `$FBD0`) remain — the wipe's halt sled.
+
+### Loader byte-decoder anatomy
+
+The pulse-decode loop at `$FCD5..$FCF5` is **virtually identical to the 48K BASIC ROM's `LD-EDGE-2` / `LD-EDGE-1`** at `$05E3..$0604`. The body:
+
+```
+$fcd5: CD D9 FC       CALL $FCD9         ; LD-EDGE-2: detect first edge
+$fcd8: D0             RET NC             ; first edge timeout
+$fcd9: 3E 16          LD A, $16          ; LD-EDGE-1: inner-delay seed (22)
+$fcdb: 3D             DEC A
+$fcdc: 20 FD          JR NZ, $fcdb       ; spin for 22 * 16 = 352 T-states
+$fcde: A7             AND A              ; clear carry
+$fcdf: 04             INC B              ; pulse counter
+$fce0: C8             RET Z              ; B overflowed to 0: timeout, CY=0
+$fce1: 3E 7F          LD A, $7F
+$fce3: DB FE          IN A, ($FE)        ; sample EAR
+$fce5: 1F             RRA
+$fce6: A9             XOR C              ; compare against previous EAR (bit 5)
+$fce7: E6 20          AND $20
+$fce9: 28 F4          JR Z, $fcdf        ; no edge → loop
+$fceb: 79             LD A, C
+$fcec: 2F             CPL
+$fced: 4F             LD C, A            ; update EAR-state mirror
+$fcee: E6 02          AND $02            ; (vs ROM's AND $07)
+$fcf0: F6 08          OR $08
+$fcf2: D3 FE          OUT ($FE), A       ; border flash
+$fcf4: 37             SCF
+$fcf5: C9             RET
+```
+
+Loop body cost (between `INC B` and `JR Z $fcdf`): `4 + 5 + 7 + 11 + 4 + 4 + 7 + 12 = 54` T-states per iteration, exactly matching the standard ROM.
+
+The pilot detector at `$FCFE..$FD20` initialises `B = $9C (156)` and loops calling `$FCD5`, requiring 32 consecutive pulses whose final `B > $C2 (194)`. With Speedlock-7's pilot pulse = 2 165 T-states:
+
+```
+2165 / 54 ≈ 40.09 iterations  →  final B = $9C + 40 = $C4 (196)
+```
+
+Compared against `$C2`: `196 > 194` by **2**. **Very tight margin.** If our pulse delivery is even ~100 T-states short of nominal, iterations drop to 38 and `B = $C2` exactly — the pilot is rejected and the pilot-count restart fires.
+
+### Pulse-edge timing is NOT the bug
+
+We tested the hypothesis directly. Three unit tests in `crates/common-sinclair-zx-spectrum/src/tape.rs::tests`:
+
+1. **`pulse_span_holds_level_for_exact_tstates_then_toggles`** — drives 2 × 5-T-state pulses through `TapePlayer::advance_tstates(1)` 10 times and asserts the level toggles on T=5 and T=10 exactly, not T=4/6 or T=9/11.
+2. **`bulk_advance_lands_toggle_at_exact_tstate`** — bulk `advance_tstates(99)` then `advance_tstates(1)` over a `Pulse(100)` span, asserts toggle lands exactly at T=100. Validates the bulk-advance shortcut in `advance_tstates`, not just the 1-at-a-time path.
+3. **`speedlock7_pilot_pulses_produce_edges_at_exact_offsets`** — drives 32 back-to-back `Pulse(2165)` spans (Speedlock-7 pilot widths) through 2165 × 32 = 69 280 single-T-state advances, asserts every edge lands on a multiple of 2165 T-states and that there are exactly 32 edges.
+
+**All three pass.** Our edge timing is byte-perfect against the T-state grid.
+
+### Reframing
+
+The Speedlock-7 failure is therefore NOT pulse-edge timing. The loader's byte-decoder (which is essentially the standard ROM's `LD-EDGE-1/2`) would correctly count `B = $C4 = 196` for a 2 165-T-state pilot pulse with our delivery, satisfying the `> $C2 = 194` threshold by the same 2-iteration margin real hardware has.
+
+The 300-frame stall at `PC = $FCE4` (frames 1400-1700) followed by the anti-tamper wipe at frame 1800 must therefore come from somewhere *other* than pulse decoding. Candidates, none yet falsified:
+
+1. **R-register anti-debug.** The decryptor's first instructions (`LD A, $47 ; LD R, A`) set R to a specific value. Later code probably reads R back and checks it against an expected post-execution value derived from the precise instruction trace. Tom Harte verifies our Z80's R register against the published behaviour for every instruction, but real hardware's R-bit-7 latching across `LD A, R` reads is subtle; subtle bugs there are a classic anti-debug surface. Worth re-reviewing our `LD A, R` implementation against FUSE's against real hardware.
+2. **Floating-bus / port-FF reads.** The 48K's "floating bus" returns the byte the ULA is currently fetching from screen RAM, but only for unattached ports (not $FE). Speedlock could `IN A, ($FF)` (or any other unattached port) and use the screen-RAM byte as a check value. Our 48K's IO read for unattached ports returns `$FF` rather than the floating-bus byte. If Speedlock checks this, it fails.
+3. **ULA contention timing.** Memory access at $4000-$7FFF is contended on the 48K. The loader at $F48E is uncontended, but if it reads from contended addresses during its check loop, the variable T-state cost matters. We model contention but tight loops are still where subtle off-by-fractional-T-state errors surface.
+4. **HALT-state quirks.** The loader probably issues `EI ; HALT` somewhere to sync to vblank. If our HALT doesn't enter the interrupt service routine on the right cycle, anti-tamper could detect.
+
 ### Implications for fixing the gap
 
-Closing Speedlock-7 cleanly requires running our emulator until the decryptor finishes, dumping the RAM at `$F48E..+0x0A5A`, then disassembling that. That work is straightforward but requires new harness code (a 48K-tape equivalent of `plus3_disk_trace.rs` with a memory-dump trigger). Roughly half a day of focused work; deferred to a future session.
+Pulse timing is conclusively ruled out. The next-investigation candidates are non-tape:
+
+1. **48K floating-bus implementation audit.** Does `IN A, ($FF)` on our 48K return `$FF` or the screen-RAM byte the ULA is fetching? FUSE returns the floating-bus value; our model needs verifying. Cheap to check and high-suspicion.
+2. **R-register `LD A, R` audit against FUSE.** Real hardware has interrupt-acknowledge-cycle subtleties in R's high bit that the published Z80 timing tables don't capture cleanly.
+3. **CPU-trace diff against FUSE.** Run Op Wolf in both, log every instruction executed between frame 1400 and frame 1800, and find the first divergence. Most expensive but most definitive.
+
+The RAM-dump harness, decrypted-loader disassembly, threshold math, and direct timing tests are all in place. The remaining work is narrower than before but in a different direction than originally hypothesised.
 
 ## What would unblock the fix (operational)
 
