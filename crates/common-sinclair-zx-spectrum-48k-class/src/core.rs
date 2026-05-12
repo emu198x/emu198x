@@ -282,6 +282,12 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         self.tape.is_playing()
     }
 
+    /// Diagnostic accessor for tape playback state.
+    #[must_use]
+    pub fn tape(&self) -> &TapePlayer {
+        &self.tape
+    }
+
     /// Returns the current border colour.
     #[must_use]
     pub fn border_color(&self) -> u8 {

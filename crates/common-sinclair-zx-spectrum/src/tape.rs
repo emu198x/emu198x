@@ -134,6 +134,26 @@ impl TapePlayer {
         self.level
     }
 
+    /// Diagnostic: returns the current playback position (span index)
+    /// and total span count.
+    #[must_use]
+    pub fn span_position(&self) -> (usize, usize) {
+        (self.span_idx, self.spans.len())
+    }
+
+    /// Diagnostic: returns the T-states remaining on the current span
+    /// (the countdown).
+    #[must_use]
+    pub fn span_countdown(&self) -> u32 {
+        self.countdown
+    }
+
+    /// Diagnostic: returns the current span variant, if any.
+    #[must_use]
+    pub fn current_span(&self) -> Option<&TapeSpan> {
+        self.spans.get(self.span_idx)
+    }
+
     /// Advances the tape by the supplied number of CPU T-states.
     pub fn advance_tstates(&mut self, tstates: u32) {
         if !self.playing {

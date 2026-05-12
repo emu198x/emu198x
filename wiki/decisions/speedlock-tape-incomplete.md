@@ -139,15 +139,55 @@ The 300-frame stall at `PC = $FCE4` (frames 1400-1700) followed by the anti-tamp
 3. **ULA contention timing.** Memory access at $4000-$7FFF is contended on the 48K. The loader at $F48E is uncontended, but if it reads from contended addresses during its check loop, the variable T-state cost matters. We model contention but tight loops are still where subtle off-by-fractional-T-state errors surface.
 4. **HALT-state quirks.** The loader probably issues `EI ; HALT` somewhere to sync to vblank. If our HALT doesn't enter the interrupt service routine on the right cycle, anti-tamper could detect.
 
+### The wipe trigger — and L = $28 instead of $3A
+
+Tracing the loader's register state densely between frames 1700-1800 (when the wipe fires) pinned the exact trigger. The wipe is the `INC IY ; JR -8` loop at `$FBD0`, called from a `JP NZ $FBCB` at `$fd6c`. The conditional check immediately before:
+
+```
+$fd5f: 3E BC          LD A, $BC
+$fd61: B8             CP B          ; B = pulse count from latest CALL $FCD5
+$fd62: CB 15          RL L          ; shift CY (CP B result) into L
+$fd64: 06 9E          LD B, $9E     ; re-seed B for next pulse
+$fd66: D2 4F FD       JP NC, $fd4f  ; bit was 0 (old L bit 7 was 0) → read next
+$fd69: 3E 3A          LD A, $3A
+$fd6b: BD             CP L          ; L must equal $3A
+$fd6c: C2 CB FB       JP NZ, $fbcb  ; ←—— THE WIPE TRIGGER
+```
+
+This isn't bit-decoding a data byte: it's a **rolling pattern match**. The loader shifts the pilot-vs-data discriminator into L on every pulse and looks for the moment L = `$3A`. The `$3A` (binary `0011 1010`) is the expected pilot-to-sync-to-data transition pattern.
+
+When the wipe fires in our emulator (frame ~1760), `L = $28` (binary `0010 1000`). Two bits differ from `$3A` at positions 1 and 4.
+
+### Why our chip produces $28 instead of $3A
+
+The bit-discriminator is `LD A, $BC ; CP B`. Bit = 1 iff `B > $BC = 188`.
+
+`B` is incremented during LD-EDGE-2 inside `$FCD5`. Math for our delivered pulses with the 54-T-state-per-iter loop and 354-T-state initial delay:
+
+| Pulse type | Width  | Iterations | Final B from initial $9E | Bit |
+|---|---|---|---|---|
+| Speedlock-7 PILOT | 2 165 T | ~33 | $BF | **1** (> $BC) |
+| Speedlock-7 SYNC1/2 | 714 T | ~6 | $A4 | 0 |
+| Speedlock-7 ZERO | 583 T | ~4 | $A2 | 0 |
+| Speedlock-7 ONE | 1 166 T | ~15 | $AD | 0 |
+
+So our chip would shift in 1s during pilot, 0s during sync and data. The transition is monotonic: many 1s, then a flip to 0s. The pattern `$3A = 0011 1010` requires bits to **alternate** — three pilot pulses, then a data pulse, then three pilots, then alternating — which is **not what our delivery produces**.
+
+This suggests either:
+- The pulse widths Speedlock writes for pilot vs sync vs data are not the simple regular sequence the TZX block headers describe — there's per-pulse variation we're not preserving, OR
+- The pilot-vs-data discriminator isn't measuring the pulse-width threshold we think — it's measuring something subtler (maybe the EAR level transition direction, or the inter-edge gap modulo a phase reference), OR
+- The TZX dump's recorded pulse widths drift from the original master in a way Speedlock measures and we don't reproduce
+
 ### Implications for fixing the gap
 
-Pulse timing is conclusively ruled out. The next-investigation candidates are non-tape:
+This is now an investigation into the *encoded structure* of the Speedlock-7 turbo blocks, not into our chip's timing precision. The on-tape signal must have a specific pulse-width modulation pattern that, when fed through the `B > $BC` discriminator, yields the rolling-shift signature `$3A`. Our TZX-derived pulse stream gives a uniform regular sequence and doesn't.
 
-1. **48K floating-bus implementation audit.** Does `IN A, ($FF)` on our 48K return `$FF` or the screen-RAM byte the ULA is fetching? FUSE returns the floating-bus value; our model needs verifying. Cheap to check and high-suspicion.
-2. **R-register `LD A, R` audit against FUSE.** Real hardware has interrupt-acknowledge-cycle subtleties in R's high bit that the published Z80 timing tables don't capture cleanly.
-3. **CPU-trace diff against FUSE.** Run Op Wolf in both, log every instruction executed between frame 1400 and frame 1800, and find the first divergence. Most expensive but most definitive.
+Next-investigation candidates (in suspicion order):
+1. **Inspect the actual Speedlock-7 pulse pattern in FUSE.** Run Op Wolf through FUSE with the same TZX, capture every IN A,($FE) and the EAR bit value at that exact T-state, count the iterations between edges per pulse. If FUSE's iter count varies in a way ours doesn't, the bug is in our TZX → pulse-stream conversion.
+2. **TZX format audit.** Are the `0x12` pure-tone / `0x13` pulse-sequence / `0x14` pure-data blocks of Op Wolf's TZX actually a regular alternation of pilot/sync/data widths, or do they encode per-pulse variation through a different block (`0x18` CSW recording, `0x19` generalised data)? Our parser handles only the simple block IDs; the encoded pattern that makes `$3A` work might live in a block ID we don't parse.
+3. **CPU-trace diff against FUSE.** Definitive but expensive — run Op Wolf in both emulators, log every instruction executed between frames 1400-1800, find the first divergence point. Probably the right call once the harness exists for both sides.
 
-The RAM-dump harness, decrypted-loader disassembly, threshold math, and direct timing tests are all in place. The remaining work is narrower than before but in a different direction than originally hypothesised.
+The RAM-dump harness, decrypted-loader disassembly, exact wipe-trigger location, threshold math, and direct edge-timing tests are all in place. Pulse-edge timing is proven correct. The remaining work is to understand what specific pulse-width modulation pattern Speedlock-7 expects vs what our TZX parser produces.
 
 ## What would unblock the fix (operational)
 

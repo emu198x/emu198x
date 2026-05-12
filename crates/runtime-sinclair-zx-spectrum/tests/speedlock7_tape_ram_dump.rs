@@ -224,6 +224,117 @@ fn dump_speedlock7_loader_ram() {
 
 #[test]
 #[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
+fn sample_border_color_through_loader() {
+    // The Speedlock-7 byte-decoder at $FCE3 toggles the border colour
+    // (OUT $FE, A) on every successful edge detect. If the loader is
+    // actually decoding pulses, the border bottom strip will be
+    // flashing through colours. If the border stays static black,
+    // the loop is timing out (no edges seen).
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_file);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+
+    let rom_path = firmware_root.join("48.rom");
+    let rom_bytes = read_firmware_asset(&rom_path).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    // Walk a frame ladder and at each frame sample: tape state, border
+    // colour, PC, and whether the EAR level has changed since the
+    // previous sample.
+    let stages = [
+        1700u32, 1710, 1720, 1730, 1740, 1750, 1760, 1770, 1780, 1790, 1800,
+    ];
+    let mut prior_ear: Option<bool> = None;
+    let mut prior_span: Option<usize> = None;
+    let mut cumulative = 0u32;
+    for &budget in &stages {
+        session.run_frames(budget - cumulative).expect("run_frames");
+        cumulative = budget;
+        let machine = session.machine().machine();
+        let pc = machine.z80().regs.pc;
+        let ear = machine.tape().ear_level();
+        let (span_idx, span_total) = machine.tape().span_position();
+        let countdown = machine.tape().span_countdown();
+        let span = machine.tape().current_span();
+        let b_reg = machine.z80().regs.b();
+        let l_reg = machine.z80().regs.l();
+        let e_reg = machine.z80().regs.e();
+        let hl = machine.z80().regs.hl;
+        let ear_changed = prior_ear.map_or("?".to_owned(), |p| if p != ear { "CHANGED".into() } else { "same".into() });
+        let span_changed = prior_span.map_or("?".to_owned(), |p| if p != span_idx { format!("Δ={}", span_idx.saturating_sub(p)) } else { "same".into() });
+        eprintln!(
+            "frame {budget:5}: PC=${pc:04x} EAR={ear} ({ear_changed}) span={span_idx}/{span_total} ({span_changed}) countdown={countdown:6} B=${b_reg:02x} L=${l_reg:02x} E=${e_reg:02x} HL=${hl:04x} span={span:?}",
+        );
+        prior_ear = Some(ear);
+        prior_span = Some(span_idx);
+    }
+    return;
+
+    let pc1 = session.machine().machine().z80().regs.pc;
+    let port_fe = session.machine().machine().z80().regs.de; // proxy
+
+    // Sample the bottom border (last row of framebuffer should be border).
+    // 48K framebuffer is 352x296 indexed; bottom-row pixels are border.
+    let fb = session.machine().machine().framebuffer();
+    let mut bottom_palette_counts: std::collections::BTreeMap<u8, u32> =
+        std::collections::BTreeMap::new();
+    let width = 352usize;
+    let height = 296usize;
+    // Sample the bottom border (rows 280..295).
+    for y in 280..height {
+        for x in 0..width {
+            let pixel = fb[y * width + x];
+            *bottom_palette_counts.entry(pixel).or_insert(0) += 1;
+        }
+    }
+    eprintln!("\n=== Border colour distribution at frame 1350 (PC=${pc1:04x}) ===");
+    for (colour, count) in &bottom_palette_counts {
+        eprintln!("  palette {colour:#04x} : {count} pixels");
+    }
+    let _ = port_fe;
+
+    // Frame 1700 — supposedly just before the wipe.
+    session.run_frames(350).expect("run_frames");
+    let pc2 = session.machine().machine().z80().regs.pc;
+    let fb = session.machine().machine().framebuffer();
+    let mut counts2: std::collections::BTreeMap<u8, u32> = std::collections::BTreeMap::new();
+    for y in 280..height {
+        for x in 0..width {
+            *counts2.entry(fb[y * width + x]).or_insert(0) += 1;
+        }
+    }
+    eprintln!("\n=== Border colour distribution at frame 1700 (PC=${pc2:04x}) ===");
+    for (colour, count) in &counts2 {
+        eprintln!("  palette {colour:#04x} : {count} pixels");
+    }
+}
+
+#[test]
+#[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
 fn dump_speedlock7_decrypted_loader() {
     // Run to frame 1400 (after self-decryption, before anti-tamper wipe)
     // and capture $F48E..+0x0A5A to disk. Companion to
