@@ -1358,6 +1358,126 @@ from_frame = 60
 secs = 2.0
 hash = "xxh64:c27195d1cabf3150"
 
+# ─── Speedlock-6 cluster ────────────────────────────────────────
+# Four titles that share Ocean's Speedlock-6 protection: a weak-
+# sector check on track 0 sector 2. All four hung at the same
+# anti-tamper wipe loop ($FDxx INC HL ladder) until the µPD765A
+# learned to model marginal-encoding physics on sectors with
+# recorded ST1.DE / ST2.DD set — at which point all four progress
+# past the protection and reach loaded game code. See
+# `wiki/decisions/marginal-encoding-model.md`.
+
+[[entry]]
+id = "operation-wolf-plus3"
+title = "Operation Wolf (+3)"
+year = 1988
+publisher = "Ocean"
+variant = "plus3"
+
+[entry.media]
+# Taito arcade conversion. Speedlock-6 with a weak track-0 sector
+# 2 carrying ST1.DE | ST2.DD; loader re-reads that sector and
+# expects the bytes to differ between reads.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Operation Wolf (1988)(Ocean)(+3).zip"
+
+[entry.boot]
+# Captures the credits frame: "PROGRAMMING BY ANDREW DEAKIN /
+# GRAPHICS BY IVAN HORN" in cyan on black, the loader's standard
+# post-protection idle-attract state.
+wait_frames = 6000
+frame_hash = "xxh64:ee18d332300497af"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "robocop-plus3"
+title = "RoboCop (+3)"
+year = 1988
+publisher = "Ocean"
+variant = "plus3"
+
+[entry.media]
+# Same Speedlock-6 protection family. RoboCop's +3 release was
+# one of Ocean's flagship 1988 disk titles.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/RoboCop (1988)(Ocean)(+3).zip"
+
+[entry.boot]
+# Captures the input-select menu: "1 KEYBOARD / 2 SINCLAIR /
+# 3 KEMPSTON / 4 DEFINE KEYS" with the RoboCop title banner
+# partially painted above it. Post-load attract state.
+wait_frames = 6000
+frame_hash = "xxh64:5d1790db06e24156"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "where-time-stood-still-plus3"
+title = "Where Time Stood Still (+3)"
+year = 1988
+publisher = "Ocean"
+variant = "plus3"
+
+[entry.media]
+# Denton Designs' Lost-World-style adventure-action title. Same
+# Speedlock-6 protection as Op Wolf / RoboCop.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Where Time Stood Still (1988)(Ocean)(+3)[aka Land That Time Forgot, The][aka Tibet].zip"
+
+[entry.boot]
+# Captures the full control-selection menu: yellow "WHERE TIME
+# STOOD STILL" logo, red "CONTROL SELECTION" header, options
+# "0 SELECT / 1 KEYBOARD / 2 KEMPSTON / 3 SINCLAIR / 4 CURSOR".
+# Only Speedlock-6 entry to reach a state with live audio in
+# the capture window (distinct from the loader-idle hash that
+# Op Wolf / RoboCop / Dragon Ninja share).
+wait_frames = 6000
+frame_hash = "xxh64:da054f4e390841f7"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:d6703d22b541a0ca"
+
+[[entry]]
+id = "dragon-ninja-plus3"
+title = "Bad Dudes vs. Dragon Ninja (+3)"
+year = 1988
+publisher = "Imagine"
+variant = "plus3"
+
+[entry.media]
+# Imagine was Ocean's budget label by 1988, sharing the same
+# Speedlock protection toolchain. Confirms the marginal-encoding
+# fix isn't Ocean-brand-specific.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Bad Dudes vs. Dragon Ninja (1988)(Imagine)(+3).zip"
+
+[entry.boot]
+# Captures the framed control-selection menu: red "DRAGON-NINJA"
+# banner, options "0 START GAME / 1 KEYBOARD / 2 KEMPSTON /
+# 3 CURSOR KEYS / 4 SINCLAIR / 5 REDEFINE KEYS" with "WRITTEN BY
+# PAUL OWENS" credit. The dragon-decorated frame border is the
+# tell — Imagine's standard title-screen styling.
+wait_frames = 6000
+frame_hash = "xxh64:aae1316bd564e93c"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
 # ─── 16K entries ────────────────────────────────────────────────
 # 1982-83 titles small enough to fit in 16K of RAM. All use the same
 # 48 BASIC ROM and the same `LOAD ""` autoload path as the 48K-class
