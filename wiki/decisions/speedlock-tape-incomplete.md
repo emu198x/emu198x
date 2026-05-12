@@ -178,16 +178,48 @@ This suggests either:
 - The pilot-vs-data discriminator isn't measuring the pulse-width threshold we think — it's measuring something subtler (maybe the EAR level transition direction, or the inter-edge gap modulo a phase reference), OR
 - The TZX dump's recorded pulse widths drift from the original master in a way Speedlock measures and we don't reproduce
 
+### What I've learned trying to reverse-engineer the byte-decoder
+
+The byte-decoder is more sophisticated than a uniform-threshold pulse counter. The structure I see:
+
+1. **7-iter pre-check loop** at `$fd2d-$fd3e`: `LD E, $07 ; LD HL, $FEB4 ; LD B, (HL) ; INC HL ; CALL $FCD5 ; LD A, (HL) ; INC HL ; CP B ; JR NC, $fd0a (restart)`. Reads 7 pulse pairs, each with its own initial-B seed and threshold pair from a 14-byte table at `$FEB4`. The table values are `E9 EA D2 E2 B6 E0 B6 E0 B6 E0 D2 E2 EC ED`. These are high enough that *plain pilot pulses* would fail the check (with B around `$E1` vs threshold `$E9` for the first pair), yet our trace shows the loader does get past pilot detect into this phase. Either the pre-check pulse pairs aren't the same as the pilot pulses, or the seed values change how iters accumulate.
+
+2. **Bit-shift loop** at `$fd5f-$fd6c`: `LD A, $BC ; CP B ; RL L ; ...` with sub-routine calls (`$FCDB` directly, bypassing the default 354-T inner delay) that pre-set A with various values (`$09, $0E, $13, $16`). The custom inner-delays are 144, 224, 304, 352 T respectively — that's the per-bit-position sensitivity calibration. Each bit position uses a different effective threshold by varying the delay-before-counting.
+
+3. **Result check** at `$fd6b`: `LD A, $3A ; CP L ; JP NZ $fbcb`. After 8 shifts (or scans?), L must equal `$3A`.
+
+### What we actually observed
+
+Running Op Wolf in our emulator and densely sampling between frames 1700-1800:
+
+- Loader gets past pilot detect (E=0 at frame 1710, immediately after pulses start).
+- L starts at `$C3` (residual from earlier), eventually becomes `$28` by frame 1760.
+- The wipe (`PC=$FBD6` in the `INC IY ; JR -8` loop) is running at frame 1760+.
+
+So the loader successfully decodes the sync/pre-check, then the 8-bit shift produces L=`$28` (binary `0010 1000`) — but the loader expects `$3A` (binary `0011 1010`). Three bit positions differ.
+
+### Why static analysis can't fully resolve this without FUSE
+
+The per-bit-position inner-delay calibration combined with the threshold table encodes an *expected per-position pulse-width signature*. The loader is essentially verifying "is the data block I'm reading the one I wrote?" using a position-sensitive pulse-width hash. To know what pulse widths produce `$3A`, we'd need to either:
+
+- Walk the algorithm with all 4 delay values × all 8 positions for every reasonable input pulse width and figure out the inverse, OR
+- Capture FUSE's per-bit B values for the same TZX and compare.
+
+The second is the realistic path. Building FUSE-trace infrastructure is its own project but the only way to definitively pin this down.
+
 ### Implications for fixing the gap
 
-This is now an investigation into the *encoded structure* of the Speedlock-7 turbo blocks, not into our chip's timing precision. The on-tape signal must have a specific pulse-width modulation pattern that, when fed through the `B > $BC` discriminator, yields the rolling-shift signature `$3A`. Our TZX-derived pulse stream gives a uniform regular sequence and doesn't.
+Three new findings narrow it further:
+1. The TZX file's encoded data is structurally fine — our parser is reading the right pulse widths.
+2. Pulse-edge timing in our `TapePlayer` is exact (proven by unit tests).
+3. The loader's byte-decoder uses per-bit-position custom timing that's sensitive to *something* our chip + pulse delivery doesn't match. Likely candidates: T-state accounting through the `IN A,($FE)` cycle (we may be off by a few T-states due to contention model details), or the loader being sensitive to the exact phase of when pulse edges fall within the M3 cycle of the IN instruction.
 
 Next-investigation candidates (in suspicion order):
-1. **Inspect the actual Speedlock-7 pulse pattern in FUSE.** Run Op Wolf through FUSE with the same TZX, capture every IN A,($FE) and the EAR bit value at that exact T-state, count the iterations between edges per pulse. If FUSE's iter count varies in a way ours doesn't, the bug is in our TZX → pulse-stream conversion.
-2. **TZX format audit.** Are the `0x12` pure-tone / `0x13` pulse-sequence / `0x14` pure-data blocks of Op Wolf's TZX actually a regular alternation of pilot/sync/data widths, or do they encode per-pulse variation through a different block (`0x18` CSW recording, `0x19` generalised data)? Our parser handles only the simple block IDs; the encoded pattern that makes `$3A` work might live in a block ID we don't parse.
-3. **CPU-trace diff against FUSE.** Definitive but expensive — run Op Wolf in both emulators, log every instruction executed between frames 1400-1800, find the first divergence point. Probably the right call once the harness exists for both sides.
+1. **48K IN/OUT contention timing audit.** `IN A,($FE)` is a contended I/O cycle on the 48K — 4 (M1) + 3 (M2) + 4 (M3 with up to 4 added wait T-states). Our model needs verifying T-state-by-T-state against the FUSE reference. A few-T-state offset on every IN multiplies by ~30 iters per pulse → could shift B by 30+ T-states worth of iters, plausibly enough to flip a per-bit-position threshold check.
+2. **FUSE side-by-side iter-count capture.** Build FUSE with logging at each IN A,($FE), run Op Wolf, capture B values entering and exiting `CALL $FCD5`. Compare line-by-line with ours.
+3. **R-register check / floating-bus check** — lower-suspicion candidates from earlier, kept for completeness.
 
-The RAM-dump harness, decrypted-loader disassembly, exact wipe-trigger location, threshold math, and direct edge-timing tests are all in place. Pulse-edge timing is proven correct. The remaining work is to understand what specific pulse-width modulation pattern Speedlock-7 expects vs what our TZX parser produces.
+The RAM-dump harness (`crates/runtime-sinclair-zx-spectrum/tests/speedlock7_tape_ram_dump.rs`), decrypted-loader disassembly notes (in this doc), exact wipe-trigger location, threshold-table values, and edge-timing unit tests are all in place. The next person to pick this up has the full investigation context.
 
 ## What would unblock the fix (operational)
 
