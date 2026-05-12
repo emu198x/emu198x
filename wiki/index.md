@@ -57,6 +57,7 @@
 - [No ROM trap-load](decisions/no-rom-trap-load.md) — tape/disk loading stays cycle-accurate, no `LD-BYTES` shortcut; rule 20 / 21 worked example
 - [Marginal-encoding model](decisions/marginal-encoding-model.md) — µPD765A models weak-sector physics on CRC-erred sectors, deterministic variation across re-reads, satisfies Speedlock-6 checks without ROM trapping
 - [Speedlock-tape incomplete](decisions/speedlock-tape-incomplete.md) — known limitation; TZX pipeline plays cleanly, Speedlock-7 cycle-counted byte decoder still fails the sync check; Alkatraz tape works
+- [Turrican / Tetris (+3) incomplete](decisions/turrican-tetris-plus3-incomplete.md) — two black-screen +3 loaders, different bug classes; Turrican needs `ReadID`-rotation work, Tetris needs post-load runtime diagnosis; tracked separately from Speedlock-6
 - [Half-cycle signals](decisions/half-cycle-signals.md) — half-cycle granularity for accurate signal timing
 - [Fresh start rationale](decisions/fresh-start-rationale.md) — why full rewrite, what carried forward
 - [Crate naming](decisions/crate-naming.md) — manufacturer-chipname convention
