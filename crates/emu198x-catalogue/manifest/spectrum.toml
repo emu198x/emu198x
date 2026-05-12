@@ -1466,6 +1466,70 @@ from_frame = 60
 secs = 2.0
 hash = "xxh64:c27195d1cabf3150"
 
+[[entry]]
+id = "turrican-plus3"
+title = "Turrican (+3)"
+year = 1990
+publisher = "Rainbow Arts"
+variant = "plus3"
+
+[entry.media]
+# Rainbow Arts' shoot-'em-up. Custom +3 disk protection: the
+# loader reads track 1's single N=6 (8192-byte) sector with
+# recorded ST1.DE | ST2.DD, then stops reading mid-sector (~1100
+# of 8192 bytes) and waits for the µPD765A's intrinsic ~2-
+# revolution read timeout to force Result phase. The +3 doesn't
+# wire the FDC's TC pin (FUSE upd_fdc.c: "in +3 uPD765 never got
+# TC"), so silicon timeout is the only abort path. Unblocked by
+# `EXEC_READ_TIMEOUT_TICKS` in `nec-upd765a`.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Turrican (1990)(Rainbow Arts)(+3)(Side A).zip"
+
+[entry.boot]
+# Captures the full attract title screen: yellow "TURRICAN" logo
+# on red graffiti background, armoured hero firing a beam weapon,
+# Rainbow Arts and Probe Software credits, "PRESS SPACE" prompt.
+wait_frames = 6000
+frame_hash = "xxh64:32104419bea65ede"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "tetris-plus3"
+title = "Tetris (+3)"
+year = 1988
+publisher = "Mirrorsoft"
+variant = "plus3"
+
+[entry.media]
+# Mirrorsoft's official Spectrum port. Track 12 is a format-only
+# protection track: 16 sectors with sequential CHRN values (sec i
+# has C=H=R=N=i) all flagged ST1.DE | ST2.DD, and the loader does
+# a multi-ReadID rotation check on that track to verify the layout.
+# A chip that always returned sectors[0] from ReadID would see the
+# same all-zeros header forever and conclude the disk is a copy;
+# rotational ReadID walks the track and satisfies the check.
+# Unblocked by `read_id_index` in `nec-upd765a`.
+kind = "disk"
+slot = "disk-a"
+path = "sinclair/spectrum/Games/[DSK]/Tetris (1988)(Mirrorsoft)(+3).zip"
+
+[entry.boot]
+# Captures the Mirrorsoft title screen: rainbow-coloured "TETRIS"
+# logo, "MIRROR Soft PRESSENTS" banner, scrolling credits ribbon
+# at the bottom showing "...N SOFTWARE AND ..."
+wait_frames = 6000
+frame_hash = "xxh64:14ad0950cf6ac3b0"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
 # ─── Speedlock-6 cluster ────────────────────────────────────────
 # Four titles that share Ocean's Speedlock-6 protection: a weak-
 # sector check on track 0 sector 2. All four hung at the same

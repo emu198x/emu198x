@@ -1,6 +1,14 @@
 # Turrican and Tetris (+3) — black-screen loaders
 
-**Status:** Known limitations as of 2026-05-12. Both titles' +3 disk loaders run without crashing, but neither reaches a playable state. They share the symptom (black framebuffer after 2 000 frames) but the cause is different per title. Diagnosis is paused after a 200-frame FDC trace per title; deeper work needs the same side-by-side-against-FUSE approach that closed the Speedlock-6 cluster (`marginal-encoding-model.md`).
+**Status:** ~~Known limitations~~ **Both closed 2026-05-12 (later afternoon).** Each title surfaced one missing chip behaviour that real silicon implements; modelling them lets both load to their proper title screens. Catalogue entries `turrican-plus3` and `tetris-plus3` pass.
+
+**Turrican fix** — Execution-phase read timeout. The Spectrum +3 doesn't wire the µPD765A's TC pin, so a host that stops reading mid-sector relies on the chip's intrinsic ~2-revolution timeout to force Result phase with `ST1.EN` set. Turrican reads ~1 100 bytes of an 8 192-byte sector and walks away, expecting that timeout. Implemented as `EXEC_READ_TIMEOUT_TICKS` in `nec-upd765a` with the countdown rearmed on each `read_data` call; expiry sets `ST0.IC = abnormal` and `ST1.EN`, then transitions to Result phase. Citation: FUSE `upd_fdc.c` comment "in +3 uPD765 never got TC."
+
+**Tetris fix** — Rotational `ReadID`. Track 12 is a format-only protection track with 16 sectors carrying sequential CHRN (sector i has `C=H=R=N=i`) all flagged `ST1.DE | ST2.DD`. The loader reads multiple IDs in a row expecting different sectors to pass under the head. A chip that always returns `sectors[0]` from `ReadID` fails the check; rotation satisfies it. Implemented as a per-drive `read_id_index` that advances each `ReadID` call and wraps at the track's sector count.
+
+The diagnosis below records the per-title investigation that produced these findings; both fixes ship together in the µPD765A and apply broadly (any future +3 title that uses TC-style abort or multi-`ReadID` rotation now works without further intervention).
+
+---
 
 ## Turrican (1990, Rainbow Arts, +3) — sector-scan probe
 
@@ -57,9 +65,9 @@ Each is a separate diagnosis ladder:
 
 Bundling them into one commit-cycle would have meant moving from "land Speedlock-6 cleanly" to "land three independent fixes", which is exactly the kind of rolled-up change that prevents clean rollback.
 
-## Catalogue scope today
+## Catalogue scope today (post-fix)
 
-Neither title currently has a +3 catalogue entry. They were on the 2026-05-11 survey but flagged as failing; nothing in `manifest/spectrum.toml` references them.
+Both titles now have +3 catalogue entries (`turrican-plus3`, `tetris-plus3`) with captured boot frame and audio hashes. The +3 disk catalogue stands at 16 entries covering 11 distinct protection paths.
 
 ## Related rules and decisions
 

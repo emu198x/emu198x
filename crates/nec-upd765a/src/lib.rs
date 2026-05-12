@@ -227,6 +227,34 @@ pub struct Upd765a {
     /// marginal-encoding model.
     #[serde(default)]
     reread_count: u32,
+
+    /// Per-drive rotational position used by `ReadID`. Real µPD765A
+    /// returns whichever sector's address mark is currently passing
+    /// under the head, so successive `ReadID` calls without any
+    /// intervening Seek return *different* sectors in the order they
+    /// were written to the track. Some protection schemes (Tetris's
+    /// format-track-12, Turrican's track 1 probe) verify this by
+    /// reading N IDs in a row and checking the sequence matches an
+    /// expected layout. We approximate the rotational position with
+    /// a per-drive counter that increments on each `ReadID` call and
+    /// resets on Recalibrate or Seek.
+    #[serde(default)]
+    read_id_index: [usize; 4],
+
+    /// Countdown (in `Peripheral::tick()` calls) for the µPD765A's
+    /// data-read timeout during Execution phase. Real silicon
+    /// terminates the read with `ST1.EN` (End of Cylinder) + abnormal
+    /// termination after roughly two disk revolutions without the
+    /// host fetching the next data byte — that's how some +3 loaders
+    /// (notably Turrican) abort an in-flight 8192-byte sector read
+    /// before reading every byte, because the +3 hardware does NOT
+    /// wire the µPD765A's TC pin to anything the CPU can drive (see
+    /// FUSE upd_fdc.c comment "in +3 uPD765 never got TC"). The
+    /// timeout is reset every time the host reads a data byte; when
+    /// the countdown expires the FDC force-enters Result phase. Zero
+    /// means "no read in flight or no timeout active."
+    #[serde(default)]
+    exec_timeout: u32,
 }
 
 const fn default_drive_select_mask() -> u8 {
@@ -247,6 +275,16 @@ const MSR_RQM: u8 = 0x80; // Request for master (ready for data)
 /// drive-busy bits to observe the busy → idle transition, short
 /// enough that catalogue tests don't wait perceptibly.
 const SEEK_TICKS: u32 = 256;
+
+/// Per-`tick()`-call countdown for the data-read timeout during
+/// Execution phase. Real µPD765A times out after ~2 disk revolutions
+/// (~400 ms at 300 rpm) without the host fetching the next data
+/// byte. `Peripheral::tick()` is called every half-cycle of the
+/// Spectrum +3's master clock (~17.7 MHz), so 400 ms ≈ 7 M ticks.
+/// We pick a budget that's generous enough no legitimate host can
+/// trip it accidentally but short enough that an aborted read
+/// progresses within a handful of frames at 50 Hz simulated rate.
+const EXEC_READ_TIMEOUT_TICKS: u32 = 1_000_000;
 
 /// Diagnostic: when `EMU198X_FDC_TRACE` is set in the environment, log
 /// every dispatched command and every result-phase byte block to
@@ -332,6 +370,8 @@ impl Upd765a {
             disks: [None, None, None, None],
             reread_key: None,
             reread_count: 0,
+            exec_timeout: 0,
+            read_id_index: [0; 4],
         }
     }
 
@@ -349,6 +389,7 @@ impl Upd765a {
             self.disks[drive] = Some(image);
             self.reread_key = None;
             self.reread_count = 0;
+            self.read_id_index[drive] = 0;
         }
     }
 
@@ -357,6 +398,7 @@ impl Upd765a {
             self.disks[drive] = None;
             self.reread_key = None;
             self.reread_count = 0;
+            self.read_id_index[drive] = 0;
         }
     }
 
@@ -382,6 +424,10 @@ impl Upd765a {
             Phase::Execution if self.exec_pos < self.exec_buf.len() => {
                 let byte = self.exec_buf[self.exec_pos];
                 self.exec_pos += 1;
+                // Host fetched a byte — reset the no-read timeout
+                // countdown so the chip only times out when the host
+                // genuinely stops draining the execution buffer.
+                self.exec_timeout = EXEC_READ_TIMEOUT_TICKS;
                 if self.exec_pos >= self.exec_buf.len() {
                     self.enter_result_phase();
                 }
@@ -698,6 +744,7 @@ impl Upd765a {
                     self.exec_pos = 0;
                     self.phase = Phase::Execution;
                     self.main_status = MSR_RQM | MSR_EXM | MSR_DIO | MSR_CB;
+                    self.exec_timeout = EXEC_READ_TIMEOUT_TICKS;
                     self.st0 = (head << 2) | drive_echo;
                     // Carry forward the OR'd-in error bits from every
                     // sector read in the run, then layer the
@@ -821,38 +868,43 @@ impl Upd765a {
                 }
             }
             Command::ReadId => {
-                // Return the address-mark CHRN of the next sector the
-                // head would see on the rotating medium. We don't
-                // model rotation, so use the first sector in the
-                // current track — but the *recorded* CHRN values, not
-                // hardcoded (C=track, R=1, N=2) defaults. Copy
-                // protection (Speedlock & friends) routinely records
-                // C / H / N values that don't match the physical
-                // track or sector size, and the loader compares the
-                // ReadID result against expected bytes to decide
-                // whether the disk has been tampered with. Hardcoded
-                // defaults fail that check and drop the loader into
-                // its error hang.
+                // Return the address-mark CHRN of the sector currently
+                // under the head, then advance the per-drive
+                // rotational index so successive `ReadID` calls walk
+                // the track. Tetris's track 12 and Turrican's track 1
+                // both use a multi-`ReadID` rotation check as part of
+                // their protection — they read N consecutive IDs and
+                // confirm the sequence matches an expected layout. A
+                // chip that always returned sectors[0] from `ReadID`
+                // would fail those checks; a chip that rotates passes
+                // them, matching real silicon behaviour.
                 let drive_echo = self.cmd_buf[1] & 0x03;
                 let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 let head = (self.cmd_buf[1] >> 2) & 0x01;
                 self.st1 = 0;
                 self.st2 = 0;
 
-                let recorded = self
+                let track_sectors = self
                     .disks
                     .get(drive)
                     .and_then(|d| d.as_ref())
                     .and_then(|img| img.tracks.get(head as usize))
                     .and_then(|side| side.get(self.track[drive] as usize))
-                    .and_then(|trk| trk.sectors.first());
+                    .map(|trk| &trk.sectors[..]);
 
-                let (c, h, r, n) = match recorded {
-                    Some(s) => (s.c, s.h, s.id, s.n),
-                    // No disk or empty track — return the defaults so
-                    // a probe-during-empty-drive still gets a coherent
-                    // (if blank) reply.
-                    None => (self.track[drive], head, 1, 2),
+                let (c, h, r, n) = match track_sectors {
+                    Some(sectors) if !sectors.is_empty() => {
+                        let idx = self.read_id_index[drive] % sectors.len();
+                        let s = &sectors[idx];
+                        self.read_id_index[drive] = self.read_id_index[drive].wrapping_add(1);
+                        (s.c, s.h, s.id, s.n)
+                    }
+                    _ => {
+                        // No disk or empty track — defaults so a probe
+                        // during empty-drive still gets a coherent (if
+                        // blank) reply.
+                        (self.track[drive], head, 1, 2)
+                    }
                 };
 
                 self.st0 = (head << 2) | drive_echo;
@@ -979,6 +1031,31 @@ impl Peripheral for Upd765a {
                     self.seek_pending[drive] = Some(st0);
                     self.interrupt = true;
                 }
+            }
+        }
+
+        // Execution-phase read timeout. The Spectrum +3 doesn't wire
+        // the µPD765A's TC pin, so a host that stops reading mid-
+        // sector relies on the chip's intrinsic ~2-revolution timeout
+        // to force Result phase with ST1.EN (End of Cylinder) set —
+        // see the FUSE upd_fdc.c comment "in +3 uPD765 never got TC".
+        // Each successful `read_data` call in Execution rearms this
+        // countdown, so it only fires when the host genuinely stops.
+        if self.phase == Phase::Execution && self.exec_timeout > 0 {
+            self.exec_timeout -= 1;
+            if self.exec_timeout == 0 {
+                self.st0 |= 0x40; // Abnormal termination
+                self.st1 |= 0x80; // EN — End of Cylinder
+                let track = self.cmd_buf.get(2).copied().unwrap_or(0);
+                let head = self
+                    .cmd_buf
+                    .get(1)
+                    .copied()
+                    .map(|b| (b >> 2) & 0x01)
+                    .unwrap_or(0);
+                let sector = self.cmd_buf.get(4).copied().unwrap_or(0);
+                let n = self.cmd_buf.get(5).copied().unwrap_or(0);
+                self.setup_result_read(track, head, sector, n);
             }
         }
     }
@@ -1424,5 +1501,170 @@ mod tests {
         let c = read_clean(&mut fdc);
         assert_eq!(a, b, "clean sector identical across reads");
         assert_eq!(b, c, "clean sector identical across reads");
+    }
+
+    /// On the +3 the µPD765A's TC pin isn't wired, so a host that
+    /// stops reading mid-sector has to rely on the chip's intrinsic
+    /// ~2-revolution timeout to force Result phase with `ST1.EN`
+    /// (End of Cylinder) set. Turrican (+3) uses this to abort an
+    /// 8192-byte sector read after about 1100 bytes.
+    #[test]
+    fn execution_phase_times_out_when_host_stops_reading() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        let track = DiskTrack {
+            sectors: vec![DiskSector {
+                c: 0,
+                h: 0,
+                id: 1,
+                n: 6, // N=6 → 8192-byte sector, like Turrican track 1
+                st1: 0,
+                st2: 0,
+                data: vec![0x55; 8192],
+            }],
+        };
+        let image = DiskImage {
+            sides: 1,
+            tracks_per_side: 1,
+            tracks: vec![vec![track]],
+        };
+        fdc.insert_disk(0, image);
+
+        // ReadData(R=1, EOT=1) — single 8192-byte sector.
+        fdc.write_data(0x06);
+        fdc.write_data(0x00);
+        fdc.write_data(0x00);
+        fdc.write_data(0x00);
+        fdc.write_data(0x01);
+        fdc.write_data(0x06); // N=6
+        fdc.write_data(0x01);
+        fdc.write_data(0x2A);
+        fdc.write_data(0xFF);
+        assert_eq!(fdc.phase, Phase::Execution);
+
+        // Read only a handful of bytes, then stop — mirrors the
+        // Turrican loader reading ~1100 bytes of an 8192-byte sector
+        // before walking away.
+        for _ in 0..100 {
+            fdc.read_data();
+        }
+        assert_eq!(fdc.phase, Phase::Execution, "still in execution after partial read");
+
+        // Tick the chip without further reads. Before the timeout
+        // fires we should still be in Execution; once it expires we
+        // should be in Result with ST1.EN set and ST0.IC = abnormal.
+        for _ in 0..EXEC_READ_TIMEOUT_TICKS - 1 {
+            <Upd765a as Peripheral>::tick(&mut fdc, 0);
+        }
+        assert_eq!(fdc.phase, Phase::Execution, "no premature timeout");
+        <Upd765a as Peripheral>::tick(&mut fdc, 0);
+        assert_eq!(fdc.phase, Phase::Result, "timeout forces Result phase");
+
+        // Result phase: ST0 first (abnormal IC), ST1 second (EN set).
+        let st0 = fdc.read_data();
+        let st1 = fdc.read_data();
+        assert_ne!(st0 & 0xC0, 0, "ST0 IC = abnormal termination");
+        assert_ne!(st1 & 0x80, 0, "ST1.EN (End of Cylinder) set");
+    }
+
+    /// Successive `ReadID` calls without a Seek between them should
+    /// return *different* sectors, walking the track. Tetris's track
+    /// 12 protection check reads multiple IDs and verifies the
+    /// sequence matches its expected layout.
+    #[test]
+    fn read_id_rotates_through_sectors() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        let track = DiskTrack {
+            sectors: (1..=3)
+                .map(|i| DiskSector {
+                    c: 0,
+                    h: 0,
+                    id: i,
+                    n: 2,
+                    st1: 0,
+                    st2: 0,
+                    data: vec![0; 512],
+                })
+                .collect(),
+        };
+        fdc.insert_disk(
+            0,
+            DiskImage {
+                sides: 1,
+                tracks_per_side: 1,
+                tracks: vec![vec![track]],
+            },
+        );
+
+        let issue_read_id = |fdc: &mut Upd765a| -> u8 {
+            fdc.write_data(0x0A);
+            fdc.write_data(0x00);
+            fdc.read_data(); // ST0
+            fdc.read_data(); // ST1
+            fdc.read_data(); // ST2
+            fdc.read_data(); // C
+            fdc.read_data(); // H
+            let r = fdc.read_data(); // R
+            fdc.read_data(); // N
+            r
+        };
+
+        assert_eq!(issue_read_id(&mut fdc), 1);
+        assert_eq!(issue_read_id(&mut fdc), 2);
+        assert_eq!(issue_read_id(&mut fdc), 3);
+        // Wraps back to first sector on the next rotation.
+        assert_eq!(issue_read_id(&mut fdc), 1);
+    }
+
+    /// Every successful read_data call in Execution should rearm the
+    /// timeout. A host that's reading steadily must never trip it.
+    #[test]
+    fn execution_timeout_rearms_on_each_read() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        let track = DiskTrack {
+            sectors: vec![DiskSector {
+                c: 0,
+                h: 0,
+                id: 1,
+                n: 0, // 128-byte sector — small enough that we can drain it
+                st1: 0,
+                st2: 0,
+                data: vec![0xAA; 128],
+            }],
+        };
+        fdc.insert_disk(
+            0,
+            DiskImage {
+                sides: 1,
+                tracks_per_side: 1,
+                tracks: vec![vec![track]],
+            },
+        );
+
+        fdc.write_data(0x06);
+        fdc.write_data(0x00);
+        fdc.write_data(0x00);
+        fdc.write_data(0x00);
+        fdc.write_data(0x01);
+        fdc.write_data(0x00);
+        fdc.write_data(0x01);
+        fdc.write_data(0x2A);
+        fdc.write_data(0xFF);
+
+        // Interleave reads with substantial ticks — never enough to
+        // expire the timeout between reads. The chip should drain to
+        // Result phase via the natural end-of-buffer path, not via
+        // the timeout.
+        for _ in 0..128 {
+            fdc.read_data();
+            for _ in 0..EXEC_READ_TIMEOUT_TICKS / 2 {
+                <Upd765a as Peripheral>::tick(&mut fdc, 0);
+            }
+        }
+        assert_eq!(fdc.phase, Phase::Result);
+        let st0 = fdc.read_data();
+        assert_eq!(st0 & 0xC0, 0, "natural completion is normal termination");
     }
 }
