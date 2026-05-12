@@ -211,6 +211,22 @@ pub struct Upd765a {
     /// Disk images (up to 4 drives).
     #[serde(skip)]
     disks: [Option<DiskImage>; 4],
+
+    /// Last sector successfully read via `ReadData` / `ReadDeletedData`,
+    /// keyed by `(drive, track, head, sector_id)`. Used to detect
+    /// consecutive re-reads of the same sector and drive the marginal-
+    /// encoding model on sectors whose recorded ST1.DE / ST2.DD flags
+    /// the medium is marginal. See `wiki/decisions/marginal-encoding-model.md`.
+    #[serde(default)]
+    reread_key: Option<(usize, u8, u8, u8)>,
+
+    /// Number of consecutive re-reads of `reread_key` after the first.
+    /// Zero on the first read of a sector; increments by one each time
+    /// the same sector is read again with no intervening read of a
+    /// different sector. Used as the variation parameter in the
+    /// marginal-encoding model.
+    #[serde(default)]
+    reread_count: u32,
 }
 
 const fn default_drive_select_mask() -> u8 {
@@ -231,6 +247,62 @@ const MSR_RQM: u8 = 0x80; // Request for master (ready for data)
 /// drive-busy bits to observe the busy → idle transition, short
 /// enough that catalogue tests don't wait perceptibly.
 const SEEK_TICKS: u32 = 256;
+
+/// Diagnostic: when `EMU198X_FDC_TRACE` is set in the environment, log
+/// every dispatched command and every result-phase byte block to
+/// stderr. Speedlock loaders erase their own decision code after a
+/// failed protection check, so a post-hoc memory dump can't recover
+/// what the loader was checking; this side-channel trace captures the
+/// FDC conversation directly. Off by default — zero cost when the env
+/// var is unset.
+fn fdc_trace_enabled() -> bool {
+    std::env::var_os("EMU198X_FDC_TRACE").is_some()
+}
+
+fn fmt_bytes(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Sector-data variation modelling marginal magnetic encoding.
+///
+/// Applied to bytes coming off a sector whose recorded `ST1.DE` or
+/// `ST2.DD` is set — the dumper observed the real µPD765A's read
+/// amplifier failing to resolve the flux transitions cleanly on this
+/// sector, which is what makes Speedlock-class protections detectable.
+/// On real hardware the same sector returns different bytes each read
+/// because the analog front-end's hysteresis flips on noise. We model
+/// that physics with a deterministic per-re-read variation so save-
+/// states round-trip and tests stay reproducible.
+///
+/// The recipe is taken verbatim from FUSE `peripherals/disk/upd_fdc.c`
+/// (lines 1001-1010 in fuse-1.7.0), the closest-to-canonical reference
+/// for what byte variation satisfies the relevant protection checks
+/// across the Speedlock catalogue. See
+/// `wiki/decisions/marginal-encoding-model.md` for the rationale.
+///
+/// `count` is the re-read counter (zero on first read; this function
+/// is a no-op then). Variation is applied to bytes at offsets that are
+/// multiples of 29, scoped to the first 64 bytes unless `count >= 2`,
+/// in which case the whole sector is mangled.
+fn apply_marginal_variation(buf: &mut [u8], count: u32) {
+    if count == 0 {
+        return;
+    }
+    let aggressive = count >= 2;
+    for (i, byte) in buf.iter_mut().enumerate() {
+        if i % 29 != 0 {
+            continue;
+        }
+        if !aggressive && i >= 64 {
+            break;
+        }
+        *byte ^= (i & 0xFF) as u8;
+    }
+}
 
 impl Upd765a {
     pub fn new() -> Self {
@@ -258,6 +330,8 @@ impl Upd765a {
             enabled: false,
             drive_select_mask: default_drive_select_mask(),
             disks: [None, None, None, None],
+            reread_key: None,
+            reread_count: 0,
         }
     }
 
@@ -273,12 +347,16 @@ impl Upd765a {
     pub fn insert_disk(&mut self, drive: usize, image: DiskImage) {
         if drive < 4 {
             self.disks[drive] = Some(image);
+            self.reread_key = None;
+            self.reread_count = 0;
         }
     }
 
     pub fn eject_disk(&mut self, drive: usize) {
         if drive < 4 {
             self.disks[drive] = None;
+            self.reread_key = None;
+            self.reread_count = 0;
         }
     }
 
@@ -382,6 +460,39 @@ impl Upd765a {
     }
 
     fn execute_command(&mut self) {
+        if fdc_trace_enabled() {
+            eprintln!(
+                "[FDC-CMD] {:?} cmd_buf=[{}]",
+                self.command,
+                fmt_bytes(&self.cmd_buf),
+            );
+            // For ReadID, also dump the recorded sector layout of the
+            // current track on the current drive — that's the only way
+            // to know what real-hardware ReadID could possibly have
+            // returned, since the chip returns sectors in rotational
+            // order.
+            if matches!(self.command, Command::ReadId) {
+                let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
+                let head = (self.cmd_buf[1] >> 2) & 0x01;
+                if let Some(img) = self.disks.get(drive).and_then(|d| d.as_ref()) {
+                    if let Some(side) = img.tracks.get(head as usize) {
+                        if let Some(trk) = side.get(self.track[drive] as usize) {
+                            eprintln!(
+                                "[FDC-TRACK] drive={drive} head={head} track={} sector_count={}",
+                                self.track[drive],
+                                trk.sectors.len(),
+                            );
+                            for (idx, s) in trk.sectors.iter().enumerate() {
+                                eprintln!(
+                                    "  [{idx}] c={:#04x} h={:#04x} r={:#04x} n={:#04x} st1={:#04x} st2={:#04x} data_len={}",
+                                    s.c, s.h, s.id, s.n, s.st1, s.st2, s.data.len(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
         match self.command {
             Command::ReadData | Command::ReadDeletedData => {
                 // `drive` indexes our per-drive state (disks/track) and
@@ -493,6 +604,12 @@ impl Upd765a {
 
                     let sec_is_deleted = (sec.st2 & ST2_CM) != 0;
                     let mark_match = sec_is_deleted == want_deleted;
+                    if fdc_trace_enabled() {
+                        eprintln!(
+                            "[FDC-SEC] r={r:#04x} (track={track} head={head}) recorded_st1={:#04x} recorded_st2={:#04x} sec_is_deleted={sec_is_deleted} want_deleted={want_deleted} mark_match={mark_match} data_len={} sk={sk}",
+                            sec.st1, sec.st2, sec.data.len(),
+                        );
+                    }
                     if !mark_match {
                         if sk {
                             // Skip this sector silently, advance R.
@@ -520,6 +637,33 @@ impl Upd765a {
                         buf.resize(buf.len() + (sector_size - take), fill);
                     }
                     last_ok = r;
+
+                    // Marginal-encoding model: on a sector whose
+                    // recorded ST1.DE / ST2.DD flags marginal magnetic
+                    // encoding, vary the bytes deterministically across
+                    // re-reads. Real silicon on a marginal sector
+                    // returns different bytes each read because the
+                    // read amplifier's hysteresis flips on noise around
+                    // the flux threshold; we model that physics so
+                    // Speedlock-class protections that re-read the same
+                    // sector and check for byte differences can satisfy
+                    // their check without weak-aware EDSK data. See
+                    // `wiki/decisions/marginal-encoding-model.md`.
+                    let sector_marginal = (sec.st1 & 0x20) != 0 || (sec.st2 & 0x20) != 0;
+                    let read_key = (drive, track, head, r);
+                    let read_count = if self.reread_key == Some(read_key) {
+                        self.reread_count = self.reread_count.saturating_add(1);
+                        self.reread_count
+                    } else {
+                        self.reread_key = Some(read_key);
+                        self.reread_count = 0;
+                        0
+                    };
+                    if sector_marginal && read_count > 0 {
+                        let start = buf.len() - sector_size;
+                        apply_marginal_variation(&mut buf[start..], read_count);
+                    }
+
                     // Mix in whatever error bits the SIL recorded for
                     // this sector. DE (ST1.5) / DD (ST2.5) terminate
                     // the multi-sector run the same way CM does — the
@@ -632,6 +776,12 @@ impl Upd765a {
                 self.phase = Phase::Result;
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
                 self.interrupt = self.seek_pending.iter().any(Option::is_some);
+                if fdc_trace_enabled() {
+                    eprintln!(
+                        "[FDC-RES] SenseInt result=[{}]",
+                        fmt_bytes(&self.result_buf),
+                    );
+                }
             }
             Command::Specify => {
                 // Just accept the parameters (step rate, head load/unload times)
@@ -663,6 +813,12 @@ impl Upd765a {
                 self.result_pos = 0;
                 self.phase = Phase::Result;
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
+                if fdc_trace_enabled() {
+                    eprintln!(
+                        "[FDC-RES] SenseDriveStatus result=[{}]",
+                        fmt_bytes(&self.result_buf),
+                    );
+                }
             }
             Command::ReadId => {
                 // Return the address-mark CHRN of the next sector the
@@ -711,6 +867,12 @@ impl Upd765a {
                 self.result_pos = 0;
                 self.phase = Phase::Result;
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
+                if fdc_trace_enabled() {
+                    eprintln!(
+                        "[FDC-RES] ReadId result=[{}]",
+                        fmt_bytes(&self.result_buf),
+                    );
+                }
             }
             _ => {
                 // Unknown command — return to idle
@@ -742,6 +904,13 @@ impl Upd765a {
         self.phase = Phase::Result;
         self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
         self.interrupt = true;
+        if fdc_trace_enabled() {
+            eprintln!(
+                "[FDC-RES] {:?} result=[{}]",
+                self.command,
+                fmt_bytes(&self.result_buf),
+            );
+        }
     }
 
 }
@@ -1101,5 +1270,159 @@ mod tests {
         let bytes_c: Vec<u8> = (0..128).map(|_| c.read_data()).collect();
         assert_eq!(bytes_c[0], 0x22, "sector 2 (DDAM) delivered by ReadDeletedData");
         assert_eq!(bytes_c[127], 0x22);
+    }
+
+    fn marginal_image() -> DiskImage {
+        // Track 0 with one clean sector and one marginal-encoded
+        // sector (ST1.DE | ST2.DD set). Sector data filled with
+        // distinctive byte 0x55 so we can spot the variation pattern.
+        let track = DiskTrack {
+            sectors: vec![
+                DiskSector {
+                    c: 0,
+                    h: 0,
+                    id: 1,
+                    n: 0, // 128-byte sectors keep the tests small
+                    st1: 0,
+                    st2: 0,
+                    data: vec![0x55; 128],
+                },
+                DiskSector {
+                    c: 0,
+                    h: 0,
+                    id: 2,
+                    n: 0,
+                    st1: 0x20, // DE — data CRC error
+                    st2: 0x20, // DD — data field CRC error
+                    data: vec![0x55; 128],
+                },
+            ],
+        };
+        DiskImage {
+            sides: 1,
+            tracks_per_side: 1,
+            tracks: vec![vec![track]],
+        }
+    }
+
+    fn issue_read_sector_2(fdc: &mut Upd765a) -> Vec<u8> {
+        fdc.write_data(0x06); // ReadData, SK=0
+        fdc.write_data(0x00); // drive 0, head 0
+        fdc.write_data(0x00); // C
+        fdc.write_data(0x00); // H
+        fdc.write_data(0x02); // R = 2
+        fdc.write_data(0x00); // N = 128
+        fdc.write_data(0x02); // EOT = 2
+        fdc.write_data(0x2A);
+        fdc.write_data(0xFF);
+        let bytes: Vec<u8> = (0..128).map(|_| fdc.read_data()).collect();
+        // Drain the result-phase status block so the FDC returns to idle.
+        while fdc.phase == Phase::Result {
+            fdc.read_data();
+        }
+        bytes
+    }
+
+    #[test]
+    fn marginal_sector_first_read_is_recorded_bytes_verbatim() {
+        let mut fdc = Upd765a::new();
+        fdc.insert_disk(0, marginal_image());
+        let bytes = issue_read_sector_2(&mut fdc);
+        assert_eq!(bytes, vec![0x55; 128], "first read returns the recorded bytes");
+        assert_eq!(fdc.reread_count, 0, "counter starts at 0");
+    }
+
+    #[test]
+    fn marginal_sector_second_read_varies_bytes() {
+        let mut fdc = Upd765a::new();
+        fdc.insert_disk(0, marginal_image());
+        let first = issue_read_sector_2(&mut fdc);
+        let second = issue_read_sector_2(&mut fdc);
+        assert_eq!(fdc.reread_count, 1, "counter bumps on re-read");
+        assert_ne!(first, second, "marginal sector returns different bytes on re-read");
+        // FUSE recipe: XOR every 29th byte with offset, scoped to first
+        // 64 bytes when count == 1. Bytes outside that window are
+        // unchanged.
+        for (i, (&f, &s)) in first.iter().zip(second.iter()).enumerate() {
+            if i % 29 == 0 && i < 64 {
+                assert_eq!(s, f ^ (i as u8), "byte {i} should be XOR'd");
+            } else {
+                assert_eq!(s, f, "byte {i} unchanged at count=1");
+            }
+        }
+    }
+
+    #[test]
+    fn marginal_sector_third_read_mangles_full_sector() {
+        let mut fdc = Upd765a::new();
+        fdc.insert_disk(0, marginal_image());
+        let first = issue_read_sector_2(&mut fdc);
+        let _second = issue_read_sector_2(&mut fdc);
+        let third = issue_read_sector_2(&mut fdc);
+        assert_eq!(fdc.reread_count, 2);
+        // count >= 2 mangles every 29th byte across the full sector.
+        for (i, (&f, &t)) in first.iter().zip(third.iter()).enumerate() {
+            if i % 29 == 0 {
+                assert_eq!(t, f ^ (i as u8), "byte {i} XOR'd at count=2");
+            } else {
+                assert_eq!(t, f, "byte {i} unchanged at non-29 offset");
+            }
+        }
+    }
+
+    #[test]
+    fn intervening_different_sector_resets_marginal_counter() {
+        let mut fdc = Upd765a::new();
+        fdc.insert_disk(0, marginal_image());
+        let _first = issue_read_sector_2(&mut fdc);
+
+        // Read the clean sector 1 in between — counter resets, next
+        // read of sector 2 is treated as a fresh first read.
+        fdc.write_data(0x06);
+        fdc.write_data(0x00);
+        fdc.write_data(0x00);
+        fdc.write_data(0x00);
+        fdc.write_data(0x01); // R = 1
+        fdc.write_data(0x00);
+        fdc.write_data(0x01); // EOT = 1
+        fdc.write_data(0x2A);
+        fdc.write_data(0xFF);
+        let _clean: Vec<u8> = (0..128).map(|_| fdc.read_data()).collect();
+        while fdc.phase == Phase::Result {
+            fdc.read_data();
+        }
+
+        let after = issue_read_sector_2(&mut fdc);
+        assert_eq!(fdc.reread_count, 0, "key changed by intervening read → counter reset");
+        assert_eq!(after, vec![0x55; 128], "post-reset read returns recorded bytes verbatim");
+    }
+
+    #[test]
+    fn clean_sector_reads_deterministic_across_repeats() {
+        let mut fdc = Upd765a::new();
+        fdc.insert_disk(0, marginal_image());
+
+        let read_clean = |fdc: &mut Upd765a| -> Vec<u8> {
+            fdc.write_data(0x06);
+            fdc.write_data(0x00);
+            fdc.write_data(0x00);
+            fdc.write_data(0x00);
+            fdc.write_data(0x01); // sector 1 (no DE/DD)
+            fdc.write_data(0x00);
+            fdc.write_data(0x01);
+            fdc.write_data(0x2A);
+            fdc.write_data(0xFF);
+            let bytes: Vec<u8> = (0..128).map(|_| fdc.read_data()).collect();
+            while fdc.phase == Phase::Result {
+                fdc.read_data();
+            }
+            bytes
+        };
+
+        let a = read_clean(&mut fdc);
+        let b = read_clean(&mut fdc);
+        let c = read_clean(&mut fdc);
+        assert_eq!(a, b, "clean sector identical across reads");
+        assert_eq!(b, c, "clean sector identical across reads");
     }
 }

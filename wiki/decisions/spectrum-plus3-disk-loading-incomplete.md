@@ -554,22 +554,22 @@ bug — narrowing the next investigation.
 
 ### Outstanding +3 disk diagnostics
 
-- **The "loader stripes" Speedlock-6 cluster.** Operation Wolf,
-  RoboCop, Where Time Stood Still, and Bad Dudes vs Dragon
-  Ninja (Imagine = Ocean's budget label, same protection
-  family) all hit `xxh64:5b942a2bc9de21c2` after the DDAM fix.
-  The loader at PC=`$FEA4` issues a fixed sequence (SeekTrack →
-  SenseInt → ReadID → ReadDeletedData on sector 2) and retries
-  it indefinitely. Sector 2 of Op Wolf's track 0 is recorded as
-  DAM (ST2.CM=0) with deliberate CRC error (ST1.DE=$20,
-  ST2.DD=$20). Our chip delivers data + flags CM (because the
-  loader asked for DDAM and got DAM) + flags DE (because the
-  sector has recorded CRC error). The loader must want a
-  different shape of response — possibly raw data without the
-  CM flag, or a specific ST0 pattern, or the chip's INT line
-  asserted in a way we don't model. Same code path across all
-  four titles so fixing it is leveraged. Needs a side-by-side
-  trace against FUSE.
+- ~~**The "loader stripes" Speedlock-6 cluster.**~~ **RESOLVED
+  2026-05-12** via the marginal-encoding model
+  (`wiki/decisions/marginal-encoding-model.md`). The actual
+  failure mode wasn't a status-byte shape mismatch — it was a
+  weak-sector check. Op Wolf's loader (and the other three
+  titles in the cluster) re-reads track 0 sector 2 indefinitely,
+  expecting the bytes to differ between reads because Speedlock
+  wrote that sector with deliberately marginal magnetic
+  encoding. Real silicon returns different bytes each read; our
+  chip was returning the same bytes. An audit of the +3
+  reference library found zero EDSKs with multi-copy weak-sector
+  data preserved, so we model the chip's marginal-encoding
+  behaviour deterministically on any sector whose recorded ST1.DE
+  or ST2.DD is set. Op Wolf, RoboCop, Where Time Stood Still,
+  and Bad Dudes vs Dragon Ninja all load past the protection
+  check after the fix.
 - **Turrican's / Tetris's black-screen loaders.** Loaders run,
   PC moves through loaded RAM, but nothing visible paints
   within 6 000 frames. Both share `xxh64:99bf46ee0b35abc0` (an
