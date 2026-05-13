@@ -541,6 +541,203 @@ secs = 2.0
 hash = "xxh64:73044dcaad32dde4"
 
 [[entry]]
+id = "renegade-tape-speedlock"
+title = "Renegade (Speedlock 7)"
+year = 1990
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad re-release of Imagine/Ocean's 1987 conversion of
+# Technos' arcade beat-em-up. ARCADE COLLECTION 06.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 06 - Renegade (1990)(Hit Squad, The)[SpeedLock 7].zip"
+
+[entry.boot]
+# Hall of Fame attract state: R.KRAY, A.CAPONE, F.M.CHU, B.MALONE,
+# R.BIGGS — the gangster-themed default high-score table. The
+# rectangle of cycling attributes at the top is the Renegade logo
+# with its attribute-animation effect captured mid-cycle; the hash
+# is deterministic (verified across two runs).
+wait_frames = 6000
+frame_hash = "xxh64:805174e353503a99"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:97e9683f338571e7"
+
+[[entry]]
+id = "combat-school-tape-speedlock"
+title = "Combat School (Speedlock 7)"
+year = 1990
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad re-release of Imagine's 1987 conversion of Konami's
+# Boot Camp. ARCADE COLLECTION 08.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 08 - Combat School (1990)(Hit Squad, The)[SpeedLock 7].zip"
+
+[entry.boot]
+# Title screen with full credits: "COMBAT SCHOOL" logo (red and
+# blue with stars), six menu options (1: 1 PLAYER / 2: SINCLAIR 1
+# / 3: 2 PLAYERS / 4: DEFINE KEYS / 5: SINCLAIR 2), and the
+# credits "PROGRAMMING ANDREW DEAKIN / GRAPHICS IVAN HORN / MUSIC
+# FX DAVID WHITTAKER / (C) 1987 OCEAN 1987 KONAMI".
+wait_frames = 6000
+frame_hash = "xxh64:2690796a2fcff3ab"
+
+[entry.audio]
+# Combat School's title-screen music plays at this waypoint.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:f29dbb84fc74545f"
+
+[[entry]]
+id = "rambo-tape-speedlock"
+title = "Rambo (Speedlock 7)"
+year = 1989
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad re-release of Ocean's 1985 Rambo: First Blood Part II
+# movie tie-in. MOVIE COLLECTION 01.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/MOVIE COLLECTION 01 - Rambo (1989)(Hit Squad, The)[SpeedLock 7].zip"
+
+[entry.boot]
+# Hall of Fame: "PLAYER 1 / 000000 / RAMBO / PLAYER 2 / 000000 /
+# FIRST BLOOD PART II / 100000 RAMBO / 040000 OCEAN / 030000
+# RAMBO / 020000 OCEAN / 010000 RAMBO / HALL OF FAME" in a
+# rainbow of attribute colours.
+wait_frames = 6000
+frame_hash = "xxh64:0ef5c4d4a22f56fb"
+
+[entry.audio]
+# Rambo's attract music — distinct from the loader-silence hash.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:5a8be14848c64a5a"
+
+[[entry]]
+id = "star-wars-tape-speedlock"
+title = "Star Wars (Speedlock 7)"
+year = 1990
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad re-release of Domark's 1987 conversion of Atari's 1983
+# vector-graphics arcade. MOVIE COLLECTION 10.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/MOVIE COLLECTION 10 - Star Wars (1990)(Hit Squad, The)[SpeedLock 7].zip"
+
+[entry.boot]
+# Title screen: "STAR WARS" logo in outlined white vector style,
+# "PRESS A KEY" prompt below, "CIARAN GULTNIEKS" programmer credit
+# at the bottom.
+wait_frames = 6000
+frame_hash = "xxh64:411f62a23489b59b"
+
+[entry.audio]
+# Star Wars title sting plays at this waypoint.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:10a7fa87fa3b8237"
+
+[[entry]]
+id = "mikie-tape-speedlock"
+title = "Mikie (Speedlock 7)"
+year = 1990
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad re-release of Imagine's 1985 Spectrum port of Konami's
+# 1984 arcade game. ARCADE COLLECTION 13.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 13 - Mikie (1990)(Hit Squad, The)[SpeedLock 7].zip"
+
+[entry.boot]
+# Mikie's animated title screen — Mikie character with hearts.
+# The screen renders with heavy attribute clash so most of the
+# image reads black with only the red heart sprites visible. Hash
+# is deterministic at this waypoint (verified across two runs);
+# the title attract animates, so the captured moment is one frame
+# of that animation. Music driver hasn't started.
+wait_frames = 6000
+frame_hash = "xxh64:bab6ffd787a205a8"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "nemesis-tape-speedlock"
+title = "Nemesis (Speedlock 7)"
+year = 1990
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad re-release of Konami's 1986 Spectrum port of their
+# 1985 arcade Gradius. ARCADE COLLECTION 15.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 15 - Nemesis (1990)(Hit Squad, The)[SpeedLock 7].zip"
+
+[entry.boot]
+# Input-select menu: "NEMESIS" logo, "1 PLAYER (selected) / 2
+# PLAYER / KEMPSTON JOYSTICK / KEYBOARD (red highlight) / REDEFINE
+# KEYS / START GAME / KONAMI 1986". Distinctive K-highlight bar on
+# KEYBOARD entry.
+wait_frames = 6000
+frame_hash = "xxh64:d8aa60da2e219816"
+
+[entry.audio]
+# Title-screen music plays at this waypoint.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:16fade228f99483a"
+
+[[entry]]
+id = "salamander-tape-speedlock"
+title = "Salamander (Speedlock 7)"
+year = 1990
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad re-release of Imagine's 1987 Spectrum port of Konami's
+# 1986 Salamander/Life Force arcade shooter. ARCADE COLLECTION 16.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 16 - Salamander (1990)(Hit Squad, The)[SpeedLock 7].zip"
+
+[entry.boot]
+# Title screen: "SALAMANDER" in flame-coloured logo, "PRESS ANY
+# KEY TO PLAY", "PROGRAMMED BY ANDREW GLAISTER", green dragon-arm
+# decorative borders, KONAMI badge, and credits "ANDREW GLAISTER
+# AND STUART RUECROFT".
+wait_frames = 6000
+frame_hash = "xxh64:9cb9095b67e71bc4"
+
+[entry.audio]
+# Salamander's title music plays at this waypoint.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:db11dee68c7d1315"
+
+[[entry]]
 id = "bubble-bobble-tape-speedlock"
 title = "Bubble Bobble (Speedlock 5)"
 year = 1992

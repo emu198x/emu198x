@@ -595,6 +595,16 @@ fn opwolf_loads_past_speedlock_wipe() {
 }
 
 #[test]
+#[ignore = "diagnostic — sweep verification for Speedlock-7 Green Beret"]
+fn green_beret_loads_past_speedlock_wipe() {
+    check_speedlock_loader_alive(
+        "Green Beret [Speedlock 7]",
+        "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip",
+    )
+    .expect("Green Beret should clear the Speedlock-7 wipe");
+}
+
+#[test]
 #[ignore = "diagnostic — needs 48K ROM and Bubble Bobble SpeedLock 5 TZX"]
 fn bubble_bobble_loads_past_speedlock_wipe() {
     check_speedlock_loader_alive(
