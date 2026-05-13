@@ -393,7 +393,11 @@ fn append_data_spans(
         } else {
             8
         };
-        for bit in (0..bits).rev() {
+        // The TZX spec stores partial last bytes left-justified: when
+        // `bits_in_last_byte` is N < 8, the N significant bits live in
+        // the upper N bits of the byte (bits 7..8-N) and the lower 8-N
+        // bits are zero. Iterate the upper bits MSB-first.
+        for bit in (8 - bits..8).rev() {
             let pulse = if byte & (1 << bit) != 0 {
                 one_len
             } else {
@@ -627,5 +631,35 @@ mod tests {
     fn invalid_header_is_rejected() {
         let err = tzx_to_stream(b"NOT_TZX!!\x00\x00").expect_err("bad header should fail");
         assert!(err.contains("bad header"));
+    }
+
+    #[test]
+    fn pure_data_partial_last_byte_uses_upper_bits() {
+        // Regression: Speedlock-7 (Op Wolf et al.) uses a single-byte
+        // 0x14 pure-data block with bits_in_last_byte=6 to deliver
+        // the loader's check pattern. Per the TZX spec the N
+        // significant bits live in the UPPER N bits of the last byte;
+        // the parser previously read the LOWER N bits, producing the
+        // wrong pulse sequence and tripping the Speedlock anti-tamper
+        // wipe.
+        //
+        // Byte $E8 = 1110 1000. Top 6 bits = `1 1 1 0 1 0`.
+        // With zero_len=10 and one_len=20, the expected stream is
+        // `LL LL LL SS LL SS` = pulses [20,20, 20,20, 20,20, 10,10, 20,20, 10,10].
+        let mut data = make_header();
+        data.push(0x14); // 0x14 Pure Data
+        data.extend_from_slice(&10u16.to_le_bytes()); // zero_len
+        data.extend_from_slice(&20u16.to_le_bytes()); // one_len
+        data.push(6); // bits_in_last_byte
+        data.extend_from_slice(&0u16.to_le_bytes()); // pause
+        data.extend_from_slice(&[1, 0, 0]); // data_len=1 (u24)
+        data.push(0xE8);
+
+        let stream = tzx_to_stream(&data).expect("pure data should parse");
+        let expected: Vec<TapeSpan> = [20, 20, 20, 20, 20, 20, 10, 10, 20, 20, 10, 10]
+            .into_iter()
+            .map(TapeSpan::Pulse)
+            .collect();
+        assert_eq!(stream, expected);
     }
 }

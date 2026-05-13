@@ -20,7 +20,9 @@ use emu198x_shell::{
     read_firmware_asset, read_media_asset,
 };
 
+use common_sinclair_zx_spectrum::tape::TapeSpan;
 use common_sinclair_zx_spectrum::timing::TIMING_48K;
+use format_sinclair_zx_spectrum_tzx::tzx_to_stream;
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime, SpectrumMachine,
     SpectrumSessionQueryProvider, autoload_basic_tape,
@@ -259,31 +261,117 @@ fn trace_speedlock7_byte_decoder_b_values() {
     ));
     session.prepare(&media, &[]).expect("prepare");
     autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
-    session.run_frames(1700).expect("run_frames");
+
+    // Hard-coded entry point — frame at which our chip first reaches
+    // the pulse-decode region. From earlier diagnostic runs this is
+    // ~frame 1400; we go a touch earlier so we capture the entry.
+    let entry_frame: u32 = std::env::var("ENTRY_FRAME")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1380);
+    session.run_frames(entry_frame).expect("run_frames");
+
+    // Snapshot the bit-shift region before the wipe blanks it.
+    eprintln!("\n=== Loader bytes $fd00..$fd80 at frame 1700 ===");
+    for row in 0..8 {
+        let addr: u16 = 0xfd00 + row * 16;
+        let bytes: Vec<u8> = (0..16)
+            .map(|i| session.machine().machine().read_byte(addr.wrapping_add(i as u16)))
+            .collect();
+        let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+        eprintln!("  ${addr:04x}: {hex}");
+    }
+    // Also dump the threshold/seed table region $feb0..$fec0.
+    eprintln!("\n=== Loader bytes $feb0..$fec0 ===");
+    let bytes: Vec<u8> = (0..16)
+        .map(|i| session.machine().machine().read_byte(0xfeb0u16.wrapping_add(i as u16)))
+        .collect();
+    let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+    eprintln!("  $feb0: {hex}");
+
+    // Dump the inner-decoder region $fcc0..$fd00.
+    eprintln!("\n=== Loader bytes $fcc0..$fd00 (decoder core) ===");
+    for row in 0..4 {
+        let addr: u16 = 0xfcc0 + row * 16;
+        let bytes: Vec<u8> = (0..16)
+            .map(|i| session.machine().machine().read_byte(addr.wrapping_add(i as u16)))
+            .collect();
+        let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+        eprintln!("  ${addr:04x}: {hex}");
+    }
 
     // Single-T-state stepping. Budget: 100 frames × 69 888 T = 6.99M
     // T-states max. In release we expect ≲30 s.
-    let max_tstates: u32 = 100 * TIMING_48K.tstates_per_frame;
-    let mut hits: Vec<(u32, u16, u8, u8, u8, u8, u16)> = Vec::new();
+    //
+    // We record three event types in time order:
+    //  - `D`: PC reached `$FCDB`. The Speedlock-7 inner-delay routine
+    //    starts here when called directly (bypassing the default
+    //    `LD A,$16` at `$FCD9`). The A register holds the seed.
+    //  - `F`: PC reached `$FCD9` (the canonical entry with default
+    //    `LD A,$16`).
+    //  - `B`: PC reached `$fd5f` (the bit-shift loop). Captures B/L
+    //    and the `TapePlayer::current_span` + remaining T-state
+    //    countdown at the moment of the compare.
+    //
+    // The interleaving of D/F events between B hits tells us the
+    // delay-seed sequence the loader is using; the captured spans
+    // tell us what pulse widths the player is actually delivering.
+
+    #[derive(Debug)]
+    enum Event {
+        DelaySeed { t: u32, pc: u16, a: u8, span_idx: usize, countdown: u32 },
+        FullCall { t: u32, span_idx: usize, countdown: u32, b_entry: u8 },
+        PilotAfter { t: u32, b: u8, span_idx: usize },
+        BitShift {
+            t: u32,
+            pc: u16,
+            b: u8,
+            l: u8,
+            ear: bool,
+            span: Option<TapeSpan>,
+            countdown: u32,
+            span_idx: usize,
+        },
+    }
+
+    let max_tstates: u32 = 600 * TIMING_48K.tstates_per_frame;
+    let mut events: Vec<Event> = Vec::new();
     let mut prev_pc = u16::MAX;
     let mut stopped_at: Option<&str> = None;
     for t in 0..max_tstates {
         session.machine_mut().machine_mut().advance_tstates(1);
-        let z = session.machine().machine().z80();
-        let pc = z.regs.pc;
+        let machine = session.machine().machine();
+        let pc = machine.z80().regs.pc;
         if pc == prev_pc {
             continue;
         }
-        if (0xfd5f..=0xfd6f).contains(&pc) {
-            let b = z.regs.b();
-            let l = z.regs.l();
-            let e = z.regs.e();
-            let hl = z.regs.hl;
-            hits.push((t, pc, b, l, e, (hl & 0xFF) as u8, z.regs.de));
-            if hits.len() > 256 {
-                stopped_at = Some("hit cap (256)");
-                break;
+        let (span_idx, _) = machine.tape().span_position();
+        let countdown = machine.tape().span_countdown();
+        match pc {
+            0xFCD5 => {
+                let b_entry = machine.z80().regs.b();
+                events.push(Event::FullCall { t, span_idx, countdown, b_entry });
             }
+            0xFCD9 | 0xFCDB => {
+                let a = machine.z80().regs.a();
+                events.push(Event::DelaySeed { t, pc, a, span_idx, countdown });
+            }
+            // After CALL $FCD5 returns in pilot detection ($fd12 = JR NC)
+            // or in pre-check ($fd37). At these PCs B has the just-measured pulse count.
+            0xfd12 | 0xfd37 => {
+                let b = machine.z80().regs.b();
+                events.push(Event::PilotAfter { t, b, span_idx });
+            }
+            0xfd5f => {
+                let b = machine.z80().regs.b();
+                let l = machine.z80().regs.l();
+                let ear = machine.tape().ear_level();
+                let span = machine.tape().current_span().cloned();
+                events.push(Event::BitShift {
+                    t, pc, b, l, ear, span, countdown, span_idx,
+                });
+            }
+            _ => {}
         }
         if (0xFBC0..=0xFBE0).contains(&pc) {
             stopped_at = Some("wipe zone");
@@ -292,13 +380,70 @@ fn trace_speedlock7_byte_decoder_b_values() {
         prev_pc = pc;
     }
 
-    eprintln!("\n=== PC transitions in $fd5f..$fd6f (RL L discriminator) ===");
+    eprintln!("\n=== Speedlock-7 byte-decoder event trace ===");
     eprintln!("stopped: {stopped_at:?}");
-    eprintln!("hits: {}", hits.len());
-    for (t, pc, b, l, e, hl_lo, de) in &hits {
-        eprintln!(
-            "  +{t:7}T PC=${pc:04x}  B=${b:02x}  L=${l:02x}  E=${e:02x}  HL_lo=${hl_lo:02x}  DE=${de:04x}",
-        );
+    eprintln!("events: {}", events.len());
+    let mut prev_t: Option<u32> = None;
+    let mut prev_span: Option<usize> = None;
+    // Aggregate: count consecutive DelaySeed events that form one
+    // countdown (A descending from some N down to $01). Print once
+    // per call.
+    let mut i = 0;
+    while i < events.len() {
+        match &events[i] {
+            Event::DelaySeed { t, a, span_idx, countdown, .. } => {
+                // Walk forward while events are DelaySeeds with monotonically decreasing A.
+                let start_t = *t;
+                let start_a = *a;
+                let mut end_a = *a;
+                let mut end_idx = *span_idx;
+                let mut end_countdown = *countdown;
+                let mut j = i + 1;
+                while j < events.len() {
+                    if let Event::DelaySeed { a: a2, span_idx: si2, countdown: cd2, .. } = &events[j] {
+                        if *a2 < end_a {
+                            end_a = *a2;
+                            end_idx = *si2;
+                            end_countdown = *cd2;
+                            j += 1;
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                let pulse_gap = prev_t.map_or(0, |p| start_t.saturating_sub(p));
+                let span_delta = prev_span.map_or(0, |p| end_idx.saturating_sub(p));
+                eprintln!(
+                    "  +{:7}T DELAY A=${:02x}→${:02x} span_idx={} (Δ{}) countdown={} Δprev={}T",
+                    start_t, start_a, end_a, end_idx, span_delta, end_countdown, pulse_gap,
+                );
+                prev_t = Some(start_t);
+                prev_span = Some(end_idx);
+                i = j;
+            }
+            Event::FullCall { t, span_idx, countdown, b_entry } => {
+                eprintln!(
+                    "  +{t:7}T  FCD5  CALL  span_idx={span_idx} countdown={countdown} B_entry=${b_entry:02x}",
+                );
+                i += 1;
+            }
+            Event::PilotAfter { t, b, span_idx } => {
+                eprintln!(
+                    "  +{t:7}T  AFTER B=${b:02x}({}) span_idx={span_idx}",
+                    *b as i32 - 0x9c,
+                );
+                i += 1;
+            }
+            Event::BitShift { t, b, l, ear, span, countdown, span_idx, .. } => {
+                eprintln!(
+                    "  +{:7}T  *** BIT  B=${:02x}({:>3})  L=${:02x}  bit={}  ear={}  span_idx={}  countdown={}  span={:?}",
+                    t, b, *b as i32 - 0x9e,
+                    if *b > 0xBC { 1 } else { 0 }, l,
+                    ear, span_idx, countdown, span,
+                );
+                i += 1;
+            }
+        }
     }
 }
 
@@ -371,6 +516,116 @@ fn sample_border_color_through_loader() {
         );
         prior_ear = Some(ear);
         prior_span = Some(span_idx);
+    }
+}
+
+#[test]
+#[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
+fn opwolf_loads_past_speedlock_wipe() {
+    // Verify the Speedlock-7 byte-decoder gate is closed: run Op
+    // Wolf to far enough past the wipe-fire window that, if it had
+    // triggered, the loader would be stuck in the $FBC0..$FBE0
+    // wipe sled. Pass condition: PC is anywhere outside the wipe
+    // zone at frame 3000.
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_file);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    let mut current: u32 = 0;
+    for target in [1800u32, 2000, 2500, 3000, 4000] {
+        let delta = target - current;
+        session.run_frames(delta).expect("run_frames");
+        current = target;
+        let pc = session.machine().machine().z80().regs.pc;
+        let in_wipe = (0xFBC0..=0xFBE0).contains(&pc);
+        eprintln!("frame {target}: PC=${pc:04x} in_wipe={in_wipe}");
+        assert!(
+            !in_wipe,
+            "loader entered Speedlock wipe sled at frame {target} (PC=${pc:04x})"
+        );
+    }
+}
+
+#[test]
+#[ignore = "diagnostic — needs Op Wolf SpeedLock 7 TZX"]
+fn dump_speedlock7_tzx_span_widths_around_57050() {
+    // Parse the Op Wolf TZX into a TapeSpan stream and dump the span
+    // sequence around span index 57050 — that's where the byte-decoder
+    // trace runs and where the bit-shift loop sees its inputs. We need
+    // to confirm whether the TZX file actually contains the
+    // PILOT-width pulses Speedlock's bit-shift hash expects, or
+    // whether all spans in this region are data-width.
+    let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_file);
+    if !tzx_path.exists() {
+        return;
+    }
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let stream = tzx_to_stream(&tape.bytes).expect("parse tzx");
+
+    eprintln!("Total spans: {}", stream.len());
+
+    // First, build a histogram of pulse widths across the whole tape
+    // so we know the alphabet of widths the parser produces.
+    let mut hist: std::collections::BTreeMap<u32, u32> =
+        std::collections::BTreeMap::new();
+    for span in &stream {
+        if let TapeSpan::Pulse(w) = span {
+            *hist.entry(*w).or_insert(0) += 1;
+        }
+    }
+    eprintln!("\n=== Pulse-width histogram ===");
+    for (width, count) in &hist {
+        eprintln!("  Pulse({width:5}) × {count}");
+    }
+
+    // Now dump the spans near index 57050.
+    eprintln!("\n=== Spans 57040..57080 ===");
+    for idx in 57040..=57080.min(stream.len() - 1) {
+        eprintln!("  [{idx}] {:?}", stream[idx]);
+    }
+
+    // Find the boundary where Pulse(1428) starts/stops appearing
+    // around iter 1 of our trace. That tells us the block structure.
+    eprintln!("\n=== Span-width transitions in window 56900..57200 ===");
+    let mut last_width: Option<u32> = None;
+    for idx in 56900..=57200.min(stream.len() - 1) {
+        let w = match &stream[idx] {
+            TapeSpan::Pulse(w) => Some(*w),
+            _ => None,
+        };
+        if w != last_width {
+            eprintln!("  [{idx}] {:?}", stream[idx]);
+            last_width = w;
+        }
     }
 }
 

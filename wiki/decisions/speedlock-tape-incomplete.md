@@ -1,6 +1,12 @@
 # Speedlock-tape loading incomplete
 
-**Status:** Known limitation as of 2026-05-12. The TZX → TapeSpan pipeline parses Speedlock-7-protected tapes cleanly and the tape plays through to end-of-spans, but the loader doesn't reach a post-load attract state. The Speedlock-tape cluster (Op Wolf, RoboCop, Where Time Stood Still, Bad Dudes vs Dragon Ninja — same titles as the +3 Speedlock-6 cluster, different protection mechanism) is not yet a usable catalogue entry source.
+**Status: RESOLVED 2026-05-13.** Root cause was a one-line bug in our TZX parser: `append_data_spans` read the *lower* N bits of a 0x14/0x11 block's last byte when `bits_in_last_byte = N < 8`, but the TZX spec stores partial last bytes left-justified (upper N bits). Speedlock-7's check-pattern block is a single byte `$E8` with `bits_in_last_byte = 6` — the loader expects the top six bits (`1 1 1 0 1 0`) to decode into `L = $3A`; we were delivering the bottom six bits (`1 0 1 0 0 0`) which built `L = $28`, missing the anti-tamper compare at `$fd6c` and firing the wipe. Fix: `for bit in (8-bits..8).rev()` instead of `for bit in (0..bits).rev()`. Op Wolf SpeedLock 7 now loads past the wipe-fire window; PC stays in the byte-decoder ($fcdd-$fced) from frame 1800 through 4000 instead of getting stuck in the `INC IY ; JR -8` wipe sled.
+
+The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.
+
+---
+
+**Original status (pre-fix):** Known limitation as of 2026-05-12. The TZX → TapeSpan pipeline parses Speedlock-7-protected tapes cleanly and the tape plays through to end-of-spans, but the loader doesn't reach a post-load attract state. The Speedlock-tape cluster (Op Wolf, RoboCop, Where Time Stood Still, Bad Dudes vs Dragon Ninja — same titles as the +3 Speedlock-6 cluster, different protection mechanism) is not yet a usable catalogue entry source.
 
 ## Observation
 
@@ -299,3 +305,17 @@ Different visible *symptoms* per version but all fail before reaching a playable
 - RULES.md rule 21 — "Accuracy is foundational, not retrofitted."
 - `wiki/decisions/no-rom-trap-load.md` — the contrast: cycle-accurate playback stays, ROM-trap shortcuts are rejected.
 - `wiki/decisions/marginal-encoding-model.md` — the +3 disk Speedlock cousin that *is* closed.
+
+## Resolution (2026-05-13)
+
+The bug was in `crates/format-sinclair-zx-spectrum-tzx/src/lib.rs::append_data_spans`. For a 0x11/0x14 block's *last* byte with `bits_in_last_byte = N`, the parser was iterating bits `(0..N).rev()` — reading the lower N bits of the byte. The TZX spec stores partial last bytes left-justified: the N significant bits live in the upper N bits, with the lower 8-N bits zero. Correct iteration is `(8-N..8).rev()`.
+
+Speedlock-7 exposes this in the most surgical way possible. The `0x14` "check-pattern" block carries one byte (`$E8` for Op Wolf, paired with `bits_in_last_byte = 6`) and is consumed by the loader's bit-shift verifier at `$fd5f`. With the bug, the verifier saw bits `1 0 1 0 0 0` (lower six of `$E8`) and built `L = $28`; the `CP L != $3A` test fired and triggered the `INC IY ; JR -8` anti-tamper wipe at `$fbd0`. With the fix it sees bits `1 1 1 0 1 0` (upper six) and builds `L = $3A`, falling through to the normal data-load path.
+
+The trace harness at `crates/runtime-sinclair-zx-spectrum/tests/speedlock7_tape_ram_dump.rs` made the diagnosis possible without FUSE: single-T-state stepping plus hooks at `$FCD5`, `$FCDB`, `$fd12`, `$fd37`, and `$fd5f` reconstructed the bit sequence, the per-iteration delay seeds, and the span widths the loader was actually consuming. Dumping the TZX block-by-block then pinpointed block 6 as a one-byte 0x14 with `bits_last = 6`, which made the parser-side bug obvious.
+
+Why this stayed hidden: every previously-loading TZX used either `bits_in_last_byte = 8` (the parser's correct path) or relied only on full bytes. Speedlock-7 was the first protection in our catalogue to use the partial-last-byte field for its anti-tamper signature, so the bug was effectively a Speedlock-tape-only failure mode. Other Speedlock generations (2, 5) plausibly share the same construction; their wedges should now also clear.
+
+Regression test: `pure_data_partial_last_byte_uses_upper_bits` in the TZX parser unit tests pins the correct bit ordering for byte `$E8` with `bits_last = 6`. End-to-end coverage: `opwolf_loads_past_speedlock_wipe` in the runtime test crate runs Op Wolf to frame 4000 and asserts PC never enters the wipe sled.
+
+Catalogue entries for the Speedlock-tape cluster (Op Wolf, RoboCop, Where Time Stood Still, Bad Dudes vs Dragon Ninja, Head over Heels, Bubble Bobble) can now be authored.
