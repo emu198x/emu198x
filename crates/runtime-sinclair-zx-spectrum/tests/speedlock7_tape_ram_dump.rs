@@ -225,6 +225,131 @@ fn dump_speedlock7_loader_ram() {
 }
 
 #[test]
+#[ignore = "diagnostic — find what writes $01 to $feb3 in Green Beret"]
+fn find_feb3_write_in_green_beret() {
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_file);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    // First do a coarse scan: run forward in 100-frame chunks and
+    // log when $feb3 changes value, to narrow down the write window.
+    let mut prev_feb3 = session.machine().machine().read_byte(0xfeb3);
+    let mut current_frame: u32 = 0;
+    let mut narrow_window: Option<u32> = None;
+    eprintln!("coarse scan for $feb3 changes:");
+    for frame_step in (100u32..7000).step_by(100) {
+        session.run_frames(frame_step - current_frame).expect("run_frames");
+        current_frame = frame_step;
+        let feb3 = session.machine().machine().read_byte(0xfeb3);
+        if feb3 != prev_feb3 {
+            eprintln!("  frame {current_frame}: $feb3 ${prev_feb3:02x} -> ${feb3:02x}");
+            if narrow_window.is_none() {
+                narrow_window = Some(current_frame.saturating_sub(100));
+            }
+            prev_feb3 = feb3;
+        }
+    }
+
+    // Restart from scratch to single-step in the narrow window.
+    if let Some(window_start) = narrow_window {
+        eprintln!("narrow window starts at frame {window_start}; restarting to single-step");
+        // Re-prepare to step from scratch.
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new(
+            "sinclair-zx-spectrum-48k-rom".to_owned(),
+            &rom_bytes.bytes,
+        ));
+        let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+        session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_48K.halfcycles_per_frame),
+            SpectrumSessionQueryProvider,
+        );
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            "tape-1".to_owned(),
+            MediaKind::Tape,
+            &tape.bytes,
+        ));
+        session.prepare(&media, &[]).expect("prepare");
+        autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+        session.run_frames(window_start).expect("run_frames");
+        prev_feb3 = session.machine().machine().read_byte(0xfeb3);
+        eprintln!("re-prepared at frame {window_start}, $feb3=${prev_feb3:02x}");
+    } else {
+        eprintln!("$feb3 never changed in coarse scan; aborting");
+        return;
+    }
+
+    // Single-T-state step through a wide 1000-frame window so we
+    // catch the FINAL settling of $feb3 to $01.
+    let max_t = 1000u32 * TIMING_48K.tstates_per_frame;
+    let mut pc_tail: std::collections::VecDeque<u16> = std::collections::VecDeque::with_capacity(80);
+    let mut prev_pc = u16::MAX;
+    for t in 0..max_t {
+        session.machine_mut().machine_mut().advance_tstates(1);
+        let machine = session.machine().machine();
+        let cur_pc = machine.z80().regs.pc;
+        if cur_pc != prev_pc {
+            if pc_tail.len() == 64 {
+                pc_tail.pop_front();
+            }
+            pc_tail.push_back(cur_pc);
+            prev_pc = cur_pc;
+        }
+        let feb3 = machine.read_byte(0xfeb3);
+        if feb3 != prev_feb3 {
+            eprintln!(
+                "$feb3 changed at +{t}T into single-step (frame ~{}): ${prev_feb3:02x} -> ${feb3:02x}, PC=${cur_pc:04x}",
+                t / TIMING_48K.tstates_per_frame,
+            );
+            let tail: Vec<String> = pc_tail.iter().map(|p| format!("${p:04x}")).collect();
+            eprintln!("last 64 PCs: {}", tail.join(" "));
+            prev_feb3 = feb3;
+            // Keep going to see further changes
+        }
+    }
+    let final_feb3 = session.machine().machine().read_byte(0xfeb3);
+    eprintln!("final $feb3: ${final_feb3:02x}");
+
+    // Dump the surrounding code region so we can disassemble the
+    // path through $fe92..$feb2 that produced the $01 write.
+    for base in [0xfe80u16, 0xfe90, 0xfea0, 0xfeb0] {
+        let bytes: Vec<u8> = (0..16)
+            .map(|i| session.machine().machine().read_byte(base.wrapping_add(i as u16)))
+            .collect();
+        let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+        eprintln!("  ${base:04x}: {hex}");
+    }
+}
+
+#[test]
 #[ignore = "diagnostic — log every $fd5f bit-shift hit + wipe trigger for Green Beret"]
 fn trace_green_beret_wipe_fire() {
     log_speedlock7_verifier_hits(

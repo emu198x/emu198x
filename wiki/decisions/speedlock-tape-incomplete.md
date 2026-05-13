@@ -12,6 +12,30 @@ So Green Beret's wedge is **a runtime write to `$feb3`** that our chip is perfor
 
 To pin this down, the next investigator needs a Z80 memory-write watchpoint at `$feb3` and the instruction trace back from the write. The diagnostic infrastructure is in `speedlock7_tape_ram_dump.rs::trace_green_beret_wipe_fire` / `trace_op_wolf_wipe_fire`; they capture single-T-state PC trails and identify which of the three wipe-trigger paths fires.
 
+**The 2026-05-13 single-T-state memory-watch trace** (`find_feb3_write_in_green_beret`) pinned the write instruction. It's `LD ($FEB3), A` at `$feaf`, reached via a checksum-threshold check at `$fe9d-$feb2`:
+
+```
+$fe9d: LD A, H
+$fe9e: CP $0D
+$fea0: JR NC, $feaf     ; H ≥ $0D → write H itself, return
+$fea2: AND A
+$fea3: SBC HL, BC       ; HL -= BC (some initial check value)
+$fea5: RET C            ; HL underflowed → success, leave $feb3 = 0
+$fea6: LD BC, $0032
+$fea9: AND A
+$feaa: SBC HL, BC       ; HL -= 50
+$feac: RET C            ; HL underflowed → success, leave $feb3 = 0
+$fead: LD A, $01
+$feaf: LD ($FEB3), A    ; FAIL — set the wipe flag
+$feb2: RET
+```
+
+So Speedlock-7 has a **fourth anti-tamper check**: an accumulator (HL) computed somewhere upstream must fall *below* the threshold value held in BC, twice. Green Beret's HL exceeds the threshold, so the failure flag at `$feb3` gets set, and a later read at `$ff00` triggers the wipe.
+
+This means our bit decoding is producing the wrong checksum for Green Beret's data even though we pass the first two verifiers. The decoding error is somewhere in a data-block-byte path that Op Wolf doesn't exercise (or exercises differently). The next step is to find what HL is built from — likely a running XOR/sum across the decoded data block — and identify which bit position decodes wrong for Green Beret.
+
+`find_feb3_write_in_green_beret` is the diagnostic harness for this: it does a coarse scan to find the wipe-fire window, then single-T-state steps with a 64-PC rolling buffer to capture the exact write site. The instruction sequence at `$fe9d-$feb2` is the smoking gun.
+
 **Speedlock-2 (Head over Heels) is a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drains fully — all 835 729 spans consumed by frame 16000 — and only *then* does the loader give up: by frame 30000 the border is red, the canonical "tape verify failed" indicator. So the loader is decoding something wrong during the data pass. The fix needs deeper protocol analysis; see the bottom of this document for next-step pointers.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.
