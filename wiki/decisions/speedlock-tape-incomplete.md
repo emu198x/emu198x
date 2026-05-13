@@ -126,6 +126,35 @@ So Green Beret's failure has two components, not one:
 
 The `probe_near_outliers` test pins both numbers; `survey_speedlock7_pauses` lists the comparison set.
 
+**The 2026-05-13 fill-duration measurement (`measure_fill_duration`) localises the chip shortfall to the IN A,($FE) path.** Recording the T-state offset between the block-7 `$fe43` hit and the last instruction PC ∈ [$fe40, $feb0):
+
+| Game | Fill duration | Pause | Margin |
+|---|---|---|---|
+| Op Wolf | 4 984 429 T = **1424 ms** | 6 412 000 T = 1832 ms | −408 ms (fill ends inside pause) |
+| Green Beret | 4 984 389 T = **1424 ms** | 4 672 500 T = 1335 ms | +88 ms (fill ends in pilot tone) |
+
+The fill duration is **bit-for-bit identical** across the two games (40 T-state spread out of 4.98M, essentially noise) — fill is a deterministic 1424 ms in our chip regardless of title. Green Beret fails because its pause is too short to contain that fill; Op Wolf passes because its pause has room.
+
+The byte-decoder loop body cost (`measure_byte_decoder_loop_cost`) shows the inner-sampler iteration histogram matches the documented 54 T/iter spec for the no-contention case (Op Wolf: 199/491 at 54 T; Green Beret: 396/504 at 54 T) with the remainder distributed across 62-72 T (IO contention firing during screen-fetch). So the loop's per-instruction timing is correct.
+
+The arithmetic of the shortfall:
+
+- Fill executes ~65 k `IN A,($FE)` instructions (255 inner samples × 255 outer iterations).
+- 88 ms × 3500 T/ms = 308 000 T total overrun.
+- 308 000 T / 65 000 IN = **4.7 T per IN extra cost**.
+
+That's a per-IN slip too large to come from a base-cycle error (an off-by-one on the 11 T base would give +1 T/IN = 19 ms total) but the right size to come from systematic over-contention. The 48K's IO contention pattern is `N:1, C:3` (1 normal T then 3 contended) for an uncontended-address IN to a low-bit-zero port. If our model is applying contention during phases real hardware leaves alone, the average per-IN surcharge climbs.
+
+Two candidates for the over-contention:
+
+1. **`!cpu_mreq` in the FerrantiUla contention check** (`crates/ferranti-ula-6c001e/src/lib.rs:99`): `mem_contention = contended_addr && e.z80_clock_high && !cpu_mreq` — the `!cpu_mreq` term contends during phases where MREQ is *inactive*, which inverts the standard 48K model (FUSE / known-good implementations contend during the M-cycle's T1 with MREQ asserted). This term doesn't apply to the fill (which runs at $fe43+, uncontended memory), but the `io_contention` check on the same line uses `(cpu_iorq || e.z80_iorq_prev) && io_even_port && e.z80_clock_high` — without restricting to specific Z80 IO T-states. Real-hardware contention only kicks in during specific IO sub-cycles.
+
+2. **IO contention applied on phases the ULA doesn't actually freeze**: the `DELAY_TABLE_48K` is applied uniformly across all phases that satisfy the IO contention condition, possibly including phases where the real ULA has already released the bus.
+
+Falsifying these requires writing a focused T-state cost test (`time_n_in_a_fe_at_fe43`) that drives N back-to-back `IN A,($FE)` instructions at a known PC and screen position, then comparing cumulative T-states against the documented 11 + contention pattern. If our N×IN cost is consistently above the spec by 4-5 T/IN, the contention model is over-applying. Until that test exists, the contention model itself is the prime suspect.
+
+The 88 ms shortfall has now been localised from "somewhere in the loader" down to "the per-IN cost during the fill's edge-count sampler" — that's a tractable next investigation. `measure_fill_duration` is the regression test that closes once the fill drops to ≤ 1336 ms.
+
 **Speedlock-2 (Head over Heels) is a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drains fully — all 835 729 spans consumed by frame 16000 — and only *then* does the loader give up: by frame 30000 the border is red, the canonical "tape verify failed" indicator. So the loader is decoding something wrong during the data pass. The fix needs deeper protocol analysis; see the bottom of this document for next-step pointers.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.
