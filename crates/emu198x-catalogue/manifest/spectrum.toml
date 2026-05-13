@@ -473,9 +473,10 @@ wait_frames = 6000
 frame_hash = "xxh64:ee18d332300497af"
 
 [entry.audio]
-# Canonical "loader silence" hash — the credit scroll hasn't yet
-# started the AY music driver at this waypoint. Worth bumping
-# wait_frames in a later pass to catch the title-music handoff.
+# Canonical "attract-loop silence" hash. Op Wolf's credit-scroll
+# state runs without AY music; verified static at wait_frames 8000
+# (same boot+audio hash as 6000). Music plays once the player
+# starts a game, which we'd need scripted input to reach.
 from_frame = 100
 secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
@@ -496,14 +497,16 @@ path = "sinclair/spectrum/Games/[TZX]/MOVIE COLLECTION 22 - RoboCop (1991)(Hit S
 
 [entry.boot]
 # High-score table: "MURPHY 50000 / LEWIS 40000 / ED 209 30000 /
-# MORTON 20000 / HOULTON 10000" in white-on-black. The post-load
-# attract loop is running.
+# MORTON 20000 / HOULTON 10000" in white-on-black. The 6000-frame
+# waypoint catches the full table — wait_frames 8000 lands
+# mid-rebuild of the cycle (only 3 entries visible) and would
+# produce a non-deterministic hash; stick with 6000.
 wait_frames = 6000
 frame_hash = "xxh64:a26ef35daf6e05a0"
 
 [entry.audio]
-# Same canonical loader-silence hash — attract-loop music hasn't
-# started yet at this waypoint.
+# Canonical attract-silence hash. RoboCop's hi-score attract has
+# no AY music; the music driver only starts in-game.
 from_frame = 100
 secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
@@ -562,7 +565,10 @@ wait_frames = 6000
 frame_hash = "xxh64:ceabc34575d0ab2c"
 
 [entry.audio]
-# Title-screen attract — music hasn't started yet at this waypoint.
+# Canonical attract-silence hash. The title screen is static and
+# silent — verified at wait_frames 8000 and 12000 (same hash both
+# times). Bubble Bobble's title music plays after the player
+# inserts a credit, which would need scripted input to reach.
 from_frame = 100
 secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
