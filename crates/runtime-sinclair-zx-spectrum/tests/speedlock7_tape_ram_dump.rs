@@ -350,6 +350,118 @@ fn find_feb3_write_in_green_beret() {
 }
 
 #[test]
+#[ignore = "diagnostic — does Green Beret load if we lengthen its pause?"]
+fn green_beret_with_extended_pause() {
+    // Confirms or refutes the timing hypothesis: load Green Beret,
+    // parse the TZX to TapeSpans, find the Level span immediately
+    // before the pilot tone (block 7's pause) and extend it from
+    // 1336ms to 1833ms (Op Wolf's value). If the loader now passes,
+    // the bug is purely timing.
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_file);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    // Parse TZX, find the long Level pause spans, double their duration.
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut spans = tzx_to_stream(&tape.bytes).expect("parse tzx");
+    let mut patched = 0;
+    for span in spans.iter_mut() {
+        if let TapeSpan::Level { duration, level: false } = span {
+            // Speedlock pause spans are ~1336ms = ~4.6M T; lengthen
+            // any Level span > 1M T (= over 280ms) by a generous
+            // 500ms (~1.75M T) to confirm the timing hypothesis.
+            if *duration > 1_000_000 {
+                eprintln!("Patching pause span: {} T → {} T", duration, *duration + 1_750_000);
+                *duration += 1_750_000;
+                patched += 1;
+            }
+        }
+    }
+    eprintln!("Patched {patched} pause spans");
+
+    let _ = spans; // discard; we'll re-parse after autoload
+
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    // After autoload, patch ONLY the block-7 pause (the 1336ms one
+    // = 4_676_000 T-states with 1ms+1335ms split: 3500 + 4_672_500).
+    // Extend the second part by 500ms (= 1_750_000 T).
+    let mut spans = tzx_to_stream(&tape.bytes).expect("parse tzx");
+    let mut patched_one = false;
+    for span in spans.iter_mut() {
+        if let TapeSpan::Level { duration, level: false } = span {
+            // 4_672_500 is the 1335ms second half of block 7's 1336ms pause.
+            if *duration == 4_672_500 && !patched_one {
+                eprintln!("Patching ONLY the first block-7 pause: {} T → {} T",
+                    duration, *duration + 1_750_000);
+                *duration += 1_750_000;
+                patched_one = true;
+            }
+        }
+    }
+    if !patched_one {
+        eprintln!("Did not find the block-7 pause span!");
+    }
+    session.machine_mut().machine_mut().load_tape_stream(spans);
+    session.machine_mut().machine_mut().play_tape();
+
+    // Run for long enough that any wipe would have fired and the
+    // loader would settle into the wipe sled.
+    let mut cur = 0u32;
+    let mut wipe_seen = false;
+    for target in [3000u32, 5000, 7000, 9000, 12000, 15000, 20000, 25000] {
+        session.run_frames(target - cur).expect("run_frames");
+        cur = target;
+        let pc = session.machine().machine().z80().regs.pc;
+        let in_wipe = (0xFBC0..=0xFBE0).contains(&pc);
+        eprintln!("frame {target}: PC=${pc:04x} in_wipe={in_wipe}");
+        if in_wipe {
+            wipe_seen = true;
+        }
+    }
+    if wipe_seen {
+        eprintln!("RESULT: wipe still fires — timing hypothesis questioned");
+    } else {
+        eprintln!("RESULT: no wipe sled — timing hypothesis CONFIRMED");
+    }
+}
+
+#[test]
 #[ignore = "diagnostic — are bytes $90ef-$90fe actually written, or leftover memory?"]
 fn check_90ef_writes_in_green_beret() {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");

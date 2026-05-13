@@ -76,6 +76,18 @@ Tape state probe at the fill moment confirms it: frame 2540-2560 in the pause `L
 
 The diagnostic harness is `check_90ef_writes_in_green_beret`. The next investigator should compare per-instruction T-state cost of the loader's block-7 processing path between our chip and a reference (FUSE or known T-state model).
 
+**The 2026-05-13 pause-extension test confirmed timing as the cause.** `green_beret_with_extended_pause` patches the parsed TZX spans, extending the single Level{4_672_500T, false} pause span (the 1335ms portion of block-7's 1336ms pause) by 500ms. With that one patch, Green Beret loads cleanly — PC reaches game code at `$82f0+` by frame 15000, no wipe sled entered. Without the patch, the wipe fires at frame 6040 as before.
+
+So the bug is exactly: **our chip's loader executes the pre-fill code path (block-7 decode + setup at `$fe40`) ~500ms slower than real hardware**, pushing the fill window past the end of the pause and into the pilot tone. Real hardware finishes pre-fill in time for the entire 262ms fill window to fit within the 1336ms pause; ours doesn't.
+
+The actual fix needs to identify *where* the 500ms slip comes from. Three suspects in decreasing surface area:
+
+1. **Byte-decoder loop cost** (~3700 pulse-pair decodes during block 7). If each iter is ~135T slower than real hardware, that's 500ms.
+2. **IO contention on `IN A,($FE)`** (~10 IN reads per pulse pair × 3700 pairs = 37k INs). A ~13T-per-IN average contention gap would also yield 500ms.
+3. **Pulse-pair timing** in `TapePlayer` — span boundaries off by a small amount per pulse, accumulating.
+
+The diagnostic infrastructure to bisect this: instrument the byte-decoder loop with cycle-counting, compare against a known reference. `green_beret_with_extended_pause` is the regression test — when the underlying timing fix lands, this test should pass *without* the pause patch.
+
 **Speedlock-2 (Head over Heels) is a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drains fully — all 835 729 spans consumed by frame 16000 — and only *then* does the loader give up: by frame 30000 the border is red, the canonical "tape verify failed" indicator. So the loader is decoding something wrong during the data pass. The fix needs deeper protocol analysis; see the bottom of this document for next-step pointers.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.
