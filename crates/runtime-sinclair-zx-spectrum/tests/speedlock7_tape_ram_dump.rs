@@ -225,6 +225,176 @@ fn dump_speedlock7_loader_ram() {
 }
 
 #[test]
+#[ignore = "diagnostic — log every $fd5f bit-shift hit + wipe trigger for Green Beret"]
+fn trace_green_beret_wipe_fire() {
+    log_speedlock7_verifier_hits(
+        "Green Beret",
+        "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip",
+        20000,
+    );
+}
+
+#[test]
+#[ignore = "diagnostic — log every $fd5f bit-shift hit + wipe trigger for Op Wolf (baseline)"]
+fn trace_op_wolf_wipe_fire() {
+    log_speedlock7_verifier_hits(
+        "Op Wolf",
+        "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip",
+        20000,
+    );
+}
+
+/// Frame-by-frame poll for entries into the bit-shift verifier
+/// (PC = $fd5f) and the wipe trigger (PC = $fd6c, $fbd0). Logs L
+/// at each hit. Useful for spotting when the loader rejects a
+/// verifier output, even though we can't catch every iter at frame
+/// resolution.
+fn log_speedlock7_verifier_hits(label: &str, tzx_relative_path: &str, max_frames: u32) {
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_relative_path);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    // We can't catch PC = $fd5f frame-by-frame because each pass is
+    // ~30 T-states; but we CAN catch $fd6c (the wipe trigger) because
+    // it survives for several T-states and the loader walks through
+    // it just before jumping to $fbcb. Step one T-state at a time
+    // through the suspect window only — fall back to coarse run
+    // outside it.
+    let mut prev_pc = u16::MAX;
+    let mut current_frames: u32 = 0;
+    let mut wipe_hits: Vec<(u32, u16, u8, u8)> = Vec::new();
+    let mut shift_hits: Vec<(u32, u8, u8)> = Vec::new();
+    let mut last_l: u8 = 0;
+    let mut pc_tail: std::collections::VecDeque<u16> = std::collections::VecDeque::with_capacity(64);
+    'outer: while current_frames < max_frames {
+        // Coarse step: 1 frame at a time until we're "close" to a
+        // hot region (PC in $fd00..$fe00 or $fbc0..$fbe0).
+        session.run_frames(1).expect("step");
+        current_frames += 1;
+        let pc = session.machine().machine().z80().regs.pc;
+        let near_decoder = (0xfc00..=0xfdff).contains(&pc) || (0xfbc0..=0xfbe0).contains(&pc);
+        if !near_decoder {
+            continue;
+        }
+        // Fine step: 1 T-state at a time for the next 200000 T-states
+        // (~3 frames), watching for the trigger PCs.
+        for _t in 0..200_000 {
+            session.machine_mut().machine_mut().advance_tstates(1);
+            let z = session.machine().machine().z80();
+            let pc = z.regs.pc;
+            if pc == prev_pc {
+                continue;
+            }
+            prev_pc = pc;
+            if pc_tail.len() == 60 {
+                pc_tail.pop_front();
+            }
+            pc_tail.push_back(pc);
+            if pc == 0xfd5f {
+                shift_hits.push((current_frames, z.regs.b(), z.regs.l()));
+                last_l = z.regs.l();
+            }
+            if pc == 0xfd9c {
+                // Entry into the SECOND bit-shift verifier (after
+                // each pulse measurement). RET NC if CY=0 (timeout).
+                // Log when this fires so we can see whether the
+                // loader skips it (CY=0 path) or runs it (CY=1 path).
+                let cy = (z.regs.f() & 0x01) != 0;
+                if !cy {
+                    // RET NC fires — no XOR-fold update this iter.
+                    // Only log occasionally to avoid noise.
+                }
+            }
+            if pc == 0xfec6 {
+                let h = (z.regs.hl >> 8) as u8;
+                eprintln!(
+                    "[{label}] XOR-fold check at $fec6 at frame ~{current_frames}: H=${h:02x} → {}",
+                    if h == 0 { "PASS (no wipe)" } else { "WIPE FIRES" },
+                );
+            }
+            if pc == 0xfd6c {
+                // Verifier compare. Log L and the implied outcome,
+                // but don't break — we want to keep tracing to find
+                // the wipe firing later (if it does).
+                let l = z.regs.l();
+                wipe_hits.push((current_frames, pc, z.regs.b(), l));
+                eprintln!(
+                    "[{label}] verifier compare at $fd6c at frame ~{current_frames}: L=${l:02x} → {}",
+                    if l == 0x3A { "PASS (no wipe)" } else { "WIPE FIRES" },
+                );
+            }
+            // Match the wipe sled body specifically — PC=$fbd0 is
+            // `INC IY` inside the `INC IY ; JR -8` loop. Other PCs
+            // in $fbc0..$fbe0 are benign loader code traversed during
+            // normal execution.
+            if pc == 0xfbd0 {
+                eprintln!("[{label}] entered wipe sled at PC=$fbd0 at frame ~{current_frames}");
+                let tail: Vec<String> = pc_tail.iter().map(|p| format!("${p:04x}")).collect();
+                eprintln!("[{label}] last 60 PCs before wipe: {}", tail.join(" "));
+                // Dump bytes around interesting PCs from the tail —
+                // anything not in the byte-decoder ($fcd0-$fd00) is
+                // likely the originating check site.
+                for &region_base in &[0xfd9cu16, 0xfeb0u16, 0xfec0u16, 0xfef0u16, 0xff00u16, 0xfbc0u16] {
+                    let bytes: Vec<u8> = (0..32)
+                        .map(|i| {
+                            session
+                                .machine()
+                                .machine()
+                                .read_byte(region_base.wrapping_add(i as u16))
+                        })
+                        .collect();
+                    let hex = bytes
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    eprintln!("[{label}] bytes at ${region_base:04x}: {hex}");
+                }
+                break 'outer;
+            }
+        }
+    }
+
+    eprintln!(
+        "[{label}] last L at $fd5f before exit: ${last_l:02x}; shift_hits={}, wipe_hits={}",
+        shift_hits.len(),
+        wipe_hits.len(),
+    );
+    let last_few: Vec<String> = shift_hits
+        .iter()
+        .rev()
+        .take(20)
+        .map(|(f, b, l)| format!("f{f}:B=${b:02x},L=${l:02x}"))
+        .collect();
+    eprintln!("[{label}] last 20 $fd5f hits: {}", last_few.join(" "));
+}
+
+#[test]
 #[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
 fn trace_speedlock7_byte_decoder_b_values() {
     // Run Op Wolf to frame 1700 (just before pulses start), then drop
@@ -602,6 +772,95 @@ fn green_beret_loads_past_speedlock_wipe() {
         "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip",
     )
     .expect("Green Beret should clear the Speedlock-7 wipe");
+}
+
+#[test]
+#[ignore = "diagnostic — comparison probe for working title (Op Wolf)"]
+fn probe_op_wolf_tape_and_pc_evolution() {
+    probe_tape_and_pc(
+        "Op Wolf",
+        "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip",
+    );
+}
+
+#[test]
+#[ignore = "diagnostic — Green Beret black-screen investigation"]
+fn probe_green_beret_tape_and_pc_evolution() {
+    probe_tape_and_pc(
+        "Green Beret",
+        "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip",
+    );
+}
+
+fn probe_tape_and_pc(label: &str, tzx_relative_path: &str) {
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_relative_path);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    let mut current: u32 = 0;
+    let mut prev_pc_set: Vec<u16> = Vec::new();
+    for target in [
+        500u32, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 8000, 10000,
+        12000, 15000, 20000, 25000, 30000,
+    ] {
+        // Step the gap a frame at a time over the last 50 frames to
+        // collect a PC histogram (= how much code is being exercised).
+        let mid = target.saturating_sub(50);
+        session.run_frames(mid - current).expect("run_frames");
+        current = mid;
+        let mut pc_seen: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+        for _ in 0..50 {
+            session.run_frames(1).expect("step");
+            current += 1;
+            pc_seen.insert(session.machine().machine().z80().regs.pc);
+        }
+        let machine = session.machine().machine();
+        let pc = machine.z80().regs.pc;
+        let (span_idx, span_total) = machine.tape().span_position();
+        let playing = machine.tape().is_playing();
+        let unique_pcs: Vec<u16> = pc_seen.iter().copied().collect();
+        let new_pcs: Vec<u16> = unique_pcs
+            .iter()
+            .filter(|p| !prev_pc_set.contains(p))
+            .copied()
+            .collect();
+        prev_pc_set = unique_pcs.clone();
+        eprintln!(
+            "[{label}] frame {target:5}: PC=${pc:04x} tape={playing} span={span_idx}/{span_total} unique_PCs={} (new this window: {})",
+            unique_pcs.len(),
+            new_pcs.len(),
+        );
+        // Print first few new PCs to spot transitions
+        if !new_pcs.is_empty() && new_pcs.len() <= 8 {
+            let pcs_str: Vec<String> = new_pcs.iter().map(|p| format!("${p:04x}")).collect();
+            eprintln!("  new PCs: {}", pcs_str.join(" "));
+        }
+    }
 }
 
 #[test]
