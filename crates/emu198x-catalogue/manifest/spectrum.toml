@@ -770,6 +770,43 @@ from_frame = 100
 secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
 
+[[entry]]
+id = "green-beret-tape-speedlock"
+title = "Green Beret (Speedlock 2)"
+year = 1986
+publisher = "Imagine"
+variant = "48k"
+
+[entry.media]
+# Imagine's 1986 Spectrum conversion of Konami's coin-op infiltration
+# game. Multiple rips of this title exist; three of them load on our
+# chip and two wedge:
+#   - Hit Squad 1989 SpeedLock-7 re-release: wedges (block-7 pause
+#     1335ms is 435ms below the SpeedLock-7 catalogue norm, fill
+#     overruns into pilot tone — see speedlock-tape-incomplete.md).
+#   - Plain Imagine 1986 rip: wedges at a different sled ($fbd1).
+#   - Imagine 1986 [SpeedLock 2] rip: passes (this entry).
+# The [SpeedLock 2] label on the rip is interesting: Head over Heels
+# (the canonical Speedlock-2 example) still wedges, but this Green
+# Beret rip's Speedlock-2 variant loads cleanly. Either the rip is
+# mislabelled or Speedlock-2 has sub-variants that behave differently.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/Green Beret (1986)(Imagine)[SpeedLock 2].zip"
+
+[entry.boot]
+# Post-load attract screen, captured 2026-05-13. Loads to game code
+# at PC=$82f0 by frame 15000; the attract is stable by frame 8000.
+wait_frames = 8000
+frame_hash = "xxh64:7a0d72fd2dd56a21"
+
+[entry.audio]
+# Canonical attract-silence hash — Green Beret's loader doesn't kick
+# off the AY/beeper until the player presses a key.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
 # ─── Spectrum+ entries ──────────────────────────────────────────
 # Mirrors the 48K title set on the dedicated machine-sinclair-zx-
 # spectrum-plus crate. The two crates resolve to identical Rust

@@ -180,6 +180,27 @@ The Green Beret rip is degraded, in the strict sense that its block-7 pause is 4
 
 **Decision (2026-05-13):** Green Beret stays a known-rip-degradation entry; the catalogue cluster for Speedlock-7 (10+ working titles) is unaffected. The investigation is closed pending a better TZX rip.
 
+**Update (2026-05-13, same day): Green Beret IS unblocked — different rip works.** `probe_green_beret_alternates` walks every Green Beret TZX in the reference library. The Hit Squad SpeedLock-7 rip and the plain Imagine 1986 rip both wedge, but **seven other rips of the same game pass cleanly**:
+
+| Rip | Status |
+|---|---|
+| ARCADE COLLECTION 02 (Hit Squad 1989) [SpeedLock 7] | WIPE — 1335ms pause too short |
+| Green Beret (1986)(Imagine) — plain | WIPE — different sled ($fbd1), different bug |
+| Green Beret (1986)(Imagine)[a] | TZX block 0x19 — parser doesn't support generalized data |
+| **Green Beret (1986)(Imagine)[SpeedLock 2]** | **PASS** — PC=$82f0 by frame 15000 |
+| Green Beret (1986)(Erbe)(ES)(en)[re-release] | PASS |
+| Konami's Coin-Op Hits - Green Beret (1986)(Imagine) | PASS |
+| Konami's Arcade Collection (1988)(Imagine) | PASS |
+| Conflict Command (1988)(Ocean) | PASS |
+| Live Ammo (1987)(Ocean) | PASS |
+| Grandes Exitos de Konami (1987)(Erbe) | PASS |
+
+The Imagine 1986 [SpeedLock 2] standalone rip is the cleanest catalogue choice: original 1986 release, English, single-tape format, loads cleanly. Entry added at `crates/emu198x-catalogue/manifest/spectrum.toml::green-beret-tape-speedlock` (frame_hash `xxh64:7a0d72fd2dd56a21`, attract-silence audio).
+
+**Interesting wrinkle:** The working rip is labelled "[SpeedLock 2]" by the cataloguer. Head over Heels — our canonical Speedlock-2 wedge example — still fails (see Speedlock-2 section). Either this Green Beret rip is mislabelled, or Speedlock-2 has sub-variants that behave differently against our chip. Worth investigating if Speedlock-2 becomes a priority, but not blocking the catalogue today.
+
+**Final status:** Speedlock-7 cluster has 11 working entries plus Green Beret loaded from a different generation's rip. Catalogue at 81 entries. The chip-side timing audit (IO contention model verified within 1T per IN of spec) closes the chip side of the investigation regardless.
+
 **Speedlock-2 (Head over Heels) is a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drains fully — all 835 729 spans consumed by frame 16000 — and only *then* does the loader give up: by frame 30000 the border is red, the canonical "tape verify failed" indicator. So the loader is decoding something wrong during the data pass. The fix needs deeper protocol analysis; see the bottom of this document for next-step pointers.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.
