@@ -107,6 +107,25 @@ Both pauses match their TZX-declared values exactly, so `TapePlayer`'s pause emi
 
 A FUSE side-by-side on the same TZX file would distinguish these. Until that's run, treating Green Beret as a known-limitation entry rather than a chip bug is defensible: the rest of the Speedlock-7 cluster loads cleanly on the same chip with the same TapePlayer.
 
+**The 2026-05-13 outlier survey (`survey_speedlock7_pauses`) is conclusive on the rip-vs-chip question.** Parsing all 184 Speedlock-7 TZXs in the reference library and extracting the "calibration band" pauses (3.5M-7M T = 1000-2000ms) shows the typical Speedlock-7 block-7 pause sits at **1770-1850ms**. Op Wolf is 1832ms; Robocop, Combat School, Renegade, and the rest of the Hit Squad ARCADE COLLECTION re-releases cluster around 1800ms. Out of all 184 files, only four sit below 1700ms:
+
+| Title | Block-7 pause | Status on our chip |
+|---|---|---|
+| Op Wolf (control) | 1832ms | PASS |
+| Star Paws | 1625ms | PASS |
+| Firefly [a] | 1555ms | PASS |
+| Platoon | 1394ms | RUNNING (PC orbits $f8a2-$f8d7 at frame 45000 — anomalous, not the standard wipe sled) |
+| Green Beret | 1335ms | WIPE ($fbd0 sled) |
+
+The same chip + TapePlayer that fails Green Beret passes Firefly [a] at 1555ms. So our chip's working tolerance for the Speedlock-7 calibration pause is somewhere between 1335ms and 1555ms — a ~220ms shortfall against real hardware (which evidently tolerated 1335ms, since Green Beret shipped). The shortfall is consistent with cumulative IO-contention drift across the ~37k pre-fill `IN A,($FE)` reads (~6T/IN average shortfall = 222ms); falsifying that requires an IN-cycle T-state audit, which is the next concrete step.
+
+So Green Beret's failure has two components, not one:
+
+1. **Rip degradation**: its block-7 pause (1335ms) is uniquely short across the catalogue, ~440ms below the Speedlock-7 norm (1770-1850ms). Could indicate the rip captured a degraded master, or that this is the Hit Squad re-release's actual (tight) calibration. Without a different rip of the same title we can't distinguish.
+2. **Chip-tolerance shortfall**: our chip needs ≥1555ms (Firefly [a]) where real hardware presumably needed only 1335ms. That's a ~220ms emulator-timing slip the IN-cycle audit should localise.
+
+The `probe_near_outliers` test pins both numbers; `survey_speedlock7_pauses` lists the comparison set.
+
 **Speedlock-2 (Head over Heels) is a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drains fully — all 835 729 spans consumed by frame 16000 — and only *then* does the loader give up: by frame 30000 the border is red, the canonical "tape verify failed" indicator. So the loader is decoding something wrong during the data pass. The fix needs deeper protocol analysis; see the bottom of this document for next-step pointers.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.
