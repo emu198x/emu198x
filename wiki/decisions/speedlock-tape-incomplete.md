@@ -155,6 +155,31 @@ Falsifying these requires writing a focused T-state cost test (`time_n_in_a_fe_a
 
 The 88 ms shortfall has now been localised from "somewhere in the loader" down to "the per-IN cost during the fill's edge-count sampler" — that's a tractable next investigation. `measure_fill_duration` is the regression test that closes once the fill drops to ≤ 1336 ms.
 
+**The 2026-05-13 N×IN audit (`audit_in_a_fe_cost`) acquits the contention model.** Running 1000 back-to-back instructions from PC=$f800 (uncontended memory):
+
+| Instruction | Total T | Per-instruction |
+|---|---|---|
+| `NOP` (control) | 4 042 | 4.04 T — matches spec exactly |
+| `IN A,($FF)` (non-ULA port, no IO contention) | 11 040 | 11.04 T — matches spec exactly |
+| `IN A,($FE)` (ULA port, IO contention) | 13 210 | 13.21 T — +2.21 T over uncontended spec |
+
+The non-ULA IN at exactly 11 T proves the IN base cycle is correct. The +2.21 T contention overhead on the ULA IN is consistent with the expected average:
+
+- 48K screen-fetch occupies ~35 % of frame T-states.
+- Spec contention pattern is `[6,5,4,3,2,1,0,0]`, average 2.625 T per check.
+- An IN to a ULA port at uncontended PC undergoes 2 contention checks during the IO M-cycle.
+- Expected average per IN: `0.35 × 2 × 2.625 + 0.65 × 0 = 1.84 T`.
+
+We measure 2.21 T — within 0.4 T of expected. **Our IO contention model is correct within 1 T-state per IN; it is not the source of the 88 ms shortfall.**
+
+This reframes the diagnosis substantially. With both the byte-decoder loop cost (54 T/iter spec, matches) and the IN cycle cost (11 T uncontended, 13 T contented, both match spec) acquitted, the chip side of the loader appears to run the loader at real-hardware speed. The 88 ms shortfall for Green Beret is therefore most likely **not a chip bug** — it is a property of the Green Beret rip, whose 1335 ms calibration pause sits below the threshold at which the Speedlock-7 fill (which takes ~1424 ms on any cycle-accurate 48K) fits.
+
+The Green Beret rip is degraded, in the strict sense that its block-7 pause is 435 ms below the Speedlock-7 norm (1770-1850 ms across 184 TZXs in the catalogue). A working rip would have a calibration pause of ~1800 ms; this one was either captured from a degraded master or trimmed during ripping. Real hardware almost certainly fails to load this same TZX too.
+
+`green_beret_with_extended_pause` is the working evidence that lengthening the pause to a typical Speedlock-7 value (~1830 ms) makes the loader pass cleanly. No chip-side fix is needed.
+
+**Decision (2026-05-13):** Green Beret stays a known-rip-degradation entry; the catalogue cluster for Speedlock-7 (10+ working titles) is unaffected. The investigation is closed pending a better TZX rip.
+
 **Speedlock-2 (Head over Heels) is a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drains fully — all 835 729 spans consumed by frame 16000 — and only *then* does the loader give up: by frame 30000 the border is red, the canonical "tape verify failed" indicator. So the loader is decoding something wrong during the data pass. The fix needs deeper protocol analysis; see the bottom of this document for next-step pointers.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.

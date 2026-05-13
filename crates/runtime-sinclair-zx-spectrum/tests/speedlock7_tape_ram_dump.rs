@@ -599,6 +599,104 @@ fn measure_fill_one(label: &str, tzx_relative_path: &str) {
 }
 
 #[test]
+#[ignore = "diagnostic — direct N×IN A,($FE) timing audit against spec"]
+fn audit_in_a_fe_cost() {
+    // Drive N back-to-back IN A,($FE) instructions at $f800 (uncontended
+    // memory) and measure cumulative T-states. Spec for IN A,(n) on the
+    // 48K is 11T base + IO contention delay (0-6T per IN depending on
+    // ULA phase, averaging to a known distribution across one frame).
+    //
+    // Control: same setup with NOPs instead of INs. NOP = 4T flat.
+    //
+    // Per-IN cost = (in_total - nop_total*N/N) / N — subtracts the
+    // shared fetch + walker overhead.
+    for &n in &[10usize, 30, 50, 100, 200, 500, 1000, 5000, 10000] {
+        measure_n_instructions("IN A,($FE)", n, &[0xDB, 0xFE]);
+        measure_n_instructions("NOP",        n, &[0x00]);
+    }
+    // Also probe a non-ULA port (high byte = $FF, port_lo with bit 0 = 1).
+    // IN A,($FF) reads the floating bus; port bit 0 = 1 → not a ULA port
+    // → no IO contention. Should clock identically to NOP fetch + IO read.
+    measure_n_instructions("IN A,($FF) [non-ULA]", 1000, &[0xDB, 0xFF]);
+}
+
+fn measure_n_instructions(label: &str, n: usize, opcode_bytes: &[u8]) {
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    if !firmware_root.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    // Run one frame to let the Z80 initialise.
+    session.run_frames(1).expect("run");
+
+    // Lay out the test program at $f800:
+    //   N copies of `opcode_bytes` followed by a sentinel HALT (0x76).
+    // PC starts at $f800; we count T-states until PC reaches the HALT.
+    let instr_len = opcode_bytes.len();
+    let total_len = n * instr_len;
+    let halt_addr = 0xf800u16 + total_len as u16;
+    {
+        let machine = session.machine_mut().machine_mut();
+        for i in 0..n {
+            for (j, b) in opcode_bytes.iter().enumerate() {
+                machine.write_byte(0xf800 + (i * instr_len + j) as u16, *b);
+            }
+        }
+        machine.write_byte(halt_addr, 0x76);
+        // Force PC to our test program and clear halt + IFF1.
+        machine.z80_mut().regs.pc = 0xf800;
+        machine.z80_mut().halt = false;
+        machine.z80_mut().regs.iff1 = false;
+        machine.z80_mut().regs.iff2 = false;
+    }
+
+    // Step T-states. Track the FIRST T at which PC = $f800 (clean
+    // instruction boundary) and the FIRST T at which PC = halt_addr
+    // (program complete). T_in_program = halt_T - boundary_T.
+    let mut boundary_t: Option<u32> = None;
+    let mut end_t: Option<u32> = None;
+    let max_t = 50_000u32 + (n as u32) * 50; // generous upper bound
+    for t in 0..max_t {
+        let pc_before = session.machine().machine().z80().regs.pc;
+        if pc_before == 0xf800 && boundary_t.is_none() {
+            boundary_t = Some(t);
+        }
+        if pc_before == halt_addr {
+            end_t = Some(t);
+            break;
+        }
+        session.machine_mut().machine_mut().advance_tstates(1);
+    }
+
+    match (boundary_t, end_t) {
+        (Some(b), Some(e)) => {
+            let total = e - b;
+            let avg = total / (n as u32);
+            let rem = total % (n as u32);
+            eprintln!(
+                "[{label}] N={n}: total={total}T, avg={avg}T/instr (remainder {rem})",
+            );
+        }
+        _ => {
+            eprintln!(
+                "[{label}] N={n}: did not complete (boundary={boundary_t:?}, end={end_t:?})"
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "diagnostic — measure byte-decoder loop cost vs documented 54T/iter spec"]
 fn measure_byte_decoder_loop_cost() {
     for (label, file) in [
