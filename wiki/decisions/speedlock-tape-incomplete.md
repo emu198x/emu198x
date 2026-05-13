@@ -36,6 +36,20 @@ This means our bit decoding is producing the wrong checksum for Green Beret's da
 
 `find_feb3_write_in_green_beret` is the diagnostic harness for this: it does a coarse scan to find the wipe-fire window, then single-T-state steps with a 64-PC rolling buffer to capture the exact write site. The instruction sequence at `$fe9d-$feb2` is the smoking gun.
 
+**The 2026-05-13 byte-sum trace** (`trace_hl_at_checksum_check`) nailed the upstream cause one level deeper. The loop at `$fe92-$fe9a` reads 50 bytes from `(DE)` and sums them into `HL`. The bytes come from a buffer written by an earlier load phase; `DE` points at `$90cd`:
+
+- **Op Wolf** (passes): all 50 bytes at `$90cd-$90fe` are `$01`. Sum = `$32`. After `SBC HL, BC` twice with `BC = $32`, HL underflows on the second subtract → `RET C` fires → `$feb3` stays `$00` → no wipe.
+- **Green Beret** (fails): bytes `$90cd-$90ee` are `$01` (34 bytes), but bytes `$90ef-$90fe` are **garbage** (`$04, $0a, $09, $09, $0a, $0a, $09, $09, $0b, $0a, $08, $0a, $09, $0a, $08, $0a`). Sum = `$b4`. Both `SBC HL, BC` give positive results → `$fead` writes `$01` to `$feb3` → wipe fires later.
+
+So the loader expects all 50 bytes at `$90cd-$90fe` to be `$01` — that's the Speedlock-7 integrity signature for this segment. Op Wolf's data is delivered correctly; Green Beret's is corrupted from byte 35 onward, by exactly the count needed to drive the sum above the `$64` ceiling.
+
+This narrows the next investigation to: *which* tape pulses correspond to the 16 garbage bytes at `$90ef-$90fe`, *what* the TZX file encodes there, and *why* our bit-decoder produces `$04-$0b` instead of `$01`. Two hypotheses to falsify:
+
+1. The loader is *supposed* to write 50 `$01`s and our chip writes only 34, leaving residual memory exposed (a counter/sync error before the buffer-fill, not a bit-decode error).
+2. Our bit-decoder produces wrong byte values for a specific pulse-width pattern that Green Beret's data exercises but Op Wolf's doesn't.
+
+To narrow, the next investigator needs to (a) identify which TZX block sources the `$90cd-$90fe` write, (b) read the TZX-encoded bytes for that block, and (c) compare against what our chip wrote.
+
 **Speedlock-2 (Head over Heels) is a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drains fully — all 835 729 spans consumed by frame 16000 — and only *then* does the loader give up: by frame 30000 the border is red, the canonical "tape verify failed" indicator. So the loader is decoding something wrong during the data pass. The fix needs deeper protocol analysis; see the bottom of this document for next-step pointers.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.

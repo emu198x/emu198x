@@ -340,13 +340,122 @@ fn find_feb3_write_in_green_beret() {
 
     // Dump the surrounding code region so we can disassemble the
     // path through $fe92..$feb2 that produced the $01 write.
-    for base in [0xfe80u16, 0xfe90, 0xfea0, 0xfeb0] {
+    for base in [0xfb60u16, 0xfb70, 0xfb80, 0xfe80, 0xfe90, 0xfea0, 0xfeb0] {
         let bytes: Vec<u8> = (0..16)
             .map(|i| session.machine().machine().read_byte(base.wrapping_add(i as u16)))
             .collect();
         let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
         eprintln!("  ${base:04x}: {hex}");
     }
+}
+
+#[test]
+#[ignore = "diagnostic — what does HL contain at $fe9d for Green Beret vs Op Wolf?"]
+fn trace_hl_at_checksum_check() {
+    for (label, tzx_relative_path) in [
+        (
+            "Op Wolf",
+            "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip",
+        ),
+        (
+            "Green Beret",
+            "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip",
+        ),
+    ] {
+        log_hl_at_fe9d(label, tzx_relative_path);
+    }
+}
+
+fn log_hl_at_fe9d(label: &str, tzx_relative_path: &str) {
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_relative_path);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    // Skip to past the BASIC load (frame ~1500) to make tracing
+    // tractable.
+    session.run_frames(1500).expect("run_frames");
+
+    // Continuous single-T-state step. ~5000 frames × 70k T = 350M
+    // iterations; ~30s in release.
+    let max_t = 5000u32 * TIMING_48K.tstates_per_frame;
+    let mut prev_pc = u16::MAX;
+    let mut fe9d_hits = 0usize;
+    let mut feaf_hits = 0usize;
+    let mut fec6_hits = 0usize;
+    for t in 0..max_t {
+        session.machine_mut().machine_mut().advance_tstates(1);
+        let z = session.machine().machine().z80();
+        let cur_pc = z.regs.pc;
+        if cur_pc == prev_pc {
+            continue;
+        }
+        prev_pc = cur_pc;
+        match cur_pc {
+            0xfe93 => {
+                // LD A,(DE) — capture the byte being summed
+                let de = z.regs.de;
+                let byte = session.machine().machine().read_byte(de);
+                eprintln!("[{label}] +{t:9}T  $fe93 LD A,(DE): DE=${de:04x} byte=${byte:02x}");
+            }
+            0xfe9d => {
+                let hl = z.regs.hl;
+                let bc = z.regs.bc;
+                fe9d_hits += 1;
+                eprintln!(
+                    "[{label}] +{t:9}T  $fe9d#{fe9d_hits}: HL_sum=${hl:04x} BC=${bc:04x} → {}",
+                    if hl < 0x64 { "PASS (HL<$64)" } else { "FAIL (HL≥$64, will write $01)" },
+                );
+            }
+            0xfeaf => {
+                feaf_hits += 1;
+                eprintln!(
+                    "[{label}] +{t:9}T  $feaf#{feaf_hits}: WRITING $01 TO $FEB3 (A=${:02x})",
+                    z.regs.a(),
+                );
+            }
+            0xfec6 => {
+                let h = z.regs.h();
+                fec6_hits += 1;
+                eprintln!(
+                    "[{label}] +{t:9}T  $fec6#{fec6_hits}: H=${h:02x} → {}",
+                    if h >= 1 { "FAIL ($feca CALL $fbcb)" } else { "PASS (RET C)" },
+                );
+            }
+            0xfbd0 => {
+                eprintln!("[{label}] +{t:9}T  WIPE SLED ENTERED at $fbd0");
+                break;
+            }
+            _ => {}
+        }
+    }
+    eprintln!(
+        "[{label}] totals: $fe9d={fe9d_hits} $feaf={feaf_hits} $fec6={fec6_hits}",
+    );
 }
 
 #[test]
