@@ -439,6 +439,134 @@ from_frame = 100
 secs = 2.0
 hash = "xxh64:124dd641d7824df2"
 
+# ─── Speedlock-tape cluster ─────────────────────────────────────
+# Unlocked 2026-05-13 by the TZX partial-last-byte parser fix (see
+# `wiki/decisions/speedlock-tape-incomplete.md`). Speedlock-5 and
+# Speedlock-7 protections both fail without the fix because their
+# anti-tamper signature byte is delivered via a 0x14 block with
+# `bits_in_last_byte = 6` — the parser was reading the lower six
+# bits instead of the upper six.
+
+[[entry]]
+id = "operation-wolf-tape-speedlock"
+title = "Operation Wolf (Speedlock 7)"
+year = 1991
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad budget re-release of Ocean's 1988 arcade conversion.
+# Speedlock 7 protection: encrypted loader at $F48E that decrypts
+# in-place, performs pulse-width pre-check against a 14-byte
+# threshold table at $FEB4, then runs a bit-shift verifier that
+# compares L against $3A — the partial-last-byte gate the parser
+# fix unblocks.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip"
+
+[entry.boot]
+# Programmer credits scroll: "PROGRAMMING BY ANDREW DEAKIN /
+# GRAPHICS BY IVAN HORN" in cyan and white on black, no border —
+# the post-load attract before the title screen rolls.
+wait_frames = 6000
+frame_hash = "xxh64:ee18d332300497af"
+
+[entry.audio]
+# Canonical "loader silence" hash — the credit scroll hasn't yet
+# started the AY music driver at this waypoint. Worth bumping
+# wait_frames in a later pass to catch the title-music handoff.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "robocop-tape-speedlock"
+title = "RoboCop (Speedlock 7)"
+year = 1991
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad re-release of Ocean's 1988 RoboCop movie tie-in. Same
+# Speedlock 7 family as Op Wolf — partial-last-byte fix unblocks.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/MOVIE COLLECTION 22 - RoboCop (1991)(Hit Squad, The)(48K-128K)(Side A)[SpeedLock 7].zip"
+
+[entry.boot]
+# High-score table: "MURPHY 50000 / LEWIS 40000 / ED 209 30000 /
+# MORTON 20000 / HOULTON 10000" in white-on-black. The post-load
+# attract loop is running.
+wait_frames = 6000
+frame_hash = "xxh64:a26ef35daf6e05a0"
+
+[entry.audio]
+# Same canonical loader-silence hash — attract-loop music hasn't
+# started yet at this waypoint.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "dragon-ninja-tape-speedlock"
+title = "Dragon Ninja (Speedlock 7)"
+year = 1991
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad re-release of Imagine's 1988 Bad Dudes vs Dragon Ninja
+# arcade conversion. Speedlock 7 protection.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 25 - Dragon Ninja (1991)(Hit Squad, The)[SpeedLock 7].zip"
+
+[entry.boot]
+# Main menu: "DRAGON-NINJA" banner, options "0 START GAME / 1
+# KEYBOARD / 2 KEMPSTON / 3 CURSOR KEYS / 4 SINCLAIR (selected, red
+# highlight) / 5 REDEFINE KEYS / WRITTEN BY PAUL OWENS" framed by
+# red-and-green decorative border.
+wait_frames = 6000
+frame_hash = "xxh64:b7eb0309a56dd6fb"
+
+[entry.audio]
+# Menu music actually plays — the AY driver is running by this
+# waypoint, distinct from the canonical silence hash.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:73044dcaad32dde4"
+
+[[entry]]
+id = "bubble-bobble-tape-speedlock"
+title = "Bubble Bobble (Speedlock 5)"
+year = 1992
+publisher = "Hit Squad, The"
+variant = "48k"
+
+[entry.media]
+# Hit Squad re-release of Firebird's 1987 Bubble Bobble — the only
+# Speedlock 5 title verified working after the partial-last-byte
+# fix. Different protection generation from the rest of the cluster
+# but the same TZX-level mechanism (0x14 block with bits_last=6).
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 30 - Bubble Bobble (1992)(Hit Squad, The)(48K-128K)[SpeedLock 5][re-release].zip"
+
+[entry.boot]
+# Title screen with full BUBBLE BOBBLE logo in yellow cloud, the
+# Firebird and Taito badges, both bubble-dragon characters (green
+# Bub and blue Bob), and the credits "BY MIKE FOLLIN / SOFTWARE
+# CREATIONS / OM00S1".
+wait_frames = 6000
+frame_hash = "xxh64:ceabc34575d0ab2c"
+
+[entry.audio]
+# Title-screen attract — music hasn't started yet at this waypoint.
+from_frame = 100
+secs = 2.0
+hash = "xxh64:d21bc79639a0edde"
+
 # ─── Spectrum+ entries ──────────────────────────────────────────
 # Mirrors the 48K title set on the dedicated machine-sinclair-zx-
 # spectrum-plus crate. The two crates resolve to identical Rust
