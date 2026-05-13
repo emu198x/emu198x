@@ -350,6 +350,103 @@ fn find_feb3_write_in_green_beret() {
 }
 
 #[test]
+#[ignore = "diagnostic — measure exact T-state offsets for block-7 end vs fill start"]
+fn measure_block7_to_fill_timing() {
+    for (label, tzx_relative_path) in [
+        (
+            "Op Wolf",
+            "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip",
+        ),
+        (
+            "Green Beret",
+            "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip",
+        ),
+    ] {
+        measure_one(label, tzx_relative_path);
+    }
+}
+
+fn measure_one(label: &str, tzx_relative_path: &str) {
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_relative_path);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    // Skip to past the BASIC load.
+    session.run_frames(1500).expect("run_frames");
+
+    // Single-T-state step, watching for:
+    //  (1) tape span transitions to a long Level{>1M, false} span (block-7 end)
+    //  (2) tape span transitions to first Pulse(2165) after that (pause end)
+    //  (3) PC = $fe43 first hit (fill start)
+    let max_t = 5000u32 * TIMING_48K.tstates_per_frame;
+    let mut prev_pc = u16::MAX;
+    let mut prev_span_kind: u8 = 0;
+    let mut events: Vec<(u32, String)> = Vec::new();
+    for t in 0..max_t {
+        session.machine_mut().machine_mut().advance_tstates(1);
+        let machine = session.machine().machine();
+        let pc = machine.z80().regs.pc;
+        if pc != prev_pc {
+            prev_pc = pc;
+            if pc == 0xfe43 {
+                events.push((t, "fill_start ($fe43)".to_owned()));
+            }
+        }
+        if let Some(span) = machine.tape().current_span() {
+            let kind = match span {
+                TapeSpan::Pulse(_) => 1u8,
+                TapeSpan::Level { duration, .. } if *duration > 100_000 => 2u8,
+                _ => 0,
+            };
+            if kind != prev_span_kind && prev_span_kind != 0 {
+                if prev_span_kind == 1 && kind == 2 {
+                    events.push((t, format!("Pulse→Level{:?}", span)));
+                }
+                if prev_span_kind == 2 && kind == 1 {
+                    events.push((t, format!("Level→Pulse{:?}", span)));
+                }
+            }
+            if kind != 0 {
+                prev_span_kind = kind;
+            }
+        }
+        if events.len() > 200 {
+            break;
+        }
+    }
+
+    eprintln!("[{label}] events ({} total):", events.len());
+    for (t, desc) in &events {
+        eprintln!("  +{t:9}T  {desc}");
+    }
+}
+
+#[test]
 #[ignore = "diagnostic — does Green Beret load if we lengthen its pause?"]
 fn green_beret_with_extended_pause() {
     // Confirms or refutes the timing hypothesis: load Green Beret,
@@ -366,37 +463,7 @@ fn green_beret_with_extended_pause() {
         return;
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
-    let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new(
-        "sinclair-zx-spectrum-48k-rom".to_owned(),
-        &rom_bytes.bytes,
-    ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
-    let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        u64::from(TIMING_48K.halfcycles_per_frame),
-        SpectrumSessionQueryProvider,
-    );
-
-    // Parse TZX, find the long Level pause spans, double their duration.
     let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
-    let mut spans = tzx_to_stream(&tape.bytes).expect("parse tzx");
-    let mut patched = 0;
-    for span in spans.iter_mut() {
-        if let TapeSpan::Level { duration, level: false } = span {
-            // Speedlock pause spans are ~1336ms = ~4.6M T; lengthen
-            // any Level span > 1M T (= over 280ms) by a generous
-            // 500ms (~1.75M T) to confirm the timing hypothesis.
-            if *duration > 1_000_000 {
-                eprintln!("Patching pause span: {} T → {} T", duration, *duration + 1_750_000);
-                *duration += 1_750_000;
-                patched += 1;
-            }
-        }
-    }
-    eprintln!("Patched {patched} pause spans");
-
-    let _ = spans; // discard; we'll re-parse after autoload
 
     let mut firmware = FirmwareSet::new();
     firmware.push(FirmwareImage::new(

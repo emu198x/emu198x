@@ -88,6 +88,25 @@ The actual fix needs to identify *where* the 500ms slip comes from. Three suspec
 
 The diagnostic infrastructure to bisect this: instrument the byte-decoder loop with cycle-counting, compare against a known reference. `green_beret_with_extended_pause` is the regression test — when the underlying timing fix lands, this test should pass *without* the pause patch.
 
+**The 2026-05-13 fill-timing measurement (`measure_block7_to_fill_timing`) rules out suspect #1.** Recording the T-state offset between block-7-pilot-start and the first `$fe43` (fill_start) for both games:
+
+- Op Wolf:    block 7 pilot at +14304811T, fill_start at +21616359T → 7 311 548T into block 7
+- Green Beret: block 7 pilot at +62234751T, fill_start at +69546311T → 7 311 560T into block 7
+
+A 12T delta out of 7.3M means both games are executing the *same* byte-decoder iteration count and reaching the fill at the *same* offset from block-7-pilot-start. The byte-decoder loop is therefore not the source of the slip — its cost is bit-for-bit identical across the two TZXs (as it must be: same instructions, same data widths).
+
+That leaves the differentiator at the *tape* end:
+
+- Op Wolf pause: 6 412 000T = 1832ms (Pulse→Level to next Level→Pulse).
+- Green Beret pause: 4 672 500T = 1335ms.
+
+Both pauses match their TZX-declared values exactly, so `TapePlayer`'s pause emission is faithful. The remaining hypothesis is that **the TZX-declared pause for Green Beret simply is below the threshold our chip's loader needs**, where real hardware tolerates the shorter pause. That could be:
+
+- A genuine emulator-vs-hardware drift (suspects #2 or #3 — IO contention on the 37k `IN`s, or accumulating pulse-pair imprecision), or
+- A TZX-rip artefact (the Green Beret rip we own has a shorter pause than the original Speedlock master, and real hardware on a clean rip would also see ≥1336ms).
+
+A FUSE side-by-side on the same TZX file would distinguish these. Until that's run, treating Green Beret as a known-limitation entry rather than a chip bug is defensible: the rest of the Speedlock-7 cluster loads cleanly on the same chip with the same TapePlayer.
+
 **Speedlock-2 (Head over Heels) is a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drains fully — all 835 729 spans consumed by frame 16000 — and only *then* does the loader give up: by frame 30000 the border is red, the canonical "tape verify failed" indicator. So the loader is decoding something wrong during the data pass. The fix needs deeper protocol analysis; see the bottom of this document for next-step pointers.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.
