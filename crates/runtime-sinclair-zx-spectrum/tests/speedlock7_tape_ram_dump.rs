@@ -447,6 +447,284 @@ fn measure_one(label: &str, tzx_relative_path: &str) {
 }
 
 #[test]
+#[ignore = "diagnostic — measure fill duration end-to-end"]
+fn measure_fill_duration() {
+    for (label, tzx_relative_path) in [
+        (
+            "Op Wolf",
+            "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip",
+        ),
+        (
+            "Green Beret",
+            "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip",
+        ),
+    ] {
+        measure_fill_one(label, tzx_relative_path);
+    }
+}
+
+fn measure_fill_one(label: &str, tzx_relative_path: &str) {
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_relative_path);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
+    session.run_frames(1500).expect("run_frames");
+
+    // We want to measure fill duration end-to-end. Strategy:
+    //  - Detect first PC = $fe43 (fill_start).
+    //  - Define fill region as PC ∈ [$fe40, $feb0). The outer loop
+    //    body and inner sampler (CALL $FE5B) both live in there;
+    //    the post-fill checksum check at $fe9d-$feb2 is roughly the
+    //    upper bound, so [$fe43, $feb0) is conservative.
+    //  - After fill_start, track the last T-state at which PC was
+    //    still in that region. When the gap (current_t - last_t)
+    //    exceeds 200_000 T (≈ 57ms — well over any inner-loop body
+    //    cost), declare fill_end = last_t.
+    //  - Also record the FINAL value of HL just before fill_end so
+    //    we know how many bytes the fill actually wrote.
+    let max_t = 5000u32 * TIMING_48K.tstates_per_frame;
+    let mut fill_start: Option<u32> = None;
+    let mut fill_last_in_region_t: u32 = 0;
+    let mut fill_last_hl: u16 = 0;
+    let mut block7_pause_start: Option<u32> = None;
+    let mut block7_pause_end: Option<u32> = None;
+    let mut prev_span_kind: u8 = 0;
+    let mut fe43_hits = 0u32;
+    let gap_threshold: u32 = 200_000;
+
+    for t in 0..max_t {
+        session.machine_mut().machine_mut().advance_tstates(1);
+        let machine = session.machine().machine();
+        let pc = machine.z80().regs.pc;
+
+        // Detect fill_start at FIRST $fe43 after block 7's pause ends.
+        // (There's an earlier $fe43 between blocks; we want the one
+        // that straddles block 7's pause.)
+        if pc == 0xfe43 {
+            fe43_hits += 1;
+        }
+
+        // Track tape span transitions to identify block 7.
+        if let Some(span) = machine.tape().current_span() {
+            let kind = match span {
+                TapeSpan::Pulse(_) => 1u8,
+                TapeSpan::Level { duration, .. } if *duration > 1_000_000 => 2u8,
+                _ => 0,
+            };
+            if kind != prev_span_kind && prev_span_kind != 0 {
+                if prev_span_kind == 1 && kind == 2 {
+                    // Pulse → Level: maybe block 7's end.
+                    if block7_pause_start.is_none() && fe43_hits >= 1 {
+                        block7_pause_start = Some(t);
+                    }
+                }
+                if prev_span_kind == 2 && kind == 1 {
+                    if block7_pause_start.is_some() && block7_pause_end.is_none() {
+                        block7_pause_end = Some(t);
+                    }
+                }
+            }
+            if kind != 0 {
+                prev_span_kind = kind;
+            }
+        }
+
+        // Lock fill_start to the block-7 fill: the LAST $fe43 hit
+        // before block 7's pause ends (i.e. fe43 hit while pause
+        // is active, OR within block 7's pulses).
+        if fill_start.is_none() && pc == 0xfe43 && fe43_hits >= 2 {
+            fill_start = Some(t);
+            fill_last_in_region_t = t;
+        }
+
+        if fill_start.is_some() {
+            if (0xfe40..0xfeb0).contains(&pc) {
+                fill_last_in_region_t = t;
+                fill_last_hl = machine.z80().regs.hl;
+            } else if t - fill_last_in_region_t > gap_threshold {
+                // Fill has ended.
+                break;
+            }
+        }
+    }
+
+    let fill_start = fill_start.expect("found fill_start");
+    let pause_start = block7_pause_start.expect("found pause start");
+    let pause_end = block7_pause_end.expect("found pause end");
+    let fill_dur_t = fill_last_in_region_t.saturating_sub(fill_start);
+    let pause_dur_t = pause_end - pause_start;
+    let fill_end_relative_to_pause_end = (fill_last_in_region_t as i64) - (pause_end as i64);
+
+    eprintln!(
+        "[{label}] fill_start=+{fill_start}T, fill_end=+{end}T, fill_dur={fill_dur_t}T (={dur_ms}ms), HL_final=${hl:04x}",
+        end = fill_last_in_region_t,
+        dur_ms = (u64::from(fill_dur_t) * 1000 / 3_500_000) as u32,
+        hl = fill_last_hl,
+    );
+    eprintln!(
+        "[{label}] block7 pause: start=+{pause_start}T, end=+{pause_end}T, dur={pause_dur_t}T (={pause_ms}ms)",
+        pause_ms = (u64::from(pause_dur_t) * 1000 / 3_500_000) as u32,
+    );
+    let rel_ms = (fill_end_relative_to_pause_end * 1000) / (3_500_000 as i64);
+    eprintln!(
+        "[{label}] fill_end relative to pause_end: {fill_end_relative_to_pause_end}T (={rel_ms}ms — negative = inside pause, positive = into pilot)"
+    );
+}
+
+#[test]
+#[ignore = "diagnostic — dump ALL Green Beret spans"]
+fn dump_green_beret_spans() {
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join("ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip");
+    if !tzx_path.exists() {
+        return;
+    }
+    let bytes = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx").bytes;
+    let spans = tzx_to_stream(&bytes).expect("parse");
+    eprintln!("Total spans: {}", spans.len());
+    let mut level_false_durs: Vec<u32> = Vec::new();
+    let mut level_true_durs: Vec<u32> = Vec::new();
+    for s in &spans {
+        if let TapeSpan::Level { duration, level } = s {
+            if !*level {
+                level_false_durs.push(*duration);
+            } else {
+                level_true_durs.push(*duration);
+            }
+        }
+    }
+    level_false_durs.sort();
+    level_true_durs.sort();
+    eprintln!("Top 20 Level{{level:false}} durations (T):");
+    for d in level_false_durs.iter().rev().take(20) {
+        eprintln!("  {d} T = {} ms", (u64::from(*d) * 1000 / 3_500_000) as u32);
+    }
+    eprintln!("Top 20 Level{{level:true}} durations (T):");
+    for d in level_true_durs.iter().rev().take(20) {
+        eprintln!("  {d} T = {} ms", (u64::from(*d) * 1000 / 3_500_000) as u32);
+    }
+}
+
+#[test]
+#[ignore = "diagnostic — survey block-7 pause across all Speedlock-7 TZXs"]
+fn survey_speedlock7_pauses() {
+    let tzx_root = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]");
+    if !tzx_root.exists() {
+        eprintln!("TZX root not present; skipping");
+        return;
+    }
+    let mut entries: Vec<_> = std::fs::read_dir(&tzx_root)
+        .expect("read dir")
+        .flatten()
+        .filter(|e| {
+            let n = e.file_name();
+            let s = n.to_string_lossy();
+            s.contains("[SpeedLock 7]") || s.contains("[Speedlock 7]")
+        })
+        .collect();
+    entries.sort_by_key(|e| e.file_name());
+    eprintln!("Surveying {} Speedlock-7 TZXs", entries.len());
+
+    let mut all: Vec<(String, Vec<u32>)> = Vec::new();
+    for entry in &entries {
+        let path = entry.path();
+        let bytes = match read_media_asset(&path, MediaKind::Tape) {
+            Ok(t) => t.bytes,
+            Err(_) => continue,
+        };
+        let spans = match tzx_to_stream(&bytes) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        // Interesting pauses: > 700ms (= 2.45M T). Speedlock-7 inter-block
+        // pauses run ~1300-2000ms; we filter to those that could plausibly
+        // host a fill.
+        let pauses: Vec<u32> = spans
+            .iter()
+            .filter_map(|s| {
+                if let TapeSpan::Level {
+                    duration,
+                    level: false,
+                } = s
+                {
+                    if *duration > 2_450_000 {
+                        Some(*duration)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let name = entry.file_name().to_string_lossy().to_string();
+        all.push((name, pauses));
+    }
+
+    // Speedlock-7 calibration pause sits in the 1000-2000ms band.
+    // For each file, report the SMALLEST pause in that band — that's
+    // the closest analogue to the block-7 calibration pause we need
+    // to compare against Green Beret's 1335ms.
+    let to_ms = |t: u32| (u64::from(t) * 1000 / 3_500_000) as u32;
+    let mut calib: Vec<(u32, &str, Vec<u32>)> = all
+        .iter()
+        .filter_map(|(name, pauses)| {
+            let mut in_band: Vec<u32> = pauses
+                .iter()
+                .filter(|t| **t >= 3_500_000 && **t <= 7_000_000)
+                .copied()
+                .collect();
+            in_band.sort();
+            in_band.first().map(|smallest| {
+                let band_ms: Vec<u32> = in_band.iter().map(|t| to_ms(*t)).collect();
+                (to_ms(*smallest), name.as_str(), band_ms)
+            })
+        })
+        .collect();
+    calib.sort_by_key(|(min, _, _)| *min);
+    eprintln!(
+        "\nCalibration-band pauses (1000-2000ms) — smallest per file, ascending:"
+    );
+    for (min_ms, name, band_ms) in &calib {
+        eprintln!("  smallest={min_ms:5}ms  band={band_ms:?}  {name}");
+    }
+    eprintln!("\nTotal files with any calibration-band pause: {}", calib.len());
+    eprintln!(
+        "Files with smallest calibration-band pause ≤ 1335ms (Green Beret level or worse):"
+    );
+    for (min_ms, name, _) in calib.iter().filter(|(m, _, _)| *m <= 1335) {
+        eprintln!("  {min_ms}ms  {name}");
+    }
+}
+
+#[test]
 #[ignore = "diagnostic — does Green Beret load if we lengthen its pause?"]
 fn green_beret_with_extended_pause() {
     // Confirms or refutes the timing hypothesis: load Green Beret,
