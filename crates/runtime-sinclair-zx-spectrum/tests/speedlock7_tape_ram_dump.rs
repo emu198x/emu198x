@@ -519,21 +519,20 @@ fn sample_border_color_through_loader() {
     }
 }
 
-#[test]
-#[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
-fn opwolf_loads_past_speedlock_wipe() {
-    // Verify the Speedlock-7 byte-decoder gate is closed: run Op
-    // Wolf to far enough past the wipe-fire window that, if it had
-    // triggered, the loader would be stuck in the $FBC0..$FBE0
-    // wipe sled. Pass condition: PC is anywhere outside the wipe
-    // zone at frame 3000.
+/// Helper: load `tzx_relative_path`, run past the protection's wipe-fire
+/// window, then sample PC at five well-spaced frames. A live loader walks
+/// a wide PC range; a wedged one is pinned to a ≤2-instruction sled.
+/// Returns `Ok(())` when alive, `Err(message)` when wedged. Callers decide
+/// whether wedged is a hard failure (the title is supposed to work) or an
+/// expected outcome (the title is a known separate investigation).
+fn check_speedlock_loader_alive(label: &str, tzx_relative_path: &str) -> Result<(), String> {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
     let tzx_path = home()
         .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_file);
+        .join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        eprintln!("[skip {label}] firmware or TZX missing");
+        return Ok(());
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -558,17 +557,68 @@ fn opwolf_loads_past_speedlock_wipe() {
     autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
 
     let mut current: u32 = 0;
-    for target in [1800u32, 2000, 2500, 3000, 4000] {
+    let mut samples: Vec<u16> = Vec::new();
+    for target in [2000u32, 2500, 3000, 3500, 4000] {
         let delta = target - current;
         session.run_frames(delta).expect("run_frames");
         current = target;
         let pc = session.machine().machine().z80().regs.pc;
-        let in_wipe = (0xFBC0..=0xFBE0).contains(&pc);
-        eprintln!("frame {target}: PC=${pc:04x} in_wipe={in_wipe}");
-        assert!(
-            !in_wipe,
-            "loader entered Speedlock wipe sled at frame {target} (PC=${pc:04x})"
-        );
+        samples.push(pc);
+        eprintln!("[{label}] frame {target}: PC=${pc:04x}");
+    }
+
+    let mut sorted = samples.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let distinct = sorted.len();
+    let pc_min = *sorted.first().expect("at least one sample");
+    let pc_max = *sorted.last().expect("at least one sample");
+    let pc_spread = pc_max - pc_min;
+
+    if distinct >= 3 && pc_spread >= 0x40 {
+        Ok(())
+    } else {
+        Err(format!(
+            "[{label}] loader appears wedged: samples={samples:04x?}, distinct={distinct}, spread=${pc_spread:04x}"
+        ))
+    }
+}
+
+#[test]
+#[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
+fn opwolf_loads_past_speedlock_wipe() {
+    check_speedlock_loader_alive(
+        "Op Wolf [Speedlock 7]",
+        "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip",
+    )
+    .expect("Op Wolf should clear the Speedlock-7 wipe");
+}
+
+#[test]
+#[ignore = "diagnostic — needs 48K ROM and Bubble Bobble SpeedLock 5 TZX"]
+fn bubble_bobble_loads_past_speedlock_wipe() {
+    check_speedlock_loader_alive(
+        "Bubble Bobble [Speedlock 5]",
+        "ARCADE COLLECTION 30 - Bubble Bobble (1992)(Hit Squad, The)(48K-128K)[SpeedLock 5][re-release].zip",
+    )
+    .expect("Bubble Bobble should clear the Speedlock-5 wipe");
+}
+
+/// Speedlock-2 uses an entirely different TZX construction from
+/// Speedlock-5/7: no `0x14` data blocks, only `0x13` pulse-sequence
+/// blocks with custom widths (e.g. `[1502, 740, 1394]`). The
+/// partial-last-byte parser fix does not apply. Recorded here as a
+/// known separate investigation; the test is diagnostic-only so that
+/// "all tests pass" doesn't imply Speedlock-2 is fixed.
+#[test]
+#[ignore = "diagnostic — Speedlock-2 is a known separate investigation"]
+fn head_over_heels_speedlock2_status() {
+    match check_speedlock_loader_alive(
+        "Head over Heels [Speedlock 2]",
+        "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip",
+    ) {
+        Ok(()) => eprintln!("Head over Heels: loader now alive — Speedlock-2 may be fixed!"),
+        Err(msg) => eprintln!("Head over Heels: still wedged (expected): {msg}"),
     }
 }
 

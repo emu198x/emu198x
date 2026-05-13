@@ -1,6 +1,8 @@
 # Speedlock-tape loading incomplete
 
-**Status: RESOLVED 2026-05-13.** Root cause was a one-line bug in our TZX parser: `append_data_spans` read the *lower* N bits of a 0x14/0x11 block's last byte when `bits_in_last_byte = N < 8`, but the TZX spec stores partial last bytes left-justified (upper N bits). Speedlock-7's check-pattern block is a single byte `$E8` with `bits_in_last_byte = 6` — the loader expects the top six bits (`1 1 1 0 1 0`) to decode into `L = $3A`; we were delivering the bottom six bits (`1 0 1 0 0 0`) which built `L = $28`, missing the anti-tamper compare at `$fd6c` and firing the wipe. Fix: `for bit in (8-bits..8).rev()` instead of `for bit in (0..bits).rev()`. Op Wolf SpeedLock 7 now loads past the wipe-fire window; PC stays in the byte-decoder ($fcdd-$fced) from frame 1800 through 4000 instead of getting stuck in the `INC IY ; JR -8` wipe sled.
+**Status: Speedlock-5 and Speedlock-7 RESOLVED 2026-05-13. Speedlock-2 still open (different mechanism).** Root cause for the 5/7 cluster was a one-line bug in our TZX parser: `append_data_spans` read the *lower* N bits of a 0x14/0x11 block's last byte when `bits_in_last_byte = N < 8`, but the TZX spec stores partial last bytes left-justified (upper N bits). Speedlock-7's check-pattern block is a single byte `$E8` with `bits_in_last_byte = 6` — the loader expects the top six bits (`1 1 1 0 1 0`) to decode into `L = $3A`; we were delivering the bottom six bits (`1 0 1 0 0 0`) which built `L = $28`, missing the anti-tamper compare at `$fd6c` and firing the wipe. Fix: `for bit in (8-bits..8).rev()` instead of `for bit in (0..bits).rev()`. Op Wolf (Speedlock 7) and Bubble Bobble (Speedlock 5) now both clear the wipe; Bubble Bobble runs game code at PC=`$e8be` by frame 4000.
+
+**Speedlock-2 (Head over Heels) is a separate problem.** Speedlock-2's TZX has no `0x14` data blocks — protected data is encoded entirely as `0x13` pulse-sequence blocks with custom widths (`[1502, 740, 1394]` triplets between `Pulse(2100)` pilot tones). The partial-last-byte fix does not apply. Our chip wedges in the pre-check loop at `$fd2e..$fd3b`, suggesting the pulse-width threshold check fails — but the loader code shape differs from Speedlock-5/7 enough that we need to disassemble it separately before claiming a fix.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.
 
@@ -314,8 +316,19 @@ Speedlock-7 exposes this in the most surgical way possible. The `0x14` "check-pa
 
 The trace harness at `crates/runtime-sinclair-zx-spectrum/tests/speedlock7_tape_ram_dump.rs` made the diagnosis possible without FUSE: single-T-state stepping plus hooks at `$FCD5`, `$FCDB`, `$fd12`, `$fd37`, and `$fd5f` reconstructed the bit sequence, the per-iteration delay seeds, and the span widths the loader was actually consuming. Dumping the TZX block-by-block then pinpointed block 6 as a one-byte 0x14 with `bits_last = 6`, which made the parser-side bug obvious.
 
-Why this stayed hidden: every previously-loading TZX used either `bits_in_last_byte = 8` (the parser's correct path) or relied only on full bytes. Speedlock-7 was the first protection in our catalogue to use the partial-last-byte field for its anti-tamper signature, so the bug was effectively a Speedlock-tape-only failure mode. Other Speedlock generations (2, 5) plausibly share the same construction; their wedges should now also clear.
+Why this stayed hidden: every previously-loading TZX used either `bits_in_last_byte = 8` (the parser's correct path) or relied only on full bytes. Speedlock-7 was the first protection in our catalogue to use the partial-last-byte field for its anti-tamper signature, so the bug was effectively a Speedlock-tape-only failure mode.
 
-Regression test: `pure_data_partial_last_byte_uses_upper_bits` in the TZX parser unit tests pins the correct bit ordering for byte `$E8` with `bits_last = 6`. End-to-end coverage: `opwolf_loads_past_speedlock_wipe` in the runtime test crate runs Op Wolf to frame 4000 and asserts PC never enters the wipe sled.
+Speedlock-5 was verified to share the same construction (`bubble_bobble_loads_past_speedlock_wipe` clears the wipe and reaches game code at PC=`$e8be` by frame 4000). Speedlock-2 does **not** share the construction — its TZX uses only `0x13` pulse-sequence blocks with custom widths (`[1502, 740, 1394]` triplets); the partial-last-byte fix doesn't apply and the loader still wedges in a tight pre-check loop. Speedlock-2 needs a separate investigation.
 
-Catalogue entries for the Speedlock-tape cluster (Op Wolf, RoboCop, Where Time Stood Still, Bad Dudes vs Dragon Ninja, Head over Heels, Bubble Bobble) can now be authored.
+Regression coverage:
+
+- `pure_data_partial_last_byte_uses_upper_bits` (TZX parser unit test): pins the correct bit ordering for byte `$E8` with `bits_last = 6`.
+- `opwolf_loads_past_speedlock_wipe` (runtime): Op Wolf clears the wipe.
+- `bubble_bobble_loads_past_speedlock_wipe` (runtime): Bubble Bobble clears the wipe.
+- `head_over_heels_speedlock2_status` (runtime, diagnostic-only): records that Head over Heels still wedges; flips to "alive" output when Speedlock-2 is fixed.
+
+Catalogue entries unlocked by this fix:
+
+- Speedlock-7 cluster: Op Wolf, RoboCop, Where Time Stood Still, Bad Dudes vs Dragon Ninja (Hit Squad re-releases).
+- Speedlock-5: Bubble Bobble (Hit Squad re-release).
+- Still blocked: Head over Heels (Speedlock-2), plus other Speedlock-2 titles in the reference library (Super Bowl, Leader Board, etc.).
