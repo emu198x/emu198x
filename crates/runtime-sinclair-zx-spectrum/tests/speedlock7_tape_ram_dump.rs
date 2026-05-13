@@ -604,12 +604,24 @@ fn bubble_bobble_loads_past_speedlock_wipe() {
     .expect("Bubble Bobble should clear the Speedlock-5 wipe");
 }
 
-/// Speedlock-2 uses an entirely different TZX construction from
-/// Speedlock-5/7: no `0x14` data blocks, only `0x13` pulse-sequence
-/// blocks with custom widths (e.g. `[1502, 740, 1394]`). The
-/// partial-last-byte parser fix does not apply. Recorded here as a
-/// known separate investigation; the test is diagnostic-only so that
-/// "all tests pass" doesn't imply Speedlock-2 is fixed.
+/// Speedlock-2 (Head over Heels) reuses Speedlock-7's byte-decoder
+/// loop verbatim (same code, just relocated to `$fd2c..$fd3b`
+/// instead of `$fcdb..$fce9`). The TZX is a mix of `0x10` standard
+/// blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data
+/// blocks (all with `bits_last = 8`, so the partial-last-byte fix
+/// does not apply).
+///
+/// Behaviour: the loader reads the whole tape — all 835 729 spans
+/// drain by frame 16000 — then sits in the byte-decoder loop
+/// polling EAR for more pulses that never come. By frame 30000 the
+/// border has turned red, the canonical "tape verify failed"
+/// indicator. So the loader is decoding *something* wrong during
+/// the data pass — the failure isn't pulse-edge timing or
+/// partial-byte parsing.
+///
+/// This test is diagnostic-only; it prints the live state but
+/// never asserts. Promote to a hard assertion once Speedlock-2 is
+/// fixed.
 #[test]
 #[ignore = "diagnostic — Speedlock-2 is a known separate investigation"]
 fn head_over_heels_speedlock2_status() {
@@ -617,9 +629,153 @@ fn head_over_heels_speedlock2_status() {
         "Head over Heels [Speedlock 2]",
         "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip",
     ) {
-        Ok(()) => eprintln!("Head over Heels: loader now alive — Speedlock-2 may be fixed!"),
-        Err(msg) => eprintln!("Head over Heels: still wedged (expected): {msg}"),
+        Ok(()) => eprintln!("Head over Heels: loader varies PC — may be loading correctly!"),
+        Err(msg) => eprintln!("Head over Heels: PC pinned in byte-decoder loop ({msg}). Run dump_speedlock2_head_over_heels_tape_state to see whether the tape drained."),
     }
+}
+
+#[test]
+#[ignore = "diagnostic — needs 48K ROM and Head over Heels SpeedLock 2 TZX"]
+fn dump_speedlock2_head_over_heels_tape_state() {
+    // Sample tape player state + PC across frames 1000-5000 for
+    // Head over Heels. The loader appears wedged in the DEC A
+    // delay loop at $fd2e — we want to know what the tape is
+    // doing at the same moment (still pilot? mid-data? consumed?).
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_file = "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip";
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_file);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    let mut current: u32 = 0;
+    for target in [500u32, 2000, 5000, 8000, 12000, 16000, 20000, 25000, 30000] {
+        session.run_frames(target - current).expect("run_frames");
+        current = target;
+        let machine = session.machine().machine();
+        let pc = machine.z80().regs.pc;
+        let (span_idx, span_total) = machine.tape().span_position();
+        let playing = machine.tape().is_playing();
+        eprintln!(
+            "frame {target:5}: PC=${pc:04x} tape={playing} span={span_idx}/{span_total}",
+        );
+    }
+
+    // Capture a screenshot at the final frame so we can see where
+    // the loader ends up.
+    let machine = session.machine().machine();
+    let fb = machine.framebuffer();
+    let width = 352usize;
+    let height = 296usize;
+    let mut png_bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png_bytes, width as u32, height as u32);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().expect("png header");
+        // Convert palette-index framebuffer to RGB using the ULA's
+        // standard 16-colour palette.
+        let palette: [(u8, u8, u8); 16] = [
+            (0x00, 0x00, 0x00), (0x00, 0x00, 0xCD), (0xCD, 0x00, 0x00), (0xCD, 0x00, 0xCD),
+            (0x00, 0xCD, 0x00), (0x00, 0xCD, 0xCD), (0xCD, 0xCD, 0x00), (0xCD, 0xCD, 0xCD),
+            (0x00, 0x00, 0x00), (0x00, 0x00, 0xFF), (0xFF, 0x00, 0x00), (0xFF, 0x00, 0xFF),
+            (0x00, 0xFF, 0x00), (0x00, 0xFF, 0xFF), (0xFF, 0xFF, 0x00), (0xFF, 0xFF, 0xFF),
+        ];
+        let mut rgb = Vec::with_capacity(width * height * 3);
+        for &idx in fb.iter() {
+            let (r, g, b) = palette[(idx as usize) & 0x0F];
+            rgb.extend_from_slice(&[r, g, b]);
+        }
+        writer.write_image_data(&rgb).expect("png write");
+    }
+    std::fs::write("/tmp/speedlock-screenshots/head-over-heels-frame30000.png", &png_bytes).ok();
+    eprintln!("Wrote /tmp/speedlock-screenshots/head-over-heels-frame30000.png");
+}
+
+#[test]
+#[ignore = "diagnostic — needs 48K ROM and Head over Heels SpeedLock 2 TZX"]
+fn dump_speedlock2_head_over_heels_loader_bytes() {
+    // Speedlock-2 wedges PC at $fd2e..$fd3b — the same range our
+    // Speedlock-7 disassembly identified as the 7-iter pre-check
+    // loop. This test dumps the loader region $fd00..$fe00 so we
+    // can confirm whether Speedlock-2 reuses Speedlock-7's loader
+    // code verbatim (suggesting a tape/parser fix similar to the
+    // 0x14 case) or has its own different code.
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_file = "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip";
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_file);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    // Run to where PC is in the wedge ($fd2e..$fd3b) so the loader
+    // is fully resident in RAM (post-decryption if any).
+    session.run_frames(2000).expect("run_frames");
+
+    for base in [0xfc00u16, 0xfd00, 0xfe00] {
+        eprintln!("\n=== Head over Heels [Speedlock 2] bytes ${base:04x}..+0x100 ===");
+        for row in 0..16 {
+            let addr = base.wrapping_add(row * 16);
+            let bytes: Vec<u8> = (0..16)
+                .map(|i| session.machine().machine().read_byte(addr.wrapping_add(i as u16)))
+                .collect();
+            let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+            eprintln!("  ${addr:04x}: {hex}");
+        }
+    }
+
+    // Also dump PC, B, C, HL, DE so we know the live state.
+    let z = session.machine().machine().z80();
+    eprintln!(
+        "\nfinal state @ frame 2000: PC=${:04x} B=${:02x} C=${:02x} D=${:02x} E=${:02x} HL=${:04x}",
+        z.regs.pc, z.regs.b(), z.regs.c(), z.regs.d(), z.regs.e(), z.regs.hl,
+    );
 }
 
 #[test]
