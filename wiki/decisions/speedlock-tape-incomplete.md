@@ -50,6 +50,32 @@ This narrows the next investigation to: *which* tape pulses correspond to the 16
 
 To narrow, the next investigator needs to (a) identify which TZX block sources the `$90cd-$90fe` write, (b) read the TZX-encoded bytes for that block, and (c) compare against what our chip wrote.
 
+**The 2026-05-13 deeper trace falsified both hypotheses** and revealed the true mechanism. The `$9000-$90FE` buffer isn't decoded data — it's **edge counts**. Code at `$fe43-$fe4f`:
+
+```
+LD HL, $9000
+LD B, $FF
+loop:
+  PUSH BC
+  CALL $FE5B      ; inner: count EAR edges across 255 IN A,($FE) samples
+  LD (HL), E      ; store edge count
+  INC HL
+  POP BC
+  DJNZ loop
+```
+
+Each byte stored at `$9000+i` is the count of `IN A,($FE)` edges observed during ~5.24ms of sampling. The Speedlock-7 integrity check is essentially "verify the tape is *silent* during this 50-byte sampling window". Op Wolf (1833ms pause after block 7) gives 50 × `$01` (silent). Green Beret (1336ms pause after block 7) gives 34 × `$01` then 16 × `$04-$0b` — meaning the **last 16 samples land on the pilot tone after the pause ends**.
+
+Tape state probe at the fill moment confirms it: frame 2540-2560 in the pause `Level { 4672500T, false }` span; frame 2570 onward in `Pulse(2165)` — the pilot tone. The 262ms fill window straddles the pause→pilot boundary.
+
+**So the bug is timing, not bit-decoding.** Somewhere upstream, our chip places the fill window ~50ms later than real hardware does (or runs slow enough that the fill takes longer relative to the pause). Candidates:
+
+1. **Cumulative I/O contention** on `IN A,($FE)` — small per-instruction T-state offsets add up over the loader's pre-fill processing of block 7 (233 data bytes = ~3700 `IN`s).
+2. **Pause-span duration precision** — does `TapePlayer` really hold the `Level` span for exactly `pause_ms × 3500` T-states, or does it round / drift?
+3. **Block-7 data-read timing** — does the loader's pulse-decode loop for 233 bytes take more T-states on our chip than on real hardware?
+
+The diagnostic harness is `check_90ef_writes_in_green_beret`. The next investigator should compare per-instruction T-state cost of the loader's block-7 processing path between our chip and a reference (FUSE or known T-state model).
+
 **Speedlock-2 (Head over Heels) is a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drains fully — all 835 729 spans consumed by frame 16000 — and only *then* does the loader give up: by frame 30000 the border is red, the canonical "tape verify failed" indicator. So the loader is decoding something wrong during the data pass. The fix needs deeper protocol analysis; see the bottom of this document for next-step pointers.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.

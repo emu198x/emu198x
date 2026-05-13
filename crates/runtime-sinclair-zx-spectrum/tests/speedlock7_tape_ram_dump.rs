@@ -350,6 +350,186 @@ fn find_feb3_write_in_green_beret() {
 }
 
 #[test]
+#[ignore = "diagnostic — are bytes $90ef-$90fe actually written, or leftover memory?"]
+fn check_90ef_writes_in_green_beret() {
+    let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
+    let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
+    let tzx_path = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+        .join(tzx_file);
+    if !firmware_root.exists() || !tzx_path.exists() {
+        return;
+    }
+    let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+
+    // Initial state of the buffer
+    let initial: Vec<u8> = (0x90cdu16..=0x90fe)
+        .map(|a| session.machine().machine().read_byte(a))
+        .collect();
+    let init_hex: Vec<String> = initial.iter().map(|b| format!("{b:02x}")).collect();
+    eprintln!("initial $90cd-$90fe (boot): {}", init_hex.join(" "));
+
+    // Run to frame 1500 (before load reaches the buffer).
+    session.run_frames(1500).expect("run_frames");
+    let pre: Vec<u8> = (0x90cdu16..=0x90fe)
+        .map(|a| session.machine().machine().read_byte(a))
+        .collect();
+    let pre_hex: Vec<String> = pre.iter().map(|b| format!("{b:02x}")).collect();
+    eprintln!("at frame 1500:           {}", pre_hex.join(" "));
+
+    // Snapshot the buffer every 100 frames to find when each byte
+    // gets written.
+    let mut prev: Vec<u8> = pre.clone();
+    let mut current_frame: u32 = 1500;
+    for frame_step in (1600u32..3000).step_by(50) {
+        session.run_frames(frame_step - current_frame).expect("run_frames");
+        current_frame = frame_step;
+        let cur: Vec<u8> = (0x90cdu16..=0x90fe)
+            .map(|a| session.machine().machine().read_byte(a))
+            .collect();
+        let mut changes: Vec<String> = Vec::new();
+        for (i, (p, c)) in prev.iter().zip(cur.iter()).enumerate() {
+            if p != c {
+                let addr = 0x90cdu16 + i as u16;
+                changes.push(format!("${addr:04x}:{p:02x}→{c:02x}"));
+            }
+        }
+        if !changes.is_empty() {
+            eprintln!("frame {current_frame}: changes {}", changes.join(" "));
+        }
+        prev = cur;
+    }
+
+    let final_buf: Vec<u8> = (0x90cdu16..=0x90fe)
+        .map(|a| session.machine().machine().read_byte(a))
+        .collect();
+    let final_hex: Vec<String> = final_buf.iter().map(|b| format!("{b:02x}")).collect();
+    eprintln!("final $90cd-$90fe:       {}", final_hex.join(" "));
+
+    // Now re-run from scratch and sample tape state during the
+    // fill window (frames 2550-2620) to confirm whether the tape
+    // is in a Level span (pause) or producing Pulse edges.
+    let mut firmware2 = FirmwareSet::new();
+    firmware2.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime2 = Spectrum48kRuntime::from_firmware(&firmware2).expect("48K runtime");
+    let mut session2 = HeadlessSession::new_with_query_provider(
+        runtime2,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let mut media2 = MediaSet::new();
+    media2.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session2.prepare(&media2, &[]).expect("prepare");
+    autoload_basic_tape(&mut session2, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    eprintln!("\n=== tape state during fill window (frames 2540-2620) ===");
+    let mut cur = 0u32;
+    for target in [2540u32, 2550, 2560, 2570, 2580, 2590, 2600, 2610, 2620] {
+        session2.run_frames(target - cur).expect("run_frames");
+        cur = target;
+        let machine = session2.machine().machine();
+        let (idx, total) = machine.tape().span_position();
+        let countdown = machine.tape().span_countdown();
+        let span = machine.tape().current_span();
+        let ear = machine.tape().ear_level();
+        eprintln!(
+            "frame {target}: tape span={idx}/{total} countdown={countdown} ear={ear} span={span:?}",
+        );
+    }
+
+    // Now re-run from scratch and single-T-step to find the PC that
+    // writes to $90ef specifically.
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(
+        "sinclair-zx-spectrum-48k-rom".to_owned(),
+        &rom_bytes.bytes,
+    ));
+    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "tape-1".to_owned(),
+        MediaKind::Tape,
+        &tape.bytes,
+    ));
+    session.prepare(&media, &[]).expect("prepare");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    // Skip to just before the writes (frame 2550, since writes
+    // happen between frames 2550-2600).
+    session.run_frames(2550).expect("run_frames");
+
+    let mut prev_90ef = session.machine().machine().read_byte(0x90ef);
+    let mut prev_pc = u16::MAX;
+    let mut pc_tail: std::collections::VecDeque<u16> = std::collections::VecDeque::with_capacity(20);
+    eprintln!("\n=== single-T-step from frame 2550, watching $90ef ===");
+    let max_t = 100u32 * TIMING_48K.tstates_per_frame;
+    for t in 0..max_t {
+        session.machine_mut().machine_mut().advance_tstates(1);
+        let machine = session.machine().machine();
+        let cur_pc = machine.z80().regs.pc;
+        if cur_pc != prev_pc {
+            if pc_tail.len() == 20 {
+                pc_tail.pop_front();
+            }
+            pc_tail.push_back(cur_pc);
+            prev_pc = cur_pc;
+        }
+        let val = machine.read_byte(0x90ef);
+        if val != prev_90ef {
+            eprintln!(
+                "$90ef ${prev_90ef:02x} → ${val:02x} at +{t}T, PC=${cur_pc:04x}",
+            );
+            let tail: Vec<String> = pc_tail.iter().map(|p| format!("${p:04x}")).collect();
+            eprintln!("  last 20 PCs: {}", tail.join(" "));
+            prev_90ef = val;
+            // Stop after first non-zero write since that's the
+            // garbage value we want to track.
+            if val != 0 {
+                // Dump the surrounding code
+                for base in [0xfe40u16, 0xfe50, 0xfe60, 0xfe70] {
+                    let bytes: Vec<u8> = (0..16)
+                        .map(|i| session.machine().machine().read_byte(base.wrapping_add(i as u16)))
+                        .collect();
+                    let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+                    eprintln!("  ${base:04x}: {hex}");
+                }
+                break;
+            }
+        }
+    }
+}
+
+#[test]
 #[ignore = "diagnostic — what does HL contain at $fe9d for Green Beret vs Op Wolf?"]
 fn trace_hl_at_checksum_check() {
     for (label, tzx_relative_path) in [
