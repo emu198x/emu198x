@@ -11,22 +11,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rust:
-    name: Rust
+  # Format and lint run as separate jobs so the workflow summary
+  # surfaces them independently. Both are fast (no test compile);
+  # heavier downstream jobs gate on both passing.
+  fmt:
+    name: Format
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
-
-      - name: Install Linux build dependencies
-        # libasound2-dev: audio (cpal). libudev-dev: gamepad enumeration
-        # via gilrs for the host-input layer. libgtk-3-dev: native menus
-        # via muda (transitively pulls in libglib2.0-dev). libxdo-dev:
-        # muda's accelerator-handling layer links against libxdo on X11.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libasound2-dev libudev-dev libgtk-3-dev libxdo-dev
 
       - name: Read pinned toolchain
         # Single source of truth across local + CI is
@@ -42,34 +35,160 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
-          components: rustfmt, clippy
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+          components: rustfmt
 
       - name: Check formatting
         run: cargo fmt --all --check
 
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Linux build dependencies
+        # libasound2-dev: audio (cpal). libudev-dev: gamepad enumeration
+        # via gilrs for the host-input layer. libgtk-3-dev: native menus
+        # via muda (transitively pulls in libglib2.0-dev). libxdo-dev:
+        # muda's accelerator-handling layer links against libxdo on X11.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev libgtk-3-dev libxdo-dev
+
+      - name: Read pinned toolchain
+        # See note in the fmt job above.
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: clippy
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Run tests
-        run: cargo test --workspace
+  # The coverage job is the workspace's only test runner — cargo
+  # llvm-cov compiles every test binary with `-C instrument-coverage`
+  # and runs them, so we get both regression coverage AND coverage
+  # metrics in one pass. Gated on fmt + clippy so a fast lint failure
+  # doesn't waste a slow coverage compile.
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy]
+    env:
+      # SOLID criterion 11 targets ≥90% but we ratchet up as test
+      # coverage lands. 72 is the current anti-regression floor —
+      # just below the lowest gated crate (amstrad-class, 72.79%).
+      # Bump this back toward 90 as crate coverage improves.
+      COVERAGE_GATE_THRESHOLD: 72
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Linux build dependencies
+        # libasound2-dev: audio (cpal). libudev-dev: gamepad enumeration
+        # via gilrs for the host-input layer. libgtk-3-dev: native menus
+        # via muda (transitively pulls in libglib2.0-dev). libxdo-dev:
+        # muda's accelerator-handling layer links against libxdo on X11.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev libgtk-3-dev libxdo-dev
+
+      - name: Read pinned toolchain
+        # See note in the fmt job above. Branch coverage was dropped
+        # 2026-04-30 (see scripts/coverage.sh header), so nightly is
+        # no longer required here; stable + llvm-tools-preview is
+        # enough for line / region / function coverage.
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run coverage suite
+        # Compiles every test binary with -C instrument-coverage and
+        # runs them. This is the workspace test step too — there is
+        # no separate `cargo test --workspace` job; the regression
+        # signal comes from this run's pass/fail.
+        run: ./scripts/coverage.sh
+
+      - name: Run Spectrum-side coverage gate
+        # Gates the SOLID criterion 11 floor. The summary step below
+        # runs regardless via the `if: always()` guard, so even when
+        # the gate fails the publish/upload steps still capture the
+        # report — making it easy to diagnose what fell below.
+        run: ./scripts/coverage-gate.sh
+
+      - name: Publish coverage summary
+        if: always()
+        run: |
+          total_line="$(grep '^TOTAL' target/llvm-cov/coverage-summary.txt | tail -n 1)"
+          {
+            echo "## Coverage"
+            echo
+            echo '```text'
+            echo "${total_line}"
+            echo '```'
+            echo
+            echo "- Text summary: \`target/llvm-cov/coverage-summary.txt\`"
+            echo "- JSON summary: \`target/llvm-cov/coverage-summary.json\`"
+            echo "- LCOV export: \`target/llvm-cov/lcov.info\`"
+            echo "- HTML report: uploaded as the \`coverage-html\` artifact"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload coverage summary artifacts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-summary
+          path: |
+            target/llvm-cov/coverage-summary.txt
+            target/llvm-cov/coverage-summary.json
+            target/llvm-cov/lcov.info
+
+      - name: Upload HTML coverage report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-html
+          path: target/llvm-cov/html
 
   zex:
     name: ZEXDOC + ZEXALL
     runs-on: ubuntu-latest
+    needs: [fmt, clippy]
     # Frank Cringle's Z80 exerciser. Long-running (tens of minutes in
     # release on the GitHub runner) but hermetic — `.com` corpus is
-    # checked in at test-data/zex/. Parallel to the main rust job so it
-    # doesn't slow PR feedback on lint / unit tests.
+    # checked in at test-data/zex/. Parallel to coverage so it doesn't
+    # slow PR feedback on lint, and gated on fmt+clippy so it doesn't
+    # waste a slow compile on broken code.
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
 
       - name: Read pinned toolchain
-        # See note in the rust job above.
+        # See note in the fmt job above.
         id: toolchain
         run: |
           channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
