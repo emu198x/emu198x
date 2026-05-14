@@ -231,11 +231,24 @@ pub struct RunResult {
 #[derive(Debug)]
 pub enum SnapshotOutcome {
     Pass,
-    EncodeFailed { reason: String },
-    RestoreFailed { reason: String },
-    FrameHashDrift { expected: String, actual: String },
-    AudioHashDrift { expected: String, actual: String },
-    BytesDrift { original_len: usize, reencoded_len: usize },
+    EncodeFailed {
+        reason: String,
+    },
+    RestoreFailed {
+        reason: String,
+    },
+    FrameHashDrift {
+        expected: String,
+        actual: String,
+    },
+    AudioHashDrift {
+        expected: String,
+        actual: String,
+    },
+    BytesDrift {
+        original_len: usize,
+        reencoded_len: usize,
+    },
 }
 
 /// Per-stage data captured during a snapshot fidelity check.
@@ -888,9 +901,10 @@ where
         SpectrumSessionQueryProvider,
     );
 
-    let media = entry.media.as_ref().ok_or_else(|| {
-        CatalogueError::Session(format!("{variant_label} entry requires media"))
-    })?;
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session(format!("{variant_label} entry requires media")))?;
     let media_kind = load_media_spec(&mut session, media, media_root)?;
 
     autoload_128k_tape_loader(&mut session, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
@@ -1309,8 +1323,12 @@ fn snapshot_check_16k(
         .ok_or_else(|| CatalogueError::Session("16K entry requires media".into()))?;
     let media_kind = load_media_spec(&mut original, media, media_root)?;
 
-    autoload_basic_tape(&mut original, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
-        .map_err(|err| CatalogueError::Session(format!("16K autoload: {err}")))?;
+    autoload_basic_tape(
+        &mut original,
+        &media.slot,
+        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    )
+    .map_err(|err| CatalogueError::Session(format!("16K autoload: {err}")))?;
     wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
 
     let fresh_runtime = Spectrum16kRuntime::from_firmware(&firmware_set)
@@ -1362,8 +1380,12 @@ fn snapshot_check_plus(
         .ok_or_else(|| CatalogueError::Session("Spectrum+ entry requires media".into()))?;
     let media_kind = load_media_spec(&mut original, media, media_root)?;
 
-    autoload_basic_tape(&mut original, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
-        .map_err(|err| CatalogueError::Session(format!("Spectrum+ autoload: {err}")))?;
+    autoload_basic_tape(
+        &mut original,
+        &media.slot,
+        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    )
+    .map_err(|err| CatalogueError::Session(format!("Spectrum+ autoload: {err}")))?;
     wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
 
     let fresh_runtime = SpectrumPlusRuntime::from_firmware(&firmware_set)
@@ -1415,8 +1437,12 @@ fn snapshot_check_48k(
         .ok_or_else(|| CatalogueError::Session("48K entry requires media".into()))?;
     let media_kind = load_media_spec(&mut original, media, media_root)?;
 
-    autoload_basic_tape(&mut original, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
-        .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
+    autoload_basic_tape(
+        &mut original,
+        &media.slot,
+        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    )
+    .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
     wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
 
     let fresh_runtime = Spectrum48kRuntime::from_firmware(&firmware_set)
@@ -1596,9 +1622,10 @@ where
         SpectrumSessionQueryProvider,
     );
 
-    let media = entry.media.as_ref().ok_or_else(|| {
-        CatalogueError::Session(format!("{variant_label} entry requires media"))
-    })?;
+    let media = entry
+        .media
+        .as_ref()
+        .ok_or_else(|| CatalogueError::Session(format!("{variant_label} entry requires media")))?;
     let media_kind = load_media_spec(&mut original, media, media_root)?;
 
     autoload_128k_tape_loader(&mut original, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
@@ -1693,23 +1720,13 @@ fn build_plus2_runtime(rom0: &[u8], rom1: &[u8]) -> SpectrumPlus2Runtime {
     SpectrumPlus2Runtime::new(Model::SpectrumPlus2, machine)
 }
 
-fn build_plus2a_runtime(
-    r0: &[u8],
-    r1: &[u8],
-    r2: &[u8],
-    r3: &[u8],
-) -> SpectrumPlus2ARuntime {
+fn build_plus2a_runtime(r0: &[u8], r1: &[u8], r2: &[u8], r3: &[u8]) -> SpectrumPlus2ARuntime {
     let mut machine = SpectrumPlus2A::new();
     machine.memory.load_roms(r0, r1, r2, r3);
     SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, machine)
 }
 
-fn build_plus2b_runtime(
-    r0: &[u8],
-    r1: &[u8],
-    r2: &[u8],
-    r3: &[u8],
-) -> SpectrumPlus2BRuntime {
+fn build_plus2b_runtime(r0: &[u8], r1: &[u8], r2: &[u8], r3: &[u8]) -> SpectrumPlus2BRuntime {
     let mut machine = SpectrumPlus2B::new();
     machine.memory.load_roms(r0, r1, r2, r3);
     SpectrumPlus2BRuntime::new(Model::SpectrumPlus2B, machine)

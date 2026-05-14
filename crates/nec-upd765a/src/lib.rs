@@ -520,21 +520,26 @@ impl Upd765a {
             if matches!(self.command, Command::ReadId) {
                 let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 let head = (self.cmd_buf[1] >> 2) & 0x01;
-                if let Some(img) = self.disks.get(drive).and_then(|d| d.as_ref()) {
-                    if let Some(side) = img.tracks.get(head as usize) {
-                        if let Some(trk) = side.get(self.track[drive] as usize) {
-                            eprintln!(
-                                "[FDC-TRACK] drive={drive} head={head} track={} sector_count={}",
-                                self.track[drive],
-                                trk.sectors.len(),
-                            );
-                            for (idx, s) in trk.sectors.iter().enumerate() {
-                                eprintln!(
-                                    "  [{idx}] c={:#04x} h={:#04x} r={:#04x} n={:#04x} st1={:#04x} st2={:#04x} data_len={}",
-                                    s.c, s.h, s.id, s.n, s.st1, s.st2, s.data.len(),
-                                );
-                            }
-                        }
+                if let Some(img) = self.disks.get(drive).and_then(|d| d.as_ref())
+                    && let Some(side) = img.tracks.get(head as usize)
+                    && let Some(trk) = side.get(self.track[drive] as usize)
+                {
+                    eprintln!(
+                        "[FDC-TRACK] drive={drive} head={head} track={} sector_count={}",
+                        self.track[drive],
+                        trk.sectors.len(),
+                    );
+                    for (idx, s) in trk.sectors.iter().enumerate() {
+                        eprintln!(
+                            "  [{idx}] c={:#04x} h={:#04x} r={:#04x} n={:#04x} st1={:#04x} st2={:#04x} data_len={}",
+                            s.c,
+                            s.h,
+                            s.id,
+                            s.n,
+                            s.st1,
+                            s.st2,
+                            s.data.len(),
+                        );
                     }
                 }
             }
@@ -591,7 +596,6 @@ impl Upd765a {
                 // command and would miss seven sectors of program data
                 // if we stopped after the first.
                 let mut buf = Vec::with_capacity(sector_size * 8);
-                let mut last_ok = sector;
                 let mut missing_after_some = false;
                 // Did at least one sector during this run have a
                 // mismatched mark relative to the command? When this
@@ -620,7 +624,10 @@ impl Upd765a {
                 // sector-2 probe reads R back and checks `R == 2`
                 // to confirm "the chip just told me about sector 2",
                 // so an off-by-one here loops the loader forever.
-                let mut result_r = sector;
+                // Every break path through the `loop` below assigns
+                // `result_r`, so leaving it uninitialised here lets
+                // the compiler enforce that invariant.
+                let result_r;
                 loop {
                     // Look up the recorded sector entry — we need its
                     // ST2 to decide whether the mark matches before
@@ -653,7 +660,9 @@ impl Upd765a {
                     if fdc_trace_enabled() {
                         eprintln!(
                             "[FDC-SEC] r={r:#04x} (track={track} head={head}) recorded_st1={:#04x} recorded_st2={:#04x} sec_is_deleted={sec_is_deleted} want_deleted={want_deleted} mark_match={mark_match} data_len={} sk={sk}",
-                            sec.st1, sec.st2, sec.data.len(),
+                            sec.st1,
+                            sec.st2,
+                            sec.data.len(),
                         );
                     }
                     if !mark_match {
@@ -682,7 +691,6 @@ impl Upd765a {
                         let fill = sec.data.last().copied().unwrap_or(0);
                         buf.resize(buf.len() + (sector_size - take), fill);
                     }
-                    last_ok = r;
 
                     // Marginal-encoding model: on a sector whose
                     // recorded ST1.DE / ST2.DD flags marginal magnetic
@@ -853,7 +861,7 @@ impl Upd765a {
                 let disk_present = self.disks[drive].is_some();
                 self.st3 = (self.cmd_buf[1] & 0x07)        // US0/US1/HD copied from command
                     | if self.track[drive] == 0 { 0x10 } else { 0 } // T0 (track 0)
-                    | if disk_present { 0x08 | 0x20 } else { 0 };   // TS (two-sided) + RY
+                    | if disk_present { 0x08 | 0x20 } else { 0 }; // TS (two-sided) + RY
                 self.head = head;
                 self.result_buf.clear();
                 self.result_buf.push(self.st3);
@@ -920,10 +928,7 @@ impl Upd765a {
                 self.phase = Phase::Result;
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
                 if fdc_trace_enabled() {
-                    eprintln!(
-                        "[FDC-RES] ReadId result=[{}]",
-                        fmt_bytes(&self.result_buf),
-                    );
+                    eprintln!("[FDC-RES] ReadId result=[{}]", fmt_bytes(&self.result_buf),);
                 }
             }
             _ => {
@@ -964,7 +969,6 @@ impl Upd765a {
             );
         }
     }
-
 }
 
 impl Default for Upd765a {
@@ -1026,11 +1030,11 @@ impl Peripheral for Upd765a {
                 continue;
             }
             self.seek_remaining[drive] -= 1;
-            if self.seek_remaining[drive] == 0 {
-                if let Some(st0) = self.seek_staged_st0[drive].take() {
-                    self.seek_pending[drive] = Some(st0);
-                    self.interrupt = true;
-                }
+            if self.seek_remaining[drive] == 0
+                && let Some(st0) = self.seek_staged_st0[drive].take()
+            {
+                self.seek_pending[drive] = Some(st0);
+                self.interrupt = true;
             }
         }
 
@@ -1303,7 +1307,10 @@ mod tests {
         let bytes_a: Vec<u8> = (0..256).map(|_| a.read_data()).collect();
         assert_eq!(bytes_a[0], 0x11, "sector 1 (DAM) first byte");
         assert_eq!(bytes_a[127], 0x11, "sector 1 last byte");
-        assert_eq!(bytes_a[128], 0x33, "sector 3 (DAM) first — sector 2 (DDAM) was skipped");
+        assert_eq!(
+            bytes_a[128], 0x33,
+            "sector 3 (DAM) first — sector 2 (DDAM) was skipped"
+        );
 
         // Case B — ReadData with SK=0 should deliver sectors 1 *and*
         // 2 (CM gets flagged) then stop. ST2.CM must be set in the
@@ -1321,14 +1328,25 @@ mod tests {
         b.write_data(0xFF);
         let bytes_b: Vec<u8> = (0..256).map(|_| b.read_data()).collect();
         assert_eq!(bytes_b[0], 0x11, "sector 1 (DAM) delivered");
-        assert_eq!(bytes_b[128], 0x22, "sector 2 (DDAM) also delivered when SK=0");
+        assert_eq!(
+            bytes_b[128], 0x22,
+            "sector 2 (DDAM) also delivered when SK=0"
+        );
         // Now in result phase — read the 7-byte status block.
         assert_eq!(b.phase, Phase::Result);
         let st0 = b.read_data();
         let _st1 = b.read_data();
         let st2 = b.read_data();
-        assert_ne!(st0 & 0xC0, 0, "ST0 abnormal-termination IC set on mark mismatch");
-        assert_ne!(st2 & ST2_CM, 0, "ST2.CM set when ReadData found a DDAM with SK=0");
+        assert_ne!(
+            st0 & 0xC0,
+            0,
+            "ST0 abnormal-termination IC set on mark mismatch"
+        );
+        assert_ne!(
+            st2 & ST2_CM,
+            0,
+            "ST2.CM set when ReadData found a DDAM with SK=0"
+        );
 
         // Case C — ReadDeletedData (SK=1) should *skip* the DAM
         // sectors and deliver sector 2 (DDAM). With R=1 EOT=3 we
@@ -1345,7 +1363,10 @@ mod tests {
         c.write_data(0x2A);
         c.write_data(0xFF);
         let bytes_c: Vec<u8> = (0..128).map(|_| c.read_data()).collect();
-        assert_eq!(bytes_c[0], 0x22, "sector 2 (DDAM) delivered by ReadDeletedData");
+        assert_eq!(
+            bytes_c[0], 0x22,
+            "sector 2 (DDAM) delivered by ReadDeletedData"
+        );
         assert_eq!(bytes_c[127], 0x22);
     }
 
@@ -1405,7 +1426,11 @@ mod tests {
         let mut fdc = Upd765a::new();
         fdc.insert_disk(0, marginal_image());
         let bytes = issue_read_sector_2(&mut fdc);
-        assert_eq!(bytes, vec![0x55; 128], "first read returns the recorded bytes");
+        assert_eq!(
+            bytes,
+            vec![0x55; 128],
+            "first read returns the recorded bytes"
+        );
         assert_eq!(fdc.reread_count, 0, "counter starts at 0");
     }
 
@@ -1416,7 +1441,10 @@ mod tests {
         let first = issue_read_sector_2(&mut fdc);
         let second = issue_read_sector_2(&mut fdc);
         assert_eq!(fdc.reread_count, 1, "counter bumps on re-read");
-        assert_ne!(first, second, "marginal sector returns different bytes on re-read");
+        assert_ne!(
+            first, second,
+            "marginal sector returns different bytes on re-read"
+        );
         // FUSE recipe: XOR every 29th byte with offset, scoped to first
         // 64 bytes when count == 1. Bytes outside that window are
         // unchanged.
@@ -1470,8 +1498,15 @@ mod tests {
         }
 
         let after = issue_read_sector_2(&mut fdc);
-        assert_eq!(fdc.reread_count, 0, "key changed by intervening read → counter reset");
-        assert_eq!(after, vec![0x55; 128], "post-reset read returns recorded bytes verbatim");
+        assert_eq!(
+            fdc.reread_count, 0,
+            "key changed by intervening read → counter reset"
+        );
+        assert_eq!(
+            after,
+            vec![0x55; 128],
+            "post-reset read returns recorded bytes verbatim"
+        );
     }
 
     #[test]
@@ -1548,7 +1583,11 @@ mod tests {
         for _ in 0..100 {
             fdc.read_data();
         }
-        assert_eq!(fdc.phase, Phase::Execution, "still in execution after partial read");
+        assert_eq!(
+            fdc.phase,
+            Phase::Execution,
+            "still in execution after partial read"
+        );
 
         // Tick the chip without further reads. Before the timeout
         // fires we should still be in Execution; once it expires we

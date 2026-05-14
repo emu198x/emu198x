@@ -567,7 +567,8 @@ impl SpectrumApp {
         self.pressed_keys.clear();
         self.current_machine = kind;
         self.menu.set_current_machine(kind);
-        self.menu.set_disk_supported(self.runner.supports_disk_slot());
+        self.menu
+            .set_disk_supported(self.runner.supports_disk_slot());
         if let Some(window) = &self.window {
             window.set_title(&self.window_title());
             window.request_redraw();
@@ -657,8 +658,7 @@ impl ApplicationHandler for SpectrumApp {
                     if std::env::var_os("EMU198X_FPS").is_some() {
                         let elapsed = self.fps_window_start.elapsed();
                         if elapsed >= Duration::from_secs(1) {
-                            let fps =
-                                f64::from(self.fps_window_frames) / elapsed.as_secs_f64();
+                            let fps = f64::from(self.fps_window_frames) / elapsed.as_secs_f64();
                             eprintln!("emu fps: {fps:.1}");
                             self.fps_window_start = Instant::now();
                             self.fps_window_frames = 0;
@@ -703,9 +703,8 @@ mod tests {
         // pacing helpers are variant-agnostic (they take a frame
         // length and divide), so 48K is just one representative case.
         let frame_ticks = u64::from(TIMING_48K.halfcycles_per_frame);
-        let frame_duration = Duration::from_secs_f64(
-            frame_ticks as f64 / TIMING_48K.master_hz as f64,
-        );
+        let frame_duration =
+            Duration::from_secs_f64(frame_ticks as f64 / TIMING_48K.master_hz as f64);
         let slice_ticks = subframe_ticks(frame_ticks);
         let slice_duration = subframe_duration(frame_duration);
 

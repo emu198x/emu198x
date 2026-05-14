@@ -43,8 +43,8 @@ fn home() -> PathBuf {
 #[test]
 #[ignore]
 fn plus3_disk_entries_load_and_match() {
-    let manifest = load_manifest(&manifest_path())
-        .unwrap_or_else(|err| panic!("loading manifest: {err}"));
+    let manifest =
+        load_manifest(&manifest_path()).unwrap_or_else(|err| panic!("loading manifest: {err}"));
     let media_root = media_root();
     let firmware_root = firmware_root();
 
@@ -55,10 +55,7 @@ fn plus3_disk_entries_load_and_match() {
         if entry.variant != "plus3" {
             continue;
         }
-        let is_disk = entry
-            .media
-            .as_ref()
-            .is_some_and(|m| m.kind == "disk");
+        let is_disk = entry.media.as_ref().is_some_and(|m| m.kind == "disk");
         if !is_disk {
             continue;
         }

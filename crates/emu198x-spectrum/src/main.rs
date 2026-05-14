@@ -29,9 +29,7 @@ mod ui;
 
 use std::process;
 
-use emu198x_shell::{
-    AssetLoadError, MachineError, NativeAudioError, QueryError,
-};
+use emu198x_shell::{AssetLoadError, MachineError, NativeAudioError, QueryError};
 use thiserror::Error;
 
 #[cfg(feature = "ui")]
@@ -201,9 +199,6 @@ mod tests {
     #[cfg(not(feature = "ui"))]
     #[test]
     fn run_ui_returns_not_compiled_in_when_feature_off() {
-        assert!(matches!(
-            run_ui(vec![]),
-            Err(AppError::UiNotCompiledIn)
-        ));
+        assert!(matches!(run_ui(vec![]), Err(AppError::UiNotCompiledIn)));
     }
 }

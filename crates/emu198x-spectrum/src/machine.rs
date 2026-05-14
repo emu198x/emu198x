@@ -112,9 +112,7 @@ pub fn rom_root() -> Option<PathBuf> {
 /// uses its own `amstrad-zx-spectrum-plus2b/plus3-{0..3}.rom` (ROM v4.1).
 pub fn variant_rom_bundle(kind: MachineKind, root: &Path) -> Vec<(&'static str, PathBuf)> {
     match kind {
-        MachineKind::Spectrum16K
-        | MachineKind::Spectrum48K
-        | MachineKind::SpectrumPlus => vec![(
+        MachineKind::Spectrum16K | MachineKind::Spectrum48K | MachineKind::SpectrumPlus => vec![(
             "sinclair-zx-spectrum-48k-rom",
             root.join("sinclair-zx-spectrum-48k/48.rom"),
         )],

@@ -37,12 +37,20 @@ fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-fn dump_window(session: &HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>, label: &str) {
+fn dump_window(
+    session: &HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+    label: &str,
+) {
     eprintln!("\n=== RAM @ ${LOADER_BASE:04x}..+0x80 after {label} ===");
     for row in 0..8 {
         let addr = LOADER_BASE.wrapping_add(row * 16);
         let bytes: Vec<u8> = (0..16)
-            .map(|i| session.machine().machine().read_byte(addr.wrapping_add(i as u16)))
+            .map(|i| {
+                session
+                    .machine()
+                    .machine()
+                    .read_byte(addr.wrapping_add(i as u16))
+            })
             .collect();
         let hex = bytes
             .iter()
@@ -51,13 +59,21 @@ fn dump_window(session: &HeadlessSession<Spectrum48kRuntime, SpectrumSessionQuer
             .join(" ");
         let ascii: String = bytes
             .iter()
-            .map(|&b| if (32..127).contains(&b) { b as char } else { '.' })
+            .map(|&b| {
+                if (32..127).contains(&b) {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
             .collect();
         eprintln!("  ${addr:04x}: {hex}  {ascii}");
     }
 }
 
-fn count_in_fe(session: &HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>) -> usize {
+fn count_in_fe(
+    session: &HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+) -> usize {
     let mut count = 0;
     for off in 0..LOADER_LEN - 1 {
         let addr = LOADER_BASE.wrapping_add(off as u16);
@@ -126,8 +142,8 @@ fn dump_speedlock7_loader_ram() {
     //                                   $DB $FE (`IN A,($FE)`) appearing in the
     //                                   dump as the canonical marker.
     let stages = [
-        100u32, 300, 600, 900, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000,
-        2200, 2400, 3000, 4800, 9600,
+        100u32, 300, 600, 900, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2200,
+        2400, 3000, 4800, 9600,
     ];
     let last_dump: Option<Vec<u8>> = None;
     let mut cumulative = 0u32;
@@ -137,7 +153,12 @@ fn dump_speedlock7_loader_ram() {
         cumulative = budget;
 
         let snapshot: Vec<u8> = (0..LOADER_LEN)
-            .map(|i| session.machine().machine().read_byte(LOADER_BASE.wrapping_add(i as u16)))
+            .map(|i| {
+                session
+                    .machine()
+                    .machine()
+                    .read_byte(LOADER_BASE.wrapping_add(i as u16))
+            })
             .collect();
         let in_fe_count = count_in_fe(&session);
         let (changed, first_change_off) = match &last_dump {
@@ -181,30 +202,51 @@ fn dump_speedlock7_loader_ram() {
             let mem: Vec<u8> = (0..32)
                 .map(|i| session.machine().machine().read_byte(addr.wrapping_add(i)))
                 .collect();
-            let hex = mem.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+            let hex = mem
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
             eprintln!("    @${addr:04x}: {hex}");
         }
         if !(0x4000..0xFC00).contains(&z80_pc) || z80_pc < LOADER_BASE.wrapping_sub(0x100) {
             let mem: Vec<u8> = (0..32)
-                .map(|i| session.machine().machine().read_byte(z80_pc.wrapping_add(i)))
+                .map(|i| {
+                    session
+                        .machine()
+                        .machine()
+                        .read_byte(z80_pc.wrapping_add(i))
+                })
                 .collect();
-            let hex = mem.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+            let hex = mem
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
             eprintln!("  PC area @${z80_pc:04x}: {hex}");
         } else {
             let start = z80_pc.wrapping_sub(8);
             let mem: Vec<u8> = (0..32)
                 .map(|i| session.machine().machine().read_byte(start.wrapping_add(i)))
                 .collect();
-            let hex = mem.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+            let hex = mem
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
             eprintln!("  PC area @${start:04x}: {hex}    (PC=${z80_pc:04x})");
         }
         // Dump 32 bytes at PROG (if PROG is sensible) — shows whether BASIC
         // loaded into the program area at all.
-        if prog >= 0x5C00 && prog < 0xFC00 {
+        if (0x5C00..0xFC00).contains(&prog) {
             let bytes: Vec<u8> = (0..32)
                 .map(|i| session.machine().machine().read_byte(prog.wrapping_add(i)))
                 .collect();
-            let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+            let hex = bytes
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
             eprintln!("  RAM @ PROG=${prog:04x}: {hex}");
         }
         dump_window(&session, &format!("frame {budget}"));
@@ -213,7 +255,12 @@ fn dump_speedlock7_loader_ram() {
     // Final dump: save the full $F48E..+0x0A5A region to /tmp for off-line
     // disassembly with a Z80 disassembler.
     let final_snapshot: Vec<u8> = (0..LOADER_LEN)
-        .map(|i| session.machine().machine().read_byte(LOADER_BASE.wrapping_add(i as u16)))
+        .map(|i| {
+            session
+                .machine()
+                .machine()
+                .read_byte(LOADER_BASE.wrapping_add(i as u16))
+        })
         .collect();
     let out_path = PathBuf::from("/tmp/speedlock7-ram-f48e.bin");
     std::fs::write(&out_path, &final_snapshot).expect("write final dump");
@@ -255,7 +302,8 @@ fn find_feb3_write_in_green_beret() {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     // First do a coarse scan: run forward in 100-frame chunks and
     // log when $feb3 changes value, to narrow down the write window.
@@ -264,7 +312,9 @@ fn find_feb3_write_in_green_beret() {
     let mut narrow_window: Option<u32> = None;
     eprintln!("coarse scan for $feb3 changes:");
     for frame_step in (100u32..7000).step_by(100) {
-        session.run_frames(frame_step - current_frame).expect("run_frames");
+        session
+            .run_frames(frame_step - current_frame)
+            .expect("run_frames");
         current_frame = frame_step;
         let feb3 = session.machine().machine().read_byte(0xfeb3);
         if feb3 != prev_feb3 {
@@ -298,7 +348,8 @@ fn find_feb3_write_in_green_beret() {
             &tape.bytes,
         ));
         session.prepare(&media, &[]).expect("prepare");
-        autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+        autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+            .expect("autoload");
         session.run_frames(window_start).expect("run_frames");
         prev_feb3 = session.machine().machine().read_byte(0xfeb3);
         eprintln!("re-prepared at frame {window_start}, $feb3=${prev_feb3:02x}");
@@ -310,7 +361,8 @@ fn find_feb3_write_in_green_beret() {
     // Single-T-state step through a wide 1000-frame window so we
     // catch the FINAL settling of $feb3 to $01.
     let max_t = 1000u32 * TIMING_48K.tstates_per_frame;
-    let mut pc_tail: std::collections::VecDeque<u16> = std::collections::VecDeque::with_capacity(80);
+    let mut pc_tail: std::collections::VecDeque<u16> =
+        std::collections::VecDeque::with_capacity(80);
     let mut prev_pc = u16::MAX;
     for t in 0..max_t {
         session.machine_mut().machine_mut().advance_tstates(1);
@@ -342,9 +394,18 @@ fn find_feb3_write_in_green_beret() {
     // path through $fe92..$feb2 that produced the $01 write.
     for base in [0xfb60u16, 0xfb70, 0xfb80, 0xfe80, 0xfe90, 0xfea0, 0xfeb0] {
         let bytes: Vec<u8> = (0..16)
-            .map(|i| session.machine().machine().read_byte(base.wrapping_add(i as u16)))
+            .map(|i| {
+                session
+                    .machine()
+                    .machine()
+                    .read_byte(base.wrapping_add(i as u16))
+            })
             .collect();
-        let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+        let hex = bytes
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         eprintln!("  ${base:04x}: {hex}");
     }
 }
@@ -394,7 +455,8 @@ fn measure_one(label: &str, tzx_relative_path: &str) {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     // Skip to past the BASIC load.
     session.run_frames(1500).expect("run_frames");
@@ -511,7 +573,7 @@ fn measure_fill_one(label: &str, tzx_relative_path: &str) {
     let mut prev_span_kind: u8 = 0;
     let mut last_in_region_t = 0u32;
     let mut last_hl: u16 = 0;
-    let mut snapshot_pc_to_region_t: Vec<(u32, u16)> = Vec::new(); // (t, pc) where pc was outside region briefly
+    let snapshot_pc_to_region_t: Vec<(u32, u16)> = Vec::new(); // (t, pc) where pc was outside region briefly
 
     for t in 0..max_t {
         session.machine_mut().machine_mut().advance_tstates(1);
@@ -549,7 +611,7 @@ fn measure_fill_one(label: &str, tzx_relative_path: &str) {
         // Green Beret's fill straddles the pause→pilot boundary, so
         // we need to follow the loader until it actually leaves
         // $fe40..$feb0 for a sustained stretch.
-        if level_to_pulse.len() >= 2 && fe43_hits.len() >= 1 {
+        if level_to_pulse.len() >= 2 && !fe43_hits.is_empty() {
             if last_in_region_t > 0 && (t - last_in_region_t) > 200_000 {
                 break;
             }
@@ -592,7 +654,7 @@ fn measure_fill_one(label: &str, tzx_relative_path: &str) {
         "[{label}] block7 pause: start=+{pause_start}T, end=+{pause_end}T, dur={pause_dur_t}T (={pause_ms}ms)",
         pause_ms = (u64::from(pause_dur_t) * 1000 / 3_500_000) as u32,
     );
-    let rel_ms = (fill_end_relative_to_pause_end * 1000) / (3_500_000 as i64);
+    let rel_ms = (fill_end_relative_to_pause_end * 1000) / 3_500_000_i64;
     eprintln!(
         "[{label}] fill_end relative to pause_end: {fill_end_relative_to_pause_end}T (={rel_ms}ms — negative = inside pause, positive = into pilot)"
     );
@@ -612,7 +674,7 @@ fn audit_in_a_fe_cost() {
     // shared fetch + walker overhead.
     for &n in &[10usize, 30, 50, 100, 200, 500, 1000, 5000, 10000] {
         measure_n_instructions("IN A,($FE)", n, &[0xDB, 0xFE]);
-        measure_n_instructions("NOP",        n, &[0x00]);
+        measure_n_instructions("NOP", n, &[0x00]);
     }
     // Also probe a non-ULA port (high byte = $FF, port_lo with bit 0 = 1).
     // IN A,($FF) reads the floating bus; port bit 0 = 1 → not a ULA port
@@ -684,14 +746,10 @@ fn measure_n_instructions(label: &str, n: usize, opcode_bytes: &[u8]) {
             let total = e - b;
             let avg = total / (n as u32);
             let rem = total % (n as u32);
-            eprintln!(
-                "[{label}] N={n}: total={total}T, avg={avg}T/instr (remainder {rem})",
-            );
+            eprintln!("[{label}] N={n}: total={total}T, avg={avg}T/instr (remainder {rem})",);
         }
         _ => {
-            eprintln!(
-                "[{label}] N={n}: did not complete (boundary={boundary_t:?}, end={end_t:?})"
-            );
+            eprintln!("[{label}] N={n}: did not complete (boundary={boundary_t:?}, end={end_t:?})");
         }
     }
 }
@@ -790,8 +848,9 @@ fn time_byte_decoder(label: &str, tzx_relative_path: &str) {
         }
         let mut sorted = gaps.to_vec();
         sorted.sort_unstable();
-        let min = *sorted.first().unwrap();
-        let max = *sorted.last().unwrap();
+        // Empty-case guarded above; non-empty sort guarantees first/last.
+        let min = *sorted.first().expect("sorted is non-empty");
+        let max = *sorted.last().expect("sorted is non-empty");
         let median = sorted[sorted.len() / 2];
         let p25 = sorted[sorted.len() / 4];
         let p75 = sorted[sorted.len() * 3 / 4];
@@ -829,10 +888,7 @@ fn probe_green_beret_alternates() {
             "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip",
         ),
         // Original Imagine 1986 release (no SpeedLock-7 expected).
-        (
-            "Imagine 1986 (original)",
-            "Green Beret (1986)(Imagine).zip",
-        ),
+        ("Imagine 1986 (original)", "Green Beret (1986)(Imagine).zip"),
         (
             "Imagine 1986 [a] (alt dump)",
             "Green Beret (1986)(Imagine)[a].zip",
@@ -851,17 +907,33 @@ fn probe_green_beret_alternates() {
     ];
     let tzx_root = home().join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]");
     for (label, file) in tzx_files {
-        probe_one_loader_status(label, &format!("{}", file));
+        probe_one_loader_status(label, file);
     }
 
     // Compilations live elsewhere in the tree; build absolute paths.
-    let comp_root = home().join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Compilations/Games/[TZX]");
+    let comp_root = home()
+        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Compilations/Games/[TZX]");
     let compilations: &[(&str, &str)] = &[
-        ("Konami's Coin-Op Hits (1986)", "Konami's Coin-Op Hits - Green Beret (1986)(Imagine).zip"),
-        ("Konami's Arcade Collection (1988)", "Konami's Arcade Collection - Hyper Sports + Green Beret + Konami's Ping Pong (1988)(Imagine).zip"),
-        ("Conflict Command (1988)", "Conflict Command - Psycho Soldier + Green Beret (1988)(Ocean)(48K-128K).zip"),
-        ("Live Ammo (1987)", "Live Ammo - Green Beret (1987)(Ocean)[aka Live Action].zip"),
-        ("Grandes Exitos de Konami (1987 ES)", "Grandes Exitos de Konami, Los - Green Beret (1987)(Erbe)(ES)(en)[small case].zip"),
+        (
+            "Konami's Coin-Op Hits (1986)",
+            "Konami's Coin-Op Hits - Green Beret (1986)(Imagine).zip",
+        ),
+        (
+            "Konami's Arcade Collection (1988)",
+            "Konami's Arcade Collection - Hyper Sports + Green Beret + Konami's Ping Pong (1988)(Imagine).zip",
+        ),
+        (
+            "Conflict Command (1988)",
+            "Conflict Command - Psycho Soldier + Green Beret (1988)(Ocean)(48K-128K).zip",
+        ),
+        (
+            "Live Ammo (1987)",
+            "Live Ammo - Green Beret (1987)(Ocean)[aka Live Action].zip",
+        ),
+        (
+            "Grandes Exitos de Konami (1987 ES)",
+            "Grandes Exitos de Konami, Los - Green Beret (1987)(Erbe)(ES)(en)[small case].zip",
+        ),
     ];
     for (label, file) in compilations {
         let path = comp_root.join(file);
@@ -932,9 +1004,7 @@ fn probe_one_loader_status_abs(label: &str, tzx_path: &std::path::Path) {
     } else {
         "RUNNING (in loader, no game code yet)"
     };
-    eprintln!(
-        "[{label}] PCs @ {probes:?}: {pcs:04x?}  →  {status}",
-    );
+    eprintln!("[{label}] PCs @ {probes:?}: {pcs:04x?}  →  {status}",);
 }
 
 #[test]
@@ -1033,9 +1103,7 @@ fn probe_one_loader_status(label: &str, tzx_relative_path: &str) {
     } else {
         "RUNNING (in loader, no game code yet)"
     };
-    eprintln!(
-        "[{label}] PCs @ {probes:?}: {pcs:04x?}  →  {status}",
-    );
+    eprintln!("[{label}] PCs @ {probes:?}: {pcs:04x?}  →  {status}",);
 }
 
 #[test]
@@ -1047,7 +1115,9 @@ fn dump_green_beret_spans() {
     if !tzx_path.exists() {
         return;
     }
-    let bytes = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx").bytes;
+    let bytes = read_media_asset(&tzx_path, MediaKind::Tape)
+        .expect("tzx")
+        .bytes;
     let spans = tzx_to_stream(&bytes).expect("parse");
     eprintln!("Total spans: {}", spans.len());
     let mut level_false_durs: Vec<u32> = Vec::new();
@@ -1076,8 +1146,7 @@ fn dump_green_beret_spans() {
 #[test]
 #[ignore = "diagnostic — survey block-7 pause across all Speedlock-7 TZXs"]
 fn survey_speedlock7_pauses() {
-    let tzx_root = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]");
+    let tzx_root = home().join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]");
     if !tzx_root.exists() {
         eprintln!("TZX root not present; skipping");
         return;
@@ -1151,16 +1220,15 @@ fn survey_speedlock7_pauses() {
         })
         .collect();
     calib.sort_by_key(|(min, _, _)| *min);
-    eprintln!(
-        "\nCalibration-band pauses (1000-2000ms) — smallest per file, ascending:"
-    );
+    eprintln!("\nCalibration-band pauses (1000-2000ms) — smallest per file, ascending:");
     for (min_ms, name, band_ms) in &calib {
         eprintln!("  smallest={min_ms:5}ms  band={band_ms:?}  {name}");
     }
-    eprintln!("\nTotal files with any calibration-band pause: {}", calib.len());
     eprintln!(
-        "Files with smallest calibration-band pause ≤ 1335ms (Green Beret level or worse):"
+        "\nTotal files with any calibration-band pause: {}",
+        calib.len()
     );
+    eprintln!("Files with smallest calibration-band pause ≤ 1335ms (Green Beret level or worse):");
     for (min_ms, name, _) in calib.iter().filter(|(m, _, _)| *m <= 1335) {
         eprintln!("  {min_ms}ms  {name}");
     }
@@ -1203,7 +1271,8 @@ fn green_beret_with_extended_pause() {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     // After autoload, patch ONLY the block-7 pause (the 1336ms one
     // = 4_676_000 T-states with 1ms+1335ms split: 3500 + 4_672_500).
@@ -1211,11 +1280,18 @@ fn green_beret_with_extended_pause() {
     let mut spans = tzx_to_stream(&tape.bytes).expect("parse tzx");
     let mut patched_one = false;
     for span in spans.iter_mut() {
-        if let TapeSpan::Level { duration, level: false } = span {
+        if let TapeSpan::Level {
+            duration,
+            level: false,
+        } = span
+        {
             // 4_672_500 is the 1335ms second half of block 7's 1336ms pause.
             if *duration == 4_672_500 && !patched_one {
-                eprintln!("Patching ONLY the first block-7 pause: {} T → {} T",
-                    duration, *duration + 1_750_000);
+                eprintln!(
+                    "Patching ONLY the first block-7 pause: {} T → {} T",
+                    duration,
+                    *duration + 1_750_000
+                );
                 *duration += 1_750_000;
                 patched_one = true;
             }
@@ -1279,7 +1355,8 @@ fn check_90ef_writes_in_green_beret() {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     // Initial state of the buffer
     let initial: Vec<u8> = (0x90cdu16..=0x90fe)
@@ -1301,7 +1378,9 @@ fn check_90ef_writes_in_green_beret() {
     let mut prev: Vec<u8> = pre.clone();
     let mut current_frame: u32 = 1500;
     for frame_step in (1600u32..3000).step_by(50) {
-        session.run_frames(frame_step - current_frame).expect("run_frames");
+        session
+            .run_frames(frame_step - current_frame)
+            .expect("run_frames");
         current_frame = frame_step;
         let cur: Vec<u8> = (0x90cdu16..=0x90fe)
             .map(|a| session.machine().machine().read_byte(a))
@@ -1346,7 +1425,8 @@ fn check_90ef_writes_in_green_beret() {
         &tape.bytes,
     ));
     session2.prepare(&media2, &[]).expect("prepare");
-    autoload_basic_tape(&mut session2, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session2, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
     eprintln!("\n=== tape state during fill window (frames 2540-2620) ===");
     let mut cur = 0u32;
     for target in [2540u32, 2550, 2560, 2570, 2580, 2590, 2600, 2610, 2620] {
@@ -1382,14 +1462,16 @@ fn check_90ef_writes_in_green_beret() {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
     // Skip to just before the writes (frame 2550, since writes
     // happen between frames 2550-2600).
     session.run_frames(2550).expect("run_frames");
 
     let mut prev_90ef = session.machine().machine().read_byte(0x90ef);
     let mut prev_pc = u16::MAX;
-    let mut pc_tail: std::collections::VecDeque<u16> = std::collections::VecDeque::with_capacity(20);
+    let mut pc_tail: std::collections::VecDeque<u16> =
+        std::collections::VecDeque::with_capacity(20);
     eprintln!("\n=== single-T-step from frame 2550, watching $90ef ===");
     let max_t = 100u32 * TIMING_48K.tstates_per_frame;
     for t in 0..max_t {
@@ -1405,9 +1487,7 @@ fn check_90ef_writes_in_green_beret() {
         }
         let val = machine.read_byte(0x90ef);
         if val != prev_90ef {
-            eprintln!(
-                "$90ef ${prev_90ef:02x} → ${val:02x} at +{t}T, PC=${cur_pc:04x}",
-            );
+            eprintln!("$90ef ${prev_90ef:02x} → ${val:02x} at +{t}T, PC=${cur_pc:04x}",);
             let tail: Vec<String> = pc_tail.iter().map(|p| format!("${p:04x}")).collect();
             eprintln!("  last 20 PCs: {}", tail.join(" "));
             prev_90ef = val;
@@ -1417,9 +1497,18 @@ fn check_90ef_writes_in_green_beret() {
                 // Dump the surrounding code
                 for base in [0xfe40u16, 0xfe50, 0xfe60, 0xfe70] {
                     let bytes: Vec<u8> = (0..16)
-                        .map(|i| session.machine().machine().read_byte(base.wrapping_add(i as u16)))
+                        .map(|i| {
+                            session
+                                .machine()
+                                .machine()
+                                .read_byte(base.wrapping_add(i as u16))
+                        })
                         .collect();
-                    let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+                    let hex = bytes
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<Vec<_>>()
+                        .join(" ");
                     eprintln!("  ${base:04x}: {hex}");
                 }
                 break;
@@ -1473,7 +1562,8 @@ fn log_hl_at_fe9d(label: &str, tzx_relative_path: &str) {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     // Skip to past the BASIC load (frame ~1500) to make tracing
     // tractable.
@@ -1507,7 +1597,11 @@ fn log_hl_at_fe9d(label: &str, tzx_relative_path: &str) {
                 fe9d_hits += 1;
                 eprintln!(
                     "[{label}] +{t:9}T  $fe9d#{fe9d_hits}: HL_sum=${hl:04x} BC=${bc:04x} → {}",
-                    if hl < 0x64 { "PASS (HL<$64)" } else { "FAIL (HL≥$64, will write $01)" },
+                    if hl < 0x64 {
+                        "PASS (HL<$64)"
+                    } else {
+                        "FAIL (HL≥$64, will write $01)"
+                    },
                 );
             }
             0xfeaf => {
@@ -1522,7 +1616,11 @@ fn log_hl_at_fe9d(label: &str, tzx_relative_path: &str) {
                 fec6_hits += 1;
                 eprintln!(
                     "[{label}] +{t:9}T  $fec6#{fec6_hits}: H=${h:02x} → {}",
-                    if h >= 1 { "FAIL ($feca CALL $fbcb)" } else { "PASS (RET C)" },
+                    if h >= 1 {
+                        "FAIL ($feca CALL $fbcb)"
+                    } else {
+                        "PASS (RET C)"
+                    },
                 );
             }
             0xfbd0 => {
@@ -1532,9 +1630,7 @@ fn log_hl_at_fe9d(label: &str, tzx_relative_path: &str) {
             _ => {}
         }
     }
-    eprintln!(
-        "[{label}] totals: $fe9d={fe9d_hits} $feaf={feaf_hits} $fec6={fec6_hits}",
-    );
+    eprintln!("[{label}] totals: $fe9d={fe9d_hits} $feaf={feaf_hits} $fec6={fec6_hits}",);
 }
 
 #[test]
@@ -1590,7 +1686,8 @@ fn log_speedlock7_verifier_hits(label: &str, tzx_relative_path: &str, max_frames
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     // We can't catch PC = $fd5f frame-by-frame because each pass is
     // ~30 T-states; but we CAN catch $fd6c (the wipe trigger) because
@@ -1603,7 +1700,8 @@ fn log_speedlock7_verifier_hits(label: &str, tzx_relative_path: &str, max_frames
     let mut wipe_hits: Vec<(u32, u16, u8, u8)> = Vec::new();
     let mut shift_hits: Vec<(u32, u8, u8)> = Vec::new();
     let mut last_l: u8 = 0;
-    let mut pc_tail: std::collections::VecDeque<u16> = std::collections::VecDeque::with_capacity(64);
+    let mut pc_tail: std::collections::VecDeque<u16> =
+        std::collections::VecDeque::with_capacity(64);
     'outer: while current_frames < max_frames {
         // Coarse step: 1 frame at a time until we're "close" to a
         // hot region (PC in $fd00..$fe00 or $fbc0..$fbe0).
@@ -1647,7 +1745,11 @@ fn log_speedlock7_verifier_hits(label: &str, tzx_relative_path: &str, max_frames
                 let h = (z.regs.hl >> 8) as u8;
                 eprintln!(
                     "[{label}] XOR-fold check at $fec6 at frame ~{current_frames}: H=${h:02x} → {}",
-                    if h == 0 { "PASS (no wipe)" } else { "WIPE FIRES" },
+                    if h == 0 {
+                        "PASS (no wipe)"
+                    } else {
+                        "WIPE FIRES"
+                    },
                 );
             }
             if pc == 0xfd6c {
@@ -1658,7 +1760,11 @@ fn log_speedlock7_verifier_hits(label: &str, tzx_relative_path: &str, max_frames
                 wipe_hits.push((current_frames, pc, z.regs.b(), l));
                 eprintln!(
                     "[{label}] verifier compare at $fd6c at frame ~{current_frames}: L=${l:02x} → {}",
-                    if l == 0x3A { "PASS (no wipe)" } else { "WIPE FIRES" },
+                    if l == 0x3A {
+                        "PASS (no wipe)"
+                    } else {
+                        "WIPE FIRES"
+                    },
                 );
             }
             // Match the wipe sled body specifically — PC=$fbd0 is
@@ -1672,7 +1778,9 @@ fn log_speedlock7_verifier_hits(label: &str, tzx_relative_path: &str, max_frames
                 // Dump bytes around interesting PCs from the tail —
                 // anything not in the byte-decoder ($fcd0-$fd00) is
                 // likely the originating check site.
-                for &region_base in &[0xfd9cu16, 0xfeb0u16, 0xfec0u16, 0xfef0u16, 0xff00u16, 0xfbc0u16] {
+                for &region_base in &[
+                    0xfd9cu16, 0xfeb0u16, 0xfec0u16, 0xfef0u16, 0xff00u16, 0xfbc0u16,
+                ] {
                     let bytes: Vec<u8> = (0..32)
                         .map(|i| {
                             session
@@ -1743,7 +1851,8 @@ fn trace_speedlock7_byte_decoder_b_values() {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     // Hard-coded entry point — frame at which our chip first reaches
     // the pulse-decode region. From earlier diagnostic runs this is
@@ -1759,17 +1868,35 @@ fn trace_speedlock7_byte_decoder_b_values() {
     for row in 0..8 {
         let addr: u16 = 0xfd00 + row * 16;
         let bytes: Vec<u8> = (0..16)
-            .map(|i| session.machine().machine().read_byte(addr.wrapping_add(i as u16)))
+            .map(|i| {
+                session
+                    .machine()
+                    .machine()
+                    .read_byte(addr.wrapping_add(i as u16))
+            })
             .collect();
-        let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+        let hex = bytes
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         eprintln!("  ${addr:04x}: {hex}");
     }
     // Also dump the threshold/seed table region $feb0..$fec0.
     eprintln!("\n=== Loader bytes $feb0..$fec0 ===");
     let bytes: Vec<u8> = (0..16)
-        .map(|i| session.machine().machine().read_byte(0xfeb0u16.wrapping_add(i as u16)))
+        .map(|i| {
+            session
+                .machine()
+                .machine()
+                .read_byte(0xfeb0u16.wrapping_add(i as u16))
+        })
         .collect();
-    let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+    let hex = bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ");
     eprintln!("  $feb0: {hex}");
 
     // Dump the inner-decoder region $fcc0..$fd00.
@@ -1777,9 +1904,18 @@ fn trace_speedlock7_byte_decoder_b_values() {
     for row in 0..4 {
         let addr: u16 = 0xfcc0 + row * 16;
         let bytes: Vec<u8> = (0..16)
-            .map(|i| session.machine().machine().read_byte(addr.wrapping_add(i as u16)))
+            .map(|i| {
+                session
+                    .machine()
+                    .machine()
+                    .read_byte(addr.wrapping_add(i as u16))
+            })
             .collect();
-        let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+        let hex = bytes
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         eprintln!("  ${addr:04x}: {hex}");
     }
 
@@ -1802,12 +1938,25 @@ fn trace_speedlock7_byte_decoder_b_values() {
 
     #[derive(Debug)]
     enum Event {
-        DelaySeed { t: u32, pc: u16, a: u8, span_idx: usize, countdown: u32 },
-        FullCall { t: u32, span_idx: usize, countdown: u32, b_entry: u8 },
-        PilotAfter { t: u32, b: u8, span_idx: usize },
+        DelaySeed {
+            t: u32,
+            a: u8,
+            span_idx: usize,
+            countdown: u32,
+        },
+        FullCall {
+            t: u32,
+            span_idx: usize,
+            countdown: u32,
+            b_entry: u8,
+        },
+        PilotAfter {
+            t: u32,
+            b: u8,
+            span_idx: usize,
+        },
         BitShift {
             t: u32,
-            pc: u16,
             b: u8,
             l: u8,
             ear: bool,
@@ -1833,11 +1982,21 @@ fn trace_speedlock7_byte_decoder_b_values() {
         match pc {
             0xFCD5 => {
                 let b_entry = machine.z80().regs.b();
-                events.push(Event::FullCall { t, span_idx, countdown, b_entry });
+                events.push(Event::FullCall {
+                    t,
+                    span_idx,
+                    countdown,
+                    b_entry,
+                });
             }
             0xFCD9 | 0xFCDB => {
                 let a = machine.z80().regs.a();
-                events.push(Event::DelaySeed { t, pc, a, span_idx, countdown });
+                events.push(Event::DelaySeed {
+                    t,
+                    a,
+                    span_idx,
+                    countdown,
+                });
             }
             // After CALL $FCD5 returns in pilot detection ($fd12 = JR NC)
             // or in pre-check ($fd37). At these PCs B has the just-measured pulse count.
@@ -1851,7 +2010,13 @@ fn trace_speedlock7_byte_decoder_b_values() {
                 let ear = machine.tape().ear_level();
                 let span = machine.tape().current_span().cloned();
                 events.push(Event::BitShift {
-                    t, pc, b, l, ear, span, countdown, span_idx,
+                    t,
+                    b,
+                    l,
+                    ear,
+                    span,
+                    countdown,
+                    span_idx,
                 });
             }
             _ => {}
@@ -1874,7 +2039,13 @@ fn trace_speedlock7_byte_decoder_b_values() {
     let mut i = 0;
     while i < events.len() {
         match &events[i] {
-            Event::DelaySeed { t, a, span_idx, countdown, .. } => {
+            Event::DelaySeed {
+                t,
+                a,
+                span_idx,
+                countdown,
+                ..
+            } => {
                 // Walk forward while events are DelaySeeds with monotonically decreasing A.
                 let start_t = *t;
                 let start_a = *a;
@@ -1883,14 +2054,19 @@ fn trace_speedlock7_byte_decoder_b_values() {
                 let mut end_countdown = *countdown;
                 let mut j = i + 1;
                 while j < events.len() {
-                    if let Event::DelaySeed { a: a2, span_idx: si2, countdown: cd2, .. } = &events[j] {
-                        if *a2 < end_a {
-                            end_a = *a2;
-                            end_idx = *si2;
-                            end_countdown = *cd2;
-                            j += 1;
-                            continue;
-                        }
+                    if let Event::DelaySeed {
+                        a: a2,
+                        span_idx: si2,
+                        countdown: cd2,
+                        ..
+                    } = &events[j]
+                        && *a2 < end_a
+                    {
+                        end_a = *a2;
+                        end_idx = *si2;
+                        end_countdown = *cd2;
+                        j += 1;
+                        continue;
                     }
                     break;
                 }
@@ -1904,7 +2080,12 @@ fn trace_speedlock7_byte_decoder_b_values() {
                 prev_span = Some(end_idx);
                 i = j;
             }
-            Event::FullCall { t, span_idx, countdown, b_entry } => {
+            Event::FullCall {
+                t,
+                span_idx,
+                countdown,
+                b_entry,
+            } => {
                 eprintln!(
                     "  +{t:7}T  FCD5  CALL  span_idx={span_idx} countdown={countdown} B_entry=${b_entry:02x}",
                 );
@@ -1917,12 +2098,27 @@ fn trace_speedlock7_byte_decoder_b_values() {
                 );
                 i += 1;
             }
-            Event::BitShift { t, b, l, ear, span, countdown, span_idx, .. } => {
+            Event::BitShift {
+                t,
+                b,
+                l,
+                ear,
+                span,
+                countdown,
+                span_idx,
+                ..
+            } => {
                 eprintln!(
                     "  +{:7}T  *** BIT  B=${:02x}({:>3})  L=${:02x}  bit={}  ear={}  span_idx={}  countdown={}  span={:?}",
-                    t, b, *b as i32 - 0x9e,
-                    if *b > 0xBC { 1 } else { 0 }, l,
-                    ear, span_idx, countdown, span,
+                    t,
+                    b,
+                    *b as i32 - 0x9e,
+                    if *b > 0xBC { 1 } else { 0 },
+                    l,
+                    ear,
+                    span_idx,
+                    countdown,
+                    span,
                 );
                 i += 1;
             }
@@ -1968,7 +2164,8 @@ fn sample_border_color_through_loader() {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     // Walk a frame ladder and at each frame sample: tape state, border
     // colour, PC, and whether the EAR level has changed since the
@@ -1992,8 +2189,20 @@ fn sample_border_color_through_loader() {
         let l_reg = machine.z80().regs.l();
         let e_reg = machine.z80().regs.e();
         let hl = machine.z80().regs.hl;
-        let ear_changed = prior_ear.map_or("?".to_owned(), |p| if p != ear { "CHANGED".into() } else { "same".into() });
-        let span_changed = prior_span.map_or("?".to_owned(), |p| if p != span_idx { format!("Δ={}", span_idx.saturating_sub(p)) } else { "same".into() });
+        let ear_changed = prior_ear.map_or("?".to_owned(), |p| {
+            if p != ear {
+                "CHANGED".into()
+            } else {
+                "same".into()
+            }
+        });
+        let span_changed = prior_span.map_or("?".to_owned(), |p| {
+            if p != span_idx {
+                format!("Δ={}", span_idx.saturating_sub(p))
+            } else {
+                "same".into()
+            }
+        });
         eprintln!(
             "frame {budget:5}: PC=${pc:04x} EAR={ear} ({ear_changed}) span={span_idx}/{span_total} ({span_changed}) countdown={countdown:6} B=${b_reg:02x} L=${l_reg:02x} E=${e_reg:02x} HL=${hl:04x} span={span:?}",
         );
@@ -2037,7 +2246,8 @@ fn check_speedlock_loader_alive(label: &str, tzx_relative_path: &str) -> Result<
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     let mut current: u32 = 0;
     let mut samples: Vec<u16> = Vec::new();
@@ -2133,13 +2343,14 @@ fn probe_tape_and_pc(label: &str, tzx_relative_path: &str) {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     let mut current: u32 = 0;
     let mut prev_pc_set: Vec<u16> = Vec::new();
     for target in [
-        500u32, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 8000, 10000,
-        12000, 15000, 20000, 25000, 30000,
+        500u32, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 8000, 10000, 12000, 15000, 20000,
+        25000, 30000,
     ] {
         // Step the gap a frame at a time over the last 50 frames to
         // collect a PC histogram (= how much code is being exercised).
@@ -2212,7 +2423,9 @@ fn head_over_heels_speedlock2_status() {
         "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip",
     ) {
         Ok(()) => eprintln!("Head over Heels: loader varies PC — may be loading correctly!"),
-        Err(msg) => eprintln!("Head over Heels: PC pinned in byte-decoder loop ({msg}). Run dump_speedlock2_head_over_heels_tape_state to see whether the tape drained."),
+        Err(msg) => eprintln!(
+            "Head over Heels: PC pinned in byte-decoder loop ({msg}). Run dump_speedlock2_head_over_heels_tape_state to see whether the tape drained."
+        ),
     }
 }
 
@@ -2224,7 +2437,8 @@ fn dump_speedlock2_head_over_heels_tape_state() {
     // delay loop at $fd2e — we want to know what the tape is
     // doing at the same moment (still pilot? mid-data? consumed?).
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_file = "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip";
+    let tzx_file =
+        "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip";
     let tzx_path = home()
         .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
         .join(tzx_file);
@@ -2251,7 +2465,8 @@ fn dump_speedlock2_head_over_heels_tape_state() {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     let mut current: u32 = 0;
     for target in [500u32, 2000, 5000, 8000, 12000, 16000, 20000, 25000, 30000] {
@@ -2261,9 +2476,7 @@ fn dump_speedlock2_head_over_heels_tape_state() {
         let pc = machine.z80().regs.pc;
         let (span_idx, span_total) = machine.tape().span_position();
         let playing = machine.tape().is_playing();
-        eprintln!(
-            "frame {target:5}: PC=${pc:04x} tape={playing} span={span_idx}/{span_total}",
-        );
+        eprintln!("frame {target:5}: PC=${pc:04x} tape={playing} span={span_idx}/{span_total}",);
     }
 
     // Capture a screenshot at the final frame so we can see where
@@ -2281,10 +2494,22 @@ fn dump_speedlock2_head_over_heels_tape_state() {
         // Convert palette-index framebuffer to RGB using the ULA's
         // standard 16-colour palette.
         let palette: [(u8, u8, u8); 16] = [
-            (0x00, 0x00, 0x00), (0x00, 0x00, 0xCD), (0xCD, 0x00, 0x00), (0xCD, 0x00, 0xCD),
-            (0x00, 0xCD, 0x00), (0x00, 0xCD, 0xCD), (0xCD, 0xCD, 0x00), (0xCD, 0xCD, 0xCD),
-            (0x00, 0x00, 0x00), (0x00, 0x00, 0xFF), (0xFF, 0x00, 0x00), (0xFF, 0x00, 0xFF),
-            (0x00, 0xFF, 0x00), (0x00, 0xFF, 0xFF), (0xFF, 0xFF, 0x00), (0xFF, 0xFF, 0xFF),
+            (0x00, 0x00, 0x00),
+            (0x00, 0x00, 0xCD),
+            (0xCD, 0x00, 0x00),
+            (0xCD, 0x00, 0xCD),
+            (0x00, 0xCD, 0x00),
+            (0x00, 0xCD, 0xCD),
+            (0xCD, 0xCD, 0x00),
+            (0xCD, 0xCD, 0xCD),
+            (0x00, 0x00, 0x00),
+            (0x00, 0x00, 0xFF),
+            (0xFF, 0x00, 0x00),
+            (0xFF, 0x00, 0xFF),
+            (0x00, 0xFF, 0x00),
+            (0x00, 0xFF, 0xFF),
+            (0xFF, 0xFF, 0x00),
+            (0xFF, 0xFF, 0xFF),
         ];
         let mut rgb = Vec::with_capacity(width * height * 3);
         for &idx in fb.iter() {
@@ -2293,7 +2518,11 @@ fn dump_speedlock2_head_over_heels_tape_state() {
         }
         writer.write_image_data(&rgb).expect("png write");
     }
-    std::fs::write("/tmp/speedlock-screenshots/head-over-heels-frame30000.png", &png_bytes).ok();
+    std::fs::write(
+        "/tmp/speedlock-screenshots/head-over-heels-frame30000.png",
+        &png_bytes,
+    )
+    .ok();
     eprintln!("Wrote /tmp/speedlock-screenshots/head-over-heels-frame30000.png");
 }
 
@@ -2307,7 +2536,8 @@ fn dump_speedlock2_head_over_heels_loader_bytes() {
     // code verbatim (suggesting a tape/parser fix similar to the
     // 0x14 case) or has its own different code.
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_file = "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip";
+    let tzx_file =
+        "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip";
     let tzx_path = home()
         .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
         .join(tzx_file);
@@ -2334,7 +2564,8 @@ fn dump_speedlock2_head_over_heels_loader_bytes() {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
 
     // Run to where PC is in the wedge ($fd2e..$fd3b) so the loader
     // is fully resident in RAM (post-decryption if any).
@@ -2345,9 +2576,18 @@ fn dump_speedlock2_head_over_heels_loader_bytes() {
         for row in 0..16 {
             let addr = base.wrapping_add(row * 16);
             let bytes: Vec<u8> = (0..16)
-                .map(|i| session.machine().machine().read_byte(addr.wrapping_add(i as u16)))
+                .map(|i| {
+                    session
+                        .machine()
+                        .machine()
+                        .read_byte(addr.wrapping_add(i as u16))
+                })
                 .collect();
-            let hex = bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+            let hex = bytes
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
             eprintln!("  ${addr:04x}: {hex}");
         }
     }
@@ -2356,7 +2596,12 @@ fn dump_speedlock2_head_over_heels_loader_bytes() {
     let z = session.machine().machine().z80();
     eprintln!(
         "\nfinal state @ frame 2000: PC=${:04x} B=${:02x} C=${:02x} D=${:02x} E=${:02x} HL=${:04x}",
-        z.regs.pc, z.regs.b(), z.regs.c(), z.regs.d(), z.regs.e(), z.regs.hl,
+        z.regs.pc,
+        z.regs.b(),
+        z.regs.c(),
+        z.regs.d(),
+        z.regs.e(),
+        z.regs.hl,
     );
 }
 
@@ -2383,8 +2628,7 @@ fn dump_speedlock7_tzx_span_widths_around_57050() {
 
     // First, build a histogram of pulse widths across the whole tape
     // so we know the alphabet of widths the parser produces.
-    let mut hist: std::collections::BTreeMap<u32, u32> =
-        std::collections::BTreeMap::new();
+    let mut hist: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
     for span in &stream {
         if let TapeSpan::Pulse(w) = span {
             *hist.entry(*w).or_insert(0) += 1;
@@ -2397,21 +2641,23 @@ fn dump_speedlock7_tzx_span_widths_around_57050() {
 
     // Now dump the spans near index 57050.
     eprintln!("\n=== Spans 57040..57080 ===");
-    for idx in 57040..=57080.min(stream.len() - 1) {
-        eprintln!("  [{idx}] {:?}", stream[idx]);
+    let upper = 57080.min(stream.len() - 1);
+    for (idx, span) in stream.iter().enumerate().take(upper + 1).skip(57040) {
+        eprintln!("  [{idx}] {span:?}");
     }
 
     // Find the boundary where Pulse(1428) starts/stops appearing
     // around iter 1 of our trace. That tells us the block structure.
     eprintln!("\n=== Span-width transitions in window 56900..57200 ===");
     let mut last_width: Option<u32> = None;
-    for idx in 56900..=57200.min(stream.len() - 1) {
-        let w = match &stream[idx] {
+    let upper = 57200.min(stream.len() - 1);
+    for (idx, span) in stream.iter().enumerate().take(upper + 1).skip(56900) {
+        let w = match span {
             TapeSpan::Pulse(w) => Some(*w),
             _ => None,
         };
         if w != last_width {
-            eprintln!("  [{idx}] {:?}", stream[idx]);
+            eprintln!("  [{idx}] {span:?}");
             last_width = w;
         }
     }
@@ -2455,11 +2701,17 @@ fn dump_speedlock7_decrypted_loader() {
         &tape.bytes,
     ));
     session.prepare(&media, &[]).expect("prepare");
-    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("autoload");
+    autoload_basic_tape(&mut session, "tape-1", DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+        .expect("autoload");
     session.run_frames(1400).expect("run_frames");
 
     let snapshot: Vec<u8> = (0..LOADER_LEN)
-        .map(|i| session.machine().machine().read_byte(LOADER_BASE.wrapping_add(i as u16)))
+        .map(|i| {
+            session
+                .machine()
+                .machine()
+                .read_byte(LOADER_BASE.wrapping_add(i as u16))
+        })
         .collect();
     let out_path = PathBuf::from("/tmp/speedlock7-decrypted-f48e.bin");
     std::fs::write(&out_path, &snapshot).expect("write decrypted dump");

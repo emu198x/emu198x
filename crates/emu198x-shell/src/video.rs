@@ -342,12 +342,7 @@ pub fn trim_audio_after_with_fade(
         } else {
             source.samples[start_offset..].to_vec()
         };
-        apply_edge_fade(
-            &mut samples,
-            source.sample_rate,
-            source.channels,
-            fade_ms,
-        );
+        apply_edge_fade(&mut samples, source.sample_rate, source.channels, fade_ms);
         CapturedAudio {
             sample_rate: source.sample_rate,
             channels: source.channels,
@@ -666,8 +661,7 @@ mod tests {
             channels: 1,
             samples: vec![0.5; 10],
         };
-        let trimmed =
-            trim_audio_after_with_fade(Some(&audio), 0, 0).expect("trim returns Some");
+        let trimmed = trim_audio_after_with_fade(Some(&audio), 0, 0).expect("trim returns Some");
         assert_eq!(trimmed.samples, vec![0.5; 10]);
     }
 
@@ -683,8 +677,7 @@ mod tests {
             channels: 2,
             samples,
         };
-        let trimmed = trim_audio_after_with_fade(Some(&audio), 0, 1)
-            .expect("trim returns Some"); // 1ms = ~44 frames
+        let trimmed = trim_audio_after_with_fade(Some(&audio), 0, 1).expect("trim returns Some"); // 1ms = ~44 frames
         assert_eq!(trimmed.samples.len(), 400);
         // Both interleaved channels of the very first frame should taper
         // toward zero.
@@ -771,14 +764,9 @@ mod tests {
         let fps = 25u32;
         let frame = solid_frame(width, height, [0x10, 0x20, 0x30, 0xFF]);
 
-        let mut recorder = VideoRecorder::start(
-            output.clone(),
-            width,
-            height,
-            fps,
-            MachineTime::new(0),
-        )
-        .expect("start should spawn ffmpeg");
+        let mut recorder =
+            VideoRecorder::start(output.clone(), width, height, fps, MachineTime::new(0))
+                .expect("start should spawn ffmpeg");
 
         for _ in 0..10 {
             recorder.push_frame(&frame).expect("frame should write");
@@ -819,14 +807,9 @@ mod tests {
         let fps = 25u32;
         let frame = solid_frame(width, height, [0x80, 0x80, 0x80, 0xFF]);
 
-        let mut recorder = VideoRecorder::start(
-            output.clone(),
-            width,
-            height,
-            fps,
-            MachineTime::new(0),
-        )
-        .expect("start should spawn ffmpeg");
+        let mut recorder =
+            VideoRecorder::start(output.clone(), width, height, fps, MachineTime::new(0))
+                .expect("start should spawn ffmpeg");
         for _ in 0..5 {
             recorder.push_frame(&frame).expect("frame should write");
         }

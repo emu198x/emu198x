@@ -110,6 +110,9 @@ mod tests {
     fn blank_runtime_carries_the_16k_profile_id() {
         use emu198x_shell::MachineCore;
         let runtime = Spectrum16kRuntime::blank();
-        assert_eq!(runtime.profile().profile_id.as_str(), "sinclair-zx-spectrum-16k-pal");
+        assert_eq!(
+            runtime.profile().profile_id.as_str(),
+            "sinclair-zx-spectrum-16k-pal"
+        );
     }
 }

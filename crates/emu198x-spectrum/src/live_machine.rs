@@ -30,7 +30,7 @@ use emu198x_shell::{
     MediaSet, QueryError, QueryResult, ResetKind, RunResult,
 };
 use runtime_sinclair_zx_spectrum::{
-    AudioControls, SpeakerChannel, Spectrum128kRuntime, Spectrum16kRuntime, Spectrum48kRuntime,
+    AudioControls, SpeakerChannel, Spectrum16kRuntime, Spectrum48kRuntime, Spectrum128kRuntime,
     SpectrumMachine, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
     SpectrumPlus3Runtime, SpectrumPlusRuntime, SpectrumRuntime, SpectrumSessionQueryProvider,
 };

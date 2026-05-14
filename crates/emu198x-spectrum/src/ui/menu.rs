@@ -20,8 +20,7 @@ pub const SCALE_OPTIONS: &[u32] = &[1, 2, 3, 4];
 
 /// Video-filter values exposed in the View menu's radio group, in the
 /// order they appear.
-pub const FILTER_OPTIONS: &[VideoFilter] =
-    &[VideoFilter::Raw, VideoFilter::Lcd, VideoFilter::Crt];
+pub const FILTER_OPTIONS: &[VideoFilter] = &[VideoFilter::Raw, VideoFilter::Lcd, VideoFilter::Crt];
 
 /// Commands the App processes at frame boundaries. The same enum is
 /// pushed by every event source (muda menu clicks; winit keyboard

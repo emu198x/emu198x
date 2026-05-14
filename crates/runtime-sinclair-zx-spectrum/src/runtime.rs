@@ -12,8 +12,8 @@
 //! Snapshot/restore are thin delegators into [`crate::snapshot`].
 //! The per-event keyboard matrix update lives in [`crate::input`].
 
-use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::SPECTRUM_PALETTE;
+use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
 use common_sinclair_zx_spectrum::snapshot::Snapshot;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};

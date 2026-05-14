@@ -57,7 +57,9 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, String> {
 
 /// Extract the line number from the start of a line.
 fn parse_line_number(line: &str, line_idx: usize) -> Result<(u16, &str), String> {
-    let num_end = line.find(|c: char| !c.is_ascii_digit()).unwrap_or(line.len());
+    let num_end = line
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(line.len());
     if num_end == 0 {
         return Err(format!(
             "Line {}: expected a line number, got: {line}",
@@ -65,9 +67,9 @@ fn parse_line_number(line: &str, line_idx: usize) -> Result<(u16, &str), String>
         ));
     }
 
-    let num: u32 = line[..num_end].parse().map_err(|e| {
-        format!("Line {}: invalid line number: {e}", line_idx + 1)
-    })?;
+    let num: u32 = line[..num_end]
+        .parse()
+        .map_err(|e| format!("Line {}: invalid line number: {e}", line_idx + 1))?;
 
     if num == 0 || num > 9999 {
         return Err(format!(
@@ -133,7 +135,9 @@ fn tokenise_line(line: &str) -> Vec<u8> {
         }
 
         // Number literal — emit ASCII digits then the 5-byte hidden representation
-        if ch.is_ascii_digit() || (ch == b'.' && pos + 1 < bytes.len() && bytes[pos + 1].is_ascii_digit()) {
+        if ch.is_ascii_digit()
+            || (ch == b'.' && pos + 1 < bytes.len() && bytes[pos + 1].is_ascii_digit())
+        {
             let num_start = pos;
             // Consume the number: digits, optional decimal point, more digits,
             // optional E/e exponent
@@ -201,16 +205,14 @@ fn match_keyword(text: &[u8]) -> Option<(u8, usize)> {
         let last_core = kw[core_len - 1];
         if last_core.is_ascii_alphabetic()
             && let Some(&next) = text.get(core_len)
-                && (next.is_ascii_alphanumeric() || next == b'$') {
-                    continue;
-                }
+            && (next.is_ascii_alphanumeric() || next == b'$')
+        {
+            continue;
+        }
 
         // Determine how many source bytes to consume: include trailing
         // space if present in source, otherwise just the core keyword.
-        let consume = if has_trailing_space
-            && text.len() > core_len
-            && text[core_len] == b' '
-        {
+        let consume = if has_trailing_space && text.len() > core_len && text[core_len] == b' ' {
             core_len + 1
         } else {
             core_len
@@ -335,7 +337,10 @@ mod tests {
         // GOTO inside quotes should be literal ASCII
         let bytes = &prog.bytes;
         // Find the opening quote
-        let quote_pos = bytes.iter().position(|&b| b == b'"').expect("quote present");
+        let quote_pos = bytes
+            .iter()
+            .position(|&b| b == b'"')
+            .expect("quote present");
         let inner = &bytes[quote_pos + 1..quote_pos + 5];
         assert_eq!(inner, b"GOTO");
     }
@@ -365,7 +370,10 @@ mod tests {
         let prog = tokenise("10 LET a=42").expect("should tokenise");
         // After "42" (ASCII $34 $32) there should be $0E + 5 bytes
         let bytes = &prog.bytes;
-        let pos_4 = bytes.iter().position(|&b| b == b'4').expect("digit 4 present");
+        let pos_4 = bytes
+            .iter()
+            .position(|&b| b == b'4')
+            .expect("digit 4 present");
         assert_eq!(bytes[pos_4], b'4');
         assert_eq!(bytes[pos_4 + 1], b'2');
         assert_eq!(bytes[pos_4 + 2], 0x0E); // hidden number marker

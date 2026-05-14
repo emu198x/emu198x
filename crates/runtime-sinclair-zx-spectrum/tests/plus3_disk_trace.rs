@@ -62,14 +62,12 @@ fn trace_plus3_loader_pc_histogram() {
     }
 
     let mut machine = SpectrumPlus3::new();
-    machine
-        .memory
-        .load_roms(
-            &firmware_set_storage[0],
-            &firmware_set_storage[1],
-            &firmware_set_storage[2],
-            &firmware_set_storage[3],
-        );
+    machine.memory.load_roms(
+        &firmware_set_storage[0],
+        &firmware_set_storage[1],
+        &firmware_set_storage[2],
+        &firmware_set_storage[3],
+    );
     let runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, machine);
 
     let mut session = HeadlessSession::new_with_query_provider(
@@ -149,22 +147,23 @@ fn trace_plus3_loader_pc_histogram() {
     // loader's *decision* code, which can be far from where execution
     // ended up trapped). Set PLUS3_TRACE_DUMP=0xFEA4 to dump 256 bytes
     // starting at $FEA4.
-    if let Ok(addr_s) = env::var("PLUS3_TRACE_DUMP") {
-        if let Some(s) = addr_s.strip_prefix("0x").or_else(|| addr_s.strip_prefix("0X")) {
-            if let Ok(addr) = u16::from_str_radix(s, 16) {
-                eprintln!("\n=== Memory dump at ${addr:04x}..+0x100 ===");
-                let mem = &session.machine().machine().memory;
-                for off in 0..0x100u16 {
-                    let a = addr.wrapping_add(off);
-                    let b = common_sinclair_zx_spectrum::memory::MemoryBus::read(mem, a);
-                    if off % 16 == 0 {
-                        eprint!("  ${a:04x}:");
-                    }
-                    eprint!(" {b:02x}");
-                    if off % 16 == 15 {
-                        eprintln!();
-                    }
-                }
+    if let Ok(addr_s) = env::var("PLUS3_TRACE_DUMP")
+        && let Some(s) = addr_s
+            .strip_prefix("0x")
+            .or_else(|| addr_s.strip_prefix("0X"))
+        && let Ok(addr) = u16::from_str_radix(s, 16)
+    {
+        eprintln!("\n=== Memory dump at ${addr:04x}..+0x100 ===");
+        let mem = &session.machine().machine().memory;
+        for off in 0..0x100u16 {
+            let a = addr.wrapping_add(off);
+            let b = common_sinclair_zx_spectrum::memory::MemoryBus::read(mem, a);
+            if off % 16 == 0 {
+                eprint!("  ${a:04x}:");
+            }
+            eprint!(" {b:02x}");
+            if off % 16 == 15 {
+                eprintln!();
             }
         }
     }
@@ -178,7 +177,9 @@ fn trace_plus3_loader_pc_histogram() {
         let mut bytes = Vec::with_capacity(256);
         for off in 0..256u16 {
             let addr = start.wrapping_add(off);
-            bytes.push(common_sinclair_zx_spectrum::memory::MemoryBus::read(mem, addr));
+            bytes.push(common_sinclair_zx_spectrum::memory::MemoryBus::read(
+                mem, addr,
+            ));
         }
         for (i, b) in bytes.iter().enumerate() {
             let addr = start.wrapping_add(i as u16);
@@ -197,11 +198,11 @@ fn trace_plus3_loader_pc_histogram() {
 
     // Dump the rendered screen text.
     eprintln!("\n=== Screen text after {frame_budget} frames ===");
-    if let Ok(result) = session.query("screen.text.lines") {
-        if let Some(lines) = result.value.as_array() {
-            for (row, line) in lines.iter().enumerate() {
-                eprintln!("  {row:2}: {}", line.as_str().unwrap_or(""));
-            }
+    if let Ok(result) = session.query("screen.text.lines")
+        && let Some(lines) = result.value.as_array()
+    {
+        for (row, line) in lines.iter().enumerate() {
+            eprintln!("  {row:2}: {}", line.as_str().unwrap_or(""));
         }
     }
 

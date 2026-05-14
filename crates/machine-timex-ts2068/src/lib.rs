@@ -411,6 +411,10 @@ mod tests {
         assert!((after.channel(SpeakerChannel::Speaker).gain() - 0.25).abs() < f32::EPSILON);
 
         m.set_audio_controls(initial);
-        assert!(m.audio_controls().channel(SpeakerChannel::Speaker).enabled());
+        assert!(
+            m.audio_controls()
+                .channel(SpeakerChannel::Speaker)
+                .enabled()
+        );
     }
 }

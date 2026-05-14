@@ -52,8 +52,8 @@ impl Tool<SpectrumSession> for ScriptStepTool {
         session: &mut SpectrumSession,
     ) -> Result<ToolResponse, ToolError> {
         let step = parse_step(self.name, arguments)?;
-        let observation = execute_step(&step, session)
-            .map_err(|err| ToolError::Execution(format!("{err}")))?;
+        let observation =
+            execute_step(&step, session).map_err(|err| ToolError::Execution(format!("{err}")))?;
         let body = match observation {
             Some(obs) => serde_json::to_string(&obs).map_err(|err| {
                 ToolError::Execution(format!("failed to serialize observation: {err}"))
@@ -351,10 +351,7 @@ mod tests {
     fn register_all_publishes_every_script_step_variant() {
         let mut registry: ToolRegistry<SpectrumSession> = ToolRegistry::new();
         register_all(&mut registry);
-        let names: Vec<_> = registry
-            .iter()
-            .map(|tool| tool.name().to_owned())
-            .collect();
+        let names: Vec<_> = registry.iter().map(|tool| tool.name().to_owned()).collect();
         let expected = [
             "load_media",
             "media_transport",

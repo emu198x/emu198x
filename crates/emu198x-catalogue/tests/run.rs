@@ -14,8 +14,7 @@ use std::env;
 use std::path::PathBuf;
 
 use emu198x_catalogue::{
-    EntryOutcome, SnapshotOutcome, load_manifest, run_entry,
-    run_spectrum_entry_with_snapshot_check,
+    EntryOutcome, SnapshotOutcome, load_manifest, run_entry, run_spectrum_entry_with_snapshot_check,
 };
 
 fn manifest_dir() -> PathBuf {

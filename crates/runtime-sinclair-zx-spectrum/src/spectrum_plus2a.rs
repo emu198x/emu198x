@@ -68,9 +68,11 @@ impl SpectrumRuntime<SpectrumPlus2A> {
         firmware.validate_for_profile(&profile)?;
         let mut roms: [&[u8]; 4] = [&[]; 4];
         for (slot, id) in roms.iter_mut().zip(ROM_IDS.iter()) {
-            *slot = firmware.bytes(id).ok_or_else(|| MachineError::MissingFirmware {
-                id: (*id).to_owned(),
-            })?;
+            *slot = firmware
+                .bytes(id)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: (*id).to_owned(),
+                })?;
         }
 
         Self::from_rom_bytes(roms[0], roms[1], roms[2], roms[3]).map_err(|reason| {
@@ -128,12 +130,7 @@ mod tests {
     #[test]
     fn from_rom_bytes_rejects_wrong_size_slice() {
         let full = [0u8; ROM_BYTES];
-        match SpectrumRuntime::<SpectrumPlus2A>::from_rom_bytes(
-            &[0u8; 1024],
-            &full,
-            &full,
-            &full,
-        ) {
+        match SpectrumRuntime::<SpectrumPlus2A>::from_rom_bytes(&[0u8; 1024], &full, &full, &full) {
             Err(RomImageError::WrongSize { actual }) => assert_eq!(actual, 1024),
             Ok(_) => panic!("wrong-size slice must be rejected at construction time"),
         }

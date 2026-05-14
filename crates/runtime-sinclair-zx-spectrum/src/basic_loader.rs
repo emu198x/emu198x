@@ -13,9 +13,7 @@
 //! the helper is signature-bound to the 48K runtime today and broadens
 //! when each later variant lands a runtime.
 
-use emu198x_shell::{
-    HeadlessSession, MachineTime, SessionError, SessionQueryProvider,
-};
+use emu198x_shell::{HeadlessSession, MachineTime, SessionError, SessionQueryProvider};
 use format_sinclair_zx_spectrum_bas::BasicProgram;
 use thiserror::Error;
 
@@ -282,8 +280,13 @@ mod tests {
         let runtime = loaded_runtime();
         let mut session = HeadlessSession::new_with_query_provider(runtime, 1, ReadyPromptProvider);
         let program = BasicProgram { bytes: Vec::new() };
-        let err = load_basic_program(&mut session, &program, false, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
-            .expect_err("empty program should be rejected");
+        let err = load_basic_program(
+            &mut session,
+            &program,
+            false,
+            DEFAULT_BASIC_LOADER_BOOT_FRAMES,
+        )
+        .expect_err("empty program should be rejected");
         assert!(matches!(err, LoadBasicError::EmptyProgram));
     }
 
@@ -294,8 +297,13 @@ mod tests {
         let program = BasicProgram {
             bytes: vec![0u8; MAX_PROGRAM_BYTES + 1],
         };
-        let err = load_basic_program(&mut session, &program, false, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
-            .expect_err("oversized program should be rejected");
+        let err = load_basic_program(
+            &mut session,
+            &program,
+            false,
+            DEFAULT_BASIC_LOADER_BOOT_FRAMES,
+        )
+        .expect_err("oversized program should be rejected");
         assert!(matches!(err, LoadBasicError::ProgramTooLarge { .. }));
     }
 
@@ -310,9 +318,13 @@ mod tests {
         let program = BasicProgram {
             bytes: vec![0xAA, 0xBB, 0xCC, 0xDD],
         };
-        let result =
-            load_basic_program(&mut session, &program, false, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
-                .expect("loader should succeed");
+        let result = load_basic_program(
+            &mut session,
+            &program,
+            false,
+            DEFAULT_BASIC_LOADER_BOOT_FRAMES,
+        )
+        .expect("loader should succeed");
 
         assert_eq!(result.program_bytes, 4);
         assert_eq!(result.vars_addr, PROG_ADDR + 4);
@@ -331,8 +343,7 @@ mod tests {
 
         // System variables written little-endian.
         let read_word = |addr: u16| -> u16 {
-            u16::from(machine.read_byte(addr))
-                | (u16::from(machine.read_byte(addr + 1)) << 8)
+            u16::from(machine.read_byte(addr)) | (u16::from(machine.read_byte(addr + 1)) << 8)
         };
         assert_eq!(read_word(VARS_SYSVAR), PROG_ADDR + 4);
         assert_eq!(read_word(E_LINE_SYSVAR), PROG_ADDR + 5);
@@ -376,8 +387,13 @@ mod tests {
         let program = BasicProgram {
             bytes: vec![0x00, 0x0A, 0x02, 0x00, 0xFB, 0x0D],
         };
-        let err = load_basic_program(&mut session, &program, false, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
-            .expect_err("loader must refuse to type into a non-K prompt");
+        let err = load_basic_program(
+            &mut session,
+            &program,
+            false,
+            DEFAULT_BASIC_LOADER_BOOT_FRAMES,
+        )
+        .expect_err("loader must refuse to type into a non-K prompt");
         match err {
             LoadBasicError::PromptNotReady { line } => assert!(line.starts_with('X')),
             other => panic!("expected PromptNotReady, got {other:?}"),

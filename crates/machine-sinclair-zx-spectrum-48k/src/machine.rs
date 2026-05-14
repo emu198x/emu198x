@@ -12,7 +12,9 @@
 
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
 use common_sinclair_zx_spectrum::memory::{MemoryBus, Spectrum48kMemory};
-use common_sinclair_zx_spectrum_48k_class::{Spectrum48kMarker, SpectrumMachineCore, Variant48kClass};
+use common_sinclair_zx_spectrum_48k_class::{
+    Spectrum48kMarker, SpectrumMachineCore, Variant48kClass,
+};
 use emu198x_shell::InputEvent;
 
 /// Machine-local state for a stock ZX Spectrum 48K.

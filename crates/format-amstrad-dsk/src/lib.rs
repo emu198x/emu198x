@@ -395,7 +395,11 @@ mod tests {
         assert_eq!(track.sectors[0].id, 1);
         assert_eq!(track.sectors[0].data.len(), 512);
         assert_eq!(track.sectors[1].id, 2);
-        assert_eq!(track.sectors[1].data.len(), 0, "zero-length sector keeps an empty data Vec");
+        assert_eq!(
+            track.sectors[1].data.len(),
+            0,
+            "zero-length sector keeps an empty data Vec"
+        );
         assert_eq!(track.sectors[1].st1 & 0x20, 0x20, "ST1.DE carried through");
         assert_eq!(track.sectors[1].st2 & 0x20, 0x20, "ST2.DD carried through");
     }

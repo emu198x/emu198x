@@ -431,11 +431,7 @@ impl<C> Server<C> {
     ///
     /// Returns `Some(response)` for requests and `None` for notifications
     /// (per JSON-RPC 2.0; servers must not respond to notifications).
-    pub fn handle(
-        &mut self,
-        request: JsonRpcRequest,
-        context: &mut C,
-    ) -> Option<JsonRpcResponse> {
+    pub fn handle(&mut self, request: JsonRpcRequest, context: &mut C) -> Option<JsonRpcResponse> {
         if request.is_notification() {
             self.handle_notification(&request);
             return None;
@@ -486,9 +482,8 @@ impl<C> Server<C> {
         params: Option<serde_json::Value>,
         context: &mut C,
     ) -> Result<serde_json::Value, JsonRpcError> {
-        let params = params.ok_or_else(|| {
-            JsonRpcError::invalid_params("tools/call requires a params object")
-        })?;
+        let params = params
+            .ok_or_else(|| JsonRpcError::invalid_params("tools/call requires a params object"))?;
         let name = params
             .get("name")
             .and_then(|v| v.as_str())
@@ -498,9 +493,10 @@ impl<C> Server<C> {
             .cloned()
             .unwrap_or_else(|| json!({}));
 
-        let tool = self.registry.get(name).ok_or_else(|| {
-            JsonRpcError::invalid_params(format!("unknown tool: {name}"))
-        })?;
+        let tool = self
+            .registry
+            .get(name)
+            .ok_or_else(|| JsonRpcError::invalid_params(format!("unknown tool: {name}")))?;
 
         let response = match tool.call(arguments, context) {
             Ok(response) => response,
@@ -582,7 +578,9 @@ fn parse_error_response(message: &str) -> String {
         }
     }))
     .unwrap_or_else(|_| {
-        String::from(r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}"#)
+        String::from(
+            r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}"#,
+        )
     })
 }
 
@@ -628,10 +626,8 @@ mod tests {
 
     #[test]
     fn jsonrpc_response_error_omits_result_field() {
-        let response = JsonRpcResponse::error(
-            JsonRpcId::Number(7),
-            JsonRpcError::method_not_found("foo"),
-        );
+        let response =
+            JsonRpcResponse::error(JsonRpcId::Number(7), JsonRpcError::method_not_found("foo"));
         let serialized = serde_json::to_string(&response).expect("serialize");
         assert!(serialized.contains(r#""code":-32601"#));
         assert!(serialized.contains("foo"));
@@ -755,7 +751,10 @@ mod tests {
         }));
 
         assert_eq!(registry.len(), 1);
-        assert_eq!(registry.get("thing").expect("present").description(), "second");
+        assert_eq!(
+            registry.get("thing").expect("present").description(),
+            "second"
+        );
     }
 
     #[test]
@@ -768,11 +767,13 @@ mod tests {
         assert_eq!(descriptors.len(), 2);
         assert_eq!(descriptors[0].name, "echo");
         assert_eq!(descriptors[1].name, "ping");
-        assert!(descriptors[0]
-            .input_schema
-            .get("properties")
-            .and_then(|p| p.get("text"))
-            .is_some());
+        assert!(
+            descriptors[0]
+                .input_schema
+                .get("properties")
+                .and_then(|p| p.get("text"))
+                .is_some()
+        );
     }
 
     #[test]
@@ -853,7 +854,10 @@ mod tests {
         let result = response.result.expect("success");
         // isError is skipped on serialization when false; both shapes
         // are spec-compliant. Verify it's absent or explicitly false.
-        let is_error = result.get("isError").and_then(|v| v.as_bool()).unwrap_or(false);
+        let is_error = result
+            .get("isError")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         assert!(!is_error);
         let content = &result["content"];
         assert_eq!(content[0]["type"], json!("text"));
@@ -884,10 +888,12 @@ mod tests {
         let response = server.handle(request, &mut ()).expect("response");
         let result = response.result.expect("not a JSON-RPC error");
         assert_eq!(result["isError"], json!(true));
-        assert!(result["content"][0]["text"]
-            .as_str()
-            .expect("text")
-            .contains("text must be a string"));
+        assert!(
+            result["content"][0]["text"]
+                .as_str()
+                .expect("text")
+                .contains("text must be a string")
+        );
     }
 
     #[test]
@@ -935,13 +941,8 @@ mod tests {
     fn serve_emits_parse_error_with_null_id_for_malformed_input() {
         let mut server = build_server_with_echo();
         let mut output = Vec::new();
-        serve(
-            &mut server,
-            &mut (),
-            "not json\n".as_bytes(),
-            &mut output,
-        )
-        .expect("serve should keep going past parse errors");
+        serve(&mut server, &mut (), "not json\n".as_bytes(), &mut output)
+            .expect("serve should keep going past parse errors");
         let line = std::str::from_utf8(&output).expect("utf-8");
         assert!(line.contains(r#""id":null"#));
         assert!(line.contains(r#""code":-32700"#));
@@ -951,13 +952,8 @@ mod tests {
     fn serve_skips_blank_lines_silently() {
         let mut server = build_server_with_echo();
         let mut output = Vec::new();
-        serve(
-            &mut server,
-            &mut (),
-            "\n   \n\n".as_bytes(),
-            &mut output,
-        )
-        .expect("blank input should be a no-op");
+        serve(&mut server, &mut (), "\n   \n\n".as_bytes(), &mut output)
+            .expect("blank input should be a no-op");
         assert!(output.is_empty());
     }
 

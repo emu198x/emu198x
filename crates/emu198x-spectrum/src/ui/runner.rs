@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use emu198x_shell::query::query_value;
 use emu198x_shell::{
-    CapturedFrame, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, HostIo,
-    InputEvent, LatestFrameCapture, MediaImage, MediaKind, MediaSet, MediaTransportAction,
+    CapturedFrame, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, HostIo, InputEvent,
+    LatestFrameCapture, MediaImage, MediaKind, MediaSet, MediaTransportAction,
     MediaTransportCommand, NativeAudioOutput, NullTraceSink, QueryError, QueryResult, ResetKind,
     RunResult, read_firmware_asset, read_media_asset,
 };
@@ -130,11 +130,7 @@ impl SpectrumRunner {
         Ok(())
     }
 
-    pub fn run_ticks(
-        &mut self,
-        input_events: &[InputEvent],
-        ticks: u64,
-    ) -> Result<bool, AppError> {
+    pub fn run_ticks(&mut self, input_events: &[InputEvent], ticks: u64) -> Result<bool, AppError> {
         let previous_frame_timestamp = self.frame().map(|frame| frame.timestamp);
         let target = self.runtime.time().saturating_add(ticks);
         let mut trace_sink = NullTraceSink;
@@ -430,10 +426,7 @@ impl SpectrumRunner {
     /// `restore_snapshot`). Used by `State > Load Snapshot...` so the
     /// user can pick either a quick-state file they saved earlier or a
     /// portable snapshot from elsewhere.
-    pub fn load_any_snapshot_from_path(
-        &mut self,
-        path: &std::path::Path,
-    ) -> Result<(), AppError> {
+    pub fn load_any_snapshot_from_path(&mut self, path: &std::path::Path) -> Result<(), AppError> {
         let extension = path
             .extension()
             .and_then(|ext| ext.to_str())

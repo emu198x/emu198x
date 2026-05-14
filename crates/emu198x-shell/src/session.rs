@@ -748,10 +748,8 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
             fps,
             self.machine.time(),
         )?;
-        self.audio_offset_at_recording_start = self
-            .audio_capture
-            .audio()
-            .map_or(0, |a| a.samples.len());
+        self.audio_offset_at_recording_start =
+            self.audio_capture.audio().map_or(0, |a| a.samples.len());
         self.recorder = Some(recorder);
         Ok(())
     }
@@ -1437,15 +1435,16 @@ mod tests {
         // moment recording began, so that stop can trim everything that
         // came before — which on a real Spectrum boot includes the
         // tape-loader audio.
-        assert_eq!(session.audio_offset_at_recording_start, pre_recording_samples);
+        assert_eq!(
+            session.audio_offset_at_recording_start,
+            pre_recording_samples
+        );
 
         session
             .run_frames(5)
             .expect("five frames should run while recording");
 
-        let summary = session
-            .stop_video_recording()
-            .expect("stop should succeed");
+        let summary = session.stop_video_recording().expect("stop should succeed");
         assert_eq!(summary.frames, 5);
         assert!(summary.has_audio);
         // Offset resets after stop so a second recording does not
@@ -1478,9 +1477,7 @@ mod tests {
             .run_frames(10)
             .expect("ten frames should run while recording");
 
-        let summary = session
-            .stop_video_recording()
-            .expect("stop should succeed");
+        let summary = session.stop_video_recording().expect("stop should succeed");
         assert_eq!(summary.frames, 10);
         assert!(summary.path.is_file());
         assert!(std::fs::metadata(&summary.path).expect("metadata").len() > 0);

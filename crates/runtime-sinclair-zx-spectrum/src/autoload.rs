@@ -77,7 +77,10 @@ pub enum SpectrumAutoloadError {
 /// Returns an error if the requested slot is unsupported, no tape is loaded,
 /// the boot wait times out, or the prompt is not ready for keyword entry.
 pub fn autoload_basic_tape<M>(
-    session: &mut HeadlessSession<SpectrumRuntime<M>, impl SessionQueryProvider<SpectrumRuntime<M>>>,
+    session: &mut HeadlessSession<
+        SpectrumRuntime<M>,
+        impl SessionQueryProvider<SpectrumRuntime<M>>,
+    >,
     slot: &str,
     max_boot_frames: u32,
 ) -> Result<SpectrumTapeAutoloadResult, SpectrumAutoloadError>
@@ -158,7 +161,10 @@ where
 }
 
 pub(crate) fn tap_key<M>(
-    session: &mut HeadlessSession<SpectrumRuntime<M>, impl SessionQueryProvider<SpectrumRuntime<M>>>,
+    session: &mut HeadlessSession<
+        SpectrumRuntime<M>,
+        impl SessionQueryProvider<SpectrumRuntime<M>>,
+    >,
     name: &'static str,
 ) -> Result<(), SessionError>
 where
@@ -178,7 +184,10 @@ where
 }
 
 fn tap_symbol_combo<M>(
-    session: &mut HeadlessSession<SpectrumRuntime<M>, impl SessionQueryProvider<SpectrumRuntime<M>>>,
+    session: &mut HeadlessSession<
+        SpectrumRuntime<M>,
+        impl SessionQueryProvider<SpectrumRuntime<M>>,
+    >,
     name: &'static str,
 ) -> Result<(), SessionError>
 where

@@ -149,7 +149,10 @@ fn survey_plus3_disk_titles() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(6000);
 
-    eprintln!("=== Plus3 DSK survey ({} frames per title) ===", frame_budget);
+    eprintln!(
+        "=== Plus3 DSK survey ({} frames per title) ===",
+        frame_budget
+    );
 
     let dsk_root = dsk_root();
     for (id, label, dsk_file) in survey_titles() {
@@ -162,9 +165,7 @@ fn survey_plus3_disk_titles() {
         let result = run_one(id, &firmware_set_storage, &dsk_path, frame_budget);
         match result {
             Ok((fb_hash, audio_hash)) => {
-                eprintln!(
-                    "[OK]    {id:35} frame={fb_hash}  audio={audio_hash}  ({label})"
-                );
+                eprintln!("[OK]    {id:35} frame={fb_hash}  audio={audio_hash}  ({label})");
             }
             Err(reason) => {
                 eprintln!("[ERR]   {id:35} {reason}  ({label})");
@@ -204,8 +205,8 @@ fn run_one(
         SpectrumSessionQueryProvider,
     );
 
-    let media_loaded = read_media_asset(dsk_path, MediaKind::Disk)
-        .map_err(|err| format!("read media: {err}"))?;
+    let media_loaded =
+        read_media_asset(dsk_path, MediaKind::Disk).map_err(|err| format!("read media: {err}"))?;
     let mut media_set = MediaSet::new();
     media_set.push(MediaImage::new(
         "disk-a".to_owned(),
@@ -242,9 +243,7 @@ fn run_one(
     let frame = session
         .latest_frame()
         .ok_or_else(|| "no frame".to_owned())?;
-    let rgba = frame
-        .rgba_pixels()
-        .map_err(|err| format!("rgba: {err}"))?;
+    let rgba = frame.rgba_pixels().map_err(|err| format!("rgba: {err}"))?;
     let fb_hash = hash_xxh64(&rgba);
 
     // Audio hash via the catalogue's convention: capture the WAV
@@ -271,7 +270,9 @@ fn run_one(
     encoder.set_color(png::ColorType::Indexed);
     encoder.set_depth(png::BitDepth::Eight);
     encoder.set_palette(palette_rgb);
-    let mut writer = encoder.write_header().map_err(|err| format!("png header: {err}"))?;
+    let mut writer = encoder
+        .write_header()
+        .map_err(|err| format!("png header: {err}"))?;
     writer
         .write_image_data(&fb)
         .map_err(|err| format!("png data: {err}"))?;

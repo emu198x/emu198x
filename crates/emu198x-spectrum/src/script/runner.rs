@@ -86,9 +86,7 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
     // AutoloadTape can act on it, so we keep the tape bytes in scope
     // for the duration of the call.
     let tape_bytes = match &inputs.tape {
-        Some(path) => Some(
-            read_media_asset(path, MediaKind::Tape).map_err(AppError::from)?,
-        ),
+        Some(path) => Some(read_media_asset(path, MediaKind::Tape).map_err(AppError::from)?),
         None => None,
     };
 
@@ -160,9 +158,7 @@ pub(crate) fn execute_step(
         ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
             execute_load_portable_snapshot(session, path).map(|_| None)
         }
-        other => other
-            .execute_collect(session)
-            .map_err(map_script_error),
+        other => other.execute_collect(session).map_err(map_script_error),
     }
 }
 
@@ -245,14 +241,19 @@ fn execute_load_basic_program(
             path.display()
         )))
     })?;
-    let program = tokenise(&source).map_err(|reason| AppError::Io(std::io::Error::other(
-        format!("failed to tokenise BASIC source {}: {reason}", path.display()),
-    )))?;
-    let result = load_basic_program(session, &program, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
-        .map_err(|err| AppError::Io(std::io::Error::other(format!(
-            "BASIC loader failed for {}: {err}",
+    let program = tokenise(&source).map_err(|reason| {
+        AppError::Io(std::io::Error::other(format!(
+            "failed to tokenise BASIC source {}: {reason}",
             path.display()
-        ))))?;
+        )))
+    })?;
+    let result = load_basic_program(session, &program, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
+        .map_err(|err| {
+            AppError::Io(std::io::Error::other(format!(
+                "BASIC loader failed for {}: {err}",
+                path.display()
+            )))
+        })?;
     Ok(ScriptObservation::LoadBasicProgram {
         program_bytes: result.program_bytes,
         ran: result.ran,
@@ -270,9 +271,12 @@ pub(crate) fn boot_eager_48k() -> Result<Spectrum48kRuntime, AppError> {
         path: "$HOME unset; cannot locate ROM bundle".to_owned(),
     })?;
     let bundle = variant_rom_bundle(MachineKind::Spectrum48K, &root);
-    let (id, path) = bundle.into_iter().next().ok_or_else(|| AppError::MissingRom {
-        path: "48K bundle is empty (internal error)".to_owned(),
-    })?;
+    let (id, path) = bundle
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::MissingRom {
+            path: "48K bundle is empty (internal error)".to_owned(),
+        })?;
     if !path.is_file() {
         return Err(AppError::MissingRom {
             path: path.display().to_string(),
