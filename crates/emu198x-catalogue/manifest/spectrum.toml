@@ -1500,6 +1500,440 @@ from_frame = 100
 secs = 2.0
 hash = "xxh64:c27195d1cabf3150"
 
+# ─── +2A entries (mirror of +2) ─────────────────────────────────
+# The grey +2A (1987) is the Amstrad-built successor to the +2
+# proper, using the same Amstrad 40077 gate-array ULA, v4.0 firmware
+# (shared bundle with the +3), and a different contention pattern.
+# No disk drive. Per-title hashes differ from the +2 because the
+# v4.0 ROM banner is different ("+2A" / Amstrad copyright).
+
+[[entry]]
+id = "chase-hq-plus2a"
+title = "Chase H.Q."
+year = 1989
+publisher = "Ocean"
+variant = "plus2a"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:b1471f87b723d699"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "robocop-plus2a"
+title = "RoboCop"
+year = 1988
+publisher = "Ocean"
+variant = "plus2a"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/RoboCop (1988)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:83312f1ae51eb790"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "operation-wolf-plus2a"
+title = "Operation Wolf"
+year = 1988
+publisher = "Ocean"
+variant = "plus2a"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Operation Wolf (1988)(Ocean)(128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:410ac0961745317f"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "out-run-plus2a"
+title = "Out Run"
+year = 1987
+publisher = "U.S. Gold"
+variant = "plus2a"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Out Run (1987)(U.S. Gold)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:62514cdbd5c90f1d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "rainbow-islands-plus2a"
+title = "Rainbow Islands"
+year = 1990
+publisher = "Ocean"
+variant = "plus2a"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:622164f5fb580f1d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "bubble-bobble-plus2a"
+title = "Bubble Bobble"
+year = 1987
+publisher = "Firebird"
+variant = "plus2a"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:968c451a800e4e2d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "where-time-stood-still-plus2a"
+title = "Where Time Stood Still"
+year = 1988
+publisher = "Ocean"
+variant = "plus2a"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:da054f4e390841f7"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:314f8b9ba6058427"
+
+[[entry]]
+id = "total-eclipse-plus2a"
+title = "Total Eclipse"
+year = 1988
+publisher = "Incentive"
+variant = "plus2a"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:0e349fc9538d477d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "castle-master-plus2a"
+title = "Castle Master"
+year = 1990
+publisher = "Domark"
+variant = "plus2a"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:816cb1b0a9dd16e2"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "lords-of-chaos-plus2a"
+title = "Lords of Chaos"
+year = 1990
+publisher = "Blade"
+variant = "plus2a"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:67999b6437c4eecc"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+# ─── +2B entries (mirror of +2) ─────────────────────────────────
+# The grey +2B (1988) is the Amstrad-built minor revision of the
+# +2A: same gate-array ULA, same contention, no disk drive, but
+# v4.1 firmware (different boot banner version string). Per-title
+# hashes differ from both +2 and +2A because the v4.1 ROM banner
+# is again distinct.
+
+[[entry]]
+id = "chase-hq-plus2b"
+title = "Chase H.Q."
+year = 1989
+publisher = "Ocean"
+variant = "plus2b"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:b1471f87b723d699"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "robocop-plus2b"
+title = "RoboCop"
+year = 1988
+publisher = "Ocean"
+variant = "plus2b"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/RoboCop (1988)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:83312f1ae51eb790"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "operation-wolf-plus2b"
+title = "Operation Wolf"
+year = 1988
+publisher = "Ocean"
+variant = "plus2b"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Operation Wolf (1988)(Ocean)(128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:410ac0961745317f"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "out-run-plus2b"
+title = "Out Run"
+year = 1987
+publisher = "U.S. Gold"
+variant = "plus2b"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Out Run (1987)(U.S. Gold)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:62514cdbd5c90f1d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "rainbow-islands-plus2b"
+title = "Rainbow Islands"
+year = 1990
+publisher = "Ocean"
+variant = "plus2b"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:622164f5fb580f1d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "bubble-bobble-plus2b"
+title = "Bubble Bobble"
+year = 1987
+publisher = "Firebird"
+variant = "plus2b"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:968c451a800e4e2d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "where-time-stood-still-plus2b"
+title = "Where Time Stood Still"
+year = 1988
+publisher = "Ocean"
+variant = "plus2b"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:da054f4e390841f7"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:314f8b9ba6058427"
+
+[[entry]]
+id = "total-eclipse-plus2b"
+title = "Total Eclipse"
+year = 1988
+publisher = "Incentive"
+variant = "plus2b"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:0e349fc9538d477d"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "castle-master-plus2b"
+title = "Castle Master"
+year = 1990
+publisher = "Domark"
+variant = "plus2b"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:816cb1b0a9dd16e2"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
+[[entry]]
+id = "lords-of-chaos-plus2b"
+title = "Lords of Chaos"
+year = 1990
+publisher = "Blade"
+variant = "plus2b"
+
+[entry.media]
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
+
+[entry.boot]
+wait_frames = 60
+frame_hash = "xxh64:67999b6437c4eecc"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:c27195d1cabf3150"
+
 # ─── +3 disk entries ────────────────────────────────────────────
 # 3" floppy titles for the 1987 Amstrad-built +3. Every entry below
 # exercises the full µPD765A FDC + DSK / EDSK pipeline end-to-end:
