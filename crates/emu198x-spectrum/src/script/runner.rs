@@ -11,7 +11,7 @@
 //! `HeadlessSession<M, Q>` type) which is its own commit. Code198x's
 //! existing scripts don't need it; eager 48K covers them.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use common_sinclair_zx_spectrum::timing::TIMING_48K;
 use emu198x_shell::{
@@ -22,7 +22,7 @@ use emu198x_shell::{
 use format_sinclair_zx_spectrum_bas::tokenise;
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime,
-    SpectrumSessionQueryProvider, autoload_basic_tape, load_basic_program,
+    SpectrumMachine, SpectrumSessionQueryProvider, autoload_basic_tape, load_basic_program,
 };
 use serde::Serialize;
 
@@ -157,10 +157,64 @@ pub(crate) fn execute_step(
         ScriptStep::LoadBasicProgram { path, run } => {
             execute_load_basic_program(session, path, *run).map(Some)
         }
+        ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
+            execute_load_portable_snapshot(session, path).map(|_| None)
+        }
         other => other
             .execute_collect(session)
             .map_err(map_script_error),
     }
+}
+
+/// True for `.sna` / `.z80` / `.zip` (extracted from a `.zip` archive
+/// containing a single matching snapshot). Anything else falls through
+/// to the shell crate's `restore_snapshot`, which decodes the runtime's
+/// own postcard save state.
+fn is_portable_snapshot_path(path: &Path) -> bool {
+    let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    matches!(ext.to_ascii_lowercase().as_str(), "sna" | "z80" | "zip")
+}
+
+/// Parses a portable `.sna` / `.z80` snapshot (or extracts one from a
+/// `.zip` archive carrying a single matching file) and applies it to
+/// the live machine. The UI-side equivalent lives in
+/// `crates/emu198x-spectrum/src/ui/runner.rs::import_portable_snapshot_from_path`.
+fn execute_load_portable_snapshot(
+    session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+    path: &Path,
+) -> Result<(), AppError> {
+    if session.is_recording() {
+        return Err(AppError::ScriptUnsupported {
+            step: "load_snapshot",
+            reason: format!(
+                "cannot load portable snapshot {} while a video recording is in flight; \
+                 stop the recording first",
+                path.display()
+            ),
+        });
+    }
+    let loaded = read_media_asset(path, MediaKind::Snapshot)?;
+    let inner_name = loaded
+        .archive_member
+        .as_deref()
+        .unwrap_or_else(|| path.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+    let inner_lower = inner_name.to_ascii_lowercase();
+    let snapshot = if inner_lower.ends_with(".sna") {
+        format_sinclair_zx_spectrum_sna::parse_sna(&loaded.bytes)
+            .map_err(|err| AppError::Io(std::io::Error::other(err)))?
+    } else if inner_lower.ends_with(".z80") {
+        format_sinclair_zx_spectrum_z80::parse_z80(&loaded.bytes)
+            .map_err(|err| AppError::Io(std::io::Error::other(err)))?
+    } else {
+        return Err(AppError::Io(std::io::Error::other(format!(
+            "unrecognised snapshot at {} (expected .sna or .z80, got {inner_name})",
+            path.display()
+        ))));
+    };
+    SpectrumMachine::apply_snapshot(session.machine_mut().machine_mut(), &snapshot);
+    Ok(())
 }
 
 /// Executes an `autoload_tape` step against the current 48K session.
@@ -305,6 +359,32 @@ mod tests {
                 transport: emu198x_shell::ScriptMediaTransportAction::Start,
             }]
         );
+    }
+
+    #[test]
+    fn portable_snapshot_extensions_are_detected() {
+        for ext in ["sna", "z80", "zip", "SNA", "Z80", "ZIP"] {
+            let path = PathBuf::from(format!("/tmp/snap.{ext}"));
+            assert!(
+                is_portable_snapshot_path(&path),
+                "expected portable-snapshot dispatch for .{ext} (got fallthrough)"
+            );
+        }
+    }
+
+    #[test]
+    fn non_portable_extensions_fall_through_to_postcard() {
+        for path in [
+            PathBuf::from("/tmp/state.snap"),
+            PathBuf::from("/tmp/state.bin"),
+            PathBuf::from("/tmp/state"),
+            PathBuf::from("/tmp/state.postcard"),
+        ] {
+            assert!(
+                !is_portable_snapshot_path(&path),
+                "expected postcard fallthrough for {path:?}"
+            );
+        }
     }
 
     #[test]

@@ -119,6 +119,16 @@ pub enum ScriptStep {
         prefix: Option<String>,
     },
     /// Restore one snapshot file into the live machine.
+    ///
+    /// The shell crate's built-in executor decodes the runtime's own
+    /// postcard save state. Per-system binaries that also handle
+    /// portable formats intercept this step before delegation — the
+    /// Spectrum binary, for example, dispatches `.sna` / `.z80` (and
+    /// `.zip` archives wrapping one of those) through the appropriate
+    /// format crate and falls back to the shell executor for postcard
+    /// payloads. From the script author's perspective there is one
+    /// step regardless of format; the binary chooses the parser from
+    /// the file extension.
     LoadSnapshot {
         /// Path to the snapshot on disk.
         path: PathBuf,

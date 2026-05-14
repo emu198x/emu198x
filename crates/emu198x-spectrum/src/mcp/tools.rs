@@ -214,7 +214,11 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
 
     registry.register(Box::new(ScriptStepTool {
         name: "load_snapshot",
-        description: "Restore one snapshot file into the live machine.",
+        description: "Restore a snapshot file into the live machine. \
+            Accepts the runtime's own postcard save state, plus portable \
+            .sna / .z80 snapshots (the format is picked from the file \
+            extension). .zip archives wrapping a single .sna or .z80 \
+            are auto-extracted.",
         schema: json!({
             "type": "object",
             "properties": {"path": string_field()},
