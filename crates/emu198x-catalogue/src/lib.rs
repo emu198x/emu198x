@@ -12,6 +12,7 @@ use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
+use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K, TIMING_PLUS2A};
 use emu198x_shell::{
     ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineCore,
@@ -686,7 +687,82 @@ fn run_spectrum_128k_entry(
     autoload_128k_tape_loader(&mut session, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
 
     wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
-    run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_128K))
+    let result = run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_128K))?;
+
+    // Optional: dump a memory window to a file at the audio-capture
+    // end-point. Set `EMU198X_DUMP_MEM=START:END:PATH` (hex addrs,
+    // inclusive-exclusive); e.g. `fe00:ff00:/tmp/dump.bin`.
+    if let Ok(spec) = std::env::var("EMU198X_DUMP_MEM") {
+        dump_memory_window(&session, &spec)?;
+    }
+
+    Ok(result)
+}
+
+fn dump_memory_window(
+    session: &HeadlessSession<Spectrum128kRuntime, SpectrumSessionQueryProvider>,
+    spec: &str,
+) -> Result<(), CatalogueError> {
+    let parts: Vec<&str> = spec.split(':').collect();
+    if parts.len() != 3 {
+        return Err(CatalogueError::Session(format!(
+            "EMU198X_DUMP_MEM expects START:END:PATH, got `{spec}`"
+        )));
+    }
+    let start = u16::from_str_radix(parts[0], 16)
+        .map_err(|err| CatalogueError::Session(format!("dump start: {err}")))?;
+    let end = u16::from_str_radix(parts[1], 16)
+        .map_err(|err| CatalogueError::Session(format!("dump end: {err}")))?;
+    let m = session.machine().machine();
+    let mut buf = Vec::with_capacity(usize::from(end - start));
+    for addr in start..end {
+        buf.push(m.memory.read(addr));
+    }
+    std::fs::write(parts[2], &buf)
+        .map_err(|err| CatalogueError::Session(format!("dump write: {err}")))?;
+    eprintln!(
+        "[DUMP] {} bytes from {:04X}..{:04X} → {} (rom={} bank={} screen=bank{})",
+        buf.len(),
+        start,
+        end,
+        parts[2],
+        m.memory.current_rom(),
+        m.memory.current_bank(),
+        m.memory.screen_bank(),
+    );
+    // Z80 IM-2 vector context: the IRQ handler address is read as a
+    // little-endian word from `(I*0x100 | 0xFF, +1)` — every Spectrum
+    // game's IM-2 setup places a 257-byte table at `I*0x100` filled
+    // with one byte X, so the handler lives at `(X*0x101) & 0xFFFF`.
+    let z80 = &m.z80;
+    let i = z80.regs.i;
+    let vector_addr_lo = (u16::from(i) << 8) | 0xFF;
+    let vector_addr_hi = vector_addr_lo.wrapping_add(1);
+    let vec_lo = m.memory.read(vector_addr_lo);
+    let vec_hi = m.memory.read(vector_addr_hi);
+    let handler = u16::from(vec_lo) | (u16::from(vec_hi) << 8);
+    eprintln!(
+        "[Z80] PC={:04X} I={:02X} IM={} IFF1={} IFF2={} | IM2 vector @ {:04X}={:02X} @ {:04X}={:02X} → handler {:04X}",
+        z80.regs.pc,
+        i,
+        z80.regs.im,
+        z80.regs.iff1 as u8,
+        z80.regs.iff2 as u8,
+        vector_addr_lo,
+        vec_lo,
+        vector_addr_hi,
+        vec_hi,
+        handler,
+    );
+    let sp = z80.regs.sp;
+    let mut stack = String::new();
+    for n in 0..16 {
+        let lo = m.memory.read(sp.wrapping_add(n * 2));
+        let hi = m.memory.read(sp.wrapping_add(n * 2 + 1));
+        stack.push_str(&format!(" {:04X}", u16::from(lo) | (u16::from(hi) << 8)));
+    }
+    eprintln!("[STK] SP={:04X} top→bottom (16 words):{}", sp, stack);
+    Ok(())
 }
 
 fn run_nes_entry(entry: &Entry, media_root: &Path) -> Result<RunResult, CatalogueError> {

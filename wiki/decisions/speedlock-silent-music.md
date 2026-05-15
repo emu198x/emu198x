@@ -94,6 +94,26 @@ of the same game (`Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(
    instead of the wipe firing during load (Green Beret-style), the runtime
    indicator silently disables music post-load.
 
+8. **Mechanism pinned: Speedlock's anti-tamper decoy state.** At the
+   audio-capture waypoint Rainbow Islands has `PC=$029B` (48K BASIC
+   ROM `KEY_SCAN`), `I=$00 IM=2 IFF1=0 IFF2=0` (interrupts disabled
+   — no IRQs fire so no music driver can ever run), `SP=$7FFE` parked
+   in screen RAM. The bytes at `$7FFE` upward decode to ASCII
+   "`OCEAN SOFTWARE LIMITED \x80PAUL OW…`" — the loader's embedded
+   copyright + Paul Owens credit. Stack contents aren't return
+   addresses; they're loader data the SP happens to point at. Only
+   the top word ($8309) looks like a real return. This is the
+   Speedlock decoy: tamper check failed → `DI / LD SP, $7FFE /
+   JP $029B` traps the CPU in `KEY_SCAN` forever, pretending to
+   wait for tape, hiding which check actually failed from a
+   debugger. Chase H.Q. at the same waypoint has `PC=$F8AC` in user
+   code, `I=$BC IFF1=1`, `SP=$A210` with a clean game-loop stack —
+   running normally. So the silence isn't a music-driver bug at
+   all — it's that the music driver never gets a chance to install
+   itself or run, because the game's runtime is stuck in Speedlock's
+   decoy trap. The title screen we see is the loader's pre-render
+   frozen on screen RAM.
+
 ## Specific hypotheses to test
 
 - **H1: Speedlock's post-load anti-tamper writes the same indicator (`$feb3`
@@ -170,3 +190,4 @@ original doesn't are exactly the "music-suppressed" indicators.
 | Date | Event |
 |---|---|
 | 2026-05-15 | Brief written. AY mix (`2fc1abb`) + HALT fix (`81a4697`) + AY port-A pull (`4313a94`) landed in the same session. Five 128K titles confirmed silent against original tapes, musical against cracked tape. |
+| 2026-05-15 | **Mechanism pinned.** Same-session deeper dive added a memory + Z80-state + stack-walk dump to `run_spectrum_128k_entry` (env-gated via `EMU198X_DUMP_MEM=START:END:PATH`). Findings on Rainbow Islands at the audio-capture waypoint: `PC=$029B` (48K BASIC ROM `KEY_SCAN` at $028E), `I=$00 IM=2 IFF1=0 IFF2=0` (interrupts disabled — no IRQs can fire, so even if a music driver were installed it would never be called), `SP=$7FFE`, and the "stack" at $7FFE contains the bytes `09 83 4F 43 45 41 4E 20 53 4F 46 54 57 41 52 45 20 4C 49 4D 49 54 45 44 80 50 41 55 4C 20 4F 57 …` = `\x09\x83 OCEAN SOFTWARE LIMITED \x80PAUL OW…` — the Speedlock loader's embedded copyright + Paul Owens credit. This is the **anti-tamper decoy state**: Speedlock parked SP in screen RAM ($7800-$7FFF, free RAM beyond Bank 5 attributes), disabled interrupts, and jumped into BASIC ROM's tape-loader key-scan loop. With no tape pulses and no keypress, the loader spins forever. Title screen rendering is just frozen Bank 5 bitmap left over from the loader's pre-render. By contrast Chase H.Q. has `PC=$F8AC` in user code, `I=$BC IFF1=1`, `SP=$A210` with a clean live stack — game running normally. This confirms the silence isn't a music-driver bug, it's the same Speedlock anti-tamper family as the Green Beret thread in `speedlock-tape-incomplete.md`, with a different decoy mechanism (loader-stall vs RAM-wipe). The failing check needs identifying via disassembly of the loader's path between $8309 (the lone return address on the parked stack) and the eventual `DI / LD SP, $7FFE / JP $029B` decoy entry. |
