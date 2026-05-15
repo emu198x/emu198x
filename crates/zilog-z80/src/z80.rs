@@ -956,6 +956,22 @@ impl Z80 {
         // Clear EI pending flag (EI defers interrupts by one instruction)
         self.ei_pending = false;
 
+        // HALT: re-execute the HALT opcode by rewinding PC one byte. The
+        // real Z80 stays at the same PC and runs phantom 4 T-state M1
+        // fetches forever until IRQ/NMI clears `halt`; equivalently we
+        // back PC up to the HALT byte each instruction boundary so the
+        // next M1 fetch reads HALT again. PC oscillates between the
+        // HALT byte and the byte after across each phantom cycle (T2Fall
+        // advances it during fetch). When IRQ accept fires in the
+        // branches above, the M1 fetch that latched HALT has already
+        // completed — so PC at that moment is the byte after HALT,
+        // which is the address pushed to the stack. RETI / RET from the
+        // ISR therefore returns past HALT, matching real-hardware
+        // behaviour.
+        if self.halt {
+            self.regs.pc = self.regs.pc.wrapping_sub(1);
+        }
+
         // Normal: start next M1 fetch
         self.phase = Phase::M1(M1Phase::T1Rise);
     }
@@ -1428,5 +1444,101 @@ mod tests {
         assert_eq!(original.regs.a(), 0x42);
         assert_eq!(restored.regs.a(), 0x42);
         assert_eq!(original.regs.pc, restored.regs.pc);
+    }
+
+    #[test]
+    fn halt_blocks_until_irq_then_irq_returns_past_halt() {
+        // HALT must run phantom 4-T-state cycles forever (PC stuck at the
+        // byte after HALT) until an IRQ fires, then push that post-HALT
+        // address to the stack so RETI returns past HALT, not to HALT.
+        //
+        // Layout: PC=$0000 starts with HALT (0x76). Memory after HALT is
+        // 0x18 0xFE (JR -2, a tight loop) so any mistaken fetch past
+        // HALT would spin without crashing — diagnostic, not the test.
+        let mut z80 = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0x0000] = 0x76; // HALT
+        mem[0x0001] = 0x18; // JR
+        mem[0x0002] = 0xFE; // -2
+
+        z80.regs.iff1 = true;
+        z80.regs.im = 1;
+        z80.regs.sp = 0xFF00;
+
+        // Tick the CPU until halt latches, then 200 more ticks (~25 phantom
+        // M1 cycles of 8 half-cycles each). Observe that PC settles to 1
+        // (post-HALT) and R has incremented many times — proving the
+        // phantom-fetch loop is doing work.
+        let mut halt_seen = false;
+        for _ in 0..16 {
+            z80.tick();
+            if z80.mreq && z80.rd {
+                z80.data_in = mem[z80.addr as usize];
+            }
+            if z80.halt {
+                halt_seen = true;
+                break;
+            }
+        }
+        assert!(halt_seen, "HALT flag should set during the first instruction");
+        let initial_r = z80.regs.r;
+
+        // Run 200 half-cycles with no IRQ. Halt must persist, PC must
+        // not run past the HALT byte, and R must keep incrementing
+        // (proving real M1 cycles are happening).
+        for _ in 0..200 {
+            z80.tick();
+            if z80.mreq && z80.rd {
+                z80.data_in = mem[z80.addr as usize];
+            }
+            assert!(z80.halt, "halt must persist while IRQ is low");
+            assert!(
+                z80.regs.pc <= 0x0001,
+                "PC must oscillate between HALT byte and the one after, never escape (got {:#06x})",
+                z80.regs.pc,
+            );
+        }
+        assert!(
+            z80.regs.r.wrapping_sub(initial_r) >= 10,
+            "R should have incremented across many phantom M1 cycles ({} → {})",
+            initial_r,
+            z80.regs.r,
+        );
+
+        // Raise IRQ. Within ~16 half-cycles the CPU should accept it,
+        // clear halt, and start dispatching the IM1 service routine.
+        z80.irq = true;
+        let mut accepted = false;
+        for _ in 0..32 {
+            z80.tick();
+            if z80.mreq && z80.rd {
+                z80.data_in = mem[z80.addr as usize];
+            }
+            if !z80.halt {
+                accepted = true;
+                break;
+            }
+        }
+        assert!(accepted, "IRQ must clear halt and break the phantom loop");
+
+        // Run the IM1 service long enough for both stack pushes to land,
+        // then read SP-1 / SP-2 from memory: after IM1 dispatch SP=0xFEFE
+        // and (0xFEFE / 0xFEFF) hold the pushed PC's low / high bytes.
+        // The pushed value must be 0x0001 (the byte after HALT), so RETI
+        // returns past HALT rather than back to it.
+        for _ in 0..64 {
+            z80.tick();
+            if z80.mreq && z80.rd {
+                z80.data_in = mem[z80.addr as usize];
+            }
+            if z80.mreq && z80.wr {
+                mem[z80.addr as usize] = z80.data;
+            }
+        }
+        let saved_pc = u16::from(mem[0xFEFE]) | (u16::from(mem[0xFEFF]) << 8);
+        assert_eq!(
+            saved_pc, 0x0001,
+            "IRQ must push the post-HALT address (0x0001), not the HALT address (0x0000); pushed {saved_pc:#06x}",
+        );
     }
 }

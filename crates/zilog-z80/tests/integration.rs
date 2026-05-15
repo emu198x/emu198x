@@ -152,7 +152,12 @@ fn jp_unconditional() {
 
     run(&mut z80, &mut mem, 1000);
     assert!(z80.halt);
-    assert_eq!(z80.regs.pc, 0x0011); // PC advances past HALT
+    // While halted, PC oscillates between the HALT byte (0x0010) and
+    // the one after as the CPU re-fetches phantom NOPs. `run` exits as
+    // soon as halt latches — at that moment PC is at the HALT byte
+    // because `begin_next_instruction` has decremented it ready for
+    // the next phantom M1 fetch.
+    assert_eq!(z80.regs.pc, 0x0010);
 }
 
 #[test]
@@ -226,7 +231,9 @@ fn jp_indirect_hl() {
 
     run(&mut z80, &mut mem, 2000);
     assert!(z80.halt);
-    assert_eq!(z80.regs.pc, 0x0011);
+    // HALT sits at 0x0010; PC is at the HALT byte when halt latches
+    // (see comment in `jp_unconditional`).
+    assert_eq!(z80.regs.pc, 0x0010);
 }
 
 #[test]
@@ -613,7 +620,8 @@ fn djnz_taken_and_not_taken_paths() {
 
     run(&mut z80, &mut mem, 2000);
     assert_eq!(z80.regs.b(), 0x01);
-    assert_eq!(z80.regs.pc, 0x0007);
+    // HALT sits at 0x0006; PC is at the HALT byte when halt latches.
+    assert_eq!(z80.regs.pc, 0x0006);
     assert!(z80.halt);
 }
 
@@ -680,7 +688,9 @@ fn rst_38_pushes_return_address() {
     assert_eq!(z80.regs.sp, 0xFFFC);
     assert_eq!(mem[0xFFFC], 0x01);
     assert_eq!(mem[0xFFFD], 0x00);
-    assert_eq!(z80.regs.pc, 0x0039);
+    // HALT sits at the RST 38 vector (0x0038); PC is at that byte when
+    // halt latches.
+    assert_eq!(z80.regs.pc, 0x0038);
     assert!(z80.halt);
 }
 
@@ -948,7 +958,9 @@ fn ed_retn_restores_pc_sp_and_iff1_from_iff2() {
 
     run(&mut z80, &mut mem, 4000);
     assert_eq!(z80.regs.sp, 0x9002);
-    assert_eq!(z80.regs.pc, 0x1235);
+    // HALT sits at the return target (0x1234); PC is at that byte when
+    // halt latches.
+    assert_eq!(z80.regs.pc, 0x1234);
     assert_eq!(z80.regs.wz, 0x1234);
     assert!(z80.regs.iff1);
     assert!(z80.halt);
