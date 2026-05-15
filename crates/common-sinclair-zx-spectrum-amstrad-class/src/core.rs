@@ -99,7 +99,14 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
             tape: TapePlayer::new(),
-            ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME),
+            ay: {
+                let mut ay = Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME);
+                // Amstrad +2A / +2B / +3 wiring: AY port A bit 6 is the
+                // serial CTS line tied low, same as the Sinclair 128K.
+                // Reads of register 14 therefore mask with 0xBF.
+                ay.set_port_a_input_mask(0xBF);
+                ay
+            },
             fdc,
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, TIMING_PLUS2A.tstates_per_frame, cpu_hz),
             audio_frame: vec![0.0; AUDIO_SAMPLES_PER_FRAME],

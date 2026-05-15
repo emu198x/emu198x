@@ -85,7 +85,16 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             keyboard: [0xFF; 8],
             kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
-            ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME),
+            ay: {
+                let mut ay = Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME);
+                // Sinclair 128K wiring: AY port A bit 6 is the serial CTS
+                // line, tied low on the motherboard. Reads of register 14
+                // therefore mask with 0xBF — the signature late-Ocean
+                // loaders (Rainbow Islands, Out Run, Bubble Bobble) probe
+                // for to detect "this is a real Sinclair 128K".
+                ay.set_port_a_input_mask(0xBF);
+                ay
+            },
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, TIMING_128K.tstates_per_frame, cpu_hz),
             audio_frame: vec![0.0; AUDIO_SAMPLES_PER_FRAME],
             ay_frame: default_ay_frame(),

@@ -65,6 +65,21 @@ pub struct Ay3_8912 {
     samples: Vec<f32>,
     /// Number of samples written this frame.
     samples_written: usize,
+
+    /// Host-side wiring of AY I/O port A (register 14). The chip's
+    /// physical pins read whatever the host motherboard ties them to
+    /// when in input mode; in output mode the chip drives the pins,
+    /// but pulls / open-drain tie-downs on the board AND with the
+    /// driven value. On the Sinclair 128K family this mask is `0xBF`
+    /// (bit 6 = serial CTS, always low). On a chip with no external
+    /// wiring the mask is `0xFF` and `read_data` returns the stored
+    /// register value unmodified — the default.
+    #[serde(default = "default_port_a_input_mask")]
+    port_a_input_mask: u8,
+}
+
+fn default_port_a_input_mask() -> u8 {
+    0xFF
 }
 
 impl Ay3_8912 {
@@ -94,7 +109,18 @@ impl Ay3_8912 {
             sample_rate,
             samples: vec![0.0; samples_per_frame],
             samples_written: 0,
+            port_a_input_mask: default_port_a_input_mask(),
         }
+    }
+
+    /// Configure the host-side wiring of AY I/O port A (register 14).
+    /// Bits that are pulled low on the motherboard read back as 0 even
+    /// when the chip drives them high. On the Sinclair 128K family
+    /// this mask is `0xBF` (bit 6 = serial CTS, tied low). Defaults to
+    /// `0xFF` (no external wiring); set it once at machine
+    /// construction time.
+    pub fn set_port_a_input_mask(&mut self, mask: u8) {
+        self.port_a_input_mask = mask;
     }
 
     /// Select which register (0-15) subsequent reads/writes address.
@@ -127,8 +153,48 @@ impl Ay3_8912 {
 
     /// Read the currently selected register's value.
     /// On the Spectrum: IN from port $FFFD.
+    ///
+    /// Registers 14 and 15 are I/O ports on the AY-3-8910 (R15 absent
+    /// on the -8912). The chip reads the pin state, not the stored
+    /// register. In input mode the pin is whatever the host wires
+    /// drive to it (`port_a_input_mask` carries that). In output mode
+    /// the chip drives the pin but board-side pull-downs AND with the
+    /// driven value — same mask applies. This matches what FUSE does
+    /// at `peripherals/sound/ay.c:ay_registerport_read`, and is the
+    /// difference that lets late-Ocean 128K loaders (Rainbow Islands,
+    /// Bubble Bobble, Out Run) detect the Sinclair 128K via reading
+    /// back `0xBF` after writing `0xFF` to R14.
+    /// On the Spectrum: IN from port $FFFD.
+    ///
+    /// Registers 14 and 15 are I/O ports on the AY-3-8910 (R15 absent
+    /// on the -8912). The chip reads the pin state, not the stored
+    /// register. In input mode the pin is whatever the host wires
+    /// drive to it (`port_a_input_mask` carries that). In output mode
+    /// the chip drives the pin but board-side pull-downs AND with the
+    /// driven value — same mask applies. This matches what FUSE does
+    /// at `peripherals/sound/ay.c:ay_registerport_read`, and is the
+    /// difference that lets late-Ocean 128K loaders (Rainbow Islands,
+    /// Bubble Bobble, Out Run) detect the Sinclair 128K via reading
+    /// back `0xBF` after writing `0xFF` to R14.
     pub fn read_data(&self) -> u8 {
-        self.regs[self.selected as usize]
+        let reg = self.selected as usize;
+        match reg {
+            14 => {
+                if self.regs[7] & 0x40 != 0 {
+                    self.regs[14] & self.port_a_input_mask
+                } else {
+                    self.port_a_input_mask
+                }
+            }
+            15 => {
+                if self.regs[7] & 0x80 != 0 {
+                    self.regs[15]
+                } else {
+                    0xFF
+                }
+            }
+            _ => self.regs[reg],
+        }
     }
 
     /// The currently selected register index (0-15).
@@ -444,6 +510,53 @@ mod tests {
             val & 0x0F,
             0x08,
             "AY detection should read back the written value"
+        );
+    }
+
+    #[test]
+    fn port_a_input_mask_defaults_to_no_pull() {
+        // Default mask is 0xFF — chips with no external wiring should
+        // behave as before this configurability landed: read back the
+        // stored value unchanged.
+        let mut ay = Ay3_8912::new(1_773_400, 44100, 882);
+        ay.select_register(7);
+        ay.write_data(0xFF); // port A = output mode
+        ay.select_register(14);
+        ay.write_data(0x42);
+        assert_eq!(ay.read_data(), 0x42);
+    }
+
+    #[test]
+    fn sinclair_128k_port_a_pull_returns_bf_for_register_14() {
+        // With the Sinclair 128K wiring (port A pull = 0xBF, CTS pin
+        // tied low at bit 6), reading R14 must reflect the pull no
+        // matter what was written. This is the difference late-Ocean
+        // loaders use to detect "real 128K". Matches FUSE behaviour
+        // at `peripherals/sound/ay.c:ay_registerport_read`.
+        let mut ay = Ay3_8912::new(1_773_400, 44100, 882);
+        ay.set_port_a_input_mask(0xBF);
+
+        // Output mode (r7 bit 6 = 1): chip drives the pin, board pulls
+        // AND with the driven value. Writing 0xFF reads back as 0xBF.
+        ay.select_register(7);
+        ay.write_data(0xFF);
+        ay.select_register(14);
+        ay.write_data(0xFF);
+        assert_eq!(
+            ay.read_data(),
+            0xBF,
+            "output-mode read should mask driven value with board pull"
+        );
+
+        // Input mode (r7 bit 6 = 0): pin reads the board pull directly,
+        // independent of whatever the register held.
+        ay.select_register(7);
+        ay.write_data(0x3F); // bit 6 = 0
+        ay.select_register(14);
+        assert_eq!(
+            ay.read_data(),
+            0xBF,
+            "input-mode read should return the board pull directly"
         );
     }
 }
