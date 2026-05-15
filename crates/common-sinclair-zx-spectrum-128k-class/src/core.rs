@@ -58,6 +58,12 @@ pub struct Spectrum128kClassCore<V: Class128kVariant> {
     pub ay: Ay3_8912,
     pub audio: BeeperAudio,
     pub audio_frame: Vec<f32>,
+    /// Per-frame scratch buffer for AY samples, summed into `audio_frame`
+    /// at end-of-frame. Transient — populated by `ay.end_frame(...)` and
+    /// consumed in the same call, so it doesn't need to survive
+    /// serialization.
+    #[serde(skip, default = "default_ay_frame")]
+    ay_frame: Vec<f32>,
 
     pub(crate) hc: u32,
     speaker: SpeakerMixer,
@@ -82,6 +88,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME),
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, TIMING_128K.tstates_per_frame, cpu_hz),
             audio_frame: vec![0.0; AUDIO_SAMPLES_PER_FRAME],
+            ay_frame: default_ay_frame(),
             hc: 0,
             speaker: SpeakerMixer::default(),
             _variant: PhantomData,
@@ -342,6 +349,27 @@ impl<V: Class128kVariant> SpectrumDriver for Spectrum128kClassCore<V> {
     #[inline(always)]
     fn on_end_frame(&mut self) {
         self.audio.end_frame(&mut self.audio_frame);
+        self.ay.end_frame(&mut self.ay_frame);
+        mix_ay_into_audio(&mut self.audio_frame, &self.ay_frame);
+    }
+}
+
+fn default_ay_frame() -> Vec<f32> {
+    vec![0.0; AUDIO_SAMPLES_PER_FRAME]
+}
+
+/// AY contribution to the speaker output. The AY chip's `end_frame`
+/// produces unipolar samples in `0.0..=1.0` (`0.0` is genuine silence —
+/// all three voices muted, envelope at zero), so the mix adds them
+/// directly to the beeper signal without centring. `AY_GAIN` is chosen
+/// to leave headroom for beeper SFX stacking on top of the music: the
+/// beeper output already swings -0.5..+0.5, so capping AY at +0.5 keeps
+/// the combined signal inside ±1.0 even at three-voice fortissimo.
+const AY_GAIN: f32 = 0.5;
+
+fn mix_ay_into_audio(audio: &mut [f32], ay: &[f32]) {
+    for (out, &ay_sample) in audio.iter_mut().zip(ay.iter()) {
+        *out += ay_sample * AY_GAIN;
     }
 }
 
