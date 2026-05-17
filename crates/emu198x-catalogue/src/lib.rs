@@ -687,6 +687,28 @@ fn run_spectrum_128k_entry(
     autoload_128k_tape_loader(&mut session, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
 
     wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+
+    // PROBE: optional post-load keypress for games that gate their title
+    // sequence behind "press any key". Set `EMU198X_POST_LOAD_KEY=space`
+    // (or any key name) to inject one press+release across 6 frames
+    // before the audio capture runs.
+    if let Ok(key) = std::env::var("EMU198X_POST_LOAD_KEY") {
+        session.queue_input(InputEvent::Key {
+            name: key.clone().into(),
+            pressed: true,
+        });
+        session
+            .run_frames(3)
+            .map_err(|err| CatalogueError::Session(format!("post-load key press: {err}")))?;
+        session.queue_input(InputEvent::Key {
+            name: key.into(),
+            pressed: false,
+        });
+        session
+            .run_frames(3)
+            .map_err(|err| CatalogueError::Session(format!("post-load key release: {err}")))?;
+    }
+
     let result = run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_128K))?;
 
     // Optional: dump a memory window to a file at the audio-capture
