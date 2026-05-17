@@ -87,3 +87,4 @@
 
 ## References
 - [Emulators](references/emulators.md) — SpecIde, FUSE, zxsp, WinUAE, VICE, and others
+- [Speedlock](references/speedlock.md) — version landscape (1–8), three generations of anti-tamper, Speedlock 4–7 R-register XOR+ADD decryption, TZX block mapping, SkoolKit `tap2sna.py` for known-good post-load diffs; written 2026-05-17 while investigating the silent-music cluster

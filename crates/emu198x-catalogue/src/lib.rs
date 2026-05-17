@@ -688,6 +688,31 @@ fn run_spectrum_128k_entry(
 
     wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
 
+    // Diagnostic: dump full 64K RAM image at end-of-tape (immediately
+    // after the tape transport reports stopped, before the boot wait).
+    // Set `EMU198X_DUMP_RAM_EOT=PATH` to enable.
+    if let Ok(path) = std::env::var("EMU198X_DUMP_RAM_EOT") {
+        let m = session.machine().machine();
+        let mut buf = Vec::with_capacity(65536);
+        for addr in 0..=0xFFFFu32 {
+            buf.push(m.memory.read(addr as u16));
+        }
+        std::fs::write(&path, &buf)
+            .map_err(|err| CatalogueError::Session(format!("dump RAM: {err}")))?;
+        let z80 = &m.z80;
+        eprintln!(
+            "[EOT] PC={:04X} I={:02X} IM={} IFF1={} IFF2={} rom={} bank={} → {}",
+            z80.regs.pc,
+            z80.regs.i,
+            z80.regs.im,
+            z80.regs.iff1 as u8,
+            z80.regs.iff2 as u8,
+            m.memory.current_rom(),
+            m.memory.current_bank(),
+            path,
+        );
+    }
+
     // PROBE: optional post-load keypress for games that gate their title
     // sequence behind "press any key". Set `EMU198X_POST_LOAD_KEY=space`
     // (or any key name) to inject one press+release across 6 frames

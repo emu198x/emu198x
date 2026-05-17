@@ -1063,14 +1063,14 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/RoboCop (1988)(Ocean)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 # Detects 128K and switches to Jonathan Dunn's iconic AY soundtrack —
 # the 48K version uses minimal beeper effects, the 128K title screen
 # is a continuous arrangement of the film's main theme.
 wait_frames = 60
-frame_hash = "xxh64:83312f1ae51eb790"
+frame_hash = "xxh64:10c7571baecd5717"
 
 [entry.audio]
 # Captured at 60+100 = 3.2 s post-tape-stop. RoboCop's title fade /
@@ -1094,11 +1094,11 @@ kind = "tape"
 slot = "tape-1"
 # 128K-specific release — different release than the 48K-128K combo
 # tape; the 128K release uses extended AY music throughout play.
-path = "sinclair/spectrum/Games/[TAP]/Operation Wolf (1988)(Ocean)(128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:410ac0961745317f"
+frame_hash = "xxh64:ee18d332300497af"
 
 [entry.audio]
 # Same "128K silence" hash as RoboCop — title music hasn't started
@@ -1117,21 +1117,21 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Out Run (1987)(U.S. Gold)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
 
 [entry.boot]
 # 128K mode unlocks multiple AY radio tracks selectable in-game —
 # part of the canonical Out Run experience; the 48K version has only
 # beeper effects.
 wait_frames = 60
-frame_hash = "xxh64:62514cdbd5c90f1d"
+frame_hash = "xxh64:b4052cd4abe6528d"
 
 [entry.audio]
 # 128K silence hash — title hasn't reached its music phase yet at
 # this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:4ac48d18e8bcdf98"
 
 [[entry]]
 id = "rainbow-islands"
@@ -1143,19 +1143,19 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 # Tim Follin's AY soundtrack on the 128K — bubbly, technically
 # accomplished arrangement that's a showpiece for the chip.
 wait_frames = 60
-frame_hash = "xxh64:622164f5fb580f1d"
+frame_hash = "xxh64:5099b5dbc9f28210"
 
 [entry.audio]
 # 128K silence hash — Tim Follin's music hasn't kicked in yet.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:73ff0aca86082619"
 
 [[entry]]
 id = "bubble-bobble"
@@ -1167,7 +1167,7 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
 
 [entry.boot]
 # Wally Beben's chiptune AY conversion of the famous arcade theme —
@@ -1321,11 +1321,11 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/RoboCop (1988)(Ocean)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:83312f1ae51eb790"
+frame_hash = "xxh64:10c7571baecd5717"
 
 [entry.audio]
 from_frame = 100
@@ -1342,11 +1342,11 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Operation Wolf (1988)(Ocean)(128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:410ac0961745317f"
+frame_hash = "xxh64:ee18d332300497af"
 
 [entry.audio]
 from_frame = 100
@@ -1363,16 +1363,16 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Out Run (1987)(U.S. Gold)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:62514cdbd5c90f1d"
+frame_hash = "xxh64:b4052cd4abe6528d"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:4ac48d18e8bcdf98"
 
 [[entry]]
 id = "rainbow-islands-plus2"
@@ -1384,16 +1384,16 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:622164f5fb580f1d"
+frame_hash = "xxh64:5099b5dbc9f28210"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:73ff0aca86082619"
 
 [[entry]]
 id = "bubble-bobble-plus2"
@@ -1405,7 +1405,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1538,11 +1538,11 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/RoboCop (1988)(Ocean)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:83312f1ae51eb790"
+frame_hash = "xxh64:10c7571baecd5717"
 
 [entry.audio]
 from_frame = 100
@@ -1559,11 +1559,11 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Operation Wolf (1988)(Ocean)(128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:410ac0961745317f"
+frame_hash = "xxh64:ee18d332300497af"
 
 [entry.audio]
 from_frame = 100
@@ -1580,16 +1580,16 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Out Run (1987)(U.S. Gold)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:62514cdbd5c90f1d"
+frame_hash = "xxh64:b4052cd4abe6528d"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:5883da58ece505ad"
 
 [[entry]]
 id = "rainbow-islands-plus2a"
@@ -1601,16 +1601,16 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:622164f5fb580f1d"
+frame_hash = "xxh64:41b56f8699e5abb4"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:73ff0aca86082619"
 
 [[entry]]
 id = "bubble-bobble-plus2a"
@@ -1622,11 +1622,11 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:968c451a800e4e2d"
+frame_hash = "xxh64:d65b6a85900e4ff1"
 
 [entry.audio]
 from_frame = 100
@@ -1755,11 +1755,11 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/RoboCop (1988)(Ocean)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:83312f1ae51eb790"
+frame_hash = "xxh64:10c7571baecd5717"
 
 [entry.audio]
 from_frame = 100
@@ -1776,11 +1776,11 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Operation Wolf (1988)(Ocean)(128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:410ac0961745317f"
+frame_hash = "xxh64:ee18d332300497af"
 
 [entry.audio]
 from_frame = 100
@@ -1797,16 +1797,16 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Out Run (1987)(U.S. Gold)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:62514cdbd5c90f1d"
+frame_hash = "xxh64:b4052cd4abe6528d"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:5883da58ece505ad"
 
 [[entry]]
 id = "rainbow-islands-plus2b"
@@ -1818,16 +1818,16 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:622164f5fb580f1d"
+frame_hash = "xxh64:41b56f8699e5abb4"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:73ff0aca86082619"
 
 [[entry]]
 id = "bubble-bobble-plus2b"
@@ -1839,11 +1839,11 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+path = "sinclair/spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:968c451a800e4e2d"
+frame_hash = "xxh64:d65b6a85900e4ff1"
 
 [entry.audio]
 from_frame = 100
