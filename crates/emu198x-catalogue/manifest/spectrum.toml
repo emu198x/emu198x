@@ -502,7 +502,7 @@ path = "sinclair/spectrum/Games/[TZX]/MOVIE COLLECTION 22 - RoboCop (1991)(Hit S
 # mid-rebuild of the cycle (only 3 entries visible) and would
 # produce a non-deterministic hash; stick with 6000.
 wait_frames = 6000
-frame_hash = "xxh64:a26ef35daf6e05a0"
+frame_hash = "xxh64:3f225520cedc41e9"
 
 [entry.audio]
 # Canonical attract-silence hash. RoboCop's hi-score attract has
@@ -538,7 +538,7 @@ frame_hash = "xxh64:b7eb0309a56dd6fb"
 # waypoint, distinct from the canonical silence hash.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:73044dcaad32dde4"
+hash = "xxh64:aa167706b6149468"
 
 [[entry]]
 id = "renegade-tape-speedlock"
@@ -595,7 +595,7 @@ frame_hash = "xxh64:2690796a2fcff3ab"
 # Combat School's title-screen music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:f29dbb84fc74545f"
+hash = "xxh64:511724b4cd7f0d7c"
 
 [[entry]]
 id = "rambo-tape-speedlock"
@@ -623,7 +623,7 @@ frame_hash = "xxh64:0ef5c4d4a22f56fb"
 # Rambo's attract music — distinct from the loader-silence hash.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:5a8be14848c64a5a"
+hash = "xxh64:f11518d66d5c7fd4"
 
 [[entry]]
 id = "star-wars-tape-speedlock"
@@ -707,7 +707,7 @@ frame_hash = "xxh64:d8aa60da2e219816"
 # Title-screen music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:16fade228f99483a"
+hash = "xxh64:1622562c6fda9f07"
 
 [[entry]]
 id = "salamander-tape-speedlock"
@@ -735,7 +735,7 @@ frame_hash = "xxh64:9cb9095b67e71bc4"
 # Salamander's title music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:db11dee68c7d1315"
+hash = "xxh64:e178459a21b5ae8d"
 
 [[entry]]
 id = "bubble-bobble-tape-speedlock"
@@ -1044,14 +1044,14 @@ path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 # Captures the "CHASE H Q / © 1989 OCEAN SOFTWARE / © 1988 TAITO" title
 # screen with the SCORE/TIME/SPEED HUD and police lights.
 wait_frames = 60
-frame_hash = "xxh64:b1e9d5b8c017e5a7"
+frame_hash = "xxh64:eb5e677a661954ec"
 
 [entry.audio]
 # Captures the AY title-screen music — the reason 128K Chase H.Q. exists
 # as a distinct release from the 48K version.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c72266bc84d56bc3"
+hash = "xxh64:f02e92f69b8b5094"
 
 [[entry]]
 id = "robocop"
@@ -1205,7 +1205,7 @@ frame_hash = "xxh64:da054f4e390841f7"
 # in the set whose music driver is fully running by 3.2 s post-load.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:00085454f6d27070"
+hash = "xxh64:fb9918f192b4782d"
 
 [[entry]]
 id = "total-eclipse"
@@ -1304,12 +1304,12 @@ path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:b1e9d5b8c017e5a7"
+frame_hash = "xxh64:eb5e677a661954ec"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c72266bc84d56bc3"
+hash = "xxh64:f02e92f69b8b5094"
 
 [[entry]]
 id = "robocop-plus2"
@@ -1435,7 +1435,7 @@ frame_hash = "xxh64:da054f4e390841f7"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:00085454f6d27070"
+hash = "xxh64:fb9918f192b4782d"
 
 [[entry]]
 id = "total-eclipse-plus2"
@@ -1652,7 +1652,7 @@ frame_hash = "xxh64:da054f4e390841f7"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:314f8b9ba6058427"
+hash = "xxh64:dcda966624d1279a"
 
 [[entry]]
 id = "total-eclipse-plus2a"
@@ -1869,7 +1869,7 @@ frame_hash = "xxh64:da054f4e390841f7"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:314f8b9ba6058427"
+hash = "xxh64:dcda966624d1279a"
 
 [[entry]]
 id = "total-eclipse-plus2b"
@@ -1991,7 +1991,7 @@ frame_hash = "xxh64:5cf0885094444d92"
 # reach its post-load audio state.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:67ca80a86daeb33f"
+hash = "xxh64:2996ccb687a4f072"
 
 [[entry]]
 id = "rainbow-islands-plus3"
@@ -2043,12 +2043,12 @@ path = "sinclair/spectrum/Games/[DSK]/Cybernoid - The Fighting Machine (1988)(He
 # ("1 START GAME / 2 DEFINE KEYS / 3 INTERFACE 2 / 4 KEMPSTON /
 # S SOUND ON/OFF").
 wait_frames = 6000
-frame_hash = "xxh64:4370bc59143599df"
+frame_hash = "xxh64:0f3251939abcd09e"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:cc4e10271d4a2971"
 
 [[entry]]
 id = "cybernoid-2-plus3"
@@ -2168,12 +2168,12 @@ path = "sinclair/spectrum/Games/[DSK]/Stormlord (1989)(Hewson Consultants)(+3).z
 # (which doesn't replicate that delay) hashes a slightly earlier
 # frame of the title-screen animation.
 wait_frames = 6000
-frame_hash = "xxh64:24509c24436aac0b"
+frame_hash = "xxh64:a4dbba774ffe2b68"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:2a2e1d6366c07fb4"
 
 [[entry]]
 id = "starglider-2-plus3"
@@ -2204,7 +2204,7 @@ frame_hash = "xxh64:d84aac252ecd9efd"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:149b05ecc9e9b482"
 
 [[entry]]
 id = "lotus-esprit-plus3"
@@ -2236,7 +2236,7 @@ frame_hash = "xxh64:0638e06299ac3f67"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:ba288ee0d06e1c01"
 
 [[entry]]
 id = "combat-school-plus3"
@@ -2331,7 +2331,7 @@ frame_hash = "xxh64:14ad0950cf6ac3b0"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:fde09415b49a834b"
 
 # ─── Speedlock-6 cluster ────────────────────────────────────────
 # Four titles that share Ocean's Speedlock-6 protection: a weak-
@@ -2388,12 +2388,12 @@ path = "sinclair/spectrum/Games/[DSK]/RoboCop (1988)(Ocean)(+3).zip"
 # 3 KEMPSTON / 4 DEFINE KEYS" with the RoboCop title banner
 # partially painted above it. Post-load attract state.
 wait_frames = 6000
-frame_hash = "xxh64:5d1790db06e24156"
+frame_hash = "xxh64:3f225520cedc41e9"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:bb2b7e8b506b0c76"
 
 [[entry]]
 id = "where-time-stood-still-plus3"
@@ -2422,7 +2422,7 @@ frame_hash = "xxh64:da054f4e390841f7"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:d6703d22b541a0ca"
+hash = "xxh64:c13cea8a1ed3cfbc"
 
 [[entry]]
 id = "dragon-ninja-plus3"
@@ -2446,12 +2446,12 @@ path = "sinclair/spectrum/Games/[DSK]/Bad Dudes vs. Dragon Ninja (1988)(Imagine)
 # PAUL OWENS" credit. The dragon-decorated frame border is the
 # tell — Imagine's standard title-screen styling.
 wait_frames = 6000
-frame_hash = "xxh64:aae1316bd564e93c"
+frame_hash = "xxh64:c7868af02ed0f03b"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:58ee202f279db118"
 
 # ─── 16K entries ────────────────────────────────────────────────
 # 1982-83 titles small enough to fit in 16K of RAM. All use the same
