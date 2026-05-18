@@ -147,7 +147,7 @@ gilrs = "0.11"
 muda = { version = "0.19", default-features = false }
 pollster = "0.4"
 png = "0.18"
-rfd = "0.15"
+rfd = "0.17"
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 serde = { version = "1", features = ["derive"] }
 serde-big-array = "0.5"
