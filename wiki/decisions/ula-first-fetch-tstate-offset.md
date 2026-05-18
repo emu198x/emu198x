@@ -83,13 +83,63 @@ Applied four-thing change: `fetch_start: 4`, `fetch_end: 260`, `screen_start: 8`
 
 **Why the rendering broke.** The latch-to-register transfer happens at `p & 0x07 == 4` (pixels 4, 12, 20, …), which under the OLD timing was 4 pixels BEFORE the next fetch at phase 8. Under the SHIFTED timing the transfer at pixel 4 happens AT THE SAME TIME as the new fetch at phase 4, so `data_reg` gets last cycle's bitmap byte instead of the byte intended for this cycle — pipeline depth jumps from 4 pixels to a full 16-pixel cycle. The result is screen content shifted right by one cell.
 
-**What the proper fix needs.** Co-ordinated shift of all four pipeline timing points:
+**What the proper fix needs — initial spec (insufficient, see deeper finding below).** Co-ordinated shift of all four pipeline timing points:
 1. `fetch_start: 4` and `fetch_end: 260` ✓
 2. `IDLE_TABLE` and `MEM_TABLE` shifted as above ✓
 3. **Also shift the latch-to-register transfer point** from `p & 0x07 == 4` to `p & 0x07 == 0`, so the previous fetch's latched byte is in `data_reg` 4 pixels before the new fetch overwrites the latch.
 4. **Verify `screen_start: 12` stays correct** — it might need adjustment too depending on where the rendered pixels actually start.
 
 Plus: the 128K config will need its own coordinated shift if we want it to match FUSE's 14364 (currently we're at 14368, +4).
+
+### Deeper finding — the single-latch model can't support FUSE's fetch pattern
+
+Walking through the per-pixel timing once more after the experiment, the four-point spec above turns out to be insufficient: the rendering model itself doesn't fit FUSE-style fetches with a single bitmap latch. The detail:
+
+In `tick_rendering()` the latch transfer is one trigger (`if (p & 0x07) == 4`), which fires twice per 16-pixel cycle — at pixel 4 and pixel 12 of each cycle. With OLD timing this works because:
+
+- **OLD fetches** at pixels 8 and 12 within cycle (4 pixels apart, but with the second fetch happening AT the second transfer point).
+- Pixel 4 transfer copies the latch (which holds the previous cycle's pixel-12 byte), giving `data_reg = previous cycle's byte 1`.
+- Pixel 8 fetch writes `latch = byte 0 of this cycle`.
+- Pixel 12 transfer copies `latch` (now byte 0) into `data_reg`. **The transfer fires BEFORE the fetch at the same pixel** (code order), so the new byte enters `data_reg` cleanly before the pixel-12 fetch overwrites the latch with byte 1.
+- Pixel 12 fetch then writes `latch = byte 1 of this cycle`.
+- Pixel 20 transfer (= pixel 4 of next cycle) copies `latch` (byte 1) into `data_reg`.
+
+Net: each byte spends ~4 pixels in the latch before being transferred to `data_reg` and rendered for 8 pixels. Uniform 4-pixel pipeline, symmetric pipeline for both bytes per cycle. This is why the OLD model works.
+
+For **NEW (FUSE-aligned) timing**, fetches are at pixels 4 and 8 within cycle. The two fetches are *still* 4 pixels apart, but they happen in the *first* half of the cycle instead of straddling the middle. The single-transfer-trigger pattern can't service both:
+
+- A transfer trigger between the fetches (at pixel 5–7) would have to be a *third* trigger point — currently we have two (pixels 4 and 12 within cycle, both matching `p & 0x07 == 4`).
+- The pixel-12 transfer in OLD timing was the "natural" point because it was both *after* fetch 0 and *before* fetch 1, with code-order preserving the byte. In NEW timing both fetches happen *before* pixel 12, so pixel 12 transfer captures only the second fetch — byte 1 ends up in `data_reg` where byte 0 should be.
+- Adding a transfer at pixel 8 (just before that fetch) helps capture byte 0 — but then byte 1 (fetched at pixel 8) needs a transfer point between pixel 8 and the start of its render at pixel 20. Pixel 12 transfer fits, but it captures byte 1 from latch — which means byte 1 sits in `data_reg` from pixel 12 onward, overwriting byte 0 before byte 0 finishes rendering.
+
+The fundamental issue: with FUSE-style timing, the gap between fetches (pixel 4 → 8 = 4 pixels) is *shorter than* the byte-render duration (8 pixels). A single `data_latch` holding "the byte currently being shifted" can't represent two bytes in flight at once.
+
+### What a proper fix actually requires
+
+One of:
+
+1. **Two-deep latch.** Add `data_latch_pending` alongside `data_latch` and `data_reg`. Fetch into `data_latch_pending`. Promote `data_latch_pending → data_latch` at one trigger, then `data_latch → data_reg` at another. Two transfer triggers, one for each "pipeline stage shift". Mirror for `attr_latch_pending`. This preserves the existing rendering loop but pushes the pipeline one stage deeper.
+2. **Per-fetch FIFO.** Replace the single bitmap latch with a small ring buffer that captures every bitmap fetch in order; the rendering loop pops a byte every 8 pixels at `screen_start + N*8` boundaries. Decouples fetch timing from render timing entirely. More invasive but more flexible — also handles 128K's different timing without further structural changes.
+3. **Cycle-restructure with eager render.** Skip the latch entirely: render directly from a per-pixel fetched-byte buffer. Even bigger refactor; probably overkill.
+
+Option 1 is the smallest change and most likely correct — it matches what real silicon almost certainly does (the ULA's shifter is fed from a register that's loaded from the fetch latch, two pipeline stages). The Verilog at https://opencores.org/projects/zx_ula (Chris Smith's HDL translation) should confirm.
+
+### 128K is a separate co-ordinated change
+
+The 128K config (`CONFIG_128K`) currently has `fetch_start: 8` too, and its first-fetch lands at T=14368 vs FUSE's 14364. The same -4 pixel shift applies. Tables are shared with 48K so they'd move together; only the 128K `UlaConfig` constants need their own update. **Do not change 128K until 48K is fixed and validated** — easier to debug one variant at a time.
+
+### Pre-flight checklist before the next attempt
+
+Before writing the fix:
+
+1. Read `https://opencores.org/projects/zx_ula` to confirm whether real silicon has a 2-stage shift register feeding the rendering, and what the transfer triggers look like at the HDL level.
+2. Decide between Option 1 (two-deep latch) and Option 2 (FIFO).
+3. Write a small `cargo test` that exercises just the engine's fetch+transfer+render with a known memory pattern, asserting which byte appears at each framebuffer pixel — gives a fast-iteration check independent of Float48K. The existing `image_generation_test` in SpecIde's `ULATest.cc` shows roughly what this should look like.
+4. Apply the structural change to the engine.
+5. Update `CONFIG_48K` constants and the `IDLE_TABLE`/`MEM_TABLE` shifts in one commit.
+6. Run Float48K with `EMU198X_FLOAT48K_STRICT=1` — must print 14338.
+7. Run the existing 48K test suite + boot test — no regressions.
+8. Once 48K is green, repeat constants update for 128K, validate against `Float128k.tap` (expected 14364).
 
 This is bigger than a one-character experiment; it touches the rendering pipeline timing in several coupled places and needs a design pass before another attempt.
 
