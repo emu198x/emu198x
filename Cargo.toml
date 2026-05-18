@@ -145,7 +145,7 @@ gilrs = "0.11"
 # backend if muda upstream ships one. See
 # `wiki/decisions/native-menu-shell.md`.
 muda = { version = "0.19", default-features = false }
-pollster = "0.3"
+pollster = "0.4"
 png = "0.17"
 rfd = "0.15"
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }
@@ -154,7 +154,7 @@ serde-big-array = "0.5"
 serde_json = "1"
 thiserror = "2"
 toml = "0.8"
-twox-hash = { version = "1.6", default-features = false, features = ["std"] }
+twox-hash = { version = "2.1", default-features = false, features = ["std", "xxhash64"] }
 wgpu = "0.19"
 winit = "0.30"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
