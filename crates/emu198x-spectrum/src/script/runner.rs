@@ -14,16 +14,18 @@
 use std::path::{Path, PathBuf};
 
 use common_sinclair_zx_spectrum::snapshot::SnapshotModel;
-use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K};
+use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K, TIMING_PLUS2A};
 use emu198x_shell::{
-    ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, MediaImage,
-    MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, ScriptError,
-    ScriptObservation, ScriptStep, read_firmware_asset, read_media_asset,
+    ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, MachineCore,
+    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    ScriptError, ScriptObservation, ScriptStep, SessionQueryProvider, read_firmware_asset,
+    read_media_asset,
 };
 use format_sinclair_zx_spectrum_bas::tokenise;
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime,
-    Spectrum128kRuntime, SpectrumMachine, SpectrumSessionQueryProvider, autoload_basic_tape,
+    Spectrum128kRuntime, SpectrumMachine, SpectrumPlus2ARuntime, SpectrumPlus2Runtime,
+    SpectrumPlus3Runtime, SpectrumRuntime, SpectrumSessionQueryProvider, autoload_basic_tape,
     load_basic_program,
 };
 use serde::Serialize;
@@ -80,15 +82,64 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
     };
 
     // Decide which runtime to boot. If the script's first
-    // portable-snapshot LoadSnapshot points at a 128K-family snapshot,
-    // we have to start the session as a 128K runtime — applying a
-    // 128K snapshot to a 48K session would silently lose the upper
-    // banks and leave the CPU executing against a hybrid memory map.
+    // portable-snapshot LoadSnapshot points at a non-48K snapshot,
+    // we have to start the session as the matching variant —
+    // applying a snapshot to the wrong runtime would silently lose
+    // the upper banks (128K-family) or paging state, and leave the
+    // CPU executing against a hybrid memory map.
     let preload = detect_first_portable_snapshot(json_script.as_ref())?;
-    if let Some(preload) = preload
-        && matches!(preload.model, SnapshotModel::Spectrum128K)
-    {
-        return run_script_128k(inputs, json_script, preload);
+    if let Some(preload) = preload {
+        match preload.model {
+            SnapshotModel::Spectrum128K => {
+                return run_script_for_variant(
+                    inputs,
+                    json_script,
+                    preload,
+                    boot_eager_variant::<Spectrum128kRuntime>(MachineKind::Spectrum128K)?,
+                    TIMING_128K.halfcycles_per_frame,
+                    "128K",
+                );
+            }
+            SnapshotModel::SpectrumPlus2 => {
+                return run_script_for_variant(
+                    inputs,
+                    json_script,
+                    preload,
+                    boot_eager_variant::<SpectrumPlus2Runtime>(MachineKind::SpectrumPlus2)?,
+                    TIMING_128K.halfcycles_per_frame,
+                    "+2",
+                );
+            }
+            SnapshotModel::SpectrumPlus2A => {
+                return run_script_for_variant(
+                    inputs,
+                    json_script,
+                    preload,
+                    boot_eager_variant::<SpectrumPlus2ARuntime>(MachineKind::SpectrumPlus2A)?,
+                    TIMING_PLUS2A.halfcycles_per_frame,
+                    "+2A",
+                );
+            }
+            SnapshotModel::SpectrumPlus3 => {
+                return run_script_for_variant(
+                    inputs,
+                    json_script,
+                    preload,
+                    boot_eager_variant::<SpectrumPlus3Runtime>(MachineKind::SpectrumPlus3)?,
+                    TIMING_PLUS2A.halfcycles_per_frame,
+                    "+3",
+                );
+            }
+            SnapshotModel::Spectrum48K
+            | SnapshotModel::Pentagon128
+            | SnapshotModel::Scorpion256 => {
+                // 48K snapshots flow through the existing eager-48K
+                // path below. Pentagon / Scorpion: snapshot exists
+                // but no script-side runtime wired yet — fall through
+                // to 48K and let the (degraded) apply_snapshot run;
+                // a later commit can add their boot helpers.
+            }
+        }
     }
 
     let runtime = boot_eager_48k()?;
@@ -309,15 +360,48 @@ pub(crate) fn boot_eager_48k() -> Result<Spectrum48kRuntime, AppError> {
     Spectrum48kRuntime::from_firmware(&firmware).map_err(AppError::from)
 }
 
-/// Eager-boot a 128K runtime from the conventional ROM path
-/// (`~/.emu198x/roms/sinclair-zx-spectrum-128k/{128-0.rom,128-1.rom}`).
-/// Used when the script's first portable `LoadSnapshot` step targets a
-/// 128K-family snapshot — see `run_script_128k`.
-fn boot_eager_128k() -> Result<Spectrum128kRuntime, AppError> {
+/// Local boot trait that abstracts over the inherent `from_firmware`
+/// constructor each Spectrum runtime exposes. The runtime crate doesn't
+/// publish a public trait for this — the constructors are inherent
+/// methods — so we adapt them here with a thin local trait so
+/// `boot_eager_variant<R>` can stay generic over the chosen variant.
+trait BootFromFirmware: Sized {
+    fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError>;
+}
+
+impl BootFromFirmware for Spectrum128kRuntime {
+    fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        Spectrum128kRuntime::from_firmware(firmware)
+    }
+}
+
+impl BootFromFirmware for SpectrumPlus2Runtime {
+    fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        SpectrumPlus2Runtime::from_firmware(firmware)
+    }
+}
+
+impl BootFromFirmware for SpectrumPlus2ARuntime {
+    fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        SpectrumPlus2ARuntime::from_firmware(firmware)
+    }
+}
+
+impl BootFromFirmware for SpectrumPlus3Runtime {
+    fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        SpectrumPlus3Runtime::from_firmware(firmware)
+    }
+}
+
+/// Eager-boot a 128K-family runtime variant from the conventional ROM
+/// path (`~/.emu198x/roms/sinclair-zx-spectrum-…`). Used when the
+/// script's first portable `LoadSnapshot` step targets a 128K-family
+/// snapshot — see `run_script_for_variant`.
+fn boot_eager_variant<R: BootFromFirmware>(kind: MachineKind) -> Result<R, AppError> {
     let root = rom_root().ok_or_else(|| AppError::MissingRom {
         path: "$HOME unset; cannot locate ROM bundle".to_owned(),
     })?;
-    let bundle = variant_rom_bundle(MachineKind::Spectrum128K, &root);
+    let bundle = variant_rom_bundle(kind, &root);
     // Two-pass: read all ROM bytes first into a stable Vec<Vec<u8>>,
     // then push borrows into the FirmwareSet. Avoids the borrow-checker
     // conflict between mutating the holder and borrowing its entries.
@@ -334,7 +418,7 @@ fn boot_eager_128k() -> Result<Spectrum128kRuntime, AppError> {
     for (id, bytes) in &rom_bytes {
         firmware.push(FirmwareImage::new(id.clone(), bytes));
     }
-    Spectrum128kRuntime::from_firmware(&firmware).map_err(AppError::from)
+    R::from_firmware(&firmware).map_err(AppError::from)
 }
 
 /// One pre-loaded portable snapshot — used by `run_script` to decide
@@ -380,35 +464,45 @@ fn detect_first_portable_snapshot(
     Ok(None)
 }
 
-/// Runs the script against a 128K runtime, pre-applying the detected
-/// portable snapshot before iterating remaining steps.
+/// Runs the script against the given pre-booted variant runtime,
+/// pre-applying the detected portable snapshot before iterating
+/// remaining steps.
 ///
-/// Parallels `run_script` but with `Spectrum128kRuntime` + `TIMING_128K`
-/// in place of the 48K equivalents. The pre-applied `LoadSnapshot`
-/// step is skipped when iterating. CLI convenience flags (tape /
-/// play-tape / autoload-tape) are 48K-specific and rejected here with
-/// a clear error.
-fn run_script_128k(
+/// Generic over `M: SpectrumMachine` so any Spectrum variant whose
+/// runtime is a `SpectrumRuntime<M>` plugs in unchanged. The
+/// pre-applied `LoadSnapshot` step is skipped when iterating. CLI
+/// convenience flags (tape / play-tape / autoload-tape) are
+/// 48K-specific and rejected here with a clear error. `variant_label`
+/// is woven into error messages so the user knows which runtime was
+/// auto-selected.
+fn run_script_for_variant<M>(
     inputs: ScriptInputs,
     script: Option<HeadlessScript>,
     preload: PreloadedSnapshot,
-) -> Result<RunnerReport, AppError> {
+    runtime: SpectrumRuntime<M>,
+    frame_halfcycles: u32,
+    variant_label: &'static str,
+) -> Result<RunnerReport, AppError>
+where
+    M: SpectrumMachine,
+    SpectrumRuntime<M>: MachineCore,
+    SpectrumSessionQueryProvider: SessionQueryProvider<SpectrumRuntime<M>>,
+{
     if inputs.tape.is_some() || inputs.play_tape || inputs.autoload_tape {
         return Err(AppError::ScriptUnsupported {
             step: "tape convenience flag",
-            reason:
+            reason: format!(
                 "--tape / --play-tape / --autoload-tape are 48K-only convenience flags; \
-                 they can't combine with a 128K LoadSnapshot in the same script. Drop the \
-                 flags and add explicit MediaTransport / AutoloadTape steps if you need \
-                 tape interaction post-snapshot."
-                    .to_owned(),
+                 they can't combine with a {variant_label} LoadSnapshot in the same script. \
+                 Drop the flags and add explicit MediaTransport / AutoloadTape steps if you \
+                 need tape interaction post-snapshot."
+            ),
         });
     }
 
-    let runtime = boot_eager_128k()?;
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
-        u64::from(TIMING_128K.halfcycles_per_frame),
+        u64::from(frame_halfcycles),
         SpectrumSessionQueryProvider,
     );
 
@@ -430,7 +524,7 @@ fn run_script_128k(
                 snapshot_applied = true;
                 continue;
             }
-            // The 128K path doesn't honour the 48K-specific
+            // The non-48K path doesn't honour the 48K-specific
             // interceptions (AutoloadTape / LoadBasicProgram) — those
             // helpers are tape-loader-specific and bound to
             // `Spectrum48kRuntime`. Everything else delegates through
@@ -438,12 +532,12 @@ fn run_script_128k(
             match step {
                 ScriptStep::AutoloadTape { .. } | ScriptStep::LoadBasicProgram { .. } => {
                     return Err(AppError::ScriptUnsupported {
-                        step: "48K-only step in 128K snapshot mode",
+                        step: "48K-only step in non-48K snapshot mode",
                         reason: format!(
                             "{} is currently only implemented for the 48K runtime; \
-                             the binary picked a 128K runtime because the script's \
-                             first LoadSnapshot targets a 128K snapshot. Drop the \
-                             {} step or move it to a separate 48K script.",
+                             the binary picked a {variant_label} runtime because the \
+                             script's first LoadSnapshot targets a {variant_label} snapshot. \
+                             Drop the {} step or move it to a separate 48K script.",
                             step_name(step),
                             step_name(step),
                         ),
@@ -458,8 +552,9 @@ fn run_script_128k(
                     });
                 }
                 other => {
-                    if let Some(obs) =
-                        other.execute_collect(&mut session).map_err(map_script_error)?
+                    if let Some(obs) = other
+                        .execute_collect(&mut session)
+                        .map_err(map_script_error)?
                     {
                         observations.push(obs);
                     }
