@@ -146,7 +146,7 @@ gilrs = "0.11"
 # `wiki/decisions/native-menu-shell.md`.
 muda = { version = "0.19", default-features = false }
 pollster = "0.4"
-png = "0.17"
+png = "0.18"
 rfd = "0.15"
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 serde = { version = "1", features = ["derive"] }

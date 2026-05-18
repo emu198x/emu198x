@@ -50,6 +50,7 @@
 //! boot paths, with and without a Workbench ADF inserted. Later phases extend
 //! the matrix to ECS (A500+/A600), AGA (A1200/A4000), and HDD boot.
 
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use emu198x_shell::{
@@ -326,10 +327,18 @@ fn write_diff_mask(path: &Path, actual_rgb: &[u8], expected_rgb: &[u8], w: u32, 
 /// palette → expand). Panics on I/O or decode failure — both are
 /// unrecoverable from a test.
 fn decode_png_rgb(path: &Path) -> (Vec<u8>, u32, u32) {
+    // png 0.18 requires the underlying reader to implement BufRead, and
+    // `output_buffer_size()` now returns Option<usize> (None if the
+    // computed size overflows usize).
     let file = std::fs::File::open(path).expect("open golden");
-    let decoder = png::Decoder::new(file);
+    let decoder = png::Decoder::new(BufReader::new(file));
     let mut reader = decoder.read_info().expect("png read info");
-    let mut buf = vec![0; reader.output_buffer_size()];
+    let mut buf = vec![
+        0;
+        reader
+            .output_buffer_size()
+            .expect("png buffer size fits in usize")
+    ];
     let info = reader.next_frame(&mut buf).expect("png next frame");
     buf.truncate(info.buffer_size());
     let rgb = match info.color_type {

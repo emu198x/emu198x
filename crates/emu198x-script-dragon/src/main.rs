@@ -4177,7 +4177,10 @@ fn decode_png_rgba(bytes: &[u8]) -> Result<DecodedImage, String> {
     let mut reader = decoder
         .read_info()
         .map_err(|err| format!("failed to read PNG header: {err}"))?;
-    let mut buffer = vec![0; reader.output_buffer_size()];
+    let buffer_size = reader
+        .output_buffer_size()
+        .ok_or_else(|| "PNG output buffer size overflows usize".to_owned())?;
+    let mut buffer = vec![0; buffer_size];
     let info = reader
         .next_frame(&mut buffer)
         .map_err(|err| format!("failed to read PNG frame: {err}"))?;
@@ -8142,7 +8145,12 @@ mod tests {
             .expect("zoomed screenshot should decode");
         assert_eq!(reader.info().width, XROAR_ZOOMED_WIDTH);
         assert_eq!(reader.info().height, XROAR_ZOOMED_HEIGHT);
-        let mut output = vec![0; reader.output_buffer_size()];
+        let mut output = vec![
+            0;
+            reader
+                .output_buffer_size()
+                .expect("png buffer size fits in usize")
+        ];
         let info = reader
             .next_frame(&mut output)
             .expect("zoomed screenshot should contain one frame");

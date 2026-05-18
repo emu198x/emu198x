@@ -342,7 +342,16 @@ mod tests {
         let png = capture.png_bytes().expect("png should encode");
         let decoder = png::Decoder::new(Cursor::new(png));
         let mut reader = decoder.read_info().expect("png should decode");
-        let mut buf = vec![0; reader.output_buffer_size()];
+        // png 0.18 changed `output_buffer_size()` to return Option<usize>
+        // (None when the frame size would overflow a usize). Our test
+        // image is 2×1, so unwrapping is safe — the .expect surfaces a
+        // clear panic if a future bump changes the semantics again.
+        let mut buf = vec![
+            0;
+            reader
+                .output_buffer_size()
+                .expect("buffer size fits in usize")
+        ];
         let info = reader
             .next_frame(&mut buf)
             .expect("png frame should decode");
