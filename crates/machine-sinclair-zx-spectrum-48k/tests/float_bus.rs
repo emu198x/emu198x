@@ -51,6 +51,13 @@ const BOOT_FRAMES: usize = 200;
 const MAX_RUN_FRAMES: usize = 6000;
 
 const RST10_ADDR: u16 = 0x0010;
+
+/// PR-ALL in the Spectrum 48K ROM at `$09F4`. Every printable character
+/// routes through here regardless of how the caller got there — the RST 16
+/// entry at `$0010` itself does `AND A; CALL $09F4`. Hooking PR-ALL catches
+/// both direct `CALL $09F4` callers (BASIC's number formatter, some internal
+/// routines) and RST 16 callers (user code, `PRINT CHR$()`, etc.).
+const PR_ALL_ADDR: u16 = 0x09F4;
 const SCR_CT_ADDR: u16 = 0x5C8C;
 
 /// Sub-frame step granularity for the RST 16 capture loop, matching `z80test.rs`.
@@ -152,11 +159,29 @@ fn run_full(
     key_actions.sort_by_key(|a| a.at_frame);
 
     let mut transcript = String::new();
-    let mut prev_at_rst10 = machine.z80().regs.pc == RST10_ADDR;
+    let initial_pc = machine.z80().regs.pc;
+    let mut prev_at_rst10 = initial_pc == RST10_ADDR;
+    let mut prev_at_pr_all = initial_pc == PR_ALL_ADDR;
     let steps_per_frame = (TIMING_48K.tstates_per_frame / STEP_TSTATES) as usize;
     let mut tape_started = false;
     let mut action_idx = 0usize;
     let mut frames_run = 0usize;
+    let mut rst10_hits = 0u64;
+    let mut pr_all_hits = 0u64;
+
+    // Capture mode is selectable for debugging the BASIC number-print path.
+    // - RST 16 (default, `$0010`): clean text — every printable char passes
+    //   through but BASIC's `PRINT-FP` number formatter bypasses this entry
+    //   so iteration digits are missed.
+    // - PR-ALL (`$09F4`): catches the bypassed digits but also captures the
+    //   control-byte arguments of AT / INK / PAPER sequences as if they were
+    //   character data, so output is garbled.
+    // Neither is yet the right answer; the proper fix is to track the ROM
+    // editor's "expecting control argument" state machine and skip those
+    // bytes. Set EMU198X_FLOAT48K_CAPTURE=pr_all to see the raw stream.
+    let use_pr_all = std::env::var("EMU198X_FLOAT48K_CAPTURE")
+        .map(|v| v == "pr_all")
+        .unwrap_or(false);
 
     while frames_run < total_frames {
         while action_idx < key_actions.len() && key_actions[action_idx].at_frame == frames_run {
@@ -172,8 +197,17 @@ fn run_full(
         for _ in 0..steps_per_frame {
             machine.advance_tstates(STEP_TSTATES);
             let z80 = machine.z80();
-            let at_rst10 = z80.regs.pc == RST10_ADDR;
-            if at_rst10 && !prev_at_rst10 {
+            let pc = z80.regs.pc;
+            let at_rst10 = pc == RST10_ADDR;
+            let at_pr_all = pc == PR_ALL_ADDR;
+
+            let capture = if use_pr_all {
+                at_pr_all && !prev_at_pr_all
+            } else {
+                at_rst10 && !prev_at_rst10
+            };
+
+            if capture {
                 let ch = z80.regs.a();
                 match ch {
                     0x0D => {
@@ -186,15 +220,32 @@ fn run_full(
                     }
                     _ => {}
                 }
-                machine.write(SCR_CT_ADDR, 0xFF);
+                if std::env::var("EMU198X_FLOAT48K_SUPPRESS_SCROLL").is_ok() {
+                    machine.write(SCR_CT_ADDR, 0xFF);
+                }
+            }
+
+            if at_rst10 && !prev_at_rst10 {
+                rst10_hits += 1;
+            }
+            if at_pr_all && !prev_at_pr_all {
+                pr_all_hits += 1;
             }
             prev_at_rst10 = at_rst10;
+            prev_at_pr_all = at_pr_all;
         }
         frames_run += 1;
         if completion_marker(&transcript) {
             break;
         }
     }
+
+    eprintln!(
+        "\n[diag] RST 16 ($0010) hits: {} | PR-ALL ($09F4) hits: {} | capture mode: {}",
+        rst10_hits,
+        pr_all_hits,
+        if use_pr_all { "pr_all" } else { "rst10" },
+    );
 
     (transcript, frames_run)
 }
