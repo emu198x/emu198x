@@ -283,3 +283,39 @@ Implementation lands in:
   `MenuId → AppCommand` map.
 
 `wiki/systems/spectrum/solid-status.md` Track 1C log entry on completion.
+
+## Log: 2026-05-18 — muda GTK backend disabled at the workspace level
+
+Dependabot raised a moderate alert (#1) on `glib 0.18.5`
+(`VariantStrIter` unsoundness, patched in 0.20.0). The vulnerable
+crate reached us transitively through `muda 0.16 → gtk 0.18 → glib
+0.18`. gtk3-rs is in maintenance mode and won't be updated to glib
+0.20, so the alert has no in-place fix on the gtk3 line.
+
+muda 0.19 made its GTK backend optional behind a feature flag
+(`default = ["libxdo", "gtk"]`, both disable-able). Because 1C's
+macOS install is the only platform whose `init_for_nsapp` is wired —
+the Linux / Windows `init_for_*` calls remain TODOs in
+`crates/emu198x-spectrum/src/ui/menu.rs:222-227` — we can disable
+muda's `gtk` feature with no functional cost today. The workspace dep
+now reads:
+
+```toml
+muda = { version = "0.19", default-features = false }
+```
+
+Effects:
+- Drops glib / gtk3 / cairo-rs / atk / gdk / gio / pango / libxdo and
+  ~60 other transitive crates from `Cargo.lock` (audit surface ↓).
+- Closes Dependabot alert #1.
+- Unblocks `toml` / `toml_datetime` / `toml_edit` updates that the
+  glib subtree's `proc-macro-crate 2.0.2` pin was holding back.
+- Removes the `libgtk-3-dev` and `libxdo-dev` Linux CI installs.
+- Windows menus are unaffected — muda uses `windows-sys` there, not
+  GTK; still gated on track-1c's `init_for_hwnd` wiring.
+
+Re-enable the feature (or switch to a hypothetical muda gtk4
+backend) when we actually wire Linux native menus. Per the "Out of
+scope for 1C" note above, the alternative is a per-platform
+frontend, in which case the muda Linux backend may never need
+re-enabling at all.

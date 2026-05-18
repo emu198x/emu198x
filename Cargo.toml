@@ -134,7 +134,17 @@ license = "GPL-2.0-or-later"
 bytemuck = { version = "1.23", features = ["derive"] }
 cpal = "0.15"
 gilrs = "0.11"
-muda = "0.16"
+# muda 0.19 gates its Linux GTK backend behind the `gtk` feature
+# (default-on upstream). We disable it because we don't yet wire native
+# menus on Linux (the `init_for_gtk_window` path is the `track-1c` TODO
+# in `crates/emu198x-spectrum/src/ui/menu.rs`), and dropping the
+# feature removes the entire gtk3-rs subtree — closing Dependabot
+# alert #1 (glib 0.18.x unsoundness in `VariantStrIter`) and the
+# libxdo-dev CI install. When Linux menus actually land, re-enable
+# the feature (and reopen the alert decision) or switch to a gtk4
+# backend if muda upstream ships one. See
+# `wiki/decisions/native-menu-shell.md`.
+muda = { version = "0.19", default-features = false }
 pollster = "0.3"
 png = "0.17"
 rfd = "0.15"
