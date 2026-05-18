@@ -44,17 +44,56 @@ For us, the active fetch window starts 4 T-states later (14340 instead of 14336)
 
 Need to read the probe's ML to know exactly what byte it's matching against, before being certain whether a single `fetch_start` adjustment is sufficient.
 
-## Fix candidates
+## Fix design (cross-referenced against FUSE, 2026-05-18)
 
-In rough order of likelihood:
+FUSE's `fuse/spectrum.c` (function `spectrum_unattached_port`) has the canonical 8-T-state phase table:
 
-1. **`fetch_start: 4`** instead of `8`. Earliest fix. Aligns first VRAM read with T=14336 exactly. The 4-pixel pipeline delay between fetch and render (currently `screen_start - fetch_start = 12 - 8 = 4`) would have to be preserved — would also need `screen_start: 8`. Need to verify this doesn't shift the rendered display 4 pixels to the left vs the border.
-2. **`fetch_start: 0`** with no prefetch. Treats fetch and render as simultaneous. The `screen_start: 12` comment claims a pipeline delay exists; need silicon-level confirmation either way.
-3. **`int_scan: 248` is wrong**. If INT actually asserts at scan 247 (or pixel 113 of scan 247), the "T=0 from INT" baseline shifts and the 14336 figure aligns naturally. Less likely — community sources agree INT is at the start of VSYNC at scan 248-equivalent.
-4. **`int_start_pixel: 1` is wrong**. If INT asserts at pixel 0 (not 1), the T=0 baseline shifts by half a T-state. Less likely — would only fix a half-T-state discrepancy, not a 4-T-state one.
-5. **The bug is elsewhere entirely**. Possibilities: `compute_data_addr` returns wrong row; the IDLE_TABLE phase boundary doesn't match silicon (we have idle[0..7] / active[8..15] — should it be idle[0..3] / active[4..15]?); the floating bus latches the byte at a different sub-phase than we model.
+```c
+switch( tstates_through_line % 8 ) {
+    case 2: case 4: return [screen byte];   // bitmap fetches
+    case 3: case 5: return [attr byte];     // attribute fetches
+    case 0: case 1: case 6: case 7: return 0xff;  // idle
+}
+```
 
-## What Chapter 18 should answer
+And the comment: *"the first byte being returned at 14338 (48K) and 14364 (128K)"*. That's the authoritative number — first byte on bus at T=14338, not T=14336 as I'd initially assumed for "first fetch". The 14336 figure is for the first VRAM access; the byte appears on the floating bus 2 T-states later.
+
+Each FUSE T-state = 2 of our pixel-clocks. The phase mapping should therefore be:
+
+| FUSE phase | Our pixels | Action | Current IDLE / MEM | Target IDLE / MEM |
+|---:|---:|---|---|---|
+| 0 | 0–1 | idle | true / true | true / true |
+| 1 | 2–3 | idle | true / true | true / true |
+| 2 | 4–5 | bitmap fetch | true / true | **false / read** |
+| 3 | 6–7 | attr fetch | true / true | **false / read** |
+| 4 | 8–9 | bitmap fetch | false / read | false / read |
+| 5 | 10–11 | attr fetch | false / read | false / read |
+| 6 | 12–13 | idle | false / hold | **true / hold** |
+| 7 | 14–15 | idle | false / hold | **true / hold** |
+
+So both `IDLE_TABLE` and `MEM_TABLE` need to shift left by 4 entries (= -2 T-states = -4 pixel-clocks). And `fetch_start` needs to move from `8` to `4` so the first scan-0 cycle hits the new active window.
+
+## Empirical experiment 2026-05-18 — failed but informative
+
+Applied four-thing change: `fetch_start: 4`, `fetch_end: 260`, `screen_start: 8`, and the shifted tables above. Result on Float48K:
+
+- PR-ALL print count jumped from ~1013 → ~1495 (test is hitting more values).
+- Framebuffer rendering broke: numbers appear as `4477  2255` instead of `14477  255` — leading character pushed off the left edge, doubled "2" suggests data_reg lagging by one full cycle.
+- Reverting just `screen_start` to `12` did not fix the rendering — confirming the rendering breakage came from the table shift, not the screen-start shift.
+
+**Why the rendering broke.** The latch-to-register transfer happens at `p & 0x07 == 4` (pixels 4, 12, 20, …), which under the OLD timing was 4 pixels BEFORE the next fetch at phase 8. Under the SHIFTED timing the transfer at pixel 4 happens AT THE SAME TIME as the new fetch at phase 4, so `data_reg` gets last cycle's bitmap byte instead of the byte intended for this cycle — pipeline depth jumps from 4 pixels to a full 16-pixel cycle. The result is screen content shifted right by one cell.
+
+**What the proper fix needs.** Co-ordinated shift of all four pipeline timing points:
+1. `fetch_start: 4` and `fetch_end: 260` ✓
+2. `IDLE_TABLE` and `MEM_TABLE` shifted as above ✓
+3. **Also shift the latch-to-register transfer point** from `p & 0x07 == 4` to `p & 0x07 == 0`, so the previous fetch's latched byte is in `data_reg` 4 pixels before the new fetch overwrites the latch.
+4. **Verify `screen_start: 12` stays correct** — it might need adjustment too depending on where the rendered pixels actually start.
+
+Plus: the 128K config will need its own coordinated shift if we want it to match FUSE's 14364 (currently we're at 14368, +4).
+
+This is bigger than a one-character experiment; it touches the rendering pipeline timing in several coupled places and needs a design pass before another attempt.
+
+## What Chapter 18 should answer (still useful)
 
 If you're transcribing Chapter 18 § "CPU Clock and Contention", the bits that resolve this:
 
