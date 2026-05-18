@@ -13,7 +13,8 @@
 
 use std::path::{Path, PathBuf};
 
-use common_sinclair_zx_spectrum::timing::TIMING_48K;
+use common_sinclair_zx_spectrum::snapshot::SnapshotModel;
+use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K};
 use emu198x_shell::{
     ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, MediaImage,
     MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, ScriptError,
@@ -22,7 +23,8 @@ use emu198x_shell::{
 use format_sinclair_zx_spectrum_bas::tokenise;
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime,
-    SpectrumMachine, SpectrumSessionQueryProvider, autoload_basic_tape, load_basic_program,
+    Spectrum128kRuntime, SpectrumMachine, SpectrumSessionQueryProvider, autoload_basic_tape,
+    load_basic_program,
 };
 use serde::Serialize;
 
@@ -57,18 +59,16 @@ pub struct RunnerReport {
     pub tape_playing: bool,
 }
 
-/// Runs the script. Eager 48K boot, then iterates convenience-flag
-/// steps (synthesised from the CLI) followed by JSON-file steps.
-/// Returns the final report.
+/// Runs the script. Pre-scans the script for the first portable
+/// `LoadSnapshot` step; if it targets a 128K-family snapshot, boots
+/// a 128K runtime instead of the default 48K and pre-applies the
+/// snapshot. Otherwise eager-boots 48K and iterates as usual.
+///
+/// The pre-scan is what makes diagnostic flows like "drop a SkoolKit
+/// `tap2sna.py` snapshot into our emulator and run it" work — the
+/// `HeadlessSession` type is monomorphised per runtime, so we have to
+/// pick the right concrete type before constructing the session.
 pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
-    let runtime = boot_eager_48k()?;
-    let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        u64::from(TIMING_48K.halfcycles_per_frame),
-        SpectrumSessionQueryProvider,
-    );
-
-    let synthetic = synthetic_steps_from_cli(&inputs);
     let json_script = match &inputs.script {
         Some(path) => Some(HeadlessScript::from_path(path).map_err(|err| {
             AppError::Io(std::io::Error::other(format!(
@@ -78,6 +78,27 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
         })?),
         None => None,
     };
+
+    // Decide which runtime to boot. If the script's first
+    // portable-snapshot LoadSnapshot points at a 128K-family snapshot,
+    // we have to start the session as a 128K runtime — applying a
+    // 128K snapshot to a 48K session would silently lose the upper
+    // banks and leave the CPU executing against a hybrid memory map.
+    let preload = detect_first_portable_snapshot(json_script.as_ref())?;
+    if let Some(preload) = preload
+        && matches!(preload.model, SnapshotModel::Spectrum128K)
+    {
+        return run_script_128k(inputs, json_script, preload);
+    }
+
+    let runtime = boot_eager_48k()?;
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_48K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    let synthetic = synthetic_steps_from_cli(&inputs);
 
     let mut observations = Vec::new();
 
@@ -286,6 +307,182 @@ pub(crate) fn boot_eager_48k() -> Result<Spectrum48kRuntime, AppError> {
     let mut firmware = FirmwareSet::new();
     firmware.push(FirmwareImage::new(id, &rom));
     Spectrum48kRuntime::from_firmware(&firmware).map_err(AppError::from)
+}
+
+/// Eager-boot a 128K runtime from the conventional ROM path
+/// (`~/.emu198x/roms/sinclair-zx-spectrum-128k/{128-0.rom,128-1.rom}`).
+/// Used when the script's first portable `LoadSnapshot` step targets a
+/// 128K-family snapshot — see `run_script_128k`.
+fn boot_eager_128k() -> Result<Spectrum128kRuntime, AppError> {
+    let root = rom_root().ok_or_else(|| AppError::MissingRom {
+        path: "$HOME unset; cannot locate ROM bundle".to_owned(),
+    })?;
+    let bundle = variant_rom_bundle(MachineKind::Spectrum128K, &root);
+    // Two-pass: read all ROM bytes first into a stable Vec<Vec<u8>>,
+    // then push borrows into the FirmwareSet. Avoids the borrow-checker
+    // conflict between mutating the holder and borrowing its entries.
+    let mut rom_bytes: Vec<(String, Vec<u8>)> = Vec::new();
+    for (id, path) in bundle {
+        if !path.is_file() {
+            return Err(AppError::MissingRom {
+                path: path.display().to_string(),
+            });
+        }
+        rom_bytes.push((id.to_string(), read_firmware_asset(&path)?.bytes.to_vec()));
+    }
+    let mut firmware = FirmwareSet::new();
+    for (id, bytes) in &rom_bytes {
+        firmware.push(FirmwareImage::new(id.clone(), bytes));
+    }
+    Spectrum128kRuntime::from_firmware(&firmware).map_err(AppError::from)
+}
+
+/// One pre-loaded portable snapshot — used by `run_script` to decide
+/// which runtime to boot before constructing the `HeadlessSession`.
+struct PreloadedSnapshot {
+    snapshot: common_sinclair_zx_spectrum::snapshot::Snapshot,
+    model: SnapshotModel,
+}
+
+/// Scans the script for the first portable `LoadSnapshot` step and
+/// parses the referenced file. Returns `None` if the script has no
+/// portable LoadSnapshot (or no script at all). Errors only on I/O
+/// or parse failures.
+fn detect_first_portable_snapshot(
+    script: Option<&HeadlessScript>,
+) -> Result<Option<PreloadedSnapshot>, AppError> {
+    let Some(script) = script else {
+        return Ok(None);
+    };
+    for step in &script.steps {
+        if let ScriptStep::LoadSnapshot { path } = step
+            && is_portable_snapshot_path(path)
+        {
+            let loaded = read_media_asset(path, MediaKind::Snapshot)?;
+            let inner_name = loaded
+                .archive_member
+                .as_deref()
+                .unwrap_or_else(|| path.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+            let inner_lower = inner_name.to_ascii_lowercase();
+            let snapshot = if inner_lower.ends_with(".sna") {
+                format_sinclair_zx_spectrum_sna::parse_sna(&loaded.bytes)
+                    .map_err(|err| AppError::Io(std::io::Error::other(err)))?
+            } else if inner_lower.ends_with(".z80") {
+                format_sinclair_zx_spectrum_z80::parse_z80(&loaded.bytes)
+                    .map_err(|err| AppError::Io(std::io::Error::other(err)))?
+            } else {
+                continue;
+            };
+            let model = snapshot.model;
+            return Ok(Some(PreloadedSnapshot { snapshot, model }));
+        }
+    }
+    Ok(None)
+}
+
+/// Runs the script against a 128K runtime, pre-applying the detected
+/// portable snapshot before iterating remaining steps.
+///
+/// Parallels `run_script` but with `Spectrum128kRuntime` + `TIMING_128K`
+/// in place of the 48K equivalents. The pre-applied `LoadSnapshot`
+/// step is skipped when iterating. CLI convenience flags (tape /
+/// play-tape / autoload-tape) are 48K-specific and rejected here with
+/// a clear error.
+fn run_script_128k(
+    inputs: ScriptInputs,
+    script: Option<HeadlessScript>,
+    preload: PreloadedSnapshot,
+) -> Result<RunnerReport, AppError> {
+    if inputs.tape.is_some() || inputs.play_tape || inputs.autoload_tape {
+        return Err(AppError::ScriptUnsupported {
+            step: "tape convenience flag",
+            reason:
+                "--tape / --play-tape / --autoload-tape are 48K-only convenience flags; \
+                 they can't combine with a 128K LoadSnapshot in the same script. Drop the \
+                 flags and add explicit MediaTransport / AutoloadTape steps if you need \
+                 tape interaction post-snapshot."
+                    .to_owned(),
+        });
+    }
+
+    let runtime = boot_eager_128k()?;
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_128K.halfcycles_per_frame),
+        SpectrumSessionQueryProvider,
+    );
+
+    // Pre-apply the snapshot so subsequent steps see the loaded state.
+    SpectrumMachine::apply_snapshot(session.machine_mut().machine_mut(), &preload.snapshot);
+
+    let mut observations = Vec::new();
+    if let Some(script) = &script {
+        let mut snapshot_applied = false;
+        for step in &script.steps {
+            // Skip the LoadSnapshot we already applied. Match by
+            // step kind + path so a second LoadSnapshot later in the
+            // script still runs (a `restore_snapshot`-style postcard
+            // path) — though the typical case is a single LoadSnapshot.
+            if !snapshot_applied
+                && let ScriptStep::LoadSnapshot { path } = step
+                && is_portable_snapshot_path(path)
+            {
+                snapshot_applied = true;
+                continue;
+            }
+            // The 128K path doesn't honour the 48K-specific
+            // interceptions (AutoloadTape / LoadBasicProgram) — those
+            // helpers are tape-loader-specific and bound to
+            // `Spectrum48kRuntime`. Everything else delegates through
+            // the shell crate's generic dispatch.
+            match step {
+                ScriptStep::AutoloadTape { .. } | ScriptStep::LoadBasicProgram { .. } => {
+                    return Err(AppError::ScriptUnsupported {
+                        step: "48K-only step in 128K snapshot mode",
+                        reason: format!(
+                            "{} is currently only implemented for the 48K runtime; \
+                             the binary picked a 128K runtime because the script's \
+                             first LoadSnapshot targets a 128K snapshot. Drop the \
+                             {} step or move it to a separate 48K script.",
+                            step_name(step),
+                            step_name(step),
+                        ),
+                    });
+                }
+                ScriptStep::SetMachine { machine } => {
+                    return Err(AppError::ScriptUnsupported {
+                        step: "set_machine",
+                        reason: format!(
+                            "set_machine to '{machine}' not yet supported in script mode."
+                        ),
+                    });
+                }
+                other => {
+                    if let Some(obs) =
+                        other.execute_collect(&mut session).map_err(map_script_error)?
+                    {
+                        observations.push(obs);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(RunnerReport {
+        observations,
+        time: session.time().get(),
+        tape_loaded: session.machine().machine().tape_is_loaded(),
+        tape_playing: session.machine().machine().tape_is_playing(),
+    })
+}
+
+fn step_name(step: &ScriptStep) -> &'static str {
+    match step {
+        ScriptStep::AutoloadTape { .. } => "autoload_tape",
+        ScriptStep::LoadBasicProgram { .. } => "load_basic_program",
+        ScriptStep::SetMachine { .. } => "set_machine",
+        _ => "unknown",
+    }
 }
 
 /// Translates surviving CLI convenience flags into prepended
