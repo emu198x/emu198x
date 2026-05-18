@@ -71,6 +71,7 @@
 - [Runtime internal shape](decisions/runtime-internal-shape.md) — four per-concern modules (`runtime` / `queries` / `snapshot` / `input`) inside every `runtime-{family}` crate, with the per-variant generic axis layered on top when the family grows variants
 - [SpectrumDriver](decisions/spectrum-driver.md) — one shared run loop across the Spectrum family via a provided-method trait
 - [Spectrum test oracle priority](decisions/spectrum-test-oracle-priority.md) — Spectrum-validated oracles (Patrik Rak `z80test`, FUSE, real-hardware RZX) outrank CPU-generic oracles (Tom Harte, ZEXALL) on Z80 behaviour in a Spectrum context
+- [ULA first-fetch T-state offset (open)](decisions/ula-first-fetch-tstate-offset.md) — our `ferranti-ula-6c001e` is 4 T-states late at first display-byte fetch (14340 vs community 14336); investigation blocked on Chapter 18 of Chris Smith's book
 - [Peripheral trait](decisions/peripheral-trait.md) — static dispatch for edge-connector devices, typed fields per machine
 - [Hotkey modifier policy](decisions/hotkey-modifier-policy.md) — Alt only, never Ctrl/Shift (they're SYMBOL SHIFT / CAPS SHIFT)
 - [Archives as source](decisions/archives-as-source.md) — port from `~/Projects/Emu198x-archive*` first, lifecycle is port → evaluate → cleanup
