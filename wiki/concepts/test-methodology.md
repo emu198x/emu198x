@@ -32,11 +32,14 @@ In the fresh Rust workspace, the FUSE harness now compares the full event list a
 
 These suites do not all answer the same question, and they are not treated as interchangeable:
 
-- **Tom Harte** is the primary per-instruction oracle for CPU before/after state and instruction-level bus-visible behaviour.
+- **Tom Harte** is the per-instruction oracle for CPU before/after state and instruction-level bus-visible behaviour.
 - **ZEXDOC / ZEXALL** are program-level regression suites for the Z80 core running real software in a simple host environment.
-- **FUSE** is a strong secondary reference for Spectrum-visible timing, contention, I/O, and interrupt behaviour, especially where machine integration matters more than isolated opcode semantics.
+- **FUSE** is a strong reference for Spectrum-visible timing, contention, I/O, and interrupt behaviour, especially where machine integration matters more than isolated opcode semantics.
+- **Patrik Rak's `z80test`** (added 2026-05-18) is the modern Spectrum-native CPU exerciser, validated against a real 48K Sinclair board.
 
-If Tom Harte and FUSE disagree, do not "average" them or silently pick whichever is more convenient. Record the disagreement, identify what behaviour is actually being measured, and resolve it against additional evidence such as hardware documentation, other trusted emulators, captured traces, and whether the difference is CPU-generic or Spectrum-specific.
+If two of these disagree, do not "average" them or silently pick whichever is more convenient. Record the disagreement, identify what behaviour is actually being measured, and resolve it against additional evidence such as hardware documentation, other trusted emulators, captured traces, and whether the difference is CPU-generic or Spectrum-specific.
+
+**For Spectrum work, Spectrum-validated oracles outrank CPU-generic oracles when they disagree.** See [`decisions/spectrum-test-oracle-priority.md`](../decisions/spectrum-test-oracle-priority.md) for the full priority order and rationale — this supersedes the generic guidance above whenever the disagreement is about Z80 behaviour observable in a Spectrum context.
 
 ## System test suites
 

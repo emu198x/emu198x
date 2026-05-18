@@ -10,10 +10,35 @@
 | ZEXDOC | Pass | `cargo test --release -p zilog-z80 --test zex_tests run_zexdoc -- --ignored --nocapture` |
 | ZEXALL | Pass | `cargo test --release -p zilog-z80 --test zex_tests run_zexall -- --ignored --nocapture` |
 | FUSE | 1,350 / 1,356 exact, 6 accepted disagreements, 0 unexpected | `cargo test -p zilog-z80 run_fuse_z80_reference_suite -- --ignored --nocapture` |
+| z80test (raxoft) | 6 / 6 exercisers pass: z80doc, z80docflags, z80flags, z80full, z80ccf, z80memptr (with 2 accepted INIR/INDR MEMPTR disagreements — sibling of the FUSE table below). z80ccfscr is visual-only and not gated. | `cargo test --release -p machine-sinclair-zx-spectrum-48k --test z80test -- --ignored --test-threads=1 --nocapture` |
 
-### FUSE disagreements (6 accepted) — investigated, recorded
+### z80test — Patrik Rak's exerciser
 
-These 6 cases are documented disagreements between FUSE and the combination of Tom Harte plus the current fresh-workspace Z80 core. Tom Harte remains the primary CPU oracle. The FUSE harness now compares exact event trace, final register state, memory effects, and final T-state counts; the allowlist is limited to these named cases only.
+Added 2026-05-18. Patrik Rak's `z80test` (MIT) is the modern gold-standard Z80 exerciser; it catches MEMPTR/WZ propagation and undocumented X/Y flag behaviour that ZEXALL is silent on. Reference catalogue: [`Emu198x-Reference/_organised/by-topic/testing-suites/spectrum-test-roms.md`](../../../../Emu198x-Reference/_organised/by-topic/testing-suites/spectrum-test-roms.md).
+
+The harness lives at [`crates/machine-sinclair-zx-spectrum-48k/tests/z80test.rs`](../../crates/machine-sinclair-zx-spectrum-48k/tests/z80test.rs). For each TAP it boots the 48K ROM to READY, injects the CODE block at `$8000` (the address recorded in the TAP CODE header), jumps in with interrupts disabled, and traps PC entries at `$0010` (RST 16 = `PRINT-A-1`) to capture the test's printed transcript. The scroll-prompt counter at `$5C8C` is held high so the ROM never pauses for a key. Whole-suite runtime ≈ 175 s in release, single-threaded.
+
+Required fixtures (resolved in this order):
+
+- `$EMU198X_SPECTRUM_48K_ROM`, defaulting to `~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom`.
+- `$EMU198X_Z80TEST_DIR/<name>.tap`, defaulting first to `~/.emu198x/test-data/z80test/<name>.tap`, then to `~/Projects/Emu198x-Unclean/Zen/Other Images/<name>.tap`. The seven canonical TAPs are already locally cached in the Unclean copy.
+
+Tests silently skip (returning `ok`) when either fixture is missing, so other developers on this branch can still run `cargo test --ignored` without these files.
+
+#### z80memptr accepted disagreements (2)
+
+| Test | Instruction | Disagreement |
+|---|---|---|
+| `102 INIR->NOP'` | INIR followed by an instruction into the alternate set | MEMPTR/WZ propagation differs from Patrik Rak's expected value |
+| `103 INDR->NOP'` | INDR followed by an instruction into the alternate set | MEMPTR/WZ propagation differs from Patrik Rak's expected value |
+
+**Pattern.** These are the same block-I/O MEMPTR cases as the existing FUSE accepted disagreements (`edb2_1 INIR` and `edba_1 INDR` in the table below). Tom Harte agrees with our current behaviour; FUSE and Patrik Rak's z80memptr both disagree. Until the underlying behaviour question is resolved against silicon-level evidence, the harness asserts that exactly these two tests fail — any other shape of disagreement (or these tests starting to pass without explanation) fails the run.
+
+### FUSE disagreements (6 in allowlist) — 2 reclassified as tracked bugs, 4 still under investigation
+
+These 6 cases are documented disagreements between FUSE and the current Z80 core; Tom Harte's vectors happen to agree with our core in each case. The FUSE harness compares exact event trace, final register state, memory effects, and final T-state counts; the allowlist is limited to these named cases only.
+
+Per [`decisions/spectrum-test-oracle-priority.md`](../decisions/spectrum-test-oracle-priority.md) (2026-05-18), Spectrum-validated oracles outrank Tom Harte for Spectrum work. The two block-I/O cases below (`edb2_1 INIR`, `edba_1 INDR`) match independent failures from Patrik Rak's `z80test` (`102 INIR->NOP'`, `103 INDR->NOP'`) and are now **tracked Z80 bugs to fix**, not accepted disagreements — see the `z80memptr` table above. The other four cases (HALT PC convention, `CPDR`, `OTIR`, `OTDR`) remain under investigation: each is a single-oracle disagreement and may or may not survive a closer silicon-level look. The fix work and any allowlist removals are blocked on the research item filed in [`Emu198x-Reference/_organised/known-unknowns.md`](../../../../Emu198x-Reference/_organised/known-unknowns.md) § Zilog Z80.
 
 | FUSE test | Opcode | Instruction | Disagreement | Tom Harte agrees with us |
 |-----------|--------|-------------|--------------|--------------------------|
@@ -31,6 +56,19 @@ These 6 cases are documented disagreements between FUSE and the combination of T
 **What would actually be a regression.** If a future Z80 change causes any other FUSE case to diverge, or changes the mismatch fields for one of the six listed above, that is a real regression and the harness will fail. The allowlist is explicit in the test code so the suite does not silently absorb extra disagreements.
 
 **How to verify.** `cargo test -p zilog-z80 run_fuse_z80_reference_suite -- --ignored --nocapture` should report `1,350 / 1,356 exact, 6 accepted disagreements, 0 unexpected`.
+
+## ULA / floating-bus / contention tests
+
+Added 2026-05-18. System-level Spectrum-native tests sourced from Spectron's bundled corpus (<https://github.com/oldbit-com/Spectron>) and cached at `~/.emu198x/test-data/spectrum-system-tests/`.
+
+| Test | Status | Notes |
+|---|---|---|
+| Woody `Float48K.tap` | **Load chain passes, T-state assertion fails** — `cargo test --release -p machine-sinclair-zx-spectrum-48k --test float_bus -- --ignored` | Harness at [`crates/machine-sinclair-zx-spectrum-48k/tests/float_bus.rs`](../../crates/machine-sinclair-zx-spectrum-48k/tests/float_bus.rs). Drives the real tape pipeline: boots ROM, types `LOAD ""` via the keyboard matrix, plays the TAP at cycle-accurate speed. Always saves a PNG screenshot of the final framebuffer to `$TMPDIR/float48k.png` for visual diagnosis. **Surfaced a real bug**: the BASIC probe iterates through T-states near 14338 expecting display bytes from `IN A,($FF)`; our floating bus returns `255` (ULA-idle fallback) for the entire searched window, not the expected display byte. Tracked in [`Emu198x-Reference/_organised/known-unknowns.md`](../../../../Emu198x-Reference/_organised/known-unknowns.md) under ZX Spectrum ULA. Set `EMU198X_FLOAT48K_STRICT=1` to make the T-state assertion hard (currently it asserts only that the load chain works). |
+| Woody `Float128k.tap` | Not yet wired | Same shape as 48K, 128K-specific ULA timing. |
+| Ramsoft `floatspy.tap` | Not yet wired | Visual test — Spectron reference at `tests/Results/floatspy_48.png`. |
+| `halt2int.tap`, `halt2int128.tap` | Not yet wired | HALT-to-interrupt timing. |
+| `btime.tap`, `ptime.tap` | Not yet wired | Beeper / port I/O timing. |
+| Mark Woodmass `Super HALT Invaders Test` | Not yet wired | Game-shaped HALT/IRQ torture test. |
 
 ## System tests
 

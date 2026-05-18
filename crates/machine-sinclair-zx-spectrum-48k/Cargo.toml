@@ -13,5 +13,9 @@ ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e" }
 serde = { workspace = true }
 zilog-z80 = { path = "../zilog-z80" }
 
+[dev-dependencies]
+format-sinclair-zx-spectrum-tap = { path = "../format-sinclair-zx-spectrum-tap" }
+png = { workspace = true }
+
 [lints]
 workspace = true

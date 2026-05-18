@@ -70,6 +70,7 @@
 - [Within-family layering](decisions/within-family-layering.md) — five-piece structure (common / chip / format / machine / runtime) every family follows; copy-this-shape blueprint for adding Game Boy, SG-1000, etc.
 - [Runtime internal shape](decisions/runtime-internal-shape.md) — four per-concern modules (`runtime` / `queries` / `snapshot` / `input`) inside every `runtime-{family}` crate, with the per-variant generic axis layered on top when the family grows variants
 - [SpectrumDriver](decisions/spectrum-driver.md) — one shared run loop across the Spectrum family via a provided-method trait
+- [Spectrum test oracle priority](decisions/spectrum-test-oracle-priority.md) — Spectrum-validated oracles (Patrik Rak `z80test`, FUSE, real-hardware RZX) outrank CPU-generic oracles (Tom Harte, ZEXALL) on Z80 behaviour in a Spectrum context
 - [Peripheral trait](decisions/peripheral-trait.md) — static dispatch for edge-connector devices, typed fields per machine
 - [Hotkey modifier policy](decisions/hotkey-modifier-policy.md) — Alt only, never Ctrl/Shift (they're SYMBOL SHIFT / CAPS SHIFT)
 - [Archives as source](decisions/archives-as-source.md) — port from `~/Projects/Emu198x-archive*` first, lifecycle is port → evaluate → cleanup

@@ -1683,6 +1683,8 @@ dependencies = [
  "common-sinclair-zx-spectrum-48k-class",
  "emu198x-shell",
  "ferranti-ula-6c001e",
+ "format-sinclair-zx-spectrum-tap",
+ "png",
  "serde",
  "zilog-z80",
 ]
