@@ -132,7 +132,7 @@ license = "GPL-2.0-or-later"
 
 [workspace.dependencies]
 bytemuck = { version = "1.23", features = ["derive"] }
-cpal = "0.15"
+cpal = "0.17"
 gilrs = "0.11"
 # muda 0.19 gates its Linux GTK backend behind the `gtk` feature
 # (default-on upstream). We disable it because we don't yet wire native

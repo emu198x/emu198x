@@ -78,8 +78,11 @@ impl NativeAudioOutput {
             .default_output_config()
             .map_err(|source| NativeAudioError::DefaultOutputConfig { source })?;
         let config = supported.config();
+        // cpal 0.17 replaced `SampleRate(u32)` with `type SampleRate = u32`,
+        // so the inner `.0` access from the newtype is gone — `sample_rate`
+        // is the bare u32 now.
         let max_samples = usize::try_from(
-            (u64::from(config.sample_rate.0)
+            (u64::from(config.sample_rate)
                 * u64::from(config.channels)
                 * u64::from(max_buffer_ms))
                 / 1_000,
@@ -95,7 +98,7 @@ impl NativeAudioOutput {
         Ok(Self {
             _stream: stream,
             shared,
-            sample_rate: config.sample_rate.0,
+            sample_rate: config.sample_rate,
             channels: config.channels,
         })
     }
