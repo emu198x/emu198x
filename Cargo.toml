@@ -153,7 +153,7 @@ serde = { version = "1", features = ["derive"] }
 serde-big-array = "0.5"
 serde_json = "1"
 thiserror = "2"
-toml = "0.8"
+toml = "1.1"
 twox-hash = { version = "2.1", default-features = false, features = ["std", "xxhash64"] }
 wgpu = "0.19"
 winit = "0.30"
