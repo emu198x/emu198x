@@ -34,7 +34,9 @@ use std::path::PathBuf;
 
 use common_sinclair_zx_spectrum::timing::TIMING_128K;
 use emu198x_shell::{FirmwareImage, FirmwareSet, HeadlessSession, read_firmware_asset};
-use runtime_sinclair_zx_spectrum::{Spectrum128kRuntime, SpectrumMachine, SpectrumSessionQueryProvider};
+use runtime_sinclair_zx_spectrum::{
+    Spectrum128kRuntime, SpectrumMachine, SpectrumSessionQueryProvider,
+};
 
 fn home() -> PathBuf {
     env::var_os("HOME")
@@ -77,8 +79,7 @@ fn trace_iff_and_mixer_from_skoolkit_snapshot() {
 
     // Parse and apply the SkoolKit snapshot.
     let snap_bytes = std::fs::read(&snapshot_path).expect("read snapshot");
-    let snapshot = format_sinclair_zx_spectrum_z80::parse_z80(&snap_bytes)
-        .expect("parse snapshot");
+    let snapshot = format_sinclair_zx_spectrum_z80::parse_z80(&snap_bytes).expect("parse snapshot");
     SpectrumMachine::apply_snapshot(session.machine_mut().machine_mut(), &snapshot);
 
     // Initial state at frame 0.
@@ -102,9 +103,7 @@ fn trace_iff_and_mixer_from_skoolkit_snapshot() {
     let frames_per_chunk = 50u32;
     let total_chunks = 200u32; // 10000 frames = ~200 seconds
     for chunk in 1..=total_chunks {
-        session
-            .run_frames(frames_per_chunk)
-            .expect("run_frames");
+        session.run_frames(frames_per_chunk).expect("run_frames");
         let m = session.machine().machine();
         let iff1 = m.z80.regs.iff1;
         let pc = m.z80.regs.pc;

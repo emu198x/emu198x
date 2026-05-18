@@ -1480,7 +1480,10 @@ mod tests {
                 break;
             }
         }
-        assert!(halt_seen, "HALT flag should set during the first instruction");
+        assert!(
+            halt_seen,
+            "HALT flag should set during the first instruction"
+        );
         let initial_r = z80.regs.r;
 
         // Run 200 half-cycles with no IRQ. Halt must persist, PC must

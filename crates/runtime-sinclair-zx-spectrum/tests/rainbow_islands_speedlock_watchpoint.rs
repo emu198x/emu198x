@@ -40,9 +40,8 @@ use std::path::PathBuf;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::timing::TIMING_128K;
 use emu198x_shell::{
-    ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MediaImage,
-    MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, read_firmware_asset,
-    read_media_asset,
+    ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MediaImage, MediaKind,
+    MediaSet, MediaTransportAction, MediaTransportCommand, read_firmware_asset, read_media_asset,
 };
 use runtime_sinclair_zx_spectrum::{Spectrum128kRuntime, SpectrumSessionQueryProvider};
 
@@ -194,9 +193,7 @@ fn find_74a4_writes_in_rainbow_islands() {
     // Phase 2 — re-prepare from scratch, run fast to the start of the
     // narrow window, then single-T-state step recording every change
     // to the watched word along with the last 64 distinct PCs.
-    eprintln!(
-        "\nnarrow window starts at frame {window_start}; restarting to single-T-state step"
-    );
+    eprintln!("\nnarrow window starts at frame {window_start}; restarting to single-T-state step");
     let Some((mut session, _)) = build_session() else {
         unreachable!("first build_session() succeeded");
     };
@@ -217,10 +214,7 @@ fn find_74a4_writes_in_rainbow_islands() {
     let max_tstates = 1000u32 * TIMING_128K.tstates_per_frame;
     let mut change_count = 0u32;
     for t in 0..max_tstates {
-        session
-            .machine_mut()
-            .machine_mut()
-            .advance_tstates(1);
+        session.machine_mut().machine_mut().advance_tstates(1);
         let machine = session.machine().machine();
         let pc = machine.z80.regs.pc;
         if pc != prev_pc {
