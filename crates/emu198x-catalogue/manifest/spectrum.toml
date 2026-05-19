@@ -875,12 +875,12 @@ path = "sinclair/spectrum/Games/[TAP]/Manic Miner (1983)(Bug-Byte)[a3].zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:30284edfffd9c628"
+frame_hash = "xxh64:3849ef196db5a88f"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:4aa1053c8758f416"
+hash = "xxh64:53f2a337ab7999b6"
 
 [[entry]]
 id = "knight-lore-plus"
@@ -901,7 +901,7 @@ frame_hash = "xxh64:074e242db0720e42"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:995ce6ad30bb2985"
+hash = "xxh64:d6abacf058dfc09f"
 
 [[entry]]
 id = "jet-set-willy-plus"
@@ -917,7 +917,7 @@ path = "sinclair/spectrum/Games/[TAP]/Jet Set Willy (1984)(Software Projects).zi
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:b19f8efb6d02d8b9"
+frame_hash = "xxh64:84755482f7074dbf"
 
 [entry.audio]
 from_frame = 100
@@ -959,12 +959,12 @@ path = "sinclair/spectrum/Games/[TAP]/Skool Daze (1984)(Microsphere).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:bc2fd766878aeab9"
+frame_hash = "xxh64:38cd0180bf456390"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:817161b15857e08e"
+hash = "xxh64:a558ac08f2340aa0"
 
 [[entry]]
 id = "chuckie-egg-plus"
@@ -980,12 +980,12 @@ path = "sinclair/spectrum/Games/[TAP]/Chuckie Egg (1983)(A'n'F)[a2].zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:90f9e7b9c5e31ae5"
+frame_hash = "xxh64:3523e9cc4d817ded"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:4aed7fa2bef1d06d"
+hash = "xxh64:94719e9d906ed93e"
 
 [[entry]]
 id = "saboteur-plus"
@@ -1001,7 +1001,7 @@ path = "sinclair/spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a2].zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:6f237601c8b47779"
+frame_hash = "xxh64:0e1cacb0a7d6bea9"
 
 [entry.audio]
 from_frame = 100
@@ -1022,12 +1022,12 @@ path = "sinclair/spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:fdf7d2bc9a62a564"
+frame_hash = "xxh64:bbd9f61fd2d79daf"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:241d0000dac18585"
+hash = "xxh64:c9019616a2702bc5"
 
 [[entry]]
 id = "lords-of-midnight-plus"
@@ -1043,7 +1043,7 @@ path = "sinclair/spectrum/Games/[TAP]/Lords of Midnight, The (1984)(Beyond).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:e60423cfb70c0734"
+frame_hash = "xxh64:7c4d050a81b56d1c"
 
 [entry.audio]
 from_frame = 100
@@ -1064,7 +1064,7 @@ path = "sinclair/spectrum/Games/[TAP]/Head over Heels (1987)(Ocean)(48K-128K)[ak
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:a12b9cfffff2db1b"
+frame_hash = "xxh64:3d36372a6034bc91"
 
 [entry.audio]
 from_frame = 100
