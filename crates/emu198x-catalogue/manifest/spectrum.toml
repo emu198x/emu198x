@@ -16,7 +16,7 @@ id = "spectrum"
 # Mismatch fails loud with a re-capture instruction. See
 # knowledge/decisions/spectrum-architecture-review.md Seam 4.
 audio_routing_version = 1
-frame_routing_version = 1
+frame_routing_version = 3
 
 [[system.firmware]]
 variant = "48k"
@@ -109,7 +109,7 @@ path = "sinclair/spectrum/Games/[TAP]/Manic Miner (1983)(Bug-Byte)[a3].zip"
 # manifest via:
 #   cargo run -p emu198x-catalogue --bin catalogue -- capture --entry manic-miner
 wait_frames = 60
-frame_hash = "xxh64:30284edfffd9c628"
+frame_hash = "xxh64:3849ef196db5a88f"
 
 [entry.audio]
 # Frames after the boot waypoint to start the 2 s audio capture window.
@@ -117,7 +117,7 @@ frame_hash = "xxh64:30284edfffd9c628"
 # title screen.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:4aa1053c8758f416"
+hash = "xxh64:53f2a337ab7999b6"
 
 [[entry]]
 id = "knight-lore"
@@ -140,7 +140,7 @@ frame_hash = "xxh64:074e242db0720e42"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:995ce6ad30bb2985"
+hash = "xxh64:d6abacf058dfc09f"
 
 [[entry]]
 id = "jet-set-willy"
@@ -158,7 +158,7 @@ path = "sinclair/spectrum/Games/[TAP]/Jet Set Willy (1984)(Software Projects).zi
 # Different tape header to Manic Miner — exercises a second loader path.
 # Captures the famous "Enter Code at grid location" anti-piracy screen.
 wait_frames = 60
-frame_hash = "xxh64:b19f8efb6d02d8b9"
+frame_hash = "xxh64:84755482f7074dbf"
 
 [entry.audio]
 from_frame = 100
@@ -206,12 +206,12 @@ path = "sinclair/spectrum/Games/[TAP]/Skool Daze (1984)(Microsphere).zip"
 # Sandbox school sim with AI characters — wholly different game shape.
 # Captures the SKOOL DAZE title art (Eric being chased by a teacher).
 wait_frames = 60
-frame_hash = "xxh64:bc2fd766878aeab9"
+frame_hash = "xxh64:38cd0180bf456390"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:817161b15857e08e"
+hash = "xxh64:a558ac08f2340aa0"
 
 [[entry]]
 id = "chuckie-egg"
@@ -229,12 +229,12 @@ path = "sinclair/spectrum/Games/[TAP]/Chuckie Egg (1983)(A'n'F)[a2].zip"
 # Pre-Manic-Miner platform classic — earliest era of 48K platformers.
 # Captures the title screen with high score table sidebar.
 wait_frames = 60
-frame_hash = "xxh64:90f9e7b9c5e31ae5"
+frame_hash = "xxh64:3523e9cc4d817ded"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:4aed7fa2bef1d06d"
+hash = "xxh64:94719e9d906ed93e"
 
 [[entry]]
 id = "saboteur"
@@ -252,7 +252,7 @@ path = "sinclair/spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a2].zip"
 # Late-period 48K with stealth mechanics — Clive Townsend.
 # Captures the famous "WATCH OUT!" anti-piracy warning screen.
 wait_frames = 60
-frame_hash = "xxh64:6f237601c8b47779"
+frame_hash = "xxh64:0e1cacb0a7d6bea9"
 
 [entry.audio]
 # 2 s of silence (warning screen has no music). Same caveat as Atic Atac.
@@ -277,14 +277,14 @@ path = "sinclair/spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).
 # jungle adventure. Different shape to Knight Lore (Filmation isometric,
 # static screens). Captures the title screen.
 wait_frames = 60
-frame_hash = "xxh64:fdf7d2bc9a62a564"
+frame_hash = "xxh64:bbd9f61fd2d79daf"
 
 [entry.audio]
 # 2 s of the title-screen jingle — non-trivial audio, distinct from
 # the menu-silence hashes elsewhere.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:241d0000dac18585"
+hash = "xxh64:c9019616a2702bc5"
 
 [[entry]]
 id = "lords-of-midnight"
@@ -303,7 +303,7 @@ path = "sinclair/spectrum/Games/[TAP]/Lords of Midnight, The (1984)(Beyond).zip"
 # panoramic landscape views. Wholly different engine class to anything
 # else in the catalogue. Captures the title screen.
 wait_frames = 60
-frame_hash = "xxh64:e60423cfb70c0734"
+frame_hash = "xxh64:7c4d050a81b56d1c"
 
 [entry.audio]
 # 2 s of silence — the title screen has no music. Same hash as
@@ -329,7 +329,7 @@ path = "sinclair/spectrum/Games/[TAP]/Head over Heels (1987)(Ocean)(48K-128K)[ak
 # isometric engine, three years on. Pairs the two Filmation entries
 # at opposite ends of the engine's lifespan.
 wait_frames = 60
-frame_hash = "xxh64:a12b9cfffff2db1b"
+frame_hash = "xxh64:3d36372a6034bc91"
 
 [entry.audio]
 # 2 s of menu silence — same hash as Atic Atac / Saboteur / Lords.
@@ -837,17 +837,20 @@ slot = "tape-1"
 path = "sinclair/spectrum/Games/[TAP]/Arkanoid (1987)(Imagine).zip"
 
 [entry.boot]
-# Placeholder — captured in the Phase 1 #10 re-capture wave alongside
-# the other 101 entries against FRAME_ROUTING_VERSION = 3. The version
-# check at the top of `run_entry` blocks execution until manifest and
-# runtime versions match, so this stub does not silently pass.
+# Captured 2026-05-19 against FRAME_ROUTING_VERSION = 3 in the Phase 1
+# #10a vanilla re-capture wave. Title-screen frame at 60 frames after
+# tape load — the "ARKANOID" logo on a black-to-blue gradient with
+# the famous Vaus-and-blocks intro animation.
 wait_frames = 60
-frame_hash = "xxh64:0000000000000000"
+frame_hash = "xxh64:c9a50ee6e7a62080"
 
 [entry.audio]
+# Title-screen window — beeper-only attract music. Verifies the
+# floating-bus IN A,($FF) loop the game uses to time the music
+# against display fetches.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:0000000000000000"
+hash = "xxh64:d21bc79639a0edde"
 
 # ─── Spectrum+ entries ──────────────────────────────────────────
 # Mirrors the 48K title set on the dedicated machine-sinclair-zx-
