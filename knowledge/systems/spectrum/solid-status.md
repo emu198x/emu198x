@@ -1,6 +1,6 @@
 # Spectrum SOLID Status
 
-**As of 2026-05-15.** Live tracker, audited against the [October catalogue Spectrum SOLID criteria](../../decisions/october-catalogue.md#october-bar-definition). Update as criteria flip.
+**As of 2026-05-19.** Live tracker, audited against the [October catalogue Spectrum SOLID criteria](../../decisions/october-catalogue.md#october-bar-definition). Update as criteria flip.
 
 ## Headline
 
@@ -14,7 +14,7 @@
 
 ### 1. Catalogue — PARTIAL
 
-**Entry count met (101 of ~80 manifest entries authored; eight in-scope variants at ≥10 each), but a substantive AY mixing bug surfaced 2026-05-15 that the catalogue inadvertently locks silence into.** Schema and harness in `crates/emu198x-catalogue/`. Eight SOLID variants now at ≥10/10:
+**Entry count met (101 of ~80 manifest entries authored; eight in-scope variants at ≥10 each). The 128K-family AY mixing routing fix landed in code 2026-05-15+; catalogue re-capture pending — gated by `audio_routing_version` bumping per Seam 4 of the [architecture review](../../decisions/spectrum-architecture-review.md).** Schema and harness in `crates/emu198x-catalogue/`. Eight SOLID variants now at ≥10/10:
 
 - **48K (10/10):** Manic Miner, Knight Lore, Jet Set Willy, Atic Atac, Skool Daze, Chuckie Egg, Saboteur, Sabre Wulf, Lords of Midnight, Head over Heels.
 - **Spectrum+ (10/10):** mirrors the 48K title set against the dedicated `-plus` crate (electrically identical hardware; every hash matches its 48K counterpart byte-for-byte today).
@@ -37,7 +37,13 @@ Plus **10 +3 disk entries** authored over 2026-05-10 / -05-11 after the eight-bu
 
 **As of 2026-05-14 the catalogue runs 101 entries SNAP-PASS in 5632 s (94 min wall on M2 Max release)** — full grid is 25×48K, 16×+3, 10 each of 16K / Spectrum+ / 128K / +2 / +2A / +2B. Every cell encodes, decodes into a fresh-from-firmware runtime of the matching variant, frame-hashes match, audio-hashes match, and re-encode bytes are byte-identical. Seven distinct +3 loader code paths now covered: Speedlock 7+, Speedlock pre-7 (Combat School), Hewson custom-early, Hewson Alkatraz-late, Durell speed-up, Rainbird, Gremlin, Infogrames +3DOS. Save-state round-trip is gated by `run_spectrum_entry_with_snapshot_check` on every Spectrum entry; the harness is the live regression bench — any future drift in serde-skipped state, runtime behaviour, or autoload timing surfaces as a hash mismatch.
 
-**AY mixing bug — open (2026-05-15).** Investigating the shared "128K silence" audio hash on RoboCop / Operation Wolf / Out Run / Rainbow Islands / Bubble Bobble / Castle Master and parallel +2 / +2A / +2B entries revealed that **the AY chip's output is never mixed into the audio sink on 128K-class or Amstrad-class machines**. `common-sinclair-zx-spectrum-128k-class/src/core.rs:323-345` and `common-sinclair-zx-spectrum-amstrad-class/src/core.rs:389-410` both tick `self.ay` faithfully but only call `self.audio.set_level(tstate, self.speaker.level())` — beeper only, no AY contribution. `BeeperAudio::end_frame` writes only the beeper-derived signal to the output buffer. Verified by running RoboCop and Operation Wolf out to 120 s post-tape-stop with `catalogue capture --save-audio`: RoboCop sits on the Ocean credits screen the entire time (no advance); Operation Wolf reaches in-game state with HUD visible — and both WAVs are entirely flat at -16384 (the beeper-low rail). Chase H.Q.'s passing audio hash holds 82 unique sample values but every one is inside the -16384..10028 beeper-only range, so it's catching the police-lights SFX and missing the Jonathan Dunn AY theme entirely. **The criterion is reporting "audio hashes match" because the catalogue locked in silence as the expected value.** Right fix is to wire the AY through `SpeakerMixer` into `BeeperAudio` (or directly into `audio_frame`), then re-capture every 128K-family entry's audio hash. The 48K-only entries (16K + 48K + Spectrum+) are unaffected — those machines have no AY chip.
+**AY mixing routing — code fix landed; catalogue re-capture pending.** The 2026-05-15 audit surfaced that the AY chip's output was never mixed into the audio sink on 128K-class or Amstrad-class machines. Both class crates ticked the AY faithfully but only routed the beeper through `BeeperAudio`, leaving the catalogue silently capturing silence and locking it in as the expected value.
+
+The routing fix landed in code: `common-sinclair-zx-spectrum-128k-class/src/core.rs:360-362` and `common-sinclair-zx-spectrum-amstrad-class/src/core.rs:424-426` now both call `mix_ay_into_audio` end-of-frame, summing `ay_frame` into `audio_frame` at `AY_GAIN = 0.5`. The 48K-only entries (16K + 48K + Spectrum+) are unaffected — those machines have no AY chip and were never broken.
+
+**Why this criterion remains PARTIAL.** The captured catalogue audio hashes still encode the pre-fix silence; running the catalogue now would produce audio-hash drift on every 128K-family entry that exercises the AY (RoboCop, Operation Wolf, Out Run, Rainbow Islands, Bubble Bobble, Castle Master, and parallel +2 / +2A / +2B entries). The re-capture is now gated by [Seam 4](../../decisions/spectrum-architecture-review.md) of the architecture review — `AUDIO_ROUTING_VERSION` (in `common-sinclair-zx-spectrum::audio`) will bump when the catalogue harness re-runs against the fixed routing, triggering the version-check fail-loud-with-recapture-instruction error until each manifest is refreshed in lockstep. R-Type's 128 audio hash is the canonical *unchanged* invariant during re-capture (Smith's beeper-only datapoint).
+
+The re-capture wave is bundled into Phase 1 of the architecture review so it happens once alongside the Seam 1 frame-routing change, rather than twice in quick succession.
 
 ### 2. Variants in scope — DONE
 
