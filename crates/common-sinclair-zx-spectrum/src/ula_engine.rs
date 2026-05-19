@@ -25,14 +25,24 @@ use crate::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 /// **Version 1** (2026-05-19): single-latch shifter model with fetches
 /// at pixels 8/10/12/14 and `fetch_start: 8`. Palette derived from
 /// BT.601-style values in `palette.rs`. Border updates immediately on
-/// `write_fe`. This version's hashes encode the pre-Seam-1 rendering
-/// behaviour described in `knowledge/decisions/spectrum-architecture-review.md`.
+/// `write_fe`. The pre-Seam-1 rendering described in
+/// `knowledge/decisions/spectrum-architecture-review.md`.
 ///
-/// Bumps planned: version 2 when the two-stage shifter (Seam 1) lands;
-/// version 3 when the Smith Chapter 16 palette lands; further versions
-/// per substantive rendering change. See the architecture review's
-/// Seam 4 for the re-capture discipline this constant enforces.
-pub const FRAME_ROUTING_VERSION: u32 = 1;
+/// **Version 2** (2026-05-19, current): two-stage shifter (Seam 1)
+/// landed alongside the Smith Chapter 16 palette refinement.
+/// `MEM_TABLE` and `IDLE_TABLE` shifted four entries left so fetches
+/// happen at phases 4/6/8/10 instead of 8/10/12/14; `fetch_start: 4`
+/// in all configs; pipeline depth between first fetch and first visible
+/// pixel is now 8 pixels (4 T-states) per Smith Chapter 12 Figure 12-2.
+/// Float48K strict-mode target: T=14338 for 48K, T=14364 for 128K.
+/// Border still updates immediately on `write_fe` (the AOLatch
+/// 8-pixel-granularity refinement is a later commit).
+///
+/// Bumps planned: version 3 when AOLatch border timing lands;
+/// further versions per substantive rendering change. See the
+/// architecture review's Seam 4 for the re-capture discipline this
+/// constant enforces.
+pub const FRAME_ROUTING_VERSION: u32 = 2;
 
 /// Timing and layout constants for a specific ULA variant.
 #[derive(Clone, Debug)]
@@ -42,9 +52,11 @@ pub struct UlaConfig {
     /// Scanlines per frame (312 for 48K, 311 for 128K).
     pub lines_per_frame: u16,
 
-    /// Pixel position where video fetch begins (always 8 — prefetch cell).
+    /// Pixel position where video fetch begins (always 4 since Seam 1 —
+    /// prefetch cell; first CAS at phase 4 within the first 16-pixel cycle).
     pub fetch_start: u16,
-    /// Pixel position where video fetch ends (always 264).
+    /// Pixel position where video fetch ends (always 260 since Seam 1 —
+    /// last CAS at phase 10 within the final 16-pixel cycle).
     pub fetch_end: u16,
     /// Pixel position where screen data starts rendering (always 12 — pipeline delay).
     pub screen_start: u16,
@@ -79,8 +91,8 @@ pub struct UlaConfig {
 pub const CONFIG_48K: UlaConfig = UlaConfig {
     pixels_per_line: 448,
     lines_per_frame: 312,
-    fetch_start: 8,
-    fetch_end: 264,
+    fetch_start: 4,
+    fetch_end: 260,
     screen_start: 12,
     screen_end: 12 + 256,
     int_scan: 248,
@@ -99,8 +111,8 @@ pub const CONFIG_48K: UlaConfig = UlaConfig {
 pub const CONFIG_128K: UlaConfig = UlaConfig {
     pixels_per_line: 456,
     lines_per_frame: 311,
-    fetch_start: 8,
-    fetch_end: 264,
+    fetch_start: 4,
+    fetch_end: 260,
     screen_start: 12,
     screen_end: 12 + 256,
     int_scan: 248,
@@ -119,11 +131,17 @@ pub const CONFIG_128K: UlaConfig = UlaConfig {
 pub const CONFIG_PLUS2A: UlaConfig = CONFIG_128K;
 
 /// TS2068 NTSC timing: 448 pixels/line, 262 lines, 14.112 MHz crystal.
+///
+/// NTSC values are from Timex documentation, NOT Smith Chapter 11.
+/// Smith covers the unreleased Sinclair 6C011 NTSC ULA (264 lines,
+/// 63.5 μs/line) which Timex did not use; the TS2068 uses Timex's own
+/// video controller with these constants. See `knowledge/decisions/
+/// spectrum-architecture-review.md` verified-non-issue entry.
 pub const CONFIG_TS2068: UlaConfig = UlaConfig {
     pixels_per_line: 448,
     lines_per_frame: 262,
-    fetch_start: 8,
-    fetch_end: 264,
+    fetch_start: 4,
+    fetch_end: 260,
     screen_start: 12,
     screen_end: 12 + 256,
     int_scan: 224, // NTSC: fewer lines, INT earlier
@@ -143,8 +161,8 @@ pub const CONFIG_TS2068: UlaConfig = UlaConfig {
 pub const CONFIG_PENTAGON: UlaConfig = UlaConfig {
     pixels_per_line: 448,
     lines_per_frame: 320,
-    fetch_start: 8,
-    fetch_end: 264,
+    fetch_start: 4,
+    fetch_end: 260,
     screen_start: 12,
     screen_end: 12 + 256,
     int_scan: 256, // Pentagon INT is later than Sinclair (line 256, not 248)
@@ -190,15 +208,16 @@ pub struct UlaEngine {
     //
     // Smith Chapter 12 Figure 12-2 documents a two-stage double buffer
     // per stream: memory → DataLatch → ShiftRegister, clocked by two
-    // distinct signals (`DataLatch` and `SLoad`). The current rendering
-    // path is single-stage (memory → `data_latch` → `data_reg` via one
-    // transfer trigger); Seam 1 of the architecture review introduces
-    // the missing pending stage. The new `data_latch_pending` and
-    // `attr_latch_pending` fields are added now (no behaviour change
-    // yet — they are written and read only when the two-stage transfer
-    // lands in a follow-up commit). `#[serde(skip)]` keeps snapshot
-    // byte-encoding invariant during this preparatory step; the skip
-    // is removed in the same commit that switches the rendering path.
+    // distinct signals (`DataLatch` and `SLoad`). The `*_pending` fields
+    // are the memory-side stage; `data_latch`/`attr_latch` are the
+    // DataLatch stage; `data_reg`/`attr_reg` are the ShiftRegister.
+    // Transfer points are described in `tick_rendering`.
+    //
+    // `#[serde(skip)]` on the pending fields keeps snapshot byte-encoding
+    // backward-compatible with snapshots taken before Seam 1 landed. The
+    // pipeline drains every 16-pixel cycle, so omitting it from save
+    // state at most loses a sub-cycle of rendering on the resume
+    // scanline — acceptable transient state.
     pub data_reg: u8,
     pub attr_reg: u8,
     pub data_latch: u8,
@@ -215,11 +234,15 @@ pub struct UlaEngine {
     pub border_active: bool,
     /// VidEN: `/Border` delayed by one character cell (8 CLK7 = 4 T-states).
     /// Per Smith Chapter 12 p. 134, `SLoad` is gated on `/VidEN` rather
-    /// than `/Border`, so the first transfer from the Data Latch into
-    /// the shift register fires one full character cell after the
-    /// first DataLatch trigger. Currently unused — set by the two-stage
-    /// transfer in a follow-up commit. `#[serde(skip)]` keeps the
-    /// snapshot byte-encoding invariant during this preparatory step.
+    /// than `/Border`. In the current implementation we gate the SLoad
+    /// transfer on `scan < 192` (the rendering scanline window) rather
+    /// than tracking VidEN as a separate signal — equivalent for the
+    /// 48K timing model because the SLoad/DataLatch transfers happen
+    /// uniformly on every active scanline, and the visual offset from
+    /// VidEN's one-character delay is already accounted for by
+    /// `fetch_start` / `fetch_end`. Field reserved for future fidelity
+    /// work (e.g. AOLatch border timing); `#[serde(skip)]` keeps
+    /// snapshot byte-encoding backward compatible.
     #[serde(skip)]
     pub vid_en: bool,
     // Contention tracking
@@ -238,6 +261,11 @@ pub struct UlaEngine {
     /// Second data register for hi-res mode (odd columns from $6000).
     pub data_reg2: u8,
     pub data_latch2: u8,
+    /// Hi-res pending-latch slot — mirrors `data_latch_pending` for the
+    /// $6000-screen path used by Timex SCLD hi-res mode. Routed through
+    /// the same two-stage pipeline so the two streams emerge in lock-step.
+    #[serde(skip)]
+    pub data_latch_pending2: u8,
 
     /// Timing configuration for this variant.
     /// Skipped during serialization — the owning machine must re-set this
@@ -248,16 +276,36 @@ pub struct UlaEngine {
 
 /// VRAM read pattern: indexed by pixel & 0x0F.
 /// false = ULA reads from VRAM this clock.
+///
+/// Fetches happen at phases 4, 6, 8, 10 — four reads per 16-pixel cycle.
+/// Phases 4/8 read display bytes (phase & 0x02 == 0), phases 6/10 read
+/// attribute bytes (phase & 0x02 != 0). Per Smith Chapter 13 this matches
+/// the canonical two-RAS-CAS-pair continuous-fetch pattern: phases 0-3
+/// are the first RAS-CAS pair (display+attr byte N), phases 4-7 the
+/// second pair (display+attr byte N+1), in Smith's 8-phase numbering.
+/// In our 16-pixel-clock indexing, each Smith phase spans two of our
+/// pixels and the fetch happens at the first pixel of the CAS phase.
+///
+/// The pre-Seam-1 model fetched at phases 8, 10, 12, 14 — same
+/// continuous-fetch shape, but offset four pixels (two T-states) too
+/// late, producing the +4 T-state first-fetch offset documented in
+/// `knowledge/decisions/ula-first-fetch-tstate-offset.md`.
 pub const MEM_TABLE: [bool; 16] = [
-    true, true, true, true, true, true, true, true, false, true, false, true, false, true, false,
+    true, true, true, true, false, true, false, true, false, true, false, true, true, true, true,
     true,
 ];
 
 /// Idle table: indexed by pixel & 0x0F.
 /// true = ULA is idle (floating bus returns 0xFF).
+///
+/// The bus carries the most-recently-latched byte from phase 4 (first
+/// CAS) through phase 11 (latch settles after second-pair attr fetch).
+/// Outside that window the bus floats and returns 0xFF via the
+/// pull-ups, per Smith Chapter 19. Mirrors the four-pixel left-shift
+/// applied to `MEM_TABLE` and `fetch_start` for Seam 1.
 pub const IDLE_TABLE: [bool; 16] = [
-    true, true, true, true, true, true, true, true, false, false, false, false, false, false,
-    false, false,
+    true, true, true, true, false, false, false, false, false, false, false, false, true, true,
+    true, true,
 ];
 
 /// 48K/128K contention delay table.
@@ -324,6 +372,7 @@ impl UlaEngine {
             scld_hires_ink: 0,
             data_reg2: 0,
             data_latch2: 0,
+            data_latch_pending2: 0,
             config,
         }
     }
@@ -370,6 +419,32 @@ impl UlaEngine {
             _ => {}
         }
 
+        // === Two-stage shifter pipeline transfers (Seam 1, Smith Ch 12 Fig 12-2) ===
+        // memory → pending → latch → reg, with three transfer points per
+        // 16-pixel cycle:
+        //   - p & 0x07 == 0 (pixels 0, 8): pending → latch (DataLatch)
+        //   - p & 0x07 == 4 (pixels 4, 12): latch → reg (SLoad)
+        //   - At each fetch (phases 4/6/8/10, gated by `video`): memory → pending
+        //
+        // The promote and SLoad transfers fire on every active scanline
+        // (scan < 192), even after `fetch_end` flips `video` false. This
+        // lets the byte fetched just before `fetch_end` propagate through
+        // the pipeline so the last visible character (column 31, pixels
+        // 260-267 of the screen) renders correctly. Fetches stay gated by
+        // `video` so no phantom reads happen past `fetch_end`.
+        if self.scan < 192 {
+            if (p & 0x07) == 0 {
+                self.data_latch = self.data_latch_pending;
+                self.data_latch2 = self.data_latch_pending2;
+                self.attr_latch = self.attr_latch_pending;
+            }
+            if (p & 0x07) == 4 {
+                self.data_reg = self.data_latch;
+                self.data_reg2 = self.data_latch2;
+                self.attr_reg = self.attr_latch;
+            }
+        }
+
         // === Video fetch ===
         if self.video {
             self.idle = IDLE_TABLE[phase];
@@ -377,44 +452,40 @@ impl UlaEngine {
             let hicolour = self.scld_mode & 0x02 != 0;
             let dual = self.scld_mode & 0x01 != 0;
 
-            // Transfer latch → active BEFORE new fetch
-            if (p & 0x07) == 4 {
-                self.data_reg = self.data_latch;
-                self.data_reg2 = self.data_latch2;
-                self.attr_reg = self.attr_latch;
-            }
-
-            // VRAM reads at phases 8, 10, 12, 14
+            // VRAM reads at phases 4, 6, 8, 10 (two RAS-CAS fetch pairs
+            // per 16-pixel cycle). bus_data is set at the moment of
+            // each CAS strobe — this is the value `IN A,($FF)` samples
+            // via the floating-bus path on the ULA.
             if !MEM_TABLE[phase] {
                 if phase & 0x02 == 0 {
-                    // Bitmap fetch
+                    // Bitmap fetch (CAS-A or CAS-C falling)
                     let a = self.data_addr;
                     self.data_addr = self.data_addr.wrapping_add(1);
                     let base = if dual && !hires { 0x6000u16 } else { 0x4000u16 };
                     let addr = base | (a & 0x1FFF);
                     self.bus_data = memory.read_screen(addr);
-                    self.data_latch = self.bus_data;
+                    self.data_latch_pending = self.bus_data;
 
                     // Hi-res: also fetch from the other screen for odd columns
                     if hires {
-                        self.data_latch2 = memory.read_screen(0x6000 | (a & 0x1FFF));
+                        self.data_latch_pending2 = memory.read_screen(0x6000 | (a & 0x1FFF));
                     }
                 } else {
-                    // Attribute fetch
+                    // Attribute fetch (CAS-B or CAS-D falling)
                     let a = self.attr_addr;
                     self.attr_addr = self.attr_addr.wrapping_add(1);
 
                     if hires {
                         // Hi-res: no attributes — colour from port $FF bits 3-5
                         self.bus_data = 0xFF;
-                        self.attr_latch = 0xFF;
+                        self.attr_latch_pending = 0xFF;
                     } else if hicolour {
                         // Hi-colour: attribute from $6000 + bitmap_offset
                         // (each pixel row has its own attribute, not 8×8 cells)
                         let bitmap_offset = Self::compute_data_addr(self.scan);
                         let attr_addr = 0x6000 | (bitmap_offset & 0x1FFF) | (a & 0x1F); // column
                         self.bus_data = memory.read_screen(attr_addr);
-                        self.attr_latch = self.bus_data;
+                        self.attr_latch_pending = self.bus_data;
                     } else {
                         let base = if dual { 0x7800u16 } else { 0x5800u16 };
                         // For dual-screen without hi-colour: attrs from second screen area
@@ -424,7 +495,7 @@ impl UlaEngine {
                             0x4000 | (a & 0x1FFF)
                         };
                         self.bus_data = memory.read_screen(addr);
-                        self.attr_latch = self.bus_data;
+                        self.attr_latch_pending = self.bus_data;
                     }
                 }
             }
