@@ -12,6 +12,7 @@ use std::process;
 
 use emu198x_catalogue::{
     CatalogueError, Entry, EntryOutcome, Manifest, RunResult, load_manifest, run_entry,
+    run_entry_for_capture,
 };
 
 const USAGE: &str = "\
@@ -139,7 +140,10 @@ fn cmd_capture(argv: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let entry_id = args.entry.clone().ok_or("capture requires --entry <id>")?;
     let manifest = load(&args)?;
     let entry = find_entry(&manifest, &entry_id)?;
-    let result = run_entry(&manifest, entry, &media_root(), &firmware_root())?;
+    // Capture explicitly bypasses verify_routing_versions: a routing-
+    // version mismatch is the *reason* we're capturing — the new
+    // hashes resolve it. See `run_entry_for_capture` docs.
+    let result = run_entry_for_capture(&manifest, entry, &media_root(), &firmware_root())?;
     print_capture(&entry_id, &result);
     if let Some(path) = &args.save_screenshot {
         std::fs::write(path, &result.boot_png)?;

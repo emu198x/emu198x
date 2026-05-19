@@ -401,6 +401,38 @@ pub fn run_entry(
     firmware_root: &Path,
 ) -> Result<RunResult, CatalogueError> {
     verify_routing_versions(manifest)?;
+    run_entry_inner(manifest, entry, media_root, firmware_root)
+}
+
+/// Capture-mode entry: drives one catalogue entry through the same
+/// path as [`run_entry`] but **bypasses** `verify_routing_versions`.
+///
+/// Why: capture is the action that *resolves* a routing-version
+/// mismatch. If `FRAME_ROUTING_VERSION` has just been bumped (because
+/// the engine's rendering path changed), every captured frame hash in
+/// the manifest is stale by definition. Calling `run_entry` from
+/// capture-mode would fail-loud before any work happens — there'd be
+/// no way to record the new ground truth. Capture must always
+/// reflect the *current* code version; the version check is a
+/// `run`-time invariant only.
+///
+/// `run`-mode (catalogue verification) keeps the strict check via
+/// [`run_entry`]. Capture-mode opts out explicitly.
+pub fn run_entry_for_capture(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
+    run_entry_inner(manifest, entry, media_root, firmware_root)
+}
+
+fn run_entry_inner(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<RunResult, CatalogueError> {
     match manifest.system.id.as_str() {
         "spectrum" => run_spectrum_entry(manifest, entry, media_root, firmware_root),
         "nes" => run_nes_entry(entry, media_root),
@@ -2231,6 +2263,52 @@ hash = "xxh64:0000000000000000"
                 assert_eq!(found, 9999);
             }
             other => panic!("expected RoutingVersionMismatch, got {other:?}"),
+        }
+    }
+
+    /// `run_entry_for_capture` must skip `verify_routing_versions` —
+    /// capture is the action that *resolves* a mismatch. Verified by
+    /// constructing a manifest with a mismatched frame version and an
+    /// unsupported system id: if the version check fired we'd see
+    /// `RoutingVersionMismatch`; with it bypassed we see
+    /// `UnsupportedSystem` from the inner dispatch.
+    #[test]
+    fn run_entry_for_capture_bypasses_routing_version_check() {
+        let mut manifest = spectrum_manifest_with_versions(None, Some(9999));
+        manifest.system.id = "not-a-real-system".into();
+        let dummy_entry = Entry {
+            id: "dummy".into(),
+            title: "dummy".into(),
+            year: 0,
+            publisher: "".into(),
+            variant: "48k".into(),
+            media: None,
+            boot: Boot {
+                wait_frames: 0,
+                frame_hash: "xxh64:0000000000000000".into(),
+            },
+            script: vec![],
+            audio: Audio {
+                from_frame: 0,
+                secs: 0.0,
+                hash: "xxh64:0000000000000000".into(),
+            },
+        };
+        let err = run_entry_for_capture(
+            &manifest,
+            &dummy_entry,
+            std::path::Path::new("/dev/null"),
+            std::path::Path::new("/dev/null"),
+        )
+        .expect_err("capture must still surface the inner dispatch error");
+        match err {
+            CatalogueError::UnsupportedSystem(name) => {
+                assert_eq!(name, "not-a-real-system");
+            }
+            CatalogueError::RoutingVersionMismatch { .. } => {
+                panic!("capture must NOT fire the routing-version check");
+            }
+            other => panic!("unexpected error: {other:?}"),
         }
     }
 
