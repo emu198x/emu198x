@@ -80,6 +80,7 @@
 - [Amiga port plan](decisions/amiga-port-plan.md) — 9-phase plan, OCS (A500) first, 68000 pin conversion is the long pole, ~35K lines in archive
 - [Amiga restart plan](decisions/amiga-restart-plan.md) — M0–M9 chip-only KS 1.3 boot rebuild; the wave that replaced the archive Amiga with the live `machine-commodore-amiga-ocs` stack
 - [Amiga architecture review](decisions/amiga-architecture-review.md) — five seams to tighten before the Amiga scales (disk DMA, CPU bus, byte-lane, merge latch, boot invariants); spine unchanged
+- [Spectrum architecture review](decisions/spectrum-architecture-review.md) — five seams the catalogue can't catch (ULA shifter depth, host-input routing, volatile-state survival, oracle integrity, boot invariants); spine unchanged
 - [Amiga Denise BPU=0 rendering](decisions/amiga-denise-bpu-zero-rendering.md) — resolved investigation into Denise's bitplane behaviour when BPLCON0 BPU=0; preserved as worked-example reference
 - [SM83 abstraction level](decisions/sm83-abstraction-level.md) — Game Boy CPU ticks at m-cycle, not T-cycle; general rule is "match the finest-grained observation any bus client makes of the CPU"
 - [Spectrum joystick architecture](decisions/spectrum-joystick-architecture.md) — Kempston is now a `Peripheral`, attached only to machines whose rear connector accepts one (not +2A/+2B/+3); Sinclair Interface 2 keyboard mapping deferred

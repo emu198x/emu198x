@@ -1,6 +1,34 @@
 # ULA first-display-fetch T-state offset (open investigation)
 
-**Status:** Open 2026-05-18. Investigation started after Woody's `Float48K.tap` test (added in commit f9c5da1) failed to find its match T-state. Our `ferranti-ula-6c001e` appears to fetch the first display byte 4 T-states later than real Sinclair 48K hardware. Fix is blocked on silicon-level confirmation from Chapter 18 of Chris Smith's *The ZX Spectrum ULA: How to design a microcomputer*.
+**Status:** Open 2026-05-18, **substantially resolved same day in framing** after Chris Smith's *The ZX Spectrum ULA: How to design a microcomputer* was ingested and Chapters 18 + 12 distilled. The fix path and reason for the apparent offset are both now understood; implementation work remains.
+
+**Updates 2026-05-19 (Chapters 9/16/19/21/23 distillations):**
+- **Chapter 21 gives the verbatim 14336 derivation:** "the interrupt occurs exactly 64 scan lines before the first pixel of a frame is displayed by the television, which is 64 × 224 CPU clock cycles or 14336 T-states." Chapter 21 is the primary source; Chapter 11 cited it.
+- **14335 is a Z80-die-batch dependency, NOT board-issue.** Smith documents the 42 ns /INT-to-clock-rise lag on a 6C001E-7 ULA; the "intolerance" is on the Z80 side (specific dies with stricter setup-time requirements). Emulators should use 14336 unless explicitly modelling a "warm Z80" corner case.
+- **Chapter 19 confirms `floating_bus()` semantics:** `IN A,($FF)` returns whichever byte was most-recently latched into DataLatch or AttrLatch from the *current* fetch slot — NOT the byte being shifted to screen. The Seam 1 fix must preserve this: `bus_data` should track the pending-latch value, not the shifter output.
+- **Chapter 23 is SILENT on the floating-bus sample point.** The architecture review previously framed Chapter 23 as the canonical reference for floating-bus semantics. That was wrong. Chapter 23 covers Test Modes and 5 documented silicon errors but doesn't derive `IN A,($FF)` sample-point semantics. Float48K (14338) remains the only empirical authority.
+
+**Distilled references:**
+- [`~/Projects/Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-10-internal-clocks.md`](../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-10-internal-clocks.md) — C-counter / V-counter derivations from 14 MHz crystal. Critically: INT is a pure consumer of `(scan, pixel)`, not a producer — counters are never reset by INT.
+- [`~/Projects/Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-11-video-synchronisation.md`](../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-11-video-synchronisation.md) — **the canonical INT-to-first-fetch number is 14336 T-states**, derived in Chapter 21 p. 227 as "exactly 64 scan lines before the first pixel of a frame is displayed, which is 64 × 224 CPU clock cycles or 14336 T-states." 14335 is documented as the "late timing" alternative for early-issue boards with intolerant Z80s.
+- [`~/Projects/Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-12-generating-the-display.md`](../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-12-generating-the-display.md) — two-stage shifter pipeline, `DataLatch` and `SLoad` derivations, and the `VidEN = /Border delayed by one character-cell` finding that resolves the 14336/14338/14340 puzzle.
+- [`~/Projects/Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-13-video-memory-access.md`](../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-13-video-memory-access.md) — the 8-phase cycle is **continuously fetching** (two RAS-CAS fetch pairs per character cell), not "4 fetch + 4 idle" as the Chapter 18 distillation originally claimed.
+- [`~/Projects/Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-14-video-control-clocks.md`](../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-14-video-control-clocks.md) — complete signal derivations: CLK7, Border, VidEN, VidC3, DataLatch, AttrLatch, SLoad, AOLatch, Flash Clock. AOLatch is **not gated by VidEN** — silicon basis for 8-pixel border-write granularity.
+- [`~/Projects/Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-18-cpu-clock-and-contention.md`](../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-18-cpu-clock-and-contention.md) — contention mechanism, `CLKWAIT = (C3 OR C2) AND /Border AND A14 AND /A15 AND /MREQT23`, half-C0-cycle phase offset between ULA and Z80 clock domains.
+
+## The three-event resolution (Chapter 12)
+
+Our 4-T-state apparent offset is not a single bug. It is a confusion between three legitimate silicon-level taps on the same fetch event:
+
+| T-state | Event | Sampled by |
+|---|---|---|
+| **14336** | First VRAM fetch — `DataLatch` fires on scan 0 | Community consensus (Patrik Rak) |
+| **14338** | Fetched byte appears on the ULA data bus | Float48K `IN A,($FF)` probe |
+| **14340** | First `SLoad` fires; pixel emission begins | Our current model |
+
+The 4-T-state spacing between first `DataLatch` and first `SLoad` is silicon-correct: `SLoad` is gated on `/VidEN`, and `VidEN` is `/Border` delayed by one character cell (8 CLK7 cycles = 4 Z80 T-states). Our current model is not wrong about visible-pixel timing. What is wrong is that our `floating_bus()` exposes the byte at the same T-state as visible pixel emission, when it should expose it from the `DataLatch` point onwards.
+
+Investigation started after Woody's `Float48K.tap` test (added in commit f9c5da1) failed to find its match T-state. Our `ferranti-ula-6c001e` appears to fetch the first display byte 4 T-states later than real Sinclair 48K hardware.
 
 ## The numbers
 
