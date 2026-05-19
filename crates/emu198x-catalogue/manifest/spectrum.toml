@@ -1089,14 +1089,14 @@ path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 # Captures the "CHASE H Q / © 1989 OCEAN SOFTWARE / © 1988 TAITO" title
 # screen with the SCORE/TIME/SPEED HUD and police lights.
 wait_frames = 60
-frame_hash = "xxh64:eb5e677a661954ec"
+frame_hash = "xxh64:4f3e26739a0d71be"
 
 [entry.audio]
 # Captures the AY title-screen music — the reason 128K Chase H.Q. exists
 # as a distinct release from the 48K version.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:f02e92f69b8b5094"
+hash = "xxh64:aede03775afcfd4a"
 
 [[entry]]
 id = "robocop"
@@ -1111,11 +1111,17 @@ slot = "tape-1"
 path = "sinclair/spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
-# Detects 128K and switches to Jonathan Dunn's iconic AY soundtrack —
-# the 48K version uses minimal beeper effects, the 128K title screen
-# is a continuous arrangement of the film's main theme.
+# KNOWN-WEDGE: captures the "SORRY LOAD ERROR" SpeedLock-7 anti-tamper
+# screen rather than Jonathan Dunn's title music, because the 48K-128K
+# combo TZX exercises a SpeedLock-7 path our loader still wedges on
+# (see knowledge/references/speedlock.md and
+# knowledge/decisions/speedlock-tape-incomplete.md — Speedlock-7
+# multi-layer fix covers eleven 48K entries but not this combo
+# release). The hash is intentionally a known-failure anchor: when
+# the SpeedLock-7 work fully lands, this entry's hash will change and
+# fail-loud here, signalling the wedge is gone.
 wait_frames = 60
-frame_hash = "xxh64:10c7571baecd5717"
+frame_hash = "xxh64:50965d46a26bbafc"
 
 [entry.audio]
 # Captured at 60+100 = 3.2 s post-tape-stop. RoboCop's title fade /
@@ -1143,7 +1149,7 @@ path = "sinclair/spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:ee18d332300497af"
+frame_hash = "xxh64:43f4dd995e59fabe"
 
 [entry.audio]
 # Same "128K silence" hash as RoboCop — title music hasn't started
@@ -1169,14 +1175,16 @@ path = "sinclair/spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1
 # part of the canonical Out Run experience; the 48K version has only
 # beeper effects.
 wait_frames = 60
-frame_hash = "xxh64:b4052cd4abe6528d"
+frame_hash = "xxh64:1838727d99e21182"
 
 [entry.audio]
-# 128K silence hash — title hasn't reached its music phase yet at
-# this waypoint.
+# 2 s of the AY title music after loader stop. Comment previously
+# claimed this was the canonical 128K silence hash, but the captured
+# bytes are not silence (silence hash is xxh64:c27195d1cabf3150) —
+# title music has started by this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:4ac48d18e8bcdf98"
+hash = "xxh64:a9ddca2b8a84e3c4"
 
 [[entry]]
 id = "rainbow-islands"
@@ -1218,7 +1226,7 @@ path = "sinclair/spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).z
 # Wally Beben's chiptune AY conversion of the famous arcade theme —
 # instantly recognisable, very different to the 48K beeper version.
 wait_frames = 60
-frame_hash = "xxh64:f9c6d9feba779ec7"
+frame_hash = "xxh64:efbc1a70201a1b87"
 
 [entry.audio]
 # 128K silence hash — chiptune driver hasn't started yet.
@@ -1243,14 +1251,14 @@ path = "sinclair/spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)
 # wouldn't fit in 48K. Uses the extra memory for a much larger,
 # more populated landscape.
 wait_frames = 60
-frame_hash = "xxh64:da054f4e390841f7"
+frame_hash = "xxh64:076876874e1f4725"
 
 [entry.audio]
 # Distinct audio at the captured waypoint — the only 128K-only entry
 # in the set whose music driver is fully running by 3.2 s post-load.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:fb9918f192b4782d"
+hash = "xxh64:6a66a07be51a847b"
 
 [[entry]]
 id = "total-eclipse"
@@ -1269,7 +1277,7 @@ path = "sinclair/spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).
 # 128K version is the canonical release; 48K version exists but
 # loses much of the world detail.
 wait_frames = 60
-frame_hash = "xxh64:0e349fc9538d477d"
+frame_hash = "xxh64:139aaf56e6c27028"
 
 [entry.audio]
 # 128K silence hash — Freescape's title screen has minimal sound.
@@ -1294,7 +1302,7 @@ path = "sinclair/spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
 # vector graphics and AY music. Showcase of what the engine could do
 # with the full 128K memory budget.
 wait_frames = 60
-frame_hash = "xxh64:816cb1b0a9dd16e2"
+frame_hash = "xxh64:915844668f32246e"
 
 [entry.audio]
 # 128K silence hash — title music driver hasn't started yet.
@@ -1319,7 +1327,7 @@ path = "sinclair/spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
 # Wholly different shape to anything else in the catalogue —
 # turn-based party combat with magic.
 wait_frames = 60
-frame_hash = "xxh64:67999b6437c4eecc"
+frame_hash = "xxh64:954a541d8b19ddc8"
 
 [entry.audio]
 # 128K silence hash — RPG title screen has no music.
