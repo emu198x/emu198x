@@ -16,7 +16,7 @@ id = "spectrum"
 # Mismatch fails loud with a re-capture instruction. See
 # knowledge/decisions/spectrum-architecture-review.md Seam 4.
 audio_routing_version = 1
-frame_routing_version = 3
+frame_routing_version = 1
 
 [[system.firmware]]
 variant = "48k"
@@ -813,6 +813,41 @@ frame_hash = "xxh64:7a0d72fd2dd56a21"
 from_frame = 100
 secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
+
+[[entry]]
+id = "arkanoid-tape"
+title = "Arkanoid"
+year = 1987
+publisher = "Imagine"
+variant = "48k"
+
+[entry.media]
+# Floating-bus regression bench per the architecture review's Seam 1
+# done criteria. Grussu names Arkanoid (alongside Cobra, Short Circuit,
+# Sidewize) as a canonical title that reads the ULA floating bus via
+# `IN A,($FF)` to time game-loop work to the display fetch — exactly
+# the path Seam 1's two-stage shifter corrects. Catalogue inclusion
+# turns the engine fix into a real-software regression bench
+# independent of the Float48K probe.
+#
+# The plain Imagine 1986 TAP rip (no SpeedLock protection — the [TZX]
+# release was [SpeedLock 2]; this TAP variant strips the protection).
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Arkanoid (1987)(Imagine).zip"
+
+[entry.boot]
+# Placeholder — captured in the Phase 1 #10 re-capture wave alongside
+# the other 101 entries against FRAME_ROUTING_VERSION = 3. The version
+# check at the top of `run_entry` blocks execution until manifest and
+# runtime versions match, so this stub does not silently pass.
+wait_frames = 60
+frame_hash = "xxh64:0000000000000000"
+
+[entry.audio]
+from_frame = 100
+secs = 2.0
+hash = "xxh64:0000000000000000"
 
 # ─── Spectrum+ entries ──────────────────────────────────────────
 # Mirrors the 48K title set on the dedicated machine-sinclair-zx-
