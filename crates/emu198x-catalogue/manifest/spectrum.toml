@@ -2542,7 +2542,7 @@ path = "sinclair/spectrum/Games/[TAP]/Pssst (1983)(Ultimate Play The Game)(16K).
 # Single-screen action — protect a flower from insects. Second of
 # Ultimate's 1983 trilogy of 16K classics.
 wait_frames = 60
-frame_hash = "xxh64:ad7192a9f447951f"
+frame_hash = "xxh64:4cb69ba95ba20ab3"
 
 [entry.audio]
 from_frame = 100
@@ -2565,7 +2565,7 @@ path = "sinclair/spectrum/Games/[TAP]/Cookie (1983)(Ultimate Play The Game)(16K)
 # Single-screen kitchen battle — bake a cake while ingredients try
 # to escape. Third of Ultimate's 16K trilogy.
 wait_frames = 60
-frame_hash = "xxh64:3ab6ac4b00a5f58d"
+frame_hash = "xxh64:de288bc8f0834cbb"
 
 [entry.audio]
 from_frame = 100
@@ -2611,14 +2611,14 @@ path = "sinclair/spectrum/Games/[TAP]/Hungry Horace (1982)(Sinclair Research)(16
 # Sinclair Research's house-published Pac-Man-alike. Earliest era of
 # Spectrum gaming; shipped with the machine itself.
 wait_frames = 60
-frame_hash = "xxh64:cd0deafdaaaf717f"
+frame_hash = "xxh64:cde3f51384af7e34"
 
 [entry.audio]
 # Distinct title-screen jingle — non-trivial audio, distinct from
 # the menu-silence hash elsewhere.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:a8c921c411256dc2"
+hash = "xxh64:2d08628b01eb398d"
 
 [[entry]]
 id = "horace-goes-skiing"
@@ -2636,12 +2636,12 @@ path = "sinclair/spectrum/Games/[TAP]/Horace Goes Skiing (1983)(Sinclair Researc
 # Sequel — road-cross + skiing in two phases. Different engine to
 # Hungry Horace despite shared protagonist.
 wait_frames = 60
-frame_hash = "xxh64:8627f8ad3a3af3e7"
+frame_hash = "xxh64:45acacd11172455f"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:1439075a3d045967"
+hash = "xxh64:884d984d900eb226"
 
 [[entry]]
 id = "penetrator"
@@ -2659,7 +2659,7 @@ path = "sinclair/spectrum/Games/[TAP]/Penetrator (1982)(Melbourne House).zip"
 # Scramble-clone with a built-in level editor. Notable for the
 # customisation tape feature and Beam Software's smooth scrolling.
 wait_frames = 60
-frame_hash = "xxh64:b8b3b6f5e10f25b3"
+frame_hash = "xxh64:d949ce8028ea7cd1"
 
 [entry.audio]
 from_frame = 100
@@ -2683,7 +2683,7 @@ path = "sinclair/spectrum/Games/[TAP]/Football Manager (1982)(Addictive Games).z
 # title for the 16K era; wholly different shape to anything else in
 # the catalogue.
 wait_frames = 60
-frame_hash = "xxh64:ae151fc89a61d707"
+frame_hash = "xxh64:03bb0fe89ecfd233"
 
 [entry.audio]
 from_frame = 100
@@ -2706,7 +2706,7 @@ path = "sinclair/spectrum/Games/[TAP]/4D Time-Gate (1982)(Quicksilva).zip"
 # Vector wireframe space combat. Quicksilva's early-era technical
 # showpiece for what 16K could render in real-time 3D.
 wait_frames = 60
-frame_hash = "xxh64:600c03015607d685"
+frame_hash = "xxh64:a0650d47e35c0faa"
 
 [entry.audio]
 from_frame = 100
@@ -2730,7 +2730,7 @@ path = "sinclair/spectrum/Games/[TAP]/Gulpman (1982)(Campbell Systems)(16K).zip"
 # Horace by a few months; Campbell Systems was one of the first
 # Spectrum game publishers.
 wait_frames = 60
-frame_hash = "xxh64:c7d330b21b78a223"
+frame_hash = "xxh64:79b364aada20e54f"
 
 [entry.audio]
 from_frame = 100
