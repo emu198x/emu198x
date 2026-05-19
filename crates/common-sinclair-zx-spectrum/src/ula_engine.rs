@@ -186,17 +186,42 @@ pub struct UlaEngine {
     pub bus_data: u8,
     /// Is the ULA idle (not reading VRAM)?
     pub idle: bool,
-    // Video fetch state
+    // Video fetch state.
+    //
+    // Smith Chapter 12 Figure 12-2 documents a two-stage double buffer
+    // per stream: memory → DataLatch → ShiftRegister, clocked by two
+    // distinct signals (`DataLatch` and `SLoad`). The current rendering
+    // path is single-stage (memory → `data_latch` → `data_reg` via one
+    // transfer trigger); Seam 1 of the architecture review introduces
+    // the missing pending stage. The new `data_latch_pending` and
+    // `attr_latch_pending` fields are added now (no behaviour change
+    // yet — they are written and read only when the two-stage transfer
+    // lands in a follow-up commit). `#[serde(skip)]` keeps snapshot
+    // byte-encoding invariant during this preparatory step; the skip
+    // is removed in the same commit that switches the rendering path.
     pub data_reg: u8,
     pub attr_reg: u8,
     pub data_latch: u8,
     pub attr_latch: u8,
+    #[serde(skip)]
+    pub data_latch_pending: u8,
+    #[serde(skip)]
+    pub attr_latch_pending: u8,
     pub data_addr: u16,
     pub attr_addr: u16,
     /// Active video (scan < 192 and within fetch range).
     pub video: bool,
     /// Border area flag.
     pub border_active: bool,
+    /// VidEN: `/Border` delayed by one character cell (8 CLK7 = 4 T-states).
+    /// Per Smith Chapter 12 p. 134, `SLoad` is gated on `/VidEN` rather
+    /// than `/Border`, so the first transfer from the Data Latch into
+    /// the shift register fires one full character cell after the
+    /// first DataLatch trigger. Currently unused — set by the two-stage
+    /// transfer in a follow-up commit. `#[serde(skip)]` keeps the
+    /// snapshot byte-encoding invariant during this preparatory step.
+    #[serde(skip)]
+    pub vid_en: bool,
     // Contention tracking
     pub z80_mreq_prev: bool,
     pub z80_iorq_prev: bool,
@@ -284,10 +309,13 @@ impl UlaEngine {
             attr_reg: 0,
             data_latch: 0,
             attr_latch: 0,
+            data_latch_pending: 0,
+            attr_latch_pending: 0,
             data_addr: 0,
             attr_addr: 0,
             video: false,
             border_active: true,
+            vid_en: false,
             z80_mreq_prev: false,
             z80_iorq_prev: false,
             z80_iorq_prev2: false,
