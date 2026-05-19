@@ -1357,12 +1357,12 @@ path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:eb5e677a661954ec"
+frame_hash = "xxh64:4f3e26739a0d71be"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:f02e92f69b8b5094"
+hash = "xxh64:aede03775afcfd4a"
 
 [[entry]]
 id = "robocop-plus2"
@@ -1377,8 +1377,10 @@ slot = "tape-1"
 path = "sinclair/spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
+# KNOWN-WEDGE — same SpeedLock-7 anti-tamper as `robocop` (128K). See
+# that entry's comment for context.
 wait_frames = 60
-frame_hash = "xxh64:10c7571baecd5717"
+frame_hash = "xxh64:50965d46a26bbafc"
 
 [entry.audio]
 from_frame = 100
@@ -1399,7 +1401,7 @@ path = "sinclair/spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:ee18d332300497af"
+frame_hash = "xxh64:43f4dd995e59fabe"
 
 [entry.audio]
 from_frame = 100
@@ -1420,12 +1422,12 @@ path = "sinclair/spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:b4052cd4abe6528d"
+frame_hash = "xxh64:1838727d99e21182"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:4ac48d18e8bcdf98"
+hash = "xxh64:a9ddca2b8a84e3c4"
 
 [[entry]]
 id = "rainbow-islands-plus2"
@@ -1462,7 +1464,7 @@ path = "sinclair/spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).z
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:f9c6d9feba779ec7"
+frame_hash = "xxh64:efbc1a70201a1b87"
 
 [entry.audio]
 from_frame = 100
@@ -1483,12 +1485,12 @@ path = "sinclair/spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:da054f4e390841f7"
+frame_hash = "xxh64:076876874e1f4725"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:fb9918f192b4782d"
+hash = "xxh64:6a66a07be51a847b"
 
 [[entry]]
 id = "total-eclipse-plus2"
@@ -1504,7 +1506,7 @@ path = "sinclair/spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:0e349fc9538d477d"
+frame_hash = "xxh64:139aaf56e6c27028"
 
 [entry.audio]
 from_frame = 100
@@ -1525,7 +1527,7 @@ path = "sinclair/spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:816cb1b0a9dd16e2"
+frame_hash = "xxh64:915844668f32246e"
 
 [entry.audio]
 from_frame = 100
@@ -1546,7 +1548,7 @@ path = "sinclair/spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:67999b6437c4eecc"
+frame_hash = "xxh64:954a541d8b19ddc8"
 
 [entry.audio]
 from_frame = 100
