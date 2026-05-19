@@ -837,11 +837,11 @@ than chasing it through layers of pre-existing behavior.
 
 ## Related
 
-- `wiki/decisions/amiga-chip-only-boot-failure.md` — the root cause we
+- `knowledge/decisions/amiga-chip-only-boot-failure.md` — the root cause we
   uncovered, what we won't get to skip.
-- `wiki/decisions/amiga-architecture-review.md` — the architecture
+- `knowledge/decisions/amiga-architecture-review.md` — the architecture
   this restart honors.
-- `wiki/processes/golden-image-capture.md` — how to capture new
+- `knowledge/processes/golden-image-capture.md` — how to capture new
   reference frames if needed.
 - `RULES.md` — the hard constraints (master oscillator drives loop,
   ULA/CPU half-cycle, no catch-up, no Bus trait).

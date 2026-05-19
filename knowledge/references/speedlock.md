@@ -21,7 +21,7 @@ threads:
 Compiled from Alessandro Grussu's [ZX Spectrum Loading
 Schemes](https://www.alessandrogrussu.it/loading/Schemes/schemes.html)
 catalogue, cross-referenced against
-[Wikipedia](https://en.wikipedia.org/wiki/Speedlock) and Craig's Retro
+[Wikipedia](https://en.wikipedia.org/knowledge/Speedlock) and Craig's Retro
 Computing [protection-systems
 deep-dive](https://craigsretrocomputingpage.eu5.org/howtohack/commercialprotectionsys.html).
 Original authors: **David Aubrey-Jones** and **David Looker**, 1983.
@@ -255,9 +255,9 @@ path is closed). Migrated from TAP → TZX paths in the manifest on
 
 ## Sources
 
-- [Sinclair Wiki — Loading routine "cores"](https://sinclair.wiki.zxnet.co.uk/wiki/Loading_routine_%22cores%22)
+- [Sinclair Wiki — Loading routine "cores"](https://sinclair.wiki.zxnet.co.uk/knowledge/Loading_routine_%22cores%22)
 - [Alessandro Grussu — ZX Spectrum Loading Schemes (Speedlock 1-8 catalogue)](https://www.alessandrogrussu.it/loading/Schemes/schemes.html)
-- [Wikipedia — Fast loader (Speedlock section)](https://en.wikipedia.org/wiki/Speedlock)
+- [Wikipedia — Fast loader (Speedlock section)](https://en.wikipedia.org/knowledge/Speedlock)
 - [Craig's Retro Computing — Commercial Protection Systems (Type 1/2/3 deep dive)](https://craigsretrocomputingpage.eu5.org/howtohack/commercialprotectionsys.html)
 - [Craig's Retro Computing — Speedlock III Hacker](https://craigsretrocomputingpage.eu5.org/smashtips/games/speedlock3.html)
 - [Craig's Retro Computing — Speedlock 4 Hacker](https://craigsretrocomputingpage.eu5.org/smashtips/games/speedlock4.html)

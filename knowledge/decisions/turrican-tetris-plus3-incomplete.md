@@ -72,6 +72,6 @@ Both titles now have +3 catalogue entries (`turrican-plus3`, `tetris-plus3`) wit
 ## Related rules and decisions
 
 - RULES.md rule 20 / 21 — neither title gets a stub or a ROM trap. When they're fixed it will be by modelling whatever silicon behaviour they're checking for.
-- `wiki/decisions/marginal-encoding-model.md` — the closest precedent for "chip-level model resolves a stuck protection check."
-- `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md` — the running diagnosis log; both titles appear there with their "black-screen" symptom.
-- `wiki/decisions/no-rom-trap-load.md` — establishes the rule we're staying on the right side of.
+- `knowledge/decisions/marginal-encoding-model.md` — the closest precedent for "chip-level model resolves a stuck protection check."
+- `knowledge/decisions/spectrum-plus3-disk-loading-incomplete.md` — the running diagnosis log; both titles appear there with their "black-screen" symptom.
+- `knowledge/decisions/no-rom-trap-load.md` — establishes the rule we're staying on the right side of.

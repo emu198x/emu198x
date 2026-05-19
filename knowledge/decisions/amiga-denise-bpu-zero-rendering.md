@@ -107,6 +107,6 @@ Copper toggles BPU non-zero during display, which was never broken).
 - `crates/commodore-denise-ocs/src/lib.rs` — Denise implementation; fix at `shift_one_playfield_source_pixel`
 - `crates/machine-commodore-amiga/tests/denise_bpu_zero.rs` — regression test
 - `crates/machine-commodore-amiga/tests/kickstart_boot_invariants.rs` — tests deliberately don't assert BPU value
-- `wiki/decisions/amiga-architecture-review.md`
+- `knowledge/decisions/amiga-architecture-review.md`
 - Reference: `Emu198x-Reference/_organised/by-system/commodore-amiga/amiga-custom-chips-reference.md` — BPLCON0 register documentation
 - Cross-validation: `WinUAE/drawing.cpp::getlinetype()` (`GET_PLANES(bplcon0) == 0` → `LINETYPE_BORDER`)

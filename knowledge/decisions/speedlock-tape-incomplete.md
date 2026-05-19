@@ -504,8 +504,8 @@ Different visible *symptoms* per version but all fail before reaching a playable
 
 - RULES.md rule 20 — "No stub implementations. Every chip does what the silicon does."
 - RULES.md rule 21 — "Accuracy is foundational, not retrofitted."
-- `wiki/decisions/no-rom-trap-load.md` — the contrast: cycle-accurate playback stays, ROM-trap shortcuts are rejected.
-- `wiki/decisions/marginal-encoding-model.md` — the +3 disk Speedlock cousin that *is* closed.
+- `knowledge/decisions/no-rom-trap-load.md` — the contrast: cycle-accurate playback stays, ROM-trap shortcuts are rejected.
+- `knowledge/decisions/marginal-encoding-model.md` — the +3 disk Speedlock cousin that *is* closed.
 
 ## Resolution (2026-05-13)
 

@@ -57,7 +57,7 @@ produces a 416×312 8-bit RGBA PNG showing the classic `**** COMMODORE 64 BASIC 
 
 ## Crate
 
-`machine-commodore-c64` — owns the four chips + memory + keyboard matrix and exposes a tick loop that routes the pin-level bus between them. See `wiki/chips/mos-*.md` for each chip's individual pin contract; this page is about how the pins connect together.
+`machine-commodore-c64` — owns the four chips + memory + keyboard matrix and exposes a tick loop that routes the pin-level bus between them. See `knowledge/chips/mos-*.md` for each chip's individual pin contract; this page is about how the pins connect together.
 
 ### Modules
 
@@ -68,7 +68,7 @@ produces a 416×312 8-bit RGBA PNG showing the classic `**** COMMODORE 64 BASIC 
 
 ## Pin routing
 
-The machine layer's tick loop is where the chip pin fields actually get connected to each other — the topology described in `wiki/decisions/cpu-bus-interface.md` becomes concrete code here for the first time.
+The machine layer's tick loop is where the chip pin fields actually get connected to each other — the topology described in `knowledge/decisions/cpu-bus-interface.md` becomes concrete code here for the first time.
 
 ```
 VIC-II ──irq──────┐

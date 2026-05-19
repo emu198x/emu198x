@@ -16,7 +16,7 @@ rework we explicitly chose to avoid.
 
 ## What 1C is
 
-Per `wiki/systems/spectrum/solid-status.md` Track 1C: native menu bar with
+Per `knowledge/systems/spectrum/solid-status.md` Track 1C: native menu bar with
 **File** (Open Snapshot / Tape / Disk via `rfd`), **Machine** (variant
 selector across all 8), **State** (Save / Load), **View** (window sizing
 options). Wired to existing keyboard-shortcut equivalents (no duplicate
@@ -250,7 +250,7 @@ no runtime interaction.
   later — MCP commands become another channel sender.
 - **Per-platform native frontends.** SwiftUI / GTK4 / WinUI rewrites
   were originally framed as post-October work in
-  `wiki/decisions/native-ui-strategy.md`. **The 1C scope below may make
+  `knowledge/decisions/native-ui-strategy.md`. **The 1C scope below may make
   them unnecessary** — if muda's NSMenu / GTK4 menu / Win32 menu gives a
   sufficiently native feel and rfd's dialogs satisfy file UX, the
   cross-platform muda layer might *be* the long-term frontend rather
@@ -282,7 +282,7 @@ Implementation lands in:
 - `crates/emu198x-spectrum/src/menu.rs` (new) — muda menu construction +
   `MenuId → AppCommand` map.
 
-`wiki/systems/spectrum/solid-status.md` Track 1C log entry on completion.
+`knowledge/systems/spectrum/solid-status.md` Track 1C log entry on completion.
 
 ## Log: 2026-05-18 — muda GTK backend disabled at the workspace level
 

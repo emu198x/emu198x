@@ -968,7 +968,7 @@ on chipset features we haven't built yet in the restart:
 
 Whichever of those the cold-reset probes first is the actual missing
 piece. The next milestones (M12+) in
-`wiki/decisions/amiga-restart-plan.md` will add these one at a time;
+`knowledge/decisions/amiga-restart-plan.md` will add these one at a time;
 the `diag_memlist_diff` trace provides a stable regression signal —
 we expect the alert-flash entry to retreat further into the boot as
 features come online.
@@ -988,9 +988,9 @@ features come online.
 
 ## Related
 
-- `wiki/decisions/amiga-architecture-review.md`
-- `wiki/decisions/amiga-port-plan.md`
-- `wiki/decisions/amiga-restart-plan.md` — current restart milestones
+- `knowledge/decisions/amiga-architecture-review.md`
+- `knowledge/decisions/amiga-port-plan.md`
+- `knowledge/decisions/amiga-restart-plan.md` — current restart milestones
 - `crates/machine-commodore-amiga/tests/kickstart_boot_invariants.rs` — current tests, gated on slow-RAM config
 - `crates/machine-commodore-amiga/tests/chip_only_boot_probe.rs` — diagnostic probe added 2026-04-19
 - `crates/machine-commodore-amiga-ocs/tests/diag_memlist_diff.rs` — restart-codebase differential trace, 2026-04-20

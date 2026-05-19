@@ -51,7 +51,7 @@ write it down as tests, before touching any code.
 
 **Deliverables:**
 
-1. **Gap-list document** at `wiki/amiga/<crate>-porting-gap-list.md`.
+1. **Gap-list document** at `knowledge/amiga/<crate>-porting-gap-list.md`.
    Tabulates every register, every timer mode, every state machine
    transition the archive implements. For each entry, mark:
    - `covered-in-current-impl` — the rewrite already has this

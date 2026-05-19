@@ -5,7 +5,7 @@ This wiki is an LLM-curated knowledge base for the Emu198x project. It follows t
 ## Structure
 
 ```
-wiki/
+knowledge/
   index.md          # page catalogue — one line per page, grouped by section
   log.md            # append-only record of ingests, queries, and lint passes
   SCHEMA.md         # this file

@@ -10,7 +10,7 @@ The EDSK format supports preserving weak-sector data as multi-copy sectors: when
 
 A 2026-05-12 audit of our reference library at `~/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[DSK]` found **zero** files with multi-copy sectors. Every TOSEC +3 dump we have is single-copy. The data needed to reproduce Speedlock-6's check from disk content alone is gone.
 
-The Speedlock-6 cluster — Operation Wolf, RoboCop, Where Time Stood Still, Bad Dudes vs Dragon Ninja — all hang on the same check (FDC trace at `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md` from 2026-05-11 onwards). A 200-frame FDC trace on 2026-05-12 confirmed the failure mode: loader sits in `SeekTrack 0 → ReadID → ReadDeletedData(R=2 EOT=2) → ReadID → repeat` forever, waiting for the data delivered by `ReadDeletedData` to differ between reads. Our chip returns the same 512 bytes every time. Loader gives up.
+The Speedlock-6 cluster — Operation Wolf, RoboCop, Where Time Stood Still, Bad Dudes vs Dragon Ninja — all hang on the same check (FDC trace at `knowledge/decisions/spectrum-plus3-disk-loading-incomplete.md` from 2026-05-11 onwards). A 200-frame FDC trace on 2026-05-12 confirmed the failure mode: loader sits in `SeekTrack 0 → ReadID → ReadDeletedData(R=2 EOT=2) → ReadID → repeat` forever, waiting for the data delivered by `ReadDeletedData` to differ between reads. Our chip returns the same 512 bytes every time. Loader gives up.
 
 ## Decision
 
@@ -61,5 +61,5 @@ Stop and re-read this decision if:
 - RULES.md rule 20 — "No stub implementations. Every chip does what the silicon does." → this *is* what the silicon does.
 - RULES.md rule 21 — "Accuracy is foundational, not retrofitted." → multi-copy data path is preferred; variation recipe is the fallback for data-incomplete dumps.
 - RULES.md rule 30 — "Brainstorm before implementation." → this doc precedes the code.
-- `wiki/decisions/no-rom-trap-load.md` — the contrast case. Trap-load skips silicon execution; this models silicon execution. Different category of change.
-- `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md` — the running diagnosis log this decision closes a chapter of.
+- `knowledge/decisions/no-rom-trap-load.md` — the contrast case. Trap-load skips silicon execution; this models silicon execution. Different category of change.
+- `knowledge/decisions/spectrum-plus3-disk-loading-incomplete.md` — the running diagnosis log this decision closes a chapter of.

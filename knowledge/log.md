@@ -19,11 +19,11 @@ Append-only record of ingests, queries, and lint passes.
 - `index.md` (descriptions updated; `solid-status.md` surfaced under ZX Spectrum)
 
 **Cross-project pages updated:**
-- `~/Projects/wiki/relationships.md` — Emu198x ↔ Code198x scope alignment, both projects' October-public is Spectrum
-- `~/Projects/Code198x/wiki/decisions/october-2026-launch-spec.md` (created — Spectrum-only October spec mirroring this side)
+- `~/Projects/knowledge/relationships.md` — Emu198x ↔ Code198x scope alignment, both projects' October-public is Spectrum
+- `~/Projects/Code198x/knowledge/decisions/october-2026-launch-spec.md` (created — Spectrum-only October spec mirroring this side)
 - `~/Projects/Code198x/docs/CLAUDE.md` — session-start launch anchor for that project
-- `~/Projects/Code198x/wiki/SCHEMA.md`, `~/Projects/Emu198x/wiki/SCHEMA.md`, `~/Projects/NetNodes/wiki/SCHEMA.md` — freshness/staleness conventions added (precedence, supersede markers, "as of" dating, archive treatment)
-- `~/Projects/NetNodes/wiki/decisions/{design-system,css-native-migration}.md` (created — promoted from memory)
+- `~/Projects/Code198x/knowledge/SCHEMA.md`, `~/Projects/Emu198x/knowledge/SCHEMA.md`, `~/Projects/NetNodes/knowledge/SCHEMA.md` — freshness/staleness conventions added (precedence, supersede markers, "as of" dating, archive treatment)
+- `~/Projects/NetNodes/knowledge/decisions/{design-system,css-native-migration}.md` (created — promoted from memory)
 
 ### Key decisions
 
@@ -64,7 +64,7 @@ Phase 1 closes when all 8 variants compile and boot; SNA is a discoverable crate
 
 ### Phase 1 result — gap list
 
-Read `wiki/systems/{spectrum/overview.md,commodore-c64.md,nintendo-nes.md,commodore-amiga.md}` and adjacent pages. Per-system gap to "October-ready":
+Read `knowledge/systems/{spectrum/overview.md,commodore-c64.md,nintendo-nes.md,commodore-amiga.md}` and adjacent pages. Per-system gap to "October-ready":
 
 - **Spectrum** — 4 of 11 catalogue models have a real-ROM boot (48K, 128K, +3, Pentagon). 7 model classes lack proof. No real-game tape regression analogous to C64. No real-disk +3 game proof. Signal Part 3 passing (the existing acid test).
 - **C64** — strongest real-software bench of the four (4 tape titles, 3 disk titles named). Gaps: SID famous-tune validation, NTSC PAL-parity, cartridges (whole subsystem deferred), VIC-II raster-effect representative-game proof, 1541 writeback.
@@ -147,7 +147,7 @@ Amiga is in shippable shape. OCS A500 + KS 1.3 + WB 1.3 desktop and ECS A500+ + 
 
 ### Phase 1 scope
 
-Read `wiki/systems/<name>/overview.md` for **Spectrum**, **C64**, and **NES** (and skim the existing Amiga overview for parity-of-bar). For each, build an honest answer to **one question**:
+Read `knowledge/systems/<name>/overview.md` for **Spectrum**, **C64**, and **NES** (and skim the existing Amiga overview for parity-of-bar). For each, build an honest answer to **one question**:
 
 > "What is the gap between the current state and 'ships as a working October platform'?"
 
@@ -196,10 +196,10 @@ Three things the user needs to decide once the gap list is concrete:
 ### Concrete first move next session
 
 Read these in order, take notes:
-- `wiki/systems/spectrum/overview.md`
-- `wiki/systems/commodore-c64.md`
-- `wiki/systems/nintendo-nes.md`
-- `wiki/systems/commodore-amiga.md` (skim — for parity-of-bar)
+- `knowledge/systems/spectrum/overview.md`
+- `knowledge/systems/commodore-c64.md`
+- `knowledge/systems/nintendo-nes.md`
+- `knowledge/systems/commodore-amiga.md` (skim — for parity-of-bar)
 
 Then write the gap list as four short sections (one per system), each answering "what's missing from October-ready?" That gap list is the input to a brainstorming session with the user about which gaps to close in what order. **Do not start implementing fixes** until the gap list is reviewed — Phase 1 is inventory, not execution.
 
@@ -289,9 +289,9 @@ Both pieces of Phase 0 done. The Amiga ECS A500+ track is now fully shippable fo
 
 ### Next session — Phase 1: cross-system inventory
 
-The October 2026 CRASH! Live launch (per `wiki/decisions/product-roadmap.md`) targets four systems in priority order: Spectrum, C64, NES, Amiga. The Amiga track is in good shape — the next investment is pivoting to assess what each other October system needs.
+The October 2026 CRASH! Live launch (per `knowledge/decisions/product-roadmap.md`) targets four systems in priority order: Spectrum, C64, NES, Amiga. The Amiga track is in good shape — the next investment is pivoting to assess what each other October system needs.
 
-Concrete first move: read `wiki/systems/*` for each target, identify the actual gap to "ship as October platform" for each (game compatibility, capture pipeline support, CRT filter, launcher infra). The gap list becomes Phase 1's scope. **Do not pull the A600 / A2000B / A3000 / AGA Amiga work forward** — per the roadmap that's all post-October.
+Concrete first move: read `knowledge/systems/*` for each target, identify the actual gap to "ship as October platform" for each (game compatibility, capture pipeline support, CRT filter, launcher infra). The gap list becomes Phase 1's scope. **Do not pull the A600 / A2000B / A3000 / AGA Amiga work forward** — per the roadmap that's all post-October.
 
 ---
 
@@ -603,7 +603,7 @@ vAmiga's `Beam.h` / `Beam.cpp` (Hoffmann, MPL-2). The model:
 
 ## 2026-05-01 — Amiga runtime: generic conversion to `AmigaRuntime<M: AmigaMachine>`
 
-**Type:** architectural conversion. Zero new chip code, zero new variants — pure shape change matching the Spectrum playbook in `wiki/decisions/runtime-internal-shape.md`.
+**Type:** architectural conversion. Zero new chip code, zero new variants — pure shape change matching the Spectrum playbook in `knowledge/decisions/runtime-internal-shape.md`.
 **Trigger:** the open queue's "Amiga ECS/AGA/SAGA conversion" item, brainstormed up-front. The user confirmed the long-term scope extends to **Apollo Vampire FPGA + AC68080**, **PiStorm**, and **RTG framebuffer expansions** — not just Commodore-era ECS/AGA chipsets. NTSC PAL/NTSC region matrix is also in scope. Together these three axes (chipset / CPU + accelerator / region) ruled out a "small trait surface that only describes OCS+wrappers" — the trait has to be agnostic to which CPU is running, which chipset is producing the framebuffer, and (at the dimensions level) whether output is chipset-only or chipset + RTG.
 
 **Scope chosen for this session (option C from brainstorm):** trait + generic runtime + retain the 5 existing PAL OCS variants. NTSC variants and ECS/AGA/SAGA/Vampire/PiStorm/RTG chip work all explicitly deferred — adding NTSC requires fixing the chip-layer short/long-line alternation in `commodore-agnus-ocs` first (HRM p. 785), which is real work and shouldn't be bundled into a runtime conversion session.
@@ -668,7 +668,7 @@ Design choices that bake in long-term scope without writing speculative code tod
 
 ### Decisions / memory updates
 
-- `wiki/decisions/runtime-internal-shape.md` — the table row for `runtime-commodore-amiga` flips from "not yet — concrete `AmigaOcs`" to "✅ — `AmigaRuntime<M: AmigaMachine>` with `AmigaOcsRuntime` alias".
+- `knowledge/decisions/runtime-internal-shape.md` — the table row for `runtime-commodore-amiga` flips from "not yet — concrete `AmigaOcs`" to "✅ — `AmigaRuntime<M: AmigaMachine>` with `AmigaOcsRuntime` alias".
 - `~/.claude/.../memory/project_amiga_long_term_scope.md` — new memory note pinning the long-term Amiga targets (Vampire AC68080 + SAGA + PiStorm + RTG + NTSC), so future sessions know the trait was designed for this scope and don't strip generality on the assumption "Amiga = Commodore Amiga".
 
 ---
@@ -839,7 +839,7 @@ Added eight methods to the `SpectrumMachine` trait. Six are required (every vari
 | `variant_query_paths() -> &'static [&'static str]` | default = `&[]` | Variant-specific path catalogue |
 | `resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError>` | default = `Ok(None)` | Variant-specific dispatcher |
 
-The two new defaulted methods are the per-variant extension hook documented in `wiki/decisions/runtime-internal-shape.md` ("the per-variant generic axis" — same shape as the runtime itself). Adding methods with default impls is a compatible change for the existing 7 variant impls in the workspace plus any future ones.
+The two new defaulted methods are the per-variant extension hook documented in `knowledge/decisions/runtime-internal-shape.md` ("the per-variant generic axis" — same shape as the runtime itself). Adding methods with default impls is a compatible change for the existing 7 variant impls in the workspace plus any future ones.
 
 ### Per-variant query exposure
 
@@ -934,9 +934,9 @@ The Spectrum query coverage is now uniform across the family; further enrichment
 
 ### How this is documented for future contributors
 
-Both files are now flagged in their respective `lib.rs` module-doc comments as "skeleton coverage, exercised by variant work" — TODO: add the comment in a small follow-up commit when the variant work begins, alongside the per-variant code. For now the wiki/log entry is the record.
+Both files are now flagged in their respective `lib.rs` module-doc comments as "skeleton coverage, exercised by variant work" — TODO: add the comment in a small follow-up commit when the variant work begins, alongside the per-variant code. For now the knowledge/log entry is the record.
 
-The Cov-5d open queue (in commit 14a7e58's wiki/log entry) has its first three bullets effectively closed:
+The Cov-5d open queue (in commit 14a7e58's knowledge/log entry) has its first three bullets effectively closed:
 - ~~`motorola-68k-common/src/alu.rs`~~ — kept; coverage will rise when variants land
 - ~~`motorola-68000/src/disasm.rs`~~ — kept; trace tests are sufficient ground truth
 - ~~Verifier binaries~~ — separate decision (low by design; headless smoke tests as a future feature)
@@ -1290,7 +1290,7 @@ Unreachable through the public API or belt-and-braces error paths:
 Cov-5 + Cov-5b close the directed-test track. Open queue:
 
 1. **Spectrum query-provider generalisation.** `spectrum_48k.rs` is 48K-only; the other 6 variants get nothing through `SessionQueryProvider`. Feature work, separate decision — not refactoring.
-2. **Amiga ECS/AGA/SAGA conversion.** When variant work begins, generalise `AmigaRuntime` to `AmigaRuntime<M: AmigaMachine>` per the Spectrum playbook in `wiki/decisions/runtime-internal-shape.md`. The four 68k variant crates (today honest skeletons) receive their first real implementations.
+2. **Amiga ECS/AGA/SAGA conversion.** When variant work begins, generalise `AmigaRuntime` to `AmigaRuntime<M: AmigaMachine>` per the Spectrum playbook in `knowledge/decisions/runtime-internal-shape.md`. The four 68k variant crates (today honest skeletons) receive their first real implementations.
 3. **Cov-5c (potential).** No currently-uncovered runtime modules below 80% line coverage. Workspace-wide coverage check could surface other crates worth a Cov-4-style pass — but the immediate runtime-family work is done.
 
 ---
@@ -1389,7 +1389,7 @@ The big chip splits track + the variant-code reduction track are now both closed
 
 1. **Cov-5b — directed-test passes for GB / NES / Amiga / Spectrum.** Same Cov-4-style work that took C64 `queries.rs` from 64% → 98% line coverage. Per-module coverage is now legible across all five runtimes.
 2. **Spectrum query-provider generalisation.** `spectrum_48k.rs` is variant-specific; the other 6 variants get nothing through `SessionQueryProvider`. Feature work, separate decision.
-3. **Amiga ECS/AGA/SAGA conversion.** When variant work begins, generalise `AmigaRuntime` to `AmigaRuntime<M: AmigaMachine>` per the Spectrum playbook in `wiki/decisions/runtime-internal-shape.md`. The 68k variant crates (now honest skeletons) will receive their first real implementations during this work.
+3. **Amiga ECS/AGA/SAGA conversion.** When variant work begins, generalise `AmigaRuntime` to `AmigaRuntime<M: AmigaMachine>` per the Spectrum playbook in `knowledge/decisions/runtime-internal-shape.md`. The 68k variant crates (now honest skeletons) will receive their first real implementations during this work.
 
 ---
 
@@ -1555,7 +1555,7 @@ Cov-5 — applying directed-test passes to GB / NES / Amiga / Spectrum the way C
 
 The user also flagged that this pattern needs to be written down as a decision record so future contributors don't have to rediscover it.
 
-**Result:** Spectrum split into the four-concern shape with `<M: SpectrumMachine>` threading through; new `wiki/decisions/runtime-internal-shape.md` captures the rule with drift triggers; `wiki/index.md` linked.
+**Result:** Spectrum split into the four-concern shape with `<M: SpectrumMachine>` threading through; new `knowledge/decisions/runtime-internal-shape.md` captures the rule with drift triggers; `knowledge/index.md` linked.
 
 ### The hybrid split
 
@@ -1599,7 +1599,7 @@ All 9 inline `src/variants.rs` tests moved verbatim to `tests/variants.rs`. Zero
 
 **Test count proof.** Pre-split: lib 17 + (boot_invariants 3+1) + (runtime_48k 10+5) = 30 passed, 6 ignored. Post-split: lib 8 + (boot_invariants 3+1) + (runtime_48k 10+5) + (variants 9+0) = 30 passed, 6 ignored. Net: 9 lib tests moved to integration; nothing new added, nothing missing.
 
-### New decision record: `wiki/decisions/runtime-internal-shape.md`
+### New decision record: `knowledge/decisions/runtime-internal-shape.md`
 
 Captures:
 - The four-concern split (`runtime.rs` / `queries.rs` / `snapshot.rs` / `input.rs`) inside every `runtime-{family}` crate.
@@ -1609,7 +1609,7 @@ Captures:
 - Honest exclusions: `spectrum_48k.rs` is variant-specific feature scope, not architectural smell; `autoload.rs`/`file_loader.rs`/`profiles.rs` are family-specific and only exist where there's something to put in them.
 - Update procedure: future shape changes update the record first, then the code.
 
-Linked from `wiki/index.md` under the Decisions section, immediately after `within-family-layering.md`.
+Linked from `knowledge/index.md` under the Decisions section, immediately after `within-family-layering.md`.
 
 ### What's next
 
@@ -2431,19 +2431,19 @@ Amiga, Spectrum, and the wiki index.
 
 Highlights:
 
-- `wiki/systems/commodore-c64.md` now treats the C64 as a live
+- `knowledge/systems/commodore-c64.md` now treats the C64 as a live
   fresh-workspace system, including runtime snapshots, TAP media,
   PRG/BAS/T64 import, and the optional ROM-backed 1541/`D64`
   drive-8 path.
-- `wiki/systems/nintendo-nes.md` now has a dated current-status
+- `knowledge/systems/nintendo-nes.md` now has a dated current-status
   summary matching the NROM-only `MachineCore` runtime, `nestest`
   proof, `Super Mario Bros.` rendering, and remaining snapshot /
   DMC-DMA gaps.
-- `wiki/systems/commodore-amiga.md` now reflects the OCS PAL
+- `knowledge/systems/commodore-amiga.md` now reflects the OCS PAL
   runtime catalogue: real A1000 bootstrap/WOM support, A500-family
   RAM profiles, Workbench 1.3 desktop golden coverage, and the
   current empty runtime-audio placeholder.
-- `wiki/systems/spectrum/overview.md` now describes the 11-model
+- `knowledge/systems/spectrum/overview.md` now describes the 11-model
   catalogue, 7 machine-crate shape, generic runtimes for non-48K
   variants, and the current `emu198x-spectrum` runner.
 
@@ -2464,15 +2464,15 @@ timeouts, or load errors across `acceptance`,
 
 Docs refreshed:
 
-- `wiki/systems/nintendo-game-boy/overview.md` now reflects current
+- `knowledge/systems/nintendo-game-boy/overview.md` now reflects current
   runtime scope, skipped-boot profiles, MBC2 support, timer reload
   accuracy, OAM DMA status, and Phase 2 verification status.
-- `wiki/systems/nintendo-game-boy/timing.md` is no longer marked as
+- `knowledge/systems/nintendo-game-boy/timing.md` is no longer marked as
   a stub and calls out the remaining OAM DMA bus-blocking gap.
-- `wiki/chips/sharp-lr35902.md` now treats the pin interface and
+- `knowledge/chips/sharp-lr35902.md` now treats the pin interface and
   state-machine shape as implemented, with system-level Blargg /
   mooneye coverage.
-- `wiki/index.md` now describes the Game Boy page as current DMG
+- `knowledge/index.md` now describes the Game Boy page as current DMG
   runtime documentation rather than a planned port.
 
 The remaining major Game Boy-family work is CGB, boot-ROM execution,
@@ -2526,7 +2526,7 @@ OAM DMA bus blocking, per-PPU-mode VRAM/OAM gating, 1-m-cycle
 TIMA reload delay, MBC2. Phase 2 (Blargg + mooneye + dmg-acid2)
 will pull on the ones it needs.
 
-`wiki/systems/nintendo-game-boy/overview.md` updated to mark step
+`knowledge/systems/nintendo-game-boy/overview.md` updated to mark step
 9 done with the runtime's surface called out.
 
 ---
@@ -2572,7 +2572,7 @@ much stronger guarantee than Blargg cpu_instrs would have given
 (Blargg only validates final register state via a serial-output
 trick), and it doesn't need a cartridge fixture to run.
 
-`wiki/chips/sharp-lr35902.md` updated with the test status and a
+`knowledge/chips/sharp-lr35902.md` updated with the test status and a
 "future Blargg coverage" section deferred to once the Game Boy
 machine layer exists.
 
@@ -2587,26 +2587,26 @@ of the port is "write down the shape and the binding decisions so
 crates land against a known target".
 **Result:** four pages added:
 
-1. `wiki/decisions/sm83-abstraction-level.md` — m-cycle chosen over
+1. `knowledge/decisions/sm83-abstraction-level.md` — m-cycle chosen over
    T-cycle. Generalises [half-cycle signals](decisions/half-cycle-signals.md)
    into the rule "match the finest-grained observation any
    component makes of the CPU". Lists every SM83 observer (bus,
    PPU, APU, DMA, timer, interrupts) and confirms none go below
    m-cycle. Pin-level rule still applies at m-cycle grain.
-2. `wiki/systems/nintendo-game-boy/overview.md` — family home.
+2. `knowledge/systems/nintendo-game-boy/overview.md` — family home.
    Phased crate plan (CPU → common → PPU → APU → timer → MBC →
    format → machine → runtime) and the acceptance bar (Blargg
    `cpu_instrs`, `instr_timing`, `mem_timing`; mooneye-gb
    acceptance; `dmg-acid2`).
-3. `wiki/chips/sharp-lr35902.md` — chip stub. Instruction-set
+3. `knowledge/chips/sharp-lr35902.md` — chip stub. Instruction-set
    deltas from Z80 / 8080, planned pin interface, m-cycle state
    machine shape lifted from `sm83.zig`, interrupt model, test
    coverage plan.
-4. `wiki/systems/nintendo-game-boy/timing.md` — master clock
+4. `knowledge/systems/nintendo-game-boy/timing.md` — master clock
    (4.194304 MHz), m-cycle derivation, PPU mode splits,
    timer / frame-sequencer rates, OAM DMA timing.
 
-`wiki/index.md` updated with links in Chips, Systems, and
+`knowledge/index.md` updated with links in Chips, Systems, and
 Decisions sections. No code written; `sharp-lr35902` crate and
 the Game Boy machine / runtime remain unimplemented.
 
@@ -2624,7 +2624,7 @@ the Game Boy machine / runtime remain unimplemented.
 5. **Variant machines:** `machine-pentagon-128`, `machine-scorpion-zs256`, `machine-timex-tc2048`, `machine-timex-ts2068`.
 6. **128K and +2/+2A/+3 machines:** `machine-sinclair-zx-spectrum-128k`, `machine-sinclair-zx-spectrum-plus`.
 7. **Generic runtime:** `runtime-sinclair-zx-spectrum` wraps every variant in a `MachineCore` shape; the `SpectrumDriver` trait (designed 2026-04-08) is finally implemented across all seven machines.
-8. **Family decision:** [`wiki/decisions/within-family-layering.md`](decisions/within-family-layering.md) — five-piece structure (common / chip / format / machine / runtime) the family follows. Future families inherit this template; Game Boy validates it the next day.
+8. **Family decision:** [`knowledge/decisions/within-family-layering.md`](decisions/within-family-layering.md) — five-piece structure (common / chip / format / machine / runtime) the family follows. Future families inherit this template; Game Boy validates it the next day.
 
 **Verification:** all 11 Spectrum variants boot in headless and native shells. ZEXDOC / ZEXALL / FUSE stay green on the shared Z80 core.
 **Consequence:** Spectrum is the first family to fully realise the within-family-layering pattern. The shape is now copy-pasteable for any Z80, 6502, 68000, or 6809 family — and within hours, was reused for the Game Boy port.
@@ -2662,7 +2662,7 @@ The seven `*-archive` crates retire in the same wave. Cross-cutting boot integra
 
 **Type:** decision (process)
 **Trigger:** The chip-only KS 1.3 restart wave (M0–M9) was completing, and the next wave was a multi-archive port across `commodore-paula-8364-archive`, `commodore-agnus-ocs-archive`, `commodore-denise-ocs-archive`, `peripheral-commodore-amiga-floppy-archive`, and several others. Without a documented process, the same shape would be reinvented per chip.
-**Result:** [`wiki/decisions/archive-port-methodology.md`](decisions/archive-port-methodology.md) lands. Three phases per archive crate:
+**Result:** [`knowledge/decisions/archive-port-methodology.md`](decisions/archive-port-methodology.md) lands. Three phases per archive crate:
 1. **Phase 1 — characterise.** Read the archive crate. Write characterisation tests against the *archive's* current behaviour (gap list, register-by-register coverage). The tests live in the *live* crate from the start.
 2. **Phase 2 — port-with-tests.** Re-author the archive's API in the live crate against the post-rewrite rules (pin-level CPU bus, no Bus trait, named bits, typed audio fields, private state). The Phase 1 tests become Phase 2's regression net.
 3. **Phase 3 — integrate.** Wire the live crate into the machine. Retire the `*-archive` crate in the same commit so the workspace never has both.
@@ -2700,7 +2700,7 @@ The methodology is the parent of the 2026-04-21 archive cleanup wave that retire
 
 **Type:** decision (proposed)
 **Trigger:** After two weeks of repeated boot-blocking bugs in the Amiga (CIA double-read, byte-lane conventions, MFM compatibility, free-list corruption), the project needed an honest review of *where* the friction was concentrated. The architectural spine ([CPU bus interface](decisions/cpu-bus-interface.md), [No Bus trait](decisions/no-bus-trait.md), [System-specific run loops](decisions/system-specific-run-loops.md)) had proven correct on Spectrum / C64 / NES; the question was whether the Amiga implementation needed re-foundation or only seam-level tightening.
-**Result:** [`wiki/decisions/amiga-architecture-review.md`](decisions/amiga-architecture-review.md) lands, status **Proposed (draft for review)**. The verdict: the spine stays; five implementation seams need work:
+**Result:** [`knowledge/decisions/amiga-architecture-review.md`](decisions/amiga-architecture-review.md) lands, status **Proposed (draft for review)**. The verdict: the spine stays; five implementation seams need work:
 1. **`service_cpu_bus`** in `machine-commodore-amiga` — restructure into a `BusTransaction` / `BusResponse` shape; the function is currently a 3000-line traffic cop with four byte-lane conventions in flight.
 2. **Disk DMA path** straddles four crates — Paula should own the read state machine end-to-end (WORDSYNC, sync-stripping, DSKBYTR, DSKBLK IRQ).
 3. **Custom register byte-write merge latch** is hand-maintained machine-side — chip-owned `read_register_word` instead.
@@ -2718,7 +2718,7 @@ The order of work is sized for leverage: seam 2 first (actual boot blocker), sea
 **Trigger:** The Amiga port consumes structural and behavioural information from vAmiga (GPL-3.0-or-later); the NES port from Mesen2 (GPL-2.0-or-later). The original MIT licence created a one-way licence-incompatibility risk if any port crossed from "idea-level" into "derivative work" territory.
 **Result:** workspace relicensed to **GPL-2.0-or-later** via `9254c3e`. `LICENSE`, every member crate's `Cargo.toml`, and the workspace `[workspace.package] license` field now read `GPL-2.0-or-later`. The "or-later" clause keeps GPL-3 reference material (vAmiga) consumable — GPL-2.0-or-later code can be relicensed forward.
 **Verification:** `cargo metadata --format-version 1` confirms every member crate declares `GPL-2.0-or-later`. README updated.
-**Consequence:** the project can now consume GPL-2 and GPL-3 reference code without licence-compatibility worry. Reverse-direction copy from this project must respect GPL terms; `wiki/decisions/archives-as-source.md` records the source provenance for every archive port.
+**Consequence:** the project can now consume GPL-2 and GPL-3 reference code without licence-compatibility worry. Reverse-direction copy from this project must respect GPL terms; `knowledge/decisions/archives-as-source.md` records the source provenance for every archive port.
 
 ---
 
@@ -3389,7 +3389,7 @@ The order of work is sized for leverage: seam 2 first (actual boot blocker), sea
 1. Added `common-commodore-c64` with baseline PAL and NTSC breadbin timing constants: φ2 clock, raster geometry, CIA TOD dividers, and archived VIC-II capture window dimensions.
 2. Added `runtime-commodore-c64` as the new family catalogue crate. It currently exposes PAL and NTSC breadbin research-tier profiles only, with three required ROMs and baseline tape/disk/cartridge slots.
 3. Chose `phi2-cycle` as the authoritative profile clock for now instead of inventing a master-clock contract before the fresh workspace has a live VIC-II/6510 timing loop to anchor it.
-4. Added a historical warning at the top of `wiki/systems/commodore-c64.md` so the old archived implementation-status text stops reading like current repo truth.
+4. Added a historical warning at the top of `knowledge/systems/commodore-c64.md` so the old archived implementation-status text stops reading like current repo truth.
 **Verification:** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` should pass once the new crates are wired in.
 **Next dependency:** the next real C64 slice is no longer more metadata. It is the first machine-facing substrate: 6510/port banking boundaries, keyboard matrix state, and the minimal VIC-II/CIA-aware clock model that a future boot path can actually stand on.
 
@@ -3619,7 +3619,7 @@ The order of work is sized for leverage: seam 2 first (actual boot blocker), sea
 1. Added shared test-support lookup in `crates/zilog-z80/tests/support/mod.rs` for the Tom Harte Z80 corpus, ZEX binaries, and future FUSE fixtures. The harnesses now respect explicit environment variables first and then fall back to known local archive roots, including `~/Projects/Emu198x-Unclean/Reference/test-suites/...`.
 2. Updated `single_step_tests.rs` to use that shared lookup path. The full Tom Harte run was then executed against the local `processor-tests/z80/v1` corpus and passed completely: **1,604,000 / 1,604,000 cases passing, 0 failed opcodes**.
 3. Updated `zex_tests.rs` to discover local `zexdoc.com` / `zexall.com`, treat BDOS function 9 output as line-level progress rather than raw character spam, stop duplicating each BDOS call four times, and honor the exerciser's own `"complete"` message as the intended completion boundary instead of relying only on a final `HALT`.
-4. Added an explicit reference-adjudication note to `wiki/concepts/test-methodology.md`: Tom Harte remains the primary per-instruction oracle, ZEX remains the program-level CPU regression suite, and FUSE stays a strong secondary reference for Spectrum-visible timing and bus behavior. Disagreements are to be recorded and resolved, not papered over.
+4. Added an explicit reference-adjudication note to `knowledge/concepts/test-methodology.md`: Tom Harte remains the primary per-instruction oracle, ZEX remains the program-level CPU regression suite, and FUSE stays a strong secondary reference for Spectrum-visible timing and bus behavior. Disagreements are to be recorded and resolved, not papered over.
 **Verification:** `cargo test -p zilog-z80 --test single_step_tests run_opcode_00 -- --ignored --nocapture` passes against the local corpus (`1000/1000`). `cargo test -p zilog-z80 --test single_step_tests run_all -- --ignored --nocapture` passes with `1,604,000 / 1,604,000` cases. The improved `zexdoc` harness was exercised far enough to confirm correct local binary discovery and sane block-by-block progress reporting, but a full fresh-workspace ZEX rerun was not completed in this session.
 **Next dependency:** if we want routine ZEX use rather than occasional long manual runs, the worthwhile next step is the per-block stop/resume or snapshot instrumentation Steve mentioned earlier, so a failing exerciser block can be isolated without replaying the entire program from the beginning.
 
@@ -3995,7 +3995,7 @@ All three wired into `machine-commodore-amiga`:
 
 1. **2A03 CPU variant** — `M6502::new_2a03()` constructor sets `decimal_disabled: true`, gating the BCD paths in `alu_adc` and `alu_sbc`. Validated against the Tom Harte NES fixture (`nes6502/v1/`): **2 470 000 / 2 470 000 stable opcodes passing, zero regressions.** Same 9 unstable undocumented opcodes excluded. Bonus: `6b` (ARR #imm) passes 10 000/10 000 on NES because BCD disabled makes it deterministic.
 2. **`format-nintendo-nes-ines` crate** — iNES 1.0 + NES 2.0 header parser, `Mapper` trait, NROM (mapper 0) implementation. 17 tests covering 16 KiB/32 KiB PRG, CHR ROM/RAM, mirroring modes, PRG RAM, battery flag, NES 2.0 12-bit mapper numbers, error cases. The other 47 mappers from the archive are deferred until the PPU crate is online.
-3. **`wiki/decisions/nes-clock-topology.md`** — formal decision doc for the NES master-clock-driven tick loop (RULES.md item 1), PPU every dot, CPU every 3rd dot, pin contracts for PPU/CPU/Mapper, drift triggers, OAMDMA/DMC DMA stall shapes.
+3. **`knowledge/decisions/nes-clock-topology.md`** — formal decision doc for the NES master-clock-driven tick loop (RULES.md item 1), PPU every dot, CPU every 3rd dot, pin contracts for PPU/CPU/Mapper, drift triggers, OAMDMA/DMC DMA stall shapes.
 
 **New crates:** `format-nintendo-nes-ines` (17 tests)
 **Pages created:** `decisions/nes-clock-topology.md`

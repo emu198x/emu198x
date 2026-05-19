@@ -556,7 +556,7 @@ bug — narrowing the next investigation.
 
 - ~~**The "loader stripes" Speedlock-6 cluster.**~~ **RESOLVED
   2026-05-12** via the marginal-encoding model
-  (`wiki/decisions/marginal-encoding-model.md`). The actual
+  (`knowledge/decisions/marginal-encoding-model.md`). The actual
   failure mode wasn't a status-byte shape mismatch — it was a
   weak-sector check. Op Wolf's loader (and the other three
   titles in the cluster) re-reads track 0 sector 2 indefinitely,

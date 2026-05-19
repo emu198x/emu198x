@@ -69,7 +69,7 @@ The fresh runtime layer (`runtime-nintendo-nes`) owns:
 - `MachineCore` translation over cartridge media, frame/audio sinks, and shared input events
 - a small query surface (`nes.cartridge.loaded`, `nes.machine.frame_count`, `nes.cpu.pc`, `nes.ppu.scanline`, `nes.ppu.dot`)
 
-The tick loop follows `wiki/decisions/nes-clock-topology.md` exactly:
+The tick loop follows `knowledge/decisions/nes-clock-topology.md` exactly:
 
 ```rust
 fn tick(&mut self) {

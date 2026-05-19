@@ -123,8 +123,8 @@ The 48K-class, 128K-class, and Amstrad-class composition crates all expose `rest
 
 1. Add an `audio_routing_version: u32` constant in `common-sinclair-zx-spectrum::audio` (and equivalents for the AY mix path). Bump when audio routing semantics change. The catalogue carries the version it was captured against; a mismatch fails loud with an instruction to re-capture.
 2. The same pattern for `frame_routing_version` once the ULA shifter (Seam 1) lands — pipeline-depth changes will alter every catalogue frame-hash that touches active video. Use the version bump to gate the re-capture.
-3. A `wiki/decisions/spectrum-architecture-review.md` (this doc) plus a `wiki/log.md` entry naming the routing-version bumps and the re-capture wave, so future sessions can trace which hashes correspond to which routing.
-4. Refresh `wiki/systems/spectrum/solid-status.md` §1 against the current code in the same commit as the AY routing-version bump.
+3. A `knowledge/decisions/spectrum-architecture-review.md` (this doc) plus a `knowledge/log.md` entry naming the routing-version bumps and the re-capture wave, so future sessions can trace which hashes correspond to which routing.
+4. Refresh `knowledge/systems/spectrum/solid-status.md` §1 against the current code in the same commit as the AY routing-version bump.
 
 **Scope.** ~30 lines in the catalogue harness plus the version constants. The audit is one-shot work tied to closing the AY thread and Seam 1.
 
@@ -144,7 +144,7 @@ The 48K-class, 128K-class, and Amstrad-class composition crates all expose `rest
 
 - `int_asserts_at_canonical_t_state` — per variant (48K: scan 248 pixel 1; 128K: same; Pentagon: scan 256).
 - `first_display_byte_on_bus_at_canonical_t_state` — Float48K strict, no env-var gate, must print 14338 on 48K-class and 14364 on 128K-class.
-- `contention_table_matches_canonical_for_known_window` — assert the contention pattern over T=14335..14400 against the table in `wiki/systems/spectrum/contention.md`.
+- `contention_table_matches_canonical_for_known_window` — assert the contention pattern over T=14335..14400 against the table in `knowledge/systems/spectrum/contention.md`.
 - `paging_lock_persists_across_reset` — 128K-family + Amstrad-class.
 - `kempston_attaches_on_first_gamepad_event` — once Seam 2 lands.
 
@@ -160,7 +160,7 @@ Recorded here because the audit examined them and they are not seams. Future ses
 
 ### AY chip output not reaching the audio mixer on 128K-class / Amstrad-class
 
-Reported in `wiki/systems/spectrum/solid-status.md` §1 as of 2026-05-15. Fixed in code: `crates/common-sinclair-zx-spectrum-128k-class/src/core.rs:360-362` and `crates/common-sinclair-zx-spectrum-amstrad-class/src/core.rs:424-426` both call `mix_ay_into_audio` end-of-frame. Seam 4 closes the documentation drift.
+Reported in `knowledge/systems/spectrum/solid-status.md` §1 as of 2026-05-15. Fixed in code: `crates/common-sinclair-zx-spectrum-128k-class/src/core.rs:360-362` and `crates/common-sinclair-zx-spectrum-amstrad-class/src/core.rs:424-426` both call `mix_ay_into_audio` end-of-frame. Seam 4 closes the documentation drift.
 
 ### Pentagon/Scorpion serde fallback to `CONFIG_48K`
 
@@ -269,7 +269,7 @@ In order of leverage for unblocking October-public and protecting future capture
 ## Non-goals
 
 - Refactoring the Z80 internals. Tom Harte 100% is the bar; nothing here changes the CPU.
-- Touching the contention tables. The numbers in `wiki/systems/spectrum/contention.md` are correct against FUSE; only the *position* of the first fetch moves (Seam 1).
+- Touching the contention tables. The numbers in `knowledge/systems/spectrum/contention.md` are correct against FUSE; only the *position* of the first fetch moves (Seam 1).
 - Splitting the class layer crates. The three-class shape (48K / 128K / Amstrad) is right; the seam fixes are internal.
 - Pentagon/Scorpion/Timex. Engineering bar, post-October.
 - Anything in the runtime/headless-runner layer beyond the input-routing extension.

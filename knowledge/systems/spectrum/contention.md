@@ -63,7 +63,7 @@ The [Z80](../../chips/zilog-z80.md) bus interface exposes contention via these m
 
 ## Sources
 
-- https://sinclair.wiki.zxnet.co.uk/wiki/Contended_memory
-- https://sinclair.wiki.zxnet.co.uk/wiki/Contended_I/O
+- https://sinclair.wiki.zxnet.co.uk/knowledge/Contended_memory
+- https://sinclair.wiki.zxnet.co.uk/knowledge/Contended_I/O
 - Chris Smith, *The ZX Spectrum ULA* (book)
 - FUSE emulator contention tables (gold standard)
