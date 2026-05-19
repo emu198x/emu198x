@@ -14,6 +14,20 @@
 //! uses the same blend ratios, so they share this one struct rather than
 //! re-spelling the literal in each crate.
 
+/// Audio routing version. Bumped when the audio path through this crate
+/// (beeper mix, EAR mix, AY mix, speaker → audio_frame routing) changes in
+/// a way that invalidates previously-captured audio hashes in the
+/// catalogue. The catalogue manifest carries the version each hash was
+/// captured against; a mismatch fails loud with a re-capture instruction.
+///
+/// **Version 1** (2026-05-19): audio path with AY mix wired in for 128K-class
+/// and Amstrad-class via `mix_ay_into_audio` end-of-frame. Beeper + EAR
+/// blend ratios fixed at 0.8 / 0.2 in `SpeakerMixer::level`.
+///
+/// See `knowledge/decisions/spectrum-architecture-review.md` Seam 4 for
+/// the re-capture discipline this constant enforces.
+pub const AUDIO_ROUTING_VERSION: u32 = 1;
+
 /// Combined beeper + tape-EAR speaker line state with the canonical blend
 /// ratios (0.8 for the beeper output, 0.2 for the tape EAR input).
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]

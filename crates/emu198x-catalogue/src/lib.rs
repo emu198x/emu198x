@@ -87,6 +87,17 @@ pub struct SystemMeta {
     /// Per-variant firmware lookup. Empty for systems without a BIOS.
     #[serde(default)]
     pub firmware: Vec<VariantFirmware>,
+    /// Routing version the audio hashes in this manifest were captured
+    /// against. Compared per-system at run time against the system's
+    /// `AUDIO_ROUTING_VERSION` constant. `None` skips the check (legacy
+    /// manifests). Mismatch fails loud with a re-capture instruction.
+    /// See `wiki/decisions/spectrum-architecture-review.md` Seam 4.
+    #[serde(default)]
+    pub audio_routing_version: Option<u32>,
+    /// Routing version the frame hashes in this manifest were captured
+    /// against. Same semantics as `audio_routing_version`.
+    #[serde(default)]
+    pub frame_routing_version: Option<u32>,
 }
 
 /// Firmware files required to boot one variant. The runner reads each
@@ -287,6 +298,17 @@ pub enum CatalogueError {
     UnsupportedMediaKind(String),
     #[error("entry not found: {0}")]
     EntryNotFound(String),
+    #[error(
+        "{kind} routing version mismatch for system '{system}': manifest declares {found}, runtime is at {expected}. \
+         The captured {kind} hashes encode pre-bump behaviour and must be re-captured before this manifest can pass. \
+         See knowledge/decisions/spectrum-architecture-review.md Seam 4."
+    )]
+    RoutingVersionMismatch {
+        kind: &'static str,
+        system: String,
+        expected: u32,
+        found: u32,
+    },
     #[error("firmware not declared for variant: {0}")]
     FirmwareNotDeclared(String),
     #[error("variant {variant} expects {expected} firmware file(s), manifest declares {actual}")]
@@ -333,12 +355,52 @@ pub fn hash_xxh64(bytes: &[u8]) -> String {
 /// `UnsupportedVariant` for variants not yet wired, `FirmwareNotDeclared`
 /// when a variant is missing from `system.firmware`, and `Session` for
 /// firmware/media/runtime failures.
+/// Verifies that the routing versions declared in the manifest match
+/// the runtime's current `AUDIO_ROUTING_VERSION` / `FRAME_ROUTING_VERSION`
+/// for the system being run. Manifests without declared versions skip
+/// the check (legacy behaviour). Mismatch returns a loud error with
+/// re-capture instructions baked into the error message.
+///
+/// Called at the top of `run_entry` and `run_spectrum_entry_with_snapshot_check`
+/// so every catalogue run path enforces the same discipline.
+fn verify_routing_versions(manifest: &Manifest) -> Result<(), CatalogueError> {
+    match manifest.system.id.as_str() {
+        "spectrum" => {
+            if let Some(found) = manifest.system.audio_routing_version
+                && found != common_sinclair_zx_spectrum::audio::AUDIO_ROUTING_VERSION
+            {
+                return Err(CatalogueError::RoutingVersionMismatch {
+                    kind: "audio",
+                    system: "spectrum".into(),
+                    expected: common_sinclair_zx_spectrum::audio::AUDIO_ROUTING_VERSION,
+                    found,
+                });
+            }
+            if let Some(found) = manifest.system.frame_routing_version
+                && found != common_sinclair_zx_spectrum::ula_engine::FRAME_ROUTING_VERSION
+            {
+                return Err(CatalogueError::RoutingVersionMismatch {
+                    kind: "frame",
+                    system: "spectrum".into(),
+                    expected: common_sinclair_zx_spectrum::ula_engine::FRAME_ROUTING_VERSION,
+                    found,
+                });
+            }
+        }
+        // Other systems gain their own routing-version constants as Seam 4
+        // ports to them. For now they skip the check by construction.
+        _ => {}
+    }
+    Ok(())
+}
+
 pub fn run_entry(
     manifest: &Manifest,
     entry: &Entry,
     media_root: &Path,
     firmware_root: &Path,
 ) -> Result<RunResult, CatalogueError> {
+    verify_routing_versions(manifest)?;
     match manifest.system.id.as_str() {
         "spectrum" => run_spectrum_entry(manifest, entry, media_root, firmware_root),
         "nes" => run_nes_entry(entry, media_root),
@@ -387,6 +449,7 @@ pub fn run_spectrum_entry_with_snapshot_check(
             manifest.system.id.clone(),
         ));
     }
+    verify_routing_versions(manifest)?;
     match entry.variant.as_str() {
         "16k" => snapshot_check_16k(manifest, entry, media_root, firmware_root),
         "48k" => snapshot_check_48k(manifest, entry, media_root, firmware_root),
@@ -2073,6 +2136,8 @@ hash = "xxh64:0000000000000000"
         let manifest = Manifest {
             system: SystemMeta {
                 id: "spectrum".into(),
+                audio_routing_version: None,
+                frame_routing_version: None,
                 firmware: vec![
                     VariantFirmware {
                         variant: "48k".into(),
@@ -2105,5 +2170,80 @@ hash = "xxh64:0000000000000000"
             lookup_firmware(&manifest, "+3"),
             Err(CatalogueError::FirmwareNotDeclared(_))
         ));
+    }
+
+    fn spectrum_manifest_with_versions(
+        audio: Option<u32>,
+        frame: Option<u32>,
+    ) -> Manifest {
+        Manifest {
+            system: SystemMeta {
+                id: "spectrum".into(),
+                audio_routing_version: audio,
+                frame_routing_version: frame,
+                firmware: vec![],
+            },
+            entry: vec![],
+        }
+    }
+
+    #[test]
+    fn routing_version_check_passes_when_manifest_omits_versions() {
+        let manifest = spectrum_manifest_with_versions(None, None);
+        verify_routing_versions(&manifest).expect("legacy manifests should pass");
+    }
+
+    #[test]
+    fn routing_version_check_passes_when_manifest_matches_runtime() {
+        let manifest = spectrum_manifest_with_versions(
+            Some(common_sinclair_zx_spectrum::audio::AUDIO_ROUTING_VERSION),
+            Some(common_sinclair_zx_spectrum::ula_engine::FRAME_ROUTING_VERSION),
+        );
+        verify_routing_versions(&manifest).expect("matching versions should pass");
+    }
+
+    #[test]
+    fn routing_version_check_fails_loud_on_audio_mismatch() {
+        let manifest = spectrum_manifest_with_versions(Some(9999), None);
+        let err = verify_routing_versions(&manifest).expect_err("audio mismatch must fail");
+        match err {
+            CatalogueError::RoutingVersionMismatch {
+                kind, system, found, ..
+            } => {
+                assert_eq!(kind, "audio");
+                assert_eq!(system, "spectrum");
+                assert_eq!(found, 9999);
+            }
+            other => panic!("expected RoutingVersionMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn routing_version_check_fails_loud_on_frame_mismatch() {
+        let manifest = spectrum_manifest_with_versions(None, Some(9999));
+        let err = verify_routing_versions(&manifest).expect_err("frame mismatch must fail");
+        match err {
+            CatalogueError::RoutingVersionMismatch {
+                kind, system, found, ..
+            } => {
+                assert_eq!(kind, "frame");
+                assert_eq!(system, "spectrum");
+                assert_eq!(found, 9999);
+            }
+            other => panic!("expected RoutingVersionMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn routing_version_error_message_includes_recapture_instruction() {
+        let err = CatalogueError::RoutingVersionMismatch {
+            kind: "audio",
+            system: "spectrum".into(),
+            expected: 2,
+            found: 1,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("re-captured"), "error should instruct re-capture: {msg}");
+        assert!(msg.contains("Seam 4"), "error should reference Seam 4: {msg}");
     }
 }

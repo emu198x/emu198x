@@ -15,6 +15,25 @@ use crate::memory::MemoryBus;
 use crate::palette;
 use crate::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
+/// Frame routing version. Bumped when the rendering path through this
+/// engine (fetch ordering, shifter pipeline depth, palette mapping,
+/// border timing) changes in a way that invalidates previously-captured
+/// frame hashes in the catalogue. The catalogue manifest carries the
+/// version each hash was captured against; a mismatch fails loud with
+/// a re-capture instruction.
+///
+/// **Version 1** (2026-05-19): single-latch shifter model with fetches
+/// at pixels 8/10/12/14 and `fetch_start: 8`. Palette derived from
+/// BT.601-style values in `palette.rs`. Border updates immediately on
+/// `write_fe`. This version's hashes encode the pre-Seam-1 rendering
+/// behaviour described in `knowledge/decisions/spectrum-architecture-review.md`.
+///
+/// Bumps planned: version 2 when the two-stage shifter (Seam 1) lands;
+/// version 3 when the Smith Chapter 16 palette lands; further versions
+/// per substantive rendering change. See the architecture review's
+/// Seam 4 for the re-capture discipline this constant enforces.
+pub const FRAME_ROUTING_VERSION: u32 = 1;
+
 /// Timing and layout constants for a specific ULA variant.
 #[derive(Clone, Debug)]
 pub struct UlaConfig {
