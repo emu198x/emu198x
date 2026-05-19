@@ -28,21 +28,28 @@ use crate::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 /// `write_fe`. The pre-Seam-1 rendering described in
 /// `knowledge/decisions/spectrum-architecture-review.md`.
 ///
-/// **Version 2** (2026-05-19, current): two-stage shifter (Seam 1)
+/// **Version 2** (2026-05-19): two-stage shifter (Seam 1)
 /// landed alongside the Smith Chapter 16 palette refinement.
 /// `MEM_TABLE` and `IDLE_TABLE` shifted four entries left so fetches
 /// happen at phases 4/6/8/10 instead of 8/10/12/14; `fetch_start: 4`
 /// in all configs; pipeline depth between first fetch and first visible
 /// pixel is now 8 pixels (4 T-states) per Smith Chapter 12 Figure 12-2.
 /// Float48K strict-mode target: T=14338 for 48K, T=14364 for 128K.
-/// Border still updates immediately on `write_fe` (the AOLatch
-/// 8-pixel-granularity refinement is a later commit).
+/// Border still updates immediately on `write_fe`.
 ///
-/// Bumps planned: version 3 when AOLatch border timing lands;
-/// further versions per substantive rendering change. See the
-/// architecture review's Seam 4 for the re-capture discipline this
-/// constant enforces.
-pub const FRAME_ROUTING_VERSION: u32 = 2;
+/// **Version 3** (2026-05-19, current): AOLatch border timing
+/// (Smith Chapter 14 p. 134, `/AOLatch = /(/C0 + C1 + /C2)`).
+/// `write_fe` still updates `border` (BorderLatch) immediately, but
+/// the rendered border colour now reads from `border_aolatch`, which
+/// samples `border` every 8 pixels at `(p & 0x07) == 4` un-gated by
+/// VidEN. This is the silicon basis for the 8-pixel border-write
+/// granularity that border-effect demos exploit. Frame hashes that
+/// cover the border region during multi-colour effects will change.
+///
+/// Bumps planned: further versions per substantive rendering change.
+/// See the architecture review's Seam 4 for the re-capture discipline
+/// this constant enforces.
+pub const FRAME_ROUTING_VERSION: u32 = 3;
 
 /// Timing and layout constants for a specific ULA variant.
 #[derive(Clone, Debug)]
@@ -184,7 +191,11 @@ pub struct UlaEngine {
     pub pixel: u16,
     /// Current scanline.
     pub scan: u16,
-    /// Border colour (0-7).
+    /// Border colour (0-7) — the BorderLatch / OutB. Holds the value
+    /// most recently written by `write_fe` and reflects CPU writes
+    /// immediately. The rendered border colour is `border_aolatch`,
+    /// which samples this through the AOLatch every 8 pixels (Smith
+    /// Chapter 14 `/AOLatch = /(/C0 + C1 + /C2)`, un-gated by VidEN).
     pub border: u8,
     /// Beeper state (bit 4 of port 0xFE).
     pub beeper: bool,
@@ -232,6 +243,20 @@ pub struct UlaEngine {
     pub video: bool,
     /// Border area flag.
     pub border_active: bool,
+    /// AOLatch — the latched border colour driving the output mux.
+    /// Smith Chapter 14 p. 134: `/AOLatch = /(/C0 + C1 + /C2)`, fires
+    /// every 8 CLK7 cycles across the full scanline including border
+    /// (un-gated by VidEN). The CPU writes to `border` (BorderLatch /
+    /// OutB) instantly via `write_fe`, but the *displayed* colour only
+    /// catches up at the next AOLatch trigger. This is the silicon
+    /// basis for the well-known 8-pixel border-write granularity that
+    /// border-effect demos rely on. `#[serde(skip)]` keeps snapshot
+    /// byte-encoding backward compatible — the AOLatch state drains
+    /// every 8 pixels so resume reseeds from `border` within at most
+    /// one character cell.
+    #[serde(skip)]
+    pub border_aolatch: u8,
+
     /// VidEN: `/Border` delayed by one character cell (8 CLK7 = 4 T-states).
     /// Per Smith Chapter 12 p. 134, `SLoad` is gated on `/VidEN` rather
     /// than `/Border`. In the current implementation we gate the SLoad
@@ -363,6 +388,7 @@ impl UlaEngine {
             attr_addr: 0,
             video: false,
             border_active: true,
+            border_aolatch: 7,
             vid_en: false,
             z80_mreq_prev: false,
             z80_iorq_prev: false,
@@ -443,6 +469,22 @@ impl UlaEngine {
                 self.data_reg2 = self.data_latch2;
                 self.attr_reg = self.attr_latch;
             }
+        }
+
+        // === AOLatch transfer (Smith Ch 14 p. 134) ===
+        // `/AOLatch = /(/C0 + C1 + /C2)` fires every 8 CLK7 cycles, un-gated
+        // by VidEN — across the full scanline including border. The latched
+        // colour is what the screen output mux passes to the video DAC. In
+        // our 16-pixel-cell indexing, AOLatch fires at `(p & 0x07) == 4`,
+        // immediately following SLoad in each cycle (Smith: "AOLatch goes
+        // low while SLoad is low. This presents the attribute byte to the
+        // colour output multiplexer at the exact moment the display byte
+        // is loaded into the shift register."). The result is the
+        // well-known 8-pixel border-write granularity that border-effect
+        // demos exploit. Unlike SLoad, this trigger is unconditional:
+        // border colour can change anywhere on the scanline.
+        if (p & 0x07) == 4 {
+            self.border_aolatch = self.border;
         }
 
         // === Video fetch ===
@@ -561,12 +603,14 @@ impl UlaEngine {
                     }
                 }
             } else {
-                // Border
+                // Border — driven by the AOLatch, not the BorderLatch.
+                // 8-pixel granularity per Smith Ch 14 (see AOLatch
+                // transfer comment above).
                 let off = fb_y as usize * self.fb_width + fb_x as usize;
                 if off < framebuffer.len() {
-                    framebuffer[off] = self.border;
+                    framebuffer[off] = self.border_aolatch;
                     if hscale == 2 && off + 1 < framebuffer.len() {
-                        framebuffer[off + 1] = self.border;
+                        framebuffer[off + 1] = self.border_aolatch;
                     }
                 }
             }
@@ -635,5 +679,102 @@ impl UlaEngine {
         result = (result & 0xE0) | (keys & 0x1F);
         result |= 0x40; // EAR bit (no tape → high)
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::MemoryBus;
+
+    /// Minimal MemoryBus stub returning 0 for every read — sufficient
+    /// for border-rendering tests that don't depend on bitmap or
+    /// attribute content.
+    struct ZeroMemory;
+    impl MemoryBus for ZeroMemory {
+        fn read(&self, _addr: u16) -> u8 {
+            0
+        }
+        fn write(&mut self, _addr: u16, _value: u8) {}
+        fn is_contended(&self, _addr: u16) -> bool {
+            false
+        }
+    }
+
+    /// AOLatch behaviour: `write_fe` updates `border` (BorderLatch)
+    /// immediately, but `border_aolatch` (the rendered colour) only
+    /// catches up at the next `(p & 0x07) == 4` boundary. This is the
+    /// silicon basis for the well-known 8-pixel border-write
+    /// granularity (Smith Ch 14 p. 134, `/AOLatch = /(/C0 + C1 + /C2)`,
+    /// un-gated by VidEN).
+    #[test]
+    fn aolatch_defers_border_writes_to_next_8_pixel_boundary() {
+        let mut e = UlaEngine::new(&CONFIG_48K);
+        let mem = ZeroMemory;
+        let mut fb = vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT];
+
+        // Position the engine just past an AOLatch trigger. AOLatch
+        // samples on a tick that *starts* with pixel ≡ 4 (mod 8), so
+        // starting at pixel 5 the next trigger fires on the tick where
+        // pixel = 12 at entry. The counter increments at the end of
+        // each tick.
+        e.pixel = 5;
+        e.scan = 0;
+        e.border_aolatch = 7;
+        e.border = 7;
+
+        // CPU writes border = 2 (red). BorderLatch updates instantly,
+        // AOLatch does not.
+        e.write_fe(0x02);
+        assert_eq!(e.border, 2, "BorderLatch reflects CPU write instantly");
+        assert_eq!(
+            e.border_aolatch, 7,
+            "AOLatch still holds the previous colour"
+        );
+
+        // Tick 7 times: pixel 5→12 at end, none of the entry-pixels
+        // (5..=11) match p&7==4.
+        for _ in 0..7 {
+            e.tick_rendering(&mem, &mut fb);
+        }
+        assert_eq!(e.pixel, 12);
+        assert_eq!(
+            e.border_aolatch, 7,
+            "AOLatch unchanged before the boundary"
+        );
+
+        // Eighth tick: entry pixel = 12 (matches p&0x07==4). AOLatch
+        // samples BorderLatch. Pixel increments to 13.
+        e.tick_rendering(&mem, &mut fb);
+        assert_eq!(e.pixel, 13);
+        assert_eq!(
+            e.border_aolatch, 2,
+            "AOLatch sampled BorderLatch on its trigger"
+        );
+    }
+
+    /// AOLatch fires regardless of scan position — Smith Ch 14
+    /// confirms `/AOLatch` has no VidEN gate, so the trigger is
+    /// equally active during border scanlines (scan >= 192) and
+    /// active video.
+    #[test]
+    fn aolatch_fires_during_border_scanlines() {
+        let mut e = UlaEngine::new(&CONFIG_48K);
+        let mem = ZeroMemory;
+        let mut fb = vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT];
+
+        // Place the engine in a bottom-border scanline at pixel 4 —
+        // entry pixel matches p&7==4, so the next tick fires AOLatch.
+        e.pixel = 4;
+        e.scan = 250; // well into bottom border
+        e.border_aolatch = 7;
+        e.write_fe(0x04); // border = green
+
+        e.tick_rendering(&mem, &mut fb);
+        assert_eq!(e.pixel, 5);
+        assert_eq!(
+            e.border_aolatch, 4,
+            "AOLatch fired during border-only scanline"
+        );
     }
 }

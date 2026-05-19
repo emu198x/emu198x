@@ -16,7 +16,7 @@ id = "spectrum"
 # Mismatch fails loud with a re-capture instruction. See
 # knowledge/decisions/spectrum-architecture-review.md Seam 4.
 audio_routing_version = 1
-frame_routing_version = 2
+frame_routing_version = 3
 
 [[system.firmware]]
 variant = "48k"
