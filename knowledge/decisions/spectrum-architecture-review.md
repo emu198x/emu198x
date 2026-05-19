@@ -1,7 +1,7 @@
 # Decision: Spectrum architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-18, polish pass 2026-05-19
-**Status:** Locked — implementation begins next session
+**Status:** Phase 1 in progress — Seams 1, 4 partially landed (2026-05-19)
 
 ## What this is
 
@@ -61,6 +61,10 @@ Our model is correct at the visible-pixel tap (14340) but exposes `floating_bus(
 **Scope.** ~50 lines in `ula_engine.rs`. No public API change, no machine-layer churn. Pre-flight checklist documented in `ula-first-fetch-tstate-offset.md`.
 
 **Why this matters for other systems.** The same FUSE-style phase table applies to every Spectrum-family ULA. Get the engine right once; every variant inherits.
+
+**Implementation status (2026-05-19).** The structural fix landed in commits `0660521` (two-stage shifter + table shifts) and `fbc5938` (AOLatch border granularity). `data_latch_pending` / `attr_latch_pending` / `data_latch_pending2` slots added; `MEM_TABLE` and `IDLE_TABLE` shifted four phases left; `fetch_start: 4` / `fetch_end: 260` in all four ULA configs; `border_aolatch` samples `border` every 8 pixels at `(p & 0x07) == 4` un-gated by VidEN. `FRAME_ROUTING_VERSION` bumped 1 → 3 (re-capture wave gated by Seam 4).
+
+The Float48K strict assertion is **not yet enabled in CI**. The engine-side timing is now correct (first fetch at T-14338 per Smith Ch 21), but the test harness's RST 16 print capture cannot read the probe's iteration digits — BASIC's PRINT-FP number formatter bypasses RST 16, and the PR-ALL alternate capture mode mashes digits with AT/INK control bytes. Un-gating the strict assertion needs a capture mode that tracks the ROM editor's control-argument state machine. Tracked as a separate piece of work — engine-level Seam 1 is closed.
 
 ### Seam 2 — Host input → peripheral routing
 
@@ -260,6 +264,9 @@ In order of leverage for unblocking October-public and protecting future capture
 ## Done criteria
 
 - **Seam 1**: 48K Float48K strict mode prints 14338. 128K prints 14364. Both run in CI without env-var gates. At least one floating-bus title from the Grussu corpus (Arkanoid / Cobra / Short Circuit / Sidewize) added to the 48K catalogue and passing.
+  - Engine status (2026-05-19): **landed** — commits `0660521` + `fbc5938`. First fetch at T-14338 (48K), AOLatch border granularity in place, `FRAME_ROUTING_VERSION = 3`.
+  - Float48K strict un-gate: **blocked on test-harness work** — RST 16 capture can't read PRINT-FP digits. Tracked separately.
+  - Floating-bus catalogue entry: pending (Phase 1 #9).
 - **Seam 2**: gamepad event flips `kempston.attached` and feeds button bits. Catalogue entry verifies the runtime input path against a Kempston-using catalogue title (e.g. Jet Pac from the 16K trilogy or Sabre Wulf from the 48K set).
 - **Seam 3**: every `#[serde(skip)]` field on a Spectrum-stack struct either has a `Default` that produces correct behaviour or is rehydrated by a typed `after_restore`. Audit test asserts this. FDC disk image survives snapshot restore in a regression test.
 - **Seam 4**: `audio_routing_version` and `frame_routing_version` constants in place. Catalogue mismatch fails loud with a re-capture instruction. AY re-capture wave completed; R-Type's 128 audio hash unchanged (beeper-only invariant); RoboCop / Operation Wolf / Rainbow Islands / Bubble Bobble / Out Run hashes updated. `solid-status.md` §1 reflects the code reality.

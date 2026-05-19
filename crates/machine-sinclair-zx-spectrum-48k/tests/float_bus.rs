@@ -331,14 +331,28 @@ fn float48k_prints_expected_tstate() {
          --- transcript ---\n{transcript}",
     );
 
-    // The headline T-state assertion is currently expected to FAIL on our
-    // core — the BASIC probe iterates looking for a known display byte at a
-    // specific T-state offset and never finds it, suggesting a real bug in
-    // our floating-bus timing model (or the harness still has a subtle
-    // tape/timing issue). Tracked in
-    // `~/Projects/Emu198x-Reference/_organised/known-unknowns.md`.
-    // The check is gated behind an env var so it can be re-enabled when the
-    // bug is fixed without recompiling.
+    // The headline T-state assertion is currently expected to FAIL — but
+    // for a different reason than before Seam 1 landed.
+    //
+    // Engine status (Seam 1 of the architecture review, commits 0660521 +
+    // fbc5938, 2026-05-19): MEM_TABLE/IDLE_TABLE shifted four phases left
+    // and fetch_start moved 8 → 4, so the first VRAM fetch on scan 0 now
+    // happens at pixel 4 (T-14338) instead of pixel 8 (T-14342). That is
+    // the canonical Float48K sample point per Smith Ch 12 / Ch 21 and
+    // matches Woody's documented hardware value (WoS forum 17551).
+    //
+    // Harness status (still failing): the print capture hooks RST 16
+    // ($0010), which BASIC's number-formatter PRINT-FP bypasses entirely.
+    // The probe's iteration digits therefore never reach the transcript.
+    // PR-ALL mode (set EMU198X_FLOAT48K_CAPTURE=pr_all) catches the digits
+    // but mashes them together with AT/INK control bytes — also not
+    // useful for a strict assertion.
+    //
+    // Un-gating the strict check needs a capture mode that tracks the ROM
+    // editor's "expecting control argument" state machine and skips
+    // exactly those bytes. Until that lands, leave EMU198X_FLOAT48K_STRICT
+    // as the explicit opt-in so a manual run can be cross-checked
+    // against the PNG screenshot the harness drops in /tmp.
     if std::env::var("EMU198X_FLOAT48K_STRICT").is_ok() {
         let expected = FLOAT48K_EXPECTED_TSTATE.to_string();
         assert!(
