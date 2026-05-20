@@ -2,6 +2,10 @@
 
 Hard constraints. Non-negotiable. If you find yourself breaking one, stop and rethink.
 
+## Umbrella context
+
+This project lives under `~/Projects/198x/` alongside `Code198x`. The umbrella binds rules that span both projects — see [`../CLAUDE.md`](../CLAUDE.md) and [`../decisions/`](../decisions/). Most relevantly: this project's [`knowledge/`](knowledge/) is the canonical hardware reference for both projects, per [`../decisions/shared-hardware-reference-canon.md`](../decisions/shared-hardware-reference-canon.md). When chip-level facts (Z80, 6502, 6510, 68000, VIC-II, ULA, Paula, SID, AY-3-8912) change, they change here first; Code198x cites this material rather than duplicating it.
+
 ## Session start
 
 Before writing any code, state in the conversation which October artefact this session serves.
