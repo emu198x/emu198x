@@ -796,6 +796,81 @@ mod tests {
         assert_eq!(machine.io_read(0x1F), 0b0000_1000);
     }
 
+    /// `Spectrum48k::with_rom` builds a fully-initialised machine
+    /// with the supplied ROM image already mapped at $0000-$3FFF.
+    /// Avoids the two-step `new()` + `load_rom_bytes` dance for tests
+    /// that need ROM-backed setup.
+    #[test]
+    fn with_rom_constructs_machine_with_rom_mapped() {
+        let mut rom = [0u8; 16 * 1024];
+        rom[0] = 0xAB;
+        rom[0x3FFF] = 0xCD;
+        let machine = Spectrum48k::with_rom(UlaRevision::Ferranti6C, rom);
+        assert_eq!(machine.read(0x0000), 0xAB);
+        assert_eq!(machine.read(0x3FFF), 0xCD);
+        // Verify the revision wasn't silently overridden.
+        assert_eq!(machine.revision(), UlaRevision::Ferranti6C);
+    }
+
+    /// `Spectrum48k::default()` produces the same machine as `new()`.
+    /// Locks the trait impl against a regression that would drift
+    /// the default revision or memory state.
+    #[test]
+    fn default_matches_new() {
+        let from_new = Spectrum48k::new();
+        let from_default: Spectrum48k = Default::default();
+        assert_eq!(from_new.revision(), from_default.revision());
+        assert_eq!(from_new.border_color(), from_default.border_color());
+        assert_eq!(from_new.framebuffer().len(), from_default.framebuffer().len());
+    }
+
+    /// `load_rom_bytes` rejects a ROM image that isn't exactly 16 KiB.
+    /// Catches a regression where the size check disappears and we'd
+    /// silently truncate / pad — both of which can produce a quiet
+    /// boot failure with no diagnostic.
+    #[test]
+    fn load_rom_bytes_rejects_wrong_size() {
+        let mut machine = Spectrum48k::new();
+        // Too short.
+        assert!(machine.load_rom_bytes(&[0u8; 8 * 1024]).is_err());
+        // Too long.
+        assert!(machine.load_rom_bytes(&[0u8; 32 * 1024]).is_err());
+        // Exact size succeeds.
+        assert!(machine.load_rom_bytes(&[0u8; 16 * 1024]).is_ok());
+    }
+
+    /// The 16K wrapper's constructors mirror the 48K shape: `new()`,
+    /// `with_revision`, `with_rom`, plus `load_rom_bytes`. The 16K
+    /// variant lives in this layer crate (rather than the dedicated
+    /// machine-sinclair-zx-spectrum-16k wrapper) because the memory
+    /// type differs but the rest of the composition is identical.
+    #[test]
+    fn spectrum_16k_constructors_round_trip() {
+        use crate::variant::Spectrum16kMarker;
+        type Spectrum16k = SpectrumMachineCore<Spectrum16kMemory, Spectrum16kMarker>;
+
+        let mut rom = [0u8; 16 * 1024];
+        rom[0] = 0x55;
+        let machine = Spectrum16k::with_rom(UlaRevision::Ferranti5C, rom);
+        assert_eq!(machine.read(0x0000), 0x55);
+        assert_eq!(machine.revision(), UlaRevision::Ferranti5C);
+
+        // Default::default() routes through new() → with_revision().
+        let defaulted: Spectrum16k = Default::default();
+        assert_eq!(defaulted.revision(), UlaRevision::Ferranti6C);
+    }
+
+    /// 16K wrapper's `load_rom_bytes` accepts a 16 KiB image and
+    /// rejects anything else, same contract as the 48K case.
+    #[test]
+    fn spectrum_16k_load_rom_bytes_validates_size() {
+        use crate::variant::Spectrum16kMarker;
+        type Spectrum16k = SpectrumMachineCore<Spectrum16kMemory, Spectrum16kMarker>;
+        let mut machine = Spectrum16k::new();
+        assert!(machine.load_rom_bytes(&[0u8; 1024]).is_err());
+        assert!(machine.load_rom_bytes(&[0u8; 16 * 1024]).is_ok());
+    }
+
     #[test]
     fn audio_sample_rate_matches_constant() {
         let machine = Spectrum48k::new();
