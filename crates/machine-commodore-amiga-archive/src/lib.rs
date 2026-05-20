@@ -2268,7 +2268,7 @@ mod tests {
     fn trace_kickstart_boot() {
         use std::io::Write;
 
-        let rom_path = "/Users/stevehill/Projects/Emu198x-archive/roms/kick13.rom";
+        let rom_path = "/Users/stevehill/Projects/198x/Emu198x-archive/roms/kick13.rom";
         let Ok(kickstart) = std::fs::read(rom_path) else {
             eprintln!("Skipping: cannot read {rom_path}");
             return;
@@ -2358,7 +2358,7 @@ mod tests {
     fn trace_cop2_chase() {
         use std::io::Write;
 
-        let rom_path = "/Users/stevehill/Projects/Emu198x-archive/roms/kick13.rom";
+        let rom_path = "/Users/stevehill/Projects/198x/Emu198x-archive/roms/kick13.rom";
         let Ok(kickstart) = std::fs::read(rom_path) else {
             eprintln!("Skipping: cannot read {rom_path}");
             return;
@@ -2824,7 +2824,7 @@ mod tests {
     #[test]
     #[ignore]
     fn copinit_alloc_size() {
-        let rom_path = "/Users/stevehill/Projects/Emu198x-archive/roms/kick13.rom";
+        let rom_path = "/Users/stevehill/Projects/198x/Emu198x-archive/roms/kick13.rom";
         let Ok(kickstart) = std::fs::read(rom_path) else {
             eprintln!("Skipping: cannot read {rom_path}");
             return;
@@ -2887,7 +2887,7 @@ mod tests {
     #[test]
     #[ignore]
     fn diag_display_state() {
-        let rom_path = "/Users/stevehill/Projects/Emu198x-archive/roms/kick13.rom";
+        let rom_path = "/Users/stevehill/Projects/198x/Emu198x-archive/roms/kick13.rom";
         let Ok(kickstart) = std::fs::read(rom_path) else {
             eprintln!("Skipping: cannot read {rom_path}");
             return;

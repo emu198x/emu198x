@@ -1664,6 +1664,8 @@ version = "0.1.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-128k-class",
+ "format-sinclair-zx-spectrum-tap",
+ "png",
 ]
 
 [[package]]

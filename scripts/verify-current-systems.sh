@@ -490,7 +490,7 @@ write_boot_script() {
 JSON
 }
 
-reference_root="${EMU198X_REFERENCE_ROOT:-/Users/stevehill/Projects/Emu198x-docs-archive-2026-04-19/Reference}"
+reference_root="${EMU198X_REFERENCE_ROOT:-/Users/stevehill/Projects/198x/Emu198x-docs-archive-2026-04-19/Reference}"
 script_dir="${out_dir}/scripts"
 mkdir -p "${script_dir}"
 
@@ -574,7 +574,7 @@ if [[ "${mode}" != "unit" ]]; then
             "${reference_root}/nintendo/game-boy/gb-test-roms-master" \
             "${repo_root}/tmp/gb-test-roms-master" \
             "${repo_root}/tmp/mooneye-test-suite/../gb-test-roms-master" \
-            "/Users/stevehill/Projects/Emu198x-Zig/gb-test-roms-master" \
+            "/Users/stevehill/Projects/198x/Emu198x-Zig/gb-test-roms-master" \
             || true)"
     fi
     if [[ -n "${gb_blargg_root}" && -d "${gb_blargg_root}" ]]; then

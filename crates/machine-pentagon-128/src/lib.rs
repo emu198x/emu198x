@@ -2,7 +2,7 @@
 //!
 //! Source references:
 //! - `wiki/systems/spectrum/variants.md`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/machine-pentagon-128/src/lib.rs`
+//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/machine-pentagon-128/src/lib.rs`
 //!
 //! Hardware:
 //! - Z80 @ 3.584 MHz (master / 4)

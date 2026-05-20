@@ -2,7 +2,7 @@
 //!
 //! Source references:
 //! - `wiki/chips/pentagon-ula.md`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/pentagon-ula/src/lib.rs`
+//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/pentagon-ula/src/lib.rs`
 //!
 //! The Pentagon was a Russian Spectrum clone (mass-produced 1991-1995).
 //! Its ULA never gates the CPU clock — there is no memory contention,

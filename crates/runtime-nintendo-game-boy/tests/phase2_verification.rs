@@ -22,8 +22,8 @@ use emu198x_shell::{
 };
 use runtime_nintendo_game_boy::{GameBoyRuntime, Model};
 
-const DEFAULT_BLARGG_ROOT: &str = "/Users/stevehill/Projects/Emu198x-Zig/gb-test-roms-master";
-const DEFAULT_DMG_ACID2_ROM: &str = "/Users/stevehill/Projects/Emu198x-Zig/dmg-acid2.gb";
+const DEFAULT_BLARGG_ROOT: &str = "/Users/stevehill/Projects/198x/Emu198x-Zig/gb-test-roms-master";
+const DEFAULT_DMG_ACID2_ROM: &str = "/Users/stevehill/Projects/198x/Emu198x-Zig/dmg-acid2.gb";
 const MAX_SERIAL_TEST_FRAMES: u32 = 1_200;
 const MOONEYE_SWEEP_FRAMES: u32 = 1_200;
 const DMG_ACID2_FRAMES: u32 = 180;

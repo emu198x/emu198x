@@ -3,7 +3,7 @@
 //! Source references:
 //! - `wiki/chips/zilog-z80.md`
 //! - `wiki/decisions/half-cycle-signals.md`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/zilog-z80/`
+//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/zilog-z80/`
 //!
 //! This port keeps the fresh-start architecture intact: half-cycle ticks,
 //! public pin fields, no bus trait, and static M-step sequences.

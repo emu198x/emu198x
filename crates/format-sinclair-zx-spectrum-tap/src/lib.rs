@@ -2,7 +2,7 @@
 //!
 //! Source references:
 //! - `wiki/concepts/tape-formats.md`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/format-sinclair-zx-spectrum-tap/src/lib.rs`
+//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/format-sinclair-zx-spectrum-tap/src/lib.rs`
 //!
 //! TAP is a block container, not a timing-preserving format. Each block stores
 //! exactly the bytes that the ROM loader would see on tape: one flag byte, a

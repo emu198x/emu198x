@@ -2,7 +2,7 @@
 //!
 //! Source references:
 //! - `wiki/systems/spectrum/variants.md`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/machine-timex-ts2068/src/lib.rs`
+//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/machine-timex-ts2068/src/lib.rs`
 //!
 //! Hardware:
 //! - Z80 — TC2068: 3.5 MHz / TS2068: 3.528 MHz (master / 4)

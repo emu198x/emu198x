@@ -108,7 +108,7 @@ variant = "a500-ocs-pal-a501"
 # to .adf). Validates the trackloader path beyond Workbench.
 kind = "disk"
 slot = "floppy-0"
-path = "/Users/stevehill/Projects/Code198x/Amiga/extracted/Barbarian - The Ultimate Warrior (1988)(Palace)[cr BS1 - TKT - INA].adf"
+path = "/Users/stevehill/Projects/198x/Code198x/Amiga/extracted/Barbarian - The Ultimate Warrior (1988)(Palace)[cr BS1 - TKT - INA].adf"
 
 [[entry.script]]
 # BSO cracker intros respond to joystick port-1 FIRE button.
@@ -144,7 +144,7 @@ variant = "a500-ocs-pal-a501"
 # and Paula audio paths.
 kind = "disk"
 slot = "floppy-0"
-path = "/Users/stevehill/Projects/Code198x/Amiga/Games/[ADF]/1943 - The Battle of Midway (1989)(GO!)[cr PNA].zip"
+path = "/Users/stevehill/Projects/198x/Code198x/Amiga/Games/[ADF]/1943 - The Battle of Midway (1989)(GO!)[cr PNA].zip"
 
 [[entry.script]]
 # Paranoimia cracker intros also respond to joystick port-1 FIRE.
@@ -181,7 +181,7 @@ variant = "a500-ocs-pal-a501"
 # actual title attract loop.
 kind = "disk"
 slot = "floppy-0"
-path = "/Users/stevehill/Projects/Code198x/Amiga/Games/[ADF]/Arkanoid - Revenge of Doh (1988-11-05)(Imagine)[cr Ackerlight].zip"
+path = "/Users/stevehill/Projects/198x/Code198x/Amiga/Games/[ADF]/Arkanoid - Revenge of Doh (1988-11-05)(Imagine)[cr Ackerlight].zip"
 
 [[entry.script]]
 at_frame = 1500
@@ -217,7 +217,7 @@ variant = "a500-plus-ecs-pal"
 # the boot block at all.
 kind = "disk"
 slot = "floppy-0"
-path = "/Users/stevehill/Projects/Code198x/Amiga/Games/[ADF]/Bad Dudes vs. Dragon Ninja (1989)(Imagine)[cr OCL][t +3 OCL].zip"
+path = "/Users/stevehill/Projects/198x/Code198x/Amiga/Games/[ADF]/Bad Dudes vs. Dragon Ninja (1989)(Imagine)[cr OCL][t +3 OCL].zip"
 
 [[entry.script]]
 # OCL cracker intro prompts "(RETURN)" at the bottom right. RETURN

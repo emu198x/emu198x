@@ -2,7 +2,7 @@
 //!
 //! Source references:
 //! - `wiki/concepts/tape-formats.md`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/format-sinclair-zx-spectrum-tzx/src/lib.rs`
+//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/format-sinclair-zx-spectrum-tzx/src/lib.rs`
 //!
 //! The parser converts TZX blocks into a flat machine-facing timing stream.
 //! Most blocks emit edge-delimited pulses, but pauses and explicit signal-level

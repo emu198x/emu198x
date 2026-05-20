@@ -3,7 +3,7 @@
 //! Source references:
 //! - `wiki/systems/spectrum/overview.md`
 //! - `wiki/systems/spectrum/contention.md`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/common-sinclair-zx-spectrum/src/ula_engine.rs`
+//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/common-sinclair-zx-spectrum/src/ula_engine.rs`
 //!
 //! Shared ULA rendering engine — the common display logic across all
 /// Spectrum ULA variants (Ferranti, Sinclair 7K, Amstrad 40077, etc.).

@@ -3,8 +3,8 @@
 //! Source references:
 //! - `docs/plans/2026-04-12-emulator-suite-coherent-development-plan.md`
 //! - `wiki/decisions/archives-as-source.md`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/machine-commodore-c64/src/config.rs`
-//! - Adapted from `/Users/stevehill/Projects/Emu198x-Older/crates/mos-vic-ii/src/lib.rs`
+//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/machine-commodore-c64/src/config.rs`
+//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/mos-vic-ii/src/lib.rs`
 
 /// Shared visible framebuffer width used by the archived VIC-II implementation.
 pub const FRAMEBUFFER_WIDTH: u16 = 416;
