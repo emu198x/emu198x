@@ -162,5 +162,6 @@ The `test-roms/` directory has a `.gitignore` excluding `*.rom` so accidental `g
 ## Related
 
 - [Archives as source](../decisions/archives-as-source.md#c64) — port provenance.
+- [C64 architecture review](../decisions/c64-architecture-review.md) — five seams the catalogue can't catch by construction (VIC-II BA/RDY accounting, joystick routing, snapshot rehydration, oracle integrity, boot invariants). Drafted 2026-05-20, mirrors the Spectrum + Amiga reviews.
 - [CPU bus interface](../decisions/cpu-bus-interface.md) — the pin-level rule the machine loop enforces.
 - [MOS 6502](../chips/mos-6502.md), [CIA](../chips/mos-cia-6526.md), [SID](../chips/mos-sid-6581.md), [VIC-II](../chips/mos-vic-ii.md) — per-chip contracts.
