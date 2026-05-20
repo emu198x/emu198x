@@ -396,6 +396,7 @@ fn mix_ay_into_audio(audio: &mut [f32], ay: &[f32]) {
 mod tests {
     use super::*;
     use crate::variant::{AmstradPlus2Marker, Sinclair128KMarker};
+    use common_sinclair_zx_spectrum::audio::SpeakerChannel;
 
     type Spectrum128K = Spectrum128kClassCore<Sinclair128KMarker>;
     type SpectrumPlus2 = Spectrum128kClassCore<AmstradPlus2Marker>;
@@ -465,5 +466,94 @@ mod tests {
         let mut m = SpectrumPlus2::new();
         m.run_frame();
         assert_eq!(m.hc, 0);
+    }
+
+    /// `io_read` on `$FE` returns the standard ULA byte: bit 6 is the
+    /// EAR feedback (floating-high when no tape is playing) and bits
+    /// 0-4 carry the active-low keyboard scan for the row selected
+    /// by the high byte of the port.
+    #[test]
+    fn io_read_fe_returns_keyboard_state() {
+        let mut m = Spectrum128K::new();
+        // All keys released → keyboard half-row reads 0x1F (all bits set).
+        let val = m.io_read(0xFEFE);
+        assert_eq!(val & 0x1F, 0x1F);
+
+        // Press Z (row 0, bit 1).
+        m.keyboard[0] &= !0x02;
+        let val = m.io_read(0xFEFE);
+        assert_eq!(val & 0x02, 0, "Z press should clear row 0 bit 1");
+    }
+
+    /// `io_read` on Kempston port `$1F` returns the joystick state byte
+    /// once the peripheral is attached, and floats high (0xFF) before
+    /// any input event flips `attached = true`. The 128K family does
+    /// host a Kempston interface (unlike the Amstrad class).
+    #[test]
+    fn io_read_kempston_port_reads_state_when_attached() {
+        let mut m = Spectrum128K::new();
+        // Unattached: $1F reads $FF (floating bus convention).
+        assert_eq!(m.io_read(0x001F), 0xFF);
+        // Attach + press fire (bit 4).
+        m.kempston.attached = true;
+        m.kempston.state = 0b0001_0000;
+        assert_eq!(m.io_read(0x001F), 0b0001_0000);
+    }
+
+    /// `io_write` to `$FE` toggles the beeper speaker state (bit 4).
+    /// The runtime's audio mixer samples this at end-of-frame and
+    /// emits PCM accordingly.
+    #[test]
+    fn io_write_fe_toggles_beeper_state() {
+        let mut m = Spectrum128K::new();
+        let before = m.speaker.beeper;
+        m.io_write(0x00FE, 0x10);
+        assert_ne!(m.speaker.beeper, before);
+        m.io_write(0x00FE, 0x00);
+        assert_eq!(m.speaker.beeper, before);
+    }
+
+    /// `reset` re-initialises the Z80 + ULA + audio buffers and
+    /// returns PC to $0000 without wiping the loaded ROMs or RAM.
+    /// Catches soft-reset path regressions.
+    #[test]
+    fn reset_returns_pc_to_zero_and_preserves_ram() {
+        let mut m = Spectrum128K::new();
+        m.memory.ram_bank_mut(2)[0] = 0xCC;
+        m.run_frame();
+        m.reset();
+        assert_eq!(m.z80.regs.pc, 0x0000);
+        assert_eq!(m.memory.ram_bank(2)[0], 0xCC, "RAM preserved across soft reset");
+    }
+
+    /// Tape transport methods are no-ops when no tape is loaded but
+    /// must not panic. Catches regressions in the tape-controller's
+    /// guard clauses.
+    #[test]
+    fn tape_play_stop_safe_without_loaded_tape() {
+        let mut m = Spectrum128K::new();
+        assert!(!m.tape.is_playing());
+        m.tape_play();
+        m.tape_stop();
+        assert!(!m.tape.is_playing());
+    }
+
+    /// `audio_controls` round-trips through `set_audio_controls` and
+    /// `set_audio_channel_gain` / `set_audio_channel_enabled`. Used
+    /// by the native UI's State / View menus.
+    #[test]
+    fn audio_controls_round_trip() {
+        let mut m = Spectrum128K::new();
+        let mut controls = m.audio_controls();
+        controls.set_master_gain(0.42);
+        m.set_audio_controls(controls);
+        assert!((m.audio_controls().master_gain() - 0.42).abs() < 1e-6);
+
+        m.set_audio_channel_enabled(SpeakerChannel::Speaker, false);
+        assert!(!m.audio_controls().channel(SpeakerChannel::Speaker).enabled());
+        m.set_audio_channel_gain(SpeakerChannel::Speaker, 0.25);
+        assert!(
+            (m.audio_controls().channel(SpeakerChannel::Speaker).gain() - 0.25).abs() < 1e-6,
+        );
     }
 }
