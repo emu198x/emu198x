@@ -21,10 +21,12 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_shell::{
     HostIo, InputEvent, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
 };
+use machine_pentagon_128::Pentagon128;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use runtime_sinclair_zx_spectrum::{
-    Model, Spectrum128kRuntime, Spectrum48kRuntime, SpectrumMachine, SpectrumPlus3Runtime,
+    Model, Pentagon128Runtime, Spectrum128kRuntime, Spectrum48kRuntime, SpectrumMachine,
+    SpectrumPlus3Runtime,
 };
 
 fn null_host() -> HostIo<'static> {
@@ -144,6 +146,86 @@ fn int_asserts_at_canonical_t_state_48k() -> Result<(), Box<dyn Error>> {
         "INT must deassert after the 32-T-state active window"
     );
     Ok(())
+}
+
+/// **Seam 5 waypoint #1b:** Interrupt asserts at the canonical
+/// half-cycle on the 128K.
+///
+/// The Sinclair 128K shares `int_scan = 248` with the 48K but runs at
+/// the 17.7 MHz master clock (`cpu_divisor = 5`, not 4), so a T-state
+/// is 5 half-cycles long and does not divide evenly into the ULA's
+/// 2-half-cycles-per-pixel tick rate. Asserting in half-cycles is
+/// the only fraction-free way to pin the INT-fires-here position:
+/// `(248 × 456 + 1) × 2 = 226 178` half-cycles from frame start
+/// (`pixels_per_line = 456`, `int_start_pixel = 1`, two half-cycles
+/// per ULA pixel).
+///
+/// Catches regression: any drift in `int_scan`, `int_start_pixel`,
+/// `int_end_pixel`, or `pixels_per_line` for `CONFIG_128K`.
+#[test]
+fn int_asserts_at_canonical_t_state_128k() {
+    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+
+    // After 226 176 half-cycles the ULA has ticked 113 088 times
+    // (one tick per even-`hc` iteration). 113 088 = 248 × 456, so the
+    // counter sits at (scan = 248, pixel = 0) — one ULA tick shy of
+    // int_start_pixel = 1.
+    runtime.machine_mut().advance_halfcycles(226_176);
+    assert!(
+        !runtime.machine().z80.irq,
+        "INT must not be asserted before scan 248, pixel 1 on 128K"
+    );
+
+    // +2 half-cycles fires one more ULA tick (113 089), incrementing
+    // the pixel counter to 1 and latching int_active = true. The
+    // engine's `feed_irq` runs in the same half-cycle and propagates
+    // the flag to `z80.irq`.
+    runtime.machine_mut().advance_halfcycles(2);
+    assert!(
+        runtime.machine().z80.irq,
+        "INT must be asserted at scan 248, pixel ≥ 1 on 128K"
+    );
+
+    // +130 half-cycles = 65 more ULA ticks, pushing the pixel
+    // counter past int_end_pixel = 65.
+    runtime.machine_mut().advance_halfcycles(130);
+    assert!(
+        !runtime.machine().z80.irq,
+        "INT must deassert after the 64-pixel active window on 128K"
+    );
+}
+
+/// **Seam 5 waypoint #1c:** Interrupt asserts at the canonical T-state
+/// on the Pentagon.
+///
+/// The Pentagon is the load-bearing exception in the family: 320 lines
+/// (extra VBlank) and `int_scan = 256` instead of 248 — INT fires
+/// eight scans later than on a Sinclair 128K. 448 pixels / line = 224
+/// T-states / line, so the canonical INT T-state is 256 × 224 = 57 344
+/// from frame start. Catches regression in `CONFIG_PENTAGON.int_scan`
+/// — easy to break by copying from `CONFIG_128K` and forgetting the
+/// Pentagon-specific override.
+#[test]
+fn int_asserts_at_canonical_t_state_pentagon() {
+    let mut runtime = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+
+    runtime.machine_mut().advance_tstates(256 * 224 - 1);
+    assert!(
+        !runtime.machine().z80.irq,
+        "INT must not be asserted before scan 256 on Pentagon"
+    );
+
+    runtime.machine_mut().advance_tstates(2);
+    assert!(
+        runtime.machine().z80.irq,
+        "INT must be asserted at scan 256, pixel ≥ 1 on Pentagon"
+    );
+
+    runtime.machine_mut().advance_tstates(40);
+    assert!(
+        !runtime.machine().z80.irq,
+        "INT must deassert after the 32-T-state active window on Pentagon"
+    );
 }
 
 /// **Seam 5 waypoint #2:** First display fetch lands on the data bus
