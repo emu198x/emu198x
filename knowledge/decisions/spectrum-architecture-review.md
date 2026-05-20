@@ -1,7 +1,7 @@
 # Decision: Spectrum architecture review — tighten the seams, not the spine
 
-**Date:** 2026-05-18, polish pass 2026-05-19, Phase 2 close-out 2026-05-20, Float48K + Float128K un-gate 2026-05-20
-**Status:** Phase 2 landed — Seams 1, 2, 3, 4, 5 + UlaRevision rename complete. Float48K and Float128K strict assertions un-gated. Open threads (5C-vs-6C HSync, Smith Y/U/V palette, 3-level beeper LUT, IF2 keyboard-matrix) explicitly deferred — no test-harness blockers remain.
+**Date:** 2026-05-18, polish pass 2026-05-19, Phase 2 close-out 2026-05-20, Float48K + Float128K un-gate 2026-05-20, IF2 routing 2026-05-20
+**Status:** Phase 2 landed — Seams 1, 2, 3, 4, 5 + UlaRevision rename complete. Float48K and Float128K strict assertions un-gated. Sinclair Interface 2 keyboard-matrix routing landed. Remaining open threads (5C-vs-6C HSync, Smith Y/U/V palette, 3-level beeper LUT, T-state probe offset) explicitly deferred — no test-harness blockers remain.
 
 ## What this is
 
@@ -322,7 +322,8 @@ With those harness fixes the probe output is clean: `1982 Sinclair Research Ltd`
 - **5C-vs-6C HSync timing** — no SOLID catalogue entry currently depends; tracked as a per-revision flag if a dependent title surfaces.
 - **Smith Y/U/V palette tables for the CRT filter** — `VideoFilter::Crt` ships in `emu198x-native-video`; Chapter 16's per-colour tables would upgrade colour fidelity but do not affect catalogue hashes (palette mapping happens after the framebuffer hash).
 - **3-level beeper voltage LUT** — Chapter 20 four-voltage divider. No catalogue title currently exercises three-level beeper.
-- **Sinclair Interface 2 keyboard-matrix routing** — separate from Seam 2 Kempston work; per [`spectrum-joystick-architecture.md`](spectrum-joystick-architecture.md).
+
+**Sinclair Interface 2 keyboard-matrix routing landed 2026-05-20.** Two harness fixes in `crates/runtime-sinclair-zx-spectrum/src/input.rs`: `apply_input_event` now matches `InputEvent::Button { port: 1 | 2, … }` and `InputEvent::Axis { port: 1 | 2, … }`, routing each through new `if2_button_to_key` and `if2_axis_key_pair` helpers that translate to `SpectrumKey` per Grussu's table (port 1 = keys 6/7/8/9/0; port 2 = keys 1/2/3/4/5; *Spectrumpedia Volume 1* p. 140). The routing is uniform across the family — every Spectrum has a keyboard matrix, so IF2 events work on 48K (with a real Interface 2 cartridge) and the +2/+2A/+2B/+3 (with the built-in side ports) by the same code path. Catches Kempston-vs-IF2 cross-talk: IF2 events on port 1/2 must not flip `kempston.attached`, and port-0 events on the +3 must not bleed into the keyboard matrix. Tested by boot-invariant waypoints `if2_port1_fire_closes_keyboard_zero_on_plus3` and `if2_port2_fire_closes_keyboard_five_on_48k` plus six unit tests in `input::tests`. Full decision in [`spectrum-joystick-architecture.md`](spectrum-joystick-architecture.md).
 
 The catalogue runs **101 entries SNAP-PASS in 94 min** at `frame_routing_version = 3`. Seams 1, 2, 3, 4, 5 are second-line-of-defence against regressions the catalogue cannot catch by construction — silently-locked-in wrong behaviour (Seam 4), lost host input (Seam 2), volatile state that doesn't survive snapshot restore (Seam 3), oracle integrity (Seam 4), and standing boot-invariant assertions (Seam 5). The spine — ULA-drives, no-Bus-trait, half-cycle signals, within-family layering — is unchanged.
 

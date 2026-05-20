@@ -10,14 +10,34 @@
 //! variant in the family (each variant's `set_keyboard_rows` is on
 //! the `SpectrumMachine` trait).
 //!
-//! Joystick events route directly to the machine via
-//! [`SpectrumMachine::set_kempston_button`] — Kempston state is held
-//! on the peripheral and read through the IO port, so it doesn't need
-//! the cache-then-push dance the keyboard uses. Amstrad-class machines
-//! (+2A / +2B / +3) inherit the default no-op `set_kempston_button`
-//! and silently drop joystick events: the rear-connector pinout
-//! changed in '87, so a Kempston interface cannot physically attach
-//! to those machines.
+//! Three logical input ports:
+//!
+//! - **Port 0 — Kempston.** Routes to the machine's `KempstonJoystick`
+//!   peripheral via [`SpectrumMachine::set_kempston_button`]. State is
+//!   held on the peripheral and read through IO port `$1F`, so it
+//!   doesn't need the cache-then-push dance the keyboard uses.
+//!   Amstrad-class machines (+2A / +2B / +3) inherit the default no-op
+//!   `set_kempston_button` and silently drop port-0 events: the
+//!   rear-connector pinout changed in '87, so a Kempston interface
+//!   cannot physically attach.
+//!
+//! - **Port 1 — Sinclair Interface 2 first port** (Grussu's "Port 1";
+//!   keys `6`/`7`/`8`/`9`/`0` for left/right/down/up/fire). Hardware
+//!   either-or: a real grey +2 / +2A / +2B / +3 has this wired
+//!   internally to the keyboard matrix; a real 48K / 128K user attaches
+//!   the 1983 Sinclair Interface 2 cartridge. Either way the host
+//!   abstraction is "press this joystick → close those keyboard
+//!   contacts", and the runtime input layer routes uniformly across
+//!   variants because the keyboard matrix is universal.
+//!
+//! - **Port 2 — Sinclair Interface 2 second port** (Grussu's "Port 2";
+//!   keys `1`/`2`/`3`/`4`/`5` for left/right/down/up/fire). Same
+//!   routing path as port 1, different keys.
+//!
+//! Port mapping source: Grussu, *Spectrumpedia Volume 1* p. 140
+//! ("Sinclair system" port table, quoted verbatim in
+//! `knowledge/decisions/spectrum-architecture-review.md` and
+//! `knowledge/decisions/spectrum-joystick-architecture.md`).
 //!
 //! The `<M: SpectrumMachine>` bound threads through so the function
 //! works for every `SpectrumRuntime<M>` instantiation.
@@ -45,9 +65,14 @@ const AXIS_THRESHOLD: i16 = 8192;
 /// - `InputEvent::Axis { port: 0, name, value }` → recognised axis
 ///   names update the corresponding directional pair on the joystick
 ///   (e.g. "horizontal" drives left/right with a deadzone).
-/// - Higher-port events (port >= 1), pointer events, and unrecognised
-///   names are silently dropped — port 1 is reserved for an eventual
-///   Sinclair Interface 2 second port and is currently unimplemented.
+/// - `InputEvent::Button { port: 1 | 2, name, pressed }` → recognised
+///   IF2 button names map to keyboard-matrix entries per Grussu's
+///   table (port 1 = keys 6/7/8/9/0; port 2 = keys 1/2/3/4/5).
+/// - `InputEvent::Axis { port: 1 | 2, name, value }` → axis-to-button
+///   conversion with the same 25% deadzone as Kempston, routed to
+///   the IF2 key positions.
+/// - Higher-port events (port >= 3), pointer events, and unrecognised
+///   names are silently dropped.
 ///
 /// The cached keyboard rows are pushed to the machine separately by
 /// `run_until` to preserve the original "decode N events, push once"
@@ -70,18 +95,38 @@ pub(crate) fn apply_input_event<M: SpectrumMachine>(
         }
         InputEvent::Axis { port: 0, name, value } => {
             if let Some((neg, pos)) = kempston_axis_pair(name.as_ref()) {
-                let (pos_pressed, neg_pressed) = if *value > AXIS_THRESHOLD {
-                    (true, false)
-                } else if *value < -AXIS_THRESHOLD {
-                    (false, true)
-                } else {
-                    (false, false)
-                };
+                let (pos_pressed, neg_pressed) = axis_to_button_pair(*value);
                 runtime.machine_mut().set_kempston_button(pos, pos_pressed);
                 runtime.machine_mut().set_kempston_button(neg, neg_pressed);
             }
         }
+        InputEvent::Button { port: port @ (1 | 2), name, pressed } => {
+            if let Some(key) = if2_button_to_key(*port, name.as_ref()) {
+                runtime.keyboard_mut().set_key(key, *pressed);
+            }
+        }
+        InputEvent::Axis { port: port @ (1 | 2), name, value } => {
+            if let Some((neg, pos)) = if2_axis_key_pair(*port, name.as_ref()) {
+                let (pos_pressed, neg_pressed) = axis_to_button_pair(*value);
+                runtime.keyboard_mut().set_key(pos, pos_pressed);
+                runtime.keyboard_mut().set_key(neg, neg_pressed);
+            }
+        }
         _ => {}
+    }
+}
+
+/// Discretises a signed-16-bit host axis value to a (positive,
+/// negative) press pair using [`AXIS_THRESHOLD`]. Shared between
+/// Kempston (port 0) and IF2 (port 1/2) so the deadzone behaviour is
+/// identical regardless of which port the host event arrives on.
+fn axis_to_button_pair(value: i16) -> (bool, bool) {
+    if value > AXIS_THRESHOLD {
+        (true, false)
+    } else if value < -AXIS_THRESHOLD {
+        (false, true)
+    } else {
+        (false, false)
     }
 }
 
@@ -112,6 +157,46 @@ fn kempston_axis_pair(name: &str) -> Option<(u8, u8)> {
     match name {
         "horizontal" | "x" => Some((1, 0)), // left, right
         "vertical" | "y" => Some((3, 2)),   // up, down
+        _ => None,
+    }
+}
+
+/// Resolves an IF2 button event to the `SpectrumKey` it closes on the
+/// keyboard matrix. Per Grussu's table:
+///
+/// |         | left | right | down | up | fire |
+/// |---------|------|-------|------|----|------|
+/// | port 1  |  6   |   7   |  8   |  9 |   0  |
+/// | port 2  |  1   |   2   |  3   |  4 |   5  |
+///
+/// Returns `None` for unrecognised port/name combinations, mirroring
+/// the Kempston resolver's "silently drop unknown" contract.
+fn if2_button_to_key(port: u8, name: &str) -> Option<SpectrumKey> {
+    match (port, name) {
+        (1, "left") => Some(SpectrumKey::Num6),
+        (1, "right") => Some(SpectrumKey::Num7),
+        (1, "down") => Some(SpectrumKey::Num8),
+        (1, "up") => Some(SpectrumKey::Num9),
+        (1, "fire" | "button1" | "a") => Some(SpectrumKey::Num0),
+        (2, "left") => Some(SpectrumKey::Num1),
+        (2, "right") => Some(SpectrumKey::Num2),
+        (2, "down") => Some(SpectrumKey::Num3),
+        (2, "up") => Some(SpectrumKey::Num4),
+        (2, "fire" | "button1" | "a") => Some(SpectrumKey::Num5),
+        _ => None,
+    }
+}
+
+/// Resolves a host axis name to a (negative, positive) `SpectrumKey`
+/// pair on the IF2 port's keyboard-matrix row. Horizontal drives
+/// left (negative) and right (positive); vertical drives up
+/// (negative) and down (positive) — same convention as Kempston.
+fn if2_axis_key_pair(port: u8, name: &str) -> Option<(SpectrumKey, SpectrumKey)> {
+    match (port, name) {
+        (1, "horizontal" | "x") => Some((SpectrumKey::Num6, SpectrumKey::Num7)),
+        (1, "vertical" | "y") => Some((SpectrumKey::Num9, SpectrumKey::Num8)),
+        (2, "horizontal" | "x") => Some((SpectrumKey::Num1, SpectrumKey::Num2)),
+        (2, "vertical" | "y") => Some((SpectrumKey::Num4, SpectrumKey::Num3)),
         _ => None,
     }
 }
@@ -152,5 +237,77 @@ mod tests {
         assert_eq!(kempston_axis_pair("vertical"), Some((3, 2)));
         assert_eq!(kempston_axis_pair("y"), Some((3, 2)));
         assert_eq!(kempston_axis_pair("z"), None);
+    }
+
+    #[test]
+    fn if2_port_1_button_mapping_matches_grussu_table() {
+        assert_eq!(if2_button_to_key(1, "left"), Some(SpectrumKey::Num6));
+        assert_eq!(if2_button_to_key(1, "right"), Some(SpectrumKey::Num7));
+        assert_eq!(if2_button_to_key(1, "down"), Some(SpectrumKey::Num8));
+        assert_eq!(if2_button_to_key(1, "up"), Some(SpectrumKey::Num9));
+        assert_eq!(if2_button_to_key(1, "fire"), Some(SpectrumKey::Num0));
+    }
+
+    #[test]
+    fn if2_port_2_button_mapping_matches_grussu_table() {
+        assert_eq!(if2_button_to_key(2, "left"), Some(SpectrumKey::Num1));
+        assert_eq!(if2_button_to_key(2, "right"), Some(SpectrumKey::Num2));
+        assert_eq!(if2_button_to_key(2, "down"), Some(SpectrumKey::Num3));
+        assert_eq!(if2_button_to_key(2, "up"), Some(SpectrumKey::Num4));
+        assert_eq!(if2_button_to_key(2, "fire"), Some(SpectrumKey::Num5));
+    }
+
+    #[test]
+    fn if2_accepts_fire_aliases() {
+        assert_eq!(if2_button_to_key(1, "button1"), Some(SpectrumKey::Num0));
+        assert_eq!(if2_button_to_key(1, "a"), Some(SpectrumKey::Num0));
+        assert_eq!(if2_button_to_key(2, "button1"), Some(SpectrumKey::Num5));
+        assert_eq!(if2_button_to_key(2, "a"), Some(SpectrumKey::Num5));
+    }
+
+    #[test]
+    fn if2_unrecognised_combinations_return_none() {
+        assert_eq!(if2_button_to_key(0, "fire"), None); // port 0 is Kempston, not IF2
+        assert_eq!(if2_button_to_key(3, "fire"), None); // no port 3
+        assert_eq!(if2_button_to_key(1, "trigger"), None);
+        assert_eq!(if2_button_to_key(1, "LEFT"), None); // case-sensitive
+    }
+
+    #[test]
+    fn if2_axis_pairs_drive_the_directional_keys() {
+        // Port 1: horizontal = (left=6, right=7); vertical = (up=9, down=8).
+        assert_eq!(
+            if2_axis_key_pair(1, "horizontal"),
+            Some((SpectrumKey::Num6, SpectrumKey::Num7))
+        );
+        assert_eq!(
+            if2_axis_key_pair(1, "vertical"),
+            Some((SpectrumKey::Num9, SpectrumKey::Num8))
+        );
+        // Port 2: horizontal = (left=1, right=2); vertical = (up=4, down=3).
+        assert_eq!(
+            if2_axis_key_pair(2, "horizontal"),
+            Some((SpectrumKey::Num1, SpectrumKey::Num2))
+        );
+        assert_eq!(
+            if2_axis_key_pair(2, "vertical"),
+            Some((SpectrumKey::Num4, SpectrumKey::Num3))
+        );
+        assert_eq!(if2_axis_key_pair(0, "horizontal"), None);
+        assert_eq!(if2_axis_key_pair(1, "z"), None);
+    }
+
+    #[test]
+    fn axis_to_button_pair_respects_deadzone() {
+        // Centre / inside deadzone: nothing pressed.
+        assert_eq!(axis_to_button_pair(0), (false, false));
+        assert_eq!(axis_to_button_pair(AXIS_THRESHOLD), (false, false));
+        assert_eq!(axis_to_button_pair(-AXIS_THRESHOLD), (false, false));
+
+        // Past threshold: only the matching direction.
+        assert_eq!(axis_to_button_pair(AXIS_THRESHOLD + 1), (true, false));
+        assert_eq!(axis_to_button_pair(i16::MAX), (true, false));
+        assert_eq!(axis_to_button_pair(-AXIS_THRESHOLD - 1), (false, true));
+        assert_eq!(axis_to_button_pair(i16::MIN), (false, true));
     }
 }

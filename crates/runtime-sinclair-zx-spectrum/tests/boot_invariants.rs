@@ -550,7 +550,111 @@ fn contention_table_matches_canonical_for_known_window() {
     );
 }
 
-/// **Seam 5 waypoint #10:** Amstrad class declines Kempston events.
+/// **Seam 5 waypoint #10a:** Sinclair Interface 2 port 1 closes
+/// keyboard-matrix contacts on +3 (Amstrad-class).
+///
+/// IF2 routing is universal across the family — it's a keyboard-matrix
+/// translation, not a peripheral. The +3 has *no* Kempston field (per
+/// the 1987 rear-connector pinout change documented in
+/// `knowledge/decisions/spectrum-joystick-architecture.md`) so an
+/// `InputEvent::Button { port: 0, … }` is silently dropped — see
+/// waypoint #10. An `InputEvent::Button { port: 1, … }` is the IF2
+/// path, which routes through the keyboard matrix instead and is
+/// therefore available on every variant, +3 included.
+///
+/// Per Grussu's table: port 1 fire closes the `0` key on the matrix
+/// (row 4, bit 0 — `keyboard_rows()[4] & 0x01 == 0` when pressed).
+///
+/// Catches regression: any change to `apply_input_event`'s IF2 routing,
+/// `if2_button_to_key`, or the SpectrumMachine trait's keyboard cache
+/// that breaks the "joystick event = keyboard row update" contract.
+#[test]
+fn if2_port1_fire_closes_keyboard_zero_on_plus3() -> Result<(), Box<dyn Error>> {
+    let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+
+    // Fresh machine: every keyboard row reads 0xFF (all keys released).
+    assert_eq!(
+        runtime.machine().keyboard_rows(),
+        &[0xFF; 8],
+        "fresh +3 keyboard matrix must read all-released"
+    );
+
+    let press = InputEvent::Button {
+        port: 1,
+        name: Cow::Borrowed("fire"),
+        pressed: true,
+    };
+    let events = [press];
+    let mut host = HostIo {
+        input_events: &events,
+        frame_sink: Box::leak(Box::new(NullFrameSink)),
+        audio_sink: Box::leak(Box::new(NullAudioSink)),
+        trace_sink: Box::leak(Box::new(NullTraceSink)),
+    };
+    runtime.run_until(MachineTime::new(2_000), &mut host)?;
+
+    // `0` lives at (row 4, bit 0). Bit clear = key pressed (active low).
+    let rows = runtime.machine().keyboard_rows();
+    assert_eq!(
+        rows[4] & 0x01,
+        0,
+        "IF2 port-1 fire must close the `0` key — row 4 bit 0 must be 0, got row=0x{:02X}",
+        rows[4]
+    );
+    // No other row should be touched.
+    for (i, byte) in rows.iter().enumerate() {
+        let expected = if i == 4 { 0xFE } else { 0xFF };
+        assert_eq!(
+            *byte, expected,
+            "row {i}: only row 4 bit 0 should be cleared, got 0x{byte:02X}",
+        );
+    }
+    Ok(())
+}
+
+/// **Seam 5 waypoint #10b:** Sinclair Interface 2 port 2 closes the
+/// row-3 keys on the 48K, and does not touch Kempston state.
+///
+/// IF2 port 2 fire closes the `5` key (row 3, bit 4). Same routing
+/// path as port 1 but different keys, against a 48K runtime to prove
+/// the routing isn't accidentally Amstrad-class-specific. Also
+/// asserts the Kempston peripheral was not attached as a side-effect
+/// — IF2 events route through the keyboard matrix only.
+#[test]
+fn if2_port2_fire_closes_keyboard_five_on_48k() -> Result<(), Box<dyn Error>> {
+    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+
+    let press = InputEvent::Button {
+        port: 2,
+        name: Cow::Borrowed("fire"),
+        pressed: true,
+    };
+    let events = [press];
+    let mut host = HostIo {
+        input_events: &events,
+        frame_sink: Box::leak(Box::new(NullFrameSink)),
+        audio_sink: Box::leak(Box::new(NullAudioSink)),
+        trace_sink: Box::leak(Box::new(NullTraceSink)),
+    };
+    runtime.run_until(MachineTime::new(2_000), &mut host)?;
+
+    // `5` lives at (row 3, bit 4).
+    let rows = runtime.machine().keyboard_rows();
+    assert_eq!(
+        rows[3] & 0x10,
+        0,
+        "IF2 port-2 fire must close the `5` key — row 3 bit 4 must be 0, got row=0x{:02X}",
+        rows[3]
+    );
+    // Also: Kempston must NOT have attached — IF2 events don't touch port-0 state.
+    assert!(
+        !runtime.machine().kempston.attached,
+        "IF2 events on port 2 must not flip Kempston attached flag"
+    );
+    Ok(())
+}
+
+/// **Seam 5 waypoint #11:** Amstrad class declines Kempston events.
 ///
 /// The +2A / +2B / +3 broke the rear-connector pinout in 1987 so a
 /// real Kempston interface cannot physically attach. The architecture

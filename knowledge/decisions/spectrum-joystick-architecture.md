@@ -1,6 +1,6 @@
 # Decision: Spectrum joystick architecture
 
-**Status:** Kempston migration landed 2026-05-07. Sinclair Interface 2 keyboard mapping deferred (separate work). Initial 2026-05-06 draft misframed the fix; revision history below.
+**Status:** Kempston migration landed 2026-05-07. Sinclair Interface 2 keyboard mapping landed 2026-05-20. Initial 2026-05-06 draft misframed the fix; revision history below.
 
 **Drift trigger:** if you find yourself reaching for `Peripheral` to model the Kempston joystick, or adding `kempston:` fields to a machine where it shouldn't physically attach (+2A / +2B / +3), **stop and re-read this entry first.**
 
@@ -44,12 +44,16 @@ present the interface, then writes button bits into `state`.
 
 ### 2. Sinclair Interface 2 — runtime input mapping, not a machine-side concern
 
-The grey +2 / +2A / +2B / +3 shipped with built-in Sinclair Interface 2-style joystick ports. Software-wise these aren't a separate I/O port — they're wired to the keyboard matrix:
+**Resolved 2026-05-20.** The grey +2 / +2A / +2B / +3 shipped with built-in Sinclair Interface 2-style joystick ports. Software-wise these aren't a separate I/O port — they're wired to the keyboard matrix, per Grussu (*Spectrumpedia Volume 1* p. 140):
 
-- Joystick 1 → keys `1` (left), `2` (right), `3` (down), `4` (up), `5` (fire)
-- Joystick 2 → keys `6` (left), `7` (right), `8` (down), `9` (up), `0` (fire)
+|         | left | right | down | up | fire |
+|---------|------|-------|------|----|------|
+| Port 1  |  6   |   7   |  8   |  9 |   0  |
+| Port 2  |  1   |   2   |  3   |  4 |   5  |
 
-So a joystick event coming in from the host translates to a keyboard row update. This is **runtime input layer concern** — the runtime already maps `InputEvent::Key { name, pressed }` onto keyboard rows; we just add joystick event handling that does the same translation per variant.
+The runtime input layer routes `InputEvent::Button { port: 1 | 2, name }` and `InputEvent::Axis { port: 1 | 2, name, value }` through to the keyboard cache, mapping name → `SpectrumKey` per the table. Routing lives at `crates/runtime-sinclair-zx-spectrum/src/input.rs`'s `if2_button_to_key` / `if2_axis_key_pair` helpers, and is uniform across the family — every Spectrum has a keyboard matrix, so the IF2 routing works on 48K (with a real IF2 cartridge) and the +2/+2A/+2B/+3 (with the built-in side ports) by the same code path. Tested end-to-end by boot-invariant waypoints `if2_port1_fire_closes_keyboard_zero_on_plus3` and `if2_port2_fire_closes_keyboard_five_on_48k`.
+
+The port-numbering choice (port 0 = Kempston; port 1/2 = IF2) was an arbitrary convention chosen for backward compatibility with the earlier Seam 2 Kempston wiring. Grussu's "Port 1 / Port 2" labels correspond directly to the runtime's `port: 1` / `port: 2`.
 
 ### 3. µPD765A FDC — leave it where it is
 
@@ -94,18 +98,9 @@ The `Peripheral` trait docstring was updated to remove the carveout. See
 
 ## What still needs doing
 
-**Sinclair Interface 2 keyboard mapping (deferred).** Catalogue authoring
-will eventually want joystick events on the +2 / +2A / +2B / +3 to map
-to their built-in joystick ports. Hardware-wise those map to the
-keyboard matrix (joy 1 → keys 1-5, joy 2 → keys 6-0). Lives at the
-runtime input layer when it grows joystick event handling; not a
-machine-side change. Not blocking SOLID criterion 2 (which is about
-variants in scope, not joystick coverage).
-
-**Runtime joystick input mapping (deferred).** No Spectrum frontend
-currently produces `InputEvent::Button` events; the host code paths
-need wiring up first (mirroring how `emu198x-amiga` and `emu198x-dragon`
-already do it). Once those events arrive, the runtime input layer
-decides whether to write to the machine's `kempston.state` or to the
-keyboard rows (Sinclair Interface 2). Both targets exist now — the
-plumbing just isn't built yet.
+**Host code paths producing `InputEvent::Button`.** The runtime accepts
+port 0 (Kempston) and port 1 / port 2 (IF2) gamepad events, but no
+Spectrum frontend currently produces them. The host paths need wiring
+up — mirroring `emu198x-amiga` / `emu198x-dragon` which already do
+it. Once those events arrive, the runtime input layer routes them
+correctly out of the box (both Kempston and IF2 targets are tested).
