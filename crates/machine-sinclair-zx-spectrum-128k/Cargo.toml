@@ -9,5 +9,9 @@ license.workspace = true
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 common-sinclair-zx-spectrum-128k-class = { path = "../common-sinclair-zx-spectrum-128k-class" }
 
+[dev-dependencies]
+format-sinclair-zx-spectrum-tap = { path = "../format-sinclair-zx-spectrum-tap" }
+png = { workspace = true }
+
 [lints]
 workspace = true
