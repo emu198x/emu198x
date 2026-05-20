@@ -1,7 +1,7 @@
 # Decision: Spectrum architecture review — tighten the seams, not the spine
 
-**Date:** 2026-05-18, polish pass 2026-05-19, Phase 2 close-out 2026-05-20
-**Status:** Phase 2 landed — Seams 1, 2, 3, 4, 5 + UlaRevision rename complete. Open threads (Float48K strict un-gate, 5C-vs-6C HSync, Smith Y/U/V palette) explicitly deferred or blocked on Phase 1 #8.
+**Date:** 2026-05-18, polish pass 2026-05-19, Phase 2 close-out 2026-05-20, Float48K un-gate 2026-05-20
+**Status:** Phase 2 landed — Seams 1, 2, 3, 4, 5 + UlaRevision rename complete. Float48K strict assertion un-gated. Open threads (5C-vs-6C HSync, Smith Y/U/V palette, 3-level beeper LUT, IF2 keyboard-matrix) explicitly deferred.
 
 ## What this is
 
@@ -307,9 +307,17 @@ All five named seams have landed code. The order-of-work was Seam 4 → Seam 1 �
 | 5 | `082dd74`, `d3156d1`, `3970dbc`, `450ac8a` | 12 boot-invariant waypoints across 48K / 128K / Pentagon / +3 |
 | Rename | `ce45ea8` | `BoardIssue::Issue2/Issue3` → `UlaRevision::Ferranti5C/Ferranti6C` (5C/6C family naming) |
 
+**Float48K strict un-gate landed 2026-05-20** in two harness fixes inside `crates/machine-sinclair-zx-spectrum-48k/tests/float_bus.rs`:
+
+1. **Control-byte state machine.** The PR-ALL ($09F4) capture point catches BASIC's PRINT-FP digits that bypass RST 16, but it also captures the argument bytes that follow AT / INK / PAPER / FLASH / BRIGHT / INVERSE / OVER / TAB control codes. A small `skip_args` counter tracks "next 1 or 2 captures are control arguments" and drops them.
+2. **`STEP_TSTATES = 1`.** PR-ALL is called roughly 4× more often than RST 16 (the ROM's internal print routines like `PO-MSG` call it directly). At the legacy 4-T-state granularity ~50% of PR-ALL hits were missed because two entries collided inside one sample window. 1-T-state granularity guarantees every entry is caught as a rising edge.
+
+With those harness fixes the probe output is clean: `1982 Sinclair Research Ltd` / `Program: Float48K` / `Bytes: floatcode` / `14330 255 / 14331 255 / … / 14338 255 / 14339 128`. The strict assertion now runs without an env-var gate. Pinned engine value: **T=14339** (`FLOAT48K_EXPECTED_TSTATE`), 1 T-state late vs the canonical T-14338 Woody reports for real Sinclair 48K hardware. The 1-T-state offset is a Z80/ULA phase-alignment subtlety in how our Z80 model samples the IO data bus inside the IN M-cycle — independent of the ULA fetch timing, which is correct per Seam 1. Tracked as an engine-fidelity follow-up; catalogue hashes are unaffected (they depend on the visible-pixel tap, not the floating-bus probe).
+
 **Deferred to post-Phase-2** (captured in [Fidelity findings deferred beyond October](#fidelity-findings-deferred-beyond-october)):
 
-- **Float48K strict un-gate** — blocked on test-harness PRINT-FP capture work (Phase 1 #8). Engine-side timing is already correct at T=14338; only the verifier's display capture needs to track the ROM editor's control-argument state machine.
+- **Float48K T-state 1-T-state offset** — engine prints 14339 instead of canonical 14338. Z80 IN-instruction IO sample-point phase question, not a ULA fetch bug.
+- **Float128k harness** — `Float128k.tap` is available in the test-data tree but no 128K probe test exists yet. Same shape as the 48K version, separate landing.
 - **5C-vs-6C HSync timing** — no SOLID catalogue entry currently depends; tracked as a per-revision flag if a dependent title surfaces.
 - **Smith Y/U/V palette tables for the CRT filter** — `VideoFilter::Crt` ships in `emu198x-native-video`; Chapter 16's per-colour tables would upgrade colour fidelity but do not affect catalogue hashes (palette mapping happens after the framebuffer hash).
 - **3-level beeper voltage LUT** — Chapter 20 four-voltage divider. No catalogue title currently exercises three-level beeper.

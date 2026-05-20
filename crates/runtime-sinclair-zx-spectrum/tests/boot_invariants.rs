@@ -233,13 +233,17 @@ fn int_asserts_at_canonical_t_state_pentagon() {
 ///
 /// This is the Seam 1 fix made testable. Pre-Seam-1 the first fetch
 /// was at T-14342 (4 T-states late); post-Seam-1 it's at T-14338.
-/// The Float48K probe is the gold-standard third-party verifier,
-/// but its harness-side decode is still gated on
-/// `EMU198X_FLOAT48K_STRICT=1` (see
-/// `crates/machine-sinclair-zx-spectrum-48k/tests/float_bus.rs`).
+/// The Float48K probe is the gold-standard third-party verifier and
+/// is now un-gated (no env-var) in
+/// `crates/machine-sinclair-zx-spectrum-48k/tests/float_bus.rs` —
+/// `#[ignore]`'d only because it needs the local 48K ROM and the
+/// `Float48k.tap` fixture. Run via
+/// `cargo test --release -p machine-sinclair-zx-spectrum-48k \
+///   --test float_bus -- --ignored`.
 /// This waypoint asserts the same invariant via the engine's own
-/// `MEM_TABLE` and `fetch_start` constants — a structural check
-/// that doesn't depend on driving real BASIC code through the probe.
+/// `MEM_TABLE` and `fetch_start` constants — a hermetic structural
+/// check that runs on every `cargo test` and doesn't depend on
+/// driving real BASIC code through the probe.
 ///
 /// Catches regression: any reshuffle of `MEM_TABLE` /
 /// `IDLE_TABLE` / `fetch_start` that re-introduces the
