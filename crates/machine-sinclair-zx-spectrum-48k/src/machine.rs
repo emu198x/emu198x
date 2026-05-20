@@ -16,6 +16,7 @@ use common_sinclair_zx_spectrum_48k_class::{
     Spectrum48kMarker, SpectrumMachineCore, Variant48kClass,
 };
 use emu198x_shell::InputEvent;
+use peripheral_kempston_joystick::KempstonButton;
 
 /// Machine-local state for a stock ZX Spectrum 48K.
 pub type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;
@@ -43,6 +44,37 @@ impl<M: MemoryBus, V: Variant48kClass> ApplyInputEvent for SpectrumMachineCore<M
         };
         self.keyboard_mut().set_key(key, *pressed);
         true
+    }
+}
+
+/// Maps a typed [`KempstonButton`] event onto the 48K-class Kempston
+/// peripheral.
+///
+/// Mirrors the runtime layer's `set_kempston_button` shape but takes
+/// the typed [`KempstonButton`] enum directly, for callers (tests,
+/// scripted-input bindings, direct machine manipulation) that already
+/// hold a typed button reference. Flips the peripheral's `attached`
+/// flag on first event — software that probes `$1F` for Kempston
+/// detection sees the floating bus until the user touches the pad.
+///
+/// **Deliberately not implemented for the Amstrad class.** The +2A /
+/// +2B / +3 broke the rear-connector pinout in 1987, so a Kempston
+/// interface cannot physically attach. The trait bound on
+/// `Variant48kClass` (paired with the matching `Variant128kClass`
+/// impl in the 128K crate) keeps this enforced at compile time —
+/// trying to call `apply_kempston_event` on an Amstrad-class machine
+/// will fail to resolve the trait, surfacing the architectural
+/// constraint at the type system rather than at runtime.
+pub trait ApplyKempstonEvent {
+    /// Applies one button state change to the Kempston joystick.
+    fn apply_kempston_event(&mut self, button: KempstonButton, pressed: bool);
+}
+
+impl<M: MemoryBus, V: Variant48kClass> ApplyKempstonEvent for SpectrumMachineCore<M, V> {
+    fn apply_kempston_event(&mut self, button: KempstonButton, pressed: bool) {
+        let kempston = self.kempston_mut();
+        kempston.attached = true;
+        kempston.set_button(button, pressed);
     }
 }
 
@@ -100,6 +132,24 @@ mod tests {
 
         assert!(machine.apply_input_event(&pressed));
         assert_eq!(machine.read_fe(0xfbfe) & 0x01, 0x00);
+    }
+
+    #[test]
+    fn apply_kempston_event_attaches_and_flips_bits() {
+        let mut machine = Spectrum48k::new();
+        // Defaults: unattached, all bits clear.
+        assert!(!machine.kempston_mut().attached);
+        assert_eq!(machine.kempston_mut().state, 0);
+
+        machine.apply_kempston_event(KempstonButton::Fire, true);
+        assert!(machine.kempston_mut().attached, "first event must attach the interface");
+        assert_eq!(machine.kempston_mut().state, 0b0001_0000, "fire bit");
+
+        machine.apply_kempston_event(KempstonButton::Right, true);
+        assert_eq!(machine.kempston_mut().state, 0b0001_0001, "fire + right");
+
+        machine.apply_kempston_event(KempstonButton::Fire, false);
+        assert_eq!(machine.kempston_mut().state, 0b0000_0001, "only right after fire release");
     }
 
     #[test]

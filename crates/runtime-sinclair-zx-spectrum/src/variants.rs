@@ -32,7 +32,32 @@ use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
+use peripheral_kempston_joystick::{KempstonButton, KempstonJoystick};
 use serde_json::json;
+
+/// Shared helper for [`SpectrumMachine::set_kempston_button`] overrides.
+///
+/// Translates the runtime-level button index (matching the bit position
+/// on the Kempston read byte) into a [`KempstonButton`] enum value, then
+/// flips the peripheral's `attached` flag and updates the bit. Returns
+/// `false` for indices outside `0..=4` so callers can propagate the
+/// failure signal back to the trait method's contract.
+fn apply_kempston_button_index(
+    joystick: &mut KempstonJoystick,
+    button: u8,
+    pressed: bool,
+) -> bool {
+    let Some(b) = KempstonButton::from_index(button) else {
+        return false;
+    };
+    // First applied event makes the interface visible to software that
+    // probes `$1F` for Kempston detection. Real hardware would have read
+    // floating bus before the user touched the pad; we mirror that by
+    // keeping `attached=false` until a recognised event arrives.
+    joystick.attached = true;
+    joystick.set_button(b, pressed);
+    true
+}
 
 use crate::queries::{SpectrumBootStatus, boot_status_from_banners, screen_text_lines};
 use crate::runtime::{SpectrumMachine, SpectrumRuntime};
@@ -381,6 +406,9 @@ impl SpectrumMachine for Spectrum48k {
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         *self.keyboard_mut().rows_mut() = *rows;
     }
+    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
+        apply_kempston_button_index(self.kempston_mut(), button, pressed)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum48k::load_tape_blocks(self, blocks);
     }
@@ -474,6 +502,9 @@ impl SpectrumMachine for Spectrum16K {
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         *self.keyboard_mut().rows_mut() = *rows;
+    }
+    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
+        apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum16K::load_tape_blocks(self, blocks);
@@ -574,6 +605,9 @@ impl SpectrumMachine for SpectrumPlus {
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         *self.keyboard_mut().rows_mut() = *rows;
     }
+    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
+        apply_kempston_button_index(self.kempston_mut(), button, pressed)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus::load_tape_blocks(self, blocks);
     }
@@ -667,6 +701,9 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
+    }
+    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
+        apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum128K::load_tape_blocks(self, blocks);
@@ -765,6 +802,9 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
+    }
+    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
+        apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus2::load_tape_blocks(self, blocks);
@@ -991,6 +1031,9 @@ impl SpectrumMachine for Pentagon128 {
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
     }
+    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
+        apply_kempston_button_index(&mut self.kempston, button, pressed)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Pentagon128::load_tape_blocks(self, blocks);
     }
@@ -1095,6 +1138,9 @@ impl SpectrumMachine for ScorpionZS256 {
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
     }
+    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
+        apply_kempston_button_index(&mut self.kempston, button, pressed)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         ScorpionZS256::load_tape_blocks(self, blocks);
     }
@@ -1198,6 +1244,9 @@ impl SpectrumMachine for TimexTC2048 {
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
     }
+    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
+        apply_kempston_button_index(&mut self.kempston, button, pressed)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         TimexTC2048::load_tape_blocks(self, blocks);
     }
@@ -1295,6 +1344,9 @@ impl SpectrumMachine for TimexTS2068 {
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
+    }
+    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
+        apply_kempston_button_index(&mut self.kempston, button, pressed)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         TimexTS2068::load_tape_blocks(self, blocks);

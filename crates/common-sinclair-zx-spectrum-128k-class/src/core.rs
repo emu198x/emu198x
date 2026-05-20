@@ -110,6 +110,16 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         V::MODEL_ID
     }
 
+    /// Returns mutable access to the Kempston joystick peripheral.
+    ///
+    /// The runtime layer's joystick input mapping reaches in here to
+    /// flip button bits when a host gamepad event arrives. Mirrors the
+    /// 48K-class accessor.
+    #[must_use]
+    pub fn kempston_mut(&mut self) -> &mut KempstonJoystick {
+        &mut self.kempston
+    }
+
     /// Returns the current half-cycle counter within the frame.
     #[must_use]
     pub const fn hc_value(&self) -> u32 {

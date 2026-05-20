@@ -10,6 +10,7 @@ common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
 common-sinclair-zx-spectrum-48k-class = { path = "../common-sinclair-zx-spectrum-48k-class" }
 emu198x-shell = { path = "../emu198x-shell" }
 ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick" }
 serde = { workspace = true }
 zilog-z80 = { path = "../zilog-z80" }
 

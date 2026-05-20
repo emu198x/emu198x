@@ -15,4 +15,5 @@ pub use common_sinclair_zx_spectrum::{
 };
 pub use common_sinclair_zx_spectrum_48k_class::{Spectrum48kMarker, TapeInput};
 pub use ferranti_ula_6c001e::BoardIssue;
-pub use machine::{ApplyInputEvent, Spectrum48k};
+pub use machine::{ApplyInputEvent, ApplyKempstonEvent, Spectrum48k};
+pub use peripheral_kempston_joystick::{KempstonButton, KempstonJoystick};

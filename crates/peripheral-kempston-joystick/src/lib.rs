@@ -78,6 +78,25 @@ impl KempstonButton {
             Self::Fire => 0b0001_0000,
         }
     }
+
+    /// Resolves a stable button index to a [`KempstonButton`]. The
+    /// index matches the bit position on the read byte:
+    /// `0` right, `1` left, `2` down, `3` up, `4` fire. Returns
+    /// `None` for any other value. The runtime input layer uses this
+    /// to translate host joystick events without taking a
+    /// `KempstonButton` dependency through the [`SpectrumMachine`]
+    /// trait boundary.
+    #[must_use]
+    pub const fn from_index(index: u8) -> Option<Self> {
+        match index {
+            0 => Some(Self::Right),
+            1 => Some(Self::Left),
+            2 => Some(Self::Down),
+            3 => Some(Self::Up),
+            4 => Some(Self::Fire),
+            _ => None,
+        }
+    }
 }
 
 /// A Kempston Interface joystick attached to a Spectrum.
@@ -234,5 +253,20 @@ mod tests {
         assert_eq!(KempstonButton::Down.mask(), 0b0000_0100);
         assert_eq!(KempstonButton::Up.mask(), 0b0000_1000);
         assert_eq!(KempstonButton::Fire.mask(), 0b0001_0000);
+    }
+
+    #[test]
+    fn from_index_round_trips_bit_layout() {
+        assert_eq!(KempstonButton::from_index(0), Some(KempstonButton::Right));
+        assert_eq!(KempstonButton::from_index(1), Some(KempstonButton::Left));
+        assert_eq!(KempstonButton::from_index(2), Some(KempstonButton::Down));
+        assert_eq!(KempstonButton::from_index(3), Some(KempstonButton::Up));
+        assert_eq!(KempstonButton::from_index(4), Some(KempstonButton::Fire));
+    }
+
+    #[test]
+    fn from_index_rejects_unmapped_values() {
+        assert_eq!(KempstonButton::from_index(5), None);
+        assert_eq!(KempstonButton::from_index(0xFF), None);
     }
 }

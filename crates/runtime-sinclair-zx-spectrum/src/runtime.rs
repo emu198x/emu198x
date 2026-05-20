@@ -67,6 +67,29 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
     /// Copies fresh keyboard row bytes into the machine's scan matrix.
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]);
 
+    /// Sets one Kempston joystick button's pressed state.
+    ///
+    /// Button index follows the bit layout of the Kempston state byte:
+    /// `0` = right, `1` = left, `2` = down, `3` = up, `4` = fire. Indices
+    /// outside `0..=4` are ignored.
+    ///
+    /// Returns `true` when the machine has a Kempston interface and the
+    /// event was applied; `false` when the machine has no Kempston
+    /// hardware (Amstrad-class +2A / +2B / +3) and silently drops the
+    /// event. The first applied event also flips the peripheral's
+    /// `attached` flag, mirroring real hardware where the interface only
+    /// becomes visible to software once any input arrives — software that
+    /// probes `$1F` for Kempston detection sees the floating bus
+    /// (`0xFF`-ish via the ULA path) until the user touches the pad.
+    ///
+    /// Default implementation returns `false`. Override on variants that
+    /// own a `KempstonJoystick` peripheral (every 48K-class and 128K-
+    /// class machine; Pentagon and Scorpion; not the Amstrad-class).
+    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
+        let _ = (button, pressed);
+        false
+    }
+
     /// Loads tape blocks parsed from a `.tap` container.
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>);
 
