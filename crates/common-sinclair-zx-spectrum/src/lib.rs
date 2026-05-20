@@ -12,6 +12,7 @@ pub mod keyboard;
 pub mod memory;
 pub mod palette;
 pub mod peripheral;
+mod serde_skip_audit;
 pub mod snapshot;
 pub mod tape;
 pub mod timing;

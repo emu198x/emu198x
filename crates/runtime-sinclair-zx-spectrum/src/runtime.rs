@@ -224,12 +224,28 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
     }
 }
 
+/// One disk image's raw bytes plus the slot they were loaded into.
+/// The runtime caches these alongside the machine so they survive
+/// snapshot round-trips — the FDC marks its `disks` field
+/// `#[serde(skip)]` (the parsed `DiskImage` is large and not all of
+/// it is reconstructible from disk state alone), so the disk content
+/// would otherwise vanish on restore. See Seam 3 of
+/// `knowledge/decisions/spectrum-architecture-review.md`.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct DiskCacheEntry {
+    pub(crate) slot: String,
+    pub(crate) bytes: Vec<u8>,
+}
+
 /// Generic `MachineCore` runtime wrapper for Spectrum-family variants.
 pub struct SpectrumRuntime<M: SpectrumMachine> {
     profile: MachineProfile,
     machine: M,
     keyboard: KeyboardMatrix,
     time: MachineTime,
+    /// Mounted disk images, cached as raw bytes so they re-insert
+    /// cleanly into the FDC after a snapshot restore. See Seam 3.
+    disk_images: Vec<DiskCacheEntry>,
 }
 
 impl<M: SpectrumMachine> SpectrumRuntime<M> {
@@ -241,6 +257,7 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
             machine,
             keyboard: KeyboardMatrix::new(),
             time: MachineTime::default(),
+            disk_images: Vec::new(),
         }
     }
 
@@ -317,6 +334,33 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
         *self.keyboard.rows_mut() = rows;
     }
 
+    /// Returns the cached disk-image payloads. Used by snapshot
+    /// encoding so disk content survives the round-trip — see
+    /// [`DiskCacheEntry`] and Seam 3 of the architecture review.
+    pub(crate) fn disk_images(&self) -> &[DiskCacheEntry] {
+        &self.disk_images
+    }
+
+    /// Replaces the cached disk images and re-injects each one into
+    /// the underlying machine. Used by snapshot decoding after
+    /// `after_restore`. Failures are propagated so a malformed cache
+    /// surfaces rather than silently dropping the disk.
+    pub(crate) fn restore_disk_images(
+        &mut self,
+        images: Vec<DiskCacheEntry>,
+    ) -> Result<(), MachineError> {
+        self.disk_images = images;
+        for entry in &self.disk_images {
+            self.machine
+                .load_disk_image(&entry.slot, &entry.bytes)
+                .map_err(|reason| MachineError::InvalidMedia {
+                    slot: entry.slot.clone(),
+                    reason,
+                })?;
+        }
+        Ok(())
+    }
+
     /// Replaces the wrapped machine. Used by snapshot decoding.
     pub(crate) fn set_machine(&mut self, machine: M) {
         self.machine = machine;
@@ -381,6 +425,15 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
                             slot: slot.to_owned(),
                             reason,
                         })?;
+                    // Cache the raw bytes so the disk survives a
+                    // snapshot round-trip (Seam 3). The FDC marks
+                    // `disks` `#[serde(skip)]`; without this cache the
+                    // image would silently vanish on restore.
+                    self.disk_images.retain(|d| d.slot != slot);
+                    self.disk_images.push(DiskCacheEntry {
+                        slot: slot.to_owned(),
+                        bytes: image.bytes.to_vec(),
+                    });
                 }
                 MediaKind::Tape | MediaKind::Disk => {
                     return Err(MachineError::UnknownMediaSlot {

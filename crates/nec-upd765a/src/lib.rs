@@ -402,6 +402,14 @@ impl Upd765a {
         }
     }
 
+    /// Returns `true` if the given drive currently has a disk image
+    /// mounted. Used by snapshot-restore regression tests to verify
+    /// the disk survives the round-trip.
+    #[must_use]
+    pub fn has_disk(&self, drive: usize) -> bool {
+        drive < 4 && self.disks[drive].is_some()
+    }
+
     /// Read the main status register (port $2FFD on +3).
     ///
     /// Bits D0..D3 reflect per-drive seek-busy state (set while a
