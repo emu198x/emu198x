@@ -84,15 +84,15 @@ mod tests {
     use common_sinclair_zx_spectrum::audio::SpeakerChannel;
     use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
     use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
-    use ferranti_ula_6c001e::BoardIssue;
+    use ferranti_ula_6c001e::UlaRevision;
     use std::fs;
     use std::path::PathBuf;
 
     #[test]
-    fn machine_defaults_to_issue3() {
+    fn machine_defaults_to_ferranti6c() {
         let machine = Spectrum48k::new();
 
-        assert_eq!(machine.issue(), BoardIssue::Issue3);
+        assert_eq!(machine.revision(), UlaRevision::Ferranti6C);
         assert_eq!(machine.border_color(), 7);
         assert_eq!(machine.framebuffer().len(), SCREEN_WIDTH * SCREEN_HEIGHT);
         assert_eq!(machine.read_fe(0xfffe), 0xbf);
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn machine_loads_rom_and_exposes_memory_bus() {
-        let mut machine = Spectrum48k::with_issue(BoardIssue::Issue3);
+        let mut machine = Spectrum48k::with_revision(UlaRevision::Ferranti6C);
         let rom = [0xa5; 16 * 1024];
 
         machine
@@ -153,15 +153,15 @@ mod tests {
     }
 
     #[test]
-    fn machine_exposes_issue_specific_feedback() {
-        let mut issue2 = Spectrum48k::with_issue(BoardIssue::Issue2);
-        let mut issue3 = Spectrum48k::with_issue(BoardIssue::Issue3);
+    fn machine_exposes_revision_specific_feedback() {
+        let mut ferranti5c = Spectrum48k::with_revision(UlaRevision::Ferranti5C);
+        let mut ferranti6c = Spectrum48k::with_revision(UlaRevision::Ferranti6C);
 
-        issue2.write_fe(0x08);
-        issue3.write_fe(0x08);
+        ferranti5c.write_fe(0x08);
+        ferranti6c.write_fe(0x08);
 
-        assert_eq!(issue2.read_fe(0xfffe) & 0x40, 0x40);
-        assert_eq!(issue3.read_fe(0xfffe) & 0x40, 0x00);
+        assert_eq!(ferranti5c.read_fe(0xfffe) & 0x40, 0x40);
+        assert_eq!(ferranti6c.read_fe(0xfffe) & 0x40, 0x00);
     }
 
     #[test]

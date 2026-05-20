@@ -26,7 +26,7 @@ use common_sinclair_zx_spectrum::snapshot::{Snapshot, apply_48k_pages, apply_z80
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
-use ferranti_ula_6c001e::{BoardIssue, FerrantiUla};
+use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
 use peripheral_kempston_joystick::KempstonJoystick;
 use zilog_z80::{BusOp, Z80};
 
@@ -76,15 +76,15 @@ pub struct SpectrumMachineCore<M: MemoryBus, V: Variant48kClass> {
 }
 
 impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
-    /// Creates a 48K-class machine for the requested board issue and
+    /// Creates a 48K-class machine for the requested ULA revision and
     /// caller-supplied memory map.
     #[must_use]
-    pub fn with_issue_and_memory(issue: BoardIssue, memory: M) -> Self {
+    pub fn with_revision_and_memory(revision: UlaRevision, memory: M) -> Self {
         let audio = make_audio();
         let audio_frame = vec![0.0; audio.samples_per_frame()];
         Self {
             z80: Z80::new(),
-            ula: FerrantiUla::new(issue),
+            ula: FerrantiUla::new(revision),
             memory,
             keyboard: KeyboardMatrix::new(),
             kempston: KempstonJoystick::new(),
@@ -108,10 +108,10 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         &mut self.kempston
     }
 
-    /// Returns the configured board issue.
+    /// Returns the configured ULA revision (5C vs 6C family).
     #[must_use]
-    pub const fn issue(&self) -> BoardIssue {
-        self.ula.issue()
+    pub const fn revision(&self) -> UlaRevision {
+        self.ula.revision()
     }
 
     /// Returns the memory map.
@@ -312,9 +312,9 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
 
     /// Resets the pin-level CPU and ULA while keeping the loaded ROM and RAM.
     pub fn reset(&mut self) {
-        let issue = self.issue();
+        let revision = self.revision();
         self.z80 = Z80::new();
-        self.ula = FerrantiUla::new(issue);
+        self.ula = FerrantiUla::new(revision);
         self.audio = make_audio();
         self.audio_frame.fill(0.0);
         self.speaker = SpeakerMixer::default();
@@ -504,23 +504,23 @@ impl<M: MemoryBus, V: Variant48kClass> MemoryBus for SpectrumMachineCore<M, V> {
 
 // 48K-class shortcuts (Spectrum48kMemory backed: 48K + Spectrum+).
 impl<V: Variant48kClass> SpectrumMachineCore<Spectrum48kMemory, V> {
-    /// Creates an Issue 3 48K-class machine with deterministic startup
-    /// state.
+    /// Creates a Ferranti 6C 48K-class machine (Issue 3+) with
+    /// deterministic startup state.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_issue(BoardIssue::Issue3)
+        Self::with_revision(UlaRevision::Ferranti6C)
     }
 
-    /// Creates a 48K-class machine for the requested board issue.
+    /// Creates a 48K-class machine for the requested ULA revision.
     #[must_use]
-    pub fn with_issue(issue: BoardIssue) -> Self {
-        Self::with_issue_and_memory(issue, Spectrum48kMemory::new())
+    pub fn with_revision(revision: UlaRevision) -> Self {
+        Self::with_revision_and_memory(revision, Spectrum48kMemory::new())
     }
 
     /// Creates a 48K-class machine with the supplied 16 KiB ROM image.
     #[must_use]
-    pub fn with_rom(issue: BoardIssue, rom: [u8; 16 * 1024]) -> Self {
-        Self::with_issue_and_memory(issue, Spectrum48kMemory::with_rom(rom))
+    pub fn with_rom(revision: UlaRevision, rom: [u8; 16 * 1024]) -> Self {
+        Self::with_revision_and_memory(revision, Spectrum48kMemory::with_rom(rom))
     }
 
     /// Loads a 16 KiB ROM image.
@@ -543,22 +543,23 @@ impl<V: Variant48kClass> Default for SpectrumMachineCore<Spectrum48kMemory, V> {
 // so the V parameter is fixed to that marker — no other variant currently
 // shares the half-RAM hardware.
 impl SpectrumMachineCore<Spectrum16kMemory, crate::variant::Spectrum16kMarker> {
-    /// Creates an Issue 3 16K machine with deterministic startup state.
+    /// Creates a Ferranti 6C 16K machine (Issue 3+) with deterministic
+    /// startup state.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_issue(BoardIssue::Issue3)
+        Self::with_revision(UlaRevision::Ferranti6C)
     }
 
-    /// Creates a 16K machine for the requested board issue.
+    /// Creates a 16K machine for the requested ULA revision.
     #[must_use]
-    pub fn with_issue(issue: BoardIssue) -> Self {
-        Self::with_issue_and_memory(issue, Spectrum16kMemory::new())
+    pub fn with_revision(revision: UlaRevision) -> Self {
+        Self::with_revision_and_memory(revision, Spectrum16kMemory::new())
     }
 
     /// Creates a 16K machine with the supplied 16 KiB ROM image.
     #[must_use]
-    pub fn with_rom(issue: BoardIssue, rom: [u8; 16 * 1024]) -> Self {
-        Self::with_issue_and_memory(issue, Spectrum16kMemory::with_rom(rom))
+    pub fn with_rom(revision: UlaRevision, rom: [u8; 16 * 1024]) -> Self {
+        Self::with_revision_and_memory(revision, Spectrum16kMemory::with_rom(rom))
     }
 
     /// Loads a 16 KiB ROM image.

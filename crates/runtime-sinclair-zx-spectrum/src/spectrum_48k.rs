@@ -10,24 +10,24 @@ use common_sinclair_zx_spectrum::error::RomImageError;
 use emu198x_shell::{
     CapabilitySet, FirmwareSet, MachineError, MachineProfile, SupportTier, known_capability,
 };
-use machine_sinclair_zx_spectrum_48k::{BoardIssue, Spectrum48k};
+use machine_sinclair_zx_spectrum_48k::{Spectrum48k, UlaRevision};
 
 use crate::runtime::SpectrumRuntime;
 use crate::{Model, profile_for};
 
 impl SpectrumRuntime<Spectrum48k> {
-    /// Builds a 48K runtime around the given Issue 3 ROM image.
+    /// Builds a 48K runtime around the given Ferranti 6C (Issue 3+) ROM image.
     #[must_use]
     pub fn new_48k(rom: [u8; 16 * 1024]) -> Self {
         let mut runtime = SpectrumRuntime::new(
             Model::Spectrum48KPal,
-            Spectrum48k::with_rom(BoardIssue::Issue3, rom),
+            Spectrum48k::with_rom(UlaRevision::Ferranti6C, rom),
         );
         *runtime.profile_mut() = boots_profile_with_export();
         runtime
     }
 
-    /// Builds an Issue 3 runtime from a borrowed 16 KiB ROM byte slice.
+    /// Builds a Ferranti 6C runtime from a borrowed 16 KiB ROM byte slice.
     ///
     /// # Errors
     ///
@@ -39,7 +39,7 @@ impl SpectrumRuntime<Spectrum48k> {
         Ok(Self::new_48k(rom))
     }
 
-    /// Builds an Issue 3 runtime from the profile-declared firmware set.
+    /// Builds a Ferranti 6C runtime from the profile-declared firmware set.
     ///
     /// # Errors
     ///

@@ -18,13 +18,13 @@ mod tests {
     use super::*;
     use common_sinclair_zx_spectrum::memory::MemoryBus;
     use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
-    use ferranti_ula_6c001e::BoardIssue;
+    use ferranti_ula_6c001e::UlaRevision;
 
     #[test]
-    fn machine_defaults_to_issue3() {
+    fn machine_defaults_to_ferranti6c() {
         let machine = Spectrum16K::new();
 
-        assert_eq!(machine.issue(), BoardIssue::Issue3);
+        assert_eq!(machine.revision(), UlaRevision::Ferranti6C);
         assert_eq!(machine.border_color(), 7);
         assert_eq!(machine.framebuffer().len(), SCREEN_WIDTH * SCREEN_HEIGHT);
         assert_eq!(machine.read_fe(0xfffe), 0xbf);
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn machine_loads_rom_image() {
-        let mut machine = Spectrum16K::with_issue(BoardIssue::Issue3);
+        let mut machine = Spectrum16K::with_revision(UlaRevision::Ferranti6C);
         let rom = [0xa5; 16 * 1024];
 
         machine
@@ -109,14 +109,14 @@ mod tests {
     }
 
     #[test]
-    fn machine_exposes_issue_specific_feedback() {
-        let mut issue2 = Spectrum16K::with_issue(BoardIssue::Issue2);
-        let mut issue3 = Spectrum16K::with_issue(BoardIssue::Issue3);
+    fn machine_exposes_revision_specific_feedback() {
+        let mut ferranti5c = Spectrum16K::with_revision(UlaRevision::Ferranti5C);
+        let mut ferranti6c = Spectrum16K::with_revision(UlaRevision::Ferranti6C);
 
-        issue2.write_fe(0x08);
-        issue3.write_fe(0x08);
+        ferranti5c.write_fe(0x08);
+        ferranti6c.write_fe(0x08);
 
-        assert_eq!(issue2.read_fe(0xfffe) & 0x40, 0x40);
-        assert_eq!(issue3.read_fe(0xfffe) & 0x40, 0x00);
+        assert_eq!(ferranti5c.read_fe(0xfffe) & 0x40, 0x40);
+        assert_eq!(ferranti6c.read_fe(0xfffe) & 0x40, 0x00);
     }
 }

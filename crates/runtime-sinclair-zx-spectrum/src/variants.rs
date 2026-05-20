@@ -23,7 +23,7 @@ use gi_ay_3_8912::Ay3_8912;
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
 use machine_sinclair_zx_spectrum_16k::Spectrum16K;
-use machine_sinclair_zx_spectrum_48k::{BoardIssue, Spectrum48k};
+use machine_sinclair_zx_spectrum_48k::{Spectrum48k, UlaRevision};
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
 use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
@@ -368,10 +368,16 @@ fn resolve_ay_path(ay: &Ay3_8912, path: &str) -> Result<Option<QueryResult>, Que
     }))
 }
 
-fn board_issue_name(issue: BoardIssue) -> &'static str {
-    match issue {
-        BoardIssue::Issue2 => "issue2",
-        BoardIssue::Issue3 => "issue3",
+/// Maps a [`UlaRevision`] to the stable string identifier returned by
+/// the `spectrum.machine.issue` query path. The string values
+/// (`"issue2"` / `"issue3"`) are preserved for backward compatibility
+/// with the documented scripting API (see `docs/features/scripting.md`)
+/// — the internal type rename to `UlaRevision::Ferranti5C` /
+/// `UlaRevision::Ferranti6C` does not propagate to the JSON surface.
+fn ula_revision_name(revision: UlaRevision) -> &'static str {
+    match revision {
+        UlaRevision::Ferranti5C => "issue2",
+        UlaRevision::Ferranti6C => "issue3",
     }
 }
 
@@ -462,7 +468,7 @@ impl SpectrumMachine for Spectrum48k {
             return resolve_boot_path(self, SPECTRUM_48K_BANNERS, path);
         }
         let value = match path {
-            "spectrum.machine.issue" => json!(board_issue_name(self.issue())),
+            "spectrum.machine.issue" => json!(ula_revision_name(self.revision())),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -559,7 +565,7 @@ impl SpectrumMachine for Spectrum16K {
             return resolve_boot_path(self, SPECTRUM_16K_BANNERS, path);
         }
         let value = match path {
-            "spectrum.machine.issue" => json!(board_issue_name(self.issue())),
+            "spectrum.machine.issue" => json!(ula_revision_name(self.revision())),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -661,7 +667,7 @@ impl SpectrumMachine for SpectrumPlus {
             return resolve_boot_path(self, SPECTRUM_PROPER_PLUS_BANNERS, path);
         }
         let value = match path {
-            "spectrum.machine.issue" => json!(board_issue_name(self.issue())),
+            "spectrum.machine.issue" => json!(ula_revision_name(self.revision())),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

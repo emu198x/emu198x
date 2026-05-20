@@ -6,22 +6,22 @@
 
 use common_sinclair_zx_spectrum::error::RomImageError;
 use emu198x_shell::{FirmwareSet, MachineError};
-use machine_sinclair_zx_spectrum_plus::{BoardIssue, SpectrumPlus};
+use machine_sinclair_zx_spectrum_plus::{SpectrumPlus, UlaRevision};
 
 use crate::runtime::SpectrumRuntime;
 use crate::{Model, profile_for};
 
 impl SpectrumRuntime<SpectrumPlus> {
-    /// Builds a Spectrum+ runtime around the given Issue 3 ROM image.
+    /// Builds a Spectrum+ runtime around the given Ferranti 6C (Issue 3+) ROM image.
     #[must_use]
     pub fn new_plus(rom: [u8; 16 * 1024]) -> Self {
         SpectrumRuntime::new(
             Model::SpectrumPlus,
-            SpectrumPlus::with_rom(BoardIssue::Issue3, rom),
+            SpectrumPlus::with_rom(UlaRevision::Ferranti6C, rom),
         )
     }
 
-    /// Builds an Issue 3 Spectrum+ runtime from a borrowed 16 KiB ROM
+    /// Builds a Ferranti 6C Spectrum+ runtime from a borrowed 16 KiB ROM
     /// byte slice.
     ///
     /// # Errors
@@ -34,7 +34,7 @@ impl SpectrumRuntime<SpectrumPlus> {
         Ok(Self::new_plus(rom))
     }
 
-    /// Builds an Issue 3 Spectrum+ runtime from the profile-declared
+    /// Builds a Ferranti 6C Spectrum+ runtime from the profile-declared
     /// firmware set. The Spectrum+ shares the 48K's ROM image under the
     /// `sinclair-zx-spectrum-48k-rom` firmware id.
     ///

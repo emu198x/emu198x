@@ -2,7 +2,7 @@
 //!
 //! The Sinclair Spectrum+ (1984) is **electrically identical** to the
 //! 48K — same Ferranti 6C001E ULA, same Z80, same 16 KiB ROM, same
-//! 48 KiB RAM, same Issue 2/3 keyboard matrix. The differences are
+//! 48 KiB RAM, same Ferranti5C / Ferranti6C keyboard matrix. The differences are
 //! cosmetic: a full-stroke keyboard with extra keys, a reset button,
 //! and a slightly different case. Software-wise it boots the 48K ROM
 //! and shows the same banner.
@@ -25,7 +25,7 @@ pub use common_sinclair_zx_spectrum::memory::Spectrum48kMemory;
 pub use common_sinclair_zx_spectrum_48k_class::{
     SpectrumMachineCore, SpectrumPlusMarker, TapeInput,
 };
-pub use ferranti_ula_6c001e::BoardIssue;
+pub use ferranti_ula_6c001e::UlaRevision;
 
 /// Machine-local state for a Sinclair ZX Spectrum+.
 ///
@@ -40,9 +40,9 @@ mod tests {
     use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
     #[test]
-    fn machine_defaults_to_issue3() {
+    fn machine_defaults_to_ferranti6c() {
         let m = SpectrumPlus::new();
-        assert_eq!(m.issue(), BoardIssue::Issue3);
+        assert_eq!(m.revision(), UlaRevision::Ferranti6C);
         assert_eq!(m.framebuffer().len(), SCREEN_WIDTH * SCREEN_HEIGHT);
     }
 
