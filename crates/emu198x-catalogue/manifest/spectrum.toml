@@ -375,7 +375,7 @@ path = "sinclair/spectrum/Games/[TZX]/Ace of Aces (1986)(U.S. Gold)(128K)[Alkatr
 # in cyan on black. The loader has finished, the title screen
 # has been drawn, and the game is waiting for input.
 wait_frames = 6000
-frame_hash = "xxh64:e184c28a12ba8aac"
+frame_hash = "xxh64:8e063f13a212b240"
 
 [entry.audio]
 from_frame = 100
@@ -403,7 +403,7 @@ path = "sinclair/spectrum/Games/[TZX]/Back to Skool (1985)(Microsphere).zip"
 # scene with "I hate groan-ups" speech bubble, "DEMO MODE"
 # banner, bottom HUD showing SCORE / LINES / HI-SC counters.
 wait_frames = 6000
-frame_hash = "xxh64:3e64abe49cce2d38"
+frame_hash = "xxh64:2c2358ec94044554"
 
 [entry.audio]
 # Demo-mode has its own AY-driven walking-sound effect, distinct
@@ -411,7 +411,7 @@ frame_hash = "xxh64:3e64abe49cce2d38"
 # path is alive end-to-end through the Microsphere loader.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:efce7d9799feadaa"
+hash = "xxh64:ec7309e3fa562f27"
 
 [[entry]]
 id = "back-to-the-future-tape-bleepload"
@@ -436,7 +436,7 @@ path = "sinclair/spectrum/Games/[TZX]/Back to the Future (1985)(Electric Dreams)
 # PAUSE/CONTINUE 4" with Doc and Marty character portraits, a
 # 00:00:00 clock display, and the "BY SOFTWARE IMAGES" credit.
 wait_frames = 6000
-frame_hash = "xxh64:507f199234e68b19"
+frame_hash = "xxh64:84f0c9c00a18a47e"
 
 [entry.audio]
 # Bleepload's menu music — distinct from the canonical loader-
@@ -444,7 +444,7 @@ frame_hash = "xxh64:507f199234e68b19"
 # clean enough for the AY to produce sound.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:124dd641d7824df2"
+hash = "xxh64:6c8dffcbac3b30eb"
 
 # ─── Speedlock-tape cluster ─────────────────────────────────────
 # Unlocked 2026-05-13 by the TZX partial-last-byte parser fix (see
@@ -477,7 +477,7 @@ path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 20 - Operation Wolf (199
 # GRAPHICS BY IVAN HORN" in cyan and white on black, no border —
 # the post-load attract before the title screen rolls.
 wait_frames = 6000
-frame_hash = "xxh64:ee18d332300497af"
+frame_hash = "xxh64:43f4dd995e59fabe"
 
 [entry.audio]
 # Canonical "attract-loop silence" hash. Op Wolf's credit-scroll
@@ -538,14 +538,14 @@ path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 25 - Dragon Ninja (1991)
 # highlight) / 5 REDEFINE KEYS / WRITTEN BY PAUL OWENS" framed by
 # red-and-green decorative border.
 wait_frames = 6000
-frame_hash = "xxh64:b7eb0309a56dd6fb"
+frame_hash = "xxh64:1d7411eccce6eccb"
 
 [entry.audio]
 # Menu music actually plays — the AY driver is running by this
 # waypoint, distinct from the canonical silence hash.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:aa167706b6149468"
+hash = "xxh64:ccdc15ed95e30869"
 
 [[entry]]
 id = "renegade-tape-speedlock"
@@ -573,7 +573,7 @@ frame_hash = "xxh64:805174e353503a99"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:97e9683f338571e7"
+hash = "xxh64:d4b9cabd6095e6e5"
 
 [[entry]]
 id = "combat-school-tape-speedlock"
@@ -596,13 +596,13 @@ path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 08 - Combat School (1990
 # credits "PROGRAMMING ANDREW DEAKIN / GRAPHICS IVAN HORN / MUSIC
 # FX DAVID WHITTAKER / (C) 1987 OCEAN 1987 KONAMI".
 wait_frames = 6000
-frame_hash = "xxh64:2690796a2fcff3ab"
+frame_hash = "xxh64:9555472c791e2e9a"
 
 [entry.audio]
 # Combat School's title-screen music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:511724b4cd7f0d7c"
+hash = "xxh64:dc1e26d2f96c7a71"
 
 [[entry]]
 id = "rambo-tape-speedlock"
@@ -630,7 +630,7 @@ frame_hash = "xxh64:0ef5c4d4a22f56fb"
 # Rambo's attract music — distinct from the loader-silence hash.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:f11518d66d5c7fd4"
+hash = "xxh64:c353530c67876f4d"
 
 [[entry]]
 id = "star-wars-tape-speedlock"
@@ -651,13 +651,13 @@ path = "sinclair/spectrum/Games/[TZX]/MOVIE COLLECTION 10 - Star Wars (1990)(Hit
 # "PRESS A KEY" prompt below, "CIARAN GULTNIEKS" programmer credit
 # at the bottom.
 wait_frames = 6000
-frame_hash = "xxh64:411f62a23489b59b"
+frame_hash = "xxh64:1361c56d5e7e733e"
 
 [entry.audio]
 # Star Wars title sting plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:10a7fa87fa3b8237"
+hash = "xxh64:8356199c0848de2b"
 
 [[entry]]
 id = "mikie-tape-speedlock"
@@ -681,7 +681,7 @@ path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 13 - Mikie (1990)(Hit Sq
 # the title attract animates, so the captured moment is one frame
 # of that animation. Music driver hasn't started.
 wait_frames = 6000
-frame_hash = "xxh64:bab6ffd787a205a8"
+frame_hash = "xxh64:eeb8c01e6f30d891"
 
 [entry.audio]
 from_frame = 100
@@ -708,13 +708,13 @@ path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 15 - Nemesis (1990)(Hit 
 # KEYS / START GAME / KONAMI 1986". Distinctive K-highlight bar on
 # KEYBOARD entry.
 wait_frames = 6000
-frame_hash = "xxh64:d8aa60da2e219816"
+frame_hash = "xxh64:85bb2d88174c407f"
 
 [entry.audio]
 # Title-screen music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:1622562c6fda9f07"
+hash = "xxh64:00bc0ab1be674c8a"
 
 [[entry]]
 id = "salamander-tape-speedlock"
@@ -736,13 +736,13 @@ path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 16 - Salamander (1990)(H
 # decorative borders, KONAMI badge, and credits "ANDREW GLAISTER
 # AND STUART RUECROFT".
 wait_frames = 6000
-frame_hash = "xxh64:9cb9095b67e71bc4"
+frame_hash = "xxh64:95c2a0a05d1d025d"
 
 [entry.audio]
 # Salamander's title music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:e178459a21b5ae8d"
+hash = "xxh64:a2e07235e7779042"
 
 [[entry]]
 id = "bubble-bobble-tape-speedlock"
@@ -766,7 +766,7 @@ path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 30 - Bubble Bobble (1992
 # Bub and blue Bob), and the credits "BY MIKE FOLLIN / SOFTWARE
 # CREATIONS / OM00S1".
 wait_frames = 6000
-frame_hash = "xxh64:ceabc34575d0ab2c"
+frame_hash = "xxh64:a1fce5d9e562ae1c"
 
 [entry.audio]
 # Canonical attract-silence hash. The title screen is static and
@@ -805,7 +805,7 @@ path = "sinclair/spectrum/Games/[TZX]/Green Beret (1986)(Imagine)[SpeedLock 2].z
 # Post-load attract screen, captured 2026-05-13. Loads to game code
 # at PC=$82f0 by frame 15000; the attract is stable by frame 8000.
 wait_frames = 8000
-frame_hash = "xxh64:7a0d72fd2dd56a21"
+frame_hash = "xxh64:71f988e0154d825f"
 
 [entry.audio]
 # Canonical attract-silence hash — Green Beret's loader doesn't kick
