@@ -14,6 +14,10 @@ machine-sinclair-zx-spectrum-plus2 = { path = "../machine-sinclair-zx-spectrum-p
 machine-sinclair-zx-spectrum-plus2a = { path = "../machine-sinclair-zx-spectrum-plus2a" }
 machine-sinclair-zx-spectrum-plus2b = { path = "../machine-sinclair-zx-spectrum-plus2b" }
 machine-sinclair-zx-spectrum-plus3 = { path = "../machine-sinclair-zx-spectrum-plus3" }
+mos-sid-6581 = { path = "../mos-sid-6581" }
+mos-vic-ii = { path = "../mos-vic-ii" }
+ricoh-apu-2a03 = { path = "../ricoh-apu-2a03" }
+ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02" }
 runtime-commodore-amiga = { path = "../runtime-commodore-amiga" }
 runtime-commodore-c64 = { path = "../runtime-commodore-c64" }
 runtime-nintendo-nes = { path = "../runtime-nintendo-nes" }

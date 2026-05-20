@@ -9,6 +9,13 @@
 
 [system]
 id = "nes"
+# Routing versions the captured hashes encode. Verified at run-time
+# against AUDIO_ROUTING_VERSION (ricoh-apu-2a03) and
+# FRAME_ROUTING_VERSION (ricoh-ppu-2c02). Mismatch fails loud with a
+# re-capture instruction. See
+# knowledge/decisions/nes-architecture-review.md Seam 4.
+audio_routing_version = 1
+frame_routing_version = 1
 
 [[entry]]
 id = "super-mario-bros"

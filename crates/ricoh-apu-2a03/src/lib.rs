@@ -20,6 +20,25 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Audio routing version. Bumped when the audio path through this crate
+/// (pulse / triangle / noise / DMC channel mix, frame counter sequencing,
+/// non-linear mixer formula, APU → audio_frame routing) changes in a
+/// way that invalidates previously-captured audio hashes in the NES
+/// catalogue. The catalogue manifest carries the version each hash was
+/// captured against; a mismatch fails loud with a re-capture
+/// instruction.
+///
+/// **Version 1** (2026-05-20): five-channel mixer (2 pulse + triangle +
+/// noise + DMC) with nesdev non-linear mixer formula, frame counter in
+/// 4-step or 5-step mode per `$4017`, DMC sample fetch via cycle-stealing
+/// DMA. NTSC/PAL frame counter divider selected per `ApuRegion`. The
+/// pre-Seam-3 APU described in
+/// `knowledge/decisions/nes-architecture-review.md`.
+///
+/// See `knowledge/decisions/nes-architecture-review.md` Seam 4 for
+/// the re-capture discipline this constant enforces.
+pub const AUDIO_ROUTING_VERSION: u32 = 1;
+
 // ---------------------------------------------------------------------------
 // Region
 // ---------------------------------------------------------------------------

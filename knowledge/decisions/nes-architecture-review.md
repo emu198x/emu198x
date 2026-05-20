@@ -1,7 +1,7 @@
 # Decision: NES architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** Proposed (draft for review)
+**Status:** In progress — Seam 4 landed 2026-05-20
 
 ## What this is
 
@@ -137,6 +137,8 @@ The Spectrum's Seam 3 fix surfaced two real bugs (Z80 walker rehydration, ULA co
 4. Refresh the NES section of `solid-status.md` (when one exists for NES — currently the NES isn't in SOLID scope) in the same commit.
 
 **Scope.** ~10 lines across two chip crates + the manifest. Identical pattern to the C64 Seam 4 fix.
+
+**Status: landed 2026-05-20.** `AUDIO_ROUTING_VERSION: u32 = 1` added to `ricoh-apu-2a03/src/lib.rs`; `FRAME_ROUTING_VERSION: u32 = 1` added to `ricoh-ppu-2c02/src/lib.rs`; `nes.toml` declares both. `verify_routing_versions` in `emu198x-catalogue/src/lib.rs` extended with a `"nes"` arm. Three new unit tests cover the NES happy path + both mismatch paths (audio + frame). The capture-bypass already covers NES by construction (system-agnostic). Seam 1 (blargg PPU gate) will bump `FRAME_ROUTING_VERSION` when any per-test fix lands; Seam 3 (volatile state survival) likely won't touch the routing version directly since `after_restore` discipline rebuilds non-trivial state without changing the canonical mix or pixel pipeline.
 
 **Why this matters for other systems.** Universal across the product. The Spectrum proved the pattern; C64 + NES are catching up.
 

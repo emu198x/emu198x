@@ -45,6 +45,26 @@ use palette::PALETTE;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
+/// Frame routing version. Bumped when the rendering path through this
+/// chip (pixel pipeline, background fetch ordering, sprite evaluation,
+/// sprite mux, NMI delivery timing, palette mapping, odd-frame dot skip)
+/// changes in a way that invalidates previously-captured frame hashes
+/// in the NES catalogue. The catalogue manifest carries the version
+/// each hash was captured against; a mismatch fails loud with a
+/// re-capture instruction.
+///
+/// **Version 1** (2026-05-20): per-dot renderer with `tick` advancing
+/// one PPU dot, background tile fetches (NT/AT/low/high) across 8 dots,
+/// sprite evaluation in dots 1-64 and fetch in 257-320, pixel mux with
+/// priority and sprite-0 detection, 2-dot NMI pipeline delay at
+/// (241, 1), A12-rise notification on mapper for IRQ counters. The
+/// pre-Seam-1 PPU described in
+/// `knowledge/decisions/nes-architecture-review.md`.
+///
+/// Bumps planned: Seam 1 will pull blargg PPU test ROMs into CI; any
+/// per-test fix that surfaces a real timing bug bumps to v2.
+pub const FRAME_ROUTING_VERSION: u32 = 1;
+
 /// Framebuffer dimensions.
 pub const FB_WIDTH: u32 = 256;
 pub const FB_HEIGHT: u32 = 240;

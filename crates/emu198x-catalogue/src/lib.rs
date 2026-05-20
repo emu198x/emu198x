@@ -387,6 +387,50 @@ fn verify_routing_versions(manifest: &Manifest) -> Result<(), CatalogueError> {
                 });
             }
         }
+        "c64" => {
+            if let Some(found) = manifest.system.audio_routing_version
+                && found != mos_sid_6581::AUDIO_ROUTING_VERSION
+            {
+                return Err(CatalogueError::RoutingVersionMismatch {
+                    kind: "audio",
+                    system: "c64".into(),
+                    expected: mos_sid_6581::AUDIO_ROUTING_VERSION,
+                    found,
+                });
+            }
+            if let Some(found) = manifest.system.frame_routing_version
+                && found != mos_vic_ii::FRAME_ROUTING_VERSION
+            {
+                return Err(CatalogueError::RoutingVersionMismatch {
+                    kind: "frame",
+                    system: "c64".into(),
+                    expected: mos_vic_ii::FRAME_ROUTING_VERSION,
+                    found,
+                });
+            }
+        }
+        "nes" => {
+            if let Some(found) = manifest.system.audio_routing_version
+                && found != ricoh_apu_2a03::AUDIO_ROUTING_VERSION
+            {
+                return Err(CatalogueError::RoutingVersionMismatch {
+                    kind: "audio",
+                    system: "nes".into(),
+                    expected: ricoh_apu_2a03::AUDIO_ROUTING_VERSION,
+                    found,
+                });
+            }
+            if let Some(found) = manifest.system.frame_routing_version
+                && found != ricoh_ppu_2c02::FRAME_ROUTING_VERSION
+            {
+                return Err(CatalogueError::RoutingVersionMismatch {
+                    kind: "frame",
+                    system: "nes".into(),
+                    expected: ricoh_ppu_2c02::FRAME_ROUTING_VERSION,
+                    found,
+                });
+            }
+        }
         // Other systems gain their own routing-version constants as Seam 4
         // ports to them. For now they skip the check by construction.
         _ => {}
@@ -2219,6 +2263,30 @@ hash = "xxh64:0000000000000000"
         }
     }
 
+    fn c64_manifest_with_versions(audio: Option<u32>, frame: Option<u32>) -> Manifest {
+        Manifest {
+            system: SystemMeta {
+                id: "c64".into(),
+                audio_routing_version: audio,
+                frame_routing_version: frame,
+                firmware: vec![],
+            },
+            entry: vec![],
+        }
+    }
+
+    fn nes_manifest_with_versions(audio: Option<u32>, frame: Option<u32>) -> Manifest {
+        Manifest {
+            system: SystemMeta {
+                id: "nes".into(),
+                audio_routing_version: audio,
+                frame_routing_version: frame,
+                firmware: vec![],
+            },
+            entry: vec![],
+        }
+    }
+
     #[test]
     fn routing_version_check_passes_when_manifest_omits_versions() {
         let manifest = spectrum_manifest_with_versions(None, None);
@@ -2260,6 +2328,92 @@ hash = "xxh64:0000000000000000"
             } => {
                 assert_eq!(kind, "frame");
                 assert_eq!(system, "spectrum");
+                assert_eq!(found, 9999);
+            }
+            other => panic!("expected RoutingVersionMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn routing_version_check_passes_for_c64_when_manifest_matches_runtime() {
+        let manifest = c64_manifest_with_versions(
+            Some(mos_sid_6581::AUDIO_ROUTING_VERSION),
+            Some(mos_vic_ii::FRAME_ROUTING_VERSION),
+        );
+        verify_routing_versions(&manifest).expect("matching C64 versions should pass");
+    }
+
+    #[test]
+    fn routing_version_check_fails_loud_on_c64_audio_mismatch() {
+        let manifest = c64_manifest_with_versions(Some(9999), None);
+        let err =
+            verify_routing_versions(&manifest).expect_err("C64 audio mismatch must fail");
+        match err {
+            CatalogueError::RoutingVersionMismatch {
+                kind, system, found, ..
+            } => {
+                assert_eq!(kind, "audio");
+                assert_eq!(system, "c64");
+                assert_eq!(found, 9999);
+            }
+            other => panic!("expected RoutingVersionMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn routing_version_check_fails_loud_on_c64_frame_mismatch() {
+        let manifest = c64_manifest_with_versions(None, Some(9999));
+        let err =
+            verify_routing_versions(&manifest).expect_err("C64 frame mismatch must fail");
+        match err {
+            CatalogueError::RoutingVersionMismatch {
+                kind, system, found, ..
+            } => {
+                assert_eq!(kind, "frame");
+                assert_eq!(system, "c64");
+                assert_eq!(found, 9999);
+            }
+            other => panic!("expected RoutingVersionMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn routing_version_check_passes_for_nes_when_manifest_matches_runtime() {
+        let manifest = nes_manifest_with_versions(
+            Some(ricoh_apu_2a03::AUDIO_ROUTING_VERSION),
+            Some(ricoh_ppu_2c02::FRAME_ROUTING_VERSION),
+        );
+        verify_routing_versions(&manifest).expect("matching NES versions should pass");
+    }
+
+    #[test]
+    fn routing_version_check_fails_loud_on_nes_audio_mismatch() {
+        let manifest = nes_manifest_with_versions(Some(9999), None);
+        let err =
+            verify_routing_versions(&manifest).expect_err("NES audio mismatch must fail");
+        match err {
+            CatalogueError::RoutingVersionMismatch {
+                kind, system, found, ..
+            } => {
+                assert_eq!(kind, "audio");
+                assert_eq!(system, "nes");
+                assert_eq!(found, 9999);
+            }
+            other => panic!("expected RoutingVersionMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn routing_version_check_fails_loud_on_nes_frame_mismatch() {
+        let manifest = nes_manifest_with_versions(None, Some(9999));
+        let err =
+            verify_routing_versions(&manifest).expect_err("NES frame mismatch must fail");
+        match err {
+            CatalogueError::RoutingVersionMismatch {
+                kind, system, found, ..
+            } => {
+                assert_eq!(kind, "frame");
+                assert_eq!(system, "nes");
                 assert_eq!(found, 9999);
             }
             other => panic!("expected RoutingVersionMismatch, got {other:?}"),

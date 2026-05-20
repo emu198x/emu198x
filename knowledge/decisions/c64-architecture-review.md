@@ -1,7 +1,7 @@
 # Decision: C64 architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** Proposed (draft for review)
+**Status:** In progress — Seam 4 landed 2026-05-20
 
 ## What this is
 
@@ -135,6 +135,8 @@ The C64 has multiple in-flight fidelity bugs (Ghostbusters loader stall, Thinker
 The capture-bypass mechanism (`run_entry_for_capture`) is already system-agnostic — works for any system once the constants exist.
 
 **Scope.** ~10 lines in `mos-vic-ii` + `mos-sid-6581` + the manifest + the C64 status doc. The routing-version constants get bumped together with the engine-side fix in any future seam that changes frame or audio output.
+
+**Status: landed 2026-05-20.** `AUDIO_ROUTING_VERSION: u32 = 1` added to `mos-sid-6581/src/lib.rs`; `FRAME_ROUTING_VERSION: u32 = 1` added to `mos-vic-ii/src/lib.rs`; `c64.toml` declares both. `verify_routing_versions` in `emu198x-catalogue/src/lib.rs` extended with a `"c64"` arm. Three new unit tests cover the C64 happy path + both mismatch paths (audio + frame). The capture-bypass already covers C64 by construction (system-agnostic). Future fidelity work (Seam 1 BA/RDY accounting, SID filter rehydration in Seam 3, etc.) will bump the appropriate constant and trigger a forced re-capture of the C64 catalogue.
 
 **Why this matters for other systems.** Every system the catalogue tracks needs this oracle. The Spectrum's Seam 4 work is system-agnostic infrastructure; the C64 is the first beneficiary of the pattern beyond the system that originated it.
 

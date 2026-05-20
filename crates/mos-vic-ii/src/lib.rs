@@ -18,6 +18,25 @@ use serde_big_array::BigArray;
 
 use palette::PALETTE;
 
+/// Frame routing version. Bumped when the rendering path through this
+/// chip (pixel pipeline, badline DMA accounting, sprite mux, display
+/// mode dispatch, border timing, palette mapping) changes in a way
+/// that invalidates previously-captured frame hashes in the C64
+/// catalogue. The catalogue manifest carries the version each hash was
+/// captured against; a mismatch fails loud with a re-capture
+/// instruction.
+///
+/// **Version 1** (2026-05-20): per-phi2 8-pixel renderer with `tick`
+/// advancing one cycle; standard/MCM/ECM text + MCM/hi-res bitmap
+/// modes; sprite DMA pre-allocated per active sprite; PAL 312-line
+/// frame, NTSC 263-line; palette from `palette::PALETTE`. The
+/// pre-Seam-1 VIC-II described in
+/// `knowledge/decisions/c64-architecture-review.md`.
+///
+/// Bumps planned: Seam 1 will revisit BA/RDY cycle accounting and may
+/// adjust sprite DMA timing — that work bumps to v2.
+pub const FRAME_ROUTING_VERSION: u32 = 1;
+
 const PAL_FIRST_VISIBLE_LINE: u16 = 0;
 const PAL_LAST_VISIBLE_LINE: u16 = 312;
 const NTSC_FIRST_VISIBLE_LINE: u16 = 14;

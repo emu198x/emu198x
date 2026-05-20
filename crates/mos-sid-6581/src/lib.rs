@@ -14,6 +14,22 @@ pub use voice::Voice;
 
 use serde::{Deserialize, Serialize};
 
+/// Audio routing version. Bumped when the audio path through this crate
+/// (voice mix, filter routing, envelope shaping, `$D418` master volume,
+/// SID → audio_frame routing) changes in a way that invalidates
+/// previously-captured audio hashes in the C64 catalogue. The catalogue
+/// manifest carries the version each hash was captured against; a
+/// mismatch fails loud with a re-capture instruction.
+///
+/// **Version 1** (2026-05-20): three-voice mixer with per-voice
+/// envelope + waveform generation, state-variable filter, master
+/// volume nibble from `$D418` bits 0-3. Host-side channel gating
+/// applied after the silicon mix.
+///
+/// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
+/// the re-capture discipline this constant enforces.
+pub const AUDIO_ROUTING_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SidModel {
     #[default]
