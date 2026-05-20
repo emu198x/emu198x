@@ -1666,6 +1666,192 @@ mod tests {
 
     /// Every successful read_data call in Execution should rearm the
     /// timeout. A host that's reading steadily must never trip it.
+    /// Specify (0x03) accepts 3 parameter bytes (SRT/HUT/HLT and ND)
+    /// and returns to Idle without entering a Result phase. The chip
+    /// just stashes the parameters; we don't model the underlying step
+    /// rate / head load timing in the runtime, so the test confirms
+    /// the no-result-phase contract.
+    #[test]
+    fn specify_command_returns_to_idle_without_result_phase() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+
+        fdc.write_data(0x03); // Specify
+        fdc.write_data(0xDF); // SRT (4 bits) + HUT (4 bits)
+        fdc.write_data(0x02); // HLT (7 bits) + ND (1 bit)
+
+        // After 3 bytes the chip executes and returns to Idle, ready
+        // for the next command. No result phase.
+        assert_eq!(fdc.phase, Phase::Idle);
+        assert_eq!(fdc.read_status(), MSR_RQM);
+    }
+
+    /// SeekTrack (0x0F) snaps the per-drive track counter to the
+    /// requested cylinder and stages a Seek End interrupt that
+    /// `SenseInterruptStatus` later drains. Unlike Recalibrate, the
+    /// target track is caller-supplied.
+    #[test]
+    fn seek_track_sets_target_and_stages_interrupt() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        fdc.track[1] = 0;
+
+        fdc.write_data(0x0F); // Seek
+        fdc.write_data(0x01); // Drive 1
+        fdc.write_data(20); // Target track
+
+        assert_eq!(fdc.track[1], 20, "Seek snaps the per-drive track counter");
+        assert_eq!(fdc.read_status() & 0x02, 0x02, "drive 1 busy bit set");
+
+        for _ in 0..SEEK_TICKS {
+            <Upd765a as Peripheral>::tick(&mut fdc, 0);
+        }
+        assert!(fdc.interrupt);
+
+        // Drain the interrupt via SenseInterruptStatus.
+        fdc.write_data(0x08);
+        let st0 = fdc.read_data();
+        let pcn = fdc.read_data();
+        assert_eq!(st0 & 0x20, 0x20, "ST0 carries Seek End");
+        assert_eq!(st0 & 0x03, 0x01, "ST0 carries drive 1");
+        assert_eq!(pcn, 20, "PCN reports the new track");
+    }
+
+    /// SenseDriveStatus (0x04) returns ST3 with the disk-present (RY)
+    /// and two-sided (TS) flags reflecting the mounted state, plus the
+    /// track-zero (T0) flag derived from the per-drive track counter.
+    #[test]
+    fn sense_drive_status_reflects_disk_presence_and_track_zero() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        // Drive 0 has no disk yet; track = 0.
+        fdc.write_data(0x04);
+        fdc.write_data(0x00); // Drive 0
+        let st3 = fdc.read_data();
+        // T0 should be set (track == 0), RY clear (no disk).
+        assert_eq!(st3 & 0x10, 0x10, "T0 set when track == 0");
+        assert_eq!(st3 & 0x20, 0, "RY clear when no disk present");
+    }
+
+    /// SenseDriveStatus reports TS / RY when a disk is mounted, and
+    /// T0 reflects whichever cylinder the head is currently over.
+    #[test]
+    fn sense_drive_status_with_disk_mounted() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        fdc.insert_disk(0, DiskImage::default());
+        fdc.track[0] = 5; // Head not at track 0
+
+        fdc.write_data(0x04);
+        fdc.write_data(0x00);
+        let st3 = fdc.read_data();
+        assert_eq!(st3 & 0x20, 0x20, "RY set when disk present");
+        assert_eq!(st3 & 0x08, 0x08, "TS set when disk present");
+        assert_eq!(st3 & 0x10, 0, "T0 clear when head off cylinder 0");
+    }
+
+    /// `claims_port` accepts `$2FFD` (main status, read-only) and
+    /// `$3FFD` (data, read/write). The decode mask is `0xF002`, so
+    /// the port number's `A15-A12` and `A1` bits are the only ones
+    /// that matter — shadow addresses with the same pattern also
+    /// claim.
+    #[test]
+    fn claims_port_recognises_msr_and_data_ports() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        assert!(fdc.claims_port(0x2FFD), "MSR port");
+        assert!(fdc.claims_port(0x3FFD), "data port");
+        // Shadow with same masked pattern (A1 must stay clear).
+        assert!(fdc.claims_port(0x2000));
+        assert!(fdc.claims_port(0x3FFC));
+        // Wrong A1: not claimed (mask isolates A1).
+        assert!(!fdc.claims_port(0x3FFF), "A1 set falls outside the mask");
+        // Outside the high-nibble mask: no claim.
+        assert!(!fdc.claims_port(0x1FFD));
+        assert!(!fdc.claims_port(0x4FFD));
+    }
+
+    /// When the FDC is disabled (e.g. on +2A / +2B which carry the
+    /// crate but don't wire a drive), `claims_port` returns false
+    /// regardless of port — the bus dispatcher then falls through.
+    #[test]
+    fn claims_port_returns_false_when_disabled() {
+        let fdc = Upd765a::new(); // enabled = false by default
+        assert!(!fdc.claims_port(0x2FFD));
+        assert!(!fdc.claims_port(0x3FFD));
+    }
+
+    /// Reads from a port outside the FDC's mask range return `$FF`
+    /// (open bus / no driver). The bus dispatcher should never reach
+    /// here because `claims_port` returns false, but the read path
+    /// has the defensive fall-through anyway.
+    #[test]
+    fn read_unknown_port_returns_ff() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        assert_eq!(fdc.read(0x1234), 0xFF);
+        assert_eq!(fdc.read(0x4000), 0xFF);
+    }
+
+    /// Writes to the MSR port `$2FFD` are silently ignored — the
+    /// register is read-only on real hardware. Only `$3FFD` (data)
+    /// accepts writes through the bus dispatcher.
+    #[test]
+    fn write_to_msr_port_is_silently_ignored() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        let before = fdc.read_status();
+        fdc.write(0x2FFD, 0xAA);
+        assert_eq!(fdc.read_status(), before, "MSR write must not change status");
+    }
+
+    /// `insert_disk` + `has_disk` + `eject_disk` round trip on a
+    /// specific drive index. The Plus3 binary's File > Open Disk path
+    /// drives this same surface.
+    #[test]
+    fn insert_then_eject_disk_round_trip() {
+        let mut fdc = Upd765a::new();
+        assert!(!fdc.has_disk(0));
+        fdc.insert_disk(0, DiskImage::default());
+        assert!(fdc.has_disk(0));
+        // Other drive remains empty.
+        assert!(!fdc.has_disk(1));
+        fdc.eject_disk(0);
+        assert!(!fdc.has_disk(0));
+    }
+
+    /// `set_drive_select_mask` changes how the FDC decodes the
+    /// US0/US1 bits in command bytes. The +3 only wires US0 (mask
+    /// 0x01) so US1 becomes a don't-care; defaults to all four drives
+    /// addressable (mask 0x03).
+    #[test]
+    fn set_drive_select_mask_affects_command_drive_decode() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        fdc.set_drive_select_mask(0x01); // +3 wiring: US0 only
+        fdc.insert_disk(0, DiskImage::default());
+
+        // Issue SenseDriveStatus addressed to "drive 2" — with the +3
+        // mask this aliases to drive 0 (which has a disk mounted).
+        fdc.write_data(0x04);
+        fdc.write_data(0x02);
+        let st3 = fdc.read_data();
+        assert_eq!(st3 & 0x20, 0x20, "drive 2 aliases drive 0 → RY set");
+    }
+
+    /// An unrecognised command byte falls into `Command::None` and the
+    /// chip returns to idle without a result phase. This matches the
+    /// `_` arm in `execute_command`.
+    #[test]
+    fn unrecognised_command_returns_to_idle() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        // 0x1B is not a documented µPD765A command.
+        fdc.write_data(0x1B);
+        assert_eq!(fdc.phase, Phase::Idle);
+        assert_eq!(fdc.read_status() & MSR_DIO, 0, "no result phase to drain");
+    }
+
     #[test]
     fn execution_timeout_rearms_on_each_read() {
         let mut fdc = Upd765a::new();
