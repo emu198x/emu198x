@@ -414,7 +414,57 @@ fn kempston_attaches_on_first_gamepad_event_128k() -> Result<(), Box<dyn Error>>
     Ok(())
 }
 
-/// **Seam 5 waypoint #9:** Amstrad class declines Kempston events.
+/// **Seam 5 waypoint #9:** Contention delay tables match the canonical
+/// 16-entry pixel masks for 48K-class and Amstrad-class.
+///
+/// `DELAY_TABLE_48K` and `DELAY_TABLE_PLUS2A` are the source-of-truth
+/// pixel masks that the four ULA implementations (Ferranti 6C001E,
+/// Sinclair 7K010E, Amstrad 40077, Timex SCLD) all index when deciding
+/// whether to withhold the CPU clock at each 16-pixel phase. The
+/// canonical T-state delay sequences documented in
+/// `knowledge/systems/spectrum/contention.md` — `[6,5,4,3,2,1,0,0]` for
+/// 48K/128K and `[1,0,7,6,5,4,3,2]` for +2A/+3 — fall out of these
+/// masks once sampled at the two-pixel-per-T-state rate. If either
+/// table shifts, the contention window over T=14335..14400 shifts with
+/// it and every catalogue end-state hash that depends on the exact
+/// fetch/contention timing drifts silently.
+///
+/// Catches regression: any reshuffle of the contention masks. Pure
+/// structural check — no machine stepping required.
+#[test]
+fn contention_table_matches_canonical_for_known_window() {
+    use common_sinclair_zx_spectrum::ula_engine::{DELAY_TABLE_48K, DELAY_TABLE_PLUS2A};
+
+    // 48K/128K: contention active during the 12 fetch-window phases
+    // (indices 3-14), idle on the 4 phases that bracket the cycle
+    // (0, 1, 2, 15). Produces `[6, 5, 4, 3, 2, 1, 0, 0]` once sampled
+    // at one entry per T-state — see contention.md §"48K".
+    let expected_48k: [bool; 16] = [
+        false, false, false, true, true, true, true, true, true, true, true, true, true, true,
+        true, false,
+    ];
+    assert_eq!(
+        DELAY_TABLE_48K, expected_48k,
+        "DELAY_TABLE_48K must match the canonical 16-entry mask — \
+         see knowledge/systems/spectrum/contention.md and \
+         knowledge/decisions/spectrum-architecture-review.md Seam 5"
+    );
+
+    // +2A/+3: completely different shape — contention only at the
+    // three phases bracketing the cycle (0, 14, 15). Produces
+    // `[1, 0, 7, 6, 5, 4, 3, 2]` once sampled per T-state — see
+    // contention.md §"+2A / +3".
+    let expected_plus2a: [bool; 16] = [
+        true, false, false, false, false, false, false, false, false, false, false, false, false,
+        false, true, true,
+    ];
+    assert_eq!(
+        DELAY_TABLE_PLUS2A, expected_plus2a,
+        "DELAY_TABLE_PLUS2A must match the canonical Amstrad 16-entry mask"
+    );
+}
+
+/// **Seam 5 waypoint #10:** Amstrad class declines Kempston events.
 ///
 /// The +2A / +2B / +3 broke the rear-connector pinout in 1987 so a
 /// real Kempston interface cannot physically attach. The architecture
