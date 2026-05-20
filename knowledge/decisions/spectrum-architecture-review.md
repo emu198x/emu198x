@@ -1,7 +1,7 @@
 # Decision: Spectrum architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-18, polish pass 2026-05-19
-**Status:** Phase 1 complete — Seams 1 + 4 landed, catalogue at v3 (2026-05-20)
+**Status:** Phase 2 in progress — Seams 1, 2, 3, 4 landed (2026-05-20)
 
 ## What this is
 
@@ -268,7 +268,10 @@ In order of leverage for unblocking October-public and protecting future capture
   - Float48K strict un-gate: **blocked on test-harness work** — RST 16 capture can't read PRINT-FP digits. Tracked separately.
   - Floating-bus catalogue entry: **landed** — `arkanoid-tape` in commit `b0f9b7f`, hash captured at v3 in `546ce25`.
 - **Seam 2**: gamepad event flips `kempston.attached` and feeds button bits. Catalogue entry verifies the runtime input path against a Kempston-using catalogue title (e.g. Jet Pac from the 16K trilogy or Sabre Wulf from the 48K set).
+  - **Wiring landed 2026-05-20** in commit `3087016`. `SpectrumMachine::set_kempston_button` overrides on every Kempston-bearing variant (48K-class, 128K-class, Pentagon, Scorpion, Timex); Amstrad-class declines via the no-op default. Runtime input layer maps `InputEvent::Button { port: 0, … }` and `InputEvent::Axis { port: 0, … }` (with a 25% axis deadzone) to the Kempston state byte. Typed `ApplyKempstonEvent` trait at machine layer mirrors `ApplyInputEvent`, bounded on `Variant48kClass` so it cannot exist for Amstrad-class types.
+  - **Catalogue verification pending**: needs a scripted-input entry (Jet Pac or Sabre Wulf) once the script-step infrastructure settles. Not on the critical path.
 - **Seam 3**: every `#[serde(skip)]` field on a Spectrum-stack struct either has a `Default` that produces correct behaviour or is rehydrated by a typed `after_restore`. Audit test asserts this. FDC disk image survives snapshot restore in a regression test.
+  - **Landed 2026-05-20** in commit `7ea8842`. Runtime caches DSK bytes alongside the machine; snapshot envelope bumped to v2 with a `disk_images` field; `restore_disk_images` replays the insertion after `after_restore`. Regression test `snapshot_restore_preserves_mounted_disk_on_plus3` exercises the round-trip. Audit lives in `crates/common-sinclair-zx-spectrum/src/serde_skip_audit.rs` with a locked inventory of 13 annotations across 6 files, each carrying a justification.
 - **Seam 4**: `audio_routing_version` and `frame_routing_version` constants in place. Catalogue mismatch fails loud with a re-capture instruction. AY re-capture wave completed; R-Type's 128 audio hash unchanged (beeper-only invariant); RoboCop / Operation Wolf / Rainbow Islands / Bubble Bobble / Out Run hashes updated. `solid-status.md` §1 reflects the code reality.
   - **Landed 2026-05-19 / 2026-05-20**: routing-version check landed in commit `c7abaef`, capture-mode bypass in `0471db4`. Re-capture wave covered all 102 entries across 9 commits (`546ce25` 48K vanilla, `94347ff` Plus, `57c2994` 16K, `539aa00` 128K, `22ecf8b` +2, `bdde7f4` +2A, `eaebbdc` +2B, `e2daab9` +3, `d9507c2` SpeedLock). Manifest now at `frame_routing_version = 3`; all 102 entries PASS in run-mode.
 - **Seam 5**: `boot_invariants.rs` carries at least five per-variant waypoint assertions including the un-gated Float48K strict check.
