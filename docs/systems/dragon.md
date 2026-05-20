@@ -323,8 +323,8 @@ Known joystick comparator fixture:
 
 ```sh
 cargo run -p emu198x-script-dragon -- \
-  --rom '/Users/stevehill/Projects/Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)(Dragon Data).zip' \
-  --smoke-root '/Users/stevehill/Projects/Emu198x-docs-archive-2026-04-19/Reference/dragon/Dragon/Applications/[CAS]/Joystick Test (198x)(-).zip' \
+  --rom '/Users/stevehill/Projects/198x/assets/dragon/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)(Dragon Data).zip' \
+  --smoke-root '/Users/stevehill/Projects/198x/assets/dragon/Dragon/Applications/[CAS]/Joystick Test (198x)(-).zip' \
   --smoke-run-limit 1 \
   --smoke-report target/dragon-joystick-sweep.json \
   --smoke-screenshot-dir target/dragon-joystick-sweep \
