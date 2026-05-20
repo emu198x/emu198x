@@ -1,7 +1,7 @@
 # Decision: Spectrum architecture review — tighten the seams, not the spine
 
-**Date:** 2026-05-18, polish pass 2026-05-19
-**Status:** Phase 2 in progress — Seams 1, 2, 3, 4 + UlaRevision rename landed (2026-05-20)
+**Date:** 2026-05-18, polish pass 2026-05-19, Phase 2 close-out 2026-05-20
+**Status:** Phase 2 landed — Seams 1, 2, 3, 4, 5 + UlaRevision rename complete. Open threads (Float48K strict un-gate, 5C-vs-6C HSync, Smith Y/U/V palette) explicitly deferred or blocked on Phase 1 #8.
 
 ## What this is
 
@@ -269,15 +269,53 @@ In order of leverage for unblocking October-public and protecting future capture
   - Floating-bus catalogue entry: **landed** — `arkanoid-tape` in commit `b0f9b7f`, hash captured at v3 in `546ce25`.
 - **Seam 2**: gamepad event flips `kempston.attached` and feeds button bits. Catalogue entry verifies the runtime input path against a Kempston-using catalogue title (e.g. Jet Pac from the 16K trilogy or Sabre Wulf from the 48K set).
   - **Wiring landed 2026-05-20** in commit `3087016`. `SpectrumMachine::set_kempston_button` overrides on every Kempston-bearing variant (48K-class, 128K-class, Pentagon, Scorpion, Timex); Amstrad-class declines via the no-op default. Runtime input layer maps `InputEvent::Button { port: 0, … }` and `InputEvent::Axis { port: 0, … }` (with a 25% axis deadzone) to the Kempston state byte. Typed `ApplyKempstonEvent` trait at machine layer mirrors `ApplyInputEvent`, bounded on `Variant48kClass` so it cannot exist for Amstrad-class types.
-  - **Catalogue verification pending**: needs a scripted-input entry (Jet Pac or Sabre Wulf) once the script-step infrastructure settles. Not on the critical path.
+  - **Catalogue verification landed 2026-05-20** in commit `6b19411`. New entry `sabre-wulf-kempston-start` (48K) drives a scripted sequence — key "4" selects Kempston control, key "0" starts the game, then `InputEvent::Button { port: 0, name: "fire" }` swings the sabre. Captured 1UP-001070 gameplay frame vs the no-FIRE baseline 1UP-000545 proves the routing chain reaches a real game's `$1F` poll. The hash diff against the baseline is load-bearing: a regression breaking any link in `ScriptStep::Button → session.queue_input → HostIo::input_events → SpectrumRuntime::apply_input → set_kempston_button → KempstonJoystick state` collapses the hash back toward baseline.
 - **Seam 3**: every `#[serde(skip)]` field on a Spectrum-stack struct either has a `Default` that produces correct behaviour or is rehydrated by a typed `after_restore`. Audit test asserts this. FDC disk image survives snapshot restore in a regression test.
   - **Landed 2026-05-20** in commit `7ea8842`. Runtime caches DSK bytes alongside the machine; snapshot envelope bumped to v2 with a `disk_images` field; `restore_disk_images` replays the insertion after `after_restore`. Regression test `snapshot_restore_preserves_mounted_disk_on_plus3` exercises the round-trip. Audit lives in `crates/common-sinclair-zx-spectrum/src/serde_skip_audit.rs` with a locked inventory of 13 annotations across 6 files, each carrying a justification.
 - **Seam 4**: `audio_routing_version` and `frame_routing_version` constants in place. Catalogue mismatch fails loud with a re-capture instruction. AY re-capture wave completed; R-Type's 128 audio hash unchanged (beeper-only invariant); RoboCop / Operation Wolf / Rainbow Islands / Bubble Bobble / Out Run hashes updated. `solid-status.md` §1 reflects the code reality.
   - **Landed 2026-05-19 / 2026-05-20**: routing-version check landed in commit `c7abaef`, capture-mode bypass in `0471db4`. Re-capture wave covered all 102 entries across 9 commits (`546ce25` 48K vanilla, `94347ff` Plus, `57c2994` 16K, `539aa00` 128K, `22ecf8b` +2, `bdde7f4` +2A, `eaebbdc` +2B, `e2daab9` +3, `d9507c2` SpeedLock). Manifest now at `frame_routing_version = 3`; all 102 entries PASS in run-mode.
 - **Seam 5**: `boot_invariants.rs` carries at least five per-variant waypoint assertions including the un-gated Float48K strict check.
-  - **Suite landed 2026-05-20**. `crates/runtime-sinclair-zx-spectrum/tests/boot_invariants.rs` now carries 8 hermetic waypoints + 1 ROM-backed ignored case: dummy ROM construction, run_until-advances, snapshot round-trip fixed-point, INT-fires-at-T-55552-window, first-display-fetch-phase-at-Seam-1-state, floating-bus-idles-outside-fetch, Kempston-attaches-on-first-event, snapshot envelope locked at v2. Float48K strict assertion remains blocked on the test-harness PRINT-FP capture work (Phase 1 #8); when un-gated it will become the 9th waypoint.
-  - **128K-family expansion landed**: paging-lock-persists-across-soft-reset on both 128K (Sinclair 7K010E) and +3 (Amstrad 40077), Kempston-attaches-on-first-event on 128K, Amstrad-class-declines-Kempston-events on +3 (enforcing the Seam 2 trait-bound architectural rule). `boot_invariants.rs` now carries 12 hermetic waypoints + 1 ROM-backed ignored. Adds `is_paging_locked()` public accessors on both `Memory128K` and `MemoryPlus`.
+  - **Suite landed 2026-05-20**. `crates/runtime-sinclair-zx-spectrum/tests/boot_invariants.rs` carries **12 Seam-5 waypoints + 3 setup tests + 1 ROM-backed ignored case** (15 hermetic + 1 ROM-backed total). Tests grouped by what they assert, with the architecture-review name in brackets:
+    1. INT timing on 48K — scan 248, pixel 1, 32-T-state window [`int_asserts_at_canonical_t_state`, 48K variant]
+    2. INT timing on 128K — same scan, asserted via half-cycles to side-step `cpu_divisor = 5` [`int_asserts_at_canonical_t_state`, 128K variant]
+    3. INT timing on Pentagon — scan 256, eight scans later than Sinclair [`int_asserts_at_canonical_t_state`, Pentagon variant]
+    4. First display fetch phase aligns with Seam 1 landed state [structural `first_display_byte_on_bus_at_canonical_t_state` surrogate; Float48K strict un-gate replaces this when Phase 1 #8 unblocks]
+    5. Floating bus idles outside the active fetch window [companion to #4]
+    6. Contention delay tables `DELAY_TABLE_48K` / `DELAY_TABLE_PLUS2A` match canonical pixel masks [`contention_table_matches_canonical_for_known_window`]
+    7. Paging lock survives soft reset on 128K [`paging_lock_persists_across_reset`, 128K variant]
+    8. Paging lock survives soft reset on +3 [`paging_lock_persists_across_reset`, Amstrad-class variant]
+    9. Kempston attaches on first gamepad event (48K) [`kempston_attaches_on_first_gamepad_event`, 48K]
+    10. Kempston attaches on first gamepad event (128K) [`kempston_attaches_on_first_gamepad_event`, 128K]
+    11. Amstrad-class declines Kempston events on +3 [Seam 2 trait-bound enforcement — the negative case]
+    12. Snapshot envelope locked at v2 [Seam 3 catch — silent envelope drift breaks previously-saved snapshots]
+  - Adds `is_paging_locked()` public accessors on `Memory128K` and `MemoryPlus`; adds the `serde_skip_audit.rs` inventory.
+  - **Float48K strict un-gate** remains blocked on Phase 1 #8 (RST 16 capture can't read PRINT-FP digits). When un-gated it replaces waypoint #4's structural surrogate with the real T=14338 probe and lands the 128K's T=14364 sibling.
 - This document is updated with implementation status and links to commits.
+
+## Phase 2 close-out (2026-05-20)
+
+All five named seams have landed code. The order-of-work was Seam 4 → Seam 1 → Seams 2/3/5/UlaRevision in parallel, matching the planned dependency order.
+
+**Landed commits:**
+
+| Seam | Commits | Surface |
+|---|---|---|
+| 1 | `0660521`, `fbc5938` | Two-stage shifter, AOLatch border granularity, FRAME_ROUTING_VERSION = 3 |
+| 2 | `3087016` (runtime), `6b19411` (catalogue) | Kempston routing + sabre-wulf-kempston-start verification |
+| 3 | `7ea8842` | FDC after_restore, snapshot envelope v2, serde_skip audit (13 annotations) |
+| 4 | `c7abaef`, `0471db4` (gate), `546ce25`/`94347ff`/`57c2994`/`539aa00`/`22ecf8b`/`bdde7f4`/`eaebbdc`/`e2daab9`/`d9507c2` (re-capture wave) | Routing-version checks + 102-entry re-capture at v3 |
+| 5 | `082dd74`, `d3156d1`, `3970dbc`, `450ac8a` | 12 boot-invariant waypoints across 48K / 128K / Pentagon / +3 |
+| Rename | `ce45ea8` | `BoardIssue::Issue2/Issue3` → `UlaRevision::Ferranti5C/Ferranti6C` (5C/6C family naming) |
+
+**Deferred to post-Phase-2** (captured in [Fidelity findings deferred beyond October](#fidelity-findings-deferred-beyond-october)):
+
+- **Float48K strict un-gate** — blocked on test-harness PRINT-FP capture work (Phase 1 #8). Engine-side timing is already correct at T=14338; only the verifier's display capture needs to track the ROM editor's control-argument state machine.
+- **5C-vs-6C HSync timing** — no SOLID catalogue entry currently depends; tracked as a per-revision flag if a dependent title surfaces.
+- **Smith Y/U/V palette tables for the CRT filter** — `VideoFilter::Crt` ships in `emu198x-native-video`; Chapter 16's per-colour tables would upgrade colour fidelity but do not affect catalogue hashes (palette mapping happens after the framebuffer hash).
+- **3-level beeper voltage LUT** — Chapter 20 four-voltage divider. No catalogue title currently exercises three-level beeper.
+- **Sinclair Interface 2 keyboard-matrix routing** — separate from Seam 2 Kempston work; per [`spectrum-joystick-architecture.md`](spectrum-joystick-architecture.md).
+
+The catalogue runs **101 entries SNAP-PASS in 94 min** at `frame_routing_version = 3`. Seams 1, 2, 3, 4, 5 are second-line-of-defence against regressions the catalogue cannot catch by construction — silently-locked-in wrong behaviour (Seam 4), lost host input (Seam 2), volatile state that doesn't survive snapshot restore (Seam 3), oracle integrity (Seam 4), and standing boot-invariant assertions (Seam 5). The spine — ULA-drives, no-Bus-trait, half-cycle signals, within-family layering — is unchanged.
 
 ## Non-goals
 
