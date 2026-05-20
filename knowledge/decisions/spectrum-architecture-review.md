@@ -1,7 +1,7 @@
 # Decision: Spectrum architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-18, polish pass 2026-05-19
-**Status:** Phase 1 in progress — Seams 1, 4 partially landed (2026-05-19)
+**Status:** Phase 1 complete — Seams 1 + 4 landed, catalogue at v3 (2026-05-20)
 
 ## What this is
 
@@ -266,10 +266,11 @@ In order of leverage for unblocking October-public and protecting future capture
 - **Seam 1**: 48K Float48K strict mode prints 14338. 128K prints 14364. Both run in CI without env-var gates. At least one floating-bus title from the Grussu corpus (Arkanoid / Cobra / Short Circuit / Sidewize) added to the 48K catalogue and passing.
   - Engine status (2026-05-19): **landed** — commits `0660521` + `fbc5938`. First fetch at T-14338 (48K), AOLatch border granularity in place, `FRAME_ROUTING_VERSION = 3`.
   - Float48K strict un-gate: **blocked on test-harness work** — RST 16 capture can't read PRINT-FP digits. Tracked separately.
-  - Floating-bus catalogue entry: pending (Phase 1 #9).
+  - Floating-bus catalogue entry: **landed** — `arkanoid-tape` in commit `b0f9b7f`, hash captured at v3 in `546ce25`.
 - **Seam 2**: gamepad event flips `kempston.attached` and feeds button bits. Catalogue entry verifies the runtime input path against a Kempston-using catalogue title (e.g. Jet Pac from the 16K trilogy or Sabre Wulf from the 48K set).
 - **Seam 3**: every `#[serde(skip)]` field on a Spectrum-stack struct either has a `Default` that produces correct behaviour or is rehydrated by a typed `after_restore`. Audit test asserts this. FDC disk image survives snapshot restore in a regression test.
 - **Seam 4**: `audio_routing_version` and `frame_routing_version` constants in place. Catalogue mismatch fails loud with a re-capture instruction. AY re-capture wave completed; R-Type's 128 audio hash unchanged (beeper-only invariant); RoboCop / Operation Wolf / Rainbow Islands / Bubble Bobble / Out Run hashes updated. `solid-status.md` §1 reflects the code reality.
+  - **Landed 2026-05-19 / 2026-05-20**: routing-version check landed in commit `c7abaef`, capture-mode bypass in `0471db4`. Re-capture wave covered all 102 entries across 9 commits (`546ce25` 48K vanilla, `94347ff` Plus, `57c2994` 16K, `539aa00` 128K, `22ecf8b` +2, `bdde7f4` +2A, `eaebbdc` +2B, `e2daab9` +3, `d9507c2` SpeedLock). Manifest now at `frame_routing_version = 3`; all 102 entries PASS in run-mode.
 - **Seam 5**: `boot_invariants.rs` carries at least five per-variant waypoint assertions including the un-gated Float48K strict check.
 - This document is updated with implementation status and links to commits.
 
