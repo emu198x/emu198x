@@ -414,10 +414,17 @@ mod tests {
     fn apply_ay_registers_replays_full_register_file_then_selects() {
         // Build a stand-in AY chip and feed it a known register file. Use
         // values that survive AY's per-register write masks (4-bit safe).
+        // R7 is the mixer/IO-direction byte — set bits 6 and 7 high so
+        // both IO ports are in output mode, otherwise `read_data` on
+        // R14 / R15 returns the input-pin mask (0xFF by default) instead
+        // of the stored register value. See `gi-ay-3-8912::Ay3_8912::
+        // read_data` — the port read path returns the pin state, not
+        // the stored byte, mirroring real silicon behaviour.
         let mut snap = populated_snapshot();
         for (i, b) in snap.ay_regs.iter_mut().enumerate() {
             *b = i as u8; // 0..15, all within every register's mask width
         }
+        snap.ay_regs[7] = 0xC0 | snap.ay_regs[7]; // bits 6 + 7 = port A/B output
         snap.ay_register = 0x0B;
 
         let mut ay = gi_ay_3_8912::Ay3_8912::new(1_773_400, 44_100, 882);
@@ -425,7 +432,14 @@ mod tests {
 
         for i in 0..16u8 {
             ay.select_register(i);
-            assert_eq!(ay.read_data(), i);
+            // R7 was forced to 0xC7 above (mixer bits + IO direction
+            // bits). Other registers carry their literal index.
+            let expected = if i == 7 { 0xC7 } else { i };
+            assert_eq!(
+                ay.read_data(),
+                expected,
+                "register {i} round-trip",
+            );
         }
         // After helper completes, snap.ay_register stays selected.
         ay.select_register(snap.ay_register);
