@@ -178,7 +178,7 @@ Example:
 
 ```bash
 cargo run -p emu198x-spectrum -- \
-  --tape '/Users/stevehill/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip' \
+  --tape '/Users/stevehill/Projects/198x/assets/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip' \
   --autoload-tape \
   --turbo-tape
 ```
@@ -220,7 +220,7 @@ Live controls:
 ```bash
 cargo run -p emu198x-script-spectrum -- \
   --rom ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom \
-  --tape '/Users/stevehill/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip' \
+  --tape '/Users/stevehill/Projects/198x/assets/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip' \
   --autoload-tape \
   --wait-for-tape-stop 12000
 ```
@@ -268,7 +268,7 @@ cargo run -p emu198x-script-c64 -- \
 
 ```bash
 cargo run -p emu198x-script-nes -- \
-  --rom '/Users/stevehill/Projects/Emu198x-Unclean/Reference/nintendo/nes/test-suites/other/nestest.nes' \
+  --rom '/Users/stevehill/Projects/198x/assets/nintendo/nes/test-suites/other/nestest.nes' \
   --frames 60 \
   --screenshot nestest.png
 ```
@@ -302,7 +302,7 @@ cargo run -p emu198x-script-amiga -- \
 ```bash
 cargo run -p emu198x-script-amiga -- \
   --rom-dir ~/.emu198x/roms/commodore-amiga \
-  --disk '/Users/stevehill/Projects/Emu198x-Unclean/Reference/amiga/Operating Systems/Workbench/Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip' \
+  --disk '/Users/stevehill/Projects/198x/assets/amiga/Operating Systems/Workbench/Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip' \
   --wait-for-boot 300 \
   --screenshot amiga-workbench.png
 ```

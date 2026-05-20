@@ -103,7 +103,7 @@ fn audio_controls_mutate_loaded_machine_mixer() {
 #[ignore = "uses local NES reference ROM"]
 fn real_ines_super_mario_bros_runs_and_draws() {
     let path = Path::new(
-        "/Users/stevehill/Projects/Emu198x-Unclean/Reference/nintendo/nes/Super Mario Bros. (1985-09-13)(Nintendo)(JP-US).nes",
+        "/Users/stevehill/Projects/198x/assets/nintendo/nes/Super Mario Bros. (1985-09-13)(Nintendo)(JP-US).nes",
     );
     if !path.is_file() {
         eprintln!("SKIPPING: local Super Mario Bros. ROM not found");

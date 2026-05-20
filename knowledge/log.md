@@ -2787,7 +2787,7 @@ The order of work is sized for leverage: seam 2 first (actual boot blocker), sea
 - `cargo test -p runtime-commodore-amiga`
 - `cargo test --release -p runtime-commodore-amiga real_kickstart13_boot_reaches_insert_disk_screen -- --ignored --nocapture`
 - `cargo run --release -q -p emu198x-script-amiga -- --kickstart /Users/stevehill/.emu198x/roms/commodore-amiga/kick13.rom --frames 1700 --screenshot /tmp/amiga-kick-1700-viewport.png --print-query boot.detected --print-query boot.reason --print-query amiga.agnus.bplcon0 --print-query amiga.denise.bplcon0 --print-query amiga.display.color00 --print-query amiga.display.color01 --print-query amiga.display.color02 --print-query amiga.display.color03`
-- `compare -metric AE /tmp/amiga-kick-1700-viewport.png /Users/stevehill/Projects/Emu198x-Oldest/test_output/amiga/boot_kick13_a500_display.png null:`
+- `compare -metric AE /tmp/amiga-kick-1700-viewport.png /Users/stevehill/Projects/198x/Emu198x-Oldest/test_output/amiga/boot_kick13_a500_display.png null:`
 
 **Consequence:** the fresh-workspace Amiga baseline now has a real Kickstart-screen proof again. The next blocker is no longer “can it draw the hand screen?” It is the later Workbench/game boot path, starting with the existing `real_workbench13_disk_bootblock_reaches_chip_ram` regression.
 
@@ -2807,7 +2807,7 @@ The order of work is sized for leverage: seam 2 first (actual boot blocker), sea
 - `cargo test -p motorola-68000 -p mos-cia-8520 -p commodore-gary -p commodore-agnus-ocs -p commodore-denise-ocs -p commodore-paula-8364 -p format-commodore-amiga-adf -p peripheral-commodore-amiga-floppy -p peripheral-commodore-amiga-keyboard -p machine-commodore-amiga -p runtime-commodore-amiga -p emu198x-script-amiga`
 - `cargo clippy -p motorola-68000 -p mos-cia-8520 -p commodore-gary -p commodore-agnus-ocs -p commodore-denise-ocs -p commodore-paula-8364 -p format-commodore-amiga-adf -p peripheral-commodore-amiga-floppy -p peripheral-commodore-amiga-keyboard -p machine-commodore-amiga -p runtime-commodore-amiga -p emu198x-script-amiga --all-targets -- -D warnings`
 - `cargo run --release -p emu198x-script-amiga -- --rom-dir ~/.emu198x/roms/commodore-amiga --wait-for-boot 300 --screenshot /tmp/amiga-kick13.png`
-- `cargo run --release -p emu198x-script-amiga -- --rom-dir ~/.emu198x/roms/commodore-amiga --disk '/Users/stevehill/Projects/Emu198x-Unclean/Reference/amiga/Operating Systems/Workbench/Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip' --wait-for-boot 300 --frames 1000 --print-query amiga.disk.inserted --print-query amiga.disk.motor_on --print-query amiga.disk.motor_spinning --print-query amiga.cpu.pc`
+- `cargo run --release -p emu198x-script-amiga -- --rom-dir ~/.emu198x/roms/commodore-amiga --disk '/Users/stevehill/Projects/198x/assets/amiga/Operating Systems/Workbench/Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip' --wait-for-boot 300 --frames 1000 --print-query amiga.disk.inserted --print-query amiga.disk.motor_on --print-query amiga.disk.motor_spinning --print-query amiga.cpu.pc`
 
 **Consequence:** the repo no longer needs to say “no fresh-workspace Amiga product path.” The current honest state is: the Amiga now has a real headless A500 OCS PAL baseline in the active workspace, while native UI, snapshots, and stronger software proofs are still pending.
 
@@ -2825,8 +2825,8 @@ The order of work is sized for leverage: seam 2 first (actual boot blocker), sea
 **Verification:** locally, this slice passes:
 - `cargo test -p format-nintendo-nes-ines -p ricoh-ppu-2c02 -p ricoh-apu-2a03 -p machine-nintendo-nes -p runtime-nintendo-nes -p emu198x-script-nes`
 - `cargo clippy -p format-nintendo-nes-ines -p ricoh-ppu-2c02 -p ricoh-apu-2a03 -p machine-nintendo-nes -p runtime-nintendo-nes -p emu198x-script-nes --all-targets -- -D warnings`
-- `cargo run --release -p emu198x-script-nes -- --rom '/Users/stevehill/Projects/Emu198x-Unclean/Reference/nintendo/nes/test-suites/other/nestest.nes' --frames 60 --screenshot /tmp/nes-nestest.png`
-- `cargo run --release -p emu198x-script-nes -- --rom '/Users/stevehill/Projects/Emu198x-Unclean/Reference/nintendo/nes/Super Mario Bros. (1985-09-13)(Nintendo)(JP-US).nes' --frames 240 --screenshot /tmp/nes-smb.png`
+- `cargo run --release -p emu198x-script-nes -- --rom '/Users/stevehill/Projects/198x/assets/nintendo/nes/test-suites/other/nestest.nes' --frames 60 --screenshot /tmp/nes-nestest.png`
+- `cargo run --release -p emu198x-script-nes -- --rom '/Users/stevehill/Projects/198x/assets/nintendo/nes/Super Mario Bros. (1985-09-13)(Nintendo)(JP-US).nes' --frames 240 --screenshot /tmp/nes-smb.png`
 
 **Consequence:** the repo no longer needs to describe NES as having “no fresh-workspace product path.” The current honest state is: headless NES cartridge boot exists and runs real NROM software, while mapper breadth, snapshots, and a native verifier UI are still pending.
 
@@ -2834,7 +2834,7 @@ The order of work is sized for leverage: seam 2 first (actual boot blocker), sea
 
 **Type:** note
 **Trigger:** After the live `1541` path reached a stable `SEARCHING FOR *` stall on plain `D64` titles, the project needed a concise working note that merged the new 1541-specific references into one debug map instead of leaving the relevant facts scattered across manuals, OCR, and ROM listings.
-**Result:** added [1541-DISK-BRINGUP-NOTES.md](/Users/stevehill/Projects/Emu198x/docs/platforms/commodore-64/hardware/1541-DISK-BRINGUP-NOTES.md), which captures:
+**Result:** added [1541-DISK-BRINGUP-NOTES.md](/Users/stevehill/Projects/198x/Emu198x/docs/platforms/commodore-64/hardware/1541-DISK-BRINGUP-NOTES.md), which captures:
 1. the exact current boundary of the live disk problem
 2. what is already ruled out
 3. the 1541 board split between `UC3` serial-side `VIA` and `UC2` read/mechanics `VIA`

@@ -11,8 +11,8 @@ use runtime_sinclair_zx_spectrum::*;
 use std::fs;
 use std::path::PathBuf;
 
-const MANIC_MINER_TZX_ZIP_PATH: &str = "/Users/stevehill/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip";
-const JET_SET_WILLY_TZX_ZIP_PATH: &str = "/Users/stevehill/Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]/Jet Set Willy (1984)(Software Projects).zip";
+const MANIC_MINER_TZX_ZIP_PATH: &str = "/Users/stevehill/Projects/198x/assets/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip";
+const JET_SET_WILLY_TZX_ZIP_PATH: &str = "/Users/stevehill/Projects/198x/assets/sinclair/spectrum/Games/[TZX]/Jet Set Willy (1984)(Software Projects).zip";
 
 #[test]
 fn runtime_loads_tap_media_into_tape_slot() {
