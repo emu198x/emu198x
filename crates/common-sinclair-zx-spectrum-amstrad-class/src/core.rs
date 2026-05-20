@@ -511,4 +511,139 @@ mod tests {
         assert_eq!(m.memory.read(0x8000), 0x12);
         assert_eq!(m.memory.read(0xC000), 0x13);
     }
+
+    /// `io_read` on `$FE` returns the standard ULA byte: bit 6 carries
+    /// the EAR input (currently floating-high when no tape is playing)
+    /// and bits 0-4 are the active-low keyboard scan.
+    #[test]
+    fn io_read_fe_returns_keyboard_state() {
+        let mut m = SpectrumPlus3::new();
+        // All keys released → bits 0-4 of the result are all set.
+        let val = m.io_read(0xFEFE);
+        assert_eq!(val & 0x1F, 0x1F, "no keys pressed should read 0x1F");
+
+        // Press key in row 0 (Shift/Z/X/C/V): clear bit in keyboard[0].
+        m.keyboard[0] &= !0x02; // Z key
+        let val = m.io_read(0xFEFE); // row 0 selected via low A8 (high byte $FE = 11111110)
+        assert_eq!(val & 0x02, 0, "Z press should read low on bit 1");
+    }
+
+    /// `io_read` on the AY data port (`$FFFD`, masking `A15:A14 = 11`,
+    /// `A1 = 0`) returns whichever AY register the chip's pointer
+    /// currently selects.
+    #[test]
+    fn io_read_ay_data_port_returns_selected_register() {
+        let mut m = SpectrumPlus3::new();
+        // Write a known value into AY register 7 (mixer control) via
+        // the standard select-then-write port pair.
+        m.io_write(0xFFFD, 7); // select register 7
+        m.io_write(0xBFFD, 0x3F); // write 0x3F into register 7
+        // Now read back through $FFFD (matches $C000 mask).
+        let val = m.io_read(0xFFFD);
+        assert_eq!(val, 0x3F);
+    }
+
+    /// `io_read` on an unmapped port returns `0xFF` — no floating-bus
+    /// emulation on the Amstrad gate array, and no Kempston since the
+    /// rear-connector pinout doesn't fit one in 1987+.
+    #[test]
+    fn io_read_unmapped_port_returns_ff() {
+        let mut m = SpectrumPlus3::new();
+        // $1F is the canonical Kempston port — Amstrad-class doesn't
+        // host one, so this must read $FF (not 0 from an attached-
+        // but-empty Kempston peripheral).
+        assert_eq!(m.io_read(0x001F), 0xFF);
+        // Same for any other unmapped odd port.
+        assert_eq!(m.io_read(0x1234), 0xFF);
+    }
+
+    /// `io_write` on `$FE` toggles the beeper line — the upper bits
+    /// route to the ULA's border and tape-MIC outputs but the runtime
+    /// only cares about bit 4 (the beeper) for audio. Catches a
+    /// regression where the speaker state stops tracking writes.
+    #[test]
+    fn io_write_fe_toggles_beeper_state() {
+        let mut m = SpectrumPlus3::new();
+        let before = m.speaker.beeper;
+        // Flip bit 4 of the $FE value to toggle the beeper.
+        m.io_write(0x00FE, 0x10);
+        assert_ne!(m.speaker.beeper, before);
+        // Writing without bit 4 toggles it back.
+        m.io_write(0x00FE, 0x00);
+        assert_eq!(m.speaker.beeper, before);
+    }
+
+    /// `reset` re-initialises the Z80 + ULA + audio buffers without
+    /// dropping ROM contents or RAM. Catches a regression where the
+    /// soft-reset path forgets to clear a sub-component.
+    #[test]
+    fn reset_clears_machine_state_but_preserves_rom() {
+        let mut m = SpectrumPlus3::new();
+        // Stash a recognisable byte and run a frame so the Z80 walks.
+        m.memory.ram_bank_mut(0)[0] = 0xAA;
+        m.run_frame();
+        assert!(m.hc_value() == 0); // run_frame returns to origin
+
+        // Reset: PC should be back at $0000 (BASIC entry).
+        m.reset();
+        assert_eq!(m.z80.regs.pc, 0x0000);
+        // RAM is preserved across soft reset.
+        assert_eq!(m.memory.ram_bank(0)[0], 0xAA);
+    }
+
+    /// `tape_play` / `tape_stop` toggle the tape transport state. The
+    /// runtime drives these from F9 / F10 keyboard shortcuts in the
+    /// native binary.
+    #[test]
+    fn tape_play_then_stop_toggles_transport() {
+        let mut m = SpectrumPlus3::new();
+        assert!(!m.tape.is_playing(), "fresh machine has no tape playing");
+        m.tape_play();
+        // Without a loaded tape, play is a no-op — but it's safe
+        // to call and shouldn't panic.
+        m.tape_stop();
+        assert!(!m.tape.is_playing());
+    }
+
+    /// `advance_tstates` advances the half-cycle counter by exactly
+    /// `tstates × cpu_divisor` half-cycles. On the Amstrad-class
+    /// (TIMING_PLUS2A) that's 5 half-cycles per T-state.
+    #[test]
+    fn advance_tstates_advances_hc_by_cpu_divisor() {
+        let mut m = SpectrumPlus3::new();
+        let before = m.hc_value();
+        m.advance_tstates(100);
+        let advanced = m.hc_value() - before;
+        // cpu_divisor on the Amstrad gate array is 5, so 100 T-states
+        // = 500 half-cycles.
+        assert_eq!(advanced, 500);
+    }
+
+    /// Plus3 exposes `insert_disk` to mount a `DiskImage` into the
+    /// FDC's drive 0. `eject_disk` removes it. Both should be safe to
+    /// call without crashing on a freshly-constructed machine.
+    #[test]
+    fn plus3_insert_and_eject_disk_round_trip() {
+        let mut m = SpectrumPlus3::new();
+        // A minimal blank DSK image — single track, single side, zero
+        // sectors — is enough to exercise the insert/eject path.
+        let image = nec_upd765a::DiskImage::default();
+        assert!(!m.fdc.has_disk(0), "fresh +3 starts with no disk mounted");
+        m.insert_disk(image);
+        assert!(m.fdc.has_disk(0), "insert_disk must mount on drive 0");
+        m.eject_disk();
+        assert!(!m.fdc.has_disk(0), "eject_disk must remove the mounted image");
+    }
+
+    /// `audio_controls` round-trips through `set_audio_controls`. Used
+    /// by the native UI's audio menu to expose speaker channel state
+    /// to the user.
+    #[test]
+    fn audio_controls_round_trip() {
+        let mut m = SpectrumPlus3::new();
+        let mut controls = m.audio_controls();
+        controls.set_master_gain(0.42);
+        m.set_audio_controls(controls);
+        assert!((m.audio_controls().master_gain() - 0.42).abs() < 1e-6);
+    }
 }

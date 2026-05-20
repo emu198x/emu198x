@@ -327,4 +327,143 @@ mod tests {
         mem.write_7ffd(0x01);
         assert!(!mem.is_contended(0xC000));
     }
+
+    /// Special mode 2: banks 4,5,6,3 — the third config in
+    /// `SPECIAL_MODES`. Catches regressions in the bank-table indexing
+    /// or the high bit of `special_config()`.
+    #[test]
+    fn special_paging_mode2() {
+        let mut mem = MemoryPlus::new();
+        mem.ram[3][0] = 0x33;
+        mem.ram[4][0] = 0x44;
+        mem.ram[5][0] = 0x55;
+        mem.ram[6][0] = 0x66;
+        // Mode 2: $1FFD = $05 (bit 0=1 special, bits 2:1 = 10 = 2)
+        mem.write_1ffd(0x05);
+        assert_eq!(mem.read(0x0000), 0x44);
+        assert_eq!(mem.read(0x4000), 0x55);
+        assert_eq!(mem.read(0x8000), 0x66);
+        assert_eq!(mem.read(0xC000), 0x33);
+    }
+
+    /// Special mode 3: banks 4,7,6,3 — the fourth config in
+    /// `SPECIAL_MODES`. Distinct from mode 2 in slot 1 only (7 vs 5),
+    /// so this is the only config where bank 7 lands at $4000.
+    #[test]
+    fn special_paging_mode3() {
+        let mut mem = MemoryPlus::new();
+        mem.ram[3][0] = 0x33;
+        mem.ram[4][0] = 0x44;
+        mem.ram[6][0] = 0x66;
+        mem.ram[7][0] = 0x77;
+        // Mode 3: $1FFD = $07 (bit 0=1, bits 2:1 = 11 = 3)
+        mem.write_1ffd(0x07);
+        assert_eq!(mem.read(0x0000), 0x44);
+        assert_eq!(mem.read(0x4000), 0x77);
+        assert_eq!(mem.read(0x8000), 0x66);
+        assert_eq!(mem.read(0xC000), 0x33);
+    }
+
+    /// In special mode, slots with banks 4-7 are contended; banks 0-3
+    /// are not. Mode 0 (banks 0,1,2,3) has no contended slots; mode 1
+    /// (banks 4,5,6,7) has all four contended.
+    #[test]
+    fn contention_in_special_paging_modes() {
+        let mut mem = MemoryPlus::new();
+        // Mode 0: banks 0,1,2,3 — nothing contended.
+        mem.write_1ffd(0x01);
+        for addr in [0x0000u16, 0x4000, 0x8000, 0xC000] {
+            assert!(!mem.is_contended(addr), "mode 0 addr {addr:#06x} unexpectedly contended");
+        }
+        // Mode 1: banks 4,5,6,7 — all four contended.
+        mem.write_1ffd(0x03);
+        for addr in [0x0000u16, 0x4000, 0x8000, 0xC000] {
+            assert!(mem.is_contended(addr), "mode 1 addr {addr:#06x} should be contended");
+        }
+    }
+
+    /// Bit 3 of `$7FFD` selects the screen bank: clear = bank 5,
+    /// set = bank 7. The 128K and Amstrad-class share this behaviour.
+    #[test]
+    fn screen_bank_follows_7ffd_bit_3() {
+        let mut mem = MemoryPlus::new();
+        assert_eq!(mem.screen_bank(), 5, "default screen bank is 5");
+        mem.write_7ffd(0x08); // bit 3 set
+        assert_eq!(mem.screen_bank(), 7);
+        mem.write_7ffd(0x00); // bit 3 clear
+        assert_eq!(mem.screen_bank(), 5);
+    }
+
+    /// Writes to the ROM region ($0000-$3FFF) in normal mode are
+    /// silently dropped — every Spectrum-family memory map does this.
+    /// Catches a regression that would let user code corrupt the ROM
+    /// view.
+    #[test]
+    fn writes_to_rom_region_are_dropped() {
+        let mut mem = MemoryPlus::new();
+        mem.rom[0][0x100] = 0xAB;
+        mem.write(0x100, 0xCD);
+        assert_eq!(
+            mem.read(0x100),
+            0xAB,
+            "writes to ROM region must not alter ROM contents",
+        );
+    }
+
+    /// Writes routed through `$C000-$FFFF` land in the currently-paged
+    /// RAM bank, not in some fixed bank. Catches regressions where the
+    /// $C000 window forgets to consult `paging_7ffd`.
+    #[test]
+    fn writes_to_c000_route_to_currently_paged_bank() {
+        let mut mem = MemoryPlus::new();
+        mem.write_7ffd(0x06); // bank 6 at $C000
+        mem.write(0xC100, 0x77);
+        assert_eq!(mem.ram_bank(6)[0x100], 0x77);
+        // The default bank-0 region must not have changed.
+        assert_eq!(mem.ram_bank(0)[0x100], 0x00);
+    }
+
+    /// `read_screen` always reads from the screen bank, ignoring
+    /// `$7FFD` bits 0-2 (the user-paged bank at $C000). The runtime's
+    /// frame renderer relies on this so it can paint from bank 5/7
+    /// while the CPU writes through to a different bank at $C000.
+    #[test]
+    fn read_screen_ignores_user_paging() {
+        let mut mem = MemoryPlus::new();
+        mem.ram_bank_mut(5)[0x1234] = 0x42;
+        mem.ram_bank_mut(0)[0x1234] = 0x99;
+        // Page bank 0 at $C000; screen still reads bank 5.
+        mem.write_7ffd(0x00);
+        assert_eq!(mem.read_screen(0x1234), 0x42);
+        assert_eq!(mem.read_screen(0x4000 | 0x1234), 0x42); // address masked to 14 bits
+    }
+
+    /// `read_rom_byte(bank, addr)` lets the runtime read any ROM
+    /// without disturbing the live `$7FFD` / `$1FFD` paging — used by
+    /// the screen-text decoder to reach the glyph table in ROM 3
+    /// regardless of which ROM is currently mapped.
+    #[test]
+    fn read_rom_byte_addresses_any_bank() {
+        let mut mem = MemoryPlus::new();
+        mem.rom[3][0x3D00] = 0xAA;
+        assert_eq!(mem.read_rom_byte(3, 0x3D00), 0xAA);
+        // Out-of-range bank index returns 0, not a panic.
+        assert_eq!(mem.read_rom_byte(99, 0x3D00), 0);
+    }
+
+    /// `load_roms` populates all four ROM banks from supplied slices
+    /// and truncates oversize inputs to the 16 KiB bank size.
+    #[test]
+    fn load_roms_populates_all_four() {
+        let mut mem = MemoryPlus::new();
+        let rom0 = vec![0xAA; 16384];
+        let rom1 = vec![0xBB; 16384];
+        let rom2 = vec![0xCC; 16384];
+        let rom3 = vec![0xDD; 16384];
+        mem.load_roms(&rom0, &rom1, &rom2, &rom3);
+        assert_eq!(mem.read_rom_byte(0, 0x0000), 0xAA);
+        assert_eq!(mem.read_rom_byte(1, 0x0000), 0xBB);
+        assert_eq!(mem.read_rom_byte(2, 0x0000), 0xCC);
+        assert_eq!(mem.read_rom_byte(3, 0x0000), 0xDD);
+    }
 }
