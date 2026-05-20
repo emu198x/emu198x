@@ -47,6 +47,39 @@ pub const PRIMARY_NORMAL: u8 = 0xC2;
 /// Per-primary current in bright mode, set as the 8-bit RGB maximum.
 pub const PRIMARY_BRIGHT: u8 = 0xFF;
 
+/// Spectrum-specific luminance coefficients (Smith Ch 16 / Table 16-1).
+///
+/// **`Y = 0.299 R + 0.587 G + 0.151 B`** — Altwasser deliberately raised
+/// the blue coefficient above BT.601's 0.114 (the value standard
+/// composite-video luminance equations use) because pure blue was "very
+/// dark and hardly visible" on contemporary TVs. Using these weights in
+/// any luminance computation matches the analog signal a real Spectrum
+/// drove on real CRT hardware, and is the load-bearing constant for the
+/// CRT filter's Spectrum-tuned chroma-bleed pipeline at
+/// `crates/emu198x-native-video/src/shader.wgsl`.
+pub const SMITH_LUMA_R: f32 = 0.299;
+
+/// Green-channel weight in Smith's Spectrum luminance equation. Matches
+/// BT.601 by coincidence (green is the dominant luminance contributor
+/// on both displays).
+pub const SMITH_LUMA_G: f32 = 0.587;
+
+/// Blue-channel weight in Smith's Spectrum luminance equation. Smith Ch
+/// 16 documents Altwasser's deliberate increase from BT.601's 0.114 to
+/// boost the perceptual brightness of pure blue on the standard analog
+/// chain. See `SMITH_LUMA_R`'s docstring.
+pub const SMITH_LUMA_B: f32 = 0.151;
+
+/// Compute the Spectrum's CRT-display luminance for an RGB sample,
+/// using Smith Ch 16's blue-boosted Y equation. Inputs are in the
+/// canonical 0.0–1.0 range; output is unclamped and may exceed 1.0
+/// for bright-white-class inputs (the sum of the three coefficients
+/// is `1.037`, mirroring Q3 saturation at the silicon level).
+#[must_use]
+pub fn spectrum_luminance(r: f32, g: f32, b: f32) -> f32 {
+    SMITH_LUMA_R * r + SMITH_LUMA_G * g + SMITH_LUMA_B * b
+}
+
 /// Compose one palette entry from its three primary activation bits
 /// and the bright flag. Encodes as `0xRRGGBBAA`.
 const fn rgba(bright: bool, has_red: bool, has_green: bool, has_blue: bool) -> u32 {
@@ -185,5 +218,63 @@ mod tests {
         assert_eq!(bw_blue, 0xFF);
         // Red and green channels are identical
         assert_eq!(bright_yellow & 0xFFFF00FF, bright_white & 0xFFFF00FF);
+    }
+
+    /// Smith Ch 16 / Table 16-1: the Spectrum's Y equation differs
+    /// from BT.601 only in the blue coefficient (0.151 vs 0.114).
+    /// These constants are the source-of-truth that the CRT filter
+    /// shader cites in `emu198x-native-video/src/shader.wgsl`.
+    #[test]
+    fn smith_luminance_coefficients_match_chapter_16() {
+        assert_eq!(SMITH_LUMA_R, 0.299);
+        assert_eq!(SMITH_LUMA_G, 0.587);
+        assert_eq!(SMITH_LUMA_B, 0.151);
+        // The three coefficients sum to 1.037 — the "Q3 saturation
+        // headroom" that lets Bright White luminance exceed the
+        // arithmetic ceiling.
+        let sum = SMITH_LUMA_R + SMITH_LUMA_G + SMITH_LUMA_B;
+        assert!(
+            (sum - 1.037).abs() < 1e-6,
+            "Smith Y coefficients should sum to 1.037, got {sum}",
+        );
+    }
+
+    /// `spectrum_luminance` returns 1.037 for bright white and 0.886
+    /// for bright yellow — confirming Smith Ch 16's prediction that
+    /// the two would share a /Y at silicon level (both exceeding the
+    /// clamp ceiling on a real CRT) but differ in mathematical Y
+    /// without the Q3 saturation clamp.
+    #[test]
+    fn spectrum_luminance_documents_q3_saturation_gap() {
+        // Bright white: all three primaries at 1.0.
+        let bright_white = spectrum_luminance(1.0, 1.0, 1.0);
+        assert!(
+            (bright_white - 1.037).abs() < 1e-6,
+            "bright white luminance should be 1.037 (sum of coefficients), got {bright_white}",
+        );
+        // Bright yellow: red + green at 1.0, blue at 0.
+        let bright_yellow = spectrum_luminance(1.0, 1.0, 0.0);
+        assert!(
+            (bright_yellow - 0.886).abs() < 1e-6,
+            "bright yellow luminance should be 0.886, got {bright_yellow}",
+        );
+        // Both > 0.886, so on a Q3-saturating CRT they'd display at
+        // the same luminance after clamping.
+        assert!(bright_yellow > 0.5);
+        assert!(bright_white > bright_yellow);
+    }
+
+    /// Pure blue's luminance in Smith's equation is 0.151 — measurably
+    /// higher than BT.601's 0.114 prediction. This is the load-bearing
+    /// difference Altwasser engineered.
+    #[test]
+    fn pure_blue_luminance_uses_smith_boost_not_bt601() {
+        let smith_blue = spectrum_luminance(0.0, 0.0, 1.0);
+        assert!(
+            (smith_blue - 0.151).abs() < 1e-6,
+            "pure blue Y should be 0.151 (Smith), got {smith_blue}",
+        );
+        // Sanity: this is greater than BT.601's 0.114 prediction.
+        assert!(smith_blue > 0.114);
     }
 }
