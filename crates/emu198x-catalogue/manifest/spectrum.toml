@@ -2037,7 +2037,7 @@ path = "sinclair/spectrum/Games/[DSK]/Chase H.Q. (1989)(Ocean)(+3).zip"
 # propagation in place, Chase H.Q. now reaches the actual
 # ready-to-play state.
 wait_frames = 6000
-frame_hash = "xxh64:5cf0885094444d92"
+frame_hash = "xxh64:47fda6722c6032b2"
 
 [entry.audio]
 # Game's main loop now drives the AY chip — title music plays
@@ -2100,7 +2100,7 @@ path = "sinclair/spectrum/Games/[DSK]/Cybernoid - The Fighting Machine (1988)(He
 # ("1 START GAME / 2 DEFINE KEYS / 3 INTERFACE 2 / 4 KEMPSTON /
 # S SOUND ON/OFF").
 wait_frames = 6000
-frame_hash = "xxh64:0f3251939abcd09e"
+frame_hash = "xxh64:ac41233eec0a5763"
 
 [entry.audio]
 from_frame = 60
@@ -2125,7 +2125,7 @@ path = "sinclair/spectrum/Games/[DSK]/Cybernoid II - The Revenge (1988)(Hewson C
 
 [entry.boot]
 wait_frames = 6000
-frame_hash = "xxh64:3159ce47ab4ea584"
+frame_hash = "xxh64:75af0c3a8272b1e8"
 
 [entry.audio]
 from_frame = 60
@@ -2155,7 +2155,7 @@ path = "sinclair/spectrum/Games/[DSK]/Saboteur II - Avenging Angel (1987)(Durell
 # title screen comes later in the loader; this is the durable
 # intermediate state that's stable across runs.
 wait_frames = 6000
-frame_hash = "xxh64:70ef58e6577976c9"
+frame_hash = "xxh64:7d472737af467c03"
 
 [entry.audio]
 # Loader silent at the captured window (the AY pulses we see in
@@ -2191,7 +2191,7 @@ path = "sinclair/spectrum/Games/[DSK]/Sim City (1990)(Infogrames)(+3)(FR)(en).zi
 # "1 - EASY / 2 - MEDIUM / 3 - DIFFICULT", and the "INPUT NEW
 # CITY NAME" prompt. The post-load steady state.
 wait_frames = 6000
-frame_hash = "xxh64:7366b73db470e3cc"
+frame_hash = "xxh64:0c6fa6a0c1e30127"
 
 [entry.audio]
 from_frame = 60
@@ -2225,7 +2225,7 @@ path = "sinclair/spectrum/Games/[DSK]/Stormlord (1989)(Hewson Consultants)(+3).z
 # (which doesn't replicate that delay) hashes a slightly earlier
 # frame of the title-screen animation.
 wait_frames = 6000
-frame_hash = "xxh64:a4dbba774ffe2b68"
+frame_hash = "xxh64:1cfe2141608a0b1f"
 
 [entry.audio]
 from_frame = 60
@@ -2256,7 +2256,7 @@ path = "sinclair/spectrum/Games/[DSK]/Starglider 2 - The Egrons Strike Back (198
 # catalogue (with its 20-frame autoload settle) hash slightly
 # different intermediate frames.
 wait_frames = 6000
-frame_hash = "xxh64:d84aac252ecd9efd"
+frame_hash = "xxh64:5c8dc6f976335002"
 
 [entry.audio]
 from_frame = 60
@@ -2288,7 +2288,7 @@ path = "sinclair/spectrum/Games/[DSK]/Lotus Esprit Turbo Challenge (1990)(Gremli
 # list (CENTRAL LOCKING / SEAT RESTRAINTS / ELECTROCHROMIC
 # MIRROR / etc.). A static post-load attract state.
 wait_frames = 6000
-frame_hash = "xxh64:0638e06299ac3f67"
+frame_hash = "xxh64:01dc6aa4b2494b57"
 
 [entry.audio]
 from_frame = 60
@@ -2351,7 +2351,7 @@ path = "sinclair/spectrum/Games/[DSK]/Turrican (1990)(Rainbow Arts)(+3)(Side A).
 # on red graffiti background, armoured hero firing a beam weapon,
 # Rainbow Arts and Probe Software credits, "PRESS SPACE" prompt.
 wait_frames = 6000
-frame_hash = "xxh64:32104419bea65ede"
+frame_hash = "xxh64:96bfd748d60dd83a"
 
 [entry.audio]
 from_frame = 60
@@ -2383,7 +2383,7 @@ path = "sinclair/spectrum/Games/[DSK]/Tetris (1988)(Mirrorsoft)(+3).zip"
 # logo, "MIRROR Soft PRESSENTS" banner, scrolling credits ribbon
 # at the bottom showing "...N SOFTWARE AND ..."
 wait_frames = 6000
-frame_hash = "xxh64:14ad0950cf6ac3b0"
+frame_hash = "xxh64:626777931143f07c"
 
 [entry.audio]
 from_frame = 60
@@ -2419,7 +2419,7 @@ path = "sinclair/spectrum/Games/[DSK]/Operation Wolf (1988)(Ocean)(+3).zip"
 # GRAPHICS BY IVAN HORN" in cyan on black, the loader's standard
 # post-protection idle-attract state.
 wait_frames = 6000
-frame_hash = "xxh64:ee18d332300497af"
+frame_hash = "xxh64:43f4dd995e59fabe"
 
 [entry.audio]
 from_frame = 60
@@ -2474,7 +2474,7 @@ path = "sinclair/spectrum/Games/[DSK]/Where Time Stood Still (1988)(Ocean)(+3)[a
 # the capture window (distinct from the loader-idle hash that
 # Op Wolf / RoboCop / Dragon Ninja share).
 wait_frames = 6000
-frame_hash = "xxh64:da054f4e390841f7"
+frame_hash = "xxh64:076876874e1f4725"
 
 [entry.audio]
 from_frame = 60
@@ -2503,7 +2503,7 @@ path = "sinclair/spectrum/Games/[DSK]/Bad Dudes vs. Dragon Ninja (1988)(Imagine)
 # PAUL OWENS" credit. The dragon-decorated frame border is the
 # tell — Imagine's standard title-screen styling.
 wait_frames = 6000
-frame_hash = "xxh64:c7868af02ed0f03b"
+frame_hash = "xxh64:39048dfbb2af5d15"
 
 [entry.audio]
 from_frame = 60
