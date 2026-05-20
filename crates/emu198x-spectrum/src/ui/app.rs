@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_native_video::{PresentationProfile, VideoFilter, WgpuVideoPresenter};
 use emu198x_shell::{
-    ControlCommand, FirmwareImage, FirmwareSet, InputEvent, MediaTransportAction,
-    MediaTransportCommand,
+    AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, ControlCommand, FirmwareImage,
+    FirmwareSet, HostAxis, HostControl, InputEvent, MediaTransportAction, MediaTransportCommand,
+    NativeGamepadInput,
 };
 use muda::MenuEvent;
 use runtime_sinclair_zx_spectrum::SpeakerChannel;
@@ -29,6 +30,63 @@ use crate::machine::{MachineKind, read_variant_firmware};
 use crate::ui::input::{map_spectrum_keys, spectrum_key_event};
 use crate::ui::menu::{AppCommand, AppMenu};
 use crate::ui::runner::{DEFAULT_TAPE_SLOT, SpectrumRunner};
+
+/// Host gamepad → emulated Kempston (port 0). Used on Kempston-bearing
+/// variants (16K / 48K / Spectrum+ / 128K / +2). D-pad and left stick
+/// map to the four Kempston directions; South (A) and East (B) both
+/// map to fire — the runtime's `kempston_button_from_name` treats
+/// "fire", "button1", and "a" as aliases for the same fire bit.
+const SPECTRUM_GAMEPAD_KEMPSTON_BUTTONS: ButtonInputMap = ButtonInputMap::new(&[
+    (HostControl::Up, ButtonTarget::new(0, "up")),
+    (HostControl::Down, ButtonTarget::new(0, "down")),
+    (HostControl::Left, ButtonTarget::new(0, "left")),
+    (HostControl::Right, ButtonTarget::new(0, "right")),
+    (HostControl::South, ButtonTarget::new(0, "fire")),
+    (HostControl::East, ButtonTarget::new(0, "fire")),
+]);
+const SPECTRUM_GAMEPAD_KEMPSTON_AXES: AxisInputMap = AxisInputMap::new(&[
+    (HostAxis::LeftStickX, AxisTarget::new(0, "horizontal")),
+    (HostAxis::LeftStickY, AxisTarget::new(0, "vertical")),
+]);
+
+/// Host gamepad → emulated Sinclair Interface 2 port 1 (keys 6/7/8/9/0).
+/// Used on Amstrad-class machines (+2A / +2B / +3) which broke the
+/// rear-connector pinout in 1987 and cannot host a Kempston interface.
+/// The +2A / +2B / +3 have built-in IF2-style joystick ports on the
+/// side of the case, wired internally to the keyboard matrix.
+const SPECTRUM_GAMEPAD_IF2_BUTTONS: ButtonInputMap = ButtonInputMap::new(&[
+    (HostControl::Up, ButtonTarget::new(1, "up")),
+    (HostControl::Down, ButtonTarget::new(1, "down")),
+    (HostControl::Left, ButtonTarget::new(1, "left")),
+    (HostControl::Right, ButtonTarget::new(1, "right")),
+    (HostControl::South, ButtonTarget::new(1, "fire")),
+    (HostControl::East, ButtonTarget::new(1, "fire")),
+]);
+const SPECTRUM_GAMEPAD_IF2_AXES: AxisInputMap = AxisInputMap::new(&[
+    (HostAxis::LeftStickX, AxisTarget::new(1, "horizontal")),
+    (HostAxis::LeftStickY, AxisTarget::new(1, "vertical")),
+]);
+
+/// Routes a host gamepad to the right joystick interface for the
+/// active machine. Kempston-bearing variants (16K / 48K / Spectrum+ /
+/// 128K / +2) get port 0 (the `$1F` peripheral); Amstrad-class
+/// variants (+2A / +2B / +3) get IF2 port 1 (keyboard matrix row 4 +
+/// key `0`) because their rear-connector pinout physically cannot
+/// host a Kempston interface — the gamepad is the only joystick path
+/// that reaches a game on those machines.
+fn gamepad_maps_for_machine(
+    kind: MachineKind,
+) -> (&'static ButtonInputMap, &'static AxisInputMap) {
+    match kind {
+        MachineKind::SpectrumPlus2A
+        | MachineKind::SpectrumPlus2B
+        | MachineKind::SpectrumPlus3 => (&SPECTRUM_GAMEPAD_IF2_BUTTONS, &SPECTRUM_GAMEPAD_IF2_AXES),
+        _ => (
+            &SPECTRUM_GAMEPAD_KEMPSTON_BUTTONS,
+            &SPECTRUM_GAMEPAD_KEMPSTON_AXES,
+        ),
+    }
+}
 
 /// Sub-divisions per emulator frame for input quantisation. The
 /// runtime's `run_until` actually advances in whole-frame increments
@@ -51,6 +109,7 @@ pub struct SpectrumApp {
     turbo_tape: bool,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, Vec<&'static str>>,
+    gamepads: NativeGamepadInput,
     window: Option<Arc<Window>>,
     video: Option<WgpuVideoPresenter>,
     presentation: PresentationProfile,
@@ -89,6 +148,7 @@ impl SpectrumApp {
             turbo_tape,
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
+            gamepads: NativeGamepadInput::new(),
             window: None,
             video: None,
             presentation: PresentationProfile::for_filter(video),
@@ -145,6 +205,12 @@ impl SpectrumApp {
         self.turbo_tape && self.runner.tape_playing()
     }
 
+    /// Returns the host-gamepad button/axis map pair for the current
+    /// machine. See [`gamepad_maps_for_machine`] for the rationale.
+    fn gamepad_maps(&self) -> (&'static ButtonInputMap, &'static AxisInputMap) {
+        gamepad_maps_for_machine(self.current_machine)
+    }
+
     fn window_title(&self) -> String {
         let mut title = self.runner.window_title();
         if self.turbo_tape {
@@ -168,6 +234,16 @@ impl SpectrumApp {
     /// the catch-up loop may complete multiple frames in one pass and
     /// a bool return would silently coalesce them.
     fn advance_machine(&mut self) -> Result<u32, AppError> {
+        // Drain host gamepad events into the pending-input queue every
+        // time we're called — gilrs accumulates events between polls,
+        // so missing a poll cycle just delays the press by one slice.
+        // The map pair is variant-dependent: Kempston-bearing machines
+        // get port 0 (the `$1F` peripheral), Amstrad-class machines
+        // get port 1 (the IF2 first port wired to the keyboard matrix).
+        let (button_map, axis_map) = self.gamepad_maps();
+        self.gamepads
+            .drain_events_with_axes(button_map, axis_map, &mut self.pending_inputs);
+
         if self.turbo_tape_active() {
             let mut ran_frames = 0u32;
             while ran_frames < MAX_TURBO_TAPE_FRAMES && self.turbo_tape_active() {
@@ -711,5 +787,59 @@ mod tests {
         assert!(slice_ticks <= frame_ticks);
         assert!(slice_ticks * u64::from(INPUT_SLICES_PER_FRAME) >= frame_ticks);
         assert!(slice_duration <= frame_duration);
+    }
+
+    #[test]
+    fn gamepad_routes_to_kempston_on_kempston_bearing_variants() {
+        for kind in [
+            MachineKind::Spectrum16K,
+            MachineKind::Spectrum48K,
+            MachineKind::SpectrumPlus,
+            MachineKind::Spectrum128K,
+            MachineKind::SpectrumPlus2,
+        ] {
+            let (buttons, axes) = gamepad_maps_for_machine(kind);
+            assert_eq!(
+                buttons.target(HostControl::South),
+                Some(ButtonTarget::new(0, "fire")),
+                "{kind:?}: South button must drive Kempston fire"
+            );
+            assert_eq!(
+                buttons.target(HostControl::Up),
+                Some(ButtonTarget::new(0, "up")),
+                "{kind:?}: Up button must drive Kempston up"
+            );
+            assert_eq!(
+                axes.target(HostAxis::LeftStickX),
+                Some(AxisTarget::new(0, "horizontal")),
+                "{kind:?}: left stick X must drive Kempston horizontal axis"
+            );
+        }
+    }
+
+    #[test]
+    fn gamepad_routes_to_if2_on_amstrad_class_variants() {
+        for kind in [
+            MachineKind::SpectrumPlus2A,
+            MachineKind::SpectrumPlus2B,
+            MachineKind::SpectrumPlus3,
+        ] {
+            let (buttons, axes) = gamepad_maps_for_machine(kind);
+            assert_eq!(
+                buttons.target(HostControl::South),
+                Some(ButtonTarget::new(1, "fire")),
+                "{kind:?}: South button must drive IF2 port-1 fire (Kempston unavailable)"
+            );
+            assert_eq!(
+                buttons.target(HostControl::Up),
+                Some(ButtonTarget::new(1, "up")),
+                "{kind:?}: Up button must drive IF2 port-1 up"
+            );
+            assert_eq!(
+                axes.target(HostAxis::LeftStickX),
+                Some(AxisTarget::new(1, "horizontal")),
+                "{kind:?}: left stick X must drive IF2 port-1 horizontal axis"
+            );
+        }
     }
 }

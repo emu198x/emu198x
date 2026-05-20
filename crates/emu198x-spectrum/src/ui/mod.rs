@@ -47,6 +47,12 @@ Controls:
     Numpad 0           reset speaker controls
     Left/Down/Up/Right physical Spectrum cursor keys (Caps Shift + 5/6/7/8)
     Alt                Symbol Shift
+    Gamepad D-pad / left stick
+                       Kempston joystick on 16K / 48K / Spectrum+ / 128K /
+                       +2; Sinclair Interface 2 port 1 (keys 6/7/8/9/0) on
+                       +2A / +2B / +3 — those machines cannot host a
+                       Kempston interface.
+    Gamepad South/East Fire button (Kempston or IF2 fire, per above)
 
 Examples:
     emu198x-spectrum
