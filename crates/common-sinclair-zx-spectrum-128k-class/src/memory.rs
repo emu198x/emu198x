@@ -100,6 +100,15 @@ impl Memory128K {
         self.paging & 0x07
     }
 
+    /// Is paging locked? Set when any `write_7ffd` writes bit 5 high;
+    /// stays set across soft reset, cleared only on full re-construction.
+    /// Used by boot-invariant tests and by tooling that needs to know
+    /// whether further paging writes will be honoured.
+    #[must_use]
+    pub const fn is_paging_locked(&self) -> bool {
+        self.locked
+    }
+
     /// Currently selected ROM (bit 4 of $7FFD): 0 = 128K editor, 1 = 48K BASIC.
     pub fn current_rom(&self) -> u8 {
         (self.paging >> 4) & 0x01

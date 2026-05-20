@@ -21,7 +21,11 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_shell::{
     HostIo, InputEvent, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
 };
-use runtime_sinclair_zx_spectrum::Spectrum48kRuntime;
+use machine_sinclair_zx_spectrum_128k::Spectrum128K;
+use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
+use runtime_sinclair_zx_spectrum::{
+    Model, Spectrum128kRuntime, Spectrum48kRuntime, SpectrumMachine, SpectrumPlus3Runtime,
+};
 
 fn null_host() -> HostIo<'static> {
     HostIo {
@@ -284,6 +288,168 @@ fn snapshot_envelope_version_is_v2() -> Result<(), Box<dyn Error>> {
         bytes[0], 2,
         "snapshot envelope must be at version 2 (Seam 3 disk-image cache); \
          see knowledge/decisions/spectrum-architecture-review.md Seam 3"
+    );
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 128K-family waypoints
+// ─────────────────────────────────────────────────────────────────────
+// The 128K (Sinclair 7K010E ULA) and the +3 (Amstrad 40077 gate
+// array) share a paging-lock invariant the 48K class does not have:
+// writing bit 5 to port $7FFD permanently disables further paging
+// writes until the next *hard* reset. A soft reset preserves the
+// lock — that's how 48K BASIC stays mapped after the 128K's autoboot
+// drops to 48 BASIC mode and then RAMTOP/reset cycles.
+
+/// **Seam 5 waypoint #6:** Paging lock persists across soft reset
+/// on the 128K.
+///
+/// Set bit 5 of port `$7FFD`, soft-reset the machine, verify the
+/// lock survives. Catches regressions in the 128K paging-lock
+/// state machine — `Memory128K::write_7ffd` returns early when
+/// `locked` is true, and `SpectrumMachineCore::reset_machine`
+/// must not clear that flag.
+#[test]
+fn paging_lock_persists_across_soft_reset_128k() {
+    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    assert!(
+        !runtime.machine().memory.is_paging_locked(),
+        "fresh 128K must not have paging locked"
+    );
+
+    // Write bit 5 (paging disable) via the memory's $7FFD port path.
+    runtime.machine_mut().memory.write_7ffd(0x20);
+    assert!(
+        runtime.machine().memory.is_paging_locked(),
+        "writing bit 5 to $7FFD must lock paging"
+    );
+
+    runtime.machine_mut().reset();
+    assert!(
+        runtime.machine().memory.is_paging_locked(),
+        "soft reset must preserve the paging lock"
+    );
+
+    // Subsequent write must be a no-op — the paging byte stays where
+    // it was when the lock latched ($20). Try to clear it.
+    runtime.machine_mut().memory.write_7ffd(0x00);
+    assert!(
+        runtime.machine().memory.is_paging_locked(),
+        "lock must remain set across subsequent attempts"
+    );
+}
+
+/// **Seam 5 waypoint #7:** Paging lock persists across soft reset on
+/// the +3 (Amstrad-class).
+///
+/// Mirrors waypoint #6 against the Amstrad-class paging path. The
+/// +3 has both `$7FFD` (128K-style) and `$1FFD` (Amstrad-specific)
+/// paging ports; the lock affects both. Catches regressions in
+/// `MemoryPlus::write_7ffd` / `write_1ffd` or
+/// `SpectrumAmstradClassCore::reset`.
+#[test]
+fn paging_lock_persists_across_soft_reset_plus3() {
+    let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+    assert!(
+        !runtime.machine().memory.is_paging_locked(),
+        "fresh +3 must not have paging locked"
+    );
+
+    runtime.machine_mut().memory.write_7ffd(0x20);
+    assert!(
+        runtime.machine().memory.is_paging_locked(),
+        "writing bit 5 to $7FFD must lock paging on +3"
+    );
+
+    runtime.machine_mut().reset();
+    assert!(
+        runtime.machine().memory.is_paging_locked(),
+        "+3 soft reset must preserve the paging lock"
+    );
+
+    // Both port paths must respect the lock.
+    runtime.machine_mut().memory.write_7ffd(0x00);
+    runtime.machine_mut().memory.write_1ffd(0x00);
+    assert!(
+        runtime.machine().memory.is_paging_locked(),
+        "lock must remain set across both port paths"
+    );
+}
+
+/// **Seam 5 waypoint #8:** Kempston attaches on first gamepad event
+/// on the 128K.
+///
+/// Same invariant as the 48K equivalent (waypoint #4), exercised
+/// through the 128K runtime to prove the override on Spectrum128K's
+/// `set_kempston_button` impl is wired correctly.
+#[test]
+fn kempston_attaches_on_first_gamepad_event_128k() -> Result<(), Box<dyn Error>> {
+    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    assert!(!runtime.machine().kempston.attached);
+
+    let press = InputEvent::Button {
+        port: 0,
+        name: Cow::Borrowed("fire"),
+        pressed: true,
+    };
+    let events = [press];
+    let mut host = HostIo {
+        input_events: &events,
+        frame_sink: Box::leak(Box::new(NullFrameSink)),
+        audio_sink: Box::leak(Box::new(NullAudioSink)),
+        trace_sink: Box::leak(Box::new(NullTraceSink)),
+    };
+    runtime.run_until(MachineTime::new(2_000), &mut host)?;
+
+    assert!(
+        runtime.machine().kempston.attached,
+        "128K Kempston must attach on first event"
+    );
+    assert_eq!(
+        runtime.machine().kempston.state,
+        0b0001_0000,
+        "fire bit must be set"
+    );
+    Ok(())
+}
+
+/// **Seam 5 waypoint #9:** Amstrad class declines Kempston events.
+///
+/// The +2A / +2B / +3 broke the rear-connector pinout in 1987 so a
+/// real Kempston interface cannot physically attach. The architecture
+/// review requires this be enforced — `SpectrumMachine::set_kempston_
+/// button` returns `false` from the no-op default on Amstrad-class
+/// variants. Catches regression where the override accidentally
+/// leaks across class boundaries.
+#[test]
+fn amstrad_class_declines_kempston_events_plus3() -> Result<(), Box<dyn Error>> {
+    let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+
+    let press = InputEvent::Button {
+        port: 0,
+        name: Cow::Borrowed("fire"),
+        pressed: true,
+    };
+    let events = [press];
+    let mut host = HostIo {
+        input_events: &events,
+        frame_sink: Box::leak(Box::new(NullFrameSink)),
+        audio_sink: Box::leak(Box::new(NullAudioSink)),
+        trace_sink: Box::leak(Box::new(NullTraceSink)),
+    };
+    runtime.run_until(MachineTime::new(2_000), &mut host)?;
+
+    // The Amstrad-class SpectrumMachine impl inherits the default
+    // no-op `set_kempston_button`. The +3 has no `kempston` field,
+    // so we can't assert against it directly — we assert the
+    // negative via the return value contract: the default returns
+    // false, signalling the event was not applied.
+    let accepted = runtime.machine_mut().set_kempston_button(4, true);
+    assert!(
+        !accepted,
+        "+3 must decline Kempston events — \
+         see knowledge/decisions/spectrum-architecture-review.md Seam 2"
     );
     Ok(())
 }

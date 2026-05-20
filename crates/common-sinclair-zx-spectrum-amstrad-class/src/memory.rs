@@ -106,6 +106,15 @@ impl MemoryPlus {
         }
     }
 
+    /// Is paging locked? Set when any `write_7ffd` writes bit 5 high;
+    /// stays set across soft reset, cleared only on full re-construction.
+    /// Mirrors the same accessor on the 128K-class memory — both port
+    /// paths converge on the same lock state on the +2A/+3.
+    #[must_use]
+    pub const fn is_paging_locked(&self) -> bool {
+        self.locked
+    }
+
     pub fn write_1ffd(&mut self, val: u8) {
         if self.locked {
             return;
