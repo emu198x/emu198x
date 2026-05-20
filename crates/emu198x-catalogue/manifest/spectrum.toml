@@ -2725,6 +2725,72 @@ from_frame = 100
 secs = 2.0
 hash = "xxh64:d21bc79639a0edde"
 
+# ─── Kempston routing verification ──────────────────────────────
+# Seam 2 catalogue verification. Boot-invariant waypoint #4
+# (`kempston_attaches_on_first_gamepad_event_48k`) proves the
+# runtime input layer routes `InputEvent::Button` into the Kempston
+# joystick state byte. This entry closes the loop — it proves the
+# *catalogue's* `ScriptStep::Button` reaches a real game's input
+# polling code and changes observable behaviour. See
+# `knowledge/decisions/spectrum-architecture-review.md` Seam 2.
+
+[[entry]]
+id = "sabre-wulf-kempston-start"
+title = "Sabre Wulf (Kempston start)"
+year = 1984
+publisher = "Ultimate Play The Game"
+variant = "48k"
+
+[entry.media]
+# Same TAP image as entry `sabre-wulf`; the discriminator is the
+# scripted Kempston FIRE press during gameplay, not the media.
+# Sabre Wulf's title screen presents a numeric control-method menu:
+#   1 PLAYER GAME / 2 PLAYER GAME / KEYBOARD / KEMPSTON JOYSTICK /
+#   CURSOR JOYSTICK / INTERFACE II / 0 START GAME
+# The script selects Kempston (option 4), starts the game (option 0),
+# and then presses Kempston FIRE — only this third press exercises
+# the Seam 2 routing path through `$1F`.
+kind = "tape"
+slot = "tape-1"
+path = "sinclair/spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).zip"
+
+[[entry.script]]
+# Select KEMPSTON JOYSTICK (option 4) from the control menu.
+at_frame = 60
+press = "4"
+
+[[entry.script]]
+# Start the game (option 0).
+at_frame = 80
+press = "0"
+
+[[entry.script]]
+# Press Kempston FIRE during gameplay — the load-bearing event.
+# Catalogue routes this as
+# `InputEvent::Button { port: 0, name: "fire" }` →
+# `SpectrumMachine::set_kempston_button` → `$1F` state byte bit 4.
+# Sabre Wulf reads $1F continuously once gameplay starts; FIRE
+# swings the sabre, killing nearby enemies and changing the visible
+# game state.
+at_frame = 300
+port = 0
+button = "fire"
+
+[entry.boot]
+# Captures a gameplay frame 600 frames after the FIRE press. The
+# discriminator: without the FIRE event reaching the Kempston state
+# byte, sabre stays sheathed, no kills happen, and the 1UP score
+# diverges (captured baseline without-FIRE: xxh64:be6c03aae02465f9
+# with 1UP 000545; locked with-FIRE hash below corresponds to 1UP
+# 001070 from a sabre-swing kill at frame 300).
+wait_frames = 600
+frame_hash = "xxh64:cfdff309609111f7"
+
+[entry.audio]
+from_frame = 60
+secs = 2.0
+hash = "xxh64:dd9870db805b0685"
+
 [[entry]]
 id = "gulpman"
 title = "Gulpman"
