@@ -87,6 +87,7 @@ fn tick(&mut self) {
 
 ## Related
 
+- [NES architecture review](../decisions/nes-architecture-review.md) — five seams the catalogue can't catch by construction (PPU dot-level rendering, host input routing, snapshot rehydration across 14 mappers, oracle integrity, boot invariants + blargg gate). Drafted 2026-05-20, mirrors the Spectrum + Amiga + C64 reviews.
 - [NES clock topology](../decisions/nes-clock-topology.md) — the decision doc this machine implements
 - [MOS 6502](../chips/mos-6502.md) — the CPU (2A03 variant)
 - [Ricoh 2C02 PPU](../chips/ricoh-ppu-2c02.md) — the PPU
