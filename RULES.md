@@ -4,7 +4,11 @@ Hard constraints. Non-negotiable. If you find yourself breaking one, stop and re
 
 ## Umbrella context
 
-This project lives under `~/Projects/198x/` alongside `Code198x`. The umbrella binds rules that span both projects — see [`../CLAUDE.md`](../CLAUDE.md) and [`../decisions/`](../decisions/). Most relevantly: this project's [`knowledge/`](knowledge/) is the canonical hardware reference for both projects, per [`../decisions/shared-hardware-reference-canon.md`](../decisions/shared-hardware-reference-canon.md). When chip-level facts (Z80, 6502, 6510, 68000, VIC-II, ULA, Paula, SID, AY-3-8912) change, they change here first; Code198x cites this material rather than duplicating it.
+This project lives under `~/Projects/198x/` alongside `Code198x`. The umbrella binds rules that span both projects — see [`../CLAUDE.md`](../CLAUDE.md) and [`../decisions/`](../decisions/).
+
+Hardware reference is **layered**, not single-canon. The primary library at [`../reference/`](../reference/) is the source of truth — Docling-extracted datasheets, manuals, magazines with sidecar metadata, organised by-system and by-topic. This project's [`knowledge/`](knowledge/) is a *codebase-tied distillation*: schema-bound (`knowledge/SCHEMA.md`), pressure-tested by working code, capturing what the emulator actually depends on. It cites the primary library; it does not replace it. When chip-level facts (Z80, 6502, 6510, 68000, VIC-II, ULA, Paula, SID, AY-3-8912) need updating, the primary library is the first port of call.
+
+Full layered model, citation direction, and drift triggers at [`../decisions/shared-hardware-reference-canon.md`](../decisions/shared-hardware-reference-canon.md).
 
 ## Session start
 
