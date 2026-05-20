@@ -1,7 +1,7 @@
 # Decision: Spectrum architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-18, polish pass 2026-05-19
-**Status:** Phase 2 in progress — Seams 1, 2, 3, 4 landed (2026-05-20)
+**Status:** Phase 2 in progress — Seams 1, 2, 3, 4 + UlaRevision rename landed (2026-05-20)
 
 ## What this is
 
@@ -275,6 +275,8 @@ In order of leverage for unblocking October-public and protecting future capture
 - **Seam 4**: `audio_routing_version` and `frame_routing_version` constants in place. Catalogue mismatch fails loud with a re-capture instruction. AY re-capture wave completed; R-Type's 128 audio hash unchanged (beeper-only invariant); RoboCop / Operation Wolf / Rainbow Islands / Bubble Bobble / Out Run hashes updated. `solid-status.md` §1 reflects the code reality.
   - **Landed 2026-05-19 / 2026-05-20**: routing-version check landed in commit `c7abaef`, capture-mode bypass in `0471db4`. Re-capture wave covered all 102 entries across 9 commits (`546ce25` 48K vanilla, `94347ff` Plus, `57c2994` 16K, `539aa00` 128K, `22ecf8b` +2, `bdde7f4` +2A, `eaebbdc` +2B, `e2daab9` +3, `d9507c2` SpeedLock). Manifest now at `frame_routing_version = 3`; all 102 entries PASS in run-mode.
 - **Seam 5**: `boot_invariants.rs` carries at least five per-variant waypoint assertions including the un-gated Float48K strict check.
+  - **Suite landed 2026-05-20**. `crates/runtime-sinclair-zx-spectrum/tests/boot_invariants.rs` now carries 8 hermetic waypoints + 1 ROM-backed ignored case: dummy ROM construction, run_until-advances, snapshot round-trip fixed-point, INT-fires-at-T-55552-window, first-display-fetch-phase-at-Seam-1-state, floating-bus-idles-outside-fetch, Kempston-attaches-on-first-event, snapshot envelope locked at v2. Float48K strict assertion remains blocked on the test-harness PRINT-FP capture work (Phase 1 #8); when un-gated it will become the 9th waypoint.
+  - **Per-variant expansion pending**: the 48K class covers all 8 waypoints. 128K-family analogues (paging-lock-persists-across-reset, AY mixer engaged) are a follow-up commit — same `boot_invariants.rs` file, just additional `_128k` / `_plus3` variants of each waypoint.
 - This document is updated with implementation status and links to commits.
 
 ## Non-goals

@@ -13,11 +13,13 @@
 //! Promoted from existing waypoints per A.2 of
 //! `docs/plans/2026-04-28-october-runup-plan.md`.
 
+use std::borrow::Cow;
 use std::error::Error;
 use std::path::PathBuf;
 
+use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_shell::{
-    HostIo, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
+    HostIo, InputEvent, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
 };
 use runtime_sinclair_zx_spectrum::Spectrum48kRuntime;
 
@@ -85,6 +87,204 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
     restored.restore(&bytes_a)?;
     let bytes_b = restored.snapshot()?;
     assert_eq!(bytes_a, bytes_b, "snapshot drift after restore");
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Seam 5 — canonical waypoints from the architecture review
+// ─────────────────────────────────────────────────────────────────────
+// Five per-variant invariants the catalogue cannot catch by
+// construction. Each waypoint targets one specific load-bearing
+// timing or routing fact; together they form a second line of
+// defence behind the catalogue's end-state hashes. See
+// `knowledge/decisions/spectrum-architecture-review.md` Seam 5.
+
+/// **Seam 5 waypoint #1:** Interrupt asserts at the canonical T-state.
+///
+/// On the 48K, /INT goes active at scan 248, pixel 1 (T-state
+/// 55552 from frame start: 248 lines × 224 T-states = 55552, plus
+/// half a T-state into pixel 1) and stays active for 32 T-states
+/// until pixel 65 (T-state ≈ 55584). Outside that window the ULA's
+/// `int_active` is false and `z80.irq` follows.
+///
+/// Catches regression: any change to `int_start_pixel`,
+/// `int_end_pixel`, or the half-cycle dispatch order that breaks
+/// the canonical INT timing.
+#[test]
+fn int_asserts_at_canonical_t_state_48k() -> Result<(), Box<dyn Error>> {
+    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+
+    // Step one frame forward, then position just before the INT
+    // window. After this advance, scan should be at 248 and pixel
+    // at ~0 — INT hasn't fired yet on this scan.
+    runtime
+        .machine_mut()
+        .advance_tstates(248 * 224 - 1);
+    assert!(
+        !runtime.machine().z80().irq,
+        "INT must not be asserted before the canonical T-state"
+    );
+
+    // Step two more T-states to cross into the INT-active window
+    // (scan 248, pixel ≥ 1).
+    runtime.machine_mut().advance_tstates(2);
+    assert!(
+        runtime.machine().z80().irq,
+        "INT must be asserted at scan 248, pixel ≥ 1"
+    );
+
+    // Step past pixel 65 (32 T-states active) — INT should fall.
+    runtime.machine_mut().advance_tstates(40);
+    assert!(
+        !runtime.machine().z80().irq,
+        "INT must deassert after the 32-T-state active window"
+    );
+    Ok(())
+}
+
+/// **Seam 5 waypoint #2:** First display fetch lands on the data bus
+/// at T-state 14338 (48K), the canonical Float48K sample point.
+///
+/// This is the Seam 1 fix made testable. Pre-Seam-1 the first fetch
+/// was at T-14342 (4 T-states late); post-Seam-1 it's at T-14338.
+/// The Float48K probe is the gold-standard third-party verifier,
+/// but its harness-side decode is still gated on
+/// `EMU198X_FLOAT48K_STRICT=1` (see
+/// `crates/machine-sinclair-zx-spectrum-48k/tests/float_bus.rs`).
+/// This waypoint asserts the same invariant via the engine's own
+/// `MEM_TABLE` and `fetch_start` constants — a structural check
+/// that doesn't depend on driving real BASIC code through the probe.
+///
+/// Catches regression: any reshuffle of `MEM_TABLE` /
+/// `IDLE_TABLE` / `fetch_start` that re-introduces the
+/// pre-Seam-1 +4 T-state offset.
+#[test]
+fn first_display_fetch_phase_matches_seam_1_landed_state() {
+    use common_sinclair_zx_spectrum::ula_engine::{CONFIG_48K, MEM_TABLE};
+
+    // Seam 1 landed `fetch_start: 4` — first VRAM fetch happens at
+    // pixel 4 of scan 0, which is T-state 14338 from frame INT (the
+    // canonical Float48K sample point per Smith Chapter 21 p. 227).
+    assert_eq!(
+        CONFIG_48K.fetch_start, 4,
+        "Seam 1: CONFIG_48K.fetch_start must be 4 (pre-Seam-1 was 8); \
+         see knowledge/decisions/spectrum-architecture-review.md"
+    );
+    assert_eq!(
+        CONFIG_48K.fetch_end, 260,
+        "Seam 1: CONFIG_48K.fetch_end must be 260 (pre-Seam-1 was 264)"
+    );
+
+    // MEM_TABLE: fetches at phases 4, 6, 8, 10 (false = fetch active).
+    let fetch_phases: Vec<usize> = (0..16).filter(|&i| !MEM_TABLE[i]).collect();
+    assert_eq!(
+        fetch_phases,
+        vec![4, 6, 8, 10],
+        "Seam 1: MEM_TABLE fetches must align at phases 4/6/8/10 — \
+         pre-Seam-1 was 8/10/12/14"
+    );
+}
+
+/// **Seam 5 waypoint #3:** Floating bus floats outside the active
+/// fetch window.
+///
+/// `IN A,($FF)` returns the most-recently-latched display byte
+/// during the ULA's active fetch period and `0xFF` (idle / pull-ups)
+/// outside it. Catches regression: any reshuffle that lets the
+/// floating bus leak fetched data into the border / vblank window.
+#[test]
+fn floating_bus_idles_outside_active_fetch_window() -> Result<(), Box<dyn Error>> {
+    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+
+    // Run to a point firmly in vertical blank (scan ≥ 312 wraps to
+    // 0, so use a small T-state count just past frame start). At
+    // scan 0, pixel 0 the ULA is idle for the prefetch slots.
+    runtime.machine_mut().advance_tstates(10);
+    let floating = runtime.machine().ula().floating_bus();
+    assert_eq!(
+        floating, 0xFF,
+        "floating bus must idle (0xFF) outside active fetch — \
+         got {floating:#04x}",
+    );
+    Ok(())
+}
+
+/// **Seam 5 waypoint #4:** Kempston attaches on first gamepad event.
+///
+/// Until the user touches the gamepad, `KempstonJoystick::attached`
+/// is false and the peripheral declines port `$1F` — matching real
+/// hardware where a disconnected interface reads floating bus.
+/// On the first `InputEvent::Button { port: 0, … }` or
+/// `InputEvent::Axis { port: 0, … }` the runtime flips
+/// `attached = true` so software probing `$1F` for Kempston
+/// detection starts seeing the state byte.
+///
+/// Catches regression: any change to the runtime input layer or
+/// `SpectrumMachine::set_kempston_button` that breaks the
+/// "implicit attach on first event" contract. Seam 2 follow-up.
+#[test]
+fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> {
+    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    // Fresh machine: Kempston unattached, state byte clear.
+    assert!(
+        !runtime.machine().kempston.attached,
+        "Kempston must default to unattached"
+    );
+    assert_eq!(runtime.machine().kempston.state, 0);
+
+    let press = InputEvent::Button {
+        port: 0,
+        name: Cow::Borrowed("fire"),
+        pressed: true,
+    };
+    let events = [press];
+    let mut host = HostIo {
+        input_events: &events,
+        frame_sink: Box::leak(Box::new(NullFrameSink)),
+        audio_sink: Box::leak(Box::new(NullAudioSink)),
+        trace_sink: Box::leak(Box::new(NullTraceSink)),
+    };
+    // run_until is the canonical event-drain path — the runtime
+    // applies queued input events before stepping the frame.
+    runtime.run_until(MachineTime::new(2_000), &mut host)?;
+
+    assert!(
+        runtime.machine().kempston.attached,
+        "first Kempston event must attach the interface"
+    );
+    assert_eq!(
+        runtime.machine().kempston.state,
+        0b0001_0000,
+        "fire bit (bit 4) must be set after the press event"
+    );
+    Ok(())
+}
+
+/// **Seam 5 waypoint #5:** Snapshot version is locked at v2.
+///
+/// The runtime envelope was bumped 1 → 2 in Seam 3 to carry the
+/// disk-image cache. Any further breaking change to the envelope
+/// must update [`SNAPSHOT_VERSION`] and document the upgrade path
+/// in `crates/runtime-sinclair-zx-spectrum/src/snapshot.rs`. This
+/// waypoint locks the current version so a drive-by bump fails the
+/// test and forces the author to justify the change.
+///
+/// Catches regression: silent envelope drift that would break
+/// previously-saved snapshots.
+#[test]
+fn snapshot_envelope_version_is_v2() -> Result<(), Box<dyn Error>> {
+    // The envelope embeds the version as a varint at byte offset 0
+    // (postcard encodes the leading u32 directly with no length
+    // prefix). For small u32s the varint occupies exactly 1 byte
+    // and matches the value, so byte 0 of the snapshot bytes == 2.
+    let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    let bytes = runtime.snapshot()?;
+    assert!(!bytes.is_empty(), "snapshot must produce non-empty bytes");
+    assert_eq!(
+        bytes[0], 2,
+        "snapshot envelope must be at version 2 (Seam 3 disk-image cache); \
+         see knowledge/decisions/spectrum-architecture-review.md Seam 3"
+    );
     Ok(())
 }
 

@@ -138,6 +138,14 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         &mut self.z80
     }
 
+    /// Returns the Ferranti ULA. Used by waypoint tests that need
+    /// to introspect floating bus, INT timing, and rendering pipeline
+    /// state without going through the full machine surface.
+    #[must_use]
+    pub fn ula(&self) -> &FerrantiUla {
+        &self.ula
+    }
+
     /// Reattaches `&'static` references that don't survive serde's
     /// `#[serde(skip)]` round-trip, and rehydrates the Z80 walker
     /// sequence from `(prefix, opcode)`. Call once after restoring
