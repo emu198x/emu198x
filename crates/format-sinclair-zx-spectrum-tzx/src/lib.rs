@@ -633,6 +633,319 @@ mod tests {
         assert!(err.contains("bad header"));
     }
 
+    /// 0x11 Turbo Speed Data: like 0x10 but with caller-specified
+    /// pilot/sync/zero/one pulse lengths and pilot tone count. Used by
+    /// custom loaders. Tests the full parameter chain.
+    #[test]
+    fn turbo_speed_block_uses_custom_pulses() {
+        let mut data = make_header();
+        data.push(0x11);
+        // Pilot pulse (u16), sync1 (u16), sync2 (u16), zero (u16),
+        // one (u16), pilot count (u16), bits_in_last_byte (u8),
+        // pause (u16), data_len (u24), data...
+        data.extend_from_slice(&1000u16.to_le_bytes()); // pilot pulse
+        data.extend_from_slice(&500u16.to_le_bytes()); // sync 1
+        data.extend_from_slice(&600u16.to_le_bytes()); // sync 2
+        data.extend_from_slice(&100u16.to_le_bytes()); // zero
+        data.extend_from_slice(&200u16.to_le_bytes()); // one
+        data.extend_from_slice(&3u16.to_le_bytes()); // 3 pilot pulses
+        data.push(8); // 8 bits in last byte
+        data.extend_from_slice(&0u16.to_le_bytes()); // pause = 0 → no stop
+        data.extend_from_slice(&[1u8, 0, 0]); // data_len = 1 (u24)
+        data.push(0b1010_0000); // bits: 1 0 1 0 0 0 0 0
+
+        let stream = tzx_to_stream(&data).expect("turbo speed block should parse");
+        // Expected: 3 pilot pulses (1000 each), sync1 (500), sync2 (600),
+        // then 8 data bits: 1→(200,200), 0→(100,100), 1→(200,200),
+        // 0→(100,100), 0,0,0,0 → all (100,100).
+        let expected: Vec<TapeSpan> = std::iter::repeat(TapeSpan::Pulse(1000))
+            .take(3)
+            .chain(std::iter::once(TapeSpan::Pulse(500)))
+            .chain(std::iter::once(TapeSpan::Pulse(600)))
+            .chain([200, 200, 100, 100, 200, 200, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]
+                .into_iter()
+                .map(TapeSpan::Pulse))
+            .collect();
+        assert_eq!(stream, expected);
+    }
+
+    /// 0x20 Pause block with non-zero duration emits a level-hold
+    /// pair: 1 ms at the current level (preserving the trailing level
+    /// of the previous block) followed by (pause - 1) ms at the low
+    /// level. Distinct from the pause=0 case which emits Stop.
+    #[test]
+    fn pause_nonzero_emits_level_hold() {
+        let mut data = make_header();
+        data.push(0x20);
+        data.extend_from_slice(&5u16.to_le_bytes()); // 5 ms pause
+
+        let stream = tzx_to_stream(&data).expect("pause block should parse");
+        assert_eq!(stream.len(), 2, "5 ms pause emits a 1 ms + 4 ms pair");
+        // First span: 1 ms at the current level (false at fresh start).
+        assert_eq!(
+            stream[0],
+            TapeSpan::Level {
+                duration: TSTATES_PER_MS,
+                level: false,
+            }
+        );
+        // Second span: (pause - 1) ms low.
+        assert_eq!(
+            stream[1],
+            TapeSpan::Level {
+                duration: 4 * TSTATES_PER_MS,
+                level: false,
+            }
+        );
+    }
+
+    /// 0x20 Pause block with exactly 1 ms emits just the level-preserving
+    /// span (no trailing low-level hold since pause - 1 == 0).
+    #[test]
+    fn pause_one_ms_emits_single_level_hold() {
+        let mut data = make_header();
+        data.push(0x20);
+        data.extend_from_slice(&1u16.to_le_bytes()); // 1 ms pause
+
+        let stream = tzx_to_stream(&data).expect("1 ms pause should parse");
+        assert_eq!(stream.len(), 1);
+        assert_eq!(
+            stream[0],
+            TapeSpan::Level {
+                duration: TSTATES_PER_MS,
+                level: false,
+            }
+        );
+    }
+
+    /// 0x21 Group Start: contains a 1-byte name length followed by the
+    /// name. Parser skips both — group bracketing is purely advisory.
+    #[test]
+    fn group_start_skips_name_payload() {
+        let mut data = make_header();
+        data.push(0x21);
+        data.push(5); // 5-byte name
+        data.extend_from_slice(b"intro");
+        // A pure-tone block after the group-start should still parse.
+        data.push(0x12);
+        data.extend_from_slice(&100u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("group start should skip");
+        assert_eq!(stream, vec![TapeSpan::Pulse(100)]);
+    }
+
+    /// 0x22 Group End: zero-payload, no-op for the parser.
+    #[test]
+    fn group_end_is_a_no_op() {
+        let mut data = make_header();
+        data.push(0x22);
+        // Trailing pure tone proves the parser advanced correctly.
+        data.push(0x12);
+        data.extend_from_slice(&250u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("group end should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(250)]);
+    }
+
+    /// 0x23 Jump To Block: 2-byte signed offset. Parser skips it
+    /// (our implementation doesn't actually follow jumps — see the
+    /// loop / call macros above).
+    #[test]
+    fn jump_to_block_skips_offset() {
+        let mut data = make_header();
+        data.push(0x23);
+        data.extend_from_slice(&0u16.to_le_bytes());
+        data.push(0x12);
+        data.extend_from_slice(&123u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("jump block should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(123)]);
+    }
+
+    /// 0x26 Call Sequence: 2-byte count + 2 bytes per call entry.
+    /// Parser advances past the table without taking the calls.
+    #[test]
+    fn call_sequence_skips_call_table() {
+        let mut data = make_header();
+        data.push(0x26);
+        data.extend_from_slice(&3u16.to_le_bytes()); // 3 calls
+        data.extend_from_slice(&0u16.to_le_bytes());
+        data.extend_from_slice(&0u16.to_le_bytes());
+        data.extend_from_slice(&0u16.to_le_bytes());
+        // Follow-up tone proves the parser advanced correctly.
+        data.push(0x12);
+        data.extend_from_slice(&77u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("call sequence should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(77)]);
+    }
+
+    /// 0x27 Return: zero-payload, no-op (we don't follow calls).
+    #[test]
+    fn return_block_is_a_no_op() {
+        let mut data = make_header();
+        data.push(0x27);
+        data.push(0x12);
+        data.extend_from_slice(&88u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("return block should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(88)]);
+    }
+
+    /// 0x28 Select Block: 2-byte length, then a payload of options.
+    /// Parser skips the whole payload without picking a branch.
+    #[test]
+    fn select_block_skips_payload() {
+        let mut data = make_header();
+        data.push(0x28);
+        data.extend_from_slice(&4u16.to_le_bytes()); // 4-byte payload
+        data.extend_from_slice(&[0, 0, 0, 0]);
+        data.push(0x12);
+        data.extend_from_slice(&99u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("select block should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(99)]);
+    }
+
+    /// 0x2A Stop The Tape If 48K: 4-byte length + payload. The parser
+    /// skips the whole thing in the current implementation (no Stop
+    /// emitted — the TZX spec says emit Stop only on a 48K machine,
+    /// and the runtime layer is the right place to make that
+    /// decision).
+    #[test]
+    fn stop_48k_block_skips_payload() {
+        let mut data = make_header();
+        data.push(0x2A);
+        data.extend_from_slice(&0u32.to_le_bytes()); // zero-length payload
+        data.push(0x12);
+        data.extend_from_slice(&55u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("stop-48K block should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(55)]);
+    }
+
+    /// 0x31 Message Block: 1-byte display time + 1-byte length + text.
+    /// Pure metadata; the parser skips the whole payload.
+    #[test]
+    fn message_block_skips_payload() {
+        let mut data = make_header();
+        data.push(0x31);
+        data.push(5); // display 5 seconds
+        data.push(4); // 4-byte text
+        data.extend_from_slice(b"info");
+        data.push(0x12);
+        data.extend_from_slice(&44u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("message block should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(44)]);
+    }
+
+    /// 0x32 Archive Info: 2-byte length + n×(1-byte ID + 1-byte
+    /// length + text) records. Pure metadata, parser skips it.
+    #[test]
+    fn archive_info_skips_payload() {
+        let mut data = make_header();
+        data.push(0x32);
+        data.extend_from_slice(&6u16.to_le_bytes()); // 6-byte payload
+        data.extend_from_slice(b"\x00\x04test");
+        data.push(0x12);
+        data.extend_from_slice(&66u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("archive info should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(66)]);
+    }
+
+    /// 0x33 Hardware Type: 1-byte count + count × (3 bytes per entry).
+    /// Pure metadata, parser skips it.
+    #[test]
+    fn hardware_type_skips_payload() {
+        let mut data = make_header();
+        data.push(0x33);
+        data.push(2); // 2 entries
+        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01, 0x00, 0x00]);
+        data.push(0x12);
+        data.extend_from_slice(&33u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("hardware type should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(33)]);
+    }
+
+    /// 0x35 Custom Info: 16-byte identifier + 4-byte length + payload.
+    /// Pure metadata, parser skips it.
+    #[test]
+    fn custom_info_skips_payload() {
+        let mut data = make_header();
+        data.push(0x35);
+        data.extend_from_slice(&[0u8; 16]); // 16-byte ID
+        data.extend_from_slice(&4u32.to_le_bytes()); // 4-byte payload
+        data.extend_from_slice(b"abcd");
+        data.push(0x12);
+        data.extend_from_slice(&22u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("custom info should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(22)]);
+    }
+
+    /// 0x5A Glue Block: 9-byte zero-padding marker used by tools
+    /// concatenating multiple TZX files. Parser skips it.
+    #[test]
+    fn glue_block_skips_payload() {
+        let mut data = make_header();
+        data.push(0x5A);
+        data.extend_from_slice(&[0u8; 9]); // 9-byte padding
+        data.push(0x12);
+        data.extend_from_slice(&11u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("glue block should parse");
+        assert_eq!(stream, vec![TapeSpan::Pulse(11)]);
+    }
+
+    /// Unknown TZX block IDs (anything outside the documented set)
+    /// surface as an error including the offending byte. Catches a
+    /// regression where the parser silently swallows unknown blocks.
+    #[test]
+    fn unknown_block_id_reports_offset() {
+        let mut data = make_header();
+        data.push(0xFE); // not a defined TZX block ID
+
+        let err = tzx_to_stream(&data).expect_err("unknown block should error");
+        assert!(err.contains("Unknown TZX block"), "got {err:?}");
+        assert!(err.contains("0xFE"), "error should name the bad byte: {err:?}");
+    }
+
+    /// A file shorter than 10 bytes (the minimum header length) is
+    /// rejected with a "too short" message before any header check.
+    #[test]
+    fn file_shorter_than_header_rejected() {
+        let err = tzx_to_stream(b"ZXTape!").expect_err("short file should fail");
+        assert!(err.contains("too short"), "got {err:?}");
+    }
+
+    /// Major version > 1 is rejected — we only know how to parse
+    /// TZX 1.x today. The error includes both major and minor for
+    /// diagnostics.
+    #[test]
+    fn unsupported_major_version_rejected() {
+        let mut data = b"ZXTape!\x1a".to_vec();
+        data.push(2); // major
+        data.push(0); // minor
+        let err = tzx_to_stream(&data).expect_err("v2.0 should fail");
+        assert!(err.contains("Unsupported"), "got {err:?}");
+        assert!(err.contains("2.0"), "error should name the version: {err:?}");
+    }
+
     #[test]
     fn pure_data_partial_last_byte_uses_upper_bits() {
         // Regression: Speedlock-7 (Op Wolf et al.) uses a single-byte
