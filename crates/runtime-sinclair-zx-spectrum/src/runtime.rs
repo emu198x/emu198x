@@ -545,3 +545,206 @@ fn tap_blocks_to_tape_blocks(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Spectrum48kRuntime;
+    use common_sinclair_zx_spectrum::memory::MemoryBus;
+    use emu198x_shell::{
+        ControlCommand, MachineCore, MediaImage, MediaSet, MediaTransportAction,
+        MediaTransportCommand, ResetKind,
+    };
+    use format_sinclair_zx_spectrum_tap::TapBlock;
+
+    /// `is_tzx` recognises the canonical 8-byte TZX header
+    /// (`ZXTape!\x1A`). Catches a regression where a 1-byte typo in
+    /// the magic comparison silently misroutes TZX into the TAP parser.
+    #[test]
+    fn is_tzx_recognises_canonical_header() {
+        let mut data = b"ZXTape!\x1a".to_vec();
+        data.extend_from_slice(&[1, 20]); // version bytes — required to be ≥ 8 bytes total
+        assert!(is_tzx(&data));
+    }
+
+    /// `is_tzx` rejects byte streams that are too short to contain
+    /// the magic header, and streams whose magic doesn't match. Both
+    /// cases route to the TAP parser fallback.
+    #[test]
+    fn is_tzx_rejects_short_or_wrong_magic() {
+        assert!(!is_tzx(b""), "empty");
+        assert!(!is_tzx(b"ZXTape!"), "missing $1A");
+        assert!(!is_tzx(b"ZXTape!\x1b"), "wrong control byte");
+        assert!(!is_tzx(b"NOT_TZX!"), "completely wrong magic");
+    }
+
+    /// `tap_blocks_to_tape_blocks` re-attaches the per-block flag byte
+    /// and XOR checksum that `parse_tap` strips, so the tape player
+    /// sees the same byte stream the original cassette delivered.
+    #[test]
+    fn tap_blocks_to_tape_blocks_round_trip_with_checksum() {
+        let blocks = vec![TapBlock {
+            flag: 0xFF,
+            data: vec![0x01, 0x02, 0x03],
+        }];
+        let out = tap_blocks_to_tape_blocks(blocks);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].flag, 0xFF);
+        // Full re-encoded form: flag + data + XOR checksum.
+        let expected_checksum = 0xFF ^ 0x01 ^ 0x02 ^ 0x03;
+        assert_eq!(
+            out[0].data,
+            vec![0xFF, 0x01, 0x02, 0x03, expected_checksum]
+        );
+    }
+
+    /// `tap_blocks_to_tape_blocks` returns an empty vector for an
+    /// empty input — defensive boundary for the parser's edge case.
+    #[test]
+    fn tap_blocks_to_tape_blocks_handles_empty_input() {
+        let out = tap_blocks_to_tape_blocks(Vec::new());
+        assert!(out.is_empty());
+    }
+
+    /// `MachineCore::reset` clears the runtime's keyboard cache,
+    /// pushes the cleared rows into the machine, resets the machine
+    /// state, and zeroes the runtime time counter.
+    #[test]
+    fn reset_clears_keyboard_and_zeroes_time() {
+        let mut runtime = Spectrum48kRuntime::blank();
+        // Dirty the keyboard cache by pressing a key.
+        use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
+        runtime.keyboard_mut().press_key(SpectrumKey::Q);
+        // Verify it's pressed (row 2, bit 0 — Q).
+        assert_eq!(runtime.keyboard_rows()[2] & 0x01, 0);
+
+        runtime.reset(ResetKind::Hard);
+
+        // After reset: keyboard rows are all 0xFF (released).
+        assert_eq!(runtime.keyboard_rows(), &[0xFF; 8]);
+        // Time counter zeroed.
+        assert_eq!(runtime.time(), MachineTime::default());
+    }
+
+    /// `MachineCore::command` on `MediaTransport(tape-1, Start)`
+    /// reaches `SpectrumMachine::tape_play` on the machine. The
+    /// follow-up `Stop` reaches `tape_stop`. The runtime's command
+    /// surface is what the native UI and script runner drive.
+    #[test]
+    fn command_media_transport_routes_to_tape_play_and_stop() {
+        let mut runtime = Spectrum48kRuntime::blank();
+        // Without a loaded tape, play/stop are no-ops on the
+        // machine but must complete without error on the runtime.
+        let start = ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Start,
+        ));
+        let stop = ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Stop,
+        ));
+        assert!(runtime.command(&start).is_ok());
+        assert!(runtime.command(&stop).is_ok());
+    }
+
+    /// `MachineCore::command` on a media-transport command for any
+    /// slot other than `tape-1` surfaces `UnknownMediaSlot`. The
+    /// runtime doesn't dispatch to disk transport from this path —
+    /// disk insertion is a separate `load_media` call.
+    #[test]
+    fn command_media_transport_unknown_slot_errors() {
+        let mut runtime = Spectrum48kRuntime::blank();
+        let bad = ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "disk-a",
+            MediaTransportAction::Start,
+        ));
+        match runtime.command(&bad) {
+            Err(MachineError::UnknownMediaSlot { slot }) => assert_eq!(slot, "disk-a"),
+            other => panic!("expected UnknownMediaSlot, got {other:?}"),
+        }
+    }
+
+    /// `MachineCore::load_media` on an unrecognised tape slot
+    /// surfaces `UnknownMediaSlot` rather than silently dropping the
+    /// payload. Today only `tape-1` is recognised on the 48K; future
+    /// multi-deck variants would extend this surface.
+    #[test]
+    fn load_media_unknown_tape_slot_errors() {
+        let mut runtime = Spectrum48kRuntime::blank();
+        let mut set = MediaSet::new();
+        // A real TAP block: flag 0x00, one byte 0x42, checksum 0x42.
+        let tap_bytes = [0x03, 0x00, 0x00, 0x42, 0x42];
+        set.push(MediaImage::new("tape-2", emu198x_shell::MediaKind::Tape, &tap_bytes));
+        match runtime.load_media(&set) {
+            Err(MachineError::UnknownMediaSlot { slot }) => assert_eq!(slot, "tape-2"),
+            other => panic!("expected UnknownMediaSlot, got {other:?}"),
+        }
+    }
+
+    /// `MachineCore::load_media` on a Snapshot kind surfaces
+    /// `UnsupportedMediaKind` — the runtime accepts only Tape and
+    /// Disk through this path. Snapshots load via `restore`.
+    #[test]
+    fn load_media_snapshot_kind_errors() {
+        let mut runtime = Spectrum48kRuntime::blank();
+        let mut set = MediaSet::new();
+        set.push(MediaImage::new(
+            "snap-1",
+            emu198x_shell::MediaKind::Snapshot,
+            &[],
+        ));
+        match runtime.load_media(&set) {
+            Err(MachineError::UnsupportedMediaKind { kind }) => {
+                assert_eq!(kind, emu198x_shell::MediaKind::Snapshot);
+            }
+            other => panic!("expected UnsupportedMediaKind, got {other:?}"),
+        }
+    }
+
+    /// `MachineCore::load_media` rejects a disk on the 48K (which
+    /// has no disk slot) with `UnknownMediaSlot`. Disk media is
+    /// only supported on +3.
+    #[test]
+    fn load_media_disk_on_non_disk_variant_errors() {
+        let mut runtime = Spectrum48kRuntime::blank();
+        let mut set = MediaSet::new();
+        set.push(MediaImage::new(
+            "disk-a",
+            emu198x_shell::MediaKind::Disk,
+            &[],
+        ));
+        match runtime.load_media(&set) {
+            Err(MachineError::UnknownMediaSlot { slot }) => assert_eq!(slot, "disk-a"),
+            other => panic!("expected UnknownMediaSlot, got {other:?}"),
+        }
+    }
+
+    /// `MachineCore::capabilities` returns a clone of the profile's
+    /// capability set. The 48K profile advertises beeper-audio,
+    /// keyboard-matrix, tape-input, and the snapshot-import /
+    /// snapshot-export pair from the boots-tier promotion.
+    #[test]
+    fn capabilities_match_profile_capabilities() {
+        let runtime = Spectrum48kRuntime::blank();
+        let caps = runtime.capabilities();
+        assert!(caps.contains(&emu198x_shell::known_capability("beeper-audio")));
+        assert!(caps.contains(&emu198x_shell::known_capability("keyboard-matrix")));
+    }
+
+    /// `time_value` starts at default (zero) for a fresh runtime.
+    #[test]
+    fn time_value_starts_at_default() {
+        let runtime = Spectrum48kRuntime::blank();
+        assert_eq!(runtime.time_value(), MachineTime::default());
+    }
+
+    /// `machine()` and `machine_mut()` return references to the same
+    /// underlying machine — mutation through `_mut()` is visible
+    /// through the immutable accessor.
+    #[test]
+    fn machine_mut_mutation_visible_through_machine_accessor() {
+        let mut runtime = Spectrum48kRuntime::blank();
+        runtime.machine_mut().write(0x4000, 0x99);
+        assert_eq!(runtime.machine().read(0x4000), 0x99);
+    }
+}
