@@ -1,7 +1,8 @@
 # Decision: Amiga full-family architecture review — preparing the seams for OCS / ECS / AGA / CDTV / CD32 / future
 
 **Date:** 2026-05-21
-**Status:** Proposed (draft for review)
+**Status:** Seam 1 landed 2026-05-21 (commits `f7392a0`..`ded7b2c`).
+Seams 2–5 proposed.
 
 ## What this is
 
@@ -154,6 +155,26 @@ struct-with-pins" rule.
 workspace as the duplicates collapse into one home. AGA machine
 crate becomes a ~500-line wrapper (chipset-specific wiring only)
 instead of a 2000-line fork.
+
+**Status: landed 2026-05-21** (commits `f7392a0`..`ded7b2c`).
+`common-commodore-amiga` crate created. Six modules moved in
+incremental commits: `rtc`, `cia`, `memory` (all byte-identical or
+~99% identical), `denise_chip` (new — trait + impls for both chip
+variants), `denise` (generic over `C: DeniseChip`), `copper`. The
+load-bearing piece is the `Denise<C: DeniseChip>` generic wrapper
+— per-chipset machine crates instantiate it via type alias
+(`pub type Denise = common::denise::Denise<DeniseOcs>;` etc.) and
+AGA's future `commodore-denise-aga` need only impl `DeniseChip`
+to plug in unchanged. Net workspace reduction: ~2000 lines of
+duplication eliminated. The `agnus.rs` module stays per-chipset by
+design (a 30-line re-export of the chipset-specific Agnus chip
+type). The remaining `lib.rs` duplication (~2000 lines each in OCS
+and ECS) is chipset-specific wiring rather than byte-identical
+clones and is not a Seam 1 concern; deeper architectural seams on
+the machine layer were already covered by
+[`amiga-architecture-review.md`](amiga-architecture-review.md)
+Seam 1 (`service_cpu_bus` → `BusTransaction`/`BusResponse`).
+Tests deduplicated; all crate-level test suites green.
 
 **Why this matters for other systems.** Same pattern the Spectrum
 proved with `common-sinclair-zx-spectrum` + per-class crates. The
