@@ -123,6 +123,13 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
         return execute_divl(cpu, opcode);
     }
 
+    // Bit-field family: 1110 1xxx 11 MMMRRR. Sub-op in bits 10-8:
+    //   000=BFTST 001=BFEXTU 010=BFCHG 011=BFEXTS
+    //   100=BFCLR 101=BFFFO  110=BFSET 111=BFINS
+    if (opcode & 0xF8C0) == 0xE8C0 {
+        return execute_bf(cpu, opcode);
+    }
+
     // Fall through to the 68010 hook for MOVEC / MOVE-from-CCR /
     // anything else the 68000 routes to ILLEGAL.
     decode_68010_opcode(cpu, opcode)
@@ -331,6 +338,211 @@ fn execute_divl(cpu: &mut Cpu68000, opcode: u16) -> bool {
     if (quotient & 0x8000_0000) != 0 {
         sr |= N;
     }
+    cpu.regs.sr = sr;
+    true
+}
+
+// ─── Bit-field family ──────────────────────────────────────────────
+//
+// Extension word format (M68000PRM § 6.2.2-6.2.4):
+//
+//   bit 15:  0 (reserved)
+//   bits 14-12: destination / source register (BFEXTU / BFEXTS /
+//             BFFFO / BFINS); ignored by BFTST / BFCHG / BFCLR /
+//             BFSET.
+//   bit 11:  Do — 0 = offset is the 5-bit immediate in bits 10-6,
+//             1 = offset is the full 32-bit signed value in
+//             D[bits 8-6].
+//   bits 10-6: offset (immediate 0-31, or Dn number when Do = 1).
+//   bit 5:   Dw — 0 = width is the 5-bit immediate in bits 4-0,
+//             1 = width is in D[bits 2-0].
+//   bits 4-0: width (encoded 0 = 32, 1-31 = 1-31; same encoding
+//             modulo 32 for the Dn case).
+//
+// For a Dn destination/source the offset wraps modulo 32 and the
+// field wraps around bit 0. Musashi's implementation uses a
+// position-mask in the original register (built by rotating
+// `0xFFFFFFFF << (32 - width)` right by offset) for in-place
+// modification, and rotate-left + shift-right for extraction.
+
+/// Hook entry: dispatch the 8 BF opcodes by their sub-op field.
+/// Only Dn-destination is implemented today — memory-EA dispatch
+/// (mode != 0) needs the multi-step EA pipeline.
+fn execute_bf(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let ea_mode = (opcode >> 3) & 7;
+    let ea_reg = (opcode & 7) as usize;
+    if ea_mode != 0 {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+
+    let op = (opcode >> 8) & 7;
+    let ext = cpu.consume_irc();
+    let dr = ((ext >> 12) & 7) as usize;
+
+    // Decode offset (immediate or Dn). Dn is signed → use rem_euclid
+    // so negative offsets wrap correctly to 0..=31.
+    let offset = if ext & 0x0800 != 0 {
+        let reg = ((ext >> 6) & 7) as usize;
+        (cpu.regs.d[reg] as i32).rem_euclid(32) as u32
+    } else {
+        u32::from((ext >> 6) & 0x1F)
+    };
+
+    // Width: ((raw - 1) & 31) + 1 maps 0→32, 1→1, …, 31→31, and for
+    // Dn-width handles arbitrary 32-bit values via the same trick.
+    let raw_width = if ext & 0x0020 != 0 {
+        let reg = (ext & 7) as usize;
+        cpu.regs.d[reg]
+    } else {
+        u32::from(ext & 0x1F)
+    };
+    let width = (raw_width.wrapping_sub(1) & 31) + 1;
+
+    // Field-position mask in the source register's bit layout.
+    let mask_base: u32 = if width == 32 {
+        0xFFFF_FFFF
+    } else {
+        0xFFFF_FFFFu32 << (32 - width)
+    };
+    let mask = mask_base.rotate_right(offset);
+
+    let dn_val = cpu.regs.d[ea_reg];
+
+    // The pre-modification field flags (used by BFTST / BFCHG /
+    // BFCLR / BFSET). N = bit 31 of (Dn shifted left by offset) =
+    // MSB of the field. Z = field-bits are all zero in Dn.
+    let n_set_pre = (dn_val.wrapping_shl(offset) & 0x8000_0000) != 0;
+    let z_set_pre = (dn_val & mask) == 0;
+
+    let mut sr = cpu.regs.sr & !(N | Z | V | C);
+
+    match op {
+        0 => {
+            // BFTST: flags only.
+            if n_set_pre {
+                sr |= N;
+            }
+            if z_set_pre {
+                sr |= Z;
+            }
+        }
+        1 => {
+            // BFEXTU: rotate Dn left so field sits at the top, then
+            // right-shift by (32-width) to right-align. Write to Dr.
+            let rotated = dn_val.rotate_left(offset);
+            let result = if width == 32 {
+                rotated
+            } else {
+                rotated >> (32 - width)
+            };
+            cpu.regs.d[dr] = result;
+            if n_set_pre {
+                sr |= N;
+            }
+            if result == 0 {
+                sr |= Z;
+            }
+        }
+        2 => {
+            // BFCHG: toggle the field bits in Dn.
+            cpu.regs.d[ea_reg] = dn_val ^ mask;
+            if n_set_pre {
+                sr |= N;
+            }
+            if z_set_pre {
+                sr |= Z;
+            }
+        }
+        3 => {
+            // BFEXTS: same as BFEXTU but arithmetic-shift the rotated
+            // value so the MSB of the field sign-extends through the
+            // upper bits.
+            let rotated = dn_val.rotate_left(offset);
+            let result = if width == 32 {
+                rotated
+            } else {
+                ((rotated as i32) >> (32 - width)) as u32
+            };
+            cpu.regs.d[dr] = result;
+            if n_set_pre {
+                sr |= N;
+            }
+            if result == 0 {
+                sr |= Z;
+            }
+        }
+        4 => {
+            // BFCLR: clear the field bits.
+            cpu.regs.d[ea_reg] = dn_val & !mask;
+            if n_set_pre {
+                sr |= N;
+            }
+            if z_set_pre {
+                sr |= Z;
+            }
+        }
+        5 => {
+            // BFFFO: find first one bit MSB-first within the field.
+            // Result Dr = offset + (position of first '1'), or
+            // offset + width if no bit is set.
+            let rotated = dn_val.rotate_left(offset);
+            let field = if width == 32 {
+                rotated
+            } else {
+                rotated >> (32 - width)
+            };
+            let mut bit_idx = 0u32;
+            let mut bit_mask = 1u32 << (width - 1);
+            while bit_mask != 0 && (field & bit_mask) == 0 {
+                bit_idx += 1;
+                bit_mask >>= 1;
+            }
+            cpu.regs.d[dr] = offset + bit_idx;
+            if n_set_pre {
+                sr |= N;
+            }
+            if field == 0 {
+                sr |= Z;
+            }
+        }
+        6 => {
+            // BFSET: set the field bits.
+            cpu.regs.d[ea_reg] = dn_val | mask;
+            if n_set_pre {
+                sr |= N;
+            }
+            if z_set_pre {
+                sr |= Z;
+            }
+        }
+        7 => {
+            // BFINS: write Dr (truncated/positioned to width) into
+            // the field. Flags come from the source register's
+            // width-bit value (after shifting up so its MSB sits at
+            // bit 31) — N = MSB of shifted source, Z = source==0.
+            let insert_value = cpu.regs.d[dr];
+            let insert_shifted = if width == 32 {
+                insert_value
+            } else {
+                insert_value.wrapping_shl(32 - width)
+            };
+            let n_ins = (insert_shifted & 0x8000_0000) != 0;
+            let z_ins = insert_shifted == 0;
+            // Place the shifted source at the field's location by
+            // rotating right by offset, then merge with Dn.
+            let insert_placed = insert_shifted.rotate_right(offset);
+            cpu.regs.d[ea_reg] = (dn_val & !mask) | (insert_placed & mask);
+            if n_ins {
+                sr |= N;
+            }
+            if z_ins {
+                sr |= Z;
+            }
+        }
+        _ => unreachable!("BF sub-op masked to 3 bits"),
+    }
+
     cpu.regs.sr = sr;
     true
 }

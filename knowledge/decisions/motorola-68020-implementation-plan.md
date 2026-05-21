@@ -333,16 +333,45 @@ the multi-step-EA cluster.
 Baseline: 2226 → **2246 / 2400 = 93.58 %** on the 68020 sweep.
 MULL and DIVL flip 0 % → 100 %.
 
+#### Phase 5f — Bit-field family
+
+**Status: complete (2026-05-21).**
+
+All eight bit-field opcodes (`BFTST`, `BFEXTU`, `BFEXTS`, `BFINS`,
+`BFCLR`, `BFSET`, `BFCHG`, `BFFFO`) routed through the 68020
+hook. Dn-source only — memory EAs defer.
+
+The implementation mirrors Musashi's approach for the Dn-source
+variants:
+
+- **Width decode**: `((raw - 1) & 31) + 1` maps the 5-bit
+  immediate / 32-bit Dn value to 1..=32 (with 0 → 32). This single
+  expression covers both encodings without conditional branches.
+- **Position mask**: built as `0xFFFFFFFF << (32 - width)` (top
+  `width` bits set), then `.rotate_right(offset)` to land at the
+  field's bit positions inside `Dn`. Used for the in-place
+  modifying ops (BFCHG/CLR/SET/INS).
+- **Extraction**: `Dn.rotate_left(offset) >> (32 - width)` lands
+  the right-aligned field. BFEXTS uses arithmetic right-shift on
+  the rotated value to sign-extend.
+- **Flag conventions**:
+  - N is bit 31 of `Dn.wrapping_shl(offset)` — the MSB of the field
+    in its original location.
+  - Z is `(Dn & mask) == 0` — the field bits are zero.
+  - BFINS overrides both: N / Z come from the source register's
+    width-bit value shifted up so its MSB sits at bit 31.
+
+Baseline: 2246 → **2326 / 2400 = 96.92 %** on the 68020 sweep
+(+80 tests). All 8 BF fixtures flip 0 % → 100 % first try. 68010
+unchanged at 97.64 %.
+
 #### Remaining 5x sub-phases
 
 - 5b: **Bcc.L** (long-displacement branch).
 - 5c: **Barrel shifter**. Cycle-count change, not semantic — most
   test vectors don't notice.
-- 5d: **EXTB.L** (already landed in Phase 1.5), **PACK**, **UNPK**.
+- 5d: **PACK** / **UNPK**.
 - 5e: **TRAPcc** family.
-- 5f: **Bitfield** family (BFTST/BFEXTU/BFEXTS/BFINS/BFCLR/
-  BFSET/BFCHG/BFFFO). Biggest of these — each takes a
-  field-offset/field-width extension word.
 - 5g: **CHK2 / CMP2**.
 - 5h: **CAS / CAS2** — atomic compare-and-swap.
 - 5i: **CALLM / RTM** — module call. Largely vestigial.
