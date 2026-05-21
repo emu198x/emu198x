@@ -1,7 +1,7 @@
 # Decision: C64 architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** In progress — Seams 1 (audit), 2, 4 landed 2026-05-20/21
+**Status:** In progress — Seams 1 (audit), 2, 3, 4 landed 2026-05-20/21
 
 ## What this is
 
@@ -116,6 +116,8 @@ The Spectrum's Seam 3 fix surfaced two real bugs (Z80 walker rehydration, ULA co
 6. Snapshot envelope version bump to `2` to capture the 1541-attached state and disk image cache, mirroring the Spectrum's Seam 3 disk preservation. Today restoring a C64 snapshot taken with a mounted D64 silently drops the disk.
 
 **Scope.** ~80 lines across the chip crates (rehydrators), ~30 lines in `runtime-commodore-c64/src/snapshot.rs` (envelope v2 with disk cache), one audit file. The most expensive piece is the SID — that needs care because audio glitches are subjectively very noticeable.
+
+**Status: audit lock landed 2026-05-21** (commit `ba3648c`). C64 stack turned out to be already clean — zero `#[serde(skip)]` in mos-vic-ii, mos-cia-6526, mos-6502, machine-commodore-c64, machine-commodore-1541, common-commodore-c64. The only `#[serde(skip)]` annotations are two on `mos-sid-6581` (the transient output audio buffers `buffer` and `channel_buffers`) — and `Default::default()` (empty Vec) is the correct behaviour because the host drains samples per frame, so no rehydration is needed. Audit lock landed at `crates/machine-commodore-c64/src/serde_skip_audit.rs` mirroring the Spectrum and NES patterns. The full per-chip walker / envelope / filter-tap rehydration the original Seam 3 plan envisioned turns out to be unnecessary work because the C64 chip crates never used `&'static` references for state — everything is plain serializable data. The `Mos6502` walker is stored as serializable `OpcodeInfo` enums (not `&'static [MStep]` like the Z80), and SID voice / envelope / filter state is all owned `u8`/`i32`/etc. The Spectrum's Seam 3 fixed a real walker rehydration bug because the Z80 *did* use `&'static [MStep]`; the C64 has no such bug to fix. Future work that adds `&'static` state or external resources (e.g. 1541 disk image cache surviving restore) would land here, but no such surface exists today.
 
 **Why this matters for other systems.** Every system with stateful audio (Amiga Paula, NES APU, Game Boy APU) and stateful video DMA has the same surface. Get the C64 right; the rehydration pattern transfers.
 

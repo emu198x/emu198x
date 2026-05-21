@@ -1,7 +1,7 @@
 # Decision: NES architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** In progress — Seams 1 (partial), 2, 4 landed 2026-05-20/21
+**Status:** In progress — Seams 1 (partial), 2, 3, 4 landed 2026-05-20/21
 
 ## What this is
 
@@ -122,6 +122,8 @@ The Spectrum's Seam 3 fix surfaced two real bugs (Z80 walker rehydration, ULA co
 6. Snapshot envelope version bump (currently v1 per the status doc note) to v2 with the audit + rehydration in place. Mark current v1 snapshots as not-loadable to force the cleanup.
 
 **Scope.** Walker rehydration is mechanical (~30 lines, same as Spectrum). Per-mapper `after_restore` is small per-mapper but adds up — 14 mappers × ~10 lines each = 140 lines. APU + PPU audits ~30 each. Audit lock ~50. Total ~250 lines.
+
+**Status: landed 2026-05-21** (commit `ba3648c`). Surface turned out far cleaner than predicted — the NES stack only has 4 `#[serde(skip)]` annotations, all on `&'static` region tables in `ricoh-apu-2a03`. Real bug found and fixed: PAL APU snapshots silently defaulted to NTSC tables on restore. Added `region: ApuRegion` field (serialized, default NTSC) plus `Apu::after_restore()` that reattaches the right tables. `Nes::restore_snapshot` + `from_snapshot` now invoke it. Two new tests prove PAL and NTSC round-trip cleanly. `Mos6502::rehydrate_walker_sequence` *not* needed — the 6502 stores `OpcodeInfo` as serialized enums, not `&'static` refs. PPU + Mapper + machine layer all have zero `#[serde(skip)]`. Audit lock landed at `crates/machine-nintendo-nes/src/serde_skip_audit.rs` mirroring the Spectrum's pattern; any future addition forces a deliberate choice between "default is correct" or "`after_restore` rehydrates" with documented justification.
 
 **Why this matters for other systems.** Every system with mid-instruction CPU state + stateful audio + stateful video needs this discipline. NES is the densest case in the product; getting it right here is the load-bearing template.
 
