@@ -51,15 +51,19 @@ const INPUT_SLICES_PER_FRAME: u32 = 8;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_TURBO_TAPE_FRAMES: u32 = 32;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
+// Seam-2 input port convention: port 0 = C64 gameport 2 (CIA1 PA,
+// the main "gameport"). See runtime-commodore-c64/src/input.rs for
+// the full mapping rationale. The host gamepad's face buttons all
+// route to FIRE — the C64 stick is single-fire.
 const C64_JOYSTICK_MAP: ButtonInputMap = ButtonInputMap::new(&[
-    (HostControl::Up, ButtonTarget::new(2, "up")),
-    (HostControl::Down, ButtonTarget::new(2, "down")),
-    (HostControl::Left, ButtonTarget::new(2, "left")),
-    (HostControl::Right, ButtonTarget::new(2, "right")),
-    (HostControl::South, ButtonTarget::new(2, "fire")),
-    (HostControl::East, ButtonTarget::new(2, "fire")),
-    (HostControl::West, ButtonTarget::new(2, "fire")),
-    (HostControl::North, ButtonTarget::new(2, "fire")),
+    (HostControl::Up, ButtonTarget::new(0, "up")),
+    (HostControl::Down, ButtonTarget::new(0, "down")),
+    (HostControl::Left, ButtonTarget::new(0, "left")),
+    (HostControl::Right, ButtonTarget::new(0, "right")),
+    (HostControl::South, ButtonTarget::new(0, "fire")),
+    (HostControl::East, ButtonTarget::new(0, "fire")),
+    (HostControl::West, ButtonTarget::new(0, "fire")),
+    (HostControl::North, ButtonTarget::new(0, "fire")),
 ]);
 
 const USAGE: &str = "\

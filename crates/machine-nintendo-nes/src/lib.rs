@@ -67,6 +67,10 @@ pub struct NesSnapshot {
     dma_alignment_done: bool,
     controller1_shift: u8,
     controller1_state: u8,
+    #[serde(default)]
+    controller2_shift: u8,
+    #[serde(default)]
+    controller2_state: u8,
     controller_strobe: bool,
 }
 
@@ -118,9 +122,17 @@ pub struct Nes {
     /// Controller 1 latched state (snapshot taken when `$4016`
     /// bit 0 goes from 1 → 0).
     pub controller1_state: u8,
+    /// Controller 2 shift register (read out serially via `$4017`).
+    /// Same protocol as controller 1: latched from
+    /// `controller2_state` on the strobe falling edge.
+    controller2_shift: u8,
+    /// Controller 2 latched state.
+    pub controller2_state: u8,
     /// Whether the controller strobe is active (bit 0 of last
     /// `$4016` write). While active, reads return button A's
-    /// state and the shift register reloads continuously.
+    /// state and the shift register reloads continuously. The
+    /// strobe controls both controllers — `$4017` is read-only and
+    /// `$4016`'s strobe bit governs the latch.
     controller_strobe: bool,
 }
 
@@ -149,6 +161,8 @@ impl Nes {
             dma_alignment_done: false,
             controller1_shift: 0,
             controller1_state: 0,
+            controller2_shift: 0,
+            controller2_state: 0,
             controller_strobe: false,
         }
     }
@@ -299,8 +313,18 @@ impl Nes {
                 }
             }
 
-            // $4017: Controller 2 (stub — no second controller).
-            0x4017 => 0,
+            // $4017: Controller 2. Same protocol as $4016 — bit 0 of
+            // the strobe (latched from the last $4016 write) governs
+            // the latch/shift behaviour for both controllers.
+            0x4017 => {
+                if self.controller_strobe {
+                    self.controller2_state & 1
+                } else {
+                    let bit = self.controller2_shift & 1;
+                    self.controller2_shift >>= 1;
+                    bit
+                }
+            }
 
             // $4018-$401F: APU test registers (unused).
             0x4018..=0x401F => 0,
@@ -330,13 +354,16 @@ impl Nes {
                 self.dma_cycles_remaining = 514;
             }
 
-            // $4016: Controller strobe.
+            // $4016: Controller strobe. Bit 0 controls both
+            // controllers — a falling 1→0 edge latches the live
+            // controller_n_state into the corresponding shift
+            // register, ready to be clocked out by reads of $4016
+            // (controller 1) and $4017 (controller 2).
             0x4016 => {
                 let new_strobe = value & 1 != 0;
                 if self.controller_strobe && !new_strobe {
-                    // Falling edge: latch controller state into
-                    // shift register.
                     self.controller1_shift = self.controller1_state;
+                    self.controller2_shift = self.controller2_state;
                 }
                 self.controller_strobe = new_strobe;
             }
@@ -416,6 +443,12 @@ impl Nes {
         self.controller1_state = state;
     }
 
+    /// Set controller 2 button state. Same bit layout as
+    /// [`Self::set_controller1`]. Read out by the CPU via `$4017`.
+    pub fn set_controller2(&mut self, state: u8) {
+        self.controller2_state = state;
+    }
+
     /// Capture complete machine state for save-state export.
     #[must_use]
     pub fn snapshot(&self) -> NesSnapshot {
@@ -434,6 +467,8 @@ impl Nes {
             dma_alignment_done: self.dma_alignment_done,
             controller1_shift: self.controller1_shift,
             controller1_state: self.controller1_state,
+            controller2_shift: self.controller2_shift,
+            controller2_state: self.controller2_state,
             controller_strobe: self.controller_strobe,
         }
     }
@@ -454,6 +489,8 @@ impl Nes {
         self.dma_alignment_done = snapshot.dma_alignment_done;
         self.controller1_shift = snapshot.controller1_shift;
         self.controller1_state = snapshot.controller1_state;
+        self.controller2_shift = snapshot.controller2_shift;
+        self.controller2_state = snapshot.controller2_state;
         self.controller_strobe = snapshot.controller_strobe;
     }
 
@@ -475,6 +512,8 @@ impl Nes {
             dma_alignment_done: snapshot.dma_alignment_done,
             controller1_shift: snapshot.controller1_shift,
             controller1_state: snapshot.controller1_state,
+            controller2_shift: snapshot.controller2_shift,
+            controller2_state: snapshot.controller2_state,
             controller_strobe: snapshot.controller_strobe,
         }
     }
@@ -598,6 +637,41 @@ mod tests {
             result |= (nes.cpu_read(0x4016) & 1) << i;
         }
         assert_eq!(result, 0b1010_0101);
+    }
+
+    #[test]
+    fn controller_2_strobe_latches_independently_of_controller_1() {
+        let mut nes = nop_nes();
+        nes.set_controller1(0b0000_0001); // controller 1: A only
+        nes.set_controller2(0b1100_0000); // controller 2: Left + Right
+
+        // Strobe both controllers simultaneously.
+        nes.cpu_write(0x4016, 0x01);
+        nes.cpu_write(0x4016, 0x00);
+
+        // Read 8 bits from each.
+        let mut p1 = 0u8;
+        let mut p2 = 0u8;
+        for i in 0..8 {
+            p1 |= (nes.cpu_read(0x4016) & 1) << i;
+            p2 |= (nes.cpu_read(0x4017) & 1) << i;
+        }
+        assert_eq!(p1, 0b0000_0001, "controller 1 state");
+        assert_eq!(p2, 0b1100_0000, "controller 2 state");
+    }
+
+    #[test]
+    fn controller_2_strobe_active_returns_button_a_bit() {
+        let mut nes = nop_nes();
+        nes.set_controller2(0b0000_0001); // A pressed on controller 2
+
+        nes.cpu_write(0x4016, 0x01); // strobe on
+        // While strobe is high, $4017 reads return bit 0 of
+        // controller 2's live state.
+        assert_eq!(nes.cpu_read(0x4017) & 1, 1);
+
+        nes.set_controller2(0); // release
+        assert_eq!(nes.cpu_read(0x4017) & 1, 0);
     }
 
     #[test]
