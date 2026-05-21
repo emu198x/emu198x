@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     # Active members
+    "crates/common-commodore-amiga",
     "crates/common-commodore-c64",
     "crates/common-commodore-iec",
     "crates/common-nintendo-game-boy",

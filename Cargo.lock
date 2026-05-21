@@ -415,6 +415,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-commodore-amiga"
+version = "0.1.0"
+dependencies = [
+ "commodore-paula-8364",
+ "mos-cia-8520",
+ "serde",
+]
+
+[[package]]
 name = "common-commodore-c64"
 version = "0.1.0"
 

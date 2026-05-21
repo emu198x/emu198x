@@ -1,0 +1,14 @@
+[package]
+name = "common-commodore-amiga"
+description = "Shared board-level substrate for Commodore Amiga machine crates — CIA pair, copper, RTC, memory map, Denise-side shared rendering. Per-chipset wrappers (machine-commodore-amiga-ocs / -ecs / -aga) plug their specific Agnus + Denise chips into this substrate."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+mos-cia-8520 = { path = "../mos-cia-8520" }
+commodore-paula-8364 = { path = "../commodore-paula-8364" }
+serde = { workspace = true }
+
+[lints]
+workspace = true
