@@ -127,7 +127,7 @@ impl Cpu68000 {
                 self.regs.sr = (self.regs.sr & 0xFF00) | (val as u16 & 0x001F);
             } else {
                 // MOVE to SR
-                self.regs.sr = val as u16 & crate::flags::SR_MASK;
+                self.regs.sr = val as u16 & self.sr_write_mask();
             }
             let d: u8 = 8;
             if d > 0 {

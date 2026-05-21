@@ -56,6 +56,10 @@ impl Cpu68010 {
     pub fn new() -> Self {
         let mut inner = Cpu68000::new();
         inner.variant_decode_hook = Some(decode_68010_opcode);
+        // 68010+ pushes an eight-byte exception frame with a
+        // Format/Vector word at the top. The 68020 inherits this
+        // through Cpu68010::new().
+        inner.variant_six_word_frame = true;
         Self { inner }
     }
 

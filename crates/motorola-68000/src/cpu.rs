@@ -148,6 +148,10 @@ pub const TAG_EXC_STACK_SR: u8 = 40;
 pub const TAG_EXC_FETCH_VECTOR: u8 = 41;
 /// Exception: load PC from vector and enter supervisor mode.
 pub const TAG_EXC_FINISH: u8 = 42;
+/// Exception: 68010+ Format/Vector word just pushed; restore the
+/// pending PC into `self.data` and continue with the regular PC
+/// push. Only used when `variant_six_word_frame` is enabled.
+pub const TAG_EXC_STACK_FORMAT: u8 = 43;
 
 // Address error exception follow-ups (14-byte group 0 frame)
 /// AE: push SR word.
@@ -390,6 +394,38 @@ pub struct Cpu68000 {
     /// them without going through a generic trait.
     #[serde(skip)]
     pub variant_scaled_index: bool,
+
+    /// 68010+ six-word exception frame.
+    ///
+    /// The 68000 pushes `[PC, SR]` (six bytes) on a group-1/2
+    /// exception. The 68010+ pushes `[PC, SR, Format/Vector]` (eight
+    /// bytes) — the format word records the exception type and
+    /// vector offset so `RTE` can pop the right frame size. The
+    /// 68010 / 68020 wrappers set this flag in `new()`; the
+    /// exception path (`begin_group1_exception` + the
+    /// `TAG_EXC_STACK_FORMAT` continuation arm) consults it.
+    #[serde(skip)]
+    pub variant_six_word_frame: bool,
+
+    /// 68020+ extended SR write mask (allows the M-flag, bit 12).
+    ///
+    /// The 68000 / 68010 SR mask is `$A71F` (T1, S, IPL[2:0], CCR).
+    /// The 68020 widens it to `$F71F`, adding the master/interrupt
+    /// stack bit. Consulted by every code path that writes to SR
+    /// from a 16-bit value (`MOVE-to-SR`, `ORI/ANDI/EORI-to-SR`,
+    /// `RTE`'s SR pop). The 68020 wrapper enables it.
+    #[serde(skip)]
+    pub variant_extended_sr_writes: bool,
+
+    /// Pending PC value during the 68010+ exception frame push.
+    ///
+    /// When `variant_six_word_frame` is set,
+    /// `begin_group1_exception` pushes the Format/Vector word first,
+    /// which needs `self.data` to hold the format word during that
+    /// push. The PC value gets stashed here and restored to
+    /// `self.data` once the format push completes.
+    #[serde(skip)]
+    pub(crate) exc_pending_pc: u32,
 }
 
 impl Cpu68000 {
@@ -448,6 +484,9 @@ impl Cpu68000 {
             opcode_at_start: 0,
             variant_decode_hook: None,
             variant_scaled_index: false,
+            variant_six_word_frame: false,
+            variant_extended_sr_writes: false,
+            exc_pending_pc: 0,
         }
     }
 
@@ -464,6 +503,21 @@ impl Cpu68000 {
             hook(self, opcode)
         } else {
             false
+        }
+    }
+
+    /// SR write mask for the current variant.
+    ///
+    /// Returns [`motorola_68k_common::flags::SR_MASK`] (`$A71F`) on
+    /// 68000 / 68010, and `SR_MASK_020` (`$F71F`) on 68020+ (adds
+    /// the M-flag at bit 12). Consulted by every code path that
+    /// writes a 16-bit value into SR.
+    #[must_use]
+    pub fn sr_write_mask(&self) -> u16 {
+        if self.variant_extended_sr_writes {
+            crate::flags::SR_MASK_020
+        } else {
+            crate::flags::SR_MASK
         }
     }
 
@@ -770,11 +824,26 @@ impl Cpu68000 {
         self.in_followup = true;
         self.micro_ops.clear();
 
-        // 68000: push PC directly (6-byte frame: PC + SR).
-        self.data = pc_to_push;
-        self.followup_tag = TAG_EXC_STACK_PC_HI;
-        self.micro_ops.push(MicroOp::PushLongHi);
-        self.micro_ops.push(MicroOp::Execute);
+        if self.variant_six_word_frame {
+            // 68010+: push Format/Vector word first (it sits at the
+            // highest address in the frame, SP+6 in the final
+            // layout). Stash the PC so `TAG_EXC_STACK_FORMAT` can
+            // restore it into `self.data` for the subsequent
+            // PushLongHi.
+            self.exc_pending_pc = pc_to_push;
+            // Short frame: format = $0, vector offset = vector * 4.
+            // M68000PRM § 8.6.
+            self.data = u32::from(u16::from(vector) * 4);
+            self.followup_tag = TAG_EXC_STACK_FORMAT;
+            self.micro_ops.push(MicroOp::PushWord);
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            // 68000: push PC directly (6-byte frame: PC + SR).
+            self.data = pc_to_push;
+            self.followup_tag = TAG_EXC_STACK_PC_HI;
+            self.micro_ops.push(MicroOp::PushLongHi);
+            self.micro_ops.push(MicroOp::Execute);
+        }
     }
 
     /// Check supervisor mode. If in user mode, trigger a privilege violation

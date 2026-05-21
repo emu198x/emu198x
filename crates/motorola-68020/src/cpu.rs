@@ -49,6 +49,12 @@ impl Cpu68020 {
         // the 68020 enables it here so calc_ea_start consults bits
         // 10-9 of the extension word.
         inner.variant_scaled_index = true;
+        // The 68020 widens the SR write mask to include the M-flag
+        // (bit 12) — MOVE-to-SR / ORI-to-SR / EORI-to-SR /
+        // ANDI-to-SR / STOP / RTE all read this flag. The 68010
+        // leaves it false (only the 68000-shared 0xA71F bits are
+        // writable).
+        inner.variant_extended_sr_writes = true;
         Self { inner }
     }
 

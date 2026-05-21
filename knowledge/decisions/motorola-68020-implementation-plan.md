@@ -381,19 +381,64 @@ instructions passing.
 
 ### Phase 6 — exception frames + interrupt model
 
-**Goal**: format $1 / $2 / $9 / $A / $B frames + MSP/ISP
-split + RTE format dispatch.
+**Goal**: 68010+ 6-word frame + M-flag + (later) the wider frame
+formats and MSP/ISP routing.
 
-- Implement format $1 (throwaway interrupt frame — 8 words).
-- Implement format $2 (instruction-error trap — 6 words).
-- Implement format $9 (coprocessor mid-instruction — 10 words).
-- Implement format $A (short bus / address error — 16 words).
-- Implement format $B (long bus / address error — 46 words).
-  This is the big one — captures internal CPU state for the OS
-  to restart after fixing the page table. Skip for now if no
-  Amiga code requires it (most A1200 software does not).
-- MSP / ISP split: SR M-bit (bit 12) selects MSP. Interrupts
-  always use ISP; OS-scheduled tasks use MSP when M=1.
+**Status: partial — short-frame portion landed (2026-05-21).**
+
+The short-frame piece is what every group-1/2 exception on the
+68010/68020 needs and what the Tom Harte corpus tests. Wider
+frames (format $9 coprocessor, $A/$B bus error) and the MSP/ISP
+split are deferred — no current fixture exercises them.
+
+What landed:
+
+- **Two new variant flags on `Cpu68000`**:
+  - `variant_six_word_frame: bool` — 68010 and 68020 both set.
+    `begin_group1_exception` consults it; when set, the frame
+    push starts with a `PushWord` of the Format/Vector word at
+    the highest address (SP+6 in the final 8-byte frame), then
+    rejoins the regular PC + SR push via the new
+    `TAG_EXC_STACK_FORMAT` continuation tag. Format is `$0` for
+    short frames; vector offset is `vector * 4`. PRM § 8.6.
+  - `variant_extended_sr_writes: bool` — 68020 only.
+    `Cpu68000::sr_write_mask()` returns
+    `motorola_68k_common::flags::SR_MASK_020` (`$F71F`,
+    including the M-flag at bit 12) when set, else the 68000
+    mask (`$A71F`). The four SR-write sites — MOVE-to-SR,
+    ORI/ANDI/EORI-to-SR, STOP, RTE — all route through the
+    helper.
+- **One new stash field**: `exc_pending_pc: u32`. Holds the PC
+  during the optional Format push so the existing `self.data`
+  -based push pipeline can carry the format word without
+  conflict.
+
+Baselines after Phase 6:
+
+| Crate | Pass rate | Δ | Fully passing | Fully failing |
+|---|---|---|---|---|
+| `motorola-68010` | **2265 / 2290 = 98.91 %** | +29 tests | 224 / 229 | 1 / 229 (RTD) |
+| `motorola-68020` | **2368 / 2400 = 98.67 %** | +42 tests | 234 / 240 | 1 / 240 (RTD) |
+
+BKPT and MOVEC_010 closed on both crates (6-word frame).
+MOVEtoSR / ORItoSR / EORItoSR closed on 68020 (M-flag), and
+their lingering issues on 68010 also fell out (random-source bits
+that previously survived the wrong mask now don't survive the
+right one).
+
+Deferred:
+
+- **Format $1** throwaway interrupt frame — needs the M-flag
+  routing to actually pick which SP to push onto.
+- **Format $2** instruction-error trap (CHK / TRAPV / divide-by-
+  zero on the 68020): adds the faulting-instruction PC. Possibly
+  worth wiring up for the CHK / DIVS / DIVU partials, but those
+  are also flag-edge cases.
+- **Format $9 / $A / $B** — no fixture exercises them; defer.
+- **MSP / ISP routing** — needs the M-flag to actually steer
+  stack accesses through `regs.msp` vs `regs.ssp` instead of
+  always `regs.ssp`. No current Tom Harte fixture sets up
+  initial M=1 so no observable behaviour today.
 
 ### Phase 7 — instruction cache
 
