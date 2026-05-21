@@ -298,7 +298,12 @@ pub fn beam_match(target: u16, mask: u16, beam_vp: u16, beam_hp: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Denise;
+    // Test the copper against the concrete OCS Denise — the copper
+    // is chipset-agnostic so any DeniseChip impl would do, but
+    // DeniseOcs is the canonical reference.
+    use crate::denise::Denise;
+    use commodore_denise_ocs::DeniseOcs;
+    type TestDenise = Denise<DeniseOcs>;
 
     fn build_test_memory_with_list(list: &[(u16, u16)], at: u32) -> Memory {
         let mut mem = Memory::new(vec![0u8; 256 * 1024]);
@@ -322,7 +327,7 @@ mod tests {
     /// exercise Denise-owned registers, so a local routing closure
     /// is enough. The machine layer wires this through the full
     /// `dispatch_custom_write` in production.
-    fn run_ccks(copper: &mut Copper, mem: &Memory, denise: &mut Denise, vpos: u16, ccks: u16) {
+    fn run_ccks(copper: &mut Copper, mem: &Memory, denise: &mut TestDenise, vpos: u16, ccks: u16) {
         for i in 0..ccks {
             if let Some((reg, val)) = copper.tick_cck(mem, vpos, i % 227, DmaClaim::Free) {
                 denise.write_word(reg, val);
@@ -333,7 +338,7 @@ mod tests {
     #[test]
     fn move_writes_chipset_register() {
         let mem = build_test_memory_with_list(&[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)], 0x1000);
-        let mut denise = Denise::new();
+        let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
@@ -349,7 +354,7 @@ mod tests {
         // Pin hpos = 0 (even) for 40 ticks — copper gets zero
         // eligible cycles and should not execute.
         let mem = build_test_memory_with_list(&[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)], 0x1000);
-        let mut denise = Denise::new();
+        let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
@@ -369,7 +374,7 @@ mod tests {
         // claimed by a bitplane (simulating BPL5/BPL6 contention at
         // BPU ≥ 5), the copper never completes.
         let mem = build_test_memory_with_list(&[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)], 0x1000);
-        let mut denise = Denise::new();
+        let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
@@ -403,7 +408,7 @@ mod tests {
             ],
             0x1000,
         );
-        let mut denise = Denise::new();
+        let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
@@ -445,7 +450,7 @@ mod tests {
             ],
             0x1000,
         );
-        let mut denise = Denise::new();
+        let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
@@ -539,7 +544,7 @@ mod tests {
             &[(0x0A01, 0xFF00), (0x0180, 0x0ABC), (0xFFFF, 0xFFFE)],
             0x2000,
         );
-        let mut denise = Denise::new();
+        let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x2000;
         copper.jump1();
@@ -572,7 +577,7 @@ mod tests {
             ],
             0x3000,
         );
-        let mut denise = Denise::new();
+        let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x3000;
         copper.jump1();
@@ -622,7 +627,7 @@ mod tests {
             mem.write_byte(off + 3, *w2 as u8);
         }
 
-        let mut denise = Denise::new();
+        let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.cop2lc = 0x2000;
@@ -660,7 +665,7 @@ mod tests {
             ],
             0x5000,
         );
-        let mut denise = Denise::new();
+        let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x5000;
         copper.jump1();
@@ -692,7 +697,7 @@ mod tests {
         // Reg $7E is still dangerous ($< $80); reg $80 is safe.
         for (reg, should_halt) in [(0x007E, true), (0x0080, false)] {
             let mem = build_test_memory_with_list(&[(reg, 0x1234), (0xFFFF, 0xFFFE)], 0x7000);
-            let mut denise = Denise::new();
+            let mut denise = TestDenise::new();
             let mut copper = Copper::new();
             copper.cop1lc = 0x7000;
             copper.jump1();
@@ -716,7 +721,7 @@ mod tests {
             ],
             0x4000,
         );
-        let mut denise = Denise::new();
+        let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x4000;
         copper.jump1();

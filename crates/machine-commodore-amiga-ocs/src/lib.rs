@@ -7,9 +7,8 @@
 //! Current milestone: **M6 — beam counter + VBL interrupt.**
 
 mod agnus;
-mod copper;
 mod denise;
-use common_commodore_amiga::{cia, memory, rtc};
+use common_commodore_amiga::{cia, copper, memory, rtc};
 
 pub use agnus::{
     Agnus, AgnusRegion, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_FRAME_TICKS, NTSC_LINES_PER_FRAME,
