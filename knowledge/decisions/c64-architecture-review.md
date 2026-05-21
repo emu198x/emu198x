@@ -1,7 +1,7 @@
 # Decision: C64 architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** In progress — Seams 1 (audit), 2, 3, 4 landed 2026-05-20/21
+**Status:** Mostly landed — Seam 1 audit only; Seams 2, 3, 4, 5 landed 2026-05-20/21
 
 ## What this is
 
@@ -165,6 +165,8 @@ The capture-bypass mechanism (`run_entry_for_capture`) is already system-agnosti
 - `paging_via_01_port_changes_active_rom` — the 6510 I/O port LORAM/HIRAM/CHAREN bits select the right ROM overlay. Catches a regression that affects every `LOAD` + `RUN`.
 
 **Scope.** ~30 lines per waypoint, ~250 lines total for the suite. Promoted from existing diagnostic examples and the boot-to-READY test.
+
+**Status: landed 2026-05-21** (commit `4bbd608`). Three new boot invariants on top of the existing 3: `snapshot_envelope_version_is_locked_at_v1`, `six510_io_port_banking_changes_active_rom` (walks `$01` between `$37` ROMs-visible and `$30` all-RAM, confirms `$A000` switches from BASIC ROM 0x42 to RAM 0x00 — catches a regression that would break every LOAD + RUN), `cia2_pa_drives_vic_bank_select` (walks CIA2 PA through all four bank selections and confirms `vic.bank()` tracks). Runtime now runs 6 hermetic + 1 ignored ROM-backed invariant on every `cargo test`. The remaining waypoints from the original plan (raster IRQ timing, sprite DMA cycle table, badline BA pattern) are already locked at the chip-crate level by the Seam 1 audit (`mos-vic-ii` unit tests landed in commit `a9ab627`).
 
 **Why this matters for other systems.** Every per-system review (Spectrum 12 waypoints, Amiga ~8 planned) lands the same shape: a `boot_invariants.rs` that locks the canonical timing facts. The C64's becomes the third example in the family.
 

@@ -1,7 +1,7 @@
 # Decision: NES architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** In progress — Seams 1 (partial), 2, 3, 4 landed 2026-05-20/21
+**Status:** Mostly landed — Seam 1 partial; Seams 2, 3, 4, 5 landed 2026-05-20/21
 
 ## What this is
 
@@ -171,6 +171,8 @@ The NES has a richer test-ROM ecosystem than any other system in scope (blargg, 
 Plus the blargg CI gate from Seam 1.
 
 **Scope.** ~30 lines per waypoint × 7 waypoints = ~210 lines. Plus the blargg gate (already specified under Seam 1).
+
+**Status: landed 2026-05-21** (commit `4bbd608`). Three new boot invariants on top of the existing 3: `snapshot_envelope_version_is_locked_at_v1`, `both_controllers_survive_snapshot_round_trip` (locks the controller 2 work from Seam 2), `cartridge_bytes_survive_snapshot_round_trip` (scans for iNES magic in the envelope). Runtime now runs 6 hermetic + 1 ignored ROM-backed invariant on every `cargo test`. The blargg gate from Seam 1 is the CI-mandatory complement.
 
 **Why this matters for other systems.** The blargg test-ROM pattern is well-developed for the Game Boy (Mooneye, blargg), the Sega Master System / Mega Drive (less so but growing), and even the 6502-using systems we don't yet emulate. Establishing the pattern on NES creates the harness shape; later systems plug in.
 
