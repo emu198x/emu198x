@@ -431,6 +431,38 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_format2_vectors: bool,
 
+    /// Musashi-style "undefined V" for ABCD / SBCD / NBCD.
+    ///
+    /// PRM defines V as undefined for these. Real 68000 hardware
+    /// (the upstream Tom Harte SingleStepTests corpus) and Musashi
+    /// pick different concrete values for V; both are valid
+    /// interpretations of "undefined" but they disagree
+    /// instruction-by-instruction. Our reference oracles split:
+    /// the m68k-test-gen 68010 / 68020 corpora are Musashi-driven
+    /// (so they expect Musashi V), while the upstream 68000 corpus
+    /// is real-hardware-derived (and expects real-hw V).
+    ///
+    /// `false` (default) → real-hw V via `bcd_add_realhw` etc.
+    /// `true` → Musashi V via `bcd_add_musashi` etc.
+    /// The 68010 / 68020 wrappers set it `true` in `new()`.
+    #[serde(skip)]
+    pub variant_musashi_bcd_v: bool,
+
+    /// Musashi-style overflow flag handling on 16-bit `DIVU.W` /
+    /// `DIVS.W` (and 32-bit `DIVL` already follows this path).
+    ///
+    /// PRM § 6.2.7: "on overflow N undefined, Z undefined, C
+    /// cleared, V set". Real 68000 hardware does roughly that (V
+    /// set, C cleared, N/Z preserved). Musashi preserves *all*
+    /// flags except V (which is set). The same Musashi-vs-real-hw
+    /// split as the BCD V flag applies.
+    ///
+    /// `false` (default) → real-hw: clear C, set V, preserve N/Z/X.
+    /// `true` → Musashi: set V, preserve everything else.
+    /// The 68010 / 68020 wrappers set it `true` in `new()`.
+    #[serde(skip)]
+    pub variant_musashi_div_overflow: bool,
+
     /// 68020+ extended SR write mask (allows the M-flag, bit 12).
     ///
     /// The 68000 / 68010 SR mask is `$A71F` (T1, S, IPL[2:0], CCR).
@@ -536,6 +568,8 @@ impl Cpu68000 {
             variant_scaled_index: false,
             variant_six_word_frame: false,
             variant_format2_vectors: false,
+            variant_musashi_bcd_v: false,
+            variant_musashi_div_overflow: false,
             variant_extended_sr_writes: false,
             exc_pending_pc: 0,
             variant_continue_hook: None,

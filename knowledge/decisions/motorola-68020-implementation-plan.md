@@ -544,6 +544,49 @@ Baselines after Phase 7.5:
 **68010 is fully green.** Only fixture not at 100 % on 68020 is
 CHK (1/10) — the Format $2 instruction-error exception frame.
 
+### Phase 7.6 — variant-gate BCD V + DIV overflow
+
+**Status: complete (2026-05-21).**
+
+Phase 6.5 and 7.5 chased the m68k-test-gen 68010 / 68020 corpora
+to 100 % by rewriting the shared BCD ALU and 16-bit DIV overflow
+path to match Musashi. That regressed the upstream
+`motorola-68000` Tom Harte harness — which uses the
+SingleStepTests/680x0 corpus, generated from a **real 68000** —
+from 100 % to 98.89 %. The "undefined" flag values on `ABCD` /
+`SBCD` / `NBCD` and on `DIVU.W` / `DIVS.W` overflow differ
+between real hardware and Musashi; both interpretations are
+valid for "undefined" but they don't agree case-by-case.
+
+Resolution: two more narrow flags on `Cpu68000`. Same shape as
+the other variant booleans.
+
+- **`variant_musashi_bcd_v: bool`** — selects which "undefined V"
+  shape `bcd_add` / `bcd_sub` / `nbcd_op` reports. Real-hw and
+  Musashi agree on `result` and `carry`; only `V` differs.
+- **`variant_musashi_div_overflow: bool`** — on 16-bit DIV
+  overflow, real-hw / PRM clears `C` and sets `V` (preserving
+  N / Z / X); Musashi sets only `V`.
+- **68010 wrapper enables both**; the 68020 inherits through
+  Cpu68010. The 68000 leaves them false.
+
+Implementation: `execute.rs` now hosts four free-function helpers
+— `bcd_add_realhw`, `bcd_sub_realhw`, `bcd_add_musashi`,
+`bcd_sub_musashi` — plus `nbcd_op_musashi`. The `&self` methods
+dispatch to whichever the flag selects. Real-hardware NBCD is
+just `bcd_sub_realhw(0, dst, X)`.
+
+Final baselines (all three corpora):
+
+| Corpus | Oracle | Pass rate |
+|---|---|---|
+| `motorola-68000` (SingleStepTests/680x0) | real hardware | **1,000,058 / 1,000,058 = 100.00 %** |
+| `motorola-68010` (m68k-test-gen) | Musashi | **2,290 / 2,290 = 100.00 %** |
+| `motorola-68020` (m68k-test-gen) | Musashi | **2,400 / 2,400 = 100.00 %** |
+
+The variant pattern absorbs a real-hw-vs-Musashi divergence as
+just two more narrow flags — no architectural distortion.
+
 ### Phase 6 closeout — Format $2 frames
 
 **Status: complete (2026-05-21).**

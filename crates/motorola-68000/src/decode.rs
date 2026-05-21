@@ -2308,12 +2308,16 @@ impl Cpu68000 {
                         let remainder = dividend % u32::from(src_word);
 
                         if quotient > 0xFFFF {
-                            // Per Musashi (matches hardware): on
-                            // overflow set V and leave everything
-                            // else (N / Z / X / C) unchanged. PRM
-                            // says C is cleared, but the corpus
-                            // expects Musashi.
-                            self.regs.sr |= 0x0002;
+                            if self.variant_musashi_div_overflow {
+                                // Musashi: set V, preserve N / Z / X / C.
+                                self.regs.sr |= 0x0002;
+                            } else {
+                                // Real-hw / PRM: clear C, set V,
+                                // preserve N / Z / X.
+                                let mut sr = self.regs.sr & !0x0003;
+                                sr |= 0x0002;
+                                self.regs.sr = sr;
+                            }
                         } else {
                             self.regs.d[dn] = (remainder << 16) | (quotient & 0xFFFF);
                             let mut sr = self.regs.sr & !0x000F;
@@ -2346,9 +2350,16 @@ impl Cpu68000 {
                         let remainder = dividend % i32::from(divisor);
 
                         if !(-32768..=32767).contains(&quotient) {
-                            // Per Musashi: overflow sets V; N / Z /
-                            // X / C unchanged (PRM disagrees on C).
-                            self.regs.sr |= 0x0002;
+                            if self.variant_musashi_div_overflow {
+                                // Musashi: set V, preserve N / Z / X / C.
+                                self.regs.sr |= 0x0002;
+                            } else {
+                                // Real-hw / PRM: clear C, set V,
+                                // preserve N / Z / X.
+                                let mut sr = self.regs.sr & !0x0003;
+                                sr |= 0x0002;
+                                self.regs.sr = sr;
+                            }
                         } else {
                             let q16 = quotient as u16;
                             let r16 = remainder as u16;

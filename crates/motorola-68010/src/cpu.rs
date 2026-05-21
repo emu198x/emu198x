@@ -71,6 +71,14 @@ impl Cpu68010 {
         // Format/Vector word at the top. The 68020 inherits this
         // through Cpu68010::new().
         inner.variant_six_word_frame = true;
+        // The Tom Harte 68010 / 68020 corpora are Musashi-driven
+        // (m68k-test-gen uses Musashi as the oracle), so BCD V and
+        // DIV overflow semantics match Musashi's "undefined"
+        // interpretations rather than real-68000 hardware. The
+        // 68000 itself (which uses the upstream SingleStepTests
+        // real-hardware corpus) leaves both flags false.
+        inner.variant_musashi_bcd_v = true;
+        inner.variant_musashi_div_overflow = true;
         Self { inner }
     }
 
