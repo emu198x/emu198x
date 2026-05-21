@@ -108,15 +108,39 @@ small, Phase 1+ are large.
 **Goal**: harness in place + the shared 68000-subset already
 runs through it via the type alias.
 
-- Download / locate Tom Harte 68020 corpus.
-- Add `motorola-68020/tests/tom_harte.rs` mirroring the 68000
-  version.
-- Run the existing `Cpu68000` (via the `Cpu68020` type alias)
-  against the 68020 vectors and observe which instructions
-  match (most 68000-shared ones should) and which diverge.
-- Document the baseline pass rate. Expectation: the shared
-  subset is mostly green; 68020-only opcodes and addressing
-  modes fail.
+**Status: complete (2026-05-21).**
+
+- ~~Download Tom Harte 68020 corpus~~ — none is published
+  upstream (the SingleStepTests/680x0 repo stops at 68000).
+  Instead we use `Emu198x-Oldest/crates/m68k-test-gen`, which
+  drives Musashi as the reference oracle and emits MessagePack
+  vectors using the same schema. Generated corpus lives at
+  `~/Projects/198x/assets/test-suites/m68k-generated/m68020/v1/`
+  — 240 fixtures, 10 vectors each, 6.6 MB.
+- `motorola-68020/tests/tom_harte.rs` is in place. Wiring
+  detail worth recording for future maintainers: the fixture's
+  `initial.prefetch` is Musashi's raw `[IR, PREF_DATA]`, not the
+  opcode bytes — Musashi's IR after `pulse_reset` is stale, so
+  the harness reads the opcode and IRC straight from
+  `initial.ram` (where `encode_instruction` poked them) and
+  ignores the fixture's prefetch field.
+- Run: `cargo test --release -p motorola-68020 --test tom_harte
+  -- --ignored harte_baseline_full_sweep --nocapture`.
+
+**Baseline**: **2072 / 2400 = 86.33 %** on `Cpu68020 = Cpu68000`.
+198 / 240 fixtures fully passing; 16 fully failing; 26 partial.
+
+The 14 % gap maps cleanly onto the later phases:
+
+| Cluster | Fixtures | Pass rate | Resolves in |
+|---|---|---|---|
+| Scaled-index brief extension word | 16 (ADD/ADDI/CLR/LEA/MOVE/PEA/CHK `idx` variants) | 10-60 % (≈ 1-in-4 cases happen to use scale = ×1) | Phase 3 |
+| Bit-field family (BFTST/BFEXTU/BFEXTS/BFINS/BFCLR/BFSET/BFCHG/BFFFO) | 8 | 0 % | Phase 5e |
+| 32-bit MUL.L / DIV.L | 2 (MULL, DIVL) | 0 % | Phase 5a |
+| 68010-era control regs / RTD / BKPT / EXTB.l / MOVE from CCR | 5 | 0 % | Phase 1.5 (forking `Cpu68010` ahead of `Cpu68020`) |
+| SR M-flag (bit 12) handling in MOVE-to-SR / ORI-to-SR / EORI-to-SR | 3 partial | 10-60 % | Phase 6 |
+| DIVS / DIVU edge-case flags | 2 partial | 40-80 % | Phase 5a follow-up |
+| NBCD / SBCD flag edge cases | 2 partial | 70-80 % | likely Phase 1 (carries over from the 68000 corner cases) |
 
 This phase produces no production code — just a CI gate +
 baseline measurement.
