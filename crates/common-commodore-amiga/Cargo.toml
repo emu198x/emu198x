@@ -8,6 +8,8 @@ license.workspace = true
 [dependencies]
 mos-cia-8520 = { path = "../mos-cia-8520" }
 commodore-paula-8364 = { path = "../commodore-paula-8364" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs" }
+commodore-denise-ecs = { path = "../commodore-denise-ecs" }
 serde = { workspace = true }
 
 [lints]

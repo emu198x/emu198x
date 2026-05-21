@@ -418,6 +418,8 @@ dependencies = [
 name = "common-commodore-amiga"
 version = "0.1.0"
 dependencies = [
+ "commodore-denise-ecs",
+ "commodore-denise-ocs",
  "commodore-paula-8364",
  "mos-cia-8520",
  "serde",

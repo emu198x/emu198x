@@ -15,5 +15,8 @@
 //! `knowledge/decisions/amiga-full-family-architecture-review.md`.
 
 pub mod cia;
+pub mod denise_chip;
 pub mod memory;
 pub mod rtc;
+
+pub use denise_chip::DeniseChip;
