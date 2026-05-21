@@ -14,4 +14,5 @@
 //! pattern. See Seam 1 of
 //! `knowledge/decisions/amiga-full-family-architecture-review.md`.
 
+pub mod cia;
 pub mod rtc;
