@@ -1319,7 +1319,17 @@ impl Cpu68000 {
     /// Each tag represents a point in the instruction's execution pipeline.
     /// After completing its work, each handler sets the next tag and queues
     /// micro-ops needed to reach it.
+    ///
+    /// The variant continuation hook (set by 68010 / 68020 wrappers) runs
+    /// first; if it returns `true` the hook handled the tag (typically a
+    /// variant-reserved tag in the 200+ range) and the 68000's own
+    /// dispatch is skipped.
     pub fn continue_instruction(&mut self) {
+        if let Some(hook) = self.variant_continue_hook
+            && hook(self)
+        {
+            return;
+        }
         match self.followup_tag {
             // --- Operand fetch pipeline ---
             TAG_FETCH_SRC_EA => {

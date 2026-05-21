@@ -461,7 +461,55 @@ Both crates now at 99 % +. Remaining 68020 partials: CHK
 (Format $2 frame), NBCD / SBCD / ABCD (Musashi-specific
 "undefined V" computation). All bounded scope.
 
-### Phase 7 — instruction cache
+### Phase 7 — continuation hook + RTD
+
+**Status: complete (2026-05-21).**
+
+The third per-variant extension-point shape on `Cpu68000`. The
+existing pair — `variant_decode_hook` (whole new opcodes) and
+`variant_*_enable` booleans (behaviour deltas) — couldn't host
+*multi-step* instructions: anything that needs the
+`continue_instruction` dispatch loop to recognise a follow-up tag
+the 68000 doesn't define. RTD was the canonical example; the
+68020 memory-EA variants of MULL / DIVL / BF / CHK2 / CAS will
+need the same shape once they land.
+
+- **`variant_continue_hook: Option<fn(&mut Cpu68000) -> bool>`**:
+  consulted at the top of `continue_instruction`. Returning `true`
+  bypasses the 68000's own match arm. Variants reserve tag
+  numbers in the 200+ range (the 68000 uses 0..=80ish).
+- **`variant_pending_disp: u32`**: generic 32-bit stash for
+  continuation state. RTD uses it for the sign-extended `d16`;
+  future opcodes can repurpose it.
+- **`Cpu68010::new()` installs both hooks** (decode +
+  continue). `Cpu68020::new()` inherits the 68010's
+  continue-hook through the wrapped `Cpu68010` — only when the
+  68020 gains its own continuation-bearing opcodes does it need
+  to override.
+
+RTD itself:
+
+- Decode: consume the `d16` extension word, sign-extend, stash in
+  `variant_pending_disp`, queue `[PopLongHi, Execute]` with tag
+  `TAG_RTD_PC_HI`.
+- Continue `TAG_RTD_PC_HI`: queue `[PopLongLo, Execute]` with
+  `TAG_RTD_PC_LO`. The 68000 pop micro-ops auto-advance SP by 4.
+- Continue `TAG_RTD_PC_LO`: PC = `self.data` (the combined pop),
+  apply the stashed `d16` to SP, finalise with `FetchIRC +
+  PromoteIRC`.
+
+Baselines after Phase 7:
+
+| Crate | Pass rate | Δ | Fully failing |
+|---|---|---|---|
+| `motorola-68010` | **2279 / 2290 = 99.52 %** | +10 | **0 / 229** |
+| `motorola-68020` | **2386 / 2400 = 99.42 %** | +10 | **0 / 240** |
+
+Both crates now have **zero fully-failing fixtures**. Remaining
+gap is BCD V-flag (NBCD / SBCD / ABCD) and CHK Format $2 frame
+— all bounded scope per-instruction quirks.
+
+### Phase 8 — instruction cache
 
 **Goal**: 256-byte direct-mapped instruction cache, CACR /
 CAAR control, hit/miss in the fetch path.
@@ -480,7 +528,7 @@ cached on 68020). It exists in this implementation mainly so
 cache-control instructions work correctly; runtime performance
 is fine without modelling cache misses cycle-accurately.
 
-### Phase 8 — coprocessor interface stubs (F-line)
+### Phase 9 — coprocessor interface stubs (F-line)
 
 **Goal**: F-line opcodes don't trap as illegal; they perform
 the coprocessor handshake (CIR/CSR/CCR memory-mapped reads/

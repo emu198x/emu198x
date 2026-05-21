@@ -38,6 +38,16 @@
 use std::ops::{Deref, DerefMut};
 
 use motorola_68000::Cpu68000;
+use motorola_68000::microcode::MicroOp;
+
+/// Variant follow-up tag reserved by the 68010 / 68020 / etc.
+/// crates. The 68000 uses tag numbers up to ≈ 80; 200+ avoids any
+/// collision.
+///
+/// RTD pop sequence: PopLongHi → save PC hi → PopLongLo → combine
+/// PC, adjust SP by `d16`, finalise.
+const TAG_RTD_PC_HI: u8 = 200;
+const TAG_RTD_PC_LO: u8 = 201;
 
 /// Motorola 68010 CPU.
 ///
@@ -56,6 +66,7 @@ impl Cpu68010 {
     pub fn new() -> Self {
         let mut inner = Cpu68000::new();
         inner.variant_decode_hook = Some(decode_68010_opcode);
+        inner.variant_continue_hook = Some(continue_68010_opcode);
         // 68010+ pushes an eight-byte exception frame with a
         // Format/Vector word at the top. The 68020 inherits this
         // through Cpu68010::new().
@@ -122,16 +133,70 @@ pub fn decode_68010_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
         // MOVE from CCR, Dn destination (mode 0).
         op if (op & 0xFFF8) == 0x42C0 => execute_move_from_ccr_to_dn(cpu, op),
 
+        // RTD #d16 ($4E74). Pops PC from the stack, then adjusts SP
+        // by a 16-bit sign-extended displacement that follows the
+        // opcode as an extension word. Multi-step; bus cycles run
+        // through the continuation hook.
+        0x4E74 => execute_rtd(cpu),
+
         // MOVEC — read CR into Rn ($4E7A) / write Rn into CR ($4E7B).
         // Privileged; both forms take a single 16-bit extension word.
         0x4E7A => execute_movec_cr_to_rn(cpu),
         0x4E7B => execute_movec_rn_to_cr(cpu),
 
-        // Everything else (RTD, BKPT, plus the 68020+ family) falls
+        // Everything else (BKPT, plus the 68020+ family) falls
         // through. The 68000's default ILLEGAL trap is the correct
         // 68010 behaviour for BKPT with no debugger attached.
         _ => false,
     }
+}
+
+/// Continuation hook installed alongside the decode hook in
+/// [`Cpu68010::new`]. Dispatches the 68010-reserved follow-up tags;
+/// returns `false` for any tag the 68010 doesn't claim so the
+/// 68000's default `continue_instruction` dispatch can run.
+pub fn continue_68010_opcode(cpu: &mut Cpu68000) -> bool {
+    match cpu.followup_tag {
+        TAG_RTD_PC_HI => {
+            // PopLongHi has placed the PC high word in self.data
+            // (already shifted << 16). Queue PopLongLo to combine.
+            cpu.followup_tag = TAG_RTD_PC_LO;
+            cpu.micro_ops.push(MicroOp::PopLongLo);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_RTD_PC_LO => {
+            // self.data now holds the full 32-bit return address.
+            // The stack pointer has already advanced 4 bytes via the
+            // pops; RTD additionally moves it by `d16`.
+            let pc = cpu.data;
+            let d16 = cpu.variant_pending_disp;
+            let sp = cpu.regs.active_sp();
+            cpu.regs.set_active_sp(sp.wrapping_add(d16));
+            cpu.regs.pc = pc;
+            cpu.next_fetch_addr = pc;
+            cpu.micro_ops.clear();
+            cpu.micro_ops.push(MicroOp::FetchIRC);
+            cpu.micro_ops.push(MicroOp::PromoteIRC);
+            cpu.in_followup = false;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// RTD #d16 ($4E74). Initial dispatch: consume the displacement
+/// extension word, stash sign-extended into `variant_pending_disp`,
+/// and queue the PC pop. The rest of the work happens in the
+/// continuation hook.
+fn execute_rtd(cpu: &mut Cpu68000) -> bool {
+    let ext = cpu.consume_irc();
+    cpu.variant_pending_disp = i32::from(ext as i16) as u32;
+    cpu.in_followup = true;
+    cpu.followup_tag = TAG_RTD_PC_HI;
+    cpu.micro_ops.push(MicroOp::PopLongHi);
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
 }
 
 /// `MOVE CCR, Dn` — write the low byte of SR into bits 7-0 of Dn,

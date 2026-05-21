@@ -426,6 +426,32 @@ pub struct Cpu68000 {
     /// `self.data` once the format push completes.
     #[serde(skip)]
     pub(crate) exc_pending_pc: u32,
+
+    /// Variant continuation hook: gives a wrapping variant a chance
+    /// to dispatch follow-up tags that the 68000 doesn't know about.
+    ///
+    /// Called by [`Self::continue_instruction`] *before* the inner
+    /// match. Returning `true` means the hook handled the tag; the
+    /// 68000's own dispatch is skipped. Returning `false` (or
+    /// leaving the hook `None`) preserves pure-68000 behaviour.
+    ///
+    /// Variants reserve tag numbers in the 200+ range (the 68000
+    /// uses 0..=80ish) to avoid collisions. The 68010 wrapper
+    /// installs a hook in `new()`; the 68020 inherits it through
+    /// the wrapped `Cpu68010` and only needs to override when it
+    /// gains its own continuation-bearing opcodes.
+    #[serde(skip)]
+    pub variant_continue_hook: Option<fn(&mut Cpu68000) -> bool>,
+
+    /// Generic 32-bit stash for variant continuation state.
+    ///
+    /// Used by multi-step variant instructions to carry data across
+    /// follow-up tag transitions — for example, `RTD` consumes the
+    /// `d16` extension word in its first dispatch, stashes the
+    /// sign-extended value here, and applies it to SP after the PC
+    /// pop completes.
+    #[serde(skip)]
+    pub variant_pending_disp: u32,
 }
 
 impl Cpu68000 {
@@ -487,6 +513,8 @@ impl Cpu68000 {
             variant_six_word_frame: false,
             variant_extended_sr_writes: false,
             exc_pending_pc: 0,
+            variant_continue_hook: None,
+            variant_pending_disp: 0,
         }
     }
 
