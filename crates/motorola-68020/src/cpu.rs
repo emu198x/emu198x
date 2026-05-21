@@ -55,6 +55,11 @@ impl Cpu68020 {
         // leaves it false (only the 68000-shared 0xA71F bits are
         // writable).
         inner.variant_extended_sr_writes = true;
+        // The 68020+ promotes CHK / CHK2 / divide-by-zero / TRAPV /
+        // TRAPcc / Trace to a 12-byte Format-$2 exception frame
+        // with an extra Instruction-Address long at the top.
+        // M68000PRM § 8.6.3.
+        inner.variant_format2_vectors = true;
         Self { inner }
     }
 

@@ -152,6 +152,14 @@ pub const TAG_EXC_FINISH: u8 = 42;
 /// pending PC into `self.data` and continue with the regular PC
 /// push. Only used when `variant_six_word_frame` is enabled.
 pub const TAG_EXC_STACK_FORMAT: u8 = 43;
+/// Exception: 68020+ Format `$2` — high word of the Instruction
+/// Address has been pushed; queue the low word. Sits above the
+/// Format/Vector word in the frame.
+pub const TAG_EXC_STACK_INSTR_ADDR_HI: u8 = 44;
+/// Exception: 68020+ Format `$2` — low word of the Instruction
+/// Address pushed; restore `self.data` to the Format/Vector value
+/// and continue with the format-word push.
+pub const TAG_EXC_STACK_INSTR_ADDR_LO: u8 = 45;
 
 // Address error exception follow-ups (14-byte group 0 frame)
 /// AE: push SR word.
@@ -407,6 +415,22 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_six_word_frame: bool,
 
+    /// 68020+ Format `$2` exception frame for instruction-error
+    /// traps.
+    ///
+    /// On the 68010 every group-1/2 exception uses the short
+    /// Format `$0` 8-byte frame. The 68020+ promotes
+    /// CHK / CHK2 / divide-by-zero / TRAPV / TRAPcc / Trace
+    /// (vectors 5, 6, 7, 9) to a 12-byte Format `$2` frame that
+    /// adds an "Instruction Address" long at the top — the address
+    /// of the instruction that took the trap (= `instr_start_pc`).
+    ///
+    /// Consulted by `begin_group1_exception`; the 68020 wrapper
+    /// enables it. The 68010 leaves it false (Format `$0` for
+    /// everything). PRM § 8.6.3.
+    #[serde(skip)]
+    pub variant_format2_vectors: bool,
+
     /// 68020+ extended SR write mask (allows the M-flag, bit 12).
     ///
     /// The 68000 / 68010 SR mask is `$A71F` (T1, S, IPL[2:0], CCR).
@@ -511,6 +535,7 @@ impl Cpu68000 {
             variant_decode_hook: None,
             variant_scaled_index: false,
             variant_six_word_frame: false,
+            variant_format2_vectors: false,
             variant_extended_sr_writes: false,
             exc_pending_pc: 0,
             variant_continue_hook: None,
@@ -853,18 +878,32 @@ impl Cpu68000 {
         self.micro_ops.clear();
 
         if self.variant_six_word_frame {
-            // 68010+: push Format/Vector word first (it sits at the
-            // highest address in the frame, SP+6 in the final
-            // layout). Stash the PC so `TAG_EXC_STACK_FORMAT` can
-            // restore it into `self.data` for the subsequent
-            // PushLongHi.
+            // Stash the PC so `TAG_EXC_STACK_FORMAT` can restore it
+            // into `self.data` for the PC push.
             self.exc_pending_pc = pc_to_push;
-            // Short frame: format = $0, vector offset = vector * 4.
-            // M68000PRM § 8.6.
-            self.data = u32::from(u16::from(vector) * 4);
-            self.followup_tag = TAG_EXC_STACK_FORMAT;
-            self.micro_ops.push(MicroOp::PushWord);
-            self.micro_ops.push(MicroOp::Execute);
+
+            if self.variant_format2_vectors && matches!(vector, 5 | 6 | 7 | 9) {
+                // 68020+ Format `$2` 12-byte frame: push the
+                // Instruction Address long *above* the Format word.
+                // M68000PRM § 8.6.3 lists the Format-$2 vectors as
+                // CHK / CHK2 (6), divide-by-zero (5), TRAPV / TRAPcc
+                // (7), and Trace (9). The Instruction Address is
+                // the PC of the faulting instruction —
+                // `instr_start_pc` is exactly that.
+                self.data = self.instr_start_pc;
+                self.followup_tag = TAG_EXC_STACK_INSTR_ADDR_HI;
+                self.micro_ops.push(MicroOp::PushLongHi);
+                self.micro_ops.push(MicroOp::Execute);
+            } else {
+                // Short Format `$0` 8-byte frame: push the
+                // Format/Vector word first (it sits at the highest
+                // address, SP+6 in the final layout).
+                // M68000PRM § 8.6.
+                self.data = u32::from(u16::from(vector) * 4);
+                self.followup_tag = TAG_EXC_STACK_FORMAT;
+                self.micro_ops.push(MicroOp::PushWord);
+                self.micro_ops.push(MicroOp::Execute);
+            }
         } else {
             // 68000: push PC directly (6-byte frame: PC + SR).
             self.data = pc_to_push;

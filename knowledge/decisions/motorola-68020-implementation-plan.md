@@ -544,6 +544,47 @@ Baselines after Phase 7.5:
 **68010 is fully green.** Only fixture not at 100 % on 68020 is
 CHK (1/10) — the Format $2 instruction-error exception frame.
 
+### Phase 6 closeout — Format $2 frames
+
+**Status: complete (2026-05-21).**
+
+The 68010 short Format `$0` frame from Phase 6 is uniform across
+every group-1/2 exception. The 68020+ promotes a specific set of
+"instruction-error" vectors to a 12-byte Format `$2` frame that
+adds an *Instruction Address* long above the Format word. This
+gives the trap handler enough state to know **which instruction
+faulted**, not just where to return to. PRM § 8.6.3.
+
+Vectors promoted to Format `$2`:
+- 5 (Divide by Zero)
+- 6 (CHK / CHK2)
+- 7 (TRAPV / TRAPcc)
+- 9 (Trace)
+
+What landed:
+
+- **New flag**: `Cpu68000.variant_format2_vectors: bool`. The 68020
+  wrapper enables it; the 68010 leaves it false.
+- **Two new continuation tags**:
+  `TAG_EXC_STACK_INSTR_ADDR_HI` and `TAG_EXC_STACK_INSTR_ADDR_LO`,
+  walked in order before rejoining the existing
+  `TAG_EXC_STACK_FORMAT` arm.
+- **`begin_group1_exception`** branches: when the flag is set and
+  the vector is in the Format-$2 set, push the Instruction
+  Address long first (the value is `self.instr_start_pc`, which is
+  always the address of the faulting opcode by the time
+  `begin_group1_exception` fires). The Format word's top nibble
+  becomes `$2` instead of `$0`.
+
+Final baselines:
+
+| Crate | Pass rate | Δ | Fully failing |
+|---|---|---|---|
+| `motorola-68010` | **2290 / 2290 = 100.00 %** | (unchanged) | **0** |
+| `motorola-68020` | **2400 / 2400 = 100.00 %** | +9 | **0** |
+
+**Both crates at 100 %.** The Tom Harte 68k corpus is fully green.
+
 ### Phase 8 — instruction cache
 
 **Goal**: 256-byte direct-mapped instruction cache, CACR /

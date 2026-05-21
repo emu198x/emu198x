@@ -22,9 +22,9 @@ use crate::cpu::{
     TAG_AE_PUSH_SR, TAG_BCC_EXECUTE, TAG_BCD_DST_READ, TAG_BCD_SRC_READ, TAG_BSR_EXECUTE,
     TAG_CHK_EXECUTE, TAG_DATA_DST_LONG, TAG_DATA_SRC_LONG, TAG_DBCC_EXECUTE, TAG_EA_DST_DISP,
     TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
-    TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_FORMAT, TAG_EXC_STACK_PC_HI,
-    TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA,
-    TAG_FETCH_SRC_DATA,
+    TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_FORMAT, TAG_EXC_STACK_INSTR_ADDR_HI,
+    TAG_EXC_STACK_INSTR_ADDR_LO, TAG_EXC_STACK_PC_HI, TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR,
+    TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA,
     TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
     TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_PC_HI,
     TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
@@ -1704,13 +1704,34 @@ impl Cpu68000 {
             }
 
             // --- Exception handlers ---
+            TAG_EXC_STACK_INSTR_ADDR_HI => {
+                // High word of the Instruction Address has been
+                // pushed; queue the low word.
+                self.followup_tag = TAG_EXC_STACK_INSTR_ADDR_LO;
+                self.micro_ops.push(MicroOp::PushLongLo);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+
+            TAG_EXC_STACK_INSTR_ADDR_LO => {
+                // Low word of the Instruction Address has been
+                // pushed; now push the Format/Vector word. Format
+                // code = $2 for the instruction-error frame.
+                let vector = self.exc_vector.unwrap_or(0);
+                self.data = 0x2000 | u32::from(u16::from(vector) * 4);
+                self.followup_tag = TAG_EXC_STACK_FORMAT;
+                self.micro_ops.push(MicroOp::PushWord);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+
             TAG_EXC_STACK_FORMAT => {
                 // The Format/Vector word has been pushed; now restore
                 // the pending PC into `self.data` and start the
                 // regular PC push. From here the flow rejoins the
                 // 68000 sequence (PushLongHi → PC low → SR → vector
-                // fetch → finish), giving the 68010+ 8-byte frame:
-                //   SP+0: SR  +2: PC hi  +4: PC lo  +6: Format
+                // fetch → finish), giving the 68010+ 8-byte frame
+                // (or the 68020+ 12-byte Format-$2 frame, with the
+                // Instruction Address long sitting above the Format
+                // word).
                 self.data = self.exc_pending_pc;
                 self.followup_tag = TAG_EXC_STACK_PC_HI;
                 self.micro_ops.push(MicroOp::PushLongHi);
