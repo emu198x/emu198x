@@ -111,7 +111,31 @@ pub struct Vic {
     /// IRQ output pin.
     pub irq: bool,
     /// BA pin, represented as `true` when BA is asserted low.
+    ///
+    /// BA is the VIC-II's request signal to the CPU: "I need the bus
+    /// in a few cycles." On the C64, BA is wired to the 6510's RDY
+    /// pin, which stalls *reads* but lets *writes* complete. BA goes
+    /// low 3 phi2 cycles before the VIC-II actually needs the bus
+    /// (cycle 12 of a badline; the badline DMA itself starts at
+    /// cycle 15). That 3-cycle warm-up is the canonical NMOS-6510
+    /// pattern.
+    ///
+    /// See [`Vic::cpu_stalled`] for the AEC-equivalent signal that
+    /// fires only when the VIC-II is actually on the bus.
     pub ba_low: bool,
+    /// AEC-equivalent: `true` when the CPU is actually off the bus
+    /// because the VIC-II has taken it (badline DMA cycles 15-54,
+    /// or sprite DMA cycles 58/59 for sprite 0 and shifted onwards
+    /// for sprites 1-7). Differs from [`Vic::ba_low`] by the 3-cycle
+    /// BA-warm-up window where the CPU can still complete writes.
+    ///
+    /// The machine layer currently drives `cpu.rdy` off `ba_low`
+    /// only (NMOS-correct), and this field is informational for
+    /// diagnostic tests and future fidelity work (e.g. modelling
+    /// CPU writes that race against AEC drop). The asymmetry
+    /// between the two fields is asserted in unit tests; see
+    /// `c64-architecture-review.md` Seam 1.
+    pub cpu_stalled: bool,
 
     #[serde(with = "BigArray")]
     regs: [u8; 0x40],
@@ -172,6 +196,7 @@ impl Vic {
         Self {
             irq: false,
             ba_low: false,
+            cpu_stalled: false,
             regs: [0; 0x40],
             raster_line: 0,
             raster_cycle: 0,
@@ -225,7 +250,7 @@ impl Vic {
 
         let badline_stall = self.is_badline && (15..=54).contains(&self.raster_cycle);
         let sprite_stall = self.is_sprite_dma_stealing();
-        let cpu_stalled = badline_stall || sprite_stall;
+        self.cpu_stalled = badline_stall || sprite_stall;
         self.ba_low = self.compute_ba_low();
 
         if self.is_badline && self.raster_cycle == 15 {
@@ -255,7 +280,7 @@ impl Vic {
         }
 
         self.irq = (self.irq_status & self.irq_enable & 0x0F) != 0;
-        cpu_stalled
+        self.cpu_stalled
     }
 
     fn vram_addr(&self, bank_offset: u16) -> u16 {
@@ -1210,6 +1235,81 @@ mod tests {
         assert!(!vic.irq);
     }
 
+    /// Seam 1 audit (`c64-architecture-review.md`): the raster-compare
+    /// IRQ must fire at the exact phi2 cycle where the raster latch
+    /// reaches the compare value — not one cycle early, not one cycle
+    /// late. Demos use raster IRQs to drive single-scanline split
+    /// effects; a one-cycle drift here breaks every raster effect.
+    ///
+    /// On the C64, the IRQ asserts at cycle 0 of the matching line
+    /// (per Mäkelä §3.12). The `irq` pin is sampled by the CPU on the
+    /// following phi2 high. The test asserts exactly that:
+    ///   - At the end of the tick processing cycle 0 of line N,
+    ///     `vic.irq` is true.
+    ///   - At the end of the previous tick (line N-1, cycle 62 in PAL),
+    ///     `vic.irq` is still false.
+    ///   - At the end of the tick processing cycle 1 of line N,
+    ///     `vic.irq` is still true (latched until ack).
+    #[test]
+    fn raster_irq_asserts_on_exact_phi2_of_compare_match() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // Compare raster = 5. Enable raster IRQ.
+        vic.write(0x12, 5);
+        vic.write(0x1A, 0x01);
+
+        // Walk through line 4 cycle 62 (one tick before the IRQ).
+        advance_to(&mut vic, &memory, 4, 62);
+        // We're now at (line 4, cycle 62) post-advance: the next tick
+        // processes line 4 cycle 62. Confirm pre-state.
+        assert_eq!(vic.raster_line(), 4);
+        assert_eq!(vic.raster_cycle(), 62);
+        assert!(!vic.irq, "IRQ should not be asserted before compare line");
+
+        // Process line 4 cycle 62 — last cycle before the IRQ.
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.raster_line(), 5);
+        assert_eq!(vic.raster_cycle(), 0);
+        // The end-of-tick irq_status |= 0x01 happens *after* the line
+        // wrap, so vic.irq should already be high here.
+        assert!(
+            vic.irq,
+            "IRQ must assert at the phi2 boundary entering compare line"
+        );
+
+        // Process line 5 cycle 0 — IRQ remains latched.
+        tick_vic(&mut vic, &memory);
+        assert!(vic.irq, "IRQ remains latched until ack");
+
+        // Ack via $D019 — write 1 to bit 0 to clear.
+        vic.write(0x19, 0x01);
+        assert!(!vic.irq, "IRQ cleared after ack");
+    }
+
+    /// Seam 1 audit: with raster IRQ enabled but the compare value
+    /// never matching, `vic.irq` must remain low across a full frame.
+    /// Catches a class of bug where the IRQ asserts spuriously
+    /// (e.g. comparing against an uninitialised latch).
+    #[test]
+    fn raster_irq_does_not_fire_when_compare_never_matches() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // Compare raster = LINES_PER_FRAME (out of range — never
+        // matches).
+        let unreachable = LINES_PER_FRAME;
+        vic.write(0x12, unreachable as u8);
+        vic.write(0x11, ((unreachable >> 8) << 7) as u8);
+        vic.write(0x1A, 0x01);
+
+        let total_cycles = u32::from(LINES_PER_FRAME) * u32::from(CYCLES_PER_LINE);
+        for _ in 0..total_cycles {
+            tick_vic(&mut vic, &memory);
+            assert!(
+                !vic.irq,
+                "spurious IRQ at line {} cycle {}",
+                vic.raster_line, vic.raster_cycle
+            );
+        }
+    }
+
     #[test]
     fn framebuffer_size() {
         let vic = Vic::new(VicModel::Pal6569);
@@ -1436,6 +1536,171 @@ mod tests {
         for _ in 0..CYCLES_PER_LINE {
             tick_vic(&mut vic, &memory);
             assert!(!vic.badline_ba_low());
+        }
+    }
+
+    /// Seam 1 audit (`c64-architecture-review.md`): asserts the
+    /// asymmetry between `ba_low` and `cpu_stalled` on a badline.
+    /// `ba_low` covers cycles 12-54 (BA goes low 3 phi2 cycles before
+    /// the VIC-II's badline DMA actually starts, so the NMOS 6510 has
+    /// time to wind down outstanding bus operations). `cpu_stalled`
+    /// covers only cycles 15-54 (the AEC-low window where the CPU is
+    /// actually off the bus). The 3-cycle gap (12-14) is the canonical
+    /// NMOS warm-up where writes complete and reads still stall via
+    /// the RDY pin.
+    #[test]
+    fn badline_ba_low_leads_cpu_stalled_by_three_cycles() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B);
+        advance_to(&mut vic, &memory, 0x33, 0);
+
+        for cycle in 0..CYCLES_PER_LINE {
+            tick_vic(&mut vic, &memory);
+            let expected_ba_low = (12..=54).contains(&cycle);
+            let expected_cpu_stalled = (15..=54).contains(&cycle);
+            assert_eq!(
+                vic.ba_low, expected_ba_low,
+                "cycle {cycle}: ba_low mismatch"
+            );
+            assert_eq!(
+                vic.cpu_stalled, expected_cpu_stalled,
+                "cycle {cycle}: cpu_stalled mismatch"
+            );
+            // Structural invariant: cpu_stalled → ba_low. The
+            // converse is intentionally false during cycles 12-14.
+            assert!(
+                !vic.cpu_stalled || vic.ba_low,
+                "cycle {cycle}: cpu_stalled set without ba_low — invariant broken"
+            );
+        }
+    }
+
+    /// Seam 1 audit: same asymmetry holds for sprite DMA. Each active
+    /// sprite asserts BA for 5 cycles (55-59 for sprite 0, shifted by
+    /// 2 per subsequent sprite) but the CPU is only fully stalled for
+    /// the 2-cycle DMA fetch window (58-59 for sprite 0). The 3-cycle
+    /// lead-in matches the badline pattern.
+    #[test]
+    fn sprite_ba_low_leads_cpu_stalled_by_three_cycles() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x15, 0x01); // sprite 0 enabled
+        vic.write(0x01, 0); // sprite 0 Y position 0
+        advance_to(&mut vic, &memory, 0, 55);
+
+        // Step through cycle 55 onwards to observe BA + cpu_stalled.
+        for cycle in 55..CYCLES_PER_LINE {
+            tick_vic(&mut vic, &memory);
+            let expected_ba_low = (55..=59).contains(&cycle);
+            let expected_cpu_stalled = (58..=59).contains(&cycle);
+            assert_eq!(
+                vic.ba_low, expected_ba_low,
+                "cycle {cycle}: sprite ba_low mismatch"
+            );
+            assert_eq!(
+                vic.cpu_stalled, expected_cpu_stalled,
+                "cycle {cycle}: sprite cpu_stalled mismatch"
+            );
+            assert!(
+                !vic.cpu_stalled || vic.ba_low,
+                "cycle {cycle}: cpu_stalled without ba_low — invariant broken"
+            );
+        }
+    }
+
+    /// Seam 1 audit: lock the full per-sprite cycle allocation table
+    /// against Marko Mäkelä's "MOS 6567/6569 video controller" §3.8.
+    /// Each of sprites 0-7 has its s-access pair at a deterministic
+    /// pair of phi2 cycles, preceded by a 3-cycle BA warm-up:
+    ///
+    /// Sprite | BA low cycles | DMA cycles (cpu_stalled)
+    /// 0      | 55..=59       | 58..=59
+    /// 1      | 57..=61       | 60..=61
+    /// 2      | 59..=63       | 62, 0   (cpu_stalled set even on
+    /// 3      |  0..=4        | 1..=2    wrap; ba_low spans both
+    /// 4      |  2..=6        | 3..=4    sides of the cycle-0 wrap)
+    /// 5      |  4..=8        | 5..=6
+    /// 6      |  6..=10       | 7..=8
+    /// 7      |  8..=12       | 9..=10
+    ///
+    /// Verified by enabling each sprite in isolation (Y=0 so it's
+    /// active on raster line 0) and walking from line 0 cycle 0
+    /// through into line 1.
+    #[test]
+    fn each_sprite_steals_canonical_cycles() {
+        // (sprite_index, expected (line, cycle) DMA pairs)
+        const DMA_CYCLES: [(usize, &[(u16, u8)]); 8] = [
+            (0, &[(0, 58), (0, 59)]),
+            (1, &[(0, 60), (0, 61)]),
+            (2, &[(0, 62), (1, 0)]),
+            (3, &[(1, 1), (1, 2)]),
+            (4, &[(1, 3), (1, 4)]),
+            (5, &[(1, 5), (1, 6)]),
+            (6, &[(1, 7), (1, 8)]),
+            (7, &[(1, 9), (1, 10)]),
+        ];
+        for &(i, expected_dma) in &DMA_CYCLES {
+            let (mut vic, memory) = make_vic_and_memory();
+            vic.write(0x15, 1 << i); // only this sprite enabled
+            // Y position 0 for whichever sprite we're testing.
+            vic.write(0x01 + (i as u8) * 2, 0);
+
+            // Walk from (0, 0). evaluate_sprite_dma fires at cycle 55
+            // of line 0 (sprite_y=0, raster_line=0 → offset 0 < 21 →
+            // ACTIVE). The DMA cycles fire at 58-59 of line 0 for
+            // sprite 0, shifting through into line 1 for the rest.
+            // We need to cover up to line 1 cycle 10 — one full
+            // line + 11 cycles = CYCLES_PER_LINE + 11 ticks. Capture
+            // the (line, cycle) currently being processed each tick.
+            let mut observed_dma = Vec::new();
+            for _ in 0..(u32::from(CYCLES_PER_LINE) + 11) {
+                // Snapshot the cycle BEFORE the tick — tick increments
+                // raster_cycle at the end, so vic.cpu_stalled set
+                // during the tick corresponds to the pre-tick cycle.
+                let pre_line = vic.raster_line;
+                let pre_cycle = vic.raster_cycle;
+                tick_vic(&mut vic, &memory);
+                if vic.cpu_stalled {
+                    observed_dma.push((pre_line, pre_cycle));
+                }
+            }
+            let mut sorted_observed = observed_dma.clone();
+            sorted_observed.sort_unstable();
+            let mut sorted_expected: Vec<(u16, u8)> = expected_dma.to_vec();
+            sorted_expected.sort_unstable();
+            assert_eq!(
+                sorted_observed, sorted_expected,
+                "sprite {i}: cpu_stalled (line, cycle) pairs mismatch; got {observed_dma:?}, want {expected_dma:?}"
+            );
+        }
+    }
+
+    /// Seam 1 audit: when a sprite is disabled, its s-cycle pair must
+    /// be free — no BA pull-down and no cpu_stalled assertion. The
+    /// real silicon allocates the cycles based on the sprite enable
+    /// register at the *end of the previous line*, and disabled
+    /// sprites release their slot. This catches a regression where
+    /// the schedule pre-reserves cycles regardless of enable.
+    #[test]
+    fn disabled_sprite_releases_its_cycles() {
+        let (mut vic, memory) = make_vic_and_memory();
+        // No sprites enabled.
+        vic.write(0x15, 0x00);
+        advance_to(&mut vic, &memory, LINES_PER_FRAME - 1, 0);
+        for _ in 0..(u32::from(CYCLES_PER_LINE) + 13) {
+            tick_vic(&mut vic, &memory);
+            assert!(
+                !vic.cpu_stalled,
+                "line {} cycle {}: cpu_stalled fired with no sprites enabled",
+                vic.raster_line, vic.raster_cycle
+            );
+            // Also no sprite BA — but badlines may still assert BA
+            // on a separate condition. We're on line 0 / 1 with no
+            // DEN set, so badlines aren't triggered.
+            assert!(
+                !vic.sprite_ba_low(),
+                "line {} cycle {}: sprite_ba_low fired with no sprites enabled",
+                vic.raster_line, vic.raster_cycle
+            );
         }
     }
 

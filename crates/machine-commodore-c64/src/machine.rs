@@ -368,7 +368,7 @@ impl C64 {
     /// Returns `true` when this tick completed a frame.
     pub fn tick(&mut self) -> bool {
         self.phi2_cycles = self.phi2_cycles.saturating_add(1);
-        let _cpu_stalled = self.vic.tick(&self.memory);
+        self.vic.tick(&self.memory);
         self.cia1.flag = !self.datasette.advance_phi2_cycle();
         self.refresh_keyboard_scan();
         self.cia1.tick();
@@ -401,7 +401,7 @@ impl C64 {
     /// Returns `true` when this tick completed a frame.
     pub fn tick_with_iec_bus(&mut self, bus: &mut IecBus) -> bool {
         self.phi2_cycles = self.phi2_cycles.saturating_add(1);
-        let _cpu_stalled = self.vic.tick(&self.memory);
+        self.vic.tick(&self.memory);
         self.cia1.flag = !self.datasette.advance_phi2_cycle();
         self.refresh_keyboard_scan();
         self.sync_iec_bus(bus);
