@@ -9,8 +9,7 @@
 mod agnus;
 mod copper;
 mod denise;
-mod memory;
-use common_commodore_amiga::{cia, rtc};
+use common_commodore_amiga::{cia, memory, rtc};
 
 pub use agnus::{
     Agnus, AgnusRegion, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_FRAME_TICKS, NTSC_LINES_PER_FRAME,

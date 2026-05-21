@@ -262,8 +262,9 @@ impl Memory {
 
     /// Directly overwrite the floating-bus state. For callers that
     /// drive the chip bus outside Memory's read/write path — e.g.
-    /// AmigaEcs routing CIA or custom-register accesses, which don't
-    /// go through Memory but still leave residue on the bus.
+    /// the machine layer routing CIA or custom-register accesses,
+    /// which don't go through Memory but still leave residue on the
+    /// bus.
     pub fn set_last_bus_value(&self, val: u16) {
         self.last_bus_value.set(val);
     }
@@ -601,9 +602,10 @@ mod tests {
     fn cia_and_custom_writes_via_memory_are_silent() {
         // Memory writes to CIA / custom address ranges don't mutate
         // any backing store — they just drop. (Real CIA and custom
-        // writes go through AmigaEcs::service_cpu_bus, which dispatches
-        // to the actual chipset. Direct Memory writes are only hit by
-        // test backdoors and test that the drop path works.)
+        // writes go through the machine layer's service_cpu_bus,
+        // which dispatches to the actual chipset. Direct Memory
+        // writes are only hit by test backdoors and test that the
+        // drop path works.)
         let mut mem = Memory::new(test_rom());
         mem.write_word(0x00_0100, 0x1234);
         mem.write_word(0x00BFE001, 0x0203);
