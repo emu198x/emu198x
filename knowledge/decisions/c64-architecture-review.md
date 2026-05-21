@@ -1,7 +1,7 @@
 # Decision: C64 architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** In progress — Seam 4 landed 2026-05-20
+**Status:** In progress — Seams 1 (audit) + 4 landed 2026-05-20/21
 
 ## What this is
 
@@ -54,6 +54,8 @@ If the review below appears to require revisiting any of these, the review is wr
 **Cross-validation references.** VICE's `vicii-cycle.c` is the open canonical implementation of the BA / sprite DMA schedule. Hoxs64 is an independent re-implementation that's bit-for-bit Marko-compliant. Either is a per-line reference for our schedule.
 
 **Scope.** ~50 lines in `mos-vic-ii` (cycle accounting), ~20 lines in the machine-layer tick (audit), one structural waypoint test in `runtime-commodore-c64`.
+
+**Status: audit landed 2026-05-21** (commit `a9ab627`). Promoted `cpu_stalled` from a discarded return value to a public field on `Vic`. Audit conclusion: `ba_low` (cycles 12-54 of a badline, 5-cycle window per sprite) and `cpu_stalled` (cycles 15-54 / 2-cycle per sprite) are NOT redundant — they encode the 3-cycle NMOS warm-up between BA assertion and AEC drop. Machine layer correctly drives `cpu.rdy` off `ba_low` (NMOS read-stall semantics); `cpu_stalled` is exposed for future fidelity work modelling writes that race against AEC drop. Six lock-down tests added: badline asymmetry, sprite asymmetry, full 8-sprite DMA cycle table vs Mäkelä §3.8, disabled-sprite cycle release, raster IRQ exact-phi2 assertion, raster IRQ non-spurious-fire. No engine behavior change. Subsequent engine work (e.g. cycle-count corrections from a regression) bumps `FRAME_ROUTING_VERSION` and triggers re-capture.
 
 **Why this matters for other systems.** Every system with cycle-stealing video DMA (BBC Micro, Atari 800/XL, Apple II HBL, Amiga blitter) shares the same seam shape. Get the C64's right; the pattern transfers.
 

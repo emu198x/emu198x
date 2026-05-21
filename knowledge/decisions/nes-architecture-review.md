@@ -1,7 +1,7 @@
 # Decision: NES architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** In progress — Seam 4 landed 2026-05-20
+**Status:** In progress — Seams 1 (partial) + 4 landed 2026-05-20/21
 
 ## What this is
 
@@ -70,6 +70,8 @@ The same pattern extends to APU once Seam 1 is stable.
 - *FCEUX* — older but well-known; second cross-check.
 
 **Scope.** Test-harness work — no PPU code changes until a blargg test fails. ~150 lines of test-harness infrastructure + 10 test ROMs in `test-data/`. Per-test fix scopes vary; experience from other emulator codebases suggests 1-3 small bugs surface, each fixable in <20 lines.
+
+**Status: partial landed 2026-05-21.** Harness in `crates/machine-nintendo-nes/tests/blargg_ppu.rs` polls the `$6000` status byte after the `DE B0 61` signature appears at `$6001-$6003`. 12 ppu_vbl_nmi + oam_read/stress tests wired (the sprite_hit + sprite_overflow corpus uses a different console-based protocol; deferred to a separate harness). Baseline: 7 passing / 12 total. One per-test fix landed: `mos-6502` NMI boundary edge-detect removed (commit `65a1b9d`) — fixes ppu_vbl_nmi/04-nmi_control "Immediate occurrence should be after NEXT instruction". Five tests remain failing (real PPU fidelity bugs in NMI/VBL timing precision, suppression race, NMI off-timing, odd-frame dot-skip BG-enable race, OAM stress) — each needs targeted per-test investigation.
 
 **Why this matters for other systems.** The NES is the densest test-ROM ecosystem of any 8-bit system. Establishing the harness pattern here gives the Game Boy (Mooneye + blargg) and CGB the same shape later.
 
