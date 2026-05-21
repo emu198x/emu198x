@@ -1,7 +1,7 @@
 # Decision: NES architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** In progress — Seams 1 (partial) + 4 landed 2026-05-20/21
+**Status:** In progress — Seams 1 (partial), 2, 4 landed 2026-05-20/21
 
 ## What this is
 
@@ -97,6 +97,8 @@ The same pattern extends to APU once Seam 1 is stable.
 The Spectrum's `gamepad_maps_for_machine` pattern (`crates/emu198x-spectrum/src/ui/app.rs`) is the canonical reference. The NES is simpler — no variant dispatch since all variants have the same controller surface.
 
 **Scope.** ~30 lines in `runtime-nintendo-nes/src/input.rs`, ~20 lines in `emu198x-nes/src/main.rs`, ~10 lines in `machine-nintendo-nes/src/lib.rs` for `set_controller2`.
+
+**Status: landed 2026-05-21** (commit `a4802c3`). machine-nintendo-nes: `controller2_state` + `controller2_shift` fields, `set_controller2` API, $4017 read path with the same strobe-latched shift register protocol used by $4016. The $4016 strobe falling edge latches BOTH controllers' state. runtime-nintendo-nes::input: routes `InputEvent::Button { port: 1, … }` → controller 1, `port: 2` → controller 2; other ports dropped silently. Gamepad SDK alias mapping (south → a, east → b, plus button1-4 / cross / circle / square / triangle aliases) so host code can stay neutral. 10 new tests (3 machine-level controller 2 + 7 runtime input). emu198x-nes native binary already polls gamepads correctly for port 1; per-gamepad-ID-to-port routing is a deeper enhancement deferred (shared with Spectrum).
 
 **Why this matters for other systems.** The pattern is now in place on Spectrum, Amiga, Dragon. The C64 (just-drafted review) and NES are the remaining systems that need it. Once landed everywhere, the host-gamepad surface is uniform across the product.
 

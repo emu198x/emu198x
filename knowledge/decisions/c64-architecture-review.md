@@ -1,7 +1,7 @@
 # Decision: C64 architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** In progress — Seams 1 (audit) + 4 landed 2026-05-20/21
+**Status:** In progress — Seams 1 (audit), 2, 4 landed 2026-05-20/21
 
 ## What this is
 
@@ -81,6 +81,8 @@ Plus the C64 has paddle / mouse 1351 / light pen inputs that all share the same 
 The Spectrum's gamepad wiring code (`crates/emu198x-spectrum/src/ui/app.rs:gamepad_maps_for_machine`) is the canonical reference. The C64 equivalent dispatches one map for "PAL with port-2 default", possibly a second for "user requested port 1".
 
 **Scope.** ~30 lines in `runtime-commodore-c64/src/input.rs`, ~10 lines in `emu198x-c64`, the equivalent static `BUTTON_MAP` / `AXIS_MAP` const definitions. No public API churn.
+
+**Status: landed 2026-05-21** (commit `a4802c3`). runtime-commodore-c64::input defines stable input port convention: input port 0 → C64 gameport 2 (CIA1 PA, main `$DC00`) / input port 1 → C64 gameport 1 (CIA1 PB, keyboard-shared `$DC01`) / ports ≥ 2 dropped silently. Gamepad SDK alias mapping (south/east/west/north/cross/circle/square/triangle/button1-4 all → FIRE — the C64 stick is single-fire). emu198x-c64 native binary's `C64_JOYSTICK_MAP` updated from port=2 to port=0 to match the Seam-2 convention. 9 new runtime tests covering port mapping + alias mapping + observable CIA1 PA/PB effect via the actual machine.
 
 **Why this matters for other systems.** Every cassette/cartridge-era system in the roadmap has 1-2 joystick ports that are subtly entangled with keyboard or peripheral state. NES (controllers shared with port latches), Game Boy (no joystick but a single d-pad), Amiga (port 1 mouse, port 2 joystick — already done). The C64 sits between Spectrum (Kempston peripheral) and NES (latched serial input); getting the pattern right keeps it transferable.
 
