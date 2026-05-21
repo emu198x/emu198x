@@ -13,3 +13,5 @@
 //! Mirrors the Spectrum's `common-sinclair-zx-spectrum` substrate
 //! pattern. See Seam 1 of
 //! `knowledge/decisions/amiga-full-family-architecture-review.md`.
+
+pub mod rtc;

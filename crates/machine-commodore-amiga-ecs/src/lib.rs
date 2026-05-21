@@ -11,7 +11,7 @@ mod cia;
 mod copper;
 mod denise;
 mod memory;
-mod rtc;
+use common_commodore_amiga::rtc;
 
 pub use agnus::{
     Agnus, AgnusEcs, AgnusRegion, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_FRAME_TICKS,
