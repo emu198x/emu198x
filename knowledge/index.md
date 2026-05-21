@@ -76,6 +76,7 @@
 - [Hotkey modifier policy](decisions/hotkey-modifier-policy.md) — Alt only, never Ctrl/Shift (they're SYMBOL SHIFT / CAPS SHIFT)
 - [Archives as source](decisions/archives-as-source.md) — port from `~/Projects/Emu198x-archive*` first, lifecycle is port → evaluate → cleanup
 - [CPU bus interface](decisions/cpu-bus-interface.md) — pin-level for *every* CPU, no Bus trait ever, supersedes the old Z80-specific framing
+- [Motorola 68k variant pattern](decisions/motorola-68k-variant-pattern.md) — every 68k variant wraps the next layer down via Deref + registers its ISA delta through three narrow extension points on `Cpu68000` (decode hook, behaviour flags, continue hook); 68000/10/20 all at 100% Tom Harte against their respective oracles
 - [NES clock topology](decisions/nes-clock-topology.md) — master clock drives the loop, PPU every dot, CPU every 3rd dot, mapper observes CPU pins
 - [Amiga port plan](decisions/amiga-port-plan.md) — 9-phase plan, OCS (A500) first, 68000 pin conversion is the long pole, ~35K lines in archive
 - [Amiga restart plan](decisions/amiga-restart-plan.md) — M0–M9 chip-only KS 1.3 boot rebuild; the wave that replaced the archive Amiga with the live `machine-commodore-amiga-ocs` stack
