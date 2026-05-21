@@ -2748,6 +2748,7 @@ dependencies = [
 name = "ricoh-apu-2a03"
 version = "0.1.0"
 dependencies = [
+ "postcard",
  "serde",
 ]
 

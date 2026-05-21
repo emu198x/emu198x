@@ -869,7 +869,17 @@ pub struct Apu {
     /// bit 0 = quarter-frame pending, bit 1 = half-frame pending.
     pending_frame_clock: u8,
 
-    // Region-dependent tables
+    // Region. Serialized so `after_restore` can reattach the correct
+    // `&'static` timing tables for PAL or NTSC. Without this field the
+    // default-NTSC tables would silently corrupt PAL snapshots on
+    // restore (Seam 3 audit).
+    #[serde(default)]
+    region: ApuRegion,
+
+    // Region-dependent tables. `#[serde(skip)]` because they're
+    // `&'static` references that don't survive serialise/deserialise.
+    // `after_restore` re-points them based on `region`. The defaults
+    // produce NTSC tables; constructors override before any tick().
     #[serde(skip, default = "default_noise_period_table")]
     noise_period_table: &'static [u16; 16],
     #[serde(skip, default = "default_dmc_rate_table")]
@@ -946,6 +956,7 @@ impl Apu {
             frame_counter_pending: None,
             frame_reset_countdown: 0,
             pending_frame_clock: 0,
+            region,
             noise_period_table: noise_table,
             dmc_rate_table: dmc_table,
             four_step_seq: four_step,
@@ -967,6 +978,45 @@ impl Apu {
             hp_prev_out: 0.0,
             expansion_audio: 0.0,
         }
+    }
+
+    /// Reattach the `&'static` region-dependent timing tables after a
+    /// snapshot restore. The fields are `#[serde(skip)]` because they
+    /// hold `&'static` references that don't survive deserialise; this
+    /// method re-points them based on the serialized `region` field.
+    ///
+    /// Call once after `serde::Deserialize` and before the next
+    /// `tick()`. Idempotent — safe to call multiple times. Without
+    /// this call PAL snapshots silently revert to NTSC timing on
+    /// restore (the `default = "default_*"` functions return NTSC
+    /// tables).
+    ///
+    /// See Seam 3 of `knowledge/decisions/nes-architecture-review.md`.
+    pub fn after_restore(&mut self) {
+        let (noise_table, dmc_table, four_step, five_step) = match self.region {
+            ApuRegion::Ntsc => (
+                &NOISE_PERIOD_TABLE_NTSC,
+                &DMC_RATE_TABLE_NTSC,
+                &FOUR_STEP_SEQUENCE_NTSC,
+                &FIVE_STEP_SEQUENCE_NTSC,
+            ),
+            ApuRegion::Pal => (
+                &NOISE_PERIOD_TABLE_PAL,
+                &DMC_RATE_TABLE_PAL,
+                &FOUR_STEP_SEQUENCE_PAL,
+                &FIVE_STEP_SEQUENCE_PAL,
+            ),
+        };
+        self.noise_period_table = noise_table;
+        self.dmc_rate_table = dmc_table;
+        self.four_step_seq = four_step;
+        self.five_step_seq = five_step;
+    }
+
+    /// Current configured region (NTSC or PAL).
+    #[must_use]
+    pub const fn region(&self) -> ApuRegion {
+        self.region
     }
 
     /// Current host-side audio controls.
@@ -2287,6 +2337,48 @@ mod tests {
         // DMC rate index 0 → PAL value 398, NTSC 428
         apu.write(0x4010, 0x00);
         assert_eq!(apu.dmc.timer_period, 398, "PAL DMC rate table in use");
+    }
+
+    /// Seam 3: PAL APU survives snapshot → restore correctly. Without
+    /// the `after_restore` reattachment, the region-dependent tables
+    /// silently default to NTSC on deserialise and a PAL noise write
+    /// would produce NTSC noise period.
+    #[test]
+    fn pal_apu_survives_snapshot_round_trip() {
+        let original = Apu::new_with_region(ApuRegion::Pal);
+        let bytes = postcard::to_allocvec(&original).expect("serialise PAL APU");
+        let mut restored: Apu = postcard::from_bytes(&bytes).expect("deserialise PAL APU");
+        // Before after_restore, the &'static tables default to NTSC
+        // (the chosen `default = "default_*"` functions return NTSC).
+        // Verify the field that IS serialised survived.
+        assert_eq!(restored.region(), ApuRegion::Pal, "region survives");
+        // Call after_restore — this is what machine.restore_snapshot
+        // does in the integration path.
+        restored.after_restore();
+        // Now a noise period write must produce a PAL-table value.
+        restored.write(0x400E, 0x02);
+        assert_eq!(
+            restored.noise_period(),
+            14,
+            "PAL noise table reattached after_restore"
+        );
+        // DMC rate too.
+        restored.write(0x4010, 0x00);
+        assert_eq!(restored.dmc.timer_period, 398, "PAL DMC table reattached");
+    }
+
+    /// Seam 3: NTSC also survives (the trivial path, but worth
+    /// locking — catches a regression where `after_restore` accidentally
+    /// forces PAL).
+    #[test]
+    fn ntsc_apu_survives_snapshot_round_trip() {
+        let original = Apu::new_with_region(ApuRegion::Ntsc);
+        let bytes = postcard::to_allocvec(&original).expect("serialise NTSC APU");
+        let mut restored: Apu = postcard::from_bytes(&bytes).expect("deserialise NTSC APU");
+        assert_eq!(restored.region(), ApuRegion::Ntsc);
+        restored.after_restore();
+        restored.write(0x400E, 0x02);
+        assert_eq!(restored.noise_period(), 16, "NTSC noise table preserved");
     }
 
     #[test]

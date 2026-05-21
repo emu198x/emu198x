@@ -13,6 +13,7 @@ mod datasette;
 pub mod keyboard;
 pub mod machine;
 pub mod memory;
+mod serde_skip_audit;
 
 pub use config::{C64Config, C64Model};
 pub use keyboard::KeyboardMatrix;

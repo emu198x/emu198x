@@ -39,6 +39,8 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+mod serde_skip_audit;
+
 use format_nintendo_nes_ines::{Mapper, MapperSnapshot, mapper_from_snapshot};
 use mos_6502::M6502;
 use ricoh_apu_2a03::Apu;
@@ -474,10 +476,15 @@ impl Nes {
     }
 
     /// Restore complete machine state captured by [`Self::snapshot`].
+    ///
+    /// Calls `after_restore` on chips that hold `&'static` references
+    /// (currently the APU's region-dependent timing tables) — see
+    /// Seam 3 of `knowledge/decisions/nes-architecture-review.md`.
     pub fn restore_snapshot(&mut self, snapshot: NesSnapshot) {
         self.cpu = snapshot.cpu;
         self.ppu = snapshot.ppu;
         self.apu = snapshot.apu;
+        self.apu.after_restore();
         self.mapper = mapper_from_snapshot(snapshot.mapper);
         self.ram = snapshot.ram;
         self.cpu_divider = snapshot.cpu_divider;
@@ -494,13 +501,16 @@ impl Nes {
         self.controller_strobe = snapshot.controller_strobe;
     }
 
-    /// Reconstruct a machine directly from a snapshot.
+    /// Reconstruct a machine directly from a snapshot. Like
+    /// [`Self::restore_snapshot`], rehydrates `&'static` references.
     #[must_use]
     pub fn from_snapshot(snapshot: NesSnapshot) -> Self {
+        let mut apu = snapshot.apu;
+        apu.after_restore();
         Self {
             cpu: snapshot.cpu,
             ppu: snapshot.ppu,
-            apu: snapshot.apu,
+            apu,
             mapper: mapper_from_snapshot(snapshot.mapper),
             ram: snapshot.ram,
             cpu_divider: snapshot.cpu_divider,
