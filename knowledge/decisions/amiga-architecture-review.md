@@ -1,7 +1,41 @@
 # Decision: Amiga architecture review — tighten the seams, not the spine
 
 **Date:** 2026-04-19
-**Status:** Proposed (draft for review)
+**Status:** Implemented (closed 2026-05-21). Superseded by
+[`amiga-full-family-architecture-review.md`](amiga-full-family-architecture-review.md)
+for forward-looking scope.
+
+## Closeout (2026-05-21)
+
+All five seams landed between 2026-04-19 and 2026-05-21:
+
+- **Seam 1** (`service_cpu_bus` → `BusTransaction` / `BusResponse`) —
+  commit `8b37751`. Machine file 3099 → 2016 lines; dispatcher
+  splits per chip-select.
+- **Seam 2** (disk DMA path into Paula) — commit `fa49c61`.
+  `Paula8364::tick_disk_dma_slot` owns WORDSYNC + arm flip-flop;
+  machine layer is thin glue.
+- **Seam 3** (byte-write merge locality) — solved differently than
+  proposed: per-arm byte-write handling in each `dispatch_*` function
+  rather than chip-side `read_register_word`. Same locality outcome.
+- **Seam 4** (byte-lane response conventions) — folded into Seam 1.
+  `BusResponse` enum (`Byte` / `Word` / `WriteAck` / `Float`) is the
+  canonical surface.
+- **Seam 5** (boot invariants) — commit `85d962b`.
+  `runtime-commodore-amiga/tests/boot_invariants.rs` (420 lines)
+  covers all four anchor families.
+
+Done-criteria status from the original review: Workbench 1.3 boots
+to desktop ✅, boot invariants in CI ✅, `service_cpu_bus` thinned ✅,
+Paula owns disk DMA end-to-end ✅, byte-write merge solved via
+per-arm locality ✅.
+
+The follow-on review at
+[`amiga-full-family-architecture-review.md`](amiga-full-family-architecture-review.md)
+tackles seams that have emerged since this one landed — covering
+the full Amiga family (OCS / ECS / AGA / CDTV / CD32 / future).
+
+---
 
 ## What this is
 
