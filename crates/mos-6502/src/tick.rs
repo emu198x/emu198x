@@ -53,26 +53,17 @@ impl M6502 {
                 return false;
             }
 
-            // Pick up any NMI edge that arrived but wasn't latched by
-            // the helper loop yet — safety net for the very first
-            // instruction after reset where there was no prior tick.
-            if self.nmi && !self.nmi_prev {
-                self.nmi_prev = true;
-                self.cs.opcode = 0x00;
-                self.cs.info = Some(cycle::OpcodeInfo {
-                    addr_mode: AddrMode::Brk,
-                    operation: Operation::Brk,
-                });
-                self.cs.cycle = 1;
-                self.cs.addr = 0;
-                self.cs.data = 1;
-                self.cs.offset = 0;
-                self.cs.page_crossed = false;
-                self.schedule_read(self.regs.pc);
-                return false;
-            }
-
-            self.nmi_prev = self.nmi;
+            // No boundary-time NMI edge detection. Silicon samples NMI
+            // exclusively at the penultimate cycle of an instruction
+            // (via `latch_interrupt_samples`), and an NMI rise that
+            // happens after the penultimate cycle must wait for the
+            // *next* instruction's penultimate cycle to be latched.
+            // The previous "safety net at boundary" path fired NMI one
+            // instruction too early — broke blargg ppu_vbl_nmi/04
+            // ("Immediate occurrence should be after NEXT instruction").
+            // `nmi_prev` is maintained only by `latch_interrupt_samples`
+            // so it accurately reflects the last cycle on which NMI was
+            // sampled.
 
             if self.pending_irq_line && !self.pending_i_mask {
                 self.cs.opcode = 0x00;

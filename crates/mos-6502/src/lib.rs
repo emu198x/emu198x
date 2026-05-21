@@ -555,11 +555,15 @@ mod tests {
     /// Spec invariant: NMI is taken on a rising edge of the NMI line
     /// — holding NMI high doesn't continuously re-trigger.
     ///
+    /// Silicon: NMI is sampled at the penultimate cycle of every
+    /// instruction. An NMI rise BEFORE the next instruction's
+    /// penultimate cycle is caught and fires AFTER that next
+    /// instruction completes. This matches blargg ppu_vbl_nmi/04
+    /// "Immediate occurrence should be after NEXT instruction".
+    ///
     /// Catches regression: NMI level-detection vs edge-detection is a
     /// classic 6502 gotcha; `tick.rs` uses `nmi_prev` to implement the
-    /// edge plus a safety-net at the very first instruction-fetch
-    /// after reset (line 59) that catches an NMI rising before the
-    /// latch helper has run.
+    /// edge purely via the penultimate-cycle latch.
     #[test]
     fn nmi_rising_edge_vectors_to_handler() {
         let mut fixture = Fixture::with_program(0x0400, &[0xEA]);
@@ -567,10 +571,13 @@ mod tests {
         fixture.mem[0xFFFB] = 0x40;
         fixture.boot();
         fixture.cpu.nmi = true; // rising edge
-        // Safety-net check at line 59 catches the rising edge on the
-        // very first opcode-fetch after reset and runs the BRK
-        // sequence in place of the would-be NOP. PC ends at the NMI
-        // vector after a single instruction's worth of cycles.
+        // First run_one: the NOP runs to completion. NMI is latched
+        // at the NOP's penultimate cycle (its opcode-fetch cycle for
+        // a 2-cycle instruction).
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x0401);
+        // Second run_one: NMI BRK sequence runs. PC ends at the NMI
+        // vector.
         fixture.run_one();
         assert_eq!(fixture.cpu.regs.pc, 0x4000);
     }
@@ -582,9 +589,8 @@ mod tests {
     /// stays high (the chip-level "NMI is edge-triggered" promise).
     #[test]
     fn nmi_does_not_re_fire_while_held_high() {
-        // Program at the NMI vector ($4000): a NOP followed by a JMP
-        // to a sentinel address, so we can detect whether the second
-        // NMI service path runs.
+        // Program at the NMI vector ($4000): NOPs so we can detect
+        // whether the second NMI service path runs.
         let mut fixture = Fixture::with_program(0x0400, &[0xEA, 0xEA]);
         fixture.mem[0xFFFA] = 0x00;
         fixture.mem[0xFFFB] = 0x40;
@@ -592,7 +598,9 @@ mod tests {
         fixture.mem[0x4001] = 0xEA; // NOP
         fixture.boot();
         fixture.cpu.nmi = true;
-        fixture.run_one(); // NMI taken; PC = $4000
+        fixture.run_one(); // NOP at $0400 (NMI latched at penultimate)
+        assert_eq!(fixture.cpu.regs.pc, 0x0401);
+        fixture.run_one(); // NMI BRK sequence; PC = $4000
         assert_eq!(fixture.cpu.regs.pc, 0x4000);
         // NMI line still high — must not re-trigger.
         fixture.run_one(); // NOP at $4000
@@ -614,10 +622,12 @@ mod tests {
         fixture.boot();
         fixture.run_one(); // SEI — sets I
         fixture.cpu.nmi = true;
-        // Safety-net catches the rising edge on the next opcode
-        // fetch and runs the NMI BRK in place of the NOP. Even with
-        // I=1 the NMI is taken — that's the non-maskable promise.
-        fixture.run_one();
+        // NMI latched at NOP's penultimate cycle; NMI fires after
+        // the NOP completes. Even with I=1 the NMI is taken —
+        // that's the non-maskable promise.
+        fixture.run_one(); // NOP completes
+        assert_eq!(fixture.cpu.regs.pc, 0x0402);
+        fixture.run_one(); // NMI BRK sequence
         assert_eq!(fixture.cpu.regs.pc, 0x4000);
     }
 
@@ -638,9 +648,12 @@ mod tests {
         fixture.run_one(); // CLI — I clear at end of this instruction
         fixture.cpu.irq = true;
         fixture.cpu.nmi = true;
-        // Safety-net catches NMI on the next fetch; even though IRQ
-        // is also pending and unmasked, NMI wins on real silicon.
-        fixture.run_one();
+        // NMI and IRQ are both latched at NOP's penultimate cycle.
+        // NOP completes first; on the boundary after it, NMI wins
+        // priority over IRQ — real silicon vectors through $FFFA.
+        fixture.run_one(); // NOP completes
+        assert_eq!(fixture.cpu.regs.pc, 0x0402);
+        fixture.run_one(); // NMI BRK sequence (NMI wins over IRQ)
         assert_eq!(fixture.cpu.regs.pc, 0x4000);
     }
 
