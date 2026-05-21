@@ -431,14 +431,35 @@ Deferred:
 - **Format $1** throwaway interrupt frame — needs the M-flag
   routing to actually pick which SP to push onto.
 - **Format $2** instruction-error trap (CHK / TRAPV / divide-by-
-  zero on the 68020): adds the faulting-instruction PC. Possibly
-  worth wiring up for the CHK / DIVS / DIVU partials, but those
-  are also flag-edge cases.
+  zero on the 68020): adds the faulting-instruction PC. The 68020
+  CHK partial is in this category.
 - **Format $9 / $A / $B** — no fixture exercises them; defer.
 - **MSP / ISP routing** — needs the M-flag to actually steer
   stack accesses through `regs.msp` vs `regs.ssp` instead of
   always `regs.ssp`. No current Tom Harte fixture sets up
   initial M=1 so no observable behaviour today.
+
+#### Phase 6.5 — DIV overflow C-preservation
+
+**Status: complete (2026-05-21).**
+
+Quick post-Phase-6 cleanup: the 16-bit `DIVU.W` and `DIVS.W`
+overflow paths in `motorola-68000/src/decode.rs` were clearing N
+/ Z / X / C and only setting V. Per Musashi (and matching real
+hardware), overflow on these instructions sets V and leaves
+everything else alone — same correction we made for the 32-bit
+`DIVL` in Phase 5a, applied to the 16-bit predecessors.
+
+Baselines after Phase 6.5:
+
+| Crate | Pass rate | Δ | Fully failing |
+|---|---|---|---|
+| `motorola-68010` | **2269 / 2290 = 99.08 %** | +4 | 1 (RTD) |
+| `motorola-68020` | **2376 / 2400 = 99.00 %** | +8 | 1 (RTD) |
+
+Both crates now at 99 % +. Remaining 68020 partials: CHK
+(Format $2 frame), NBCD / SBCD / ABCD (Musashi-specific
+"undefined V" computation). All bounded scope.
 
 ### Phase 7 — instruction cache
 

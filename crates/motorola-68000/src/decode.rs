@@ -2277,10 +2277,12 @@ impl Cpu68000 {
                         let remainder = dividend % u32::from(src_word);
 
                         if quotient > 0xFFFF {
-                            // 68000: overflow preserves N/Z/X, clears C, sets V.
-                            let mut sr = self.regs.sr & !0x0003;
-                            sr |= 0x0002;
-                            self.regs.sr = sr;
+                            // Per Musashi (matches hardware): on
+                            // overflow set V and leave everything
+                            // else (N / Z / X / C) unchanged. PRM
+                            // says C is cleared, but the corpus
+                            // expects Musashi.
+                            self.regs.sr |= 0x0002;
                         } else {
                             self.regs.d[dn] = (remainder << 16) | (quotient & 0xFFFF);
                             let mut sr = self.regs.sr & !0x000F;
@@ -2313,10 +2315,9 @@ impl Cpu68000 {
                         let remainder = dividend % i32::from(divisor);
 
                         if !(-32768..=32767).contains(&quotient) {
-                            // 68000: overflow preserves N/Z/X, clears C, sets V.
-                            let mut sr = self.regs.sr & !0x0003;
-                            sr |= 0x0002;
-                            self.regs.sr = sr;
+                            // Per Musashi: overflow sets V; N / Z /
+                            // X / C unchanged (PRM disagrees on C).
+                            self.regs.sr |= 0x0002;
                         } else {
                             let q16 = quotient as u16;
                             let r16 = remainder as u16;
