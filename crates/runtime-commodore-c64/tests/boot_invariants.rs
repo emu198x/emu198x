@@ -110,6 +110,154 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
     Ok(())
 }
 
+/// Seam 5 waypoint: C64 snapshot envelope version is locked at 1.
+///
+/// Postcard varint-encodes the leading `version: u32` field as a
+/// single byte (for value ≤ 127). A silent bump would change the
+/// first byte and break replay compatibility with previously-captured
+/// snapshots. Catches a regression where someone bumps the constant
+/// without an explicit decision.
+#[test]
+fn snapshot_envelope_version_is_locked_at_v1() -> Result<(), Box<dyn Error>> {
+    let runtime = C64Runtime::new(
+        Model::C64PalBreadbin,
+        vec![0; KERNAL_SIZE],
+        vec![0; BASIC_SIZE],
+        vec![0; CHARGEN_SIZE],
+        None,
+    )?;
+    let bytes = runtime.snapshot()?;
+    assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
+    assert_eq!(
+        bytes[0], 1,
+        "C64 snapshot envelope version should be 1 (got {})",
+        bytes[0]
+    );
+    Ok(())
+}
+
+/// Seam 5 waypoint: the 6510 `$01` I/O port controls memory banking
+/// per the LORAM/HIRAM/CHAREN bits. Changing those bits must
+/// re-map the address space: with the default $37 the KERNAL/BASIC
+/// ROMs and character ROM are visible; with $30 all RAM shows
+/// through.
+///
+/// Catches regression: any change to the I/O port banking that
+/// would silently break every LOAD + RUN. Uses recognisable byte
+/// patterns in our dummy ROMs (0x42 for BASIC, 0xEA for KERNAL —
+/// the existing stub_machine pattern from the machine crate).
+#[test]
+fn six510_io_port_banking_changes_active_rom() -> Result<(), Box<dyn Error>> {
+    // Build ROMs with distinct fill bytes so we can tell ROM from RAM.
+    let mut kernal = vec![0xEAu8; KERNAL_SIZE]; // NOP fills KERNAL
+    kernal[0x1FFC] = 0x00; // reset vector
+    kernal[0x1FFD] = 0xE0;
+    let basic = vec![0x42u8; BASIC_SIZE]; // 'B' fills BASIC
+
+    let mut runtime = C64Runtime::new(
+        Model::C64PalBreadbin,
+        kernal,
+        basic,
+        vec![0xCCu8; CHARGEN_SIZE],
+        None,
+    )?;
+    // Tick a few cycles to settle the reset sequence.
+    let mut host = null_host();
+    runtime.run_until(MachineTime::new(20), &mut host)?;
+
+    let machine = runtime.machine_mut();
+    // Default $01 = $37: KERNAL + BASIC + I/O visible at top of RAM.
+    // Read $A000 (BASIC ROM start) — should be 0x42.
+    assert_eq!(
+        machine.cpu_read(0xA000),
+        0x42,
+        "$A000 with $01=$37 (default) should read BASIC ROM (0x42)"
+    );
+    // Read $E000 (KERNAL ROM start) — should be 0xEA.
+    assert_eq!(
+        machine.cpu_read(0xE000),
+        0xEA,
+        "$E000 with $01=$37 should read KERNAL ROM (0xEA)"
+    );
+
+    // Switch to $01 = $30: all RAM (no ROMs visible).
+    machine.cpu_write(0x0001, 0x30);
+    // RAM at $A000 has never been touched — defaults to 0x00.
+    assert_eq!(
+        machine.cpu_read(0xA000),
+        0x00,
+        "$A000 with $01=$30 should read RAM (0x00, no BASIC ROM)"
+    );
+    assert_eq!(
+        machine.cpu_read(0xE000),
+        0x00,
+        "$E000 with $01=$30 should read RAM (0x00, no KERNAL ROM)"
+    );
+    Ok(())
+}
+
+/// Seam 5 waypoint: CIA2 PA bits 0-1 (inverted) select the 16 KiB
+/// bank the VIC-II sees. Writing different values to $DD00 must
+/// change `vic.bank()`. Real silicon: bank 0 = $0000-$3FFF,
+/// bank 1 = $4000-$7FFF, bank 2 = $8000-$BFFF (with CHARGEN at
+/// $1000-$1FFF), bank 3 = $C000-$FFFF.
+///
+/// Catches regression: any change that breaks the CIA2 → VIC bank
+/// path would garble every game's graphics.
+#[test]
+fn cia2_pa_drives_vic_bank_select() -> Result<(), Box<dyn Error>> {
+    let mut runtime = C64Runtime::new(
+        Model::C64PalBreadbin,
+        vec![0; KERNAL_SIZE],
+        vec![0; BASIC_SIZE],
+        vec![0; CHARGEN_SIZE],
+        None,
+    )?;
+    let mut host = null_host();
+    runtime.run_until(MachineTime::new(20), &mut host)?;
+
+    let machine = runtime.machine_mut();
+    // CIA2 data direction register $DD02 = $FF (all outputs).
+    machine.cpu_write(0xDD02, 0xFF);
+
+    // Write $DD00 = $03 (bits 0-1 set). Inverted: VIC bank 0.
+    machine.cpu_write(0xDD00, 0x03);
+    runtime.run_until(MachineTime::new(40), &mut host)?;
+    assert_eq!(
+        runtime.machine().vic_bank(),
+        0,
+        "CIA2 PA=$03 → VIC bank 0"
+    );
+
+    // $DD00 = $02 → inverted → bank 1.
+    runtime.machine_mut().cpu_write(0xDD00, 0x02);
+    runtime.run_until(MachineTime::new(60), &mut host)?;
+    assert_eq!(
+        runtime.machine().vic_bank(),
+        1,
+        "CIA2 PA=$02 → VIC bank 1"
+    );
+
+    // $DD00 = $01 → bank 2.
+    runtime.machine_mut().cpu_write(0xDD00, 0x01);
+    runtime.run_until(MachineTime::new(80), &mut host)?;
+    assert_eq!(
+        runtime.machine().vic_bank(),
+        2,
+        "CIA2 PA=$01 → VIC bank 2"
+    );
+
+    // $DD00 = $00 → bank 3.
+    runtime.machine_mut().cpu_write(0xDD00, 0x00);
+    runtime.run_until(MachineTime::new(100), &mut host)?;
+    assert_eq!(
+        runtime.machine().vic_bank(),
+        3,
+        "CIA2 PA=$00 → VIC bank 3"
+    );
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // ROM-backed — `#[ignore]`'d; resolve assets under ~/.emu198x/
 // ─────────────────────────────────────────────────────────────────────

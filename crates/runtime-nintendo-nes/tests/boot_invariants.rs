@@ -135,6 +135,116 @@ fn snapshot_round_trip_is_fixed_point_after_one_frame() -> Result<(), Box<dyn Er
     Ok(())
 }
 
+/// Seam 5 waypoint: NES snapshot envelope version is locked at 1.
+///
+/// Postcard varint-encodes the leading `version: u16` field as a
+/// single byte (for value ≤ 127). A silent bump would change the
+/// first byte and break replay compatibility with previously-captured
+/// snapshots. Catches a regression where someone bumps the constant
+/// without an explicit decision.
+#[test]
+fn snapshot_envelope_version_is_locked_at_v1() -> Result<(), Box<dyn Error>> {
+    let rom = minimal_ines();
+    let mut runtime = NesRuntime::blank(Model::NesNtsc);
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
+    runtime.load_media(&media)?;
+    let bytes = runtime.snapshot()?;
+    assert!(
+        !bytes.is_empty(),
+        "snapshot must have a non-empty envelope"
+    );
+    assert_eq!(
+        bytes[0], 1,
+        "NES snapshot envelope version should be 1 (got {})",
+        bytes[0]
+    );
+    Ok(())
+}
+
+/// Seam 5 waypoint: controller 1 + 2 state survives the snapshot
+/// round-trip. Two-player games rely on both controllers' shift
+/// register / strobe state restoring cleanly after a state-load.
+///
+/// Catches regression: forgetting to wire controller_2_state through
+/// NesSnapshot (which we just fixed in Seam 2), or a future refactor
+/// dropping one of the fields.
+#[test]
+fn both_controllers_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+    let rom = minimal_ines();
+    let mut original = NesRuntime::blank(Model::NesNtsc);
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
+    original.load_media(&media)?;
+
+    // Set distinct controller states. Picks specific patterns so any
+    // crosstalk (e.g. controller 1 state landing on controller 2) is
+    // visible.
+    let machine = original.machine_mut().expect("cartridge loaded");
+    machine.set_controller1(0b0101_0101);
+    machine.set_controller2(0b1010_1010);
+
+    let bytes = original.snapshot()?;
+    let mut restored = NesRuntime::blank(Model::NesNtsc);
+    restored.restore(&bytes)?;
+    let restored_machine = restored.machine().expect("restored cartridge");
+    assert_eq!(
+        restored_machine.controller1_state, 0b0101_0101,
+        "controller 1 state must survive round-trip"
+    );
+    assert_eq!(
+        restored_machine.controller2_state, 0b1010_1010,
+        "controller 2 state must survive round-trip"
+    );
+    Ok(())
+}
+
+/// Seam 5 waypoint: cartridge bytes survive snapshot round-trip. The
+/// runtime caches the raw iNES bytes alongside the chip snapshot so
+/// state-loads can recreate the mapper without re-reading the
+/// original file.
+///
+/// Catches regression: any refactor that drops the cartridge-bytes
+/// cache from the envelope would break replay after a state load.
+/// Detection strategy: the iNES magic "NES\x1A" is at offset 0 of
+/// every iNES file. The snapshot envelope is postcard-encoded, so
+/// the cartridge bytes appear as a sub-slice somewhere inside; we
+/// scan for the magic to confirm survival without exposing internal
+/// runtime accessors.
+#[test]
+fn cartridge_bytes_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+    let rom = minimal_ines();
+    let mut original = NesRuntime::blank(Model::NesNtsc);
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
+    original.load_media(&media)?;
+
+    let bytes = original.snapshot()?;
+
+    // Confirm the iNES magic survives — proves the cartridge buffer
+    // is in the snapshot envelope (not dropped to None).
+    let magic = b"NES\x1a";
+    let magic_present = bytes.windows(magic.len()).any(|w| w == magic);
+    assert!(
+        magic_present,
+        "iNES magic should appear in the snapshot envelope"
+    );
+
+    // The restored runtime should also produce a snapshot containing
+    // the magic, proving round-trip survival.
+    let mut restored = NesRuntime::blank(Model::NesNtsc);
+    restored.restore(&bytes)?;
+    let restored_bytes = restored.snapshot()?;
+    let magic_present_after = restored_bytes
+        .windows(magic.len())
+        .any(|w| w == magic);
+    assert!(
+        magic_present_after,
+        "iNES magic should survive snapshot → restore → snapshot"
+    );
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // ROM-backed — `#[ignore]`'d
 // ─────────────────────────────────────────────────────────────────────
