@@ -147,21 +147,40 @@ baseline measurement.
 
 ### Phase 1 — fork `Cpu68020` from the type alias
 
-**Goal**: `motorola-68020` owns its own state machine instead of
-re-exporting `Cpu68000`.
+**Goal**: `motorola-68020` owns its own type instead of re-exporting
+`Cpu68000`.
 
-- Add a real `Cpu68020` struct in `motorola-68020/src/cpu.rs`.
-  Initially: clone `Cpu68000`'s layout, with a few new fields
-  for 68020 state (CACR, CAAR, MSP, ISP, prefetch pipeline of
-  two words instead of one).
-- Implement the tick loop via re-use: most 68000 cycles delegate
-  to the same micro-op processing the 68000 uses (reuse the
-  `motorola-68k-common::microcode` module).
-- Re-introduce the type alias only as a deprecated transition:
-  drop the `Cpu68020 = Cpu68000` re-export, expose
-  `Cpu68020` as the canonical type.
-- Tom Harte coverage: subset that passes on `Cpu68000` should
-  continue to pass on `Cpu68020`.
+**Status: complete (2026-05-21).**
+
+Resolved approach: **wrap, don't clone**. Cloning the ~5,800-line
+68000 core would force a per-phase fork-and-port cost without buying
+anything until the variant's behaviour actually diverges. Instead
+`Cpu68020` is a struct holding an `inner: Cpu68000` plus the four
+68020 control registers (MSP / VBR / CACR / CAAR), with `Deref` /
+`DerefMut` to the inner core. Existing call sites that touch
+`cpu.regs`, `cpu.state`, `cpu.tick()`, etc. continue to work without
+per-method forwarding. The wrapper pattern is adapted from
+`Emu198x-Oldest/crates/motorola-68020/src/lib.rs`, modulo the old
+`CpuModel`-flagged inner core (stripped 2026-04-29).
+
+- `crates/motorola-68020/src/cpu.rs` (~140 lines): the wrapper
+  struct, `new()` / `Default` / `into_inner` / `as_inner` /
+  `as_inner_mut`, `Deref` / `DerefMut`, `From<Cpu68020> for
+  Cpu68000`, plus four unit tests pinning the structural invariants
+  (supervisor + IPL 7 on construction, control regs start zero,
+  the new registers are independent of the inner core's SSP, and
+  `setup_prefetch` reaches the inner pipeline through `DerefMut`).
+- `crates/motorola-68020/src/lib.rs`: re-export now points at the
+  wrapper struct. `Cpu68EC020` is a type alias to `Cpu68020` —
+  the two diverge only in Phase 8 (F-line dispatch).
+- Tom Harte baseline re-measured: still **2072 / 2400 = 86.33 %**.
+  No drift, as expected — the wrapper changes structure, not
+  behaviour.
+
+Phase 1.5 (the cluster of 68010-era instructions that block the
+68020 baseline — MOVEC, RTD, BKPT, EXTB.l, MOVE-from-CCR) is the
+natural next step: the wrapper now has somewhere to host the VBR
+state that MOVEC reads/writes.
 
 ### Phase 2 — synchronous bus protocol
 

@@ -116,16 +116,31 @@
 //!
 //! `RTE` dispatches on the format word and pops the right amount.
 //!
-//! # Type aliases
+//! # Today's wrapper
 //!
-//! [`Cpu68020`] and [`Cpu68EC020`] both resolve to
-//! [`motorola_68000::Cpu68000`] today — the M68000 core handles the
-//! shared subset and any 68020 capability is *absent*. Construct via
-//! [`motorola_68000::Cpu68000::new`].
+//! [`Cpu68020`] is now a thin wrapper over [`motorola_68000::Cpu68000`]
+//! that owns the four 68020 control registers (MSP, VBR, CACR, CAAR).
+//! `Deref` / `DerefMut` forward everything else to the inner 68000
+//! core, so existing call sites that touch `cpu.regs`, `cpu.state`,
+//! `cpu.tick()`, etc. continue to work without per-method forwarding.
+//! Behaviour is identical to the 68000 today — Phase 1 only stands up
+//! the structural seam; 68020-specific decode and addressing land
+//! later.
+//!
+//! [`Cpu68EC020`] is currently a type alias to [`Cpu68020`]. The two
+//! diverge only when Phase 8 routes F-line opcodes (the EC020 takes
+//! `LINE 1111 EMULATOR`; the full 68020 performs the coprocessor
+//! handshake).
 
+pub mod cpu;
+
+pub use cpu::Cpu68020;
 pub use motorola_68k_common::{CpuCapabilities, CpuModel, TimingClass};
-pub use motorola_68000::Cpu68000 as Cpu68020;
-pub use motorola_68000::Cpu68000 as Cpu68EC020;
+
+/// 68EC020 — the embedded-controller variant of the 68020. No FPU
+/// coprocessor socket, no MMU. Used by the Amiga A1200 and CD32.
+/// Currently identical to [`Cpu68020`]; Phase 8 forks the F-line path.
+pub type Cpu68EC020 = Cpu68020;
 
 /// Marker zero-sized type identifying the 68020 variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
