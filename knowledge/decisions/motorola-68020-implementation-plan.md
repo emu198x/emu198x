@@ -305,27 +305,47 @@ Tom Harte coverage grows substantially after this lands.
 
 ### Phase 5 — new instructions
 
-In rough order of test-vector frequency / Amiga code dependency:
+Per-sub-phase scope. Numbering reflects the order they actually
+land (which differs from frequency / size predictions).
 
-- 5a: **Bcc.L** (long-displacement branch). Trivial — adds one
-  branch-class to the decoder.
-- 5b: **Barrel shifter**. The 68000's shift counts loop; 68020
-  is constant-time. Cycle-count change, not semantic — most
+#### Phase 5a — 32-bit MULL / DIVL
+
+**Status: complete (2026-05-21).**
+
+Both opcodes ($4C00-$4C3F and $4C40-$4C7F) routed through the
+68020 decode hook. Source-EA scope today is `Dn` only — the
+m68k-test-gen fixture pins the source to `D0` so memory EAs aren't
+exercised. Memory-EA support follows the same plan as the rest of
+the multi-step-EA cluster.
+
+- `MULU.L` / `MULS.L` with both 32-bit (`Dl`) and 64-bit (`Dh:Dl`)
+  result forms. Overflow handling on the 32-bit signed form
+  matches the PRM (V set if the 64-bit product doesn't sign-extend
+  bit 31 of the low half).
+- `DIVU.L` / `DIVS.L` with all three forms (32÷32 quotient-only,
+  32÷32 with remainder, 64÷32). Divide-by-zero traps vector 5.
+- **Musashi-vs-PRM divergence**: on `DIVL` overflow the PRM says
+  "N / Z undefined, C cleared". Musashi preserves all three and
+  sets only V — and that's what the corpus expects, so the hook
+  matches Musashi. Recorded in a code comment because it's the
+  kind of corner where the manual misleads.
+
+Baseline: 2226 → **2246 / 2400 = 93.58 %** on the 68020 sweep.
+MULL and DIVL flip 0 % → 100 %.
+
+#### Remaining 5x sub-phases
+
+- 5b: **Bcc.L** (long-displacement branch).
+- 5c: **Barrel shifter**. Cycle-count change, not semantic — most
   test vectors don't notice.
-- 5c: **EXTB.L**, **PACK**, **UNPK**. Small standalone
-  instructions.
-- 5d: **TRAPcc** family.
-- 5e: **Bitfield** family (BFTST/BFEXTU/BFEXTS/BFINS/BFCLR/
+- 5d: **EXTB.L** (already landed in Phase 1.5), **PACK**, **UNPK**.
+- 5e: **TRAPcc** family.
+- 5f: **Bitfield** family (BFTST/BFEXTU/BFEXTS/BFINS/BFCLR/
   BFSET/BFCHG/BFFFO). Biggest of these — each takes a
   field-offset/field-width extension word.
-- 5f: **CHK2 / CMP2**.
-- 5g: **CAS / CAS2** — atomic compare-and-swap. The CAS2 form
-  is a 12-byte instruction with two memory operands and four
-  data registers.
-- 5h: **32-bit MUL.L / MULS.L / MULU.L / DIVS.L / DIVU.L**
-  including the 64-bit dividend `DIVx.L Dh:Dl` form.
-- 5i: **CALLM / RTM** — module call. Largely vestigial; the
-  68030 removed them. Implement for spec-compliance.
+- 5g: **CHK2 / CMP2**.
+- 5h: **CAS / CAS2** — atomic compare-and-swap.
+- 5i: **CALLM / RTM** — module call. Largely vestigial.
 
 Each sub-phase ends with the Tom Harte slice for those
 instructions passing.

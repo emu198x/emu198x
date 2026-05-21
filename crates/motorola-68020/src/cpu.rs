@@ -111,6 +111,18 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
         return execute_extb_l(cpu, opcode);
     }
 
+    // MULU.L / MULS.L ($4C00-$4C3F): 32×32 multiply, register or
+    // memory source. The wrapper only handles Dn sources today —
+    // memory EAs need the multi-step continuation pipeline.
+    if (opcode & 0xFFC0) == 0x4C00 {
+        return execute_mull(cpu, opcode);
+    }
+
+    // DIVU.L / DIVS.L ($4C40-$4C7F): same shape as MULL.
+    if (opcode & 0xFFC0) == 0x4C40 {
+        return execute_divl(cpu, opcode);
+    }
+
     // Fall through to the 68010 hook for MOVEC / MOVE-from-CCR /
     // anything else the 68000 routes to ILLEGAL.
     decode_68010_opcode(cpu, opcode)
@@ -130,6 +142,193 @@ fn execute_extb_l(cpu: &mut Cpu68000, opcode: u16) -> bool {
         sr |= Z;
     }
     if (result & 0x8000_0000) != 0 {
+        sr |= N;
+    }
+    cpu.regs.sr = sr;
+    true
+}
+
+// ─── MULL / DIVL helpers ───────────────────────────────────────────
+//
+// Extension word format (M68000PRM § 6.2.5 / 6.2.7):
+//
+//   bit  15: 0 (reserved)
+//   bits 14-12: Dl  — low / single-result register
+//   bit  11: signed flag (0 = unsigned, 1 = signed)
+//   bit  10: size flag (0 = 32-bit form, 1 = 64-bit form)
+//   bits 9-3: 0 (reserved)
+//   bits 2-0: Dh  — high register (64-bit form) or remainder
+//                   register when Dh ≠ Dl on 32-bit DIVx.L
+
+/// Read the source operand for MULL / DIVL. Today only Dn-source
+/// (mode 0) is implemented — memory EAs need the multi-step
+/// continuation pipeline and are deferred to a later phase.
+fn read_mull_divl_source(cpu: &Cpu68000, opcode: u16) -> Option<u32> {
+    let ea_mode = (opcode >> 3) & 7;
+    let ea_reg = (opcode & 7) as usize;
+    if ea_mode != 0 {
+        return None;
+    }
+    Some(cpu.regs.d[ea_reg])
+}
+
+/// MULU.L / MULS.L. 32×32 multiply, with 32-bit or 64-bit result
+/// depending on bit 10 of the extension word.
+fn execute_mull(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let Some(src) = read_mull_divl_source(cpu, opcode) else {
+        // Memory EA — defer.
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    };
+
+    let ext = cpu.consume_irc();
+    let dl = ((ext >> 12) & 7) as usize;
+    let dh = (ext & 7) as usize;
+    let signed = (ext & 0x0800) != 0;
+    let wide = (ext & 0x0400) != 0;
+
+    let dl_val = cpu.regs.d[dl];
+
+    let (result_lo, result_hi) = if signed {
+        let product = i64::from(src as i32) * i64::from(dl_val as i32);
+        (product as u64 as u32, ((product as u64) >> 32) as u32)
+    } else {
+        let product = u64::from(src) * u64::from(dl_val);
+        (product as u32, (product >> 32) as u32)
+    };
+
+    cpu.regs.d[dl] = result_lo;
+
+    let mut sr = cpu.regs.sr & !(N | Z | V | C);
+
+    if wide {
+        // 64-bit form: Dh:Dl holds the full product, V is always 0
+        // because a 32×32 product fits in 64 bits.
+        cpu.regs.d[dh] = result_hi;
+        let zero = result_lo == 0 && result_hi == 0;
+        if zero {
+            sr |= Z;
+        }
+        if (result_hi & 0x8000_0000) != 0 {
+            sr |= N;
+        }
+    } else {
+        // 32-bit form: only Dl is written; V signals that the result
+        // didn't fit in 32 bits.
+        if result_lo == 0 {
+            sr |= Z;
+        }
+        if (result_lo & 0x8000_0000) != 0 {
+            sr |= N;
+        }
+        let overflow = if signed {
+            // Signed: upper 32 bits must equal sign-extension of bit 31.
+            let expected = if (result_lo & 0x8000_0000) != 0 {
+                0xFFFF_FFFF
+            } else {
+                0
+            };
+            result_hi != expected
+        } else {
+            // Unsigned: upper 32 bits must be zero.
+            result_hi != 0
+        };
+        if overflow {
+            sr |= V;
+        }
+    }
+
+    cpu.regs.sr = sr;
+    true
+}
+
+/// DIVU.L / DIVS.L. Three forms (M68000PRM § 6.2.7):
+///
+/// - `Sz=0, Dq=Dr`: 32-bit dividend in Dq, quotient → Dq (no
+///   remainder).
+/// - `Sz=0, Dq≠Dr`: 32-bit dividend in Dq, quotient → Dq, remainder
+///   → Dr (this is the `DIVUL.L` / `DIVSL.L` assembler syntax).
+/// - `Sz=1`: 64-bit dividend in Dr:Dq, quotient → Dq, remainder → Dr.
+///
+/// Divide-by-zero traps vector 5 with the saved PC pointing at the
+/// next instruction (the standard 68000 group-1 behaviour). Overflow
+/// (quotient doesn't fit in 32 bits) sets V and leaves Dq / Dr
+/// untouched.
+fn execute_divl(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let Some(src) = read_mull_divl_source(cpu, opcode) else {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    };
+
+    let ext = cpu.consume_irc();
+    let dq = ((ext >> 12) & 7) as usize;
+    let dr = (ext & 7) as usize;
+    let signed = (ext & 0x0800) != 0;
+    let wide = (ext & 0x0400) != 0;
+
+    // Divide-by-zero: the 68020 next-PC for a divide-by-zero trap is
+    // the address *past* the DIVL instruction (DIVL is a 4-byte
+    // instruction: opcode word + extension word).
+    if src == 0 {
+        cpu.begin_group1_exception(5, cpu.instr_start_pc.wrapping_add(4));
+        return true;
+    }
+
+    let dq_val = cpu.regs.d[dq];
+    let dr_val = cpu.regs.d[dr];
+
+    let dividend = if wide {
+        if signed {
+            ((dr_val as u64) << 32) | u64::from(dq_val)
+        } else {
+            ((u64::from(dr_val)) << 32) | u64::from(dq_val)
+        }
+    } else if signed {
+        i64::from(dq_val as i32) as u64
+    } else {
+        u64::from(dq_val)
+    };
+
+    // Overflow only applies to the 64-bit dividend form — 32-bit
+    // dividends always fit a 32-bit quotient when the divisor is
+    // non-zero. Compute overflow and the unchecked quotient /
+    // remainder; Musashi-style.
+    let (quotient, remainder, overflow) = if signed {
+        let divisor = i64::from(src as i32);
+        let dividend_signed = dividend as i64;
+        let q = dividend_signed.wrapping_div(divisor);
+        let r = dividend_signed.wrapping_rem(divisor);
+        let overflow = wide && (q < i64::from(i32::MIN) || q > i64::from(i32::MAX));
+        (q as u32, r as u32, overflow)
+    } else {
+        let divisor = u64::from(src);
+        let q = dividend / divisor;
+        let r = dividend % divisor;
+        let overflow = wide && q > u64::from(u32::MAX);
+        (q as u32, r as u32, overflow)
+    };
+
+    if overflow {
+        // Per Musashi: on overflow set V and return without touching
+        // any other flag (N / Z / C / X stay as they were before the
+        // instruction). PRM § 6.2.7 says "N and Z undefined, C
+        // cleared", but the hardware (and Musashi) preserve all
+        // three. The destination registers are also unchanged.
+        cpu.regs.sr |= V;
+        return true;
+    }
+
+    // Write remainder to Dr first, then quotient to Dq. If Dq == Dr
+    // (the 32-bit "no remainder" form), the second write overwrites
+    // and only the quotient lands — same as Musashi.
+    cpu.regs.d[dr] = remainder;
+    cpu.regs.d[dq] = quotient;
+
+    let mut sr = cpu.regs.sr & !(N | Z | V | C);
+    if quotient == 0 {
+        sr |= Z;
+    }
+    if (quotient & 0x8000_0000) != 0 {
         sr |= N;
     }
     cpu.regs.sr = sr;
