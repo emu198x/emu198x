@@ -74,16 +74,27 @@
 //!     handler can patch the fault and `RTE` resumes mid-instruction.
 //!     This is the feature that made the Sun-2 / SunOS feasible.
 //!
-//! # Type aliases
+//! # Today's wrapper
 //!
-//! [`Cpu68010`] resolves to [`motorola_68000::Cpu68000`] until this
-//! crate hosts its own core. Construct it via
-//! [`motorola_68000::Cpu68000::new`] — the M68000 core no longer
-//! accepts a model parameter, so any 68010-specific behaviour is
-//! absent until this crate is fleshed out.
+//! [`Cpu68010`] is a thin wrapper around [`motorola_68000::Cpu68000`]
+//! that installs a decode hook in the shared core's
+//! `variant_decode_hook` slot. The hook handles the 68010 ISA delta:
+//! `MOVEC` (read/write VBR / SFC / DFC / USP) and `MOVE from CCR`
+//! with a register destination. `Deref` / `DerefMut` forward
+//! everything else to the inner 68000. Adding 68010-specific control
+//! registers does not need new wrapper fields — `VBR`, `SFC`,
+//! `DFC`, and the 68020-plus control regs all live on
+//! [`motorola_68k_common::registers::Registers`], which is shared
+//! across every member of the family.
+//!
+//! Deferred to a later phase: `RTD`, `MOVES`, loop-mode `DBcc`, and
+//! the 68010 6-word exception frames — all of which need the
+//! multi-step continuation pipeline (currently 68000-only).
 
+pub mod cpu;
+
+pub use cpu::{Cpu68010, decode_68010_opcode};
 pub use motorola_68k_common::{CpuCapabilities, CpuModel, TimingClass};
-pub use motorola_68000::Cpu68000 as Cpu68010;
 
 /// Marker zero-sized type identifying the 68010 variant.
 ///

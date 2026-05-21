@@ -1888,6 +1888,7 @@ version = "0.1.0"
 dependencies = [
  "motorola-68000",
  "motorola-68k-common",
+ "rmp-serde",
  "serde",
 ]
 

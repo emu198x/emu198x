@@ -1,0 +1,440 @@
+//! Tom Harte-style single-step harness for the 68010.
+//!
+//! Same shape as `motorola-68020/tests/tom_harte.rs`, pointed at the
+//! `m68010/v1/` corpus that `m68k-test-gen` produces from Musashi.
+//! See `knowledge/decisions/motorola-68020-implementation-plan.md`
+//! Phase 1.5 for the architectural context: the 68010 owns its own
+//! ISA delta, the 68020 wraps the 68010, and each variant gets its
+//! own Tom Harte sweep so regressions stay isolated to the right
+//! layer.
+//!
+//! Default corpus root:
+//!   `~/Projects/198x/assets/test-suites/m68k-generated/m68010/v1/`
+//!
+//! Override with the `M68010_TEST_DATA` environment variable.
+
+#![allow(clippy::unwrap_used)]
+
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+use motorola_68000::bus::{BusStatus, FunctionCode};
+use motorola_68000::cpu::State;
+use motorola_68010::Cpu68010;
+
+// ─── Fixture schema (mirrors m68k-test-gen / testcase.rs) ─────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TestFile {
+    cpu: String,
+    instruction: String,
+    tests: Vec<TestCase>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TestCase {
+    name: String,
+    initial: CpuState,
+    final_state: CpuState,
+    cycles: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CpuState {
+    d: [u32; 8],
+    a: [u32; 7],
+    usp: u32,
+    /// SSP on 68000, ISP on 68020+. 68010 uses just SSP.
+    ssp: u32,
+    sr: u16,
+    pc: u32,
+    prefetch: [u16; 2],
+    ram: Vec<(u32, u8)>,
+    #[serde(default)]
+    msp: u32,
+    #[serde(default)]
+    vbr: u32,
+    #[serde(default)]
+    cacr: u32,
+    #[serde(default)]
+    caar: u32,
+}
+
+// ─── Sparse memory ────────────────────────────────────────────────
+
+struct SparseMem {
+    bytes: HashMap<u32, u8>,
+}
+
+impl SparseMem {
+    fn new() -> Self {
+        Self {
+            bytes: HashMap::new(),
+        }
+    }
+
+    fn load_ram(&mut self, ram: &[(u32, u8)]) {
+        for (addr, value) in ram {
+            self.bytes.insert(addr & 0xFF_FFFF, *value);
+        }
+    }
+
+    fn read_byte(&self, addr: u32) -> u8 {
+        *self.bytes.get(&(addr & 0xFF_FFFF)).unwrap_or(&0)
+    }
+
+    fn read_word(&self, addr: u32) -> u16 {
+        let a = addr & 0xFF_FFFE;
+        (u16::from(self.read_byte(a)) << 8) | u16::from(self.read_byte(a + 1))
+    }
+
+    fn write_byte(&mut self, addr: u32, val: u8) {
+        self.bytes.insert(addr & 0xFF_FFFF, val);
+    }
+
+    fn write_word(&mut self, addr: u32, val: u16) {
+        let a = addr & 0xFF_FFFE;
+        self.write_byte(a, (val >> 8) as u8);
+        self.write_byte(a + 1, val as u8);
+    }
+}
+
+// ─── Fixture loading ──────────────────────────────────────────────
+
+fn candidate_fixture_roots() -> Vec<PathBuf> {
+    let home = std::env::var("HOME").expect("HOME set");
+    let home = PathBuf::from(home);
+
+    let mut roots = Vec::new();
+    if let Ok(path) = std::env::var("M68010_TEST_DATA") {
+        roots.push(PathBuf::from(path));
+    }
+    roots.push(home.join("Projects/198x/assets/test-suites/m68k-generated/m68010/v1"));
+    roots
+}
+
+fn fixture_root() -> PathBuf {
+    candidate_fixture_roots()
+        .into_iter()
+        .find(|path| path.is_dir())
+        .unwrap_or_else(|| {
+            let home = std::env::var("HOME").expect("HOME set");
+            PathBuf::from(home).join("Projects/198x/assets/test-suites/m68k-generated/m68010/v1")
+        })
+}
+
+fn load_fixture(path: &Path) -> Option<TestFile> {
+    let mut file = File::open(path).ok()?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).ok()?;
+    rmp_serde::from_slice(&buf).ok()
+}
+
+// ─── CPU state setup ──────────────────────────────────────────────
+
+fn apply_initial(cpu: &mut Cpu68010, mem: &mut SparseMem, initial: &CpuState) {
+    cpu.regs.d = initial.d;
+    cpu.regs.a = initial.a;
+    cpu.regs.usp = initial.usp;
+    cpu.regs.ssp = initial.ssp;
+    cpu.regs.sr = initial.sr;
+    cpu.regs.vbr = initial.vbr;
+
+    let pc = initial.pc;
+    let pf0 = mem.read_word(pc);
+    let pf1 = mem.read_word(pc.wrapping_add(2));
+
+    cpu.regs.pc = pc.wrapping_add(4);
+    cpu.setup_prefetch(pf0, pf1);
+}
+
+fn service_bus(cpu: &mut Cpu68010, mem: &mut SparseMem) {
+    if let State::BusCycle {
+        addr,
+        fc,
+        is_read,
+        is_word,
+        data,
+        cycle_count,
+        ..
+    } = &cpu.state
+    {
+        if *cycle_count >= 3 {
+            if *fc == FunctionCode::InterruptAck {
+                cpu.bus_status = BusStatus::Ready(24 + u16::from(cpu.ipl));
+            } else if *is_read {
+                let val = if *is_word {
+                    mem.read_word(*addr)
+                } else {
+                    u16::from(mem.read_byte(*addr))
+                };
+                cpu.bus_status = BusStatus::Ready(val);
+            } else {
+                let val = data.unwrap_or(0);
+                if *is_word {
+                    mem.write_word(*addr, val);
+                } else {
+                    mem.write_byte(*addr, val as u8);
+                }
+                cpu.bus_status = BusStatus::Ready(0);
+            }
+        } else {
+            cpu.bus_status = BusStatus::Wait;
+        }
+    } else {
+        cpu.bus_status = BusStatus::Wait;
+    }
+}
+
+fn run_one_instruction(cpu: &mut Cpu68010, mem: &mut SparseMem) -> bool {
+    let start_count = cpu.instruction_starts;
+    for _ in 0..400 {
+        service_bus(cpu, mem);
+        cpu.tick();
+        if cpu.instruction_starts > start_count {
+            return true;
+        }
+    }
+    false
+}
+
+// ─── State comparison ─────────────────────────────────────────────
+
+#[derive(Default, Debug)]
+struct Mismatch {
+    field: String,
+    expected: String,
+    actual: String,
+}
+
+fn compare_final(cpu: &Cpu68010, mem: &SparseMem, final_state: &CpuState) -> Vec<Mismatch> {
+    let mut v = Vec::new();
+
+    for i in 0..8 {
+        if cpu.regs.d[i] != final_state.d[i] {
+            v.push(Mismatch {
+                field: format!("d{i}"),
+                expected: format!("${:08X}", final_state.d[i]),
+                actual: format!("${:08X}", cpu.regs.d[i]),
+            });
+        }
+    }
+    for i in 0..7 {
+        if cpu.regs.a[i] != final_state.a[i] {
+            v.push(Mismatch {
+                field: format!("a{i}"),
+                expected: format!("${:08X}", final_state.a[i]),
+                actual: format!("${:08X}", cpu.regs.a[i]),
+            });
+        }
+    }
+
+    if cpu.regs.usp != final_state.usp {
+        v.push(Mismatch {
+            field: "usp".into(),
+            expected: format!("${:08X}", final_state.usp),
+            actual: format!("${:08X}", cpu.regs.usp),
+        });
+    }
+    if cpu.regs.ssp != final_state.ssp {
+        v.push(Mismatch {
+            field: "ssp".into(),
+            expected: format!("${:08X}", final_state.ssp),
+            actual: format!("${:08X}", cpu.regs.ssp),
+        });
+    }
+    if cpu.instr_start_pc != final_state.pc {
+        v.push(Mismatch {
+            field: "pc".into(),
+            expected: format!("${:08X}", final_state.pc),
+            actual: format!("${:08X}", cpu.instr_start_pc),
+        });
+    }
+    if cpu.regs.sr != final_state.sr {
+        v.push(Mismatch {
+            field: "sr".into(),
+            expected: format!("${:04X}", final_state.sr),
+            actual: format!("${:04X}", cpu.regs.sr),
+        });
+    }
+    if cpu.regs.vbr != final_state.vbr {
+        v.push(Mismatch {
+            field: "vbr".into(),
+            expected: format!("${:08X}", final_state.vbr),
+            actual: format!("${:08X}", cpu.regs.vbr),
+        });
+    }
+
+    for (addr, expected) in &final_state.ram {
+        let actual = mem.read_byte(*addr);
+        if actual != *expected {
+            v.push(Mismatch {
+                field: format!("mem[${addr:06X}]"),
+                expected: format!("${expected:02X}"),
+                actual: format!("${actual:02X}"),
+            });
+        }
+    }
+
+    v
+}
+
+struct FixtureResult {
+    name: String,
+    total: usize,
+    passed: usize,
+    first_fail: Option<(String, Vec<Mismatch>)>,
+}
+
+fn run_fixture(path: &Path) -> Option<FixtureResult> {
+    let file = load_fixture(path)?;
+    let name = path
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .trim_end_matches(".msgpack")
+        .to_string();
+
+    let mut passed = 0;
+    let mut first_fail: Option<(String, Vec<Mismatch>)> = None;
+
+    for test in &file.tests {
+        let mut cpu = Cpu68010::new();
+        let mut mem = SparseMem::new();
+        mem.load_ram(&test.initial.ram);
+        apply_initial(&mut cpu, &mut mem, &test.initial);
+
+        if !run_one_instruction(&mut cpu, &mut mem) {
+            if first_fail.is_none() {
+                first_fail = Some((
+                    test.name.clone(),
+                    vec![Mismatch {
+                        field: "run".into(),
+                        expected: "1 instruction".into(),
+                        actual: "timeout".into(),
+                    }],
+                ));
+            }
+            continue;
+        }
+
+        let mismatches = compare_final(&cpu, &mem, &test.final_state);
+        if mismatches.is_empty() {
+            passed += 1;
+        } else if first_fail.is_none() {
+            first_fail = Some((test.name.clone(), mismatches));
+        }
+    }
+
+    Some(FixtureResult {
+        name,
+        total: file.tests.len(),
+        passed,
+        first_fail,
+    })
+}
+
+fn print_result(r: &FixtureResult) {
+    let rate = if r.total > 0 {
+        (r.passed as f64 / r.total as f64) * 100.0
+    } else {
+        0.0
+    };
+    println!(
+        "  {:<32} {:>5}/{:<5} ({:>5.1}%)",
+        r.name, r.passed, r.total, rate
+    );
+    if let Some((case, mismatches)) = &r.first_fail {
+        println!("    first fail: {case}");
+        for m in mismatches.iter().take(4) {
+            println!(
+                "      {:<16} expected={:<12} actual={}",
+                m.field, m.expected, m.actual
+            );
+        }
+        if mismatches.len() > 4 {
+            println!("      ... and {} more", mismatches.len() - 4);
+        }
+    }
+}
+
+#[test]
+#[ignore]
+fn harte_baseline_full_sweep() {
+    let root = fixture_root();
+    if !root.exists() {
+        eprintln!("Skipping: fixture dir not found at {}", root.display());
+        return;
+    }
+
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(&root)
+        .expect("read_dir")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().ends_with(".msgpack"))
+                .unwrap_or(false)
+        })
+        .collect();
+    entries.sort();
+
+    println!();
+    println!("Tom Harte 68010 baseline ({} fixtures):", entries.len());
+
+    let mut total_passed = 0usize;
+    let mut total_tests = 0usize;
+    let mut fully_passing = 0usize;
+    let mut fully_failing = 0usize;
+
+    for path in &entries {
+        let Some(r) = run_fixture(path) else {
+            continue;
+        };
+        print_result(&r);
+        total_passed += r.passed;
+        total_tests += r.total;
+        if r.passed == r.total {
+            fully_passing += 1;
+        } else if r.passed == 0 {
+            fully_failing += 1;
+        }
+    }
+
+    println!();
+    let rate = if total_tests > 0 {
+        (total_passed as f64 / total_tests as f64) * 100.0
+    } else {
+        0.0
+    };
+    println!(
+        "BASELINE TOTAL: {}/{} ({:.2}%)",
+        total_passed, total_tests, rate
+    );
+    println!("  fully passing: {} / {}", fully_passing, entries.len());
+    println!("  fully failing: {} / {}", fully_failing, entries.len());
+}
+
+#[test]
+#[ignore]
+fn harte_movec_smoke() {
+    let root = fixture_root();
+    let path = root.join("MOVEC_010.msgpack");
+    if !path.exists() {
+        eprintln!("Skipping: {} not found", path.display());
+        return;
+    }
+    let r = run_fixture(&path).expect("MOVEC fixture loads");
+    println!();
+    print_result(&r);
+    assert!(r.total > 0);
+    // The MOVEC fixture randomises the extension word, so most cases
+    // pick a 68020+ control register the hook can't write. Those
+    // cases raise ILLEGAL, which today produces a 4-word (68000)
+    // frame instead of the 6-word (68010) frame Musashi captures.
+    // Phase 6 lands the 6-word frame; for now just confirm the
+    // smoke test runs end-to-end without panicking.
+}

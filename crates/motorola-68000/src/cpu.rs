@@ -353,6 +353,25 @@ pub struct Cpu68000 {
     pub instruction_starts: u64,
     /// Opcode word captured when the current instruction started.
     pub(crate) opcode_at_start: u16,
+
+    /// Variant-decode hook: gives a wrapping `Cpu68010` / `Cpu68020`
+    /// / … a chance to handle opcodes the M68000 takes ILLEGAL on.
+    ///
+    /// Called by [`Self::try_variant_decode`] from each of the
+    /// 68010+/68020+ ILLEGAL-trap arms in
+    /// [`Self::decode_and_execute`]. Returning `true` means the hook
+    /// fully handled the opcode (advanced PC, set flags, queued any
+    /// follow-up micro-ops); the 68000 then skips its ILLEGAL trap.
+    /// Returning `false` (or leaving the hook `None`) preserves the
+    /// pure-68000 behaviour exactly. This is the only extension
+    /// point that the 68000 exposes to its variants — the family
+    /// crates (`motorola-68010`, `motorola-68020`, …) install hooks
+    /// in their wrapper's `new()`. Pinned to `fn` rather than
+    /// `Box<dyn Fn>` so it stays trivially `Copy` / `Clone`, and
+    /// `#[serde(skip)]` because function pointers don't serialise
+    /// — variant wrappers re-install the hook on deserialise.
+    #[serde(skip)]
+    pub variant_decode_hook: Option<fn(&mut Cpu68000, u16) -> bool>,
 }
 
 impl Cpu68000 {
@@ -409,6 +428,23 @@ impl Cpu68000 {
             reset_out: false,
             instruction_starts: 0,
             opcode_at_start: 0,
+            variant_decode_hook: None,
+        }
+    }
+
+    /// Give the installed variant-decode hook a chance to handle an
+    /// opcode that the M68000 core would otherwise route to ILLEGAL.
+    ///
+    /// Returns `true` if the hook took the opcode. Call sites are the
+    /// 68010+/68020+ ILLEGAL-trap arms in
+    /// [`Self::decode_and_execute`]; each one does
+    /// `if !self.try_variant_decode(opcode) { ... ILLEGAL ... }` so
+    /// pure-68000 behaviour is preserved when the hook is absent.
+    pub fn try_variant_decode(&mut self, opcode: u16) -> bool {
+        if let Some(hook) = self.variant_decode_hook {
+            hook(self, opcode)
+        } else {
+            false
         }
     }
 

@@ -118,14 +118,21 @@
 //!
 //! # Today's wrapper
 //!
-//! [`Cpu68020`] is now a thin wrapper over [`motorola_68000::Cpu68000`]
-//! that owns the four 68020 control registers (MSP, VBR, CACR, CAAR).
-//! `Deref` / `DerefMut` forward everything else to the inner 68000
-//! core, so existing call sites that touch `cpu.regs`, `cpu.state`,
-//! `cpu.tick()`, etc. continue to work without per-method forwarding.
-//! Behaviour is identical to the 68000 today — Phase 1 only stands up
-//! the structural seam; 68020-specific decode and addressing land
-//! later.
+//! [`Cpu68020`] wraps [`motorola_68010::Cpu68010`], which in turn
+//! wraps [`motorola_68000::Cpu68000`]. Each variant installs a decode
+//! hook on the inner 68000's `variant_decode_hook` slot; the 68020
+//! hook handles its own ISA delta (`EXTB.L` so far; bit-field /
+//! MULL / DIVL / TRAPcc / etc. follow in Phase 5) and falls through
+//! to the 68010 hook for `MOVEC` / `MOVE-from-CCR` and other 68010
+//! opcodes. `Deref` / `DerefMut` chain through both wrappers to the
+//! inner 68000 so existing call sites that touch `cpu.regs`,
+//! `cpu.state`, `cpu.tick()`, etc. continue to work.
+//!
+//! All 68020 control registers (`MSP`, `VBR`, `CACR`, `CAAR`, `SFC`,
+//! `DFC`) live on the shared
+//! [`motorola_68k_common::registers::Registers`] struct, not on the
+//! wrapper itself — there's only one source of truth for each
+//! register.
 //!
 //! [`Cpu68EC020`] is currently a type alias to [`Cpu68020`]. The two
 //! diverge only when Phase 8 routes F-line opcodes (the EC020 takes

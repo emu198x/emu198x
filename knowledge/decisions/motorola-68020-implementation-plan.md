@@ -177,10 +177,67 @@ per-method forwarding. The wrapper pattern is adapted from
   No drift, as expected — the wrapper changes structure, not
   behaviour.
 
-Phase 1.5 (the cluster of 68010-era instructions that block the
-68020 baseline — MOVEC, RTD, BKPT, EXTB.l, MOVE-from-CCR) is the
-natural next step: the wrapper now has somewhere to host the VBR
-state that MOVEC reads/writes.
+### Phase 1.5 — bring the 68010 crate to life
+
+**Goal**: the 68020 wraps the 68010 wraps the 68000, with each
+variant owning its own ISA delta. Closes most of the 68010-era
+fixture cluster from the Phase 0 baseline (MOVEC, RTD, BKPT,
+EXTB.L, MOVE-from-CCR).
+
+**Status: complete (2026-05-21).**
+
+The architectural pivot worth recording: rather than the 68020
+wrapper holding *all* the 68010+ delta, each variant crate owns its
+own delta and chains hooks through the family.
+
+- **`motorola-68000` extension point**: added one new field on
+  [`motorola_68000::cpu::Cpu68000`] —
+  `variant_decode_hook: Option<fn(&mut Cpu68000, u16) -> bool>`
+  (with `#[serde(skip)]`). The seven 68010+/68020+ arms in
+  `decode_and_execute` that previously raised ILLEGAL now call
+  `self.try_variant_decode(opcode)` first; if it returns true the
+  variant handled the opcode, otherwise the ILLEGAL trap fires as
+  before. Pure 68000 behaviour is unchanged when no hook is
+  installed.
+
+- **`motorola-68010`** is no longer a type-alias skeleton: it owns
+  `Cpu68010` (`Cpu68000` + Deref) and a `decode_68010_opcode` hook
+  that handles `MOVE from CCR` (register destination) and `MOVEC`
+  (read/write VBR / SFC / DFC / USP). The crate gets its own Tom
+  Harte harness against an `m68k-test-gen`-produced
+  `m68010/v1/` corpus (229 fixtures × 10 vectors = 2,290 tests).
+
+- **`motorola-68020`** repointed: `Cpu68020` now wraps
+  [`motorola_68010::Cpu68010`] (not `Cpu68000` directly). Its
+  `decode_68020_opcode` hook handles `EXTB.L` and chains to the
+  68010 hook for anything it doesn't override.
+
+- **Wrapper state lives on shared `Registers`**: the previous design
+  put `msp` / `vbr` / `cacr` / `caar` on `Cpu68020` itself. Pulled
+  back — `Registers` (in `motorola-68k-common`) already had every
+  68k control register as `pub` fields. Single source of truth; the
+  wrappers are pure type-level discriminators today.
+
+**Baselines after Phase 1.5:**
+
+| Crate | Pass rate | Fully passing | Fully failing |
+|---|---|---|---|
+| `motorola-68010` (new) | **2236 / 2290 = 97.64 %** | 221 / 229 | 3 / 229 (BKPT, MOVEC_010, RTD) |
+| `motorola-68020` | **2092 / 2400 = 87.17 %** (up from 86.33 %) | 200 / 240 | 14 / 240 (was 16) |
+
+EXTB.L and MOVE-from-CCR went 0 % → 100 %. MOVEC_010 and BKPT
+still fail (0 %) because their failing fixtures take the 68010
+ILLEGAL trap, and the trap currently pushes a 4-word (68000)
+frame instead of the 6-word (68010) frame Musashi captures. The
+6-word frame is **Phase 6** scope — adding it here would have
+forced the `begin_group1_exception` rewrite to land out of
+sequence. RTD is deferred to a later phase that hosts the
+multi-step continuation dispatch the wrapper needs.
+
+**68010 vs 68000 flag-edge fixtures** that came in partial
+(`ABCD`, `CHK`, `DIVS`, `NBCD`, `SBCD`) are 68000-era cases where
+Musashi's 68010 mode applies slightly different flag semantics.
+Tracked as Phase 1.5 follow-on, not chased here.
 
 ### Phase 2 — synchronous bus protocol
 

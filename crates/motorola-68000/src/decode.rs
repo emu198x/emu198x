@@ -482,7 +482,9 @@ impl Cpu68000 {
         // --- CAS.l ($0EC0): 68020+ only — illegal on M68000 ---
         // Must check before dynamic bit ops which also match $0Exx.
         if (opcode & 0xFFC0) == 0x0EC0 {
-            self.begin_group1_exception(4, self.instr_start_pc);
+            if !self.try_variant_decode(opcode) {
+                self.begin_group1_exception(4, self.instr_start_pc);
+            }
             return;
         }
 
@@ -620,7 +622,9 @@ impl Cpu68000 {
                 2 => Size::Long,
                 _ => {
                     // Size 3: CAS on 68020+, illegal on M68000.
-                    self.begin_group1_exception(4, self.instr_start_pc);
+                    if !self.try_variant_decode(opcode) {
+                        self.begin_group1_exception(4, self.instr_start_pc);
+                    }
                     return;
                 }
             };
@@ -655,7 +659,9 @@ impl Cpu68000 {
                 if (opcode & 0x0800) != 0 {
                     // Bit field instructions (BFTST/BFEXTU/BFEXTS/BFINS/BFSET/
                     // BFCLR/BFCHG/BFFFO) are 68020+ only — illegal on M68000.
-                    self.begin_group1_exception(4, self.instr_start_pc);
+                    if !self.try_variant_decode(opcode) {
+                        self.begin_group1_exception(4, self.instr_start_pc);
+                    }
                     return;
                 }
 
@@ -773,7 +779,9 @@ impl Cpu68000 {
         // --- EXTB.L ($49C0): 68020+ only — illegal on M68000 ---
         // Must check before LEA which shares the same mask region.
         if (opcode & 0xFFF8) == 0x49C0 {
-            self.begin_group1_exception(4, self.instr_start_pc);
+            if !self.try_variant_decode(opcode) {
+                self.begin_group1_exception(4, self.instr_start_pc);
+            }
             return;
         }
 
@@ -806,9 +814,11 @@ impl Cpu68000 {
         // --- BKPT (0x4848-0x484F, 68010+) ---
         // On 68010, BKPT takes an illegal instruction exception.
         // On 68020+, a breakpoint acknowledge bus cycle would occur.
-        // For now, both paths take an illegal instruction exception.
+        // Pure 68000 also takes the illegal trap.
         if (opcode & 0xFFF8) == 0x4848 {
-            self.begin_group1_exception(4, self.instr_start_pc);
+            if !self.try_variant_decode(opcode) {
+                self.begin_group1_exception(4, self.instr_start_pc);
+            }
             return;
         }
 
@@ -854,7 +864,9 @@ impl Cpu68000 {
         // --- MULL ($4C00-$4C3F) / DIVL ($4C40-$4C7F): 68020+ only ---
         // Illegal on M68000 — the 68000 only has 16-bit MULU/MULS/DIVU/DIVS.
         if (opcode & 0xFFC0) == 0x4C00 || (opcode & 0xFFC0) == 0x4C40 {
-            self.begin_group1_exception(4, self.instr_start_pc);
+            if !self.try_variant_decode(opcode) {
+                self.begin_group1_exception(4, self.instr_start_pc);
+            }
             return;
         }
 
@@ -1017,7 +1029,9 @@ impl Cpu68000 {
                     }
                     1 => {
                         // MOVE from CCR ($42C0): 68010+ only — illegal on M68000.
-                        self.begin_group1_exception(4, self.instr_start_pc);
+                        if !self.try_variant_decode(opcode) {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                        }
                         return;
                     }
                     _ => {
@@ -1141,7 +1155,9 @@ impl Cpu68000 {
 
         // --- RTD ($4E74): 68010+ only — illegal on M68000 ---
         if opcode == 0x4E74 {
-            self.begin_group1_exception(4, self.instr_start_pc);
+            if !self.try_variant_decode(opcode) {
+                self.begin_group1_exception(4, self.instr_start_pc);
+            }
             return;
         }
 
@@ -1242,7 +1258,9 @@ impl Cpu68000 {
 
         // --- MOVEC ($4E7A/$4E7B): 68010+ only — illegal on M68000 ---
         if opcode == 0x4E7A || opcode == 0x4E7B {
-            self.begin_group1_exception(4, self.instr_start_pc);
+            if !self.try_variant_decode(opcode) {
+                self.begin_group1_exception(4, self.instr_start_pc);
+            }
             return;
         }
 
