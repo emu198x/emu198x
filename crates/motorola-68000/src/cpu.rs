@@ -372,6 +372,24 @@ pub struct Cpu68000 {
     /// — variant wrappers re-install the hook on deserialise.
     #[serde(skip)]
     pub variant_decode_hook: Option<fn(&mut Cpu68000, u16) -> bool>,
+
+    /// 68020+ brief-extension-word scaled index (×1 / ×2 / ×4 / ×8).
+    ///
+    /// On the 68000 / 68010 bits 10-9 of the brief extension word
+    /// are "don't care" — the EA path always uses scale = 1.
+    /// On the 68020+ they encode `1 << bits` so the index can be
+    /// `Xn.SIZE * 1 / 2 / 4 / 8`. The flag is consulted by
+    /// `calc_ea_start` for `AddrIndIndex` and `PcIndex` modes; the
+    /// 68020 wrapper flips it to `true` in `new()`.
+    ///
+    /// `#[serde(skip)]` with a `default = "false"` deserialiser:
+    /// snapshots restore the inner core and the variant wrapper
+    /// re-applies the flag on the next construction. Variant
+    /// behaviour bits live on the inner core (rather than the
+    /// wrappers) so the shared EA / SR / exception code can consult
+    /// them without going through a generic trait.
+    #[serde(skip)]
+    pub variant_scaled_index: bool,
 }
 
 impl Cpu68000 {
@@ -429,6 +447,7 @@ impl Cpu68000 {
             instruction_starts: 0,
             opcode_at_start: 0,
             variant_decode_hook: None,
+            variant_scaled_index: false,
         }
     }
 

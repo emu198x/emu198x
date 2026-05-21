@@ -258,12 +258,29 @@ CDIS, CIIN).
 
 **Goal**: 68020 brief extension word with scale field.
 
-- Extend `motorola-68k-common::addressing` to decode the scale
-  field (bits 9-10) on `(d8,An,Xn.SIZE*SCALE)`.
-- 68000 ignores bits 9-10 of the brief extension word; 68020
-  reads them as scale (×1, ×2, ×4, ×8).
-- Tom Harte: instructions using scaled-index addressing
-  (`MOVE.L (d8,A0,D0.L*4),...` and similar) start passing.
+**Status: complete (2026-05-21).**
+
+Pattern note: the variant_decode_hook (Phase 1.5) handles whole
+new instructions; subtle behaviour deltas on existing instructions
+take a different shape. Phase 3 introduces the second per-variant
+extension point: a narrow `pub` boolean on `Cpu68000` that the
+shared EA / decode paths consult.
+
+- Added `Cpu68000.variant_scaled_index: bool` (default false,
+  `#[serde(skip)]`). `Cpu68020::new()` flips it to true.
+- The two `AddrIndIndex` / `PcIndex` sites in
+  `motorola-68000/src/ea.rs` now read `1 << ((ext >> 9) & 0x3)`
+  when the flag is set, and stay at `1` otherwise. 68000 / 68010
+  behaviour unchanged.
+- Tom Harte 68020 baseline: 2092 → **2226 / 2400 = 92.75 %**
+  (+134 tests, +19 fully-passing fixtures). 68010 unchanged at
+  97.64 %. The 16 ADD/ADDI/CLR/LEA/MOVE/PEA scaled-index
+  fixtures all flipped from partial (10-60 %) to 100 %, plus
+  side benefits on a handful of CHK / Bcc-with-indexed variants.
+
+Future per-variant behaviour bits follow the same shape: one
+narrow `pub` boolean on `Cpu68000`, set in the variant wrapper's
+`new()`, consulted by shared code paths.
 
 ### Phase 4 — full extension word format
 

@@ -44,6 +44,11 @@ impl Cpu68020 {
     pub fn new() -> Self {
         let mut inner = Cpu68010::new();
         inner.variant_decode_hook = Some(decode_68020_opcode);
+        // Brief-extension-word scale factor (Xn.SIZE*1/2/4/8) is
+        // 68020+ behaviour. The 68010's hook leaves the flag false;
+        // the 68020 enables it here so calc_ea_start consults bits
+        // 10-9 of the extension word.
+        inner.variant_scaled_index = true;
         Self { inner }
     }
 

@@ -148,10 +148,15 @@ impl Cpu68000 {
                 } else {
                     idx_val as i16 as i32 as u32 // sign-extend word index
                 };
-                // Bits 9-10: scale factor (1/2/4/8). 68020+ only.
-                // On the 68000 these bits are "don't care" — the hardware
-                // always uses scale=1 regardless of their value.
-                let scale = 1u32;
+                // Bits 9-10: scale factor (1/2/4/8). 68020+ only —
+                // gated by `variant_scaled_index`. On the 68000 /
+                // 68010 these bits are "don't care" and the hardware
+                // always uses scale=1.
+                let scale = if self.variant_scaled_index {
+                    1u32 << ((ext >> 9) & 0x3)
+                } else {
+                    1
+                };
                 self.addr = base
                     .wrapping_add(disp as u32)
                     .wrapping_add(idx.wrapping_mul(scale));
@@ -183,9 +188,13 @@ impl Cpu68000 {
                 } else {
                     idx_val as i16 as i32 as u32 // sign-extend word index
                 };
-                // Bits 9-10: scale factor (1/2/4/8). 68020+ only.
-                // On the 68000 these bits are "don't care".
-                let scale = 1u32;
+                // Bits 9-10: scale factor (1/2/4/8). 68020+ only —
+                // gated by `variant_scaled_index`.
+                let scale = if self.variant_scaled_index {
+                    1u32 << ((ext >> 9) & 0x3)
+                } else {
+                    1
+                };
                 self.addr = base
                     .wrapping_add(disp as u32)
                     .wrapping_add(idx.wrapping_mul(scale));
