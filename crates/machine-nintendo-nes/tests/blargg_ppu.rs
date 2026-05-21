@@ -218,105 +218,24 @@ fn oam_stress() {
 }
 
 // ────────────────────────────────────────────────────────────────
-//  sprite_hit_tests (11 sub-tests)
+//  sprite_hit_tests / sprite_overflow_tests — NOT WIRED
+//
+//  These test-rom suites use a DIFFERENT result-reporting protocol
+//  than the standard blargg `$6000`/`$6004` shell. They write a
+//  `result` byte at zero-page `$f8` and render pass/fail text to
+//  the PPU framebuffer via a console subsystem (validation.a +
+//  debug.a in the source tree). There is no PRG-RAM `$6000` status
+//  byte or `DE B0 61` signature.
+//
+//  Detecting their results requires either: (a) framebuffer OCR, or
+//  (b) reading the result byte at `$f8` and verifying the CPU has
+//  entered the `forever` loop (the PC settles at a known address).
+//  Both are doable but neither is plug-compatible with the existing
+//  harness, so they're deferred. The 16 tests across sprite_hit_*
+//  and sprite_overflow_* will land under a separate harness when
+//  per-test PPU fidelity (sprite-0 hit pipeline, sprite overflow
+//  scan) is being driven from CI.
+//
+//  See `knowledge/decisions/nes-architecture-review.md` Seam 1 for
+//  the broader plan.
 // ────────────────────────────────────────────────────────────────
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_01_basics() {
-    run_or_skip("sprite_hit_tests_2005.10.05/01.basics.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_02_alignment() {
-    run_or_skip("sprite_hit_tests_2005.10.05/02.alignment.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_03_corners() {
-    run_or_skip("sprite_hit_tests_2005.10.05/03.corners.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_04_flip() {
-    run_or_skip("sprite_hit_tests_2005.10.05/04.flip.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_05_left_clip() {
-    run_or_skip("sprite_hit_tests_2005.10.05/05.left_clip.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_06_right_edge() {
-    run_or_skip("sprite_hit_tests_2005.10.05/06.right_edge.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_07_screen_bottom() {
-    run_or_skip("sprite_hit_tests_2005.10.05/07.screen_bottom.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_08_double_height() {
-    run_or_skip("sprite_hit_tests_2005.10.05/08.double_height.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_09_timing_basics() {
-    run_or_skip("sprite_hit_tests_2005.10.05/09.timing_basics.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_10_timing_order() {
-    run_or_skip("sprite_hit_tests_2005.10.05/10.timing_order.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_hit_11_edge_timing() {
-    run_or_skip("sprite_hit_tests_2005.10.05/11.edge_timing.nes");
-}
-
-// ────────────────────────────────────────────────────────────────
-//  sprite_overflow_tests (5 sub-tests)
-// ────────────────────────────────────────────────────────────────
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_overflow_1_basics() {
-    run_or_skip("sprite_overflow_tests/1.Basics.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_overflow_2_details() {
-    run_or_skip("sprite_overflow_tests/2.Details.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_overflow_3_timing() {
-    run_or_skip("sprite_overflow_tests/3.Timing.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_overflow_4_obscure() {
-    run_or_skip("sprite_overflow_tests/4.Obscure.nes");
-}
-
-#[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
-fn sprite_overflow_5_emulator() {
-    run_or_skip("sprite_overflow_tests/5.Emulator.nes");
-}
