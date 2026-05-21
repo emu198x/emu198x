@@ -509,6 +509,41 @@ Both crates now have **zero fully-failing fixtures**. Remaining
 gap is BCD V-flag (NBCD / SBCD / ABCD) and CHK Format $2 frame
 — all bounded scope per-instruction quirks.
 
+### Phase 7.5 — Musashi-style BCD V flag
+
+**Status: complete (2026-05-21).**
+
+The PRM says V is "undefined" for ABCD / SBCD / NBCD. Musashi
+implements a specific computation that turns out to match the
+hardware (and the corpus). We were computing V from the
+full-byte uncorrected sum; the correct shape is:
+
+```
+v_first = ~low_nibble_intermediate   // u32 bit 7 captured
+… apply high-nibble + correction …
+v_set = bit 7 of (v_first & final_result)
+```
+
+For `NBCD`, Musashi diverges further: it computes
+`(0x9a - dst - X) & 0xff` directly (not via `bcd_sub(0, dst, X)`)
+and special-cases `pre == 0x9a` (i.e., `dst == 0 && X == 0`) by
+returning the destination unchanged with all flags cleared.
+
+`motorola-68000/src/execute.rs`: rewrote `bcd_add`, `bcd_sub`,
+`nbcd_op` to follow the Musashi shape directly. The change lives
+on the 68000 core (where the BCD ALU lives) and is picked up by
+all three crates that share it.
+
+Baselines after Phase 7.5:
+
+| Crate | Pass rate | Δ | Fully failing |
+|---|---|---|---|
+| `motorola-68010` | **2290 / 2290 = 100.00 %** | +11 | **0 / 229** |
+| `motorola-68020` | **2391 / 2400 = 99.62 %** | +5 | **0 / 240** |
+
+**68010 is fully green.** Only fixture not at 100 % on 68020 is
+CHK (1/10) — the Format $2 instruction-error exception frame.
+
 ### Phase 8 — instruction cache
 
 **Goal**: 256-byte direct-mapped instruction cache, CACR /

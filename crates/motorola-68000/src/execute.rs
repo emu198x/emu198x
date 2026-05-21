@@ -865,45 +865,74 @@ impl Cpu68000 {
         u8::from(self.regs.sr & crate::flags::X != 0)
     }
 
-    /// BCD addition: src + dst + extend. Returns (result, carry, overflow).
+    /// BCD addition: `src + dst + extend`. Returns
+    /// `(result, carry, overflow)`. Implementation mirrors Musashi:
+    /// the "undefined V" flag is computed as bit 7 of
+    /// `(~low_nibble_intermediate) & final_result`, capturing the
+    /// transition of bit 7 across the BCD correction step. PRM says
+    /// V is undefined; both the corpus and the hardware match
+    /// Musashi.
     pub(crate) fn bcd_add(&self, src: u8, dst: u8, extend: u8) -> (u8, bool, bool) {
-        let low_sum = (dst & 0x0F) + (src & 0x0F) + extend;
-        let corf: u16 = if low_sum > 9 { 6 } else { 0 };
-        let uncorrected = u16::from(dst) + u16::from(src) + u16::from(extend);
-        let low_corrected = low_sum + if low_sum > 9 { 6 } else { 0 };
-        let low_carry = low_corrected >> 4;
-        let high_sum = (dst >> 4) + (src >> 4) + low_carry;
-        let carry = high_sum > 9;
-        let result = if carry {
-            uncorrected + corf + 0x60
-        } else {
-            uncorrected + corf
-        };
-        let overflow = (!uncorrected & result & 0x80) != 0;
-        (result as u8, carry, overflow)
+        let mut res: u32 =
+            u32::from(src & 0x0f) + u32::from(dst & 0x0f) + u32::from(extend);
+        let v_first = !res;
+        if res > 9 {
+            res += 6;
+        }
+        res += u32::from(src & 0xf0) + u32::from(dst & 0xf0);
+        let carry = res > 0x99;
+        if carry {
+            res = res.wrapping_sub(0xa0);
+        }
+        let result = (res & 0xff) as u8;
+        let overflow = (v_first & res & 0x80) != 0;
+        (result, carry, overflow)
     }
 
-    /// BCD subtraction: dst - src - extend. Returns (result, borrow, overflow).
+    /// BCD subtraction: `dst - src - extend`. Same Musashi pattern
+    /// as `bcd_add` for the "undefined" V flag.
     pub(crate) fn bcd_sub(&self, dst: u8, src: u8, extend: u8) -> (u8, bool, bool) {
-        let uncorrected = dst.wrapping_sub(src).wrapping_sub(extend);
-        let mut result = uncorrected;
-        let low_borrowed = (dst & 0x0F) < (src & 0x0F).saturating_add(extend);
-        if low_borrowed {
-            result = result.wrapping_sub(6);
+        let mut res: u32 = u32::from(dst & 0x0f)
+            .wrapping_sub(u32::from(src & 0x0f))
+            .wrapping_sub(u32::from(extend));
+        let v_first = !res;
+        if res > 9 {
+            res = res.wrapping_sub(6);
         }
-        let high_borrowed = (dst >> 4) < (src >> 4) + u8::from(low_borrowed);
-        if high_borrowed {
-            result = result.wrapping_sub(0x60);
+        res = res
+            .wrapping_add(u32::from(dst & 0xf0))
+            .wrapping_sub(u32::from(src & 0xf0));
+        let borrow = res > 0x99;
+        if borrow {
+            res = res.wrapping_add(0xa0);
         }
-        let low_correction_wraps = low_borrowed && uncorrected < 6;
-        let borrow = high_borrowed || low_correction_wraps;
-        let overflow = (uncorrected & !result & 0x80) != 0;
+        let result = (res & 0xff) as u8;
+        let overflow = (v_first & res & 0x80) != 0;
         (result, borrow, overflow)
     }
 
-    /// NBCD: 0 - src - extend. Returns (result, borrow, overflow).
+    /// NBCD: 68k's specific "10's-complement negate" — Musashi
+    /// computes `(0x9a - src - X) & 0xff` and then bumps the low
+    /// nibble by `0x10` when it lands on `0x0a` (the BCD digit
+    /// just past 9). The special case `pre == 0x9a` (i.e.,
+    /// `src == 0 && X == 0`) returns the destination unchanged with
+    /// all flags cleared, matching M68000PRM § 6.2.26 footnote.
     pub(crate) fn nbcd_op(&self, src: u8, extend: u8) -> (u8, bool, bool) {
-        self.bcd_sub(0, src, extend)
+        let pre: u32 =
+            (0x9a_u32.wrapping_sub(u32::from(src)).wrapping_sub(u32::from(extend))) & 0xff;
+        if pre == 0x9a {
+            // Result is dst (= src here, since caller passes the
+            // operand value) unchanged. C / X / V all cleared.
+            return (src, false, false);
+        }
+        let v_first = !pre;
+        let mut res = pre;
+        if (res & 0x0f) == 0x0a {
+            res = (res & 0xf0).wrapping_add(0x10);
+        }
+        res &= 0xff;
+        let overflow = (v_first & res & 0x80) != 0;
+        (res as u8, true, overflow)
     }
 
     /// Set flags for ABCD/SBCD/NBCD operations.
