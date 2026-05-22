@@ -1,10 +1,12 @@
 # Decision: Amiga machine rollout plan
 
 **Date:** 2026-05-22
-**Status:** A1200 Stages A + B + C + D + E + F landed 2026-05-22.
-KS 3.1 boots through DiagAlive and reaches a Wack-style
-serial-debugger loop. Stage G needs to identify what triggers KS
-to enter the Wack handler in the first place.
+**Status:** A1200 Stages A + B + C + D + E + F + G landed
+2026-05-22. Stage G **reverted the Stage E "fix"** after
+discovering it was the trigger for the Wack entry. With the revert,
+KS no longer enters Wack but is stuck in an outer init loop that
+calls `exec/Supervisor` after each DiagAlive timeout. Stage H
+needs to trace that call.
 
 ## What this is
 
@@ -376,31 +378,89 @@ trigger a fresh DiagAlive run.
 overlay, so chip-RAM low addresses now serve real chip RAM (not
 the ROM mirror). The exception vectors above are reading correctly.
 
-## A1200 Stage G — what to investigate next
+## A1200 Stage G findings — 2026-05-22
 
-Stage F established that KS is intentionally entering a Wack-style
-loop and intentionally re-entering after each exit. The question
-is **why KS thinks it should be in Wack at all**.
+Two surprises that change the picture.
 
-Candidates (cheap → expensive):
+### Stage E was wrong — reverted
 
-1. **Find the Wack invocation site.** The routine at `$F832A2`
-   (Wack prologue) has no direct BSR/JSR callers in the ROM. It
-   must be reached via a chip-RAM function pointer KS installed
-   somewhere, or via an exception vector that points there
-   indirectly. Search chip-RAM dumps for the value `$F832A2`.
-2. **Identify the exception that's triggering Wack entry.** Vec 31
-   (autovec 7) points at `$F8325E` (near Wack). Vec 11 (line F)
-   points to a trampoline that calls dispatcher `$F80B3C`.
-   Investigate the dispatcher's "if signal X" branches that lead
-   to Wack vs the normal RTE path.
-3. **Compare PC sequence against WinUAE** for the first 200
-   instructions after entry to `$F832A2`. The divergence point
-   would identify the root cause.
-4. **Search for sources that should be supplying $AF + command
-   bytes**. If KS sets up an interrupt handler that's supposed to
-   feed Wack commands and we don't fire that interrupt, Wack waits
-   forever. (Less likely — Wack is normally external/user-driven.)
+Tracing PC entries into the Wack prologue (`$F8326E`) showed they
+all came from `prev_pc = $F83206` — the `BRA.W` immediately after
+the `BEQ.S $F8326E` at `$F83202`. Disassembling further: the BEQ
+sits inside a self-referencing trampoline at `$F831EA-$F83204`
+that pushes `"SAD!"` magic onto the stack then CMP/BEQ-always-takes
+into Wack. Chip RAM at `$000014F2` holds `$F831F6` — that's
+`ExecBase->DebugEntry` (offset $42), so any call to
+`exec.library/Debug` lands in this trampoline.
+
+Crucially, the routine at `$F83616` (which I'd been calling
+"DiagAlive") is NOT just the priv-violation handler — it's part
+of the normal boot path. KS executes it as `MOVE.W #$2700, SR;
+MOVEQ #5, D1; ...` straight through, AND simultaneously installs
+itself as vec 8 via `MOVE.L #$F83616, $0020.W` at `$F8360C` (the
+self-install IS the previous instruction, falling through to the
+handler body).
+
+The exit logic of this routine:
+
+- If `(SERDATR & $7F) == $7F` → `Z=1` → `BEQ.W $F831EA` taken
+  → enters Wack trampoline → Wack.
+- Else (timeout after 6 retries) → `BRA.W $F80440` → delay loop
+  → INTENA clear → `BRA.W $F80DB8` → `JSR -30(A6)` (exec/Supervisor)
+  → continue init.
+
+Stage E's `serial_rx_byte: 0xFF` default made the SERDATR check
+match on the first iteration, so KS took the BEQ path into Wack.
+**That was the wrong outcome.** Real Amiga boot wants the timeout
+path. The Stage E change has been reverted — Paula's
+`serial_rx_byte` now defaults to `0` again (matching the
+power-on-undefined receive shift register), and the SERDATR check
+times out as intended.
+
+### Without Stage E, no Wack — but still stuck
+
+With the revert:
+- Wack prologue entries: **0**. KS never reaches Wack.
+- Unique PCs visited (5000 frames): 2,315 (Stage D baseline).
+- KS oscillates between the COLOR00 delay loop (`$F80450`) and
+  the DiagAlive LED-blink area (`$F8363x`). The PCs visited don't
+  grow past frame 50 — same wedge shape as Stage D.
+
+After each DiagAlive timeout, `BRA.W $F80DB8` executes
+`JSR -30(A6) = exec/Supervisor`. The function passed to Supervisor
+(via the calling convention's stack/A5 setup) is presumably a
+boot-continuation handler. KS keeps coming back to DiagAlive,
+suggesting that Supervisor-called function either fails or returns
+to a caller that re-invokes the early-init sequence.
+
+### Two pointers worth knowing
+
+| Chip-RAM | Value | Meaning |
+|---|---|---|
+| `chip[$00000020]` (vec 8) | `$F83616` | Priv-violation handler (= DiagAlive routine; KS self-installs). |
+| `chip[$000014F2]` (ExecBase->DebugEntry) | `$F831F6` | Wack-entry shortcut (any `exec/Debug` call lands here). |
+| `chip[$00000004]` (ExecBase) | `$000014B0` | ExecBase struct location. |
+| `chip[$0000007C]` (vec 31 / autovec 7) | `$F8325E` | NMI handler (lives in same code region as Wack). |
+
+## A1200 Stage H — what to investigate next
+
+1. **Decode `exec/Supervisor()` at LVO -30.** Trace what function
+   it calls — that's the next-phase boot continuation. Without
+   knowing what that function does, we don't know why KS keeps
+   coming back to DiagAlive.
+2. **Inspect the function on the stack at the JSR -30 site.** The
+   user function passed to Supervisor() is on the stack (or in
+   A5) just before the JSR. Capturing that argument tells us
+   what the next-phase handler is.
+3. **Compare PC histogram against a WinUAE boot of the same ROM.**
+   If WinUAE's `kickstart 3.1 a1200` boot reaches a different PC
+   range after the delay loop than ours, we know which decision
+   point diverges.
+4. **Check our exec library jump table installation.** If our
+   chip-RAM at `ExecBase - 30` doesn't contain a `JMP <handler>`,
+   the JSR -30(A6) lands on garbage. The exec LVO -30 needs to
+   be installed in chip RAM as part of exec.library setup —
+   we should verify this.
 
 ## What this plan does not cover
 

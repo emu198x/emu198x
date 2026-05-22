@@ -150,6 +150,14 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // caller.
     let mut prev_pc = m.cpu().regs.pc;
     let mut byte_receive_entries: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
+    // Track each time the PC FIRST crosses into the Wack
+    // prologue range ($F8325E-$F832B0). Capture (prev_pc, entry_pc,
+    // SSP top 8 bytes) on each transition — the entry path tells us
+    // whether it's a RTE-landing, an exception, or a fall-through.
+    let mut wack_entries: Vec<(u32, u32, u32, u32)> = Vec::new();
+    let wack_entry_lo = 0x00F8_325Eu32;
+    let wack_entry_hi = 0x00F8_32B0u32;
+    let mut diagalive_entries: Vec<(u32, u32, u32, u32)> = Vec::new();
     for f in 1..=frames_to_run {
         for _ in 0..PAL_FRAME_TICKS {
             m.tick();
@@ -169,6 +177,23 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             // here. Stack pointer reads are unreliable mid-tick.
             if pc == 0x00F8_3182 && prev_pc != 0x00F8_3182 {
                 *byte_receive_entries.entry(prev_pc).or_insert(0) += 1;
+            }
+            // Track first-time entries into the Wack prologue range.
+            let prev_in_wack = (wack_entry_lo..wack_entry_hi).contains(&prev_pc);
+            let cur_in_wack = (wack_entry_lo..wack_entry_hi).contains(&pc);
+            if cur_in_wack && !prev_in_wack && wack_entries.len() < 10 {
+                let ssp = m.cpu().regs.ssp;
+                let sp_top = m.read_long(ssp);
+                let sp_next = m.read_long(ssp.wrapping_add(4));
+                wack_entries.push((prev_pc, pc, sp_top, sp_next));
+            }
+            // Track first-time entries into DiagAlive ($F83616) too.
+            if pc == 0x00F8_3616 && prev_pc != 0x00F8_3616 && diagalive_entries.len() < 10 {
+                let ssp = m.cpu().regs.ssp;
+                let sp_top = m.read_long(ssp);
+                let sp_next = m.read_long(ssp.wrapping_add(4));
+                let sp_next2 = m.read_long(ssp.wrapping_add(8));
+                diagalive_entries.push((prev_pc, sp_top, sp_next, sp_next2));
             }
             prev_pc = pc;
             let ipl = m.cpu().regs.interrupt_mask();
@@ -228,6 +253,55 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     eprintln!("byte-receive $F83182 entries (total {total_br}, keyed by BSR site PC):");
     for (caller_pc, count) in br_sorted.iter().take(10) {
         eprintln!("  from ${caller_pc:08X}: {count} entries");
+    }
+
+    eprintln!("DiagAlive $F83616 entries (first 10):");
+    if diagalive_entries.is_empty() {
+        eprintln!("  (none)");
+    }
+    for (prev, sp0, sp4, sp8) in diagalive_entries.iter() {
+        eprintln!("  prev=${prev:08X}  SSP[0]=${sp0:08X} SSP[4]=${sp4:08X} SSP[8]=${sp8:08X}");
+    }
+
+    eprintln!("Wack prologue entries (first 10, captured at PC transition):");
+    if wack_entries.is_empty() {
+        eprintln!("  (none — code never entered $F8325E-$F832B0)");
+    }
+    for (prev, entry, sp_top, sp_next) in wack_entries.iter() {
+        eprintln!(
+            "  prev=${prev:08X} -> entry=${entry:08X}  SSP[0]=${sp_top:08X} SSP[4]=${sp_next:08X}"
+        );
+    }
+
+    // Which of the 14 known callers of exec/Debug (LVO -114) were
+    // hit during the boot? That tells us which code path actually
+    // invokes Debug() and causes the Wack entry.
+    const DEBUG_CALLERS: &[u32] = &[
+        0x00F8_3154,
+        0x00F8_3A9E,
+        0x00F8_3B44,
+        0x00FC_388C,
+        0x00FD_F4B0,
+        0x00FF_6546,
+        0x00FF_8E90,
+        0x00FF_9BE4,
+        0x00FF_ADCE,
+        0x00FF_B1E6,
+        0x00FF_CDA2,
+        0x00FF_D28E,
+        0x00FF_D6B4,
+        0x00FF_DA30,
+    ];
+    eprintln!("exec/Debug callers visited during boot:");
+    let mut any = false;
+    for caller in DEBUG_CALLERS {
+        if unique_pcs.contains(caller) {
+            eprintln!("  ${caller:08X}: YES (visited)");
+            any = true;
+        }
+    }
+    if !any {
+        eprintln!("  (none of the known Debug callers were visited)");
     }
 
     // Exception counts — if KS is hitting an illegal-instruction trap
@@ -312,11 +386,82 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     let mem = m.memory();
     for vec in [0u32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 24, 31] {
         let off = (vec * 4) as u32;
-        // Read directly from chip RAM (bypassing OVL).
         let hi = mem.read_chip_ram_word(off);
         let lo = mem.read_chip_ram_word(off + 2);
         let val = (u32::from(hi) << 16) | u32::from(lo);
         eprintln!("  vec {vec:>2} @ chip[${off:08X}]: ${val:08X}");
+    }
+
+    // Stage G: scan chip RAM for any longword that points anywhere
+    // into the Wack-related ROM area $F83260-$F83660 (covers the
+    // prologue, dispatcher, command handlers, and DiagAlive). We're
+    // looking for the function pointer KS installed that ultimately
+    // routes into Wack.
+    let chip_size = mem.chip_ram_size() as u32;
+    let stack_low = m.cpu().regs.ssp.saturating_sub(8);
+    let stack_high = 0x0020_0000u32;
+    // Scan chip RAM for the trampoline address $F831EA (and nearby).
+    eprintln!("Chip-RAM scan for pointers to Wack trampoline $F831E8-$F831FE:");
+    let mut hits_tr = 0;
+    for off in (0..chip_size).step_by(2) {
+        if off + 4 > chip_size { break; }
+        let hi = mem.read_chip_ram_word(off);
+        let lo = mem.read_chip_ram_word(off + 2);
+        let val = (u32::from(hi) << 16) | u32::from(lo);
+        if (0x00F8_31E8..=0x00F8_31FE).contains(&val) {
+            eprintln!("  chip[${off:08X}] = ${val:08X}");
+            hits_tr += 1;
+            if hits_tr > 40 { break; }
+        }
+    }
+    if hits_tr == 0 {
+        eprintln!("  (none found)");
+    }
+
+    eprintln!("Chip-RAM scan for non-stack pointers into Wack area $F83260-$F83660:");
+    let mut hits = 0;
+    for off in (0..chip_size).step_by(2) {
+        if off + 4 > chip_size {
+            break;
+        }
+        // Skip the stack region — we want non-stack pointers (data
+        // structures, function tables, etc.).
+        if (stack_low..stack_high).contains(&off) {
+            continue;
+        }
+        let hi = mem.read_chip_ram_word(off);
+        let lo = mem.read_chip_ram_word(off + 2);
+        let val = (u32::from(hi) << 16) | u32::from(lo);
+        if (0x00F8_3260..=0x00F8_3660).contains(&val) {
+            eprintln!("  chip[${off:08X}] = ${val:08X}");
+            hits += 1;
+            if hits > 60 {
+                eprintln!("  (truncated)");
+                break;
+            }
+        }
+    }
+    if hits == 0 {
+        eprintln!("  (none found — Wack entry must be via fall-through, not pointer)");
+    }
+
+    // Stage G: dump the supervisor-stack call chain. Walking up from
+    // SSP gives the sequence of return PCs back to whatever entered
+    // the Wack code path. Each BSR pushes a return PC; each
+    // RTS pops one. The deeper we walk, the older the call.
+    let ssp = m.cpu().regs.ssp;
+    eprintln!("Stack walk from SSP=${ssp:08X} ({} bytes):", 64);
+    for i in (0..64).step_by(4) {
+        let addr = ssp.wrapping_add(i);
+        let val = m.read_long(addr);
+        let annotation = if (0x00F8_0000..0x0100_0000).contains(&val) {
+            "(ROM)"
+        } else if val < 0x00200000 {
+            "(chip RAM)"
+        } else {
+            "(?)"
+        };
+        eprintln!("  SSP+{i:>3} @ ${addr:08X}: ${val:08X} {annotation}");
     }
 }
 
