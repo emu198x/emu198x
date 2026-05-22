@@ -12,8 +12,10 @@ motorola-68010 = { path = "../motorola-68010" }
 serde = { workspace = true }
 
 [dev-dependencies]
+flate2 = "1"
 rmp-serde = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
