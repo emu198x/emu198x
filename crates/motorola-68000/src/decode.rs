@@ -950,10 +950,14 @@ impl Cpu68000 {
                 // Register mode: NBCD Dn
                 let val = (self.regs.d[ea_reg as usize] & 0xFF) as u8;
                 let x = self.x_flag();
-                let (result, carry, overflow) = self.nbcd_op(val, x);
-                self.regs.d[ea_reg as usize] =
-                    (self.regs.d[ea_reg as usize] & 0xFFFF_FF00) | u32::from(result);
-                self.set_bcd_flags(result, carry, overflow);
+                if let Some((result, carry, overflow)) = self.nbcd_op(val, x) {
+                    self.regs.d[ea_reg as usize] =
+                        (self.regs.d[ea_reg as usize] & 0xFFFF_FF00) | u32::from(result);
+                    self.set_bcd_flags(result, carry, overflow);
+                }
+                // `nbcd_op` returns `None` on the Musashi `pre == 0x9a`
+                // corner: destination unchanged, flags adjusted
+                // directly inside the helper.
                 let d: u8 = 2;
                 if d > 0 {
                     self.micro_ops.push(MicroOp::Internal(d));

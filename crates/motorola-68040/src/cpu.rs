@@ -19,6 +19,8 @@
 
 use std::ops::{Deref, DerefMut};
 
+use motorola_68000::Cpu68000;
+use motorola_68020::cpu::decode_68020_opcode;
 use motorola_68030::Cpu68030;
 
 /// Motorola 68040 CPU.
@@ -36,9 +38,9 @@ impl Cpu68040 {
     #[must_use]
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self {
-            inner: Cpu68030::new(),
-        }
+        let mut inner = Cpu68030::new();
+        inner.variant_decode_hook = Some(decode_68040_opcode);
+        Self { inner }
     }
 
     /// Borrow the wrapped 68030 core.
@@ -84,6 +86,41 @@ impl From<Cpu68040> for Cpu68030 {
     fn from(cpu: Cpu68040) -> Self {
         cpu.into_inner()
     }
+}
+
+// ─── Decode hook ──────────────────────────────────────────────────
+
+/// Hook installed on [`Cpu68000::variant_decode_hook`] by every
+/// [`Cpu68040`] instance. Handles the 68040-additional MOVEC
+/// control registers (the MMU regs and SRP / URP — Musashi
+/// implements these as no-ops on 68040+ pending a full MMU
+/// implementation, and we match that semantics so the corpus
+/// matches). Falls through to [`decode_68020_opcode`] for
+/// everything else; the 68030 layer in between has no opcode
+/// delta of its own.
+pub fn decode_68040_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    if opcode == 0x4E7A || opcode == 0x4E7B {
+        let cr = cpu.irc & 0x0FFF;
+        if matches!(
+            cr,
+            0x003 | 0x004 | 0x005 | 0x006 | 0x007 | 0x805 | 0x806 | 0x807
+        ) {
+            // 68040-only control registers: TC ($003), ITT0/1
+            // ($004/5), DTT0/1 ($006/7), MMUSR ($805), URP ($806),
+            // SRP ($807). Musashi treats these as no-ops on 68040+
+            // — consume the extension word and return without
+            // touching state. PRM behaviour is to actually read or
+            // write the MMU register, but the m68k-test-gen corpus
+            // uses Musashi as its oracle, so we match Musashi.
+            if !cpu.regs.is_supervisor() {
+                cpu.begin_group1_exception(8, cpu.instr_start_pc);
+                return true;
+            }
+            let _ = cpu.consume_irc();
+            return true;
+        }
+    }
+    decode_68020_opcode(cpu, opcode)
 }
 
 #[cfg(test)]

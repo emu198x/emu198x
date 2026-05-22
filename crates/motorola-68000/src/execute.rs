@@ -47,9 +47,19 @@ impl Cpu68000 {
         if (opcode & 0xFFC0) == 0x4800 {
             let val = self.dst_val as u8;
             let x = self.x_flag();
-            let (result, carry, overflow) = self.nbcd_op(val, x);
-            self.set_bcd_flags(result, carry, overflow);
-            self.data = u32::from(result);
+            match self.nbcd_op(val, x) {
+                Some((result, carry, overflow)) => {
+                    self.set_bcd_flags(result, carry, overflow);
+                    self.data = u32::from(result);
+                }
+                None => {
+                    // Musashi `pre == 0x9a` corner: destination
+                    // unchanged. The bus writeback path will write
+                    // `self.data`; set it to the original value so
+                    // the write is a no-op.
+                    self.data = u32::from(val);
+                }
+            }
             return;
         }
 
@@ -891,13 +901,21 @@ impl Cpu68000 {
     /// NBCD: the 68k "10's-complement negate". Real hardware
     /// behaves like `bcd_sub(0, dst, X)`; Musashi computes
     /// `(0x9a - dst - X) & 0xff` directly with a special case for
-    /// `pre == 0x9a` (returns destination unchanged, all flags clear).
-    pub(crate) fn nbcd_op(&self, src: u8, extend: u8) -> (u8, bool, bool) {
+    /// `pre == 0x9a` (the destination is unchanged but N is set
+    /// from bit 7 of `0x9a`).
+    ///
+    /// Returns `Some((result, carry, overflow))` for the normal
+    /// path — caller writes `result` back to the destination and
+    /// calls `set_bcd_flags`. Returns `None` for the Musashi
+    /// special case: this method has already adjusted N / V / C /
+    /// X directly (preserving Z's sticky semantics), and the
+    /// destination must stay untouched.
+    pub(crate) fn nbcd_op(&mut self, src: u8, extend: u8) -> Option<(u8, bool, bool)> {
         if self.variant_musashi_bcd_v {
-            nbcd_op_musashi(src, extend)
+            nbcd_op_musashi(self, src, extend)
         } else {
             // Real-hardware NBCD: equivalent to `bcd_sub(0, dst, X)`.
-            bcd_sub_realhw(0, src, extend)
+            Some(bcd_sub_realhw(0, src, extend))
         }
     }
 
@@ -1040,16 +1058,24 @@ fn bcd_sub_musashi(dst: u8, src: u8, extend: u8) -> (u8, bool, bool) {
 }
 
 /// Musashi NBCD. Computes `(0x9a - dst - X) & 0xff` and bumps the
-/// low nibble past `0xa` when the BCD correction kicks in. Special
-/// case `pre == 0x9a` (i.e. `dst == 0 && X == 0`) returns dst
-/// unchanged with all flags cleared, matching M68000PRM § 6.2.26.
-fn nbcd_op_musashi(src: u8, extend: u8) -> (u8, bool, bool) {
+/// low nibble past `0xa` when the BCD correction kicks in.
+///
+/// Returns `Some((result, carry, overflow))` for the normal path.
+/// Returns `None` for the `pre == 0x9a` corner (i.e.
+/// `dst == 0 && X == 0`, or `dst == 0xff && X == 1`): Musashi
+/// leaves the destination unchanged but sets N from bit 7 of the
+/// intermediate `0x9a` (= 1) and clears V / C / X. We apply those
+/// flag changes here and signal "no writeback" via `None`.
+fn nbcd_op_musashi(cpu: &mut crate::cpu::Cpu68000, src: u8, extend: u8) -> Option<(u8, bool, bool)> {
     let pre: u32 = (0x9a_u32
         .wrapping_sub(u32::from(src))
         .wrapping_sub(u32::from(extend)))
         & 0xff;
     if pre == 0x9a {
-        return (src, false, false);
+        // Special case — set flags directly, no writeback.
+        use crate::flags::{C, N, V, X};
+        cpu.regs.sr = (cpu.regs.sr & !(N | V | C | X)) | N;
+        return None;
     }
     let v_first = !pre;
     let mut res = pre;
@@ -1058,5 +1084,5 @@ fn nbcd_op_musashi(src: u8, extend: u8) -> (u8, bool, bool) {
     }
     res &= 0xff;
     let overflow = (v_first & res & 0x80) != 0;
-    (res as u8, true, overflow)
+    Some((res as u8, true, overflow))
 }

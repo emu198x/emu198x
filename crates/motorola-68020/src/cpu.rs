@@ -226,14 +226,17 @@ fn execute_mull(cpu: &mut Cpu68000, opcode: u16) -> bool {
         (product as u32, (product >> 32) as u32)
     };
 
-    cpu.regs.d[dl] = result_lo;
-
     let mut sr = cpu.regs.sr & !(N | Z | V | C);
 
     if wide {
         // 64-bit form: Dh:Dl holds the full product, V is always 0
-        // because a 32×32 product fits in 64 bits.
+        // because a 32×32 product fits in 64 bits. Musashi writes
+        // Dh *first* then Dl — when `Dl == Dh` the Dl write wins
+        // and the low half lands. Matching that write order matters
+        // for the ~6% of random fixtures where the corpus picked
+        // the same register for both.
         cpu.regs.d[dh] = result_hi;
+        cpu.regs.d[dl] = result_lo;
         let zero = result_lo == 0 && result_hi == 0;
         if zero {
             sr |= Z;
@@ -242,6 +245,7 @@ fn execute_mull(cpu: &mut Cpu68000, opcode: u16) -> bool {
             sr |= N;
         }
     } else {
+        cpu.regs.d[dl] = result_lo;
         // 32-bit form: only Dl is written; V signals that the result
         // didn't fit in 32 bits.
         if result_lo == 0 {
