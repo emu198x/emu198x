@@ -4,6 +4,7 @@ description = "Shared board-level substrate for Commodore Amiga machine crates â
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 mos-cia-8520 = { path = "../mos-cia-8520" }

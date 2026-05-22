@@ -2,7 +2,7 @@
 //! then sample the Z80 PC over time + dump screen text. Used to figure
 //! out which ROM routine the BIOS is stuck in during the disk-load
 //! hang documented at
-//! `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md`.
+//! `knowledge/decisions/spectrum-plus3-disk-loading-incomplete.md`.
 //!
 //! Run with:
 //!

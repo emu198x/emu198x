@@ -1,8 +1,8 @@
 //! ZX Spectrum 128K memory map.
 //!
 //! Source references:
-//! - `wiki/systems/spectrum/variants.md`
-//! - `wiki/systems/spectrum/contention.md`
+//! - `knowledge/systems/spectrum/variants.md`
+//! - `knowledge/systems/spectrum/contention.md`
 //!
 //! Lives in the 128K-class layer crate because the Sinclair 128K and the
 //! Sinclair-branded Amstrad-built +2 share the same memory layout

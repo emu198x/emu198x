@@ -4,6 +4,7 @@ description = "Ricoh 2A03 APU — two pulse channels, triangle, noise, DMC with 
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

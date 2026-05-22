@@ -1,4 +1,4 @@
-# NES catalogue. See wiki/decisions/october-catalogue.md.
+# NES catalogue. See knowledge/decisions/october-catalogue.md.
 #
 # Coverage target: 10 entries spanning NROM, UxROM, MMC1, MMC3, MMC5,
 # AxROM, and PAL NES. NES has no BIOS so the [system.firmware] section

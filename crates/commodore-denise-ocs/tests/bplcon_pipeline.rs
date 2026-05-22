@@ -6,7 +6,7 @@
 //! so each test can be lifted into the live crate later with minimal
 //! change.
 //!
-//! Covers task #151 from wiki/amiga/denise-ocs-porting-gap-list.md:
+//! Covers task #151 from knowledge/amiga/denise-ocs-porting-gap-list.md:
 //!   - LORES vs HIRES source-pixels-per-output-call
 //!   - BPLCON1 odd/even barrel-shift scroll
 //!   - BPLCON1 hires ignores low bit of each nibble

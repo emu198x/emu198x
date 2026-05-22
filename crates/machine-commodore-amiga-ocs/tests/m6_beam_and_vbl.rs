@@ -1,6 +1,6 @@
 //! M6: beam counter + VBL interrupt.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. Adds Agnus beam
+//! Per `knowledge/decisions/amiga-restart-plan.md`. Adds Agnus beam
 //! counter (vpos / hpos) and VBL interrupt delivery: every PAL frame
 //! (227 × 312 = 70824 CCKs) the VERTB bit gets latched into INTREQ;
 //! IPL computation routes that to the CPU when INTENA's master + VERTB

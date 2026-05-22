@@ -1,6 +1,6 @@
 //! M8: CIA-A timers + ICR + CIA→Paula IRQ.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. The KS 1.3 boot
+//! Per `knowledge/decisions/amiga-restart-plan.md`. The KS 1.3 boot
 //! stalls at INTENA=$202C (no master) at PC=$FC3132 because the
 //! exec scheduler / library init waits for CIA timer interrupts
 //! that never fire without timer behavior.

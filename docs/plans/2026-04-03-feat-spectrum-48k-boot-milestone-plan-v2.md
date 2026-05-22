@@ -609,5 +609,5 @@ Port the proven design from the old codebase:
 
 - Tom Harte tests: https://github.com/TomHarte/ProcessorTests
 - FUSE: https://fuse-emulator.sourceforge.net/
-- Sinclair Wiki: https://sinclair.wiki.zxnet.co.uk/wiki/Contended_memory
+- Sinclair Wiki: https://sinclair.wiki.zxnet.co.uk/knowledge/Contended_memory
 - `blip_buf` crate: https://docs.rs/blip_buf/

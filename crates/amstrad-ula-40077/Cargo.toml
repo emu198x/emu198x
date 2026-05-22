@@ -4,6 +4,7 @@ description = "Amstrad 40077 gate array — the +2A/+2B/+3 ZX Spectrum's custom 
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

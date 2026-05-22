@@ -4,6 +4,7 @@ description = "Commodore 64 T64 container parser"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 thiserror = { workspace = true }

@@ -1,10 +1,10 @@
 //! ZX Spectrum 48K memory map.
 //!
 //! Source references:
-//! - `wiki/systems/spectrum/overview.md`
-//! - `wiki/systems/spectrum/contention.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/common-sinclair-zx-spectrum/src/memory.rs`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/machine-sinclair-zx-spectrum-48k/src/memory.rs`
+//! - `knowledge/systems/spectrum/overview.md`
+//! - `knowledge/systems/spectrum/contention.md`
+//! - Adapted from `../Emu198x-Older/crates/common-sinclair-zx-spectrum/src/memory.rs`
+//! - Adapted from `../Emu198x-Older/crates/machine-sinclair-zx-spectrum-48k/src/memory.rs`
 //!
 //! The fresh implementation keeps only the 48K memory map and removes all file
 //! I/O from the component boundary.

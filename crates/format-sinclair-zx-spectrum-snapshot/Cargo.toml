@@ -4,5 +4,6 @@ description = "Shared snapshot types for ZX Spectrum format parsers (.z80, .sna,
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]

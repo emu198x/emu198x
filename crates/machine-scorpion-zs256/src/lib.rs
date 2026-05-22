@@ -1,8 +1,8 @@
 //! Scorpion ZS-256 machine.
 //!
 //! Source references:
-//! - `wiki/systems/spectrum/variants.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/machine-scorpion-zs256/src/lib.rs`
+//! - `knowledge/systems/spectrum/variants.md`
+//! - Adapted from `../Emu198x-Older/crates/machine-scorpion-zs256/src/lib.rs`
 //!
 //! Hardware:
 //! - Z80 @ 3.5 MHz (master / 4) — same crystal as the 48K

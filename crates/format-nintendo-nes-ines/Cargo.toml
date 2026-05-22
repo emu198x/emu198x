@@ -4,6 +4,7 @@ description = "iNES / NES 2.0 cartridge header parser + NES mapper trait and cur
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

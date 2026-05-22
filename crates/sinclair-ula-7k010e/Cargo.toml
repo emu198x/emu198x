@@ -4,6 +4,7 @@ description = "Sinclair 7K010E ULA — the 128K and +2 ZX Spectrum's custom chip
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

@@ -1,8 +1,8 @@
 //! Spectrum-family ULA trait.
 //!
 //! Source references:
-//! - `wiki/systems/spectrum/overview.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/common-sinclair-zx-spectrum/src/ula.rs`
+//! - `knowledge/systems/spectrum/overview.md`
+//! - Adapted from `../Emu198x-Older/crates/common-sinclair-zx-spectrum/src/ula.rs`
 
 use crate::memory::MemoryBus;
 use crate::timing::FrameTiming;

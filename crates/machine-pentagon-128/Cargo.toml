@@ -4,6 +4,7 @@ description = "Pentagon 128 machine — Z80, Pentagon ULA (no contention), 128K 
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 beta-disk-interface = { path = "../beta-disk-interface" }

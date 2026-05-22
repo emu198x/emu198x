@@ -1,9 +1,9 @@
 //! Amstrad 40077 gate array — the +2A / +2B / +3 ZX Spectrum's custom chip.
 //!
 //! Source references:
-//! - `wiki/chips/amstrad-40077.md`
-//! - `wiki/systems/spectrum/contention.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/amstrad-ula-40077/src/lib.rs`
+//! - `knowledge/chips/amstrad-40077.md`
+//! - `knowledge/systems/spectrum/contention.md`
+//! - Adapted from `../Emu198x-Older/crates/amstrad-ula-40077/src/lib.rs`
 //!
 //! Key differences from the Sinclair ULAs:
 //! - Different contention pattern: `[1, 0, 7, 6, 5, 4, 3, 2]`

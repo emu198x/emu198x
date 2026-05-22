@@ -4,6 +4,7 @@ description = "Game Boy cartridge header parser + Cartridge construction"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 nintendo-game-boy-mbc = { path = "../nintendo-game-boy-mbc" }

@@ -9,7 +9,7 @@ implementation status or priority.
 Current authority:
 
 - [coherent development plan](../../plans/2026-04-12-emulator-suite-coherent-development-plan.md)
-- `wiki/decisions/`
+- `knowledge/decisions/`
 
 Treat any "complete", "production-ready", or similar status claims in this
 folder as historical unless they are revalidated elsewhere.

@@ -1,13 +1,13 @@
 //! M5: bootstrap ExecBase placement.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. The KS 1.3 boot
+//! Per `knowledge/decisions/amiga-restart-plan.md`. The KS 1.3 boot
 //! allocates the bootstrap ExecBase in chip RAM during what V37
 //! calls Phase 8 ($F801FE-$F8022A). The bootstrap allocator (real
 //! V34's equivalent) places a $57C-byte block; ExecBase pointer =
 //! block + $318 (the size of the negative jump-table portion).
 //!
 //! In chip-only A500 KS 1.3 (per the archived investigation in
-//! `wiki/decisions/amiga-chip-only-boot-failure.md`), this lands at
+//! `knowledge/decisions/amiga-chip-only-boot-failure.md`), this lands at
 //! `$00000676`. ChkBase at ExecBase+$26 holds the one's-complement
 //! of ExecBase as a sanity check.
 //!

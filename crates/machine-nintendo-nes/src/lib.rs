@@ -7,7 +7,7 @@
 //!
 //! # Tick loop
 //!
-//! Per [`wiki/decisions/nes-clock-topology.md`]:
+//! Per [`knowledge/decisions/nes-clock-topology.md`]:
 //!
 //! - The master clock drives the loop.
 //! - The PPU ticks every master clock division (1 dot per call).
@@ -31,7 +31,7 @@
 //! The archive crate at
 //! `~/Projects/Emu198x-archive/crates/machine-nintendo-nes/` is
 //! **not directly portable** per
-//! [archives-as-source.md](../../wiki/decisions/archives-as-source.md)
+//! [archives-as-source.md](../../knowledge/decisions/archives-as-source.md)
 //! — it used a CPU-driven loop where the PPU was stepped in
 //! batches. This crate is written from scratch against the
 //! nes-clock-topology decision doc, using the C64 machine

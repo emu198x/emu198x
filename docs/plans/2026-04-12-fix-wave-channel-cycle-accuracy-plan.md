@@ -150,5 +150,5 @@ Our current code already sets `sample_position = 0` on trigger, and the first `t
 
 - [SameBoy apu.c](https://github.com/LIJI32/SameBoy/blob/master/Core/apu.c) — authoritative reference implementation
 - [Pan Docs Audio Details](https://gbdev.io/pandocs/Audio_details.html)
-- [gbdev wiki Sound Hardware](https://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware)
+- [gbdev wiki Sound Hardware](https://gbdev.gg8.se/knowledge/articles/Gameboy_sound_hardware)
 - Blargg test ROMs: `gb-test-roms-master/dmg_sound/rom_singles/`

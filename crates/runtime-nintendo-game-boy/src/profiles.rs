@@ -2,7 +2,7 @@
 //!
 //! Exposes the DMG-class skipped-boot profiles currently supported by
 //! the runtime. CGB will land alongside the family-driver lift per
-//! [within-family-layering](../../../wiki/decisions/within-family-layering.md).
+//! [within-family-layering](../../../knowledge/decisions/within-family-layering.md).
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,

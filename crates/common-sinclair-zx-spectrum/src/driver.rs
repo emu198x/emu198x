@@ -27,7 +27,7 @@
 //!
 //! The trait is deliberately scoped to the Spectrum family — it is
 //! *not* a cross-system abstraction. See
-//! `wiki/decisions/system-specific-run-loops.md` for why each system
+//! `knowledge/decisions/system-specific-run-loops.md` for why each system
 //! family writes its own loop, and why within-family sharing is
 //! explicitly allowed.
 

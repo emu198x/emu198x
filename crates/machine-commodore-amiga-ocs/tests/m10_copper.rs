@@ -1,6 +1,6 @@
 //! M10: Agnus Copper.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. The Copper is the
+//! Per `knowledge/decisions/amiga-restart-plan.md`. The Copper is the
 //! display-list coprocessor inside Agnus. It reads instruction
 //! pairs (32-bit each) from chip RAM and writes to chipset registers
 //! at specific beam positions, building per-frame display setups.

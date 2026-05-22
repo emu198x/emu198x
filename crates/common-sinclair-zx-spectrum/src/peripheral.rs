@@ -48,7 +48,7 @@
 //!   machines. The peripheral pattern lets each machine declare
 //!   whether it can host a Kempston by simply not owning one. See
 //!   `peripheral-kempston-joystick` for the implementation and
-//!   `wiki/decisions/spectrum-joystick-architecture.md` for the
+//!   `knowledge/decisions/spectrum-joystick-architecture.md` for the
 //!   rationale trail.
 
 /// Uniform trait implemented by every Spectrum edge-connector

@@ -11,9 +11,6 @@ use runtime_sinclair_zx_spectrum::*;
 use std::fs;
 use std::path::PathBuf;
 
-const MANIC_MINER_TZX_ZIP_PATH: &str = "/Users/stevehill/Projects/198x/assets/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip";
-const JET_SET_WILLY_TZX_ZIP_PATH: &str = "/Users/stevehill/Projects/198x/assets/sinclair/spectrum/Games/[TZX]/Jet Set Willy (1984)(Software Projects).zip";
-
 #[test]
 fn runtime_loads_tap_media_into_tape_slot() {
     let mut runtime =
@@ -446,8 +443,7 @@ fn spectrum_boot_wait_and_prompt_input_change_decoded_text() {
 fn runtime_loads_zipped_manic_miner_tzx_media() {
     let Some(tape_path) = spectrum_manic_miner_tzx_path() else {
         eprintln!(
-            "Manic Miner TZX zip not found; set EMU198X_SPECTRUM_MANIC_MINER_TZX or place it at {}",
-            MANIC_MINER_TZX_ZIP_PATH
+            "Manic Miner TZX zip not found; set EMU198X_SPECTRUM_MANIC_MINER_TZX to a Manic Miner TZX zip path"
         );
         return;
     };
@@ -478,8 +474,7 @@ fn spectrum_boots_and_loads_manic_miner_from_zipped_tzx() {
     };
     let Some(tape_path) = spectrum_manic_miner_tzx_path() else {
         eprintln!(
-            "Manic Miner TZX zip not found; set EMU198X_SPECTRUM_MANIC_MINER_TZX or place it at {}",
-            MANIC_MINER_TZX_ZIP_PATH
+            "Manic Miner TZX zip not found; set EMU198X_SPECTRUM_MANIC_MINER_TZX to a Manic Miner TZX zip path"
         );
         return;
     };
@@ -541,8 +536,7 @@ fn spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx() {
     };
     let Some(tape_path) = spectrum_jet_set_willy_tzx_path() else {
         eprintln!(
-            "Jet Set Willy TZX zip not found; set EMU198X_SPECTRUM_JET_SET_WILLY_TZX or place it at {}",
-            JET_SET_WILLY_TZX_ZIP_PATH
+            "Jet Set Willy TZX zip not found; set EMU198X_SPECTRUM_JET_SET_WILLY_TZX to a Jet Set Willy TZX zip path"
         );
         return;
     };
@@ -747,27 +741,15 @@ fn spectrum_48k_rom_path() -> Option<PathBuf> {
 }
 
 fn spectrum_manic_miner_tzx_path() -> Option<PathBuf> {
-    let env_path = std::env::var_os("EMU198X_SPECTRUM_MANIC_MINER_TZX")
+    std::env::var_os("EMU198X_SPECTRUM_MANIC_MINER_TZX")
         .map(PathBuf::from)
-        .filter(|path| path.is_file());
-    if env_path.is_some() {
-        return env_path;
-    }
-
-    let default = PathBuf::from(MANIC_MINER_TZX_ZIP_PATH);
-    default.is_file().then_some(default)
+        .filter(|path| path.is_file())
 }
 
 fn spectrum_jet_set_willy_tzx_path() -> Option<PathBuf> {
-    let env_path = std::env::var_os("EMU198X_SPECTRUM_JET_SET_WILLY_TZX")
+    std::env::var_os("EMU198X_SPECTRUM_JET_SET_WILLY_TZX")
         .map(PathBuf::from)
-        .filter(|path| path.is_file());
-    if env_path.is_some() {
-        return env_path;
-    }
-
-    let default = PathBuf::from(JET_SET_WILLY_TZX_ZIP_PATH);
-    default.is_file().then_some(default)
+        .filter(|path| path.is_file())
 }
 
 fn screen_text_lines_from_session(

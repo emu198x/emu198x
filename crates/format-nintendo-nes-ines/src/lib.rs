@@ -16,7 +16,7 @@
 //! flat-layout test ROMs plus common PRG/CHR-bank-switched cartridges.
 //!
 //! The remaining mappers are archive-provenance (see
-//! [archives-as-source.md](../../wiki/decisions/archives-as-source.md))
+//! [archives-as-source.md](../../knowledge/decisions/archives-as-source.md))
 //! and will be lifted one at a time *once the PPU crate is back
 //! online*, because there is no point porting address-translation
 //! logic with no bus for the translated addresses to serve.

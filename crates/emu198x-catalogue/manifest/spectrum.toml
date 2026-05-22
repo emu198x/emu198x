@@ -1,4 +1,4 @@
-# Spectrum catalogue. See wiki/decisions/october-catalogue.md.
+# Spectrum catalogue. See knowledge/decisions/october-catalogue.md.
 #
 # Coverage target: 10 entries spanning 48K, 128K, +3 (DSK), Pentagon
 # (TR-DOS), and Timex (DOCK). This file lands narrow with one entry —
@@ -27,7 +27,7 @@ files = [
 # Spectrum+ is electrically identical to the 48K — same ROM image, same
 # memory map, same Ferranti ULA. The catalogue duplicates the 48K title
 # set against the dedicated -plus crate so any future drift between the
-# two surfaces immediately. See wiki/decisions/october-catalogue.md.
+# two surfaces immediately. See knowledge/decisions/october-catalogue.md.
 [[system.firmware]]
 variant = "plus"
 files = [
@@ -349,7 +349,7 @@ hash = "xxh64:d21bc79639a0edde"
 # Speedlock-tape (Hit Squad re-releases of Ocean's 1988 titles)
 # remains unsupported — pulse-timing precision in our edge polling
 # isn't yet tight enough for Speedlock 7's cycle-counted byte read.
-# Documented at wiki/decisions/speedlock-tape-incomplete.md.
+# Documented at knowledge/decisions/speedlock-tape-incomplete.md.
 
 
 [[entry]]
@@ -448,7 +448,7 @@ hash = "xxh64:6c8dffcbac3b30eb"
 
 # ─── Speedlock-tape cluster ─────────────────────────────────────
 # Unlocked 2026-05-13 by the TZX partial-last-byte parser fix (see
-# `wiki/decisions/speedlock-tape-incomplete.md`). Speedlock-5 and
+# `knowledge/decisions/speedlock-tape-incomplete.md`). Speedlock-5 and
 # Speedlock-7 protections both fail without the fix because their
 # anti-tamper signature byte is delivered via a 0x14 block with
 # `bits_in_last_byte = 6` — the parser was reading the lower six
@@ -1998,7 +1998,7 @@ hash = "xxh64:c27195d1cabf3150"
 # `autoload_plus3_loader` presses ENTER (Loader option), the FDC
 # streams sectors from the parsed disk image, and the protected
 # loader unpacks the game into RAM. See
-# `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md` for the
+# `knowledge/decisions/spectrum-plus3-disk-loading-incomplete.md` for the
 # five-bug fix history that made this path work.
 #
 # Each title was picked to exercise a different copy-protection
@@ -2397,7 +2397,7 @@ hash = "xxh64:fde09415b49a834b"
 # learned to model marginal-encoding physics on sectors with
 # recorded ST1.DE / ST2.DD set — at which point all four progress
 # past the protection and reach loaded game code. See
-# `wiki/decisions/marginal-encoding-model.md`.
+# `knowledge/decisions/marginal-encoding-model.md`.
 
 [[entry]]
 id = "operation-wolf-plus3"

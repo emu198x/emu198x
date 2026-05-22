@@ -1,4 +1,4 @@
-//! Cross-system curated catalogue. See `wiki/decisions/october-catalogue.md`.
+//! Cross-system curated catalogue. See `knowledge/decisions/october-catalogue.md`.
 //!
 //! This crate is the October-launch regression bench: 10 titles per system
 //! across the four launch targets (Spectrum, C64, NES, Amiga). Each entry
@@ -91,7 +91,7 @@ pub struct SystemMeta {
     /// against. Compared per-system at run time against the system's
     /// `AUDIO_ROUTING_VERSION` constant. `None` skips the check (legacy
     /// manifests). Mismatch fails loud with a re-capture instruction.
-    /// See `wiki/decisions/spectrum-architecture-review.md` Seam 4.
+    /// See `knowledge/decisions/spectrum-architecture-review.md` Seam 4.
     #[serde(default)]
     pub audio_routing_version: Option<u32>,
     /// Routing version the frame hashes in this manifest were captured

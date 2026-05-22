@@ -4,6 +4,7 @@ description = "Timex SCLD (Semi-Custom Logic Device) — TC2048 / TC2068 / TS206
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

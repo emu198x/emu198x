@@ -3,6 +3,7 @@ name = "emu198x-spectrum"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [features]
 # UI mode is on by default for interactive / dev builds. Code198x's

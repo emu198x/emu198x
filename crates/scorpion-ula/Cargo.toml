@@ -4,6 +4,7 @@ description = "Scorpion ZS-256 ULA — Russian extended Spectrum, no contention,
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

@@ -4,6 +4,7 @@ description = "Timex TC2068 / TS2068 — SCLD + DOCK/EXROM paging + AY on ports 
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }

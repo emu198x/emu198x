@@ -11,7 +11,7 @@
 //! The CPU implementation lives in the per-variant crates. This
 //! crate intentionally carries **no** decode tables, **no** execute
 //! logic, and **no** `Cpu*` struct. The split mirrors the family
-//! layering rule from `wiki/decisions/within-family-layering.md` —
+//! layering rule from `knowledge/decisions/within-family-layering.md` —
 //! a `common-{family}` crate plus per-silicon-part variant crates.
 //!
 //! # Per-variant generic vs. concrete shape
@@ -31,7 +31,7 @@
 //! paths internally (gated on [`CpuModel`] capabilities). Reducing
 //! `motorola-68000` to the M68000-only paths and giving each higher
 //! variant its own state machine is the deferred follow-up work
-//! tracked in the wiki/log.md as "Cov-5".
+//! tracked in the knowledge/log.md as "Cov-5".
 //!
 //! # MMU and FPU placement
 //!

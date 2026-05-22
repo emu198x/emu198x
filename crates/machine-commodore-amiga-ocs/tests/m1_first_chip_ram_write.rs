@@ -1,6 +1,6 @@
 //! M1: CPU bus integration — boot runs and writes to chip RAM.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. M1 adds: 512 KiB chip
+//! Per `knowledge/decisions/amiga-restart-plan.md`. M1 adds: 512 KiB chip
 //! RAM at `$0-$7FFFF`, the master-clock tick loop, CPU bus-cycle
 //! servicing, and a memory map that routes writes to chip RAM
 //! regardless of OVL.

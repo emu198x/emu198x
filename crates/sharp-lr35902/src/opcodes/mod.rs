@@ -1,7 +1,7 @@
 //! Opcode dispatch and the m-cycle walker.
 //!
 //! Pin-level pipelined per
-//! [`wiki/decisions/cpu-bus-interface.md`](../../../wiki/decisions/cpu-bus-interface.md):
+//! [`knowledge/decisions/cpu-bus-interface.md`](../../../knowledge/decisions/cpu-bus-interface.md):
 //! each m-cycle "consumes" `data_in` populated by the machine after the
 //! previous tick's scheduled read, then schedules the next bus
 //! operation by setting `addr` / `rd` / `wr` / `mreq` (or
@@ -88,8 +88,8 @@ impl Sm83 {
             // The opcode byte that was already read on the bus during
             // the primed fetch is a phantom read inherent to the
             // pipelined model — see
-            // `wiki/decisions/cpu-bus-interface.md` and
-            // `wiki/decisions/sm83-abstraction-level.md` for the
+            // `knowledge/decisions/cpu-bus-interface.md` and
+            // `knowledge/decisions/sm83-abstraction-level.md` for the
             // accepted pin-level / m-cycle trade-offs.
             if self.ime && self.irq_pending != 0 {
                 self.dispatching = true;
@@ -358,7 +358,7 @@ mod tests {
 
     /// Minimal 64 KiB RAM fixture that mediates between CPU pin state
     /// and an in-process backing store. Mirrors the conversion pattern
-    /// in `wiki/decisions/cpu-bus-interface.md`: between ticks, route
+    /// in `knowledge/decisions/cpu-bus-interface.md`: between ticks, route
     /// the CPU's pins to / from RAM and populate `data_in`.
     pub(super) struct TestBus {
         pub(super) ram: Vec<u8>,

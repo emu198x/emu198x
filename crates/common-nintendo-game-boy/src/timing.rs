@@ -1,10 +1,10 @@
 //! Game Boy DMG timing constants.
 //!
 //! All numbers verified against
-//! [`wiki/systems/nintendo-game-boy/timing.md`](../../../wiki/systems/nintendo-game-boy/timing.md).
+//! [`knowledge/systems/nintendo-game-boy/timing.md`](../../../knowledge/systems/nintendo-game-boy/timing.md).
 //! Everything derives from the 4.194304 MHz master clock; m-cycles
 //! are master/4 (the [`sharp-lr35902`](crate) tick rate per
-//! [`sm83-abstraction-level.md`](../../../wiki/decisions/sm83-abstraction-level.md)).
+//! [`sm83-abstraction-level.md`](../../../knowledge/decisions/sm83-abstraction-level.md)).
 //!
 //! CGB double-speed mode is not modelled here — it's a CPU-domain
 //! knob that lives on the per-machine struct.

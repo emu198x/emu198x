@@ -707,7 +707,7 @@ For every phase, three reference points:
    chipset-bus interaction edge cases.
 
 The M68020 User's Manual at
-`/Users/stevehill/Projects/198x/reference/by-topic/cpu-68020/`
+`../reference/by-topic/cpu-68020/`
 is the canonical silicon spec.
 
 ## Open questions to resolve early

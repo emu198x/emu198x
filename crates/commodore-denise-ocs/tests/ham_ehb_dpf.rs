@@ -14,7 +14,7 @@
 //! will drive Denise and locks in the prev-rgb chain behaviour visible
 //! through the public API.
 //!
-//! Covers task #152 from wiki/amiga/denise-ocs-porting-gap-list.md.
+//! Covers task #152 from knowledge/amiga/denise-ocs-porting-gap-list.md.
 
 use commodore_denise_ocs::DeniseOcs;
 
@@ -357,7 +357,7 @@ fn normal_mode_ignores_ham_ehb() {
 // Phase 1 characterisation effort. Leaving it ignored so the
 // workspace build stays green; Phase 2 task #163 (attached-pair +
 // priority port) owns the fix. See
-// wiki/amiga/denise-ocs-porting-gap-list.md.
+// knowledge/amiga/denise-ocs-porting-gap-list.md.
 #[test]
 #[ignore = "known archive bug — tracked in denise-ocs-porting-gap-list.md; fix in #163"]
 fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {

@@ -4,6 +4,7 @@ description = "Z80 CPU — half-cycle signal-level state machine"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

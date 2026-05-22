@@ -4,6 +4,7 @@ description = "NES machine wiring — master-clock-driven tick loop, PPU every d
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines" }

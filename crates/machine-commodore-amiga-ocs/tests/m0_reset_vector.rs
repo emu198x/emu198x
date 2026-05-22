@@ -1,6 +1,6 @@
 //! M0: After reset, the CPU's SSP and PC reflect the ROM reset vector.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md` — first milestone of the
+//! Per `knowledge/decisions/amiga-restart-plan.md` — first milestone of the
 //! Amiga restart. Verifies the foundational triple of:
 //!   - 256 KiB Kickstart ROM loads at $FC0000 with mirror filling
 //!     $F80000-$FFFFFF.

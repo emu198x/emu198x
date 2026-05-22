@@ -1,9 +1,9 @@
 //! Timing constants for the ZX Spectrum 48K.
 //!
 //! Source references:
-//! - `wiki/systems/spectrum/overview.md`
-//! - `wiki/systems/spectrum/contention.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/common-sinclair-zx-spectrum/src/timing.rs`
+//! - `knowledge/systems/spectrum/overview.md`
+//! - `knowledge/systems/spectrum/contention.md`
+//! - Adapted from `../Emu198x-Older/crates/common-sinclair-zx-spectrum/src/timing.rs`
 //!
 //! This module holds the stable timing data for the 48K machine plus the
 //! `FrameTiming` descriptor used by ULA implementations.

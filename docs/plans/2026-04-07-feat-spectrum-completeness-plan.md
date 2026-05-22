@@ -19,7 +19,7 @@ The single most important property of this plan is that **Phase −1 happens bef
 
 The single most important *feature* in this plan is **DivMMC support** (Phase 2), because it's the gateway to current-day Spectrum software preservation and homebrew. Most things released for the Spectrum scene since ~2015 ship as DivMMC images.
 
-**Note on the crate layering.** Phase 0.2 introduces a new cross-project crate `emu198x-shell` alongside the existing `common-sinclair-zx-spectrum`. Following [crate-naming conventions](../../wiki/decisions/crate-naming.md), `common-sinclair-zx-spectrum` grows upward to hold the Spectrum-family runtime layer (Machine enum, snapshot loader, audio mixer, trait impls), and `emu198x-shell` is a new category for cross-project shared infrastructure (System trait, capture pipeline, save state framework). Two sibling crates extend the cross-project category: `emu198x-mcp` for the MCP server (separate from the shell so agents can import it without pulling in the capture pipeline) and `emu198x-launcher` (future) for the unified system picker. The SDL2 runner bin `emu-sinclair-zx-spectrum` stays as the Spectrum-specific frontend, now much thinner.
+**Note on the crate layering.** Phase 0.2 introduces a new cross-project crate `emu198x-shell` alongside the existing `common-sinclair-zx-spectrum`. Following [crate-naming conventions](../../knowledge/decisions/crate-naming.md), `common-sinclair-zx-spectrum` grows upward to hold the Spectrum-family runtime layer (Machine enum, snapshot loader, audio mixer, trait impls), and `emu198x-shell` is a new category for cross-project shared infrastructure (System trait, capture pipeline, save state framework). Two sibling crates extend the cross-project category: `emu198x-mcp` for the MCP server (separate from the shell so agents can import it without pulling in the capture pipeline) and `emu198x-launcher` (future) for the unified system picker. The SDL2 runner bin `emu-sinclair-zx-spectrum` stays as the Spectrum-specific frontend, now much thinner.
 
 ## Scope decisions from the 2026-04-07 cross-system conversation
 
@@ -101,7 +101,7 @@ The Z80 crate already has a criterion bench for `tick` (`crates/zilog-z80/Cargo.
 **Scope:**
 - `criterion` bench in each machine crate measuring `run_frame` throughput
 - Report speed as a multiple of realtime (e.g. "14.2× realtime on M2 Air, cold cache")
-- Capture the numbers in `wiki/tests/spectrum.md` alongside the existing test results
+- Capture the numbers in `knowledge/tests/spectrum.md` alongside the existing test results
 - Run as a reportable (not gating) CI job so regressions surface
 
 ---
@@ -112,7 +112,7 @@ The Z80 crate already has a criterion bench for `tick` (`crates/zilog-z80/Cargo.
 
 These sit above all phases and discipline how features land.
 
-**The SDL2 frontend does not grow in-app widgets.** No in-window menus, preference panels, tape browsers, key-remap dialogs, debugger overlays, or roll-your-own list controls. This is a direct consequence of the [native UI strategy decision](../../wiki/decisions/native-ui-strategy.md) — the previous attempt with egui was explicitly rejected ("felt like a game engine UI pretending to be an app"), and rolling our own in SDL2 lands in the same place.
+**The SDL2 frontend does not grow in-app widgets.** No in-window menus, preference panels, tape browsers, key-remap dialogs, debugger overlays, or roll-your-own list controls. This is a direct consequence of the [native UI strategy decision](../../knowledge/decisions/native-ui-strategy.md) — the previous attempt with egui was explicitly rejected ("felt like a game engine UI pretending to be an app"), and rolling our own in SDL2 lands in the same place.
 
 **Everything the SDL2 frontend does must land as one of:** a keyboard shortcut, a CLI flag, a TOML config file entry, or a native system dialog (via `rfd`). If a feature can't be expressed that way, it belongs on the native-frontend track — which is a separate plan, scheduled post-launch.
 
@@ -128,7 +128,7 @@ These items are sequenced because each one makes the next one easier.
 
 **Status:** done — commit `5489bb4` (shared with 0.5).
 
-**Why:** the wiki's [save state decision](../../wiki/decisions/save-state-format.md) requires serde on every struct from day one. Commit `d044041` added derives to chips and ULAs but missed the `Z80` struct and the seven machine wrapper structs (`Spectrum48K`, `Spectrum128K`, `SpectrumPlus`, `Pentagon128`, `ScorpionZS256`, `TimexTC2048`, `TimexTS2068`). Without these, save states are blocked.
+**Why:** the wiki's [save state decision](../../knowledge/decisions/save-state-format.md) requires serde on every struct from day one. Commit `d044041` added derives to chips and ULAs but missed the `Z80` struct and the seven machine wrapper structs (`Spectrum48K`, `Spectrum128K`, `SpectrumPlus`, `Pentagon128`, `ScorpionZS256`, `TimexTC2048`, `TimexTS2068`). Without these, save states are blocked.
 
 **Code:** `crates/zilog-z80/src/z80.rs`, each `crates/machine-*/src/lib.rs`. Where `Vec<u8>` framebuffers and `[u8; N]` arrays don't serialize cleanly, use `#[serde(skip)]` and reconstruct on load.
 
@@ -136,9 +136,9 @@ These items are sequenced because each one makes the next one easier.
 
 **Status:** done — commit `8ceb545` (extract `runtime-sinclair-zx-spectrum` and `emu198x-shell`). Ultimately landed as a `runtime-sinclair-zx-spectrum` crate rather than growing `common-sinclair-zx-spectrum` upward — see the crate's lib.rs header for the rationale.
 
-**Why:** `crates/emu-sinclair-zx-spectrum/` is a binary crate that fuses SDL2, OpenGL, the `Machine` enum, audio mixing, snapshot loading, and file routing into one 1,000-line blob. Three planned native frontends (per [native-ui-strategy](../../wiki/decisions/native-ui-strategy.md)) means three duplications — *and* the [product roadmap](../../wiki/decisions/product-roadmap.md) commits to a unified launcher and shared shell infrastructure across Spectrum, C64, NES, and Amiga for October. The extraction is a cross-system concern, not a Spectrum-only one.
+**Why:** `crates/emu-sinclair-zx-spectrum/` is a binary crate that fuses SDL2, OpenGL, the `Machine` enum, audio mixing, snapshot loading, and file routing into one 1,000-line blob. Three planned native frontends (per [native-ui-strategy](../../knowledge/decisions/native-ui-strategy.md)) means three duplications — *and* the [product roadmap](../../knowledge/decisions/product-roadmap.md) commits to a unified launcher and shared shell infrastructure across Spectrum, C64, NES, and Amiga for October. The extraction is a cross-system concern, not a Spectrum-only one.
 
-Three layers, following [crate-naming conventions](../../wiki/decisions/crate-naming.md):
+Three layers, following [crate-naming conventions](../../knowledge/decisions/crate-naming.md):
 
 **`emu198x-shell` — new cross-system shared infrastructure crate.**
 - The generic `System` trait (see 0.3) that Spectrum, C64, NES, and Amiga will all implement
@@ -187,7 +187,7 @@ Each system's `new(roms: &[(&str, RomSource)])` (or equivalent) accepts this and
 
 **Status:** done — commits `58e45af` (trait definition) + `1939973` (Spectrum impl). Final shape diverges from the sketch below in two places: `run_frame` returns `()` not `u64` (no caller used the return), and `SpectrumSystem` lives in `runtime-sinclair-zx-spectrum` rather than `common-sinclair-zx-spectrum`. See `docs/handoffs/2026-04-08-phase-0-3-system-trait.md` for the brainstorm that settled the open questions, and the trait file itself at `crates/emu198x-shell/src/system.rs` for the as-built shape.
 
-**Why:** `Machine` in `machine.rs` is 526 lines of which ~200 lines are 7-arm match statements. Adding a variant means editing ~12 methods. The [no-Bus-trait decision](../../wiki/decisions/no-bus-trait.md) is about CPU↔machine; the *frontend↔machine* boundary is a different question and a trait pays for itself there.
+**Why:** `Machine` in `machine.rs` is 526 lines of which ~200 lines are 7-arm match statements. Adding a variant means editing ~12 methods. The [no-Bus-trait decision](../../knowledge/decisions/no-bus-trait.md) is about CPU↔machine; the *frontend↔machine* boundary is a different question and a trait pays for itself there.
 
 Critically, the trait is **designed against four consumers simultaneously**, not just the SDL frontend:
 
@@ -300,7 +300,7 @@ Note: `insert_disk` has moved out of `SpectrumSystem` because `insert_media` on 
 
 **Shape:** a `SpectrumDriver<U: Ula>` in `common-sinclair-zx-spectrum` that owns the half-cycle cadence (ULA tick → optional CPU tick → tape advance every 4 hc → AY tick every 8 hc) and calls back into the machine for `handle_bus()` and `tick_peripherals()`. Each machine's `run_frame` collapses to ~10 lines.
 
-This does **not** contradict the [system-specific-run-loops decision](../../wiki/decisions/system-specific-run-loops.md) — that decision is about cross-system (Spectrum vs C64 vs NES) universality. Within the Spectrum family, one shared loop is correct.
+This does **not** contradict the [system-specific-run-loops decision](../../knowledge/decisions/system-specific-run-loops.md) — that decision is about cross-system (Spectrum vs C64 vs NES) universality. Within the Spectrum family, one shared loop is correct.
 
 ### 0.7 — Peripheral bus (M)
 
@@ -332,15 +332,15 @@ Beta disk and µPD765A both already fit this shape. Joysticks, Multiface, mouse,
 
 ### 0.9 — Document the 5 FUSE failures per-test (S)
 
-**Status:** done — commit `8dee9fb`. `wiki/tests/spectrum.md` lists each of the 5 failures, the instruction involved, and what would constitute a real regression versus an expected noise-level difference.
+**Status:** done — commit `8dee9fb`. `knowledge/tests/spectrum.md` lists each of the 5 failures, the instruction involved, and what would constitute a real regression versus an expected noise-level difference.
 
-**Why:** [tests/spectrum.md](../../wiki/tests/spectrum.md) accepts 5 FUSE failures with the catch-all "Tom Harte disagrees, we side with Tom Harte." That's defensible but it's a black box. List the 5 tests, the instructions involved, and the nature of the disagreement, so a future regression touching one of them isn't silently masked.
+**Why:** [tests/spectrum.md](../../knowledge/tests/spectrum.md) accepts 5 FUSE failures with the catch-all "Tom Harte disagrees, we side with Tom Harte." That's defensible but it's a black box. List the 5 tests, the instructions involved, and the nature of the disagreement, so a future regression touching one of them isn't silently masked.
 
 ### 0.10 — Add `rfd` for native file dialogs (S)
 
 **Status:** done — commit `7f5f650`. `rfd` 0.15 is in the workspace dependency table and wired to `crates/emu-sinclair-zx-spectrum/Cargo.toml`. Actual file-picker hotkey handlers land in Phase 6.5 / 6.6.
 
-**Why:** the [native UI strategy](../../wiki/decisions/native-ui-strategy.md) forbids building in-app UI in the SDL2 frontend, but users still need to open ROMs, insert disks, save snapshots, and pick screenshot folders. `rfd` is a tiny Rust crate that shells to the real platform file picker (`NSOpenPanel` on macOS, GTK file chooser on Linux, Win32 common dialog on Windows). It is not a UI toolkit — it's a single function call that hands back a path.
+**Why:** the [native UI strategy](../../knowledge/decisions/native-ui-strategy.md) forbids building in-app UI in the SDL2 frontend, but users still need to open ROMs, insert disks, save snapshots, and pick screenshot folders. `rfd` is a tiny Rust crate that shells to the real platform file picker (`NSOpenPanel` on macOS, GTK file chooser on Linux, Win32 common dialog on Windows). It is not a UI toolkit — it's a single function call that hands back a path.
 
 Using `rfd` lets the SDL2 frontend support "open…", "insert disk…", "save state as…", and similar file operations with genuinely native dialogs while staying inside the no-widgets discipline. Every file-handling feature in Phases 1-6 depends on this.
 
@@ -375,7 +375,7 @@ Using `rfd` lets the SDL2 frontend support "open…", "insert disk…", "save st
 
 **Status:** done — commit `82966c6`. `HeadlessRunner<S: System>` lives at `crates/emu198x-shell/src/headless.rs`, owns the frame counter + accumulated audio buffer, and exposes `step_frames(n)`, `run_until(predicate)`, and `frame_view()` as the per-frame contract. Determinism is covered by a round-trip test that runs two 60-frame sessions from the same starting state and asserts the byte-for-byte framebuffer match. Every subsequent 0.13/0.14/0.15 consumer builds on this one type.
 
-**Why:** the [product roadmap](../../wiki/decisions/product-roadmap.md) commits to a headless capture mode as an October must-have. Today the emulator only runs through `main.rs` with a live SDL window — there is no way to run the machine without opening a window, which blocks video capture, agent control, CI replay testing, and input scripting.
+**Why:** the [product roadmap](../../knowledge/decisions/product-roadmap.md) commits to a headless capture mode as an October must-have. Today the emulator only runs through `main.rs` with a live SDL window — there is no way to run the machine without opening a window, which blocks video capture, agent control, CI replay testing, and input scripting.
 
 **Scope:**
 - `emu198x-shell` gains a `HeadlessRunner<S: System>` that drives a machine without any window or audio output device
@@ -460,14 +460,14 @@ Depends on: Phase 0 (especially 0.1, 0.3, 0.5) — all complete as of commit `97
 2. **Recommended ordering:** 1.1 → 1.6 → 1.7 → 1.9 → 1.4 → 1.5 → 1.8 → 1.2 → 1.3. Rationale: 1.1 is the foundation every other sub-item leans on (✅ shipped 2026-04-09 in commit `4d5d8b0`). 1.6 and 1.7 jump to second place because in-memory disk writes are *essential for CP/M and +3 BASIC SAVE* — without them, half the +3 software is broken even within a single session, regardless of any export story. 1.9 (settings) lands next so the launcher/hotkey-overrides surface exists. 1.4 (`.tap` exporter) is the hardest piece of authoring work and deserves the most runway. 1.5/1.8 are trivial follow-ups to 1.4/1.7. 1.2 and 1.3 (snapshot exporters) drop to last because the Phase 1.1 save state format already captures everything more completely than `.z80`/`.sna` ever could — the writers exist for *interop with other emulators and the WoS archive*, not for any user workflow.
 
 **Hard rule for every sub-item below: loaded source files are immutable.** Sub-items 1.2–1.8 are *exporters*, not round-trip writers. The emulator never overwrites a file it loaded from. Modifications either survive in save states (1.1) or get exported to a new user-chosen path. See `RULES.md` items 22–24 for the full statement.
-3. **Rewind is out of scope for Phase 1.** The [save-state-format decision](../../wiki/decisions/save-state-format.md) discusses rewind as a consequence of the snapshot format, but the ring-buffer + replay-forward machinery lives in Phase 5.5 (`### 5.5 — Rewind buffer`). If rewind comes up in a 1.1 brainstorm, note it and defer.
+3. **Rewind is out of scope for Phase 1.** The [save-state-format decision](../../knowledge/decisions/save-state-format.md) discusses rewind as a consequence of the snapshot format, but the ring-buffer + replay-forward machinery lives in Phase 5.5 (`### 5.5 — Rewind buffer`). If rewind comes up in a 1.1 brainstorm, note it and defer.
 4. **Every prerequisite is in place.** Z80 + all seven machine wrappers have serde derives (commit `5489bb4`). System trait and `HeadlessRunner` exist. MCP tools can exercise new save/load paths for integration tests without needing a UI.
 
 ### 1.1 — Save state format v1 + quick-save/load hotkeys (M)
 
 postcard-encoded binary, header `{ magic: "EMU1", version: 1, model_id: String, timestamp: u64 }`, then a postcard payload of the machine. Saves live at `~/.emu198x/saves/<family>/<name>.state`. Phase 1.1 ships exactly one named slot: `quick.state`.
 
-Reject loads where `header.model_id` doesn't equal `system.model_id()` exactly. No relaxation, ever — see the [save-state-format decision](../../wiki/decisions/save-state-format.md#model-match-is-strict-and-permanent) for the rationale.
+Reject loads where `header.model_id` doesn't equal `system.model_id()` exactly. No relaxation, ever — see the [save-state-format decision](../../knowledge/decisions/save-state-format.md#model-match-is-strict-and-permanent) for the rationale.
 
 **Hotkeys (macOS, Linux, Windows — identical):**
 
@@ -477,7 +477,7 @@ Reject loads where `header.model_id` doesn't equal `system.model_id()` exactly. 
 | `Alt+L` | Quick-load from the same file |
 | `F5` | Tape-play — unchanged |
 
-Alt is the *only* safe modifier on this emulator because `Ctrl` is SYMBOL SHIFT and `Shift` is CAPS SHIFT (both load-bearing for BASIC keyword entry and 48K navigation). See the [hotkey modifier policy](../../wiki/decisions/hotkey-modifier-policy.md) for the full rule.
+Alt is the *only* safe modifier on this emulator because `Ctrl` is SYMBOL SHIFT and `Shift` is CAPS SHIFT (both load-bearing for BASIC keyword entry and 48K navigation). See the [hotkey modifier policy](../../knowledge/decisions/hotkey-modifier-policy.md) for the full rule.
 
 **Prerequisite sub-task (1.1.0):** `update_keyboard` at `crates/emu-sinclair-zx-spectrum/src/main.rs:333` gains a one-line guard that returns early if either `LAlt` or `RAlt` is held. Without this, pressing `Alt+S` fires the hotkey *and* types `S` into BASIC in the same frame.
 
@@ -630,7 +630,7 @@ autoplay = false
 - `common-sinclair-zx-spectrum::roms::rom_base` grows config-aware lookup with the new env > config > home > workspace order.
 - Tests: round-trip default, load missing → defaults, load malformed → warn + defaults, load partial → fill in defaults from `Default`, atomic write via tempfile + rename.
 
-No new wiki decision record — the choices here are mechanical and the brainstorm resolutions live in the plan doc itself. If a later phase wants to revisit any of this (e.g. moving to per-system files, or adding a settings UI that writes back), that's the moment to start a `wiki/decisions/config-file.md` entry.
+No new wiki decision record — the choices here are mechanical and the brainstorm resolutions live in the plan doc itself. If a later phase wants to revisit any of this (e.g. moving to per-system files, or adding a settings UI that writes back), that's the moment to start a `knowledge/decisions/config-file.md` entry.
 
 ---
 
@@ -767,7 +767,7 @@ Z80 sound coprocessor with its own ROM, RAM, and sample playback. Used by some d
 
 **Goal:** the hotkey-driven runtime features that make the emulator a preservation and review tool — everything that can be a keypress, not a panel.
 
-The debugger is explicitly **not** in this phase. It needs a real UI (disassembly view, register view, memory hex editor, breakpoint list) and the [native UI strategy](../../wiki/decisions/native-ui-strategy.md) places that on the native-frontend track, not in SDL2. See "Deferred to native frontends" below.
+The debugger is explicitly **not** in this phase. It needs a real UI (disassembly view, register view, memory hex editor, breakpoint list) and the [native UI strategy](../../knowledge/decisions/native-ui-strategy.md) places that on the native-frontend track, not in SDL2. See "Deferred to native frontends" below.
 
 ### 5.1 — Pause / fast-forward / slow-motion with audio-preserving time-stretch (M)
 
@@ -797,7 +797,7 @@ Capture `audio_buf` to a WAV file while recording is enabled. Hotkey to start/st
 
 ### 5.5 — Rewind buffer (M, depends on 1.1)
 
-Ring buffer of save states (every N frames, e.g. every second). Hotkey to rewind. The [save-state decision](../../wiki/decisions/save-state-format.md) explicitly anticipates this.
+Ring buffer of save states (every N frames, e.g. every second). Hotkey to rewind. The [save-state decision](../../knowledge/decisions/save-state-format.md) explicitly anticipates this.
 
 ### Deferred to native frontends (not in this plan)
 
@@ -936,7 +936,7 @@ Immediately after the shell extraction is the cheapest moment to attempt SDL3 mi
 
 ## What this plan is not
 
-- **Not a roadmap for other systems.** This is Spectrum-specific. The cross-system roadmap lives in [product-roadmap](../../wiki/decisions/product-roadmap.md).
+- **Not a roadmap for other systems.** This is Spectrum-specific. The cross-system roadmap lives in [product-roadmap](../../knowledge/decisions/product-roadmap.md).
 - **Not a design doc.** Each phase item will need its own design when picked up. This is a sequence and a sizing estimate, not a spec.
 - **Not exhaustive.** There are accuracy edge cases and obscure peripherals that aren't here. Add them as they come up.
 - **Not committed delivery dates.** Sizing is S/M/L (one session / two-to-three / four-plus). Translate to dates as needed.

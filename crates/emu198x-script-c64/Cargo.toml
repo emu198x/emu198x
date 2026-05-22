@@ -4,6 +4,7 @@ description = "Headless Commodore 64 runner for boot, capture, and snapshot work
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "emu198x-script-c64"

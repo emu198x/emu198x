@@ -4,6 +4,7 @@ description = "Dragon 32/64 machine substrate: MC6809, RAM/ROM map, PIA, SAM, ke
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 format-dragon-disk = { path = "../format-dragon-disk" }

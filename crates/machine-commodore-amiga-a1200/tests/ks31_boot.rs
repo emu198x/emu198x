@@ -122,10 +122,10 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // CPU IPL mask once init reaches the "interrupts on" phase and
     // moves VBR to its chip-RAM exception table. Those transitions
     // are the most informative progress signals.
-    // Stage F: back to 5000 frames now that we've confirmed (via the
-    // 50K-frame run) KS never breaks out of the Wack loop naturally.
-    // 5000 is plenty to dump the chip-RAM vector table KS installed.
-    let frames_to_run: u64 = 5_000;
+    // Stage J: 2000 frames is enough — vec 11 fires within the first
+    // few hundred frames. We need the chip[$002C] and OVL snapshot at
+    // first fire, not a long stress run.
+    let frames_to_run: u64 = 2_000;
     let checkpoint_every: u64 = 500;
     let mut last_checkpoint_pc = initial_pc;
     let mut min_ipl_seen = 7u8;
@@ -171,6 +171,68 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // caused it. Re-arm on every reboot (when PC returns to $F800D0).
     let mut d7_set_history: Vec<(u32, u32)> = Vec::new();
     let mut prev_d7 = m.cpu().regs.d[7];
+    // Stage J: capture SSP-top value when PC reaches $F83560 (the
+    // MOVE.L (A7)+, D7 instruction that loads D7 with the alert code).
+    let mut alert_pop_history: Vec<(u32, u32, u32)> = Vec::new();
+    // Stage J refinement: every time exc_vector transitions to Some(11)
+    // (F-line trap), capture the CPU state that determines where we
+    // jump next. Specifically: VBR (where the vector table starts),
+    // overlay state (does $002C go to chip RAM or ROM?), the chip-RAM
+    // backdoor value at $002C (what KS *wrote* there), and the value
+    // the CPU would actually read via the normal memory path (which is
+    // OVL-gated). If the two read paths disagree, OVL is interfering.
+    // Also capture instr_start_pc (the F-line instruction) and the
+    // *previous* PC (to confirm we trapped at the FPU probe site).
+    let mut vec11_captures: Vec<(u32, u32, u32, bool, u32, u32)> = Vec::new();
+    // Stage J: track every WRITE to chip[$002C]. Sample chip[$002C]
+    // every tick via the backdoor; record (tick, pc, old, new) on
+    // change. Cheap (one byte read per tick after the first), and
+    // tells us exactly which instruction wrote the vector.
+    let mut chip_002c_writes: Vec<(u64, u32, u32)> = Vec::new();
+    let mut prev_chip_002c: u32 = ((m.read_chip_ram_byte(0x002C) as u32) << 24)
+        | ((m.read_chip_ram_byte(0x002D) as u32) << 16)
+        | ((m.read_chip_ram_byte(0x002E) as u32) << 8)
+        | (m.read_chip_ram_byte(0x002F) as u32);
+    // Stage J refinement #2: capture every transition from ROM (or
+    // any PC inside $00F80000-$00FFFFFF) into the post-chip-RAM range
+    // $00200000-$00BFFFFF. The vec11_captures show the second F-line
+    // trap fires at PC=$002000F8 — open bus past 2MB chip RAM, which
+    // reads as $FFFFFFFF and decodes as line-F. We need the ROM
+    // instruction that initiated the jump there. Capture (tick, prev,
+    // cur) for the first 30 such transitions, prioritising the FIRST
+    // cycle (before any re-arm).
+    let mut wild_jumps: Vec<(u64, u32, u32)> = Vec::new();
+    // Stage J refinement #3: when the wild jump fires, dump full CPU
+    // state. prev_pc=$F80C10 (middle of ORI.W #$0700, SR) → pc=$002000F8
+    // is a one-tick jump that cannot be a normal instruction. Capture
+    // (instr_start_pc, sr, exc_vector, ssp top-frame) to identify what
+    // exception (if any) fires.
+    let mut wild_jump_states: Vec<(u32, u16, Option<u8>, u32, u32, u32)> = Vec::new();
+    // Stage J refinement #4: track LAST 5 PCs leading up to a wild
+    // jump — a small circular buffer to see the path into the trap.
+    let mut pc_history: Vec<u32> = Vec::with_capacity(6);
+    // Stage J refinement #5: capture the SSP and longword at SSP each
+    // time the RTS at $F80C0C is ABOUT to execute. The RTS pops 4
+    // bytes; that long is the new PC. We expect either $002000F8 (the
+    // wild-jump source) or a sane ROM address.
+    let mut rts_f80c0c_captures: Vec<(u64, u32, u32, u32)> = Vec::new();
+    // Stage J refinement #6: capture each RTS/JMP/JSR/RTE/BSR
+    // instruction's pre-execution SSP and intended target by hooking
+    // on the LAST PC visited before the wild-jump tick. Specifically
+    // we want to identify what pushed $002000F8 onto the stack. Track
+    // every PUSH (movement of SSP downward by 4) and capture the
+    // pre-push SSP and the post-push value at SSP. Compare against
+    // $002000F8 in particular.
+    let mut prev_ssp: u32 = m.cpu().regs.ssp;
+    let mut ssp_pushes_002000f8: Vec<(u64, u32, u32)> = Vec::new();
+    // Stage J refinement #7: watch chip[$001FFFEA] (where the wild
+    // RTS will pop from) and record every change with (tick, pc, ssp,
+    // new_long).
+    let mut chip_1fffea_changes: Vec<(u64, u32, u32, u32)> = Vec::new();
+    let mut prev_1fffea: u32 = ((m.read_chip_ram_byte(0x001F_FFEA) as u32) << 24)
+        | ((m.read_chip_ram_byte(0x001F_FFEB) as u32) << 16)
+        | ((m.read_chip_ram_byte(0x001F_FFEC) as u32) << 8)
+        | (m.read_chip_ram_byte(0x001F_FFED) as u32);
     // Stage I: track CPU state at each of the 4 suspect validation
     // branches. When PC reaches the BNE/BMI instruction, capture
     // (PC, D0, D7, A6, ssp_top) so we can see which branch sends us
@@ -253,6 +315,91 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                 d7_set_history.push((pc, cur_d7));
             }
             prev_d7 = cur_d7;
+            // Stage J: capture stack top when PC reaches $F83560
+            // (the MOVE.L (A7)+, D7 that loads the alert code).
+            if pc == 0x00F8_3560 && prev_pc != 0x00F8_3560 && alert_pop_history.len() < 20 {
+                let ssp = m.cpu().regs.ssp;
+                let val = m.read_long(ssp);
+                let val_next = m.read_long(ssp.wrapping_add(4));
+                alert_pop_history.push((ssp, val, val_next));
+            }
+            // Stage J: detect transitions INTO the post-chip-RAM
+            // window $00200000-$00BFFFFF. Must run BEFORE the
+            // `prev_pc = pc` update so the edge is detectable.
+            let prev_in_wild = (0x0020_0000..0x00C0_0000).contains(&prev_pc);
+            let cur_in_wild = (0x0020_0000..0x00C0_0000).contains(&pc);
+            if cur_in_wild && !prev_in_wild && wild_jumps.len() < 30 {
+                wild_jumps.push((tick_counter, prev_pc, pc));
+                // Snapshot CPU state at the moment of wild jump.
+                let cpu = m.cpu();
+                let ssp = cpu.regs.ssp;
+                let top0 = m.read_long(ssp);
+                let top1 = m.read_long(ssp.wrapping_add(4));
+                wild_jump_states.push((
+                    cpu.instr_start_pc,
+                    cpu.regs.sr,
+                    cpu.exc_vector,
+                    ssp,
+                    top0,
+                    top1,
+                ));
+            }
+            // Maintain a 5-deep PC history (only when PC actually
+            // changed) to see the immediate path into the wild jump.
+            if pc_history.last() != Some(&pc) {
+                if pc_history.len() >= 5 {
+                    pc_history.remove(0);
+                }
+                pc_history.push(pc);
+            }
+            // Stage J: capture state when RTS at $F80C0C is about to
+            // execute. instr_start_pc tracks the executing instruction;
+            // the tick before this RTS completes its pop, we want to
+            // know what's at SSP. Detect by edge: instr_start_pc
+            // transitions to $F80C0C.
+            let instr_pc_now = m.cpu().instr_start_pc;
+            if instr_pc_now == 0x00F8_0C0C
+                && rts_f80c0c_captures.len() < 20
+                && rts_f80c0c_captures.last().map_or(true, |(t, _, _, _)| {
+                    tick_counter.wrapping_sub(*t) > 4
+                })
+            {
+                let ssp = m.cpu().regs.ssp;
+                let popped = m.read_long(ssp);
+                let next = m.read_long(ssp.wrapping_add(4));
+                rts_f80c0c_captures.push((tick_counter, ssp, popped, next));
+            }
+            // Stage J: detect pushes of $002000F8. A push moves SSP
+            // down by 4 (or 2). When SSP decreases by exactly 4 AND
+            // the new long at SSP is $002000F8, capture (tick, pc).
+            let cur_ssp = m.cpu().regs.ssp;
+            if cur_ssp.wrapping_add(4) == prev_ssp {
+                let pushed = m.read_long(cur_ssp);
+                if pushed == 0x0020_00F8 && ssp_pushes_002000f8.len() < 20 {
+                    ssp_pushes_002000f8.push((tick_counter, pc, cur_ssp));
+                }
+            }
+            prev_ssp = cur_ssp;
+            // Stage J: detect changes to chip[$001FFFEA]. Sample only
+            // when an instruction boundary likely passed (pc changed)
+            // to keep cost low. Stop tracking after tick 17M (after
+            // first wild jump) to keep the captured log focused on
+            // cycle 1 events.
+            if pc != prev_pc && tick_counter < 17_000_000 {
+                let cur_1fffea: u32 = ((m.read_chip_ram_byte(0x001F_FFEA) as u32) << 24)
+                    | ((m.read_chip_ram_byte(0x001F_FFEB) as u32) << 16)
+                    | ((m.read_chip_ram_byte(0x001F_FFEC) as u32) << 8)
+                    | (m.read_chip_ram_byte(0x001F_FFED) as u32);
+                if cur_1fffea != prev_1fffea && chip_1fffea_changes.len() < 60 {
+                    chip_1fffea_changes.push((
+                        tick_counter,
+                        pc,
+                        m.cpu().regs.ssp,
+                        cur_1fffea,
+                    ));
+                    prev_1fffea = cur_1fffea;
+                }
+            }
             prev_pc = pc;
             let ipl = m.cpu().regs.interrupt_mask();
             if ipl < min_ipl_seen {
@@ -270,8 +417,41 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                 let v = cur_exc.unwrap();
                 *exc_counts.entry(v).or_insert(0) += 1;
                 exc_first_pc.entry(v).or_insert(m.cpu().instr_start_pc);
+                // Stage J: on vec 11 (F-line) fire, snapshot the
+                // vector-table state. instr_start_pc is the F-line
+                // opcode; vbr+11*4=$002C is where the CPU reads its
+                // handler. Compare the OVL-gated read with the
+                // chip-RAM backdoor: if they disagree, OVL is the
+                // culprit; if they agree, KS's install at chip[$002C]
+                // didn't stick (or was overwritten).
+                if v == 11 && vec11_captures.len() < 12 {
+                    let cpu = m.cpu();
+                    let vbr = cpu.regs.vbr;
+                    let instr_pc = cpu.instr_start_pc;
+                    let vec_addr = vbr.wrapping_add(11 * 4);
+                    let ovl = m.memory().overlay();
+                    let cpu_path = m.read_long(vec_addr);
+                    let chip_path = ((m.read_chip_ram_byte(vec_addr) as u32) << 24)
+                        | ((m.read_chip_ram_byte(vec_addr.wrapping_add(1)) as u32) << 16)
+                        | ((m.read_chip_ram_byte(vec_addr.wrapping_add(2)) as u32) << 8)
+                        | (m.read_chip_ram_byte(vec_addr.wrapping_add(3)) as u32);
+                    vec11_captures.push((instr_pc, vbr, cpu_path, ovl, chip_path, prev_pc));
+                }
             }
             prev_exc = cur_exc;
+            // Stage J: detect writes to chip[$002C]. Sample only when
+            // PC changes (writes occur at instruction boundaries) to
+            // avoid the per-tick 4-byte chip-RAM probe.
+            if pc != prev_pc {
+                let cur_chip_002c: u32 = ((m.read_chip_ram_byte(0x002C) as u32) << 24)
+                    | ((m.read_chip_ram_byte(0x002D) as u32) << 16)
+                    | ((m.read_chip_ram_byte(0x002E) as u32) << 8)
+                    | (m.read_chip_ram_byte(0x002F) as u32);
+                if cur_chip_002c != prev_chip_002c && chip_002c_writes.len() < 30 {
+                    chip_002c_writes.push((tick_counter, pc, cur_chip_002c));
+                }
+                prev_chip_002c = cur_chip_002c;
+            }
         }
         if f % checkpoint_every == 0 {
             let cpu = m.cpu();
@@ -311,6 +491,94 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     eprintln!("byte-receive $F83182 entries (total {total_br}, keyed by BSR site PC):");
     for (caller_pc, count) in br_sorted.iter().take(10) {
         eprintln!("  from ${caller_pc:08X}: {count} entries");
+    }
+
+    // Check whether the FPU-probe handler installation at $F80C2C
+    // ("MOVE.L A1, $0010.W") and $F80C30 ("MOVE.L A1, $002C.W") are
+    // visited. If yes, KS does install the custom vec 4/11 handlers
+    // before the FPU probe.
+    eprintln!("FPU-probe handler installation visits:");
+    for site in [0x00F8_0C2Cu32, 0x00F8_0C30, 0x00F8_0C28, 0x00F8_0C20, 0x00F8_0C9E, 0x00F8_0CA0] {
+        let visited = unique_pcs.contains(&site);
+        eprintln!("  ${site:08X}: {}", if visited { "YES" } else { "no" });
+    }
+
+    eprintln!("$F83560 MOVE.L (A7)+, D7 alert-pop captures (SSP, val, val_next):");
+    if alert_pop_history.is_empty() {
+        eprintln!("  (none)");
+    }
+    for (ssp, val, val_next) in alert_pop_history.iter() {
+        eprintln!("  SSP=${ssp:08X} -> popped=${val:08X}, next=${val_next:08X}");
+    }
+
+    // Stage J: vec 11 fire snapshots — CPU-path vs chip-RAM-path
+    // disagreement reveals OVL; matching values reveal install failure.
+    eprintln!("Vec 11 (F-line) fire snapshots (first 12):");
+    if vec11_captures.is_empty() {
+        eprintln!("  (no F-line traps fired)");
+    }
+    for (instr_pc, vbr, cpu_path, ovl, chip_path, prev) in vec11_captures.iter() {
+        eprintln!(
+            "  at instr_pc=${instr_pc:08X} (prev_pc=${prev:08X}) VBR=${vbr:08X}  \
+             CPU-read[$2C]=${cpu_path:08X}  chip-backdoor[$2C]=${chip_path:08X}  OVL={ovl}"
+        );
+    }
+
+    // Stage J: every ROM-to-post-chip-RAM transition. The first such
+    // transition in cycle 1 is the ROM instruction that initiated the
+    // wild jump to $002000F8.
+    eprintln!("Wild jumps into $00200000-$00BFFFFF (first 30):");
+    if wild_jumps.is_empty() {
+        eprintln!("  (no jumps into post-chip-RAM window)");
+    }
+    for (tick, prev, pc) in wild_jumps.iter() {
+        eprintln!("  tick={tick:>10}  prev_pc=${prev:08X}  -> ${pc:08X}");
+    }
+    eprintln!("Wild jump CPU state (first 30):");
+    for (instr_pc, sr, exc, ssp, t0, t1) in wild_jump_states.iter() {
+        eprintln!(
+            "  instr_start_pc=${instr_pc:08X}  SR=${sr:04X}  exc={exc:?}  \
+             SSP=${ssp:08X}  top=${t0:08X} next=${t1:08X}"
+        );
+    }
+    eprintln!("Last 5 PCs at end of run:");
+    for pc in pc_history.iter() {
+        eprintln!("  ${pc:08X}");
+    }
+    eprintln!("RTS at $F80C0C captures (tick, SSP, popped_long, next_long) — first 20:");
+    if rts_f80c0c_captures.is_empty() {
+        eprintln!("  (RTS at $F80C0C never executed)");
+    }
+    for (tick, ssp, popped, next) in rts_f80c0c_captures.iter() {
+        eprintln!(
+            "  tick={tick:>10}  SSP=${ssp:08X}  popped=${popped:08X}  next=${next:08X}"
+        );
+    }
+    eprintln!("Pushes of $002000F8 (tick, PC, post-push SSP) — first 20:");
+    if ssp_pushes_002000f8.is_empty() {
+        eprintln!("  (no push of $002000F8 detected — value may have been written by something other than a stack push, e.g. a MOVE.L (addr), -(SP) or stack misalignment)");
+    }
+    for (tick, pc, ssp) in ssp_pushes_002000f8.iter() {
+        eprintln!("  tick={tick:>10}  at PC=${pc:08X}  SSP=${ssp:08X}");
+    }
+    eprintln!("chip[$001FFFEA] long changes in cycle 1 (tick, PC, SSP, new_long) — first 60:");
+    if chip_1fffea_changes.is_empty() {
+        eprintln!("  (chip[$001FFFEA] never changed before tick 17M)");
+    }
+    for (tick, pc, ssp, val) in chip_1fffea_changes.iter() {
+        eprintln!(
+            "  tick={tick:>10}  PC=${pc:08X}  SSP=${ssp:08X}  new=${val:08X}"
+        );
+    }
+
+    // Stage J: chip[$002C] write log — which instructions wrote the
+    // vec-11 handler address into the vector table?
+    eprintln!("chip[$002C] writes (first 30):");
+    if chip_002c_writes.is_empty() {
+        eprintln!("  (chip[$002C] never changed from its initial value)");
+    }
+    for (tick, pc, val) in chip_002c_writes.iter() {
+        eprintln!("  tick={tick:>10}  PC=${pc:08X}  new_value=${val:08X}");
     }
 
     eprintln!("D7 bit-31 set events (PC, new D7) — first 20:");

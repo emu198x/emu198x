@@ -31,7 +31,7 @@
 //! # Capturing / updating goldens
 //!
 //! Goldens are FS-UAE captures (the trusted reference) — see
-//! `wiki/processes/golden-image-capture.md`. Don't regenerate with
+//! `knowledge/processes/golden-image-capture.md`. Don't regenerate with
 //! `EMU198X_UPDATE_GOLDENS=1` unless you've verified the emulator
 //! matches FS-UAE for that row; the env var is provided for the
 //! bootstrap workflow but should almost never be used.
@@ -464,7 +464,7 @@ fn run_row(row: &GoldenRow) {
         // doc). Don't invent one silently.
         panic!(
             "{}: golden missing at {}. \
-             See wiki/processes/golden-image-capture.md.",
+             See knowledge/processes/golden-image-capture.md.",
             row.name,
             golden_path.display()
         );

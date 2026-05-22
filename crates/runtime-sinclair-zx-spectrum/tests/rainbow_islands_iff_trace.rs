@@ -2,7 +2,7 @@
 //! snapshot, then trace `Z80::regs.iff1` and the AY register-7 mixer
 //! state frame-by-frame. Discriminates between the two open
 //! hypotheses for the silent-music root cause (see
-//! `wiki/decisions/speedlock-silent-music.md` log entry 2026-05-18):
+//! `knowledge/decisions/speedlock-silent-music.md` log entry 2026-05-18):
 //!
 //!   1. **Early-exit conditional in the music driver** — IRQs fire
 //!      (IFF1 flips to 1 within a few frames) but the driver checks

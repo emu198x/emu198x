@@ -9,7 +9,7 @@ Use instead:
 
 - [coherent development plan](plans/2026-04-12-emulator-suite-coherent-development-plan.md)
 - [testing policy](testing-policy.md)
-- `wiki/decisions/crate-naming.md`
+- `knowledge/decisions/crate-naming.md`
 
 Archived copy:
 

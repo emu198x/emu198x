@@ -1,8 +1,8 @@
 //! Timex TC2068 (PAL) / TS2068 (NTSC) machine.
 //!
 //! Source references:
-//! - `wiki/systems/spectrum/variants.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/machine-timex-ts2068/src/lib.rs`
+//! - `knowledge/systems/spectrum/variants.md`
+//! - Adapted from `../Emu198x-Older/crates/machine-timex-ts2068/src/lib.rs`
 //!
 //! Hardware:
 //! - Z80 — TC2068: 3.5 MHz / TS2068: 3.528 MHz (master / 4)

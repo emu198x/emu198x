@@ -120,6 +120,14 @@ pub const TAG_UNLK_POP_LO: u8 = 63;
 pub const TAG_RTE_READ_SR: u8 = 64;
 pub const TAG_RTE_READ_PC_HI: u8 = 65;
 pub const TAG_RTE_READ_PC_LO: u8 = 66;
+/// RTE: 68010+ Format/Vector word read. Inspects the Format nibble
+/// to decide whether further bytes (Format $2 Instruction Address)
+/// also need popping before resuming execution.
+pub const TAG_RTE_READ_FORMAT: u8 = 91;
+/// RTE: 68020+ Format $2 — high word of Instruction Address read.
+pub const TAG_RTE_READ_FMT2_HI: u8 = 92;
+/// RTE: 68020+ Format $2 — low word of Instruction Address read.
+pub const TAG_RTE_READ_FMT2_LO: u8 = 93;
 
 // RTR follow-ups
 pub const TAG_RTR_READ_CCR: u8 = 67;
@@ -342,7 +350,7 @@ pub struct Cpu68000 {
     // writes the result to the input pins before the next tick.
     //
     // This replaces the archive's `M68kBus` trait. See
-    // wiki/decisions/cpu-bus-interface.md and amiga-port-plan.md.
+    // knowledge/decisions/cpu-bus-interface.md and amiga-port-plan.md.
     /// **Input:** Bus cycle result, written by the machine layer
     /// after performing the memory operation indicated by the
     /// output pins. Read by the tick function when in `BusCycle`

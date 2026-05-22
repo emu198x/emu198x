@@ -4,6 +4,7 @@ description = "Shared Spectrum-family hardware building blocks"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot" }

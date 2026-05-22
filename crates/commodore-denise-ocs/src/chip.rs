@@ -977,7 +977,7 @@ impl DeniseOcs {
             // explicitly writes BPLCON0 — including BPLCON0 = $0000 —
             // takes the spec-correct path and BPU=0 blanks the playfield.
             //
-            // See `wiki/decisions/amiga-denise-bpu-zero-rendering.md`.
+            // See `knowledge/decisions/amiga-denise-bpu-zero-rendering.md`.
             let mut num_bpl = self.num_bitplanes();
             if num_bpl == 0 && self.bplcon0 == 0 {
                 // Legacy unit-test compatibility: BPLCON0 has never been

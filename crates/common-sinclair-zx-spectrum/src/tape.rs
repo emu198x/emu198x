@@ -2,7 +2,7 @@
 //!
 //! Source references:
 //! - `docs/systems/spectrum.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/common-sinclair-zx-spectrum/src/tape.rs`
+//! - Adapted from `../Emu198x-Older/crates/common-sinclair-zx-spectrum/src/tape.rs`
 //!
 //! Standard ROM-speed TAP blocks and TZX timing blocks both reduce to a
 //! machine-facing stream of timing spans. Most spans are pulse lengths that end

@@ -4,6 +4,7 @@ description = "Amiga Disk File (ADF) image parser — 80 cylinders × 2 heads ×
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 

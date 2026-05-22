@@ -116,24 +116,12 @@ members = [
     "crates/sinclair-ula-7k010e",
     "crates/zilog-z80",
 ]
-exclude = [
-    # Pre-restart A500 machine implementation. Intentionally kept in
-    # tree as historical reference — `wiki/decisions/amiga-restart-
-    # plan.md` and `wiki/decisions/amiga-chip-only-boot-failure.md`
-    # cite file:line coordinates into it. The CIA / Paula / Agnus /
-    # Blitter / Denise / Floppy / Keyboard / Gary / Runtime /
-    # Script-amiga ports all completed under the archive-port
-    # methodology; this archive was wholesale replaced by
-    # `machine-commodore-amiga-ocs` rather than ported piecewise, so
-    # it retires by deletion rather than promotion and we're holding
-    # that until the referenced decision records age out.
-    "crates/machine-commodore-amiga-archive",
-]
 
 [workspace.package]
 edition = "2024"
 version = "0.1.0"
 license = "GPL-2.0-or-later"
+repository = "https://github.com/emu198x/emu198x"
 
 [workspace.dependencies]
 bytemuck = { version = "1.23", features = ["derive"] }
@@ -148,7 +136,7 @@ gilrs = "0.11"
 # libxdo-dev CI install. When Linux menus actually land, re-enable
 # the feature (and reopen the alert decision) or switch to a gtk4
 # backend if muda upstream ships one. See
-# `wiki/decisions/native-menu-shell.md`.
+# `knowledge/decisions/native-menu-shell.md`.
 muda = { version = "0.19", default-features = false }
 pollster = "0.4"
 png = "0.18"

@@ -1,7 +1,7 @@
 //! Trap calls to graphics.library LVOs during the fresh OCS boot
 //! to see whether the "set up View->ViewPort" code path ever runs.
 //!
-//! Per the wiki (wiki/decisions/amiga-chip-only-boot-failure.md)
+//! Per the wiki (knowledge/decisions/amiga-chip-only-boot-failure.md)
 //! and our own gfxbase_state diagnostic, the boot stalls with
 //! `View->ViewPort = NULL`, which makes `MrgCop` early-exit and
 //! leaves `GfxBase->LOFlist` at the ExecBase placeholder.

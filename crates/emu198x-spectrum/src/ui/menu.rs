@@ -5,7 +5,7 @@
 //! emits an `AppCommand::SwitchMachine(kind)` into the App's command
 //! channel; Phase 2 will wire that command to actual runtime swaps.
 //!
-//! See `wiki/decisions/native-menu-shell.md` for the broader design
+//! See `knowledge/decisions/native-menu-shell.md` for the broader design
 //! and how File / State / View slot in later.
 
 use std::collections::HashMap;
@@ -213,7 +213,7 @@ impl AppMenu {
     /// On macOS, install the menu as the application's NSMenu. Other
     /// platforms (Windows HMENU, Linux GTK) use different
     /// initialisation paths; for now this is macOS-first per
-    /// `wiki/decisions/native-menu-shell.md`.
+    /// `knowledge/decisions/native-menu-shell.md`.
     #[cfg(target_os = "macos")]
     pub fn install_for_nsapp(&self) {
         self.root.init_for_nsapp();

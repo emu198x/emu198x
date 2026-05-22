@@ -1,7 +1,7 @@
 //! Commodore Amiga (OCS chipset) machine — incremental restart.
 //!
 //! Built milestone-by-milestone per
-//! `wiki/decisions/amiga-restart-plan.md`. Each milestone adds the
+//! `knowledge/decisions/amiga-restart-plan.md`. Each milestone adds the
 //! minimum hardware behaviour the running ROM demands; nothing more.
 //!
 //! Current milestone: **M6 — beam counter + VBL interrupt.**

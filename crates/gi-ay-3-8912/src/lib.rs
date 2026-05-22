@@ -1,8 +1,8 @@
 //! General Instrument AY-3-8912 Programmable Sound Generator.
 //!
 //! Source references:
-//! - `wiki/chips/gi-ay-3-8912.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/gi-ay-3-8912/src/lib.rs`
+//! - `knowledge/chips/gi-ay-3-8912.md`
+//! - Adapted from `../Emu198x-Older/crates/gi-ay-3-8912/src/lib.rs`
 //!
 //! 3 square-wave tone channels, 1 noise generator, and an envelope
 //! generator. Used in the ZX Spectrum 128K, Amstrad CPC, Atari ST

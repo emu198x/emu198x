@@ -1,6 +1,6 @@
 //! M11.1: bitplane DMA fetch + decode.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. The boot's strap module
+//! Per `knowledge/decisions/amiga-restart-plan.md`. The boot's strap module
 //! displays the disk-and-hand graphic with 3 bitplanes lores. M11.1
 //! adds the data path that lets that graphic actually render:
 //!   - Bitplane base pointers (BPL1PT-BPL6PT, $DFF0E0-$DFF0F4)

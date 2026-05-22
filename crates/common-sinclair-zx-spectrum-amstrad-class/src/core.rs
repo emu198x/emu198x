@@ -13,7 +13,7 @@
 //! connector pinout, so a Kempston Interface doesn't physically fit
 //! these machines — there is intentionally no `KempstonJoystick`
 //! peripheral on this core. See
-//! `wiki/decisions/spectrum-joystick-architecture.md`.
+//! `knowledge/decisions/spectrum-joystick-architecture.md`.
 
 use std::marker::PhantomData;
 

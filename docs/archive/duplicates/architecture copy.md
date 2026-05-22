@@ -3660,7 +3660,7 @@ title = "NESDev Wiki (offline snapshot)"
 author = "NESDev Community"
 year = 2025
 path = "community/nesdev-wiki-snapshot/"
-source_url = "https://www.nesdev.org/wiki/"
+source_url = "https://www.nesdev.org/knowledge/"
 systems = ["nintendo-nes"]
 topics = ["ppu", "apu", "mappers", "timing", "bus-conflicts"]
 notes = "Community-maintained. Snapshot date in directory. The most comprehensive NES reference."
@@ -3752,7 +3752,7 @@ Community wikis (NESDev, Spectrum Computing, C64 Wiki) are invaluable but can ch
 ```bash
 # Example: snapshot NESDev wiki
 wget --mirror --convert-links --page-requisites \
-  --no-parent https://www.nesdev.org/wiki/ \
+  --no-parent https://www.nesdev.org/knowledge/ \
   -P refs/community/nesdev-wiki-snapshot/
 ```
 

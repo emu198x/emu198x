@@ -4,6 +4,7 @@ description = "Dragon 32/64 runtime bridge from machine-dragon-32 to the shared 
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 emu198x-shell = { path = "../emu198x-shell" }

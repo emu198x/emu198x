@@ -1,9 +1,10 @@
 [package]
 name = "motorola-68000"
-description = "Motorola 68000 CPU — per-4-clock micro-op state machine with pin-level bus interface. Prefetch pipeline, exception sequencing, and the Tom Harte single-step regression harness all live here. Higher-variant decode arms (68010/20/30/40) are presently hosted in this crate too, gated at runtime on CpuModel capabilities; the per-variant carve-out is tracked as Cov-5 in wiki/log.md. Shared family infrastructure lives in motorola-68k-common."
+description = "Motorola 68000 CPU — per-4-clock micro-op state machine with pin-level bus interface. Prefetch pipeline, exception sequencing, and the Tom Harte single-step regression harness all live here. Higher-variant decode arms (68010/20/30/40) are presently hosted in this crate too, gated at runtime on CpuModel capabilities; the per-variant carve-out is tracked as Cov-5 in knowledge/log.md. Shared family infrastructure lives in motorola-68k-common."
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 motorola-68k-common = { path = "../motorola-68k-common" }

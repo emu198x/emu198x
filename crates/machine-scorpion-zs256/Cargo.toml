@@ -4,6 +4,7 @@ description = "Scorpion ZS-256 machine — Z80, Scorpion ULA (no contention), 25
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 beta-disk-interface = { path = "../beta-disk-interface" }

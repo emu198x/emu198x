@@ -4,6 +4,7 @@ description = "Sinclair-branded Amstrad-built grey ZX Spectrum +2 — thin wrapp
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }

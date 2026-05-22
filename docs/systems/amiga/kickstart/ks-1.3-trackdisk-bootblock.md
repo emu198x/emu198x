@@ -26,11 +26,11 @@ This note and the in-tree diagnostics keep those answers in one place.
 ## Reusable tools
 
 - Focused inserted-disk trace:
-  [wb13_cmd_read_trace.rs](/Users/stevehill/Projects/198x/Emu198x/crates/machine-commodore-amiga-ocs/tests/wb13_cmd_read_trace.rs:1)
+  [wb13_cmd_read_trace.rs](/crates/machine-commodore-amiga-ocs/tests/wb13_cmd_read_trace.rs:1)
 - ROM disassembly helper:
-  [ks13_disasm_bootblock.rs](/Users/stevehill/Projects/198x/Emu198x/crates/machine-commodore-amiga-ocs/tests/ks13_disasm_bootblock.rs:1)
+  [ks13_disasm_bootblock.rs](/crates/machine-commodore-amiga-ocs/tests/ks13_disasm_bootblock.rs:1)
 - Broad runtime picture:
-  [diag_wb13_boot_state.rs](/Users/stevehill/Projects/198x/Emu198x/crates/runtime-commodore-amiga/tests/diag_wb13_boot_state.rs:1)
+  [diag_wb13_boot_state.rs](/crates/runtime-commodore-amiga/tests/diag_wb13_boot_state.rs:1)
 
 Run them with:
 

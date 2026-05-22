@@ -1,9 +1,9 @@
 //! Sharp LR35902 (SM83) CPU — the Game Boy's system-on-chip core.
 //!
 //! M-cycle granular per
-//! [`wiki/decisions/sm83-abstraction-level.md`](../../../wiki/decisions/sm83-abstraction-level.md):
+//! [`knowledge/decisions/sm83-abstraction-level.md`](../../../knowledge/decisions/sm83-abstraction-level.md):
 //! one [`Sm83::tick`] advances one machine cycle (4 T-cycles). Pin-level
-//! per [`wiki/decisions/cpu-bus-interface.md`](../../../wiki/decisions/cpu-bus-interface.md):
+//! per [`knowledge/decisions/cpu-bus-interface.md`](../../../knowledge/decisions/cpu-bus-interface.md):
 //! the CPU exposes its bus state as public fields and the machine
 //! performs the read or write between ticks.
 //!

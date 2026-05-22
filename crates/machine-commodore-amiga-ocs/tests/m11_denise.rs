@@ -1,6 +1,6 @@
 //! M11: Denise pixel pipeline — background only.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. Adds Denise, the Amiga
+//! Per `knowledge/decisions/amiga-restart-plan.md`. Adds Denise, the Amiga
 //! display chip, with:
 //!   - Framebuffer (PAL Standard 768×576, ARGB8888).
 //!   - Raster position derived from Agnus's beam.

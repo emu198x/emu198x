@@ -4,6 +4,7 @@ description = "Commodore Alice (AGA Agnus) — thin wrapper over commodore-agnus
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 commodore-agnus-ecs = { path = "../commodore-agnus-ecs" }

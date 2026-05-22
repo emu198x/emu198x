@@ -4,6 +4,7 @@ description = "Headless Dragon 32 bring-up harness for ROM and MC6809 debugging"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "emu198x-script-dragon"

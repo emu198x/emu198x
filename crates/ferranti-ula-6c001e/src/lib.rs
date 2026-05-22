@@ -1,9 +1,9 @@
 //! Ferranti 6C001E ULA wrapper.
 //!
 //! Source references:
-//! - `wiki/chips/ferranti-6c001e.md`
-//! - `wiki/systems/spectrum/contention.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/ferranti-ula-6c001e/src/lib.rs`
+//! - `knowledge/chips/ferranti-6c001e.md`
+//! - `knowledge/systems/spectrum/contention.md`
+//! - Adapted from `../Emu198x-Older/crates/ferranti-ula-6c001e/src/lib.rs`
 
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::timing::{self, FrameTiming};

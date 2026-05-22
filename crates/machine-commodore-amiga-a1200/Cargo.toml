@@ -4,6 +4,7 @@ description = "Commodore Amiga A1200 (AGA chipset) — Alice (commodore-agnus-ag
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 common-commodore-amiga = { path = "../common-commodore-amiga" }

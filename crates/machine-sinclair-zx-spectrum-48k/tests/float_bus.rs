@@ -6,7 +6,7 @@
 //! with `USR 62000`. The harness therefore has to drive the actual tape
 //! pipeline rather than inject bytes directly: type `LOAD ""` at the BASIC
 //! command prompt, connect the TAP as tape input, play it back at real
-//! cassette speed (no ROM trap — see `wiki/decisions/no-rom-trap-load.md`),
+//! cassette speed (no ROM trap — see `knowledge/decisions/no-rom-trap-load.md`),
 //! and wait for the auto-run to finish printing its result.
 //!
 //! The probe builds a small `IN A,(254)` … `IN A,($FF)` sequence whose

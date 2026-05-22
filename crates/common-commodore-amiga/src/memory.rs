@@ -1,7 +1,7 @@
 //! Memory subsystem.
 //!
 //! Built incrementally per the restart milestones in
-//! `wiki/decisions/amiga-restart-plan.md`.
+//! `knowledge/decisions/amiga-restart-plan.md`.
 //!
 //! Current state — M1:
 //! - 256K Kickstart ROM at its anchor `$F8_0000-$FF_FFFF` (256K

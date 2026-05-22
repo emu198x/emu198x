@@ -4,6 +4,7 @@ description = "Minimal native Game Boy verifier shell"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 common-nintendo-game-boy = { path = "../common-nintendo-game-boy" }

@@ -26,8 +26,9 @@ use crate::cpu::{
     TAG_EXC_STACK_INSTR_ADDR_LO, TAG_EXC_STACK_PC_HI, TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR,
     TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA,
     TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
-    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_PC_HI,
-    TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
+    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_FMT2_HI,
+    TAG_RTE_READ_FMT2_LO, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO,
+    TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
     TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
@@ -1834,7 +1835,77 @@ impl Cpu68000 {
                 self.regs.pc = target;
                 self.next_fetch_addr = self.regs.pc;
 
-                // 68000: no format word in the exception frame, just refetch.
+                if self.variant_six_word_frame {
+                    // 68010+: read the Format/Vector word that sits
+                    // above the PC in the frame. Format $0 short
+                    // frames (8 bytes) are the common case; Format
+                    // $2 frames are 12 bytes and have an extra
+                    // Instruction Address long above the F/V word.
+                    self.followup_tag = TAG_RTE_READ_FORMAT;
+                    self.micro_ops.clear();
+                    self.micro_ops.push(MicroOp::ReadWord);
+                    self.micro_ops.push(MicroOp::Execute);
+                } else {
+                    // 68000: no format word in the exception frame,
+                    // just refetch.
+                    self.micro_ops.clear();
+                    self.micro_ops.push(MicroOp::FetchIRC);
+                    self.micro_ops.push(MicroOp::PromoteIRC);
+                    self.in_followup = false;
+                }
+            }
+            TAG_RTE_READ_FORMAT => {
+                // F/V word has been read into self.data. Advance SSP
+                // past it and decide whether more bytes need popping.
+                let fv = self.data as u16;
+                let format = (fv >> 12) & 0x0F;
+                self.addr = self.addr.wrapping_add(2);
+                self.regs.ssp = self.addr;
+                match format {
+                    0 => {
+                        // Short frame complete; resume execution at
+                        // the popped PC.
+                        self.micro_ops.clear();
+                        self.micro_ops.push(MicroOp::FetchIRC);
+                        self.micro_ops.push(MicroOp::PromoteIRC);
+                        self.in_followup = false;
+                    }
+                    2 => {
+                        // 12-byte frame: pop the Instruction Address
+                        // (long) that sits above the Format word.
+                        self.followup_tag = TAG_RTE_READ_FMT2_HI;
+                        self.micro_ops.clear();
+                        self.micro_ops.push(MicroOp::ReadWord);
+                        self.micro_ops.push(MicroOp::Execute);
+                    }
+                    _ => {
+                        // Other formats (1 throwaway, 9 coprocessor
+                        // mid-instruction, A/B access fault) are not
+                        // implemented yet. KS doesn't generate them
+                        // during normal boot; if encountered we just
+                        // resume — better than halting, and any real
+                        // mismatch will surface via downstream
+                        // misbehaviour rather than silent CPU stall.
+                        self.micro_ops.clear();
+                        self.micro_ops.push(MicroOp::FetchIRC);
+                        self.micro_ops.push(MicroOp::PromoteIRC);
+                        self.in_followup = false;
+                    }
+                }
+            }
+            TAG_RTE_READ_FMT2_HI => {
+                // High word of Instruction Address read; discard
+                // (the resume PC was already loaded from the frame's
+                // PC field) and queue the low word.
+                self.addr = self.addr.wrapping_add(2);
+                self.regs.ssp = self.addr;
+                self.followup_tag = TAG_RTE_READ_FMT2_LO;
+                self.micro_ops.push(MicroOp::ReadWord);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            TAG_RTE_READ_FMT2_LO => {
+                self.addr = self.addr.wrapping_add(2);
+                self.regs.ssp = self.addr;
                 self.micro_ops.clear();
                 self.micro_ops.push(MicroOp::FetchIRC);
                 self.micro_ops.push(MicroOp::PromoteIRC);

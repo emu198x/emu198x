@@ -1,9 +1,10 @@
 [package]
 name = "machine-commodore-amiga-ocs"
-description = "Commodore Amiga (OCS chipset) — A1000, A500, A2000, CDTV. Master-clock-driven tick loop. Built incrementally per wiki/decisions/amiga-restart-plan.md."
+description = "Commodore Amiga (OCS chipset) — A1000, A500, A2000, CDTV. Master-clock-driven tick loop. Built incrementally per knowledge/decisions/amiga-restart-plan.md."
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 common-commodore-amiga = { path = "../common-commodore-amiga" }

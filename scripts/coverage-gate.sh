@@ -108,7 +108,7 @@ REPORTED_CRATES = [
 ]
 
 # Data-only crates exempt from the line-coverage gate per
-# wiki/systems/spectrum/solid-status.md (criterion 11). cargo-llvm-cov
+# knowledge/systems/spectrum/solid-status.md (criterion 11). cargo-llvm-cov
 # reports 0 / 0 lines for them, which would be undefined under the
 # gate's coverage formula anyway.
 EXEMPT_CRATES = {

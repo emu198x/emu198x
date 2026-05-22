@@ -77,6 +77,45 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  # Cross-platform smoke build. Catches platform-specific compile
+  # regressions on macOS (primary dev host) and Windows without
+  # paying the cost of a full test run on those OSes. The full test
+  # suite still runs only on Linux via the coverage job below; this
+  # job only proves the workspace compiles. cpal and gilrs each pick
+  # up native audio/gamepad backends on macOS and Windows, so no
+  # platform-specific install is needed outside Linux.
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [fmt, clippy]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Read pinned toolchain
+        id: toolchain
+        shell: bash
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-${{ matrix.os }}
+
+      - name: Build workspace
+        run: cargo check --workspace --all-targets
+
   # The coverage job is the workspace's only test runner — cargo
   # llvm-cov compiles every test binary with `-C instrument-coverage`
   # and runs them, so we get both regression coverage AND coverage

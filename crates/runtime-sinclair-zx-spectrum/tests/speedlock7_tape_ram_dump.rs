@@ -4,7 +4,7 @@
 //! frame budgets so the Speedlock loader's self-decryption progress
 //! becomes visible.
 //!
-//! See `wiki/decisions/speedlock-tape-incomplete.md` for the static
+//! See `knowledge/decisions/speedlock-tape-incomplete.md` for the static
 //! analysis that established why $F48E is the load target.
 //!
 //! Run with:

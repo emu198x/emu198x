@@ -1,6 +1,6 @@
 //! Phase 1 characterisation — sprites and collision detection.
 //!
-//! Covers task #153 from wiki/amiga/denise-ocs-porting-gap-list.md.
+//! Covers task #153 from knowledge/amiga/denise-ocs-porting-gap-list.md.
 //!
 //! HRM references:
 //!   - HRM 4-1  "Hardware Sprites"

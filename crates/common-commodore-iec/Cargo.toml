@@ -4,6 +4,7 @@ description = "Shared IEC serial bus line state for Commodore machines and drive
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

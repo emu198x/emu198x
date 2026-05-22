@@ -4,6 +4,7 @@ description = "Commodore Paula 8364 — 4-channel DMA audio with return-latency 
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

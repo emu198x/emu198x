@@ -10,7 +10,7 @@ topic: track-1b-single-binary
 Merge `emu198x-script-spectrum` (headless) into `emu198x-spectrum` (UI) so
 the family ships one binary with three modes — interactive UI, headless
 script execution, and MCP server. Closes SOLID criterion 4
-("Pipeline / single binary") in `wiki/systems/spectrum/solid-status.md`
+("Pipeline / single binary") in `knowledge/systems/spectrum/solid-status.md`
 and unblocks Code198x's curriculum DoD (every unit's screenshot/video
 captures through this binary).
 

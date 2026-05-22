@@ -1,6 +1,6 @@
 //! M9: CIA-B stub.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. CIA-B is the second
+//! Per `knowledge/decisions/amiga-restart-plan.md`. CIA-B is the second
 //! 8520 CIA on the Amiga, accessed at `$BFD000+` even bytes. It
 //! handles disk control (PRB drives /STEP, /SIDE, /DIR, /SEL0-3,
 //! /MTR), the parallel port, and provides the second timer pair.

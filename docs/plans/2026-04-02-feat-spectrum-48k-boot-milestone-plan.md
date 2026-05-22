@@ -661,7 +661,7 @@ Each is a separate milestone that builds on this foundation.
 
 - Tom Harte Z80 tests: https://github.com/TomHarte/ProcessorTests
 - FUSE emulator: https://fuse-emulator.sourceforge.net/
-- Sinclair Wiki contention: https://sinclair.wiki.zxnet.co.uk/wiki/Contended_memory
+- Sinclair Wiki contention: https://sinclair.wiki.zxnet.co.uk/knowledge/Contended_memory
 - `blip_buf` crate: https://docs.rs/blip_buf/
 
 ### Reference Emulators (~/Projects/Emu198x-Unclean/)

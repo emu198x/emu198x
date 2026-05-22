@@ -4,6 +4,7 @@ description = "MOS 6569 PAL / 6567 NTSC VIC-II video chip for Commodore systems"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

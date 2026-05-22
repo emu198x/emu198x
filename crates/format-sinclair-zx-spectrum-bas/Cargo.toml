@@ -4,6 +4,7 @@ description = "ZX Spectrum BASIC tokeniser — converts text .bas files to token
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [lints]
 workspace = true

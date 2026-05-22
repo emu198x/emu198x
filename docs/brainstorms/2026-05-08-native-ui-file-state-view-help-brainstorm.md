@@ -147,6 +147,6 @@ there's a real consumer.
      copied from the Machine menu.
   5. Help menu — View on GitHub + Documentation. URL strings live
      as consts in the menu module.
-  6. Update `wiki/systems/spectrum/solid-status.md`: criterion 7
+  6. Update `knowledge/systems/spectrum/solid-status.md`: criterion 7
      flips to DONE. Headline becomes 7 done / 4 partial / 0 not
      started.

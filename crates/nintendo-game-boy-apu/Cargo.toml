@@ -4,6 +4,7 @@ description = "Game Boy DMG APU — four channels (2× square, wave, LFSR noise)
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

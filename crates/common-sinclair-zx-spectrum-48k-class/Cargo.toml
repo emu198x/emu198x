@@ -4,6 +4,7 @@ description = "Shared composition for 48K-class Spectrum variants (16K, 48K, Spe
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }

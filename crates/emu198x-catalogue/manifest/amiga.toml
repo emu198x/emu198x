@@ -1,12 +1,15 @@
-# Amiga catalogue. See wiki/decisions/october-catalogue.md.
+# Amiga catalogue. See knowledge/decisions/october-catalogue.md.
 #
 # Coverage target: 10 entries spanning OCS A500 + ECS A500+, KS 1.3
 # + KS 2.04, AmigaDOS-friendly + boot-block trackloaded games, NTSC
 # validation. AGA / A1200 are post-October per the product roadmap.
 #
 # Media paths resolve against:
-#   EMU198X_CATALOGUE_MEDIA_ROOT     (default: ~/Projects/Emu198x-Unclean/Reference)
+#   EMU198X_CATALOGUE_MEDIA_ROOT     (no default — required)
 #   EMU198X_CATALOGUE_FIRMWARE_ROOT  (default: ~/.emu198x/roms)
+#
+# Lay out the media root so the relative paths below resolve. Workbench
+# ADFs and game ADFs both sit under the same root.
 
 [system]
 id = "amiga"
@@ -35,11 +38,7 @@ variant = "a500-ocs-pal-a501"
 # once Kickstart reaches the insert-disk screen.
 kind = "disk"
 slot = "floppy-0"
-# Workbench 1.3 ADF stored alongside the ROMs. EMU198X_CATALOGUE_MEDIA_ROOT
-# defaults to ~/Projects/Emu198x-Unclean/Reference but Workbench is at
-# ~/.emu198x/media/commodore-amiga/. Override with the full path when
-# running this entry, OR symlink the file under the catalogue media root.
-path = "/Users/stevehill/.emu198x/media/commodore-amiga/workbench-1.3.adf"
+path = "commodore-amiga/workbench-1.3.adf"
 
 [entry.boot]
 # Workbench 1.3 boot is long. The existing boot_invariants regression
@@ -71,7 +70,7 @@ variant = "a500-plus-ecs-pal"
 # chip RAM); validates the ECS path end-to-end.
 kind = "disk"
 slot = "floppy-0"
-path = "/Users/stevehill/.emu198x/media/commodore-amiga/workbench-2.04.adf"
+path = "commodore-amiga/workbench-2.04.adf"
 
 [entry.boot]
 # WB 2.04 boot is longer than WB 1.3. The boot block loads, the OS
@@ -108,7 +107,7 @@ variant = "a500-ocs-pal-a501"
 # to .adf). Validates the trackloader path beyond Workbench.
 kind = "disk"
 slot = "floppy-0"
-path = "/Users/stevehill/Projects/198x/Code198x/Amiga/extracted/Barbarian - The Ultimate Warrior (1988)(Palace)[cr BS1 - TKT - INA].adf"
+path = "commodore-amiga/Barbarian - The Ultimate Warrior (1988)(Palace)[cr BS1 - TKT - INA].adf"
 
 [[entry.script]]
 # BSO cracker intros respond to joystick port-1 FIRE button.
@@ -144,7 +143,7 @@ variant = "a500-ocs-pal-a501"
 # and Paula audio paths.
 kind = "disk"
 slot = "floppy-0"
-path = "/Users/stevehill/Projects/198x/Code198x/Amiga/Games/[ADF]/1943 - The Battle of Midway (1989)(GO!)[cr PNA].zip"
+path = "commodore-amiga/1943 - The Battle of Midway (1989)(GO!)[cr PNA].zip"
 
 [[entry.script]]
 # Paranoimia cracker intros also respond to joystick port-1 FIRE.
@@ -181,7 +180,7 @@ variant = "a500-ocs-pal-a501"
 # actual title attract loop.
 kind = "disk"
 slot = "floppy-0"
-path = "/Users/stevehill/Projects/198x/Code198x/Amiga/Games/[ADF]/Arkanoid - Revenge of Doh (1988-11-05)(Imagine)[cr Ackerlight].zip"
+path = "commodore-amiga/Arkanoid - Revenge of Doh (1988-11-05)(Imagine)[cr Ackerlight].zip"
 
 [[entry.script]]
 at_frame = 1500
@@ -217,7 +216,7 @@ variant = "a500-plus-ecs-pal"
 # the boot block at all.
 kind = "disk"
 slot = "floppy-0"
-path = "/Users/stevehill/Projects/198x/Code198x/Amiga/Games/[ADF]/Bad Dudes vs. Dragon Ninja (1989)(Imagine)[cr OCL][t +3 OCL].zip"
+path = "commodore-amiga/Bad Dudes vs. Dragon Ninja (1989)(Imagine)[cr OCL][t +3 OCL].zip"
 
 [[entry.script]]
 # OCL cracker intro prompts "(RETURN)" at the bottom right. RETURN

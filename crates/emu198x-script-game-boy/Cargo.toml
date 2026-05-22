@@ -4,6 +4,7 @@ description = "Headless Game Boy family runner for cartridge and scripted input 
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "emu198x-script-game-boy"

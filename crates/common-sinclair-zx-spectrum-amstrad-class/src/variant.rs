@@ -18,7 +18,7 @@
 //! The `HAS_FDC` const gates the FDC chip's `enabled` flag inside the
 //! core. **The FDC currently lives inside the core for back-compat with
 //! the pre-extraction `-plus` crate.** It should move to a peripheral
-//! later — see `wiki/decisions/spectrum-joystick-architecture.md` for
+//! later — see `knowledge/decisions/spectrum-joystick-architecture.md` for
 //! the equivalent peripheral-extraction reasoning that applies to the
 //! FDC. For now the field stays on the core and the marker controls
 //! whether it's enabled, matching the pre-extraction behaviour exactly.

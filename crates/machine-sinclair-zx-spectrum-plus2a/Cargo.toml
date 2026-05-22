@@ -4,6 +4,7 @@ description = "ZX Spectrum +2A — thin wrapper over the Amstrad-class core"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }

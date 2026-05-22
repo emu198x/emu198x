@@ -4,6 +4,7 @@ description = "ZX Spectrum 128K machine — thin wrapper over the 128K-class cor
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }

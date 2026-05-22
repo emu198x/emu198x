@@ -1,6 +1,6 @@
 //! M2: custom-register storage.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. The KS 1.3 boot writes
+//! Per `knowledge/decisions/amiga-restart-plan.md`. The KS 1.3 boot writes
 //! to several custom registers in its first ~30 instructions
 //! (verified from disassembly at $FC00FE-$FC0136):
 //!

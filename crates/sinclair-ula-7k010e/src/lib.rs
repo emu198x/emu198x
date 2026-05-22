@@ -1,9 +1,9 @@
 //! Sinclair 7K010E ULA — the 128K / +2 ZX Spectrum's custom chip.
 //!
 //! Source references:
-//! - `wiki/chips/sinclair-7k010e.md`
-//! - `wiki/systems/spectrum/contention.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/sinclair-ula-7k010e/src/lib.rs`
+//! - `knowledge/chips/sinclair-7k010e.md`
+//! - `knowledge/systems/spectrum/contention.md`
+//! - Adapted from `../Emu198x-Older/crates/sinclair-ula-7k010e/src/lib.rs`
 //!
 //! Same contention model as the Ferranti (48K) but different timing:
 //! - Crystal: 17,734,475 Hz (4× PAL subcarrier)

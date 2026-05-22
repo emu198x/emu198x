@@ -1,6 +1,6 @@
 //! M4: chip-RAM aliasing via incomplete address decode.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. OCS Agnus on the
+//! Per `knowledge/decisions/amiga-restart-plan.md`. OCS Agnus on the
 //! A500/A2000 has 19 chip-RAM address lines, so addresses above
 //! `$7FFFF` wrap into the lower 512 KiB. The KS 1.3 boot exploits
 //! this in Phase 7 (chip-RAM probe): writes a magic pattern to

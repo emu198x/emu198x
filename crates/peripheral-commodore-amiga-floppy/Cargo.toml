@@ -4,6 +4,7 @@ description = "Amiga floppy drive mechanism — head positioning, motor control,
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }

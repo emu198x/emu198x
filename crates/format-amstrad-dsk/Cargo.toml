@@ -4,6 +4,7 @@ description = "DSK and EDSK floppy image parser — used by the Amstrad CPC and 
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 nec-upd765a = { path = "../nec-upd765a" }

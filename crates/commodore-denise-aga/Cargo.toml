@@ -4,6 +4,7 @@ description = "Commodore Lisa (AGA Denise) — thin wrapper over commodore-denis
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 commodore-denise-ecs = { path = "../commodore-denise-ecs" }

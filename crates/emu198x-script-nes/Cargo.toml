@@ -4,6 +4,7 @@ description = "Headless NES family runner for cartridge and scripted input workf
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "emu198x-script-nes"

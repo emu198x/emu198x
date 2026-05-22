@@ -23,7 +23,7 @@ This plan assumes the existing repository is a **reference and planning archive*
 When documents disagree, use this order:
 
 1. this plan
-2. `wiki/decisions/`
+2. `knowledge/decisions/`
 3. `docs/testing-policy.md`
 4. current per-family planning docs and registry docs
 5. older architecture, inventory, roadmap, status, and handoff notes as historical context only
@@ -31,7 +31,7 @@ When documents disagree, use this order:
 Practical effect:
 
 - `docs/status.md`, `docs/inventory.md`, `docs/roadmap.md`, and `docs/adding-a-system.md` contain useful ideas, but their claims of current completeness are **not authoritative**.
-- `wiki/decisions/` is the current decision layer for architecture.
+- `knowledge/decisions/` is the current decision layer for architecture.
 - Any future replacement for this plan should be another dated plan file, not an undated edit scattered across the archive.
 
 ## Decisions This Plan Revises
@@ -123,7 +123,7 @@ Work:
   - `measured`
   - `inferred`
   - `emulator-derived`
-- require every new architectural decision to land in `wiki/decisions/`
+- require every new architectural decision to land in `knowledge/decisions/`
 - require every family profile to maintain:
   - a plan
   - a support tier
@@ -374,12 +374,12 @@ The next implementation cycle should do this in order:
 
 ## Canonical References For This Plan
 
-- `wiki/decisions/fresh-start-rationale.md`
-- `wiki/decisions/cpu-bus-interface.md`
-- `wiki/decisions/no-bus-trait.md`
-- `wiki/decisions/system-specific-run-loops.md`
-- `wiki/decisions/save-state-format.md`
-- `wiki/decisions/product-roadmap.md`
+- `knowledge/decisions/fresh-start-rationale.md`
+- `knowledge/decisions/cpu-bus-interface.md`
+- `knowledge/decisions/no-bus-trait.md`
+- `knowledge/decisions/system-specific-run-loops.md`
+- `knowledge/decisions/save-state-format.md`
+- `knowledge/decisions/product-roadmap.md`
 - `docs/testing-policy.md`
 - `docs/brainstorms/2026-04-11-code-like-198x-architecture-decisions.md`
 - `docs/brainstorms/2026-04-11-code-like-198x-platform-requirements.md`

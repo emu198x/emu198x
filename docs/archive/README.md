@@ -14,7 +14,7 @@ Do not use archived files as active authority without first reconciling them
 against:
 
 1. [the coherent development plan](../plans/2026-04-12-emulator-suite-coherent-development-plan.md)
-2. `wiki/decisions/`
+2. `knowledge/decisions/`
 3. [testing-policy.md](../testing-policy.md)
 
 System research, hardware reference material, and evergreen technical notes are

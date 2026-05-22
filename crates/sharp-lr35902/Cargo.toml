@@ -4,6 +4,7 @@ description = "Sharp LR35902 (SM83) CPU — Game Boy SoC core, m-cycle pin-level
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

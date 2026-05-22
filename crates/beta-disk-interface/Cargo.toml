@@ -4,6 +4,7 @@ description = "Beta 128 disk interface — TR-DOS ROM paging and WD1793 stub use
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }

@@ -14,14 +14,14 @@ Several items below may already be partially or fully implemented. Where somethi
 
 Each item begins with a verification step. The phrasing "if absent" or "if incomplete" guards against silently rebuilding what's already there.
 
-This is itself the first lesson: `wiki/log.md` last has a substantial entry on 2026-04-10, with ~80 commits unrecorded since. The Track 0 governance discipline from the April 12 plan needs reactivation as part of Phase A.
+This is itself the first lesson: `knowledge/log.md` last has a substantial entry on 2026-04-10, with ~80 commits unrecorded since. The Track 0 governance discipline from the April 12 plan needs reactivation as part of Phase A.
 
 ## Source-of-truth hierarchy
 
 When this plan disagrees with anything, use:
 
 1. `RULES.md`
-2. `wiki/decisions/`
+2. `knowledge/decisions/`
 3. this plan
 4. the April 12 coherent plan (architectural framing)
 5. README and wiki overview pages (state claims)
@@ -31,7 +31,7 @@ When this plan disagrees with anything, use:
 These are deliberately excluded; push back if any belong on the list.
 
 - **Anything Dragon-shaped.** Codex is working through Dragon items end to end and will not be redirected until Dragon work is complete.
-- **Wave 2 systems.** Atari 2600, BBC Micro, MSX, Master System are forbidden before October per [`product-roadmap.md`](../../wiki/decisions/product-roadmap.md).
+- **Wave 2 systems.** Atari 2600, BBC Micro, MSX, Master System are forbidden before October per [`product-roadmap.md`](../../knowledge/decisions/product-roadmap.md).
 - **Game Boy CGB / boot ROM / link cable / long-tail cartridges.** README owns these as later work.
 - **C64 1541 write path.** Substantial scope; not blocking read-only curriculum.
 - **Spectrum +3 end-to-end disk verification.** Niche; +2A and below are the dominant cases.
@@ -41,13 +41,13 @@ These are deliberately excluded; push back if any belong on the list.
 
 ## Phase A — Amiga parity and regression net (4-5 weeks)
 
-The Amiga is the documented cut candidate, four of the five "done criteria" in [`amiga-architecture-review.md`](../../wiki/decisions/amiga-architecture-review.md) are still open, and it's the only anchor missing serde snapshots. Stabilising it is the single most leveraged thing on the board.
+The Amiga is the documented cut candidate, four of the five "done criteria" in [`amiga-architecture-review.md`](../../knowledge/decisions/amiga-architecture-review.md) are still open, and it's the only anchor missing serde snapshots. Stabilising it is the single most leveraged thing on the board.
 
 ### A.0 — Wiki log catch-up
 
-**Verify.** `git log --since="2026-04-10" --pretty=format:"%h %s"` against `wiki/log.md` entries.
+**Verify.** `git log --since="2026-04-10" --pretty=format:"%h %s"` against `knowledge/log.md` entries.
 **Build.** Add log entries for the gaps: NES mapper expansion (UxROM through MMC5/VRC2a/Action 53/Camerica/NINA), Game Boy native verifier + battery saves, Amiga native verifier + audio + mouse + joystick, shared `wgpu` presenter migration, native APU channel controls, the Dragon line of work in summary form (Codex owns the detail).
-**Done when.** `wiki/log.md` reads coherently from 2026-04-10 to today; `wiki/index.md` references match what the workspace actually contains.
+**Done when.** `knowledge/log.md` reads coherently from 2026-04-10 to today; `knowledge/index.md` references match what the workspace actually contains.
 **Sequence first.** Cheapest item. Establishes the context that subsequent items rely on.
 
 ### A.1 — Amiga snapshots
@@ -87,7 +87,7 @@ The Amiga is the documented cut candidate, four of the five "done criteria" in [
 - Amiga snapshots are first-class; round-trip test passes.
 - `service_cpu_bus` is under 200 lines.
 - Paula owns disk read DMA; machine layer is glue.
-- `wiki/log.md` is current.
+- `knowledge/log.md` is current.
 - The architecture-review document moves from `Proposed (draft for review)` to `Implemented`.
 - **Coverage:** workspace at 78% line / 65% branch; Cov-1 and Cov-2 (mos-6502 investigations) closed.
 
@@ -95,7 +95,7 @@ The Amiga is the documented cut candidate, four of the five "done criteria" in [
 
 ## Phase B — October must-haves (4-5 weeks)
 
-The April 12 plan and [`product-roadmap.md`](../../wiki/decisions/product-roadmap.md) name three October-blocking infrastructure items: **capture pipeline**, **CRT filter**, **serialisation traits**. A.1 covered the third. This phase covers the first two plus the MCP control surface that Code198x will consume.
+The April 12 plan and [`product-roadmap.md`](../../knowledge/decisions/product-roadmap.md) name three October-blocking infrastructure items: **capture pipeline**, **CRT filter**, **serialisation traits**. A.1 covered the third. This phase covers the first two plus the MCP control surface that Code198x will consume.
 
 ### B.1 — CRT filter audit and parity
 
@@ -139,7 +139,7 @@ Order within this phase is flexible; each item is independent.
 ### C.1 — Unified `emu198x` launcher
 
 **Verify.** No `emu198x` (no suffix) crate in the workspace today.
-**Build.** Smallest viable shape: catalogue UI → spawn the per-family binary. Do not merge cores. Reuse the shared `wgpu` presenter for the catalogue if it makes sense; otherwise SDL/native menus per the [`native-ui-strategy.md`](../../wiki/decisions/native-ui-strategy.md) decision.
+**Build.** Smallest viable shape: catalogue UI → spawn the per-family binary. Do not merge cores. Reuse the shared `wgpu` presenter for the catalogue if it makes sense; otherwise SDL/native menus per the [`native-ui-strategy.md`](../../knowledge/decisions/native-ui-strategy.md) decision.
 **Done when.** `cargo run -p emu198x` opens a catalogue, picking a system launches the corresponding binary.
 
 ### C.2 — NES curriculum mapper expansion
@@ -221,7 +221,7 @@ These are sized for "investigate, decide, then act" — not "write 50 tests".
 These are cheap and pay off across the whole track:
 
 - **Cov-H1.** Add `--ignore-filename-regex` to `scripts/coverage.sh` for: native verifier `main.rs` files (window/event glue), `emu198x-native-video/src/lib.rs` (wgpu surface code that needs a GPU), `emu198x-shell/src/input.rs` (host gamepad/keyboard glue). Document each exclusion in a top-of-file comment.
-- **Cov-H2.** Commit `target/llvm-cov/coverage-summary.txt` to the repo on each release-candidate cut and reference it from `wiki/log.md`. Provides the "coverage moved from X to Y this cycle" trail.
+- **Cov-H2.** Commit `target/llvm-cov/coverage-summary.txt` to the repo on each release-candidate cut and reference it from `knowledge/log.md`. Provides the "coverage moved from X to Y this cycle" trail.
 - **Cov-H3.** Add a `cargo xtask coverage-diff` shape (or a simple shell script) that compares two `coverage-summary.json` files and prints per-crate deltas — so future investigations know which crates regressed without eyeballing 80 lines.
 
 ### What this track explicitly does *not* do
@@ -244,7 +244,7 @@ These are cheap and pay off across the whole track:
 - All A-phase items shipped, documented, tested.
 - All B-phase items shipped, documented, tested.
 - C-phase items either shipped or explicitly deferred with a reason.
-- README, `wiki/index.md`, and the per-system overview pages match the workspace.
+- README, `knowledge/index.md`, and the per-system overview pages match the workspace.
 - Each anchor family has a green boot-invariant suite, snapshot round-trip, MCP server, and feature-parity native verifier.
 - Workspace coverage sits at 85% line / 75% branch on the emulation-relevant subset, with all five Cov-N investigations either closed or documented as "expected exclusion".
 - The October launch is unblocked on infrastructure; remaining work is curriculum content and per-system polish.
@@ -252,8 +252,8 @@ These are cheap and pay off across the whole track:
 ## Related
 
 - [Coherent development plan (Apr 12)](2026-04-12-emulator-suite-coherent-development-plan.md) — the architectural framing this plan inherits
-- [Product roadmap](../../wiki/decisions/product-roadmap.md) — October scope and drift triggers
-- [Amiga architecture review](../../wiki/decisions/amiga-architecture-review.md) — Phase A.3, A.4, C.3 source
-- [Native UI strategy](../../wiki/decisions/native-ui-strategy.md) — informs C.1
-- [Save state format](../../wiki/decisions/save-state-format.md) — informs A.1
+- [Product roadmap](../../knowledge/decisions/product-roadmap.md) — October scope and drift triggers
+- [Amiga architecture review](../../knowledge/decisions/amiga-architecture-review.md) — Phase A.3, A.4, C.3 source
+- [Native UI strategy](../../knowledge/decisions/native-ui-strategy.md) — informs C.1
+- [Save state format](../../knowledge/decisions/save-state-format.md) — informs A.1
 - [Testing policy](../testing-policy.md) — informs every "Done when" criterion

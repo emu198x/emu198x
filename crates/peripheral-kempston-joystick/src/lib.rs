@@ -46,7 +46,7 @@
 //!    peripheral keeps the "what add-ons can plug into this machine"
 //!    question answerable through one shape.
 //!
-//! See `wiki/decisions/spectrum-joystick-architecture.md` for the
+//! See `knowledge/decisions/spectrum-joystick-architecture.md` for the
 //! reasoning trail.
 
 use common_sinclair_zx_spectrum::peripheral::Peripheral;

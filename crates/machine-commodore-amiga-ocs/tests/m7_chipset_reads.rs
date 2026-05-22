@@ -1,6 +1,6 @@
 //! M7: chipset read fidelity.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. Two specific
+//! Per `knowledge/decisions/amiga-restart-plan.md`. Two specific
 //! correctness fixes for register *reads*:
 //!
 //! 1. `VPOSR` (`$004`) and `VHPOSR` (`$006`) return the current beam

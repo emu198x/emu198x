@@ -1,6 +1,6 @@
 //! M3: OVL clear via CIA-A.
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. The very early KS 1.3
+//! Per `knowledge/decisions/amiga-restart-plan.md`. The very early KS 1.3
 //! boot does the OVL handshake at $FC00FE-$FC010C:
 //!
 //! ```

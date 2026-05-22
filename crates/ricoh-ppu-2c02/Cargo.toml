@@ -4,6 +4,7 @@ description = "Ricoh 2C02 PPU — dot-level NES picture processing unit. One tic
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines" }

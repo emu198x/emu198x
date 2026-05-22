@@ -3,8 +3,6 @@
 
 mod common;
 
-use std::path::Path;
-
 use emu198x_shell::{
     ControlCommand, HostIo, InputEvent, MachineCore, MachineError, MachineTime, MediaImage,
     MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, NullAudioSink, NullFrameSink,
@@ -102,15 +100,16 @@ fn audio_controls_mutate_loaded_machine_mixer() {
 #[test]
 #[ignore = "uses local NES reference ROM"]
 fn real_ines_super_mario_bros_runs_and_draws() {
-    let path = Path::new(
-        "/Users/stevehill/Projects/198x/assets/nintendo/nes/Super Mario Bros. (1985-09-13)(Nintendo)(JP-US).nes",
-    );
+    let Some(path) = std::env::var_os("EMU198X_NES_SMB_ROM").map(std::path::PathBuf::from) else {
+        eprintln!("SKIPPING: set EMU198X_NES_SMB_ROM to a Super Mario Bros. iNES path");
+        return;
+    };
     if !path.is_file() {
-        eprintln!("SKIPPING: local Super Mario Bros. ROM not found");
+        eprintln!("SKIPPING: SMB ROM not found at {}", path.display());
         return;
     }
 
-    let rom = std::fs::read(path).expect("reference ROM should read");
+    let rom = std::fs::read(&path).expect("reference ROM should read");
     let mut runtime = NesRuntime::blank(Model::NesNtsc);
     let mut media = MediaSet::new();
     media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));

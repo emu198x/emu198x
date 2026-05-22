@@ -244,7 +244,7 @@ fn assert_passed(name: &str, outcome: &TestOutcome) {
 /// Assert with an allowlist of expected per-test failures (matching by
 /// substring on the printed test name). Used for [`z80memptr`] which has two
 /// permanently-failing cases that mirror the FUSE INIR/INDR disagreements
-/// already documented in `wiki/tests/spectrum.md` — those disagreements come
+/// already documented in `knowledge/tests/spectrum.md` — those disagreements come
 /// from a long-standing dispute in Z80 emulation references about MEMPTR
 /// behaviour after block I/O. Tom Harte agrees with our current behaviour;
 /// FUSE and Patrik Rak's z80memptr disagree on the same cases. Until the
@@ -371,7 +371,7 @@ fn z80ccf() {
 /// Two known-accepted disagreements: INIR and INDR followed by NOP into the
 /// shadow set, where Patrik Rak's expected MEMPTR/WZ behaviour matches FUSE
 /// but disagrees with Tom Harte and our current core. See the FUSE accepted
-/// disagreement table in `wiki/tests/spectrum.md` for the matching INIR /
+/// disagreement table in `knowledge/tests/spectrum.md` for the matching INIR /
 /// INDR cases.
 const Z80MEMPTR_ALLOWLIST: &[&str] = &["INIR->NOP'", "INDR->NOP'"];
 

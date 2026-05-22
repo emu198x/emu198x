@@ -1,6 +1,6 @@
 //! M11.2: slow RAM (trapdoor expansion at $C00000).
 //!
-//! Per `wiki/decisions/amiga-restart-plan.md`. Adds 512K trapdoor
+//! Per `knowledge/decisions/amiga-restart-plan.md`. Adds 512K trapdoor
 //! slow RAM to see if the boot progresses past the chip-only
 //! deadlock. The archived chip-only investigation observed that
 //! slow-RAM KS 1.3 did reach display setup (even though the chip-only

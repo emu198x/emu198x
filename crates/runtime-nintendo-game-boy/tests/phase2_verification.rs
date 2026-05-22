@@ -1,7 +1,7 @@
 //! DMG Phase-2 verification harness.
 //!
 //! Mirrors the ordered acceptance gate list in
-//! `wiki/systems/nintendo-game-boy/overview.md`:
+//! `knowledge/systems/nintendo-game-boy/overview.md`:
 //!
 //! 1. Blargg `cpu_instrs` (all 11 sub-tests)
 //! 2. Blargg `instr_timing`
@@ -22,8 +22,6 @@ use emu198x_shell::{
 };
 use runtime_nintendo_game_boy::{GameBoyRuntime, Model};
 
-const DEFAULT_BLARGG_ROOT: &str = "/Users/stevehill/Projects/198x/Emu198x-Zig/gb-test-roms-master";
-const DEFAULT_DMG_ACID2_ROM: &str = "/Users/stevehill/Projects/198x/Emu198x-Zig/dmg-acid2.gb";
 const MAX_SERIAL_TEST_FRAMES: u32 = 1_200;
 const MOONEYE_SWEEP_FRAMES: u32 = 1_200;
 const DMG_ACID2_FRAMES: u32 = 180;
@@ -278,9 +276,10 @@ fn run_until_mooneye_verdict(
 }
 
 fn blargg_root() -> Option<PathBuf> {
-    let root = std::env::var_os("EMU198X_GB_BLARGG_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_BLARGG_ROOT));
+    let Some(root) = std::env::var_os("EMU198X_GB_BLARGG_ROOT").map(PathBuf::from) else {
+        eprintln!("skipping: set EMU198X_GB_BLARGG_ROOT to a gb-test-roms root");
+        return None;
+    };
     if !root.exists() {
         eprintln!(
             "skipping: Game Boy Blargg ROM root missing at {}",
@@ -292,9 +291,10 @@ fn blargg_root() -> Option<PathBuf> {
 }
 
 fn dmg_acid2_rom() -> Option<PathBuf> {
-    let path = std::env::var_os("EMU198X_GB_DMG_ACID2_ROM")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_DMG_ACID2_ROM));
+    let Some(path) = std::env::var_os("EMU198X_GB_DMG_ACID2_ROM").map(PathBuf::from) else {
+        eprintln!("skipping: set EMU198X_GB_DMG_ACID2_ROM to a dmg-acid2.gb path");
+        return None;
+    };
     if !path.exists() {
         eprintln!("skipping: dmg-acid2 ROM missing at {}", path.display());
         return None;

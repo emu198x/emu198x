@@ -1,5 +1,7 @@
 # Emu198x
 
+[![CI](https://github.com/emu198x/emu198x/actions/workflows/ci.yml/badge.svg)](https://github.com/emu198x/emu198x/actions/workflows/ci.yml)
+
 Emu198x is a fresh Rust workspace for building cycle-accurate vintage computer
 and console emulators without shortcutting major hardware behavior.
 
@@ -11,10 +13,6 @@ The current implementation focus is:
 - Commodore Amiga (A500 OCS PAL baseline)
 - Nintendo Game Boy
 - Dragon 32
-
-This repository also contains older research and planning material from previous
-attempts. Treat the fresh Rust workspace as the implementation truth, and treat
-archived status/roadmap material as historical context only.
 
 ## What This Project Is Trying To Do
 
@@ -166,6 +164,59 @@ cargo test --workspace
 ./scripts/coverage.sh
 ```
 
+## Getting ROMs
+
+Emu198x does not ship ROMs. You provide them yourself, and the legal
+position varies a lot by platform.
+
+The per-system "Running" sections below name the exact filenames each
+runner looks for. This section covers where to obtain them.
+
+### Sinclair ZX Spectrum
+
+Amstrad granted permission in 1999 for the Sinclair ROMs to be freely
+redistributed for non-commercial use. The canonical distribution lives
+in **World of Spectrum's Sinclair ROM set**, which covers `48.rom`,
+`128.rom`, `plus2.rom`, and `plus3.rom`.
+
+### Commodore 64
+
+The C64 KERNAL, BASIC, and CHARGEN ROMs are held by **Cloanto** through
+Commodore IP succession; no free legal redistribution exists. The
+licensed source is **Cloanto's C64 Forever**, which also includes the
+1541 drive ROM used by the optional live-drive path. Community
+archives exist; this README does not link them.
+
+### Commodore Amiga
+
+Kickstart and Workbench are held by **Cloanto**; the licensed source
+is **Cloanto's Amiga Forever**. The OCS PAL A500 baseline currently
+targets Kickstart 1.3 (`kick13.rom`) and 1.2 (`kick12.rom`); the A1200
+work-in-progress uses Kickstart 3.1 (`kick31.rom`).
+
+### Nintendo NES
+
+The NES has no system ROM — boot logic lives in the cartridge, so
+nothing platform-level needs acquiring.
+
+For verification, **Blargg's NES test ROMs** and **`nestest.nes` by
+kevtris** are freely redistributable. For commercial cartridges, dump
+your own.
+
+### Nintendo Game Boy
+
+The DMG boot ROM is optional; the Game Boy runner boots cartridges
+without it. If you do want one, Nintendo never released it
+officially — community-disassembled versions exist.
+
+For commercial cartridges, dump your own.
+
+### Dragon 32
+
+Dragon Data dissolved in 1984; no current rights-holder sells
+licensed copies of the BASIC ROM (`dragon32.rom`). Community archives
+host it under the abandonware umbrella; this README does not link them.
+
 ## Running
 
 ### Spectrum 48K native verifier shell
@@ -178,7 +229,7 @@ Example:
 
 ```bash
 cargo run -p emu198x-spectrum -- \
-  --tape '/Users/stevehill/Projects/198x/assets/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip' \
+  --tape ~/.emu198x/media/sinclair-zx-spectrum-48k/'Manic Miner (1983)(Bug-Byte).zip' \
   --autoload-tape \
   --turbo-tape
 ```
@@ -220,7 +271,7 @@ Live controls:
 ```bash
 cargo run -p emu198x-script-spectrum -- \
   --rom ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom \
-  --tape '/Users/stevehill/Projects/198x/assets/sinclair/spectrum/Games/[TZX]/Manic Miner (1983)(Bug-Byte).zip' \
+  --tape ~/.emu198x/media/sinclair-zx-spectrum-48k/'Manic Miner (1983)(Bug-Byte).zip' \
   --autoload-tape \
   --wait-for-tape-stop 12000
 ```
@@ -268,7 +319,7 @@ cargo run -p emu198x-script-c64 -- \
 
 ```bash
 cargo run -p emu198x-script-nes -- \
-  --rom '/Users/stevehill/Projects/198x/assets/nintendo/nes/test-suites/other/nestest.nes' \
+  --rom ~/.emu198x/media/nintendo-nes/nestest.nes \
   --frames 60 \
   --screenshot nestest.png
 ```
@@ -302,7 +353,7 @@ cargo run -p emu198x-script-amiga -- \
 ```bash
 cargo run -p emu198x-script-amiga -- \
   --rom-dir ~/.emu198x/roms/commodore-amiga \
-  --disk '/Users/stevehill/Projects/198x/assets/amiga/Operating Systems/Workbench/Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip' \
+  --disk ~/.emu198x/media/commodore-amiga/'Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip' \
   --wait-for-boot 300 \
   --screenshot amiga-workbench.png
 ```
@@ -394,9 +445,14 @@ Coverage exists as an audit signal, not as the primary correctness gate.
 - [`crates/`](crates) — fresh Rust workspace
 - [`docs/plans/2026-04-12-emulator-suite-coherent-development-plan.md`](docs/plans/2026-04-12-emulator-suite-coherent-development-plan.md) — current high-level plan
 - [`docs/testing-policy.md`](docs/testing-policy.md) — verification standard
-- [`wiki/index.md`](wiki/index.md) — technical index
-- [`wiki/log.md`](wiki/log.md) — append-only milestone log
+- [`knowledge/decisions/`](knowledge/decisions) — binding architectural decisions
 - [`docs/archive/`](docs/archive) — superseded/historical material
+
+Source comments occasionally reference `knowledge/chips/`, `knowledge/systems/`,
+`knowledge/concepts/`, `knowledge/log.md`, and similar paths. Those are
+LLM-curated working notes kept locally; only `knowledge/decisions/` ships
+publicly. Treat the other paths as project-internal context that hasn't
+been polished for outside readers.
 
 ## Notes On Documentation
 
@@ -405,7 +461,7 @@ implementation branches, or overstated completion claims. The active path is:
 
 1. the fresh Rust workspace in `crates/`
 2. the dated coherent plan
-3. `wiki/decisions/`
+3. `knowledge/decisions/`
 4. `docs/testing-policy.md`
 
 If those disagree with an older status or roadmap document, the older document

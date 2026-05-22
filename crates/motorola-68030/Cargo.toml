@@ -4,6 +4,7 @@ description = "Motorola 68030 CPU — adds the on-chip MMU (PMMU/ATC), data cach
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 motorola-68k-common = { path = "../motorola-68k-common" }

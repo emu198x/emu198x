@@ -16,7 +16,7 @@
 //! The trait defined here is intentionally **leaner** than the
 //! archive version. It carries the CPU/CHR bus methods, mirroring,
 //! IRQ pending, and the MMC3 A12 notifier — everything the
-//! [nes-clock-topology.md](../../wiki/decisions/nes-clock-topology.md)
+//! [nes-clock-topology.md](../../knowledge/decisions/nes-clock-topology.md)
 //! decision record says the machine layer and the (future) PPU need
 //! to call. It drops the archive's save-state, peek-chr, expansion
 //! audio, and PRG-RAM accessor methods; those are features of
@@ -89,7 +89,7 @@ pub enum Mirroring {
 /// - `notify_a12_rendering` is the MMC3 IRQ counter hook. Called
 ///   from inside the PPU tick when the PPU address bus transitions
 ///   A12 during background or sprite fetches. See
-///   [nes-clock-topology.md](../../wiki/decisions/nes-clock-topology.md#pin-contracts)
+///   [nes-clock-topology.md](../../knowledge/decisions/nes-clock-topology.md#pin-contracts)
 ///   for the rationale.
 pub trait Mapper: Send {
     /// CPU-side bus read. Called by the machine layer's `cpu_read`

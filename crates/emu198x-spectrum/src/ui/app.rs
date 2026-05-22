@@ -423,7 +423,7 @@ impl SpectrumApp {
     /// command runs *between* frames so a switch never tears down state
     /// the runtime is currently using; same channel will carry rfd
     /// dialog replies and MCP commands in future cuts. See
-    /// `wiki/decisions/native-menu-shell.md`.
+    /// `knowledge/decisions/native-menu-shell.md`.
     fn handle_command(&mut self, cmd: AppCommand) {
         match cmd {
             AppCommand::SwitchMachine(kind) => self.switch_machine(kind),
@@ -717,7 +717,7 @@ impl ApplicationHandler for SpectrumApp {
         // channel and process every queued command. Both happen at the
         // frame boundary so a command never tears down state mid-frame.
         // Same path will carry rfd dialog replies and MCP commands in
-        // future cuts; see wiki/decisions/native-menu-shell.md.
+        // future cuts; see knowledge/decisions/native-menu-shell.md.
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             if let Some(cmd) = self.menu.action_map.get(&event.id) {
                 let _ = self.command_tx.send(cmd.clone());

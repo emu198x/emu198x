@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-07
 **Status:** Decided 2026-04-07 — see "Decisions" section below
-**Related:** [docs/plans/2026-04-07-feat-spectrum-completeness-plan.md](../plans/2026-04-07-feat-spectrum-completeness-plan.md), [wiki/decisions/product-roadmap.md](../../wiki/decisions/product-roadmap.md)
+**Related:** [docs/plans/2026-04-07-feat-spectrum-completeness-plan.md](../plans/2026-04-07-feat-spectrum-completeness-plan.md), [knowledge/decisions/product-roadmap.md](../../knowledge/decisions/product-roadmap.md)
 
 ## Decisions (2026-04-07)
 
@@ -70,7 +70,7 @@ The Phase 0.2/0.3 work extracts `emu198x-shell` as the cross-project infrastruct
 
 If the trait is designed against Spectrum alone, it will bake in Spectrum assumptions — fixed 50 Hz frame rate, 8-row keyboard matrix, one audio channel, palette-indexed framebuffer — and each subsequent system will either contort itself to fit or force the trait to be rewritten.
 
-The [product roadmap](../../wiki/decisions/product-roadmap.md) commits to **Spectrum → C64 → NES → Amiga** by October 2026. All four systems need to fit the same trait. This doc surveys what each brings to the design and surfaces the questions that must be answered before Phase 0.3 ships.
+The [product roadmap](../../knowledge/decisions/product-roadmap.md) commits to **Spectrum → C64 → NES → Amiga** by October 2026. All four systems need to fit the same trait. This doc surveys what each brings to the design and surfaces the questions that must be answered before Phase 0.3 ships.
 
 **Scope:** this is not a spec for C64/NES/Amiga emulation. It's an analysis of what each *requires from the shell* so the trait generalises cleanly. Each system will need its own detailed brainstorm when we get to it.
 
@@ -112,7 +112,7 @@ The system-specific-run-loops decision already says each system writes its own l
 5. **Colour RAM is a separate chip.** 1 KB of static RAM at `$D800`, only the low 4 bits are wired. This is a C64 implementation detail but it means memory-read in MCP's `read_memory($D800, 16)` returns different upper-nibble behaviour on real hardware. Probably invisible to the shell trait.
 
 **What's NOT a problem:**
-- CPU instruction set: 6502 is simpler than Z80 to implement to cycle accuracy, and the [product roadmap](../../wiki/decisions/product-roadmap.md) says "6502 tick core exists" from the old codebase.
+- CPU instruction set: 6502 is simpler than Z80 to implement to cycle accuracy, and the [product roadmap](../../knowledge/decisions/product-roadmap.md) says "6502 tick core exists" from the old codebase.
 - VIC-II timing is well-documented (see also CodeBase64, VIC-II writeups from the demoscene).
 
 **Open questions for the user:**

@@ -1,8 +1,8 @@
 //! Speaker audio mixing for Spectrum-family machines.
 //!
 //! Source references:
-//! - `wiki/concepts/audio-mixing.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/common-sinclair-zx-spectrum/src/audio.rs`
+//! - `knowledge/concepts/audio-mixing.md`
+//! - Adapted from `../Emu198x-Older/crates/common-sinclair-zx-spectrum/src/audio.rs`
 //!
 //! The real 48K Spectrum speaker is driven by the beeper output and the tape
 //! EAR input through a simple resistor network. The machine reports changes in

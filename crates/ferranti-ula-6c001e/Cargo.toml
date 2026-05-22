@@ -4,6 +4,7 @@ description = "Ferranti 6C001E ULA for the ZX Spectrum 48K"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }

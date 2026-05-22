@@ -3,7 +3,7 @@
 //! is NULL → MrgCop early-exits → GfxBase->LOFlist stays at the
 //! ExecBase placeholder" state.
 //!
-//! Per `wiki/decisions/amiga-chip-only-boot-failure.md` (5th pass),
+//! Per `knowledge/decisions/amiga-chip-only-boot-failure.md` (5th pass),
 //! the old slow-RAM trace showed:
 //!
 //! | Field                   | chip-only          | slow-RAM         |

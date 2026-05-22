@@ -4,6 +4,7 @@ description = "Motorola 68010 CPU — adds VBR, MOVEC, loop-mode, and a 6-word f
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 motorola-68k-common = { path = "../motorola-68k-common" }

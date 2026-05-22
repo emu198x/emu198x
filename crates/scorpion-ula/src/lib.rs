@@ -1,8 +1,8 @@
 //! Scorpion ZS-256 ULA — Russian extended Spectrum.
 //!
 //! Source references:
-//! - `wiki/chips/scorpion-ula.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/scorpion-ula/src/lib.rs`
+//! - `knowledge/chips/scorpion-ula.md`
+//! - Adapted from `../Emu198x-Older/crates/scorpion-ula/src/lib.rs`
 //!
 //! Same crystal and frame geometry as the 48K (14 MHz, 224 T/line, 312
 //! lines, 69,888 T/frame) but no contention — the Scorpion ULA never

@@ -14,7 +14,7 @@
 //! - **SNA-128K / Z80-v2** — 128K-class (128K, +2, +2A, +2B, +3).
 //! - **DSK** — +3 only; asserts `load_media` succeeds. The actual
 //!   disk-load path is pinned at
-//!   `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md`.
+//!   `knowledge/decisions/spectrum-plus3-disk-loading-incomplete.md`.
 //!
 //! Cross-class loads (48K SNA on 128K, etc.) are out of scope here.
 //!
@@ -394,7 +394,7 @@ fn spectrum_plus3_loads_dsk() {
     // parses, reaches `fdc.insert_disk`, and `load_media` returns Ok.
     // The actual disk-load path through the +3 BIOS hangs at the
     // Loader screen — pinned at
-    // `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md` —
+    // `knowledge/decisions/spectrum-plus3-disk-loading-incomplete.md` —
     // so this test only asserts the format-load wiring, not boot
     // completion.
     let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());

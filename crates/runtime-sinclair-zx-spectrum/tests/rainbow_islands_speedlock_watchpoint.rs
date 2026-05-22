@@ -1,6 +1,6 @@
 //! Diagnostic: watch the $74A4-$74A5 word in Rainbow Islands' Speedlock 7
 //! loader. The SkoolKit byte-diff documented in
-//! `wiki/decisions/speedlock-silent-music.md` (log entry 2026-05-17)
+//! `knowledge/decisions/speedlock-silent-music.md` (log entry 2026-05-17)
 //! showed that across 49,152 bytes of post-load RAM, exactly two bytes
 //! differ between our emulator and SkoolKit's known-good simulator —
 //! the 16-bit word at $74A4 (ours $1EE7, SkoolKit $1F97), which sits

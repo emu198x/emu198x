@@ -1,8 +1,8 @@
 //! ZX Spectrum +2A/+2B/+3 memory map.
 //!
 //! Source references:
-//! - `wiki/systems/spectrum/variants.md`
-//! - `wiki/systems/spectrum/contention.md`
+//! - `knowledge/systems/spectrum/variants.md`
+//! - `knowledge/systems/spectrum/contention.md`
 //!
 //! Lives in the Amstrad-class layer crate because the +2A, +2B, and +3
 //! all share the same memory layout exactly. Lifted verbatim from the

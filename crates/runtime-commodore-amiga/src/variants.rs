@@ -8,7 +8,7 @@
 //! than a runtime rewrite. Any type that implements `AmigaMachine`
 //! plugs into `AmigaRuntime<M>` with no further runtime changes.
 //!
-//! See `wiki/decisions/runtime-internal-shape.md` for the playbook
+//! See `knowledge/decisions/runtime-internal-shape.md` for the playbook
 //! and the Amiga long-term-scope memory note for the full target
 //! list (Vampire AC68080 + SAGA + RTG framebuffer slots, plus the
 //! PAL/NTSC region matrix with NTSC's short/long line alternation

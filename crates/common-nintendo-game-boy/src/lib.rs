@@ -1,7 +1,7 @@
 //! Shared hardware building blocks for the Nintendo Game Boy family.
 //!
 //! Hardware-only types and traits per
-//! [`wiki/decisions/within-family-layering.md`](../../../wiki/decisions/within-family-layering.md):
+//! [`knowledge/decisions/within-family-layering.md`](../../../knowledge/decisions/within-family-layering.md):
 //! no host-boundary plumbing here. Timing constants, the SM83's
 //! `MemoryBus` view, the four-shade DMG palette, and the joypad
 //! matrix are the building blocks every machine in the family will

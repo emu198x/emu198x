@@ -44,7 +44,7 @@ classes:
   the model byte).
 - **DSK** — +3 only; the test asserts `load_media` succeeds. The
   actual disk-load path is pinned at
-  `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md` and
+  `knowledge/decisions/spectrum-plus3-disk-loading-incomplete.md` and
   the test does not assert on boot completion.
 
 Cross-class loads (e.g., 48K SNA on 128K) are out of scope —
@@ -95,7 +95,7 @@ realistic users always pair format flavour to machine.
   Bigger commit; needs licence-clean fixtures.
 - **+3 disk-load end-to-end fix** — the µPD765A ↔ +3 BIOS
   command path. Tracked at
-  `wiki/decisions/spectrum-plus3-disk-loading-incomplete.md`.
+  `knowledge/decisions/spectrum-plus3-disk-loading-incomplete.md`.
 
 ## Next Steps
 

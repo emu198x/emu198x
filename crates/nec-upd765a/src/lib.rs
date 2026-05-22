@@ -216,7 +216,7 @@ pub struct Upd765a {
     /// keyed by `(drive, track, head, sector_id)`. Used to detect
     /// consecutive re-reads of the same sector and drive the marginal-
     /// encoding model on sectors whose recorded ST1.DE / ST2.DD flags
-    /// the medium is marginal. See `wiki/decisions/marginal-encoding-model.md`.
+    /// the medium is marginal. See `knowledge/decisions/marginal-encoding-model.md`.
     #[serde(default)]
     reread_key: Option<(usize, u8, u8, u8)>,
 
@@ -320,7 +320,7 @@ fn fmt_bytes(bytes: &[u8]) -> String {
 /// (lines 1001-1010 in fuse-1.7.0), the closest-to-canonical reference
 /// for what byte variation satisfies the relevant protection checks
 /// across the Speedlock catalogue. See
-/// `wiki/decisions/marginal-encoding-model.md` for the rationale.
+/// `knowledge/decisions/marginal-encoding-model.md` for the rationale.
 ///
 /// `count` is the re-read counter (zero on first read; this function
 /// is a no-op then). Variation is applied to bytes at offsets that are
@@ -710,7 +710,7 @@ impl Upd765a {
                     // Speedlock-class protections that re-read the same
                     // sector and check for byte differences can satisfy
                     // their check without weak-aware EDSK data. See
-                    // `wiki/decisions/marginal-encoding-model.md`.
+                    // `knowledge/decisions/marginal-encoding-model.md`.
                     let sector_marginal = (sec.st1 & 0x20) != 0 || (sec.st2 & 0x20) != 0;
                     let read_key = (drive, track, head, r);
                     let read_count = if self.reread_key == Some(read_key) {

@@ -46,7 +46,7 @@ Options:
 
 For richer automation (firmware overrides, snapshots, screenshots,
 audio capture, frame counts, query waits) write a JSON script.
-See `wiki/decisions/script-vocabulary.md` for the schema.
+See `knowledge/decisions/script-vocabulary.md` for the schema.
 
 Examples:
     emu198x-spectrum --script boot.json

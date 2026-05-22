@@ -1,8 +1,8 @@
 //! Timex TC2048 — 48K Spectrum-compatible with SCLD video modes.
 //!
 //! Source references:
-//! - `wiki/systems/spectrum/variants.md`
-//! - Adapted from `/Users/stevehill/Projects/198x/Emu198x-Older/crates/machine-timex-tc2048/src/lib.rs`
+//! - `knowledge/systems/spectrum/variants.md`
+//! - Adapted from `../Emu198x-Older/crates/machine-timex-tc2048/src/lib.rs`
 //!
 //! Hardware:
 //! - Z80 @ 3.5 MHz (master / 4) — same as the 48K Ferranti

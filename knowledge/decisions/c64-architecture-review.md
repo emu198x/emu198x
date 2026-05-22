@@ -250,7 +250,7 @@ In order of leverage for unblocking the C64's progression from "reaches stable t
 
 ## Reference library cross-links
 
-The C64 reference library at `/Users/stevehill/Projects/198x/reference/by-system/commodore-c64/` holds 300+ files. Most relevant to the seams below:
+The C64 reference library at `../reference/by-system/commodore-c64/` holds 300+ files. Most relevant to the seams below:
 
 | Reference | Topic | Relevance |
 |---|---|---|

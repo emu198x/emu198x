@@ -126,7 +126,7 @@ or `AskUserQuestion` *before* writing trait code — the project rule is
 - Any C64/NES/Amiga code. Phase 0.3 only validates the trait against
   the Spectrum.
 - The wiki. Once Phase 0.3 lands, the System trait warrants a wiki
-  page in `wiki/concepts/` — but write the trait first.
+  page in `knowledge/concepts/` — but write the trait first.
 
 ## Definition of done
 
@@ -155,9 +155,9 @@ the brainstorm is done first.
 
 - `project_sdl3_gpu_pipeline.md` — irrelevant to 0.3 directly but
   the model for "save the gotchas of an architectural pass".
-- `wiki/decisions/system-specific-run-loops.md` — already decided
+- `knowledge/decisions/system-specific-run-loops.md` — already decided
   there's no universal tick pattern. The trait's `run_frame` is just a
   frame-boundary marker; what each system does inside is its business.
-- `wiki/decisions/save-state-format.md` — serde derives are already on
+- `knowledge/decisions/save-state-format.md` — serde derives are already on
   every chip and machine struct. The System trait does NOT need its
   own save-state mechanism; serialization is per-system via serde.

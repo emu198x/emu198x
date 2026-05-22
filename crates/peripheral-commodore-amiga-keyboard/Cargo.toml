@@ -4,6 +4,7 @@ description = "Amiga keyboard controller emulator — power-up init sequence, ro
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

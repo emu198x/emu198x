@@ -13,7 +13,7 @@
 //! - `$6004..` holds zero-terminated ASCII text output (test name,
 //!   failure detail).
 //!
-//! Reference: https://www.nesdev.org/wiki/Emulator_tests
+//! Reference: https://www.nesdev.org/knowledge/Emulator_tests
 //!
 //! ROMs live under `assets/test-suites/nes-test-roms/` in the 198x
 //! umbrella. The harness resolves them in this order:
