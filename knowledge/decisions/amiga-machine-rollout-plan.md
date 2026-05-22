@@ -1,7 +1,8 @@
 # Decision: Amiga machine rollout plan
 
 **Date:** 2026-05-22
-**Status:** Proposed. A1200 in flight (Stage A in progress).
+**Status:** A1200 Stages A + B + C landed 2026-05-22. Stage D
+(diagnose the $F80E60 stall) pending.
 
 ## What this is
 
@@ -92,6 +93,72 @@ budget per machine is roughly:
 
 Workbench / catalogue / floppy / IDE boot are post-Stage-C and tracked
 per-machine on demand, not in this rollout.
+
+## A1200 Stage C findings — 2026-05-22
+
+Loading `kick31a1200.rom` (KS 3.1 r40.068, 512 KiB) into the A1200
+machine and running 50 PAL frames (~1s emulated) produces:
+
+- **Initial PC** $F800D2 (reset vector → KS entry point).
+- **Final PC** $F80E60 — ~3.6 KB into the ROM.
+- **667 unique PCs visited.** Healthy boot progress; not a 2-byte
+  tight loop.
+- **1056 PC excursions below $F80000.** KS jumped into chip-RAM
+  trampolines or jumps that exited the ROM window — expected during
+  exec setup.
+- **10 custom-register writes**, **4 INTENA writes** — chipset and
+  interrupt-controller surface is being exercised.
+- **A4 = $00F3686C** at the stall — pointer into the
+  diagnostic-ROM area ($F00000-$F7FFFF), which is unmapped in our
+  A1200 build. KS 3.x scans this region during early init looking
+  for a third-party diagnostic image.
+- **SR = $2701** — supervisor mode, IPL mask 7 (interrupts masked).
+  The chipset is writing INTENA but the CPU mask hasn't dropped, so
+  even if VBL fires the CPU won't service it. Likely KS hasn't
+  reached its IPL-lowering step yet.
+
+**Disassembly at the stall** (PC = $F80E60):
+
+```
+$F80E60: 57C9 FFF8   DBEQ  D1, *-6      ; decrement-and-branch
+$F80E64: 6610        BNE   *+18
+$F80E66: 4BEC FFFE   LEA   -2(A4), A5   ; A4 = $F3686C → A5 = $F3686A
+$F80E6A: BBD4        CMP.L (A5), D5     ; D5 = 0
+$F80E6C: 66EE        BNE   *-16
+$F80E6E: 610C        BSR   *+14
+```
+
+This is a memory-scan loop comparing 32-bit words against zero,
+walking A4 backward through the $F00000-$F7FFFF region. Without
+either a diagnostic ROM image or open-bus reads returning zero,
+the inner BNE never falls through and the outer DBEQ counts D1
+down — but D1 (low word $0002 at the report time) is depleting
+slowly and may eventually fall through. Whether it does within
+"reasonable" boot time is Stage D's first question.
+
+## A1200 Stage D — what to investigate next
+
+1. **Run for 500–1000 frames** and see whether D1 depletes and the
+   boot exits this loop, or whether it's a genuine wedge.
+2. **Map the $F00000-$F7FFFF region** so reads return open-bus
+   ($FFFFFFFF) consistently — currently they may return chip-RAM
+   mirror garbage if Gary's decoder hasn't been taught to refuse
+   the address space. WinUAE returns open bus here for stock A1200
+   configs.
+3. **Check whether the $E00000-$E7FFFF ROM mirror is needed.** KS
+   3.x ROMs were sometimes built with internal references to the
+   lower half; if any branch / jump targets land there and read
+   garbage, boot will diverge invisibly.
+4. **Look at how `motorola-68000`'s `reset_to()` flows when the SSP
+   read at $000000 hits the OVL-mirrored ROM.** Our reset routing
+   should mirror the SSP fetch to the ROM-at-$F80000 image.
+5. **Compare to WinUAE booting the same ROM** and trace where their
+   PC sequence diverges from ours after the first few hundred
+   instructions.
+
+Stage D's deliverable: either KS 3.1 reaches the "insert workbench"
+screen (best case) or we have a definite list of "next thing to
+fix" issues with the chipset / memory map.
 
 ## What this plan does not cover
 
