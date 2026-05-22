@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 common-commodore-amiga = { path = "../common-commodore-amiga" }
 motorola-68000 = { path = "../motorola-68000" }
+motorola-68020 = { path = "../motorola-68020" }
 mos-cia-8520 = { path = "../mos-cia-8520" }
 commodore-paula-8364 = { path = "../commodore-paula-8364" }
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }

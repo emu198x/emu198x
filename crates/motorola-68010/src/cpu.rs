@@ -55,6 +55,7 @@ const TAG_RTD_PC_LO: u8 = 201;
 /// hook. All 68000-shared state is reachable via `Deref` /
 /// `DerefMut`; 68010-specific control registers (`VBR`, `SFC`,
 /// `DFC`) live on `cpu.regs` and are shared with every 68k variant.
+#[derive(Clone, serde::Serialize)]
 pub struct Cpu68010 {
     inner: Cpu68000,
 }
@@ -64,22 +65,33 @@ impl Cpu68010 {
     #[must_use]
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let mut inner = Cpu68000::new();
-        inner.variant_decode_hook = Some(decode_68010_opcode);
-        inner.variant_continue_hook = Some(continue_68010_opcode);
+        let mut cpu = Self {
+            inner: Cpu68000::new(),
+        };
+        cpu.install_variant_hooks();
+        cpu
+    }
+
+    /// Install (or re-install) the 68010-specific hooks and flags on
+    /// the wrapped `Cpu68000`. Called from `new()` and from
+    /// `Deserialize` to restore hook bindings after the
+    /// `#[serde(skip)]` fields on `Cpu68000` default back to `None` /
+    /// `false`.
+    fn install_variant_hooks(&mut self) {
+        self.inner.variant_decode_hook = Some(decode_68010_opcode);
+        self.inner.variant_continue_hook = Some(continue_68010_opcode);
         // 68010+ pushes an eight-byte exception frame with a
         // Format/Vector word at the top. The 68020 inherits this
         // through Cpu68010::new().
-        inner.variant_six_word_frame = true;
+        self.inner.variant_six_word_frame = true;
         // The Tom Harte 68010 / 68020 corpora are Musashi-driven
         // (m68k-test-gen uses Musashi as the oracle), so BCD V and
         // DIV overflow semantics match Musashi's "undefined"
         // interpretations rather than real-68000 hardware. The
         // 68000 itself (which uses the upstream SingleStepTests
         // real-hardware corpus) leaves both flags false.
-        inner.variant_musashi_bcd_v = true;
-        inner.variant_musashi_div_overflow = true;
-        Self { inner }
+        self.inner.variant_musashi_bcd_v = true;
+        self.inner.variant_musashi_div_overflow = true;
     }
 
     /// Borrow the wrapped 68000 core.
@@ -126,6 +138,23 @@ impl DerefMut for Cpu68010 {
 impl From<Cpu68010> for Cpu68000 {
     fn from(cpu: Cpu68010) -> Self {
         cpu.into_inner()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Cpu68010 {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        // Cpu68000's `#[serde(skip)]` on the variant hook / flag
+        // fields means the deserialized inner has them defaulted
+        // (hook = None, flag = false). Re-install the 68010-specific
+        // bindings via `install_variant_hooks` after deserializing.
+        #[derive(serde::Deserialize)]
+        struct Bare {
+            inner: Cpu68000,
+        }
+        let bare = Bare::deserialize(d)?;
+        let mut cpu = Self { inner: bare.inner };
+        cpu.install_variant_hooks();
+        Ok(cpu)
     }
 }
 

@@ -30,6 +30,7 @@ use motorola_68010::Cpu68010;
 
 /// Motorola 68020 CPU — wraps [`Cpu68010`] and chains the 68020 ISA
 /// delta on top of the 68010 hook.
+#[derive(Clone, serde::Serialize)]
 pub struct Cpu68020 {
     inner: Cpu68010,
 }
@@ -42,25 +43,36 @@ impl Cpu68020 {
     #[must_use]
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let mut inner = Cpu68010::new();
-        inner.variant_decode_hook = Some(decode_68020_opcode);
+        let mut cpu = Self {
+            inner: Cpu68010::new(),
+        };
+        cpu.install_variant_hooks();
+        cpu
+    }
+
+    /// Install (or re-install) the 68020-specific hooks and flags on
+    /// the wrapped `Cpu68000`. The 68010 base layer is installed
+    /// recursively via `Cpu68010::install_variant_hooks` whenever a
+    /// fresh `Cpu68010` is built or deserialized; this method layers
+    /// the 68020-only deltas on top.
+    fn install_variant_hooks(&mut self) {
+        self.inner.variant_decode_hook = Some(decode_68020_opcode);
         // Brief-extension-word scale factor (Xn.SIZE*1/2/4/8) is
         // 68020+ behaviour. The 68010's hook leaves the flag false;
         // the 68020 enables it here so calc_ea_start consults bits
         // 10-9 of the extension word.
-        inner.variant_scaled_index = true;
+        self.inner.variant_scaled_index = true;
         // The 68020 widens the SR write mask to include the M-flag
         // (bit 12) — MOVE-to-SR / ORI-to-SR / EORI-to-SR /
         // ANDI-to-SR / STOP / RTE all read this flag. The 68010
         // leaves it false (only the 68000-shared 0xA71F bits are
         // writable).
-        inner.variant_extended_sr_writes = true;
+        self.inner.variant_extended_sr_writes = true;
         // The 68020+ promotes CHK / CHK2 / divide-by-zero / TRAPV /
         // TRAPcc / Trace to a 12-byte Format-$2 exception frame
         // with an extra Instruction-Address long at the top.
         // M68000PRM § 8.6.3.
-        inner.variant_format2_vectors = true;
-        Self { inner }
+        self.inner.variant_format2_vectors = true;
     }
 
     /// Borrow the wrapped 68010 core.
@@ -105,6 +117,22 @@ impl DerefMut for Cpu68020 {
 impl From<Cpu68020> for Cpu68010 {
     fn from(cpu: Cpu68020) -> Self {
         cpu.into_inner()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Cpu68020 {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        // Deserialize the inner Cpu68010 first — that recursively
+        // restores the 68010-layer hook bindings. Then layer the
+        // 68020-specific deltas on top.
+        #[derive(serde::Deserialize)]
+        struct Bare {
+            inner: Cpu68010,
+        }
+        let bare = Bare::deserialize(d)?;
+        let mut cpu = Self { inner: bare.inner };
+        cpu.install_variant_hooks();
+        Ok(cpu)
     }
 }
 
@@ -695,6 +723,42 @@ fn execute_bf(cpu: &mut Cpu68000, opcode: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::Cpu68020;
+
+    #[test]
+    fn deserialize_restores_variant_hooks() {
+        let mut cpu = Cpu68020::new();
+        cpu.regs.pc = 0xDEAD_BEEF;
+        cpu.regs.d[0] = 0x1234_5678;
+
+        let bytes = postcard::to_allocvec(&cpu).expect("serialize");
+        let restored: Cpu68020 = postcard::from_bytes(&bytes).expect("deserialize");
+
+        // State preserved.
+        assert_eq!(restored.regs.pc, 0xDEAD_BEEF);
+        assert_eq!(restored.regs.d[0], 0x1234_5678);
+
+        // Variant hooks reinstalled (Cpu68000's #[serde(skip)] would
+        // otherwise default these to None / false).
+        assert!(restored.variant_decode_hook.is_some());
+        assert!(restored.variant_continue_hook.is_some());
+        assert!(restored.variant_scaled_index);
+        assert!(restored.variant_extended_sr_writes);
+        assert!(restored.variant_format2_vectors);
+        assert!(restored.variant_six_word_frame);
+        assert!(restored.variant_musashi_bcd_v);
+        assert!(restored.variant_musashi_div_overflow);
+    }
+
+    #[test]
+    fn clone_preserves_variant_hooks() {
+        let cpu = Cpu68020::new();
+        let cloned = cpu.clone();
+        assert!(cloned.variant_decode_hook.is_some());
+        assert!(cloned.variant_continue_hook.is_some());
+        assert!(cloned.variant_scaled_index);
+        assert!(cloned.variant_extended_sr_writes);
+        assert!(cloned.variant_format2_vectors);
+    }
 
     #[test]
     fn new_starts_supervisor_with_ipl_mask_seven_like_the_inner_core() {

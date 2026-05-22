@@ -4,8 +4,10 @@
 //! Wires the AGA chipset chips (Alice = `commodore-agnus-aga`,
 //! Lisa = `commodore-denise-aga`) into the common Amiga board
 //! substrate alongside Gayle (IDE / PCMCIA address decoder) at
-//! `$D80000-$DFFFFF`. The CPU is still `Cpu68000` at Stage A; the
-//! `Cpu68020` swap lands in Stage B.
+//! `$D80000-$DFFFFF`. Stage B: the CPU is `Cpu68020` — the deref
+//! chain hands `regs`, `state`, `bus_status`, `ipl`, and `tick()`
+//! straight through to `Cpu68000` so the existing bus / chipset
+//! wiring composes unchanged.
 //!
 //! Structurally this is a parallel of `machine-commodore-amiga-ecs`
 //! with the chipset types swapped (`AgnusAga` for `AgnusEcs`,
@@ -37,9 +39,9 @@ pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
 pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 pub use rtc::RTC_BASE;
 
-use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode};
 use motorola_68000::cpu::State;
+use motorola_68020::Cpu68020;
 use rtc::Msm6242Rtc;
 
 const CUSTOM_BASE: u32 = 0x00DF_0000;
@@ -199,9 +201,9 @@ enum BusResponse {
 /// two master/4 ticks — one tick per lores pixel.
 const TICKS_PER_CCK: u64 = 2;
 
-/// Amiga (OCS) machine.
+/// Amiga A1200 (AGA chipset) machine.
 pub struct AmigaA1200 {
-    cpu: Cpu68000,
+    cpu: Cpu68020,
     memory: Memory,
     /// DF0 floppy drive — head / motor / MFM track encoder. Responds
     /// to CIA-B PRB control pulses and feeds CIA-A PRA status bits +
@@ -360,7 +362,7 @@ pub struct AmigaA1200 {
 /// MFM bytes per inserted floppy.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct AmigaA1200Snapshot {
-    cpu: Cpu68000,
+    cpu: Cpu68020,
     memory: Memory,
     drive: AmigaFloppyDrive,
     track_cache: Option<(u32, u32, Vec<u8>)>,
@@ -527,7 +529,7 @@ impl AmigaA1200 {
             let size = Self::zorro_size_for_kib(cfg.fast_kb);
             size.map(AutoconfigBoard::fast_ram)
         };
-        let mut cpu = Cpu68000::new();
+        let mut cpu = Cpu68020::new();
         let ssp = memory.read_long(0x000000);
         let pc = memory.read_long(0x000004);
         cpu.reset_to(ssp, pc);
@@ -1267,9 +1269,10 @@ impl AmigaA1200 {
     }
 
     /// CPU access (read-only — mutating outside the tick loop breaks
-    /// invariants).
+    /// invariants). Returns the `Cpu68020` wrapper; callers that
+    /// only need the shared 68000 fields can `&*` Deref through.
     #[must_use]
-    pub fn cpu(&self) -> &Cpu68000 {
+    pub fn cpu(&self) -> &Cpu68020 {
         &self.cpu
     }
 

@@ -27,8 +27,10 @@ use motorola_68030::Cpu68030;
 ///
 /// Wraps a [`Cpu68030`] and inherits the full hook chain through
 /// the inner core: 68020 + 68010 decode/continue hooks, all the
-/// variant flags, the BCD / DIV / SR Musashi behaviour. No
-/// 68040-specific deltas are configured yet.
+/// variant flags, the BCD / DIV / SR Musashi behaviour. The 68040
+/// installs its own decode hook on top of that chain to handle the
+/// 68040-only MOVEC control registers.
+#[derive(Clone, serde::Serialize)]
 pub struct Cpu68040 {
     inner: Cpu68030,
 }
@@ -38,9 +40,17 @@ impl Cpu68040 {
     #[must_use]
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let mut inner = Cpu68030::new();
-        inner.variant_decode_hook = Some(decode_68040_opcode);
-        Self { inner }
+        let mut cpu = Self {
+            inner: Cpu68030::new(),
+        };
+        cpu.install_variant_hooks();
+        cpu
+    }
+
+    /// Install (or re-install) the 68040-specific decode hook on the
+    /// wrapped chain. Called from `new()` and `Deserialize`.
+    fn install_variant_hooks(&mut self) {
+        self.inner.variant_decode_hook = Some(decode_68040_opcode);
     }
 
     /// Borrow the wrapped 68030 core.
@@ -85,6 +95,22 @@ impl DerefMut for Cpu68040 {
 impl From<Cpu68040> for Cpu68030 {
     fn from(cpu: Cpu68040) -> Self {
         cpu.into_inner()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Cpu68040 {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        // Deserialize the inner Cpu68030 first (recursively restores
+        // 68030/20/10 bindings), then layer the 68040 decode hook on
+        // top.
+        #[derive(serde::Deserialize)]
+        struct Bare {
+            inner: Cpu68030,
+        }
+        let bare = Bare::deserialize(d)?;
+        let mut cpu = Self { inner: bare.inner };
+        cpu.install_variant_hooks();
+        Ok(cpu)
     }
 }
 

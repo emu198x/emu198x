@@ -29,6 +29,7 @@ use motorola_68020::Cpu68020;
 /// hook, and variant behaviour flags through the inner core. No
 /// 68030-specific deltas are configured yet — that work follows
 /// once `mmu.rs` integration begins.
+#[derive(Clone, serde::Serialize)]
 pub struct Cpu68030 {
     inner: Cpu68020,
 }
@@ -85,6 +86,21 @@ impl DerefMut for Cpu68030 {
 impl From<Cpu68030> for Cpu68020 {
     fn from(cpu: Cpu68030) -> Self {
         cpu.into_inner()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Cpu68030 {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        // The 68030 adds no hooks of its own (yet — PMOVE / PFLUSH /
+        // PTEST will land here when the MMU is wired in). Deserializing
+        // the inner Cpu68020 recursively restores every variant
+        // binding through to the 68000 layer.
+        #[derive(serde::Deserialize)]
+        struct Bare {
+            inner: Cpu68020,
+        }
+        let bare = Bare::deserialize(d)?;
+        Ok(Self { inner: bare.inner })
     }
 }
 
