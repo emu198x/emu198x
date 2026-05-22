@@ -1,14 +1,15 @@
 # Decision: Amiga machine rollout plan
 
 **Date:** 2026-05-22
-**Status:** A1200 Stages A–H landed 2026-05-22. Stage H decoded the
-"BRA $F80DB8" path after DiagAlive timeout: it's not a call to
-`exec/Supervisor` (the earlier reading was wrong) but a **REBOOT
-TRAMPOLINE** that does `RESET + JMP $F800D0` to re-enter KS from
-scratch. KS is in a perpetual reboot loop. ExecBase ChkBase
-validation passes; the failing check is elsewhere in the boot
-self-test routine at `$F8358x`. Stage I needs to identify which
-specific validation fails.
+**Status:** A1200 Stages A–I landed 2026-05-22. Stage I identified
+the failing validation: `TST.L D7; BMI $F835FE` at `$F835B4`. D7
+holds the value `$8000000B` — bit 31 = "DeadEnd alert" flag, low
+byte = `11` = exception vector number (line F). KS is in a guru-
+alert loop: F-line trap fires → dispatcher routes to the alert
+handler at `$F83558` → ColdReboot → KS reboots into the alert-
+recovery boot-self-test → TST.L D7 sees the alert code → fails →
+reboots again. Stage J needs to fix the F-line trap handling so
+it doesn't trigger a guru-alert.
 
 ## What this is
 
@@ -533,25 +534,95 @@ ChkBase validation passes (verified in the test:
 - Memory test (`$F1E2D3C4` push/pop) — most likely culprit.
 - `D7` sign check.
 
-## A1200 Stage I — what to investigate next
+## A1200 Stage I findings — 2026-05-22
 
-1. **Verify the memory test path on our chip RAM.** Add per-tick
-   tracking for the BNE at `$F835B2` — does it fire? If yes, the
-   pop value doesn't match the pushed value. Either OVL is still
-   active (our `set_overlay` writes don't reach `Memory` via the
-   CIA-A PRA path correctly) or chip-RAM low-memory writes aren't
-   landing.
-2. **Check OVL state across the boot run.** At the moment the
-   memory test runs, OVL must be off. Track OVL transitions
-   (false → true → false → ...) per tick to confirm the
-   `ANDI.B #$FE, $00BFE001` at `$F835FE` actually clears it before
-   the memory test runs.
-3. **Trace `D7` value at the routine entry.** If KS branches to
-   the reboot via the `TST.L D7; BMI.S $F835FE` check, our `D7`
-   is somehow negative when it shouldn't be.
-4. **Spot-test chip RAM at $03E0 (memory test address).** After
-   the push, dump `mem.read_chip_ram_long(0x03E0)`. Should be
-   `$F1E2D3C4` immediately after the MOVE.L D0, -(A7) executes.
+Per-tick capture of CPU state at the four candidate validation
+branches:
+
+| PC | Branch | D0 | D7 | Outcome |
+|---|---|---|---|---|
+| `$F83598` | BNE after `BTST #0, D0` (ExecBase even?) | `$000014B0` | `$8000000B` | OK (bit 0 clear → BNE not taken) |
+| `$F835A0` | BNE after `ADD.L ChkBase, D0` | `$000014B0` | `$8000000B` | Branch taken (D0 → $FFFFFFFF ≠ 0) but to GOOD path |
+| `$F835B2` | BNE after `CMP.L (A7)+, D0` (memory test) | `$F1E2D3C4` | `$8000000B` | Memory test PASSES |
+| `$F835B6` | **BMI after `TST.L D7`** | `$F1E2D3C4` | **`$8000000B`** | **Branch TAKEN → reboot** |
+
+The failing check is the `TST.L D7; BMI $F835FE` at `$F835B4-B6`.
+
+### What `D7 = $8000000B` means
+
+Per-tick tracking of D7's bit-31 acquisitions shows the value is
+set at `$F83566` by `BSET #31, D7`. Right before that, `$F83560:
+MOVE.L (A7)+, D7` pops `$0000000B` from the stack — that's the
+exception vector number 11 (line F) treated as the low byte of an
+alert code. Then `BSET #31` adds the "DeadEnd alert" flag.
+
+So `D7 = $8000000B` is the **guru meditation alert code** for "line
+F exception" with the deadend bit set.
+
+### The guru-alert routing
+
+The flow is:
+
+1. F-line trap fires (FPU probe at `$F80CA0`).
+2. CPU jumps to vec 11 = `$F80AE0` (a `BSR.S $F80B3C` trampoline).
+3. The dispatcher at `$F80B3C` decodes the vector number,
+   determines this is an unhandled exception, and **branches to
+   `$F83558`** (the ColdReboot path).
+4. `$F83558` calls `exec.library/ColdReboot` (LVO -726).
+5. ColdReboot at `$F80D9E` disables INTENA, calls
+   `exec/Supervisor` to run the reset trampoline at `$F80DB8` in
+   supervisor mode.
+6. `$F80DB8` computes the ROM base, derives the reset PC, executes
+   RESET + JMP $F800D0.
+7. KS reboots into the boot path, where the alert-recovery routine
+   at `$F8355x` pops the alert code and validates it.
+8. `TST.L D7` sees bit 31 set → `BMI` taken → branch to `$F835F2`
+   (re-init OVL + DiagAlive) → DiagAlive eventually times out →
+   `BRA $F80DB8` → reset again.
+
+### Why the F-line trap routes to ColdReboot
+
+On real Amiga, F-line traps for the FPU probe ARE expected to be
+benign — KS detects "no FPU" and proceeds. But in our run, the
+dispatcher at `$F80B3C` doesn't take the "benign return" path; it
+branches to `$F83558` (ColdReboot path). That branch is one of
+four `BRA.W $F83558` sites in the dispatcher: `$F80B0A`,
+`$F80B38`, `$F80B4E`, `$F80B64`. Each likely corresponds to a
+different "fatal exception" classification (bus error, address
+error, illegal instruction, line A/F).
+
+Our F-line trap must be matching one of those fatal-classification
+branches when on a real Amiga it would take the "ignore + return
+with no FPU" path. This is the bug to chase.
+
+### Verification: ColdReboot LVO is installed correctly
+
+- `chip[$11DA]` = `$4EF9 $00F80D9E` (JMP abs.L $F80D9E) ✓
+- `chip[$143E]` = `$4EF9 $00F83208` (Debug LVO → calls Supervisor
+  with A5 = $F8323A) ✓
+
+So the LVO jump table is good; the bug is in the F-line dispatcher
+logic at `$F80B3C`, not in the LVO infrastructure.
+
+## A1200 Stage J — what to investigate next
+
+1. **Disassemble the full dispatcher at `$F80B3C`** to identify
+   the decision tree for "fatal vs benign" exception handling.
+   Find which branch our F-line trap falls into and why.
+2. **Compare the dispatcher's branch evaluation with KS's
+   expected F-line behaviour.** The 68k FPU probe protocol is:
+   F-line trap fires → handler sets D1 to a flag indicating "no
+   FPU" → RTE. If our trap fires but D1 isn't being set correctly
+   before reaching the dispatcher, KS treats the trap as fatal.
+3. **Check whether our Cpu68020's F-line trap behaviour matches
+   real 68020.** Specifically: when the F-line opcode has
+   cpID=1 (FPU coprocessor) but no FPU is present, the trap is
+   *normal* and the handler should be able to detect the
+   coprocessor's absence. If our trap sets the exception frame
+   differently from a real 68020, the dispatcher misclassifies.
+4. **Compare against WinUAE booting the same ROM.** Trace the
+   first F-line trap and see what value D1 holds before the
+   dispatcher decides.
 
 ## What this plan does not cover
 

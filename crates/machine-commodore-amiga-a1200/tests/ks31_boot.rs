@@ -166,6 +166,22 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     let mut reboot_init_entries: Vec<(u32, u32)> = Vec::new();
     // Track the $F800D0 reset re-entry too (the $F80DB8 routine's JMP).
     let mut reset_reentries: Vec<u32> = Vec::new();
+    // Stage I: capture the FIRST time D7's bit 31 gets set during a
+    // boot cycle. The PC at that moment is the instruction that
+    // caused it. Re-arm on every reboot (when PC returns to $F800D0).
+    let mut d7_set_history: Vec<(u32, u32)> = Vec::new();
+    let mut prev_d7 = m.cpu().regs.d[7];
+    // Stage I: track CPU state at each of the 4 suspect validation
+    // branches. When PC reaches the BNE/BMI instruction, capture
+    // (PC, D0, D7, A6, ssp_top) so we can see which branch sends us
+    // back to the reboot init.
+    let mut validation_hits: Vec<(u32, u32, u32, u32, u32)> = Vec::new();
+    let validation_pcs = [
+        0x00F8_3598u32, // BNE.S after BTST #0, D0 (ExecBase alignment)
+        0x00F8_35A0u32, // BNE.S after ADD.L ChkBase, D0
+        0x00F8_35B2u32, // BNE.S after CMP.L (A7)+, D0 (memory test)
+        0x00F8_35B6u32, // BMI.S after TST.L D7
+    ];
     for f in 1..=frames_to_run {
         for _ in 0..PAL_FRAME_TICKS {
             m.tick();
@@ -211,12 +227,32 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             if cur_in_range && !prev_in_range && reboot_init_entries.len() < 10 {
                 reboot_init_entries.push((prev_pc, pc));
             }
+            // Stage I: snapshot register state when PC equals one of
+            // the validation-branch addresses (catches the state right
+            // before the branch condition is evaluated).
+            if validation_pcs.contains(&pc)
+                && !validation_pcs.contains(&prev_pc)
+                && validation_hits.len() < 20
+            {
+                let cpu = m.cpu();
+                validation_hits.push((pc, cpu.regs.d[0], cpu.regs.d[7], cpu.regs.a[5], cpu.regs.ssp));
+            }
             // Track re-entries via the $F80DB8 reset trampoline. The
             // last instruction of that trampoline is JMP (A0) which
             // lands at $F800D0 (the RESET pre-amble).
             if pc == 0x00F8_00D0 && prev_pc != 0x00F8_00D0 && reset_reentries.len() < 10 {
                 reset_reentries.push(prev_pc);
             }
+            // Detect D7 acquiring bit 31 (negative). Capture the PC
+            // and the resulting D7 value. Only record up to 20.
+            let cur_d7 = m.cpu().regs.d[7];
+            if (prev_d7 & 0x8000_0000 == 0)
+                && (cur_d7 & 0x8000_0000 != 0)
+                && d7_set_history.len() < 20
+            {
+                d7_set_history.push((pc, cur_d7));
+            }
+            prev_d7 = cur_d7;
             prev_pc = pc;
             let ipl = m.cpu().regs.interrupt_mask();
             if ipl < min_ipl_seen {
@@ -277,6 +313,28 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         eprintln!("  from ${caller_pc:08X}: {count} entries");
     }
 
+    eprintln!("D7 bit-31 set events (PC, new D7) — first 20:");
+    if d7_set_history.is_empty() {
+        eprintln!("  (D7 never went negative — that's surprising)");
+    }
+    for (pc, d7) in d7_set_history.iter() {
+        eprintln!("  at PC=${pc:08X}: D7 -> ${d7:08X}");
+    }
+
+    eprintln!("Validation-branch hits (PC, D0, D7, A5, SSP) — first 20:");
+    for (pc, d0, d7, a5, ssp) in validation_hits.iter() {
+        let name = match *pc {
+            0x00F8_3598 => "BNE after BTST #0, D0 (ExecBase even?)",
+            0x00F8_35A0 => "BNE after ADD.L ChkBase, D0 (sum -> -1?)",
+            0x00F8_35B2 => "BNE after CMP.L (A7)+, D0 (memory test)",
+            0x00F8_35B6 => "BMI after TST.L D7 (D7 negative?)",
+            _ => "?",
+        };
+        eprintln!(
+            "  ${pc:08X} {name}: D0=${d0:08X} D7=${d7:08X} A5=${a5:08X} SSP=${ssp:08X}"
+        );
+    }
+
     eprintln!("Reboot-loop init $F835F0 entries (first 10):");
     if reboot_init_entries.is_empty() {
         eprintln!("  (none)");
@@ -294,6 +352,42 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     let exec_base = (u32::from(exec_base_hi) << 16) | u32::from(exec_base_lo);
     eprintln!("ExecBase validation:");
     eprintln!("  chip[$0004] (ExecBase ptr) = ${exec_base:08X}");
+
+    // Stage I: inspect the LVO -726 jump (exec/ColdReboot) which is
+    // the suspected non-rebooting path. KS calls this expecting a
+    // hard reset; if the LVO entry isn't a proper JMP $4EF9 + reset
+    // implementation, the call returns and KS falls into the boot
+    // self-test that subsequently reboots via the $F80DB8 trampoline.
+    if exec_base >= 6 && exec_base < 0x0020_0000 {
+        let lvo_addr = exec_base.wrapping_sub(0x2D6);
+        let op_hi = mem2.read_chip_ram_word(lvo_addr);
+        let tgt_hi = mem2.read_chip_ram_word(lvo_addr.wrapping_add(2));
+        let tgt_lo = mem2.read_chip_ram_word(lvo_addr.wrapping_add(4));
+        let target = (u32::from(tgt_hi) << 16) | u32::from(tgt_lo);
+        eprintln!(
+            "  LVO -726 ColdReboot @ chip[${lvo_addr:08X}]: opcode=${op_hi:04X} target=${target:08X}"
+        );
+        if op_hi == 0x4EF9 {
+            eprintln!("    JMP abs.L confirmed; target ${target:08X} {}",
+                if (0x00F8_0000..0x0100_0000).contains(&target) {
+                    "(ROM — likely valid)"
+                } else {
+                    "(NOT in ROM — likely broken)"
+                });
+        } else {
+            eprintln!("    Not a JMP abs.L — LVO table not installed!");
+        }
+
+        // Also check LVO -114 (Debug) for completeness.
+        let dbg_addr = exec_base.wrapping_sub(0x72);
+        let dbg_op = mem2.read_chip_ram_word(dbg_addr);
+        let dbg_tgt_hi = mem2.read_chip_ram_word(dbg_addr.wrapping_add(2));
+        let dbg_tgt_lo = mem2.read_chip_ram_word(dbg_addr.wrapping_add(4));
+        let dbg_target = (u32::from(dbg_tgt_hi) << 16) | u32::from(dbg_tgt_lo);
+        eprintln!(
+            "  LVO -114 Debug @ chip[${dbg_addr:08X}]: opcode=${dbg_op:04X} target=${dbg_target:08X}"
+        );
+    }
     if exec_base < 0x0020_0000 {
         // ChkBase is at offset $26 from ExecBase.
         let ck_off = exec_base.wrapping_add(0x26);
