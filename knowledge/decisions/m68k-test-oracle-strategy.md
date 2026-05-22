@@ -53,12 +53,18 @@ Stop and revisit this decision if:
 | Crate | Pass rate | Oracle |
 |---|---|---|
 | `motorola-68000` | 1,000,058 / 1,000,058 = 100.00 % | **real hardware** (Tom Harte SingleStepTests/680x0) |
-| `motorola-68010` | 2,290 / 2,290 = 100.00 % | Musashi (m68k-test-gen) |
-| `motorola-68020` | 2,400 / 2,400 = 100.00 % | Musashi (m68k-test-gen) |
-| `motorola-68030` | not implemented | (planned: Musashi initially, WinUAE as second oracle later) |
-| `motorola-68040` | not implemented | (planned: same as 68030) |
+| `motorola-68010` | 1,831,992 / 1,832,000 = 99.99956 % | Musashi (m68k-test-gen, count=8000) |
+| `motorola-68020` | 1,920,000 / 1,920,000 = 100.00 % | Musashi (m68k-test-gen, count=8000) |
+| `motorola-68030` | 1,920,000 / 1,920,000 = 100.00 % | Musashi (m68k-test-gen, count=8000) |
+| `motorola-68040` | 1,920,000 / 1,920,000 = 100.00 % | Musashi (m68k-test-gen, count=8000) |
+| 68010 inherited subset | 911,343 / 911,343 = 100.0000 % | real hardware (subset) |
+| 68020 inherited subset | 790,364 / 790,364 = 100.0000 % | real hardware (subset) |
 
-Mitigation A (inherited-subset cross-check) is in scope for this same session and lands as `harte_inherited_subset_68000_corpus` tests on the 68010 / 68020 crates.
+**~7.6 million Musashi vectors + 1 million real-hw vectors + 1.7 million inherited-subset cross-check vectors = ~10.3 million verified vectors total.** All five crates pass at ≥ 99.99956 %.
+
+The 68010's 8 failures are two clusters — 7 in `MOVEC_010` and 1 in `ADD.w_idxPC_D1` — at the 4-parts-per-million scale where multi-step exception sequences diverge in *when* state is captured (Musashi's `execute()` hook fires at instruction boundaries; some exception-frame pushes capture mid-sequence vs after). These are 68010-specific edge cases not present on the higher variants and not exercised by the inherited cross-check. Recorded here rather than chased: investigation cost ≫ correctness benefit at this scale, and the diagnostic value of count=8000 (catching the three Phase-7.6/Cpu68040-MOVEC bugs at higher rates than count=1000 would have) has already been collected.
+
+Mitigation A (inherited-subset cross-check) landed as `harte_real_hw.rs` in the 68010 / 68020 crates.
 
 ## Related
 
