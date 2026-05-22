@@ -13,5 +13,9 @@ motorola-68020 = { path = "../motorola-68020" }
 motorola-68030 = { path = "../motorola-68030" }
 serde = { workspace = true }
 
+[dev-dependencies]
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+
 [lints]
 workspace = true

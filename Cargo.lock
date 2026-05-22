@@ -1915,6 +1915,7 @@ dependencies = [
  "motorola-68010",
  "motorola-68020",
  "motorola-68k-common",
+ "rmp-serde",
  "serde",
 ]
 
@@ -1927,6 +1928,7 @@ dependencies = [
  "motorola-68020",
  "motorola-68030",
  "motorola-68k-common",
+ "rmp-serde",
  "serde",
 ]
 
