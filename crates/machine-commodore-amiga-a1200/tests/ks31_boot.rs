@@ -118,19 +118,86 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     let mut last_pc_in_rom: u32 = initial_pc;
     let mut excursion_count: u64 = 0;
 
-    let frames_to_run: u64 = 50;
-    for _ in 0..(frames_to_run * PAL_FRAME_TICKS) {
-        m.tick();
-        let pc = m.cpu().regs.pc;
-        unique_pcs.insert(pc);
-        if (0x00F8_0000..0x0100_0000).contains(&pc) {
-            last_pc_in_rom = pc;
-        } else if pc < 0x00F8_0000 {
-            excursion_count += 1;
+    // Sample PC + IPL + VBR at every checkpoint. KS 3.x lowers the
+    // CPU IPL mask once init reaches the "interrupts on" phase and
+    // moves VBR to its chip-RAM exception table. Those transitions
+    // are the most informative progress signals.
+    let frames_to_run: u64 = 5_000;
+    let checkpoint_every: u64 = 500;
+    let mut last_checkpoint_pc = initial_pc;
+    let mut min_ipl_seen = 7u8;
+    let mut first_vbr_change_frame: Option<u64> = None;
+    let mut first_ipl_drop_frame: Option<u64> = None;
+    for f in 1..=frames_to_run {
+        for _ in 0..PAL_FRAME_TICKS {
+            m.tick();
+            let pc = m.cpu().regs.pc;
+            unique_pcs.insert(pc);
+            if (0x00F8_0000..0x0100_0000).contains(&pc) {
+                last_pc_in_rom = pc;
+            } else if pc < 0x00F8_0000 {
+                excursion_count += 1;
+            }
+            let ipl = m.cpu().regs.interrupt_mask();
+            if ipl < min_ipl_seen {
+                min_ipl_seen = ipl;
+                if first_ipl_drop_frame.is_none() {
+                    first_ipl_drop_frame = Some(f);
+                }
+            }
+            if first_vbr_change_frame.is_none() && m.cpu().regs.vbr != 0 {
+                first_vbr_change_frame = Some(f);
+            }
+        }
+        if f % checkpoint_every == 0 {
+            let cpu = m.cpu();
+            eprintln!(
+                "  checkpoint frame {f:>4}:  PC=${:08X}  IPL={}  VBR=${:08X}  custom_writes={}  intena_writes={}",
+                cpu.regs.pc,
+                cpu.regs.interrupt_mask(),
+                cpu.regs.vbr,
+                m.debug_custom_write_log.len(),
+                m.debug_intena_writes,
+            );
+            last_checkpoint_pc = cpu.regs.pc;
         }
     }
+    eprintln!(
+        "milestones:  min IPL = {min_ipl_seen}  first IPL drop = {:?}  first VBR change = {:?}",
+        first_ipl_drop_frame, first_vbr_change_frame
+    );
 
-    report_state("after 50 frames (~1s PAL)", &m, frames_to_run);
+    // Hottest custom-register writes — keyed by *offset* (the
+    // `debug_custom_write_log` tuple stores PC at .1 and chipset
+    // offset at .3, so group by .3).
+    let mut writes_by_offset: std::collections::HashMap<u16, u64> = std::collections::HashMap::new();
+    for entry in m.debug_custom_write_log.iter() {
+        *writes_by_offset.entry(entry.3).or_insert(0) += 1;
+    }
+    let mut sorted: Vec<_> = writes_by_offset.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    eprintln!("hottest custom register writes (top 5, by chipset offset):");
+    for (offset, count) in sorted.iter().take(5) {
+        eprintln!(
+            "  $DFF{:03X} ({}): {count} writes",
+            offset,
+            custom_register_name(*offset)
+        );
+    }
+
+    // Hottest custom-register reads — keyed by chipset offset.
+    let mut reads_sorted: Vec<_> = m.debug_reg_read_counts.iter().collect();
+    reads_sorted.sort_by(|a, b| b.1.cmp(a.1));
+    eprintln!("hottest custom register reads (top 5, by chipset offset):");
+    for (offset, count) in reads_sorted.iter().take(5) {
+        eprintln!(
+            "  $DFF{:03X} ({}): {count} reads",
+            offset,
+            custom_register_name(**offset)
+        );
+    }
+
+    report_state(&format!("after {frames_to_run} frames"), &m, frames_to_run);
     eprintln!(
         "unique PCs visited: {}   last PC in ROM: ${:08X}   excursions out of ROM: {}",
         unique_pcs.len(),
@@ -154,4 +221,30 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         m.cpu().regs.pc,
         unique_pcs.len()
     );
+}
+
+/// Human-readable name for a chipset register offset (the names KS
+/// authors used in the Hardware Reference Manual).
+fn custom_register_name(offset: u16) -> &'static str {
+    match offset {
+        0x002 => "DMACONR",
+        0x004 => "VPOSR",
+        0x006 => "VHPOSR",
+        0x00A => "JOY0DAT",
+        0x00C => "JOY1DAT",
+        0x010 => "ADKCONR",
+        0x012 => "POT0DAT",
+        0x014 => "POT1DAT",
+        0x016 => "POTGOR",
+        0x018 => "SERDATR",
+        0x01A => "DSKBYTR",
+        0x01C => "INTENAR",
+        0x01E => "INTREQR",
+        0x07E => "DSKSYNC",
+        0x09A => "INTENA",
+        0x09C => "INTREQ",
+        0x09E => "ADKCON",
+        0x180 => "COLOR00",
+        _ => "?",
+    }
 }

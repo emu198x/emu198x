@@ -1,8 +1,9 @@
 # Decision: Amiga machine rollout plan
 
 **Date:** 2026-05-22
-**Status:** A1200 Stages A + B + C landed 2026-05-22. Stage D
-(diagnose the $F80E60 stall) pending.
+**Status:** A1200 Stages A + B + C + D landed 2026-05-22. KS 3.1
+boots through the Resident scanner but loops in early init; root
+cause to be identified in Stage E.
 
 ## What this is
 
@@ -136,29 +137,78 @@ down — but D1 (low word $0002 at the report time) is depleting
 slowly and may eventually fall through. Whether it does within
 "reasonable" boot time is Stage D's first question.
 
-## A1200 Stage D — what to investigate next
+## A1200 Stage D findings — 2026-05-22
 
-1. **Run for 500–1000 frames** and see whether D1 depletes and the
-   boot exits this loop, or whether it's a genuine wedge.
-2. **Map the $F00000-$F7FFFF region** so reads return open-bus
-   ($FFFFFFFF) consistently — currently they may return chip-RAM
-   mirror garbage if Gary's decoder hasn't been taught to refuse
-   the address space. WinUAE returns open bus here for stock A1200
-   configs.
-3. **Check whether the $E00000-$E7FFFF ROM mirror is needed.** KS
-   3.x ROMs were sometimes built with internal references to the
-   lower half; if any branch / jump targets land there and read
-   garbage, boot will diverge invisibly.
-4. **Look at how `motorola-68000`'s `reset_to()` flows when the SSP
-   read at $000000 hits the OVL-mirrored ROM.** Our reset routing
-   should mirror the SSP fetch to the ROM-at-$F80000 image.
-5. **Compare to WinUAE booting the same ROM** and trace where their
-   PC sequence diverges from ours after the first few hundred
-   instructions.
+Extended the boot test from 50 to 5000 PAL frames (~100 seconds
+emulated) and added milestone tracking (IPL drops, VBR moves) plus
+hot-read / hot-write diagnostics.
 
-Stage D's deliverable: either KS 3.1 reaches the "insert workbench"
-screen (best case) or we have a definite list of "next thing to
-fix" issues with the chipset / memory map.
+### What the "stall" at $F80E60 actually was
+
+The $F80E60 PC sample was inside the **standard KS Resident-module
+scanner** (`$F80E42`-`$F80E7B`): the routine walks memory looking
+for the `$4AFC` matchword that marks `struct Resident` instances
+(`exec/resident.h`). The scan reaches end-of-region in ~7 emulated
+frames — what Stage C caught was a slow scan progressing, not a
+wedge.
+
+### The real picture: KS is in an early-init do/while loop
+
+Over 5000 frames, KS 3.1 executes 2,315 unique PCs **but no new
+ones appear after frame ~50**. The same code path runs ~15 times:
+
+- `$F80446`-`$F80450`: 80ms delay loop ($15000 = 86,016 writes of
+  `0` to `$DFF180`/COLOR00 per pass). Ran 15× → 1,287,539 COLOR00
+  writes total.
+- `$F80452`: `MOVE.W #$4000, $DFF09A` — clear INTENA master.
+- `$F8045A`: `BRA.W` into the Resident scanner at `$F80DB0`.
+- Some path takes KS back to `$F80446` and the cycle repeats.
+
+Milestones over 5000 frames:
+- `min IPL = 7`, never dropped → KS never reaches "interrupts on".
+- `VBR = 0`, never moved → no exception-table relocation.
+- Only 2 register *read* kinds: SERDATR (`$DFF018`, 90 reads) and
+  INTENAR (`$DFF01C`, 30 reads). No VPOSR, no DENISEID, no
+  VHPOSR — KS hasn't begun chipset / Agnus / Denise identification.
+
+### The leading hypothesis
+
+KS 3.1 fails an early validation check before chipset-identification,
+restarting its init sequence each time. Three candidates by
+likelihood:
+
+1. **Memory probe failure.** KS writes test patterns to chip RAM
+   and reads them back. The A1200 boot ROM does an explicit memory
+   test pass before progressing. If a chip-RAM byte fails the
+   pattern check, KS reboots itself. Our `chip_ram` is plain `Vec<u8>`
+   — unlikely to fail simple read-back, but the test patterns may
+   stress address-decode aliasing that the 19-bit Agnus address mask
+   handles differently for the 2 MiB chip-RAM A1200.
+2. **CPU type detection fails.** KS 3.1 detects 68020 via specific
+   instruction probes (CACR access, MOVEC of 68020-only control
+   registers). Our Cpu68020 should handle these via the variant
+   hooks, but a single misimplemented opcode would drop KS into the
+   "unknown CPU" reset path.
+3. **Chipset reset readback.** KS writes to DMACON / INTENA /
+   ADKCON / SERPER then re-reads to confirm the chipset accepted
+   the clear. If our INTENAR / DMACONR reads return stale or
+   unexpected values, KS may retry.
+
+### Stage D follow-ups (Stage E candidates)
+
+1. **Add a "did we trap?" detector** to the test: count exceptions
+   taken (group 1 / group 2 / line-A / line-F). If KS is hitting a
+   non-existent-instruction trap and falling into a reset handler,
+   that would explain the looping. Cheapest to implement.
+2. **Trace `$DFF09A` INTENA / `$DFF09C` INTREQ / `$DFF096` DMACON
+   writes** and verify the readback path returns matching values.
+3. **Compare against WinUAE booting the same ROM** with `debug` mode
+   capturing the same first 200 PCs. The divergence point identifies
+   the bug.
+4. **Check our 2 MiB chip-RAM aliasing.** Our `Memory::chip_ram` has
+   a `chip_ram_mask` that should wrap addresses above 512K back into
+   the installed pool. For 2 MiB the mask should be `$001FFFFF`;
+   verify that's what we configured.
 
 ## What this plan does not cover
 
