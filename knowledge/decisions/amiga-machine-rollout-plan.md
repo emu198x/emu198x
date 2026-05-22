@@ -1,12 +1,14 @@
 # Decision: Amiga machine rollout plan
 
 **Date:** 2026-05-22
-**Status:** A1200 Stages A + B + C + D + E + F + G landed
-2026-05-22. Stage G **reverted the Stage E "fix"** after
-discovering it was the trigger for the Wack entry. With the revert,
-KS no longer enters Wack but is stuck in an outer init loop that
-calls `exec/Supervisor` after each DiagAlive timeout. Stage H
-needs to trace that call.
+**Status:** A1200 Stages A–H landed 2026-05-22. Stage H decoded the
+"BRA $F80DB8" path after DiagAlive timeout: it's not a call to
+`exec/Supervisor` (the earlier reading was wrong) but a **REBOOT
+TRAMPOLINE** that does `RESET + JMP $F800D0` to re-enter KS from
+scratch. KS is in a perpetual reboot loop. ExecBase ChkBase
+validation passes; the failing check is elsewhere in the boot
+self-test routine at `$F8358x`. Stage I needs to identify which
+specific validation fails.
 
 ## What this is
 
@@ -442,25 +444,114 @@ to a caller that re-invokes the early-init sequence.
 | `chip[$00000004]` (ExecBase) | `$000014B0` | ExecBase struct location. |
 | `chip[$0000007C]` (vec 31 / autovec 7) | `$F8325E` | NMI handler (lives in same code region as Wack). |
 
-## A1200 Stage H — what to investigate next
+## A1200 Stage H findings — 2026-05-22
 
-1. **Decode `exec/Supervisor()` at LVO -30.** Trace what function
-   it calls — that's the next-phase boot continuation. Without
-   knowing what that function does, we don't know why KS keeps
-   coming back to DiagAlive.
-2. **Inspect the function on the stack at the JSR -30 site.** The
-   user function passed to Supervisor() is on the stack (or in
-   A5) just before the JSR. Capturing that argument tells us
-   what the next-phase handler is.
-3. **Compare PC histogram against a WinUAE boot of the same ROM.**
-   If WinUAE's `kickstart 3.1 a1200` boot reaches a different PC
-   range after the delay loop than ours, we know which decision
-   point diverges.
-4. **Check our exec library jump table installation.** If our
-   chip-RAM at `ExecBase - 30` doesn't contain a `JMP <handler>`,
-   the JSR -30(A6) lands on garbage. The exec LVO -30 needs to
-   be installed in chip RAM as part of exec.library setup —
-   we should verify this.
+Decoded the `$F80DB8` routine that KS branches to after the
+DiagAlive timeout. Stage F's reading ("`JSR -30(A6)` = exec/Supervisor")
+was based on bad alignment — the actual disassembly is:
+
+```
+$F80DB8: 41F9 0100 0000   LEA.L  $01000000, A0
+$F80DBE: 91E8 FFEC        SUBA.L -20(A0), A0     ; A0 -= $00FFFFEC value
+$F80DC2: 2068 0004        MOVEA.L 4(A0), A0
+$F80DC6: 5588             SUBQ.L #2, A0
+$F80DC8: 4E70             RESET
+$F80DCA: 4ED0             JMP    (A0)
+```
+
+The longword at `$FFFFFFEC` (= ROM offset `$7FFEC` = the last
+20 bytes of the ROM) is `$00080000`. So:
+
+```
+A0 = $01000000 - $00080000 = $00F80000          (ROM base)
+A0 = chip[$F80004]                              (= $F800D2 - reset PC)
+A0 -= 2                                          (= $F800D0)
+RESET; JMP (A0)
+```
+
+This is a **REBOOT TRAMPOLINE**: it computes the ROM base from a
+known offset at the ROM tail, derives the reset PC from `$F80004`,
+issues `RESET` to clear external chipset state, then jumps to one
+byte before the official reset entry point (`$F800D0` — a `4E70`
+RESET instruction itself, which then falls through to `$F800D2`).
+
+### KS is in a perpetual reboot loop
+
+Per-tick tracking of `pc == $F800D0 && prev_pc != $F800D0`:
+
+```
+prev=$00F80DCE -> $F800D0       (10 entries in 5000 frames)
+```
+
+`$F80DCE` is the `JMP (A0)` instruction of the trampoline. So every
+DiagAlive timeout cycles: delay loop → reboot trampoline → reset →
+KS entry → boot sequence → DiagAlive → timeout → ...
+
+### What triggers the reboot
+
+The reboot path enters at the routine starting at `$F835F2`:
+
+```
+$F835F2: LEA   $0400, A7              ; fresh supervisor stack
+$F835F6: CLR.L -(A7); CLR.L -(A7)
+$F835FA: MOVEM.L D0/D1/A0/A5/A6, -(SP)
+$F835FE: ANDI.B #$FE, $00BFE001       ; clear OVL
+$F83604: ORI.B  #$03, $00BFE201        ; CIA-A DDRA bits 0+1 output
+$F8360C: MOVE.L #$F83616, $0020.W      ; install vec 8 = DiagAlive
+$F83614: MOVE.W #$2700, SR             ; set SR
+$F83618: MOVEQ  #5, D1                 ; retry counter
+$F8361A: MOVE.W #$0174, $DFF032        ; SERPER
+... (LED blink + SERDATR check)
+```
+
+The validations that route INTO this reboot path are upstream in
+the boot self-test routine around `$F83580-$F835BA`:
+
+```
+$F83584: 21C0 0000    MOVE.L D0, $0000.W           ; write "HELP" magic
+$F83588-$F8358E: ... save D7, A5 ...
+$F83590: 2038 0004    MOVE.L $0004, D0             ; D0 = ExecBase
+$F83594: 0800 0000    BTST  #0, D0                  ; ExecBase even?
+$F83598: 6666         BNE.S $F83600                 ; bad alignment -> reboot
+$F8359A: 2C40         MOVEA.L D0, A6                ; A6 = ExecBase
+$F8359C: D0AE 0026    ADD.L  $26(A6), D0            ; D0 += ChkBase
+$F835A0: 665C         BNE.S $F835FE                 ; ChkBase fail -> reboot
+$F835A2: 2A6E 0114    MOVEA.L $114(A6), A5
+$F835A6: 208D         MOVE.L A5, (A0)+
+$F835A8: 203C F1E2 D3C4   MOVE.L #$F1E2D3C4, D0
+$F835AE: 2F00         MOVE.L D0, -(A7)              ; push memory test value
+$F835B0: B09F         CMP.L  (A7)+, D0              ; pop and verify
+$F835B2: 663E         BNE.S  $F835F2                 ; MEMORY TEST FAIL -> reboot
+$F835B4: 4A87         TST.L D7
+$F835B6: 6B46         BMI.S $F835FE                  ; D7 negative -> reboot
+```
+
+ChkBase validation passes (verified in the test:
+`chip[ExecBase+$26] = ~ExecBase`). The other candidates:
+
+- ExecBase odd-aligned (very unlikely — alignment is structural).
+- Memory test (`$F1E2D3C4` push/pop) — most likely culprit.
+- `D7` sign check.
+
+## A1200 Stage I — what to investigate next
+
+1. **Verify the memory test path on our chip RAM.** Add per-tick
+   tracking for the BNE at `$F835B2` — does it fire? If yes, the
+   pop value doesn't match the pushed value. Either OVL is still
+   active (our `set_overlay` writes don't reach `Memory` via the
+   CIA-A PRA path correctly) or chip-RAM low-memory writes aren't
+   landing.
+2. **Check OVL state across the boot run.** At the moment the
+   memory test runs, OVL must be off. Track OVL transitions
+   (false → true → false → ...) per tick to confirm the
+   `ANDI.B #$FE, $00BFE001` at `$F835FE` actually clears it before
+   the memory test runs.
+3. **Trace `D7` value at the routine entry.** If KS branches to
+   the reboot via the `TST.L D7; BMI.S $F835FE` check, our `D7`
+   is somehow negative when it shouldn't be.
+4. **Spot-test chip RAM at $03E0 (memory test address).** After
+   the push, dump `mem.read_chip_ram_long(0x03E0)`. Should be
+   `$F1E2D3C4` immediately after the MOVE.L D0, -(A7) executes.
 
 ## What this plan does not cover
 

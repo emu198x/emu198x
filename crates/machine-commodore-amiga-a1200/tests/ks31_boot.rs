@@ -158,6 +158,14 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     let wack_entry_lo = 0x00F8_325Eu32;
     let wack_entry_hi = 0x00F8_32B0u32;
     let mut diagalive_entries: Vec<(u32, u32, u32, u32)> = Vec::new();
+    // Stage H: track entries into the $F835F0 reboot-loop init function.
+    // $F835F0 is where KS sets LEA $0400, A7 — a fresh supervisor stack
+    // setup that suggests this is a "stage-1" boot entry. If we can
+    // identify what JUMPS / BRANCHES to it, we know which earlier
+    // boot decision routes us into the perpetual-reboot path.
+    let mut reboot_init_entries: Vec<(u32, u32)> = Vec::new();
+    // Track the $F800D0 reset re-entry too (the $F80DB8 routine's JMP).
+    let mut reset_reentries: Vec<u32> = Vec::new();
     for f in 1..=frames_to_run {
         for _ in 0..PAL_FRAME_TICKS {
             m.tick();
@@ -194,6 +202,20 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                 let sp_next = m.read_long(ssp.wrapping_add(4));
                 let sp_next2 = m.read_long(ssp.wrapping_add(8));
                 diagalive_entries.push((prev_pc, sp_top, sp_next, sp_next2));
+            }
+            // Track entries into the reboot-loop init function range
+            // ($F835F0-$F83614). Use a range so we catch any entry
+            // point KS uses to jump into the middle.
+            let prev_in_range = (0x00F8_35F0..0x00F8_3614).contains(&prev_pc);
+            let cur_in_range = (0x00F8_35F0..0x00F8_3614).contains(&pc);
+            if cur_in_range && !prev_in_range && reboot_init_entries.len() < 10 {
+                reboot_init_entries.push((prev_pc, pc));
+            }
+            // Track re-entries via the $F80DB8 reset trampoline. The
+            // last instruction of that trampoline is JMP (A0) which
+            // lands at $F800D0 (the RESET pre-amble).
+            if pc == 0x00F8_00D0 && prev_pc != 0x00F8_00D0 && reset_reentries.len() < 10 {
+                reset_reentries.push(prev_pc);
             }
             prev_pc = pc;
             let ipl = m.cpu().regs.interrupt_mask();
@@ -253,6 +275,50 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     eprintln!("byte-receive $F83182 entries (total {total_br}, keyed by BSR site PC):");
     for (caller_pc, count) in br_sorted.iter().take(10) {
         eprintln!("  from ${caller_pc:08X}: {count} entries");
+    }
+
+    eprintln!("Reboot-loop init $F835F0 entries (first 10):");
+    if reboot_init_entries.is_empty() {
+        eprintln!("  (none)");
+    }
+    for (prev, _) in reboot_init_entries.iter() {
+        eprintln!("  prev=${prev:08X} -> $F835F0");
+    }
+
+    // ExecBase validation: chip[$0004] = ExecBase pointer.
+    // chip[ExecBase + $26] = ChkBase = ~ExecBase (bitwise complement).
+    // If KS's validation routine fails this check, KS reboots.
+    let mem2 = m.memory();
+    let exec_base_hi = mem2.read_chip_ram_word(0x0004);
+    let exec_base_lo = mem2.read_chip_ram_word(0x0006);
+    let exec_base = (u32::from(exec_base_hi) << 16) | u32::from(exec_base_lo);
+    eprintln!("ExecBase validation:");
+    eprintln!("  chip[$0004] (ExecBase ptr) = ${exec_base:08X}");
+    if exec_base < 0x0020_0000 {
+        // ChkBase is at offset $26 from ExecBase.
+        let ck_off = exec_base.wrapping_add(0x26);
+        let ck_hi = mem2.read_chip_ram_word(ck_off);
+        let ck_lo = mem2.read_chip_ram_word(ck_off.wrapping_add(2));
+        let ck = (u32::from(ck_hi) << 16) | u32::from(ck_lo);
+        let expected = !exec_base;
+        eprintln!(
+            "  chip[ExecBase+$26] (ChkBase) = ${ck:08X}  expected ~ExecBase = ${expected:08X}",
+        );
+        if ck == expected {
+            eprintln!("  ChkBase OK — A6 + ChkBase = -1, validation would PASS");
+        } else {
+            eprintln!("  ChkBase MISMATCH — validation would FAIL (KS reboots)");
+        }
+    } else {
+        eprintln!("  (ExecBase outside chip RAM — can't validate)");
+    }
+
+    eprintln!("$F800D0 (RESET re-entry) prev PCs (first 10):");
+    if reset_reentries.is_empty() {
+        eprintln!("  (none)");
+    }
+    for prev in reset_reentries.iter() {
+        eprintln!("  prev=${prev:08X} -> $F800D0");
     }
 
     eprintln!("DiagAlive $F83616 entries (first 10):");
