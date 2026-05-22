@@ -70,18 +70,32 @@
 //! faulting access after fixing the page table. The 68040's bus
 //! error frame is format `$7` (different layout).
 //!
-//! # Type aliases
+//! # Today's wrapper
 //!
-//! [`Cpu68030`], [`Cpu68EC030`], and [`Cpu68LC030`] all resolve to
-//! [`motorola_68000::Cpu68000`] today — construct via
-//! [`motorola_68000::Cpu68000::new`].
+//! [`Cpu68030`] wraps [`motorola_68020::Cpu68020`] via the family
+//! variant pattern. No 68030-specific decode hooks are installed
+//! yet — PMOVE / PFLUSH / PTEST / PLOAD aren't in the
+//! `m68k-test-gen` corpus, so the wrapper inherits everything the
+//! 68020 hook chain provides. [`Cpu68EC030`] / [`Cpu68LC030`] are
+//! type aliases to [`Cpu68030`] until the FPU / MMU presence
+//! actually diverges in behaviour.
 
+pub mod cpu;
 pub mod mmu;
 
+pub use cpu::Cpu68030;
 pub use motorola_68k_common::{CpuCapabilities, CpuModel, TimingClass};
-pub use motorola_68000::Cpu68000 as Cpu68030;
-pub use motorola_68000::Cpu68000 as Cpu68EC030;
-pub use motorola_68000::Cpu68000 as Cpu68LC030;
+
+/// 68EC030 — no on-die MMU. Currently identical to [`Cpu68030`];
+/// the divergence appears when MMU instructions land and the EC
+/// variant takes ILLEGAL on PMOVE/PFLUSH/PTEST/PLOAD instead.
+pub type Cpu68EC030 = Cpu68030;
+
+/// 68LC030 — MMU present but no FPU coprocessor interface.
+/// Currently identical to [`Cpu68030`]; diverges when F-line
+/// cpID=1 (FPU) dispatch is wired and the LC variant takes
+/// `LINE 1111 EMULATOR` instead of completing the handshake.
+pub type Cpu68LC030 = Cpu68030;
 
 /// Marker zero-sized type identifying the 68030 variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

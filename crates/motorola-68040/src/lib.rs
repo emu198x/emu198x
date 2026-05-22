@@ -110,18 +110,31 @@
 //!   Captures effective address, special status word (SSW), write
 //!   buffer state. Different from the 68030's format `$B`.
 //!
-//! # Type aliases
+//! # Today's wrapper
 //!
-//! [`Cpu68040`], [`Cpu68EC040`], and [`Cpu68LC040`] resolve to
-//! [`motorola_68000::Cpu68000`] today — construct via
-//! [`motorola_68000::Cpu68000::new`].
+//! [`Cpu68040`] wraps [`motorola_68030::Cpu68030`] via the family
+//! variant pattern. No 68040-specific decode hooks are installed
+//! yet — MOVE16 / CINV / CPUSH aren't in the `m68k-test-gen`
+//! corpus, and the FPU module (`fpu.rs`) is unused until F-line
+//! dispatch is wired. [`Cpu68EC040`] / [`Cpu68LC040`] are type
+//! aliases to [`Cpu68040`] until their MMU / FPU presence
+//! actually diverges in behaviour.
 
+pub mod cpu;
 pub mod fpu;
 
+pub use cpu::Cpu68040;
 pub use motorola_68k_common::{CpuCapabilities, CpuModel, TimingClass};
-pub use motorola_68000::Cpu68000 as Cpu68040;
-pub use motorola_68000::Cpu68000 as Cpu68EC040;
-pub use motorola_68000::Cpu68000 as Cpu68LC040;
+
+/// 68EC040 — no on-die MMU, no FPU coprocessor. Currently
+/// identical to [`Cpu68040`]; diverges when MMU instructions land
+/// (EC takes ILLEGAL) and when F-line cpID=1 is wired (EC takes
+/// `LINE 1111 EMULATOR`).
+pub type Cpu68EC040 = Cpu68040;
+
+/// 68LC040 — MMU present, no FPU. Currently identical to
+/// [`Cpu68040`]; diverges when F-line cpID=1 (FPU) dispatch lands.
+pub type Cpu68LC040 = Cpu68040;
 
 /// Marker zero-sized type identifying the 68040 variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

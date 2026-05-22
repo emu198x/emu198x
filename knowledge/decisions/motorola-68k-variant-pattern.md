@@ -112,12 +112,16 @@ Stop and re-read this doc if you find yourself:
 
 ## Forward look — 68030 / 68040 / 68060 / AC68080
 
-The same shape carries through, with one anticipated generalisation:
+The same shape carries through, with one anticipated generalisation.
 
-- **68030** wraps 68020. Adds an MMU module (already 2,421 lines in `motorola-68030/src/mmu.rs`, unused). Decode hook handles PMOVE / PFLUSH / PTEST / PLOAD (all F-line cpID=0). New flags likely include `variant_mmu_present`, `variant_data_cache`.
-- **68040** wraps 68030 (skipping the 030's MMU encoding — the 040 uses a direct PFLUSH/PTEST instruction encoding instead, distinct from F-line). FPU module already exists at `motorola-68040/src/fpu.rs` (705 lines, unused). Adds Format `$7` bus-error frames — the third frame shape. **This is where the `variant_six_word_frame: bool` likely becomes an enum or per-vector dispatch table.** The change is local — a generalisation of one flag, not a redesign.
+- **68030** wraps 68020. **Wrapper landed 2026-05-22**; `Cpu68030` is a thin Deref wrapper over `Cpu68020` with no additional ISA delta configured yet. The m68k-test-gen 68030 corpus passes at 100% via inheritance alone. The MMU module (`motorola-68030/src/mmu.rs`, 2,421 lines, unused) waits on the decode-side wiring for PMOVE / PFLUSH / PTEST / PLOAD when an MMU-bearing machine arrives.
+- **68040** wraps 68030. **Wrapper landed 2026-05-22**; same pattern. 100% on the m68k-test-gen 68040 corpus via inheritance. The FPU module (`motorola-68040/src/fpu.rs`, 705 lines, unused) waits on F-line cpID=1 dispatch. MOVE16 / CINV / CPUSH and the Format `$7` bus-error frame are deferred until exercised.
 - **68060** is a new crate. ISA-wise it's a 68040 subset (no CALLM / RTM / CHK2 / CMP2) plus PCR. Superscalar dispatch is a cycle-accuracy concern, not an ISA one, so the variant pattern still applies for correctness; cycle-accurate superscalar is a separate (and large) decision.
 - **AC68080** (Apollo Vampire, FPGA-implemented 68060-class) is a much wider departure: AMMX vector unit, 64-bit registers, instruction extensions. This may be the variant where wrap-don't-clone stops paying. Decision deferred until the Vampire roadmap firms up.
+
+**Anticipated generalisation**: when the 68040 Format `$7` bus-error frame lands, `variant_six_word_frame: bool` will become an enum or per-vector dispatch table — local change, not a redesign.
+
+**Lesson from the 68030 wrapper landing**: a latent 68020 bug surfaced — MOVEC to CACR / CAAR / MSP / ISP raised ILLEGAL on our wrapper but should succeed per Musashi. The 68020 corpus's random extension words across 10 fixtures never hit one of those 4 CRs (4/4096 probability per test); the 68030 corpus hit one. Fixed by extending the 68020 decode hook to handle MOVEC's 68020-additional CRs, chaining to the 68010 hook's helpers for the four 68010-basic CRs (`read_control_register` / `write_control_register` are now `pub`). Each variant's MOVEC handler is composed from the previous variant's helpers + its own CR-encoding deltas.
 
 ## Related
 

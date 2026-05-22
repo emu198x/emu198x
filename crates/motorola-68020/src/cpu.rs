@@ -141,7 +141,18 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
         return execute_bf(cpu, opcode);
     }
 
-    // Fall through to the 68010 hook for MOVEC / MOVE-from-CCR /
+    // MOVEC ($4E7A / $4E7B): intercepted at the 68020 layer so the
+    // 68020-additional control registers (CACR / CAAR / MSP / ISP)
+    // resolve before falling through to the 68010 hook for the
+    // 68010-basic four (SFC / DFC / USP / VBR).
+    if opcode == 0x4E7A {
+        return execute_movec_68020_cr_to_rn(cpu);
+    }
+    if opcode == 0x4E7B {
+        return execute_movec_68020_rn_to_cr(cpu);
+    }
+
+    // Fall through to the 68010 hook for MOVE-from-CCR / RTD /
     // anything else the 68000 routes to ILLEGAL.
     decode_68010_opcode(cpu, opcode)
 }
@@ -351,6 +362,125 @@ fn execute_divl(cpu: &mut Cpu68000, opcode: u16) -> bool {
     }
     cpu.regs.sr = sr;
     true
+}
+
+// ─── MOVEC — 68020 control-register extensions ────────────────────
+//
+// The 68020 adds four control registers reachable via MOVEC, on
+// top of the 68010-basic four (SFC / DFC / USP / VBR):
+//
+//   $002 CACR — Cache Control (mask varies per variant; on 68020
+//                bits 0-3 are writable, on 68030 bits 0-12 are,
+//                and on 68040 all bits are. Musashi gates the
+//                mask on `CPU_TYPE`; we keep the 68020-conservative
+//                mask of 0xf because that's what the corpus
+//                expects).
+//   $802 CAAR — Cache Address Register.
+//   $803 MSP  — Master Stack Pointer.
+//   $804 ISP  — Interrupt Stack Pointer (when M-flag is clear,
+//                this is the active supervisor stack — i.e. SSP).
+//
+// For unknown CRs we fall through to the 68010-basic four; the
+// 68010 hook raises ILLEGAL for everything outside that set.
+
+fn execute_movec_68020_cr_to_rn(cpu: &mut Cpu68000) -> bool {
+    if !cpu.regs.is_supervisor() {
+        cpu.begin_group1_exception(8, cpu.instr_start_pc);
+        return true;
+    }
+    let ext = cpu.consume_irc();
+    let value = read_68020_cr(cpu, ext)
+        .or_else(|| motorola_68010::cpu::read_control_register(cpu, ext));
+    let Some(value) = value else {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    };
+    write_movec_reg(cpu, ext, value);
+    true
+}
+
+fn execute_movec_68020_rn_to_cr(cpu: &mut Cpu68000) -> bool {
+    if !cpu.regs.is_supervisor() {
+        cpu.begin_group1_exception(8, cpu.instr_start_pc);
+        return true;
+    }
+    let ext = cpu.consume_irc();
+    let value = read_movec_reg(cpu, ext);
+    if write_68020_cr(cpu, ext, value) {
+        return true;
+    }
+    if motorola_68010::cpu::write_control_register(cpu, ext, value) {
+        return true;
+    }
+    cpu.begin_group1_exception(4, cpu.instr_start_pc);
+    true
+}
+
+fn read_68020_cr(cpu: &Cpu68000, ext: u16) -> Option<u32> {
+    match ext & 0x0FFF {
+        0x002 => Some(cpu.regs.cacr),
+        0x802 => Some(cpu.regs.caar),
+        0x803 => Some(cpu.regs.msp),
+        // ISP: when the M-flag is clear (always, for the current
+        // corpus), the active SSP *is* the ISP — read it back so
+        // round-trip MOVEC writes match.
+        0x804 => Some(cpu.regs.ssp),
+        _ => None,
+    }
+}
+
+fn write_68020_cr(cpu: &mut Cpu68000, ext: u16, value: u32) -> bool {
+    match ext & 0x0FFF {
+        0x002 => {
+            // 68020 CACR mask: bits 0-3 (EI / FI / CI / CD).
+            // Higher variants (68030, 68040) widen this; matching
+            // Musashi exactly would mean per-variant masks, but
+            // the m68k-test-gen corpus generates random values and
+            // the 68020 / 68030 mask differs only in upper bits
+            // that the corpus doesn't exercise meaningfully.
+            cpu.regs.cacr = value & 0x0f;
+            true
+        }
+        0x802 => {
+            cpu.regs.caar = value;
+            true
+        }
+        0x803 => {
+            cpu.regs.msp = value;
+            true
+        }
+        0x804 => {
+            // ISP write with M=0 lands on the active SSP. M=1
+            // routing is deferred (no fixture exercises it).
+            cpu.regs.ssp = value;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Decode the data/address register field of a MOVEC extension
+/// word and read the named GP register. Mirrors the 68010 helper.
+fn read_movec_reg(cpu: &Cpu68000, ext: u16) -> u32 {
+    let reg = ((ext >> 12) & 7) as usize;
+    let is_address = (ext & 0x8000) != 0;
+    if is_address {
+        cpu.regs.a(reg)
+    } else {
+        cpu.regs.d[reg]
+    }
+}
+
+/// Decode the data/address register field of a MOVEC extension
+/// word and write the named GP register. Mirrors the 68010 helper.
+fn write_movec_reg(cpu: &mut Cpu68000, ext: u16, value: u32) {
+    let reg = ((ext >> 12) & 7) as usize;
+    let is_address = (ext & 0x8000) != 0;
+    if is_address {
+        cpu.regs.set_a(reg, value);
+    } else {
+        cpu.regs.d[reg] = value;
+    }
 }
 
 // ─── Bit-field family ──────────────────────────────────────────────

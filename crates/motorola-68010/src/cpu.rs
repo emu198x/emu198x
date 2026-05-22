@@ -279,8 +279,9 @@ fn write_extension_register(cpu: &mut Cpu68000, ext: u16, value: u32) {
 
 /// Read the control register named in the low 12 bits of a MOVEC
 /// extension word. Returns `None` for an unknown / 68020+ register
-/// (the caller raises ILLEGAL).
-fn read_control_register(cpu: &Cpu68000, ext: u16) -> Option<u32> {
+/// (the caller raises ILLEGAL, or a higher variant handles it).
+/// `pub` so the 68020 wrapper can compose with the 68020-extras.
+pub fn read_control_register(cpu: &Cpu68000, ext: u16) -> Option<u32> {
     match ext & 0x0FFF {
         0x000 => Some(u32::from(cpu.regs.sfc)),
         0x001 => Some(u32::from(cpu.regs.dfc)),
@@ -291,11 +292,13 @@ fn read_control_register(cpu: &Cpu68000, ext: u16) -> Option<u32> {
 }
 
 /// Write a value to the named control register. Returns `false` if
-/// the CR number is unknown / 68020+ (the caller raises ILLEGAL).
+/// the CR number is unknown / 68020+ (the caller raises ILLEGAL,
+/// or a higher variant handles it). `pub` so the 68020 wrapper can
+/// compose with the 68020-extras.
 ///
 /// SFC / DFC are 3-bit registers — only bits 2-0 of the source are
 /// kept. VBR keeps a full 32 bits.
-fn write_control_register(cpu: &mut Cpu68000, ext: u16, value: u32) -> bool {
+pub fn write_control_register(cpu: &mut Cpu68000, ext: u16, value: u32) -> bool {
     match ext & 0x0FFF {
         0x000 => {
             cpu.regs.sfc = (value & 0x7) as u8;
