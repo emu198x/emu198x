@@ -128,11 +128,28 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     let mut min_ipl_seen = 7u8;
     let mut first_vbr_change_frame: Option<u64> = None;
     let mut first_ipl_drop_frame: Option<u64> = None;
+    // Exception tracking: count None -> Some(vector) transitions on
+    // the cpu.exc_vector field. The field stays Some for the duration
+    // of exception processing (multiple ticks), so the edge tells us
+    // when a *new* exception was taken. PC-at-edge gives the address
+    // that triggered.
+    let mut exc_counts: std::collections::HashMap<u8, u64> = std::collections::HashMap::new();
+    let mut exc_first_pc: std::collections::HashMap<u8, u32> = std::collections::HashMap::new();
+    let mut prev_exc: Option<u8> = m.cpu().exc_vector;
+    // Hot PCs: sample PC at every 128th tick (~7M samples over 5000
+    // PAL frames). The hottest PCs reveal which loops are eating
+    // emulated time.
+    let mut hot_pcs: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
+    let mut tick_counter: u64 = 0;
     for f in 1..=frames_to_run {
         for _ in 0..PAL_FRAME_TICKS {
             m.tick();
+            tick_counter = tick_counter.wrapping_add(1);
             let pc = m.cpu().regs.pc;
             unique_pcs.insert(pc);
+            if tick_counter & 0x7F == 0 {
+                *hot_pcs.entry(pc).or_insert(0) += 1;
+            }
             if (0x00F8_0000..0x0100_0000).contains(&pc) {
                 last_pc_in_rom = pc;
             } else if pc < 0x00F8_0000 {
@@ -148,6 +165,14 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             if first_vbr_change_frame.is_none() && m.cpu().regs.vbr != 0 {
                 first_vbr_change_frame = Some(f);
             }
+            // Exception-vector edge detection.
+            let cur_exc = m.cpu().exc_vector;
+            if cur_exc != prev_exc && cur_exc.is_some() {
+                let v = cur_exc.unwrap();
+                *exc_counts.entry(v).or_insert(0) += 1;
+                exc_first_pc.entry(v).or_insert(m.cpu().instr_start_pc);
+            }
+            prev_exc = cur_exc;
         }
         if f % checkpoint_every == 0 {
             let cpu = m.cpu();
@@ -166,6 +191,37 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         "milestones:  min IPL = {min_ipl_seen}  first IPL drop = {:?}  first VBR change = {:?}",
         first_ipl_drop_frame, first_vbr_change_frame
     );
+
+    // Hot PCs — where is the CPU actually spending most of its time?
+    let mut hot_sorted: Vec<_> = hot_pcs.iter().collect();
+    hot_sorted.sort_by(|a, b| b.1.cmp(a.1));
+    let total_samples: u64 = hot_sorted.iter().map(|(_, c)| **c).sum();
+    eprintln!(
+        "hot PCs (top 10, sampled every 128th tick, {} total samples):",
+        total_samples
+    );
+    for (pc, count) in hot_sorted.iter().take(10) {
+        let pct = (**count as f64 / total_samples as f64) * 100.0;
+        eprintln!("  ${pc:08X}: {count} samples ({pct:.1}%)");
+    }
+
+    // Exception counts — if KS is hitting an illegal-instruction trap
+    // or line-A/F trap and falling into a reset handler, these counts
+    // will be high.
+    let mut exc_sorted: Vec<_> = exc_counts.iter().collect();
+    exc_sorted.sort_by(|a, b| b.1.cmp(a.1));
+    eprintln!("exceptions taken (top 10):");
+    if exc_sorted.is_empty() {
+        eprintln!("  (none)");
+    }
+    for (vector, count) in exc_sorted.iter().take(10) {
+        let first_pc = exc_first_pc.get(vector).copied().unwrap_or(0);
+        eprintln!(
+            "  vector {:>3} ({}): {count} taken, first at PC=${first_pc:08X}",
+            vector,
+            exception_vector_name(**vector)
+        );
+    }
 
     // Hottest custom-register writes — keyed by *offset* (the
     // `debug_custom_write_log` tuple stores PC at .1 and chipset
@@ -221,6 +277,29 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         m.cpu().regs.pc,
         unique_pcs.len()
     );
+}
+
+/// Human-readable name for a 68k exception vector.
+fn exception_vector_name(vector: u8) -> &'static str {
+    match vector {
+        0 => "reset SSP",
+        1 => "reset PC",
+        2 => "bus error",
+        3 => "address error",
+        4 => "illegal instruction",
+        5 => "divide by zero",
+        6 => "CHK / CHK2",
+        7 => "TRAPV / TRAPcc",
+        8 => "privilege violation",
+        9 => "trace",
+        10 => "line A (Axxx)",
+        11 => "line F (Fxxx)",
+        14 => "format error (68010+ RTE)",
+        24 => "spurious interrupt",
+        25..=31 => "autovector IRQ",
+        32..=47 => "TRAP #n",
+        _ => "user/MFP/other",
+    }
 }
 
 /// Human-readable name for a chipset register offset (the names KS

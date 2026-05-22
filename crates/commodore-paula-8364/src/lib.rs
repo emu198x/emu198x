@@ -719,6 +719,14 @@ pub struct Paula8364 {
     serper: u16,
     /// Latest received byte (nine-bit in LONG mode — we only model the
     /// low 8 bits; bit 8 is stored but not exercised).
+    ///
+    /// Default is `0x00FF`: on real hardware the receive shift register
+    /// samples the RXD pin, which idles high (mark = logical 1).
+    /// After ≥8 idle bit-times the shift register reads all-ones, so
+    /// SERDATR returns `0x...FF` in its low byte until the first
+    /// `receive_serial` overwrites it. Kickstart 3.x DiagAlive checks
+    /// `(SERDATR & 0x7F) == 0x7F` as a "serial chipset alive" probe
+    /// during power-on init; without this default the boot fails.
     serial_rx_byte: u16,
     serial_rx_full: bool,
     serial_rx_overrun: bool,
@@ -780,7 +788,7 @@ impl Paula8364 {
             audio_controls: AudioControls::default(),
             serdat: 0,
             serper: 0,
-            serial_rx_byte: 0,
+            serial_rx_byte: 0x00FF, // idle RXD samples as all-ones (mark)
             serial_rx_full: false,
             serial_rx_overrun: false,
             potgo: 0,

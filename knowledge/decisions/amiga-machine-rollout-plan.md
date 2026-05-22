@@ -1,9 +1,10 @@
 # Decision: Amiga machine rollout plan
 
 **Date:** 2026-05-22
-**Status:** A1200 Stages A + B + C + D landed 2026-05-22. KS 3.1
-boots through the Resident scanner but loops in early init; root
-cause to be identified in Stage E.
+**Status:** A1200 Stages A + B + C + D + E landed 2026-05-22. KS
+3.1 now boots through DiagAlive and the Resident scanner, reaching
+a serial-input wait loop at `$F83182`. Stage F (next) needs to
+identify what KS expects to receive there.
 
 ## What this is
 
@@ -209,6 +210,95 @@ likelihood:
    a `chip_ram_mask` that should wrap addresses above 512K back into
    the installed pool. For 2 MiB the mask should be `$001FFFFF`;
    verify that's what we configured.
+
+## A1200 Stage E findings — 2026-05-22
+
+Stage E candidate 1 (the exception counter) immediately surfaced
+the root cause. The diagnostic showed **30 line-F traps**, two per
+init loop iteration — the FPU presence probe at `$F80CA0`
+(`FNEG.X FP0; FNEG.S FP0; FSAVE`). Traps fire and are handled,
+KS notes "no FPU", proceeds.
+
+The wedge was *one routine after* the FPU probe. Disassembling
+`$F83616+`:
+
+```
+MOVE.W  #$2700, SR       ; supervisor, IPL=7
+MOVEQ   #5, D1            ; try 5 times
+MOVE.W  #$0174, $DFF032   ; SERPER = baud divisor
+loop:
+  MOVEQ #-1, D0
+  BSET  #1, $BFE001       ; LED off, delay
+  DBF   D0, -10
+  BCLR  #1, $BFE001       ; LED on,  delay
+  DBF   D0, -10
+  MOVE.W $DFF018, D0      ; read SERDATR
+  MOVE.W #$0800, $DFF09C  ; clear SOFTINT in INTREQ
+  AND.B #$7F, D0
+  CMP.B #$7F, D0          ; expect low 7 bits = $7F
+  DBEQ  D1, loop          ; retry up to 6 times on mismatch
+```
+
+This is the **DiagAlive routine** — Kickstart's power-on chipset
+self-test. It expects to read `$FF` in the SERDATR data byte
+(the idle / mark state of the RXD line, which samples all-ones
+when no serial activity). Low 7 bits = `$7F` ⇒ healthy.
+
+Our Paula was defaulting `serial_rx_byte` to `0`. The fix is one
+line:
+
+```rust
+// crates/commodore-paula-8364/src/lib.rs Paula8364::new()
+serial_rx_byte: 0x00FF,  // idle RXD samples as all-ones (mark)
+```
+
+### Impact
+
+| Metric | Before Stage E | After Stage E |
+|---|---|---|
+| Unique PCs visited (5000 frames) | 2,315 | 2,448 |
+| Line-F traps (5000 frames) | 30 | 4 |
+| COLOR00 writes (delay-loop passes) | 1,287,539 (×15) | 86,018 (×1) |
+| Final PC | `$F80454` (early init) | `$F83190` (mid init) |
+| Final SSP | `$1FFFE6` | `$1FFF86` (proper stack) |
+
+DiagAlive now passes on the first try. KS proceeds through
+chipset reset, scans residents, and reaches a new wait loop at
+`$F83182` — the "wait for serial byte with LED-blink animation"
+routine, with `MOVE.L #$00091FFF, D1` setting up a ~74K-iteration
+timeout. KS reads SERDATR 10M+ times waiting for RBF to assert.
+
+No regression: `commodore-paula-8364` lib tests pass, `runtime-commodore-amiga`
+tests pass (including the Workbench-1.3 snapshot round-trip boot
+test that exercises the OCS Paula path end-to-end).
+
+## A1200 Stage F — what to investigate next
+
+The new wait at `$F83182` is a **"receive a serial byte within
+timeout, blink the LED while waiting"** routine. Hot-PC sampling
+shows ~76% of CPU time spent in the 20-byte loop `$F83190-$F831A2`,
+which polls SERDATR for the RBF bit.
+
+Candidates (cheap → expensive):
+
+1. **Find the caller** of `$F83182` to see what KS is using this
+   timeout for. Possibilities: diagnostic-mode entry timeout,
+   keyboard probe (unlikely — keyboard is via CIA), peripheral
+   detection, or a wait for an explicit "press any key to boot"
+   serial byte. The caller's context determines the right fix.
+2. **Trace via WinUAE** what comes after this loop on a real boot.
+   If WinUAE's serial loopback is what unblocks KS here, we may
+   need a conditional loopback (off by default; on when a specific
+   ADKCON / CIA-A SP configuration is detected — that's how real
+   Amigas wire CIA-A SP to Paula RXD in test mode).
+3. **Wait for the natural timeout to complete** — the 74K-iteration
+   timeout may legitimately expire and KS may continue. Check by
+   running 50,000+ frames and seeing whether unique-PC count
+   continues to grow.
+4. **Add a CIA-A SP → Paula RXD loopback** wiring. On real
+   A1200s, when CIA-A's serial port output is connected to Paula's
+   receive line (a documented test mode), bytes written to CIA-A
+   SDR appear in SERDATR. KS may rely on this for its self-test.
 
 ## What this plan does not cover
 
