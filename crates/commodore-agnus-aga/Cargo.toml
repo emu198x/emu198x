@@ -1,0 +1,14 @@
+[package]
+name = "commodore-agnus-aga"
+description = "Commodore Alice (AGA Agnus) — thin wrapper over commodore-agnus-ecs that adds the FMODE register (bitplane / sprite DMA fetch widths) and AGA-specific bus arbitration. Used by AGA machines (A1200, A4000, CD32)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+commodore-agnus-ecs = { path = "../commodore-agnus-ecs" }
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
+serde = { workspace = true }
+
+[lints]
+workspace = true

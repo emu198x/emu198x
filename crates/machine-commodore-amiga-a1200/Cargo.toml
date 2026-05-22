@@ -1,0 +1,34 @@
+[package]
+name = "machine-commodore-amiga-a1200"
+description = "Commodore Amiga A1200 (AGA chipset) — Alice (commodore-agnus-aga) + Lisa (commodore-denise-aga) + Gayle (commodore-gayle) wired into the common Amiga board substrate. Stage A: 68000 CPU (parallel of machine-commodore-amiga-ecs with AGA chips swapped in); Cpu68020 swap lands in Stage B per knowledge/decisions/amiga-machine-rollout-plan.md."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+common-commodore-amiga = { path = "../common-commodore-amiga" }
+motorola-68000 = { path = "../motorola-68000" }
+mos-cia-8520 = { path = "../mos-cia-8520" }
+commodore-paula-8364 = { path = "../commodore-paula-8364" }
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
+commodore-agnus-ecs = { path = "../commodore-agnus-ecs" }
+commodore-agnus-aga = { path = "../commodore-agnus-aga" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs" }
+commodore-denise-ecs = { path = "../commodore-denise-ecs" }
+commodore-denise-aga = { path = "../commodore-denise-aga" }
+commodore-gayle = { path = "../commodore-gayle" }
+machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs" }
+peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy" }
+peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard" }
+commodore-gary = { path = "../commodore-gary" }
+commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig" }
+format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
+serde = { workspace = true }
+
+[dev-dependencies]
+png = { workspace = true }
+zip = { workspace = true }
+postcard = { workspace = true }
+
+[lints]
+workspace = true
