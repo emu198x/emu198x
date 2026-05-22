@@ -1,10 +1,10 @@
 # Decision: Amiga machine rollout plan
 
 **Date:** 2026-05-22
-**Status:** A1200 Stages A + B + C + D + E landed 2026-05-22. KS
-3.1 now boots through DiagAlive and the Resident scanner, reaching
-a serial-input wait loop at `$F83182`. Stage F (next) needs to
-identify what KS expects to receive there.
+**Status:** A1200 Stages A + B + C + D + E + F landed 2026-05-22.
+KS 3.1 boots through DiagAlive and reaches a Wack-style
+serial-debugger loop. Stage G needs to identify what triggers KS
+to enter the Wack handler in the first place.
 
 ## What this is
 
@@ -272,33 +272,135 @@ No regression: `commodore-paula-8364` lib tests pass, `runtime-commodore-amiga`
 tests pass (including the Workbench-1.3 snapshot round-trip boot
 test that exercises the OCS Paula path end-to-end).
 
-## A1200 Stage F — what to investigate next
+## A1200 Stage F findings — 2026-05-22
 
-The new wait at `$F83182` is a **"receive a serial byte within
-timeout, blink the LED while waiting"** routine. Hot-PC sampling
-shows ~76% of CPU time spent in the 20-byte loop `$F83190-$F831A2`,
-which polls SERDATR for the RBF bit.
+Confirmed what `$F83182` is and what's keeping KS in it.
+
+### 50K-frame run rules out natural timeout
+
+Running the boot test for 50,000 PAL frames (~17 minutes emulated
+time) instead of 5,000 produces **no new code paths visited**:
+unique-PC count stays at 2,448. The Wack-style loop runs forever
+on its own.
+
+### The loop *is* a Wack-style serial-debugger dispatcher
+
+Disassembling `$F832E0`-`$F8331C`:
+
+```
+$F832E0: TST.L  D7
+$F832E2: BEQ.S  RTS                ; if D7=0, return immediately
+$F832E4: MOVEQ  #9, D2             ; retry counter (10 tries)
+$F832E6: MOVE.L D7, D0
+$F832E8: BSR.W  $F8315A            ; print/send D0 over serial
+$F832EC: BSR.W  $F83182            ; receive a byte
+$F832F0: BPL.S  $F832F8            ; got byte — process it
+$F832F2: DBF    D2, $F832E6        ; retry 10x on timeout
+$F832F6: RTS
+$F832F8: CMP.B  #$1B, D1           ; ESC -> exit
+$F832FC: BEQ.S  $F832F6
+$F832FE: CMP.B  #$AF, D1           ; magic byte $AF starts command
+$F83302: BNE.S  $F832EC            ; not AF -> wait for next byte
+$F83304: BSR.W  $F83182            ; got AF; receive command index
+$F83308: BMI.S  $F832EC
+$F8330A: MOVEQ  #9, D2
+$F8330C: SUBQ.B #1, D1
+$F8330E: BMI.S  $F832EC
+$F83310: LEA    jump_table(PC), A0
+$F83314: MOVE.L (A0)+, D0
+$F83316: BEQ.S  $F832E0            ; end of table -> loop
+$F83318: DBF    D1, $F83316
+$F8331C: PEA    $F832DE             ; push return-to-loop
+$F83320: MOVEA.L D0, A0
+$F83322: JMP    (A0)                ; jump to handler
+```
+
+This is the **canonical Wack ("ROMWack")** dispatcher: read a byte,
+expect `$1B` (ESC = exit) or `$AF` (command prefix) followed by a
+1-byte index, jump through a 16-entry handler table. The handler
+table at `$F83324`-`$F83363` has entries pointing into `$F83368`-`$F83540`,
+which are command handlers that read further bytes via the same
+`$F83182` byte-receive routine.
+
+### Caller tracking shows the entry path
+
+Detecting fresh entries to `$F83182` (PC enters from a different
+PC) and keying by the previous PC:
+
+- **68 entries from `$F83180`** — RTS at the end of the serial-send
+  helper (`$F83170`-`$F83180`, the routine that writes SERDAT and
+  RTSes). Each `BSR $F83158` to print a byte returns to the caller,
+  whose next instruction frequently runs into another byte-receive
+  call.
+- **17 entries from `$F832F2`** — the BSR.W at `$F832EC` returning
+  successfully and immediately doing another receive.
+
+That's 85 entries total in 5000 frames (~17 per outer dispatcher
+invocation × ~5 outer invocations). KS is calling the Wack
+dispatcher repeatedly — something at a higher level keeps
+re-entering Wack.
+
+### Injecting ESC ($1B) doesn't break the cycle
+
+Probe: inject `$1B` into Paula's receive buffer on every fresh
+entry to `$F83182`. The Wack dispatcher correctly sees ESC and
+RTSes. But then **KS oscillates back into DiagAlive 15 times**
+(1.29M COLOR00 writes again), each time falling back into Wack.
+
+So the Wack entry isn't gated by "needs an ESC byte". KS is
+deliberately calling Wack as part of its boot path, and Wack-exit
+returns control to a loop that re-invokes Wack.
+
+### Chip-RAM exception vectors are mostly correct
+
+Dumping the vector table KS installed:
+
+| Vec | Address | Notes |
+|---|---|---|
+| 2 (bus err) | `$F80B0E` | Standard handler |
+| 3 (addr err) | `$F80B0E` | Same as bus err |
+| 4 (illegal) | `$F80AD2` | Trampoline → common dispatcher `$F80B3C` |
+| 5-7, 9-14 | `$F80AD4`-`$F80AE6` | Trampolines, 2 bytes apart |
+| **8 (priv viol)** | **`$F83616`** | **DiagAlive!** (privileged-instruction self-installation) |
+| 24 (spurious) | `$F80AFA` | Standard |
+| 31 (autovec 7) | `$F8325E` | NMI / Wack entry candidate |
+
+Vector 8 pointing to `$F83616` is intentional — DiagAlive's first
+instruction is `MOVE.W #$2700, SR`, a privileged instruction.
+DiagAlive installs itself there so user-mode priv violations
+trigger a fresh DiagAlive run.
+
+### The OVL has cleared correctly
+
+`m.memory().overlay() == false` at the wedge — KS has cleared the
+overlay, so chip-RAM low addresses now serve real chip RAM (not
+the ROM mirror). The exception vectors above are reading correctly.
+
+## A1200 Stage G — what to investigate next
+
+Stage F established that KS is intentionally entering a Wack-style
+loop and intentionally re-entering after each exit. The question
+is **why KS thinks it should be in Wack at all**.
 
 Candidates (cheap → expensive):
 
-1. **Find the caller** of `$F83182` to see what KS is using this
-   timeout for. Possibilities: diagnostic-mode entry timeout,
-   keyboard probe (unlikely — keyboard is via CIA), peripheral
-   detection, or a wait for an explicit "press any key to boot"
-   serial byte. The caller's context determines the right fix.
-2. **Trace via WinUAE** what comes after this loop on a real boot.
-   If WinUAE's serial loopback is what unblocks KS here, we may
-   need a conditional loopback (off by default; on when a specific
-   ADKCON / CIA-A SP configuration is detected — that's how real
-   Amigas wire CIA-A SP to Paula RXD in test mode).
-3. **Wait for the natural timeout to complete** — the 74K-iteration
-   timeout may legitimately expire and KS may continue. Check by
-   running 50,000+ frames and seeing whether unique-PC count
-   continues to grow.
-4. **Add a CIA-A SP → Paula RXD loopback** wiring. On real
-   A1200s, when CIA-A's serial port output is connected to Paula's
-   receive line (a documented test mode), bytes written to CIA-A
-   SDR appear in SERDATR. KS may rely on this for its self-test.
+1. **Find the Wack invocation site.** The routine at `$F832A2`
+   (Wack prologue) has no direct BSR/JSR callers in the ROM. It
+   must be reached via a chip-RAM function pointer KS installed
+   somewhere, or via an exception vector that points there
+   indirectly. Search chip-RAM dumps for the value `$F832A2`.
+2. **Identify the exception that's triggering Wack entry.** Vec 31
+   (autovec 7) points at `$F8325E` (near Wack). Vec 11 (line F)
+   points to a trampoline that calls dispatcher `$F80B3C`.
+   Investigate the dispatcher's "if signal X" branches that lead
+   to Wack vs the normal RTE path.
+3. **Compare PC sequence against WinUAE** for the first 200
+   instructions after entry to `$F832A2`. The divergence point
+   would identify the root cause.
+4. **Search for sources that should be supplying $AF + command
+   bytes**. If KS sets up an interrupt handler that's supposed to
+   feed Wack commands and we don't fire that interrupt, Wack waits
+   forever. (Less likely — Wack is normally external/user-driven.)
 
 ## What this plan does not cover
 

@@ -122,6 +122,9 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // CPU IPL mask once init reaches the "interrupts on" phase and
     // moves VBR to its chip-RAM exception table. Those transitions
     // are the most informative progress signals.
+    // Stage F: back to 5000 frames now that we've confirmed (via the
+    // 50K-frame run) KS never breaks out of the Wack loop naturally.
+    // 5000 is plenty to dump the chip-RAM vector table KS installed.
     let frames_to_run: u64 = 5_000;
     let checkpoint_every: u64 = 500;
     let mut last_checkpoint_pc = initial_pc;
@@ -141,6 +144,12 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // emulated time.
     let mut hot_pcs: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
     let mut tick_counter: u64 = 0;
+    // Track entries into $F83182 (the byte-receive routine that leads
+    // to the Wack loop). On the rising edge of PC == $F83182, read
+    // the return address from the supervisor stack to identify the
+    // caller.
+    let mut prev_pc = m.cpu().regs.pc;
+    let mut byte_receive_entries: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
     for f in 1..=frames_to_run {
         for _ in 0..PAL_FRAME_TICKS {
             m.tick();
@@ -155,6 +164,13 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             } else if pc < 0x00F8_0000 {
                 excursion_count += 1;
             }
+            // Track entries into the byte-receive routine. Key by the
+            // *previous* PC — the BSR instruction site that branched
+            // here. Stack pointer reads are unreliable mid-tick.
+            if pc == 0x00F8_3182 && prev_pc != 0x00F8_3182 {
+                *byte_receive_entries.entry(prev_pc).or_insert(0) += 1;
+            }
+            prev_pc = pc;
             let ipl = m.cpu().regs.interrupt_mask();
             if ipl < min_ipl_seen {
                 min_ipl_seen = ipl;
@@ -203,6 +219,15 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     for (pc, count) in hot_sorted.iter().take(10) {
         let pct = (**count as f64 / total_samples as f64) * 100.0;
         eprintln!("  ${pc:08X}: {count} samples ({pct:.1}%)");
+    }
+
+    // Byte-receive call sites (sorted by frequency).
+    let mut br_sorted: Vec<_> = byte_receive_entries.iter().collect();
+    br_sorted.sort_by(|a, b| b.1.cmp(a.1));
+    let total_br: u64 = byte_receive_entries.values().sum();
+    eprintln!("byte-receive $F83182 entries (total {total_br}, keyed by BSR site PC):");
+    for (caller_pc, count) in br_sorted.iter().take(10) {
+        eprintln!("  from ${caller_pc:08X}: {count} entries");
     }
 
     // Exception counts — if KS is hitting an illegal-instruction trap
@@ -277,6 +302,22 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         m.cpu().regs.pc,
         unique_pcs.len()
     );
+
+    // Vector table inspection. KS sets up the 68k exception vector
+    // table at low chip-RAM addresses ($00000000-$000003FF). If KS
+    // has cleared OVL, the CPU reads these from RAM directly. If OVL
+    // is still set, vectors are read from the ROM mirror.
+    eprintln!("OVL state at end of run: {}", m.memory().overlay());
+    eprintln!("Chip-RAM exception vector table after boot run:");
+    let mem = m.memory();
+    for vec in [0u32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 24, 31] {
+        let off = (vec * 4) as u32;
+        // Read directly from chip RAM (bypassing OVL).
+        let hi = mem.read_chip_ram_word(off);
+        let lo = mem.read_chip_ram_word(off + 2);
+        let val = (u32::from(hi) << 16) | u32::from(lo);
+        eprintln!("  vec {vec:>2} @ chip[${off:08X}]: ${val:08X}");
+    }
 }
 
 /// Human-readable name for a 68k exception vector.
