@@ -1,0 +1,17 @@
+# release-plz configuration.
+#
+# Trigger: every push to main runs release-plz, which opens (or
+# updates) a "chore: release" PR with a bumped workspace version and
+# a CHANGELOG entry generated from the new commits. Merging the PR
+# creates a git tag, which fires .github/workflows/release.yml
+# (cargo-dist) to build the six native shells and attach the archives
+# to a GitHub Release.
+#
+# Versioning is lockstep: every workspace crate inherits version
+# from [workspace.package] in Cargo.toml, so a single bump applies
+# everywhere.
+[workspace]
+publish = false
+git_release_enable = false
+git_tag_enable = true
+changelog_update = true

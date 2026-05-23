@@ -1,0 +1,57 @@
+name: Release-plz
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release-plz-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  release-plz:
+    name: Release-plz
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          # release-plz needs the full history to compute the changelog
+          # diff from the last tag.
+          fetch-depth: 0
+          # Falls back to GITHUB_TOKEN if RELEASE_PLZ_TOKEN isn't set.
+          # NOTE: tag pushes made with GITHUB_TOKEN do not fire other
+          # workflows, so the cargo-dist release.yml will not trigger
+          # automatically unless RELEASE_PLZ_TOKEN is a PAT (or GitHub
+          # App token) with workflow-trigger rights.
+          token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Install Linux build dependencies
+        # cargo metadata needs the same system deps as a normal build
+        # because release-plz invokes cargo to inspect the workspace.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
