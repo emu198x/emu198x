@@ -424,7 +424,7 @@ mod tests {
         for (i, b) in snap.ay_regs.iter_mut().enumerate() {
             *b = i as u8; // 0..15, all within every register's mask width
         }
-        snap.ay_regs[7] = 0xC0 | snap.ay_regs[7]; // bits 6 + 7 = port A/B output
+        snap.ay_regs[7] |= 0xC0; // bits 6 + 7 = port A/B output
         snap.ay_register = 0x0B;
 
         let mut ay = gi_ay_3_8912::Ay3_8912::new(1_773_400, 44_100, 882);

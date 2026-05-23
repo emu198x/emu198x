@@ -658,8 +658,7 @@ mod tests {
         // Expected: 3 pilot pulses (1000 each), sync1 (500), sync2 (600),
         // then 8 data bits: 1→(200,200), 0→(100,100), 1→(200,200),
         // 0→(100,100), 0,0,0,0 → all (100,100).
-        let expected: Vec<TapeSpan> = std::iter::repeat(TapeSpan::Pulse(1000))
-            .take(3)
+        let expected: Vec<TapeSpan> = std::iter::repeat_n(TapeSpan::Pulse(1000), 3)
             .chain(std::iter::once(TapeSpan::Pulse(500)))
             .chain(std::iter::once(TapeSpan::Pulse(600)))
             .chain(

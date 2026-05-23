@@ -137,7 +137,10 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // first fire, not a long stress run.
     let frames_to_run: u64 = 2_000;
     let checkpoint_every: u64 = 500;
-    let mut last_checkpoint_pc = initial_pc;
+    // Tracked but not currently read — kept for future "PC moved
+    // since last checkpoint?" diagnostic without disturbing the
+    // surrounding investigation loop.
+    let mut _last_checkpoint_pc = initial_pc;
     let mut min_ipl_seen = 7u8;
     let mut first_vbr_change_frame: Option<u64> = None;
     let mut first_ipl_drop_frame: Option<u64> = None;
@@ -434,7 +437,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                 && rts_f80c0c_captures.len() < 20
                 && rts_f80c0c_captures
                     .last()
-                    .map_or(true, |(t, _, _, _)| tick_counter.wrapping_sub(*t) > 4)
+                    .is_none_or(|(t, _, _, _)| tick_counter.wrapping_sub(*t) > 4)
             {
                 let ssp = m.cpu().regs.ssp;
                 let popped = m.read_long(ssp);
@@ -512,8 +515,9 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             }
             // Exception-vector edge detection.
             let cur_exc = m.cpu().exc_vector;
-            if cur_exc != prev_exc && cur_exc.is_some() {
-                let v = cur_exc.unwrap();
+            if cur_exc != prev_exc
+                && let Some(v) = cur_exc
+            {
                 *exc_counts.entry(v).or_insert(0) += 1;
                 exc_first_pc.entry(v).or_insert(m.cpu().instr_start_pc);
                 // Stage J: on vec 11 (F-line) fire, snapshot the
@@ -562,7 +566,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                 m.debug_custom_write_log.len(),
                 m.debug_intena_writes,
             );
-            last_checkpoint_pc = cpu.regs.pc;
+            _last_checkpoint_pc = cpu.regs.pc;
         }
     }
     eprintln!(
@@ -778,7 +782,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // hard reset; if the LVO entry isn't a proper JMP $4EF9 + reset
     // implementation, the call returns and KS falls into the boot
     // self-test that subsequently reboots via the $F80DB8 trampoline.
-    if exec_base >= 6 && exec_base < 0x0020_0000 {
+    if (6..0x0020_0000).contains(&exec_base) {
         let lvo_addr = exec_base.wrapping_sub(0x2D6);
         let op_hi = mem2.read_chip_ram_word(lvo_addr);
         let tgt_hi = mem2.read_chip_ram_word(lvo_addr.wrapping_add(2));
@@ -913,7 +917,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         *writes_by_offset.entry(entry.3).or_insert(0) += 1;
     }
     let mut sorted: Vec<_> = writes_by_offset.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|item| std::cmp::Reverse(item.1));
     eprintln!("hottest custom register writes (top 5, by chipset offset):");
     for (offset, count) in sorted.iter().take(5) {
         eprintln!(
@@ -968,7 +972,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     eprintln!("Chip-RAM exception vector table after boot run:");
     let mem = m.memory();
     for vec in [0u32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 24, 31] {
-        let off = (vec * 4) as u32;
+        let off = vec * 4;
         let hi = mem.read_chip_ram_word(off);
         let lo = mem.read_chip_ram_word(off + 2);
         let val = (u32::from(hi) << 16) | u32::from(lo);
