@@ -3,6 +3,12 @@
 //! frame-pacing loop, the keyboard plumbing, and the muda command
 //! channel; delegates machine state to `SpectrumRunner`.
 
+// On Linux the muda menu is gated out entirely (see ui/menu.rs), which
+// means the command_tx field and the muda-driven receiver loop are
+// dead. Suppress dead_code on Linux only; everything else still gets
+// the workspace's deny-warnings posture.
+#![cfg_attr(target_os = "linux", allow(dead_code))]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};

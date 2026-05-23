@@ -8,6 +8,12 @@
 //! See `knowledge/decisions/native-menu-shell.md` for the broader design
 //! and how File / State / View slot in later.
 
+// On Linux the menu is a no-op stub (see the bottom of this file) and
+// most items here exist only for the non-Linux real implementation.
+// Suppress dead_code on Linux rather than gating every constant and
+// AppCommand variant individually.
+#![cfg_attr(target_os = "linux", allow(dead_code))]
+
 #[cfg(not(target_os = "linux"))]
 use std::collections::HashMap;
 
