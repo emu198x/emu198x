@@ -83,7 +83,11 @@ pub fn spectrum_luminance(r: f32, g: f32, b: f32) -> f32 {
 /// Compose one palette entry from its three primary activation bits
 /// and the bright flag. Encodes as `0xRRGGBBAA`.
 const fn rgba(bright: bool, has_red: bool, has_green: bool, has_blue: bool) -> u32 {
-    let primary = if bright { PRIMARY_BRIGHT } else { PRIMARY_NORMAL };
+    let primary = if bright {
+        PRIMARY_BRIGHT
+    } else {
+        PRIMARY_NORMAL
+    };
     let r = if has_red { primary } else { 0 };
     let g = if has_green { primary } else { 0 };
     let b = if has_blue { primary } else { 0 };

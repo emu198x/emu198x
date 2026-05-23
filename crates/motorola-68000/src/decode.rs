@@ -18,18 +18,19 @@ use crate::addressing::AddrMode;
 use crate::alu::Size;
 use crate::cpu::{
     AluOp, BitOp, Cpu68000, State, TAG_ADDX_READ_DST, TAG_ADDX_READ_SRC, TAG_ADDX_WRITE,
-    TAG_AE_FETCH_VECTOR, TAG_AE_FINISH, TAG_AE_PUSH_FAULT, TAG_AE_PUSH_INFO, TAG_AE_PUSH_IR,
-    TAG_AE_PUSH_SR, TAG_BCC_EXECUTE, TAG_BCD_DST_READ, TAG_BCD_SRC_READ, TAG_BSR_EXECUTE,
-    TAG_CHK_EXECUTE, TAG_DATA_DST_LONG, TAG_DATA_SRC_LONG, TAG_DBCC_EXECUTE, TAG_EA_DST_DISP,
-    TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
-    TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_FORMAT, TAG_EXC_STACK_INSTR_ADDR_HI,
-    TAG_EXC_STACK_INSTR_ADDR_LO, TAG_EXC_STACK_PC_HI, TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR,
-    TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA,
-    TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
-    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_FMT2_HI,
-    TAG_RTE_READ_FMT2_LO, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO,
-    TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
-    TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
+    TAG_AE_FETCH_VECTOR, TAG_AE_FINISH, TAG_AE_FMT_A_STEP, TAG_AE_PUSH_FAULT, TAG_AE_PUSH_INFO,
+    TAG_AE_PUSH_IR, TAG_AE_PUSH_SR, TAG_BCC_EXECUTE, TAG_BCD_DST_READ, TAG_BCD_SRC_READ,
+    TAG_BSR_EXECUTE, TAG_CHK_EXECUTE, TAG_DATA_DST_LONG, TAG_DATA_SRC_LONG, TAG_DBCC_EXECUTE,
+    TAG_EA_DST_DISP, TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG,
+    TAG_EA_SRC_PCDISP, TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_FORMAT,
+    TAG_EXC_STACK_INSTR_ADDR_HI, TAG_EXC_STACK_INSTR_ADDR_LO, TAG_EXC_STACK_PC_HI,
+    TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA,
+    TAG_FETCH_SRC_DATA, TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT,
+    TAG_MOVEM_RESOLVE_EA, TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE,
+    TAG_RTE_READ_FMT2_HI, TAG_RTE_READ_FMT2_LO, TAG_RTE_READ_FMTA_STEP, TAG_RTE_READ_FORMAT,
+    TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI,
+    TAG_RTR_READ_PC_LO, TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI,
+    TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -1878,9 +1879,20 @@ impl Cpu68000 {
                         self.micro_ops.push(MicroOp::ReadWord);
                         self.micro_ops.push(MicroOp::Execute);
                     }
+                    0xA => {
+                        // 28-byte short bus-fault frame: 20 more
+                        // bytes (10 words) above the F/V word —
+                        // internal pipeline state we don't track.
+                        // Pop them step-by-step to advance SSP.
+                        self.rte_fmta_step = 0;
+                        self.followup_tag = TAG_RTE_READ_FMTA_STEP;
+                        self.micro_ops.clear();
+                        self.micro_ops.push(MicroOp::ReadWord);
+                        self.micro_ops.push(MicroOp::Execute);
+                    }
                     _ => {
                         // Other formats (1 throwaway, 9 coprocessor
-                        // mid-instruction, A/B access fault) are not
+                        // mid-instruction, B access fault) are not
                         // implemented yet. KS doesn't generate them
                         // during normal boot; if encountered we just
                         // resume — better than halting, and any real
@@ -1891,6 +1903,24 @@ impl Cpu68000 {
                         self.micro_ops.push(MicroOp::PromoteIRC);
                         self.in_followup = false;
                     }
+                }
+            }
+            TAG_RTE_READ_FMTA_STEP => {
+                // Each step has just completed one word read; advance
+                // SSP. After 10 words (20 bytes) we've consumed the
+                // Format-$A frame's internal state and can finish.
+                self.addr = self.addr.wrapping_add(2);
+                self.regs.ssp = self.addr;
+                self.rte_fmta_step = self.rte_fmta_step.wrapping_add(1);
+                if self.rte_fmta_step >= 10 {
+                    self.micro_ops.clear();
+                    self.micro_ops.push(MicroOp::FetchIRC);
+                    self.micro_ops.push(MicroOp::PromoteIRC);
+                    self.in_followup = false;
+                } else {
+                    self.followup_tag = TAG_RTE_READ_FMTA_STEP;
+                    self.micro_ops.push(MicroOp::ReadWord);
+                    self.micro_ops.push(MicroOp::Execute);
                 }
             }
             TAG_RTE_READ_FMT2_HI => {
@@ -2215,6 +2245,88 @@ impl Cpu68000 {
                 self.data = u32::from(self.ae_access_info);
                 self.followup_tag = TAG_AE_FETCH_VECTOR;
                 self.micro_ops.push(MicroOp::PushWord);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+
+            // 68020+ short bus-fault frame (Format $A, 28 bytes).
+            // Pushes the 11 frame fields back-to-front so the final
+            // SP rests at the SR slot. Internal/pipeline fields we
+            // don't track (Stage B, SSW, internal registers, data
+            // output buffer) push as zero — KS 3.1's vec-2/3
+            // handler doesn't read them in the cycle-1 boot path.
+            TAG_AE_FMT_A_STEP => {
+                let step = self.ae_fmt_a_step;
+                self.ae_fmt_a_step = step.wrapping_add(1);
+                self.followup_tag = if step >= 10 {
+                    TAG_AE_FETCH_VECTOR
+                } else {
+                    TAG_AE_FMT_A_STEP
+                };
+                match step {
+                    0 => {
+                        // Data Output Buffer (long) — top of frame.
+                        self.data = 0;
+                        self.micro_ops.push(MicroOp::PushLongHi);
+                        self.micro_ops.push(MicroOp::PushLongLo);
+                    }
+                    1 => {
+                        // Internal register (word).
+                        self.data = 0;
+                        self.micro_ops.push(MicroOp::PushWord);
+                    }
+                    2 => {
+                        // Internal register (word).
+                        self.data = 0;
+                        self.micro_ops.push(MicroOp::PushWord);
+                    }
+                    3 => {
+                        // Data Cycle Fault Address (long).
+                        self.data = self.ae_fault_addr;
+                        self.micro_ops.push(MicroOp::PushLongHi);
+                        self.micro_ops.push(MicroOp::PushLongLo);
+                    }
+                    4 => {
+                        // Instruction Pipe Stage B (word).
+                        self.data = 0;
+                        self.micro_ops.push(MicroOp::PushWord);
+                    }
+                    5 => {
+                        // Instruction Pipe Stage C (word) — the
+                        // instruction we were executing.
+                        self.data = u32::from(self.ae_frame_ir);
+                        self.micro_ops.push(MicroOp::PushWord);
+                    }
+                    6 => {
+                        // Special Status Word.
+                        self.data = 0;
+                        self.micro_ops.push(MicroOp::PushWord);
+                    }
+                    7 => {
+                        // Internal register (word).
+                        self.data = 0;
+                        self.micro_ops.push(MicroOp::PushWord);
+                    }
+                    8 => {
+                        // Format / Vector word: Format $A in high
+                        // nibble, vector offset (= vec * 4) in the
+                        // low 12 bits.
+                        let fv = 0xA000u16 | (u16::from(self.group0_vector) * 4);
+                        self.data = u32::from(fv);
+                        self.micro_ops.push(MicroOp::PushWord);
+                    }
+                    9 => {
+                        // PC (long).
+                        self.data = self.ae_frame_pc;
+                        self.micro_ops.push(MicroOp::PushLongHi);
+                        self.micro_ops.push(MicroOp::PushLongLo);
+                    }
+                    10 => {
+                        // SR (word) — bottom of frame, final SP.
+                        self.data = u32::from(self.ae_saved_sr);
+                        self.micro_ops.push(MicroOp::PushWord);
+                    }
+                    _ => unreachable!("ae_fmt_a_step exceeded 10"),
+                }
                 self.micro_ops.push(MicroOp::Execute);
             }
 

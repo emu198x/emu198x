@@ -67,7 +67,10 @@ pub struct DeniseAga {
 mod palette_24_serde {
     use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
 
-    pub fn serialize<S: Serializer>(p: &[u32; super::PALETTE_ENTRIES_24], s: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(
+        p: &[u32; super::PALETTE_ENTRIES_24],
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
         s.collect_seq(p.iter())
     }
 
@@ -75,8 +78,9 @@ mod palette_24_serde {
         d: D,
     ) -> Result<[u32; super::PALETTE_ENTRIES_24], D::Error> {
         let v: Vec<u32> = Vec::deserialize(d)?;
-        v.try_into()
-            .map_err(|v: Vec<u32>| D::Error::custom(format!("palette_24 length {} != 256", v.len())))
+        v.try_into().map_err(|v: Vec<u32>| {
+            D::Error::custom(format!("palette_24 length {} != 256", v.len()))
+        })
     }
 }
 

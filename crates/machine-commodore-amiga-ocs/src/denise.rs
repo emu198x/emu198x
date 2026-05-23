@@ -6,8 +6,8 @@
 //! `diw_vertical_window`, `lores_fetch_plane`) re-exported from the
 //! substrate for callers that import via `crate::denise::*`.
 
-pub use common_commodore_amiga::denise::{FB_HEIGHT, FB_WIDTH, dma_claim};
 use commodore_denise_ocs::DeniseOcs;
+pub use common_commodore_amiga::denise::{FB_HEIGHT, FB_WIDTH, dma_claim};
 
 pub type Denise = common_commodore_amiga::denise::Denise<DeniseOcs>;
 

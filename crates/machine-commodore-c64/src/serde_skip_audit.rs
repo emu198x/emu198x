@@ -35,18 +35,16 @@ struct SerdeSkipAudit {
 }
 
 #[cfg(test)]
-const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
-    SerdeSkipAudit {
-        path: "crates/mos-sid-6581/src/lib.rs",
-        expected: 2,
-        justification: "Transient audio output buffers (`buffer` and \
+const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[SerdeSkipAudit {
+    path: "crates/mos-sid-6581/src/lib.rs",
+    expected: 2,
+    justification: "Transient audio output buffers (`buffer` and \
                         `channel_buffers`). Default::default() produces empty \
                         Vec, which is correct — the host drains buffered \
                         samples each frame and missing them across a restore \
                         boundary is fine (the next frame's audio is generated \
                         from current chip state). No `after_restore` needed.",
-    },
-];
+}];
 
 #[cfg(test)]
 mod tests {

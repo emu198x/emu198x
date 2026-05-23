@@ -632,7 +632,10 @@ mod tests {
         m.insert_disk(image);
         assert!(m.fdc.has_disk(0), "insert_disk must mount on drive 0");
         m.eject_disk();
-        assert!(!m.fdc.has_disk(0), "eject_disk must remove the mounted image");
+        assert!(
+            !m.fdc.has_disk(0),
+            "eject_disk must remove the mounted image"
+        );
     }
 
     /// `audio_controls` round-trips through `set_audio_controls`. Used

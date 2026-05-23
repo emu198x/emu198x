@@ -257,13 +257,12 @@ fn is_expected_divergent_fixture(name: &str) -> bool {
             // fixture triggers a group-1/2 exception.
             | "CHK" | "TRAP" | "TRAPV" | "BKPT" | "RTE" | "RTR"
             // MOVE from SR — non-privileged on 68000, privileged on 68010+.
-            | "MOVEfromSR"
-            // 68010+ exception frame contains a Format/Vector word
-            // that the 68000 corpus's MOVEM (write to stack via TRAP)
-            // and similar context-saves don't match.
-            //
-            // Note: MOVEM itself isn't divergent at the ISA level;
-            // any failure here would be a regression. Not skipped.
+            | "MOVEfromSR" // 68010+ exception frame contains a Format/Vector word
+                           // that the 68000 corpus's MOVEM (write to stack via TRAP)
+                           // and similar context-saves don't match.
+                           //
+                           // Note: MOVEM itself isn't divergent at the ISA level;
+                           // any failure here would be a regression. Not skipped.
     )
 }
 

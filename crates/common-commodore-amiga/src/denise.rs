@@ -206,11 +206,7 @@ impl<C: DeniseChip> Denise<C> {
     /// Read one COLOR palette entry from the chip.
     #[must_use]
     pub fn color(&self, idx: usize) -> u16 {
-        if idx < 32 {
-            self.ocs.palette()[idx]
-        } else {
-            0
-        }
+        if idx < 32 { self.ocs.palette()[idx] } else { 0 }
     }
 
     /// Tick one master/4 period (= 1 lores pixel, = half a CCK).

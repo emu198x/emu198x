@@ -592,10 +592,7 @@ mod tests {
         assert_eq!(out[0].flag, 0xFF);
         // Full re-encoded form: flag + data + XOR checksum.
         let expected_checksum = 0xFF ^ 0x01 ^ 0x02 ^ 0x03;
-        assert_eq!(
-            out[0].data,
-            vec![0xFF, 0x01, 0x02, 0x03, expected_checksum]
-        );
+        assert_eq!(out[0].data, vec![0xFF, 0x01, 0x02, 0x03, expected_checksum]);
     }
 
     /// `tap_blocks_to_tape_blocks` returns an empty vector for an
@@ -674,7 +671,11 @@ mod tests {
         let mut set = MediaSet::new();
         // A real TAP block: flag 0x00, one byte 0x42, checksum 0x42.
         let tap_bytes = [0x03, 0x00, 0x00, 0x42, 0x42];
-        set.push(MediaImage::new("tape-2", emu198x_shell::MediaKind::Tape, &tap_bytes));
+        set.push(MediaImage::new(
+            "tape-2",
+            emu198x_shell::MediaKind::Tape,
+            &tap_bytes,
+        ));
         match runtime.load_media(&set) {
             Err(MachineError::UnknownMediaSlot { slot }) => assert_eq!(slot, "tape-2"),
             other => panic!("expected UnknownMediaSlot, got {other:?}"),

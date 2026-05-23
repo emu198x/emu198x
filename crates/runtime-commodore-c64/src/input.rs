@@ -57,8 +57,8 @@ fn canonical_control(name: &str) -> Option<&'static str> {
         // The C64 joystick has a single fire button; gamepad face
         // buttons all route to it so the host-side mapper stays
         // neutral about vendor labels.
-        "fire" | "south" | "cross" | "button1" | "east" | "circle" | "button2"
-        | "west" | "square" | "button3" | "north" | "triangle" | "button4" => "FIRE",
+        "fire" | "south" | "cross" | "button1" | "east" | "circle" | "button2" | "west"
+        | "square" | "button3" | "north" | "triangle" | "button4" => "FIRE",
         _ => return None,
     })
 }

@@ -82,9 +82,7 @@ impl NativeAudioOutput {
         // so the inner `.0` access from the newtype is gone — `sample_rate`
         // is the bare u32 now.
         let max_samples = usize::try_from(
-            (u64::from(config.sample_rate)
-                * u64::from(config.channels)
-                * u64::from(max_buffer_ms))
+            (u64::from(config.sample_rate) * u64::from(config.channels) * u64::from(max_buffer_ms))
                 / 1_000,
         )
         .unwrap_or(usize::MAX)

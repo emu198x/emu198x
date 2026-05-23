@@ -662,9 +662,13 @@ mod tests {
             .take(3)
             .chain(std::iter::once(TapeSpan::Pulse(500)))
             .chain(std::iter::once(TapeSpan::Pulse(600)))
-            .chain([200, 200, 100, 100, 200, 200, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]
+            .chain(
+                [
+                    200, 200, 100, 100, 200, 200, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+                ]
                 .into_iter()
-                .map(TapeSpan::Pulse))
+                .map(TapeSpan::Pulse),
+            )
             .collect();
         assert_eq!(stream, expected);
     }
@@ -922,7 +926,10 @@ mod tests {
 
         let err = tzx_to_stream(&data).expect_err("unknown block should error");
         assert!(err.contains("Unknown TZX block"), "got {err:?}");
-        assert!(err.contains("0xFE"), "error should name the bad byte: {err:?}");
+        assert!(
+            err.contains("0xFE"),
+            "error should name the bad byte: {err:?}"
+        );
     }
 
     /// A file shorter than 10 bytes (the minimum header length) is
@@ -943,7 +950,10 @@ mod tests {
         data.push(0); // minor
         let err = tzx_to_stream(&data).expect_err("v2.0 should fail");
         assert!(err.contains("Unsupported"), "got {err:?}");
-        assert!(err.contains("2.0"), "error should name the version: {err:?}");
+        assert!(
+            err.contains("2.0"),
+            "error should name the version: {err:?}"
+        );
     }
 
     #[test]

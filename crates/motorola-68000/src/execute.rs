@@ -1066,7 +1066,11 @@ fn bcd_sub_musashi(dst: u8, src: u8, extend: u8) -> (u8, bool, bool) {
 /// leaves the destination unchanged but sets N from bit 7 of the
 /// intermediate `0x9a` (= 1) and clears V / C / X. We apply those
 /// flag changes here and signal "no writeback" via `None`.
-fn nbcd_op_musashi(cpu: &mut crate::cpu::Cpu68000, src: u8, extend: u8) -> Option<(u8, bool, bool)> {
+fn nbcd_op_musashi(
+    cpu: &mut crate::cpu::Cpu68000,
+    src: u8,
+    extend: u8,
+) -> Option<(u8, bool, bool)> {
     let pre: u32 = (0x9a_u32
         .wrapping_sub(u32::from(src))
         .wrapping_sub(u32::from(extend)))

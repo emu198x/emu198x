@@ -42,11 +42,7 @@ use serde_json::json;
 /// flips the peripheral's `attached` flag and updates the bit. Returns
 /// `false` for indices outside `0..=4` so callers can propagate the
 /// failure signal back to the trait method's contract.
-fn apply_kempston_button_index(
-    joystick: &mut KempstonJoystick,
-    button: u8,
-    pressed: bool,
-) -> bool {
+fn apply_kempston_button_index(joystick: &mut KempstonJoystick, button: u8, pressed: bool) -> bool {
     let Some(b) = KempstonButton::from_index(button) else {
         return false;
     };

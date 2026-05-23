@@ -150,10 +150,7 @@ fn snapshot_envelope_version_is_locked_at_v1() -> Result<(), Box<dyn Error>> {
     media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
     runtime.load_media(&media)?;
     let bytes = runtime.snapshot()?;
-    assert!(
-        !bytes.is_empty(),
-        "snapshot must have a non-empty envelope"
-    );
+    assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
     assert_eq!(
         bytes[0], 1,
         "NES snapshot envelope version should be 1 (got {})",
@@ -235,9 +232,7 @@ fn cartridge_bytes_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
     let mut restored = NesRuntime::blank(Model::NesNtsc);
     restored.restore(&bytes)?;
     let restored_bytes = restored.snapshot()?;
-    let magic_present_after = restored_bytes
-        .windows(magic.len())
-        .any(|w| w == magic);
+    let magic_present_after = restored_bytes.windows(magic.len()).any(|w| w == magic);
     assert!(
         magic_present_after,
         "iNES magic should survive snapshot → restore → snapshot"

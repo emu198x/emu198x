@@ -73,6 +73,11 @@ impl Cpu68020 {
         // with an extra Instruction-Address long at the top.
         // M68000PRM § 8.6.3.
         self.inner.variant_format2_vectors = true;
+        // The 68020+ promotes group-0 (bus/address error) to a
+        // 28-byte Format-$A "short bus fault" frame. KS 3.1's
+        // vec-2/3 handler reads at Format-$A field offsets (SR at
+        // SP+0, PC at SP+2, F/V at SP+6, ...). M68000PRM § 8.6.4.
+        self.inner.variant_format_a_group0 = true;
     }
 
     /// Borrow the wrapped 68010 core.
@@ -138,8 +143,8 @@ impl<'de> serde::Deserialize<'de> for Cpu68020 {
 
 // ─── Decode hook ──────────────────────────────────────────────────
 
+use motorola_68k_common::flags::{C, N, V, Z};
 use motorola_68010::decode_68010_opcode;
-use motorola_68k_common::flags::{N, Z, V, C};
 
 /// Hook installed on [`Cpu68000::variant_decode_hook`] by every
 /// [`Cpu68020`] instance. Chains to the 68010 hook for opcodes the
@@ -421,8 +426,8 @@ fn execute_movec_68020_cr_to_rn(cpu: &mut Cpu68000) -> bool {
         return true;
     }
     let ext = cpu.consume_irc();
-    let value = read_68020_cr(cpu, ext)
-        .or_else(|| motorola_68010::cpu::read_control_register(cpu, ext));
+    let value =
+        read_68020_cr(cpu, ext).or_else(|| motorola_68010::cpu::read_control_register(cpu, ext));
     let Some(value) = value else {
         cpu.begin_group1_exception(4, cpu.instr_start_pc);
         return true;

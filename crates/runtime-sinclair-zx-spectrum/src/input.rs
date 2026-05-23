@@ -88,24 +88,40 @@ pub(crate) fn apply_input_event<M: SpectrumMachine>(
                 runtime.keyboard_mut().set_key(key, *pressed);
             }
         }
-        InputEvent::Button { port: 0, name, pressed } => {
+        InputEvent::Button {
+            port: 0,
+            name,
+            pressed,
+        } => {
             if let Some(button) = kempston_button_from_name(name.as_ref()) {
                 runtime.machine_mut().set_kempston_button(button, *pressed);
             }
         }
-        InputEvent::Axis { port: 0, name, value } => {
+        InputEvent::Axis {
+            port: 0,
+            name,
+            value,
+        } => {
             if let Some((neg, pos)) = kempston_axis_pair(name.as_ref()) {
                 let (pos_pressed, neg_pressed) = axis_to_button_pair(*value);
                 runtime.machine_mut().set_kempston_button(pos, pos_pressed);
                 runtime.machine_mut().set_kempston_button(neg, neg_pressed);
             }
         }
-        InputEvent::Button { port: port @ (1 | 2), name, pressed } => {
+        InputEvent::Button {
+            port: port @ (1 | 2),
+            name,
+            pressed,
+        } => {
             if let Some(key) = if2_button_to_key(*port, name.as_ref()) {
                 runtime.keyboard_mut().set_key(key, *pressed);
             }
         }
-        InputEvent::Axis { port: port @ (1 | 2), name, value } => {
+        InputEvent::Axis {
+            port: port @ (1 | 2),
+            name,
+            value,
+        } => {
             if let Some((neg, pos)) = if2_axis_key_pair(*port, name.as_ref()) {
                 let (pos_pressed, neg_pressed) = axis_to_button_pair(*value);
                 runtime.keyboard_mut().set_key(pos, pos_pressed);

@@ -162,13 +162,8 @@ impl DeniseChip for DeniseEcs {
         beam_y: u32,
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug {
-        self.as_inner_mut().output_pixel_with_beam_and_playfield_gate(
-            x,
-            y,
-            beam_x,
-            beam_y,
-            playfield_visible_gate,
-        )
+        self.as_inner_mut()
+            .output_pixel_with_beam_and_playfield_gate(x, y, beam_x, beam_y, playfield_visible_gate)
     }
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
         self.as_inner_mut().resolve_color_rgb12(color_idx)

@@ -243,8 +243,7 @@ mod tests {
             .snapshot()
             .expect("Plus3 snapshot with disk should encode");
 
-        let mut restored =
-            SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+        let mut restored = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
         assert!(
             !restored.machine().fdc.has_disk(0),
             "fresh runtime must not have a disk yet"

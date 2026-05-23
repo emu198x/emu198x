@@ -128,6 +128,10 @@ pub const TAG_RTE_READ_FORMAT: u8 = 91;
 pub const TAG_RTE_READ_FMT2_HI: u8 = 92;
 /// RTE: 68020+ Format $2 — low word of Instruction Address read.
 pub const TAG_RTE_READ_FMT2_LO: u8 = 93;
+/// RTE: 68020+ Format $A short bus-fault — pop the remaining 20
+/// bytes (= 10 words) above the F/V word. Each step reads one word
+/// and advances SSP; step 10 finishes the RTE.
+pub const TAG_RTE_READ_FMTA_STEP: u8 = 95;
 
 // RTR follow-ups
 pub const TAG_RTR_READ_CCR: u8 = 67;
@@ -182,6 +186,10 @@ pub const TAG_AE_PUSH_INFO: u8 = 53;
 pub const TAG_AE_FETCH_VECTOR: u8 = 54;
 /// AE: jump to vector address.
 pub const TAG_AE_FINISH: u8 = 55;
+/// 68020+ Format `$A` short bus-fault frame push step. Called
+/// repeatedly with `ae_fmt_a_step` selecting which field to push;
+/// step 11 hands off to `TAG_AE_FETCH_VECTOR`.
+pub const TAG_AE_FMT_A_STEP: u8 = 94;
 
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
@@ -481,6 +489,37 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_extended_sr_writes: bool,
 
+    /// 68020+ Format `$A` group-0 exception frame.
+    ///
+    /// The 68000 / 68010 push a 14-byte frame for bus error (vec 2)
+    /// and address error (vec 3): access info, fault address, IR,
+    /// SR, PC. The 68020 promotes group-0 to a 28-byte short
+    /// bus-fault frame (Format `$A`) with a different layout:
+    /// SR, PC, F/V word, then internal pipeline state. KS 3.1's
+    /// vec-2/3 handler at `$F80B0E` reads the frame at offsets
+    /// consistent with Format `$A`; with our 14-byte frame, the
+    /// handler reads the wrong fields and routes through code
+    /// paths that don't work on 68020. PRM § 8.6.4.
+    #[serde(skip)]
+    pub variant_format_a_group0: bool,
+
+    /// Step counter for the 11-step Format `$A` push sequence.
+    /// Consulted by `TAG_AE_FMT_A_STEP`.
+    #[serde(skip)]
+    pub(crate) ae_fmt_a_step: u8,
+
+    /// Step counter for the 10-step Format `$A` RTE pop. Each step
+    /// reads one word and advances SSP; step 10 finishes the RTE.
+    #[serde(skip)]
+    pub(crate) rte_fmta_step: u8,
+
+    /// Frame PC saved at group-0 entry for use by Format `$A`
+    /// pushes. The 68000 path stores it in `self.data` and pushes
+    /// immediately; Format `$A` needs the value preserved across
+    /// many intermediate pushes.
+    #[serde(skip)]
+    pub(crate) ae_frame_pc: u32,
+
     /// Pending PC value during the 68010+ exception frame push.
     ///
     /// When `variant_six_word_frame` is set,
@@ -579,6 +618,10 @@ impl Cpu68000 {
             variant_musashi_bcd_v: false,
             variant_musashi_div_overflow: false,
             variant_extended_sr_writes: false,
+            variant_format_a_group0: false,
+            ae_fmt_a_step: 0,
+            ae_frame_pc: 0,
+            rte_fmta_step: 0,
             exc_pending_pc: 0,
             variant_continue_hook: None,
             variant_pending_disp: 0,
@@ -1313,11 +1356,27 @@ impl Cpu68000 {
 
         // Frame PC: complex formula that depends on instruction type,
         // addressing modes, access size, and read/write direction.
-        self.data = self.compute_ae_frame_pc(is_read);
-        self.followup_tag = TAG_AE_PUSH_SR;
-        self.micro_ops.push(MicroOp::PushLongHi);
-        self.micro_ops.push(MicroOp::PushLongLo);
-        self.micro_ops.push(MicroOp::Execute);
+        let frame_pc = self.compute_ae_frame_pc(is_read);
+
+        if self.variant_format_a_group0 {
+            // 68020+ 28-byte Format $A frame. The push happens
+            // back-to-front (highest field first) so the final SP
+            // ends up at the SR slot. Stash the PC for the
+            // multi-step push handler.
+            self.ae_frame_pc = frame_pc;
+            self.ae_fmt_a_step = 0;
+            self.data = 0;
+            self.followup_tag = TAG_AE_FMT_A_STEP;
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            // 68000-style 14-byte frame: push PC first, then SR,
+            // IR, fault address, access info.
+            self.data = frame_pc;
+            self.followup_tag = TAG_AE_PUSH_SR;
+            self.micro_ops.push(MicroOp::PushLongHi);
+            self.micro_ops.push(MicroOp::PushLongLo);
+            self.micro_ops.push(MicroOp::Execute);
+        }
     }
 
     /// Start a bus error exception sequence.
@@ -1350,12 +1409,21 @@ impl Cpu68000 {
         self.ae_access_info =
             (self.ir & 0xFFE0) | (if is_read { 0x10 } else { 0 }) | u16::from(fc.bits() & 0x07);
 
-        // Reuse the AE tag chain — group0_vector selects vector 2.
-        self.data = self.instr_start_pc;
-        self.followup_tag = TAG_AE_PUSH_SR;
-        self.micro_ops.push(MicroOp::PushLongHi);
-        self.micro_ops.push(MicroOp::PushLongLo);
-        self.micro_ops.push(MicroOp::Execute);
+        if self.variant_format_a_group0 {
+            // 68020+ 28-byte Format $A frame.
+            self.ae_frame_pc = self.instr_start_pc;
+            self.ae_fmt_a_step = 0;
+            self.data = 0;
+            self.followup_tag = TAG_AE_FMT_A_STEP;
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            // 68000-style: reuse the AE tag chain.
+            self.data = self.instr_start_pc;
+            self.followup_tag = TAG_AE_PUSH_SR;
+            self.micro_ops.push(MicroOp::PushLongHi);
+            self.micro_ops.push(MicroOp::PushLongLo);
+            self.micro_ops.push(MicroOp::Execute);
+        }
     }
 
     /// Compute the frame PC for an address error exception.

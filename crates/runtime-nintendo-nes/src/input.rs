@@ -157,18 +157,18 @@ mod tests {
     fn gamepad_alias_south_maps_to_a_button() {
         let mut nes = make_nes();
         apply_input_event(&mut nes, &button(1, "south", true));
-        assert_eq!(nes.controller1_state & 0b0000_0001, 0b0000_0001, "south → a");
+        assert_eq!(
+            nes.controller1_state & 0b0000_0001,
+            0b0000_0001,
+            "south → a"
+        );
     }
 
     #[test]
     fn gamepad_alias_east_maps_to_b_button() {
         let mut nes = make_nes();
         apply_input_event(&mut nes, &button(1, "east", true));
-        assert_eq!(
-            nes.controller1_state & 0b0000_0010,
-            0b0000_0010,
-            "east → b"
-        );
+        assert_eq!(nes.controller1_state & 0b0000_0010, 0b0000_0010, "east → b");
     }
 
     #[test]

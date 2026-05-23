@@ -25,7 +25,7 @@ use machine_pentagon_128::Pentagon128;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use runtime_sinclair_zx_spectrum::{
-    Model, Pentagon128Runtime, Spectrum128kRuntime, Spectrum48kRuntime, SpectrumMachine,
+    Model, Pentagon128Runtime, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumMachine,
     SpectrumPlus3Runtime,
 };
 
@@ -123,9 +123,7 @@ fn int_asserts_at_canonical_t_state_48k() -> Result<(), Box<dyn Error>> {
     // Step one frame forward, then position just before the INT
     // window. After this advance, scan should be at 248 and pixel
     // at ~0 — INT hasn't fired yet on this scan.
-    runtime
-        .machine_mut()
-        .advance_tstates(248 * 224 - 1);
+    runtime.machine_mut().advance_tstates(248 * 224 - 1);
     assert!(
         !runtime.machine().z80().irq,
         "INT must not be asserted before the canonical T-state"

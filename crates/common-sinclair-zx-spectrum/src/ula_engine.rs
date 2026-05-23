@@ -738,10 +738,7 @@ mod tests {
             e.tick_rendering(&mem, &mut fb);
         }
         assert_eq!(e.pixel, 12);
-        assert_eq!(
-            e.border_aolatch, 7,
-            "AOLatch unchanged before the boundary"
-        );
+        assert_eq!(e.border_aolatch, 7, "AOLatch unchanged before the boundary");
 
         // Eighth tick: entry pixel = 12 (matches p&0x07==4). AOLatch
         // samples BorderLatch. Pixel increments to 13.

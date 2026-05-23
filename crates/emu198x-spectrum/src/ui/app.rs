@@ -74,13 +74,11 @@ const SPECTRUM_GAMEPAD_IF2_AXES: AxisInputMap = AxisInputMap::new(&[
 /// key `0`) because their rear-connector pinout physically cannot
 /// host a Kempston interface — the gamepad is the only joystick path
 /// that reaches a game on those machines.
-fn gamepad_maps_for_machine(
-    kind: MachineKind,
-) -> (&'static ButtonInputMap, &'static AxisInputMap) {
+fn gamepad_maps_for_machine(kind: MachineKind) -> (&'static ButtonInputMap, &'static AxisInputMap) {
     match kind {
-        MachineKind::SpectrumPlus2A
-        | MachineKind::SpectrumPlus2B
-        | MachineKind::SpectrumPlus3 => (&SPECTRUM_GAMEPAD_IF2_BUTTONS, &SPECTRUM_GAMEPAD_IF2_AXES),
+        MachineKind::SpectrumPlus2A | MachineKind::SpectrumPlus2B | MachineKind::SpectrumPlus3 => {
+            (&SPECTRUM_GAMEPAD_IF2_BUTTONS, &SPECTRUM_GAMEPAD_IF2_AXES)
+        }
         _ => (
             &SPECTRUM_GAMEPAD_KEMPSTON_BUTTONS,
             &SPECTRUM_GAMEPAD_KEMPSTON_AXES,

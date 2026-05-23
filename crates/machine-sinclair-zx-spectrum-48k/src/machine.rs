@@ -201,14 +201,21 @@ mod tests {
         assert_eq!(machine.kempston_mut().state, 0);
 
         machine.apply_kempston_event(KempstonButton::Fire, true);
-        assert!(machine.kempston_mut().attached, "first event must attach the interface");
+        assert!(
+            machine.kempston_mut().attached,
+            "first event must attach the interface"
+        );
         assert_eq!(machine.kempston_mut().state, 0b0001_0000, "fire bit");
 
         machine.apply_kempston_event(KempstonButton::Right, true);
         assert_eq!(machine.kempston_mut().state, 0b0001_0001, "fire + right");
 
         machine.apply_kempston_event(KempstonButton::Fire, false);
-        assert_eq!(machine.kempston_mut().state, 0b0000_0001, "only right after fire release");
+        assert_eq!(
+            machine.kempston_mut().state,
+            0b0000_0001,
+            "only right after fire release"
+        );
     }
 
     #[test]

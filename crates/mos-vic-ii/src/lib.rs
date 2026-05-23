@@ -1699,7 +1699,8 @@ mod tests {
             assert!(
                 !vic.sprite_ba_low(),
                 "line {} cycle {}: sprite_ba_low fired with no sprites enabled",
-                vic.raster_line, vic.raster_cycle
+                vic.raster_line,
+                vic.raster_cycle
             );
         }
     }

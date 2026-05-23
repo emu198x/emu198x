@@ -373,12 +373,18 @@ mod tests {
         // Mode 0: banks 0,1,2,3 — nothing contended.
         mem.write_1ffd(0x01);
         for addr in [0x0000u16, 0x4000, 0x8000, 0xC000] {
-            assert!(!mem.is_contended(addr), "mode 0 addr {addr:#06x} unexpectedly contended");
+            assert!(
+                !mem.is_contended(addr),
+                "mode 0 addr {addr:#06x} unexpectedly contended"
+            );
         }
         // Mode 1: banks 4,5,6,7 — all four contended.
         mem.write_1ffd(0x03);
         for addr in [0x0000u16, 0x4000, 0x8000, 0xC000] {
-            assert!(mem.is_contended(addr), "mode 1 addr {addr:#06x} should be contended");
+            assert!(
+                mem.is_contended(addr),
+                "mode 1 addr {addr:#06x} should be contended"
+            );
         }
     }
 

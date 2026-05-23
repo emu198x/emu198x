@@ -131,9 +131,8 @@ mod tests {
 
         for audit in EXPECTED_SERDE_SKIPS {
             let path = root.join(audit.path);
-            let source = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-                panic!("audit cannot read {}: {e}", path.display())
-            });
+            let source = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("audit cannot read {}: {e}", path.display()));
             let actual = count_serde_skip_annotations(&source);
             if actual != audit.expected {
                 mismatches.push(format!(

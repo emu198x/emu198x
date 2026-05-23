@@ -435,11 +435,7 @@ mod tests {
             // R7 was forced to 0xC7 above (mixer bits + IO direction
             // bits). Other registers carry their literal index.
             let expected = if i == 7 { 0xC7 } else { i };
-            assert_eq!(
-                ay.read_data(),
-                expected,
-                "register {i} round-trip",
-            );
+            assert_eq!(ay.read_data(), expected, "register {i} round-trip",);
         }
         // After helper completes, snap.ay_register stays selected.
         ay.select_register(snap.ay_register);

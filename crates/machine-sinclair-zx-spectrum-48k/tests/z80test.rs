@@ -130,7 +130,10 @@ impl TestOutcome {
 fn run_one(name: &str) -> Option<TestOutcome> {
     let rom_path = rom_path();
     if !rom_path.is_file() {
-        eprintln!("48K ROM not found at {} — skipping {name}", rom_path.display());
+        eprintln!(
+            "48K ROM not found at {} — skipping {name}",
+            rom_path.display()
+        );
         return None;
     }
 
@@ -234,7 +237,10 @@ fn run_one(name: &str) -> Option<TestOutcome> {
         prev_pc_at_rst10 = at_rst10;
     }
 
-    Some(TestOutcome { transcript, tstates })
+    Some(TestOutcome {
+        transcript,
+        tstates,
+    })
 }
 
 fn assert_passed(name: &str, outcome: &TestOutcome) {
@@ -278,30 +284,30 @@ fn assert_passed_with_allowlist(name: &str, outcome: &TestOutcome, allowed_failu
 
     let allowed_observed: Vec<&String> = observed_failures
         .iter()
-        .filter(|line| allowed_failures.iter().any(|allowed| line.contains(allowed)))
+        .filter(|line| {
+            allowed_failures
+                .iter()
+                .any(|allowed| line.contains(allowed))
+        })
         .collect();
     let unexpected: Vec<&String> = observed_failures
         .iter()
-        .filter(|line| !allowed_failures.iter().any(|allowed| line.contains(allowed)))
+        .filter(|line| {
+            !allowed_failures
+                .iter()
+                .any(|allowed| line.contains(allowed))
+        })
         .collect();
 
     let expected_present: Vec<&str> = allowed_failures
         .iter()
         .copied()
-        .filter(|allowed| {
-            observed_failures
-                .iter()
-                .any(|line| line.contains(allowed))
-        })
+        .filter(|allowed| observed_failures.iter().any(|line| line.contains(allowed)))
         .collect();
     let expected_missing: Vec<&str> = allowed_failures
         .iter()
         .copied()
-        .filter(|allowed| {
-            !observed_failures
-                .iter()
-                .any(|line| line.contains(allowed))
-        })
+        .filter(|allowed| !observed_failures.iter().any(|line| line.contains(allowed)))
         .collect();
 
     assert!(
@@ -336,35 +342,45 @@ fn assert_passed_with_allowlist(name: &str, outcome: &TestOutcome, allowed_failu
 #[test]
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80doc() {
-    let Some(outcome) = run_one("z80doc") else { return };
+    let Some(outcome) = run_one("z80doc") else {
+        return;
+    };
     assert_passed("z80doc", &outcome);
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80docflags() {
-    let Some(outcome) = run_one("z80docflags") else { return };
+    let Some(outcome) = run_one("z80docflags") else {
+        return;
+    };
     assert_passed("z80docflags", &outcome);
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80flags() {
-    let Some(outcome) = run_one("z80flags") else { return };
+    let Some(outcome) = run_one("z80flags") else {
+        return;
+    };
     assert_passed("z80flags", &outcome);
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80full() {
-    let Some(outcome) = run_one("z80full") else { return };
+    let Some(outcome) = run_one("z80full") else {
+        return;
+    };
     assert_passed("z80full", &outcome);
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80ccf() {
-    let Some(outcome) = run_one("z80ccf") else { return };
+    let Some(outcome) = run_one("z80ccf") else {
+        return;
+    };
     assert_passed("z80ccf", &outcome);
 }
 
@@ -378,7 +394,9 @@ const Z80MEMPTR_ALLOWLIST: &[&str] = &["INIR->NOP'", "INDR->NOP'"];
 #[test]
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80memptr() {
-    let Some(outcome) = run_one("z80memptr") else { return };
+    let Some(outcome) = run_one("z80memptr") else {
+        return;
+    };
     assert_passed_with_allowlist("z80memptr", &outcome, Z80MEMPTR_ALLOWLIST);
 }
 

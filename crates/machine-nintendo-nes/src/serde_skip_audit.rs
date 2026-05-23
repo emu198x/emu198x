@@ -42,19 +42,17 @@ struct SerdeSkipAudit {
 }
 
 #[cfg(test)]
-const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
-    SerdeSkipAudit {
-        path: "crates/ricoh-apu-2a03/src/lib.rs",
-        expected: 4,
-        justification: "Four `&'static` region-dependent timing tables \
+const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[SerdeSkipAudit {
+    path: "crates/ricoh-apu-2a03/src/lib.rs",
+    expected: 4,
+    justification: "Four `&'static` region-dependent timing tables \
                         (noise period, DMC rate, 4-step and 5-step frame \
                         counter sequences). Rehydrated by `Apu::after_restore` \
                         from the serialized `region` field. Without it, PAL \
                         snapshots silently revert to NTSC tables on restore. \
                         `Nes::restore_snapshot` / `Nes::from_snapshot` invoke \
                         `after_restore`.",
-    },
-];
+}];
 
 #[cfg(test)]
 mod tests {

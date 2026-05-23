@@ -285,13 +285,12 @@ fn is_expected_divergent_fixture(name: &str) -> bool {
             // SR-write instructions where the 68020 preserves the
             // M-flag (bit 12) but the 68000 corpus expects it
             // masked out. variant_extended_sr_writes.
-            | "MOVEtoSR" | "ORItoSR" | "ANDItoSR" | "EORItoSR"
-            // 68020+ exception frame contains a Format/Vector word
-            // that the 68000 corpus's MOVEM (write to stack via TRAP)
-            // and similar context-saves don't match.
-            //
-            // Note: MOVEM itself isn't divergent at the ISA level;
-            // any failure here would be a regression. Not skipped.
+            | "MOVEtoSR" | "ORItoSR" | "ANDItoSR" | "EORItoSR" // 68020+ exception frame contains a Format/Vector word
+                                                               // that the 68000 corpus's MOVEM (write to stack via TRAP)
+                                                               // and similar context-saves don't match.
+                                                               //
+                                                               // Note: MOVEM itself isn't divergent at the ISA level;
+                                                               // any failure here would be a regression. Not skipped.
     )
 }
 

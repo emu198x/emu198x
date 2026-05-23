@@ -142,22 +142,56 @@ fn load_command_schedule(start_frame: usize) -> Vec<KeyAction> {
     let mut t = start_frame;
 
     fn tap(actions: &mut Vec<KeyAction>, t: &mut usize, key: SpectrumKey) {
-        actions.push(KeyAction { at_frame: *t, key, pressed: true });
-        actions.push(KeyAction { at_frame: *t + 6, key, pressed: false });
+        actions.push(KeyAction {
+            at_frame: *t,
+            key,
+            pressed: true,
+        });
+        actions.push(KeyAction {
+            at_frame: *t + 6,
+            key,
+            pressed: false,
+        });
         *t += 12;
     }
 
     fn chord(actions: &mut Vec<KeyAction>, t: &mut usize, modifier: SpectrumKey, key: SpectrumKey) {
-        actions.push(KeyAction { at_frame: *t, key: modifier, pressed: true });
-        actions.push(KeyAction { at_frame: *t, key, pressed: true });
-        actions.push(KeyAction { at_frame: *t + 6, key, pressed: false });
-        actions.push(KeyAction { at_frame: *t + 6, key: modifier, pressed: false });
+        actions.push(KeyAction {
+            at_frame: *t,
+            key: modifier,
+            pressed: true,
+        });
+        actions.push(KeyAction {
+            at_frame: *t,
+            key,
+            pressed: true,
+        });
+        actions.push(KeyAction {
+            at_frame: *t + 6,
+            key,
+            pressed: false,
+        });
+        actions.push(KeyAction {
+            at_frame: *t + 6,
+            key: modifier,
+            pressed: false,
+        });
         *t += 12;
     }
 
     tap(&mut actions, &mut t, SpectrumKey::J);
-    chord(&mut actions, &mut t, SpectrumKey::SymbolShift, SpectrumKey::P);
-    chord(&mut actions, &mut t, SpectrumKey::SymbolShift, SpectrumKey::P);
+    chord(
+        &mut actions,
+        &mut t,
+        SpectrumKey::SymbolShift,
+        SpectrumKey::P,
+    );
+    chord(
+        &mut actions,
+        &mut t,
+        SpectrumKey::SymbolShift,
+        SpectrumKey::P,
+    );
     tap(&mut actions, &mut t, SpectrumKey::Enter);
     actions
 }
@@ -443,5 +477,8 @@ fn tap_blocks_to_tape_blocks_reattaches_flag_and_checksum() {
     assert_eq!(tape.len(), 1);
     assert_eq!(tape[0].flag, 0xFF);
     // Full re-encoded form: flag + data + checksum (XOR over flag+data).
-    assert_eq!(tape[0].data, vec![0xFF, 0x01, 0x02, 0x03, 0xFF ^ 0x01 ^ 0x02 ^ 0x03]);
+    assert_eq!(
+        tape[0].data,
+        vec![0xFF, 0x01, 0x02, 0x03, 0xFF ^ 0x01 ^ 0x02 ^ 0x03]
+    );
 }

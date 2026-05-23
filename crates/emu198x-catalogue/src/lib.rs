@@ -2248,10 +2248,7 @@ hash = "xxh64:0000000000000000"
         ));
     }
 
-    fn spectrum_manifest_with_versions(
-        audio: Option<u32>,
-        frame: Option<u32>,
-    ) -> Manifest {
+    fn spectrum_manifest_with_versions(audio: Option<u32>, frame: Option<u32>) -> Manifest {
         Manifest {
             system: SystemMeta {
                 id: "spectrum".into(),
@@ -2308,7 +2305,10 @@ hash = "xxh64:0000000000000000"
         let err = verify_routing_versions(&manifest).expect_err("audio mismatch must fail");
         match err {
             CatalogueError::RoutingVersionMismatch {
-                kind, system, found, ..
+                kind,
+                system,
+                found,
+                ..
             } => {
                 assert_eq!(kind, "audio");
                 assert_eq!(system, "spectrum");
@@ -2324,7 +2324,10 @@ hash = "xxh64:0000000000000000"
         let err = verify_routing_versions(&manifest).expect_err("frame mismatch must fail");
         match err {
             CatalogueError::RoutingVersionMismatch {
-                kind, system, found, ..
+                kind,
+                system,
+                found,
+                ..
             } => {
                 assert_eq!(kind, "frame");
                 assert_eq!(system, "spectrum");
@@ -2346,11 +2349,13 @@ hash = "xxh64:0000000000000000"
     #[test]
     fn routing_version_check_fails_loud_on_c64_audio_mismatch() {
         let manifest = c64_manifest_with_versions(Some(9999), None);
-        let err =
-            verify_routing_versions(&manifest).expect_err("C64 audio mismatch must fail");
+        let err = verify_routing_versions(&manifest).expect_err("C64 audio mismatch must fail");
         match err {
             CatalogueError::RoutingVersionMismatch {
-                kind, system, found, ..
+                kind,
+                system,
+                found,
+                ..
             } => {
                 assert_eq!(kind, "audio");
                 assert_eq!(system, "c64");
@@ -2363,11 +2368,13 @@ hash = "xxh64:0000000000000000"
     #[test]
     fn routing_version_check_fails_loud_on_c64_frame_mismatch() {
         let manifest = c64_manifest_with_versions(None, Some(9999));
-        let err =
-            verify_routing_versions(&manifest).expect_err("C64 frame mismatch must fail");
+        let err = verify_routing_versions(&manifest).expect_err("C64 frame mismatch must fail");
         match err {
             CatalogueError::RoutingVersionMismatch {
-                kind, system, found, ..
+                kind,
+                system,
+                found,
+                ..
             } => {
                 assert_eq!(kind, "frame");
                 assert_eq!(system, "c64");
@@ -2389,11 +2396,13 @@ hash = "xxh64:0000000000000000"
     #[test]
     fn routing_version_check_fails_loud_on_nes_audio_mismatch() {
         let manifest = nes_manifest_with_versions(Some(9999), None);
-        let err =
-            verify_routing_versions(&manifest).expect_err("NES audio mismatch must fail");
+        let err = verify_routing_versions(&manifest).expect_err("NES audio mismatch must fail");
         match err {
             CatalogueError::RoutingVersionMismatch {
-                kind, system, found, ..
+                kind,
+                system,
+                found,
+                ..
             } => {
                 assert_eq!(kind, "audio");
                 assert_eq!(system, "nes");
@@ -2406,11 +2415,13 @@ hash = "xxh64:0000000000000000"
     #[test]
     fn routing_version_check_fails_loud_on_nes_frame_mismatch() {
         let manifest = nes_manifest_with_versions(None, Some(9999));
-        let err =
-            verify_routing_versions(&manifest).expect_err("NES frame mismatch must fail");
+        let err = verify_routing_versions(&manifest).expect_err("NES frame mismatch must fail");
         match err {
             CatalogueError::RoutingVersionMismatch {
-                kind, system, found, ..
+                kind,
+                system,
+                found,
+                ..
             } => {
                 assert_eq!(kind, "frame");
                 assert_eq!(system, "nes");
@@ -2475,7 +2486,13 @@ hash = "xxh64:0000000000000000"
             found: 1,
         };
         let msg = err.to_string();
-        assert!(msg.contains("re-captured"), "error should instruct re-capture: {msg}");
-        assert!(msg.contains("Seam 4"), "error should reference Seam 4: {msg}");
+        assert!(
+            msg.contains("re-captured"),
+            "error should instruct re-capture: {msg}"
+        );
+        assert!(
+            msg.contains("Seam 4"),
+            "error should reference Seam 4: {msg}"
+        );
     }
 }

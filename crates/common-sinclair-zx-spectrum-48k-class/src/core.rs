@@ -821,7 +821,10 @@ mod tests {
         let from_default: Spectrum48k = Default::default();
         assert_eq!(from_new.revision(), from_default.revision());
         assert_eq!(from_new.border_color(), from_default.border_color());
-        assert_eq!(from_new.framebuffer().len(), from_default.framebuffer().len());
+        assert_eq!(
+            from_new.framebuffer().len(),
+            from_default.framebuffer().len()
+        );
     }
 
     /// `load_rom_bytes` rejects a ROM image that isn't exactly 16 KiB.

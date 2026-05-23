@@ -100,8 +100,14 @@ fn machine_runs_on_cpu68020_with_variant_hooks_installed() {
         "68020 uses Format-$2 exception frames"
     );
     // 68010-specific flags inherited through Deref
-    assert!(cpu.variant_six_word_frame, "68010+ uses 8-byte exception frame");
-    assert!(cpu.variant_musashi_bcd_v, "68010+ uses Musashi BCD V semantics");
+    assert!(
+        cpu.variant_six_word_frame,
+        "68010+ uses 8-byte exception frame"
+    );
+    assert!(
+        cpu.variant_musashi_bcd_v,
+        "68010+ uses Musashi BCD V semantics"
+    );
     assert!(
         cpu.variant_musashi_div_overflow,
         "68010+ uses Musashi DIV overflow semantics"

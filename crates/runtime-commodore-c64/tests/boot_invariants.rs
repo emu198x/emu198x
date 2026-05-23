@@ -223,38 +223,22 @@ fn cia2_pa_drives_vic_bank_select() -> Result<(), Box<dyn Error>> {
     // Write $DD00 = $03 (bits 0-1 set). Inverted: VIC bank 0.
     machine.cpu_write(0xDD00, 0x03);
     runtime.run_until(MachineTime::new(40), &mut host)?;
-    assert_eq!(
-        runtime.machine().vic_bank(),
-        0,
-        "CIA2 PA=$03 → VIC bank 0"
-    );
+    assert_eq!(runtime.machine().vic_bank(), 0, "CIA2 PA=$03 → VIC bank 0");
 
     // $DD00 = $02 → inverted → bank 1.
     runtime.machine_mut().cpu_write(0xDD00, 0x02);
     runtime.run_until(MachineTime::new(60), &mut host)?;
-    assert_eq!(
-        runtime.machine().vic_bank(),
-        1,
-        "CIA2 PA=$02 → VIC bank 1"
-    );
+    assert_eq!(runtime.machine().vic_bank(), 1, "CIA2 PA=$02 → VIC bank 1");
 
     // $DD00 = $01 → bank 2.
     runtime.machine_mut().cpu_write(0xDD00, 0x01);
     runtime.run_until(MachineTime::new(80), &mut host)?;
-    assert_eq!(
-        runtime.machine().vic_bank(),
-        2,
-        "CIA2 PA=$01 → VIC bank 2"
-    );
+    assert_eq!(runtime.machine().vic_bank(), 2, "CIA2 PA=$01 → VIC bank 2");
 
     // $DD00 = $00 → bank 3.
     runtime.machine_mut().cpu_write(0xDD00, 0x00);
     runtime.run_until(MachineTime::new(100), &mut host)?;
-    assert_eq!(
-        runtime.machine().vic_bank(),
-        3,
-        "CIA2 PA=$00 → VIC bank 3"
-    );
+    assert_eq!(runtime.machine().vic_bank(), 3, "CIA2 PA=$00 → VIC bank 3");
     Ok(())
 }
 

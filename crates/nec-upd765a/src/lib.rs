@@ -1802,7 +1802,11 @@ mod tests {
         fdc.enabled = true;
         let before = fdc.read_status();
         fdc.write(0x2FFD, 0xAA);
-        assert_eq!(fdc.read_status(), before, "MSR write must not change status");
+        assert_eq!(
+            fdc.read_status(),
+            before,
+            "MSR write must not change status"
+        );
     }
 
     /// `insert_disk` + `has_disk` + `eject_disk` round trip on a

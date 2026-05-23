@@ -523,7 +523,11 @@ mod tests {
         m.run_frame();
         m.reset();
         assert_eq!(m.z80.regs.pc, 0x0000);
-        assert_eq!(m.memory.ram_bank(2)[0], 0xCC, "RAM preserved across soft reset");
+        assert_eq!(
+            m.memory.ram_bank(2)[0],
+            0xCC,
+            "RAM preserved across soft reset"
+        );
     }
 
     /// Tape transport methods are no-ops when no tape is loaded but
@@ -550,10 +554,12 @@ mod tests {
         assert!((m.audio_controls().master_gain() - 0.42).abs() < 1e-6);
 
         m.set_audio_channel_enabled(SpeakerChannel::Speaker, false);
-        assert!(!m.audio_controls().channel(SpeakerChannel::Speaker).enabled());
-        m.set_audio_channel_gain(SpeakerChannel::Speaker, 0.25);
         assert!(
-            (m.audio_controls().channel(SpeakerChannel::Speaker).gain() - 0.25).abs() < 1e-6,
+            !m.audio_controls()
+                .channel(SpeakerChannel::Speaker)
+                .enabled()
         );
+        m.set_audio_channel_gain(SpeakerChannel::Speaker, 0.25);
+        assert!((m.audio_controls().channel(SpeakerChannel::Speaker).gain() - 0.25).abs() < 1e-6,);
     }
 }
