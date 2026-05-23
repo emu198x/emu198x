@@ -34,7 +34,11 @@ fn load_ks31_rom() -> Option<Vec<u8>> {
         return None;
     }
     let bytes = std::fs::read(&path).expect("read KS 3.1 ROM");
-    eprintln!("loaded KS 3.1 A1200 ROM: {} bytes from {}", bytes.len(), path.display());
+    eprintln!(
+        "loaded KS 3.1 A1200 ROM: {} bytes from {}",
+        bytes.len(),
+        path.display()
+    );
     Some(bytes)
 }
 
@@ -55,10 +59,16 @@ fn report_state(label: &str, m: &AmigaA1200, frames: u64) {
     let cpu = m.cpu();
     eprintln!("--- {label} after {frames} frames ---");
     eprintln!("  PC = ${:08X}", cpu.regs.pc);
-    eprintln!("  SR = ${:04X} ({}supervisor, IPL mask {})",
+    eprintln!(
+        "  SR = ${:04X} ({}supervisor, IPL mask {})",
         cpu.regs.sr,
-        if cpu.regs.is_supervisor() { "" } else { "user — NOT " },
-        cpu.regs.interrupt_mask());
+        if cpu.regs.is_supervisor() {
+            ""
+        } else {
+            "user — NOT "
+        },
+        cpu.regs.interrupt_mask()
+    );
     eprintln!("  USP=${:08X} SSP=${:08X}", cpu.regs.usp, cpu.regs.ssp);
     eprintln!(
         "  D0..D7 = {}",
@@ -149,7 +159,8 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // the return address from the supervisor stack to identify the
     // caller.
     let mut prev_pc = m.cpu().regs.pc;
-    let mut byte_receive_entries: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
+    let mut byte_receive_entries: std::collections::HashMap<u32, u64> =
+        std::collections::HashMap::new();
     // Track each time the PC FIRST crosses into the Wack
     // prologue range ($F8325E-$F832B0). Capture (prev_pc, entry_pc,
     // SSP top 8 bytes) on each transition — the entry path tells us
@@ -233,6 +244,35 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         | ((m.read_chip_ram_byte(0x001F_FFEB) as u32) << 16)
         | ((m.read_chip_ram_byte(0x001F_FFEC) as u32) << 8)
         | (m.read_chip_ram_byte(0x001F_FFED) as u32);
+    // Stage K: capture the LAST 100 unique PCs visited before the
+    // alert dispatcher at $F83558 is first reached. The path that
+    // gets us there will reveal which routine pushed the alert code.
+    // Use a circular buffer of PCs that excludes the alert-loop range
+    // ($F80440-$F80460, $F83558+).
+    let mut pre_alert_pcs: std::collections::VecDeque<u32> =
+        std::collections::VecDeque::with_capacity(101);
+    let mut pre_alert_captured: Option<Vec<u32>> = None;
+    // Stage K: capture the FULL SSP frame at the moment of $F83558
+    // entry (16 longs above SSP).
+    let mut pre_alert_ssp_frame: Option<Vec<(u32, u32)>> = None;
+    // Stage K: track every push of $0000039C (cycle-1 alert code) and
+    // every push of $00000006 (cycle-2 alert code = AN_MemCorrupt).
+    let mut alert_pushes: Vec<(u64, u32, u32, u32)> = Vec::new();
+    // Stage K: track every entry to $F80B0E (vec 2/3 entry — group 0
+    // bus/address error). Our exception counter only tracks group
+    // 1/2; group 0 (bus/addr error) is invisible. Capture (tick,
+    // prev_pc, instr_start_pc, ssp, top0, top1, top2) on each entry.
+    let mut vec23_entries: Vec<(u64, u32, u32, u32, u32, u32, u32)> = Vec::new();
+    // Stage K: track SR transitions out of supervisor mode (bit 13
+    // cleared). Each entry to user mode is a candidate cause of the
+    // SR=$0018 AE-frame mystery.
+    let mut user_mode_transitions: Vec<(u64, u32, u32, u16)> = Vec::new();
+    let mut prev_supervisor = m.cpu().regs.is_supervisor();
+    // Stage K: track A5 changes. A5's value at the LVO -36 call
+    // determines what (A5)'s callback does. If A5 = $F82956 (the
+    // RTE-ending block), it explains the cascade.
+    let mut a5_changes: Vec<(u64, u32, u32)> = Vec::new();
+    let mut prev_a5 = m.cpu().regs.a[5];
     // Stage I: track CPU state at each of the 4 suspect validation
     // branches. When PC reaches the BNE/BMI instruction, capture
     // (PC, D0, D7, A6, ssp_top) so we can see which branch sends us
@@ -297,7 +337,13 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                 && validation_hits.len() < 20
             {
                 let cpu = m.cpu();
-                validation_hits.push((pc, cpu.regs.d[0], cpu.regs.d[7], cpu.regs.a[5], cpu.regs.ssp));
+                validation_hits.push((
+                    pc,
+                    cpu.regs.d[0],
+                    cpu.regs.d[7],
+                    cpu.regs.a[5],
+                    cpu.regs.ssp,
+                ));
             }
             // Track re-entries via the $F80DB8 reset trampoline. The
             // last instruction of that trampoline is JMP (A0) which
@@ -352,6 +398,32 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                 }
                 pc_history.push(pc);
             }
+            // Stage K: maintain a 100-deep circular buffer of PCs
+            // that *aren't* in the alert / blinker range. The moment
+            // PC first reaches the alert dispatcher at $F83558,
+            // freeze the buffer — it then shows the call path
+            // leading into the alert.
+            if pre_alert_captured.is_none() && pc != prev_pc {
+                let is_alert_range = (0x00F8_3558..=0x00F8_3660).contains(&pc)
+                    || (0x00F8_0440..=0x00F8_0460).contains(&pc);
+                if pc == 0x00F8_3558 {
+                    pre_alert_captured = Some(pre_alert_pcs.iter().copied().collect());
+                    // Also snapshot the top 16 longs above SSP at the
+                    // moment of alert entry.
+                    let ssp = m.cpu().regs.ssp;
+                    let mut frame = Vec::with_capacity(16);
+                    for i in 0..16 {
+                        let a = ssp.wrapping_add(i * 4);
+                        frame.push((a, m.read_long(a)));
+                    }
+                    pre_alert_ssp_frame = Some(frame);
+                } else if !is_alert_range {
+                    if pre_alert_pcs.len() >= 100 {
+                        pre_alert_pcs.pop_front();
+                    }
+                    pre_alert_pcs.push_back(pc);
+                }
+            }
             // Stage J: capture state when RTS at $F80C0C is about to
             // execute. instr_start_pc tracks the executing instruction;
             // the tick before this RTS completes its pop, we want to
@@ -360,9 +432,9 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             let instr_pc_now = m.cpu().instr_start_pc;
             if instr_pc_now == 0x00F8_0C0C
                 && rts_f80c0c_captures.len() < 20
-                && rts_f80c0c_captures.last().map_or(true, |(t, _, _, _)| {
-                    tick_counter.wrapping_sub(*t) > 4
-                })
+                && rts_f80c0c_captures
+                    .last()
+                    .map_or(true, |(t, _, _, _)| tick_counter.wrapping_sub(*t) > 4)
             {
                 let ssp = m.cpu().regs.ssp;
                 let popped = m.read_long(ssp);
@@ -379,6 +451,38 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                     ssp_pushes_002000f8.push((tick_counter, pc, cur_ssp));
                 }
             }
+            // Stage K: detect pushes of cycle-1/2/3+ alert codes.
+            if cur_ssp.wrapping_add(4) == prev_ssp && alert_pushes.len() < 30 {
+                let pushed = m.read_long(cur_ssp);
+                if pushed == 0x0000_039C || pushed == 0x0000_0006 || pushed == 0x0000_03FF {
+                    alert_pushes.push((tick_counter, pc, cur_ssp, pushed));
+                }
+            }
+            // Stage K: capture state on entry to vec 2/3 ($F80B0E).
+            // This is the group-0 (bus error / address error) handler
+            // entry. Our exception counter doesn't track group 0, so
+            // this is the only way to spot bus-error firings.
+            if pc == 0x00F8_0B0E && prev_pc != 0x00F8_0B0E && vec23_entries.len() < 20 {
+                let cpu = m.cpu();
+                let ssp = cur_ssp;
+                let t0 = m.read_long(ssp);
+                let t1 = m.read_long(ssp.wrapping_add(4));
+                let t2 = m.read_long(ssp.wrapping_add(8));
+                vec23_entries.push((tick_counter, prev_pc, cpu.instr_start_pc, ssp, t0, t1, t2));
+            }
+            // Stage K: track transitions OUT of supervisor mode.
+            let cur_supervisor = m.cpu().regs.is_supervisor();
+            if prev_supervisor && !cur_supervisor && user_mode_transitions.len() < 30 {
+                let cpu = m.cpu();
+                user_mode_transitions.push((tick_counter, pc, cpu.instr_start_pc, cpu.regs.sr));
+            }
+            prev_supervisor = cur_supervisor;
+            // Stage K: track changes to A5.
+            let cur_a5 = m.cpu().regs.a[5];
+            if cur_a5 != prev_a5 && a5_changes.len() < 30 {
+                a5_changes.push((tick_counter, pc, cur_a5));
+            }
+            prev_a5 = cur_a5;
             prev_ssp = cur_ssp;
             // Stage J: detect changes to chip[$001FFFEA]. Sample only
             // when an instruction boundary likely passed (pc changed)
@@ -391,12 +495,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                     | ((m.read_chip_ram_byte(0x001F_FFEC) as u32) << 8)
                     | (m.read_chip_ram_byte(0x001F_FFED) as u32);
                 if cur_1fffea != prev_1fffea && chip_1fffea_changes.len() < 60 {
-                    chip_1fffea_changes.push((
-                        tick_counter,
-                        pc,
-                        m.cpu().regs.ssp,
-                        cur_1fffea,
-                    ));
+                    chip_1fffea_changes.push((tick_counter, pc, m.cpu().regs.ssp, cur_1fffea));
                     prev_1fffea = cur_1fffea;
                 }
             }
@@ -498,7 +597,14 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // visited. If yes, KS does install the custom vec 4/11 handlers
     // before the FPU probe.
     eprintln!("FPU-probe handler installation visits:");
-    for site in [0x00F8_0C2Cu32, 0x00F8_0C30, 0x00F8_0C28, 0x00F8_0C20, 0x00F8_0C9E, 0x00F8_0CA0] {
+    for site in [
+        0x00F8_0C2Cu32,
+        0x00F8_0C30,
+        0x00F8_0C28,
+        0x00F8_0C20,
+        0x00F8_0C9E,
+        0x00F8_0CA0,
+    ] {
         let visited = unique_pcs.contains(&site);
         eprintln!("  ${site:08X}: {}", if visited { "YES" } else { "no" });
     }
@@ -545,18 +651,68 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     for pc in pc_history.iter() {
         eprintln!("  ${pc:08X}");
     }
+    eprintln!("Last 100 PCs before first reach of alert dispatcher $F83558:");
+    if let Some(pcs) = &pre_alert_captured {
+        if pcs.is_empty() {
+            eprintln!("  (none captured)");
+        }
+        for pc in pcs {
+            eprintln!("  ${pc:08X}");
+        }
+    } else {
+        eprintln!("  (alert dispatcher $F83558 never reached)");
+    }
+    eprintln!("SSP frame at $F83558 entry (16 longs above SSP):");
+    if let Some(frame) = &pre_alert_ssp_frame {
+        for (addr, val) in frame {
+            eprintln!("  @${addr:08X}: ${val:08X}");
+        }
+    } else {
+        eprintln!("  (alert never reached)");
+    }
+    eprintln!("Pushes of $039C / $0006 / $03FF alert codes (first 30):");
+    if alert_pushes.is_empty() {
+        eprintln!("  (no direct push of these codes)");
+    }
+    for (tick, pc, ssp, val) in alert_pushes.iter() {
+        eprintln!("  tick={tick:>10}  at PC=${pc:08X}  SSP=${ssp:08X}  pushed=${val:08X}");
+    }
+    eprintln!("Vec 2/3 entries (group-0 bus/addr error to $F80B0E) — first 20:");
+    if vec23_entries.is_empty() {
+        eprintln!("  (none — PC never reached $F80B0E from outside)");
+    }
+    for (tick, prev, ipc, ssp, t0, t1, t2) in vec23_entries.iter() {
+        eprintln!(
+            "  tick={tick:>10}  prev_pc=${prev:08X}  instr_pc=${ipc:08X}  SSP=${ssp:08X}  \
+             top=${t0:08X} ${t1:08X} ${t2:08X}"
+        );
+    }
+    eprintln!("Supervisor → user mode transitions (tick, pc, instr_pc, new SR) — first 30:");
+    if user_mode_transitions.is_empty() {
+        eprintln!("  (CPU never left supervisor mode)");
+    }
+    for (tick, pc, ipc, sr) in user_mode_transitions.iter() {
+        eprintln!("  tick={tick:>10}  pc=${pc:08X}  instr_pc=${ipc:08X}  SR=${sr:04X}");
+    }
+    eprintln!("A5 changes (tick, PC, new A5) — first 30:");
+    if a5_changes.is_empty() {
+        eprintln!("  (A5 never changed)");
+    }
+    for (tick, pc, a5) in a5_changes.iter() {
+        eprintln!("  tick={tick:>10}  pc=${pc:08X}  A5=${a5:08X}");
+    }
     eprintln!("RTS at $F80C0C captures (tick, SSP, popped_long, next_long) — first 20:");
     if rts_f80c0c_captures.is_empty() {
         eprintln!("  (RTS at $F80C0C never executed)");
     }
     for (tick, ssp, popped, next) in rts_f80c0c_captures.iter() {
-        eprintln!(
-            "  tick={tick:>10}  SSP=${ssp:08X}  popped=${popped:08X}  next=${next:08X}"
-        );
+        eprintln!("  tick={tick:>10}  SSP=${ssp:08X}  popped=${popped:08X}  next=${next:08X}");
     }
     eprintln!("Pushes of $002000F8 (tick, PC, post-push SSP) — first 20:");
     if ssp_pushes_002000f8.is_empty() {
-        eprintln!("  (no push of $002000F8 detected — value may have been written by something other than a stack push, e.g. a MOVE.L (addr), -(SP) or stack misalignment)");
+        eprintln!(
+            "  (no push of $002000F8 detected — value may have been written by something other than a stack push, e.g. a MOVE.L (addr), -(SP) or stack misalignment)"
+        );
     }
     for (tick, pc, ssp) in ssp_pushes_002000f8.iter() {
         eprintln!("  tick={tick:>10}  at PC=${pc:08X}  SSP=${ssp:08X}");
@@ -566,9 +722,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         eprintln!("  (chip[$001FFFEA] never changed before tick 17M)");
     }
     for (tick, pc, ssp, val) in chip_1fffea_changes.iter() {
-        eprintln!(
-            "  tick={tick:>10}  PC=${pc:08X}  SSP=${ssp:08X}  new=${val:08X}"
-        );
+        eprintln!("  tick={tick:>10}  PC=${pc:08X}  SSP=${ssp:08X}  new=${val:08X}");
     }
 
     // Stage J: chip[$002C] write log — which instructions wrote the
@@ -598,9 +752,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             0x00F8_35B6 => "BMI after TST.L D7 (D7 negative?)",
             _ => "?",
         };
-        eprintln!(
-            "  ${pc:08X} {name}: D0=${d0:08X} D7=${d7:08X} A5=${a5:08X} SSP=${ssp:08X}"
-        );
+        eprintln!("  ${pc:08X} {name}: D0=${d0:08X} D7=${d7:08X} A5=${a5:08X} SSP=${ssp:08X}");
     }
 
     eprintln!("Reboot-loop init $F835F0 entries (first 10):");
@@ -636,12 +788,14 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             "  LVO -726 ColdReboot @ chip[${lvo_addr:08X}]: opcode=${op_hi:04X} target=${target:08X}"
         );
         if op_hi == 0x4EF9 {
-            eprintln!("    JMP abs.L confirmed; target ${target:08X} {}",
+            eprintln!(
+                "    JMP abs.L confirmed; target ${target:08X} {}",
                 if (0x00F8_0000..0x0100_0000).contains(&target) {
                     "(ROM — likely valid)"
                 } else {
                     "(NOT in ROM — likely broken)"
-                });
+                }
+            );
         } else {
             eprintln!("    Not a JMP abs.L — LVO table not installed!");
         }
@@ -753,7 +907,8 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // Hottest custom-register writes — keyed by *offset* (the
     // `debug_custom_write_log` tuple stores PC at .1 and chipset
     // offset at .3, so group by .3).
-    let mut writes_by_offset: std::collections::HashMap<u16, u64> = std::collections::HashMap::new();
+    let mut writes_by_offset: std::collections::HashMap<u16, u64> =
+        std::collections::HashMap::new();
     for entry in m.debug_custom_write_log.iter() {
         *writes_by_offset.entry(entry.3).or_insert(0) += 1;
     }
@@ -832,14 +987,18 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     eprintln!("Chip-RAM scan for pointers to Wack trampoline $F831E8-$F831FE:");
     let mut hits_tr = 0;
     for off in (0..chip_size).step_by(2) {
-        if off + 4 > chip_size { break; }
+        if off + 4 > chip_size {
+            break;
+        }
         let hi = mem.read_chip_ram_word(off);
         let lo = mem.read_chip_ram_word(off + 2);
         let val = (u32::from(hi) << 16) | u32::from(lo);
         if (0x00F8_31E8..=0x00F8_31FE).contains(&val) {
             eprintln!("  chip[${off:08X}] = ${val:08X}");
             hits_tr += 1;
-            if hits_tr > 40 { break; }
+            if hits_tr > 40 {
+                break;
+            }
         }
     }
     if hits_tr == 0 {

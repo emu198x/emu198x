@@ -1,15 +1,23 @@
 # Decision: Amiga machine rollout plan
 
 **Date:** 2026-05-22
-**Status:** A1200 Stages A–I landed 2026-05-22. Stage I identified
-the failing validation: `TST.L D7; BMI $F835FE` at `$F835B4`. D7
-holds the value `$8000000B` — bit 31 = "DeadEnd alert" flag, low
-byte = `11` = exception vector number (line F). KS is in a guru-
-alert loop: F-line trap fires → dispatcher routes to the alert
-handler at `$F83558` → ColdReboot → KS reboots into the alert-
-recovery boot-self-test → TST.L D7 sees the alert code → fails →
-reboots again. Stage J needs to fix the F-line trap handling so
-it doesn't trigger a guru-alert.
+**Status:** A1200 Stages A–K landed 2026-05-22. Stage J fixed a
+68010+ RTE bug (RTE now pops the Format/Vector word). Stage K
+added the 68020+ 28-byte Format-$A "short bus fault" frame for
+group-0 (bus/address error) exceptions, replacing the 14-byte
+68000-style frame, and taught RTE to pop the 20-byte tail when
+the popped F/V word's Format nibble is `$A`. KS 3.1 now alerts
+with the **specific** code `$80000003` (`AN_ExcptVect`,
+"exception vector check failed") instead of the previous chaotic
+codes — a sign that the frame format is now agreeing with KS
+and the remaining mismatch is at a higher level (the stack
+leak from KS's SHORTER pseudo-frame routine, which our 8-byte
+RTE pop turns into a 2-byte leak per call). The chain is now:
+priv-viol probes succeed → ExitIntr's RTE at `$F81398` pops a
+slightly-misaligned PC → vec-3 address error → `$F80B0E`
+handler → alert with `$80000003`. Cycle 1 reaches 5538 unique
+PCs (2.4× pre-Stage-J), IPL drops at frame 115, video chips
+init reached.
 
 ## What this is
 
@@ -604,25 +612,163 @@ with no FPU" path. This is the bug to chase.
 So the LVO jump table is good; the bug is in the F-line dispatcher
 logic at `$F80B3C`, not in the LVO infrastructure.
 
-## A1200 Stage J — what to investigate next
+## A1200 Stage J findings — 2026-05-22 (landed)
 
-1. **Disassemble the full dispatcher at `$F80B3C`** to identify
-   the decision tree for "fatal vs benign" exception handling.
-   Find which branch our F-line trap falls into and why.
-2. **Compare the dispatcher's branch evaluation with KS's
-   expected F-line behaviour.** The 68k FPU probe protocol is:
-   F-line trap fires → handler sets D1 to a flag indicating "no
-   FPU" → RTE. If our trap fires but D1 isn't being set correctly
-   before reaching the dispatcher, KS treats the trap as fatal.
-3. **Check whether our Cpu68020's F-line trap behaviour matches
-   real 68020.** Specifically: when the F-line opcode has
-   cpID=1 (FPU coprocessor) but no FPU is present, the trap is
-   *normal* and the handler should be able to detect the
-   coprocessor's absence. If our trap sets the exception frame
-   differently from a real 68020, the dispatcher misclassifies.
-4. **Compare against WinUAE booting the same ROM.** Trace the
-   first F-line trap and see what value D1 holds before the
-   dispatcher decides.
+The Stage-I hypothesis was wrong: the F-line trap path itself is
+fine. The actual bug was in **RTE**, not exception entry.
+
+**Root cause.** `Cpu68000::TAG_RTE_READ_PC_LO` always advanced SSP
+by 6 bytes (SR + PC) and finished, regardless of
+`variant_six_word_frame`. 68010+ short Format-$0 frames are
+8 bytes (SR + PC + F-V word); 68020 Format-$2 frames are 12 bytes
+(adds Instruction Address long above the F-V word). KS 3.1's
+F-line dispatcher built a Format-$0 frame manually at `$F80BE0`
+and called `(A5)` whose terminating `RTE` was supposed to pop all
+8 bytes. Our RTE left SP 2 bytes too low. The trailing `RTS` at
+`$F80C0C` then popped an unaligned long whose high word was the
+frame's F-V slot ($0020) and low word was the byte past it
+($00F8) → PC = `$002000F8` (open bus past 2 MB chip RAM) → vec
+11 → fatal alert → reboot → repeat.
+
+**Fix.** Three new follow-up tags in `motorola-68000`:
+
+- `TAG_RTE_READ_FORMAT` — reads the F-V word for 68010+ and
+  dispatches on the Format nibble.
+- `TAG_RTE_READ_FMT2_HI` / `TAG_RTE_READ_FMT2_LO` — for Format-$2
+  frames, pop the 4-byte Instruction Address above the F-V word.
+
+Other formats ($1 throwaway, $9 coprocessor mid-instruction, $A/$B
+access fault) currently fall through to "finish" rather than
+raising a format-error exception. KS 3.1 boot doesn't generate
+them; we'll add proper handling when something does.
+
+**Verification.** Before: 12 vec-11 traps per cycle, perpetual
+reboot, 2315 unique PCs visited, IPL never drops. After: 6 vec-11
+traps (legitimate probes only), 48 vec-8 priv-violation probes
+(first at `$F80BE0`, the protected ColdReboot entry), no wild
+jumps, IPL drops to 0 at frame 115, 5538 unique PCs visited,
+VPOSR / VHPOSR being polled.
+
+## A1200 Stage K — chase the next alert
+
+KS 3.1 still ends at the alert blinker (`$F80452` writes
+`$DFF09A`, then BRA.W to the reboot trampoline at `$F80DB8`). The
+alert code popped at `$F83560` differs per cycle:
+
+- **Cycle 1:** `$0000039C` — furthest reach, the cleanest case to
+  chase.
+- **Cycle 2:** `$00000006` — `AN_MemCorrupt` ("Memory list
+  corrupted"). Likely caused by leftover state from cycle 1's
+  partial init.
+- **Cycle 3+:** `$000003FF` — stabilises here.
+
+### Stage K investigation findings
+
+Cycle 1's failure path traced via diagnostic capture:
+
+1. KS reaches `$F8F7EA` (interrupt-server iteration / exec
+   internals)
+2. Calls into `$F817C2` (loop with `JSR (A5)`)
+3. Calls `chip[$148C]` = `LVO -36` = `exec.ExitIntr`
+4. `$F8137E` (ExitIntr body): pops A6, BTSTs, then `MOVEM (A7)+`
+   for 24 bytes + `RTE` at `$F81398`
+5. `RTE` at `$F81398` pops 8 bytes (our Stage J fix) from a
+   stack that only has 4 bytes of legitimate data
+6. Popped PC = `$00F8FFFF` (odd — high word from a JSR return PC,
+   low word from open-bus past chip RAM)
+7. Address error fires (vec 3 = chip[$C] = `$F80B0E`)
+8. Alert via dispatcher → `$F80452` blinker → reboot trampoline
+
+The popped SR in the AE frame shows `$0018` because
+`regs.sr = (popped_sr & $F71F)` where `popped_sr = $00F8` (high
+word of a JSR return PC interpreted as SR). `$00F8 & $F71F =
+$0018` — just X and N flags, no S bit, so the AE handler thinks
+it was a user-mode trap and routes through the BEQ-taken branch
+($F80BA8 → SHORTER pseudo-frame routine), accelerating the chaos.
+
+### Root cause — frame-format mismatch chain
+
+`exec.ExitIntr` is designed to be the EXIT of an interrupt
+handler. Real entry: CPU pushes 8-byte Format-0 frame, handler
+saves 24 bytes of registers via MOVEM, runs, JMPs to ExitIntr.
+ExitIntr: pop A6 (left by the interrupt entry stub), MOVEM pop
+24 bytes, RTE pops 8 bytes. Net stack delta: 0.
+
+What our test sees: ExitIntr called via `JSR -36(A6)`. JSR
+pushed 4 bytes (return PC). ExitIntr's `POP A6` pops the JSR
+return PC into A6 (wrong). MOVEM pops 24 bytes from user-stack
+data (garbage). RTE pops 8 bytes (more garbage). PC = odd.
+
+This *might* be:
+
+- KS calling ExitIntr via the wrong path (KS bug — would also
+  fail on real 68020)
+- Our 68020 corrupting some earlier state that led KS here
+- Cycle 1's user-mode probe sequence creating a context where
+  this is reached
+
+The Stage J fix is correct (real 68020 pops 8 bytes on RTE).
+Reverting it brings back the wild-jump-to-$002000F8 bug. Neither
+fix alone solves both — the underlying chain needs frame-format
+parity at a higher level.
+
+### Stage K landed
+
+68020+ now pushes a 28-byte Format-$A short bus-fault frame for
+group-0 exceptions (vec 2, vec 3), replacing the 14-byte 68000
+frame. RTE now pops the F/V word and dispatches on the Format
+nibble — Format $0 (8 bytes), Format $2 (12 bytes), Format $A
+(28 bytes). Implemented in `motorola-68000` behind a new
+`variant_format_a_group0` flag enabled in the 68020 wrapper;
+new follow-up tags: `TAG_AE_FMT_A_STEP` for the 11-step push,
+`TAG_RTE_READ_FMTA_STEP` for the 10-step tail pop.
+
+**Result:** KS 3.1 alert code went from chaotic `$03FF` →
+specific `$80000003` = `AN_ExcptVect` ("exception vector check
+failed"). The frame format is now agreeing with KS; the
+remaining bug is at a higher level — the stack leak from
+KS's SHORTER pseudo-frame path. See Stage L.
+
+## A1200 Stage L — chase the AN_ExcptVect alert
+
+Cycle 1 now alerts with `$80000003` (`AN_ExcptVect`). KS treats
+any unexpected bus/address error as fatal exception-vector
+corruption. The AE itself originates at `$F81398` (RTE in
+`exec.ExitIntr`) popping a slightly-misaligned PC. The
+misalignment comes from KS's SHORTER pseudo-frame routine at
+`$F80BC0` (PEA + MOVE.W SR + JMP A5): it pushes 6 bytes, but
+our 68020 RTE pops 8 (Format $0 spec). Each call leaks 2
+bytes; multiple priv-viol probes per boot cycle accumulate
+the leak until SSP overflows past `$00200000`.
+
+Why does KS take the SHORTER path? The dispatcher BEQ at
+`$F80B4C` tests bit 5 of the saved-SR byte in the AE frame.
+We get here because the AE fires *during* one of KS's
+user-mode priv-viol probes — saved SR has S=0 → KS routes to
+SHORTER (user-mode AE recovery). On real 68020 the SHORTER
+routine should still leak the same 2 bytes — so either real
+KS doesn't actually reach this path on 68020, or some
+CPU-detection bit is wrong in our setup that makes KS take a
+68000-style recovery branch.
+
+Investigation order for Stage L:
+
+1. **Track A5's exact value at SHORTER-routine entry.** The
+   `JMP (A5)` callback may end with `RTS` (4-byte pop) on real
+   68020 instead of `RTE` (8-byte pop). If our A5 points to a
+   bad callback, that explains the leak.
+2. **Trace the cycle-1 chain that pushes `$0003` as alert
+   code.** The popped value at `$F83560` is now `$00000003` —
+   consistent with the AE pushing a frame and KS treating the
+   vector number as alert code via the standard dispatcher.
+3. **Consider whether the SHORTER routine is genuinely a
+   68000-only path that KS skips on 68020.** If so, identify
+   the CPU-detection bit our 68020 is failing.
+
+Stage L is a deep-cut workstream and may take several days. The
+Stage J and Stage K wins are real and standalone — the rest of
+the Amiga family rollout (A600, CDTV, A4000-030, etc.) can
+proceed in parallel using the Stage-J/K-fixed CPU.
 
 ## What this plan does not cover
 
