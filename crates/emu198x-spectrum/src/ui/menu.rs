@@ -270,11 +270,11 @@ fn filter_label(filter: VideoFilter) -> &'static str {
 
 /// Linux stub `AppMenu`. The muda crate doesn't compile on Linux with
 /// `default-features = false` (the GTK feature would pull libgtk-3-dev
-/// + reopen a Dependabot alert), and Linux menus aren't wired up via
-/// `init_for_gtk_window` yet. Until both upstream issues resolve, the
-/// Linux build gets a no-op menu — the keyboard-shortcut path through
-/// `handle_input_event` still works for every command the menu would
-/// expose.
+/// in and reopen a Dependabot alert), and Linux menus aren't wired up
+/// via `init_for_gtk_window` yet. Until both upstream issues resolve,
+/// the Linux build gets a no-op menu; the keyboard-shortcut path
+/// through `handle_input_event` still works for every command the menu
+/// would have exposed.
 #[cfg(target_os = "linux")]
 pub struct AppMenu;
 
