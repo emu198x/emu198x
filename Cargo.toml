@@ -165,3 +165,29 @@ unwrap_used = "deny"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# cargo-dist release configuration. The generated workflow lives at
+# .github/workflows/release.yml; regenerate with `dist generate` after
+# editing this section. A `v*` tag push triggers a build of the six
+# native verifier shells (emu198x-{spectrum,c64,amiga,dragon,game-boy,nes})
+# across four targets and attaches the archives to a GitHub Release.
+# The headless `emu198x-script-*` crates and the catalogue tool opt out
+# of the release via `dist = false` in their own Cargo.toml.
+[workspace.metadata.dist]
+cargo-dist-version = "0.32.0"
+ci = "github"
+installers = []
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+pr-run-mode = "plan"
+
+# Linux build deps. cpal needs ALSA dev headers; gilrs needs libudev.
+# macOS and Windows pull native equivalents from the OS — no extra
+# install needed there.
+[workspace.metadata.dist.dependencies.apt]
+libasound2-dev = { version = "*", stage = ["build"] }
+libudev-dev = { version = "*", stage = ["build"] }
+pkg-config = { version = "*", stage = ["build"] }
+
+[profile.dist]
+inherits = "release"
+lto = "thin"

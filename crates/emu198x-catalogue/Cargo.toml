@@ -34,3 +34,6 @@ workspace = true
 [[bin]]
 name = "catalogue"
 path = "src/bin/catalogue.rs"
+
+[package.metadata.dist]
+dist = false
