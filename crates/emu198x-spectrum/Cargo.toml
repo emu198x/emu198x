@@ -11,8 +11,15 @@ repository.workspace = true
 # to skip the heavy graphics stack (winit + wgpu + muda) — the
 # `--script` and `--mcp` modes still work, only `--ui` errors out at
 # runtime with a "rebuild with --features ui" message.
+#
+# muda is target-specific (non-Linux only) — its 0.19.x line does not
+# compile on Linux with default-features = false, and the Linux GTK
+# backend was intentionally disabled at the workspace dep level to
+# dodge a Dependabot alert (glib 0.18.x VariantStrIter unsoundness).
+# Linux gets a no-op stub menu implementation; menus aren't wired up
+# on Linux yet anyway (`init_for_gtk_window` is a track-1c TODO).
 default = ["ui"]
-ui = ["dep:emu198x-native-video", "dep:muda", "dep:rfd", "dep:winit"]
+ui = ["dep:emu198x-native-video", "dep:rfd", "dep:winit"]
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
@@ -21,13 +28,15 @@ emu198x-shell = { path = "../emu198x-shell" }
 format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas" }
 format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna" }
 format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" }
-muda = { workspace = true, optional = true }
 rfd = { workspace = true, optional = true }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror.workspace = true
 winit = { workspace = true, optional = true }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+muda = { workspace = true }
 
 [lints]
 workspace = true

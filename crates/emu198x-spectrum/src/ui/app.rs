@@ -15,6 +15,7 @@ use emu198x_shell::{
     FirmwareSet, HostAxis, HostControl, InputEvent, MediaTransportAction, MediaTransportCommand,
     NativeGamepadInput,
 };
+#[cfg(not(target_os = "linux"))]
 use muda::MenuEvent;
 use runtime_sinclair_zx_spectrum::SpeakerChannel;
 use winit::application::ApplicationHandler;
@@ -716,6 +717,10 @@ impl ApplicationHandler for SpectrumApp {
         // frame boundary so a command never tears down state mid-frame.
         // Same path will carry rfd dialog replies and MCP commands in
         // future cuts; see knowledge/decisions/native-menu-shell.md.
+        // muda is not built on Linux (target-specific dep). Menus are
+        // a no-op there until the GTK backend is wired up; the keyboard-
+        // shortcut path through `handle_input_event` is unaffected.
+        #[cfg(not(target_os = "linux"))]
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             if let Some(cmd) = self.menu.action_map.get(&event.id) {
                 let _ = self.command_tx.send(cmd.clone());

@@ -8,9 +8,11 @@
 //! See `knowledge/decisions/native-menu-shell.md` for the broader design
 //! and how File / State / View slot in later.
 
+#[cfg(not(target_os = "linux"))]
 use std::collections::HashMap;
 
 use emu198x_native_video::VideoFilter;
+#[cfg(not(target_os = "linux"))]
 use muda::{AboutMetadata, CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
 use crate::machine::MachineKind;
@@ -60,6 +62,7 @@ pub const GITHUB_URL: &str = "https://github.com/code198x/emu198x";
 /// The constructed muda menu plus the data the App needs to translate
 /// menu-event IDs into commands and to keep the radio indicator
 /// pointing at the current variant.
+#[cfg(not(target_os = "linux"))]
 pub struct AppMenu {
     /// Owned root menu so it stays alive for the duration of the app.
     /// On macOS `install_for_nsapp` reads it to attach to NSApp. On
@@ -82,6 +85,7 @@ pub struct AppMenu {
     pub action_map: HashMap<MenuId, AppCommand>,
 }
 
+#[cfg(not(target_os = "linux"))]
 impl AppMenu {
     /// Builds the menu structure with `current` machine, scale, and filter checked.
     pub fn new(
@@ -251,6 +255,7 @@ impl AppMenu {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 fn filter_label(filter: VideoFilter) -> &'static str {
     // VideoFilter is #[non_exhaustive] so the match needs a fallback;
     // future additions surface as a generic label until they're given
@@ -261,4 +266,36 @@ fn filter_label(filter: VideoFilter) -> &'static str {
         VideoFilter::Crt => "Video Filter: CRT",
         _ => "Video Filter",
     }
+}
+
+/// Linux stub `AppMenu`. The muda crate doesn't compile on Linux with
+/// `default-features = false` (the GTK feature would pull libgtk-3-dev
+/// + reopen a Dependabot alert), and Linux menus aren't wired up via
+/// `init_for_gtk_window` yet. Until both upstream issues resolve, the
+/// Linux build gets a no-op menu — the keyboard-shortcut path through
+/// `handle_input_event` still works for every command the menu would
+/// expose.
+#[cfg(target_os = "linux")]
+pub struct AppMenu;
+
+#[cfg(target_os = "linux")]
+impl AppMenu {
+    pub fn new(
+        _current: MachineKind,
+        _supports_disk: bool,
+        _current_scale: u32,
+        _current_filter: VideoFilter,
+    ) -> Self {
+        Self
+    }
+
+    pub fn set_disk_supported(&self, _supported: bool) {}
+
+    pub fn install_for_nsapp(&self) {}
+
+    pub fn set_current_machine(&self, _current: MachineKind) {}
+
+    pub fn set_current_scale(&self, _scale: u32) {}
+
+    pub fn set_current_filter(&self, _filter: VideoFilter) {}
 }
