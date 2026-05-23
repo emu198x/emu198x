@@ -182,22 +182,24 @@ roadmap; some are explicit non-goals; one or two are quick wins.
 
 | Feature | Where retro-emu projects typically land | Our position | Recommendation |
 |---|---|---|---|
-| **Save states** | Universal; manage via UI | Done as snapshots; no UI to browse / name | Wave-2-or-after, before launcher polish |
+| **Save states** | Universal; manage via UI | Done as snapshots; no UI to browse / name | Per-system save-state browser. Wave 2 or after |
 | **Rewind** | Modern emulators (RetroArch, Mesen2, openMSX) | Absent; not in any plan | **Could be a Phase 5 win.** Requires per-tick state delta, not full snapshot; large engineering investment |
 | **Cheats / Game Genie** | Universal in retro emulators | Absent | Per-system; small individually, ~3-5 days per system |
 | **Debugger / disassembler UI** | RetroArch / Mesen2 / openMSX have full debuggers | MCP query surface exists (`amiga.cpu.pc`, etc); no user-facing debug UI | **Genuinely valuable for the project's audience** (Code198x learners using Emu198x). Worth designing |
 | **Netplay** | RetroArch netplay, BizHawk netplay | Absent | Explicit non-goal probably; deterministic cores would make it feasible but the scope is enormous |
 | **Achievements (RetroAchievements)** | Some emulators integrate | Absent | Out of scope; tied to a specific third-party |
-| **Game library / picker UI** | All-in-one emulator frontends | Absent; per-system CLI | **Worth doing.** April 12 plan mentions "unified launcher (`emu198x`) presents a system catalogue" — this is that launcher |
+| **Game library / picker UI** | All-in-one emulator frontends | Absent; per-system CLI | **Out of scope.** Per [`no-unified-launcher.md`](../../knowledge/decisions/no-unified-launcher.md) (2026-05-23) — per-system binaries are the product; third-party launchers (LaunchBox / OpenEmu / Playnite) handle library management |
 | **Screen filters beyond CRT** | scanlines, NTSC composite, palette swaps | CRT preset exists; no other filters | Per-shader work; small per filter |
 | **Gamepad remap UI** | Universal | Inputs hardcoded; no remap | Small UI work once native UI matures |
 | **Mid-game video record** | Hotkey-driven in most | MCP tool exists (`start_video_recording`); no UI binding | Trivial once native UI matures |
 | **WASM / web build** | itch.io WASM emulators; web embeds | Not started; demoted in April 12 plan | Post-launch. Real opportunity for Code198x curriculum embeds |
 | **Mobile / touch** | Delta (iOS), various Android | Not started | Out of scope unless someone makes a case |
 
-**Most credible quick wins:** game library / launcher (already a
-roadmap item, just needs sequencing); cheat support (per-system,
-small per system); screen-filter library (per-shader).
+**Most credible quick wins:** cheat support (per-system, small per
+system); screen-filter library (per-shader); gamepad remap UI per
+system once native UI matures. (Game library / launcher was on this
+list before 2026-05-23; retired per
+[`no-unified-launcher.md`](../../knowledge/decisions/no-unified-launcher.md).)
 
 **Most credible high-leverage build:** debugger UI. The project's
 adjacent audience is Code198x learners who would benefit
@@ -475,27 +477,31 @@ infrastructure proven against four systems.
 blargg PPU suite green; A1200 boots Workbench 3.1; debugger UI
 shipped for at least Spectrum (the system the audience uses most).
 
-## Phase D — Game Boy completion + cross-system polish (Feb → May 2027)
+## Phase D — Game Boy completion + per-system polish (Feb → May 2027)
 
 **Goal:** Game Boy graduates from "DMG-only" to "Game Boy family
-covered." Cross-system features begin to feel like a coherent
-product rather than per-system binaries.
+covered." Per-system cross-cutting features (cheats, screen
+filters, gamepad remap, save-state browser) land in each
+per-system binary, since there is no unified launcher to host them
+([`no-unified-launcher.md`](../../knowledge/decisions/no-unified-launcher.md)).
 
 **Work:**
 
 - **Game Boy:** GBC (Color); SGB enhancements; long-tail mappers
   (MBC6/7, HuC1/3, Camera/Printer)
-- **Cross:** game library / launcher (the `emu198x` unified launcher
-  the product roadmap mentions); screen-filter library beyond CRT;
-  cheat system (per-system small; cross-system framework once
-  designed); gamepad remap UI
+- **Per-system features (each landed inside every shipping
+  binary):** screen-filter library beyond CRT (CRT preset already
+  exists; add scanlines / NTSC composite / palette swap shaders);
+  cheat system (Game Genie / Pro Action Replay per system as the
+  formats are system-specific); gamepad remap UI; save-state
+  browser UI
 - **Dragon:** Codex's Dragon work ships when ready (parallel track,
   not gating this phase)
 
 **Size:** Medium. ~3 months.
 
-**Done when:** Game Boy family covered; unified launcher ships;
-cheats work on every shipping system.
+**Done when:** Game Boy family covered; cheats / screen filters /
+gamepad remap / save-state browser work in every shipping binary.
 
 ## Phase E — Wave 2 systems (May → Aug 2027)
 
@@ -685,9 +691,9 @@ us mid-phase.
 3. **WASM build** — which system first? Spectrum (smallest, October
    anchor)? Game Boy (highest game library appeal)? NES (most
    recognisable)?
-4. **Game library / launcher** — does it ship as a separate binary
-   (`emu198x`) per the product roadmap, or as a `--launcher` mode of
-   each per-system binary? Or both?
+4. ~~**Game library / launcher**~~ — **Resolved 2026-05-23.** No
+   unified launcher; per-system binaries are the product. See
+   [`no-unified-launcher.md`](../../knowledge/decisions/no-unified-launcher.md).
 5. **CDTV / CD32 scope** — full Akiko + CD-ROM, or stop at Akiko
    and treat CD-ROM as a separate phase?
 6. **A historical-significance vs technical-novelty axis** for system

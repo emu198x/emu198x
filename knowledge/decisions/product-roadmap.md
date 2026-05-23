@@ -2,7 +2,7 @@
 
 ## Vision
 
-Rebuild all 35+ systems from the old codebase at the new accuracy standard. Every CPU core cycle-perfect. Every system correct from day one. Ship as per-system standalone binaries plus a unified launcher.
+Rebuild all 35+ systems from the old codebase at the new accuracy standard. Every CPU core cycle-perfect. Every system correct from day one. Ship as per-system standalone binaries. **Amended 2026-05-23.** The original framing committed to "plus a unified launcher" alongside the per-system binaries; that commitment is retired per [`no-unified-launcher.md`](no-unified-launcher.md). The "Emu198x" brand is the GitHub org and the README, not a single mega-app.
 
 ## October 2026
 
@@ -46,7 +46,11 @@ Same as Spectrum for every system. Non-negotiable. See [fresh start rationale](f
 
 ## Product shape
 
-Per-system standalone binaries (`emu198x-spectrum`, `emu198x-c64`, etc.) **plus** a unified launcher (`emu198x`) that presents a system catalogue. Both ship. Shell infrastructure is a shared crate that every system links against.
+**Amended 2026-05-23** — see [`no-unified-launcher.md`](no-unified-launcher.md).
+
+Per-system standalone binaries (`emu198x-spectrum`, `emu198x-c64`, etc.) are the product. There is no unified launcher; the `emu198x` binary name stays reserved. Shell infrastructure (`emu198x-shell`) is a shared crate that every per-system binary links against, providing common headless-session shape, MCP server boilerplate, audio / video sinks, and the query provider trait — at the **library** layer, not the application layer.
+
+Cross-system features (rewind, cheats, save-state browser, controller config, screen filters) live inside each per-system binary, not in a host process. Distribution is per-system formulae / installers; an optional `emu198x-suite` meta-formula that pulls all six is a convenience, not the primary path.
 
 ## Chip reuse map
 
@@ -92,7 +96,8 @@ Roadmaps drift through scope creep and reprioritization, not code patterns. If I
 **Product-shape drift to reject:**
 
 - Collapsing per-system binaries into one monolithic app
-- Dropping the unified launcher "to save time"
+- Adding a unified launcher (superseded 2026-05-23 — see [`no-unified-launcher.md`](no-unified-launcher.md); rejecting the launcher is now the binding decision)
+- Adding a `--launcher` mode to per-system binaries (same coupling cost, distributed across every binary)
 - Skipping the shared shell crate (`emu198x-shell`) and reimplementing per system
 - Adding a web version / mobile version / etc. before October
 
@@ -109,4 +114,15 @@ Roadmaps drift through scope creep and reprioritization, not code patterns. If I
 
 - [Fresh start rationale](fresh-start-rationale.md) — why accuracy is non-negotiable
 - [Crate naming](crate-naming.md) — how new crates should be named
+- [No unified launcher](no-unified-launcher.md) — the 2026-05-23 supersession of the launcher commitment
 - [Brainstorm doc](../../docs/brainstorms/2026-04-05-accuracy-to-product-roadmap-brainstorm.md) — full discussion
+
+## Log
+
+### 2026-05-23 — Launcher commitment retired
+
+The original April-2026 framing committed to shipping "per-system standalone binaries plus a unified launcher." That commitment is retired per [`no-unified-launcher.md`](no-unified-launcher.md). Per-system binaries are the product; the `emu198x` binary name stays reserved (deferred decision on whether a thin stub eventually fills it). Cross-system features move to per-system implementations. Drift trigger flipped: "adding a unified launcher" is now the pattern to reject, replacing the old "dropping the unified launcher" trigger.
+
+### 2026-05-06 — Public October scope narrowed to Spectrum
+
+Originally the October 2026 section listed four anchor platforms in priority order with Amiga as the cut candidate. The framing changed when Code198x narrowed to Spectrum-only for its October launch. Public October launch is now Spectrum SOLID only; C64 / NES / Amiga continue as engineering bar with no October deadline. See [October catalogue Log](october-catalogue.md#log) for the cross-project rationale.
