@@ -65,6 +65,22 @@ early alignment saves rework.
 - PRs that touch architectural seams should reference the relevant decision
   record in `knowledge/decisions/`
 
+Commit subjects use [Conventional Commits](https://www.conventionalcommits.org)
+prefixes so [release-plz](https://release-plz.dev) can compute version bumps
+and append CHANGELOG entries automatically:
+
+- `feat:` — new user-facing capability (minor bump; major with `!` after 1.0)
+- `fix:` — bug fix (patch bump)
+- `chore:`, `docs:`, `refactor:`, `style:`, `test:`, `ci:`, `build:`, `perf:` —
+  no bump, appears in CHANGELOG under "Other"
+- Scope notation (`feat(spectrum):`, `fix(amiga):`) is optional — use it when
+  the change is clearly system-specific
+
+The convention is by convention, not CI-enforced. Missing prefixes degrade
+gracefully — release-plz lands them under "Other" and skips the bump. Don't
+pick a prefix to satisfy a lint; the effect-described-in-the-title and
+why-in-the-body rules above are the higher bar.
+
 ## Reporting bugs
 
 Use the bug report template. The most useful bug reports include the system
