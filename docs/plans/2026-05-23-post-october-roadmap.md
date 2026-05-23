@@ -421,6 +421,13 @@ Each phase is sized small (~1 month) / medium (~3 months) / large
 **Goal:** First public release ships clean. Users can install,
 launch, get something on screen with a ROM they sourced themselves.
 
+**Versioning note:** Binaries stay 0.x indefinitely per
+[`../../knowledge/decisions/versioning-milestones.md`](../../knowledge/decisions/versioning-milestones.md).
+There is no planned binary 1.0 milestone; production-readiness per
+system is signalled by the catalogue passing, not by the version
+label. Library crates that publish to crates.io may hit their own
+1.0 independently per [`../../knowledge/decisions/versioning-strategy.md`](../../knowledge/decisions/versioning-strategy.md).
+
 **Work:**
 
 - README screenshots per shipping system (small)

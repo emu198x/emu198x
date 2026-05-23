@@ -466,3 +466,17 @@ implementation branches, or overstated completion claims. The active path is:
 
 If those disagree with an older status or roadmap document, the older document
 is historical.
+
+## About versioning
+
+The binary releases (`emu198x-spectrum`, `emu198x-c64`, …) stay at 0.x by
+design. There is no planned "Emu198x 1.0" milestone — production-readiness per
+system is signalled by the catalogue passing for that system, not by the
+version label. See [`knowledge/decisions/versioning-milestones.md`](knowledge/decisions/versioning-milestones.md).
+
+When individual library crates from this workspace start publishing to
+crates.io (chip cores like `mos-6502` and `zilog-z80`, format parsers, …),
+each one carves out to independent versioning at publish time and may hit its
+own 1.0 milestone when its public API is judged stable. See
+[`knowledge/decisions/versioning-strategy.md`](knowledge/decisions/versioning-strategy.md)
+for the carve-out mechanics.
