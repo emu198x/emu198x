@@ -565,8 +565,11 @@ reasonably look for it.
   `format-nintendo-nes-ines`)
 - **Homebrew tap** for `brew install emu198x-spectrum` etc.
 - **Windows MSI installer** via cargo-dist (`installers = ["msi"]`)
-- **WASM build** of at least one system (Spectrum likely) for
-  Code198x curriculum embeds
+- ~~**WASM build** of at least one system~~ **Resolved 2026-05-23.**
+  WASM deferred indefinitely per
+  [`../../knowledge/decisions/wasm-sequencing.md`](../../knowledge/decisions/wasm-sequencing.md) —
+  ROM legality killed the curriculum-embed angle that justified
+  it. Re-opens only on concrete trigger.
 
 **Size:** Small per item, cumulative Medium.
 
@@ -695,9 +698,9 @@ us mid-phase.
    or web (LSP-shape server + web client)? The MCP query surface
    strongly suggests "MCP + frontend" — could be HTML-over-MCP,
    could be native. Worth a proper brainstorm.
-3. **WASM build** — which system first? Spectrum (smallest, October
-   anchor)? Game Boy (highest game library appeal)? NES (most
-   recognisable)?
+3. ~~**WASM build** — which system first?~~ **Resolved 2026-05-23.**
+   No system, until concrete demand. See
+   [`../../knowledge/decisions/wasm-sequencing.md`](../../knowledge/decisions/wasm-sequencing.md).
 4. ~~**Game library / launcher**~~ — **Resolved 2026-05-23.** No
    unified launcher; per-system binaries are the product. See
    [`no-unified-launcher.md`](../../knowledge/decisions/no-unified-launcher.md).
