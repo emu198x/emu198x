@@ -57,6 +57,11 @@ impl Cpu68020 {
     /// the 68020-only deltas on top.
     fn install_variant_hooks(&mut self) {
         self.inner.variant_decode_hook = Some(decode_68020_opcode);
+        // 68020+ adds the bit-field memory pipeline tags
+        // (TAG_BF_MEM_READ/EXEC/WRITE). The continue hook dispatches
+        // those tags and falls through to the 68010 chain for
+        // anything it doesn't claim (TAG_RTD_* on 68010).
+        self.inner.variant_continue_hook = Some(continue_68020_opcode);
         // Brief-extension-word scale factor (Xn.SIZE*1/2/4/8) is
         // 68020+ behaviour. The 68010's hook leaves the flag false;
         // the 68020 enables it here so calc_ea_start consults bits
@@ -544,14 +549,13 @@ fn write_movec_reg(cpu: &mut Cpu68000, ext: u16, value: u32) {
 // modification, and rotate-left + shift-right for extraction.
 
 /// Hook entry: dispatch the 8 BF opcodes by their sub-op field.
-/// Only Dn-destination is implemented today — memory-EA dispatch
-/// (mode != 0) needs the multi-step EA pipeline.
+/// Dn-destination runs synchronously here; memory operands kick off
+/// the multi-step memory pipeline via [`begin_bf_memory`].
 fn execute_bf(cpu: &mut Cpu68000, opcode: u16) -> bool {
     let ea_mode = (opcode >> 3) & 7;
     let ea_reg = (opcode & 7) as usize;
     if ea_mode != 0 {
-        cpu.begin_group1_exception(4, cpu.instr_start_pc);
-        return true;
+        return begin_bf_memory(cpu, opcode, ea_mode as u8, ea_reg as u8);
     }
 
     let op = (opcode >> 8) & 7;
@@ -723,6 +727,307 @@ fn execute_bf(cpu: &mut Cpu68000, opcode: u16) -> bool {
 
     cpu.regs.sr = sr;
     true
+}
+
+// ─── Bit-field memory pipeline (Stage M / Phase 5) ─────────────────
+//
+// `execute_bf` dispatches memory operands here. We decode the BF
+// extension word, resolve the EA (only the no-extension-word modes
+// — `(An)`, `(An)+`, `-(An)` — synchronously for now; the rest
+// trap until `TAG_BF_MEM_EA_RESOLVE` is implemented), stash the
+// pipeline state on the CPU, and queue the first `ReadByte`. The
+// `TAG_BF_MEM_READ` continuation in `motorola-68000::decode` chains
+// the remaining byte reads and hands off to `TAG_BF_MEM_EXEC` /
+// `TAG_BF_MEM_WRITE` for the field math and any writeback.
+
+use motorola_68000::cpu::{TAG_BF_MEM_EXEC, TAG_BF_MEM_READ, TAG_BF_MEM_WRITE};
+use motorola_68000::microcode::MicroOp;
+use motorola_68010::continue_68010_opcode;
+
+/// Start the memory-EA bit-field pipeline. Returns `true` once the
+/// pipeline is in flight or the instruction has been replaced by a
+/// group-1 exception (illegal instruction for unsupported modes).
+fn begin_bf_memory(cpu: &mut Cpu68000, opcode: u16, ea_mode: u8, ea_reg: u8) -> bool {
+    let sub_op = ((opcode >> 8) & 7) as u8;
+    let ext = cpu.consume_irc();
+    let dr = ((ext >> 12) & 7) as u8;
+
+    // Offset: bit 11 selects Dn-source (signed 32-bit) vs 5-bit
+    // immediate. Memory mode treats the offset as a signed bit
+    // displacement from the base byte address — it can be arbitrarily
+    // large in either direction.
+    let offset_raw: i32 = if ext & 0x0800 != 0 {
+        let reg = ((ext >> 6) & 7) as usize;
+        cpu.regs.d[reg] as i32
+    } else {
+        i32::from((ext >> 6) & 0x1F)
+    };
+
+    // Width: bit 5 selects Dn-source vs 5-bit immediate. Both encode
+    // 0 → 32, otherwise 1..=31 maps to itself (and Dn's full 32 bits
+    // are reduced mod 32 via the same `(raw - 1) & 31 + 1` trick).
+    let raw_width: u32 = if ext & 0x0020 != 0 {
+        let reg = (ext & 7) as usize;
+        cpu.regs.d[reg]
+    } else {
+        u32::from(ext & 0x1F)
+    };
+    let width = (raw_width.wrapping_sub(1) & 31) + 1;
+
+    // Decompose offset into a signed byte displacement and a 0..=7
+    // bit offset within the first byte (MSB-numbered, so bit 0 is
+    // the byte's MSB). Rust's arithmetic `>> 3` is floor for signed
+    // i32; `& 7` then takes the positive-mod-8 remainder thanks to
+    // two's-complement.
+    let byte_disp: i32 = offset_raw >> 3;
+    let bit_offset: u8 = (offset_raw & 7) as u8;
+    let bytes_total: u8 = ((u32::from(bit_offset) + width + 7) / 8) as u8;
+
+    // Resolve EA. For Stage M's first cut we handle the three modes
+    // that don't need any further extension words. The rest fall
+    // through to ILLEGAL until the resolve handler lands.
+    let ea_addr = match ea_mode {
+        // (An): plain indirect.
+        2 => cpu.regs.a(ea_reg as usize),
+        // (An)+: byte-step post-increment per M68000PRM § 4.3.5.
+        3 => {
+            let a = cpu.regs.a(ea_reg as usize);
+            cpu.regs.set_a(ea_reg as usize, a.wrapping_add(1));
+            a
+        }
+        // -(An): byte-step pre-decrement per M68000PRM § 4.3.5.
+        4 => {
+            let a = cpu.regs.a(ea_reg as usize).wrapping_sub(1);
+            cpu.regs.set_a(ea_reg as usize, a);
+            a
+        }
+        _ => {
+            // Stage M follow-ups: d16(An), (d8,An,Xn), AbsShort,
+            // AbsLong, PcDisp, PcIndex. Trap for now so we surface
+            // each one as we expand.
+            cpu.begin_group1_exception(4, cpu.instr_start_pc);
+            return true;
+        }
+    };
+
+    let base_byte = ea_addr.wrapping_add_signed(byte_disp);
+
+    // Stash pipeline state. `bf_source_val` snapshots Dr for BFINS so
+    // a later write-back through Dr doesn't disturb it. Other ops
+    // ignore the field.
+    cpu.bf_buf = 0;
+    cpu.bf_base_addr = base_byte;
+    cpu.bf_sub_op = sub_op;
+    cpu.bf_dr = dr;
+    cpu.bf_width = width as u8;
+    cpu.bf_bit_offset = bit_offset;
+    cpu.bf_bytes_total = bytes_total;
+    cpu.bf_bytes_done = 0;
+    cpu.bf_source_val = match sub_op {
+        7 => cpu.regs.d[dr as usize], // BFINS: snapshot Dr before any writes.
+        5 => offset_raw as u32,       // BFFFO: stash the full signed offset
+                                      //         so the result (offset + first-one
+                                      //         position) sees its original
+                                      //         32-bit width, not the wrapped
+                                      //         5-bit value.
+        _ => 0,
+    };
+
+    // Kick off the read chain. The queued FetchIRC from
+    // `consume_irc` will refill IRC for the next instruction in the
+    // background; our ReadByte then drives the bus to base_byte and
+    // hands off to `TAG_BF_MEM_READ` for accumulation + chaining.
+    cpu.addr = base_byte;
+    cpu.followup_tag = TAG_BF_MEM_READ;
+    cpu.in_followup = true;
+    cpu.micro_ops.push(MicroOp::ReadByte);
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
+}
+
+/// 68020 continuation hook. Dispatches the BF memory pipeline tags
+/// and chains to the 68010 hook for any tag the 68020 doesn't claim
+/// (notably `TAG_RTD_*`). Installed via `variant_continue_hook`.
+pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
+    match cpu.followup_tag {
+        TAG_BF_MEM_READ => {
+            handle_bf_mem_read(cpu);
+            true
+        }
+        TAG_BF_MEM_EXEC => {
+            handle_bf_mem_exec(cpu);
+            true
+        }
+        TAG_BF_MEM_WRITE => {
+            handle_bf_mem_write(cpu);
+            true
+        }
+        _ => continue_68010_opcode(cpu),
+    }
+}
+
+/// BF read-chain step. One `ReadByte` has just completed and the
+/// byte sits in the low 8 bits of `self.data`. Pack it MSB-first
+/// into `bf_buf` (byte 0 → bits 63-56, byte 1 → 55-48, …) so that
+/// the field-extraction math in `TAG_BF_MEM_EXEC` works against a
+/// uniform MSB-aligned buffer.
+fn handle_bf_mem_read(cpu: &mut Cpu68000) {
+    let byte = u64::from(cpu.data & 0xFF);
+    let shift = 56 - 8 * u32::from(cpu.bf_bytes_done);
+    cpu.bf_buf |= byte << shift;
+    cpu.bf_bytes_done += 1;
+    if cpu.bf_bytes_done < cpu.bf_bytes_total {
+        cpu.addr = cpu.addr.wrapping_add(1);
+        cpu.micro_ops.push(MicroOp::ReadByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        cpu.followup_tag = TAG_BF_MEM_EXEC;
+        cpu.micro_ops.push(MicroOp::Execute);
+    }
+}
+
+/// BF field math. The MSB-aligned `bf_buf` is now fully populated;
+/// extract the `width`-bit field that starts at `bit_offset` (bit
+/// position counted from the MSB end of byte 0). Set N/Z from the
+/// pre-modification field for every op except BFINS, then dispatch:
+///
+///   - BFTST → flags only; finish.
+///   - BFEXTU → zero-extend into Dr; finish.
+///   - BFEXTS → sign-extend into Dr; finish.
+///   - BFFFO  → Dr = (original signed offset) + (bit position of
+///              the first '1' MSB-first, or width if none); finish.
+///   - BFCHG / BFCLR / BFSET / BFINS → modify the field bits in
+///              `bf_buf` and hand off to `TAG_BF_MEM_WRITE` for the
+///              R-M-W byte chain.
+fn handle_bf_mem_exec(cpu: &mut Cpu68000) {
+    let width = u32::from(cpu.bf_width);
+    let bit_offset = u32::from(cpu.bf_bit_offset);
+    let field_shift = 64 - bit_offset - width;
+    // Width 1..=32, so `(1u64 << width) - 1` is well-defined for the
+    // full range — `1u64 << 32 = 0x1_0000_0000` fits in u64.
+    let mask_u64: u64 = if width == 64 {
+        u64::MAX
+    } else {
+        (1u64 << width) - 1
+    };
+    let mask_u32 = mask_u64 as u32;
+
+    let field_u32 = ((cpu.bf_buf >> field_shift) & mask_u64) as u32;
+    let field_msb = (field_u32 >> (width - 1)) & 1 != 0;
+    let field_zero = field_u32 == 0;
+
+    let mut sr = cpu.regs.sr & !(N | Z | V | C);
+    if field_msb {
+        sr |= N;
+    }
+    if field_zero {
+        sr |= Z;
+    }
+
+    let sub_op = cpu.bf_sub_op;
+    let dr = cpu.bf_dr as usize;
+
+    match sub_op {
+        // BFTST — flags only.
+        0 => {
+            cpu.regs.sr = sr;
+            cpu.in_followup = false;
+            cpu.followup_tag = 0;
+        }
+        // BFEXTU — zero-extended field into Dr.
+        1 => {
+            cpu.regs.d[dr] = field_u32;
+            cpu.regs.sr = sr;
+            cpu.in_followup = false;
+            cpu.followup_tag = 0;
+        }
+        // BFEXTS — sign-extended field into Dr.
+        3 => {
+            let signed = if width == 32 {
+                field_u32
+            } else {
+                let extend = 32 - width;
+                (((field_u32 << extend) as i32) >> extend) as u32
+            };
+            cpu.regs.d[dr] = signed;
+            cpu.regs.sr = sr;
+            cpu.in_followup = false;
+            cpu.followup_tag = 0;
+        }
+        // BFFFO — scan for first '1' MSB-first within the field.
+        5 => {
+            let mut position = 0u32;
+            let mut m = 1u32 << (width - 1);
+            while m != 0 && (field_u32 & m) == 0 {
+                position += 1;
+                m >>= 1;
+            }
+            // bf_source_val holds the original signed offset
+            // (stashed in `begin_bf_memory`). Result = offset + N
+            // (or offset + width when no '1' bit is set).
+            cpu.regs.d[dr] = cpu.bf_source_val.wrapping_add(position);
+            cpu.regs.sr = sr;
+            cpu.in_followup = false;
+            cpu.followup_tag = 0;
+        }
+        // BFCHG / BFCLR / BFSET / BFINS — read-modify-write.
+        2 | 4 | 6 | 7 => {
+            let mask_in_buf = mask_u64 << field_shift;
+            cpu.bf_buf = match sub_op {
+                2 => cpu.bf_buf ^ mask_in_buf,
+                4 => cpu.bf_buf & !mask_in_buf,
+                6 => cpu.bf_buf | mask_in_buf,
+                7 => {
+                    let insert = u64::from(cpu.bf_source_val & mask_u32);
+                    (cpu.bf_buf & !mask_in_buf) | (insert << field_shift)
+                }
+                _ => unreachable!(),
+            };
+            // BFINS gets flags from the source operand, not the
+            // pre-modification field. PRM § 4.3.4.
+            if sub_op == 7 {
+                let src = cpu.bf_source_val & mask_u32;
+                let src_msb = (src >> (width - 1)) & 1 != 0;
+                let src_zero = src == 0;
+                sr = cpu.regs.sr & !(N | Z | V | C);
+                if src_msb {
+                    sr |= N;
+                }
+                if src_zero {
+                    sr |= Z;
+                }
+            }
+            cpu.regs.sr = sr;
+            // Set up the writeback chain. Byte 0 sits at bits 63-56
+            // of bf_buf; subsequent bytes step right by 8 bits.
+            cpu.bf_bytes_done = 0;
+            cpu.addr = cpu.bf_base_addr;
+            cpu.data = ((cpu.bf_buf >> 56) & 0xFF) as u32;
+            cpu.followup_tag = TAG_BF_MEM_WRITE;
+            cpu.micro_ops.push(MicroOp::WriteByte);
+            cpu.micro_ops.push(MicroOp::Execute);
+        }
+        _ => unreachable!("BF sub-op must be 0..=7"),
+    }
+}
+
+/// BF write-chain step. A `WriteByte` just completed; pick up the
+/// next byte from `bf_buf` and queue another `WriteByte`, or finish
+/// the instruction when the field's span is fully written.
+fn handle_bf_mem_write(cpu: &mut Cpu68000) {
+    cpu.bf_bytes_done += 1;
+    if cpu.bf_bytes_done < cpu.bf_bytes_total {
+        cpu.addr = cpu.addr.wrapping_add(1);
+        let shift = 56 - 8 * u32::from(cpu.bf_bytes_done);
+        cpu.data = ((cpu.bf_buf >> shift) & 0xFF) as u32;
+        cpu.micro_ops.push(MicroOp::WriteByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        cpu.in_followup = false;
+        cpu.followup_tag = 0;
+        // Empty queue → tick's "start next instruction" path will
+        // auto-push `PromoteIRC` on the following tick.
+    }
 }
 
 #[cfg(test)]

@@ -132,11 +132,13 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // CPU IPL mask once init reaches the "interrupts on" phase and
     // moves VBR to its chip-RAM exception table. Those transitions
     // are the most informative progress signals.
-    // Stage J: 2000 frames is enough — vec 11 fires within the first
-    // few hundred frames. We need the chip[$002C] and OVL snapshot at
-    // first fire, not a long stress run.
-    let frames_to_run: u64 = 2_000;
-    let checkpoint_every: u64 = 500;
+    // Post-Stage-M: boot now reaches resident-module init and copper
+    // setup, which take many frames. 4000 frames (~1.3 sec PAL) gives
+    // enough room to either show the next wedge or saturate into the
+    // module-init steady state. 8000+ doesn't add diagnostic value;
+    // bump only when chasing STRAP arrival.
+    let frames_to_run: u64 = 4_000;
+    let checkpoint_every: u64 = 1_000;
     // Tracked but not currently read — kept for future "PC moved
     // since last checkpoint?" diagnostic without disturbing the
     // surrounding investigation loop.

@@ -820,6 +820,104 @@ The new alert (`D7 = $80000004`, popped at `$F96424` /
 `$F958E0` / `$F96856`) is a separate problem deep in
 resident-module init — Stage M territory.
 
+## A1200 Stage M findings — 2026-05-24 (in flight)
+
+KS 3.1 was tripping vector 4 (illegal instruction) at
+`$F85298` on a `BFEXTU (A1), …` opcode. Our 68020 implemented
+the bit-field family only for Dn operands; memory EAs traced
+through to a Phase 5 deferral and raised illegal-instruction.
+
+A ROM scan turned up **150+ bit-field instruction sites** in
+the KS 3.1 image across all 7 memory EA modes — heavily
+concentrated in `graphics.library` and `intuition.library`
+(BFINS alone has 44 `(An)` sites and 21 `(d8,An,Xn)` sites).
+Implementing the full family is genuinely Phase 5 work; the
+project comment at `motorola-68020/src/cpu.rs:13` already
+listed bit-field as deferred. Stage M lands the foundation.
+
+**Architecture.** A multi-step memory pipeline drives bit-field
+reads, math, and (for R-M-W ops) writeback through the same
+queue-driven micro-op model the rest of the CPU uses:
+
+1. `execute_bf` (68020 hook) detects `ea_mode != 0` and hands
+   off to `begin_bf_memory`, which decodes the BF extension
+   word, resolves the EA, snapshots Dr / signed offset for the
+   ops that need it, stashes the pipeline state on `Cpu68000`
+   scratch fields (`bf_buf`, `bf_base_addr`, `bf_sub_op`,
+   `bf_dr`, `bf_width`, `bf_bit_offset`, `bf_bytes_total`,
+   `bf_bytes_done`, `bf_source_val`), and queues the first
+   `ReadByte`.
+2. `TAG_BF_MEM_READ` chains byte reads, packing them MSB-first
+   into the 64-bit `bf_buf`.
+3. `TAG_BF_MEM_EXEC` does the field math against the fully
+   assembled buffer. BFTST / BFEXTU / BFEXTS / BFFFO finish
+   here; BFCHG / BFCLR / BFSET / BFINS modify `bf_buf` and
+   hand off to the writeback chain.
+4. `TAG_BF_MEM_WRITE` chains byte writes back to the same
+   address span, then leaves the queue empty so the CPU's
+   "start next instruction" path auto-pushes `PromoteIRC`.
+
+A new `continue_68020_opcode` continuation hook dispatches the
+three BF tags and falls through to `continue_68010_opcode` for
+anything it doesn't claim (notably `TAG_RTD_*`).
+
+**Scope landed this iteration.** EA modes `(An)`, `(An)+`,
+`-(An)` for **all 8 BF ops**. The post-increment / pre-
+decrement modes step An by one byte per M68000PRM § 4.3.5, in
+line with how 68020 hardware treats bit-field operands. Modes
+needing extension words (`d16(An)`, `(d8,An,Xn)`, AbsShort,
+AbsLong, PcDisp, PcIndex) still trap illegal — Stage M
+follow-up.
+
+**Result.** A1200 KS 3.1 boot:
+
+| Metric                  | Pre-Stage-L | Pre-Stage-M | After Stage M (An) |
+|-------------------------|------------:|------------:|-------------------:|
+| Unique PCs visited      |       5,539 |      22,880 |             29,704 |
+| Last PC in ROM          |   `$F8044E` |   `$F83626` |          `$FC1634` |
+| Vec 4 (illegal) traps   |           0 |           6 |                  0 |
+| Vec 8 (priv-viol) probes|          48 |         239 |              2,190 |
+| INTENA writes           |         346 |       7,579 |            332,377 |
+| Custom-reg writes total |     475,434 |     455,970 |            421,242 |
+
+Boot now reaches resident-module init at `$FC1xxx` (well past
+the early DiagAlive area at `$F83xxx`), drops IPL all the way
+to 0, runs heavy interrupt-driven activity (45× more interrupt
+enable writes than before), polls VHPOSR / VPOSR for beam
+synchronisation, and writes copper-list pointers + sprite
+pointers ~5K times each — graphics setup is genuinely live.
+
+Boot does NOT reach STRAP within 4000 frames — module init is
+still working through later resident modules. Whether the
+remaining gap is more BF EA modes, other missing 68020
+instructions (CHK2, CAS, MULL/DIVL on memory, …), or a
+hardware-side issue (Paula audio, Gayle PCMCIA quirks,
+graphics.library expectations) is the Stage M follow-up
+investigation.
+
+**Tom Harte 68000 / 68010 / 68020 + all Amiga machine tests
+green** — no regressions from the new pipeline.
+
+### Stage M follow-ups
+
+In priority order based on the ROM scan and where KS 3.1
+appears to be looping:
+
+1. **`d16(An)` mode** for all 8 BF ops (BFCHG `d16(An)` has 4
+   sites, BFCLR / BFEXTS / BFSET each have 1–2). One extension
+   word; needs a new follow-up tag.
+2. **`(d8,An,Xn)` mode** for all 8 BF ops (BFINS has 21
+   sites). Brief extension word; the 68020 also supports the
+   full extension word format here — gate behind whatever the
+   ROM actually uses.
+3. **AbsLong / AbsShort** modes (BFSET `abs/imm` has 7 sites).
+   AbsLong needs two extension words.
+4. **PcDisp / PcIndex** modes if any boot path needs them.
+
+The pipeline framework is in place; each new mode is a matter
+of fitting it into `begin_bf_memory`'s match (for the simple
+cases) or adding extension-word follow-up tags (for the rest).
+
 ## What this plan does not cover
 
 - **PMOVE / PFLUSH / PTEST** (68030 + 68040 MMU instructions). Tracked in

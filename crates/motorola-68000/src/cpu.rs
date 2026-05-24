@@ -191,6 +191,32 @@ pub const TAG_AE_FINISH: u8 = 55;
 /// step 11 hands off to `TAG_AE_FETCH_VECTOR`.
 pub const TAG_AE_FMT_A_STEP: u8 = 94;
 
+// 68020+ bit-field memory pipeline (Phase 5 / Stage M).
+//
+// Bit-field instructions on memory operands need a multi-step
+// pipeline: resolve the EA (some modes need extension words), read
+// up to 5 bytes covering the field span, do the field math in
+// `bf_buf`, and — for R-M-W ops — write the modified bytes back.
+/// BF memory: EA extension words just landed; finish address
+/// calculation, set `bf_base_addr` / `bf_bytes_total`, queue first
+/// `ReadByte`. Skipped for modes that resolve instantly (the
+/// dispatch in `execute_bf` jumps directly to queueing reads in
+/// that case).
+pub const TAG_BF_MEM_EA_RESOLVE: u8 = 96;
+/// BF memory: one byte just landed in `self.data`'s low byte;
+/// shift it into `bf_buf` and either queue the next `ReadByte` (if
+/// more bytes remain) or hand off to `TAG_BF_MEM_EXEC`.
+pub const TAG_BF_MEM_READ: u8 = 97;
+/// BF memory: all bytes are in `bf_buf`; dispatch on `bf_sub_op` to
+/// extract / test / modify the field. Read-only ops (BFTST / EXTU /
+/// EXTS / FFO) finish here; R-M-W ops (BFCHG / CLR / SET / INS)
+/// queue the first writeback byte and hand off to
+/// `TAG_BF_MEM_WRITE`.
+pub const TAG_BF_MEM_EXEC: u8 = 98;
+/// BF memory: one byte just written; if more remain queue the next
+/// `WriteByte`, otherwise finish the instruction.
+pub const TAG_BF_MEM_WRITE: u8 = 99;
+
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum State {
@@ -530,6 +556,61 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub(crate) exc_pending_pc: u32,
 
+    // ── 68020+ bit-field memory pipeline scratch ──────────────────
+    //
+    // Stage M (Phase 5): bit-field instructions (BFTST/EXTU/CHG/EXTS/
+    // CLR/FFO/SET/INS) on memory operands need a multi-step pipeline:
+    // compute base byte address from EA + signed(offset/8); read up
+    // to 5 bytes; do the field math; for R-M-W ops write the modified
+    // bytes back. The Dn-mode fast path in the 68020 hook stays
+    // synchronous; only memory modes use these scratch fields.
+    //
+    // All `#[serde(skip)]` because BF execution is mid-instruction
+    // transient state — a save state taken outside a BF instruction
+    // doesn't need to preserve any of these, and one taken mid-BF
+    // would need every other mid-instruction field too.
+    /// Packed read/write buffer for the memory operand. Up to 5 bytes
+    /// (40 bits) starting at the byte containing the field MSB. Bytes
+    /// are packed MSB-first: the first byte read occupies bits 63-56,
+    /// the second 55-48, and so on.
+    #[serde(skip)]
+    pub bf_buf: u64,
+    /// Base byte address of the memory operand (= EA + signed(offset/8))
+    /// where the first byte of the field resides. Preserved across the
+    /// read chain so R-M-W writeback can step forward from the same
+    /// starting address.
+    #[serde(skip)]
+    pub bf_base_addr: u32,
+    /// Sub-op (0..=7) matching the BF opcode encoding:
+    /// 0=BFTST 1=BFEXTU 2=BFCHG 3=BFEXTS 4=BFCLR 5=BFFFO 6=BFSET 7=BFINS.
+    #[serde(skip)]
+    pub bf_sub_op: u8,
+    /// Source / destination data register for ops that need one
+    /// (BFEXTU / BFEXTS / BFFFO write Dr; BFINS reads Dr at start).
+    #[serde(skip)]
+    pub bf_dr: u8,
+    /// Effective field width, 1..=32.
+    #[serde(skip)]
+    pub bf_width: u8,
+    /// Bit offset within the first byte of `bf_buf` where the field
+    /// MSB sits (0..=7, MSB-numbered). For a byte-aligned field this
+    /// is 0; for a 1-bit-shifted field this is 1; etc.
+    #[serde(skip)]
+    pub bf_bit_offset: u8,
+    /// Total bytes the field spans (1..=5). Determines how many
+    /// `ReadByte` ops the read chain queues.
+    #[serde(skip)]
+    pub bf_bytes_total: u8,
+    /// Bytes already read into `bf_buf` (0..=`bf_bytes_total`).
+    /// Doubles as the write-chain index during the R-M-W writeback.
+    #[serde(skip)]
+    pub bf_bytes_done: u8,
+    /// For BFINS: Dr's value at instruction start (captured before
+    /// the read chain runs, in case the field math would otherwise
+    /// see a value mutated by some intermediate step).
+    #[serde(skip)]
+    pub bf_source_val: u32,
+
     /// Variant continuation hook: gives a wrapping variant a chance
     /// to dispatch follow-up tags that the 68000 doesn't know about.
     ///
@@ -623,6 +704,15 @@ impl Cpu68000 {
             ae_frame_pc: 0,
             rte_fmta_step: 0,
             exc_pending_pc: 0,
+            bf_buf: 0,
+            bf_base_addr: 0,
+            bf_sub_op: 0,
+            bf_dr: 0,
+            bf_width: 0,
+            bf_bit_offset: 0,
+            bf_bytes_total: 0,
+            bf_bytes_done: 0,
+            bf_source_val: 0,
             variant_continue_hook: None,
             variant_pending_disp: 0,
         }

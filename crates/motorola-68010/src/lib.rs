@@ -93,7 +93,7 @@
 
 pub mod cpu;
 
-pub use cpu::{Cpu68010, decode_68010_opcode};
+pub use cpu::{Cpu68010, continue_68010_opcode, decode_68010_opcode};
 pub use motorola_68k_common::{CpuCapabilities, CpuModel, TimingClass};
 
 /// Marker zero-sized type identifying the 68010 variant.
