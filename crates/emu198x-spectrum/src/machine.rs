@@ -81,7 +81,10 @@ impl MachineKind {
 
     /// All eight variants in catalogue order (16K → 48K → Plus → 128K
     /// → +2 → +2A → +2B → +3). Stable iteration order matters for the
-    /// menu layout and the radio-style "current" indicator.
+    /// menu layout and the radio-style "current" indicator. On Linux
+    /// the muda menu is gated out (see ui/menu.rs), so nothing iterates
+    /// this — suppress the dead_code lint there only.
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub const fn all() -> [Self; 8] {
         [
             Self::Spectrum16K,
