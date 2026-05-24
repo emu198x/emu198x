@@ -942,11 +942,34 @@ impl Cpu68000 {
         // RTE will restore this address and begin a fresh prefetch from it.
         let pc_to_push = self.irc_addr;
 
-        // 68000: push PC directly (6-byte frame: PC + SR).
-        self.data = pc_to_push;
-        self.followup_tag = TAG_EXC_STACK_PC_HI;
-        self.micro_ops.push(MicroOp::PushLongHi);
-        self.micro_ops.push(MicroOp::Execute);
+        if self.variant_six_word_frame {
+            // 68010+: 8-byte Format-$0 interrupt frame. Push the F/V
+            // word first using the autovector number (24 + level).
+            // All retro 68010+ targets we support (Amiga A1200/A3000/
+            // A4000/CD32, Atari Falcon) use autovectored interrupts,
+            // so the subsequent IACK returns the same autovector
+            // value the CPU pre-pushed in the F/V word — the frame
+            // is internally consistent. Genuinely-vectored 68010+
+            // systems (Mac via VIA/SCC) would need an IACK-first
+            // refactor before the F/V push. M68000PRM § 8.6.
+            //
+            // RTE on 68010+ pops 8 bytes for Format $0 (Stage J
+            // fix); pushing 6 bytes here was leaking 2 bytes per
+            // interrupt, accumulating into SSP overflow past the top
+            // of chip RAM. Surfaced during A1200 Stage L.
+            let vector = 24u8.saturating_add(level);
+            self.exc_pending_pc = pc_to_push;
+            self.data = u32::from(u16::from(vector) * 4);
+            self.followup_tag = TAG_EXC_STACK_FORMAT;
+            self.micro_ops.push(MicroOp::PushWord);
+            self.micro_ops.push(MicroOp::Execute);
+        } else {
+            // 68000: push PC directly (6-byte frame: PC + SR).
+            self.data = pc_to_push;
+            self.followup_tag = TAG_EXC_STACK_PC_HI;
+            self.micro_ops.push(MicroOp::PushLongHi);
+            self.micro_ops.push(MicroOp::Execute);
+        }
     }
 
     /// Begin a group 1/2 exception (TRAP, privilege violation, etc.).

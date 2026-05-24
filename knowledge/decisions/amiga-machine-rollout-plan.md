@@ -770,6 +770,56 @@ Stage J and Stage K wins are real and standalone — the rest of
 the Amiga family rollout (A600, CDTV, A4000-030, etc.) can
 proceed in parallel using the Stage-J/K-fixed CPU.
 
+## A1200 Stage L findings — 2026-05-24 (landed)
+
+The Stage L hypothesis (SHORTER pseudo-frame at `$F80BC0` leaks
+2 bytes per call) was **falsified**. Instrumentation in
+`ks31_boot.rs` showed `$F80BC0` is reached only 2× across the
+entire boot, and both times the alert chain has already started
+(top of stack = alert dispatcher `$F83558`). `$F80BC0` is part
+of the alert/blinker path, not the leak source.
+
+**Actual root cause.** `Cpu68000::initiate_interrupt_exception`
+always pushed a 6-byte frame (PC + SR) regardless of
+`variant_six_word_frame`. Compare with
+`begin_group1_exception` which correctly consults the flag and
+pushes an 8-byte Format-$0 frame on 68010+. Every hardware
+interrupt on our 68020 pushed 6 bytes, but RTE (post-Stage-J)
+correctly pops 8 bytes for Format $0 — **net leak: 2 bytes per
+interrupt**. With ~12 interrupts per boot cycle, that matches
+the ~24-byte SSP overflow past chip-RAM top.
+
+**Diagnostic that nailed it.** Per-RTE-at-`$F81398` (the RTE in
+`exec.ExitIntr`) captures of pre-pop SSP across one boot cycle
+showed every consecutive pair drifted by exactly 6 bytes
+(`delta_from_prev_post=$-6`) — a 6-byte push pattern between
+each 8-byte RTE pop. Six bytes is the 68000-style group-1
+exception frame size; the missing 2 bytes is the F/V word the
+68010+ frame is supposed to carry.
+
+**Fix.** `motorola-68000/src/cpu.rs::initiate_interrupt_exception`
+now branches on `variant_six_word_frame`. On 68010+ it pushes
+the F/V word first (vector = 24 + level for autovectored
+interrupts, which is what all retro 68010+ Amiga / Atari Falcon
+targets use), then chains through `TAG_EXC_STACK_FORMAT` for
+the PC + SR push — mirroring `begin_group1_exception`. The 68000
+path is unchanged.
+
+**Genuinely-vectored 68010+ systems** (Mac via VIA/SCC, some
+VME) would need an IACK-first refactor before the F/V push so
+the pre-pushed vector matches the external vector. No current
+target uses vectored interrupts; deferred until one does.
+
+**Result.** A1200 boot progression jumped from 5,539 unique PCs
+visited (alert at `$F8044E` blinker) to **22,880 unique PCs**
+visited — boot now reaches resident-module init at `$F96xxx`.
+SSP no longer drifts past chip-RAM top. Tom Harte 68000/68010/
+68020 suites + all Amiga machine tests green.
+
+The new alert (`D7 = $80000004`, popped at `$F96424` /
+`$F958E0` / `$F96856`) is a separate problem deep in
+resident-module init — Stage M territory.
+
 ## What this plan does not cover
 
 - **PMOVE / PFLUSH / PTEST** (68030 + 68040 MMU instructions). Tracked in

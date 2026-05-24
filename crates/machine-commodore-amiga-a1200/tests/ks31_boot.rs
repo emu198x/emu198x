@@ -287,6 +287,41 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         0x00F8_35B2u32, // BNE.S after CMP.L (A7)+, D0 (memory test)
         0x00F8_35B6u32, // BMI.S after TST.L D7
     ];
+    // Stage L: capture entries into SHORTER candidates and probe
+    // handlers. The plan's hypothesis is that KS's $F80BC0 pseudo-
+    // frame (PEA + MOVE.W SR + JMP (A5)) pushes 6 bytes while our
+    // 68020 RTE pops 8 (Format $0 spec), leaking 2 bytes per call.
+    // For each rising-edge entry we record (tick, prev_pc, A5, A6,
+    // SSP, top0..top3, SR). A5 tells us where the JMP (A5) callback
+    // lands; we dump the longwords at that address in the report so
+    // we can see whether it ends with RTS (4-byte pop, no leak) or
+    // RTE (8-byte pop on 68020, 2-byte leak).
+    let stage_l_sites: [u32; 4] = [
+        0x00F8_0BC0, // alleged SHORTER (PEA + MOVE.W SR + JMP A5)
+        0x00F8_0BA8, // dispatcher BEQ target (MOVEM/ExecBase/RTS)
+        0x00F8_0BF8, // priv-viol probe handler (CMPI/MOVE/JMP A5)
+        0x00F8_3616, // DiagAlive (installed at vec 8 on later cycles)
+    ];
+    type StageLEntry = (u64, u32, u32, u32, u32, u32, u32, u32, u32, u16);
+    let mut stage_l_entries: std::collections::HashMap<u32, Vec<StageLEntry>> =
+        std::collections::HashMap::new();
+    for site in stage_l_sites {
+        stage_l_entries.insert(site, Vec::new());
+    }
+    // Stage L investigation #4: capture every RTE execution at
+    // $F81398 (exec.ExitIntr). The leak surfaces here: by the time
+    // the ~14th RTE runs in cycle 1, SSP has drifted ~24 bytes past
+    // chip-RAM top and the popped PC is bogus.
+    //
+    // For each rising-edge `instr_start_pc == $F81398` we record
+    // (tick, pre_pop SSP, top0..top2 longs, SR_before). The high
+    // word of top0 is the popped SR; low word of top0 + high word of
+    // top1 form the popped PC longword; high word of top1 is the F/V
+    // (format + vector_offset). Comparing consecutive captures within
+    // one cycle reveals where SSP drifts.
+    type ExitIntrRte = (u64, u32, u32, u32, u32, u16);
+    let mut exitintr_rte_captures: Vec<ExitIntrRte> = Vec::new();
+    let mut prev_instr_start_pc = m.cpu().instr_start_pc;
     for f in 1..=frames_to_run {
         for _ in 0..PAL_FRAME_TICKS {
             m.tick();
@@ -502,6 +537,48 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                     prev_1fffea = cur_1fffea;
                 }
             }
+            // Stage L: rising-edge captures for SHORTER / probe sites.
+            for site in stage_l_sites {
+                if pc == site
+                    && prev_pc != site
+                    && let Some(entries) = stage_l_entries.get_mut(&site)
+                    && entries.len() < 10
+                {
+                    let cpu = m.cpu();
+                    let ssp = cpu.regs.ssp;
+                    entries.push((
+                        tick_counter,
+                        prev_pc,
+                        cpu.regs.a[5],
+                        cpu.regs.a[6],
+                        ssp,
+                        m.read_long(ssp),
+                        m.read_long(ssp.wrapping_add(4)),
+                        m.read_long(ssp.wrapping_add(8)),
+                        m.read_long(ssp.wrapping_add(12)),
+                        cpu.regs.sr,
+                    ));
+                }
+            }
+            // Stage L #4: capture pre-pop state at every RTE that
+            // begins execution at $F81398 (exec.ExitIntr).
+            let cur_instr_start_pc = m.cpu().instr_start_pc;
+            if cur_instr_start_pc == 0x00F8_1398
+                && prev_instr_start_pc != 0x00F8_1398
+                && exitintr_rte_captures.len() < 50
+            {
+                let cpu = m.cpu();
+                let ssp = cpu.regs.ssp;
+                exitintr_rte_captures.push((
+                    tick_counter,
+                    ssp,
+                    m.read_long(ssp),
+                    m.read_long(ssp.wrapping_add(4)),
+                    m.read_long(ssp.wrapping_add(8)),
+                    cpu.regs.sr,
+                ));
+            }
+            prev_instr_start_pc = cur_instr_start_pc;
             prev_pc = pc;
             let ipl = m.cpu().regs.interrupt_mask();
             if ipl < min_ipl_seen {
@@ -963,6 +1040,86 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         m.cpu().regs.pc,
         unique_pcs.len()
     );
+
+    // Stage L #4: ExitIntr RTE captures. SSP drift between
+    // consecutive captures within one cycle pinpoints the unbalanced
+    // frame.
+    eprintln!(
+        "Stage L: RTE at $F81398 (exec.ExitIntr) — pre-pop captures \
+         (first {}):",
+        exitintr_rte_captures.len()
+    );
+    if exitintr_rte_captures.is_empty() {
+        eprintln!("  (RTE at $F81398 never executed)");
+    }
+    let mut prev_ssp_in_cycle: Option<u32> = None;
+    let mut prev_tick: u64 = 0;
+    for (tick, ssp, t0, t1, _t2, sr) in &exitintr_rte_captures {
+        // Pop layout (Format $0, common case for 68020 group-1):
+        //   SSP+0..1: SR (high word of t0)
+        //   SSP+2..5: PC (low word of t0 + high word of t1)
+        //   SSP+6..7: F/V word (low word of t1)
+        let popped_sr = (*t0 >> 16) as u16;
+        let popped_pc =
+            ((*t0 & 0x0000_FFFF) << 16) | ((*t1 >> 16) & 0x0000_FFFF);
+        let fv_word = (*t1 & 0x0000_FFFF) as u16;
+        let format_nibble = (fv_word >> 12) & 0xF;
+        let vec_offset = fv_word & 0x0FFF;
+        let expected_size: u32 = match format_nibble {
+            0 => 8,
+            2 => 12,
+            0xA => 28,
+            _ => 8,
+        };
+        let expected_post_ssp = ssp.wrapping_add(expected_size);
+        // Drift: gap between this RTE's pre-pop SSP and the previous
+        // RTE's expected post-pop SSP. Non-zero (within the same
+        // cycle, < 1M ticks apart) reveals where SSP shifted.
+        let drift_note = match prev_ssp_in_cycle {
+            Some(prev_post) if tick.wrapping_sub(prev_tick) < 1_000_000 => {
+                let delta = (*ssp as i64) - (prev_post as i64);
+                format!(" delta_from_prev_post=${delta:+}")
+            }
+            _ => " (cycle start)".to_string(),
+        };
+        eprintln!(
+            "  tick={tick:>10}  pre_SSP=${ssp:08X}  SR_now=${sr:04X}  \
+             popped_SR=${popped_sr:04X} popped_PC=${popped_pc:08X}  \
+             F/V=${fv_word:04X} (fmt=${format_nibble:X} vec_off=${vec_offset:03X})  \
+             expected_post_SSP=${expected_post_ssp:08X}{drift_note}"
+        );
+        prev_ssp_in_cycle = Some(expected_post_ssp);
+        prev_tick = *tick;
+    }
+
+    // Stage L: SHORTER / probe-handler entry captures.
+    let stage_l_labels: [(u32, &str); 4] = [
+        (0x00F8_0BC0, "alleged SHORTER (PEA + MOVE.W SR + JMP A5)"),
+        (0x00F8_0BA8, "dispatcher BEQ target (MOVEM/ExecBase/RTS)"),
+        (0x00F8_0BF8, "priv-viol probe handler"),
+        (0x00F8_3616, "DiagAlive (vec 8 install on later cycles)"),
+    ];
+    eprintln!("Stage L: rising-edge entries to SHORTER / probe sites (first 10 each):");
+    for (site, label) in stage_l_labels {
+        let entries = &stage_l_entries[&site];
+        eprintln!("  ${site:08X} — {label}: {} entries", entries.len());
+        for (tick, prev, a5, a6, ssp, t0, t1, t2, t3, sr) in entries {
+            eprintln!(
+                "    tick={tick:>10} prev=${prev:08X} A5=${a5:08X} A6=${a6:08X} SSP=${ssp:08X}  \
+                 top=${t0:08X} ${t1:08X} ${t2:08X} ${t3:08X}  SR=${sr:04X}"
+            );
+        }
+        if let Some((_, _, a5, _, _, _, _, _, _, _)) = entries.first() {
+            let a5_val = *a5;
+            let l0 = m.read_long(a5_val);
+            let l1 = m.read_long(a5_val.wrapping_add(4));
+            let l2 = m.read_long(a5_val.wrapping_add(8));
+            let l3 = m.read_long(a5_val.wrapping_add(12));
+            eprintln!(
+                "    Longs @ A5=${a5_val:08X}: ${l0:08X} ${l1:08X} ${l2:08X} ${l3:08X}"
+            );
+        }
+    }
 
     // Vector table inspection. KS sets up the 68k exception vector
     // table at low chip-RAM addresses ($00000000-$000003FF). If KS
