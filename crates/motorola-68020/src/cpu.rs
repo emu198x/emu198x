@@ -740,7 +740,10 @@ fn execute_bf(cpu: &mut Cpu68000, opcode: u16) -> bool {
 // the remaining byte reads and hands off to `TAG_BF_MEM_EXEC` /
 // `TAG_BF_MEM_WRITE` for the field math and any writeback.
 
-use motorola_68000::cpu::{TAG_BF_MEM_EXEC, TAG_BF_MEM_READ, TAG_BF_MEM_WRITE};
+use motorola_68000::cpu::{
+    TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
+    TAG_BF_MEM_WRITE,
+};
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
 
@@ -783,46 +786,19 @@ fn begin_bf_memory(cpu: &mut Cpu68000, opcode: u16, ea_mode: u8, ea_reg: u8) -> 
     let bit_offset: u8 = (offset_raw & 7) as u8;
     let bytes_total: u8 = ((u32::from(bit_offset) + width + 7) / 8) as u8;
 
-    // Resolve EA. For Stage M's first cut we handle the three modes
-    // that don't need any further extension words. The rest fall
-    // through to ILLEGAL until the resolve handler lands.
-    let ea_addr = match ea_mode {
-        // (An): plain indirect.
-        2 => cpu.regs.a(ea_reg as usize),
-        // (An)+: byte-step post-increment per M68000PRM § 4.3.5.
-        3 => {
-            let a = cpu.regs.a(ea_reg as usize);
-            cpu.regs.set_a(ea_reg as usize, a.wrapping_add(1));
-            a
-        }
-        // -(An): byte-step pre-decrement per M68000PRM § 4.3.5.
-        4 => {
-            let a = cpu.regs.a(ea_reg as usize).wrapping_sub(1);
-            cpu.regs.set_a(ea_reg as usize, a);
-            a
-        }
-        _ => {
-            // Stage M follow-ups: d16(An), (d8,An,Xn), AbsShort,
-            // AbsLong, PcDisp, PcIndex. Trap for now so we surface
-            // each one as we expand.
-            cpu.begin_group1_exception(4, cpu.instr_start_pc);
-            return true;
-        }
-    };
-
-    let base_byte = ea_addr.wrapping_add_signed(byte_disp);
-
-    // Stash pipeline state. `bf_source_val` snapshots Dr for BFINS so
-    // a later write-back through Dr doesn't disturb it. Other ops
-    // ignore the field.
+    // Common pipeline state. Stash the per-instruction params so
+    // both the instant-EA path below and the deferred resolve handler
+    // can act on them.
     cpu.bf_buf = 0;
-    cpu.bf_base_addr = base_byte;
     cpu.bf_sub_op = sub_op;
     cpu.bf_dr = dr;
     cpu.bf_width = width as u8;
     cpu.bf_bit_offset = bit_offset;
     cpu.bf_bytes_total = bytes_total;
     cpu.bf_bytes_done = 0;
+    cpu.bf_byte_disp = byte_disp;
+    cpu.bf_ea_mode = ea_mode;
+    cpu.bf_ea_reg = ea_reg;
     cpu.bf_source_val = match sub_op {
         7 => cpu.regs.d[dr as usize], // BFINS: snapshot Dr before any writes.
         5 => offset_raw as u32,       // BFFFO: stash the full signed offset
@@ -833,16 +809,56 @@ fn begin_bf_memory(cpu: &mut Cpu68000, opcode: u16, ea_mode: u8, ea_reg: u8) -> 
         _ => 0,
     };
 
-    // Kick off the read chain. The queued FetchIRC from
-    // `consume_irc` will refill IRC for the next instruction in the
-    // background; our ReadByte then drives the bus to base_byte and
-    // hands off to `TAG_BF_MEM_READ` for accumulation + chaining.
+    // Resolve EA. Instant modes ((An), (An)+, -(An)) compute the
+    // base byte address synchronously and kick the read chain off
+    // right here. Modes that need extension words defer to
+    // `TAG_BF_MEM_EA_RESOLVE`, which runs after the queued FetchIRC
+    // has refilled IRC with the EA's first extension word.
+    cpu.in_followup = true;
+    match ea_mode {
+        // (An): plain indirect.
+        2 => start_bf_read(cpu, cpu.regs.a(ea_reg as usize)),
+        // (An)+: byte-step post-increment per M68000PRM § 4.3.5.
+        3 => {
+            let a = cpu.regs.a(ea_reg as usize);
+            cpu.regs.set_a(ea_reg as usize, a.wrapping_add(1));
+            start_bf_read(cpu, a);
+        }
+        // -(An): byte-step pre-decrement per M68000PRM § 4.3.5.
+        4 => {
+            let a = cpu.regs.a(ea_reg as usize).wrapping_sub(1);
+            cpu.regs.set_a(ea_reg as usize, a);
+            start_bf_read(cpu, a);
+        }
+        // d16(An), (d8,An,Xn), AbsShort/Long, PcDisp, PcIndex —
+        // defer EA resolution until the FetchIRC has refilled IRC.
+        5 | 6 | 7 => {
+            cpu.followup_tag = TAG_BF_MEM_EA_RESOLVE;
+            cpu.micro_ops.push(MicroOp::Execute);
+        }
+        // Modes 0 (Dn) and 1 (An direct) shouldn't reach here:
+        // `execute_bf` routes Dn elsewhere, and direct-An isn't a
+        // valid memory EA. Treat anything that does as illegal.
+        _ => {
+            cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        }
+    }
+    true
+}
+
+/// Finalise the BF base-byte address and kick off the byte-read
+/// chain. Shared by `begin_bf_memory`'s instant-EA modes and
+/// `TAG_BF_MEM_EA_RESOLVE` after extension words land. The caller
+/// is responsible for everything *except* applying the BF byte
+/// displacement, queueing the first `ReadByte`, and setting
+/// `TAG_BF_MEM_READ`.
+fn start_bf_read(cpu: &mut Cpu68000, ea_addr: u32) {
+    let base_byte = ea_addr.wrapping_add_signed(cpu.bf_byte_disp);
+    cpu.bf_base_addr = base_byte;
     cpu.addr = base_byte;
     cpu.followup_tag = TAG_BF_MEM_READ;
-    cpu.in_followup = true;
     cpu.micro_ops.push(MicroOp::ReadByte);
     cpu.micro_ops.push(MicroOp::Execute);
-    true
 }
 
 /// 68020 continuation hook. Dispatches the BF memory pipeline tags
@@ -850,6 +866,14 @@ fn begin_bf_memory(cpu: &mut Cpu68000, opcode: u16, ea_mode: u8, ea_reg: u8) -> 
 /// (notably `TAG_RTD_*`). Installed via `variant_continue_hook`.
 pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
     match cpu.followup_tag {
+        TAG_BF_MEM_EA_RESOLVE => {
+            handle_bf_mem_ea_resolve(cpu);
+            true
+        }
+        TAG_BF_MEM_EA_ABSLONG_LO => {
+            handle_bf_mem_ea_abslong_lo(cpu);
+            true
+        }
         TAG_BF_MEM_READ => {
             handle_bf_mem_read(cpu);
             true
@@ -864,6 +888,114 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         _ => continue_68010_opcode(cpu),
     }
+}
+
+/// BF memory EA resolve. Runs after the FetchIRC queued during
+/// `begin_bf_memory`'s `consume_irc` has refilled IRC with the
+/// EA's first extension word. Decodes the EA using the stashed
+/// `bf_ea_mode` / `bf_ea_reg` (`(d16,An)`, `(d8,An,Xn)`,
+/// AbsShort, PcDisp, PcIndex complete here; AbsLong stages its
+/// high word and hands off to `TAG_BF_MEM_EA_ABSLONG_LO`).
+fn handle_bf_mem_ea_resolve(cpu: &mut Cpu68000) {
+    let ea_mode = cpu.bf_ea_mode;
+    let ea_reg = cpu.bf_ea_reg;
+
+    match ea_mode {
+        // d16(An): sign-extended 16-bit displacement added to An.
+        5 => {
+            let disp = i32::from(cpu.consume_irc() as i16) as u32;
+            let ea = cpu.regs.a(ea_reg as usize).wrapping_add(disp);
+            start_bf_read(cpu, ea);
+        }
+        // (d8,An,Xn): brief extension word — base + sign-extended
+        // d8 + (D/A indexed Xn × scale).
+        6 => {
+            let ext = cpu.consume_irc();
+            let ea = compute_brief_index_ea(cpu, ext, cpu.regs.a(ea_reg as usize));
+            start_bf_read(cpu, ea);
+        }
+        // Mode 7: sub-mode selected by ea_reg.
+        7 => match ea_reg {
+            // AbsShort: sign-extended 16-bit absolute address.
+            0 => {
+                let ea = i32::from(cpu.consume_irc() as i16) as u32;
+                start_bf_read(cpu, ea);
+            }
+            // AbsLong: stash the high word and chain to ABSLONG_LO.
+            1 => {
+                cpu.bf_base_addr = u32::from(cpu.consume_irc()) << 16;
+                cpu.followup_tag = TAG_BF_MEM_EA_ABSLONG_LO;
+                cpu.micro_ops.push(MicroOp::Execute);
+            }
+            // PcDisp: PC at the extension word + sign-extended d16.
+            // `irc_addr` is the address the extension word was
+            // fetched from — exactly the PC value the EA spec
+            // references.
+            2 => {
+                let pc_ext = cpu.irc_addr;
+                let disp = i32::from(cpu.consume_irc() as i16) as u32;
+                let ea = pc_ext.wrapping_add(disp);
+                start_bf_read(cpu, ea);
+            }
+            // PcIndex: brief extension word with PC-at-ext as base.
+            3 => {
+                let pc_ext = cpu.irc_addr;
+                let ext = cpu.consume_irc();
+                let ea = compute_brief_index_ea(cpu, ext, pc_ext);
+                start_bf_read(cpu, ea);
+            }
+            // Sub-modes 4 (immediate) and 5..=7 are reserved /
+            // illegal for bit-field memory ops. Treat as illegal.
+            _ => {
+                cpu.begin_group1_exception(4, cpu.instr_start_pc);
+            }
+        },
+        _ => {
+            // Shouldn't be reachable — begin_bf_memory only routes
+            // modes 5/6/7 here.
+            cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        }
+    }
+}
+
+/// AbsLong second extension word. The high word is in
+/// `bf_base_addr` (set by `handle_bf_mem_ea_resolve`); OR in the
+/// just-fetched low word and start the read chain.
+fn handle_bf_mem_ea_abslong_lo(cpu: &mut Cpu68000) {
+    let lo = u32::from(cpu.consume_irc());
+    let ea = cpu.bf_base_addr | lo;
+    start_bf_read(cpu, ea);
+}
+
+/// Compute an EA from a brief-extension-word indexed mode
+/// (`(d8,An,Xn)` or `(d8,PC,Xn)`). The base is whatever the caller
+/// passes (An value or PC-at-extension). 68020 honours the scale
+/// factor (bits 10-9) when `variant_scaled_index` is set; 68000 /
+/// 68010 treat those bits as "don't care" and always use ×1.
+///
+/// Mirrors the corresponding arm of `Cpu68000::calc_ea_start` —
+/// kept local here so the BF resolve handler can compute the EA
+/// inline without dragging in the calc_ea_start state machine.
+fn compute_brief_index_ea(cpu: &Cpu68000, ext: u16, base: u32) -> u32 {
+    let disp = (ext & 0xFF) as i8 as i32;
+    let idx_reg = ((ext >> 12) & 7) as usize;
+    let idx_val = if ext & 0x8000 != 0 {
+        cpu.regs.a(idx_reg)
+    } else {
+        cpu.regs.d[idx_reg]
+    };
+    let idx = if ext & 0x0800 != 0 {
+        idx_val
+    } else {
+        i32::from(idx_val as i16) as u32
+    };
+    let scale = if cpu.variant_scaled_index {
+        1u32 << ((ext >> 9) & 0x3)
+    } else {
+        1
+    };
+    base.wrapping_add(disp as u32)
+        .wrapping_add(idx.wrapping_mul(scale))
 }
 
 /// BF read-chain step. One `ReadByte` has just completed and the

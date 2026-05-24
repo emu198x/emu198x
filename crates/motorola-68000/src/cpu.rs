@@ -216,6 +216,12 @@ pub const TAG_BF_MEM_EXEC: u8 = 98;
 /// BF memory: one byte just written; if more remain queue the next
 /// `WriteByte`, otherwise finish the instruction.
 pub const TAG_BF_MEM_WRITE: u8 = 99;
+/// BF memory: AbsLong second extension word — the high word has
+/// been stashed in `bf_base_addr`; consume the low word and finish
+/// the EA computation. Other ext-word modes (`d16(An)`,
+/// `(d8,An,Xn)`, AbsShort, PcDisp, PcIndex) all complete in
+/// `TAG_BF_MEM_EA_RESOLVE` in one shot.
+pub const TAG_BF_MEM_EA_ABSLONG_LO: u8 = 100;
 
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
@@ -610,6 +616,24 @@ pub struct Cpu68000 {
     /// see a value mutated by some intermediate step).
     #[serde(skip)]
     pub bf_source_val: u32,
+    /// EA mode (0..=7) for the memory operand, stashed across the
+    /// extension-word resolve gap when the EA needs further words
+    /// (`d16(An)`, AbsShort/Long, `(d8,An,Xn)`, PC-relative). The
+    /// instant modes (`(An)` / `(An)+` / `-(An)`) skip the resolve
+    /// step and don't consult this field.
+    #[serde(skip)]
+    pub bf_ea_mode: u8,
+    /// EA register number (0..=7) for An-based modes. Meaningless
+    /// (and unread) for AbsShort / AbsLong / PC-relative.
+    #[serde(skip)]
+    pub bf_ea_reg: u8,
+    /// Signed byte displacement derived from `offset / 8` in the BF
+    /// extension word. Stashed across the EA-resolve gap because the
+    /// BF ext word is consumed before the EA can be computed; reusing
+    /// `bf_base_addr` would conflict with the resolve handler's final
+    /// write of the base byte address.
+    #[serde(skip)]
+    pub bf_byte_disp: i32,
 
     /// Variant continuation hook: gives a wrapping variant a chance
     /// to dispatch follow-up tags that the 68000 doesn't know about.
@@ -713,6 +737,9 @@ impl Cpu68000 {
             bf_bytes_total: 0,
             bf_bytes_done: 0,
             bf_source_val: 0,
+            bf_ea_mode: 0,
+            bf_ea_reg: 0,
+            bf_byte_disp: 0,
             variant_continue_hook: None,
             variant_pending_disp: 0,
         }
