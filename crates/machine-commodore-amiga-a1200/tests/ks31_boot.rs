@@ -146,6 +146,15 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     let mut min_ipl_seen = 7u8;
     let mut first_vbr_change_frame: Option<u64> = None;
     let mut first_ipl_drop_frame: Option<u64> = None;
+    // Track Paula → CPU IPL pin (cpu.ipl). Distinct from
+    // regs.interrupt_mask above: that's the CPU's mask register;
+    // this is the level Paula is asking the CPU to take. If
+    // max_ipl_pin stays 0 the chipset → CPU IPL path is broken;
+    // if it rises but no IRQ vectors fire, the CPU's acceptance
+    // logic is broken (or master enable's narrow window misses
+    // every instruction boundary).
+    let mut max_ipl_pin: u8 = 0;
+    let mut ipl_pin_counts: [u64; 8] = [0; 8];
     // Exception tracking: count None -> Some(vector) transitions on
     // the cpu.exc_vector field. The field stays Some for the duration
     // of exception processing (multiple ticks), so the edge tells us
@@ -589,6 +598,13 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                     first_ipl_drop_frame = Some(f);
                 }
             }
+            // Paula → CPU IPL pin sampling. Even per-tick is cheap
+            // because it's just an array bump.
+            let pin = (m.cpu().ipl & 0x07) as usize;
+            ipl_pin_counts[pin] += 1;
+            if pin as u8 > max_ipl_pin {
+                max_ipl_pin = pin as u8;
+            }
             if first_vbr_change_frame.is_none() && m.cpu().regs.vbr != 0 {
                 first_vbr_change_frame = Some(f);
             }
@@ -652,6 +668,18 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         "milestones:  min IPL = {min_ipl_seen}  first IPL drop = {:?}  first VBR change = {:?}",
         first_ipl_drop_frame, first_vbr_change_frame
     );
+    let total_pin_samples: u64 = ipl_pin_counts.iter().sum();
+    eprintln!(
+        "Paula → CPU IPL pin distribution (max seen = {max_ipl_pin}):"
+    );
+    for (level, count) in ipl_pin_counts.iter().enumerate() {
+        let pct = if total_pin_samples > 0 {
+            (*count as f64 / total_pin_samples as f64) * 100.0
+        } else {
+            0.0
+        };
+        eprintln!("  IPL pin = {level}: {count:>10} ticks ({pct:.2}%)");
+    }
 
     // Hot PCs — where is the CPU actually spending most of its time?
     let mut hot_sorted: Vec<_> = hot_pcs.iter().collect();
@@ -985,6 +1013,83 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             vector,
             exception_vector_name(**vector)
         );
+    }
+    // IRQ visibility: explicitly print autovec counts (24..=31) so
+    // we can tell whether Paula is signalling interrupts to the CPU
+    // at all. A boot that's making forward progress should show
+    // PORTS / VBL / SOFT / DSKBLK firing at least a few times per
+    // frame; complete silence means the chipset → CPU IPL path is
+    // broken.
+    eprintln!("autovec IRQ counts (24..=31, level 0..=7):");
+    for vec in 24u8..=31 {
+        let count = exc_counts.get(&vec).copied().unwrap_or(0);
+        let level = vec - 24;
+        let label = match level {
+            0 => "(no IRQ)",
+            1 => "TBE / DSKBLK / SOFT",
+            2 => "PORTS (CIA-A)",
+            3 => "COPER / VERTB / BLIT",
+            4 => "AUD0..3",
+            5 => "RBF / DSKSYN",
+            6 => "EXTER (CIA-B) / INTEN",
+            7 => "NMI",
+            _ => "?",
+        };
+        eprintln!("  vec {vec:>2} (level {level} = {label}): {count}");
+    }
+
+    // Paula INTENA state. Peak shows the highest value the CPU ever
+    // wrote (or set via SETCLR). Source bits (low 14) tell us which
+    // IRQs KS enabled. INT_INTEN (bit 14, $4000) gates everything.
+    let peak = m.debug_peak_intena;
+    eprintln!("Paula INTENA peak value: ${peak:04X}");
+    let bit_names = [
+        (0x0001u16, "TBE"),
+        (0x0002, "DSKBLK"),
+        (0x0004, "SOFT"),
+        (0x0008, "PORTS"),
+        (0x0010, "COPER"),
+        (0x0020, "VERTB"),
+        (0x0040, "BLIT"),
+        (0x0080, "AUD0"),
+        (0x0100, "AUD1"),
+        (0x0200, "AUD2"),
+        (0x0400, "AUD3"),
+        (0x0800, "RBF"),
+        (0x1000, "DSKSYN"),
+        (0x2000, "EXTER"),
+        (0x4000, "INTEN (master)"),
+        (0x8000, "SETCLR"),
+    ];
+    let mut enabled: Vec<&str> = Vec::new();
+    for (mask, name) in &bit_names {
+        if peak & mask != 0 {
+            enabled.push(*name);
+        }
+    }
+    eprintln!(
+        "  bits enabled at peak: {}",
+        if enabled.is_empty() {
+            "(none)".to_string()
+        } else {
+            enabled.join(" | ")
+        }
+    );
+
+    // INTENA write log — last 10 writes show what KS is doing as
+    // boot wedges. Each entry is (cck, pc, value_written, before, after).
+    eprintln!("Last 10 INTENA writes that changed the register:");
+    let log = &m.debug_intena_log;
+    if log.is_empty() {
+        eprintln!("  (no INTENA writes changed the value)");
+    } else {
+        let start = log.len().saturating_sub(10);
+        for (cck, pc, val, before, after) in &log[start..] {
+            let setclr = if val & 0x8000 != 0 { "SET" } else { "CLR" };
+            eprintln!(
+                "  cck={cck:>10} pc=${pc:08X} write=${val:04X} ({setclr}) before=${before:04X} after=${after:04X}"
+            );
+        }
     }
 
     // Hottest custom-register writes — keyed by *offset* (the
