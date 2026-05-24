@@ -1,11 +1,44 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+# Dependabot version-update config.
+#
+# Two ecosystems tracked: cargo (workspace Cargo.toml / Cargo.lock)
+# and github-actions (workflow files in .github/workflows/). Minor
+# and patch updates are grouped per ecosystem to keep PR volume
+# low; major updates open per-dep PRs because they're more likely
+# to need real review.
+#
+# The earlier `rust-toolchain` ecosystem entry was a no-op — that
+# isn't a real Dependabot ecosystem. Rust toolchain pins in
+# rust-toolchain.toml are bumped manually when we want a new
+# stable channel.
+#
+# Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 version: 2
 updates:
-  - package-ecosystem: "rust-toolchain" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  # Workspace Rust dependencies. The version pins in
+  # [workspace.dependencies] in Cargo.toml and all transitive crates
+  # in Cargo.lock.
+  - package-ecosystem: "cargo"
+    directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Workflow files in .github/workflows/. Catches Node version
+  # deprecations (e.g. v20 → v24) and security updates to actions
+  # we depend on.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        update-types:
+          - "minor"
+          - "patch"

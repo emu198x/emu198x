@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Read pinned toolchain
         # Single source of truth across local + CI is
@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install Linux build dependencies
         # libasound2-dev: audio (cpal). libudev-dev: gamepad enumeration
@@ -94,7 +94,7 @@ jobs:
         os: [macos-latest, windows-latest]
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Read pinned toolchain
         id: toolchain
@@ -133,7 +133,7 @@ jobs:
       COVERAGE_GATE_THRESHOLD: 72
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install Linux build dependencies
         # libasound2-dev: audio (cpal). libudev-dev: gamepad enumeration
@@ -201,7 +201,7 @@ jobs:
 
       - name: Upload coverage summary artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-summary
           path: |
@@ -211,7 +211,7 @@ jobs:
 
       - name: Upload HTML coverage report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-html
           path: target/llvm-cov/html
@@ -228,7 +228,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Read pinned toolchain
         # See note in the fmt job above.
