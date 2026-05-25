@@ -1113,6 +1113,131 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         "CPU interrupts_taken counter: {}",
         m.cpu().interrupts_taken
     );
+
+    // Display state check — STRAP arrives if BPLCON0 hits $8303
+    // (hires + 3 bitplanes + color + GAUD) and DMACON-set has
+    // BPLEN+COPEN+BLTEN+SPREN ($03C0). The docs assert these in
+    // boot_aga.rs.
+    // CIA read profile — what is KS polling?
+    let cia_a_reg_name = |reg: u8| match reg {
+        0x00 => "PRA",
+        0x01 => "PRB",
+        0x02 => "DDRA",
+        0x03 => "DDRB",
+        0x04 => "TALO",
+        0x05 => "TAHI",
+        0x06 => "TBLO",
+        0x07 => "TBHI",
+        0x08 => "TODLO",
+        0x09 => "TODMID",
+        0x0A => "TODHI",
+        0x0C => "SDR",
+        0x0D => "ICR",
+        0x0E => "CRA",
+        0x0F => "CRB",
+        _ => "?",
+    };
+    let mut cia_a_sorted: Vec<_> = m.debug_cia_a_read_counts.iter().collect();
+    cia_a_sorted.sort_by(|a, b| b.1.cmp(a.1));
+    eprintln!("CIA-A read counts (top 10):");
+    for (reg, count) in cia_a_sorted.iter().take(10) {
+        eprintln!("  reg ${:02X} ({}): {count}", reg, cia_a_reg_name(**reg));
+    }
+    let mut cia_b_sorted: Vec<_> = m.debug_cia_b_read_counts.iter().collect();
+    cia_b_sorted.sort_by(|a, b| b.1.cmp(a.1));
+    eprintln!("CIA-B read counts (top 10):");
+    for (reg, count) in cia_b_sorted.iter().take(10) {
+        eprintln!("  reg ${:02X} ({}): {count}", reg, cia_a_reg_name(**reg));
+    }
+    // CIA-A write breakdown by register
+    let mut cia_a_writes_by_reg: std::collections::HashMap<u8, u64> =
+        std::collections::HashMap::new();
+    for (_, _, reg, _) in &m.debug_cia_a_cr_log {
+        *cia_a_writes_by_reg.entry(*reg).or_insert(0) += 1;
+    }
+    let mut cia_a_wr_sorted: Vec<_> = cia_a_writes_by_reg.iter().collect();
+    cia_a_wr_sorted.sort_by(|a, b| b.1.cmp(a.1));
+    eprintln!("CIA-A write counts by register:");
+    for (reg, count) in cia_a_wr_sorted.iter().take(10) {
+        eprintln!("  reg ${:02X} ({}): {count}", reg, cia_a_reg_name(**reg));
+    }
+    // First-time CRB writes specifically — that's where INMODE is set
+    eprintln!("ALL CIA-A CRB writes (where INMODE is configured):");
+    let crb_writes: Vec<_> = m
+        .debug_cia_a_cr_log
+        .iter()
+        .filter(|(_, _, reg, _)| *reg == 0x0F)
+        .collect();
+    for (cck, pc, _, val) in &crb_writes {
+        let inmode = (val >> 5) & 3;
+        let inmode_name = match inmode {
+            0 => "PHI2",
+            1 => "CNT",
+            2 => "TA underflow",
+            3 => "CNT+TA underflow",
+            _ => "?",
+        };
+        eprintln!(
+            "  cck={cck:>10} pc=${pc:08X} CRB=${val:02X}  START={} INMODE={inmode_name}",
+            val & 1
+        );
+    }
+    eprintln!("Last 5 CIA-A CRA writes:");
+    let cra_writes: Vec<_> = m
+        .debug_cia_a_cr_log
+        .iter()
+        .filter(|(_, _, reg, _)| *reg == 0x0E)
+        .collect();
+    let cra_start = cra_writes.len().saturating_sub(5);
+    for (cck, pc, _, val) in &cra_writes[cra_start..] {
+        eprintln!("  cck={cck:>10} pc=${pc:08X} CRA=${val:02X}", val = val);
+    }
+    // Last full sequence around the wedge
+    eprintln!(
+        "CIA-A control-register writes (last 20 of {}):",
+        m.debug_cia_a_cr_log.len()
+    );
+    let cr_log = &m.debug_cia_a_cr_log;
+    let start = cr_log.len().saturating_sub(20);
+    for (cck, pc, reg, val) in &cr_log[start..] {
+        let name = cia_a_reg_name(*reg);
+        eprintln!(
+            "  cck={cck:>10} pc=${pc:08X} reg=${reg:02X} ({name}) val=${val:02X}"
+        );
+    }
+    // CIA-A timer B current state
+    let cia_a = m.cia_a();
+    eprintln!(
+        "CIA-A Timer A: count = ${:04X}, running = {}",
+        cia_a.timer_a(),
+        cia_a.timer_a_running(),
+    );
+    eprintln!(
+        "CIA-A Timer B: count = ${:04X}, running = {}",
+        cia_a.timer_b(),
+        cia_a.timer_b_running(),
+    );
+    eprintln!(
+        "CIA-A CRA = ${:02X}, CRB = ${:02X}",
+        cia_a.cra(),
+        cia_a.crb(),
+    );
+
+    eprintln!("Display state at end of run:");
+    let dmacon = m.dmacon();
+    eprintln!("  BPLCON0 = ${:04X} (STRAP target: $8303 — hires+3bpl+color+GAUD)", m.bplcon0());
+    eprintln!("  DMACON  = ${dmacon:04X} (STRAP needs $03C0 set: BPLEN+COPEN+BLTEN+SPREN)");
+    eprintln!("    BPLEN={} COPEN={} BLTEN={} SPREN={} DMAEN={}",
+        (dmacon & 0x0100) != 0,
+        (dmacon & 0x0080) != 0,
+        (dmacon & 0x0040) != 0,
+        (dmacon & 0x0020) != 0,
+        (dmacon & 0x0200) != 0,
+    );
+    for idx in [0u8, 1, 2, 3, 17, 18] {
+        let c = m.color(idx as usize);
+        eprintln!("  COLOR{idx:02} = ${c:04X}");
+    }
     eprintln!("autovec IRQ counts via exc_counts (24..=31, level 0..=7):");
     for vec in 24u8..=31 {
         let count = exc_counts.get(&vec).copied().unwrap_or(0);

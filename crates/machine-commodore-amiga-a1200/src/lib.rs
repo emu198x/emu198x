@@ -325,6 +325,17 @@ pub struct AmigaA1200 {
     /// `(cck, pc, reg, raw_val)` where reg is 0..=$F. Lets us see
     /// how timer.device and other code start/stop the CIA-A timers.
     pub debug_cia_a_cr_log: Vec<(u64, u32, u8, u8)>,
+    /// Stage O: CIA-A read counts per register. Surfaces which CIA-A
+    /// registers KS polls when boot wedges in trackdisk / scheduler
+    /// loops. The hottest read is usually PRA ($00 → drive status
+    /// bits + FIR0/FIR1) when KS is polling DSKCHANGE / DSKRDY /
+    /// TRACK0 for the floppy. ICRR ($0D) reads are also revealing —
+    /// CIA timer interrupts route through here.
+    pub debug_cia_a_read_counts: std::collections::HashMap<u8, u64>,
+    /// Stage O: CIA-B read counts per register. Mirrors `cia_a_read`.
+    /// CIA-B drives floppy step / motor / select via PRB and the
+    /// disk-step timer.
+    pub debug_cia_b_read_counts: std::collections::HashMap<u8, u64>,
     /// Same for CIA-B.
     pub debug_cia_b_cr_log: Vec<(u64, u32, u8, u8)>,
     /// Diagnostic: log of Copper MOVEs routed through the custom
@@ -607,6 +618,8 @@ impl AmigaA1200 {
             debug_blit_starts: 0,
             debug_blit_log: Vec::new(),
             debug_cia_a_cr_log: Vec::new(),
+            debug_cia_a_read_counts: std::collections::HashMap::new(),
+            debug_cia_b_read_counts: std::collections::HashMap::new(),
             debug_cia_b_cr_log: Vec::new(),
             debug_copper_move_log: Vec::new(),
             debug_custom_write_log: Vec::new(),
@@ -1677,6 +1690,7 @@ impl AmigaA1200 {
     fn dispatch_cia_a(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
         let reg = cia::decode_cia_a(tx.addr)?;
         Some(if tx.is_read {
+            *self.debug_cia_a_read_counts.entry(reg).or_insert(0) += 1;
             BusResponse::Byte(self.cia_a.read(reg))
         } else {
             self.debug_cia_a_cr_log.push((
@@ -1697,6 +1711,7 @@ impl AmigaA1200 {
     fn dispatch_cia_b(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
         let reg = cia::decode_cia_b(tx.addr)?;
         Some(if tx.is_read {
+            *self.debug_cia_b_read_counts.entry(reg).or_insert(0) += 1;
             BusResponse::Byte(self.cia_b.read(reg))
         } else {
             let byte = if tx.is_word {
@@ -1986,6 +2001,8 @@ impl AmigaA1200 {
         self.debug_blit_starts = 0;
         self.debug_blit_log.clear();
         self.debug_cia_a_cr_log.clear();
+        self.debug_cia_a_read_counts.clear();
+        self.debug_cia_b_read_counts.clear();
         self.debug_cia_b_cr_log.clear();
         self.debug_copper_move_log.clear();
         self.debug_custom_write_log.clear();
