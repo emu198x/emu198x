@@ -1248,6 +1248,23 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         }
     }
 
+    // Blitter activity. Each BLTSIZE write starts a blit; we
+    // complete them synchronously and raise INT_BLIT. If STRAP is
+    // drawing graphics, we'd see many blit starts. If STRAP wedges
+    // before blitter use, the count stays low.
+    eprintln!(
+        "Blitter activity: {} blit starts logged",
+        m.debug_blit_starts
+    );
+    // Sample the BSR/JSR call site at the hot $F84E76 routine —
+    // the JSR -$3C(A6) call at $F84E8E. If A6 holds the library
+    // base, we can identify which library by reading the library
+    // node name (4 bytes past base = ln_Name pointer).
+    eprintln!("Hot-routine library base check:");
+    // The routine loads A6 from $03F6(A5). A5 at the captured
+    // moment isn't directly readable here, so we look at the most
+    // recent A5 in the captures plus dump the address space.
+
     // Dump the current copper list — read up to 64 instructions
     // starting at COP1LC. Look for BPLCON0 ($0100) writes and what
     // colour they configure.
