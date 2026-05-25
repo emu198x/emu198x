@@ -715,6 +715,7 @@ dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
  "machine-commodore-amiga-a1200",
+ "mos-cia-8520",
  "motorola-68000",
  "runtime-commodore-amiga",
  "serde_json",

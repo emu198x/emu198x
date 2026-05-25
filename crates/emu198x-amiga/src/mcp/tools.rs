@@ -238,16 +238,250 @@ fn decode_int_bits(val: u16) -> Value {
 }
 
 fn tool_query_cia(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let cia_a = s.machine.cia_a();
+    fn snapshot(c: &mos_cia_8520::Cia8520) -> Value {
+        json!({
+            "cra": format!("${:02X}", c.cra()),
+            "crb": format!("${:02X}", c.crb()),
+            "timer_a": format!("${:04X}", c.timer_a()),
+            "timer_b": format!("${:04X}", c.timer_b()),
+            "timer_a_running": c.timer_a_running(),
+            "timer_b_running": c.timer_b_running(),
+            "icr_status": format!("${:02X}", c.icr_status()),
+            "icr_mask":   format!("${:02X}", c.icr_mask()),
+            "irq_active": c.irq_active(),
+            "ddr_a": format!("${:02X}", c.ddr_a()),
+            "ddr_b": format!("${:02X}", c.ddr_b()),
+            "port_a_output": format!("${:02X}", c.port_a_output()),
+            "port_b_output": format!("${:02X}", c.port_b_output()),
+            "tod_counter": format!("${:06X}", c.tod_counter()),
+            "tod_alarm":   format!("${:06X}", c.tod_alarm()),
+            "tod_halted":  c.tod_halted(),
+        })
+    }
     Ok(json!({
-        "cia_a": {
-            "cra": format!("${:02X}", cia_a.cra()),
-            "crb": format!("${:02X}", cia_a.crb()),
-            "timer_a": format!("${:04X}", cia_a.timer_a()),
-            "timer_b": format!("${:04X}", cia_a.timer_b()),
-            "timer_a_running": cia_a.timer_a_running(),
-            "timer_b_running": cia_a.timer_b_running(),
+        "cia_a": snapshot(s.machine.cia_a()),
+        "cia_b": snapshot(s.machine.cia_b()),
+    }))
+}
+
+fn tool_query_agnus(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let a = s.machine.agnus();
+    Ok(json!({
+        "vpos": a.vpos,
+        "hpos_cck": a.hpos,
+        "blitter_busy": a.blitter_busy,
+        "blitter_exec_pending": a.blitter_exec_pending,
+        "blitter_ccks_remaining": a.blitter_ccks_remaining,
+        "bpl_pt": (0..8).map(|i| format!("${:08X}", a.bpl_pt[i])).collect::<Vec<_>>(),
+        "blt_apt": format!("${:08X}", a.blt_apt),
+        "blt_bpt": format!("${:08X}", a.blt_bpt),
+        "blt_cpt": format!("${:08X}", a.blt_cpt),
+        "blt_dpt": format!("${:08X}", a.blt_dpt),
+    }))
+}
+
+fn tool_query_blitter(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let a = s.machine.agnus();
+    Ok(json!({
+        "busy": a.blitter_busy,
+        "exec_pending": a.blitter_exec_pending,
+        "ccks_remaining": a.blitter_ccks_remaining,
+        "apt": format!("${:08X}", a.blt_apt),
+        "bpt": format!("${:08X}", a.blt_bpt),
+        "cpt": format!("${:08X}", a.blt_cpt),
+        "dpt": format!("${:08X}", a.blt_dpt),
+    }))
+}
+
+fn tool_query_copper_list(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let c = s.machine.copper();
+    let start = if let Some(v) = args.get("addr") {
+        if v.is_null() { c.cop1lc } else { arg_u32(&args, "addr")? }
+    } else {
+        c.cop1lc
+    };
+    let count = arg_u64_or(&args, "count", 32)?;
+    if count == 0 || count > 256 {
+        return Err(ToolError::InvalidArguments("count must be 1..=256".into()));
+    }
+    let mut pc = start;
+    let mut out: Vec<Value> = Vec::new();
+    for _ in 0..count {
+        let w1 = s.machine.read_word(pc);
+        let w2 = s.machine.read_word(pc.wrapping_add(2));
+        let line = if (w1 & 1) == 0 {
+            // MOVE: w1 = register offset (lower 9 bits), w2 = value
+            let reg = w1 & 0x1FE;
+            json!({
+                "addr": format!("${:08X}", pc),
+                "op": "MOVE",
+                "reg": format!("${:04X}", reg),
+                "value": format!("${:04X}", w2),
+                "raw": [format!("${:04X}", w1), format!("${:04X}", w2)],
+            })
+        } else if (w2 & 1) == 0 {
+            let vp = (w1 >> 8) & 0xFF;
+            let hp = (w1 >> 1) & 0x7F;
+            let ve = (w2 >> 8) & 0x7F;
+            let he = (w2 >> 1) & 0x7F;
+            json!({
+                "addr": format!("${:08X}", pc),
+                "op": "WAIT",
+                "vp": format!("{:02X}", vp),
+                "hp": format!("{:02X}", hp),
+                "ve_mask": format!("{:02X}", ve),
+                "he_mask": format!("{:02X}", he),
+                "raw": [format!("${:04X}", w1), format!("${:04X}", w2)],
+            })
+        } else {
+            json!({
+                "addr": format!("${:08X}", pc),
+                "op": "SKIP",
+                "raw": [format!("${:04X}", w1), format!("${:04X}", w2)],
+            })
+        };
+        // CMOVE ENDOFLIST sentinel ($FFFF,$FFFE) ends a copper list.
+        let is_end = w1 == 0xFFFF && w2 == 0xFFFE;
+        out.push(line);
+        pc = pc.wrapping_add(4);
+        if is_end {
+            break;
         }
+    }
+    Ok(json!({
+        "start": format!("${:08X}", start),
+        "entries": out,
+    }))
+}
+
+fn tool_query_stack(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let usp = args.get("usp").and_then(Value::as_bool).unwrap_or(false);
+    let count = arg_u64_or(&args, "count", 16)?;
+    if count == 0 || count > 256 {
+        return Err(ToolError::InvalidArguments("count must be 1..=256".into()));
+    }
+    let regs = &s.machine.cpu().regs;
+    let base = if usp { regs.usp } else { regs.ssp };
+    let entries: Vec<Value> = (0..count)
+        .map(|i| {
+            let addr = base.wrapping_add((i as u32) * 4);
+            json!({
+                "addr": format!("${:08X}", addr),
+                "value": format!("${:08X}", s.machine.read_long(addr)),
+            })
+        })
+        .collect();
+    Ok(json!({
+        "stack": if usp { "USP" } else { "SSP" },
+        "base": format!("${:08X}", base),
+        "entries": entries,
+    }))
+}
+
+fn tool_step(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let n = arg_u64_or(&args, "count", 1)?;
+    let max_ticks = arg_u64_or(&args, "max_ticks", 1_000_000)?;
+    let start = s.machine.cpu().instruction_starts;
+    let target = start.wrapping_add(n);
+    let mut ticks_taken: u64 = 0;
+    let mut trace: Vec<Value> = Vec::new();
+    let mut last_seen = start;
+    while s.machine.cpu().instruction_starts != target && ticks_taken < max_ticks {
+        s.machine.tick();
+        ticks_taken += 1;
+        let now = s.machine.cpu().instruction_starts;
+        if now != last_seen && !s.machine.cpu().in_followup {
+            last_seen = now;
+            trace.push(json!({
+                "step": now.wrapping_sub(start),
+                "pc": format!("${:08X}", s.machine.cpu().regs.pc),
+            }));
+            if trace.len() as u64 >= n {
+                break;
+            }
+        }
+    }
+    Ok(json!({
+        "requested": n,
+        "completed": s.machine.cpu().instruction_starts.wrapping_sub(start),
+        "ticks_taken": ticks_taken,
+        "pc": format!("${:08X}", s.machine.cpu().regs.pc),
+        "trace": trace,
+    }))
+}
+
+fn tool_run_until_any_pc(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let targets = args
+        .get("targets")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ToolError::InvalidArguments("missing array `targets`".into()))?;
+    let mut wanted: Vec<u32> = Vec::with_capacity(targets.len());
+    for t in targets {
+        let one = json!({ "x": t });
+        wanted.push(arg_u32(&one, "x")?);
+    }
+    if wanted.is_empty() {
+        return Err(ToolError::InvalidArguments("`targets` must be non-empty".into()));
+    }
+    let max_ticks = arg_u64_or(&args, "max_ticks", 100_000_000)?;
+    let mut ticks_taken: u64 = 0;
+    let mut hit: Option<u32> = None;
+    while ticks_taken < max_ticks {
+        s.machine.tick();
+        ticks_taken += 1;
+        let pc = s.machine.cpu().regs.pc;
+        if wanted.iter().any(|t| *t == pc) {
+            hit = Some(pc);
+            break;
+        }
+    }
+    Ok(json!({
+        "hit": hit.map(|p| format!("${:08X}", p)),
+        "ticks_taken": ticks_taken,
+        "pc": format!("${:08X}", s.machine.cpu().regs.pc),
+    }))
+}
+
+fn tool_run_until_mem_change(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let addrs = args
+        .get("addrs")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ToolError::InvalidArguments("missing array `addrs`".into()))?;
+    let mut watch: Vec<(u32, u32)> = Vec::with_capacity(addrs.len());
+    for a in addrs {
+        let one = json!({ "x": a });
+        let addr = arg_u32(&one, "x")?;
+        watch.push((addr, s.machine.read_long(addr)));
+    }
+    if watch.is_empty() {
+        return Err(ToolError::InvalidArguments("`addrs` must be non-empty".into()));
+    }
+    let max_ticks = arg_u64_or(&args, "max_ticks", 50_000_000)?;
+    let mut ticks_taken: u64 = 0;
+    let mut hit: Option<(u32, u32, u32)> = None;
+    while ticks_taken < max_ticks {
+        s.machine.tick();
+        ticks_taken += 1;
+        for (addr, old) in &watch {
+            let now = s.machine.read_long(*addr);
+            if now != *old {
+                hit = Some((*addr, *old, now));
+                break;
+            }
+        }
+        if hit.is_some() {
+            break;
+        }
+    }
+    let result = hit.map(|(a, o, n)| json!({
+        "addr": format!("${:08X}", a),
+        "old": format!("${:08X}", o),
+        "new": format!("${:08X}", n),
+    }));
+    Ok(json!({
+        "hit": result,
+        "ticks_taken": ticks_taken,
+        "pc": format!("${:08X}", s.machine.cpu().regs.pc),
     }))
 }
 
@@ -383,14 +617,59 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
         }
     });
 
+    let step_schema = json!({
+        "type": "object",
+        "properties": {
+            "count": {"type": "integer", "minimum": 1, "default": 1},
+            "max_ticks": {"type": "integer", "minimum": 1, "default": 1000000}
+        }
+    });
+    let any_pc_schema = json!({
+        "type": "object",
+        "required": ["targets"],
+        "properties": {
+            "targets": {"type": "array", "items": {"description": "PC — decimal int or hex string"}, "minItems": 1},
+            "max_ticks": {"type": "integer", "minimum": 1, "default": 100000000}
+        }
+    });
+    let mem_change_schema = json!({
+        "type": "object",
+        "required": ["addrs"],
+        "properties": {
+            "addrs": {"type": "array", "items": {"description": "Address (longword) — decimal int or hex string"}, "minItems": 1},
+            "max_ticks": {"type": "integer", "minimum": 1, "default": 50000000}
+        }
+    });
+    let copper_list_schema = json!({
+        "type": "object",
+        "properties": {
+            "addr": {"description": "Start address (default = COP1LC)"},
+            "count": {"type": "integer", "minimum": 1, "maximum": 256, "default": 32}
+        }
+    });
+    let stack_schema = json!({
+        "type": "object",
+        "properties": {
+            "usp": {"type": "boolean", "default": false},
+            "count": {"type": "integer", "minimum": 1, "maximum": 256, "default": 16}
+        }
+    });
+
     add(registry, "run_frames",  "Advance the machine by N PAL frames.", frames_schema, tool_run_frames);
     add(registry, "run_ticks",   "Advance the machine by N master/4 ticks.", ticks_schema, tool_run_ticks);
     add(registry, "run_until_pc","Run until PC == target or max_ticks reached.", until_pc_schema, tool_run_until_pc);
+    add(registry, "run_until_any_pc", "Run until PC matches any address in `targets` or max_ticks reached.", any_pc_schema, tool_run_until_any_pc);
+    add(registry, "run_until_mem_change", "Run until any longword in `addrs` changes value, or max_ticks reached.", mem_change_schema, tool_run_until_mem_change);
+    add(registry, "step",        "Step one or more CPU instructions, returning a PC trace.", step_schema, tool_step);
     add(registry, "reset",       "Reload the ROM and re-create the A1200 (fresh boot).", empty(), tool_reset);
     add(registry, "query_cpu",   "Full CPU register snapshot (D0-D7, A0-A7, PC, SR, SSP, USP, VBR, IPL pin, exception state).", empty(), tool_query_cpu);
     add(registry, "query_chipset","BPLCON0 / DMACON / ADKCON / COLOR00 / COP1LC / copper PC / overlay state.", empty(), tool_query_chipset);
     add(registry, "query_paula", "Paula INTENA / INTREQ with bit names decoded.", empty(), tool_query_paula);
-    add(registry, "query_cia",   "CIA-A timer + control register snapshot.", empty(), tool_query_cia);
+    add(registry, "query_cia",   "CIA-A + CIA-B timer / ICR / port / TOD snapshot.", empty(), tool_query_cia);
+    add(registry, "query_agnus", "Agnus snapshot (vpos / hpos / bitplane pointers / blitter pointers).", empty(), tool_query_agnus);
+    add(registry, "query_blitter","Blitter snapshot (busy, exec_pending, ccks_remaining, APT/BPT/CPT/DPT).", empty(), tool_query_blitter);
+    add(registry, "query_copper_list", "Decode the copper list at `addr` (or COP1LC) into MOVE/WAIT/SKIP entries.", copper_list_schema, tool_query_copper_list);
+    add(registry, "query_stack", "Read `count` longwords off SSP (or USP via `usp:true`).", stack_schema, tool_query_stack);
     add(registry, "memory_read", "Read raw bytes from any address (chip RAM / ROM / chipset).", memory_schema, tool_memory_read);
     add(registry, "memory_read_long", "Read a 32-bit longword from an address.", addr_only, tool_memory_read_long);
     add(registry, "disasm",      "Disassemble `count` m68k instructions starting at `addr`.", disasm_schema, tool_disasm);
