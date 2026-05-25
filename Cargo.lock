@@ -714,7 +714,10 @@ version = "0.1.0"
 dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
+ "machine-commodore-amiga-a1200",
+ "motorola-68000",
  "runtime-commodore-amiga",
+ "serde_json",
  "thiserror 2.0.18",
  "winit",
 ]

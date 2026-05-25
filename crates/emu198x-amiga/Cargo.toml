@@ -9,7 +9,10 @@ repository.workspace = true
 [dependencies]
 emu198x-native-video = { path = "../emu198x-native-video" }
 emu198x-shell = { path = "../emu198x-shell" }
+machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200" }
+motorola-68000 = { path = "../motorola-68000" }
 runtime-commodore-amiga = { path = "../runtime-commodore-amiga" }
+serde_json.workspace = true
 thiserror.workspace = true
 winit.workspace = true
 

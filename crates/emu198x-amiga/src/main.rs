@@ -1,5 +1,7 @@
 //! `emu198x-amiga` — minimal native Amiga verifier shell.
 
+mod mcp;
+
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -105,7 +107,7 @@ enum ModelArg {
 }
 
 #[derive(Debug, Error)]
-enum AppError {
+pub enum AppError {
     #[error(transparent)]
     Machine(#[from] MachineError),
 
@@ -126,6 +128,15 @@ enum AppError {
 
     #[error(transparent)]
     Audio(#[from] NativeAudioError),
+
+    /// I/O error from the MCP mode's stdio loop or ROM read.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+
+    /// MCP boot ROM missing — checked `EMU198X_KS31_A1200_ROM` and the
+    /// default `~/.emu198x/roms/commodore-amiga/kick31a1200.rom`.
+    #[error("Kickstart ROM not found at {path}")]
+    MissingRom { path: String },
 }
 
 struct AmigaRunner {
@@ -659,7 +670,19 @@ impl ApplicationHandler for AmigaApp {
 }
 
 fn main() {
-    let cli = parse_cli(std::env::args().skip(1));
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    // MCP mode: when `--mcp` is present anywhere on the command line,
+    // skip the winit / UI stack entirely and serve the JSON-RPC tool
+    // surface over stdin / stdout.
+    if raw_args.iter().any(|a| a == "--mcp") {
+        if let Err(err) = mcp::run() {
+            eprintln!("error: {err}");
+            process::exit(1);
+        }
+        return;
+    }
+
+    let cli = parse_cli(raw_args.into_iter());
     if let Err(err) = run(cli) {
         eprintln!("error: {err}");
         process::exit(1);
