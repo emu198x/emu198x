@@ -254,6 +254,7 @@ fn tool_query_chipset(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, 
         "adkcon":  format!("${:04X}", m.adkcon()),
         "color00": format!("${:04X}", m.color(0)),
         "cop1lc":  format!("${:08X}", m.copper().cop1lc),
+        "cop2lc":  format!("${:08X}", m.copper().cop2lc),
         "copper_pc": format!("${:08X}", m.copper().pc),
         "overlay": m.memory().overlay(),
     }))
