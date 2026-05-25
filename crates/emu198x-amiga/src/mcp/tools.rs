@@ -18,7 +18,8 @@
 use std::path::PathBuf;
 
 use emu198x_shell::mcp::{Tool, ToolError, ToolRegistry, ToolResponse};
-use machine_commodore_amiga_a1200::Adf;
+use emu198x_shell::{CapturedFrame, MachineTime, PixelFormat, VideoRecorder};
+use machine_commodore_amiga_a1200::{Adf, FB_HEIGHT, FB_WIDTH, PAL_FRAME_TICKS};
 use motorola_68000::disasm::disassemble;
 use serde_json::{Value, json};
 
@@ -119,28 +120,75 @@ fn read_byte(session: &AmigaA1200Session, addr: u32) -> u8 {
 
 // ─── Tool implementations ─────────────────────────────────────────────
 
-fn tool_run_frames(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    use machine_commodore_amiga_a1200::PAL_FRAME_TICKS;
-    let n = arg_u64_or(&args, "frames", 1)?;
-    for _ in 0..n {
-        for _ in 0..PAL_FRAME_TICKS {
+/// Convert the Denise ARGB framebuffer into an Rgba8888 `CapturedFrame`
+/// for the active recorder. Returns `Err` only if the ffmpeg write
+/// pipe fails; that's surfaced to the calling tool so the JSON-RPC
+/// client sees the recording fault.
+fn push_recorder_frame(s: &mut AmigaA1200Session) -> Result<(), ToolError> {
+    let Some(recorder) = s.recorder.as_mut() else {
+        return Ok(());
+    };
+    let fb = s.machine.denise().framebuffer();
+    let mut rgba: Vec<u8> = Vec::with_capacity(fb.len() * 4);
+    for &p in fb {
+        rgba.push(((p >> 16) & 0xFF) as u8);
+        rgba.push(((p >> 8) & 0xFF) as u8);
+        rgba.push((p & 0xFF) as u8);
+        rgba.push(((p >> 24) & 0xFF) as u8);
+    }
+    let frame = CapturedFrame {
+        timestamp: MachineTime::new(s.machine.tick_count()),
+        format: PixelFormat::Rgba8888,
+        width: FB_WIDTH,
+        height: FB_HEIGHT,
+        palette: None,
+        pixels: rgba,
+    };
+    recorder
+        .push_frame(&frame)
+        .map_err(|err| ToolError::Execution(format!("record frame: {err}")))?;
+    s.last_recorded_tick = s.machine.tick_count();
+    Ok(())
+}
+
+/// Advance the machine by `tick_count` ticks. While a recording is
+/// active, pushes one frame to the recorder every `PAL_FRAME_TICKS`
+/// ticks crossed — so a 1000-frame run records 1000 frames regardless
+/// of whether the caller used `run_frames` or `run_ticks`.
+fn tick_for(s: &mut AmigaA1200Session, ticks: u64) -> Result<(), ToolError> {
+    if s.recorder.is_none() {
+        for _ in 0..ticks {
             s.machine.tick();
         }
+        return Ok(());
     }
+    for _ in 0..ticks {
+        s.machine.tick();
+        let now = s.machine.tick_count();
+        if now.saturating_sub(s.last_recorded_tick) >= PAL_FRAME_TICKS {
+            push_recorder_frame(s)?;
+        }
+    }
+    Ok(())
+}
+
+fn tool_run_frames(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let n = arg_u64_or(&args, "frames", 1)?;
+    tick_for(s, n.saturating_mul(PAL_FRAME_TICKS))?;
     Ok(json!({
         "frames_run": n,
         "pc": format!("${:08X}", s.machine.cpu().regs.pc),
+        "recording_frames": s.recorder.as_ref().map(|r| r.frames_written()),
     }))
 }
 
 fn tool_run_ticks(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
     let n = arg_u64_or(&args, "ticks", 1)?;
-    for _ in 0..n {
-        s.machine.tick();
-    }
+    tick_for(s, n)?;
     Ok(json!({
         "ticks_run": n,
         "pc": format!("${:08X}", s.machine.cpu().regs.pc),
+        "recording_frames": s.recorder.as_ref().map(|r| r.frames_written()),
     }))
 }
 
@@ -287,6 +335,61 @@ fn tool_query_agnus(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
         "diwstop": format!("${:04X}", a.diwstop),
         "ddfstrt": format!("${:04X}", a.ddfstrt),
         "ddfstop": format!("${:04X}", a.ddfstop),
+    }))
+}
+
+fn tool_start_video_recording(
+    args: Value,
+    s: &mut AmigaA1200Session,
+) -> Result<Value, ToolError> {
+    if s.recorder.is_some() {
+        return Err(ToolError::Execution(
+            "a recording is already in flight — stop it before starting another".into(),
+        ));
+    }
+    let path = args
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::InvalidArguments("missing string `path`".into()))?;
+    // PAL Amiga = 50 fps. (NTSC would be 60, but the A1200 machine
+    // currently boots PAL by default; an explicit `fps` override is
+    // accepted for completeness.)
+    let fps = args.get("fps").and_then(Value::as_u64).unwrap_or(50) as u32;
+    let started_at = MachineTime::new(s.machine.tick_count());
+    let recorder = VideoRecorder::start(PathBuf::from(path), FB_WIDTH, FB_HEIGHT, fps, started_at)
+        .map_err(|err| ToolError::Execution(format!("start recording: {err}")))?;
+    s.recorder = Some(recorder);
+    s.last_recorded_tick = s.machine.tick_count();
+    // Push one frame immediately so the recording begins with the
+    // current screen state, not a missing first frame.
+    push_recorder_frame(s)?;
+    Ok(json!({
+        "started": true,
+        "path": path,
+        "width": FB_WIDTH,
+        "height": FB_HEIGHT,
+        "fps": fps,
+        "started_at_tick": s.machine.tick_count(),
+    }))
+}
+
+fn tool_stop_video_recording(
+    _args: Value,
+    s: &mut AmigaA1200Session,
+) -> Result<Value, ToolError> {
+    let recorder = s
+        .recorder
+        .take()
+        .ok_or_else(|| ToolError::Execution("no recording is in flight".into()))?;
+    let summary = recorder
+        .finish(None)
+        .map_err(|err| ToolError::Execution(format!("finish recording: {err}")))?;
+    Ok(json!({
+        "stopped": true,
+        "path": summary.path.display().to_string(),
+        "frames": summary.frames,
+        "duration_ms": summary.duration_ms,
+        "has_audio": summary.has_audio,
     }))
 }
 
@@ -1024,6 +1127,21 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
         }
     });
     add(registry, "dump_framebuffer", "Snapshot the Denise ARGB framebuffer: top colours, FNV-1a hash, optional PNG write.", dump_fb_schema, tool_dump_framebuffer);
+    let start_rec_schema = json!({
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+            "path": {"type": "string", "description": "Output MP4 path. Parent directories are created."},
+            "fps": {"type": "integer", "minimum": 1, "default": 50,
+                    "description": "Frame rate written to the MP4. Default is PAL (50)."}
+        }
+    });
+    add(registry, "start_video_recording",
+        "Begin recording the live framebuffer to one MP4 file (uses ffmpeg from PATH).",
+        start_rec_schema, tool_start_video_recording);
+    add(registry, "stop_video_recording",
+        "Finalise the in-flight recording and return the MP4 summary.",
+        empty(), tool_stop_video_recording);
     add(registry, "query_copper_list", "Decode the copper list at `addr` (or COP1LC) into MOVE/WAIT/SKIP entries.", copper_list_schema, tool_query_copper_list);
     add(registry, "query_stack", "Read `count` longwords off SSP (or USP via `usp:true`).", stack_schema, tool_query_stack);
     add(registry, "memory_read", "Read raw bytes from any address (chip RAM / ROM / chipset).", memory_schema, tool_memory_read);

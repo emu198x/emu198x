@@ -129,6 +129,9 @@ fn mcp_server_boots_and_lists_tools() {
         "query_disk",
         "query_aga",
         "bplcon0_log",
+        "dump_framebuffer",
+        "start_video_recording",
+        "stop_video_recording",
     ] {
         assert!(
             names.contains(expected),
