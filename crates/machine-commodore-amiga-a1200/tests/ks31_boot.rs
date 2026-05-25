@@ -132,11 +132,12 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // CPU IPL mask once init reaches the "interrupts on" phase and
     // moves VBR to its chip-RAM exception table. Those transitions
     // are the most informative progress signals.
-    // Post-Stage-M: boot now reaches resident-module init and copper
-    // setup, which take many frames. 4000 frames (~1.3 sec PAL) gives
-    // enough room to either show the next wedge or saturate into the
-    // module-init steady state. 8000+ doesn't add diagnostic value;
-    // bump only when chasing STRAP arrival.
+    // Post-Stage-M: boot reaches resident-module init at $FC1xxx /
+    // $F84xxx and steady-states there. With IRQs confirmed firing
+    // (Stage N: ~3K/sec, ~89K total over 30000 frames in initial
+    // investigation), the remaining gap is a polling-loop / device-
+    // driver wait — not a CPU completeness issue. 4000 frames keeps
+    // the test fast; bump to 30000+ when chasing STRAP arrival.
     let frames_to_run: u64 = 4_000;
     let checkpoint_every: u64 = 1_000;
     // Tracked but not currently read — kept for future "PC moved
@@ -1102,7 +1103,17 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // PORTS / VBL / SOFT / DSKBLK firing at least a few times per
     // frame; complete silence means the chipset → CPU IPL path is
     // broken.
-    eprintln!("autovec IRQ counts (24..=31, level 0..=7):");
+    // Direct IRQ counter on the CPU. `exc_counts` above misses
+    // hardware interrupts because `initiate_interrupt_exception`
+    // intentionally leaves `exc_vector` unset (so the shared
+    // follow-up tag chain can distinguish interrupts from group-1/2
+    // exceptions). `cpu.interrupts_taken` increments unconditionally
+    // for every IRQ entry, regardless of vector.
+    eprintln!(
+        "CPU interrupts_taken counter: {}",
+        m.cpu().interrupts_taken
+    );
+    eprintln!("autovec IRQ counts via exc_counts (24..=31, level 0..=7):");
     for vec in 24u8..=31 {
         let count = exc_counts.get(&vec).copied().unwrap_or(0);
         let level = vec - 24;

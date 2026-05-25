@@ -316,6 +316,14 @@ pub struct Cpu68000 {
     pub bit_op: BitOp,
     /// Interrupt priority level being processed.
     pub target_ipl: u8,
+    /// Count of hardware interrupts entered (PromoteIRC / tick-idle
+    /// IPL-acceptance paths). Diagnostic only — never reset by the
+    /// CPU. Tests use this to confirm IRQ delivery without poking
+    /// `exc_vector` (which `initiate_interrupt_exception` intentionally
+    /// leaves unset to distinguish interrupts from group-1/2
+    /// exceptions in the shared follow-up tag chain).
+    #[serde(skip)]
+    pub interrupts_taken: u64,
     /// Enable verbose debug logging.
     pub debug_mode: bool,
     /// MOVEM register mask (remaining registers to transfer).
@@ -690,6 +698,7 @@ impl Cpu68000 {
             alu_op: AluOp::Add,
             bit_op: BitOp::Btst,
             target_ipl: 0,
+            interrupts_taken: 0,
             debug_mode: false,
             movem_mask: 0,
             movem_idx: 0,
@@ -1046,6 +1055,7 @@ impl Cpu68000 {
     /// so it can be pushed in the frame.
     fn initiate_interrupt_exception(&mut self, level: u8) {
         self.target_ipl = level;
+        self.interrupts_taken = self.interrupts_taken.wrapping_add(1);
         // Save old SR before changing mode (for pushing in the exception frame).
         self.ae_saved_sr = self.regs.sr;
         // Enter supervisor mode BEFORE pushing so the frame goes onto SSP.
