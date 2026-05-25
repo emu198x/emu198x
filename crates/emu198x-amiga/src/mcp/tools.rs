@@ -15,7 +15,10 @@
 //! Each tool returns a JSON object (or array) inside the
 //! `ToolResponse::success_text` body — the client parses the JSON.
 
+use std::path::PathBuf;
+
 use emu198x_shell::mcp::{Tool, ToolError, ToolRegistry, ToolResponse};
+use machine_commodore_amiga_a1200::Adf;
 use motorola_68000::disasm::disassemble;
 use serde_json::{Value, json};
 
@@ -442,6 +445,73 @@ fn tool_run_until_any_pc(args: Value, s: &mut AmigaA1200Session) -> Result<Value
     }))
 }
 
+fn tool_insert_media(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let path = args
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::InvalidArguments("missing string `path`".into()))?;
+    let kind = args
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("adf");
+    let change_pending = args
+        .get("change_pending")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let path_buf = PathBuf::from(path);
+    let bytes = std::fs::read(&path_buf)
+        .map_err(|err| ToolError::Execution(format!("read {}: {err}", path_buf.display())))?;
+    match kind {
+        "adf" => {
+            let adf = Adf::from_bytes(bytes)
+                .map_err(|err| ToolError::Execution(format!("parse ADF: {err:?}")))?;
+            if change_pending {
+                s.machine.insert_adf_with_change_pending(adf);
+            } else {
+                s.machine.insert_adf(adf);
+            }
+            Ok(json!({
+                "inserted": true,
+                "kind": "adf",
+                "path": path_buf.display().to_string(),
+                "change_pending": change_pending,
+                "has_disk": s.machine.drive().has_disk(),
+            }))
+        }
+        other => Err(ToolError::InvalidArguments(format!(
+            "unsupported media kind `{other}` (only `adf` is wired today)"
+        ))),
+    }
+}
+
+fn tool_eject_media(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let had_disk = s.machine.drive().has_disk();
+    s.machine.eject_disk();
+    Ok(json!({
+        "ejected": had_disk,
+        "has_disk": s.machine.drive().has_disk(),
+    }))
+}
+
+fn tool_query_disk(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let drive = s.machine.drive();
+    let status = drive.status();
+    Ok(json!({
+        "has_disk": drive.has_disk(),
+        "selected": drive.selected(),
+        "cylinder": drive.cylinder(),
+        "head": drive.head(),
+        "motor_on": drive.motor_on(),
+        "motor_spinning": drive.motor_spinning(),
+        "status": {
+            "disk_change_low": status.disk_change,
+            "write_protect_low": status.write_protect,
+            "track0_low": status.track0,
+            "ready_low": status.ready,
+        },
+    }))
+}
+
 fn tool_run_until_mem_change(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
     let addrs = args
         .get("addrs")
@@ -654,6 +724,17 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
             "count": {"type": "integer", "minimum": 1, "maximum": 256, "default": 16}
         }
     });
+    let insert_media_schema = json!({
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+            "path": {"type": "string", "description": "Filesystem path to media image."},
+            "kind": {"type": "string", "enum": ["adf"], "default": "adf",
+                     "description": "Media kind. Only `adf` is wired today; `hdf`/`ipf` reserved."},
+            "change_pending": {"type": "boolean", "default": true,
+                               "description": "Use insert_adf_with_change_pending so KS sees a disk-change event."}
+        }
+    });
 
     add(registry, "run_frames",  "Advance the machine by N PAL frames.", frames_schema, tool_run_frames);
     add(registry, "run_ticks",   "Advance the machine by N master/4 ticks.", ticks_schema, tool_run_ticks);
@@ -673,4 +754,7 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
     add(registry, "memory_read", "Read raw bytes from any address (chip RAM / ROM / chipset).", memory_schema, tool_memory_read);
     add(registry, "memory_read_long", "Read a 32-bit longword from an address.", addr_only, tool_memory_read_long);
     add(registry, "disasm",      "Disassemble `count` m68k instructions starting at `addr`.", disasm_schema, tool_disasm);
+    add(registry, "insert_media", "Insert disk media into DF0 (only `adf` kind today; use `change_pending:true` to fire a disk-change event).", insert_media_schema, tool_insert_media);
+    add(registry, "eject_media",  "Eject any disk currently in DF0.", empty(), tool_eject_media);
+    add(registry, "query_disk",   "DF0 drive status (cylinder, head, motor, status bits, has_disk).", empty(), tool_query_disk);
 }

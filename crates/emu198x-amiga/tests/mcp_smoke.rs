@@ -124,6 +124,9 @@ fn mcp_server_boots_and_lists_tools() {
         "memory_read",
         "memory_read_long",
         "disasm",
+        "insert_media",
+        "eject_media",
+        "query_disk",
     ] {
         assert!(
             names.contains(expected),
@@ -209,4 +212,21 @@ fn mcp_tools_drive_a_real_boot() {
         bplcon0_move,
         "expected the copper list to contain a MOVE to BPLCON0 ($0100); got: {entries:?}"
     );
+
+    // Eject (nothing inserted) and query: should report has_disk:false.
+    let _ = call(
+        &mut server,
+        &mut session,
+        15,
+        "tools/call",
+        json!({ "name": "eject_media", "arguments": {} }),
+    );
+    let disk = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        16,
+        "tools/call",
+        json!({ "name": "query_disk", "arguments": {} }),
+    ));
+    assert_eq!(disk.get("has_disk").and_then(Value::as_bool), Some(false));
 }

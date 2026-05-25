@@ -1067,6 +1067,95 @@ The MCP itself is the durable artifact — every subsequent Amiga
 investigation should reach for it first instead of recompiling
 new instrumentation into `ks31_boot.rs`.
 
+## A1200 Stage R — disk-attached probe, "wedge" reframed — 2026-05-25
+
+Stage R added `insert_media` / `eject_media` / `query_disk` MCP
+tools (ADF for now; HDF/IPF reserved) and used them to probe
+whether bitplane enable was gated on a present disk medium.
+
+### What happened with WB 2.04 inserted at frame 900
+
+| Signal              | Before insert | After insert + 2300 frames |
+|---------------------|---------------|----------------------------|
+| BPLCON0             | `$0302`       | `$0302` (briefly `$8302`)  |
+| BPU bits            | 0             | 0                          |
+| DMACON              | `$03D0`       | `$03F0` (BPLEN re-enabled) |
+| Drive cylinder      | 3             | 1 (after stepping to 55)   |
+| Drive motor         | off           | off (parked after read)    |
+| `disk_change_low`   | true          | false (acknowledged)       |
+| `bpl_pt[0..3]`      | `$12666, $14E0C, $175B2` | `$2A476, $2F476, $175B2` |
+| Bitplane $2A476     | (untouched)   | `FF FF 70 00 00 00 ...`     |
+| Sprite 0 data       | (cleared)     | populated control + pixels |
+| Copper $C58–$C5C    | absent        | `MOVE $0120=$0001 / $0122=$4454` (SPR0PT=$00014454) |
+
+The drive stepped from cylinder 3 to cylinder 55 and back, motor
+spun up and parked — **trackdisk.device, the MFM decoder, Paula
+disk DMA, and the CIA-A floppy control path all work end-to-end.**
+KS recognised the disk insertion, read it, and then re-idled the
+drive.
+
+Bitplane memory at `$2A476` contains real rendered content
+(`FF FF 70 00` then zeros — classic glyph→background transition,
+not garbage). Sprite memory at `$14454` is populated with control
+words + pixel data — almost certainly the OS mouse pointer.
+Everything that needs to be in chip RAM for a visible display
+*is* in chip RAM.
+
+### The reframe
+
+The original "STRAP wedge" / "Stage P render-loop blockage"
+framing was wrong. The emulator runs KS 3.1 end-to-end:
+
+1. CPU streams instructions across `$F8xxxx` / `$FCxxxx`
+2. Exec dispatches tasks (supervisor ↔ user transitions observed)
+3. 89K + IRQs taken (vblank + CIA timer + Paula)
+4. trackdisk.device reads the inserted disk (head to cyl 55)
+5. Bitplanes are rendered into chip RAM
+6. Sprite pointer is loaded with real data
+7. The copper list is iterating
+
+The one remaining gap is narrow: **BPU bits in BPLCON0 never go
+non-zero**. The copper writes `$8302` (HIRES, BPU=0), the CPU
+writes `$0302` (no HIRES, BPU=0), and nobody writes a value with
+BPU ≥ 1. So the chipset has been told "draw a display with zero
+bitplanes" — the screen ends up as background colour only, despite
+the rendered content sitting at the pointed-to addresses.
+
+This is no longer an emulation problem in the broad sense. It is
+either:
+
+- **WB 2.04 incompatibility with KS 3.1** — KS 3.1 may need
+  WB 3.0/3.1 disks (3.1.4 specifically expects DOS 3.0+). The
+  boot block parse may be rejecting WB 2.04, and the "this isn't
+  a valid Workbench disk" rendering uses a path we don't hit.
+- **A final-mile init step** that KS 3.1 wants and our emulator
+  doesn't deliver — possibly something around `intuition.library`
+  screen-open, or a graphics-library `LoadView()` call that's
+  waiting for a condition (vsync alignment?).
+
+### Stage S candidates
+
+- **Obtain a WB 3.0 or 3.1 ADF.** That's the obvious next move —
+  WB 2.04 isn't the right disk for KS 3.1.
+- **Stub a "no Workbench disk" boot path.** Force the OS into its
+  "please insert workbench" rendering by deliberately failing the
+  boot block validation, and see whether that path enables BPU.
+  Falsifies the medium-rejection hypothesis cleanly.
+- **Capture BPLCON0 writes over a long boot.** Add an MCP tool
+  that records every write to `$DFF100` with PC + value, so we
+  can see whether KS ever *intends* to set BPU and is being
+  pre-empted before it gets there.
+- **Compare with vAmiga / fs-uae** on the same ROM + WB 2.04 ADF
+  to see how *they* handle this combination.
+
+### Tools added in Stage R
+
+- `insert_media` (`path` + `kind=adf` + `change_pending`)
+- `eject_media`
+- `query_disk` — cylinder / head / motor / selected / status bits
+  (disk_change, write_protect, track0, ready — all decoded
+  active-low per the hardware)
+
 ## What this plan does not cover
 
 - **PMOVE / PFLUSH / PTEST** (68030 + 68040 MMU instructions). Tracked in
