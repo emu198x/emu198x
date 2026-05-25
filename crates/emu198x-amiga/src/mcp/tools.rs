@@ -458,9 +458,9 @@ fn tool_insert_media(args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
         .get("change_pending")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    let entry_hint = args.get("entry").and_then(Value::as_str);
     let path_buf = PathBuf::from(path);
-    let bytes = std::fs::read(&path_buf)
-        .map_err(|err| ToolError::Execution(format!("read {}: {err}", path_buf.display())))?;
+    let (bytes, source_label) = load_media_bytes(&path_buf, entry_hint)?;
     match kind {
         "adf" => {
             let adf = Adf::from_bytes(bytes)
@@ -474,6 +474,7 @@ fn tool_insert_media(args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
                 "inserted": true,
                 "kind": "adf",
                 "path": path_buf.display().to_string(),
+                "source": source_label,
                 "change_pending": change_pending,
                 "has_disk": s.machine.drive().has_disk(),
             }))
@@ -482,6 +483,84 @@ fn tool_insert_media(args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
             "unsupported media kind `{other}` (only `adf` is wired today)"
         ))),
     }
+}
+
+/// Load the raw bytes of a media image from disk. If `path` has a
+/// `.zip` extension, opens the archive and reads either a single
+/// `.adf` member (auto-detected when there's exactly one) or the
+/// member whose filename matches `entry_hint`. Otherwise reads the
+/// file verbatim.
+///
+/// Returns the bytes plus a human-readable label of where they came
+/// from, so the response surfaces which archive entry was used.
+fn load_media_bytes(
+    path: &std::path::Path,
+    entry_hint: Option<&str>,
+) -> Result<(Vec<u8>, String), ToolError> {
+    let is_zip = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("zip"))
+        .unwrap_or(false);
+    if !is_zip {
+        let bytes = std::fs::read(path)
+            .map_err(|err| ToolError::Execution(format!("read {}: {err}", path.display())))?;
+        return Ok((bytes, path.display().to_string()));
+    }
+    let file = std::fs::File::open(path)
+        .map_err(|err| ToolError::Execution(format!("open zip {}: {err}", path.display())))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|err| ToolError::Execution(format!("read zip {}: {err}", path.display())))?;
+    // Decide which entry to extract.
+    let mut chosen_index: Option<usize> = None;
+    let mut adf_entries: Vec<(usize, String)> = Vec::new();
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index(i)
+            .map_err(|err| ToolError::Execution(format!("zip entry {i}: {err}")))?;
+        let name = entry.name().to_string();
+        if entry.is_dir() {
+            continue;
+        }
+        if let Some(want) = entry_hint {
+            if name == want {
+                chosen_index = Some(i);
+                break;
+            }
+        }
+        if name.to_lowercase().ends_with(".adf") {
+            adf_entries.push((i, name));
+        }
+    }
+    let chosen_index = match chosen_index {
+        Some(i) => i,
+        None => match adf_entries.len() {
+            0 => {
+                return Err(ToolError::Execution(format!(
+                    "no .adf entry found in {}",
+                    path.display()
+                )));
+            }
+            1 => adf_entries[0].0,
+            _ => {
+                let names: Vec<&str> = adf_entries.iter().map(|(_, n)| n.as_str()).collect();
+                return Err(ToolError::InvalidArguments(format!(
+                    "zip {} has {} .adf entries; pass `entry` to pick one: {:?}",
+                    path.display(),
+                    names.len(),
+                    names
+                )));
+            }
+        },
+    };
+    let mut entry = archive
+        .by_index(chosen_index)
+        .map_err(|err| ToolError::Execution(format!("re-open zip entry: {err}")))?;
+    let entry_name = entry.name().to_string();
+    let mut buf = Vec::with_capacity(entry.size() as usize);
+    std::io::copy(&mut entry, &mut buf)
+        .map_err(|err| ToolError::Execution(format!("read zip entry: {err}")))?;
+    Ok((buf, format!("{}#{}", path.display(), entry_name)))
 }
 
 fn tool_eject_media(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
@@ -728,7 +807,8 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
         "type": "object",
         "required": ["path"],
         "properties": {
-            "path": {"type": "string", "description": "Filesystem path to media image."},
+            "path": {"type": "string", "description": "Filesystem path to media image. .zip is supported — single .adf is auto-detected; pass `entry` to pick one when multiple exist."},
+            "entry": {"type": "string", "description": "Optional zip entry filename when `path` is a .zip with more than one .adf inside."},
             "kind": {"type": "string", "enum": ["adf"], "default": "adf",
                      "description": "Media kind. Only `adf` is wired today; `hdf`/`ipf` reserved."},
             "change_pending": {"type": "boolean", "default": true,

@@ -1156,6 +1156,82 @@ either:
   (disk_change, write_protect, track0, ready — all decoded
   active-low per the hardware)
 
+## A1200 Stage S — WB 3.1 + the real diagnosis — 2026-05-25
+
+Two amendments to Stage R, both important:
+
+### 1. `insert_media` now reads from .zip
+
+`insert_media` looks at the path extension. If `.zip`, it opens
+the archive and either picks a single `.adf` automatically or
+takes an explicit `entry` argument when there's more than one.
+The response gains a `source` field that surfaces `path#entry`
+so it's never ambiguous what was loaded. Lets the MCP point
+directly at the TOSEC-style `Workbench v3.1 ... (Disk 1 of
+6)(Install).zip` archives without manual unzip.
+
+### 2. The "PC parked at $F81476" reading was wrong
+
+Disassembling `$F81460..$F81490` revealed what the CPU is
+actually doing at the steady-state PC:
+
+```
+$F81468: addq.l #1,(280,A6)   ; ++ExecBase.IdleCount
+$F8146C: bset   #7,(292,A6)   ; ExecBase flag — "currently idle"
+$F81472: STOP   #$2000        ; halt until IRQ (mask 0)
+$F81476: bra.s  $F8145E       ; back to scheduler check
+```
+
+`$4E72 2000` is the m68k **STOP** instruction with immediate
+`$2000` (supervisor, IRQ-mask 0). Our disassembler doesn't
+decode STOP and printed it as `dc.w $4E72`, which is what threw
+the earlier reading off.
+
+So PC = `$F81476` doesn't mean "wedge". It means **the CPU is in
+Exec's idle loop**, waking on every IRQ, checking whether a task
+is ready, finding none, and sleeping again. That's the correct
+behaviour of an idle Amiga. The reason we always observe PC
+`$F81476` is that's the instruction the CPU was *about* to
+execute when STOP got cancelled by the IRQ — i.e. it's the
+single instruction the scheduler spends the most time at.
+
+### 3. So what's actually missing
+
+With either WB 2.04 *or* WB 3.1 Install inserted, the trajectory
+is identical:
+
+- The disk is recognised (`disk_change_low` goes false)
+- The drive steps to cyl 40–55 and back to ~cyl 1 (boot block +
+  file-system probe — KS got further than just the boot block)
+- The drive is parked (`motor_on=false`, `selected=false`)
+- Bitplane pointers are programmed
+- Bitplane chip RAM is populated with real rendered data
+- A sprite pointer is programmed with real sprite data
+- The copper is iterating
+- The CPU is idle in Exec's STOP loop
+
+What is *not* happening:
+
+- No task ever runs that enables BPLCON0 BPU bits
+- intuition's `OpenScreen` for the Workbench screen never fires
+- The boot continuation that would bring up the display
+  workflow never gets queued
+
+That means the gap isn't in the CPU, the chipset, the floppy, or
+the MFM decode (those all work). It's somewhere in the disk-boot
+hand-off: KS reads the boot block + probes the file system,
+something rejects the disk silently, and the OS falls back to
+"keep idling because there's nothing to do." Comparing with
+vAmiga / fs-uae on the same ROM + same ADF is the most efficient
+next move — if they boot to Workbench and we idle, the gap is
+ours; if they idle too, the disk image is the problem.
+
+### Tools added in Stage S
+
+- `.zip` support inside `insert_media` (auto-detect single `.adf`,
+  `entry:` to disambiguate when multiple, `source:` field in
+  response reports `path#entry`)
+
 ## What this plan does not cover
 
 - **PMOVE / PFLUSH / PTEST** (68030 + 68040 MMU instructions). Tracked in
