@@ -155,6 +155,18 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // every instruction boundary).
     let mut max_ipl_pin: u8 = 0;
     let mut ipl_pin_counts: [u64; 8] = [0; 8];
+    let mut mask_counts: [u64; 8] = [0; 8];
+    // Count ticks where the CPU SHOULD have been able to accept the
+    // IRQ Paula is asking for: pin level > mask level. Coupled with
+    // the autovec counts above, this tells us whether the gating
+    // window (pin asserted, mask permits) is ever open.
+    let mut ipl_acceptable_ticks: u64 = 0;
+    // Also count instruction-boundary samples: tick where
+    // `instruction_starts` increased. At those exact moments
+    // `cpu.ipl > mask` should trigger PromoteIRC's IRQ check.
+    let mut prev_instr_starts = m.cpu().instruction_starts;
+    let mut instr_boundary_acceptable: u64 = 0;
+    let mut instr_boundary_total: u64 = 0;
     // Exception tracking: count None -> Some(vector) transitions on
     // the cpu.exc_vector field. The field stays Some for the duration
     // of exception processing (multiple ticks), so the edge tells us
@@ -605,6 +617,25 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             if pin as u8 > max_ipl_pin {
                 max_ipl_pin = pin as u8;
             }
+            // "Acceptable window" tally: pin > mask means the CPU
+            // should fire an IRQ at the next instruction boundary.
+            let mask = m.cpu().regs.interrupt_mask();
+            mask_counts[(mask & 7) as usize] += 1;
+            if (pin as u8) > mask {
+                ipl_acceptable_ticks += 1;
+            }
+            // Instruction-boundary check: the tick where a new
+            // instruction begins is the exact moment PromoteIRC
+            // sampled. If pin > mask at that moment, IRQ would
+            // fire — track how often that condition was true.
+            let cur_starts = m.cpu().instruction_starts;
+            if cur_starts != prev_instr_starts {
+                instr_boundary_total += 1;
+                if (pin as u8) > mask {
+                    instr_boundary_acceptable += 1;
+                }
+                prev_instr_starts = cur_starts;
+            }
             if first_vbr_change_frame.is_none() && m.cpu().regs.vbr != 0 {
                 first_vbr_change_frame = Some(f);
             }
@@ -680,6 +711,31 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         };
         eprintln!("  IPL pin = {level}: {count:>10} ticks ({pct:.2}%)");
     }
+    eprintln!("CPU interrupt-mask distribution (mask register, SR bits 10-8):");
+    for (level, count) in mask_counts.iter().enumerate() {
+        let pct = if total_pin_samples > 0 {
+            (*count as f64 / total_pin_samples as f64) * 100.0
+        } else {
+            0.0
+        };
+        eprintln!("  mask = {level}: {count:>10} ticks ({pct:.2}%)");
+    }
+    eprintln!(
+        "Ticks where IPL pin > mask: {ipl_acceptable_ticks} ({:.2}% of run)",
+        if total_pin_samples > 0 {
+            (ipl_acceptable_ticks as f64 / total_pin_samples as f64) * 100.0
+        } else {
+            0.0
+        }
+    );
+    eprintln!(
+        "Instruction boundaries where IPL > mask: {instr_boundary_acceptable} / {instr_boundary_total} ({:.2}%)",
+        if instr_boundary_total > 0 {
+            (instr_boundary_acceptable as f64 / instr_boundary_total as f64) * 100.0
+        } else {
+            0.0
+        }
+    );
 
     // Hot PCs — where is the CPU actually spending most of its time?
     let mut hot_sorted: Vec<_> = hot_pcs.iter().collect();
