@@ -1223,6 +1223,81 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         cia_a.crb(),
     );
 
+    // BPLCON0 transition history — was $8303 (STRAP target) ever
+    // reached? If yes, when did it last revert and to what value?
+    {
+        let mut bplcon0_values: std::collections::BTreeMap<u16, u64> =
+            std::collections::BTreeMap::new();
+        for entry in m.debug_custom_write_log.iter() {
+            // (cck, pc, addr, val, offset, is_word)
+            let addr = entry.2;
+            let val = entry.3;
+            if (addr & 0xFFF) == 0x100 {
+                *bplcon0_values.entry(val).or_insert(0) += 1;
+            }
+        }
+        eprintln!("BPLCON0 distinct values written + counts:");
+        for (val, count) in &bplcon0_values {
+            let hires = (*val & 0x8000) != 0;
+            let bpu = (*val >> 12) & 7;
+            let color = (*val & 0x0002) != 0;
+            let dpf = (*val & 0x0400) != 0;
+            eprintln!(
+                "  BPLCON0=${val:04X} ({count}x): HIRES={hires} BPU={bpu} COLOR={color} DPF={dpf}"
+            );
+        }
+    }
+
+    // Dump the current copper list — read up to 64 instructions
+    // starting at COP1LC. Look for BPLCON0 ($0100) writes and what
+    // colour they configure.
+    let cop1lc = m.copper().cop1lc;
+    eprintln!("COP1LC at end of run: ${cop1lc:08X}");
+    eprintln!("Copper list dump from COP1LC (first 32 instructions):");
+    let mem = m.memory();
+    for i in 0..32u32 {
+        let addr = cop1lc.wrapping_add(i * 4);
+        let hi = mem.read_chip_ram_word(addr);
+        let lo = mem.read_chip_ram_word(addr.wrapping_add(2));
+        // Copper instruction is two words. First word:
+        //   MOVE: bit 0 = 0 → write `lo` to register at offset `hi & 0x1FE`
+        //   WAIT/SKIP: bit 0 = 1 → vertical/horizontal compare
+        let inst_type = if (hi & 1) == 0 {
+            let reg_off = hi & 0x01FE;
+            let reg_name = match reg_off {
+                0x100 => "BPLCON0",
+                0x102 => "BPLCON1",
+                0x104 => "BPLCON2",
+                0x110 => "BPLCON3",
+                0x10C => "BPLCON4",
+                0x180..=0x1BE => "COLOR",
+                0x092 => "DDFSTRT",
+                0x094 => "DDFSTOP",
+                0x08E => "DIWSTRT",
+                0x090 => "DIWSTOP",
+                0x096 => "DMACON",
+                0x09A => "INTENA",
+                0x09C => "INTREQ",
+                0x080 => "COP1LCH",
+                0x082 => "COP1LCL",
+                0x088 => "COPJMP1",
+                _ => "?",
+            };
+            format!("MOVE ${lo:04X} -> ${reg_off:03X} ({reg_name})")
+        } else if (lo & 1) == 0 {
+            // WAIT: wait until beam reaches (vp,hp)
+            format!("WAIT vp=${:02X} hp=${:02X} mask=${:04X}", hi >> 8, hi & 0xFE, lo)
+        } else {
+            format!("SKIP vp=${:02X} hp=${:02X} mask=${:04X}", hi >> 8, hi & 0xFE, lo)
+        };
+        eprintln!("  @${addr:08X}: ${hi:04X} ${lo:04X}  {inst_type}");
+        // Stop at COPJMP/END marker
+        if hi == 0xFFFF && lo == 0xFFFE {
+            eprintln!("  (end-of-list marker)");
+            break;
+        }
+    }
+
     eprintln!("Display state at end of run:");
     let dmacon = m.dmacon();
     eprintln!("  BPLCON0 = ${:04X} (STRAP target: $8303 — hires+3bpl+color+GAUD)", m.bplcon0());
