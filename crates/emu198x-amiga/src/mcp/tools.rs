@@ -336,6 +336,10 @@ fn tool_query_agnus(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
         "diwstop": format!("${:04X}", a.diwstop),
         "ddfstrt": format!("${:04X}", a.ddfstrt),
         "ddfstop": format!("${:04X}", a.ddfstop),
+        "bpl1mod": a.bpl1mod,
+        "bpl2mod": a.bpl2mod,
+        "bplcon0": format!("${:04X}", a.bplcon0),
+        "num_bitplanes": a.num_bitplanes(),
     }))
 }
 

@@ -613,14 +613,14 @@ impl AmigaA1200 {
                 // VPOSR bits 14-8 carry the Agnus revision id. KS reads
                 // this to discriminate OCS / ECS / AGA Agnus chips. The
                 // OCS default is $10 (PAL) / $00 (NTSC); for AGA Alice
-                // on A1200 it must be $30 (PAL) / $20 (NTSC). With the
-                // OCS values KS sees an AGA Denise paired with an OCS
-                // Agnus — a mismatched chipset that triggers fallback
-                // code paths during palette / screen init.
+                // it must be $23 (PAL) / $33 (NTSC). Matches WinUAE's
+                // VPOSR composition (custom.cpp ~line 2535): AGA mode
+                // sets bits 0x2300, ECS adds 0x2000 (already covered),
+                // NTSC adds 0x1000.
                 let mut a = AgnusAga::from_ecs(AgnusEcs::from_ocs(Agnus::new_with_region(region)));
                 a.agnus_id = match region {
-                    AgnusRegion::Pal => 0x3000,
-                    AgnusRegion::Ntsc => 0x2000,
+                    AgnusRegion::Pal => 0x2300,
+                    AgnusRegion::Ntsc => 0x3300,
                 };
                 a
             },
