@@ -898,25 +898,93 @@ investigation.
 **Tom Harte 68000 / 68010 / 68020 + all Amiga machine tests
 green** — no regressions from the new pipeline.
 
-### Stage M follow-ups
+### Stage M follow-ups landed — 2026-05-24
 
-In priority order based on the ROM scan and where KS 3.1
-appears to be looping:
+All six extension-word EA modes followed in a single follow-up
+commit:
 
-1. **`d16(An)` mode** for all 8 BF ops (BFCHG `d16(An)` has 4
-   sites, BFCLR / BFEXTS / BFSET each have 1–2). One extension
-   word; needs a new follow-up tag.
-2. **`(d8,An,Xn)` mode** for all 8 BF ops (BFINS has 21
-   sites). Brief extension word; the 68020 also supports the
-   full extension word format here — gate behind whatever the
-   ROM actually uses.
-3. **AbsLong / AbsShort** modes (BFSET `abs/imm` has 7 sites).
-   AbsLong needs two extension words.
-4. **PcDisp / PcIndex** modes if any boot path needs them.
+- **`d16(An)`** — sign-extended 16-bit displacement after An
+- **`(d8,An,Xn)`** — brief extension word, scale honoured under
+  `variant_scaled_index`
+- **AbsShort** — sign-extended 16-bit absolute
+- **AbsLong** — two ext words, staged via `TAG_BF_MEM_EA_ABSLONG_LO`
+- **PcDisp** — PC-at-extension + d16
+- **PcIndex** — PC-at-extension + brief ext
 
-The pipeline framework is in place; each new mode is a matter
-of fitting it into `begin_bf_memory`'s match (for the simple
-cases) or adding extension-word follow-up tags (for the rest).
+KS 3.1 boot still doesn't exercise any of the new modes (vec 4
+illegal-instruction count remains 0), so the BF family is now
+complete from an instruction-completeness standpoint.
+
+## A1200 Stage N findings — 2026-05-25
+
+KS 3.1 boot reaches `$FC1xxx` / `$F84xxx` and steady-states
+there. A series of diagnostics pin down the situation:
+
+**IRQ delivery is healthy.** The first diagnostic round reported
+"0 autovec IRQs taken" via `exc_counts`, which led to a long
+hypothesis chain about mask-correlation and self-blocking loops.
+That report was wrong: `initiate_interrupt_exception` intentionally
+leaves `exc_vector` unset (so the shared follow-up tag chain can
+distinguish interrupts from group-1/2 exceptions), so the test's
+exc_vector-based counter missed every IRQ. A dedicated counter
+(`Cpu68000::interrupts_taken`) reveals **89,057 IRQs taken in 30
+000 frames** (~3K/sec, expected rate for VBL + CIA + Paula).
+
+**Paula → CPU IPL path is healthy.** IPL pin = 3 for 7.49% of
+ticks (42M out of 566M). INTENA peak `$602C` has SOFT, PORTS,
+VERTB, EXTER, master enable bits set — KS configured the IRQ
+sources as expected.
+
+**The remaining gap is a polling loop, not a CPU issue.** With
+IRQs firing at full rate, the boot reaches only 19 new unique
+PCs between the 4K-frame and 30K-frame runs. Same hot PCs
+(`$F84E98`, `$FC15A8`, `$FC1630`, etc.) dominate both runs.
+PCs cycle among `$F84xxx`, `$FC1xxx`, `$FC51xx` — all in
+timer.device, scsi.device, or similar resident-module code.
+
+The boot is waiting for some chipset/peripheral condition our
+emulation isn't providing. Likely candidates (Stage O):
+
+- **trackdisk.device floppy poll** — KS may be waiting for a
+  specific drive-status transition before completing init or
+  routing to the STRAP "insert disk" screen.
+- **timer.device EClock comparison** — if our EClock rate is
+  wrong, KS's timer waits could be off.
+- **scsi.device IDE/Gayle probe** — the Gayle PCMCIA / IDE
+  surface may be returning unexpected values.
+- **keyboard.device handshake** — input.device init might be
+  waiting for a keyboard handshake completion.
+
+**Stage L / M / M-2..M-5 / N together** took the A1200 boot
+from `$F8044E` (alert blinker, 5,539 PCs) to deep module init
+(29,723 unique PCs at the 30K-frame steady state) — a 5.4× PC
+coverage expansion. Three CPU-completeness gaps closed:
+
+- 68010+ interrupt frame F/V word (Stage L)
+- 68020+ bit-field memory operands (Stage M / M-2..M-5)
+- Test-only IRQ-counter visibility (Stage N)
+
+Tom Harte 68000 / 68010 / 68020 + all Amiga machine tests stay
+green throughout.
+
+### Diagnostic surface left in `ks31_boot.rs`
+
+The test now reports, per run:
+
+- Direct `interrupts_taken` counter (CPU-side, unconditional)
+- Per-vector autovec counts (for exception-style IRQs)
+- Paula INTENA peak + decoded bit names + last 10 INTENA writes
+  that changed the register
+- Paula → CPU IPL pin distribution (per level + max seen)
+- CPU mask register distribution (per level)
+- "Ticks where IPL pin > mask" + "Instruction boundaries with
+  IPL > mask" tallies (note: the latter is tautological — the
+  counter only increments at PromoteIRC times when no IRQ fires,
+  so it always reads 0 if any IRQ ever fires)
+- First 40 mask RAISES (tick / instr_start_pc / old / new)
+
+Plus all the Stage J / K / L / M diagnostics that were already
+in place. Total runtime at 4000 frames: ~23s.
 
 ## What this plan does not cover
 
