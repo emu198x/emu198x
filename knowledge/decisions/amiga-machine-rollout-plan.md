@@ -1232,6 +1232,139 @@ ours; if they idle too, the disk image is the problem.
   `entry:` to disambiguate when multiple, `source:` field in
   response reports `path#entry`)
 
+## A1200 Stage T — wire AGA registers to the chipset bus — 2026-05-25
+
+The Stage A AGA wrapping was structural only. Three register
+routes were missing from the chipset bus:
+
+- **DENISEID** ($DFF07C) read fell to open-bus `$FFFF`, not the
+  Lisa marker `$FFF8`. KS never detected AGA.
+- **FMODE** ($DFF1FC) writes reached Lisa via trait dispatch (so
+  sprite width updated) but never reached Alice, where `fmode`
+  storage lives and where `bpl_fetch_width()` is meant to be
+  read.
+- **BPLCON3** ($DFF106) writes fell into OCS Denise (which has no
+  handler for it) and were silently dropped — the ECS layer's
+  `bplcon3` field was never updated even though it exists.
+
+Stage T closes all three:
+
+- A new `deniseid()` method on `DeniseChip` trait, per-variant
+  impls (OCS `$FFFF`, ECS `$FFFC`, AGA `$FFF8`), and `Denise::deniseid()`
+  on the wrapper. A1200 read dispatch routes `$07C` to it.
+- A1200 write dispatch catches `$1FC` explicitly: stores `fmode`
+  on Alice and forwards to Lisa for sprite-width derivation.
+- `DeniseEcs` gained its own `write_word` that catches `$106`
+  (BPLCON3) before delegating; the `DeniseChip` impl routes
+  through it so AGA writes that fall past Lisa land on ECS.
+
+Verified via MCP: `memory_read $DFF07C 4` returns `FF F8 FF FF`.
+KS now makes visibly more boot progress with the same WB 3.1
+Install ADF: USP advances `$7EA0` → `$BC5C` (extra task churn),
+interrupts taken roughly doubles `5724` → `10231` over the same
+3000-frame window.
+
+## A1200 Stage U — AGA palette + BPLCON3 routing — 2026-05-25
+
+With DENISEID + BPLCON3 wired, the next layer was COLOR writes.
+On AGA, the 32 base COLOR register indices ($DFF180..$1BE) are
+banked through `BPLCON3[15:13]` (8 banks × 32 = 256 entries) and
+the LOCT bit (`BPLCON3[9]`) selects the high or low 4-bit half of
+each 8-bit channel.
+
+Stage U adds:
+
+- `DeniseAga::handle_color_write(offset, val)` that reads the
+  live `BPLCON3` BANK + LOCT and updates `palette_24[BANK*32 +
+  idx]`. High-write (`LOCT=0`) mirrors the 4-bit channel into
+  both nybbles of the 8-bit slot, so a single OS write produces
+  a full-precision colour. Low-write (`LOCT=1`) updates only the
+  low nybble.
+- The OCS 12-bit `palette[]` keeps receiving bank-0 / `LOCT=0`
+  writes, so the existing render path produces pixels unchanged
+  while the 24-bit palette is correctly populated.
+- Unit tests cover the mirror, the LOCT-only update, and the
+  banked-index case.
+
+### What the MCP saw next
+
+Running the same KS 3.1 + WB 3.1 boot to 3000 frames with the
+Stage U wiring landed, then querying:
+
+```
+query_aga →
+  deniseid: $FFF8
+  bplcon3:  $0C00   (BANK=0, LOCT=0; ECS extensions enabled)
+  bplcon4:  $0000
+  palette_24[0..32]: 21 non-zero entries
+    [$000000, $FF0000, $00FF00, $FFFF00, $223388, $222266,
+     $998877, $FFFFFF, $0, $0, ..., $111111, $222222, ...
+     $888888, $EE4444, $0, $EEEECC, $CCCCCC, ..., $FFFFFF]
+  palette_24_nonzero_per_bank: [21, 0, 0, 0, 0, 0, 0, 0]
+query_agnus →
+  fmode: $0000          ← KS didn't enable wider fetches
+  bpl_fetch_width: 1
+  diwstrt: $1D81        ← standard hires Workbench window
+  diwstop: $38C1
+  ddfstrt: $0038
+  ddfstop: $00D8
+  bpl_pt[0]: $00021886
+  bpl_pt[1]: $00026886
+  bpl_pt[2]: $000175B2  ← does NOT look like a bitplane address
+memory_read $21886 48 →
+  "DF FF 70 00 00 00 ..." ← real bitplane pixel data
+memory_read $26886 48 →
+  "FF EE E0 00 00 00 ..." ← real bitplane pixel data
+```
+
+KS recognises AGA, programs a full Workbench palette via BPLCON3
++ COLOR writes (banked through the 24-bit table), sets up a hires
+DIW + DDF window, plants real rendered bitplane data at the live
+`bpl_pt[0..1]` addresses (the "Insert Workbench" splash), and
+configures the copper to write `BPLCON0=$8302` every frame.
+
+The copper list at `$C00` writes BPU=0 every line, so even though
+two bitplanes' worth of real content is sitting in chip RAM and
+DMACON has BPLEN enabled, the chipset is told to draw zero planes.
+KS hasn't built or installed the Workbench-displaying copper list
+yet. `fmode` stayed at `$0000` so the OCS-compatible fetch width
+is still in use.
+
+### What's actually blocking now
+
+The CPU is in Exec's idle STOP loop. Tasks are running (USP +
+dispatcher activity visible) but **no task is constructing the
+Workbench-display copper list / writing `BPLCON0` with `BPU≥1`.**
+Everything up to that final commit step works. This is no longer
+a CPU / chipset / memory / floppy / interrupt question — it's a
+question about which graphics.library or intuition path is being
+short-circuited.
+
+Stage V candidates:
+
+1. **Chipset write trace** — an MCP tool that records every
+   write to a configurable set of register offsets (PC + value +
+   tick). Run the boot, dump the writes, see whether BPLCON0
+   *ever* gets BPU > 0 from anywhere, and identify the last
+   significant write KS does before parking.
+2. **Boot block content probe** — check whether the disk's boot
+   block was loaded into the expected chip-RAM buffer (Exec
+   allocates one) and was JMPed to. If trackdisk DMA + MFM
+   decoded successfully, the boot block code at the loaded
+   address should be valid m68k. If it's garbage, the MFM decode
+   has a bug at the head/sector boundaries cylinder 40 reached.
+3. **Cross-check vs. vAmiga** — run the same KS 3.1 + WB 3.1 ADF
+   in vAmiga, compare its trace of BPLCON0 / DMACON / copper-list
+   writes around the same boot point.
+
+### Tools added in Stage U
+
+- `query_aga` — DENISEID, BPLCON3 (bank + LOCT decoded), BPLCON4,
+  sprite width, full bank-0 palette as 24-bit values, non-zero
+  count per bank
+- `query_agnus` extended with FMODE, `bpl_fetch_width()`,
+  `spr_fetch_width()`, DIWSTRT/STOP, DDFSTRT/STOP
+
 ## What this plan does not cover
 
 - **PMOVE / PFLUSH / PTEST** (68030 + 68040 MMU instructions). Tracked in

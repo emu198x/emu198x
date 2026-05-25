@@ -670,6 +670,14 @@ impl AmigaA1200 {
         &self.denise
     }
 
+    /// Direct access to the underlying AGA Lisa chip — exposes
+    /// BPLCON3 / BPLCON4 / palette_24 / sprite-width state that the
+    /// generic `Denise` wrapper doesn't surface.
+    #[must_use]
+    pub fn denise_aga(&self) -> &commodore_denise_aga::DeniseAga {
+        &self.denise.ocs
+    }
+
     /// Read-only memory access (for tests inspecting OVL state etc.).
     #[must_use]
     pub fn memory(&self) -> &Memory {

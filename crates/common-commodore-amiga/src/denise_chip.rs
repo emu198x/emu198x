@@ -139,9 +139,9 @@ impl DeniseChip for DeniseEcs {
         DeniseEcs::new()
     }
     fn write_word(&mut self, offset: u16, val: u16) {
-        // Use the inner OCS chip's write_word — DeniseEcs delegates
-        // here when no ECS-specific register handling applies.
-        self.as_inner_mut().write_word(offset, val);
+        // Route through the ECS-aware write so $106 (BPLCON3) lands
+        // on the ECS storage; other offsets fall through to OCS.
+        DeniseEcs::write_word(self, offset, val);
     }
     fn load_bitplane(&mut self, idx: usize, val: u16) {
         self.as_inner_mut().load_bitplane(idx, val);

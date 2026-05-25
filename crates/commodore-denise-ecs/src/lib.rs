@@ -71,6 +71,19 @@ impl DeniseEcs {
         0xFFFC
     }
 
+    /// CPU / copper write to a Denise-owned custom register. Catches
+    /// the ECS-only `BPLCON3` ($106) into ECS storage and delegates
+    /// everything else to the wrapped OCS chip.
+    pub fn write_word(&mut self, offset: u16, val: u16) {
+        const BPLCON3: u16 = 0x0106;
+        match offset {
+            BPLCON3 => {
+                self.bplcon3 = val;
+            }
+            _ => self.inner.write_word(offset, val),
+        }
+    }
+
     /// Whether ECS SuperHires mode is requested in BPLCON0.
     #[must_use]
     pub const fn shres_enabled(&self) -> bool {

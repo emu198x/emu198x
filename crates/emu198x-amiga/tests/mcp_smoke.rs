@@ -127,6 +127,7 @@ fn mcp_server_boots_and_lists_tools() {
         "insert_media",
         "eject_media",
         "query_disk",
+        "query_aga",
     ] {
         assert!(
             names.contains(expected),

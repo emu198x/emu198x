@@ -280,6 +280,43 @@ fn tool_query_agnus(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
         "blt_bpt": format!("${:08X}", a.blt_bpt),
         "blt_cpt": format!("${:08X}", a.blt_cpt),
         "blt_dpt": format!("${:08X}", a.blt_dpt),
+        "fmode": format!("${:04X}", a.fmode),
+        "bpl_fetch_width": a.bpl_fetch_width(),
+        "spr_fetch_width": a.spr_fetch_width(),
+        "diwstrt": format!("${:04X}", a.diwstrt),
+        "diwstop": format!("${:04X}", a.diwstop),
+        "ddfstrt": format!("${:04X}", a.ddfstrt),
+        "ddfstop": format!("${:04X}", a.ddfstop),
+    }))
+}
+
+fn tool_query_aga(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let aga = s.machine.denise_aga();
+    let bplcon3 = aga.bplcon3;
+    let bank = (bplcon3 >> 13) & 7;
+    let loct = (bplcon3 & 0x0200) != 0;
+    // Count non-zero entries per bank — surfaces whether KS has
+    // populated any AGA-specific palette banks beyond bank 0.
+    let mut bank_nonzero: [u32; 8] = [0; 8];
+    for (i, &c) in aga.palette_24.iter().enumerate() {
+        if c != 0 {
+            bank_nonzero[i / 32] += 1;
+        }
+    }
+    let bank0: Vec<String> = aga.palette_24[0..32]
+        .iter()
+        .map(|c| format!("${:06X}", c))
+        .collect();
+    Ok(json!({
+        "deniseid": format!("${:04X}", aga.deniseid()),
+        "bplcon3": format!("${:04X}", bplcon3),
+        "bplcon3_bank": bank,
+        "bplcon3_loct": loct,
+        "bplcon4": format!("${:04X}", aga.bplcon4),
+        "spr_width": aga.spr_width,
+        "ham_prev_rgb24": format!("${:06X}", aga.ham_prev_rgb24),
+        "palette_24_nonzero_per_bank": bank_nonzero,
+        "palette_24_bank0": bank0,
     }))
 }
 
@@ -829,6 +866,7 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
     add(registry, "query_cia",   "CIA-A + CIA-B timer / ICR / port / TOD snapshot.", empty(), tool_query_cia);
     add(registry, "query_agnus", "Agnus snapshot (vpos / hpos / bitplane pointers / blitter pointers).", empty(), tool_query_agnus);
     add(registry, "query_blitter","Blitter snapshot (busy, exec_pending, ccks_remaining, APT/BPT/CPT/DPT).", empty(), tool_query_blitter);
+    add(registry, "query_aga",    "AGA Lisa state (DENISEID, BPLCON3 bank+LOCT, BPLCON4, palette_24 bank 0 + non-zero counts per bank).", empty(), tool_query_aga);
     add(registry, "query_copper_list", "Decode the copper list at `addr` (or COP1LC) into MOVE/WAIT/SKIP entries.", copper_list_schema, tool_query_copper_list);
     add(registry, "query_stack", "Read `count` longwords off SSP (or USP via `usp:true`).", stack_schema, tool_query_stack);
     add(registry, "memory_read", "Read raw bytes from any address (chip RAM / ROM / chipset).", memory_schema, tool_memory_read);
