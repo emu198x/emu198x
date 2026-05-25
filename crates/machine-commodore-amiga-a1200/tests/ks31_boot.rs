@@ -156,6 +156,14 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     let mut max_ipl_pin: u8 = 0;
     let mut ipl_pin_counts: [u64; 8] = [0; 8];
     let mut mask_counts: [u64; 8] = [0; 8];
+    // Track mask raises: every time the mask goes up (e.g. 0→3 or
+    // 0→7), capture (tick, PC, old_mask, new_mask). The first few
+    // entries should pin down which instruction sequence is blocking
+    // VBL acceptance. Capture only RAISES — drops back down are
+    // expected (RTE / explicit clear) and not informative for the
+    // IRQ-gap question.
+    let mut mask_raises: Vec<(u64, u32, u8, u8)> = Vec::new();
+    let mut prev_mask: u8 = m.cpu().regs.interrupt_mask();
     // Count ticks where the CPU SHOULD have been able to accept the
     // IRQ Paula is asking for: pin level > mask level. Coupled with
     // the autovec counts above, this tells us whether the gating
@@ -624,6 +632,15 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             if (pin as u8) > mask {
                 ipl_acceptable_ticks += 1;
             }
+            if mask > prev_mask && mask_raises.len() < 40 {
+                mask_raises.push((
+                    tick_counter,
+                    m.cpu().instr_start_pc,
+                    prev_mask,
+                    mask,
+                ));
+            }
+            prev_mask = mask;
             // Instruction-boundary check: the tick where a new
             // instruction begins is the exact moment PromoteIRC
             // sampled. If pin > mask at that moment, IRQ would
@@ -710,6 +727,15 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             0.0
         };
         eprintln!("  IPL pin = {level}: {count:>10} ticks ({pct:.2}%)");
+    }
+    eprintln!("CPU mask RAISES (first 40, tick / instr_start_pc / old / new):");
+    if mask_raises.is_empty() {
+        eprintln!("  (mask never increased)");
+    }
+    for (tick, pc, old, new) in &mask_raises {
+        eprintln!(
+            "  tick={tick:>10} instr=${pc:08X}  mask: {old} -> {new}"
+        );
     }
     eprintln!("CPU interrupt-mask distribution (mask register, SR bits 10-8):");
     for (level, count) in mask_counts.iter().enumerate() {
