@@ -717,6 +717,7 @@ dependencies = [
  "machine-commodore-amiga-a1200",
  "mos-cia-8520",
  "motorola-68000",
+ "png",
  "runtime-commodore-amiga",
  "serde_json",
  "thiserror 2.0.18",

@@ -290,6 +290,84 @@ fn tool_query_agnus(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
     }))
 }
 
+fn tool_dump_framebuffer(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    use machine_commodore_amiga_a1200::{FB_HEIGHT, FB_WIDTH};
+    let fb = s.machine.denise().framebuffer();
+    let total_pixels = (FB_WIDTH * FB_HEIGHT) as usize;
+
+    // Histogram top colours so the caller can see "what's on screen" without
+    // saving anything to disk — useful when running headlessly.
+    let mut hist: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    for &p in fb {
+        *hist.entry(p).or_insert(0) += 1;
+    }
+    let mut by_count: Vec<(u32, u32)> = hist.into_iter().collect();
+    by_count.sort_by(|a, b| b.1.cmp(&a.1));
+    let top: Vec<Value> = by_count
+        .iter()
+        .take(8)
+        .map(|(argb, count)| {
+            json!({
+                "argb": format!("${:08X}", argb),
+                "pixels": count,
+                "pct": (*count as f64 / total_pixels as f64 * 100.0).round() / 1.0,
+            })
+        })
+        .collect();
+    let unique = by_count.len();
+
+    // A coarse hash so the caller can tell two snapshots apart.
+    let mut hash: u64 = 0xcbf29ce484222325; // FNV-1a 64
+    for &p in fb {
+        hash ^= u64::from(p);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+
+    // Optional PNG write — give the user a real image when they pass
+    // `path`. Skipped when omitted so headless callers stay headless.
+    let png_path = args.get("path").and_then(Value::as_str);
+    let mut png_written: Option<String> = None;
+    if let Some(p) = png_path {
+        let path_buf = std::path::PathBuf::from(p);
+        if let Some(parent) = path_buf.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|err| ToolError::Execution(format!("mkdir: {err}")))?;
+            }
+        }
+        let file = std::fs::File::create(&path_buf)
+            .map_err(|err| ToolError::Execution(format!("create png: {err}")))?;
+        let mut encoder = png::Encoder::new(file, FB_WIDTH, FB_HEIGHT);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|err| ToolError::Execution(format!("png header: {err}")))?;
+        // ARGB → RGBA bytes.
+        let mut bytes: Vec<u8> = Vec::with_capacity(total_pixels * 4);
+        for &p in fb {
+            let r = ((p >> 16) & 0xFF) as u8;
+            let g = ((p >> 8) & 0xFF) as u8;
+            let b = (p & 0xFF) as u8;
+            let a = ((p >> 24) & 0xFF) as u8;
+            bytes.extend_from_slice(&[r, g, b, a]);
+        }
+        writer
+            .write_image_data(&bytes)
+            .map_err(|err| ToolError::Execution(format!("png write: {err}")))?;
+        png_written = Some(path_buf.display().to_string());
+    }
+
+    Ok(json!({
+        "width": FB_WIDTH,
+        "height": FB_HEIGHT,
+        "unique_colors": unique,
+        "top_colors": top,
+        "hash_fnv1a64": format!("${:016X}", hash),
+        "png_written": png_written,
+    }))
+}
+
 fn tool_bplcon0_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
     let log = &s.machine.debug_bplcon0_log;
     let unique_only = args
@@ -939,6 +1017,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
         }
     });
     add(registry, "bplcon0_log", "Every BPLCON0 write captured during the run (CPU + copper). Includes BPU histogram so 'does KS ever try BPU>0?' is one query.", bplcon0_log_schema, tool_bplcon0_log);
+    let dump_fb_schema = json!({
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Optional filesystem path for a PNG snapshot. Omit to skip the write."}
+        }
+    });
+    add(registry, "dump_framebuffer", "Snapshot the Denise ARGB framebuffer: top colours, FNV-1a hash, optional PNG write.", dump_fb_schema, tool_dump_framebuffer);
     add(registry, "query_copper_list", "Decode the copper list at `addr` (or COP1LC) into MOVE/WAIT/SKIP entries.", copper_list_schema, tool_query_copper_list);
     add(registry, "query_stack", "Read `count` longwords off SSP (or USP via `usp:true`).", stack_schema, tool_query_stack);
     add(registry, "memory_read", "Read raw bytes from any address (chip RAM / ROM / chipset).", memory_schema, tool_memory_read);
