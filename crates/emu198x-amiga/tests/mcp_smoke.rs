@@ -128,6 +128,7 @@ fn mcp_server_boots_and_lists_tools() {
         "eject_media",
         "query_disk",
         "query_aga",
+        "bplcon0_log",
     ] {
         assert!(
             names.contains(expected),

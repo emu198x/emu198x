@@ -311,6 +311,10 @@ pub struct AmigaA1200 {
     /// every write to $DFF096; lets us see who enables / disables
     /// BPLEN / SPREN / etc. during boot.
     pub debug_dmacon_log: Vec<(u64, u32, u16, u16, u16)>,
+    /// Diagnostic: log of BPLCON0 writes. Entry is `(cck, pc,
+    /// val)`. Every write to $DFF100 — by the CPU or the copper —
+    /// is captured so we can see whether KS ever sets BPU > 0.
+    pub debug_bplcon0_log: Vec<(u64, u32, u16)>,
     /// Diagnostic: count of BLTSIZE writes (every one starts a
     /// blit). Independent of whether the blit actually touched
     /// chip RAM — just counts the "CPU kicked a blit" events.
@@ -615,6 +619,7 @@ impl AmigaA1200 {
             debug_cop2lc_log: Vec::new(),
             debug_dsk_log: Vec::new(),
             debug_dmacon_log: Vec::new(),
+            debug_bplcon0_log: Vec::new(),
             debug_blit_starts: 0,
             debug_blit_log: Vec::new(),
             debug_cia_a_cr_log: Vec::new(),
@@ -1223,6 +1228,13 @@ impl AmigaA1200 {
                 // Mirror into Denise so HIRES/HAM/DBLPF/LACE bits take
                 // effect at the next pixel, not only next tick.
                 self.denise.ocs.bplcon0 = val;
+                if self.debug_bplcon0_log.len() < 8192 {
+                    self.debug_bplcon0_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        val,
+                    ));
+                }
             }
             0x108 => self.agnus.write_bpl1mod(val),
             0x10A => self.agnus.write_bpl2mod(val),
@@ -2018,6 +2030,7 @@ impl AmigaA1200 {
         self.debug_cop2lc_log.clear();
         self.debug_dsk_log.clear();
         self.debug_dmacon_log.clear();
+        self.debug_bplcon0_log.clear();
         self.debug_blit_starts = 0;
         self.debug_blit_log.clear();
         self.debug_cia_a_cr_log.clear();

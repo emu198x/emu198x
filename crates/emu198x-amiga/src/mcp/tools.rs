@@ -290,6 +290,69 @@ fn tool_query_agnus(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
     }))
 }
 
+fn tool_bplcon0_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let log = &s.machine.debug_bplcon0_log;
+    let unique_only = args
+        .get("unique")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
+
+    let mut entries: Vec<&(u64, u32, u16)> = log.iter().collect();
+    if unique_only {
+        // De-dupe by value: keep first occurrence of each distinct
+        // BPLCON0 value. Surfaces "which different settings did KS
+        // actually try?" without drowning in copper-per-line writes.
+        let mut seen = std::collections::HashSet::new();
+        entries.retain(|(_, _, v)| seen.insert(*v));
+    }
+    let total = entries.len();
+    let shown: Vec<Value> = entries
+        .iter()
+        .rev()
+        .take(limit)
+        .rev()
+        .map(|(cck, pc, val)| {
+            let bpu = (val >> 12) & 0x07;
+            let bpu4 = (val >> 4) & 0x01;
+            json!({
+                "cck": cck,
+                "pc": format!("${:08X}", pc),
+                "val": format!("${:04X}", val),
+                "bpu": bpu,
+                "bpu_bit4": bpu4 != 0,
+                "hires": (val & 0x8000) != 0,
+                "ham":   (val & 0x0800) != 0,
+                "dblpf": (val & 0x0400) != 0,
+                "color": (val & 0x0200) != 0,
+                "lace":  (val & 0x0004) != 0,
+            })
+        })
+        .collect();
+
+    // Always summarize the BPU values seen so the caller sees the
+    // answer to "does BPU>0 ever happen?" without paging through
+    // entries.
+    let mut bpu_counts: [u64; 16] = [0; 16];
+    for &(_, _, v) in &s.machine.debug_bplcon0_log {
+        let bpu = ((v >> 12) & 0x07) as usize;
+        let bpu4 = ((v >> 4) & 0x01) as usize;
+        let total_bpu = bpu | (bpu4 << 3);
+        if total_bpu < 16 {
+            bpu_counts[total_bpu] += 1;
+        }
+    }
+
+    Ok(json!({
+        "total_writes": s.machine.debug_bplcon0_log.len(),
+        "returned": shown.len(),
+        "filtered_total": total,
+        "unique": unique_only,
+        "bpu_histogram": bpu_counts,
+        "entries": shown,
+    }))
+}
+
 fn tool_query_aga(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
     let aga = s.machine.denise_aga();
     let bplcon3 = aga.bplcon3;
@@ -867,6 +930,15 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
     add(registry, "query_agnus", "Agnus snapshot (vpos / hpos / bitplane pointers / blitter pointers).", empty(), tool_query_agnus);
     add(registry, "query_blitter","Blitter snapshot (busy, exec_pending, ccks_remaining, APT/BPT/CPT/DPT).", empty(), tool_query_blitter);
     add(registry, "query_aga",    "AGA Lisa state (DENISEID, BPLCON3 bank+LOCT, BPLCON4, palette_24 bank 0 + non-zero counts per bank).", empty(), tool_query_aga);
+    let bplcon0_log_schema = json!({
+        "type": "object",
+        "properties": {
+            "unique": {"type": "boolean", "default": false,
+                       "description": "Return only the first occurrence of each distinct BPLCON0 value."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 1024, "default": 64}
+        }
+    });
+    add(registry, "bplcon0_log", "Every BPLCON0 write captured during the run (CPU + copper). Includes BPU histogram so 'does KS ever try BPU>0?' is one query.", bplcon0_log_schema, tool_bplcon0_log);
     add(registry, "query_copper_list", "Decode the copper list at `addr` (or COP1LC) into MOVE/WAIT/SKIP entries.", copper_list_schema, tool_query_copper_list);
     add(registry, "query_stack", "Read `count` longwords off SSP (or USP via `usp:true`).", stack_schema, tool_query_stack);
     add(registry, "memory_read", "Read raw bytes from any address (chip RAM / ROM / chipset).", memory_schema, tool_memory_read);
