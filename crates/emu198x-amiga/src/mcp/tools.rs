@@ -534,7 +534,7 @@ fn tool_bplcon0_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
     }))
 }
 
-fn tool_query_aga(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+fn tool_query_aga(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
     let aga = s.machine.denise_aga();
     let bplcon3 = aga.bplcon3;
     let bank = (bplcon3 >> 13) & 7;
@@ -551,6 +551,21 @@ fn tool_query_aga(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, Tool
         .iter()
         .map(|c| format!("${:06X}", c))
         .collect();
+    // OCS 12-bit palette — what the existing render path actually
+    // consults. If this disagrees with palette_24 bank 0 we have a
+    // routing bug; if they agree the mismatch is upstream of us.
+    let ocs_palette: Vec<String> = (0..32)
+        .map(|i| format!("${:03X}", s.machine.color(i)))
+        .collect();
+    let mut full_palette: Option<Vec<String>> = None;
+    if args.get("all_banks").and_then(Value::as_bool).unwrap_or(false) {
+        full_palette = Some(
+            aga.palette_24
+                .iter()
+                .map(|c| format!("${:06X}", c))
+                .collect(),
+        );
+    }
     Ok(json!({
         "deniseid": format!("${:04X}", aga.deniseid()),
         "bplcon3": format!("${:04X}", bplcon3),
@@ -561,6 +576,122 @@ fn tool_query_aga(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, Tool
         "ham_prev_rgb24": format!("${:06X}", aga.ham_prev_rgb24),
         "palette_24_nonzero_per_bank": bank_nonzero,
         "palette_24_bank0": bank0,
+        "ocs_palette_12bit": ocs_palette,
+        "palette_24_full": full_palette,
+    }))
+}
+
+fn tool_restart(args: Value, _s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    // Tear down a live recording cleanly so the temp file doesn't
+    // leak — `VideoRecorder::Drop` would handle this too, but doing
+    // it inline makes the surface explicit. (Session is dropped on
+    // exit anyway.)
+    let exit_code = args.get("exit_code").and_then(Value::as_i64).unwrap_or(0) as i32;
+    let response = json!({
+        "restart": true,
+        "exit_code": exit_code,
+        "note": "Process exits AFTER this response is flushed. Hosts that auto-respawn (Claude Desktop, most IDE MCP plugins) will reconnect to the fresh binary on the next request.",
+    });
+    // Spawn a watchdog: serde flushes the response, then we
+    // synchronously exit. The 50ms grace is excessive but cheap and
+    // guarantees the line is on the wire on slow terminals.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::process::exit(exit_code);
+    });
+    Ok(response)
+}
+
+fn tool_palette_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let log = &s.machine.debug_palette_log;
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
+    let only_color = args
+        .get("only_color")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let only_bplcon3 = args
+        .get("only_bplcon3")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let unique = args
+        .get("unique")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let idx_range: Option<(u16, u16)> = args
+        .get("color_idx_range")
+        .and_then(Value::as_array)
+        .and_then(|a| {
+            let lo = a.get(0)?.as_u64()? as u16;
+            let hi = a.get(1)?.as_u64()? as u16;
+            Some((lo, hi))
+        });
+    let mut filtered: Vec<&(u64, u32, u16, u16, u16)> = log
+        .iter()
+        .filter(|(_, _, off, _, _)| {
+            let is_color = *off >= 0x180 && *off <= 0x1BE;
+            let is_bplcon3 = *off == 0x0106;
+            if only_color && !is_color {
+                return false;
+            }
+            if only_bplcon3 && !is_bplcon3 {
+                return false;
+            }
+            if let Some((lo, hi)) = idx_range {
+                if !is_color {
+                    return false;
+                }
+                let idx = (*off - 0x180) / 2;
+                if idx < lo || idx > hi {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+    if unique {
+        let mut seen = std::collections::HashSet::new();
+        filtered.retain(|(_, _, off, val, b3)| {
+            let bank = (*b3 >> 13) & 7;
+            let loct = (*b3 & 0x0200) != 0;
+            // De-dupe by (offset, val, bank, loct). Drops repeated
+            // identical copper-list re-writes.
+            seen.insert((*off, *val, bank, loct))
+        });
+    }
+    let total = filtered.len();
+    let entries: Vec<Value> = filtered
+        .iter()
+        .rev()
+        .take(limit)
+        .rev()
+        .map(|(cck, pc, off, val, b3)| {
+            let bank = (*b3 >> 13) & 7;
+            let loct = (*b3 & 0x0200) != 0;
+            let kind = if *off == 0x0106 { "BPLCON3" } else { "COLOR" };
+            let idx = if *off >= 0x180 && *off <= 0x1BE {
+                Some(((*off - 0x180) / 2) as usize)
+            } else {
+                None
+            };
+            json!({
+                "cck": cck,
+                "pc": format!("${:08X}", pc),
+                "kind": kind,
+                "offset": format!("${:04X}", off),
+                "val": format!("${:04X}", val),
+                "color_idx": idx,
+                "bplcon3_at_write": format!("${:04X}", b3),
+                "bank": bank,
+                "loct": loct,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "total_logged": log.len(),
+        "filtered_total": total,
+        "returned": entries.len(),
+        "entries": entries,
     }))
 }
 
@@ -1110,7 +1241,37 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
     add(registry, "query_cia",   "CIA-A + CIA-B timer / ICR / port / TOD snapshot.", empty(), tool_query_cia);
     add(registry, "query_agnus", "Agnus snapshot (vpos / hpos / bitplane pointers / blitter pointers).", empty(), tool_query_agnus);
     add(registry, "query_blitter","Blitter snapshot (busy, exec_pending, ccks_remaining, APT/BPT/CPT/DPT).", empty(), tool_query_blitter);
-    add(registry, "query_aga",    "AGA Lisa state (DENISEID, BPLCON3 bank+LOCT, BPLCON4, palette_24 bank 0 + non-zero counts per bank).", empty(), tool_query_aga);
+    let query_aga_schema = json!({
+        "type": "object",
+        "properties": {
+            "all_banks": {"type": "boolean", "default": false,
+                          "description": "Include the full 256-entry palette_24 dump in the response."}
+        }
+    });
+    add(registry, "query_aga",    "AGA Lisa state. DENISEID, BPLCON3 bank+LOCT, BPLCON4, palette_24 bank 0 + non-zero counts per bank, OCS 12-bit palette side-by-side. Pass `all_banks:true` for the full 256-entry dump.", query_aga_schema, tool_query_aga);
+    let palette_log_schema = json!({
+        "type": "object",
+        "properties": {
+            "limit":         {"type": "integer", "minimum": 1, "maximum": 4096, "default": 64},
+            "only_color":    {"type": "boolean", "default": false},
+            "only_bplcon3":  {"type": "boolean", "default": false},
+            "unique":        {"type": "boolean", "default": false,
+                              "description": "De-dupe by (offset, val, bank, LOCT). Drops repeated copper-list rewrites."},
+            "color_idx_range": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2,
+                                "description": "Filter to COLOR writes whose index is in [lo, hi] inclusive."}
+        }
+    });
+    add(registry, "palette_log", "Every COLOR / BPLCON3 write captured during the run, with BPLCON3 BANK + LOCT decoded for each write. Use to reconstruct the AGA palette-programming sequence KS uses.", palette_log_schema, tool_palette_log);
+    let restart_schema = json!({
+        "type": "object",
+        "properties": {
+            "exit_code": {"type": "integer", "default": 0,
+                          "description": "Process exit code. Non-zero useful for hosts that only respawn on crash."}
+        }
+    });
+    add(registry, "restart",
+        "Exit the MCP server process so the host re-spawns the freshly built binary on the next call. Response is flushed before exit.",
+        restart_schema, tool_restart);
     let bplcon0_log_schema = json!({
         "type": "object",
         "properties": {

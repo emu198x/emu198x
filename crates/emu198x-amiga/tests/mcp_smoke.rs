@@ -132,6 +132,8 @@ fn mcp_server_boots_and_lists_tools() {
         "dump_framebuffer",
         "start_video_recording",
         "stop_video_recording",
+        "palette_log",
+        "restart",
     ] {
         assert!(
             names.contains(expected),

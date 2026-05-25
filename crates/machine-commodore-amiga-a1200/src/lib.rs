@@ -315,6 +315,13 @@ pub struct AmigaA1200 {
     /// val)`. Every write to $DFF100 — by the CPU or the copper —
     /// is captured so we can see whether KS ever sets BPU > 0.
     pub debug_bplcon0_log: Vec<(u64, u32, u16)>,
+    /// Diagnostic: log of palette-touching writes. Each entry is
+    /// `(cck, pc, offset, val, bplcon3_at_write)`. Captures every
+    /// write to COLOR00..COLOR31 ($180..$1BE) together with the
+    /// BPLCON3 BANK + LOCT state at the time, plus every BPLCON3
+    /// write itself ($106). Lets us reconstruct the full AGA
+    /// palette-programming sequence KS uses to set up Workbench.
+    pub debug_palette_log: Vec<(u64, u32, u16, u16, u16)>,
     /// Diagnostic: count of BLTSIZE writes (every one starts a
     /// blit). Independent of whether the blit actually touched
     /// chip RAM — just counts the "CPU kicked a blit" events.
@@ -620,6 +627,7 @@ impl AmigaA1200 {
             debug_dsk_log: Vec::new(),
             debug_dmacon_log: Vec::new(),
             debug_bplcon0_log: Vec::new(),
+            debug_palette_log: Vec::new(),
             debug_blit_starts: 0,
             debug_blit_log: Vec::new(),
             debug_cia_a_cr_log: Vec::new(),
@@ -1267,6 +1275,21 @@ impl AmigaA1200 {
                 offset,
                 val,
             ));
+        }
+        // Capture COLOR ($180..$1BE) and BPLCON3 ($106) writes
+        // together with the live BPLCON3 (so we can reconstruct the
+        // BANK + LOCT context for each COLOR write later).
+        if (offset >= 0x180 && offset <= 0x1BE && (offset & 1) == 0) || offset == 0x0106 {
+            if self.debug_palette_log.len() < 262144 {
+                let bplcon3 = self.denise.ocs.bplcon3;
+                self.debug_palette_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    offset,
+                    val,
+                    bplcon3,
+                ));
+            }
         }
         if offset == 0x09A {
             self.debug_intena_writes += 1;
@@ -2031,6 +2054,7 @@ impl AmigaA1200 {
         self.debug_dsk_log.clear();
         self.debug_dmacon_log.clear();
         self.debug_bplcon0_log.clear();
+        self.debug_palette_log.clear();
         self.debug_blit_starts = 0;
         self.debug_blit_log.clear();
         self.debug_cia_a_cr_log.clear();
