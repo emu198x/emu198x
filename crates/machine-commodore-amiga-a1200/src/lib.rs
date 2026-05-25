@@ -1276,10 +1276,17 @@ impl AmigaA1200 {
                 val,
             ));
         }
-        // Capture COLOR ($180..$1BE) and BPLCON3 ($106) writes
-        // together with the live BPLCON3 (so we can reconstruct the
-        // BANK + LOCT context for each COLOR write later).
-        if (offset >= 0x180 && offset <= 0x1BE && (offset & 1) == 0) || offset == 0x0106 {
+        // Capture COLOR ($180..$1BE), BPLCON3 ($106) and BPLCON4
+        // ($10C) writes together with the live BPLCON3 (so we can
+        // reconstruct BANK + LOCT context). BPLCON4 carries BPLAM
+        // (bits 15..8) — the AGA bitplane colour-base XOR that
+        // remaps displayed indices into other palette banks; without
+        // catching it we can't tell whether the OS is trying to
+        // point a 4-colour display at the grey ramp at slots 16-23.
+        if (offset >= 0x180 && offset <= 0x1BE && (offset & 1) == 0)
+            || offset == 0x0106
+            || offset == 0x010C
+        {
             if self.debug_palette_log.len() < 262144 {
                 let bplcon3 = self.denise.ocs.bplcon3;
                 self.debug_palette_log.push((

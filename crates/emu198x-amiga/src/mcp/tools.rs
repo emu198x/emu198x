@@ -582,6 +582,87 @@ fn tool_query_aga(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolE
     }))
 }
 
+fn tool_poke_word(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let addr = arg_u32(&args, "addr")?;
+    let val = arg_u32(&args, "val")?;
+    let val_u16 = u16::try_from(val & 0xFFFF).unwrap_or(0);
+    s.machine.poke_word(addr, val_u16);
+    Ok(json!({
+        "poked": true,
+        "addr": format!("${:08X}", addr),
+        "val":  format!("${:04X}", val_u16),
+    }))
+}
+
+fn tool_watch_memory(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let lo = arg_u32(&args, "addr")?;
+    let len = arg_u32(&args, "len")?;
+    if len == 0 {
+        return Err(ToolError::InvalidArguments("`len` must be ≥ 1".into()));
+    }
+    s.machine.debug_watch_addr = Some((lo, len));
+    s.machine.debug_watch_writes.clear();
+    Ok(json!({
+        "watching": {
+            "lo":  format!("${:08X}", lo),
+            "len": len,
+            "hi_exclusive": format!("${:08X}", lo.wrapping_add(len)),
+        },
+        "log_cleared": true,
+    }))
+}
+
+fn tool_watch_memory_clear(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let prior = s.machine.debug_watch_addr;
+    s.machine.debug_watch_addr = None;
+    let count = s.machine.debug_watch_writes.len();
+    Ok(json!({
+        "had_watch": prior.is_some(),
+        "writes_captured_before_clear": count,
+    }))
+}
+
+fn tool_watch_memory_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let log = &s.machine.debug_watch_writes;
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
+    let unique = args
+        .get("unique")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let mut entries: Vec<&(u64, u32, u32, u16, bool)> = log.iter().collect();
+    if unique {
+        let mut seen = std::collections::HashSet::new();
+        entries.retain(|(_, pc, addr, val, _)| seen.insert((*pc, *addr, *val)));
+    }
+    let total = entries.len();
+    let returned: Vec<Value> = entries
+        .iter()
+        .rev()
+        .take(limit)
+        .rev()
+        .map(|(cck, pc, addr, val, is_word)| {
+            json!({
+                "cck": cck,
+                "pc":   format!("${:08X}", pc),
+                "addr": format!("${:08X}", addr),
+                "val":  format!("${:04X}", val),
+                "size": if *is_word { "word" } else { "byte" },
+            })
+        })
+        .collect();
+    Ok(json!({
+        "total_writes": log.len(),
+        "filtered_total": total,
+        "returned": returned.len(),
+        "watch_range": s.machine.debug_watch_addr.map(|(lo, len)| json!({
+            "lo": format!("${:08X}", lo),
+            "len": len,
+        })),
+        "entries": returned,
+    }))
+}
+
 fn tool_restart(args: Value, _s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
     // Tear down a live recording cleanly so the temp file doesn't
     // leak — `VideoRecorder::Drop` would handle this too, but doing
@@ -669,7 +750,11 @@ fn tool_palette_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
         .map(|(cck, pc, off, val, b3)| {
             let bank = (*b3 >> 13) & 7;
             let loct = (*b3 & 0x0200) != 0;
-            let kind = if *off == 0x0106 { "BPLCON3" } else { "COLOR" };
+            let kind = match *off {
+                0x0106 => "BPLCON3",
+                0x010C => "BPLCON4",
+                _ => "COLOR",
+            };
             let idx = if *off >= 0x180 && *off <= 0x1BE {
                 Some(((*off - 0x180) / 2) as usize)
             } else {
@@ -1273,6 +1358,42 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
     add(registry, "restart",
         "Exit the MCP server process so the host re-spawns the freshly built binary on the next call. Response is flushed before exit.",
         restart_schema, tool_restart);
+    let watch_set_schema = json!({
+        "type": "object",
+        "required": ["addr", "len"],
+        "properties": {
+            "addr": {"description": "Watch range low address (inclusive). Hex/decimal accepted."},
+            "len":  {"description": "Watch range length in bytes. Hex/decimal accepted."}
+        }
+    });
+    let watch_log_schema = json!({
+        "type": "object",
+        "properties": {
+            "limit":  {"type": "integer", "minimum": 1, "maximum": 8192, "default": 64},
+            "unique": {"type": "boolean", "default": false,
+                       "description": "De-dupe by (PC, addr, value). Drops repeated identical writes."}
+        }
+    });
+    let poke_word_schema = json!({
+        "type": "object",
+        "required": ["addr", "val"],
+        "properties": {
+            "addr": {"description": "Address to write (any bus-routed address — chip RAM, custom register, etc.). Hex/decimal accepted."},
+            "val":  {"description": "16-bit value to write. Hex/decimal accepted."}
+        }
+    });
+    add(registry, "poke_word",
+        "Backdoor word write via the machine's `poke_word` path. Useful for testing: e.g. force-write to a chipset COLOR register and see if the display reflects it.",
+        poke_word_schema, tool_poke_word);
+    add(registry, "watch_memory",
+        "Set a write-watchpoint on a chip-RAM byte range. Captures every CPU bus write that lands in the range as (cck, pc, addr, val, size). Clears any prior log.",
+        watch_set_schema, tool_watch_memory);
+    add(registry, "watch_memory_clear",
+        "Clear the active write-watchpoint (stops further capture). Returns how many writes were captured.",
+        empty(), tool_watch_memory_clear);
+    add(registry, "watch_memory_log",
+        "Dump the writes captured by the watchpoint. `unique:true` de-dupes by (PC, addr, value).",
+        watch_log_schema, tool_watch_memory_log);
     let bplcon0_log_schema = json!({
         "type": "object",
         "properties": {
