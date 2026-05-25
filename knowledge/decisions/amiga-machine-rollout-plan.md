@@ -986,6 +986,87 @@ The test now reports, per run:
 Plus all the Stage J / K / L / M diagnostics that were already
 in place. Total runtime at 4000 frames: ~23s.
 
+## A1200 Stage Q — MCP debugging surface — 2026-05-25
+
+Built an `--mcp` JSON-RPC stdio mode for `emu198x-amiga` so the
+KS-internals investigation can be driven interactively without
+recompiling. Eighteen tools:
+
+- **Control:** `run_frames`, `run_ticks`, `run_until_pc`,
+  `run_until_any_pc`, `run_until_mem_change`, `step`, `reset`.
+- **CPU + chip queries:** `query_cpu` (regs + IRQ state +
+  `interrupts_taken` + `instruction_starts`), `query_chipset`
+  (BPLCON0 / DMACON / ADKCON / COLOR00 / COP1LC / copper PC /
+  overlay), `query_paula` (INTENA / INTREQ with bit-name decode),
+  `query_cia` (both CIAs, ICR / ports / TOD / halted),
+  `query_agnus` (vpos / hpos / bpl_pt / blitter pointers),
+  `query_blitter`, `query_copper_list` (MOVE / WAIT / SKIP decoded
+  from a copper list at any address).
+- **Memory:** `memory_read`, `memory_read_long`, `query_stack`
+  (longs off SSP/USP), `disasm` (m68k disassembly).
+
+ROM lookup mirrors `ks31_boot.rs` (`$EMU198X_KS31_A1200_ROM` env
+var → `~/.emu198x/roms/commodore-amiga/kick31a1200.rom`). Integration
+test (`tests/mcp_smoke.rs`) drives the same `Server::handle` path
+the binary uses, asserting the tool registry and one end-to-end
+boot. Skips loudly if the ROM isn't available.
+
+### Stage Q findings that change the picture
+
+Driving the MCP for a few hundred KS 3.1 frames produced a result
+worth booking up-front: **the system is no longer wedged after
+Stages L / M / N.** PC advances across wide ROM regions and
+drops to user mode (supervisor = false). At successive snapshots:
+
+| Frame ~ | PC          | Mode  | A6      | Notes                              |
+|---------|-------------|-------|---------|------------------------------------|
+|     600 | `$F847E8`   | super | `$14B0` | Mid-instruction, `instr_start_pc`=`$F847E2`, in_followup=true |
+|     800 | `$F808FE`   | user  | `$14B0` | Different ROM region; SSP at top of chip ($80000) |
+|    1000 | `$FC1102`   | user  | `$6AE4` | Yet another module, different A6 (different library base) |
+
+`interrupts_taken` advances ~600 per 200 frames (vblank + a CIA
+timer source), `ipl_pin` reads as 3 at most snapshots — IRQs are
+firing and being accepted as expected.
+
+### What we now think is happening
+
+The OS is past STRAP and into the "Insert Workbench" idle state.
+Three bitplane pointers are programmed in Agnus (`bpl_pt =
+[$12666, $14E0C, $175B2, 0, 0, 0, 0, 0]`) but **BPLCON0 reads
+`$0302` — BPU=0**. The copper list at `$C00` writes `$8302`
+(HIRES + BPU=0) every frame. So the screen is "valid but empty":
+DMA is enabled, copper is iterating, blitter is idle, but no
+bitplanes are being displayed because `BPLCON0[14:12] = 0`.
+
+Two readings of this are still on the table:
+
+1. **The OS hasn't enabled bitplanes yet** because some other
+   guard condition (intuition.library init, disk-prompt animation
+   trigger, etc.) hasn't been satisfied.
+2. **Bitplane enable is being deferred** because there's no disk
+   in the drive — and the "Insert Workbench" splash itself does
+   end up showing bitplanes once `trackdisk.device` reports a
+   drive ready with no medium.
+
+The next investigation step (Stage R) should attach an ADF to the
+drive via the MCP (need to expose `insert_adf` and `eject_disk` as
+tools), or alternatively force the drive to report DRIVE_READY +
+NO_DISK without a backing file, and see whether BPU goes non-zero.
+
+Closed during Stage Q:
+
+- The "interrupt mask stays at 7 forever" suspicion: with the new
+  `query_cpu` data, `interrupt_mask = 0` is observed at every
+  user-mode snapshot. IRQs are accepted whenever the CPU reaches
+  an instruction boundary.
+- The "STRAP wedge" framing: the system isn't wedged at all. The
+  loops Stage N pinned in `$F84xxx` / `$FC1xxx` are Exec
+  dispatching tasks, not the CPU spinning on a flag.
+
+The MCP itself is the durable artifact — every subsequent Amiga
+investigation should reach for it first instead of recompiling
+new instrumentation into `ks31_boot.rs`.
+
 ## What this plan does not cover
 
 - **PMOVE / PFLUSH / PTEST** (68030 + 68040 MMU instructions). Tracked in
