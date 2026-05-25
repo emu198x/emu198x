@@ -582,6 +582,82 @@ fn tool_query_aga(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolE
     }))
 }
 
+fn tool_chipset_read_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    let log = &s.machine.debug_reg_read_log;
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
+    let unique = args.get("unique").and_then(Value::as_bool).unwrap_or(false);
+    let offset_filter = args
+        .get("offset")
+        .and_then(|v| {
+            if v.is_null() {
+                None
+            } else {
+                let one = json!({ "x": v });
+                arg_u32(&one, "x").ok().map(|n| n as u16)
+            }
+        });
+
+    let mut filtered: Vec<&(u64, u32, u16, u16)> = log
+        .iter()
+        .filter(|(_, _, off, _)| offset_filter.map_or(true, |want| *off == want))
+        .collect();
+    let dedupe_mode = args
+        .get("dedupe")
+        .and_then(Value::as_str)
+        .unwrap_or(if unique { "pc_off_val" } else { "none" });
+    let cck_lo = args.get("cck_min").and_then(Value::as_u64);
+    let cck_hi = args.get("cck_max").and_then(Value::as_u64);
+    if let Some(lo) = cck_lo {
+        filtered.retain(|(cck, _, _, _)| *cck >= lo);
+    }
+    if let Some(hi) = cck_hi {
+        filtered.retain(|(cck, _, _, _)| *cck <= hi);
+    }
+    if dedupe_mode != "none" {
+        let mut seen = std::collections::HashSet::new();
+        filtered.retain(|(_, pc, off, val)| {
+            let key: u64 = match dedupe_mode {
+                "pc_off" => ((*pc as u64) << 16) | (*off as u64),
+                "off"    => *off as u64,
+                _        => ((*pc as u64) << 32) | ((*off as u64) << 16) | (*val as u64),
+            };
+            seen.insert(key)
+        });
+    }
+    let total = filtered.len();
+    let entries: Vec<Value> = filtered
+        .iter()
+        .rev()
+        .take(limit)
+        .rev()
+        .map(|(cck, pc, off, val)| {
+            json!({
+                "cck": cck,
+                "pc":     format!("${:08X}", pc),
+                "offset": format!("${:04X}", off),
+                "value":  format!("${:04X}", val),
+            })
+        })
+        .collect();
+    // Also include a per-offset summary so callers can see at a
+    // glance which registers KS even touches.
+    let mut off_counts: std::collections::BTreeMap<u16, u64> = std::collections::BTreeMap::new();
+    for &(_, _, off, _) in log {
+        *off_counts.entry(off).or_insert(0) += 1;
+    }
+    let summary: Vec<Value> = off_counts
+        .iter()
+        .map(|(off, count)| json!({ "offset": format!("${:04X}", off), "reads": count }))
+        .collect();
+    Ok(json!({
+        "total_logged": log.len(),
+        "filtered_total": total,
+        "returned": entries.len(),
+        "offset_summary": summary,
+        "entries": entries,
+    }))
+}
+
 fn tool_poke_word(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
     let addr = arg_u32(&args, "addr")?;
     let val = arg_u32(&args, "val")?;
@@ -1385,6 +1461,23 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
     add(registry, "poke_word",
         "Backdoor word write via the machine's `poke_word` path. Useful for testing: e.g. force-write to a chipset COLOR register and see if the display reflects it.",
         poke_word_schema, tool_poke_word);
+    let chipset_read_schema = json!({
+        "type": "object",
+        "properties": {
+            "limit":   {"type": "integer", "minimum": 1, "maximum": 8192, "default": 64},
+            "unique":  {"type": "boolean", "default": false,
+                        "description": "Shorthand for dedupe:pc_off_val."},
+            "dedupe":  {"type": "string", "enum": ["none", "pc_off", "pc_off_val", "off"],
+                        "default": "none",
+                        "description": "Dedupe granularity. `pc_off` collapses identical read sites (noisy beam-position polls)."},
+            "offset":  {"description": "Optional chipset offset to filter by (hex/decimal)."},
+            "cck_min": {"type": "integer", "description": "Only include reads at or after this cck."},
+            "cck_max": {"type": "integer", "description": "Only include reads at or before this cck."}
+        }
+    });
+    add(registry, "chipset_read_log",
+        "Every CPU read from a chipset register ($DFFxxx) with the returned value and PC. Filter by `offset:` to see one register's read history, e.g. what value KS observed for DENISEID across the boot.",
+        chipset_read_schema, tool_chipset_read_log);
     add(registry, "watch_memory",
         "Set a write-watchpoint on a chip-RAM byte range. Captures every CPU bus write that lands in the range as (cck, pc, addr, val, size). Clears any prior log.",
         watch_set_schema, tool_watch_memory);

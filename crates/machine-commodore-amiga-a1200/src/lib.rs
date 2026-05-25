@@ -282,6 +282,12 @@ pub struct AmigaA1200 {
     /// Diagnostic: count of unique custom-register read offsets seen
     /// since reset, indexed by offset / 2.
     pub debug_reg_read_counts: std::collections::HashMap<u16, u64>,
+    /// Diagnostic: full log of CPU chipset-register reads. Entry is
+    /// `(cck, pc, offset, value_returned)`. Captures every CPU read
+    /// from `$DFFxxx` so we can see what value KS observed for each
+    /// chipset register at each query point. Useful for finding
+    /// AGA-detection probes that depend on read-side values.
+    pub debug_reg_read_log: Vec<(u64, u32, u16, u16)>,
     /// Diagnostic: peak INTENA value seen during boot. Bit 14 set
     /// here would prove the boot has reached the master-enable code
     /// path even if INTENA is later cleared.
@@ -603,7 +609,21 @@ impl AmigaA1200 {
             port0_left_button_pressed: false,
             port1_left_button_pressed: false,
             joystick1: JoystickState::default(),
-            agnus: AgnusAga::from_ecs(AgnusEcs::from_ocs(Agnus::new_with_region(region))),
+            agnus: {
+                // VPOSR bits 14-8 carry the Agnus revision id. KS reads
+                // this to discriminate OCS / ECS / AGA Agnus chips. The
+                // OCS default is $10 (PAL) / $00 (NTSC); for AGA Alice
+                // on A1200 it must be $30 (PAL) / $20 (NTSC). With the
+                // OCS values KS sees an AGA Denise paired with an OCS
+                // Agnus — a mismatched chipset that triggers fallback
+                // code paths during palette / screen init.
+                let mut a = AgnusAga::from_ecs(AgnusEcs::from_ocs(Agnus::new_with_region(region)));
+                a.agnus_id = match region {
+                    AgnusRegion::Pal => 0x3000,
+                    AgnusRegion::Ntsc => 0x2000,
+                };
+                a
+            },
             copper: Copper::new(),
             denise: Denise::new(),
             gayle: Gayle::new(),
@@ -619,6 +639,7 @@ impl AmigaA1200 {
             prev_cia_b_irq: false,
             e_clock_phase: 0,
             debug_reg_read_counts: std::collections::HashMap::new(),
+            debug_reg_read_log: Vec::new(),
             debug_peak_intena: 0,
             debug_intena_writes: 0,
             debug_intena_log: Vec::new(),
@@ -1918,11 +1939,25 @@ impl AmigaA1200 {
                 0x014 => self.paula.pot1dat(),
                 0x016 => self.paula.peek_potgor(),
                 0x002 => self.agnus.dmacon,
+                0x07C => self.denise.deniseid(),
+                // FMODE write-side lives on Alice. On real AGA the
+                // register reads back as the last-written value (not
+                // open bus). KS 3.1 reads $1FC during init — without
+                // this case it gets $FFFF where it expects 0.
+                0x1FC => self.agnus.fmode,
                 0x0A0..=0x0DA => paula_decode::audio_register(offset)
                     .map(|(ch, f)| self.paula.read_audio(ch, f))
                     .unwrap_or(0xFFFF),
                 _ => 0xFFFF,
             };
+            if self.debug_reg_read_log.len() < 262144 {
+                self.debug_reg_read_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    offset,
+                    val,
+                ));
+            }
             BusResponse::Word(val)
         } else {
             self.debug_custom_write_log.push((
@@ -2053,6 +2088,7 @@ impl AmigaA1200 {
         self.e_clock_phase = snap.e_clock_phase;
 
         self.debug_reg_read_counts.clear();
+        self.debug_reg_read_log.clear();
         self.debug_peak_intena = 0;
         self.debug_intena_writes = 0;
         self.debug_intena_log.clear();
