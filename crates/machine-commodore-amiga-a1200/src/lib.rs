@@ -1230,6 +1230,14 @@ impl AmigaA1200 {
                 let high = (offset & 2) == 0;
                 self.agnus.write_sprite_pointer_reg(sprite, high, val);
             }
+            // FMODE ($1FC) is owned by Alice (Agnus side) on real
+            // AGA silicon — it controls 16/32/64-bit bitplane and
+            // sprite DMA fetch widths. Lisa mirrors bits 3..2 to
+            // derive sprite display width, so forward to Denise too.
+            0x1FC => {
+                self.agnus.fmode = val;
+                self.denise.write_word(offset, val);
+            }
             _ => self.denise.write_word(offset, val),
         }
         if matches!(offset, 0x020 | 0x022 | 0x024 | 0x026 | 0x07E) {
@@ -1364,6 +1372,10 @@ impl AmigaA1200 {
                 0x006 => self.agnus.vhposr(),
                 0x00A => joydat(self.joy0_x, self.joy0_y),
                 0x00C => joydat(self.joy1_x, self.joy1_y),
+                // DENISEID — KS reads this to discriminate AGA Lisa
+                // ($FFF8) from ECS Super Denise ($FFFC) and OCS
+                // Denise ($FFFF, open bus). A1200 = Lisa.
+                0x07C => self.denise.deniseid(),
                 // Paula-owned read-side registers.
                 0x01C => self.paula.intena(),
                 0x01E => self.paula.intreq(),

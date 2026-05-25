@@ -32,10 +32,10 @@ pub use commodore_denise_ocs::{DeniseOcs as InnerDeniseOcs, DeniseOutputPixelDeb
 
 use common_commodore_amiga::denise_chip::DeniseChip;
 
-/// AGA Lisa ID register value (low byte). Set in the silicon mask
-/// programming; matches WinUAE's `aga_denise = 0xFFF8` (high byte is
-/// open-bus `$FF`; low byte is `$F8` for Lisa).
-pub const LISA_DENISE_ID: u16 = 0x00F8;
+/// AGA Lisa DENISEID value as the CPU reads it from $DFF07C. High
+/// byte is open-bus `$FF`; low byte is `$F8` for Lisa. Matches
+/// WinUAE's `aga_denise = 0xFFF8`.
+pub const LISA_DENISE_ID: u16 = 0xFFF8;
 
 /// Number of palette entries in AGA (vs 32 on OCS / ECS).
 pub const PALETTE_ENTRIES_24: usize = 256;
@@ -129,8 +129,8 @@ impl DeniseAga {
     }
 
     /// AGA Lisa ID register value, as reported by DENISEID ($DFF07C).
-    /// Real silicon returns $00F8 in the low byte; the high byte is
-    /// open bus ($FF on a typical board).
+    /// Real silicon returns $F8 in the low byte; the high byte is
+    /// open bus ($FF on a typical board), so the CPU reads $FFF8.
     #[must_use]
     pub const fn deniseid(&self) -> u16 {
         LISA_DENISE_ID
@@ -279,6 +279,10 @@ impl DeniseChip for DeniseAga {
     fn set_lof(&mut self, v: bool) {
         self.inner.as_inner_mut().lof = v;
     }
+
+    fn deniseid(&self) -> u16 {
+        DeniseAga::deniseid(self)
+    }
 }
 
 #[cfg(test)]
@@ -299,7 +303,7 @@ mod tests {
     fn deniseid_returns_lisa_marker() {
         let denise = DeniseAga::new();
         assert_eq!(denise.deniseid(), LISA_DENISE_ID);
-        assert_eq!(denise.deniseid(), 0x00F8);
+        assert_eq!(denise.deniseid(), 0xFFF8);
     }
 
     #[test]

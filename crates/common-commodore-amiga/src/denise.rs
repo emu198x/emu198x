@@ -191,6 +191,14 @@ impl<C: DeniseChip> Denise<C> {
         self.ocs.write_word(offset, val);
     }
 
+    /// DENISEID register read ($DFF07C). Each chip variant returns
+    /// its own marker — KS uses the value to discriminate OCS / ECS
+    /// / AGA at boot.
+    #[must_use]
+    pub fn deniseid(&self) -> u16 {
+        self.ocs.deniseid()
+    }
+
     /// Framebuffer dimensions (width, height).
     #[must_use]
     pub fn framebuffer_size(&self) -> (u32, u32) {

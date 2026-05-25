@@ -52,6 +52,12 @@ pub trait DeniseChip:
     fn lof(&self) -> bool;
     fn bplcon0(&self) -> u16;
 
+    /// DENISEID register value ($DFF07C). OCS Denise 8362 has no
+    /// version register and returns open-bus `$FFFF`; ECS Super
+    /// Denise 8373 returns `$FFFC`; AGA Lisa returns `$FFF8`. KS 3.x
+    /// reads this to discriminate chipset generation during init.
+    fn deniseid(&self) -> u16;
+
     // ── Field mutators used by the wrapper ──
     fn set_bplcon0(&mut self, v: u16);
     fn set_interlace_active(&mut self, v: bool);
@@ -119,6 +125,10 @@ impl DeniseChip for DeniseOcs {
     }
     fn set_lof(&mut self, v: bool) {
         self.lof = v;
+    }
+    fn deniseid(&self) -> u16 {
+        // OCS Denise 8362 has no version register — open-bus read.
+        0xFFFF
     }
 }
 
@@ -188,5 +198,8 @@ impl DeniseChip for DeniseEcs {
     }
     fn set_lof(&mut self, v: bool) {
         self.as_inner_mut().lof = v;
+    }
+    fn deniseid(&self) -> u16 {
+        DeniseEcs::deniseid(self)
     }
 }
