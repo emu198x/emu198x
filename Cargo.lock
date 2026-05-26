@@ -2875,6 +2875,7 @@ dependencies = [
  "machine-commodore-amiga-ecs",
  "machine-commodore-amiga-ocs",
  "motorola-68000",
+ "motorola-68k-common",
  "peripheral-commodore-amiga-floppy",
  "png",
  "postcard",

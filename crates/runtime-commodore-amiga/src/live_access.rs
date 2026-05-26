@@ -1,0 +1,1052 @@
+//! `AmigaLiveAccess` — chipset-agnostic chip-level read/write surface.
+//!
+//! The family MCP tools used to live behind the `AmigaA1200Session::
+//! machine_mut()` downcast, which panicked on any kind variant other
+//! than `Aga`. That kept every chip-level tool wedded to a single
+//! machine type. This trait lifts the cross-cutting surface up so
+//! the tools can drive `AmigaOcs` / `AmigaEcs` / `AmigaA1200` with
+//! one body — the implementations forward to each machine's existing
+//! inherent methods.
+//!
+//! Per [`knowledge/decisions/amiga-machine-catalogue.md`], this is the
+//! Step 3b plumbing for the AGA / ECS / OCS multi-variant MCP surface.
+//!
+//! Shape choices:
+//! - **CPU**: returned as a copy via [`CpuSnapshot`] because Cpu68000
+//!   and Cpu68020 are different concrete types. The hot scalar
+//!   accessors (`cpu_pc`, `cpu_instruction_starts`) are spelled out
+//!   separately so per-tick loops don't pay the copy cost.
+//! - **Shared chips** (CIA, Paula, drive, keyboard) are exposed by
+//!   reference using the shared base types from the chip crates —
+//!   every machine returns the same concrete type from its inherent
+//!   accessor.
+//! - **Agnus** uses the OCS base type via `Deref` (AgnusEcs and
+//!   AgnusAga both `Deref<Target = commodore_agnus_ocs::Agnus>`).
+//! - **Denise / Memory** vary per chipset, so the trait exposes the
+//!   primitive readback (`framebuffer()`, `overlay()`) rather than
+//!   the chip references.
+//! - **AGA-only debug logs** return `Option`-wrapped slices so the
+//!   palette / bplcon0 / chipset-read inspectors degrade gracefully
+//!   on OCS / ECS sessions.
+//!
+//! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../../knowledge/decisions/amiga-machine-catalogue.md
+
+use commodore_agnus_ocs::Agnus;
+use format_commodore_amiga_adf::Adf;
+use machine_commodore_amiga_a1200::{AmigaA1200, Copper as A1200Copper};
+use machine_commodore_amiga_ecs::AmigaEcs;
+use machine_commodore_amiga_ocs::{
+    AmigaFloppyDrive, AmigaKeyboard, AmigaOcs, Cia, Paula8364,
+};
+use motorola_68k_common::registers::Registers;
+
+use crate::variants::AmigaRuntimeKind;
+
+/// Snapshot of the CPU register file + scheduler bookkeeping. Built
+/// by [`AmigaLiveAccess::cpu_snapshot`] so the trait can hand back
+/// CPU state without exposing the concrete Cpu68000 / Cpu68020 types.
+///
+/// The fields mirror the `query_cpu` tool's JSON output one-for-one.
+#[derive(Debug, Clone, Copy)]
+pub struct CpuSnapshot {
+    pub regs: Registers,
+    pub instr_start_pc: u32,
+    pub ipl: u8,
+    pub interrupts_taken: u64,
+    pub exc_vector: Option<u8>,
+    pub in_followup: bool,
+    pub followup_tag: u8,
+    pub instruction_starts: u64,
+}
+
+/// Watch-log entry shape: `(tick, pc, addr, value, is_word)`.
+///
+/// Re-aliased here so MCP tool bodies can name the type without
+/// dragging in the machine-crate shape. Matches the field tuple on
+/// each machine's `debug_watch_writes` field.
+pub type WatchLogEntry = (u64, u32, u32, u16, bool);
+
+/// DSK debug-log entry shape: `(tick, pc, register, value)`.
+pub type DskLogEntry = (u64, u32, u16, u16);
+
+/// AGA palette-log entry shape: `(tick, pc, color_index, value, bank)`.
+pub type PaletteLogEntry = (u64, u32, u16, u16, u16);
+
+/// AGA BPLCON0 log shape: `(tick, pc, value)`.
+pub type Bplcon0LogEntry = (u64, u32, u16);
+
+/// AGA chipset-register-read log shape: `(tick, pc, addr, value)`.
+pub type RegReadLogEntry = (u64, u32, u16, u16);
+
+/// Chipset-agnostic read/write surface used by the family MCP tools.
+///
+/// Implemented by every concrete machine struct (`AmigaOcs`,
+/// `AmigaEcs`, `AmigaA1200`) and by [`AmigaRuntimeKind`] itself so
+/// the MCP session can hand a single `&mut dyn AmigaLiveAccess` to
+/// every tool body regardless of the active chipset.
+pub trait AmigaLiveAccess {
+    // ---------- CPU ----------
+
+    /// Full CPU debug snapshot — copies the register file plus the
+    /// scheduler bookkeeping the `query_cpu` / `step` tools need.
+    fn cpu_snapshot(&self) -> CpuSnapshot;
+
+    /// Fast scalar PC read — used by `run_until_pc` and `step` so the
+    /// hot loop doesn't pay the `CpuSnapshot` copy cost.
+    fn cpu_pc(&self) -> u32;
+
+    /// Fast scalar instruction-start counter read — used by `step` /
+    /// `run_until_any_pc` for instruction-boundary detection.
+    fn cpu_instruction_starts(&self) -> u64;
+
+    /// `true` iff the CPU is currently between instructions
+    /// (not in a follow-up cycle). Used by single-step logic.
+    fn cpu_in_followup(&self) -> bool;
+
+    // ---------- lifecycle ----------
+
+    /// Advance the machine by one master / 4 tick.
+    fn tick(&mut self);
+
+    /// Current tick counter.
+    fn tick_count(&self) -> u64;
+
+    // ---------- chipset register snapshot ----------
+
+    fn intena(&self) -> u16;
+    fn intreq(&self) -> u16;
+    fn dmacon(&self) -> u16;
+    fn adkcon(&self) -> u16;
+    fn bplcon0(&self) -> u16;
+    fn color(&self, idx: usize) -> u16;
+    fn overlay(&self) -> bool;
+    fn copper_pc(&self) -> u32;
+    fn copper_cop1lc(&self) -> u32;
+    fn copper_cop2lc(&self) -> u32;
+
+    // ---------- chip references (shared base types) ----------
+
+    fn agnus(&self) -> &Agnus;
+    fn cia_a(&self) -> &Cia;
+    fn cia_b(&self) -> &Cia;
+    fn paula(&self) -> &Paula8364;
+    fn drive(&self) -> &AmigaFloppyDrive;
+    fn keyboard(&self) -> &AmigaKeyboard;
+
+    // ---------- video ----------
+
+    /// Borrow the chipset framebuffer as ARGB pixels.
+    fn framebuffer(&self) -> &[u32];
+
+    /// `(width, height)` of the chipset framebuffer.
+    fn framebuffer_dims(&self) -> (u32, u32);
+
+    // ---------- memory ----------
+
+    fn read_word(&self, addr: u32) -> u16;
+    fn read_long(&self, addr: u32) -> u32;
+    fn poke_byte(&mut self, addr: u32, value: u8);
+    fn poke_word(&mut self, addr: u32, value: u16);
+
+    // ---------- watch / debug logs ----------
+
+    /// Arm or disarm the memory-write watch. `None` clears.
+    fn set_watch(&mut self, base_len: Option<(u32, u32)>);
+
+    /// Current memory-write watch log.
+    fn watch_log(&self) -> &[WatchLogEntry];
+
+    /// DSK-register write log — present on every chipset (OCS, ECS,
+    /// AGA all track disk-register writes for boot diagnostics).
+    fn dsk_write_log(&self) -> &[DskLogEntry];
+
+    // ---------- AGA-only debug logs ----------
+    //
+    // These return `None` on OCS / ECS because the underlying log
+    // fields don't exist there. The A1200 machine's `debug_palette_log`,
+    // `debug_bplcon0_log`, and `debug_reg_read_log` are AGA-specific
+    // instrumentation that the OCS / ECS chip stacks don't carry.
+
+    fn aga_palette_log(&self) -> Option<&[PaletteLogEntry]>;
+    fn aga_bplcon0_log(&self) -> Option<&[Bplcon0LogEntry]>;
+    fn aga_reg_read_log(&self) -> Option<&[RegReadLogEntry]>;
+
+    /// AGA Copper struct reference, for the `query_copper_list` tool.
+    /// Returns `None` on OCS / ECS — those chipsets carry a different
+    /// Copper type that hasn't been lifted to a shared base yet.
+    fn aga_copper(&self) -> Option<&A1200Copper>;
+
+    // ---------- media ----------
+
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool);
+    fn eject_floppy0(&mut self);
+}
+
+// ===================================================================
+// AmigaOcs impl
+// ===================================================================
+
+impl AmigaLiveAccess for AmigaOcs {
+    fn cpu_snapshot(&self) -> CpuSnapshot {
+        let cpu = self.cpu();
+        CpuSnapshot {
+            regs: cpu.regs,
+            instr_start_pc: cpu.instr_start_pc,
+            ipl: cpu.ipl,
+            interrupts_taken: cpu.interrupts_taken,
+            exc_vector: cpu.exc_vector,
+            in_followup: cpu.in_followup,
+            followup_tag: cpu.followup_tag,
+            instruction_starts: cpu.instruction_starts,
+        }
+    }
+
+    fn cpu_pc(&self) -> u32 {
+        self.cpu().regs.pc
+    }
+
+    fn cpu_instruction_starts(&self) -> u64 {
+        self.cpu().instruction_starts
+    }
+
+    fn cpu_in_followup(&self) -> bool {
+        self.cpu().in_followup
+    }
+
+    fn tick(&mut self) {
+        AmigaOcs::tick(self);
+    }
+
+    fn tick_count(&self) -> u64 {
+        AmigaOcs::tick_count(self)
+    }
+
+    fn intena(&self) -> u16 {
+        AmigaOcs::intena(self)
+    }
+
+    fn intreq(&self) -> u16 {
+        AmigaOcs::intreq(self)
+    }
+
+    fn dmacon(&self) -> u16 {
+        AmigaOcs::dmacon(self)
+    }
+
+    fn adkcon(&self) -> u16 {
+        AmigaOcs::adkcon(self)
+    }
+
+    fn bplcon0(&self) -> u16 {
+        AmigaOcs::bplcon0(self)
+    }
+
+    fn color(&self, idx: usize) -> u16 {
+        AmigaOcs::color(self, idx)
+    }
+
+    fn overlay(&self) -> bool {
+        self.memory().overlay()
+    }
+
+    fn copper_pc(&self) -> u32 {
+        self.copper().pc
+    }
+
+    fn copper_cop1lc(&self) -> u32 {
+        self.copper().cop1lc
+    }
+
+    fn copper_cop2lc(&self) -> u32 {
+        self.copper().cop2lc
+    }
+
+    fn agnus(&self) -> &Agnus {
+        AmigaOcs::agnus(self)
+    }
+
+    fn cia_a(&self) -> &Cia {
+        AmigaOcs::cia_a(self)
+    }
+
+    fn cia_b(&self) -> &Cia {
+        AmigaOcs::cia_b(self)
+    }
+
+    fn paula(&self) -> &Paula8364 {
+        AmigaOcs::paula(self)
+    }
+
+    fn drive(&self) -> &AmigaFloppyDrive {
+        AmigaOcs::drive(self)
+    }
+
+    fn keyboard(&self) -> &AmigaKeyboard {
+        AmigaOcs::keyboard(self)
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.denise().framebuffer()
+    }
+
+    fn framebuffer_dims(&self) -> (u32, u32) {
+        (
+            machine_commodore_amiga_ocs::FB_WIDTH,
+            machine_commodore_amiga_ocs::FB_HEIGHT,
+        )
+    }
+
+    fn read_word(&self, addr: u32) -> u16 {
+        AmigaOcs::read_word(self, addr)
+    }
+
+    fn read_long(&self, addr: u32) -> u32 {
+        AmigaOcs::read_long(self, addr)
+    }
+
+    fn poke_byte(&mut self, addr: u32, value: u8) {
+        AmigaOcs::poke_byte(self, addr, value);
+    }
+
+    fn poke_word(&mut self, addr: u32, value: u16) {
+        AmigaOcs::poke_word(self, addr, value);
+    }
+
+    fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
+        self.debug_watch_addr = base_len;
+        self.debug_watch_writes.clear();
+    }
+
+    fn watch_log(&self) -> &[WatchLogEntry] {
+        &self.debug_watch_writes
+    }
+
+    fn dsk_write_log(&self) -> &[DskLogEntry] {
+        &self.debug_dsk_log
+    }
+
+    fn aga_palette_log(&self) -> Option<&[PaletteLogEntry]> {
+        None
+    }
+
+    fn aga_bplcon0_log(&self) -> Option<&[Bplcon0LogEntry]> {
+        None
+    }
+
+    fn aga_reg_read_log(&self) -> Option<&[RegReadLogEntry]> {
+        None
+    }
+
+    fn aga_copper(&self) -> Option<&A1200Copper> {
+        None
+    }
+
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
+        if change_pending {
+            self.insert_adf_with_change_pending(adf);
+        } else {
+            self.insert_adf(adf);
+        }
+    }
+
+    fn eject_floppy0(&mut self) {
+        AmigaOcs::eject_disk(self);
+    }
+}
+
+// ===================================================================
+// AmigaEcs impl
+// ===================================================================
+//
+// Mechanically identical to the OCS impl — the chip-level differences
+// (BEAMCON0, BPLCON3) are absorbed by AgnusEcs / DeniseEcs via Deref.
+
+impl AmigaLiveAccess for AmigaEcs {
+    fn cpu_snapshot(&self) -> CpuSnapshot {
+        let cpu = self.cpu();
+        CpuSnapshot {
+            regs: cpu.regs,
+            instr_start_pc: cpu.instr_start_pc,
+            ipl: cpu.ipl,
+            interrupts_taken: cpu.interrupts_taken,
+            exc_vector: cpu.exc_vector,
+            in_followup: cpu.in_followup,
+            followup_tag: cpu.followup_tag,
+            instruction_starts: cpu.instruction_starts,
+        }
+    }
+
+    fn cpu_pc(&self) -> u32 {
+        self.cpu().regs.pc
+    }
+
+    fn cpu_instruction_starts(&self) -> u64 {
+        self.cpu().instruction_starts
+    }
+
+    fn cpu_in_followup(&self) -> bool {
+        self.cpu().in_followup
+    }
+
+    fn tick(&mut self) {
+        AmigaEcs::tick(self);
+    }
+
+    fn tick_count(&self) -> u64 {
+        AmigaEcs::tick_count(self)
+    }
+
+    fn intena(&self) -> u16 {
+        AmigaEcs::intena(self)
+    }
+
+    fn intreq(&self) -> u16 {
+        AmigaEcs::intreq(self)
+    }
+
+    fn dmacon(&self) -> u16 {
+        AmigaEcs::dmacon(self)
+    }
+
+    fn adkcon(&self) -> u16 {
+        AmigaEcs::adkcon(self)
+    }
+
+    fn bplcon0(&self) -> u16 {
+        AmigaEcs::bplcon0(self)
+    }
+
+    fn color(&self, idx: usize) -> u16 {
+        AmigaEcs::color(self, idx)
+    }
+
+    fn overlay(&self) -> bool {
+        self.memory().overlay()
+    }
+
+    fn copper_pc(&self) -> u32 {
+        self.copper().pc
+    }
+
+    fn copper_cop1lc(&self) -> u32 {
+        self.copper().cop1lc
+    }
+
+    fn copper_cop2lc(&self) -> u32 {
+        self.copper().cop2lc
+    }
+
+    fn agnus(&self) -> &Agnus {
+        // The inherent accessor already returns &commodore_agnus_ocs::Agnus
+        // (the OCS-base type) — AgnusEcs is the wrapper that lives in
+        // the struct field, but its public accessor projects the inner
+        // OCS Agnus.
+        AmigaEcs::agnus(self)
+    }
+
+    fn cia_a(&self) -> &Cia {
+        AmigaEcs::cia_a(self)
+    }
+
+    fn cia_b(&self) -> &Cia {
+        AmigaEcs::cia_b(self)
+    }
+
+    fn paula(&self) -> &Paula8364 {
+        AmigaEcs::paula(self)
+    }
+
+    fn drive(&self) -> &AmigaFloppyDrive {
+        AmigaEcs::drive(self)
+    }
+
+    fn keyboard(&self) -> &AmigaKeyboard {
+        AmigaEcs::keyboard(self)
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.denise().framebuffer()
+    }
+
+    fn framebuffer_dims(&self) -> (u32, u32) {
+        (
+            machine_commodore_amiga_ocs::FB_WIDTH,
+            machine_commodore_amiga_ocs::FB_HEIGHT,
+        )
+    }
+
+    fn read_word(&self, addr: u32) -> u16 {
+        AmigaEcs::read_word(self, addr)
+    }
+
+    fn read_long(&self, addr: u32) -> u32 {
+        AmigaEcs::read_long(self, addr)
+    }
+
+    fn poke_byte(&mut self, addr: u32, value: u8) {
+        AmigaEcs::poke_byte(self, addr, value);
+    }
+
+    fn poke_word(&mut self, addr: u32, value: u16) {
+        AmigaEcs::poke_word(self, addr, value);
+    }
+
+    fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
+        self.debug_watch_addr = base_len;
+        self.debug_watch_writes.clear();
+    }
+
+    fn watch_log(&self) -> &[WatchLogEntry] {
+        &self.debug_watch_writes
+    }
+
+    fn dsk_write_log(&self) -> &[DskLogEntry] {
+        &self.debug_dsk_log
+    }
+
+    fn aga_palette_log(&self) -> Option<&[PaletteLogEntry]> {
+        None
+    }
+
+    fn aga_bplcon0_log(&self) -> Option<&[Bplcon0LogEntry]> {
+        None
+    }
+
+    fn aga_reg_read_log(&self) -> Option<&[RegReadLogEntry]> {
+        None
+    }
+
+    fn aga_copper(&self) -> Option<&A1200Copper> {
+        None
+    }
+
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
+        if change_pending {
+            self.insert_adf_with_change_pending(adf);
+        } else {
+            self.insert_adf(adf);
+        }
+    }
+
+    fn eject_floppy0(&mut self) {
+        AmigaEcs::eject_disk(self);
+    }
+}
+
+// ===================================================================
+// AmigaA1200 impl
+// ===================================================================
+
+impl AmigaLiveAccess for AmigaA1200 {
+    fn cpu_snapshot(&self) -> CpuSnapshot {
+        let cpu = self.cpu();
+        CpuSnapshot {
+            regs: cpu.regs,
+            instr_start_pc: cpu.instr_start_pc,
+            ipl: cpu.ipl,
+            interrupts_taken: cpu.interrupts_taken,
+            exc_vector: cpu.exc_vector,
+            in_followup: cpu.in_followup,
+            followup_tag: cpu.followup_tag,
+            instruction_starts: cpu.instruction_starts,
+        }
+    }
+
+    fn cpu_pc(&self) -> u32 {
+        self.cpu().regs.pc
+    }
+
+    fn cpu_instruction_starts(&self) -> u64 {
+        self.cpu().instruction_starts
+    }
+
+    fn cpu_in_followup(&self) -> bool {
+        self.cpu().in_followup
+    }
+
+    fn tick(&mut self) {
+        AmigaA1200::tick(self);
+    }
+
+    fn tick_count(&self) -> u64 {
+        AmigaA1200::tick_count(self)
+    }
+
+    fn intena(&self) -> u16 {
+        AmigaA1200::intena(self)
+    }
+
+    fn intreq(&self) -> u16 {
+        AmigaA1200::intreq(self)
+    }
+
+    fn dmacon(&self) -> u16 {
+        AmigaA1200::dmacon(self)
+    }
+
+    fn adkcon(&self) -> u16 {
+        AmigaA1200::adkcon(self)
+    }
+
+    fn bplcon0(&self) -> u16 {
+        AmigaA1200::bplcon0(self)
+    }
+
+    fn color(&self, idx: usize) -> u16 {
+        AmigaA1200::color(self, idx)
+    }
+
+    fn overlay(&self) -> bool {
+        self.memory().overlay()
+    }
+
+    fn copper_pc(&self) -> u32 {
+        self.copper().pc
+    }
+
+    fn copper_cop1lc(&self) -> u32 {
+        self.copper().cop1lc
+    }
+
+    fn copper_cop2lc(&self) -> u32 {
+        self.copper().cop2lc
+    }
+
+    fn agnus(&self) -> &Agnus {
+        // Inherent agnus() already returns &commodore_agnus_ocs::Agnus.
+        AmigaA1200::agnus(self)
+    }
+
+    fn cia_a(&self) -> &Cia {
+        AmigaA1200::cia_a(self)
+    }
+
+    fn cia_b(&self) -> &Cia {
+        AmigaA1200::cia_b(self)
+    }
+
+    fn paula(&self) -> &Paula8364 {
+        AmigaA1200::paula(self)
+    }
+
+    fn drive(&self) -> &AmigaFloppyDrive {
+        AmigaA1200::drive(self)
+    }
+
+    fn keyboard(&self) -> &AmigaKeyboard {
+        AmigaA1200::keyboard(self)
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        self.denise().framebuffer()
+    }
+
+    fn framebuffer_dims(&self) -> (u32, u32) {
+        (
+            machine_commodore_amiga_a1200::FB_WIDTH,
+            machine_commodore_amiga_a1200::FB_HEIGHT,
+        )
+    }
+
+    fn read_word(&self, addr: u32) -> u16 {
+        AmigaA1200::read_word(self, addr)
+    }
+
+    fn read_long(&self, addr: u32) -> u32 {
+        AmigaA1200::read_long(self, addr)
+    }
+
+    fn poke_byte(&mut self, addr: u32, value: u8) {
+        AmigaA1200::poke_byte(self, addr, value);
+    }
+
+    fn poke_word(&mut self, addr: u32, value: u16) {
+        AmigaA1200::poke_word(self, addr, value);
+    }
+
+    fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
+        self.debug_watch_addr = base_len;
+        self.debug_watch_writes.clear();
+    }
+
+    fn watch_log(&self) -> &[WatchLogEntry] {
+        &self.debug_watch_writes
+    }
+
+    fn dsk_write_log(&self) -> &[DskLogEntry] {
+        &self.debug_dsk_log
+    }
+
+    fn aga_palette_log(&self) -> Option<&[PaletteLogEntry]> {
+        Some(&self.debug_palette_log)
+    }
+
+    fn aga_bplcon0_log(&self) -> Option<&[Bplcon0LogEntry]> {
+        Some(&self.debug_bplcon0_log)
+    }
+
+    fn aga_reg_read_log(&self) -> Option<&[RegReadLogEntry]> {
+        Some(&self.debug_reg_read_log)
+    }
+
+    fn aga_copper(&self) -> Option<&A1200Copper> {
+        Some(AmigaA1200::copper(self))
+    }
+
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
+        if change_pending {
+            self.insert_adf_with_change_pending(adf);
+        } else {
+            self.insert_adf(adf);
+        }
+    }
+
+    fn eject_floppy0(&mut self) {
+        AmigaA1200::eject_disk(self);
+    }
+}
+
+// ===================================================================
+// AmigaRuntimeKind impl — dispatches to the inner machine.
+// ===================================================================
+//
+// Each method calls the inner runtime's `machine()` / `machine_mut()`
+// accessor to reach the concrete chip stack, then forwards to the
+// trait method on that type. The MCP session can hold `&mut dyn
+// AmigaLiveAccess` by reborrowing through `AmigaRuntimeKind`.
+
+impl AmigaLiveAccess for AmigaRuntimeKind {
+    fn cpu_snapshot(&self) -> CpuSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().cpu_snapshot(),
+            Self::Ecs(rt) => rt.machine().cpu_snapshot(),
+            Self::Aga(rt) => rt.machine().cpu_snapshot(),
+        }
+    }
+
+    fn cpu_pc(&self) -> u32 {
+        match self {
+            Self::Ocs(rt) => rt.machine().cpu_pc(),
+            Self::Ecs(rt) => rt.machine().cpu_pc(),
+            Self::Aga(rt) => rt.machine().cpu_pc(),
+        }
+    }
+
+    fn cpu_instruction_starts(&self) -> u64 {
+        match self {
+            Self::Ocs(rt) => rt.machine().cpu_instruction_starts(),
+            Self::Ecs(rt) => rt.machine().cpu_instruction_starts(),
+            Self::Aga(rt) => rt.machine().cpu_instruction_starts(),
+        }
+    }
+
+    fn cpu_in_followup(&self) -> bool {
+        match self {
+            Self::Ocs(rt) => rt.machine().cpu_in_followup(),
+            Self::Ecs(rt) => rt.machine().cpu_in_followup(),
+            Self::Aga(rt) => rt.machine().cpu_in_followup(),
+        }
+    }
+
+    fn tick(&mut self) {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::tick(rt.machine_mut()),
+            Self::Ecs(rt) => AmigaLiveAccess::tick(rt.machine_mut()),
+            Self::Aga(rt) => AmigaLiveAccess::tick(rt.machine_mut()),
+        }
+    }
+
+    fn tick_count(&self) -> u64 {
+        match self {
+            Self::Ocs(rt) => rt.machine().tick_count(),
+            Self::Ecs(rt) => rt.machine().tick_count(),
+            Self::Aga(rt) => rt.machine().tick_count(),
+        }
+    }
+
+    fn intena(&self) -> u16 {
+        match self {
+            Self::Ocs(rt) => rt.machine().intena(),
+            Self::Ecs(rt) => rt.machine().intena(),
+            Self::Aga(rt) => rt.machine().intena(),
+        }
+    }
+
+    fn intreq(&self) -> u16 {
+        match self {
+            Self::Ocs(rt) => rt.machine().intreq(),
+            Self::Ecs(rt) => rt.machine().intreq(),
+            Self::Aga(rt) => rt.machine().intreq(),
+        }
+    }
+
+    fn dmacon(&self) -> u16 {
+        match self {
+            Self::Ocs(rt) => rt.machine().dmacon(),
+            Self::Ecs(rt) => rt.machine().dmacon(),
+            Self::Aga(rt) => rt.machine().dmacon(),
+        }
+    }
+
+    fn adkcon(&self) -> u16 {
+        match self {
+            Self::Ocs(rt) => rt.machine().adkcon(),
+            Self::Ecs(rt) => rt.machine().adkcon(),
+            Self::Aga(rt) => rt.machine().adkcon(),
+        }
+    }
+
+    fn bplcon0(&self) -> u16 {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+            Self::Ecs(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+            Self::Aga(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+        }
+    }
+
+    fn color(&self, idx: usize) -> u16 {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+            Self::Ecs(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+            Self::Aga(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+        }
+    }
+
+    fn overlay(&self) -> bool {
+        match self {
+            Self::Ocs(rt) => rt.machine().overlay(),
+            Self::Ecs(rt) => rt.machine().overlay(),
+            Self::Aga(rt) => rt.machine().overlay(),
+        }
+    }
+
+    fn copper_pc(&self) -> u32 {
+        match self {
+            Self::Ocs(rt) => rt.machine().copper_pc(),
+            Self::Ecs(rt) => rt.machine().copper_pc(),
+            Self::Aga(rt) => rt.machine().copper_pc(),
+        }
+    }
+
+    fn copper_cop1lc(&self) -> u32 {
+        match self {
+            Self::Ocs(rt) => rt.machine().copper_cop1lc(),
+            Self::Ecs(rt) => rt.machine().copper_cop1lc(),
+            Self::Aga(rt) => rt.machine().copper_cop1lc(),
+        }
+    }
+
+    fn copper_cop2lc(&self) -> u32 {
+        match self {
+            Self::Ocs(rt) => rt.machine().copper_cop2lc(),
+            Self::Ecs(rt) => rt.machine().copper_cop2lc(),
+            Self::Aga(rt) => rt.machine().copper_cop2lc(),
+        }
+    }
+
+    fn agnus(&self) -> &Agnus {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::agnus(rt.machine()),
+            Self::Ecs(rt) => AmigaLiveAccess::agnus(rt.machine()),
+            Self::Aga(rt) => AmigaLiveAccess::agnus(rt.machine()),
+        }
+    }
+
+    fn cia_a(&self) -> &Cia {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+            Self::Ecs(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+            Self::Aga(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+        }
+    }
+
+    fn cia_b(&self) -> &Cia {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+            Self::Ecs(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+            Self::Aga(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+        }
+    }
+
+    fn paula(&self) -> &Paula8364 {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::paula(rt.machine()),
+            Self::Ecs(rt) => AmigaLiveAccess::paula(rt.machine()),
+            Self::Aga(rt) => AmigaLiveAccess::paula(rt.machine()),
+        }
+    }
+
+    fn drive(&self) -> &AmigaFloppyDrive {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::drive(rt.machine()),
+            Self::Ecs(rt) => AmigaLiveAccess::drive(rt.machine()),
+            Self::Aga(rt) => AmigaLiveAccess::drive(rt.machine()),
+        }
+    }
+
+    fn keyboard(&self) -> &AmigaKeyboard {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+            Self::Ecs(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+            Self::Aga(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+        }
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+            Self::Ecs(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+            Self::Aga(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+        }
+    }
+
+    fn framebuffer_dims(&self) -> (u32, u32) {
+        match self {
+            Self::Ocs(rt) => rt.machine().framebuffer_dims(),
+            Self::Ecs(rt) => rt.machine().framebuffer_dims(),
+            Self::Aga(rt) => rt.machine().framebuffer_dims(),
+        }
+    }
+
+    fn read_word(&self, addr: u32) -> u16 {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+            Self::Ecs(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+            Self::Aga(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+        }
+    }
+
+    fn read_long(&self, addr: u32) -> u32 {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+            Self::Ecs(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+            Self::Aga(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+        }
+    }
+
+    fn poke_byte(&mut self, addr: u32, value: u8) {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+            Self::Ecs(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+            Self::Aga(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+        }
+    }
+
+    fn poke_word(&mut self, addr: u32, value: u16) {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+            Self::Ecs(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+            Self::Aga(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+        }
+    }
+
+    fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
+        match self {
+            Self::Ocs(rt) => rt.machine_mut().set_watch(base_len),
+            Self::Ecs(rt) => rt.machine_mut().set_watch(base_len),
+            Self::Aga(rt) => rt.machine_mut().set_watch(base_len),
+        }
+    }
+
+    fn watch_log(&self) -> &[WatchLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().watch_log(),
+            Self::Ecs(rt) => rt.machine().watch_log(),
+            Self::Aga(rt) => rt.machine().watch_log(),
+        }
+    }
+
+    fn dsk_write_log(&self) -> &[DskLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().dsk_write_log(),
+            Self::Ecs(rt) => rt.machine().dsk_write_log(),
+            Self::Aga(rt) => rt.machine().dsk_write_log(),
+        }
+    }
+
+    fn aga_palette_log(&self) -> Option<&[PaletteLogEntry]> {
+        match self {
+            Self::Ocs(_) | Self::Ecs(_) => None,
+            Self::Aga(rt) => rt.machine().aga_palette_log(),
+        }
+    }
+
+    fn aga_bplcon0_log(&self) -> Option<&[Bplcon0LogEntry]> {
+        match self {
+            Self::Ocs(_) | Self::Ecs(_) => None,
+            Self::Aga(rt) => rt.machine().aga_bplcon0_log(),
+        }
+    }
+
+    fn aga_reg_read_log(&self) -> Option<&[RegReadLogEntry]> {
+        match self {
+            Self::Ocs(_) | Self::Ecs(_) => None,
+            Self::Aga(rt) => rt.machine().aga_reg_read_log(),
+        }
+    }
+
+    fn aga_copper(&self) -> Option<&A1200Copper> {
+        match self {
+            Self::Ocs(_) | Self::Ecs(_) => None,
+            Self::Aga(rt) => rt.machine().aga_copper(),
+        }
+    }
+
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
+        match self {
+            Self::Ocs(rt) => rt.machine_mut().insert_floppy0(adf, change_pending),
+            Self::Ecs(rt) => rt.machine_mut().insert_floppy0(adf, change_pending),
+            Self::Aga(rt) => rt.machine_mut().insert_floppy0(adf, change_pending),
+        }
+    }
+
+    fn eject_floppy0(&mut self) {
+        match self {
+            Self::Ocs(rt) => rt.machine_mut().eject_floppy0(),
+            Self::Ecs(rt) => rt.machine_mut().eject_floppy0(),
+            Self::Aga(rt) => rt.machine_mut().eject_floppy0(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Model;
+
+    /// Smoke test: the OCS variant impls the trait and the kind
+    /// dispatcher reaches it without panicking.
+    #[test]
+    fn ocs_runtime_kind_via_trait() {
+        let kind = AmigaRuntimeKind::blank(Model::A500OcsPal);
+        // Trait method dispatch must not panic.
+        let _intena = AmigaLiveAccess::intena(&kind);
+        let _pc = AmigaLiveAccess::cpu_pc(&kind);
+        // AGA-only debug logs are None on OCS.
+        assert!(kind.aga_palette_log().is_none());
+        assert!(kind.aga_bplcon0_log().is_none());
+        assert!(kind.aga_reg_read_log().is_none());
+        assert!(kind.aga_copper().is_none());
+    }
+
+    #[test]
+    fn ecs_runtime_kind_via_trait() {
+        let kind = AmigaRuntimeKind::blank(Model::A500PlusEcsPal);
+        let _intena = AmigaLiveAccess::intena(&kind);
+        let _pc = AmigaLiveAccess::cpu_pc(&kind);
+        assert!(kind.aga_palette_log().is_none());
+        assert!(kind.aga_copper().is_none());
+    }
+
+    #[test]
+    fn aga_runtime_kind_via_trait() {
+        let kind = AmigaRuntimeKind::blank(Model::A1200AgaPal);
+        let _intena = AmigaLiveAccess::intena(&kind);
+        let _pc = AmigaLiveAccess::cpu_pc(&kind);
+        // AGA debug logs are present (initially empty).
+        assert!(kind.aga_palette_log().is_some());
+        assert!(kind.aga_bplcon0_log().is_some());
+        assert!(kind.aga_reg_read_log().is_some());
+        assert!(kind.aga_copper().is_some());
+    }
+}

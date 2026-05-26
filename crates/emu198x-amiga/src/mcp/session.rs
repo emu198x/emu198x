@@ -24,7 +24,7 @@ use std::path::PathBuf;
 
 use emu198x_shell::{MachineError, VideoRecorder};
 use machine_commodore_amiga_a1200::AmigaA1200;
-use runtime_commodore_amiga::{AmigaRuntimeKind, Model};
+use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
 
 /// MCP server session — owns the family runtime kind and the
 /// hand-rolled video-recorder state the chip-level tools use.
@@ -95,6 +95,23 @@ impl AmigaA1200Session {
                  (single-machine MCP invariant violated)"
             ),
         }
+    }
+
+    /// Chipset-agnostic chip-level access. Returns the active runtime
+    /// kind under its [`AmigaLiveAccess`] impl — tool bodies that
+    /// don't care which chipset is active call through this instead
+    /// of the A1200 downcast. The AGA-specific tools (palette banks,
+    /// AGA copper list dump) still go through [`Self::machine`] /
+    /// [`Self::machine_mut`].
+    #[must_use]
+    pub fn access(&self) -> &dyn AmigaLiveAccess {
+        &self.kind
+    }
+
+    /// Mutable variant of [`Self::access`].
+    #[must_use]
+    pub fn access_mut(&mut self) -> &mut dyn AmigaLiveAccess {
+        &mut self.kind
     }
 
     /// Hard-reset the machine by re-reading the ROM from `rom_path`
