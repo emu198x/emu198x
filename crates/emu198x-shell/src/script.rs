@@ -395,6 +395,27 @@ pub enum ScriptStep {
         #[serde(default)]
         unique: bool,
     },
+    /// Press one named key, hold for a configurable number of native
+    /// frames, then release.
+    ///
+    /// System-specific (binary-dispatched). Replaces the three-step
+    /// "input press / run_frames / input release" dance with a
+    /// single observation-emitting step. Default `hold_frames` is 3,
+    /// which is comfortably above the ROM's typical poll interval.
+    /// One extra settle frame runs after the release so the released
+    /// state is visible by the next step.
+    ///
+    /// Errors when the key name isn't recognised by the active
+    /// machine's keyboard layout.
+    PressKey {
+        /// Named key (see the per-system keyboard module). For
+        /// Spectrum: `A`-`Z`, `0`-`9`, `Space`, `Enter`,
+        /// `CapsShift`, `SymbolShift`.
+        key: String,
+        /// Number of native frames to hold the key. Defaults to 3.
+        #[serde(default)]
+        hold_frames: Option<u32>,
+    },
     /// Reset the running machine.
     ///
     /// `kind = "hard"` is a power-cycle equivalent (machine state and
@@ -814,6 +835,15 @@ pub enum ScriptObservation {
         /// Most-recent entries up to the requested limit, oldest first.
         entries: Vec<AyWriteEntry>,
     },
+    /// Result of pressing one key.
+    PressKey {
+        /// The key that was pressed (echoed back from the request).
+        key: String,
+        /// Frames the key was held before release.
+        hold_frames: u32,
+        /// Machine time after the press / hold / release sequence.
+        reached: crate::MachineTime,
+    },
     /// Result of fetching the memory write log.
     WatchMemoryLog {
         /// Current watch range start, or `None` if no watch is active.
@@ -1019,6 +1049,7 @@ impl ScriptStep {
             Self::WatchAyLog { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "watch_ay_log",
             }),
+            Self::PressKey { .. } => Err(ScriptError::SystemSpecificStep { step: "press_key" }),
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
             }),

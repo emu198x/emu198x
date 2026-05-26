@@ -116,6 +116,9 @@ fn mcp_execute_step(
         ScriptStep::WatchAyLog { limit, unique } => {
             Ok(Some(execute_watch_ay_log(session, *limit, *unique)))
         }
+        ScriptStep::PressKey { key, hold_frames } => {
+            execute_press_key(session, key, *hold_frames).map(Some)
+        }
         ScriptStep::AutoloadTape {
             slot,
             max_boot_frames,
@@ -568,6 +571,60 @@ fn execute_watch_ay_clear(session: &mut SpectrumSession) -> ScriptObservation {
         had_watch,
         captured,
     }
+}
+
+/// Default frames to hold a key down for `press_key`. Three frames
+/// of a 50 Hz PAL refresh is 60 ms — well above the ROM keyboard
+/// scan interval (one frame) but short enough that a script doesn't
+/// stall noticeably.
+const DEFAULT_PRESS_KEY_HOLD_FRAMES: u32 = 3;
+const MAX_PRESS_KEY_HOLD_FRAMES: u32 = 600;
+
+fn execute_press_key(
+    session: &mut SpectrumSession,
+    key: &str,
+    hold_frames: Option<u32>,
+) -> Result<ScriptObservation, ToolError> {
+    // Validate the key name through SpectrumKey::from_name so a
+    // typo yields a clean error rather than silently doing nothing.
+    if common_sinclair_zx_spectrum::keyboard::SpectrumKey::from_name(key).is_none() {
+        return Err(ToolError::InvalidArguments(format!(
+            "press_key: unknown key `{key}` — valid names: A-Z, 0-9, Space, \
+             Enter, CapsShift, SymbolShift (case-insensitive)"
+        )));
+    }
+
+    let hold = hold_frames
+        .unwrap_or(DEFAULT_PRESS_KEY_HOLD_FRAMES)
+        .max(1)
+        .min(MAX_PRESS_KEY_HOLD_FRAMES);
+
+    // Press.
+    session.queue_input(emu198x_shell::InputEvent::Key {
+        name: key.to_owned().into(),
+        pressed: true,
+    });
+    session
+        .run_frames(hold)
+        .map_err(|err| ToolError::Execution(format!("press_key: hold run failed: {err}")))?;
+
+    // Release.
+    session.queue_input(emu198x_shell::InputEvent::Key {
+        name: key.to_owned().into(),
+        pressed: false,
+    });
+    // One settle frame so the released state is visible to the next
+    // step (otherwise the next run_frames would start with the key
+    // still drawn as pressed).
+    session
+        .run_frames(1)
+        .map_err(|err| ToolError::Execution(format!("press_key: settle run failed: {err}")))?;
+
+    Ok(ScriptObservation::PressKey {
+        key: key.to_owned(),
+        hold_frames: hold,
+        reached: session.time(),
+    })
 }
 
 fn execute_watch_ay_log(
@@ -1052,6 +1109,19 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
     }));
 
     registry.register(Box::new(ScriptStepTool {
+        name: "press_key",
+        description: "Press a single named Spectrum key, hold for `hold_frames` native frames (default 3), then release. One step replaces the press / run_frames / release dance. Valid key names: A-Z, 0-9, Space, Enter, CapsShift, SymbolShift (case-insensitive).",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "key": string_field(),
+                "hold_frames": integer_field(),
+            },
+            "required": ["key"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
         name: "memory_read",
         description: "Read a contiguous span of CPU-visible memory (Z80 address space, 0x0000-0xFFFF). Returns raw bytes in memory order. `len` is capped at 256 bytes per call.",
         schema: json!({
@@ -1233,6 +1303,27 @@ mod tests {
     }
 
     #[test]
+    fn parse_step_round_trips_press_key_default_and_explicit_hold() {
+        let s = parse_step("press_key", json!({"key": "Space"})).expect("valid press_key");
+        assert_eq!(
+            s,
+            ScriptStep::PressKey {
+                key: "Space".into(),
+                hold_frames: None,
+            }
+        );
+        let s = parse_step("press_key", json!({"key": "Enter", "hold_frames": 8}))
+            .expect("valid press_key with hold");
+        assert_eq!(
+            s,
+            ScriptStep::PressKey {
+                key: "Enter".into(),
+                hold_frames: Some(8),
+            }
+        );
+    }
+
+    #[test]
     fn parse_step_round_trips_watch_ay_variants() {
         let start = parse_step("watch_ay_start", Value::Null).expect("valid watch_ay_start");
         assert_eq!(start, ScriptStep::WatchAyStart);
@@ -1329,6 +1420,7 @@ mod tests {
             "watch_ay_start",
             "watch_ay_clear",
             "watch_ay_log",
+            "press_key",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");
