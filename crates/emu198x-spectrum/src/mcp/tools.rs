@@ -310,6 +310,21 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
         description: "Finalise the in-flight video recording and return the summary.",
         schema: json!({"type": "object"}),
     }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "reset",
+        description: "Reset the running machine. `kind: hard` is a power-cycle equivalent; `kind: soft` is a machine-local soft reset (today both behave identically on Spectrum). Clears queued input, captured frame, captured audio. Rejected while a video recording is active.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["hard", "soft"],
+                },
+            },
+            "required": ["kind"],
+        }),
+    }));
 }
 
 #[cfg(test)]
@@ -348,6 +363,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_step_round_trips_reset_with_kind() {
+        use emu198x_shell::ResetKind;
+        let step = parse_step("reset", json!({"kind": "hard"})).expect("valid step");
+        assert_eq!(step, ScriptStep::Reset { kind: ResetKind::Hard });
+        let step = parse_step("reset", json!({"kind": "soft"})).expect("valid step");
+        assert_eq!(step, ScriptStep::Reset { kind: ResetKind::Soft });
+    }
+
+    #[test]
     fn register_all_publishes_every_script_step_variant() {
         let mut registry: ToolRegistry<SpectrumSession> = ToolRegistry::new();
         register_all(&mut registry);
@@ -371,6 +395,7 @@ mod tests {
             "load_basic_program",
             "start_video_recording",
             "stop_video_recording",
+            "reset",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");

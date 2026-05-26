@@ -142,8 +142,13 @@ impl MachineProfile {
 }
 
 /// Reset variants exposed by the shared control surface.
+///
+/// Serialised in lower-case on the wire (`"hard"`, `"soft"`) so it
+/// can sit beside the snake-case [`ScriptStep`](crate::ScriptStep)
+/// tag without surprising the script author.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
+#[serde(rename_all = "lowercase")]
 pub enum ResetKind {
     /// A power-cycle equivalent reset.
     Hard,

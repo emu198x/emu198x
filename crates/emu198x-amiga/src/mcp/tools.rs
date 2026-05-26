@@ -213,11 +213,39 @@ fn tool_run_until_pc(args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
     }))
 }
 
-fn tool_reset(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+fn tool_reset(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
+    // Default to "hard" since that's what `reset` did before the
+    // `kind` argument existed.
+    let kind = args
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("hard")
+        .to_ascii_lowercase();
+    let kind = match kind.as_str() {
+        "hard" => "hard",
+        "soft" => "soft",
+        other => {
+            return Err(ToolError::InvalidArguments(format!(
+                "reset: unknown kind `{other}`; expected \"hard\" or \"soft\""
+            )));
+        }
+    };
+
+    // Today both kinds rebuild the A1200 from the ROM image (hard
+    // reset). The A1200's `MachineCore::reset(ResetKind)` impl
+    // currently ignores the kind, so plumbing soft / hard through
+    // would not change the observable result. We accept the
+    // argument so the wire format matches the shared shell layer's
+    // ScriptStep::Reset { kind } and so scripts written against
+    // either system look the same; differentiating soft vs hard on
+    // the A1200 is a separate per-chip job (CIA reset behaviour,
+    // ResetHandlers preservation, etc.).
     s.reset()
         .map_err(|err| ToolError::Execution(format!("reset: {err}")))?;
     Ok(json!({
         "reset": true,
+        "kind": kind,
+        "kind_differentiated": false,
         "rom_path": s.rom_path.display().to_string(),
         "pc": format!("${:08X}", s.machine.cpu().regs.pc),
     }))
@@ -1400,7 +1428,18 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaA1200Session>) {
     add(registry, "run_until_any_pc", "Run until PC matches any address in `targets` or max_ticks reached.", any_pc_schema, tool_run_until_any_pc);
     add(registry, "run_until_mem_change", "Run until any longword in `addrs` changes value, or max_ticks reached.", mem_change_schema, tool_run_until_mem_change);
     add(registry, "step",        "Step one or more CPU instructions, returning a PC trace.", step_schema, tool_step);
-    add(registry, "reset",       "Reload the ROM and re-create the A1200 (fresh boot).", empty(), tool_reset);
+    let reset_schema = json!({
+        "type": "object",
+        "properties": {
+            "kind": {
+                "type": "string",
+                "enum": ["hard", "soft"],
+                "default": "hard",
+                "description": "Hard = power-cycle (reload ROM, rebuild machine). Soft = machine-local soft reset (intended to preserve RAM). Today both rebuild from the ROM; the kind is accepted so MCP scripts can use the same wire format as the shared shell layer."
+            }
+        }
+    });
+    add(registry, "reset",       "Reload the ROM and re-create the A1200 (fresh boot). Accepts an optional `kind` (\"hard\" / \"soft\"; both currently behave as hard).", reset_schema, tool_reset);
     add(registry, "query_cpu",   "Full CPU register snapshot (D0-D7, A0-A7, PC, SR, SSP, USP, VBR, IPL pin, exception state).", empty(), tool_query_cpu);
     add(registry, "query_chipset","BPLCON0 / DMACON / ADKCON / COLOR00 / COP1LC / copper PC / overlay state.", empty(), tool_query_chipset);
     add(registry, "query_paula", "Paula INTENA / INTREQ with bit names decoded.", empty(), tool_query_paula);

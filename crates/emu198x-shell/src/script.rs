@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::asset::{AssetLoadError, read_media_asset};
 use crate::control::ControlCommand;
-use crate::machine::MachineCore;
+use crate::machine::{MachineCore, ResetKind};
 use crate::media::{MediaImage, MediaKind, MediaSet};
 use crate::query::{QueryError, QueryPathsResult, QueryResult, SessionQueryProvider};
 use crate::session::{HeadlessSession, SessionError};
@@ -213,6 +213,24 @@ pub enum ScriptStep {
     /// been captured) runs a second ffmpeg pass to mux audio into the final
     /// MP4. Emits [`ScriptObservation::StopVideoRecording`].
     StopVideoRecording,
+    /// Reset the running machine.
+    ///
+    /// `kind = "hard"` is a power-cycle equivalent (machine state and
+    /// RAM are reconstructed from firmware). `kind = "soft"` is a
+    /// machine-local soft reset (intended to preserve RAM where the
+    /// chipset supports it). Today most systems treat both kinds
+    /// identically — the variant is plumbed end-to-end so per-system
+    /// soft-reset semantics can land incrementally without changing
+    /// the wire format.
+    ///
+    /// Clears session-side state (queued input, latest frame,
+    /// captured audio, last run result). Rejected while a video
+    /// recording is in flight, same rule as [`Self::LoadSnapshot`] —
+    /// reset would jump-cut the clip.
+    Reset {
+        /// The kind of reset to perform.
+        kind: ResetKind,
+    },
 }
 
 /// One JSON script made of ordered shared steps.
@@ -317,6 +335,16 @@ pub enum ScriptObservation {
         duration_ms: u64,
         /// Whether the final MP4 contains a muxed audio track.
         has_audio: bool,
+    },
+    /// Result of a reset step. The `kind` field on
+    /// [`ScriptObservation`] is the tag itself (`"reset"`), so the
+    /// performed reset kind is reported under `performed` to avoid
+    /// the tag-name collision.
+    Reset {
+        /// The kind of reset that was performed.
+        performed: ResetKind,
+        /// Machine time after the reset (typically zero).
+        reached: crate::MachineTime,
     },
 }
 
@@ -508,6 +536,13 @@ impl ScriptStep {
                     frames: summary.frames,
                     duration_ms: summary.duration_ms,
                     has_audio: summary.has_audio,
+                }))
+            }
+            Self::Reset { kind } => {
+                session.reset(*kind)?;
+                Ok(Some(ScriptObservation::Reset {
+                    performed: *kind,
+                    reached: session.time(),
                 }))
             }
         }
@@ -1120,6 +1155,75 @@ mod tests {
         assert_eq!(
             json,
             r#"{"kind":"set_machine","machine":"spectrum_48k","profile_id":"sinclair-zx-spectrum-48k-pal","display_name":"ZX Spectrum 48K (PAL)"}"#
+        );
+    }
+
+    #[test]
+    fn reset_step_round_trips_through_json_for_both_kinds() {
+        for (json, kind) in [
+            (
+                r#"[{"action":"reset","kind":"hard"}]"#,
+                ResetKind::Hard,
+            ),
+            (
+                r#"[{"action":"reset","kind":"soft"}]"#,
+                ResetKind::Soft,
+            ),
+        ] {
+            let script = HeadlessScript::from_json_str(json).expect("script should parse");
+            assert_eq!(script.steps, vec![ScriptStep::Reset { kind }]);
+            let serialized = serde_json::to_string(&script.steps).expect("re-serialize");
+            assert_eq!(serialized, json);
+        }
+    }
+
+    #[test]
+    fn reset_observation_uses_performed_field_to_avoid_kind_tag_clash() {
+        // Same constraint as set_machine: ScriptObservation tags with
+        // `kind`, so the variant uses `performed` for the reset kind.
+        let observation = ScriptObservation::Reset {
+            performed: ResetKind::Soft,
+            reached: MachineTime::new(0),
+        };
+        let json = serde_json::to_string(&observation).expect("serialize observation");
+        assert_eq!(
+            json,
+            r#"{"kind":"reset","performed":"soft","reached":0}"#
+        );
+    }
+
+    #[test]
+    fn headless_script_executes_reset_and_emits_observation() {
+        let script = HeadlessScript {
+            steps: vec![
+                ScriptStep::RunFrames { frames: 2 },
+                ScriptStep::Reset { kind: ResetKind::Hard },
+                ScriptStep::Reset { kind: ResetKind::Soft },
+            ],
+        };
+
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69888);
+        let observations = script
+            .execute_collect(&mut session)
+            .expect("script should run to completion");
+
+        assert_eq!(
+            observations,
+            vec![
+                ScriptObservation::RunFrames {
+                    frames: 2,
+                    reached: MachineTime::new(2 * 69888),
+                    stop_reason: StopReason::ReachedTarget,
+                },
+                ScriptObservation::Reset {
+                    performed: ResetKind::Hard,
+                    reached: MachineTime::new(2 * 69888),
+                },
+                ScriptObservation::Reset {
+                    performed: ResetKind::Soft,
+                    reached: MachineTime::new(2 * 69888),
+                },
+            ]
         );
     }
 }

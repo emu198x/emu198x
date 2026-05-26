@@ -9,7 +9,7 @@ use crate::control::ControlCommand;
 use crate::error::MachineError;
 use crate::headless::prepare_machine;
 use crate::host::{HostIo, InputEvent, NullTraceSink, TraceSink};
-use crate::machine::{MachineCore, RunResult, StopReason};
+use crate::machine::{MachineCore, ResetKind, RunResult, StopReason};
 use crate::media::MediaSet;
 use crate::query::{
     NoAdditionalQueries, QueryError, QueryPathsResult, QueryResult, SessionQueryProvider,
@@ -524,6 +524,32 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     /// Returns an error if the machine rejects the media.
     pub fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), SessionError> {
         self.machine.load_media(media)?;
+        Ok(())
+    }
+
+    /// Resets the underlying machine.
+    ///
+    /// Forwards to [`MachineCore::reset`]. Also clears session-side
+    /// state that no longer makes sense across a reset (queued input,
+    /// the latest captured frame, captured audio, the cached last
+    /// run result).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::DisallowedDuringRecording`] when a
+    /// video recording is in flight — a reset would jump-cut the
+    /// clip, same rule as [`Self::restore_snapshot`].
+    pub fn reset(&mut self, kind: ResetKind) -> Result<(), SessionError> {
+        if self.recorder.is_some() {
+            return Err(SessionError::DisallowedDuringRecording {
+                operation: "reset",
+            });
+        }
+        self.machine.reset(kind);
+        self.queued_input.clear();
+        self.frame_capture = LatestFrameCapture::default();
+        self.audio_capture = AudioCapture::default();
+        self.last_run_result = None;
         Ok(())
     }
 
