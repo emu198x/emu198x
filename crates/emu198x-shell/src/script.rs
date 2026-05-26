@@ -236,6 +236,21 @@ pub enum ScriptStep {
     /// as 16-bit PCM WAV, and writes it to disk. Emits
     /// [`ScriptObservation::StopAudioRecording`].
     StopAudioRecording,
+    /// Query the AY-3-8912 chip's full register state in one call.
+    ///
+    /// Spectrum-family system-specific step (errors with
+    /// [`ScriptError::SystemSpecificStep`] on the shell's built-in
+    /// executor; the Spectrum binary intercepts it before delegation
+    /// and returns [`ScriptObservation::QueryAy`] with the 16 raw
+    /// registers plus decoded tone periods, mixer routing, amplitudes,
+    /// noise period, and envelope. Errors when the active variant
+    /// does not have an AY (16K / 48K / Spectrum+).
+    ///
+    /// Wraps the low-level `spectrum.ay.registers` /
+    /// `spectrum.ay.selected_register` queries with named fields so
+    /// curriculum scripts can assert on chip state without decoding
+    /// the 16-byte raw array themselves.
+    QueryAy,
     /// Reset the running machine.
     ///
     /// `kind = "hard"` is a power-cycle equivalent (machine state and
@@ -358,6 +373,40 @@ pub enum ScriptObservation {
         duration_ms: u64,
         /// Whether the final MP4 contains a muxed audio track.
         has_audio: bool,
+    },
+    /// Result of querying the AY-3-8912 chip state.
+    QueryAy {
+        /// Last register index selected by an `OUT (#FFFD)` write.
+        /// Reads from `IN (#FFFD)` return `raw[selected_register]`.
+        selected_register: u8,
+        /// All 16 registers, post-mask. `raw[0..2]` is tone-A period
+        /// (12-bit, low byte first); `raw[2..4]` tone-B; `raw[4..6]`
+        /// tone-C; `raw[6]` noise period (5-bit); `raw[7]` mixer;
+        /// `raw[8..11]` amplitudes A/B/C; `raw[11..13]` envelope
+        /// period; `raw[13]` envelope shape; `raw[14..16]` I/O ports.
+        raw: Vec<u8>,
+        /// Tone-A period (12-bit value built from R0 + R1).
+        tone_period_a: u16,
+        /// Tone-B period (R2 + R3).
+        tone_period_b: u16,
+        /// Tone-C period (R4 + R5).
+        tone_period_c: u16,
+        /// Noise period (5-bit, R6).
+        noise_period: u8,
+        /// Mixer register (R7). Bits 0..2 disable tone channels
+        /// A/B/C; bits 3..5 disable noise; bits 6..7 set port direction.
+        mixer: u8,
+        /// Channel-A amplitude (R8). Bit 4 selects envelope mode;
+        /// bits 0..3 are fixed amplitude.
+        amplitude_a: u8,
+        /// Channel-B amplitude (R9).
+        amplitude_b: u8,
+        /// Channel-C amplitude (R10).
+        amplitude_c: u8,
+        /// Envelope period (16-bit value built from R11 + R12).
+        envelope_period: u16,
+        /// Envelope shape (R13, 4-bit).
+        envelope_shape: u8,
     },
     /// Result of finalising one standalone audio recording.
     StopAudioRecording {
@@ -555,6 +604,7 @@ impl ScriptStep {
             Self::SetMachine { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "set_machine",
             }),
+            Self::QueryAy => Err(ScriptError::SystemSpecificStep { step: "query_ay" }),
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
             }),

@@ -93,6 +93,7 @@ fn mcp_execute_step(
 ) -> Result<Option<ScriptObservation>, ToolError> {
     match step {
         ScriptStep::SetMachine { machine } => execute_set_machine(machine, session).map(Some),
+        ScriptStep::QueryAy => execute_query_ay(session).map(Some),
         ScriptStep::AutoloadTape {
             slot,
             max_boot_frames,
@@ -177,6 +178,64 @@ fn execute_set_machine(
         profile_id: profile.profile_id.as_str().to_owned(),
         display_name: profile.display_name.to_string(),
     })
+}
+
+fn execute_query_ay(session: &mut SpectrumSession) -> Result<ScriptObservation, ToolError> {
+    // Look up the two low-level AY paths through the existing
+    // session query provider; on AY-bearing variants both resolve,
+    // on 48K-class variants `spectrum.ay.registers` is not in
+    // `variant_query_paths()` and the provider returns `Ok(None)` →
+    // QueryError::UnknownPath. We surface that as a clear "active
+    // variant has no AY" error rather than a generic UnknownPath.
+    let regs = session
+        .query("spectrum.ay.registers")
+        .map_err(|err| ay_unsupported_error(&err))?;
+    let raw: Vec<u8> = serde_json::from_value(regs.value).map_err(|err| {
+        ToolError::Execution(format!("query_ay: malformed spectrum.ay.registers value: {err}"))
+    })?;
+    if raw.len() != 16 {
+        return Err(ToolError::Execution(format!(
+            "query_ay: expected 16 AY registers, got {}",
+            raw.len()
+        )));
+    }
+    let selected = session
+        .query("spectrum.ay.selected_register")
+        .map_err(|err| ay_unsupported_error(&err))?;
+    let selected_register: u8 = serde_json::from_value(selected.value).map_err(|err| {
+        ToolError::Execution(format!(
+            "query_ay: malformed spectrum.ay.selected_register value: {err}"
+        ))
+    })?;
+
+    let tone_period_a = u16::from(raw[0]) | (u16::from(raw[1] & 0x0F) << 8);
+    let tone_period_b = u16::from(raw[2]) | (u16::from(raw[3] & 0x0F) << 8);
+    let tone_period_c = u16::from(raw[4]) | (u16::from(raw[5] & 0x0F) << 8);
+    let envelope_period = u16::from(raw[11]) | (u16::from(raw[12]) << 8);
+
+    Ok(ScriptObservation::QueryAy {
+        selected_register,
+        raw: raw.clone(),
+        tone_period_a,
+        tone_period_b,
+        tone_period_c,
+        noise_period: raw[6] & 0x1F,
+        mixer: raw[7],
+        amplitude_a: raw[8] & 0x1F,
+        amplitude_b: raw[9] & 0x1F,
+        amplitude_c: raw[10] & 0x1F,
+        envelope_period,
+        envelope_shape: raw[13] & 0x0F,
+    })
+}
+
+fn ay_unsupported_error(err: &emu198x_shell::QueryError) -> ToolError {
+    ToolError::Execution(format!(
+        "query_ay: active Spectrum variant does not have an AY-3-8912 chip \
+         (only 128K, +2, +2A, +2B, +3, Pentagon, Scorpion, and Timex TC2068 / \
+         TS2068 expose AY state). Switch to one of those variants via the \
+         `set_machine` tool first. Underlying error: {err}"
+    ))
 }
 
 fn execute_autoload_tape(
@@ -515,6 +574,12 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
         description: "Finalise the in-flight audio recording. Slices the audio buffer from the start_audio_recording offset to the current end, encodes 16-bit PCM WAV, and writes it to disk.",
         schema: json!({"type": "object"}),
     }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "query_ay",
+        description: "Query the AY-3-8912 sound chip's full register state in one call. Returns the 16 raw registers plus decoded tone periods (A/B/C), noise period, mixer, amplitudes, envelope period, and envelope shape. Errors when the active variant has no AY (16K / 48K / Spectrum+); call set_machine first to switch to a 128K-class variant.",
+        schema: json!({"type": "object"}),
+    }));
 }
 
 #[cfg(test)]
@@ -562,6 +627,12 @@ mod tests {
     }
 
     #[test]
+    fn parse_step_accepts_null_arguments_for_query_ay() {
+        let step = parse_step("query_ay", Value::Null).expect("valid step");
+        assert_eq!(step, ScriptStep::QueryAy);
+    }
+
+    #[test]
     fn register_all_publishes_every_script_step_variant() {
         let mut registry: ToolRegistry<SpectrumSession> = ToolRegistry::new();
         register_all(&mut registry);
@@ -588,6 +659,7 @@ mod tests {
             "reset",
             "start_audio_recording",
             "stop_audio_recording",
+            "query_ay",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");
