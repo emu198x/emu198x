@@ -20,6 +20,7 @@ use emu198x_shell::{
     StopReason,
 };
 use format_commodore_amiga_adf::Adf;
+use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{
     AmigaEcs, AudioControls as EcsAudioControls, PaulaChannel as EcsPaulaChannel,
 };
@@ -617,6 +618,121 @@ impl AmigaRuntime<AmigaEcs> {
     /// Set one Paula channel's host-side gain.
     pub fn set_audio_channel_gain(&mut self, channel: EcsPaulaChannel, gain: f32) {
         self.machine.set_audio_channel_gain(channel, gain);
+    }
+}
+
+// =====================================================================
+// AmigaA1200-specific construction + audio control surface.
+// Parallels the AmigaOcs / AmigaEcs blocks above. The A1200 reuses the
+// shared Paula 8364, so `AudioControls` / `PaulaChannel` are the same
+// OCS-crate types the OCS impl uses.
+// =====================================================================
+
+impl AmigaRuntime<AmigaA1200> {
+    /// Construct a runtime from owned model-specific firmware bytes,
+    /// using the model's preset RAM layout (2 MiB chip for stock
+    /// A1200).
+    ///
+    /// # Errors
+    /// Returns an error if the firmware size is not valid for the
+    /// selected model (A1200 expects a 512 KiB Kickstart 3.0/3.1).
+    pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
+        Self::with_ram_config(model, firmware_rom, model.ram_config())
+    }
+
+    /// Construct a runtime with an explicit RAM layout, bypassing the
+    /// model's preset. Useful for testing fast-RAM expansion configs
+    /// (trapdoor accelerator + fast RAM) without baking those into
+    /// the model catalogue.
+    ///
+    /// # Errors
+    /// Returns an error if the ROM size is invalid.
+    pub fn with_ram_config(
+        model: Model,
+        firmware_rom: Vec<u8>,
+        ram_config: RamConfig,
+    ) -> Result<Self, MachineError> {
+        validate_firmware_rom(model, &firmware_rom)?;
+        let machine = build_amiga_a1200(model, ram_config, &firmware_rom);
+        let tick_hz = AmigaMachine::cck_hz(&machine).saturating_mul(2);
+        let mut runtime = Self {
+            profile: profile_for(model),
+            model,
+            metadata: ram_config,
+            machine,
+            time: MachineTime::default(),
+            firmware_rom,
+            floppy0_bytes: None,
+            rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
+            frame_count: 0,
+            non_black_pixels: 0,
+            non_white_pixels: 0,
+            first_active_row: None,
+            audio_sample_accumulator: 0,
+            audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
+            tick_hz,
+        };
+        runtime.update_rgba_framebuffer();
+        Ok(runtime)
+    }
+
+    /// Construct from the profile's firmware set.
+    ///
+    /// # Errors
+    /// Returns an error if firmware is missing or invalid.
+    pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        let profile = profile_for(model);
+        firmware.validate_for_profile(&profile)?;
+        let firmware_id = firmware_id_for_model(model);
+        let image = firmware
+            .bytes(firmware_id)
+            .ok_or_else(|| MachineError::MissingFirmware {
+                id: firmware_id.to_owned(),
+            })?;
+        Self::new(model, image.to_vec())
+    }
+
+    /// Construct with a zero-filled placeholder firmware.
+    #[must_use]
+    pub fn blank(model: Model) -> Self {
+        Self::new(model, blank_firmware_rom(model))
+            .expect("blank model firmware image should be valid")
+    }
+
+    /// RAM layout currently installed.
+    #[must_use]
+    pub fn ram_config(&self) -> RamConfig {
+        self.metadata
+    }
+
+    /// Current host-side Paula audio controls.
+    #[must_use]
+    pub fn audio_controls(&self) -> AudioControls {
+        self.machine.audio_controls()
+    }
+
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.machine.set_audio_controls(controls);
+    }
+
+    pub fn set_audio_channel_enabled(&mut self, channel: PaulaChannel, enabled: bool) {
+        self.machine.set_audio_channel_enabled(channel, enabled);
+    }
+
+    pub fn set_audio_channel_gain(&mut self, channel: PaulaChannel, gain: f32) {
+        self.machine.set_audio_channel_gain(channel, gain);
+    }
+}
+
+fn build_amiga_a1200(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> AmigaA1200 {
+    // A1200 only ever boots from Kickstart 3.0 / 3.1 (no A1000-style
+    // bootstrap path). Region drives PAL/NTSC Agnus selection inside
+    // the chip layer; A1200 reuses the same shared AgnusRegion enum.
+    let firmware = firmware_rom.to_vec();
+    if model.is_ntsc() {
+        AmigaA1200::with_ram_config_ntsc(firmware, ram_config)
+    } else {
+        AmigaA1200::with_ram_config(firmware, ram_config)
     }
 }
 

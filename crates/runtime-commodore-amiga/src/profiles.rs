@@ -44,6 +44,12 @@ pub enum Model {
     A500OcsPalMaxed,
     /// Maxed A500 (NTSC).
     A500OcsNtscMaxed,
+    /// A1200 AGA PAL: 2 MiB chip RAM, 68EC020 CPU, Alice + Lisa
+    /// chipset, Gayle IDE, Kickstart 3.0 / 3.1. Backed by
+    /// `AmigaA1200`.
+    A1200AgaPal,
+    /// A1200 AGA NTSC.
+    A1200AgaNtsc,
 }
 
 /// Native PAL frame length in Agnus colour clocks.
@@ -84,6 +90,8 @@ impl Model {
             Self::A500PlusEcsNtsc => "commodore-amiga-a500-plus-ecs-ntsc",
             Self::A500OcsPalMaxed => "commodore-amiga-a500-ocs-pal-maxed",
             Self::A500OcsNtscMaxed => "commodore-amiga-a500-ocs-ntsc-maxed",
+            Self::A1200AgaPal => "commodore-amiga-a1200-aga-pal",
+            Self::A1200AgaNtsc => "commodore-amiga-a1200-aga-ntsc",
         }
     }
 
@@ -107,6 +115,8 @@ impl Model {
             Self::A500PlusEcsNtsc => "Commodore Amiga 500+ (ECS NTSC)",
             Self::A500OcsPalMaxed => "Commodore Amiga 500 maxed (OCS PAL, 1M+512K+8M)",
             Self::A500OcsNtscMaxed => "Commodore Amiga 500 maxed (OCS NTSC, 1M+512K+8M)",
+            Self::A1200AgaPal => "Commodore Amiga 1200 (AGA PAL)",
+            Self::A1200AgaNtsc => "Commodore Amiga 1200 (AGA NTSC)",
         }
     }
 
@@ -125,6 +135,13 @@ impl Model {
             Self::A500OcsPalA501 | Self::A500OcsNtscA501 => RamConfig::a501_trapdoor(),
             Self::A500PlusEcsPal | Self::A500PlusEcsNtsc => RamConfig::a500_plus(),
             Self::A500OcsPalMaxed | Self::A500OcsNtscMaxed => RamConfig::a500_maxed(),
+            // Stock A1200: 2 MiB chip RAM, no slow, no fast (trapdoor
+            // accelerator + fast RAM are accelerator config, not stock).
+            Self::A1200AgaPal | Self::A1200AgaNtsc => RamConfig {
+                chip_kb: 2048,
+                slow_kb: 0,
+                fast_kb: 0,
+            },
         }
     }
 
@@ -148,7 +165,15 @@ impl Model {
                 | Self::A500OcsNtscA501
                 | Self::A500PlusEcsNtsc
                 | Self::A500OcsNtscMaxed
+                | Self::A1200AgaNtsc
         )
+    }
+
+    /// Whether this model uses the AGA chip stack (`AmigaA1200`).
+    /// Drives the third dispatch arm in `AmigaRuntimeKind::new`.
+    #[must_use]
+    pub const fn is_aga(self) -> bool {
+        matches!(self, Self::A1200AgaPal | Self::A1200AgaNtsc)
     }
 
     /// Whether this model uses the ECS chip stack (`AmigaEcs`).
@@ -179,6 +204,7 @@ impl Model {
             | Self::A500OcsPalMaxed
             | Self::A500OcsNtscMaxed => ChipsetKind::Ocs,
             Self::A500PlusEcsPal | Self::A500PlusEcsNtsc => ChipsetKind::Ecs,
+            Self::A1200AgaPal | Self::A1200AgaNtsc => ChipsetKind::Aga,
         }
     }
 
@@ -191,9 +217,6 @@ impl Model {
     #[must_use]
     pub const fn cpu(self) -> crate::amiga_model::CpuKind {
         use crate::amiga_model::CpuKind;
-        // Every model in the catalogue today is a stock 68000.
-        // As A1200 (68EC020), A3000 / A4000-030 (68030), and
-        // A4000-040 (68040) land, this match grows.
         match self {
             Self::A1000OcsPal
             | Self::A1000OcsNtsc
@@ -205,6 +228,7 @@ impl Model {
             | Self::A500OcsNtscMaxed
             | Self::A500PlusEcsPal
             | Self::A500PlusEcsNtsc => CpuKind::M68000,
+            Self::A1200AgaPal | Self::A1200AgaNtsc => CpuKind::M68EC020,
         }
     }
 }
@@ -223,6 +247,8 @@ pub fn profiles() -> Vec<MachineProfile> {
         profile_for(Model::A500PlusEcsNtsc),
         profile_for(Model::A500OcsPalMaxed),
         profile_for(Model::A500OcsNtscMaxed),
+        profile_for(Model::A1200AgaPal),
+        profile_for(Model::A1200AgaNtsc),
     ]
 }
 
@@ -243,6 +269,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         | Model::A500OcsPalMaxed
         | Model::A500OcsNtscMaxed => 1987,
         Model::A500PlusEcsPal | Model::A500PlusEcsNtsc => 1991,
+        Model::A1200AgaPal | Model::A1200AgaNtsc => 1992,
     };
     let (firmware_id, firmware_name) = if model.is_a1000() {
         (
@@ -275,6 +302,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             Model::A1000OcsNtsc => "Amiga 1000 OCS NTSC — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Boot path matches PAL A1000; Agnus runs on the NTSC clock with the short/long line alternation modelled in the chip layer.".into(),
             Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500PlusEcsPal | Model::A500OcsPalMaxed => "Amiga OCS PAL — Kickstart-backed headless boot, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Snapshots and broader software validation still pending.".into(),
             Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500PlusEcsNtsc | Model::A500OcsNtscMaxed => "Amiga OCS NTSC — Kickstart-backed headless boot at the US 60 Hz field rate, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. NTSC boot validation still pending; structural plumbing is in place via the chip-layer short/long line alternation.".into(),
+            Model::A1200AgaPal => "Amiga 1200 AGA PAL — 68EC020 + Alice/Lisa chipset + Gayle, 2 MiB chip RAM, Kickstart 3.0/3.1, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Active stage-by-stage development; boot validation work documented in docs/handoffs/.".into(),
+            Model::A1200AgaNtsc => "Amiga 1200 AGA NTSC — 68EC020 + Alice/Lisa chipset + Gayle, 2 MiB chip RAM. NTSC boot validation pending; PAL Agnus path is the active target.".into(),
         },
         clock: ClockDesc::new("cck", ClockRate::from_hz(cck_hz)),
         firmware: vec![FirmwareRequirement::new(firmware_id, firmware_name, false)],

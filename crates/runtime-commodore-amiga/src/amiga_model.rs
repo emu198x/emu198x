@@ -140,6 +140,16 @@ pub mod a500plus {
     pub const NTSC: Model = Model::A500PlusEcsNtsc;
 }
 
+/// A1200 — the 1992 AGA flagship of the wedge form factor.
+pub mod a1200 {
+    use super::Model;
+    /// A1200 AGA PAL: 68EC020, Alice + Lisa chipset, Gayle IDE,
+    /// 2 MiB chip RAM, Kickstart 3.0 / 3.1.
+    pub const PAL: Model = Model::A1200AgaPal;
+    /// A1200 AGA NTSC.
+    pub const NTSC: Model = Model::A1200AgaNtsc;
+}
+
 // ─── Future families ────────────────────────────────────────────────
 //
 // Per the rollout plan, the next machines to land are A1200 (AGA),
@@ -168,11 +178,12 @@ mod tests {
         assert_eq!(a500::A501_PAL, Model::A500OcsPalA501);
         assert_eq!(a500::MAXED_NTSC, Model::A500OcsNtscMaxed);
         assert_eq!(a500plus::PAL, Model::A500PlusEcsPal);
+        assert_eq!(a1200::PAL, Model::A1200AgaPal);
+        assert_eq!(a1200::NTSC, Model::A1200AgaNtsc);
     }
 
     #[test]
-    fn chipset_kind_matches_flat_model_ecs_predicate() {
-        // Every PAL/NTSC pair of a model agrees on chipset.
+    fn chipset_kind_matches_flat_model_predicates() {
         assert_eq!(a1000::PAL.chipset(), ChipsetKind::Ocs);
         assert_eq!(a1000::NTSC.chipset(), ChipsetKind::Ocs);
         assert_eq!(a500::PAL.chipset(), ChipsetKind::Ocs);
@@ -180,12 +191,15 @@ mod tests {
         assert_eq!(a500::MAXED_NTSC.chipset(), ChipsetKind::Ocs);
         assert_eq!(a500plus::PAL.chipset(), ChipsetKind::Ecs);
         assert_eq!(a500plus::NTSC.chipset(), ChipsetKind::Ecs);
+        assert_eq!(a1200::PAL.chipset(), ChipsetKind::Aga);
+        assert_eq!(a1200::NTSC.chipset(), ChipsetKind::Aga);
     }
 
     #[test]
-    fn cpu_kind_is_68000_for_all_current_models() {
-        // Every model in the current catalogue ships with a stock
-        // 68000. As A1200 / A3000 / A4000 land, this test grows.
+    fn cpu_kind_partitions_by_chipset() {
+        // OCS + ECS models ship stock 68000; AGA models ship 68EC020.
+        // As A3000 / A4000 land (still under ECS / AGA but with 68030
+        // / 68040 stock CPUs), this test grows.
         for model in [
             a1000::PAL,
             a1000::NTSC,
@@ -199,6 +213,9 @@ mod tests {
             a500plus::NTSC,
         ] {
             assert_eq!(model.cpu(), CpuKind::M68000, "{model:?} should be 68000");
+        }
+        for model in [a1200::PAL, a1200::NTSC] {
+            assert_eq!(model.cpu(), CpuKind::M68EC020, "{model:?} should be 68EC020");
         }
     }
 

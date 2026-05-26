@@ -16,6 +16,7 @@
 
 use emu198x_shell::QueryError;
 use format_commodore_amiga_adf::Adf;
+use machine_commodore_amiga_a1200::{AmigaA1200, AmigaA1200Snapshot};
 use machine_commodore_amiga_ecs::{AmigaEcs, AmigaEcsSnapshot};
 use machine_commodore_amiga_ocs::{
     AgnusRegion, AmigaOcs, AmigaOcsSnapshot, FB_HEIGHT, FB_WIDTH, RamConfig,
@@ -439,7 +440,173 @@ impl AmigaMachine for AmigaEcs {
 pub type AmigaEcsRuntime = AmigaRuntime<AmigaEcs>;
 
 // ===================================================================
-// AmigaRuntimeKind — runtime-time dispatch over OCS / ECS.
+// AmigaA1200 impl — AGA chipset, 68EC020, A1200 / (future) CD32 / A4000.
+//
+// The chip stack uses AGA Alice (Agnus replacement) + AGA Lisa (Denise
+// replacement, exposed as `Denise<DeniseAga>`) + Paula 8364 + the same
+// two-CIA pair + the AGA-specific Gayle controller (IDE + control
+// registers). For the trait impl, the surface is mechanically the same
+// as OCS / ECS — only the snapshot type and query-path catalogue differ
+// (A1000 paths drop, future Gayle / Akiko paths arrive in Phase 2).
+// ===================================================================
+
+/// AGA query paths. Drops the A1000-only paths (no A1200 bootstrap ROM
+/// or WOM) and adds AGA-specific paths as Phase 2 chip-level tools
+/// land. CPU / Agnus / Paula / disk / keyboard paths share the same
+/// names as OCS / ECS so curriculum scripts targeting "amiga.cpu.pc"
+/// work across the family.
+const AGA_VARIANT_QUERY_PATHS: &[&str] = &[
+    "amiga.memory.overlay",
+    "amiga.cpu.pc",
+    "amiga.cpu.sr",
+    "amiga.cpu.ipl",
+    "amiga.agnus.vpos",
+    "amiga.agnus.hpos",
+    "amiga.agnus.dmacon",
+    "amiga.agnus.bplcon0",
+    "amiga.paula.intena",
+    "amiga.paula.intreq",
+    "amiga.debug.dsk_write_count",
+    "amiga.debug.last_dsk_write",
+    "amiga.display.color00",
+    "amiga.display.color01",
+    "amiga.disk.inserted",
+    "amiga.disk.change_pending",
+    "amiga.disk.cylinder",
+    "amiga.disk.head",
+    "amiga.disk.motor_on",
+    "amiga.disk.motor_spinning",
+    "amiga.disk.step_events",
+    "amiga.keyboard.state",
+    "amiga.keyboard.queued",
+];
+
+impl AmigaMachine for AmigaA1200 {
+    const CHIPSET_FB_WIDTH: u32 = FB_WIDTH;
+    const CHIPSET_FB_HEIGHT: u32 = FB_HEIGHT;
+
+    type Snapshot = AmigaA1200Snapshot;
+    type SnapshotMetadata = RamConfig;
+
+    fn rebuild(&mut self, firmware: &[u8], metadata: &Self::SnapshotMetadata) {
+        // A1200 only ever boots from Kickstart 3.0 / 3.1 (512 KiB).
+        // There's no A1000-style bootstrap path here; the runtime's
+        // `validate_firmware_rom` already gates ROM sizes against
+        // `Model::is_a1000()`, which returns false for every AGA
+        // model, so the firmware reaches this method already sized
+        // for a Kickstart image.
+        *self = AmigaA1200::with_ram_config(firmware.to_vec(), *metadata);
+    }
+
+    fn tick(&mut self) {
+        AmigaA1200::tick(self);
+    }
+
+    fn frame_ticks(&self) -> u64 {
+        match self.region() {
+            AgnusRegion::Pal => crate::A500_PAL_FRAME_TICKS,
+            AgnusRegion::Ntsc => crate::A500_NTSC_FRAME_TICKS,
+        }
+    }
+
+    fn cck_hz(&self) -> u64 {
+        // AGA uses the same master clock as OCS / ECS (28.375160 MHz
+        // PAL, 28.636360 MHz NTSC); the chip-RAM bus is double-pumped
+        // for 32-bit fetches but the CCK rate at master/8 is unchanged.
+        match self.region() {
+            AgnusRegion::Pal => crate::A500_PAL_CCK_HZ,
+            AgnusRegion::Ntsc => crate::A500_NTSC_CCK_HZ,
+        }
+    }
+
+    fn chipset_framebuffer(&self) -> &[u32] {
+        self.denise().framebuffer()
+    }
+
+    fn mix_audio_stereo(&self) -> (f32, f32) {
+        self.paula().mix_audio_stereo()
+    }
+
+    fn key_event(&mut self, code: u8, pressed: bool) {
+        AmigaA1200::key_event(self, code, pressed);
+    }
+
+    fn move_mouse_port0(&mut self, dx: i32, dy: i32) {
+        AmigaA1200::move_mouse_port0(self, dx, dy);
+    }
+
+    fn set_mouse_button_port0(&mut self, button: &str, pressed: bool) {
+        AmigaA1200::set_mouse_button_port0(self, button, pressed);
+    }
+
+    fn set_joystick_control(&mut self, port: u8, name: &str, pressed: bool) {
+        let _ = AmigaA1200::set_joystick_control(self, port, name, pressed);
+    }
+
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
+        if change_pending {
+            self.insert_adf_with_change_pending(adf);
+        } else {
+            self.insert_adf(adf);
+        }
+    }
+
+    fn snapshot_state(&self) -> Self::Snapshot {
+        AmigaA1200::snapshot_state(self)
+    }
+
+    fn restore_snapshot_state(&mut self, snapshot: Self::Snapshot) {
+        AmigaA1200::restore_snapshot_state(self, snapshot);
+    }
+
+    fn variant_query_paths() -> &'static [&'static str] {
+        AGA_VARIANT_QUERY_PATHS
+    }
+
+    fn resolve_variant_query(&self, path: &str) -> Result<Option<Value>, QueryError> {
+        let drive = self.drive();
+        let drive_status = drive.status();
+        let value = match path {
+            "amiga.memory.overlay" => json!(self.memory().overlay()),
+            "amiga.cpu.pc" => json!(self.cpu().regs.pc),
+            "amiga.cpu.sr" => json!(self.cpu().regs.sr),
+            "amiga.cpu.ipl" => json!(self.cpu().ipl),
+            "amiga.agnus.vpos" => json!(self.agnus().vpos),
+            "amiga.agnus.hpos" => json!(self.agnus().hpos),
+            "amiga.agnus.dmacon" => json!(self.dmacon()),
+            "amiga.agnus.bplcon0" => json!(self.bplcon0()),
+            "amiga.paula.intena" => json!(self.intena()),
+            "amiga.paula.intreq" => json!(self.intreq()),
+            "amiga.debug.dsk_write_count" => json!(self.debug_dsk_log.len()),
+            "amiga.debug.last_dsk_write" => {
+                json!(self.debug_dsk_log.last().map(|(cck, pc, reg, val)| {
+                    json!({"cck": cck, "pc": pc, "reg": reg, "val": val})
+                }))
+            }
+            "amiga.display.color00" => json!(self.color(0)),
+            "amiga.display.color01" => json!(self.color(1)),
+            "amiga.disk.inserted" => json!(drive.has_disk()),
+            "amiga.disk.change_pending" => json!(drive_status.disk_change),
+            "amiga.disk.cylinder" => json!(drive.cylinder()),
+            "amiga.disk.head" => json!(drive.head()),
+            "amiga.disk.motor_on" => json!(drive.motor_on()),
+            "amiga.disk.motor_spinning" => json!(drive_status.ready),
+            "amiga.disk.step_events" => json!(drive.step_event_counter()),
+            "amiga.keyboard.state" => json!(self.keyboard().debug_state_name()),
+            "amiga.keyboard.queued" => json!(self.keyboard().queued_key_count()),
+            _ => return Ok(None),
+        };
+        Ok(Some(value))
+    }
+}
+
+/// Type alias for the AGA runtime — covers A1200 today, with A4000 /
+/// CD32 to land here once their machine-specific chips (Fat Gary +
+/// Ramsey for A4000, Akiko for CD32) are ported.
+pub type AmigaA1200Runtime = AmigaRuntime<AmigaA1200>;
+
+// ===================================================================
+// AmigaRuntimeKind — runtime-time dispatch over OCS / ECS / AGA.
 //
 // Verifier binaries (emu198x-amiga, emu198x-script-amiga) take a
 // `--model` argument that may pick either an OCS or an ECS variant.
@@ -461,6 +628,10 @@ pub enum AmigaRuntimeKind {
     /// ECS chip stack — A500+ today (PAL/NTSC); A600 / A2000B / A3000
     /// will land here once their machine-specific chips are ported.
     Ecs(AmigaEcsRuntime),
+    /// AGA chip stack — A1200 today (PAL/NTSC); A4000 / CD32 land
+    /// here once their machine-specific chips (Fat Gary + Ramsey for
+    /// A4000, Akiko for CD32) are ported.
+    Aga(AmigaA1200Runtime),
 }
 
 impl AmigaRuntimeKind {
@@ -471,7 +642,9 @@ impl AmigaRuntimeKind {
     /// Returns the underlying `MachineError` from the dispatched
     /// runtime constructor.
     pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, emu198x_shell::MachineError> {
-        if model.is_ecs() {
+        if model.is_aga() {
+            AmigaA1200Runtime::new(model, firmware_rom).map(Self::Aga)
+        } else if model.is_ecs() {
             AmigaEcsRuntime::new(model, firmware_rom).map(Self::Ecs)
         } else {
             AmigaOcsRuntime::new(model, firmware_rom).map(Self::Ocs)
@@ -487,7 +660,9 @@ impl AmigaRuntimeKind {
         model: Model,
         firmware: &emu198x_shell::FirmwareSet<'_>,
     ) -> Result<Self, emu198x_shell::MachineError> {
-        if model.is_ecs() {
+        if model.is_aga() {
+            AmigaA1200Runtime::from_firmware(model, firmware).map(Self::Aga)
+        } else if model.is_ecs() {
             AmigaEcsRuntime::from_firmware(model, firmware).map(Self::Ecs)
         } else {
             AmigaOcsRuntime::from_firmware(model, firmware).map(Self::Ocs)
@@ -498,19 +673,22 @@ impl AmigaRuntimeKind {
     /// tests and verifier dry-runs.
     #[must_use]
     pub fn blank(model: Model) -> Self {
-        if model.is_ecs() {
+        if model.is_aga() {
+            Self::Aga(AmigaA1200Runtime::blank(model))
+        } else if model.is_ecs() {
             Self::Ecs(AmigaEcsRuntime::blank(model))
         } else {
             Self::Ocs(AmigaOcsRuntime::blank(model))
         }
     }
 
-    /// Active model — same on both inner cases.
+    /// Active model — same on each inner case.
     #[must_use]
     pub fn model(&self) -> Model {
         match self {
             Self::Ocs(rt) => rt.model(),
             Self::Ecs(rt) => rt.model(),
+            Self::Aga(rt) => rt.model(),
         }
     }
 
@@ -521,6 +699,14 @@ impl AmigaRuntimeKind {
     pub fn is_ecs(&self) -> bool {
         matches!(self, Self::Ecs(_))
     }
+
+    /// Read-back: was this runtime constructed against the AGA chip
+    /// stack? Equivalent to `self.model().is_aga()` but reads the
+    /// dispatched-case directly.
+    #[must_use]
+    pub fn is_aga(&self) -> bool {
+        matches!(self, Self::Aga(_))
+    }
 }
 
 impl emu198x_shell::MachineCore for AmigaRuntimeKind {
@@ -528,6 +714,7 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.profile(),
             Self::Ecs(rt) => rt.profile(),
+            Self::Aga(rt) => rt.profile(),
         }
     }
 
@@ -535,6 +722,7 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.time(),
             Self::Ecs(rt) => rt.time(),
+            Self::Aga(rt) => rt.time(),
         }
     }
 
@@ -542,6 +730,7 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.reset(kind),
             Self::Ecs(rt) => rt.reset(kind),
+            Self::Aga(rt) => rt.reset(kind),
         }
     }
 
@@ -552,6 +741,7 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.load_media(media),
             Self::Ecs(rt) => rt.load_media(media),
+            Self::Aga(rt) => rt.load_media(media),
         }
     }
 
@@ -563,6 +753,7 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.run_until(target, host),
             Self::Ecs(rt) => rt.run_until(target, host),
+            Self::Aga(rt) => rt.run_until(target, host),
         }
     }
 
@@ -570,6 +761,7 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.snapshot(),
             Self::Ecs(rt) => rt.snapshot(),
+            Self::Aga(rt) => rt.snapshot(),
         }
     }
 
@@ -577,6 +769,7 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.restore(bytes),
             Self::Ecs(rt) => rt.restore(bytes),
+            Self::Aga(rt) => rt.restore(bytes),
         }
     }
 
@@ -587,6 +780,7 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.command(command),
             Self::Ecs(rt) => rt.command(command),
+            Self::Aga(rt) => rt.command(command),
         }
     }
 
@@ -594,6 +788,7 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.capabilities(),
             Self::Ecs(rt) => rt.capabilities(),
+            Self::Aga(rt) => rt.capabilities(),
         }
     }
 }
@@ -607,6 +802,7 @@ impl AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.audio_controls(),
             Self::Ecs(rt) => rt.audio_controls(),
+            Self::Aga(rt) => rt.audio_controls(),
         }
     }
 
@@ -614,6 +810,7 @@ impl AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.set_audio_controls(controls),
             Self::Ecs(rt) => rt.set_audio_controls(controls),
+            Self::Aga(rt) => rt.set_audio_controls(controls),
         }
     }
 
@@ -625,6 +822,7 @@ impl AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.set_audio_channel_enabled(channel, enabled),
             Self::Ecs(rt) => rt.set_audio_channel_enabled(channel, enabled),
+            Self::Aga(rt) => rt.set_audio_channel_enabled(channel, enabled),
         }
     }
 
@@ -636,6 +834,7 @@ impl AmigaRuntimeKind {
         match self {
             Self::Ocs(rt) => rt.set_audio_channel_gain(channel, gain),
             Self::Ecs(rt) => rt.set_audio_channel_gain(channel, gain),
+            Self::Aga(rt) => rt.set_audio_channel_gain(channel, gain),
         }
     }
 }
@@ -643,6 +842,7 @@ impl AmigaRuntimeKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Model;
 
     /// Spec invariant: every advertised variant query path is unique.
     /// Doubles would silently clobber each other in a sorted listing.
@@ -653,5 +853,38 @@ mod tests {
         let mut deduped = sorted.clone();
         deduped.dedup();
         assert_eq!(sorted.len(), deduped.len(), "duplicate variant query paths");
+    }
+
+    #[test]
+    fn aga_variant_query_paths_are_unique() {
+        let mut sorted: Vec<&&str> = AGA_VARIANT_QUERY_PATHS.iter().collect();
+        sorted.sort();
+        let mut deduped = sorted.clone();
+        deduped.dedup();
+        assert_eq!(sorted.len(), deduped.len(), "duplicate AGA variant query paths");
+    }
+
+    #[test]
+    fn blank_dispatches_a1200_to_aga_variant() {
+        let kind = AmigaRuntimeKind::blank(Model::A1200AgaPal);
+        assert!(kind.is_aga(), "A1200 should land in the Aga arm");
+        assert!(!kind.is_ecs());
+        assert_eq!(kind.model(), Model::A1200AgaPal);
+    }
+
+    #[test]
+    fn blank_dispatches_a500_to_ocs_variant() {
+        let kind = AmigaRuntimeKind::blank(Model::A500OcsPal);
+        assert!(!kind.is_aga());
+        assert!(!kind.is_ecs());
+        assert_eq!(kind.model(), Model::A500OcsPal);
+    }
+
+    #[test]
+    fn blank_dispatches_a500plus_to_ecs_variant() {
+        let kind = AmigaRuntimeKind::blank(Model::A500PlusEcsPal);
+        assert!(kind.is_ecs());
+        assert!(!kind.is_aga());
+        assert_eq!(kind.model(), Model::A500PlusEcsPal);
     }
 }

@@ -10,6 +10,7 @@ repository.workspace = true
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
 emu198x-shell = { path = "../emu198x-shell" }
 format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
+machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200" }
 machine-commodore-amiga-ecs = { path = "../machine-commodore-amiga-ecs" }
 machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs" }
 postcard = { workspace = true }
