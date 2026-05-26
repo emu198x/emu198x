@@ -55,10 +55,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn register_all_publishes_nineteen_tools() {
+    fn register_all_publishes_twenty_one_tools() {
         let mut server: Server<tools::SpectrumSession> =
             Server::new(ServerInfo::new("emu198x-spectrum", "0.0.0"));
         tools::register_all(server.registry_mut());
-        assert_eq!(server.registry().len(), 19);
+        assert_eq!(server.registry().len(), 21);
     }
 }

@@ -213,6 +213,29 @@ pub enum ScriptStep {
     /// been captured) runs a second ffmpeg pass to mux audio into the final
     /// MP4. Emits [`ScriptObservation::StopVideoRecording`].
     StopVideoRecording,
+    /// Begin recording emitted audio to a 16-bit PCM WAV file.
+    ///
+    /// Mirrors [`Self::StartVideoRecording`] for audio-only capture.
+    /// Subsequent `run_frames` / wait steps tee audio into the
+    /// session's capture buffer; the final WAV is written when
+    /// [`Self::StopAudioRecording`] is called and contains only the
+    /// samples emitted between the two calls.
+    ///
+    /// Use this instead of [`Self::SaveAudioCapture`] when the
+    /// recording window is bounded by script steps rather than the
+    /// whole session lifetime — no manual `reset_after` choreography,
+    /// no leaked silence from frames before the chapter started.
+    StartAudioRecording {
+        /// Final output path for the WAV file.
+        path: PathBuf,
+    },
+    /// Finalise the in-flight audio recording.
+    ///
+    /// Slices the audio capture buffer from the offset captured at
+    /// `StartAudioRecording` to the current end, encodes the result
+    /// as 16-bit PCM WAV, and writes it to disk. Emits
+    /// [`ScriptObservation::StopAudioRecording`].
+    StopAudioRecording,
     /// Reset the running machine.
     ///
     /// `kind = "hard"` is a power-cycle equivalent (machine state and
@@ -335,6 +358,19 @@ pub enum ScriptObservation {
         duration_ms: u64,
         /// Whether the final MP4 contains a muxed audio track.
         has_audio: bool,
+    },
+    /// Result of finalising one standalone audio recording.
+    StopAudioRecording {
+        /// Final WAV file path.
+        path: PathBuf,
+        /// Per-channel sample count.
+        samples: u64,
+        /// Sample rate of the captured stream, in Hz.
+        sample_rate: u32,
+        /// Channel count of the captured stream.
+        channels: u8,
+        /// Approximate clip duration in milliseconds.
+        duration_ms: u64,
     },
     /// Result of a reset step. The `kind` field on
     /// [`ScriptObservation`] is the tag itself (`"reset"`), so the
@@ -543,6 +579,20 @@ impl ScriptStep {
                 Ok(Some(ScriptObservation::Reset {
                     performed: *kind,
                     reached: session.time(),
+                }))
+            }
+            Self::StartAudioRecording { path } => {
+                session.start_audio_recording(path.clone())?;
+                Ok(None)
+            }
+            Self::StopAudioRecording => {
+                let summary = session.stop_audio_recording()?;
+                Ok(Some(ScriptObservation::StopAudioRecording {
+                    path: summary.path,
+                    samples: summary.samples as u64,
+                    sample_rate: summary.sample_rate,
+                    channels: summary.channels,
+                    duration_ms: summary.duration_ms,
                 }))
             }
         }
@@ -1156,6 +1206,18 @@ mod tests {
             json,
             r#"{"kind":"set_machine","machine":"spectrum_48k","profile_id":"sinclair-zx-spectrum-48k-pal","display_name":"ZX Spectrum 48K (PAL)"}"#
         );
+    }
+
+    #[test]
+    fn audio_recording_round_trips_through_json() {
+        for json in [
+            r#"[{"action":"start_audio_recording","path":"out.wav"}]"#,
+            r#"[{"action":"stop_audio_recording"}]"#,
+        ] {
+            let script = HeadlessScript::from_json_str(json).expect("script should parse");
+            let reserialised = serde_json::to_string(&script.steps).expect("re-serialize");
+            assert_eq!(reserialised, json);
+        }
     }
 
     #[test]

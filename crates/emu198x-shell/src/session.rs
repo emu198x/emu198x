@@ -83,6 +83,10 @@ pub enum SessionError {
     #[error(transparent)]
     Video(#[from] VideoRecordingError),
 
+    /// One audio recording operation failed.
+    #[error(transparent)]
+    Audio(#[from] AudioRecordingError),
+
     /// One state-mutating operation was rejected because a video recording
     /// is in flight (e.g. snapshot restore would jump-cut the clip).
     #[error("operation `{operation}` is not allowed while video recording is active")]
@@ -90,6 +94,23 @@ pub enum SessionError {
         /// The rejected operation's stable name.
         operation: &'static str,
     },
+}
+
+/// Errors surfaced by the standalone audio recorder.
+#[derive(Debug, thiserror::Error)]
+pub enum AudioRecordingError {
+    /// `start_audio_recording` was called while a recording was
+    /// already in flight.
+    #[error("audio recording is already in flight")]
+    AlreadyRecording,
+    /// `stop_audio_recording` was called with no recording in flight.
+    #[error("no audio recording in flight")]
+    NotRecording,
+    /// No audio samples landed in the recording window. Either no
+    /// `run_frames` ran between start and stop, or the variant emitted
+    /// no audio packets in that interval.
+    #[error("audio recording window captured zero samples")]
+    NoAudio,
 }
 
 /// Result of waiting for one machine to report `boot.detected = true`.
@@ -142,6 +163,36 @@ struct BootQueryState {
     row: Option<u64>,
 }
 
+/// Active standalone-audio recording state.
+///
+/// Mirrors the video recorder's "begin/end with a path" shape but
+/// without an external process — audio is teed into
+/// [`HeadlessSession::audio_capture`] continuously, and the recording
+/// slices that buffer at finish time. `start_offset` is the sample
+/// count already in the capture when recording began.
+#[derive(Debug)]
+struct AudioRecording {
+    path: PathBuf,
+    start_offset: usize,
+}
+
+/// Summary returned by [`HeadlessSession::stop_audio_recording`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AudioRecordingSummary {
+    /// Final WAV file path.
+    pub path: PathBuf,
+    /// Samples written (per channel, post-channel-interleave the file
+    /// holds `samples * channels` 16-bit values).
+    pub samples: usize,
+    /// Sample rate of the captured stream, in Hz.
+    pub sample_rate: u32,
+    /// Channel count of the captured stream.
+    pub channels: u8,
+    /// Approximate clip duration in milliseconds (`samples * 1000 /
+    /// sample_rate`, rounded down).
+    pub duration_ms: u64,
+}
+
 /// Shared host-side session around one live machine runtime.
 pub struct HeadlessSession<M, Q = NoAdditionalQueries> {
     machine: M,
@@ -154,6 +205,7 @@ pub struct HeadlessSession<M, Q = NoAdditionalQueries> {
     query_provider: Q,
     recorder: Option<VideoRecorder>,
     audio_offset_at_recording_start: usize,
+    audio_recording: Option<AudioRecording>,
 }
 
 impl<M> HeadlessSession<M, NoAdditionalQueries> {
@@ -176,6 +228,7 @@ impl<M, Q> HeadlessSession<M, Q> {
             frame_capture: LatestFrameCapture::default(),
             audio_capture: AudioCapture::default(),
             trace_sink: NullTraceSink,
+            audio_recording: None,
             last_run_result: None,
             query_provider,
             recorder: None,
@@ -754,6 +807,91 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     #[must_use]
     pub const fn is_recording(&self) -> bool {
         self.recorder.is_some()
+    }
+
+    /// Returns whether a standalone audio recording is currently in
+    /// flight. Independent of `is_recording` (video) — both can be
+    /// active concurrently and share the same underlying audio
+    /// capture stream.
+    #[must_use]
+    pub const fn is_audio_recording(&self) -> bool {
+        self.audio_recording.is_some()
+    }
+
+    /// Begins a standalone audio recording.
+    ///
+    /// Captures the current end-of-buffer position and remembers the
+    /// output path. Subsequent `run_frames` / wait steps tee emitted
+    /// audio into the session's audio buffer as usual; the WAV file
+    /// is written when `stop_audio_recording` is called and contains
+    /// only the samples emitted between the two calls. This mirrors
+    /// the video recorder's start/stop ergonomics — no manual buffer
+    /// management, no leaked silence at the head.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::Audio`] with
+    /// [`AudioRecordingError::AlreadyRecording`] if a standalone
+    /// audio recording is already in flight. (A concurrent video
+    /// recording is allowed — both can record from the same audio
+    /// stream.)
+    pub fn start_audio_recording(&mut self, output_path: PathBuf) -> Result<(), SessionError> {
+        if self.audio_recording.is_some() {
+            return Err(SessionError::Audio(AudioRecordingError::AlreadyRecording));
+        }
+        let start_offset = self.audio_capture.audio().map_or(0, |a| a.samples.len());
+        self.audio_recording = Some(AudioRecording {
+            path: output_path,
+            start_offset,
+        });
+        Ok(())
+    }
+
+    /// Finalises the in-flight standalone audio recording.
+    ///
+    /// Slices the audio buffer from the offset captured at
+    /// `start_audio_recording` to the current end, encodes it as a
+    /// 16-bit PCM WAV, and writes it to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::Audio`] with
+    /// [`AudioRecordingError::NotRecording`] when no audio recording
+    /// is in flight, or [`AudioRecordingError::NoAudio`] when the
+    /// recording window captured zero samples.
+    pub fn stop_audio_recording(&mut self) -> Result<AudioRecordingSummary, SessionError> {
+        let recording = self
+            .audio_recording
+            .take()
+            .ok_or(SessionError::Audio(AudioRecordingError::NotRecording))?;
+        let Some(captured) = self.audio_capture.audio() else {
+            return Err(SessionError::Audio(AudioRecordingError::NoAudio));
+        };
+        let total = captured.samples.len();
+        if total <= recording.start_offset {
+            return Err(SessionError::Audio(AudioRecordingError::NoAudio));
+        }
+        let slice = &captured.samples[recording.start_offset..total];
+        let per_channel_samples = slice.len() / usize::from(captured.channels.max(1));
+        let sliced = crate::CapturedAudio {
+            sample_rate: captured.sample_rate,
+            channels: captured.channels,
+            samples: slice.to_vec(),
+        };
+        let bytes = sliced.wav_bytes();
+        std::fs::write(&recording.path, &bytes)?;
+        let duration_ms = if captured.sample_rate > 0 {
+            (per_channel_samples as u64 * 1000) / u64::from(captured.sample_rate)
+        } else {
+            0
+        };
+        Ok(AudioRecordingSummary {
+            path: recording.path,
+            samples: per_channel_samples,
+            sample_rate: captured.sample_rate,
+            channels: captured.channels,
+            duration_ms,
+        })
     }
 
     /// Begins a video recording, writing the final MP4 to `output_path`.

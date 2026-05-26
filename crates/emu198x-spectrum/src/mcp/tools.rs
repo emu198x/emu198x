@@ -499,6 +499,22 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
             "required": ["kind"],
         }),
     }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "start_audio_recording",
+        description: "Begin recording emitted audio to a 16-bit PCM WAV file. Mirrors start_video_recording for audio-only capture: subsequent run_frames tee audio into the session's buffer; the WAV is written when stop_audio_recording is called. Prefer this over save_audio_capture when the recording window is bounded by script steps.",
+        schema: json!({
+            "type": "object",
+            "properties": {"path": string_field()},
+            "required": ["path"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "stop_audio_recording",
+        description: "Finalise the in-flight audio recording. Slices the audio buffer from the start_audio_recording offset to the current end, encodes 16-bit PCM WAV, and writes it to disk.",
+        schema: json!({"type": "object"}),
+    }));
 }
 
 #[cfg(test)]
@@ -570,6 +586,8 @@ mod tests {
             "start_video_recording",
             "stop_video_recording",
             "reset",
+            "start_audio_recording",
+            "stop_audio_recording",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");
