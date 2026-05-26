@@ -15,4 +15,5 @@ pub mod registers;
 pub mod walker;
 pub mod z80;
 
+pub use registers::Registers;
 pub use z80::{BusOp, Z80};

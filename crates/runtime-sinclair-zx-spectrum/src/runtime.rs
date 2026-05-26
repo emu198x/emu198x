@@ -239,6 +239,17 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
     /// Default impl is a no-op.
     fn clear_memory_write_watch_records(&mut self) {}
 
+    /// Returns a borrow of the Z80 register file. Every Spectrum-family
+    /// variant carries a Z80, so this is a required method without a
+    /// default. Used by the `query_cpu` script step / MCP tool to
+    /// expose register state to scripts.
+    fn z80_registers(&self) -> &zilog_z80::Registers;
+
+    /// Whether the Z80 is currently halted (executing NOPs while
+    /// waiting for an interrupt). Read off the Z80 chip's `halt` pin
+    /// rather than the register file.
+    fn z80_halted(&self) -> bool;
+
     // ─── Variant-specific query surface ───────────────────────────────
     //
     // Each variant supplies the additional path catalogue it owns

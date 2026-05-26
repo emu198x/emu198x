@@ -84,6 +84,11 @@ pub trait SpectrumLiveAccess {
     fn memory_write_watch_range(&self) -> Option<(u16, u16)>;
     /// Drop captured write records without removing the watch range.
     fn clear_memory_write_watch_records(&mut self);
+    /// Z80 register file. Every Spectrum-family variant carries a Z80
+    /// so this is always available.
+    fn z80_registers(&self) -> &zilog_z80::Registers;
+    /// Whether the Z80 is currently halted.
+    fn z80_halted(&self) -> bool;
 }
 
 impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
@@ -123,6 +128,14 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 
     fn clear_memory_write_watch_records(&mut self) {
         self.machine_mut().clear_memory_write_watch_records();
+    }
+
+    fn z80_registers(&self) -> &zilog_z80::Registers {
+        self.machine().z80_registers()
+    }
+
+    fn z80_halted(&self) -> bool {
+        self.machine().z80_halted()
     }
 }
 
@@ -337,6 +350,14 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
     fn clear_memory_write_watch_records(&mut self) {
         match_kind!(self, |rt| rt.clear_memory_write_watch_records())
     }
+
+    fn z80_registers(&self) -> &zilog_z80::Registers {
+        match_kind!(self, |rt| rt.z80_registers())
+    }
+
+    fn z80_halted(&self) -> bool {
+        match_kind!(self, |rt| rt.z80_halted())
+    }
 }
 
 impl SessionQueryProvider<SpectrumRuntimeKind> for SpectrumSessionQueryProvider {
@@ -377,6 +398,17 @@ mod tests {
             paths.iter().any(|p| p.starts_with("spectrum.tape.")),
             "expected at least one spectrum.tape.* path; got {paths:?}"
         );
+    }
+
+    #[test]
+    fn z80_registers_dispatch_through_runtime_kind() {
+        let kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        // Fresh Z80 has the well-known boot reset state: PC=0, SP=0xFFFF, AF=0xFFFF.
+        let regs = kind.z80_registers();
+        assert_eq!(regs.pc, 0x0000);
+        assert_eq!(regs.sp, 0xFFFF);
+        assert_eq!(regs.af, 0xFFFF);
+        assert!(!kind.z80_halted());
     }
 
     #[test]

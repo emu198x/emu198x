@@ -95,6 +95,7 @@ fn mcp_execute_step(
     match step {
         ScriptStep::SetMachine { machine } => execute_set_machine(machine, session).map(Some),
         ScriptStep::QueryAy => execute_query_ay(session).map(Some),
+        ScriptStep::QueryCpu => Ok(Some(execute_query_cpu(session))),
         ScriptStep::AutoloadTape {
             slot,
             max_boot_frames,
@@ -396,6 +397,48 @@ fn execute_query_ay(session: &mut SpectrumSession) -> Result<ScriptObservation, 
         envelope_period,
         envelope_shape: raw[13] & 0x0F,
     })
+}
+
+fn execute_query_cpu(session: &SpectrumSession) -> ScriptObservation {
+    let regs = session.machine().z80_registers();
+    let halt = session.machine().z80_halted();
+    let f = regs.f();
+    ScriptObservation::QueryCpu {
+        pc: regs.pc,
+        sp: regs.sp,
+        i: regs.i,
+        r: regs.r,
+        af: regs.af,
+        a: regs.a(),
+        f,
+        bc: regs.bc,
+        b: regs.b(),
+        c: regs.c(),
+        de: regs.de,
+        d: regs.d(),
+        e: regs.e(),
+        hl: regs.hl,
+        h: regs.h(),
+        l: regs.l(),
+        af_alt: regs.af_alt,
+        bc_alt: regs.bc_alt,
+        de_alt: regs.de_alt,
+        hl_alt: regs.hl_alt,
+        ix: regs.ix,
+        iy: regs.iy,
+        im: regs.im,
+        iff1: regs.iff1,
+        iff2: regs.iff2,
+        flag_s: f & 0x80 != 0,
+        flag_z: f & 0x40 != 0,
+        flag_5: f & 0x20 != 0,
+        flag_h: f & 0x10 != 0,
+        flag_3: f & 0x08 != 0,
+        flag_pv: f & 0x04 != 0,
+        flag_n: f & 0x02 != 0,
+        flag_c: f & 0x01 != 0,
+        halt,
+    }
 }
 
 fn ay_unsupported_error(err: &emu198x_shell::QueryError) -> ToolError {
@@ -751,6 +794,12 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
     }));
 
     registry.register(Box::new(ScriptStepTool {
+        name: "query_cpu",
+        description: "Read every Z80 register in one call: PC, SP, I, R, the main bank (AF/BC/DE/HL + a/f/b/c/d/e/h/l), the alternate bank (AF'/BC'/DE'/HL'), index registers (IX/IY), interrupt state (IM/IFF1/IFF2), the decoded F flags (S/Z/5/H/3/P-V/N/C), and the halt pin.",
+        schema: json!({"type": "object"}),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
         name: "memory_read",
         description: "Read a contiguous span of CPU-visible memory (Z80 address space, 0x0000-0xFFFF). Returns raw bytes in memory order. `len` is capped at 256 bytes per call.",
         schema: json!({
@@ -872,6 +921,12 @@ mod tests {
     }
 
     #[test]
+    fn parse_step_accepts_null_arguments_for_query_cpu() {
+        let step = parse_step("query_cpu", Value::Null).expect("valid step");
+        assert_eq!(step, ScriptStep::QueryCpu);
+    }
+
+    #[test]
     fn parse_step_round_trips_memory_read_arguments() {
         let step = parse_step("memory_read", json!({"addr": 0x4000, "len": 32}))
             .expect("valid memory_read");
@@ -943,6 +998,7 @@ mod tests {
             "watch_memory_start",
             "watch_memory_clear",
             "watch_memory_log",
+            "query_cpu",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");

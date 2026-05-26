@@ -268,6 +268,15 @@ pub enum ScriptStep {
     /// curriculum scripts can assert on chip state without decoding
     /// the 16-byte raw array themselves.
     QueryAy,
+    /// Query the CPU's register file in one call.
+    ///
+    /// System-specific step (binary-dispatched). For Spectrum this
+    /// returns every Z80 register — the main bank (AF/BC/DE/HL + the
+    /// 8-bit halves), the alternate bank (AF'/BC'/DE'/HL'), index
+    /// registers (IX/IY), control (PC/SP/I/R), interrupt state
+    /// (IM/IFF1/IFF2), and the decoded F flags (S/Z/5/H/3/P-V/N/C).
+    /// Emits [`ScriptObservation::QueryCpu`].
+    QueryCpu,
     /// Reset the running machine.
     ///
     /// `kind = "hard"` is a power-cycle equivalent (machine state and
@@ -542,6 +551,91 @@ pub enum ScriptObservation {
         /// Number of records captured between start and clear.
         captured: u32,
     },
+    /// Result of querying the Z80 register file.
+    ///
+    /// Wide enough that pc/sp and the 16-bit pairs are first-class
+    /// fields, and the F flags are decoded as named booleans so
+    /// curriculum scripts can write `flag_z` rather than masking
+    /// bit 6 of `f`.
+    QueryCpu {
+        // ─── Control ────────────────────────────────────────────────
+        /// Program counter.
+        pc: u16,
+        /// Stack pointer.
+        sp: u16,
+        /// Interrupt vector register.
+        i: u8,
+        /// Refresh register.
+        r: u8,
+        // ─── Main bank ─────────────────────────────────────────────
+        /// Accumulator and flags.
+        af: u16,
+        /// Accumulator byte (high of AF).
+        a: u8,
+        /// Flags byte (low of AF).
+        f: u8,
+        /// Register pair BC.
+        bc: u16,
+        /// B byte (high of BC).
+        b: u8,
+        /// C byte (low of BC).
+        c: u8,
+        /// Register pair DE.
+        de: u16,
+        /// D byte (high of DE).
+        d: u8,
+        /// E byte (low of DE).
+        e: u8,
+        /// Register pair HL.
+        hl: u16,
+        /// H byte (high of HL).
+        h: u8,
+        /// L byte (low of HL).
+        l: u8,
+        // ─── Alternate bank ────────────────────────────────────────
+        /// Alternate accumulator/flags pair (AF').
+        af_alt: u16,
+        /// Alternate BC pair.
+        bc_alt: u16,
+        /// Alternate DE pair.
+        de_alt: u16,
+        /// Alternate HL pair.
+        hl_alt: u16,
+        // ─── Index registers ───────────────────────────────────────
+        /// Index register IX.
+        ix: u16,
+        /// Index register IY.
+        iy: u16,
+        // ─── Interrupt state ───────────────────────────────────────
+        /// Interrupt mode (0, 1, or 2).
+        im: u8,
+        /// Interrupt enable flip-flop 1 (current masked-interrupt enable).
+        iff1: bool,
+        /// Interrupt enable flip-flop 2 (shadow IFF1, restored by RETN).
+        iff2: bool,
+        // ─── Decoded flags (F register bits) ───────────────────────
+        /// Sign flag (F bit 7).
+        flag_s: bool,
+        /// Zero flag (F bit 6).
+        flag_z: bool,
+        /// Undocumented bit 5 of F (copy of bit 5 of the last ALU
+        /// operand on many instructions).
+        flag_5: bool,
+        /// Half-carry flag (F bit 4).
+        flag_h: bool,
+        /// Undocumented bit 3 of F.
+        flag_3: bool,
+        /// Parity / overflow flag (F bit 2).
+        flag_pv: bool,
+        /// Subtract flag (F bit 1) — set by SUB/DEC, cleared by ADD/INC.
+        flag_n: bool,
+        /// Carry flag (F bit 0).
+        flag_c: bool,
+        // ─── Bus / halt state ──────────────────────────────────────
+        /// `true` when the CPU is currently halted (executing NOPs
+        /// until an interrupt arrives).
+        halt: bool,
+    },
     /// Result of fetching the memory write log.
     WatchMemoryLog {
         /// Current watch range start, or `None` if no watch is active.
@@ -730,6 +824,7 @@ impl ScriptStep {
                 step: "set_machine",
             }),
             Self::QueryAy => Err(ScriptError::SystemSpecificStep { step: "query_ay" }),
+            Self::QueryCpu => Err(ScriptError::SystemSpecificStep { step: "query_cpu" }),
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
             }),
