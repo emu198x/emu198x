@@ -37,7 +37,7 @@ use session::AmigaA1200Session;
 pub fn run() -> Result<(), AppError> {
     let rom_path = resolve_rom_path()?;
     let rom_bytes = std::fs::read(&rom_path).map_err(AppError::Io)?;
-    let mut session = AmigaA1200Session::new(rom_bytes, rom_path);
+    let mut session = AmigaA1200Session::new(rom_bytes, rom_path).map_err(AppError::Machine)?;
 
     let mut server: Server<AmigaA1200Session> = Server::new(ServerInfo::new(
         "emu198x-amiga",

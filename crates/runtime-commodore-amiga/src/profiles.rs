@@ -135,10 +135,12 @@ impl Model {
             Self::A500OcsPalA501 | Self::A500OcsNtscA501 => RamConfig::a501_trapdoor(),
             Self::A500PlusEcsPal | Self::A500PlusEcsNtsc => RamConfig::a500_plus(),
             Self::A500OcsPalMaxed | Self::A500OcsNtscMaxed => RamConfig::a500_maxed(),
-            // Stock A1200: 2 MiB chip RAM, no slow, no fast (trapdoor
-            // accelerator + fast RAM are accelerator config, not stock).
+            // Stock A1200: AGA ceiling (2 MiB) of chip RAM, no slow,
+            // no fast. Trapdoor accelerators + fast RAM expansions
+            // are accelerator config, not stock.
             Self::A1200AgaPal | Self::A1200AgaNtsc => RamConfig {
-                chip_kb: 2048,
+                chip_kb: (crate::amiga_model::ECS_AGA_CHIP_RAM_BYTES / crate::amiga_model::KIB)
+                    as u32,
                 slow_kb: 0,
                 fast_kb: 0,
             },

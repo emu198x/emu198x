@@ -87,17 +87,23 @@ fn ram_variant_presets_construct_cleanly() {
 }
 
 fn expected_chip(model: Model) -> usize {
+    use runtime_commodore_amiga::{
+        ECS_AGA_CHIP_RAM_BYTES, FAT_AGNUS_CHIP_RAM_BYTES, FATTER_AGNUS_CHIP_RAM_BYTES,
+        OCS_AGNUS_CHIP_RAM_BYTES,
+    };
     // Same chip-RAM size for the PAL/NTSC pair of every variant —
-    // only Agnus differs between regions.
+    // only Agnus differs between regions. The named constants index
+    // by the Agnus revision that gates the ceiling.
     match model {
         Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsNtsc | Model::A500OcsNtscA501 => {
-            512 * 1024
+            OCS_AGNUS_CHIP_RAM_BYTES
         }
         Model::A500PlusEcsPal
         | Model::A500OcsPalMaxed
         | Model::A500PlusEcsNtsc
-        | Model::A500OcsNtscMaxed => 1024 * 1024,
-        Model::A1000OcsPal | Model::A1000OcsNtsc => 256 * 1024,
+        | Model::A500OcsNtscMaxed => FAT_AGNUS_CHIP_RAM_BYTES,
+        Model::A1000OcsPal | Model::A1000OcsNtsc => FATTER_AGNUS_CHIP_RAM_BYTES,
+        Model::A1200AgaPal | Model::A1200AgaNtsc => ECS_AGA_CHIP_RAM_BYTES,
     }
 }
 

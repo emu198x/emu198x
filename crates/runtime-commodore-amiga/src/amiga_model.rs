@@ -16,6 +16,43 @@
 
 pub use crate::profiles::Model;
 
+// ─── Byte-size convenience constants ────────────────────────────────
+//
+// Used by the model catalogue and the boot-invariant tests so size
+// expressions like `512 * KIB` or `2 * MIB` read at a glance.
+
+/// One kibibyte (1024 bytes).
+pub const KIB: usize = 1024;
+/// One mebibyte (1024 KiB).
+pub const MIB: usize = 1024 * KIB;
+
+// ─── Chip-RAM ceilings per Agnus revision ───────────────────────────
+//
+// Pedagogically named by the Agnus that gates the ceiling. The chip
+// stack itself enforces the actual decode; these constants are for
+// catalogue / test readability.
+
+/// Chip RAM ceiling on the first Fatter Agnus 8361 / 8367 (A1000):
+/// 256 KiB. The original Amiga's chip-RAM budget — Workbench 1.x and
+/// the early commercial software stack target this layout.
+pub const FATTER_AGNUS_CHIP_RAM_BYTES: usize = 256 * KIB;
+
+/// Chip RAM ceiling on OCS 8370 (NTSC) / 8371 (PAL early) Agnus
+/// shipped in the A500 Rev 3-5 board: 512 KiB. The canonical "stock
+/// A500" chip-RAM size.
+pub const OCS_AGNUS_CHIP_RAM_BYTES: usize = 512 * KIB;
+
+/// Chip RAM ceiling on Fat Agnus 8372A: 1 MiB. Paired with OCS
+/// Denise (still OCS, not ECS); shipped in A500 Rev 6+, A2000B
+/// Rev 6.x, CDTV, and the A500+'s ECS-but-OCS-compatible config.
+pub const FAT_AGNUS_CHIP_RAM_BYTES: usize = MIB;
+
+/// Chip RAM ceiling on ECS Super Agnus 8375 and AGA Alice: 2 MiB.
+/// A1200, A4000, CD32, and the A3000's Super Agnus all reach this
+/// ceiling. AGA splits the address space across 32-bit fetches but
+/// the chip-RAM total stays at 2 MiB.
+pub const ECS_AGA_CHIP_RAM_BYTES: usize = 2 * MIB;
+
 /// Chipset axis discriminant.
 ///
 /// The only structural axis on `AmigaRuntimeKind`. Per

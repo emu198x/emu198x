@@ -8,7 +8,10 @@ mod runtime;
 mod snapshot;
 mod variants;
 
-pub use amiga_model::{Accelerator, ChipsetKind, CpuKind};
+pub use amiga_model::{
+    Accelerator, ChipsetKind, CpuKind, ECS_AGA_CHIP_RAM_BYTES, FAT_AGNUS_CHIP_RAM_BYTES,
+    FATTER_AGNUS_CHIP_RAM_BYTES, KIB, MIB, OCS_AGNUS_CHIP_RAM_BYTES,
+};
 pub use machine_commodore_amiga_ocs::{AudioControls, PaulaChannel, RamConfig};
 pub use profiles::{
     A500_NTSC_CCK_HZ, A500_NTSC_FRAME_CCKS, A500_NTSC_FRAME_TICKS, A500_PAL_CCK_HZ,
