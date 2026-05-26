@@ -1,22 +1,19 @@
-//! `AmigaA1200Session` — the family-MCP session that hosts an
-//! `AmigaRuntimeKind::Aga(AmigaRuntime<AmigaA1200>)` plus the
+//! `AmigaSession` — the family-MCP session that hosts an
+//! `AmigaRuntimeKind` (any of `Ocs` / `Ecs` / `Aga`) plus the
 //! debug-recorder surface the chip-level tools depend on.
 //!
-//! Migrated 2026-05-26 from a hand-rolled struct that held an
-//! `AmigaA1200` directly. The shell's `HeadlessSession<M: MachineCore,
-//! Q: SessionQueryProvider>` couldn't host A1200 before because A1200
-//! didn't impl `AmigaMachine`; that landed in commit `3e33137` and
-//! this commit moves the MCP server onto the family runtime.
+//! Renamed 2026-05-26 from `AmigaA1200Session` after Stage AE-b
+//! through AE-e: every chip-level tool now drives through the
+//! [`AmigaLiveAccess`] trait via [`Self::access`] / [`Self::access_mut`],
+//! and chipset-trace tracers (`bplcon0_log` / `palette_log` /
+//! `reg_read_log`) exist on every variant. The only remaining A1200
+//! downcast is [`Self::aga_machine_mut`], used by `tool_query_aga`
+//! to reach Lisa-specific state (the 8-bank 24-bit palette, BPLCON3/4,
+//! HAM previous-pixel). All other tools work against OCS / ECS / AGA
+//! sessions identically.
 //!
-//! Per [`knowledge/decisions/amiga-machine-catalogue.md`], the
-//! `AmigaLiveAccess` trait (the OCS/ECS/AGA-generic chip-level
-//! accessors) is deferred to a follow-up commit. The 33 chip-level
-//! MCP tools today still target the A1200 directly — they downcast
-//! through [`AmigaA1200Session::machine_mut`], which panics if the
-//! active kind variant isn't `Aga` (single-machine MCP guarantees
-//! this for now). The downcast surfaces as the same `&mut AmigaA1200`
-//! the previous session shape exposed; tool bodies migrate
-//! mechanically (`s.machine.X` → `s.machine_mut().X`).
+//! See [`knowledge/decisions/amiga-machine-catalogue.md`] for the
+//! migration plan this session structure follows.
 //!
 //! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../../knowledge/decisions/amiga-machine-catalogue.md
 
@@ -29,12 +26,12 @@ use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
 /// MCP server session — owns the family runtime kind and the
 /// hand-rolled video-recorder state the chip-level tools use.
 ///
-/// The `kind` field is always an `AmigaRuntimeKind::Aga(...)` while
-/// the MCP is single-machine. When `set_machine` lands in Phase 3b,
-/// the variant may swap to `Ocs` / `Ecs`, at which point the
-/// chip-level tools that downcast through [`Self::machine_mut`]
-/// will need their `AmigaLiveAccess`-trait replacements.
-pub struct AmigaA1200Session {
+/// The `kind` field carries the active chipset variant
+/// ([`AmigaRuntimeKind::Ocs`] / `Ecs` / `Aga`). Tools reach chip
+/// state through [`Self::access`] / [`Self::access_mut`] — the
+/// chipset-agnostic [`AmigaLiveAccess`] trait. Only AGA-specific
+/// tooling reaches for [`Self::aga_machine_mut`].
+pub struct AmigaSession {
     /// Family runtime — `AmigaRuntimeKind::Aga(...)` today.
     pub kind: AmigaRuntimeKind,
     /// Path the boot ROM was loaded from; surfaced through the
@@ -48,7 +45,7 @@ pub struct AmigaA1200Session {
     pub last_recorded_tick: u64,
 }
 
-impl AmigaA1200Session {
+impl AmigaSession {
     /// Build a session from a ROM image already loaded into memory.
     /// Constructs the underlying `AmigaRuntime<AmigaA1200>` via
     /// `AmigaRuntimeKind::new(Model::A1200AgaPal, ...)` so the MCP
@@ -69,40 +66,40 @@ impl AmigaA1200Session {
     }
 
     /// Borrow the active A1200 chip stack. Panics if the kind
-    /// variant isn't `Aga` — every MCP boot path constructs an
-    /// `Aga` variant today, so this is an internal-invariant check.
-    /// When OCS / ECS MCP support lands, callers gain a `match` on
-    /// `&self.kind` and the downcast helpers stop being load-bearing.
+    /// variant isn't `Aga` — only the AGA-specific debug tool
+    /// (`tool_query_aga` reaching for Lisa's palette banks and
+    /// BPLCON3/4) calls this, and it's expected to be invoked only
+    /// against an AGA session. OCS / ECS callers go through
+    /// [`Self::access`] / [`Self::access_mut`] instead.
     #[must_use]
-    pub fn machine(&self) -> &AmigaA1200 {
+    pub fn aga_machine(&self) -> &AmigaA1200 {
         match &self.kind {
             AmigaRuntimeKind::Aga(rt) => rt.machine(),
             _ => panic!(
-                "AmigaA1200Session::machine: active kind variant is not Aga \
-                 (single-machine MCP invariant violated)"
+                "AmigaSession::aga_machine: active kind variant is not Aga \
+                 (AGA-only tool invoked against non-AGA session)"
             ),
         }
     }
 
-    /// Mutable borrow of the active A1200 chip stack. Same downcast
-    /// invariant as [`Self::machine`].
+    /// Mutable borrow of the active A1200 chip stack. Same AGA-only
+    /// invariant as [`Self::aga_machine`].
     #[must_use]
-    pub fn machine_mut(&mut self) -> &mut AmigaA1200 {
+    pub fn aga_machine_mut(&mut self) -> &mut AmigaA1200 {
         match &mut self.kind {
             AmigaRuntimeKind::Aga(rt) => rt.machine_mut(),
             _ => panic!(
-                "AmigaA1200Session::machine_mut: active kind variant is not Aga \
-                 (single-machine MCP invariant violated)"
+                "AmigaSession::aga_machine_mut: active kind variant is not Aga \
+                 (AGA-only tool invoked against non-AGA session)"
             ),
         }
     }
 
     /// Chipset-agnostic chip-level access. Returns the active runtime
     /// kind under its [`AmigaLiveAccess`] impl — tool bodies that
-    /// don't care which chipset is active call through this instead
-    /// of the A1200 downcast. The AGA-specific tools (palette banks,
-    /// AGA copper list dump) still go through [`Self::machine`] /
-    /// [`Self::machine_mut`].
+    /// don't care which chipset is active call through this. The
+    /// AGA-specific tools (palette banks, AGA Lisa state) still go
+    /// through [`Self::aga_machine`] / [`Self::aga_machine_mut`].
     #[must_use]
     pub fn access(&self) -> &dyn AmigaLiveAccess {
         &self.kind
@@ -142,14 +139,14 @@ mod tests {
     use runtime_commodore_amiga::AmigaRuntimeKind;
 
     /// Session built from a blank Kickstart-sized ROM carries the
-    /// Aga variant and exposes the A1200 chip stack through
-    /// `machine()`/`machine_mut()`.
+    /// Aga variant and exposes the A1200 chip stack through the
+    /// AGA-only downcasts.
     #[test]
     fn session_new_dispatches_to_aga_variant() {
         // 512 KiB zero-filled ROM — passes validate_firmware_rom for
         // A1200 (KS 3.0/3.1 is 512 KiB).
         let rom = vec![0u8; 512 * 1024];
-        let session = AmigaA1200Session::new(rom, PathBuf::from("/tmp/test.rom"))
+        let session = AmigaSession::new(rom, PathBuf::from("/tmp/test.rom"))
             .expect("blank Kickstart-sized ROM should build");
         assert!(matches!(session.kind, AmigaRuntimeKind::Aga(_)));
         assert_eq!(session.last_recorded_tick, 0);
@@ -157,13 +154,13 @@ mod tests {
     }
 
     #[test]
-    fn session_machine_accessors_return_a1200() {
+    fn aga_machine_accessors_return_a1200() {
         let rom = vec![0u8; 512 * 1024];
-        let mut session = AmigaA1200Session::new(rom, PathBuf::from("/tmp/test.rom"))
+        let mut session = AmigaSession::new(rom, PathBuf::from("/tmp/test.rom"))
             .expect("blank Kickstart-sized ROM should build");
-        // PC starts at 0 in a freshly-built A1200; the read is just
-        // checking the downcast doesn't panic.
-        let _pc = session.machine().cpu().regs.pc;
-        let _tick = session.machine_mut().tick_count();
+        // PC starts at 0 in a freshly-built A1200; the reads just
+        // verify the AGA-only downcasts don't panic.
+        let _pc = session.aga_machine().cpu().regs.pc;
+        let _tick = session.aga_machine_mut().tick_count();
     }
 }

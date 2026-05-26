@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use emu198x_shell::mcp::{Server, ServerInfo, serve_stdio};
 
 use crate::AppError;
-use session::AmigaA1200Session;
+use session::AmigaSession;
 
 /// Runs MCP mode. Loads the KS 3.1 A1200 ROM, boots an A1200, registers
 /// every tool, and runs the stdio loop until stdin closes.
@@ -37,9 +37,9 @@ use session::AmigaA1200Session;
 pub fn run() -> Result<(), AppError> {
     let rom_path = resolve_rom_path()?;
     let rom_bytes = std::fs::read(&rom_path).map_err(AppError::Io)?;
-    let mut session = AmigaA1200Session::new(rom_bytes, rom_path).map_err(AppError::Machine)?;
+    let mut session = AmigaSession::new(rom_bytes, rom_path).map_err(AppError::Machine)?;
 
-    let mut server: Server<AmigaA1200Session> = Server::new(ServerInfo::new(
+    let mut server: Server<AmigaSession> = Server::new(ServerInfo::new(
         "emu198x-amiga",
         env!("CARGO_PKG_VERSION"),
     ));

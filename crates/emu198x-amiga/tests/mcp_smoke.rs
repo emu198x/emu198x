@@ -1,7 +1,7 @@
 //! Integration test for the Amiga `--mcp` mode.
 //!
 //! Exercises the MCP server in-process: builds the same
-//! `AmigaA1200Session` the binary uses, drives a handful of
+//! `AmigaSession` the binary uses, drives a handful of
 //! JSON-RPC requests through `Server::handle`, asserts the
 //! responses are well-formed and that running advances the
 //! machine. This is a smoke test, not a wedge investigation —
@@ -22,7 +22,7 @@ mod session;
 #[path = "../src/mcp/tools.rs"]
 mod tools;
 
-use session::AmigaA1200Session;
+use session::AmigaSession;
 
 fn load_rom() -> Option<(Vec<u8>, PathBuf)> {
     let path = match std::env::var("EMU198X_KS31_A1200_ROM") {
@@ -46,8 +46,8 @@ fn load_rom() -> Option<(Vec<u8>, PathBuf)> {
 /// Build a request, dispatch it, return the result Value (or panic
 /// loudly with the JSON-RPC error).
 fn call(
-    server: &mut Server<AmigaA1200Session>,
-    session: &mut AmigaA1200Session,
+    server: &mut Server<AmigaSession>,
+    session: &mut AmigaSession,
     id: i64,
     method: &str,
     params: Value,
@@ -85,9 +85,9 @@ fn mcp_server_boots_and_lists_tools() {
     let Some((rom_bytes, rom_path)) = load_rom() else {
         return;
     };
-    let mut session = AmigaA1200Session::new(rom_bytes, rom_path)
+    let mut session = AmigaSession::new(rom_bytes, rom_path)
         .expect("session constructor accepts Kickstart-sized ROM");
-    let mut server: Server<AmigaA1200Session> =
+    let mut server: Server<AmigaSession> =
         Server::new(ServerInfo::new("emu198x-amiga", "test"));
     tools::register_all(server.registry_mut());
 
@@ -148,9 +148,9 @@ fn mcp_tools_drive_a_real_boot() {
     let Some((rom_bytes, rom_path)) = load_rom() else {
         return;
     };
-    let mut session = AmigaA1200Session::new(rom_bytes, rom_path)
+    let mut session = AmigaSession::new(rom_bytes, rom_path)
         .expect("session constructor accepts Kickstart-sized ROM");
-    let mut server: Server<AmigaA1200Session> =
+    let mut server: Server<AmigaSession> =
         Server::new(ServerInfo::new("emu198x-amiga", "test"));
     tools::register_all(server.registry_mut());
 

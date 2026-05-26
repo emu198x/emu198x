@@ -1,6 +1,6 @@
 //! `AmigaLiveAccess` — chipset-agnostic chip-level read/write surface.
 //!
-//! The family MCP tools used to live behind the `AmigaA1200Session::
+//! The family MCP tools used to live behind the `AmigaSession::
 //! machine_mut()` downcast, which panicked on any kind variant other
 //! than `Aga`. That kept every chip-level tool wedded to a single
 //! machine type. This trait lifts the cross-cutting surface up so
