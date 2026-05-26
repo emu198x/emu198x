@@ -612,17 +612,35 @@ impl AmigaA1200 {
             agnus: {
                 // VPOSR bits 14-8 carry the Agnus revision id. KS reads
                 // this to discriminate OCS / ECS / AGA Agnus chips. The
-                // OCS default is $10 (PAL) / $00 (NTSC); for AGA Alice
-                // it must be $23 (PAL) / $33 (NTSC). Matches WinUAE's
-                // VPOSR composition (custom.cpp ~line 2535): AGA mode
-                // sets bits 0x2300, ECS adds 0x2000 (already covered),
-                // NTSC adds 0x1000.
-                let mut a = AgnusAga::from_ecs(AgnusEcs::from_ocs(Agnus::new_with_region(region)));
-                a.agnus_id = match region {
-                    AgnusRegion::Pal => 0x2300,
-                    AgnusRegion::Ntsc => 0x3300,
-                };
-                a
+                // correct AGA Alice value is $23 (PAL) / $33 (NTSC) —
+                // see WinUAE custom.cpp ~line 2535 (AGA sets bits
+                // 0x2300, NTSC adds 0x1000). Stages AC / AD set that.
+                //
+                // But reporting full-AGA Alice puts KS 3.1 on a
+                // Workbench boot path we can't yet complete: WB never
+                // installs its view, the cop2lc list at $121E0 stays
+                // pointing at KS's empty "Insert disk" bitmap, and the
+                // user sees just disk-icon outlines. Empirically (Stage
+                // AE investigation, 2026-05-25):
+                //   - HIRES rendering is correct (poke test pixel-perfect)
+                //   - chip RAM 512 KB / 2 MB / 2 MB + 4 MB fast: identical
+                //   - cop2lc never switches; WB has not built its own
+                //   - disk stops at cylinder 40 in both OCS-fallback and AGA
+                //
+                // Until we identify what AGA-specific chipset behavior
+                // WB's graphics.library / intuition.library is waiting
+                // for, fall back to OCS Agnus IDs ($10 / $00 default
+                // from `Agnus::new_with_region`). KS then sees AGA
+                // Denise + OCS Agnus = mismatched chipset and takes the
+                // OCS-compatibility WB boot path. WB renders properly
+                // (Stage AB behavior) — with the known wrong palette
+                // ($0F00 / $00F0 / $0FF0 at COLOR1/2/3 instead of grey).
+                // That palette gap is a separate problem to fix on the
+                // mismatched-chipset path.
+                //
+                // TODO: restore AGA agnus_id once the AGA WB boot
+                // blocker is identified and fixed.
+                AgnusAga::from_ecs(AgnusEcs::from_ocs(Agnus::new_with_region(region)))
             },
             copper: Copper::new(),
             denise: Denise::new(),

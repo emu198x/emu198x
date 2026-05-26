@@ -3,220 +3,195 @@
 Session of 2026-05-25 took the A1200 emulator from "appears wedged"
 to "KS 3.1 + WB 3.1 boots through OS init, fs-uae cross-check
 proves our render pipeline correct, two chipset reporting bugs
-fixed". The remaining gap is **HIRES rendering**, exposed once the
-Alice agnus_id was corrected to `$2300` (PAL) / `$3300` (NTSC).
+fixed". The remaining gap was first attributed to **HIRES rendering**
+once the Alice agnus_id was corrected to `$2300` (PAL) / `$3300`
+(NTSC) in Stage AD.
 
-## Where we are right now
+The session of 2026-05-25 (evening) re-investigated that hypothesis,
+disproved it, found the real blocker is upstream of rendering, and
+backed out the AGA-side chipset-identification change so WB renders
+again — with the palette gap as the next thing to fix.
 
-Run the MCP boot probe:
+## What is true now (post Stage AE-b revert)
+
+- HIRES rendering is **correct** (poke test below).
+- KS 3.1 + WB 3.1 (Disk 2 ADF) boots through to a HIRES Workbench
+  desktop with title bar, "Copyright …" text, Ram Disk + Workbench3.1
+  icons, scrollbars. Same content as Stage AB; HIRES geometry now.
+- Palette is **wrong** — KS writes the AGA test-pattern colours
+  (`$0F00 / $00F0 / $0FF0` at COLOR1/2/3) instead of grey/blue.
+  Identical to the Stage AA / Stage AB fs-uae cross-check gap.
+- agnus_id reports the OCS default (`$10` PAL / `$00` NTSC). KS
+  sees AGA Denise (`DENISEID = $FFF8`) + OCS Agnus = mismatched
+  chipset, takes a downgrade boot path that does *not* try to
+  install the broken AGA WB display.
+
+`docs/amiga-fs-uae-cross-check.png` from Stage AA still represents
+the gap accurately: our left panel shows real WB content in wrong
+colours; fs-uae right panel shows correct grey Workbench.
+
+## What was wrong about the original Stage AE hypothesis
+
+The previous handoff identified HIRES shift-register clocking (a),
+interleaved modulo (b), AGA palette resolve (c), and BPLCON4 BPLAM
+XOR (d) as ordered hypotheses, with (a) "most likely". None of
+them is the gap.
+
+**Empirical disproof of (a):** booted the A1200 to the documented
+AE state (BPLCON0 = `$A302`, HIRES + BPU=2, bpl_pt[0] = `$37E4E`),
+then `poke_word` wrote a known pattern to the bitmap:
+
+```
+plane 0 row 0: $FFFF $AAAA $5555 $FF00 $00FF
+plane 1 row 0: $FFFF $AAAA
+```
+
+Every fb_x position in the dump matches the expected colour exactly
+across the visible width — confirmed at the pixel level:
+
+```
+fb_x 82..96  yellow at even positions    word 2 $AAAA $AAAA → 1,0,1,0 → yellow,black,yellow,black ✓
+fb_x 99..113 red at every-other          word 3 $5555 $0000 → 0,1,0,1 → black,red,black,red ✓
+fb_x 113..121 solid red (9 px)           word 4 $FF00 $0000 high bits → red ✓
+fb_x 138..145 solid red (8 px)           word 5 $00FF $0000 low bits → red ✓
+fb_x 706..721 solid red (16 px)          overfetch wraps to plane 1's $FFFF, plane 0=$0 → red ✓
+```
+
+DIW H gate opens correctly at fb_x = 82 (beam_x_lores = 129). The
+4-CCK commit cadence is correct. The interleaved-modulo path is
+correct. quad[0] / quad[1] mapping is correct. **HIRES rendering
+is not the bug.**
+
+## What the real gap turned out to be
+
+The Stage AE framebuffer shows just two disk-icon outlines on black.
+The bitmap memory at `bpl_pt[0]` is **empty**. WB has not drawn to
+its bitmap. The "icons" are KS's "Insert Workbench Disk" prompt,
+left over from before WB took over.
+
+In OCS-fallback (Stage AB), WB *does* draw — and switches `cop2lc`
+to its own copper list at `$10878` that points to its bitmap at
+`$30F56`. WB calls graphics.library's MakeVPort / MrgCop, then
+intuition's OpenScreen, then LoadView; LoadView writes the new
+COP1LC / COP2LC and the new display takes effect.
+
+In the AGA path (Stages AC–AE-a), WB never installs its view. The
+cop2lc at `$121E0` stays unchanged across 600+ frames. Only one
+BPL1PTH MOVE pair exists in chip RAM (KS's). No WB copper list
+got built.
+
+**Why** WB stops in AGA mode is unknown. Things we ruled out:
+
+- HIRES rendering (poke test pixel-perfect).
+- Chip RAM size: 512 KB → 2 MB → 2 MB + 4 MB fast all give the
+  identical empty-bitmap result, same framebuffer hash, same disk
+  stuck at cylinder 40.
+- Disk loading isn't the differentiator — cylinder 40 / motor off
+  is identical at AB (works) and AE (broken).
+- Chipset register reads look normal: DMACONR, INTENAR, INTREQR,
+  VPOSR, VHPOSR, POTGOR, JOY0DAT in the polling pattern KS always
+  does; DENISEID and FMODE return the values KS expects.
+
+Still possible: a specific AGA chipset behaviour (sprite-DMA timing
+under AGA Alice? a BPL fetch quirk we don't model? a library probe
+that hits a register we mishandle?) that graphics.library or
+intuition.library blocks on. Pinning it down needs CPU-trace work:
+look for where WB.Workbench task gets scheduled, then trace
+forward until it stops calling library functions.
+
+## What this commit (Stage AE-b) does
+
+Reverts the agnus_id assignment in `AmigaA1200`:
+
+```rust
+// Stage AD value (correct AGA, but WB doesn't install view):
+a.agnus_id = match region {
+    AgnusRegion::Pal => 0x2300,
+    AgnusRegion::Ntsc => 0x3300,
+};
+
+// Stage AE-b: drop the assignment; OCS Agnus default ($10/$00)
+// stays in place.
+```
+
+Effect: KS sees AGA Denise (`DENISEID = $FFF8`) + OCS Agnus
+(`agnus_id = $10`) = mismatched chipset. KS takes the
+OCS-compatibility WB boot path. WB installs its view, draws the
+desktop, scrollbars, icons.
+
+All other Stage S → AE-a work is preserved:
+
+- diagnostic tooling: `chipset_read_log`, `bplcon0_log`,
+  `palette_log`, `watch_memory`, `poke_word`, `dump_framebuffer`,
+  `start/stop_video_recording`, `restart`
+- correctness: FMODE readback (Stage AC), DENISEID = `$FFF8`
+  (Stage T), AGA palette via BPLCON3 BANK + LOCT (Stage U), HIRES
+  `dma_claim` schedule (Stage AE-a)
+
+`ks31_boot` + `mcp_smoke` green. Full workspace test sweep green
+(386 test sets pass).
+
+## What's left
+
+### Immediate: wrong palette on the OCS-fallback path
+
+The Stage AB cross-check picture (left panel) shows the gap: WB
+renders with yellow / red / green primaries at COLOR1/2/3 instead
+of WB's standard grey/blue scheme. Stage AB documented this via
+the `poke_word` proof in `docs/amiga-forced-grey-palette.png` —
+forcing the palette to grey/black/white/mid-grey produces a
+pixel-perfect WB desktop.
+
+The reason KS writes the test-pattern values is upstream of our
+chipset reads — something different from what fs-uae's KS does on
+the same ROM. Stage AC's hypothesis was that this was caused by
+the mismatched chipset (which AC / AD then attempted to remove).
+After this Stage AE-b revert we're back on the mismatched path,
+so that hypothesis can be tested differently: find what palette-
+init code path KS takes when it sees this chipset combination,
+and what we report that drives the wrong colours.
+
+### Medium-term: full AGA WB boot path
+
+When we want to remove the OCS-fallback workaround, we need to
+identify why WB doesn't install its view when KS reports full AGA.
+The investigation needs CPU-execution tracing rather than
+chipset-register snapshots — see "Still possible" list above.
+
+## How to reproduce + verify
+
+Boot probe (renders WB now):
 
 ```
 printf '%s\n%s\n%s\n%s\n%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_frames","arguments":{"frames":300}}}' \
-  '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"insert_media","arguments":{"path":"/Users/stevehill/Projects/198x/assets/amiga/Operating Systems/Workbench/Workbench v3.1 rev 40.42 (1996)(ESCOM)(M10)(Disk 2 of 6)(Workbench).zip"}}}' \
+  '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"insert_media","arguments":{"path":"<path to WB 3.1 Disk 2 zip>"}}}' \
   '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"run_frames","arguments":{"frames":3000}}}' \
   '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"dump_framebuffer","arguments":{"path":"/tmp/wb.png"}}}' \
   | ./target/release/emu198x-amiga --mcp
 ```
 
-Result: mostly black framebuffer with just the disk-icon outlines
-visible at top-left. fs-uae produces a proper grey Workbench from
-the same inputs (see `tools/fs-uae-cross-check.sh` and
-`docs/amiga-fs-uae-cross-check.png`).
+Cross-check: `tools/fs-uae-cross-check.sh`.
 
-The chipset state at the boot point:
+HIRES rendering verification (any time, no boot needed beyond
+reaching the AGA HIRES screen): poke a known pattern into
+`bpl_pt[0]` and dump the framebuffer. Every fb_x position in the
+visible width must match the expected colour from the pattern bits
+of both planes. The 2026-05-25 evening session captured the
+expected pattern above for reference.
 
-```
-bplcon0  = $A302     (HIRES + BPU=2 + COLOR + GAUD + ERSY)
-diwstrt  = $2C81     (vstart 44, hstart 129)
-diwstop  = $2CC1     (vstop 300 — PAL 256-line)
-ddfstrt  = $0038
-ddfstop  = $00D8
-bpl1mod  = 76
-bpl2mod  = 76
-bpl_pt[0]= $41E4E
-bpl_pt[1]= $41E9E    (= bpl_pt[0] + 80 — interleaved layout)
-fmode    = $0000     (16-bit fetch — OCS-compatible)
-num_bitplanes = 2
-```
-
-## What is correct (don't re-investigate)
-
-- All CPU instruction handling (68000/68010/68020 Tom Harte green)
-- BSR / RTE / supervisor mode / interrupts (Stages L–N)
-- Memory + bus + overlay + chip RAM access
-- Trackdisk + MFM decode + floppy IRQs (KS reads the disk fully)
-- AGA detection: DENISEID = `$FFF8` returned at `$DFF07C` ✓
-- AGA agnus_id: `$2300` PAL / `$3300` NTSC (Stage AD)
-- FMODE readback returns stored value (Stage AC)
-- BPLCON3 + BPLCON4 + COLOR write routing through AGA wrapper
-- AGA 24-bit palette tracking via `BPLCON3 BANK + LOCT`
-- The framebuffer pixel pipeline: **proven by `poke_word` forcing
-  grey into `bpl_pt[0..3]` and getting a pixel-perfect WB 3.1
-  desktop** (Stage AB, `docs/amiga-forced-grey-palette.png`)
-- HIRES bitplane DMA arbitration in `dma_claim` (Stage AE-a)
-- Agnus-side HIRES_DDF_TO_PLANE bitplane scheduling
-  (`commodore-agnus-ocs`, was correct all along)
-
-## What is broken
-
-KS programs a HIRES 4-color screen with an interleaved bitplane
-layout. We:
-- Schedule bitplane DMA at the right CCKs ✓
-- Fetch bitplane words into the shift registers ✓
-- Emit pixels through `output_pixel_with_beam_and_playfield_gate`
-- Resolve colours through `palette[final_color_idx]`
-
-But the visible result is almost all black. Some hypothesis to
-test, ordered by likelihood:
-
-### (a) HIRES shift-register clocking — most likely
-
-In HIRES the pixel rate is 2× lores. Look at
-`commodore-denise-ocs/src/chip.rs::output_pixel_with_beam_and_playfield_gate`
-and the surrounding `tick` / shift register code.
-
-`commodore-denise-ocs::DeniseOcs::shift_count` decrements once per
-output pixel. In HIRES, the shift register should advance 2× as
-fast — once per master/4 tick instead of once per CCK. If we
-output the same lores pixel for both halves of a CCK in HIRES
-mode, we're losing every other hires pixel.
-
-How to test:
-- Boot, query: which lines have non-zero pixels in the framebuffer?
-- Read the bitplane memory at `bpl_pt[0]` directly (`memory_read`)
-  to see what's actually in the bitmap.
-- Compare: render uses bytes [0..N], but the bitmap has data
-  through byte [80*256-1]. Where does the data stop being
-  rendered? (Hint: probably at the first CCK where the shift
-  register runs out.)
-
-### (b) Interleaved bitmap modulo
-
-KS sets `BPL1MOD = BPL2MOD = 76`. For the interleaved layout to
-work, per-line advance for each plane must be:
-`fetched_bytes + bpl_mod = 2 * line_width_per_plane`
-
-For 640px HIRES with `line_width_per_plane = 80 bytes` and 2
-planes interleaved: `80 + 80 = 160`. So `bpl_mod` should be 80.
-
-Our `bpl1mod = 76`. That's 80 − 4. The 4 might be slack from
-HIRES overscan (672 wide instead of 640 = 84 bytes per line, then
-`84 + 76 = 160`). Need to verify what the actual fetched bytes
-per line are vs what we apply the modulo to.
-
-Look at the end-of-line modulo path in
-`common-commodore-amiga/src/denise.rs::tick` around line 270.
-
-### (c) AGA palette resolve
-
-`DeniseAga::resolve_color_rgb12` currently delegates to the ECS
-inner (which uses 12-bit `palette[0..31]`). For full AGA, it
-should consult `palette_24` (already populated) and downsample.
-
-This won't fix the visibility issue (the colours from the OCS
-palette match palette_24 high-nybble anyway), but it's prerequisite
-for the BPLAM XOR remap.
-
-### (d) BPLCON4 BPLAM XOR remap
-
-After (c), apply `bitplane_idx XOR (bplcon4 >> 8)` at pixel emit
-before palette lookup. KS currently writes `BPLCON4 = $0011`
-(BPLAM = 0, sprite base 17), so this won't change anything in
-this specific boot — but it's a load-bearing AGA feature for
-Workbench colour banks.
-
-## Tools available
-
-All built into `./target/release/emu198x-amiga --mcp`. JSON-RPC
-over stdio, one call per line.
-
-### Inspection
-- `query_cpu` / `query_chipset` / `query_agnus` / `query_aga`
-  / `query_paula` / `query_cia` / `query_blitter` / `query_disk`
-  / `query_stack` / `query_copper_list`
-- `memory_read addr len` / `memory_read_long addr`
-- `disasm addr count`
-
-### Control
-- `run_frames frames` / `run_ticks ticks`
-- `run_until_pc target` / `run_until_any_pc targets[]`
-- `run_until_mem_change addrs[]`
-- `step count`
-- `reset`
-
-### Capture
-- `dump_framebuffer path` — PNG + colour histogram + hash
-- `start_video_recording path` / `stop_video_recording` — MP4
-  via ffmpeg
-
-### Diagnostics
-- `bplcon0_log unique:true` — every BPLCON0 write with BPU histogram
-- `palette_log unique:true [color_idx_range:[lo,hi]]` — every
-  COLOR/BPLCON3/BPLCON4 write with BANK + LOCT
-- `chipset_read_log [offset, dedupe, cck_min/max]` — every chipset
-  register read with returned value
-- `watch_memory addr len` / `watch_memory_log` / `watch_memory_clear`
-  — chip-RAM byte-range write watchpoint
-
-### Backdoors
-- `poke_word addr val` — force a word write anywhere through the bus
-- `insert_media path [entry] [kind=adf] [change_pending]`
-- `eject_media`
-- `restart [exit_code]` — exit so a host re-spawns the new binary
-
-## Files most relevant to Stage AE
-
-- `crates/commodore-denise-ocs/src/chip.rs` — `output_pixel_*`,
-  shift register, palette resolution. This is where the HIRES
-  bug almost certainly lives.
-- `crates/common-commodore-amiga/src/denise.rs` — board-level
-  wrapper, per-CCK tick that does the bitplane fetch and pixel
-  emission.
-- `crates/commodore-agnus-ocs/src/agnus.rs` — bus plan
-  (`cck_bus_plan`, `current_slot`), HIRES_DDF_TO_PLANE.
-- `crates/commodore-denise-aga/src/lib.rs` — AGA wrapper, where
-  the AGA palette resolve will land.
-
-## Cross-check workflow
-
-`tools/fs-uae-cross-check.sh` already automates: boot fs-uae +
-our emulator with the same ROM+ADF, capture screenshots from
-both, compose a side-by-side PNG. Re-run after each substantive
-change to see whether the gap is closing.
-
-## Today's commits (S → AE-a)
+## Recent commits (S → AE-b)
 
 ```
-9fbaf4a  S    zip-aware insert_media + STOP-instruction reframing
-ebd6e5b  T    DENISEID/FMODE/BPLCON3 routing — KS sees AGA
-d52a786  U    AGA palette via BPLCON3 BANK + LOCT
-ca8a21f  V    BPLCON0 write trace
-6de0d71  W    PNG framebuffer dump
-51728b7  X    VideoRecorder integration
-76ac575  Y+Z  palette log + restart tool
-d9caeb3  AA   fs-uae cross-check script + screenshot
-4eeec95  AB   watch_memory + poke_word — render path proven correct
-ff8a8f0  AC   chipset_read_log + Alice agnus_id (PAL=$30 was wrong)
-8170239  AD   Alice agnus_id corrected to PAL=$2300/NTSC=$3300
-f27f7ce  AE-a HIRES dma_claim schedule (correct but invisible to WB)
+ad-hoc   AE-b  agnus_id revert — WB renders again, palette is next
+f27f7ce  AE-a  HIRES dma_claim schedule (kept; verified correct)
+8170239  AD    Alice agnus_id corrected to PAL=$2300/NTSC=$3300 (reverted in AE-b)
+ff8a8f0  AC    chipset reads + Alice agnus_id (agnus_id reverted; FMODE readback kept)
+4eeec95  AB    watch_memory + poke_word — render path proven correct
+d9caeb3  AA    fs-uae cross-check script + screenshot
+76ac575  Y+Z   palette log + restart tool
+d52a786  U     AGA palette via BPLCON3 BANK + LOCT
+ebd6e5b  T     DENISEID/FMODE/BPLCON3 routing
+9fbaf4a  S     zip-aware insert_media + STOP-instruction reframing
 ```
-
-## What to do first when picking back up
-
-1. **Read** `commodore-denise-ocs/src/chip.rs` end to end — focus
-   on `output_pixel_with_beam_and_playfield_gate` and how
-   `shift_count` is managed.
-2. **Trace** what `source_pixels_per_fb_pixel` is for a HIRES
-   tick in our current code. If it returns 1 in HIRES mode
-   (when it should be 2), or if the shift register advances by
-   16 pixels per CCK (when in HIRES it should advance by 16
-   pixels per *half*-CCK), that's the bug.
-3. **Verify** by reading bitmap memory at `bpl_pt[0]` and
-   forming the expected pixel pattern, then comparing to what
-   ends up in the framebuffer at the corresponding fb_x/fb_y.
-
-The user's instinct on "framebuffer index mapping" was wrong but
-adjacent — the issue is in the **timing** of when pixels are
-shifted out and rendered, not the *mapping* from index to colour.
