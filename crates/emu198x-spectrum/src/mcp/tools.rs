@@ -12,8 +12,8 @@
 //! break, a tool's schema here probably also needs an update.
 
 use emu198x_shell::{
-    DisasmInstruction, FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, MemoryWriteEntry,
-    ScriptObservation, ScriptStep,
+    AyWriteEntry, DisasmInstruction, FirmwareImage, FirmwareSet, HeadlessSession, MachineCore,
+    MemoryWriteEntry, ScriptObservation, ScriptStep,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
     read_firmware_asset,
 };
@@ -110,6 +110,11 @@ fn mcp_execute_step(
         ScriptStep::PortWrite { port, value } => {
             execute_port_write(session, *port, *value);
             Ok(None)
+        }
+        ScriptStep::WatchAyStart => execute_watch_ay_start(session).map(Some),
+        ScriptStep::WatchAyClear => Ok(Some(execute_watch_ay_clear(session))),
+        ScriptStep::WatchAyLog { limit, unique } => {
+            Ok(Some(execute_watch_ay_log(session, *limit, *unique)))
         }
         ScriptStep::AutoloadTape {
             slot,
@@ -541,6 +546,67 @@ fn execute_port_write(session: &mut SpectrumSession, port: u16, value: u8) {
     session.machine_mut().port_write(port, value);
 }
 
+fn execute_watch_ay_start(session: &mut SpectrumSession) -> Result<ScriptObservation, ToolError> {
+    session
+        .machine_mut()
+        .start_ay_write_watch()
+        .map_err(|err| ToolError::Execution(format!("watch_ay_start: {err}")))?;
+    Ok(ScriptObservation::WatchAyStart {
+        capacity: common_sinclair_zx_spectrum::DEFAULT_AY_WATCH_CAP as u32,
+    })
+}
+
+fn execute_watch_ay_clear(session: &mut SpectrumSession) -> ScriptObservation {
+    let machine = session.machine();
+    let captured = machine
+        .ay_write_watch_records()
+        .map(|r| r.len() as u32)
+        .unwrap_or(0);
+    let had_watch = machine.ay_write_watch_records().is_some();
+    session.machine_mut().stop_ay_write_watch();
+    ScriptObservation::WatchAyClear {
+        had_watch,
+        captured,
+    }
+}
+
+fn execute_watch_ay_log(
+    session: &SpectrumSession,
+    limit: Option<u32>,
+    unique: bool,
+) -> ScriptObservation {
+    let limit = limit.unwrap_or(64) as usize;
+    let machine = session.machine();
+    let Some(records) = machine.ay_write_watch_records() else {
+        return ScriptObservation::WatchAyLog {
+            total_writes: 0,
+            returned: 0,
+            entries: Vec::new(),
+        };
+    };
+    let total_writes = records.len() as u32;
+    let mut filtered: Vec<&common_sinclair_zx_spectrum::AyWriteRecord> = records.iter().collect();
+    if unique {
+        let mut seen = std::collections::HashSet::new();
+        filtered.retain(|r| seen.insert((r.pc, r.register, r.value)));
+    }
+    let total_filtered = filtered.len();
+    let start = total_filtered.saturating_sub(limit);
+    let entries: Vec<AyWriteEntry> = filtered[start..]
+        .iter()
+        .map(|r| AyWriteEntry {
+            pc: u32::from(r.pc),
+            register: r.register,
+            value: r.value,
+        })
+        .collect();
+    ScriptObservation::WatchAyLog {
+        total_writes,
+        returned: entries.len() as u32,
+        entries,
+    }
+}
+
 fn ay_unsupported_error(err: &emu198x_shell::QueryError) -> ToolError {
     ToolError::Execution(format!(
         "query_ay: active Spectrum variant does not have an AY-3-8912 chip \
@@ -962,6 +1028,30 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
     }));
 
     registry.register(Box::new(ScriptStepTool {
+        name: "watch_ay_start",
+        description: "Begin recording every OUT ($BFFD), data — the Z80 → AY data port — capturing (pc, register, value). Curriculum-focused: lets a script show how a music driver or sound-effect routine programs the AY across a frame/scene/bar. Errors when the active variant has no AY (16K / 48K / Spectrum+ / TC2048).",
+        schema: json!({"type": "object"}),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "watch_ay_clear",
+        description: "Stop the AY register tracer and drop the captured log. Reports how many records were held at the moment of clear.",
+        schema: json!({"type": "object"}),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "watch_ay_log",
+        description: "Fetch the captured AY writes. Returns up to `limit` most-recent entries (default 64), oldest-first. Set `unique = true` to deduplicate by (pc, register, value) before applying the limit.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "limit": integer_field(),
+                "unique": boolean_field(),
+            },
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
         name: "memory_read",
         description: "Read a contiguous span of CPU-visible memory (Z80 address space, 0x0000-0xFFFF). Returns raw bytes in memory order. `len` is capped at 256 bytes per call.",
         schema: json!({
@@ -1143,6 +1233,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_step_round_trips_watch_ay_variants() {
+        let start = parse_step("watch_ay_start", Value::Null).expect("valid watch_ay_start");
+        assert_eq!(start, ScriptStep::WatchAyStart);
+        let clear = parse_step("watch_ay_clear", Value::Null).expect("valid watch_ay_clear");
+        assert_eq!(clear, ScriptStep::WatchAyClear);
+        let log = parse_step("watch_ay_log", json!({})).expect("valid watch_ay_log");
+        assert_eq!(
+            log,
+            ScriptStep::WatchAyLog {
+                limit: None,
+                unique: false,
+            }
+        );
+    }
+
+    #[test]
     fn parse_step_round_trips_memory_read_arguments() {
         let step = parse_step("memory_read", json!({"addr": 0x4000, "len": 32}))
             .expect("valid memory_read");
@@ -1220,6 +1326,9 @@ mod tests {
             "disasm",
             "port_read",
             "port_write",
+            "watch_ay_start",
+            "watch_ay_clear",
+            "watch_ay_log",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");

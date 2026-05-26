@@ -54,6 +54,22 @@ impl From<ScriptMediaTransportAction> for crate::MediaTransportAction {
     }
 }
 
+/// One captured AY-3-8912 register write reported by
+/// [`ScriptObservation::WatchAyLog`].
+///
+/// Captured at the moment of `OUT ($BFFD), data` — `register` is
+/// whichever the most-recent `OUT ($FFFD), reg_index` selected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AyWriteEntry {
+    /// CPU program counter at the moment of the write. Widened to
+    /// `u32` to match the rest of the family-wide observation shape.
+    pub pc: u32,
+    /// AY register index (0-15) that was selected at the write.
+    pub register: u8,
+    /// Byte written to the selected register.
+    pub value: u8,
+}
+
 /// One decoded instruction returned by [`ScriptObservation::Disasm`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DisasmInstruction {
@@ -352,6 +368,32 @@ pub enum ScriptStep {
         port: u16,
         /// 8-bit value to drive on the data bus.
         value: u8,
+    },
+    /// Begin tracing every `OUT ($BFFD), data` write to the AY data
+    /// port, capturing `(pc, register, value)`.
+    ///
+    /// System-specific step (binary-dispatched). Errors when the
+    /// active variant has no AY (16K / 48K / Spectrum+ / TC2048).
+    /// Emits [`ScriptObservation::WatchAyStart`].
+    WatchAyStart,
+    /// Stop tracing AY writes and drop the captured log.
+    ///
+    /// System-specific (binary-dispatched). Emits
+    /// [`ScriptObservation::WatchAyClear`].
+    WatchAyClear,
+    /// Fetch the captured AY write log.
+    ///
+    /// System-specific (binary-dispatched). Emits
+    /// [`ScriptObservation::WatchAyLog`] with up to `limit`
+    /// most-recent entries (default 64).
+    WatchAyLog {
+        /// Maximum number of entries to return.
+        #[serde(default)]
+        limit: Option<u32>,
+        /// When `true`, deduplicate identical `(pc, register, value)`
+        /// triples before applying the limit.
+        #[serde(default)]
+        unique: bool,
     },
     /// Reset the running machine.
     ///
@@ -751,6 +793,27 @@ pub enum ScriptObservation {
         /// Byte returned by the bus-level handler.
         value: u8,
     },
+    /// Result of starting an AY write watch.
+    WatchAyStart {
+        /// Capacity (max records the AY log can hold).
+        capacity: u32,
+    },
+    /// Result of stopping an AY write watch.
+    WatchAyClear {
+        /// `true` when an AY watch was configured before the clear.
+        had_watch: bool,
+        /// Number of records captured between start and clear.
+        captured: u32,
+    },
+    /// Result of fetching the AY write log.
+    WatchAyLog {
+        /// Total records currently held.
+        total_writes: u32,
+        /// Number of records returned (after limit + unique).
+        returned: u32,
+        /// Most-recent entries up to the requested limit, oldest first.
+        entries: Vec<AyWriteEntry>,
+    },
     /// Result of fetching the memory write log.
     WatchMemoryLog {
         /// Current watch range start, or `None` if no watch is active.
@@ -947,6 +1010,15 @@ impl ScriptStep {
             Self::Disasm { .. } => Err(ScriptError::SystemSpecificStep { step: "disasm" }),
             Self::PortRead { .. } => Err(ScriptError::SystemSpecificStep { step: "port_read" }),
             Self::PortWrite { .. } => Err(ScriptError::SystemSpecificStep { step: "port_write" }),
+            Self::WatchAyStart => Err(ScriptError::SystemSpecificStep {
+                step: "watch_ay_start",
+            }),
+            Self::WatchAyClear => Err(ScriptError::SystemSpecificStep {
+                step: "watch_ay_clear",
+            }),
+            Self::WatchAyLog { .. } => Err(ScriptError::SystemSpecificStep {
+                step: "watch_ay_log",
+            }),
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
             }),

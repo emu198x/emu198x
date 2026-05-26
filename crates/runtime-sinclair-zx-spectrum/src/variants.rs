@@ -908,6 +908,19 @@ impl SpectrumMachine for Spectrum128K {
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
     }
+    fn start_ay_write_watch(&mut self) -> Result<(), &'static str> {
+        Spectrum128K::start_ay_write_watch(self);
+        Ok(())
+    }
+    fn stop_ay_write_watch(&mut self) {
+        Spectrum128K::stop_ay_write_watch(self);
+    }
+    fn ay_write_watch_records(&self) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]> {
+        Spectrum128K::ay_write_watch_records(self)
+    }
+    fn clear_ay_write_watch_records(&mut self) {
+        Spectrum128K::clear_ay_write_watch_records(self);
+    }
 }
 
 impl SpectrumMachine for SpectrumPlus2 {
@@ -1040,6 +1053,19 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
+    }
+    fn start_ay_write_watch(&mut self) -> Result<(), &'static str> {
+        SpectrumPlus2::start_ay_write_watch(self);
+        Ok(())
+    }
+    fn stop_ay_write_watch(&mut self) {
+        SpectrumPlus2::stop_ay_write_watch(self);
+    }
+    fn ay_write_watch_records(&self) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]> {
+        SpectrumPlus2::ay_write_watch_records(self)
+    }
+    fn clear_ay_write_watch_records(&mut self) {
+        SpectrumPlus2::clear_ay_write_watch_records(self);
     }
 }
 
@@ -1203,6 +1229,19 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
+    }
+    fn start_ay_write_watch(&mut self) -> Result<(), &'static str> {
+        SpectrumAmstradClassCore::<V>::start_ay_write_watch(self);
+        Ok(())
+    }
+    fn stop_ay_write_watch(&mut self) {
+        SpectrumAmstradClassCore::<V>::stop_ay_write_watch(self);
+    }
+    fn ay_write_watch_records(&self) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]> {
+        SpectrumAmstradClassCore::<V>::ay_write_watch_records(self)
+    }
+    fn clear_ay_write_watch_records(&mut self) {
+        SpectrumAmstradClassCore::<V>::clear_ay_write_watch_records(self);
     }
 }
 

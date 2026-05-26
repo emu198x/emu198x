@@ -6,6 +6,7 @@
 //! engine.
 
 pub mod audio;
+pub mod ay_watch;
 pub mod driver;
 pub mod error;
 pub mod keyboard;
@@ -21,6 +22,7 @@ pub mod ula;
 pub mod ula_engine;
 
 pub use audio::{AudioControls, BeeperAudio, SpeakerChannel, SpeakerMixer};
+pub use ay_watch::{AyWriteRecord, AyWriteWatch, DEFAULT_AY_WATCH_CAP};
 pub use driver::SpectrumDriver;
 pub use error::RomImageError;
 pub use keyboard::{KeyboardMatrix, SpectrumKey};

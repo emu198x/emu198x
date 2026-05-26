@@ -73,6 +73,9 @@ pub struct SpectrumAmstradClassCore<V: AmstradVariant> {
     /// 48K-class core.
     #[serde(default)]
     write_watch: Option<common_sinclair_zx_spectrum::MemoryWriteWatch>,
+    /// Optional AY register-write tracer.
+    #[serde(default)]
+    ay_watch: Option<common_sinclair_zx_spectrum::AyWriteWatch>,
 
     #[serde(skip)]
     _variant: PhantomData<V>,
@@ -118,6 +121,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             hc: 0,
             speaker: SpeakerMixer::default(),
             write_watch: None,
+            ay_watch: None,
             _variant: PhantomData,
         }
     }
@@ -165,6 +169,31 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     /// Bus-level port write — see `SpectrumMachineCore::port_write`.
     pub fn port_write(&mut self, port: u16, value: u8) {
         self.io_write(port, value);
+    }
+
+    /// Begin tracing every `OUT ($BFFD), data` write.
+    pub fn start_ay_write_watch(&mut self) {
+        self.ay_watch = Some(common_sinclair_zx_spectrum::AyWriteWatch::new());
+    }
+
+    /// Drop the AY watch entirely.
+    pub fn stop_ay_write_watch(&mut self) {
+        self.ay_watch = None;
+    }
+
+    /// Captured AY writes since the last `start_ay_write_watch`.
+    #[must_use]
+    pub fn ay_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]> {
+        self.ay_watch.as_ref().map(|w| w.records())
+    }
+
+    /// Drop captured records without removing the watch.
+    pub fn clear_ay_write_watch_records(&mut self) {
+        if let Some(w) = &mut self.ay_watch {
+            w.clear();
+        }
     }
 
     /// Stable hardware identifier for this variant.
@@ -344,6 +373,9 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         if port & 0xC002 == 0xC000 {
             self.ay.select_register(data);
         } else if port & 0xC002 == 0x8000 {
+            if let Some(w) = &mut self.ay_watch {
+                w.record(self.z80.regs.pc, self.ay.selected_register(), data);
+            }
             self.ay.write_data(data);
         }
     }

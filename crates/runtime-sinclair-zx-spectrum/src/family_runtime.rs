@@ -101,6 +101,20 @@ pub trait SpectrumLiveAccess {
     fn port_read(&mut self, port: u16) -> u8;
     /// Bus-level Z80 I/O port write.
     fn port_write(&mut self, port: u16, value: u8);
+    /// Begin tracing every `OUT ($BFFD), data` write. Variants
+    /// without an AY return `Err`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the reason string from the inner machine when the
+    /// variant doesn't carry an AY-3-8912.
+    fn start_ay_write_watch(&mut self) -> Result<(), &'static str>;
+    /// Stop the AY tracer.
+    fn stop_ay_write_watch(&mut self);
+    /// Captured AY writes since the last `start_ay_write_watch`.
+    fn ay_write_watch_records(&self) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]>;
+    /// Drop captured AY records without removing the watch.
+    fn clear_ay_write_watch_records(&mut self);
 }
 
 impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
@@ -168,6 +182,22 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 
     fn port_write(&mut self, port: u16, value: u8) {
         self.machine_mut().port_write(port, value);
+    }
+
+    fn start_ay_write_watch(&mut self) -> Result<(), &'static str> {
+        self.machine_mut().start_ay_write_watch()
+    }
+
+    fn stop_ay_write_watch(&mut self) {
+        self.machine_mut().stop_ay_write_watch();
+    }
+
+    fn ay_write_watch_records(&self) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]> {
+        self.machine().ay_write_watch_records()
+    }
+
+    fn clear_ay_write_watch_records(&mut self) {
+        self.machine_mut().clear_ay_write_watch_records();
     }
 }
 
@@ -410,6 +440,22 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
     fn port_write(&mut self, port: u16, value: u8) {
         match_kind!(self, |rt| rt.port_write(port, value))
     }
+
+    fn start_ay_write_watch(&mut self) -> Result<(), &'static str> {
+        match_kind!(self, |rt| rt.start_ay_write_watch())
+    }
+
+    fn stop_ay_write_watch(&mut self) {
+        match_kind!(self, |rt| rt.stop_ay_write_watch())
+    }
+
+    fn ay_write_watch_records(&self) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]> {
+        match_kind!(self, |rt| rt.ay_write_watch_records())
+    }
+
+    fn clear_ay_write_watch_records(&mut self) {
+        match_kind!(self, |rt| rt.clear_ay_write_watch_records())
+    }
 }
 
 impl SessionQueryProvider<SpectrumRuntimeKind> for SpectrumSessionQueryProvider {
@@ -463,6 +509,23 @@ mod tests {
         let pc_after = kind.z80_registers().pc;
         assert_ne!(pc_after, pc_before, "step should advance PC");
         assert!(halfcycles > 0, "step should consume cycles");
+    }
+
+    #[test]
+    fn ay_write_watch_dispatches_through_runtime_kind() {
+        // 48K has no AY — start should error.
+        let mut k48 = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        assert!(k48.start_ay_write_watch().is_err());
+        assert!(k48.ay_write_watch_records().is_none());
+
+        // 128K has an AY — start should succeed, range should be present.
+        let mut k128 = SpectrumRuntimeKind::Spectrum128K(Spectrum128kRuntime::blank());
+        k128.start_ay_write_watch().expect("128K supports the AY watch");
+        assert!(k128.ay_write_watch_records().is_some());
+        assert_eq!(k128.ay_write_watch_records().unwrap().len(), 0);
+
+        k128.stop_ay_write_watch();
+        assert!(k128.ay_write_watch_records().is_none());
     }
 
     #[test]

@@ -267,6 +267,31 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// AY register select / data, …).
     fn port_write(&mut self, port: u16, value: u8);
 
+    /// Begin tracing every `OUT ($BFFD), data` write. Variants
+    /// without an AY (16K / 48K / Spectrum+ / TC2048) return `Err`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` with a short reason on variants that don't
+    /// implement the tracer.
+    fn start_ay_write_watch(&mut self) -> Result<(), &'static str> {
+        Err("AY register tracer is not supported on this Spectrum variant")
+    }
+
+    /// Stop the AY tracer (drop the watch and any captured records).
+    fn stop_ay_write_watch(&mut self) {}
+
+    /// Captured AY writes since the last `start_ay_write_watch`.
+    /// `None` means either no watch is configured or the variant
+    /// doesn't support the tracer.
+    #[must_use]
+    fn ay_write_watch_records(&self) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]> {
+        None
+    }
+
+    /// Drop captured AY records without removing the watch.
+    fn clear_ay_write_watch_records(&mut self) {}
+
     /// Run cycles until exactly one Z80 instruction completes. Returns
     /// the number of master-clock half-cycles consumed.
     ///
