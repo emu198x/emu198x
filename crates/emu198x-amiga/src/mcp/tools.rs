@@ -523,7 +523,29 @@ fn tool_dump_framebuffer(args: Value, s: &mut AmigaA1200Session) -> Result<Value
 }
 
 fn tool_bplcon0_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let log = &s.machine().debug_bplcon0_log;
+    // Lifted through the trait so OCS / ECS sessions get a graceful
+    // empty response instead of a panic. The underlying instrumentation
+    // (the `debug_bplcon0_log` field) only exists on the AGA chip stack
+    // today — non-AGA variants advertise `instrumented: false` and an
+    // empty entry list. When the OCS / ECS chip layer gains the same
+    // tracer the trait method gains the body and this tool needs no
+    // change.
+    let log = match s.access().aga_bplcon0_log() {
+        Some(log) => log,
+        None => {
+            let empty_bpu: [u64; 16] = [0; 16];
+            let empty_entries: Vec<Value> = Vec::new();
+            return Ok(json!({
+                "instrumented": false,
+                "total_writes": 0,
+                "returned": 0,
+                "filtered_total": 0,
+                "unique": false,
+                "bpu_histogram": empty_bpu,
+                "entries": empty_entries,
+            }));
+        }
+    };
     let unique_only = args
         .get("unique")
         .and_then(Value::as_bool)
@@ -566,7 +588,7 @@ fn tool_bplcon0_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
     // answer to "does BPU>0 ever happen?" without paging through
     // entries.
     let mut bpu_counts: [u64; 16] = [0; 16];
-    for &(_, _, v) in &s.machine().debug_bplcon0_log {
+    for &(_, _, v) in log {
         let bpu = ((v >> 12) & 0x07) as usize;
         let bpu4 = ((v >> 4) & 0x01) as usize;
         let total_bpu = bpu | (bpu4 << 3);
@@ -576,7 +598,8 @@ fn tool_bplcon0_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
     }
 
     Ok(json!({
-        "total_writes": s.machine_mut().debug_bplcon0_log.len(),
+        "instrumented": true,
+        "total_writes": log.len(),
         "returned": shown.len(),
         "filtered_total": total,
         "unique": unique_only,
@@ -633,7 +656,24 @@ fn tool_query_aga(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolE
 }
 
 fn tool_chipset_read_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let log = &s.machine().debug_reg_read_log;
+    // Same lifting pattern as `tool_bplcon0_log`: trait dispatch is
+    // chipset-agnostic, but the underlying `debug_reg_read_log` field
+    // only exists on the AGA chip stack today. Returns an empty,
+    // `instrumented: false` response on OCS / ECS.
+    let log = match s.access().aga_reg_read_log() {
+        Some(log) => log,
+        None => {
+            let empty: Vec<Value> = Vec::new();
+            return Ok(json!({
+                "instrumented": false,
+                "total_logged": 0,
+                "filtered_total": 0,
+                "returned": 0,
+                "offset_summary": empty.clone(),
+                "entries": empty,
+            }));
+        }
+    };
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
     let unique = args.get("unique").and_then(Value::as_bool).unwrap_or(false);
     let offset_filter = args
@@ -700,6 +740,7 @@ fn tool_chipset_read_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value
         .map(|(off, count)| json!({ "offset": format!("${:04X}", off), "reads": count }))
         .collect();
     Ok(json!({
+        "instrumented": true,
         "total_logged": log.len(),
         "filtered_total": total,
         "returned": entries.len(),
@@ -811,7 +852,22 @@ fn tool_restart(args: Value, _s: &mut AmigaA1200Session) -> Result<Value, ToolEr
 }
 
 fn tool_palette_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let log = &s.machine().debug_palette_log;
+    // Same lifting pattern as the other AGA-instrumented logs: trait
+    // dispatch is chipset-agnostic, log presence is not. OCS / ECS
+    // sessions get an `instrumented: false` empty response.
+    let log = match s.access().aga_palette_log() {
+        Some(log) => log,
+        None => {
+            let empty: Vec<Value> = Vec::new();
+            return Ok(json!({
+                "instrumented": false,
+                "total_logged": 0,
+                "filtered_total": 0,
+                "returned": 0,
+                "entries": empty,
+            }));
+        }
+    };
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
     let only_color = args
         .get("only_color")
@@ -900,6 +956,7 @@ fn tool_palette_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
         })
         .collect();
     Ok(json!({
+        "instrumented": true,
         "total_logged": log.len(),
         "filtered_total": total,
         "returned": entries.len(),
@@ -908,7 +965,10 @@ fn tool_palette_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
 }
 
 fn tool_query_blitter(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let a = s.machine_mut().agnus();
+    // Cross-cutting: every field below is on the shared OCS Agnus base
+    // type that the ECS / AGA wrappers Deref to, so the trait surface
+    // suffices.
+    let a = s.access().agnus();
     Ok(json!({
         "busy": a.blitter_busy,
         "exec_pending": a.blitter_exec_pending,
@@ -921,11 +981,17 @@ fn tool_query_blitter(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, 
 }
 
 fn tool_query_copper_list(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let c = s.machine_mut().copper();
+    // The copper instruction encoding (MOVE / WAIT / SKIP) is identical
+    // across OCS / ECS / AGA — only the host `Copper` struct type
+    // differs between chipsets. So the disassembly uses the trait's
+    // `copper_cop1lc()` for the start address and `read_word()` for
+    // the per-word fetch, sidestepping the typed struct entirely.
+    let access = s.access();
+    let default_start = access.copper_cop1lc();
     let start = if let Some(v) = args.get("addr") {
-        if v.is_null() { c.cop1lc } else { arg_u32(&args, "addr")? }
+        if v.is_null() { default_start } else { arg_u32(&args, "addr")? }
     } else {
-        c.cop1lc
+        default_start
     };
     let count = arg_u64_or(&args, "count", 32)?;
     if count == 0 || count > 256 {
@@ -934,8 +1000,8 @@ fn tool_query_copper_list(args: Value, s: &mut AmigaA1200Session) -> Result<Valu
     let mut pc = start;
     let mut out: Vec<Value> = Vec::new();
     for _ in 0..count {
-        let w1 = s.machine_mut().read_word(pc);
-        let w2 = s.machine_mut().read_word(pc.wrapping_add(2));
+        let w1 = access.read_word(pc);
+        let w2 = access.read_word(pc.wrapping_add(2));
         let line = if (w1 & 1) == 0 {
             // MOVE: w1 = register offset (lower 9 bits), w2 = value
             let reg = w1 & 0x1FE;
