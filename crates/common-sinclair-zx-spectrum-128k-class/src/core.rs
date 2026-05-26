@@ -145,6 +145,17 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             .map(|w| (w.lo(), w.hi().wrapping_sub(w.lo())))
     }
 
+    /// Bus-level port read — see `SpectrumMachineCore::port_read` on
+    /// the 48K-class core for the rationale.
+    pub fn port_read(&mut self, port: u16) -> u8 {
+        self.io_read(port)
+    }
+
+    /// Bus-level port write — see `SpectrumMachineCore::port_write`.
+    pub fn port_write(&mut self, port: u16, value: u8) {
+        self.io_write(port, value);
+    }
+
     /// Stable hardware identifier for this variant.
     #[must_use]
     pub fn model_id(&self) -> &'static str {

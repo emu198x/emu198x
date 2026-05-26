@@ -257,6 +257,16 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// finished and the next is about to fetch.
     fn z80_instruction_complete(&self) -> bool;
 
+    /// Bus-level Z80 I/O port read. Takes `&mut self` because
+    /// some ports (notably the floating bus) and routed peripherals
+    /// (Kempston, AY data) may mutate driver state on read.
+    fn port_read(&mut self, port: u16) -> u8;
+
+    /// Bus-level Z80 I/O port write. Side-effects mirror what an
+    /// `OUT (C),A` would produce (border colour, beeper, paging,
+    /// AY register select / data, …).
+    fn port_write(&mut self, port: u16, value: u8);
+
     /// Run cycles until exactly one Z80 instruction completes. Returns
     /// the number of master-clock half-cycles consumed.
     ///

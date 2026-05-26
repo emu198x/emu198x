@@ -331,6 +331,28 @@ pub enum ScriptStep {
         #[serde(default)]
         instructions: Option<u32>,
     },
+    /// Read one CPU I/O port.
+    ///
+    /// System-specific step (binary-dispatched). For Spectrum this
+    /// hits the same bus-level handler the Z80's `IN A,(C)` would
+    /// drive — ULA at `$FE`, Kempston at `$1F`, AY data at `$FFFD`,
+    /// etc. — without driving the CPU through the synthetic
+    /// instruction. Emits [`ScriptObservation::PortRead`].
+    PortRead {
+        /// 16-bit port address.
+        port: u16,
+    },
+    /// Write one CPU I/O port.
+    ///
+    /// System-specific step (binary-dispatched). Side-effects mirror
+    /// `OUT (C),A` — border colour, beeper level, 128K paging, AY
+    /// register select / data, etc. Silent — no observation.
+    PortWrite {
+        /// 16-bit port address.
+        port: u16,
+        /// 8-bit value to drive on the data bus.
+        value: u8,
+    },
     /// Reset the running machine.
     ///
     /// `kind = "hard"` is a power-cycle equivalent (machine state and
@@ -722,6 +744,13 @@ pub enum ScriptObservation {
         /// Decoded instructions, in memory order.
         instructions: Vec<DisasmInstruction>,
     },
+    /// Result of a port read.
+    PortRead {
+        /// Port that was read.
+        port: u16,
+        /// Byte returned by the bus-level handler.
+        value: u8,
+    },
     /// Result of fetching the memory write log.
     WatchMemoryLog {
         /// Current watch range start, or `None` if no watch is active.
@@ -916,6 +945,8 @@ impl ScriptStep {
                 step: "run_until_pc",
             }),
             Self::Disasm { .. } => Err(ScriptError::SystemSpecificStep { step: "disasm" }),
+            Self::PortRead { .. } => Err(ScriptError::SystemSpecificStep { step: "port_read" }),
+            Self::PortWrite { .. } => Err(ScriptError::SystemSpecificStep { step: "port_write" }),
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
             }),

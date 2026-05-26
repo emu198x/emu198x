@@ -146,6 +146,23 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             .map(|w| (w.lo(), w.hi().wrapping_sub(w.lo())))
     }
 
+    /// Reads one Z80 I/O port directly through the bus-level handler.
+    /// Mirrors what an `IN A,(C)` would observe but without driving
+    /// the CPU through the synthetic instruction — used by debug /
+    /// curriculum tools to inspect the ULA, Kempston, or AY data
+    /// path without disturbing CPU timing.
+    pub fn port_read(&mut self, port: u16) -> u8 {
+        self.io_read(port)
+    }
+
+    /// Writes one Z80 I/O port directly through the bus-level
+    /// handler. Equivalent in effect to an `OUT (C),A` (border colour,
+    /// beeper level, paging, AY register select, …) without driving
+    /// the CPU through the synthetic instruction.
+    pub fn port_write(&mut self, port: u16, value: u8) {
+        self.io_write(port, value);
+    }
+
     /// Returns mutable access to the Kempston joystick peripheral.
     ///
     /// The runtime layer's joystick input mapping reaches in here to

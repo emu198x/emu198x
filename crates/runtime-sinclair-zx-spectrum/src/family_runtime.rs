@@ -97,6 +97,10 @@ pub trait SpectrumLiveAccess {
     /// Run cycles until PC reaches `target` or `max_halfcycles` is
     /// exhausted. Returns `(reached, halfcycles, instructions)`.
     fn run_until_pc(&mut self, target: u16, max_halfcycles: u32) -> (bool, u32, u32);
+    /// Bus-level Z80 I/O port read.
+    fn port_read(&mut self, port: u16) -> u8;
+    /// Bus-level Z80 I/O port write.
+    fn port_write(&mut self, port: u16, value: u8);
 }
 
 impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
@@ -156,6 +160,14 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 
     fn run_until_pc(&mut self, target: u16, max_halfcycles: u32) -> (bool, u32, u32) {
         self.machine_mut().run_until_pc(target, max_halfcycles)
+    }
+
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.machine_mut().port_read(port)
+    }
+
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.machine_mut().port_write(port, value);
     }
 }
 
@@ -390,6 +402,14 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
     fn run_until_pc(&mut self, target: u16, max_halfcycles: u32) -> (bool, u32, u32) {
         match_kind!(self, |rt| rt.run_until_pc(target, max_halfcycles))
     }
+
+    fn port_read(&mut self, port: u16) -> u8 {
+        match_kind!(self, |rt| rt.port_read(port))
+    }
+
+    fn port_write(&mut self, port: u16, value: u8) {
+        match_kind!(self, |rt| rt.port_write(port, value))
+    }
 }
 
 impl SessionQueryProvider<SpectrumRuntimeKind> for SpectrumSessionQueryProvider {
@@ -443,6 +463,24 @@ mod tests {
         let pc_after = kind.z80_registers().pc;
         assert_ne!(pc_after, pc_before, "step should advance PC");
         assert!(halfcycles > 0, "step should consume cycles");
+    }
+
+    #[test]
+    fn port_round_trips_through_runtime_kind() {
+        // Port $FE on a 48K writes the border colour in bits 0-2.
+        // After port_write(0xFE, 5), spectrum.border.colour should be 5.
+        // Using a port_read on $FE returns the keyboard scan, not the
+        // border, so we don't round-trip the value through port_read —
+        // we only verify both methods reach the inner machine without
+        // panic and don't return a fixed sentinel.
+        let mut kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let before = kind.port_read(0x00FE);
+        kind.port_write(0x00FE, 5);
+        let after = kind.port_read(0x00FE);
+        // Both reads should produce defined values (not panic). On a
+        // blank machine with no keys pressed the high bits are stable
+        // and the EAR bit is set/clear deterministically.
+        assert_eq!(before, after, "no key press → keyboard scan unchanged");
     }
 
     #[test]

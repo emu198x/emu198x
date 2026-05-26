@@ -500,6 +500,12 @@ impl SpectrumMachine for Spectrum48k {
     fn z80_instruction_complete(&self) -> bool {
         self.z80().instruction_complete()
     }
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.port_read(port)
+    }
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.port_write(port, value);
+    }
 }
 
 impl SpectrumMachine for Spectrum16K {
@@ -624,6 +630,12 @@ impl SpectrumMachine for Spectrum16K {
     }
     fn z80_instruction_complete(&self) -> bool {
         self.z80().instruction_complete()
+    }
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.port_read(port)
+    }
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.port_write(port, value);
     }
 }
 
@@ -755,6 +767,12 @@ impl SpectrumMachine for SpectrumPlus {
     fn z80_instruction_complete(&self) -> bool {
         self.z80().instruction_complete()
     }
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.port_read(port)
+    }
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.port_write(port, value);
+    }
 }
 
 impl SpectrumMachine for Spectrum128K {
@@ -884,6 +902,12 @@ impl SpectrumMachine for Spectrum128K {
     fn z80_instruction_complete(&self) -> bool {
         self.z80.instruction_complete()
     }
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.port_read(port)
+    }
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.port_write(port, value);
+    }
 }
 
 impl SpectrumMachine for SpectrumPlus2 {
@@ -1010,6 +1034,12 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn z80_instruction_complete(&self) -> bool {
         self.z80.instruction_complete()
+    }
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.port_read(port)
+    }
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.port_write(port, value);
     }
 }
 
@@ -1168,6 +1198,12 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     fn z80_instruction_complete(&self) -> bool {
         self.z80.instruction_complete()
     }
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.port_read(port)
+    }
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.port_write(port, value);
+    }
 }
 
 impl SpectrumMachine for Pentagon128 {
@@ -1263,6 +1299,12 @@ impl SpectrumMachine for Pentagon128 {
     }
     fn z80_instruction_complete(&self) -> bool {
         self.z80.instruction_complete()
+    }
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.port_read(port)
+    }
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.port_write(port, value);
     }
 
     fn variant_query_paths() -> &'static [&'static str] {
@@ -1380,6 +1422,12 @@ impl SpectrumMachine for ScorpionZS256 {
     fn z80_instruction_complete(&self) -> bool {
         self.z80.instruction_complete()
     }
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.port_read(port)
+    }
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.port_write(port, value);
+    }
 
     fn variant_query_paths() -> &'static [&'static str] {
         SCORPION_ZS256_QUERY_PATHS
@@ -1491,6 +1539,12 @@ impl SpectrumMachine for TimexTC2048 {
     fn z80_instruction_complete(&self) -> bool {
         self.z80.instruction_complete()
     }
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.port_read(port)
+    }
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.port_write(port, value);
+    }
 
     fn variant_query_paths() -> &'static [&'static str] {
         TIMEX_TC2048_QUERY_PATHS
@@ -1601,6 +1655,12 @@ impl SpectrumMachine for TimexTS2068 {
     }
     fn z80_instruction_complete(&self) -> bool {
         self.z80.instruction_complete()
+    }
+    fn port_read(&mut self, port: u16) -> u8 {
+        self.port_read(port)
+    }
+    fn port_write(&mut self, port: u16, value: u8) {
+        self.port_write(port, value);
     }
 
     fn variant_query_paths() -> &'static [&'static str] {

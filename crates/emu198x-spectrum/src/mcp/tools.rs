@@ -106,6 +106,11 @@ fn mcp_execute_step(
             *addr,
             *instructions,
         ))),
+        ScriptStep::PortRead { port } => Ok(Some(execute_port_read(session, *port))),
+        ScriptStep::PortWrite { port, value } => {
+            execute_port_write(session, *port, *value);
+            Ok(None)
+        }
         ScriptStep::AutoloadTape {
             slot,
             max_boot_frames,
@@ -527,6 +532,15 @@ fn execute_disasm(
     }
 }
 
+fn execute_port_read(session: &mut SpectrumSession, port: u16) -> ScriptObservation {
+    let value = session.machine_mut().port_read(port);
+    ScriptObservation::PortRead { port, value }
+}
+
+fn execute_port_write(session: &mut SpectrumSession, port: u16, value: u8) {
+    session.machine_mut().port_write(port, value);
+}
+
 fn ay_unsupported_error(err: &emu198x_shell::QueryError) -> ToolError {
     ToolError::Execution(format!(
         "query_ay: active Spectrum variant does not have an AY-3-8912 chip \
@@ -923,6 +937,31 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
     }));
 
     registry.register(Box::new(ScriptStepTool {
+        name: "port_read",
+        description: "Read one Z80 I/O port through the bus-level handler. Same value an IN A,(C) would observe (ULA $FE, Kempston $1F, AY $FFFD, …) without driving the CPU through the synthetic instruction.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "port": integer_field(),
+            },
+            "required": ["port"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "port_write",
+        description: "Write one Z80 I/O port through the bus-level handler. Side-effects mirror OUT (C),A — border colour ($FE bits 0-2), beeper (bit 4), 128K paging ($7FFD), AY register select ($FFFD) and data ($BFFD). Silent.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "port": integer_field(),
+                "value": integer_field(),
+            },
+            "required": ["port", "value"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
         name: "memory_read",
         description: "Read a contiguous span of CPU-visible memory (Z80 address space, 0x0000-0xFFFF). Returns raw bytes in memory order. `len` is capped at 256 bytes per call.",
         schema: json!({
@@ -1089,6 +1128,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_step_round_trips_port_read_and_write() {
+        let r = parse_step("port_read", json!({"port": 0x00FE})).expect("valid port_read");
+        assert_eq!(r, ScriptStep::PortRead { port: 0x00FE });
+        let w = parse_step("port_write", json!({"port": 0x00FE, "value": 5}))
+            .expect("valid port_write");
+        assert_eq!(
+            w,
+            ScriptStep::PortWrite {
+                port: 0x00FE,
+                value: 5,
+            }
+        );
+    }
+
+    #[test]
     fn parse_step_round_trips_memory_read_arguments() {
         let step = parse_step("memory_read", json!({"addr": 0x4000, "len": 32}))
             .expect("valid memory_read");
@@ -1164,6 +1218,8 @@ mod tests {
             "step",
             "run_until_pc",
             "disasm",
+            "port_read",
+            "port_write",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");

@@ -234,6 +234,16 @@ impl ScorpionZS256 {
     ) {
         self.audio.set_audio_channel_gain(channel, gain);
     }
+
+    /// Bus-level port read.
+    pub fn port_read(&mut self, port: u16) -> u8 {
+        self.io_read(port)
+    }
+
+    /// Bus-level port write.
+    pub fn port_write(&mut self, port: u16, value: u8) {
+        self.io_write(port, value);
+    }
 }
 
 impl Default for ScorpionZS256 {
