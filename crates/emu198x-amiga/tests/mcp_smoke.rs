@@ -85,7 +85,8 @@ fn mcp_server_boots_and_lists_tools() {
     let Some((rom_bytes, rom_path)) = load_rom() else {
         return;
     };
-    let mut session = AmigaA1200Session::new(rom_bytes, rom_path);
+    let mut session = AmigaA1200Session::new(rom_bytes, rom_path)
+        .expect("session constructor accepts Kickstart-sized ROM");
     let mut server: Server<AmigaA1200Session> =
         Server::new(ServerInfo::new("emu198x-amiga", "test"));
     tools::register_all(server.registry_mut());
@@ -147,7 +148,8 @@ fn mcp_tools_drive_a_real_boot() {
     let Some((rom_bytes, rom_path)) = load_rom() else {
         return;
     };
-    let mut session = AmigaA1200Session::new(rom_bytes, rom_path);
+    let mut session = AmigaA1200Session::new(rom_bytes, rom_path)
+        .expect("session constructor accepts Kickstart-sized ROM");
     let mut server: Server<AmigaA1200Session> =
         Server::new(ServerInfo::new("emu198x-amiga", "test"));
     tools::register_all(server.registry_mut());

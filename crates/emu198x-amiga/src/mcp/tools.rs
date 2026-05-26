@@ -106,14 +106,15 @@ fn arg_u32(args: &Value, key: &str) -> Result<u32, ToolError> {
 /// Read a longword from chip RAM (or wherever the machine routes
 /// the address) using the machine's existing memory backdoor. Falls
 /// back to assembling from bytes for non-chip-RAM addresses so we
-/// can dump ROM too.
+/// can dump ROM too. Routes through [`AmigaLiveAccess`] so it works
+/// against any chipset variant the session may be hosting.
 fn read_long(session: &AmigaA1200Session, addr: u32) -> u32 {
-    session.machine().read_long(addr)
+    session.access().read_long(addr)
 }
 
 fn read_byte(session: &AmigaA1200Session, addr: u32) -> u8 {
     let aligned = addr & !1;
-    let long = session.machine().read_long(aligned & !2);
+    let long = session.access().read_long(aligned & !2);
     let shift = (3 - (addr & 3)) * 8;
     ((long >> shift) & 0xFF) as u8
 }
@@ -136,9 +137,9 @@ fn push_recorder_frame(s: &mut AmigaA1200Session) -> Result<(), ToolError> {
         return Ok(());
     }
     let (rgba, tick_count) = {
-        let machine = s.machine_mut();
-        let tick_count = machine.tick_count();
-        let fb = machine.denise().framebuffer();
+        let access = s.access();
+        let tick_count = access.tick_count();
+        let fb = access.framebuffer();
         let mut rgba: Vec<u8> = Vec::with_capacity(fb.len() * 4);
         for &p in fb {
             rgba.push(((p >> 16) & 0xFF) as u8);
@@ -170,14 +171,15 @@ fn push_recorder_frame(s: &mut AmigaA1200Session) -> Result<(), ToolError> {
 /// of whether the caller used `run_frames` or `run_ticks`.
 fn tick_for(s: &mut AmigaA1200Session, ticks: u64) -> Result<(), ToolError> {
     if s.recorder.is_none() {
+        let access = s.access_mut();
         for _ in 0..ticks {
-            s.machine_mut().tick();
+            access.tick();
         }
         return Ok(());
     }
     for _ in 0..ticks {
-        s.machine_mut().tick();
-        let now = s.machine_mut().tick_count();
+        s.access_mut().tick();
+        let now = s.access().tick_count();
         if now.saturating_sub(s.last_recorded_tick) >= PAL_FRAME_TICKS {
             push_recorder_frame(s)?;
         }
@@ -190,7 +192,7 @@ fn tool_run_frames(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Tool
     tick_for(s, n.saturating_mul(PAL_FRAME_TICKS))?;
     Ok(json!({
         "frames_run": n,
-        "pc": format!("${:08X}", s.machine_mut().cpu().regs.pc),
+        "pc": format!("${:08X}", s.access().cpu_pc()),
         "recording_frames": s.recorder.as_ref().map(|r| r.frames_written()),
     }))
 }
@@ -200,7 +202,7 @@ fn tool_run_ticks(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolE
     tick_for(s, n)?;
     Ok(json!({
         "ticks_run": n,
-        "pc": format!("${:08X}", s.machine_mut().cpu().regs.pc),
+        "pc": format!("${:08X}", s.access().cpu_pc()),
         "recording_frames": s.recorder.as_ref().map(|r| r.frames_written()),
     }))
 }
@@ -210,10 +212,11 @@ fn tool_run_until_pc(args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
     let max_ticks = arg_u64_or(&args, "max_ticks", 100_000_000)?;
     let mut ticks_taken: u64 = 0;
     let mut hit = false;
+    let access = s.access_mut();
     while ticks_taken < max_ticks {
-        s.machine_mut().tick();
+        access.tick();
         ticks_taken += 1;
-        if s.machine_mut().cpu().regs.pc == target {
+        if access.cpu_pc() == target {
             hit = true;
             break;
         }
@@ -221,7 +224,7 @@ fn tool_run_until_pc(args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
     Ok(json!({
         "hit": hit,
         "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", s.machine_mut().cpu().regs.pc),
+        "pc": format!("${:08X}", s.access().cpu_pc()),
         "target": format!("${:08X}", target),
     }))
 }
@@ -260,12 +263,12 @@ fn tool_reset(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError
         "kind": kind,
         "kind_differentiated": false,
         "rom_path": s.rom_path.display().to_string(),
-        "pc": format!("${:08X}", s.machine_mut().cpu().regs.pc),
+        "pc": format!("${:08X}", s.access().cpu_pc()),
     }))
 }
 
 fn tool_query_cpu(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let cpu = s.machine_mut().cpu();
+    let cpu = s.access().cpu_snapshot();
     let regs = &cpu.regs;
     Ok(json!({
         "pc":  format!("${:08X}", regs.pc),
@@ -288,22 +291,23 @@ fn tool_query_cpu(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, Tool
 }
 
 fn tool_query_chipset(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let m = s.machine();
+    let m = s.access();
     Ok(json!({
         "bplcon0": format!("${:04X}", m.bplcon0()),
         "dmacon":  format!("${:04X}", m.dmacon()),
         "adkcon":  format!("${:04X}", m.adkcon()),
         "color00": format!("${:04X}", m.color(0)),
-        "cop1lc":  format!("${:08X}", m.copper().cop1lc),
-        "cop2lc":  format!("${:08X}", m.copper().cop2lc),
-        "copper_pc": format!("${:08X}", m.copper().pc),
-        "overlay": m.memory().overlay(),
+        "cop1lc":  format!("${:08X}", m.copper_cop1lc()),
+        "cop2lc":  format!("${:08X}", m.copper_cop2lc()),
+        "copper_pc": format!("${:08X}", m.copper_pc()),
+        "overlay": m.overlay(),
     }))
 }
 
 fn tool_query_paula(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let intena = s.machine_mut().intena();
-    let intreq = s.machine_mut().intreq();
+    let access = s.access();
+    let intena = access.intena();
+    let intreq = access.intreq();
     let master = (intena & 0x4000) != 0;
     Ok(json!({
         "intena": format!("${:04X}", intena),
@@ -351,14 +355,15 @@ fn tool_query_cia(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, Tool
             "tod_halted":  c.tod_halted(),
         })
     }
+    let access = s.access();
     Ok(json!({
-        "cia_a": snapshot(s.machine_mut().cia_a()),
-        "cia_b": snapshot(s.machine_mut().cia_b()),
+        "cia_a": snapshot(access.cia_a()),
+        "cia_b": snapshot(access.cia_b()),
     }))
 }
 
 fn tool_query_agnus(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let a = s.machine_mut().agnus();
+    let a = s.access().agnus();
     Ok(json!({
         "vpos": a.vpos,
         "hpos_cck": a.hpos,
@@ -401,11 +406,11 @@ fn tool_start_video_recording(
     // currently boots PAL by default; an explicit `fps` override is
     // accepted for completeness.)
     let fps = args.get("fps").and_then(Value::as_u64).unwrap_or(50) as u32;
-    let started_at = MachineTime::new(s.machine_mut().tick_count());
+    let started_at = MachineTime::new(s.access().tick_count());
     let recorder = VideoRecorder::start(PathBuf::from(path), FB_WIDTH, FB_HEIGHT, fps, started_at)
         .map_err(|err| ToolError::Execution(format!("start recording: {err}")))?;
     s.recorder = Some(recorder);
-    s.last_recorded_tick = s.machine_mut().tick_count();
+    s.last_recorded_tick = s.access().tick_count();
     // Push one frame immediately so the recording begins with the
     // current screen state, not a missing first frame.
     push_recorder_frame(s)?;
@@ -415,7 +420,7 @@ fn tool_start_video_recording(
         "width": FB_WIDTH,
         "height": FB_HEIGHT,
         "fps": fps,
-        "started_at_tick": s.machine_mut().tick_count(),
+        "started_at_tick": s.access().tick_count(),
     }))
 }
 
@@ -441,7 +446,7 @@ fn tool_stop_video_recording(
 
 fn tool_dump_framebuffer(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
     use machine_commodore_amiga_a1200::{FB_HEIGHT, FB_WIDTH};
-    let fb = s.machine_mut().denise().framebuffer();
+    let fb = s.access().framebuffer();
     let total_pixels = (FB_WIDTH * FB_HEIGHT) as usize;
 
     // Histogram top colours so the caller can see "what's on screen" without
@@ -581,11 +586,11 @@ fn tool_bplcon0_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
 }
 
 fn tool_query_aga(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    // Collect the OCS 12-bit palette first so we release the
-    // mutable borrow of `s` before we hold `aga` (which would
-    // otherwise prevent re-borrowing `s` to call `color()`).
+    // Pull the OCS 12-bit palette first via the trait so we don't
+    // hold the A1200 borrow while later code needs it for AGA-only
+    // `denise_aga()` access.
     let ocs_palette: Vec<String> = (0..32)
-        .map(|i| format!("${:03X}", s.machine_mut().color(i)))
+        .map(|i| format!("${:03X}", s.access().color(i)))
         .collect();
     let aga = s.machine_mut().denise_aga();
     let bplcon3 = aga.bplcon3;
@@ -707,7 +712,7 @@ fn tool_poke_word(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolE
     let addr = arg_u32(&args, "addr")?;
     let val = arg_u32(&args, "val")?;
     let val_u16 = u16::try_from(val & 0xFFFF).unwrap_or(0);
-    s.machine_mut().poke_word(addr, val_u16);
+    s.access_mut().poke_word(addr, val_u16);
     Ok(json!({
         "poked": true,
         "addr": format!("${:08X}", addr),
@@ -721,8 +726,7 @@ fn tool_watch_memory(args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
     if len == 0 {
         return Err(ToolError::InvalidArguments("`len` must be ≥ 1".into()));
     }
-    s.machine_mut().debug_watch_addr = Some((lo, len));
-    s.machine_mut().debug_watch_writes.clear();
+    s.access_mut().set_watch(Some((lo, len)));
     Ok(json!({
         "watching": {
             "lo":  format!("${:08X}", lo),
@@ -734,9 +738,9 @@ fn tool_watch_memory(args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
 }
 
 fn tool_watch_memory_clear(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let prior = s.machine_mut().debug_watch_addr;
-    s.machine_mut().debug_watch_addr = None;
-    let count = s.machine_mut().debug_watch_writes.len();
+    let prior = s.access().watch_range();
+    let count = s.access().watch_log().len();
+    s.access_mut().set_watch(None);
     Ok(json!({
         "had_watch": prior.is_some(),
         "writes_captured_before_clear": count,
@@ -744,7 +748,8 @@ fn tool_watch_memory_clear(_args: Value, s: &mut AmigaA1200Session) -> Result<Va
 }
 
 fn tool_watch_memory_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let log = &s.machine().debug_watch_writes;
+    let access = s.access();
+    let log = access.watch_log();
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
     let unique = args
         .get("unique")
@@ -776,7 +781,7 @@ fn tool_watch_memory_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value
         "total_writes": log.len(),
         "filtered_total": total,
         "returned": returned.len(),
-        "watch_range": s.machine_mut().debug_watch_addr.map(|(lo, len)| json!({
+        "watch_range": access.watch_range().map(|(lo, len)| json!({
             "lo": format!("${:08X}", lo),
             "len": len,
         })),
@@ -982,14 +987,14 @@ fn tool_query_stack(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
     if count == 0 || count > 256 {
         return Err(ToolError::InvalidArguments("count must be 1..=256".into()));
     }
-    let regs = &s.machine().cpu().regs;
+    let regs = s.access().cpu_snapshot().regs;
     let base = if usp { regs.usp } else { regs.ssp };
     let entries: Vec<Value> = (0..count)
         .map(|i| {
             let addr = base.wrapping_add((i as u32) * 4);
             json!({
                 "addr": format!("${:08X}", addr),
-                "value": format!("${:08X}", s.machine_mut().read_long(addr)),
+                "value": format!("${:08X}", s.access().read_long(addr)),
             })
         })
         .collect();
@@ -1003,20 +1008,21 @@ fn tool_query_stack(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
 fn tool_step(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
     let n = arg_u64_or(&args, "count", 1)?;
     let max_ticks = arg_u64_or(&args, "max_ticks", 1_000_000)?;
-    let start = s.machine_mut().cpu().instruction_starts;
+    let access = s.access_mut();
+    let start = access.cpu_instruction_starts();
     let target = start.wrapping_add(n);
     let mut ticks_taken: u64 = 0;
     let mut trace: Vec<Value> = Vec::new();
     let mut last_seen = start;
-    while s.machine_mut().cpu().instruction_starts != target && ticks_taken < max_ticks {
-        s.machine_mut().tick();
+    while access.cpu_instruction_starts() != target && ticks_taken < max_ticks {
+        access.tick();
         ticks_taken += 1;
-        let now = s.machine_mut().cpu().instruction_starts;
-        if now != last_seen && !s.machine_mut().cpu().in_followup {
+        let now = access.cpu_instruction_starts();
+        if now != last_seen && !access.cpu_in_followup() {
             last_seen = now;
             trace.push(json!({
                 "step": now.wrapping_sub(start),
-                "pc": format!("${:08X}", s.machine_mut().cpu().regs.pc),
+                "pc": format!("${:08X}", access.cpu_pc()),
             }));
             if trace.len() as u64 >= n {
                 break;
@@ -1025,9 +1031,9 @@ fn tool_step(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError>
     }
     Ok(json!({
         "requested": n,
-        "completed": s.machine_mut().cpu().instruction_starts.wrapping_sub(start),
+        "completed": access.cpu_instruction_starts().wrapping_sub(start),
         "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", s.machine_mut().cpu().regs.pc),
+        "pc": format!("${:08X}", access.cpu_pc()),
         "trace": trace,
     }))
 }
@@ -1048,10 +1054,11 @@ fn tool_run_until_any_pc(args: Value, s: &mut AmigaA1200Session) -> Result<Value
     let max_ticks = arg_u64_or(&args, "max_ticks", 100_000_000)?;
     let mut ticks_taken: u64 = 0;
     let mut hit: Option<u32> = None;
+    let access = s.access_mut();
     while ticks_taken < max_ticks {
-        s.machine_mut().tick();
+        access.tick();
         ticks_taken += 1;
-        let pc = s.machine_mut().cpu().regs.pc;
+        let pc = access.cpu_pc();
         if wanted.iter().any(|t| *t == pc) {
             hit = Some(pc);
             break;
@@ -1060,7 +1067,7 @@ fn tool_run_until_any_pc(args: Value, s: &mut AmigaA1200Session) -> Result<Value
     Ok(json!({
         "hit": hit.map(|p| format!("${:08X}", p)),
         "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", s.machine_mut().cpu().regs.pc),
+        "pc": format!("${:08X}", access.cpu_pc()),
     }))
 }
 
@@ -1084,18 +1091,14 @@ fn tool_insert_media(args: Value, s: &mut AmigaA1200Session) -> Result<Value, To
         "adf" => {
             let adf = Adf::from_bytes(bytes)
                 .map_err(|err| ToolError::Execution(format!("parse ADF: {err:?}")))?;
-            if change_pending {
-                s.machine_mut().insert_adf_with_change_pending(adf);
-            } else {
-                s.machine_mut().insert_adf(adf);
-            }
+            s.access_mut().insert_floppy0(adf, change_pending);
             Ok(json!({
                 "inserted": true,
                 "kind": "adf",
                 "path": path_buf.display().to_string(),
                 "source": source_label,
                 "change_pending": change_pending,
-                "has_disk": s.machine_mut().drive().has_disk(),
+                "has_disk": s.access().drive().has_disk(),
             }))
         }
         other => Err(ToolError::InvalidArguments(format!(
@@ -1183,16 +1186,16 @@ fn load_media_bytes(
 }
 
 fn tool_eject_media(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let had_disk = s.machine_mut().drive().has_disk();
-    s.machine_mut().eject_disk();
+    let had_disk = s.access().drive().has_disk();
+    s.access_mut().eject_floppy0();
     Ok(json!({
         "ejected": had_disk,
-        "has_disk": s.machine_mut().drive().has_disk(),
+        "has_disk": s.access().drive().has_disk(),
     }))
 }
 
 fn tool_query_disk(_args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    let drive = s.machine_mut().drive();
+    let drive = s.access().drive();
     let status = drive.status();
     Ok(json!({
         "has_disk": drive.has_disk(),
@@ -1216,10 +1219,13 @@ fn tool_run_until_mem_change(args: Value, s: &mut AmigaA1200Session) -> Result<V
         .and_then(Value::as_array)
         .ok_or_else(|| ToolError::InvalidArguments("missing array `addrs`".into()))?;
     let mut watch: Vec<(u32, u32)> = Vec::with_capacity(addrs.len());
-    for a in addrs {
-        let one = json!({ "x": a });
-        let addr = arg_u32(&one, "x")?;
-        watch.push((addr, s.machine_mut().read_long(addr)));
+    {
+        let access = s.access();
+        for a in addrs {
+            let one = json!({ "x": a });
+            let addr = arg_u32(&one, "x")?;
+            watch.push((addr, access.read_long(addr)));
+        }
     }
     if watch.is_empty() {
         return Err(ToolError::InvalidArguments("`addrs` must be non-empty".into()));
@@ -1227,11 +1233,12 @@ fn tool_run_until_mem_change(args: Value, s: &mut AmigaA1200Session) -> Result<V
     let max_ticks = arg_u64_or(&args, "max_ticks", 50_000_000)?;
     let mut ticks_taken: u64 = 0;
     let mut hit: Option<(u32, u32, u32)> = None;
+    let access = s.access_mut();
     while ticks_taken < max_ticks {
-        s.machine_mut().tick();
+        access.tick();
         ticks_taken += 1;
         for (addr, old) in &watch {
-            let now = s.machine_mut().read_long(*addr);
+            let now = access.read_long(*addr);
             if now != *old {
                 hit = Some((*addr, *old, now));
                 break;
@@ -1249,7 +1256,7 @@ fn tool_run_until_mem_change(args: Value, s: &mut AmigaA1200Session) -> Result<V
     Ok(json!({
         "hit": result,
         "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", s.machine_mut().cpu().regs.pc),
+        "pc": format!("${:08X}", access.cpu_pc()),
     }))
 }
 
@@ -1291,11 +1298,11 @@ fn tool_disasm(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolErro
     }
     let mut pc = addr;
     let mut lines: Vec<Value> = Vec::new();
+    let access = s.access();
     for _ in 0..count {
-        let machine = s.machine();
         let read = |a: u32| -> u8 {
             let aligned = a & !3;
-            let long = machine.read_long(aligned);
+            let long = access.read_long(aligned);
             let shift = (3 - (a & 3)) * 8;
             ((long >> shift) & 0xFF) as u8
         };
@@ -1304,7 +1311,7 @@ fn tool_disasm(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolErro
             .map(|i| {
                 let a = pc.wrapping_add(u32::from(i));
                 let aligned = a & !3;
-                let long = s.machine_mut().read_long(aligned);
+                let long = access.read_long(aligned);
                 let shift = (3 - (a & 3)) * 8;
                 format!("{:02X}", ((long >> shift) & 0xFF) as u8)
             })

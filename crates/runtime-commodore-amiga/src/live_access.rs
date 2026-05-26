@@ -153,6 +153,9 @@ pub trait AmigaLiveAccess {
     /// Arm or disarm the memory-write watch. `None` clears.
     fn set_watch(&mut self, base_len: Option<(u32, u32)>);
 
+    /// Current armed watch range `(base, len)`, if any.
+    fn watch_range(&self) -> Option<(u32, u32)>;
+
     /// Current memory-write watch log.
     fn watch_log(&self) -> &[WatchLogEntry];
 
@@ -315,6 +318,10 @@ impl AmigaLiveAccess for AmigaOcs {
     fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
         self.debug_watch_addr = base_len;
         self.debug_watch_writes.clear();
+    }
+
+    fn watch_range(&self) -> Option<(u32, u32)> {
+        self.debug_watch_addr
     }
 
     fn watch_log(&self) -> &[WatchLogEntry] {
@@ -496,6 +503,10 @@ impl AmigaLiveAccess for AmigaEcs {
         self.debug_watch_writes.clear();
     }
 
+    fn watch_range(&self) -> Option<(u32, u32)> {
+        self.debug_watch_addr
+    }
+
     fn watch_log(&self) -> &[WatchLogEntry] {
         &self.debug_watch_writes
     }
@@ -667,6 +678,10 @@ impl AmigaLiveAccess for AmigaA1200 {
     fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
         self.debug_watch_addr = base_len;
         self.debug_watch_writes.clear();
+    }
+
+    fn watch_range(&self) -> Option<(u32, u32)> {
+        self.debug_watch_addr
     }
 
     fn watch_log(&self) -> &[WatchLogEntry] {
@@ -945,6 +960,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => rt.machine_mut().set_watch(base_len),
             Self::Ecs(rt) => rt.machine_mut().set_watch(base_len),
             Self::Aga(rt) => rt.machine_mut().set_watch(base_len),
+        }
+    }
+
+    fn watch_range(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::Ocs(rt) => rt.machine().watch_range(),
+            Self::Ecs(rt) => rt.machine().watch_range(),
+            Self::Aga(rt) => rt.machine().watch_range(),
         }
     }
 
