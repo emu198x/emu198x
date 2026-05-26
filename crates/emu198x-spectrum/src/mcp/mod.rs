@@ -12,28 +12,31 @@
 
 mod tools;
 
-use common_sinclair_zx_spectrum::timing::TIMING_48K;
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
 };
-use runtime_sinclair_zx_spectrum::SpectrumSessionQueryProvider;
+use runtime_sinclair_zx_spectrum::{SpectrumRuntimeKind, SpectrumSessionQueryProvider};
 
 use crate::AppError;
 use crate::script::runner::boot_eager_48k;
 
-/// Runs MCP mode. Boots an eager 48K session, registers every tool,
-/// and runs the stdio loop until stdin closes.
+/// Runs MCP mode. Boots an eager 48K session wrapped in the
+/// family-level [`SpectrumRuntimeKind`] enum, registers every tool,
+/// and runs the stdio loop until stdin closes. Clients can switch the
+/// active variant at any time via the `set_machine` tool.
 ///
 /// # Errors
 ///
 /// Returns an error if the 48K ROM cannot be loaded or the stdio loop
 /// hits an I/O failure.
 pub fn run() -> Result<(), AppError> {
-    let runtime = boot_eager_48k()?;
+    let runtime_48k = boot_eager_48k()?;
+    let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
+    let frame_halfcycles = u64::from(kind.frame_halfcycles());
     let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        u64::from(TIMING_48K.halfcycles_per_frame),
+        kind,
+        frame_halfcycles,
         SpectrumSessionQueryProvider,
     );
 

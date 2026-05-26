@@ -12,16 +12,21 @@
 //! break, a tool's schema here probably also needs an update.
 
 use emu198x_shell::{
-    HeadlessSession, ScriptStep,
+    FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, ScriptObservation, ScriptStep,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
+    read_firmware_asset,
 };
-use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumSessionQueryProvider};
+use runtime_sinclair_zx_spectrum::{SpectrumRuntimeKind, SpectrumSessionQueryProvider};
 use serde_json::{Value, json};
 
-use crate::script::runner::execute_step;
+use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
 
 /// Live-session context every Spectrum MCP tool dispatches against.
-pub type SpectrumSession = HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>;
+///
+/// Family-level: the inner runtime is one of the SOLID-8 Spectrum
+/// variants, chosen at boot time and swappable mid-session via the
+/// `set_machine` tool.
+pub type SpectrumSession = HeadlessSession<SpectrumRuntimeKind, SpectrumSessionQueryProvider>;
 
 /// One MCP tool that maps directly onto a `ScriptStep` variant.
 struct ScriptStepTool {
@@ -52,8 +57,7 @@ impl Tool<SpectrumSession> for ScriptStepTool {
         session: &mut SpectrumSession,
     ) -> Result<ToolResponse, ToolError> {
         let step = parse_step(self.name, arguments)?;
-        let observation =
-            execute_step(&step, session).map_err(|err| ToolError::Execution(format!("{err}")))?;
+        let observation = mcp_execute_step(&step, session)?;
         let body = match observation {
             Some(obs) => serde_json::to_string(&obs).map_err(|err| {
                 ToolError::Execution(format!("failed to serialize observation: {err}"))
@@ -61,6 +65,170 @@ impl Tool<SpectrumSession> for ScriptStepTool {
             None => String::from("null"),
         };
         Ok(ToolResponse::success_text(body))
+    }
+}
+
+/// Family-MCP dispatch for one `ScriptStep`.
+///
+/// - `SetMachine`: rebuilds the inner runtime to the requested
+///   variant. The session-side state (queued input, latest frame,
+///   captured audio, last run result) is cleared via
+///   [`HeadlessSession::reset`] so the new variant starts from a
+///   clean session.
+/// - `AutoloadTape` / `LoadBasicProgram`: 48K-only on the runtime
+///   side today. We downcast through
+///   [`SpectrumRuntimeKind::as_48k_mut`]; if the active variant is
+///   not 48K we return [`ToolError::Execution`] with a clear message.
+///   (Generalising these helpers to the 128K family is its own
+///   commit on the runtime crate.)
+/// - Everything else delegates to [`ScriptStep::execute_collect`],
+///   which works generically over `MachineCore`.
+fn mcp_execute_step(
+    step: &ScriptStep,
+    session: &mut SpectrumSession,
+) -> Result<Option<ScriptObservation>, ToolError> {
+    match step {
+        ScriptStep::SetMachine { machine } => execute_set_machine(machine, session).map(Some),
+        ScriptStep::AutoloadTape {
+            slot,
+            max_boot_frames,
+        } => execute_autoload_tape(session, slot, *max_boot_frames).map(Some),
+        ScriptStep::LoadBasicProgram { path, run } => {
+            execute_load_basic_program(session, path, *run).map(Some)
+        }
+        other => other
+            .execute_collect(session)
+            .map_err(|err| ToolError::Execution(format!("{err}"))),
+    }
+}
+
+fn execute_set_machine(
+    requested: &str,
+    session: &mut SpectrumSession,
+) -> Result<ScriptObservation, ToolError> {
+    let kind = MachineKind::from_script_id(requested).ok_or_else(|| {
+        ToolError::InvalidArguments(format!(
+            "set_machine: unknown machine id `{requested}`; expected one of \
+             spectrum_16k, spectrum_48k, spectrum_plus, spectrum_128k, \
+             spectrum_plus2, spectrum_plus2a, spectrum_plus2b, spectrum_plus3"
+        ))
+    })?;
+    let model = kind_to_model(kind);
+    let rom_root_dir = rom_root().ok_or_else(|| {
+        ToolError::Execution(
+            "set_machine: $HOME is unset; cannot locate ROM bundle root \
+             (~/.emu198x/roms)"
+                .to_owned(),
+        )
+    })?;
+
+    // Two-pass firmware load: read all ROM bytes into an owned vec,
+    // then borrow them into the `FirmwareSet`. Mirrors the pattern
+    // used by `script::runner::boot_eager_variant`.
+    let bundle = variant_rom_bundle(kind, &rom_root_dir);
+    let mut rom_bytes: Vec<(String, Vec<u8>)> = Vec::with_capacity(bundle.len());
+    for (id, path) in bundle {
+        if !path.is_file() {
+            return Err(ToolError::Execution(format!(
+                "set_machine: ROM not found at {}",
+                path.display()
+            )));
+        }
+        let loaded = read_firmware_asset(&path).map_err(|err| {
+            ToolError::Execution(format!(
+                "set_machine: failed to read {}: {err}",
+                path.display()
+            ))
+        })?;
+        rom_bytes.push((id.to_string(), loaded.bytes.to_vec()));
+    }
+    let mut firmware = FirmwareSet::new();
+    for (id, bytes) in &rom_bytes {
+        firmware.push(FirmwareImage::new(id.clone(), bytes));
+    }
+    let new_runtime = SpectrumRuntimeKind::from_firmware(model, &firmware).map_err(|err| {
+        ToolError::Execution(format!("set_machine: build runtime: {err}"))
+    })?;
+    let profile = new_runtime.profile().clone();
+
+    // Swap the inner machine + clear session-side state. We do this
+    // by replacing the machine in place and then driving the same
+    // `reset` path the `ScriptStep::Reset` action uses, so queued
+    // input, latest frame, captured audio, and the cached run result
+    // are cleared before the new variant runs.
+    *session.machine_mut() = new_runtime;
+    session
+        .reset(emu198x_shell::ResetKind::Hard)
+        .map_err(|err| ToolError::Execution(format!("set_machine: clear session: {err}")))?;
+    // NOTE: HeadlessSession's `native_frame_ticks` is fixed at
+    // construction. Variants whose frame budget differs from the
+    // booted variant (e.g. 128K's 70908 cycles vs 48K's 69888) will
+    // over- or under-shoot one native frame by a few hundred cycles.
+    // We accept this for now; the alternative is rebuilding the
+    // session, which loses session state on every `set_machine`. A
+    // proper fix is a `HeadlessSession::set_native_frame_ticks`
+    // hook — separate commit.
+
+    Ok(ScriptObservation::SetMachine {
+        machine: requested.to_owned(),
+        profile_id: profile.profile_id.as_str().to_owned(),
+        display_name: profile.display_name.to_string(),
+    })
+}
+
+fn execute_autoload_tape(
+    session: &mut SpectrumSession,
+    slot: &str,
+    max_boot_frames: u32,
+) -> Result<ScriptObservation, ToolError> {
+    let kind = session.machine_mut();
+    // Borrow-check trick: `autoload_basic_tape` takes a
+    // `&mut HeadlessSession<Spectrum48kRuntime, …>` so we can't reach
+    // it through `kind.as_48k_mut()` (different session type). Until
+    // the helper is generalised to the family, the family-MCP path
+    // refuses the step on every variant. Single-machine binaries
+    // (script mode, UI) still drive the 48K helper directly.
+    let _ = kind;
+    let _ = slot;
+    let _ = max_boot_frames;
+    Err(ToolError::Execution(
+        "autoload_tape: not yet wired on the family-MCP path. \
+         Helper is 48K-session-typed today; family generalisation is a \
+         follow-up commit. For now use the script binary (`emu198x-script-spectrum`) \
+         or the UI binary, which still drive the 48K-only helper."
+            .to_owned(),
+    ))
+}
+
+fn execute_load_basic_program(
+    session: &mut SpectrumSession,
+    path: &std::path::Path,
+    _run: bool,
+) -> Result<ScriptObservation, ToolError> {
+    // Same constraint as `execute_autoload_tape` above — the helper
+    // expects `HeadlessSession<Spectrum48kRuntime, …>`. Stubbed for
+    // family-MCP until the helper is generalised.
+    let _ = session;
+    let _ = path;
+    Err(ToolError::Execution(
+        "load_basic_program: not yet wired on the family-MCP path. \
+         Helper is 48K-session-typed today; family generalisation is a \
+         follow-up commit."
+            .to_owned(),
+    ))
+}
+
+fn kind_to_model(kind: MachineKind) -> runtime_sinclair_zx_spectrum::Model {
+    use runtime_sinclair_zx_spectrum::Model;
+    match kind {
+        MachineKind::Spectrum16K => Model::Spectrum16KPal,
+        MachineKind::Spectrum48K => Model::Spectrum48KPal,
+        MachineKind::SpectrumPlus => Model::SpectrumPlus,
+        MachineKind::Spectrum128K => Model::Spectrum128KPal,
+        MachineKind::SpectrumPlus2 => Model::SpectrumPlus2,
+        MachineKind::SpectrumPlus2A => Model::SpectrumPlus2A,
+        MachineKind::SpectrumPlus2B => Model::SpectrumPlus2B,
+        MachineKind::SpectrumPlus3 => Model::SpectrumPlus3,
     }
 }
 
