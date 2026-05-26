@@ -101,7 +101,11 @@ fn expected_chip(model: Model) -> usize {
         Model::A500PlusEcsPal
         | Model::A500OcsPalMaxed
         | Model::A500PlusEcsNtsc
-        | Model::A500OcsNtscMaxed => FAT_AGNUS_CHIP_RAM_BYTES,
+        | Model::A500OcsNtscMaxed
+        | Model::A600EcsPal
+        | Model::A600EcsNtsc
+        | Model::A2000OcsPal
+        | Model::A2000OcsNtsc => FAT_AGNUS_CHIP_RAM_BYTES,
         Model::A1000OcsPal | Model::A1000OcsNtsc => FATTER_AGNUS_CHIP_RAM_BYTES,
         Model::A1200AgaPal | Model::A1200AgaNtsc => ECS_AGA_CHIP_RAM_BYTES,
     }

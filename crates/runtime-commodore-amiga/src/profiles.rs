@@ -50,6 +50,26 @@ pub enum Model {
     A1200AgaPal,
     /// A1200 AGA NTSC.
     A1200AgaNtsc,
+    /// A600 ECS PAL: 1 MiB chip RAM, 68000 CPU, ECS Agnus 8375 + ECS
+    /// Denise 8373, Gayle (IDE + PCMCIA decode), Kickstart 2.05.
+    /// Backed by `AmigaEcs` — the chip stack is identical to the
+    /// A500+ (same Agnus + Denise + Paula); A600 distinctive
+    /// features (Gayle-driven IDE, PCMCIA slot, smaller form
+    /// factor) layer over the same ECS substrate.
+    A600EcsPal,
+    /// A600 ECS NTSC.
+    A600EcsNtsc,
+    /// A2000 OCS PAL: 1 MiB chip RAM via Fat Agnus 8372A, 68000 CPU,
+    /// OCS Denise, Zorro-II slots, Kickstart 1.3 / 2.04. Backed by
+    /// `AmigaOcs` — the chip stack is identical to the A500 Rev 6+
+    /// (same Fat Agnus, same OCS Denise, same Paula). A2000 Rev A
+    /// (early, 512 KiB chip via Agnus 8371) is reachable via
+    /// `AmigaOcsRuntime::with_ram_config(..., RamConfig::bare())`
+    /// without a separate catalogue entry; the Rev B (Fat Agnus
+    /// 8372A) is the canonical "A2000 PAL" we surface here.
+    A2000OcsPal,
+    /// A2000 OCS NTSC.
+    A2000OcsNtsc,
 }
 
 /// Native PAL frame length in Agnus colour clocks.
@@ -92,6 +112,10 @@ impl Model {
             Self::A500OcsNtscMaxed => "commodore-amiga-a500-ocs-ntsc-maxed",
             Self::A1200AgaPal => "commodore-amiga-a1200-aga-pal",
             Self::A1200AgaNtsc => "commodore-amiga-a1200-aga-ntsc",
+            Self::A600EcsPal => "commodore-amiga-a600-ecs-pal",
+            Self::A600EcsNtsc => "commodore-amiga-a600-ecs-ntsc",
+            Self::A2000OcsPal => "commodore-amiga-a2000-ocs-pal",
+            Self::A2000OcsNtsc => "commodore-amiga-a2000-ocs-ntsc",
         }
     }
 
@@ -117,6 +141,10 @@ impl Model {
             Self::A500OcsNtscMaxed => "Commodore Amiga 500 maxed (OCS NTSC, 1M+512K+8M)",
             Self::A1200AgaPal => "Commodore Amiga 1200 (AGA PAL)",
             Self::A1200AgaNtsc => "Commodore Amiga 1200 (AGA NTSC)",
+            Self::A600EcsPal => "Commodore Amiga 600 (ECS PAL)",
+            Self::A600EcsNtsc => "Commodore Amiga 600 (ECS NTSC)",
+            Self::A2000OcsPal => "Commodore Amiga 2000 (OCS PAL, Fat Agnus 8372A)",
+            Self::A2000OcsNtsc => "Commodore Amiga 2000 (OCS NTSC, Fat Agnus 8372A)",
         }
     }
 
@@ -144,6 +172,16 @@ impl Model {
                 slow_kb: 0,
                 fast_kb: 0,
             },
+            // Stock A600: 1 MiB chip RAM (ECS Agnus 8375 ceiling
+            // for stock; expansion to 2 MiB via the A604 trapdoor
+            // is reachable through with_ram_config). No slow, no
+            // fast Zorro — A600 has no Zorro slots.
+            Self::A600EcsPal | Self::A600EcsNtsc => RamConfig::a500_plus(),
+            // Stock A2000 Rev B (Fat Agnus 8372A): 1 MiB chip, no
+            // slow trapdoor (A2000 doesn't have a trapdoor; slow
+            // RAM is reached via a Zorro-II daughterboard).
+            // Zorro-II fast RAM is reachable through with_ram_config.
+            Self::A2000OcsPal | Self::A2000OcsNtsc => RamConfig::a500_plus(),
         }
     }
 
@@ -168,6 +206,8 @@ impl Model {
                 | Self::A500PlusEcsNtsc
                 | Self::A500OcsNtscMaxed
                 | Self::A1200AgaNtsc
+                | Self::A600EcsNtsc
+                | Self::A2000OcsNtsc
         )
     }
 
@@ -179,12 +219,18 @@ impl Model {
     }
 
     /// Whether this model uses the ECS chip stack (`AmigaEcs`).
-    /// Drives the dispatch in `AmigaRuntimeKind::new`. Today only
-    /// the A500+ Models are ECS; A600 / A2000B / A3000 will join
-    /// once their machine-specific chips are ported.
+    /// Drives the dispatch in `AmigaRuntimeKind::new`. A500+ and
+    /// A600 share the ECS chipset (Agnus 8375 + Denise 8373);
+    /// A3000 joins once Cpu68030 wiring in `AmigaEcs` lands.
     #[must_use]
     pub const fn is_ecs(self) -> bool {
-        matches!(self, Self::A500PlusEcsPal | Self::A500PlusEcsNtsc)
+        matches!(
+            self,
+            Self::A500PlusEcsPal
+                | Self::A500PlusEcsNtsc
+                | Self::A600EcsPal
+                | Self::A600EcsNtsc
+        )
     }
 
     /// Chipset family for this model. Per
@@ -204,8 +250,13 @@ impl Model {
             | Self::A500OcsPalA501
             | Self::A500OcsNtscA501
             | Self::A500OcsPalMaxed
-            | Self::A500OcsNtscMaxed => ChipsetKind::Ocs,
-            Self::A500PlusEcsPal | Self::A500PlusEcsNtsc => ChipsetKind::Ecs,
+            | Self::A500OcsNtscMaxed
+            | Self::A2000OcsPal
+            | Self::A2000OcsNtsc => ChipsetKind::Ocs,
+            Self::A500PlusEcsPal
+            | Self::A500PlusEcsNtsc
+            | Self::A600EcsPal
+            | Self::A600EcsNtsc => ChipsetKind::Ecs,
             Self::A1200AgaPal | Self::A1200AgaNtsc => ChipsetKind::Aga,
         }
     }
@@ -229,7 +280,11 @@ impl Model {
             | Self::A500OcsPalMaxed
             | Self::A500OcsNtscMaxed
             | Self::A500PlusEcsPal
-            | Self::A500PlusEcsNtsc => CpuKind::M68000,
+            | Self::A500PlusEcsNtsc
+            | Self::A600EcsPal
+            | Self::A600EcsNtsc
+            | Self::A2000OcsPal
+            | Self::A2000OcsNtsc => CpuKind::M68000,
             Self::A1200AgaPal | Self::A1200AgaNtsc => CpuKind::M68EC020,
         }
     }
@@ -251,6 +306,10 @@ pub fn profiles() -> Vec<MachineProfile> {
         profile_for(Model::A500OcsNtscMaxed),
         profile_for(Model::A1200AgaPal),
         profile_for(Model::A1200AgaNtsc),
+        profile_for(Model::A600EcsPal),
+        profile_for(Model::A600EcsNtsc),
+        profile_for(Model::A2000OcsPal),
+        profile_for(Model::A2000OcsNtsc),
     ]
 }
 
@@ -272,6 +331,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
         | Model::A500OcsNtscMaxed => 1987,
         Model::A500PlusEcsPal | Model::A500PlusEcsNtsc => 1991,
         Model::A1200AgaPal | Model::A1200AgaNtsc => 1992,
+        Model::A600EcsPal | Model::A600EcsNtsc => 1992,
+        // A2000A shipped 1987 alongside the A500; A2000B (Fat Agnus
+        // Rev 6.x) is 1989+. We catalogue the Rev B variant here, so
+        // 1989 is the closer release year.
+        Model::A2000OcsPal | Model::A2000OcsNtsc => 1989,
     };
     let (firmware_id, firmware_name) = if model.is_a1000() {
         (
@@ -306,6 +370,10 @@ pub fn profile_for(model: Model) -> MachineProfile {
             Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500PlusEcsNtsc | Model::A500OcsNtscMaxed => "Amiga OCS NTSC — Kickstart-backed headless boot at the US 60 Hz field rate, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. NTSC boot validation still pending; structural plumbing is in place via the chip-layer short/long line alternation.".into(),
             Model::A1200AgaPal => "Amiga 1200 AGA PAL — 68EC020 + Alice/Lisa chipset + Gayle, 2 MiB chip RAM, Kickstart 3.0/3.1, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Active stage-by-stage development; boot validation work documented in docs/handoffs/.".into(),
             Model::A1200AgaNtsc => "Amiga 1200 AGA NTSC — 68EC020 + Alice/Lisa chipset + Gayle, 2 MiB chip RAM. NTSC boot validation pending; PAL Agnus path is the active target.".into(),
+            Model::A600EcsPal => "Amiga 600 ECS PAL — 68000 + ECS Agnus 8375 / Denise 8373 + Gayle (IDE + PCMCIA decode), 1 MiB chip RAM, Kickstart 2.05. Shares the ECS chip stack with the A500+; A600 form factor and Gayle-driven IDE distinguish it.".into(),
+            Model::A600EcsNtsc => "Amiga 600 ECS NTSC — same chip stack as the A600 PAL, NTSC Agnus.".into(),
+            Model::A2000OcsPal => "Amiga 2000 OCS PAL — 68000 + Fat Agnus 8372A + OCS Denise + Paula, 1 MiB chip RAM, Kickstart 1.3 / 2.04, Zorro-II slots. Catalogued as the Rev 6.x form factor; A2000A (early Agnus 8371, 512 KiB chip) is reachable via `AmigaOcsRuntime::with_ram_config` without a separate model entry.".into(),
+            Model::A2000OcsNtsc => "Amiga 2000 OCS NTSC — same chip stack as the A2000 PAL, NTSC Agnus.".into(),
         },
         clock: ClockDesc::new("cck", ClockRate::from_hz(cck_hz)),
         firmware: vec![FirmwareRequirement::new(firmware_id, firmware_name, false)],

@@ -187,6 +187,27 @@ pub mod a1200 {
     pub const NTSC: Model = Model::A1200AgaNtsc;
 }
 
+/// A600 — the 1992 ECS refresh in a smaller form factor than the A500.
+pub mod a600 {
+    use super::Model;
+    /// A600 ECS PAL: 68000, ECS Agnus 8375 + ECS Denise 8373, Gayle
+    /// (IDE + PCMCIA decode), 1 MiB chip RAM, Kickstart 2.05.
+    pub const PAL: Model = Model::A600EcsPal;
+    /// A600 ECS NTSC.
+    pub const NTSC: Model = Model::A600EcsNtsc;
+}
+
+/// A2000 — the 1987 expandable tower (Rev B with Fat Agnus 8372A
+/// is the canonical config we catalogue).
+pub mod a2000 {
+    use super::Model;
+    /// A2000 Rev B OCS PAL: 68000, Fat Agnus 8372A + OCS Denise,
+    /// 1 MiB chip RAM, Kickstart 1.3 / 2.04, Zorro-II slots.
+    pub const PAL: Model = Model::A2000OcsPal;
+    /// A2000 Rev B OCS NTSC.
+    pub const NTSC: Model = Model::A2000OcsNtsc;
+}
+
 // ─── Future families ────────────────────────────────────────────────
 //
 // Per the rollout plan, the next machines to land are A1200 (AGA),
@@ -215,8 +236,12 @@ mod tests {
         assert_eq!(a500::A501_PAL, Model::A500OcsPalA501);
         assert_eq!(a500::MAXED_NTSC, Model::A500OcsNtscMaxed);
         assert_eq!(a500plus::PAL, Model::A500PlusEcsPal);
+        assert_eq!(a600::PAL, Model::A600EcsPal);
+        assert_eq!(a600::NTSC, Model::A600EcsNtsc);
         assert_eq!(a1200::PAL, Model::A1200AgaPal);
         assert_eq!(a1200::NTSC, Model::A1200AgaNtsc);
+        assert_eq!(a2000::PAL, Model::A2000OcsPal);
+        assert_eq!(a2000::NTSC, Model::A2000OcsNtsc);
     }
 
     #[test]
@@ -228,8 +253,12 @@ mod tests {
         assert_eq!(a500::MAXED_NTSC.chipset(), ChipsetKind::Ocs);
         assert_eq!(a500plus::PAL.chipset(), ChipsetKind::Ecs);
         assert_eq!(a500plus::NTSC.chipset(), ChipsetKind::Ecs);
+        assert_eq!(a600::PAL.chipset(), ChipsetKind::Ecs);
+        assert_eq!(a600::NTSC.chipset(), ChipsetKind::Ecs);
         assert_eq!(a1200::PAL.chipset(), ChipsetKind::Aga);
         assert_eq!(a1200::NTSC.chipset(), ChipsetKind::Aga);
+        assert_eq!(a2000::PAL.chipset(), ChipsetKind::Ocs);
+        assert_eq!(a2000::NTSC.chipset(), ChipsetKind::Ocs);
     }
 
     #[test]
@@ -248,6 +277,10 @@ mod tests {
             a500::MAXED_NTSC,
             a500plus::PAL,
             a500plus::NTSC,
+            a600::PAL,
+            a600::NTSC,
+            a2000::PAL,
+            a2000::NTSC,
         ] {
             assert_eq!(model.cpu(), CpuKind::M68000, "{model:?} should be 68000");
         }

@@ -887,4 +887,20 @@ mod tests {
         assert!(!kind.is_aga());
         assert_eq!(kind.model(), Model::A500PlusEcsPal);
     }
+
+    #[test]
+    fn blank_dispatches_a600_to_ecs_variant() {
+        let kind = AmigaRuntimeKind::blank(Model::A600EcsPal);
+        assert!(kind.is_ecs(), "A600 should land in the Ecs arm");
+        assert!(!kind.is_aga());
+        assert_eq!(kind.model(), Model::A600EcsPal);
+    }
+
+    #[test]
+    fn blank_dispatches_a2000_to_ocs_variant() {
+        let kind = AmigaRuntimeKind::blank(Model::A2000OcsPal);
+        assert!(!kind.is_aga());
+        assert!(!kind.is_ecs(), "A2000 should land in the Ocs arm");
+        assert_eq!(kind.model(), Model::A2000OcsPal);
+    }
 }
