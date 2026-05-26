@@ -67,6 +67,12 @@ pub struct Spectrum128kClassCore<V: Class128kVariant> {
 
     pub(crate) hc: u32,
     speaker: SpeakerMixer,
+    /// Optional CPU memory-write tracer — mirrors the field on the
+    /// 48K-class core. See
+    /// `common-sinclair-zx-spectrum-48k-class::SpectrumMachineCore`
+    /// for semantics.
+    #[serde(default)]
+    write_watch: Option<common_sinclair_zx_spectrum::MemoryWriteWatch>,
 
     #[serde(skip)]
     _variant: PhantomData<V>,
@@ -100,8 +106,43 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             ay_frame: default_ay_frame(),
             hc: 0,
             speaker: SpeakerMixer::default(),
+            write_watch: None,
             _variant: PhantomData,
         }
+    }
+
+    /// See `SpectrumMachineCore::start_memory_write_watch` on the
+    /// 48K-class core.
+    pub fn start_memory_write_watch(&mut self, addr: u16, len: u16) {
+        self.write_watch = Some(common_sinclair_zx_spectrum::MemoryWriteWatch::new(addr, len));
+    }
+
+    /// See `SpectrumMachineCore::stop_memory_write_watch`.
+    pub fn stop_memory_write_watch(&mut self) {
+        self.write_watch = None;
+    }
+
+    /// See `SpectrumMachineCore::memory_write_watch_records`.
+    #[must_use]
+    pub fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        self.write_watch.as_ref().map(|w| w.records())
+    }
+
+    /// See `SpectrumMachineCore::clear_memory_write_watch_records`.
+    pub fn clear_memory_write_watch_records(&mut self) {
+        if let Some(w) = &mut self.write_watch {
+            w.clear();
+        }
+    }
+
+    /// See `SpectrumMachineCore::memory_write_watch_range`.
+    #[must_use]
+    pub fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        self.write_watch
+            .as_ref()
+            .map(|w| (w.lo(), w.hi().wrapping_sub(w.lo())))
     }
 
     /// Stable hardware identifier for this variant.
@@ -200,6 +241,9 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
                 self.z80.data_in = self.memory.read(self.z80.addr);
             }
             Some(BusOp::MemWrite) => {
+                if let Some(w) = &mut self.write_watch {
+                    w.maybe_record(self.z80.regs.pc, self.z80.addr, self.z80.data);
+                }
                 self.memory.write(self.z80.addr, self.z80.data);
             }
             Some(BusOp::IoRead) => {

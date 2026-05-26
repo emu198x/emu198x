@@ -51,8 +51,8 @@ pub use query::{
     SessionQueryProvider,
 };
 pub use script::{
-    HeadlessScript, ScriptError, ScriptMediaKind, ScriptMediaTransportAction, ScriptObservation,
-    ScriptStep,
+    HeadlessScript, MemoryWriteEntry, ScriptError, ScriptMediaKind, ScriptMediaTransportAction,
+    ScriptObservation, ScriptStep,
 };
 pub use session::{HeadlessSession, QueryBoolWaitResult, QueryTextWaitResult, SessionError};
 pub use time::{ClockDesc, ClockRate, MachineTime};

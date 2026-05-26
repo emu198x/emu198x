@@ -54,6 +54,23 @@ impl From<ScriptMediaTransportAction> for crate::MediaTransportAction {
     }
 }
 
+/// One captured CPU write reported by [`ScriptObservation::WatchMemoryLog`].
+///
+/// Widened to `u32` on every field so the same shape covers both
+/// 16-bit (Z80, 6502) and 32-bit (68000) address spaces. Per-system
+/// binaries narrow on the way in (Spectrum truncates `pc` and `addr`
+/// to `u16` and `value` to `u8` when matching).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryWriteEntry {
+    /// Program counter at the moment of the write.
+    pub pc: u32,
+    /// Target address of the write.
+    pub addr: u32,
+    /// Value that was written. Bytes occupy the low 8 bits; words
+    /// occupy the low 16.
+    pub value: u32,
+}
+
 /// One shared JSON script step.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -269,6 +286,72 @@ pub enum ScriptStep {
         /// The kind of reset to perform.
         kind: ResetKind,
     },
+    /// Read a contiguous span of CPU-visible memory.
+    ///
+    /// System-specific step (errors with
+    /// [`ScriptError::SystemSpecificStep`] on the shell's built-in
+    /// executor; per-system binaries intercept it and resolve through
+    /// their machine's memory bus). Emits
+    /// [`ScriptObservation::MemoryRead`] with the bytes read.
+    MemoryRead {
+        /// Start address (CPU-visible, low byte first).
+        addr: u32,
+        /// Number of bytes to read. Implementations may cap at 256.
+        len: u32,
+    },
+    /// Write one byte to CPU-visible memory.
+    ///
+    /// System-specific step (binary-dispatched). Silent — emits no
+    /// observation.
+    PokeByte {
+        /// Target address.
+        addr: u32,
+        /// Byte to write.
+        value: u8,
+    },
+    /// Write one 16-bit word to CPU-visible memory.
+    ///
+    /// System-specific step (binary-dispatched). The write order is
+    /// system-defined: Spectrum/Z80 writes little-endian (low byte at
+    /// `addr`); 68000-class systems write big-endian. Silent.
+    PokeWord {
+        /// Target address.
+        addr: u32,
+        /// 16-bit value to write.
+        value: u16,
+    },
+    /// Begin recording CPU writes inside the half-open address range
+    /// `[addr, addr + len)`. Replaces any prior watch range and clears
+    /// the captured log.
+    ///
+    /// System-specific (binary-dispatched). Emits
+    /// [`ScriptObservation::WatchMemoryStart`].
+    WatchMemoryStart {
+        /// Watch range start address.
+        addr: u32,
+        /// Watch range length in bytes (must be ≥ 1).
+        len: u32,
+    },
+    /// Stop watching and drop both the range and the captured log.
+    ///
+    /// System-specific (binary-dispatched). Emits
+    /// [`ScriptObservation::WatchMemoryClear`] with the count of
+    /// records that were dropped.
+    WatchMemoryClear,
+    /// Fetch the captured write log.
+    ///
+    /// System-specific (binary-dispatched). Emits
+    /// [`ScriptObservation::WatchMemoryLog`] with up to `limit`
+    /// most-recent entries (default 64).
+    WatchMemoryLog {
+        /// Maximum number of entries to return. Defaults to 64.
+        #[serde(default)]
+        limit: Option<u32>,
+        /// When `true`, deduplicate identical `(pc, addr, value)`
+        /// triples before applying the limit.
+        #[serde(default)]
+        unique: bool,
+    },
 }
 
 /// One JSON script made of ordered shared steps.
@@ -430,6 +513,48 @@ pub enum ScriptObservation {
         performed: ResetKind,
         /// Machine time after the reset (typically zero).
         reached: crate::MachineTime,
+    },
+    /// Result of a memory-read step.
+    MemoryRead {
+        /// Start address that was read.
+        addr: u32,
+        /// Number of bytes that were read (may be capped below the
+        /// requested length).
+        len: u32,
+        /// Raw bytes in memory order.
+        bytes: Vec<u8>,
+    },
+    /// Result of starting a memory write watch.
+    WatchMemoryStart {
+        /// Watch range start.
+        addr: u32,
+        /// Watch range length.
+        len: u32,
+        /// Capacity (max records the log can hold). Once full the log
+        /// stops growing; callers should poll via
+        /// [`ScriptStep::WatchMemoryLog`] before that.
+        capacity: u32,
+    },
+    /// Result of stopping a memory write watch and dropping its log.
+    WatchMemoryClear {
+        /// `true` when a watch range was configured before the clear.
+        had_watch: bool,
+        /// Number of records captured between start and clear.
+        captured: u32,
+    },
+    /// Result of fetching the memory write log.
+    WatchMemoryLog {
+        /// Current watch range start, or `None` if no watch is active.
+        addr: Option<u32>,
+        /// Current watch range length, or `None` if no watch is active.
+        len: Option<u32>,
+        /// Total number of records currently held.
+        total_writes: u32,
+        /// Number of records actually returned (after limit + unique).
+        returned: u32,
+        /// Most-recent entries up to the requested limit, in capture
+        /// order (oldest first).
+        entries: Vec<MemoryWriteEntry>,
     },
 }
 
@@ -610,6 +735,20 @@ impl ScriptStep {
             }),
             Self::LoadBasicProgram { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "load_basic_program",
+            }),
+            Self::MemoryRead { .. } => Err(ScriptError::SystemSpecificStep {
+                step: "memory_read",
+            }),
+            Self::PokeByte { .. } => Err(ScriptError::SystemSpecificStep { step: "poke_byte" }),
+            Self::PokeWord { .. } => Err(ScriptError::SystemSpecificStep { step: "poke_word" }),
+            Self::WatchMemoryStart { .. } => Err(ScriptError::SystemSpecificStep {
+                step: "watch_memory_start",
+            }),
+            Self::WatchMemoryClear => Err(ScriptError::SystemSpecificStep {
+                step: "watch_memory_clear",
+            }),
+            Self::WatchMemoryLog { .. } => Err(ScriptError::SystemSpecificStep {
+                step: "watch_memory_log",
             }),
             Self::StartVideoRecording { path } => {
                 session.start_video_recording(path.clone())?;

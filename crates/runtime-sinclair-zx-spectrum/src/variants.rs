@@ -472,6 +472,25 @@ impl SpectrumMachine for Spectrum48k {
             value,
         }))
     }
+
+    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
+        Spectrum48k::start_memory_write_watch(self, addr, len);
+        Ok(())
+    }
+    fn stop_memory_write_watch(&mut self) {
+        Spectrum48k::stop_memory_write_watch(self);
+    }
+    fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        Spectrum48k::memory_write_watch_records(self)
+    }
+    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        Spectrum48k::memory_write_watch_range(self)
+    }
+    fn clear_memory_write_watch_records(&mut self) {
+        Spectrum48k::clear_memory_write_watch_records(self);
+    }
 }
 
 impl SpectrumMachine for Spectrum16K {
@@ -568,6 +587,25 @@ impl SpectrumMachine for Spectrum16K {
             path: path.to_owned(),
             value,
         }))
+    }
+
+    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
+        Spectrum16K::start_memory_write_watch(self, addr, len);
+        Ok(())
+    }
+    fn stop_memory_write_watch(&mut self) {
+        Spectrum16K::stop_memory_write_watch(self);
+    }
+    fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        Spectrum16K::memory_write_watch_records(self)
+    }
+    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        Spectrum16K::memory_write_watch_range(self)
+    }
+    fn clear_memory_write_watch_records(&mut self) {
+        Spectrum16K::clear_memory_write_watch_records(self);
     }
 }
 
@@ -671,6 +709,25 @@ impl SpectrumMachine for SpectrumPlus {
             value,
         }))
     }
+
+    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
+        SpectrumPlus::start_memory_write_watch(self, addr, len);
+        Ok(())
+    }
+    fn stop_memory_write_watch(&mut self) {
+        SpectrumPlus::stop_memory_write_watch(self);
+    }
+    fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        SpectrumPlus::memory_write_watch_records(self)
+    }
+    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        SpectrumPlus::memory_write_watch_range(self)
+    }
+    fn clear_memory_write_watch_records(&mut self) {
+        SpectrumPlus::clear_memory_write_watch_records(self);
+    }
 }
 
 impl SpectrumMachine for Spectrum128K {
@@ -772,6 +829,25 @@ impl SpectrumMachine for Spectrum128K {
         }
         Ok(None)
     }
+
+    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
+        Spectrum128K::start_memory_write_watch(self, addr, len);
+        Ok(())
+    }
+    fn stop_memory_write_watch(&mut self) {
+        Spectrum128K::stop_memory_write_watch(self);
+    }
+    fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        Spectrum128K::memory_write_watch_records(self)
+    }
+    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        Spectrum128K::memory_write_watch_range(self)
+    }
+    fn clear_memory_write_watch_records(&mut self) {
+        Spectrum128K::clear_memory_write_watch_records(self);
+    }
 }
 
 impl SpectrumMachine for SpectrumPlus2 {
@@ -870,6 +946,25 @@ impl SpectrumMachine for SpectrumPlus2 {
             return resolve_ay_path(&self.ay, path);
         }
         Ok(None)
+    }
+
+    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
+        SpectrumPlus2::start_memory_write_watch(self, addr, len);
+        Ok(())
+    }
+    fn stop_memory_write_watch(&mut self) {
+        SpectrumPlus2::stop_memory_write_watch(self);
+    }
+    fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        SpectrumPlus2::memory_write_watch_records(self)
+    }
+    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        SpectrumPlus2::memory_write_watch_range(self)
+    }
+    fn clear_memory_write_watch_records(&mut self) {
+        SpectrumPlus2::clear_memory_write_watch_records(self);
     }
 }
 
@@ -999,6 +1094,25 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
             path: path.to_owned(),
             value,
         }))
+    }
+
+    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
+        SpectrumAmstradClassCore::<V>::start_memory_write_watch(self, addr, len);
+        Ok(())
+    }
+    fn stop_memory_write_watch(&mut self) {
+        SpectrumAmstradClassCore::<V>::stop_memory_write_watch(self);
+    }
+    fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        SpectrumAmstradClassCore::<V>::memory_write_watch_records(self)
+    }
+    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        SpectrumAmstradClassCore::<V>::memory_write_watch_range(self)
+    }
+    fn clear_memory_write_watch_records(&mut self) {
+        SpectrumAmstradClassCore::<V>::clear_memory_write_watch_records(self);
     }
 }
 

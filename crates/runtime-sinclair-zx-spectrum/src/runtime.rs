@@ -193,6 +193,52 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
     /// Returns the current T-state position within the frame.
     fn tstate_in_frame(&self) -> u32;
 
+    /// Begin tracing every Z80 memory write whose target falls
+    /// inside `[addr, addr + len)`. Default impl returns an error
+    /// so exotic variants without a tracer don't silently swallow
+    /// the request. SOLID-8 variants (16K / 48K / + / 128K / +2 /
+    /// +2A / +2B / +3) override to wire into their common-class
+    /// core's `MemoryWriteWatch`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` with a short reason on variants that don't
+    /// implement the tracer.
+    fn start_memory_write_watch(
+        &mut self,
+        _addr: u16,
+        _len: u16,
+    ) -> Result<(), &'static str> {
+        Err("memory write watch is not supported on this Spectrum variant")
+    }
+
+    /// Stop the current write watch (drop the configured range and
+    /// any captured records). Default impl is a no-op.
+    fn stop_memory_write_watch(&mut self) {}
+
+    /// Captured CPU writes since the last
+    /// `start_memory_write_watch`. `None` means either no watch is
+    /// configured *or* the variant doesn't support the tracer.
+    #[must_use]
+    fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        None
+    }
+
+    /// Current watch range as `(addr, len)`, or `None` when no watch
+    /// is configured (or the variant doesn't support the tracer).
+    /// `len` equals `hi - lo` (exclusive upper bound minus inclusive
+    /// lower) and may be `0` for a placeholder watch.
+    #[must_use]
+    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        None
+    }
+
+    /// Drop captured write records without removing the watch range.
+    /// Default impl is a no-op.
+    fn clear_memory_write_watch_records(&mut self) {}
+
     // ─── Variant-specific query surface ───────────────────────────────
     //
     // Each variant supplies the additional path catalogue it owns

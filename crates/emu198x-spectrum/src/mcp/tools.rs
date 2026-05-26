@@ -12,14 +12,15 @@
 //! break, a tool's schema here probably also needs an update.
 
 use emu198x_shell::{
-    FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, ScriptObservation, ScriptStep,
+    FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, MemoryWriteEntry, ScriptObservation,
+    ScriptStep,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
     read_firmware_asset,
 };
 use format_sinclair_zx_spectrum_bas::tokenise;
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, SpectrumRuntimeKind,
-    SpectrumSessionQueryProvider, autoload_basic_tape, load_basic_program,
+    DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, SpectrumLiveAccess,
+    SpectrumRuntimeKind, SpectrumSessionQueryProvider, autoload_basic_tape, load_basic_program,
 };
 use serde_json::{Value, json};
 
@@ -108,10 +109,178 @@ fn mcp_execute_step(
         ScriptStep::LoadBasicProgram { path, run } => {
             execute_load_basic_program(session, path, *run).map(Some)
         }
+        ScriptStep::MemoryRead { addr, len } => {
+            execute_memory_read(session, *addr, *len).map(Some)
+        }
+        ScriptStep::PokeByte { addr, value } => {
+            execute_poke_byte(session, *addr, *value)?;
+            Ok(None)
+        }
+        ScriptStep::PokeWord { addr, value } => {
+            execute_poke_word(session, *addr, *value)?;
+            Ok(None)
+        }
+        ScriptStep::WatchMemoryStart { addr, len } => {
+            execute_watch_memory_start(session, *addr, *len).map(Some)
+        }
+        ScriptStep::WatchMemoryClear => execute_watch_memory_clear(session).map(Some),
+        ScriptStep::WatchMemoryLog { limit, unique } => {
+            execute_watch_memory_log(session, *limit, *unique).map(Some)
+        }
         other => other
             .execute_collect(session)
             .map_err(|err| ToolError::Execution(format!("{err}"))),
     }
+}
+
+/// Validate that a u32 address fits in the Z80's u16 space.
+fn addr_to_u16(addr: u32, label: &str) -> Result<u16, ToolError> {
+    u16::try_from(addr).map_err(|_| {
+        ToolError::InvalidArguments(format!(
+            "{label}: address ${addr:08X} is outside the Z80 0000-FFFF address space"
+        ))
+    })
+}
+
+/// Cap a requested read length so the response stays bounded.
+const MEMORY_READ_MAX: u32 = 256;
+
+fn execute_memory_read(
+    session: &mut SpectrumSession,
+    addr: u32,
+    len: u32,
+) -> Result<ScriptObservation, ToolError> {
+    if len == 0 {
+        return Err(ToolError::InvalidArguments(
+            "memory_read: `len` must be at least 1".to_owned(),
+        ));
+    }
+    let start = addr_to_u16(addr, "memory_read")?;
+    let capped = len.min(MEMORY_READ_MAX);
+    let machine = session.machine();
+    let mut bytes = Vec::with_capacity(capped as usize);
+    for offset in 0..capped {
+        let a = start.wrapping_add(offset as u16);
+        bytes.push(machine.read_byte(a));
+    }
+    Ok(ScriptObservation::MemoryRead {
+        addr,
+        len: capped,
+        bytes,
+    })
+}
+
+fn execute_poke_byte(
+    session: &mut SpectrumSession,
+    addr: u32,
+    value: u8,
+) -> Result<(), ToolError> {
+    let a = addr_to_u16(addr, "poke_byte")?;
+    session.machine_mut().write_byte(a, value);
+    Ok(())
+}
+
+fn execute_poke_word(
+    session: &mut SpectrumSession,
+    addr: u32,
+    value: u16,
+) -> Result<(), ToolError> {
+    // Z80 stores 16-bit values little-endian: low byte at addr+0,
+    // high byte at addr+1. The high byte may wrap around at $FFFF —
+    // mirror that behaviour rather than rejecting the call.
+    let low_addr = addr_to_u16(addr, "poke_word")?;
+    let high_addr = low_addr.wrapping_add(1);
+    let machine = session.machine_mut();
+    machine.write_byte(low_addr, (value & 0xFF) as u8);
+    machine.write_byte(high_addr, (value >> 8) as u8);
+    Ok(())
+}
+
+fn execute_watch_memory_start(
+    session: &mut SpectrumSession,
+    addr: u32,
+    len: u32,
+) -> Result<ScriptObservation, ToolError> {
+    if len == 0 {
+        return Err(ToolError::InvalidArguments(
+            "watch_memory_start: `len` must be at least 1".to_owned(),
+        ));
+    }
+    let start = addr_to_u16(addr, "watch_memory_start")?;
+    let len_u16 = u16::try_from(len).map_err(|_| {
+        ToolError::InvalidArguments(format!(
+            "watch_memory_start: `len` {len} exceeds the Z80 64 KiB address space"
+        ))
+    })?;
+    session
+        .machine_mut()
+        .start_memory_write_watch(start, len_u16)
+        .map_err(|err| ToolError::Execution(format!("watch_memory_start: {err}")))?;
+    Ok(ScriptObservation::WatchMemoryStart {
+        addr,
+        len,
+        capacity: common_sinclair_zx_spectrum::DEFAULT_WATCH_CAP as u32,
+    })
+}
+
+fn execute_watch_memory_clear(
+    session: &mut SpectrumSession,
+) -> Result<ScriptObservation, ToolError> {
+    let captured = session
+        .machine()
+        .memory_write_watch_records()
+        .map(|r| r.len() as u32)
+        .unwrap_or(0);
+    let had_watch = session.machine().memory_write_watch_records().is_some();
+    session.machine_mut().stop_memory_write_watch();
+    Ok(ScriptObservation::WatchMemoryClear {
+        had_watch,
+        captured,
+    })
+}
+
+fn execute_watch_memory_log(
+    session: &mut SpectrumSession,
+    limit: Option<u32>,
+    unique: bool,
+) -> Result<ScriptObservation, ToolError> {
+    let limit = limit.unwrap_or(64) as usize;
+    let machine = session.machine();
+    let range = machine.memory_write_watch_range();
+    let Some(records) = machine.memory_write_watch_records() else {
+        return Ok(ScriptObservation::WatchMemoryLog {
+            addr: None,
+            len: None,
+            total_writes: 0,
+            returned: 0,
+            entries: Vec::new(),
+        });
+    };
+    let total_writes = records.len() as u32;
+    let mut filtered: Vec<&common_sinclair_zx_spectrum::MemoryWriteRecord> = records.iter().collect();
+    if unique {
+        let mut seen = std::collections::HashSet::new();
+        filtered.retain(|r| seen.insert((r.pc, r.addr, r.value)));
+    }
+    // Take the most-recent `limit` entries, then restore oldest-first
+    // order for readability.
+    let total_filtered = filtered.len();
+    let start = total_filtered.saturating_sub(limit);
+    let entries: Vec<MemoryWriteEntry> = filtered[start..]
+        .iter()
+        .map(|r| MemoryWriteEntry {
+            pc: u32::from(r.pc),
+            addr: u32::from(r.addr),
+            value: u32::from(r.value),
+        })
+        .collect();
+    Ok(ScriptObservation::WatchMemoryLog {
+        addr: range.map(|(lo, _)| u32::from(lo)),
+        len: range.map(|(_, len)| u32::from(len)),
+        total_writes,
+        returned: entries.len() as u32,
+        entries,
+    })
 }
 
 fn execute_set_machine(
@@ -580,6 +749,76 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
         description: "Query the AY-3-8912 sound chip's full register state in one call. Returns the 16 raw registers plus decoded tone periods (A/B/C), noise period, mixer, amplitudes, envelope period, and envelope shape. Errors when the active variant has no AY (16K / 48K / Spectrum+); call set_machine first to switch to a 128K-class variant.",
         schema: json!({"type": "object"}),
     }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "memory_read",
+        description: "Read a contiguous span of CPU-visible memory (Z80 address space, 0x0000-0xFFFF). Returns raw bytes in memory order. `len` is capped at 256 bytes per call.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "addr": integer_field(),
+                "len": integer_field(),
+            },
+            "required": ["addr", "len"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "poke_byte",
+        description: "Write one byte to CPU-visible memory at the given address. Silent — no observation is emitted.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "addr": integer_field(),
+                "value": integer_field(),
+            },
+            "required": ["addr", "value"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "poke_word",
+        description: "Write a 16-bit value to CPU-visible memory, little-endian (low byte at addr+0, high byte at addr+1). Silent.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "addr": integer_field(),
+                "value": integer_field(),
+            },
+            "required": ["addr", "value"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "watch_memory_start",
+        description: "Begin recording every Z80 CPU write that lands inside [addr, addr+len). Each capture stores (pc, addr, value). Replaces any prior watch and clears the log. Capture cap is 8192 entries; further writes are dropped silently. Pair with watch_memory_log / watch_memory_clear.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "addr": integer_field(),
+                "len": integer_field(),
+            },
+            "required": ["addr", "len"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "watch_memory_clear",
+        description: "Stop watching CPU writes and drop the captured log. Reports how many records were held at the moment of clear.",
+        schema: json!({"type": "object"}),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "watch_memory_log",
+        description: "Fetch the captured CPU writes. Returns up to `limit` most-recent entries (default 64), in oldest-first order. Set `unique = true` to deduplicate by (pc, addr, value) before applying the limit.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "limit": integer_field(),
+                "unique": boolean_field(),
+            },
+        }),
+    }));
 }
 
 #[cfg(test)]
@@ -633,6 +872,44 @@ mod tests {
     }
 
     #[test]
+    fn parse_step_round_trips_memory_read_arguments() {
+        let step = parse_step("memory_read", json!({"addr": 0x4000, "len": 32}))
+            .expect("valid memory_read");
+        assert_eq!(
+            step,
+            ScriptStep::MemoryRead {
+                addr: 0x4000,
+                len: 32,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_step_round_trips_watch_memory_start_arguments() {
+        let step = parse_step("watch_memory_start", json!({"addr": 0x5800, "len": 0x300}))
+            .expect("valid watch_memory_start");
+        assert_eq!(
+            step,
+            ScriptStep::WatchMemoryStart {
+                addr: 0x5800,
+                len: 0x300,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_step_accepts_empty_object_for_watch_memory_log() {
+        let step = parse_step("watch_memory_log", json!({})).expect("valid watch_memory_log");
+        assert_eq!(
+            step,
+            ScriptStep::WatchMemoryLog {
+                limit: None,
+                unique: false,
+            }
+        );
+    }
+
+    #[test]
     fn register_all_publishes_every_script_step_variant() {
         let mut registry: ToolRegistry<SpectrumSession> = ToolRegistry::new();
         register_all(&mut registry);
@@ -660,6 +937,12 @@ mod tests {
             "start_audio_recording",
             "stop_audio_recording",
             "query_ay",
+            "memory_read",
+            "poke_byte",
+            "poke_word",
+            "watch_memory_start",
+            "watch_memory_clear",
+            "watch_memory_log",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");

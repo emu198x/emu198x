@@ -70,6 +70,14 @@ pub struct SpectrumMachineCore<M: MemoryBus, V: Variant48kClass> {
     speaker: SpeakerMixer,
     framebuffer: Vec<u8>,
     hc: u32,
+    /// Optional CPU memory-write tracer. When `Some`, every Z80
+    /// mreq+wr cycle whose target falls inside the configured
+    /// range is captured into the watch's buffer along with the
+    /// current PC. Inactive by default — see
+    /// [`Self::start_memory_write_watch`] and
+    /// [`Self::memory_write_watch_records`].
+    #[serde(default)]
+    write_watch: Option<common_sinclair_zx_spectrum::MemoryWriteWatch>,
 
     #[serde(skip)]
     _variant: PhantomData<V>,
@@ -95,8 +103,47 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             speaker: SpeakerMixer::default(),
             framebuffer: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
             hc: 0,
+            write_watch: None,
             _variant: PhantomData,
         }
+    }
+
+    /// Begin tracing every Z80 memory write whose target falls
+    /// inside `[addr, addr + len)`. Replaces any prior watch.
+    pub fn start_memory_write_watch(&mut self, addr: u16, len: u16) {
+        self.write_watch = Some(common_sinclair_zx_spectrum::MemoryWriteWatch::new(addr, len));
+    }
+
+    /// Drop the current watch entirely. After this call,
+    /// [`Self::memory_write_watch_records`] returns `None` until
+    /// [`Self::start_memory_write_watch`] is called again.
+    pub fn stop_memory_write_watch(&mut self) {
+        self.write_watch = None;
+    }
+
+    /// Captured writes since the last `start_memory_write_watch`.
+    /// `None` when no watch is configured.
+    #[must_use]
+    pub fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        self.write_watch.as_ref().map(|w| w.records())
+    }
+
+    /// Drop captured records without removing the watch range.
+    pub fn clear_memory_write_watch_records(&mut self) {
+        if let Some(w) = &mut self.write_watch {
+            w.clear();
+        }
+    }
+
+    /// Current watch range as `(addr, len)`, where `len = hi - lo`.
+    /// Returns `None` when no watch is configured.
+    #[must_use]
+    pub fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        self.write_watch
+            .as_ref()
+            .map(|w| (w.lo(), w.hi().wrapping_sub(w.lo())))
     }
 
     /// Returns mutable access to the Kempston joystick peripheral.
@@ -365,6 +412,9 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
                 self.z80.data_in = self.memory.read(self.z80.addr);
             }
             Some(BusOp::MemWrite) => {
+                if let Some(w) = &mut self.write_watch {
+                    w.maybe_record(self.z80.regs.pc, self.z80.addr, self.z80.data);
+                }
                 self.memory.write(self.z80.addr, self.z80.data);
             }
             Some(BusOp::IoRead) => {

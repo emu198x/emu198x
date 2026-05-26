@@ -10,6 +10,7 @@ pub mod driver;
 pub mod error;
 pub mod keyboard;
 pub mod memory;
+pub mod memory_watch;
 pub mod palette;
 pub mod peripheral;
 mod serde_skip_audit;
@@ -24,6 +25,7 @@ pub use driver::SpectrumDriver;
 pub use error::RomImageError;
 pub use keyboard::{KeyboardMatrix, SpectrumKey};
 pub use memory::{Bank16K, MemoryBus, Spectrum16kMemory, Spectrum48kMemory};
+pub use memory_watch::{DEFAULT_WATCH_CAP, MemoryWriteRecord, MemoryWriteWatch};
 pub use palette::SPECTRUM_PALETTE;
 pub use peripheral::Peripheral;
 pub use snapshot::{

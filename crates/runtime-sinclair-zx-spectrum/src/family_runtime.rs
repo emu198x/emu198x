@@ -62,6 +62,28 @@ pub trait SpectrumLiveAccess {
     /// `true` while tape transport is active. Used by autoload tests
     /// to confirm the helper started playback before returning.
     fn tape_is_playing(&self) -> bool;
+    /// Begin recording CPU writes in the half-open range
+    /// `[addr, addr + len)`. Variants that don't implement the tracer
+    /// return `Err`. See
+    /// [`crate::runtime::SpectrumMachine::start_memory_write_watch`].
+    ///
+    /// # Errors
+    /// Returns the reason string from the inner machine when the
+    /// variant doesn't support the tracer.
+    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str>;
+    /// Stop the current write watch and drop captured records.
+    fn stop_memory_write_watch(&mut self);
+    /// Captured CPU writes since the last `start_memory_write_watch`.
+    /// `None` means either no watch is configured or the variant
+    /// doesn't support the tracer.
+    fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]>;
+    /// Current watch range as `(addr, len)`, or `None` when no watch
+    /// is configured.
+    fn memory_write_watch_range(&self) -> Option<(u16, u16)>;
+    /// Drop captured write records without removing the watch range.
+    fn clear_memory_write_watch_records(&mut self);
 }
 
 impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
@@ -79,6 +101,28 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 
     fn tape_is_playing(&self) -> bool {
         self.machine().tape_is_playing()
+    }
+
+    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
+        self.machine_mut().start_memory_write_watch(addr, len)
+    }
+
+    fn stop_memory_write_watch(&mut self) {
+        self.machine_mut().stop_memory_write_watch();
+    }
+
+    fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        self.machine().memory_write_watch_records()
+    }
+
+    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        self.machine().memory_write_watch_range()
+    }
+
+    fn clear_memory_write_watch_records(&mut self) {
+        self.machine_mut().clear_memory_write_watch_records();
     }
 }
 
@@ -271,6 +315,28 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
     fn tape_is_playing(&self) -> bool {
         match_kind!(self, |rt| rt.tape_is_playing())
     }
+
+    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
+        match_kind!(self, |rt| rt.start_memory_write_watch(addr, len))
+    }
+
+    fn stop_memory_write_watch(&mut self) {
+        match_kind!(self, |rt| rt.stop_memory_write_watch())
+    }
+
+    fn memory_write_watch_records(
+        &self,
+    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
+        match_kind!(self, |rt| rt.memory_write_watch_records())
+    }
+
+    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
+        match_kind!(self, |rt| rt.memory_write_watch_range())
+    }
+
+    fn clear_memory_write_watch_records(&mut self) {
+        match_kind!(self, |rt| rt.clear_memory_write_watch_records())
+    }
 }
 
 impl SessionQueryProvider<SpectrumRuntimeKind> for SpectrumSessionQueryProvider {
@@ -311,5 +377,21 @@ mod tests {
             paths.iter().any(|p| p.starts_with("spectrum.tape.")),
             "expected at least one spectrum.tape.* path; got {paths:?}"
         );
+    }
+
+    #[test]
+    fn memory_write_watch_dispatches_through_runtime_kind() {
+        let mut kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        assert!(kind.memory_write_watch_range().is_none());
+        assert!(kind.memory_write_watch_records().is_none());
+
+        kind.start_memory_write_watch(0x4000, 0x300)
+            .expect("48K supports the write watch");
+        assert_eq!(kind.memory_write_watch_range(), Some((0x4000, 0x300)));
+        assert!(kind.memory_write_watch_records().is_some());
+
+        kind.stop_memory_write_watch();
+        assert!(kind.memory_write_watch_range().is_none());
+        assert!(kind.memory_write_watch_records().is_none());
     }
 }
