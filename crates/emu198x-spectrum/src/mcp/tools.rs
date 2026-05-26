@@ -12,8 +12,8 @@
 //! break, a tool's schema here probably also needs an update.
 
 use emu198x_shell::{
-    FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, MemoryWriteEntry, ScriptObservation,
-    ScriptStep,
+    DisasmInstruction, FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, MemoryWriteEntry,
+    ScriptObservation, ScriptStep,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
     read_firmware_asset,
 };
@@ -96,6 +96,16 @@ fn mcp_execute_step(
         ScriptStep::SetMachine { machine } => execute_set_machine(machine, session).map(Some),
         ScriptStep::QueryAy => execute_query_ay(session).map(Some),
         ScriptStep::QueryCpu => Ok(Some(execute_query_cpu(session))),
+        ScriptStep::Step { instructions } => Ok(Some(execute_step(session, *instructions))),
+        ScriptStep::RunUntilPc {
+            addr,
+            max_halfcycles,
+        } => Ok(Some(execute_run_until_pc(session, *addr, *max_halfcycles))),
+        ScriptStep::Disasm { addr, instructions } => Ok(Some(execute_disasm(
+            session,
+            *addr,
+            *instructions,
+        ))),
         ScriptStep::AutoloadTape {
             slot,
             max_boot_frames,
@@ -438,6 +448,82 @@ fn execute_query_cpu(session: &SpectrumSession) -> ScriptObservation {
         flag_n: f & 0x02 != 0,
         flag_c: f & 0x01 != 0,
         halt,
+    }
+}
+
+/// Default half-cycle budget for `run_until_pc` when the caller leaves
+/// it unset. Roughly ten 48K frames (69888 hc/frame × 10) — long
+/// enough to cover ROM-routine probes, short enough that a runaway
+/// loop returns control in a fraction of a second.
+const DEFAULT_RUN_UNTIL_PC_BUDGET: u32 = 700_000;
+const MAX_RUN_UNTIL_PC_BUDGET: u32 = 50_000_000;
+const DEFAULT_DISASM_COUNT: u32 = 16;
+const MAX_DISASM_COUNT: u32 = 64;
+const MAX_STEP_INSTRUCTIONS: u32 = 16_384;
+
+fn execute_step(session: &mut SpectrumSession, instructions: Option<u32>) -> ScriptObservation {
+    let n = instructions.unwrap_or(1).min(MAX_STEP_INSTRUCTIONS);
+    let halfcycles = session.machine_mut().step_instructions(n);
+    let regs = session.machine().z80_registers();
+    let halt = session.machine().z80_halted();
+    ScriptObservation::Step {
+        instructions: n,
+        halfcycles,
+        pc: regs.pc,
+        halt,
+    }
+}
+
+fn execute_run_until_pc(
+    session: &mut SpectrumSession,
+    addr: u16,
+    max_halfcycles: Option<u32>,
+) -> ScriptObservation {
+    let budget = max_halfcycles
+        .unwrap_or(DEFAULT_RUN_UNTIL_PC_BUDGET)
+        .min(MAX_RUN_UNTIL_PC_BUDGET);
+    let (reached, halfcycles, instructions) = session.machine_mut().run_until_pc(addr, budget);
+    let pc = session.machine().z80_registers().pc;
+    ScriptObservation::RunUntilPc {
+        reached,
+        pc,
+        halfcycles,
+        instructions,
+    }
+}
+
+fn execute_disasm(
+    session: &SpectrumSession,
+    addr: u16,
+    instructions: Option<u32>,
+) -> ScriptObservation {
+    let count = instructions
+        .unwrap_or(DEFAULT_DISASM_COUNT)
+        .min(MAX_DISASM_COUNT);
+    let machine = session.machine();
+    let read = |a: u16| machine.read_byte(a);
+
+    let mut decoded = Vec::with_capacity(count as usize);
+    let mut cursor = addr;
+    for _ in 0..count {
+        let (mnemonic, len) = zilog_z80::disassemble(cursor, &read);
+        let mut raw = Vec::with_capacity(len as usize);
+        for off in 0..len {
+            raw.push(machine.read_byte(cursor.wrapping_add(u16::from(off))));
+        }
+        decoded.push(DisasmInstruction {
+            addr: u32::from(cursor),
+            bytes: len,
+            raw,
+            mnemonic,
+        });
+        cursor = cursor.wrapping_add(u16::from(len));
+    }
+
+    ScriptObservation::Disasm {
+        addr: u32::from(addr),
+        count,
+        instructions: decoded,
     }
 }
 
@@ -800,6 +886,43 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
     }));
 
     registry.register(Box::new(ScriptStepTool {
+        name: "step",
+        description: "Single-step the Z80. Runs cycles until one instruction completes (or `instructions` instructions, default 1, max 16384). Returns the post-step PC, halt state, and total half-cycles consumed.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "instructions": integer_field(),
+            },
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "run_until_pc",
+        description: "Run the Z80 until PC reaches `addr` at an instruction boundary, or `max_halfcycles` master-clock half-cycles elapse (default 700000 ≈ ten 48K frames, max 50000000). Useful for 'run to here' debugging.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "addr": integer_field(),
+                "max_halfcycles": integer_field(),
+            },
+            "required": ["addr"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "disasm",
+        description: "Disassemble `instructions` Z80 opcodes starting at `addr` (default 16, max 64). Reads through the CPU memory bus so paging is honoured. Returns the mnemonic, raw bytes, and length of each instruction.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "addr": integer_field(),
+                "instructions": integer_field(),
+            },
+            "required": ["addr"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
         name: "memory_read",
         description: "Read a contiguous span of CPU-visible memory (Z80 address space, 0x0000-0xFFFF). Returns raw bytes in memory order. `len` is capped at 256 bytes per call.",
         schema: json!({
@@ -927,6 +1050,45 @@ mod tests {
     }
 
     #[test]
+    fn parse_step_round_trips_step_with_default_count() {
+        let step = parse_step("step", json!({})).expect("valid step");
+        assert_eq!(step, ScriptStep::Step { instructions: None });
+        let step = parse_step("step", json!({"instructions": 5})).expect("valid step");
+        assert_eq!(
+            step,
+            ScriptStep::Step {
+                instructions: Some(5),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_step_round_trips_run_until_pc() {
+        let step =
+            parse_step("run_until_pc", json!({"addr": 0x1234})).expect("valid run_until_pc");
+        assert_eq!(
+            step,
+            ScriptStep::RunUntilPc {
+                addr: 0x1234,
+                max_halfcycles: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_step_round_trips_disasm() {
+        let step =
+            parse_step("disasm", json!({"addr": 0x4000, "instructions": 8})).expect("valid disasm");
+        assert_eq!(
+            step,
+            ScriptStep::Disasm {
+                addr: 0x4000,
+                instructions: Some(8),
+            }
+        );
+    }
+
+    #[test]
     fn parse_step_round_trips_memory_read_arguments() {
         let step = parse_step("memory_read", json!({"addr": 0x4000, "len": 32}))
             .expect("valid memory_read");
@@ -999,6 +1161,9 @@ mod tests {
             "watch_memory_clear",
             "watch_memory_log",
             "query_cpu",
+            "step",
+            "run_until_pc",
+            "disasm",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");

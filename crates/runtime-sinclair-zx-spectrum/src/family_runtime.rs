@@ -89,6 +89,14 @@ pub trait SpectrumLiveAccess {
     fn z80_registers(&self) -> &zilog_z80::Registers;
     /// Whether the Z80 is currently halted.
     fn z80_halted(&self) -> bool;
+    /// `true` when the Z80 is at an instruction boundary.
+    fn z80_instruction_complete(&self) -> bool;
+    /// Run cycles until `n` instructions complete. Returns the total
+    /// half-cycles consumed.
+    fn step_instructions(&mut self, n: u32) -> u32;
+    /// Run cycles until PC reaches `target` or `max_halfcycles` is
+    /// exhausted. Returns `(reached, halfcycles, instructions)`.
+    fn run_until_pc(&mut self, target: u16, max_halfcycles: u32) -> (bool, u32, u32);
 }
 
 impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
@@ -136,6 +144,18 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 
     fn z80_halted(&self) -> bool {
         self.machine().z80_halted()
+    }
+
+    fn z80_instruction_complete(&self) -> bool {
+        self.machine().z80_instruction_complete()
+    }
+
+    fn step_instructions(&mut self, n: u32) -> u32 {
+        self.machine_mut().step_instructions(n)
+    }
+
+    fn run_until_pc(&mut self, target: u16, max_halfcycles: u32) -> (bool, u32, u32) {
+        self.machine_mut().run_until_pc(target, max_halfcycles)
     }
 }
 
@@ -358,6 +378,18 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
     fn z80_halted(&self) -> bool {
         match_kind!(self, |rt| rt.z80_halted())
     }
+
+    fn z80_instruction_complete(&self) -> bool {
+        match_kind!(self, |rt| rt.z80_instruction_complete())
+    }
+
+    fn step_instructions(&mut self, n: u32) -> u32 {
+        match_kind!(self, |rt| rt.step_instructions(n))
+    }
+
+    fn run_until_pc(&mut self, target: u16, max_halfcycles: u32) -> (bool, u32, u32) {
+        match_kind!(self, |rt| rt.run_until_pc(target, max_halfcycles))
+    }
 }
 
 impl SessionQueryProvider<SpectrumRuntimeKind> for SpectrumSessionQueryProvider {
@@ -398,6 +430,27 @@ mod tests {
             paths.iter().any(|p| p.starts_with("spectrum.tape.")),
             "expected at least one spectrum.tape.* path; got {paths:?}"
         );
+    }
+
+    #[test]
+    fn step_advances_pc_through_runtime_kind() {
+        let mut kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        // Blank machine: PC=0, RAM/ROM uninitialised → opcodes are 0xFF
+        // (RST $38) which pushes PC and jumps to $0038. Single-step
+        // should leave PC != 0.
+        let pc_before = kind.z80_registers().pc;
+        let halfcycles = kind.step_instructions(1);
+        let pc_after = kind.z80_registers().pc;
+        assert_ne!(pc_after, pc_before, "step should advance PC");
+        assert!(halfcycles > 0, "step should consume cycles");
+    }
+
+    #[test]
+    fn run_until_pc_returns_within_budget() {
+        let mut kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        // Target an unlikely PC; budget is tiny so we expect timeout.
+        let (reached, _hc, _instr) = kind.run_until_pc(0xCAFE, 1000);
+        assert!(!reached, "0xCAFE should not be reached in a 1000-hc budget");
     }
 
     #[test]

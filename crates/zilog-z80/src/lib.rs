@@ -9,11 +9,13 @@
 //! public pin fields, no bus trait, and static M-step sequences.
 
 pub mod alu;
+pub mod disasm;
 mod execute;
 pub mod mcycle;
 pub mod registers;
 pub mod walker;
 pub mod z80;
 
+pub use disasm::disassemble;
 pub use registers::Registers;
 pub use z80::{BusOp, Z80};

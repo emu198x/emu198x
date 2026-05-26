@@ -54,6 +54,19 @@ impl From<ScriptMediaTransportAction> for crate::MediaTransportAction {
     }
 }
 
+/// One decoded instruction returned by [`ScriptObservation::Disasm`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DisasmInstruction {
+    /// Address of this instruction.
+    pub addr: u32,
+    /// Length of the encoded instruction in bytes.
+    pub bytes: u8,
+    /// Raw encoded bytes (`bytes` long).
+    pub raw: Vec<u8>,
+    /// Decoded mnemonic.
+    pub mnemonic: String,
+}
+
 /// One captured CPU write reported by [`ScriptObservation::WatchMemoryLog`].
 ///
 /// Widened to `u32` on every field so the same shape covers both
@@ -277,6 +290,47 @@ pub enum ScriptStep {
     /// (IM/IFF1/IFF2), and the decoded F flags (S/Z/5/H/3/P-V/N/C).
     /// Emits [`ScriptObservation::QueryCpu`].
     QueryCpu,
+    /// Single-step the CPU.
+    ///
+    /// System-specific step (binary-dispatched). Runs the machine
+    /// until `instructions` instructions have completed (default 1),
+    /// then emits [`ScriptObservation::Step`] with the post-step PC,
+    /// halt state, and cycles consumed.
+    Step {
+        /// Number of instructions to execute. Defaults to 1.
+        #[serde(default)]
+        instructions: Option<u32>,
+    },
+    /// Run the CPU until PC reaches a target address.
+    ///
+    /// System-specific step (binary-dispatched). Runs cycles until
+    /// either PC matches `addr` at an instruction boundary, or
+    /// `max_halfcycles` master-clock half-cycles have elapsed
+    /// (default 700 000 — about ten 48K frames).
+    ///
+    /// Emits [`ScriptObservation::RunUntilPc`] reporting whether the
+    /// PC was reached, how many half-cycles were consumed, and how
+    /// many instructions executed.
+    RunUntilPc {
+        /// Target program counter.
+        addr: u16,
+        /// Optional half-cycle budget. `None` uses the default cap.
+        #[serde(default)]
+        max_halfcycles: Option<u32>,
+    },
+    /// Disassemble a span of CPU memory.
+    ///
+    /// System-specific step (binary-dispatched). Reads bytes through
+    /// the CPU memory bus (so paging is honoured) and decodes
+    /// `instructions` opcodes starting at `addr`. Emits
+    /// [`ScriptObservation::Disasm`].
+    Disasm {
+        /// Starting address.
+        addr: u16,
+        /// Number of instructions to decode. Defaults to 16, max 64.
+        #[serde(default)]
+        instructions: Option<u32>,
+    },
     /// Reset the running machine.
     ///
     /// `kind = "hard"` is a power-cycle equivalent (machine state and
@@ -636,6 +690,38 @@ pub enum ScriptObservation {
         /// until an interrupt arrives).
         halt: bool,
     },
+    /// Result of stepping the CPU.
+    Step {
+        /// Number of instructions actually executed.
+        instructions: u32,
+        /// Total master-clock half-cycles consumed.
+        halfcycles: u32,
+        /// Program counter after the step.
+        pc: u16,
+        /// `true` when the CPU is now halted (executing NOPs while
+        /// waiting for an interrupt).
+        halt: bool,
+    },
+    /// Result of `run_until_pc`.
+    RunUntilPc {
+        /// `true` when PC matched `addr` before the budget expired.
+        reached: bool,
+        /// Final PC (matches `addr` when `reached` is `true`).
+        pc: u16,
+        /// Half-cycles consumed.
+        halfcycles: u32,
+        /// Number of instructions executed.
+        instructions: u32,
+    },
+    /// Result of disassembling memory.
+    Disasm {
+        /// Starting address.
+        addr: u32,
+        /// Number of decoded instructions.
+        count: u32,
+        /// Decoded instructions, in memory order.
+        instructions: Vec<DisasmInstruction>,
+    },
     /// Result of fetching the memory write log.
     WatchMemoryLog {
         /// Current watch range start, or `None` if no watch is active.
@@ -825,6 +911,11 @@ impl ScriptStep {
             }),
             Self::QueryAy => Err(ScriptError::SystemSpecificStep { step: "query_ay" }),
             Self::QueryCpu => Err(ScriptError::SystemSpecificStep { step: "query_cpu" }),
+            Self::Step { .. } => Err(ScriptError::SystemSpecificStep { step: "step" }),
+            Self::RunUntilPc { .. } => Err(ScriptError::SystemSpecificStep {
+                step: "run_until_pc",
+            }),
+            Self::Disasm { .. } => Err(ScriptError::SystemSpecificStep { step: "disasm" }),
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
             }),

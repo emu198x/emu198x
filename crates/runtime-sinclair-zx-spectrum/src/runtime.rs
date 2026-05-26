@@ -14,6 +14,7 @@
 
 use common_sinclair_zx_spectrum::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
+use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
 use common_sinclair_zx_spectrum::snapshot::Snapshot;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
@@ -30,7 +31,7 @@ use crate::{Model, profile_for};
 /// the generic runtime. Implementors already derive
 /// `serde::Serialize`/`Deserialize`; the runtime uses that for snapshot
 /// round-trips through postcard.
-pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
+pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDriver {
     /// Pixel width of the framebuffer.
     const FRAME_WIDTH: u32;
     /// Pixel height of the framebuffer.
@@ -249,6 +250,71 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> {
     /// waiting for an interrupt). Read off the Z80 chip's `halt` pin
     /// rather than the register file.
     fn z80_halted(&self) -> bool;
+
+    /// `true` when the Z80 is at an instruction boundary (the walker
+    /// reports `instruction_complete`). Used by the `step` /
+    /// `run_until_pc` helpers to know when one instruction has
+    /// finished and the next is about to fetch.
+    fn z80_instruction_complete(&self) -> bool;
+
+    /// Run cycles until exactly one Z80 instruction completes. Returns
+    /// the number of master-clock half-cycles consumed.
+    ///
+    /// The walker's `instruction_complete` flag starts `true` between
+    /// instructions, transitions to `false` while an instruction is
+    /// being fetched + executed, and snaps back to `true` when the
+    /// instruction's last M-cycle finishes. We tick until we've
+    /// observed the in-progress → complete transition, so a call from
+    /// an instruction-boundary state runs exactly one full instruction.
+    /// The budget caps the loop so a pathological non-terminating
+    /// instruction (chip bug, not user input) can't hang the binary.
+    fn step_instruction(&mut self) -> u32 {
+        const STEP_HALFCYCLE_BUDGET: u32 = 512;
+        let mut hc = 0u32;
+        let mut in_progress = false;
+        while hc < STEP_HALFCYCLE_BUDGET {
+            self.tick_one_halfcycle();
+            hc += 1;
+            let complete = self.z80_instruction_complete();
+            if !complete {
+                in_progress = true;
+            } else if in_progress {
+                return hc;
+            }
+        }
+        hc
+    }
+
+    /// Run cycles until `n` Z80 instructions have completed or the
+    /// per-call budget is exhausted. Returns the total half-cycles
+    /// consumed.
+    fn step_instructions(&mut self, n: u32) -> u32 {
+        let mut total = 0u32;
+        for _ in 0..n {
+            total = total.wrapping_add(self.step_instruction());
+        }
+        total
+    }
+
+    /// Run cycles until the Z80's PC reaches `target` at an
+    /// instruction boundary, or `max_halfcycles` is exhausted.
+    ///
+    /// Returns `(reached, halfcycles_consumed, instructions_executed)`.
+    /// `reached` is `true` when PC matched `target` before the budget
+    /// ran out, `false` when the budget expired without a match.
+    fn run_until_pc(&mut self, target: u16, max_halfcycles: u32) -> (bool, u32, u32) {
+        let mut hc = 0u32;
+        let mut instructions = 0u32;
+        while hc < max_halfcycles {
+            let consumed = self.step_instruction();
+            hc = hc.saturating_add(consumed);
+            instructions = instructions.saturating_add(1);
+            if self.z80_registers().pc == target {
+                return (true, hc, instructions);
+            }
+        }
+        (false, hc, instructions)
+    }
 
     // ─── Variant-specific query surface ───────────────────────────────
     //
@@ -516,7 +582,7 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
         self.machine.set_keyboard_rows(self.keyboard.rows());
 
         while self.time < target {
-            self.machine.run_frame();
+            SpectrumMachine::run_frame(&mut self.machine);
             self.time = self
                 .time
                 .saturating_add(u64::from(self.machine.frame_halfcycles()));
