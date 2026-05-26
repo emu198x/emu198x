@@ -69,8 +69,14 @@ pub type WatchLogEntry = (u64, u32, u32, u16, bool);
 /// DSK debug-log entry shape: `(tick, pc, register, value)`.
 pub type DskLogEntry = (u64, u32, u16, u16);
 
-/// AGA palette-log entry shape: `(tick, pc, color_index, value, bank)`.
-pub type PaletteLogEntry = (u64, u32, u16, u16, u16);
+/// Palette-log entry shape: `(tick, pc, color_index, value,
+/// bplcon3_at_write)`.
+///
+/// The fifth field is `Some(bplcon3)` on chipsets that have a real
+/// BPLCON3 register (ECS, AGA) and `None` on OCS where the address
+/// `$0106` isn't backed by any register. Tools decode bank / loct
+/// from the BPLCON3 word when present.
+pub type PaletteLogEntry = (u64, u32, u16, u16, Option<u16>);
 
 /// AGA BPLCON0 log shape: `(tick, pc, value)`.
 pub type Bplcon0LogEntry = (u64, u32, u16);
@@ -163,16 +169,25 @@ pub trait AmigaLiveAccess {
     /// AGA all track disk-register writes for boot diagnostics).
     fn dsk_write_log(&self) -> &[DskLogEntry];
 
-    // ---------- AGA-only debug logs ----------
+    // ---------- chipset-trace debug logs ----------
     //
-    // These return `None` on OCS / ECS because the underlying log
-    // fields don't exist there. The A1200 machine's `debug_palette_log`,
-    // `debug_bplcon0_log`, and `debug_reg_read_log` are AGA-specific
-    // instrumentation that the OCS / ECS chip stacks don't carry.
+    // Mirrored across OCS / ECS / AGA — every chipset now carries
+    // the same three tracers. Tools can consume the slices directly
+    // without an Option dance.
 
-    fn aga_palette_log(&self) -> Option<&[PaletteLogEntry]>;
-    fn aga_bplcon0_log(&self) -> Option<&[Bplcon0LogEntry]>;
-    fn aga_reg_read_log(&self) -> Option<&[RegReadLogEntry]>;
+    /// Palette-log: every write to COLOR ($180..$1BE), BPLCON3
+    /// ($0106), BPLCON4 ($010C). The fifth field is `Some(bplcon3)`
+    /// on chipsets that have a BPLCON3 register (ECS, AGA) and
+    /// `None` on OCS.
+    fn palette_log(&self) -> &[PaletteLogEntry];
+
+    /// BPLCON0-log: every write to $0100.
+    fn bplcon0_log(&self) -> &[Bplcon0LogEntry];
+
+    /// Chipset-register-read log: every CPU read from a custom-chip
+    /// register. Useful for watching how an app or Kickstart probes
+    /// the chipset (e.g., reading DENISEID to detect AGA).
+    fn reg_read_log(&self) -> &[RegReadLogEntry];
 
     /// AGA Copper struct reference, for the `query_copper_list` tool.
     /// Returns `None` on OCS / ECS — those chipsets carry a different
@@ -332,16 +347,16 @@ impl AmigaLiveAccess for AmigaOcs {
         &self.debug_dsk_log
     }
 
-    fn aga_palette_log(&self) -> Option<&[PaletteLogEntry]> {
-        None
+    fn palette_log(&self) -> &[PaletteLogEntry] {
+        &self.debug_palette_log
     }
 
-    fn aga_bplcon0_log(&self) -> Option<&[Bplcon0LogEntry]> {
-        None
+    fn bplcon0_log(&self) -> &[Bplcon0LogEntry] {
+        &self.debug_bplcon0_log
     }
 
-    fn aga_reg_read_log(&self) -> Option<&[RegReadLogEntry]> {
-        None
+    fn reg_read_log(&self) -> &[RegReadLogEntry] {
+        &self.debug_reg_read_log
     }
 
     fn aga_copper(&self) -> Option<&A1200Copper> {
@@ -515,16 +530,16 @@ impl AmigaLiveAccess for AmigaEcs {
         &self.debug_dsk_log
     }
 
-    fn aga_palette_log(&self) -> Option<&[PaletteLogEntry]> {
-        None
+    fn palette_log(&self) -> &[PaletteLogEntry] {
+        &self.debug_palette_log
     }
 
-    fn aga_bplcon0_log(&self) -> Option<&[Bplcon0LogEntry]> {
-        None
+    fn bplcon0_log(&self) -> &[Bplcon0LogEntry] {
+        &self.debug_bplcon0_log
     }
 
-    fn aga_reg_read_log(&self) -> Option<&[RegReadLogEntry]> {
-        None
+    fn reg_read_log(&self) -> &[RegReadLogEntry] {
+        &self.debug_reg_read_log
     }
 
     fn aga_copper(&self) -> Option<&A1200Copper> {
@@ -692,16 +707,16 @@ impl AmigaLiveAccess for AmigaA1200 {
         &self.debug_dsk_log
     }
 
-    fn aga_palette_log(&self) -> Option<&[PaletteLogEntry]> {
-        Some(&self.debug_palette_log)
+    fn palette_log(&self) -> &[PaletteLogEntry] {
+        &self.debug_palette_log
     }
 
-    fn aga_bplcon0_log(&self) -> Option<&[Bplcon0LogEntry]> {
-        Some(&self.debug_bplcon0_log)
+    fn bplcon0_log(&self) -> &[Bplcon0LogEntry] {
+        &self.debug_bplcon0_log
     }
 
-    fn aga_reg_read_log(&self) -> Option<&[RegReadLogEntry]> {
-        Some(&self.debug_reg_read_log)
+    fn reg_read_log(&self) -> &[RegReadLogEntry] {
+        &self.debug_reg_read_log
     }
 
     fn aga_copper(&self) -> Option<&A1200Copper> {
@@ -987,24 +1002,27 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
         }
     }
 
-    fn aga_palette_log(&self) -> Option<&[PaletteLogEntry]> {
+    fn palette_log(&self) -> &[PaletteLogEntry] {
         match self {
-            Self::Ocs(_) | Self::Ecs(_) => None,
-            Self::Aga(rt) => rt.machine().aga_palette_log(),
+            Self::Ocs(rt) => rt.machine().palette_log(),
+            Self::Ecs(rt) => rt.machine().palette_log(),
+            Self::Aga(rt) => rt.machine().palette_log(),
         }
     }
 
-    fn aga_bplcon0_log(&self) -> Option<&[Bplcon0LogEntry]> {
+    fn bplcon0_log(&self) -> &[Bplcon0LogEntry] {
         match self {
-            Self::Ocs(_) | Self::Ecs(_) => None,
-            Self::Aga(rt) => rt.machine().aga_bplcon0_log(),
+            Self::Ocs(rt) => rt.machine().bplcon0_log(),
+            Self::Ecs(rt) => rt.machine().bplcon0_log(),
+            Self::Aga(rt) => rt.machine().bplcon0_log(),
         }
     }
 
-    fn aga_reg_read_log(&self) -> Option<&[RegReadLogEntry]> {
+    fn reg_read_log(&self) -> &[RegReadLogEntry] {
         match self {
-            Self::Ocs(_) | Self::Ecs(_) => None,
-            Self::Aga(rt) => rt.machine().aga_reg_read_log(),
+            Self::Ocs(rt) => rt.machine().reg_read_log(),
+            Self::Ecs(rt) => rt.machine().reg_read_log(),
+            Self::Aga(rt) => rt.machine().reg_read_log(),
         }
     }
 
@@ -1045,10 +1063,12 @@ mod tests {
         // Trait method dispatch must not panic.
         let _intena = AmigaLiveAccess::intena(&kind);
         let _pc = AmigaLiveAccess::cpu_pc(&kind);
-        // AGA-only debug logs are None on OCS.
-        assert!(kind.aga_palette_log().is_none());
-        assert!(kind.aga_bplcon0_log().is_none());
-        assert!(kind.aga_reg_read_log().is_none());
+        // Chipset-trace logs are present on every variant; initially
+        // empty before any boot ticks.
+        assert!(kind.palette_log().is_empty());
+        assert!(kind.bplcon0_log().is_empty());
+        assert!(kind.reg_read_log().is_empty());
+        // AGA Copper struct only on AGA.
         assert!(kind.aga_copper().is_none());
     }
 
@@ -1057,7 +1077,7 @@ mod tests {
         let kind = AmigaRuntimeKind::blank(Model::A500PlusEcsPal);
         let _intena = AmigaLiveAccess::intena(&kind);
         let _pc = AmigaLiveAccess::cpu_pc(&kind);
-        assert!(kind.aga_palette_log().is_none());
+        assert!(kind.palette_log().is_empty());
         assert!(kind.aga_copper().is_none());
     }
 
@@ -1066,10 +1086,10 @@ mod tests {
         let kind = AmigaRuntimeKind::blank(Model::A1200AgaPal);
         let _intena = AmigaLiveAccess::intena(&kind);
         let _pc = AmigaLiveAccess::cpu_pc(&kind);
-        // AGA debug logs are present (initially empty).
-        assert!(kind.aga_palette_log().is_some());
-        assert!(kind.aga_bplcon0_log().is_some());
-        assert!(kind.aga_reg_read_log().is_some());
+        assert!(kind.palette_log().is_empty());
+        assert!(kind.bplcon0_log().is_empty());
+        assert!(kind.reg_read_log().is_empty());
+        // AGA Copper is reachable.
         assert!(kind.aga_copper().is_some());
     }
 }

@@ -335,6 +335,23 @@ pub struct AmigaEcs {
     /// is the delivered word/byte payload. Used to trace KS 1.3's
     /// direct old-address clock probes at `$DC0000`.
     pub debug_rtc_log: Vec<(u64, u32, u32, bool, bool, u16)>,
+    /// Diagnostic: log of every BPLCON0 (`$0100`) write. Entry is
+    /// `(cck, pc, val)`. Mirrored from the A1200 instrumentation so
+    /// the family MCP `bplcon0_log` tool surfaces data on every
+    /// chipset. Bounded at 8192 entries.
+    pub debug_bplcon0_log: Vec<(u64, u32, u16)>,
+    /// Diagnostic: log of palette writes — COLOR (`$0180..$01BE`),
+    /// BPLCON3 (`$0106`) and BPLCON4 (`$010C`). Entry is `(cck, pc,
+    /// reg_offset, value, bplcon3_at_write)`. ECS has a real BPLCON3
+    /// register (carrying sprite-resolution / programmable-sync /
+    /// border-blank bits) so the fifth field is `Some` with the live
+    /// value at write-time. ECS doesn't drive AGA-style palette
+    /// banking (that's Lisa-only) — the bank bits decoded from
+    /// BPLCON3 are simply unused on ECS hardware.
+    pub debug_palette_log: Vec<(u64, u32, u16, u16, Option<u16>)>,
+    /// Diagnostic: log of every CPU read from a chipset register.
+    /// Entry is `(cck, pc, offset, returned_value)`.
+    pub debug_reg_read_log: Vec<(u64, u32, u16, u16)>,
 }
 
 /// Persistable Amiga (OCS) machine state.
@@ -596,6 +613,9 @@ impl AmigaEcs {
             debug_watch_addr: None,
             debug_watch_writes: Vec::new(),
             debug_rtc_log: Vec::new(),
+            debug_bplcon0_log: Vec::new(),
+            debug_palette_log: Vec::new(),
+            debug_reg_read_log: Vec::new(),
         }
     }
 
@@ -1185,6 +1205,13 @@ impl AmigaEcs {
                 // Mirror into Denise so HIRES/HAM/DBLPF/LACE bits take
                 // effect at the next pixel, not only next tick.
                 self.denise.ocs.bplcon0 = val;
+                if self.debug_bplcon0_log.len() < 8192 {
+                    self.debug_bplcon0_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        val,
+                    ));
+                }
             }
             0x108 => self.agnus.write_bpl1mod(val),
             0x10A => self.agnus.write_bpl2mod(val),
@@ -1209,6 +1236,28 @@ impl AmigaEcs {
                 offset,
                 val,
             ));
+        }
+        // Capture COLOR ($180..$1BE), BPLCON3 ($0106) and BPLCON4
+        // ($010C) writes. ECS Denise has a real BPLCON3 register
+        // (sprite-resolution, programmable-sync, border-blank); we
+        // sample it as the fifth field so callers can reconstruct
+        // the chip-state at write-time. Bank / loct decoded from
+        // BPLCON3 are simply unused on ECS hardware — AGA-style
+        // palette banking is Lisa-only.
+        if (offset >= 0x180 && offset <= 0x1BE && (offset & 1) == 0)
+            || offset == 0x0106
+            || offset == 0x010C
+        {
+            if self.debug_palette_log.len() < 262144 {
+                let bplcon3 = self.denise.ocs.bplcon3;
+                self.debug_palette_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    offset,
+                    val,
+                    Some(bplcon3),
+                ));
+            }
         }
         if offset == 0x09A {
             self.debug_intena_writes += 1;
@@ -1802,6 +1851,14 @@ impl AmigaEcs {
                     .unwrap_or(0xFFFF),
                 _ => 0xFFFF,
             };
+            if self.debug_reg_read_log.len() < 262144 {
+                self.debug_reg_read_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    offset,
+                    val,
+                ));
+            }
             BusResponse::Word(val)
         } else {
             self.debug_custom_write_log.push((
@@ -1946,5 +2003,8 @@ impl AmigaEcs {
         self.debug_watch_addr = None;
         self.debug_watch_writes.clear();
         self.debug_rtc_log.clear();
+        self.debug_bplcon0_log.clear();
+        self.debug_palette_log.clear();
+        self.debug_reg_read_log.clear();
     }
 }

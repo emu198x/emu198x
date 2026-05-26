@@ -327,7 +327,7 @@ pub struct AmigaA1200 {
     /// BPLCON3 BANK + LOCT state at the time, plus every BPLCON3
     /// write itself ($106). Lets us reconstruct the full AGA
     /// palette-programming sequence KS uses to set up Workbench.
-    pub debug_palette_log: Vec<(u64, u32, u16, u16, u16)>,
+    pub debug_palette_log: Vec<(u64, u32, u16, u16, Option<u16>)>,
     /// Diagnostic: count of BLTSIZE writes (every one starts a
     /// blit). Independent of whether the blit actually touched
     /// chip RAM — just counts the "CPU kicked a blit" events.
@@ -1333,7 +1333,7 @@ impl AmigaA1200 {
                     self.cpu.regs.pc,
                     offset,
                     val,
-                    bplcon3,
+                    Some(bplcon3),
                 ));
             }
         }

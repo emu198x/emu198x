@@ -523,29 +523,10 @@ fn tool_dump_framebuffer(args: Value, s: &mut AmigaA1200Session) -> Result<Value
 }
 
 fn tool_bplcon0_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    // Lifted through the trait so OCS / ECS sessions get a graceful
-    // empty response instead of a panic. The underlying instrumentation
-    // (the `debug_bplcon0_log` field) only exists on the AGA chip stack
-    // today — non-AGA variants advertise `instrumented: false` and an
-    // empty entry list. When the OCS / ECS chip layer gains the same
-    // tracer the trait method gains the body and this tool needs no
-    // change.
-    let log = match s.access().aga_bplcon0_log() {
-        Some(log) => log,
-        None => {
-            let empty_bpu: [u64; 16] = [0; 16];
-            let empty_entries: Vec<Value> = Vec::new();
-            return Ok(json!({
-                "instrumented": false,
-                "total_writes": 0,
-                "returned": 0,
-                "filtered_total": 0,
-                "unique": false,
-                "bpu_histogram": empty_bpu,
-                "entries": empty_entries,
-            }));
-        }
-    };
+    // BPLCON0 write tracing is mirrored across OCS / ECS / AGA — the
+    // trait returns the live slice for whichever chipset variant the
+    // session is hosting.
+    let log = s.access().bplcon0_log();
     let unique_only = args
         .get("unique")
         .and_then(Value::as_bool)
@@ -598,7 +579,6 @@ fn tool_bplcon0_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
     }
 
     Ok(json!({
-        "instrumented": true,
         "total_writes": log.len(),
         "returned": shown.len(),
         "filtered_total": total,
@@ -656,24 +636,9 @@ fn tool_query_aga(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolE
 }
 
 fn tool_chipset_read_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    // Same lifting pattern as `tool_bplcon0_log`: trait dispatch is
-    // chipset-agnostic, but the underlying `debug_reg_read_log` field
-    // only exists on the AGA chip stack today. Returns an empty,
-    // `instrumented: false` response on OCS / ECS.
-    let log = match s.access().aga_reg_read_log() {
-        Some(log) => log,
-        None => {
-            let empty: Vec<Value> = Vec::new();
-            return Ok(json!({
-                "instrumented": false,
-                "total_logged": 0,
-                "filtered_total": 0,
-                "returned": 0,
-                "offset_summary": empty.clone(),
-                "entries": empty,
-            }));
-        }
-    };
+    // Chipset-register read tracing is mirrored across OCS / ECS /
+    // AGA. The trait hands back a slice directly.
+    let log = s.access().reg_read_log();
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
     let unique = args.get("unique").and_then(Value::as_bool).unwrap_or(false);
     let offset_filter = args
@@ -740,7 +705,6 @@ fn tool_chipset_read_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value
         .map(|(off, count)| json!({ "offset": format!("${:04X}", off), "reads": count }))
         .collect();
     Ok(json!({
-        "instrumented": true,
         "total_logged": log.len(),
         "filtered_total": total,
         "returned": entries.len(),
@@ -852,22 +816,11 @@ fn tool_restart(args: Value, _s: &mut AmigaA1200Session) -> Result<Value, ToolEr
 }
 
 fn tool_palette_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, ToolError> {
-    // Same lifting pattern as the other AGA-instrumented logs: trait
-    // dispatch is chipset-agnostic, log presence is not. OCS / ECS
-    // sessions get an `instrumented: false` empty response.
-    let log = match s.access().aga_palette_log() {
-        Some(log) => log,
-        None => {
-            let empty: Vec<Value> = Vec::new();
-            return Ok(json!({
-                "instrumented": false,
-                "total_logged": 0,
-                "filtered_total": 0,
-                "returned": 0,
-                "entries": empty,
-            }));
-        }
-    };
+    // Palette-write tracing is mirrored across OCS / ECS / AGA. The
+    // fifth field of each entry is `Option<u16>` — `Some(bplcon3)` on
+    // ECS / AGA where BPLCON3 is a real register, `None` on OCS where
+    // $0106 isn't backed by any chip state.
+    let log = s.access().palette_log();
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
     let only_color = args
         .get("only_color")
@@ -890,7 +843,7 @@ fn tool_palette_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
             let hi = a.get(1)?.as_u64()? as u16;
             Some((lo, hi))
         });
-    let mut filtered: Vec<&(u64, u32, u16, u16, u16)> = log
+    let mut filtered: Vec<&(u64, u32, u16, u16, Option<u16>)> = log
         .iter()
         .filter(|(_, _, off, _, _)| {
             let is_color = *off >= 0x180 && *off <= 0x1BE;
@@ -916,10 +869,11 @@ fn tool_palette_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
     if unique {
         let mut seen = std::collections::HashSet::new();
         filtered.retain(|(_, _, off, val, b3)| {
-            let bank = (*b3 >> 13) & 7;
-            let loct = (*b3 & 0x0200) != 0;
-            // De-dupe by (offset, val, bank, loct). Drops repeated
-            // identical copper-list re-writes.
+            // `bank` / `loct` are decoded from BPLCON3 when it's
+            // present; on OCS the entry has no BPLCON3 so we de-dupe
+            // by (offset, val) alone.
+            let bank = b3.map(|b| (b >> 13) & 7).unwrap_or(0);
+            let loct = b3.map(|b| (b & 0x0200) != 0).unwrap_or(false);
             seen.insert((*off, *val, bank, loct))
         });
     }
@@ -930,8 +884,13 @@ fn tool_palette_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
         .take(limit)
         .rev()
         .map(|(cck, pc, off, val, b3)| {
-            let bank = (*b3 >> 13) & 7;
-            let loct = (*b3 & 0x0200) != 0;
+            // BPLCON3 bank / loct only meaningful when the chipset
+            // has BPLCON3 (ECS / AGA). On OCS the writes are still
+            // captured but the bank/loct fields stay null in JSON
+            // so callers can distinguish "no BPLCON3 register" from
+            // "BPLCON3 = 0".
+            let bank = b3.map(|b| (b >> 13) & 7);
+            let loct = b3.map(|b| (b & 0x0200) != 0);
             let kind = match *off {
                 0x0106 => "BPLCON3",
                 0x010C => "BPLCON4",
@@ -949,14 +908,13 @@ fn tool_palette_log(args: Value, s: &mut AmigaA1200Session) -> Result<Value, Too
                 "offset": format!("${:04X}", off),
                 "val": format!("${:04X}", val),
                 "color_idx": idx,
-                "bplcon3_at_write": format!("${:04X}", b3),
+                "bplcon3_at_write": b3.map(|b| format!("${:04X}", b)),
                 "bank": bank,
                 "loct": loct,
             })
         })
         .collect();
     Ok(json!({
-        "instrumented": true,
         "total_logged": log.len(),
         "filtered_total": total,
         "returned": entries.len(),

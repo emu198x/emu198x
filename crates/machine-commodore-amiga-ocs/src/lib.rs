@@ -398,6 +398,24 @@ pub struct AmigaOcs {
     /// is the delivered word/byte payload. Used to trace KS 1.3's
     /// direct old-address clock probes at `$DC0000`.
     pub debug_rtc_log: Vec<(u64, u32, u32, bool, bool, u16)>,
+    /// Diagnostic: log of every BPLCON0 (`$0100`) write. Entry is
+    /// `(cck, pc, val)`. Mirrored from the A1200 instrumentation so
+    /// the family MCP `bplcon0_log` tool surfaces data on every
+    /// chipset (not just AGA). Bounded at 8192 entries.
+    pub debug_bplcon0_log: Vec<(u64, u32, u16)>,
+    /// Diagnostic: log of palette writes — COLOR (`$0180..$01BE`),
+    /// BPLCON3 (`$0106`) and BPLCON4 (`$010C`). Entry is `(cck, pc,
+    /// reg_offset, value, bplcon3_at_write)`. On OCS the fifth
+    /// field is always `None` because BPLCON3 isn't backed by any
+    /// chip register at this address — captures the write-attempt
+    /// trace anyway so games / probes that poke $0106 / $010C on OCS
+    /// still show up.
+    pub debug_palette_log: Vec<(u64, u32, u16, u16, Option<u16>)>,
+    /// Diagnostic: log of every CPU read from a chipset register.
+    /// Entry is `(cck, pc, offset, returned_value)`. Lets us watch
+    /// what an app or KS reads back from the custom-register window —
+    /// notably how Kickstart probes the chipset for identification.
+    pub debug_reg_read_log: Vec<(u64, u32, u16, u16)>,
 }
 
 /// Persistable Amiga (OCS) machine state.
@@ -659,6 +677,9 @@ impl AmigaOcs {
             debug_watch_addr: None,
             debug_watch_writes: Vec::new(),
             debug_rtc_log: Vec::new(),
+            debug_bplcon0_log: Vec::new(),
+            debug_palette_log: Vec::new(),
+            debug_reg_read_log: Vec::new(),
         }
     }
 
@@ -1248,6 +1269,13 @@ impl AmigaOcs {
                 // Mirror into Denise so HIRES/HAM/DBLPF/LACE bits take
                 // effect at the next pixel, not only next tick.
                 self.denise.ocs.bplcon0 = val;
+                if self.debug_bplcon0_log.len() < 8192 {
+                    self.debug_bplcon0_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        val,
+                    ));
+                }
             }
             0x108 => self.agnus.write_bpl1mod(val),
             0x10A => self.agnus.write_bpl2mod(val),
@@ -1272,6 +1300,28 @@ impl AmigaOcs {
                 offset,
                 val,
             ));
+        }
+        // Capture COLOR ($180..$1BE), BPLCON3 ($0106) and BPLCON4
+        // ($010C) writes. On OCS BPLCON3 isn't backed by any chip
+        // register (the address writes nowhere) — we still record the
+        // attempt so games / probes that hit $0106 / $010C show up.
+        // The fifth field is `None` because there's no live BPLCON3
+        // state to sample; the AGA / ECS impls sample their real
+        // BPLCON3 register so callers can reconstruct AGA-bank /
+        // sprite-resolution context.
+        if (offset >= 0x180 && offset <= 0x1BE && (offset & 1) == 0)
+            || offset == 0x0106
+            || offset == 0x010C
+        {
+            if self.debug_palette_log.len() < 262144 {
+                self.debug_palette_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    offset,
+                    val,
+                    None,
+                ));
+            }
         }
         if offset == 0x09A {
             self.debug_intena_writes += 1;
@@ -1865,6 +1915,14 @@ impl AmigaOcs {
                     .unwrap_or(0xFFFF),
                 _ => 0xFFFF,
             };
+            if self.debug_reg_read_log.len() < 262144 {
+                self.debug_reg_read_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    offset,
+                    val,
+                ));
+            }
             BusResponse::Word(val)
         } else {
             self.debug_custom_write_log.push((
@@ -2009,5 +2067,8 @@ impl AmigaOcs {
         self.debug_watch_addr = None;
         self.debug_watch_writes.clear();
         self.debug_rtc_log.clear();
+        self.debug_bplcon0_log.clear();
+        self.debug_palette_log.clear();
+        self.debug_reg_read_log.clear();
     }
 }
