@@ -36,7 +36,7 @@ pub use autoload::{
 pub use basic_loader::{
     DEFAULT_BASIC_LOADER_BOOT_FRAMES, LoadBasicError, LoadBasicResult, load_basic_program,
 };
-pub use family_runtime::SpectrumRuntimeKind;
+pub use family_runtime::{SpectrumLiveAccess, SpectrumRuntimeKind};
 pub use common_sinclair_zx_spectrum::{AudioControls, SpeakerChannel};
 pub use profiles::{Model, profile_for, profiles};
 pub use queries::{SpectrumBootStatus, SpectrumSessionQueryProvider};

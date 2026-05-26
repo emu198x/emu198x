@@ -6,12 +6,12 @@
 
 use emu198x_shell::session::BootWaitResult;
 use emu198x_shell::{
-    ControlCommand, HeadlessSession, InputEvent, MachineTime, MediaTransportAction,
+    ControlCommand, HeadlessSession, InputEvent, MachineCore, MachineTime, MediaTransportAction,
     MediaTransportCommand, SessionError, SessionQueryProvider,
 };
 use thiserror::Error;
 
-use crate::runtime::{SpectrumMachine, SpectrumRuntime};
+use crate::family_runtime::SpectrumLiveAccess;
 
 /// Default frame budget used to wait for the 48K ROM boot banner before typing
 /// the standard tape load command.
@@ -76,16 +76,14 @@ pub enum SpectrumAutoloadError {
 ///
 /// Returns an error if the requested slot is unsupported, no tape is loaded,
 /// the boot wait times out, or the prompt is not ready for keyword entry.
-pub fn autoload_basic_tape<M>(
-    session: &mut HeadlessSession<
-        SpectrumRuntime<M>,
-        impl SessionQueryProvider<SpectrumRuntime<M>>,
-    >,
+pub fn autoload_basic_tape<R, Q>(
+    session: &mut HeadlessSession<R, Q>,
     slot: &str,
     max_boot_frames: u32,
 ) -> Result<SpectrumTapeAutoloadResult, SpectrumAutoloadError>
 where
-    M: SpectrumMachine,
+    R: MachineCore + SpectrumLiveAccess,
+    Q: SessionQueryProvider<R>,
 {
     if slot != DEFAULT_TAPE_AUTOLOAD_SLOT {
         return Err(SpectrumAutoloadError::UnsupportedSlot {
@@ -94,7 +92,7 @@ where
         });
     }
 
-    if !session.machine().machine().tape_is_loaded() {
+    if !session.machine().tape_is_loaded() {
         return Err(SpectrumAutoloadError::MissingTape {
             slot: slot.to_owned(),
         });
@@ -128,20 +126,22 @@ where
     })
 }
 
-fn basic_prompt_ready<M>(
-    session: &HeadlessSession<SpectrumRuntime<M>, impl SessionQueryProvider<SpectrumRuntime<M>>>,
+fn basic_prompt_ready<R, Q>(
+    session: &HeadlessSession<R, Q>,
 ) -> Result<bool, SessionError>
 where
-    M: SpectrumMachine,
+    R: MachineCore,
+    Q: SessionQueryProvider<R>,
 {
     Ok(decoded_prompt_line(session)?.trim_end() == "K")
 }
 
-pub(crate) fn decoded_prompt_line<M>(
-    session: &HeadlessSession<SpectrumRuntime<M>, impl SessionQueryProvider<SpectrumRuntime<M>>>,
+pub(crate) fn decoded_prompt_line<R, Q>(
+    session: &HeadlessSession<R, Q>,
 ) -> Result<String, SessionError>
 where
-    M: SpectrumMachine,
+    R: MachineCore,
+    Q: SessionQueryProvider<R>,
 {
     let result = session.query("screen.text.lines")?;
     let Some(lines) = result.value.as_array() else {
@@ -160,15 +160,13 @@ where
     Ok(line.to_owned())
 }
 
-pub(crate) fn tap_key<M>(
-    session: &mut HeadlessSession<
-        SpectrumRuntime<M>,
-        impl SessionQueryProvider<SpectrumRuntime<M>>,
-    >,
+pub(crate) fn tap_key<R, Q>(
+    session: &mut HeadlessSession<R, Q>,
     name: &'static str,
 ) -> Result<(), SessionError>
 where
-    M: SpectrumMachine,
+    R: MachineCore,
+    Q: SessionQueryProvider<R>,
 {
     session.queue_input(InputEvent::Key {
         name: name.into(),
@@ -183,15 +181,13 @@ where
     Ok(())
 }
 
-fn tap_symbol_combo<M>(
-    session: &mut HeadlessSession<
-        SpectrumRuntime<M>,
-        impl SessionQueryProvider<SpectrumRuntime<M>>,
-    >,
+fn tap_symbol_combo<R, Q>(
+    session: &mut HeadlessSession<R, Q>,
     name: &'static str,
 ) -> Result<(), SessionError>
 where
-    M: SpectrumMachine,
+    R: MachineCore,
+    Q: SessionQueryProvider<R>,
 {
     session.queue_input(InputEvent::Key {
         name: "symbol".into(),

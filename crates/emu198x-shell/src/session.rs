@@ -201,6 +201,16 @@ impl<M, Q> HeadlessSession<M, Q> {
         self.native_frame_ticks
     }
 
+    /// Updates the native frame delta. Use after swapping the inner
+    /// machine to a variant that paces at a different number of
+    /// half-cycles per frame (e.g. Spectrum 128K's 70908 cycles vs
+    /// 48K's 69888). Without this, `run_frames` would over- or
+    /// under-shoot one native frame by a few hundred cycles on every
+    /// call after the swap.
+    pub const fn set_native_frame_ticks(&mut self, native_frame_ticks: u64) {
+        self.native_frame_ticks = native_frame_ticks;
+    }
+
     /// Consumes the session and returns the wrapped machine runtime.
     #[must_use]
     pub fn into_machine(self) -> M {

@@ -16,7 +16,11 @@ use emu198x_shell::{
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
     read_firmware_asset,
 };
-use runtime_sinclair_zx_spectrum::{SpectrumRuntimeKind, SpectrumSessionQueryProvider};
+use format_sinclair_zx_spectrum_bas::tokenise;
+use runtime_sinclair_zx_spectrum::{
+    DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, SpectrumRuntimeKind,
+    SpectrumSessionQueryProvider, autoload_basic_tape, load_basic_program,
+};
 use serde_json::{Value, json};
 
 use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
@@ -92,7 +96,14 @@ fn mcp_execute_step(
         ScriptStep::AutoloadTape {
             slot,
             max_boot_frames,
-        } => execute_autoload_tape(session, slot, *max_boot_frames).map(Some),
+        } => {
+            let frames = if *max_boot_frames == 0 {
+                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES
+            } else {
+                *max_boot_frames
+            };
+            execute_autoload_tape(session, slot, frames).map(Some)
+        }
         ScriptStep::LoadBasicProgram { path, run } => {
             execute_load_basic_program(session, path, *run).map(Some)
         }
@@ -151,23 +162,15 @@ fn execute_set_machine(
     })?;
     let profile = new_runtime.profile().clone();
 
-    // Swap the inner machine + clear session-side state. We do this
-    // by replacing the machine in place and then driving the same
-    // `reset` path the `ScriptStep::Reset` action uses, so queued
-    // input, latest frame, captured audio, and the cached run result
-    // are cleared before the new variant runs.
+    // Swap the inner machine + clear session-side state, and re-pace
+    // the session to the new variant's frame budget so `run_frames`
+    // emits one native frame per call.
+    let new_frame_ticks = u64::from(new_runtime.frame_halfcycles());
     *session.machine_mut() = new_runtime;
+    session.set_native_frame_ticks(new_frame_ticks);
     session
         .reset(emu198x_shell::ResetKind::Hard)
         .map_err(|err| ToolError::Execution(format!("set_machine: clear session: {err}")))?;
-    // NOTE: HeadlessSession's `native_frame_ticks` is fixed at
-    // construction. Variants whose frame budget differs from the
-    // booted variant (e.g. 128K's 70908 cycles vs 48K's 69888) will
-    // over- or under-shoot one native frame by a few hundred cycles.
-    // We accept this for now; the alternative is rebuilding the
-    // session, which loses session state on every `set_machine`. A
-    // proper fix is a `HeadlessSession::set_native_frame_ticks`
-    // hook — separate commit.
 
     Ok(ScriptObservation::SetMachine {
         machine: requested.to_owned(),
@@ -181,41 +184,44 @@ fn execute_autoload_tape(
     slot: &str,
     max_boot_frames: u32,
 ) -> Result<ScriptObservation, ToolError> {
-    let kind = session.machine_mut();
-    // Borrow-check trick: `autoload_basic_tape` takes a
-    // `&mut HeadlessSession<Spectrum48kRuntime, …>` so we can't reach
-    // it through `kind.as_48k_mut()` (different session type). Until
-    // the helper is generalised to the family, the family-MCP path
-    // refuses the step on every variant. Single-machine binaries
-    // (script mode, UI) still drive the 48K helper directly.
-    let _ = kind;
-    let _ = slot;
-    let _ = max_boot_frames;
-    Err(ToolError::Execution(
-        "autoload_tape: not yet wired on the family-MCP path. \
-         Helper is 48K-session-typed today; family generalisation is a \
-         follow-up commit. For now use the script binary (`emu198x-script-spectrum`) \
-         or the UI binary, which still drive the 48K-only helper."
-            .to_owned(),
-    ))
+    let result = autoload_basic_tape(session, slot, max_boot_frames)
+        .map_err(|err| ToolError::Execution(format!("autoload_tape: {err}")))?;
+    Ok(ScriptObservation::AutoloadTape {
+        slot: result.slot,
+        boot_frames: result.boot.frames,
+    })
 }
 
 fn execute_load_basic_program(
     session: &mut SpectrumSession,
     path: &std::path::Path,
-    _run: bool,
+    run: bool,
 ) -> Result<ScriptObservation, ToolError> {
-    // Same constraint as `execute_autoload_tape` above — the helper
-    // expects `HeadlessSession<Spectrum48kRuntime, …>`. Stubbed for
-    // family-MCP until the helper is generalised.
-    let _ = session;
-    let _ = path;
-    Err(ToolError::Execution(
-        "load_basic_program: not yet wired on the family-MCP path. \
-         Helper is 48K-session-typed today; family generalisation is a \
-         follow-up commit."
-            .to_owned(),
-    ))
+    let source = std::fs::read_to_string(path).map_err(|err| {
+        ToolError::Execution(format!(
+            "load_basic_program: failed to read {}: {err}",
+            path.display()
+        ))
+    })?;
+    let program = tokenise(&source).map_err(|err| {
+        ToolError::Execution(format!(
+            "load_basic_program: failed to tokenise {}: {err}",
+            path.display()
+        ))
+    })?;
+    let result =
+        load_basic_program(session, &program, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES).map_err(
+            |err| {
+                ToolError::Execution(format!(
+                    "load_basic_program: BASIC loader failed for {}: {err}",
+                    path.display()
+                ))
+            },
+        )?;
+    Ok(ScriptObservation::LoadBasicProgram {
+        program_bytes: result.program_bytes,
+        ran: result.ran,
+    })
 }
 
 fn kind_to_model(kind: MachineKind) -> runtime_sinclair_zx_spectrum::Model {

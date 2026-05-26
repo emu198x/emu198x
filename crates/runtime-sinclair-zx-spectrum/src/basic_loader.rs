@@ -13,12 +13,13 @@
 //! the helper is signature-bound to the 48K runtime today and broadens
 //! when each later variant lands a runtime.
 
-use emu198x_shell::{HeadlessSession, MachineTime, SessionError, SessionQueryProvider};
+use emu198x_shell::{
+    HeadlessSession, MachineCore, MachineTime, SessionError, SessionQueryProvider,
+};
 use format_sinclair_zx_spectrum_bas::BasicProgram;
 use thiserror::Error;
 
-use crate::Spectrum48kRuntime;
-use crate::SpectrumMachine;
+use crate::SpectrumLiveAccess;
 use crate::autoload::{decoded_prompt_line, tap_key};
 
 /// Default frame budget used to wait for the 48K ROM boot banner before
@@ -113,15 +114,16 @@ pub enum LoadBasicError {
 /// 48K BASIC area, [`LoadBasicError::PromptNotReady`] when the editor
 /// is not at the K prompt, or wraps a [`SessionError`] for boot-wait
 /// or input failures.
-pub fn load_basic_program(
-    session: &mut HeadlessSession<
-        Spectrum48kRuntime,
-        impl SessionQueryProvider<Spectrum48kRuntime>,
-    >,
+pub fn load_basic_program<R, Q>(
+    session: &mut HeadlessSession<R, Q>,
     program: &BasicProgram,
     run: bool,
     max_boot_frames: u32,
-) -> Result<LoadBasicResult, LoadBasicError> {
+) -> Result<LoadBasicResult, LoadBasicError>
+where
+    R: MachineCore + SpectrumLiveAccess,
+    Q: SessionQueryProvider<R>,
+{
     if program.bytes.is_empty() {
         return Err(LoadBasicError::EmptyProgram);
     }
@@ -173,15 +175,15 @@ pub fn load_basic_program(
     })
 }
 
-fn poke_program(
-    session: &mut HeadlessSession<
-        Spectrum48kRuntime,
-        impl SessionQueryProvider<Spectrum48kRuntime>,
-    >,
+fn poke_program<R, Q>(
+    session: &mut HeadlessSession<R, Q>,
     program: &BasicProgram,
     program_len: u16,
-) {
-    let machine = session.machine_mut().machine_mut();
+) where
+    R: MachineCore + SpectrumLiveAccess,
+    Q: SessionQueryProvider<R>,
+{
+    let machine = session.machine_mut();
     for (i, byte) in program.bytes.iter().enumerate() {
         machine.write_byte(PROG_ADDR.saturating_add(i as u16), *byte);
     }
@@ -191,16 +193,16 @@ fn poke_program(
     }
 }
 
-fn update_system_variables(
-    session: &mut HeadlessSession<
-        Spectrum48kRuntime,
-        impl SessionQueryProvider<Spectrum48kRuntime>,
-    >,
+fn update_system_variables<R, Q>(
+    session: &mut HeadlessSession<R, Q>,
     vars: u16,
     e_line: u16,
     worksp: u16,
-) {
-    let machine = session.machine_mut().machine_mut();
+) where
+    R: MachineCore + SpectrumLiveAccess,
+    Q: SessionQueryProvider<R>,
+{
+    let machine = session.machine_mut();
     write_word_le(machine, VARS_SYSVAR, vars);
     write_word_le(machine, E_LINE_SYSVAR, e_line);
     // K_CUR is the editor's cursor inside the current edit-line buffer.
@@ -217,7 +219,7 @@ fn update_system_variables(
     write_word_le(machine, STKEND_SYSVAR, worksp);
 }
 
-fn write_word_le<M: SpectrumMachine>(machine: &mut M, addr: u16, word: u16) {
+fn write_word_le<A: SpectrumLiveAccess>(machine: &mut A, addr: u16, word: u16) {
     machine.write_byte(addr, (word & 0xFF) as u8);
     machine.write_byte(addr.saturating_add(1), (word >> 8) as u8);
 }
@@ -225,6 +227,8 @@ fn write_word_le<M: SpectrumMachine>(machine: &mut M, addr: u16, word: u16) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Spectrum48kRuntime;
+    use crate::runtime::SpectrumMachine;
     use emu198x_shell::{FirmwareImage, FirmwareSet, QueryResult};
     use serde_json::json;
 

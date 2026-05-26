@@ -30,10 +30,57 @@ use emu198x_shell::{
 };
 
 use crate::queries::SpectrumSessionQueryProvider;
+use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 use crate::variants::{
     Spectrum16kRuntime, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumPlus2ARuntime,
     SpectrumPlus2BRuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime, SpectrumPlusRuntime,
 };
+
+/// Narrow Spectrum-machine surface that family-level helpers
+/// (`autoload_basic_tape`, `load_basic_program`) need.
+///
+/// The helpers used to bind directly to `HeadlessSession<SpectrumRuntime<M>, …>`
+/// and reach into `.machine().machine()`. That works for single-machine
+/// binaries (script mode, UI) but not for family-MCP where the inner type
+/// is [`SpectrumRuntimeKind`]. This trait abstracts over both shapes so
+/// one implementation of the helpers covers every binary.
+///
+/// Methods are grouped into a single trait (rather than split by
+/// concern) so a future `impl SpectrumLiveAccess for SpectrumRuntimeKind`
+/// stays a single match block per method — easy to scan and easy to
+/// keep aligned with the trait surface.
+pub trait SpectrumLiveAccess {
+    /// `true` while a tape image is loaded in the default tape slot.
+    fn tape_is_loaded(&self) -> bool;
+    /// Direct chip-RAM byte write. Used by the BASIC loader to install
+    /// a tokenised program into the visible address space without
+    /// re-running the tape decoder.
+    fn write_byte(&mut self, addr: u16, val: u8);
+    /// Direct chip-RAM byte read. Used by basic-loader tests to
+    /// verify the installed program; not on any production path.
+    fn read_byte(&self, addr: u16) -> u8;
+    /// `true` while tape transport is active. Used by autoload tests
+    /// to confirm the helper started playback before returning.
+    fn tape_is_playing(&self) -> bool;
+}
+
+impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
+    fn tape_is_loaded(&self) -> bool {
+        self.machine().tape_is_loaded()
+    }
+
+    fn write_byte(&mut self, addr: u16, val: u8) {
+        self.machine_mut().write_byte(addr, val);
+    }
+
+    fn read_byte(&self, addr: u16) -> u8 {
+        self.machine().read_byte(addr)
+    }
+
+    fn tape_is_playing(&self) -> bool {
+        self.machine().tape_is_playing()
+    }
+}
 
 /// Runtime-time dispatch over the eight SOLID Spectrum variants.
 ///
@@ -205,6 +252,24 @@ impl MachineCore for SpectrumRuntimeKind {
 
     fn capabilities(&self) -> emu198x_shell::CapabilitySet {
         match_kind!(self, |rt| rt.capabilities())
+    }
+}
+
+impl SpectrumLiveAccess for SpectrumRuntimeKind {
+    fn tape_is_loaded(&self) -> bool {
+        match_kind!(self, |rt| rt.tape_is_loaded())
+    }
+
+    fn write_byte(&mut self, addr: u16, val: u8) {
+        match_kind!(self, |rt| rt.write_byte(addr, val))
+    }
+
+    fn read_byte(&self, addr: u16) -> u8 {
+        match_kind!(self, |rt| rt.read_byte(addr))
+    }
+
+    fn tape_is_playing(&self) -> bool {
+        match_kind!(self, |rt| rt.tape_is_playing())
     }
 }
 
