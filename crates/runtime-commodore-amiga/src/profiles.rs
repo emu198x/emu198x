@@ -159,6 +159,54 @@ impl Model {
     pub const fn is_ecs(self) -> bool {
         matches!(self, Self::A500PlusEcsPal | Self::A500PlusEcsNtsc)
     }
+
+    /// Chipset family for this model. Per
+    /// [`amiga-machine-catalogue.md`], chipset is the only axis the
+    /// kind enum discriminates on; everything else (CPU, memory
+    /// layout, region, Kickstart) is configuration.
+    ///
+    /// [`amiga-machine-catalogue.md`]: ../../../../../knowledge/decisions/amiga-machine-catalogue.md
+    #[must_use]
+    pub const fn chipset(self) -> crate::amiga_model::ChipsetKind {
+        use crate::amiga_model::ChipsetKind;
+        match self {
+            Self::A1000OcsPal
+            | Self::A1000OcsNtsc
+            | Self::A500OcsPal
+            | Self::A500OcsNtsc
+            | Self::A500OcsPalA501
+            | Self::A500OcsNtscA501
+            | Self::A500OcsPalMaxed
+            | Self::A500OcsNtscMaxed => ChipsetKind::Ocs,
+            Self::A500PlusEcsPal | Self::A500PlusEcsNtsc => ChipsetKind::Ecs,
+        }
+    }
+
+    /// Stock CPU type for this model. Accelerator boards override
+    /// the active CPU at runtime through `Option<Accelerator>`
+    /// (per [`amiga-machine-catalogue.md`]); this method returns
+    /// the *stock* CPU only.
+    ///
+    /// [`amiga-machine-catalogue.md`]: ../../../../../knowledge/decisions/amiga-machine-catalogue.md
+    #[must_use]
+    pub const fn cpu(self) -> crate::amiga_model::CpuKind {
+        use crate::amiga_model::CpuKind;
+        // Every model in the catalogue today is a stock 68000.
+        // As A1200 (68EC020), A3000 / A4000-030 (68030), and
+        // A4000-040 (68040) land, this match grows.
+        match self {
+            Self::A1000OcsPal
+            | Self::A1000OcsNtsc
+            | Self::A500OcsPal
+            | Self::A500OcsNtsc
+            | Self::A500OcsPalA501
+            | Self::A500OcsNtscA501
+            | Self::A500OcsPalMaxed
+            | Self::A500OcsNtscMaxed
+            | Self::A500PlusEcsPal
+            | Self::A500PlusEcsNtsc => CpuKind::M68000,
+        }
+    }
 }
 
 /// Returns the initial Amiga family catalogue.
