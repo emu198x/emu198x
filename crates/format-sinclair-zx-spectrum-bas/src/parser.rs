@@ -899,11 +899,17 @@ impl<'a> Parser<'a> {
                     0xAE => BuiltinFn::ValDollar,
                     _ => BuiltinFn::Int,
                 };
-                let arg = self.parse_expr(13);
-                Expr::Function {
+                // ATTR, POINT, and SCREEN$ take two comma-separated
+                // arguments; all others take one.
+                let two_arg = matches!(
                     func,
-                    arg: Box::new(arg),
+                    BuiltinFn::Attr | BuiltinFn::Point | BuiltinFn::Screen
+                );
+                let mut args = vec![self.parse_expr(13)];
+                if two_arg && self.try_consume(b',') {
+                    args.push(self.parse_expr(13));
                 }
+                Expr::Function { func, args }
             }
         }
     }

@@ -217,7 +217,7 @@ pub enum Expr {
     },
     Function {
         func: BuiltinFn,
-        arg: Box<Expr>,
+        args: Vec<Expr>,
     },
     Slice {
         string: Box<Expr>,

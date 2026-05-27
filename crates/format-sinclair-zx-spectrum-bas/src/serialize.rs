@@ -372,9 +372,14 @@ fn serialize_expr(expr: &Expr, out: &mut Vec<u8>) {
             }
             serialize_expr(operand, out);
         }
-        Expr::Function { func, arg } => {
+        Expr::Function { func, args } => {
             out.push(builtin_fn_token(*func));
-            serialize_expr(arg, out);
+            for (i, arg) in args.iter().enumerate() {
+                if i > 0 {
+                    out.push(b',');
+                }
+                serialize_expr(arg, out);
+            }
         }
         Expr::Slice { string, from, to } => {
             serialize_expr(string, out);
