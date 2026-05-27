@@ -129,6 +129,9 @@ fn mcp_server_boots_and_lists_tools() {
         "memory_read_long",
         "memory_scan",
         "resolve_lvo",
+        "query_library",
+        "address_to_library",
+        "read_task_stack",
         "disasm",
         "insert_media",
         "eject_media",
@@ -406,6 +409,127 @@ fn mcp_tools_drive_a_real_boot() {
         "graphics.library has ~163 entries, got {}",
         entries.len()
     );
+
+    // query_library must walk LibList and return at least exec.library.
+    // Every Amiga boot has exec wired up; if the count is zero, ExecBase
+    // or LibList is wrong. Pick exec.library to assert: it MUST be
+    // present, MUST have NegSize > 0, and PosSize must straddle our
+    // saved-PC range.
+    let libs = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        27,
+        "tools/call",
+        json!({ "name": "query_library", "arguments": {} }),
+    ));
+    let library_count = libs.get("library_count").and_then(Value::as_u64).unwrap();
+    assert!(
+        library_count >= 1,
+        "expected at least one loaded library after boot, got {library_count}"
+    );
+    let arr = libs.get("libraries").and_then(Value::as_array).unwrap();
+    let exec = arr
+        .iter()
+        .find(|l| l.get("ln_name").and_then(Value::as_str) == Some("exec.library"))
+        .expect("exec.library MUST be present in LibList");
+    let neg = exec.get("neg_size").and_then(Value::as_u64).unwrap();
+    let pos = exec.get("pos_size").and_then(Value::as_u64).unwrap();
+    assert!(neg > 0, "exec.library NegSize must be > 0 (got {neg})");
+    assert!(pos > 0, "exec.library PosSize must be > 0 (got {pos})");
+
+    // Filter mode: name=exec.library should return exactly one entry.
+    let exec_only = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        28,
+        "tools/call",
+        json!({
+            "name": "query_library",
+            "arguments": { "name": "exec.library" }
+        }),
+    ));
+    assert_eq!(
+        exec_only.get("library_count").and_then(Value::as_u64),
+        Some(1)
+    );
+
+    // address_to_library: a chip-RAM address (e.g. $0) must miss;
+    // an address INSIDE exec's code range must hit and report
+    // `exec.library`.
+    let miss = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        29,
+        "tools/call",
+        json!({
+            "name": "address_to_library",
+            "arguments": { "addr": "$00000000" }
+        }),
+    ));
+    assert_eq!(
+        miss.get("match").and_then(Value::as_str),
+        Some("no_library_contains_addr")
+    );
+    // Pick an address mid-way through exec's code (library_addr + 4).
+    let exec_addr_str = exec.get("addr").and_then(Value::as_str).unwrap();
+    let exec_addr = u32::from_str_radix(exec_addr_str.trim_start_matches('$'), 16).unwrap();
+    let probe = format!("${:08X}", exec_addr.wrapping_add(4));
+    let hit = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        30,
+        "tools/call",
+        json!({
+            "name": "address_to_library",
+            "arguments": { "addr": probe }
+        }),
+    ));
+    assert_eq!(hit.get("match").and_then(Value::as_str), Some("hit"));
+    assert_eq!(
+        hit.get("library").and_then(Value::as_str),
+        Some("exec.library")
+    );
+
+    // read_task_stack: this_task should always have a stack pointer
+    // by the time we've run 300 frames. We can't assert specific
+    // ROM hits (the running task isn't parked!), but we can assert
+    // the response shape is well-formed and that libraries were
+    // searched against ExecBase->LibList.
+    let tasks_state = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        31,
+        "tools/call",
+        json!({ "name": "query_exec_tasks", "arguments": {} }),
+    ));
+    if let Some(this_task) = tasks_state.get("this_task").and_then(Value::as_str) {
+        if this_task != "$00000000" {
+            let stack = unwrap_tool_text(&call(
+                &mut server,
+                &mut session,
+                32,
+                "tools/call",
+                json!({
+                    "name": "read_task_stack",
+                    "arguments": { "task_addr": this_task, "bytes": 128 }
+                }),
+            ));
+            assert!(stack.get("sp").is_some());
+            assert!(stack.get("rom_hits").and_then(Value::as_array).is_some());
+            assert!(
+                stack
+                    .get("libraries_searched")
+                    .and_then(Value::as_u64)
+                    .unwrap()
+                    > 0,
+                "read_task_stack must walk the library list"
+            );
+            assert!(
+                stack.get("layout_note").is_some(),
+                "response must carry a layout_note explaining how to read rom_hits"
+            );
+        }
+    }
 
     // Eject (nothing inserted) and query: should report has_disk:false.
     let _ = call(

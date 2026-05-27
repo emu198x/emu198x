@@ -761,6 +761,446 @@ fn tool_query_exec_ports(_args: Value, s: &mut AmigaSession) -> Result<Value, To
     }))
 }
 
+/// Default ROM range for AGA-era Amigas (KS 2.0+ on A500+/A1200/A3000/A4000).
+/// KS 1.x used a 256 KiB ROM mapped at $00FC0000 only — for those models
+/// callers can pass an explicit `rom_lo` / `rom_hi`, but the default here
+/// covers any 512 KiB Kickstart (the common case for this investigation).
+const ROM_DEFAULT_LO: u32 = 0x00F8_0000;
+const ROM_DEFAULT_HI: u32 = 0x00FF_FFFF;
+
+/// Walk one library's struct Library at `addr` and produce a
+/// schema-stable JSON entry. Library layout (from `exec/libraries.i`):
+/// Node (14B) + lib_Flags (B) + lib_pad (B) + lib_NegSize (W) +
+/// lib_PosSize (W) + lib_Version (W) + lib_Revision (W) +
+/// lib_IdString (L) + lib_Sum (L) + lib_OpenCnt (W).
+///
+/// Two range pairs are reported:
+///   * `chip_lo..chip_hi`  — `[base - NegSize, base + PosSize)`. The
+///     chip-RAM extent: jump table + struct Library + private data.
+///   * `code_lo..code_hi`  — derived from the library's JMP targets.
+///     This is the ROM (or chip-RAM, for disk-loaded libraries) range
+///     the jump table dispatches into. For Kickstart-resident
+///     libraries this is the actual ROM code body; for LoadSeg'd
+///     libraries it's wherever LoadSeg put the seglist.
+fn read_exec_library(
+    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
+    addr: u32,
+) -> Value {
+    let type_pri = access.read_word(addr.wrapping_add(8));
+    let ln_type = (type_pri >> 8) as u8;
+    let ln_pri = (type_pri & 0xFF) as i8;
+    let ln_name = access.read_long(addr.wrapping_add(10));
+    let name = read_amiga_cstring(access, ln_name, 64);
+    let flags_pad = access.read_word(addr.wrapping_add(14));
+    let lib_flags = (flags_pad >> 8) as u8;
+    let neg_size = access.read_word(addr.wrapping_add(16));
+    let pos_size = access.read_word(addr.wrapping_add(18));
+    let version = access.read_word(addr.wrapping_add(20));
+    let revision = access.read_word(addr.wrapping_add(22));
+    let id_string_addr = access.read_long(addr.wrapping_add(24));
+    let id_string = if id_string_addr != 0 {
+        read_amiga_cstring(access, id_string_addr, 96)
+    } else {
+        String::new()
+    };
+    let lib_sum = access.read_long(addr.wrapping_add(28));
+    let open_cnt = access.read_word(addr.wrapping_add(32));
+    let chip_lo = addr.wrapping_sub(u32::from(neg_size));
+    let chip_hi = addr.wrapping_add(u32::from(pos_size));
+    let targets = library_jmp_targets(access, addr, u32::from(neg_size));
+    let code_lo = targets.iter().copied().min().unwrap_or(0);
+    let code_hi = targets
+        .iter()
+        .copied()
+        .max()
+        .map(|v| v.wrapping_add(6))
+        .unwrap_or(0);
+    let jmp_target_count = targets.len();
+    json!({
+        "addr":          format!("${:08X}", addr),
+        "ln_name":       name,
+        "ln_type":       ln_type,
+        "ln_type_label": node_type_label(ln_type),
+        "ln_pri":        ln_pri,
+        "lib_flags":     format!("${:02X}", lib_flags),
+        "neg_size":      neg_size,
+        "pos_size":      pos_size,
+        "version":       version,
+        "revision":      revision,
+        "id_string":     id_string,
+        "lib_sum":       format!("${:08X}", lib_sum),
+        "open_cnt":      open_cnt,
+        "chip_lo":       format!("${:08X}", chip_lo),
+        "chip_hi":       format!("${:08X}", chip_hi),
+        "code_lo":       format!("${:08X}", code_lo),
+        "code_hi":       format!("${:08X}", code_hi),
+        "jmp_target_count": jmp_target_count,
+        "code_note":     "code_lo/code_hi is the min/max of JMP-table targets; libraries' actual ROM code is non-contiguous within that span. Use `address_to_library` for accurate attribution — it does closest-preceding-JMP-target lookup.",
+    })
+}
+
+fn tool_query_library(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    let access = s.access();
+    let exec_base = access.read_long(0x0000_0004);
+    if exec_base == 0 {
+        return Ok(json!({
+            "exec_base": "$00000000",
+            "note": "ExecBase not yet initialised — run a few hundred frames after boot before querying.",
+        }));
+    }
+    // ExecBase->LibList lives at SysBase + 378 (struct List).
+    let list_addr = exec_base.wrapping_add(378);
+    let sentinel = list_addr.wrapping_add(4);
+    let filter = args.get("name").and_then(Value::as_str).map(str::to_string);
+    let mut libs: Vec<Value> = Vec::new();
+    let mut cur = access.read_long(list_addr);
+    let mut seen = std::collections::HashSet::new();
+    while libs.len() < 64 {
+        if cur == 0 || cur == sentinel {
+            break;
+        }
+        if !seen.insert(cur) {
+            break;
+        }
+        let lib = read_exec_library(access, cur);
+        let name_ok = filter.as_deref().is_none_or(|wanted| {
+            lib.get("ln_name").and_then(Value::as_str) == Some(wanted)
+        });
+        if name_ok {
+            libs.push(lib);
+        }
+        cur = access.read_long(cur);
+    }
+    Ok(json!({
+        "exec_base":     format!("${:08X}", exec_base),
+        "list_addr":     format!("${:08X}", list_addr),
+        "library_count": libs.len(),
+        "libraries":     libs,
+    }))
+}
+
+/// One library's effective extent. Stores chip-RAM range (covers the
+/// jump table + struct Library + private data) and the full sorted
+/// list of JMP-table targets. Libraries are NOT contiguous in ROM —
+/// internal helpers between LVO entry-points are still library code
+/// even though they're not directly reachable via jmp -N(a6) — so a
+/// simple [min, max] range produces false attributions when ranges
+/// interleave. We resolve by "closest preceding JMP target wins".
+#[derive(Debug, Clone)]
+struct LibraryExtent {
+    name: String,
+    lib_base: u32,
+    chip_lo: u32, // base - NegSize
+    chip_hi: u32, // base + PosSize
+    /// Every resolved JMP target from this library's jump table, in
+    /// chip-RAM-table order (NOT sorted by address). Useful for
+    /// reporting; lookup uses the global sorted index built by
+    /// `collect_library_extents`.
+    jmp_targets: Vec<u32>,
+    /// Convenience min/max across `jmp_targets`. Reported for
+    /// inspection only; lookup uses the global sorted index.
+    code_lo: u32,
+    code_hi: u32,
+}
+
+/// Walk one library's jump table to extract every JMP $abs.l target.
+/// Format: each LIB_VECTSIZE (=6) bytes before `lib_base` is a JMP
+/// instruction `4EF9 xxxx xxxx`. NegSize bytes = NegSize/6 entries.
+fn library_jmp_targets(
+    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
+    lib_base: u32,
+    neg_size: u32,
+) -> Vec<u32> {
+    let mut targets = Vec::new();
+    if neg_size < 6 {
+        return targets;
+    }
+    let entries = (neg_size / 6).min(2048); // sanity cap
+    for i in 1..=entries {
+        let entry = lib_base.wrapping_sub(i.wrapping_mul(6));
+        // The opcode `4EF9` (JMP abs.l) should occupy the first word.
+        // Other instructions (TRAP, RTS, RTE) are possible for special
+        // slots; ignore them.
+        if access.read_word(entry) != 0x4EF9 {
+            continue;
+        }
+        let target = access.read_long(entry.wrapping_add(2));
+        if target != 0 {
+            targets.push(target);
+        }
+    }
+    targets
+}
+
+/// Build the LibraryExtent table by walking ExecBase->LibList and,
+/// for each library, scanning its jump-table targets.
+fn collect_library_extents(
+    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
+) -> Vec<LibraryExtent> {
+    let mut out = Vec::new();
+    let exec_base = access.read_long(0x0000_0004);
+    if exec_base == 0 {
+        return out;
+    }
+    let list_addr = exec_base.wrapping_add(378);
+    let sentinel = list_addr.wrapping_add(4);
+    let mut cur = access.read_long(list_addr);
+    let mut seen = std::collections::HashSet::new();
+    while out.len() < 64 {
+        if cur == 0 || cur == sentinel {
+            break;
+        }
+        if !seen.insert(cur) {
+            break;
+        }
+        let neg_size = u32::from(access.read_word(cur.wrapping_add(16)));
+        let pos_size = u32::from(access.read_word(cur.wrapping_add(18)));
+        let ln_name = access.read_long(cur.wrapping_add(10));
+        let name = read_amiga_cstring(access, ln_name, 64);
+        let jmp_targets = library_jmp_targets(access, cur, neg_size);
+        let code_lo = jmp_targets.iter().copied().min().unwrap_or(0);
+        let code_hi = jmp_targets
+            .iter()
+            .copied()
+            .max()
+            .map(|v| v.wrapping_add(6))
+            .unwrap_or(0);
+        out.push(LibraryExtent {
+            name,
+            lib_base: cur,
+            chip_lo: cur.wrapping_sub(neg_size),
+            chip_hi: cur.wrapping_add(pos_size),
+            jmp_targets,
+            code_lo,
+            code_hi,
+        });
+        cur = access.read_long(cur);
+    }
+    out
+}
+
+/// Build a globally-sorted index of `(jmp_target, extent_idx)` pairs.
+/// Each library is identified by its index into `extents`. This index
+/// is what lookup uses to attribute an address by closest preceding
+/// JMP target.
+fn build_jmp_index(extents: &[LibraryExtent]) -> Vec<(u32, usize)> {
+    let mut idx: Vec<(u32, usize)> = extents
+        .iter()
+        .enumerate()
+        .flat_map(|(i, e)| e.jmp_targets.iter().copied().map(move |t| (t, i)))
+        .collect();
+    idx.sort_unstable_by_key(|(t, _)| *t);
+    idx
+}
+
+/// Maximum distance from a JMP target that we'll attribute to a
+/// library. A KS library's largest function body is comfortably
+/// under 16 KiB; 64 KiB is conservative and avoids false hits for
+/// addresses in gaps between libraries.
+const LIBRARY_GAP_MAX: u32 = 0x10000;
+
+/// Find the library that contains `target`. The lookup hierarchy:
+///   1. JMP-table closest-preceding match across all libraries (the
+///      common case for ROM PCs and internal helpers).
+///   2. Chip-RAM struct + jump-table range (for in-table addresses).
+/// Returns the LibraryExtent + a "match kind" tag.
+fn library_containing<'a>(
+    extents: &'a [LibraryExtent],
+    jmp_index: &[(u32, usize)],
+    target: u32,
+) -> Option<(&'a LibraryExtent, &'static str)> {
+    // Step 1: binary-search the global JMP index for the largest
+    // target ≤ `target`.
+    if !jmp_index.is_empty() {
+        let pos = jmp_index.partition_point(|(t, _)| *t <= target);
+        if pos > 0 {
+            let (closest, lib_idx) = jmp_index[pos - 1];
+            if target.saturating_sub(closest) < LIBRARY_GAP_MAX {
+                return Some((&extents[lib_idx], "code_range"));
+            }
+        }
+    }
+    // Step 2: fall back to the chip-RAM range for in-table addresses.
+    for ext in extents {
+        if target >= ext.chip_lo && target < ext.lib_base {
+            return Some((ext, "jump_table"));
+        }
+        if target >= ext.lib_base && target < ext.chip_hi {
+            return Some((ext, "library_data"));
+        }
+    }
+    None
+}
+
+/// Reverse-lookup: given any address, find which loaded library's
+/// effective range contains it. Walks ExecBase->LibList, extracts
+/// each library's JMP-target range (the ROM code it dispatches into)
+/// AND its chip-RAM range, and returns the first hit. Returns
+/// `null` if the address falls outside every library.
+fn tool_address_to_library(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    let target = arg_u32(&args, "addr")?;
+    let access = s.access();
+    let exec_base = access.read_long(0x0000_0004);
+    if exec_base == 0 {
+        return Ok(json!({
+            "addr": format!("${:08X}", target),
+            "match": "exec_base_uninitialised",
+        }));
+    }
+    let extents = collect_library_extents(access);
+    let jmp_index = build_jmp_index(&extents);
+    if let Some((ext, kind)) = library_containing(&extents, &jmp_index, target) {
+        // For code_range hits, report the distance from the nearest
+        // preceding JMP target — that's the function entry-point this
+        // address is part of (give or take internal helpers).
+        let nearest_jmp = if kind == "code_range" {
+            let pos = jmp_index.partition_point(|(t, _)| *t <= target);
+            if pos > 0 {
+                Some(jmp_index[pos - 1].0)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let offset = (target as i64) - (ext.lib_base as i64);
+        let mut body = json!({
+            "addr":             format!("${:08X}", target),
+            "match":            "hit",
+            "match_kind":       kind,
+            "library":          ext.name,
+            "library_addr":     format!("${:08X}", ext.lib_base),
+            "chip_lo":          format!("${:08X}", ext.chip_lo),
+            "chip_hi":          format!("${:08X}", ext.chip_hi),
+            "code_lo":          format!("${:08X}", ext.code_lo),
+            "code_hi":          format!("${:08X}", ext.code_hi),
+            "offset_from_base": offset,
+        });
+        if let Some(j) = nearest_jmp {
+            body["nearest_jmp_target"] = Value::String(format!("${:08X}", j));
+            body["distance_from_jmp"] = Value::from(target.wrapping_sub(j));
+        }
+        return Ok(body);
+    }
+    Ok(json!({
+        "addr": format!("${:08X}", target),
+        "match": "no_library_contains_addr",
+        "note": "Address is outside every loaded library's code range and chip-RAM range. Could be unmapped ROM (Kickstart code outside any library — exec stub, dispatcher, reset vectors), free chip RAM, or a stale value.",
+    }))
+}
+
+/// Walk a task's saved stack starting at `tc_SPReg` and surface
+/// every 2-byte-aligned ROM-pointing 32-bit value as a return-PC
+/// candidate. Optionally cross-reference each candidate against the
+/// loaded library list so the response says `intuition.library +
+/// $XYZ` directly. Wraps the two-pass byte-scan that found the
+/// IPrefs blocker — folds it into one MCP call.
+fn tool_read_task_stack(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    // Caller may supply either a task addr (we read tc_SPReg ourselves)
+    // or a stack pointer directly (for non-Task callers).
+    let sp = if let Some(t) = args.get("task_addr") {
+        let task_addr = if let Some(n) = t.as_u64() {
+            u32::try_from(n).map_err(|_| {
+                ToolError::InvalidArguments("task_addr out of u32 range".into())
+            })?
+        } else if let Some(_s) = t.as_str() {
+            arg_u32(&args, "task_addr")?
+        } else {
+            return Err(ToolError::InvalidArguments(
+                "task_addr must be integer or hex string".into(),
+            ));
+        };
+        s.access().read_long(task_addr.wrapping_add(54))
+    } else if args.get("sp").is_some() {
+        arg_u32(&args, "sp")?
+    } else {
+        return Err(ToolError::InvalidArguments(
+            "must supply either `task_addr` (we read tc_SPReg) or `sp` (raw stack pointer)".into(),
+        ));
+    };
+    if sp == 0 {
+        return Ok(json!({
+            "sp": "$00000000",
+            "note": "stack pointer is null — task has never been switched out, or task_addr wasn't a task.",
+        }));
+    }
+    let bytes_len = arg_u64_or(&args, "bytes", 256)? as u32;
+    if bytes_len < 8 || bytes_len > 4096 {
+        return Err(ToolError::InvalidArguments(
+            "bytes must be 8..=4096".into(),
+        ));
+    }
+    let rom_lo = match args.get("rom_lo") {
+        Some(v) if !v.is_null() => arg_u32(&args, "rom_lo")?,
+        _ => ROM_DEFAULT_LO,
+    };
+    let rom_hi = match args.get("rom_hi") {
+        Some(v) if !v.is_null() => arg_u32(&args, "rom_hi")?,
+        _ => ROM_DEFAULT_HI,
+    };
+    let resolve = args
+        .get("resolve_libraries")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
+    // Read raw bytes via word reads. tc_SPReg is always word-aligned.
+    let access = s.access();
+    let mut raw: Vec<u8> = Vec::with_capacity(bytes_len as usize);
+    let words = (bytes_len + 1) / 2;
+    for i in 0..words {
+        let w = access.read_word(sp.wrapping_add(i.wrapping_mul(2)));
+        raw.push((w >> 8) as u8);
+        raw.push((w & 0xFF) as u8);
+    }
+    raw.truncate(bytes_len as usize);
+
+    // Pre-fetch library extents + JMP-target index once so each
+    // candidate is a binary-search instead of a linear scan.
+    let extents = if resolve {
+        collect_library_extents(access)
+    } else {
+        Vec::new()
+    };
+    let jmp_index = if resolve {
+        build_jmp_index(&extents)
+    } else {
+        Vec::new()
+    };
+
+    // Scan every 2-byte boundary for ROM hits, annotating with the
+    // owning library when one is found.
+    let mut hits: Vec<Value> = Vec::new();
+    let mut off = 0usize;
+    while off + 4 <= raw.len() {
+        let v = u32::from_be_bytes([raw[off], raw[off + 1], raw[off + 2], raw[off + 3]]);
+        if v >= rom_lo && v <= rom_hi {
+            let mut entry = json!({
+                "offset_from_sp": off as u64,
+                "addr":           format!("${:08X}", sp.wrapping_add(off as u32)),
+                "value":          format!("${:08X}", v),
+            });
+            if let Some((ext, kind)) = library_containing(&extents, &jmp_index, v) {
+                entry["library"] = Value::String(ext.name.clone());
+                entry["match_kind"] = Value::String(kind.to_string());
+            }
+            hits.push(entry);
+        }
+        off += 2;
+    }
+
+    let hit_count = hits.len();
+    Ok(json!({
+        "sp":                 format!("${:08X}", sp),
+        "bytes":              bytes_len,
+        "rom_lo":             format!("${:08X}", rom_lo),
+        "rom_hi":             format!("${:08X}", rom_hi),
+        "rom_hits":           hits,
+        "rom_hit_count":      hit_count,
+        "libraries_searched": extents.len(),
+        "layout_note":        "ROM-hit scan is layout-independent — every 2-byte boundary checked. The KS 3.x Switch frame format varies between AmigaOS versions (some save SR + MOVEM + PC, others save the full m68k exception frame), so we don't pretend to decode a canonical layout. Use the rom_hits list, ordered by `offset_from_sp`, to walk the call chain from most-recent (lowest offset) to oldest (highest offset).",
+    }))
+}
+
 fn tool_start_video_recording(
     args: Value,
     s: &mut AmigaSession,
@@ -2431,6 +2871,44 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "resolve_lvo",
         "Resolve a `jsr -N(a6)` LVO offset to its function name using the NDK 3.2 library tables (exec / dos / intuition / graphics + cia.resource). Omit `offset` to dump the entire library's LVO table. Match modes returned: `hit`, `miss`, `unknown_library`, `library_dump`.",
         resolve_lvo_schema, tool_resolve_lvo);
+    let query_library_schema = json!({
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Optional library name filter (`exec.library`, `dos.library`, ...). If omitted, every library in ExecBase->LibList is returned."
+            }
+        }
+    });
+    add(registry, "query_library",
+        "Walk ExecBase->LibList and decode each `struct Library`: name, version + revision, lib_OpenCnt, lib_Sum, lib_Flags, neg_size + pos_size, and the [base - NegSize, base + PosSize) code range. Pass `name` to filter to one library. Use with `address_to_library` to identify which library a ROM address lives in.",
+        query_library_schema, tool_query_library);
+    let address_to_library_schema = json!({
+        "type": "object",
+        "required": ["addr"],
+        "properties": {
+            "addr": {"description": "Address to classify — decimal int or hex string ($XXX / 0xXXX)."}
+        }
+    });
+    add(registry, "address_to_library",
+        "Reverse-lookup: given any address, walk ExecBase->LibList and find which loaded library's code range contains it. Returns the library name, base address, code range, and signed offset from base (negative = jump-table / LVO region, positive = code body). Match modes: `hit`, `no_library_contains_addr`, `exec_base_uninitialised`.",
+        address_to_library_schema, tool_address_to_library);
+    let read_task_stack_schema = json!({
+        "type": "object",
+        "properties": {
+            "task_addr": {"description": "Task address — we'll read tc_SPReg (offset +54) ourselves. Either this or `sp` is required."},
+            "sp":        {"description": "Raw stack pointer to read from — bypasses the tc_SPReg dereference. Use when investigating a non-task stack."},
+            "bytes":     {"type": "integer", "minimum": 8, "maximum": 4096, "default": 256,
+                          "description": "Bytes of stack to scan, from `sp` upward."},
+            "rom_lo":    {"description": "Inclusive low end of the ROM range used to classify candidate return-PCs. Default $00F80000 (KS 2.0+ 512 KiB ROM)."},
+            "rom_hi":    {"description": "Inclusive high end of the ROM range. Default $00FFFFFF."},
+            "resolve_libraries": {"type": "boolean", "default": true,
+                          "description": "If true, cross-reference each ROM hit against ExecBase->LibList and tag with the owning library name."}
+        }
+    });
+    add(registry, "read_task_stack",
+        "Walk a parked task's saved stack starting at `tc_SPReg`. Scans every 2-byte boundary for ROM-pointing 32-bit values (the return-PC chain through libraries), optionally cross-referenced against the loaded library list. Returns the assumed KS 3.x Switch-frame decode (SR at sp+0, MOVEM D2-D7/A2-A6 at sp+2, return PC at sp+46) AND a layout-independent ROM-hit scan so misaligned frames still surface useful data. Folds the two-pass byte scan that found the IPrefs Wait-call chain into one tool.",
+        read_task_stack_schema, tool_read_task_stack);
     add(registry, "disasm",      "Disassemble `count` m68k instructions starting at `addr`.", disasm_schema, tool_disasm);
     add(registry, "insert_media", "Insert disk media into DF0 (only `adf` kind today; use `change_pending:true` to fire a disk-change event).", insert_media_schema, tool_insert_media);
     add(registry, "eject_media",  "Eject any disk currently in DF0.", empty(), tool_eject_media);
