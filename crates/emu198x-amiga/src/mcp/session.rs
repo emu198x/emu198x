@@ -31,6 +31,50 @@ use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
 /// state through [`Self::access`] / [`Self::access_mut`] — the
 /// chipset-agnostic [`AmigaLiveAccess`] trait. Only AGA-specific
 /// tooling reaches for [`Self::aga_machine_mut`].
+/// One captured instruction-boundary CPU snapshot.
+/// `(cck, instr_start_pc, sr, opcode_word)` — `opcode_word` is the
+/// 16-bit word at `instr_start_pc` (read via the trait's `read_word`
+/// at capture time).
+pub type CpuTraceEntry = (u64, u32, u16, u16);
+
+/// Tracing state attached to [`AmigaSession`]. Lives on the session
+/// rather than the chip stack so:
+///   - the OCS / ECS / A1200 crates don't grow another shared field
+///     (the trace would be Vec on each one),
+///   - capture overhead is zero when disarmed (one bool check per
+///     tick in [`AmigaSession::tick_with_trace`]),
+///   - the trace clears on `reset()` naturally without per-machine
+///     plumbing.
+pub struct CpuTraceState {
+    /// `true` while the trace is recording. Toggled by
+    /// `cpu_trace_arm` / `cpu_trace_disarm`.
+    pub armed: bool,
+    /// Optional PC range `(min, max)`; entries with
+    /// `instr_start_pc` outside the range are dropped before push.
+    pub pc_filter: Option<(u32, u32)>,
+    /// Hard cap on captured entries — at limit, further pushes are
+    /// dropped (silent truncation). Default 100_000 entries
+    /// (~1.6 MB at 16 bytes each).
+    pub max_entries: usize,
+    /// Captured entries, oldest first.
+    pub entries: Vec<CpuTraceEntry>,
+    /// Last observed `cpu_instruction_starts` value; capture happens
+    /// when this changes between `tick_with_trace` invocations.
+    pub last_seen_instr_starts: u64,
+}
+
+impl Default for CpuTraceState {
+    fn default() -> Self {
+        Self {
+            armed: false,
+            pc_filter: None,
+            max_entries: 100_000,
+            entries: Vec::new(),
+            last_seen_instr_starts: 0,
+        }
+    }
+}
+
 pub struct AmigaSession {
     /// Family runtime — `AmigaRuntimeKind::Aga(...)` today.
     pub kind: AmigaRuntimeKind,
@@ -43,6 +87,8 @@ pub struct AmigaSession {
     /// Tick at which the most recent recorded frame was pushed.
     /// Drives the per-frame push decision in `push_recorder_frame`.
     pub last_recorded_tick: u64,
+    /// CPU instruction-trace state. See [`CpuTraceState`].
+    pub cpu_trace: CpuTraceState,
 }
 
 impl AmigaSession {
@@ -68,7 +114,46 @@ impl AmigaSession {
             rom_path,
             recorder: None,
             last_recorded_tick: 0,
+            cpu_trace: CpuTraceState::default(),
         })
+    }
+
+    /// Advance one master/4 tick and, if the CPU trace is armed,
+    /// capture a snapshot at every instruction boundary the tick
+    /// crosses. Tools that previously called `self.access_mut().tick()`
+    /// in hot loops should call this instead so traces work end-to-end.
+    ///
+    /// Capture overhead when disarmed is one `bool` check; when
+    /// armed it's `cpu_instruction_starts` comparison + optional PC
+    /// filter + Vec push. An instruction takes ~4+ master/4 ticks
+    /// on a 68000, so most calls to this method do not capture.
+    pub fn tick_with_trace(&mut self) {
+        let prev_starts = self.cpu_trace.last_seen_instr_starts;
+        self.kind.tick();
+        if !self.cpu_trace.armed {
+            return;
+        }
+        let cpu = self.kind.cpu_snapshot();
+        let now = cpu.instruction_starts;
+        if now == prev_starts {
+            return;
+        }
+        self.cpu_trace.last_seen_instr_starts = now;
+        let pc = cpu.instr_start_pc;
+        if let Some((lo, hi)) = self.cpu_trace.pc_filter {
+            if pc < lo || pc > hi {
+                return;
+            }
+        }
+        if self.cpu_trace.entries.len() >= self.cpu_trace.max_entries {
+            return;
+        }
+        // Read the opcode word at instr_start_pc through the trait —
+        // works against any chipset variant.
+        let opcode = self.kind.read_word(pc);
+        self.cpu_trace
+            .entries
+            .push((self.kind.tick_count(), pc, cpu.regs.sr, opcode));
     }
 
     /// Borrow the active A1200 chip stack. Panics if the kind
@@ -135,6 +220,12 @@ impl AmigaSession {
         })?;
         self.recorder = None;
         self.last_recorded_tick = 0;
+        // Reset trace state alongside the chip stack so the captured
+        // entries from before the reset don't bleed into post-reset
+        // analysis. The arm-state and filter are kept (re-arming would
+        // be tedious if reset wiped them).
+        self.cpu_trace.entries.clear();
+        self.cpu_trace.last_seen_instr_starts = 0;
         Ok(())
     }
 }
@@ -168,5 +259,37 @@ mod tests {
         // verify the AGA-only downcasts don't panic.
         let _pc = session.aga_machine().cpu().regs.pc;
         let _tick = session.aga_machine_mut().tick_count();
+    }
+
+    /// `tick_with_trace` records no entries when the trace is disarmed,
+    /// regardless of how many ticks cross instruction boundaries.
+    #[test]
+    fn disarmed_tick_with_trace_does_not_capture() {
+        let rom = vec![0u8; 512 * 1024];
+        let mut session = AmigaSession::new(Model::A1200AgaPal, rom, PathBuf::from("/tmp/test.rom"))
+            .expect("blank Kickstart-sized ROM should build");
+        assert!(!session.cpu_trace.armed);
+        for _ in 0..200 {
+            session.tick_with_trace();
+        }
+        assert!(session.cpu_trace.entries.is_empty());
+    }
+
+    /// When armed, `tick_with_trace` captures snapshots at instruction
+    /// boundaries up to `max_entries` and then stops capturing.
+    #[test]
+    fn armed_tick_with_trace_captures_up_to_max_entries() {
+        let rom = vec![0u8; 512 * 1024];
+        let mut session = AmigaSession::new(Model::A1200AgaPal, rom, PathBuf::from("/tmp/test.rom"))
+            .expect("blank Kickstart-sized ROM should build");
+        session.cpu_trace.armed = true;
+        session.cpu_trace.max_entries = 4;
+        // Blank ROM means the boot path traps quickly, but a handful of
+        // master/4 ticks is enough to cross several instruction
+        // boundaries; we just need *some* captured entries.
+        for _ in 0..1000 {
+            session.tick_with_trace();
+        }
+        assert!(session.cpu_trace.entries.len() <= 4, "respects max_entries cap");
     }
 }

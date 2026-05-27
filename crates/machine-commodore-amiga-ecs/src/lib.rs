@@ -1861,14 +1861,16 @@ impl AmigaEcs {
             }
             BusResponse::Word(val)
         } else {
-            self.debug_custom_write_log.push((
-                self.tick_count / TICKS_PER_CCK,
-                self.cpu.regs.pc,
-                tx.addr,
-                offset,
-                tx.data,
-                tx.is_word,
-            ));
+            if self.debug_custom_write_log.len() < 1_048_576 {
+                self.debug_custom_write_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    tx.addr,
+                    offset,
+                    tx.data,
+                    tx.is_word,
+                ));
+            }
             self.dispatch_custom_write(offset, tx.data);
             BusResponse::WriteAck
         })

@@ -14,8 +14,8 @@ pub use amiga_model::{
     FATTER_AGNUS_CHIP_RAM_BYTES, KIB, MIB, OCS_AGNUS_CHIP_RAM_BYTES,
 };
 pub use live_access::{
-    AmigaLiveAccess, Bplcon0LogEntry, CpuSnapshot, DskLogEntry, PaletteLogEntry, RegReadLogEntry,
-    WatchLogEntry,
+    AmigaLiveAccess, Bplcon0LogEntry, CpuSnapshot, CustomWriteEntry, DskLogEntry, PaletteLogEntry,
+    RegReadLogEntry, WatchLogEntry,
 };
 pub use machine_commodore_amiga_ocs::{AudioControls, PaulaChannel, RamConfig};
 pub use profiles::{

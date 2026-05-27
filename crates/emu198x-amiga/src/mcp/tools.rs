@@ -170,15 +170,17 @@ fn push_recorder_frame(s: &mut AmigaSession) -> Result<(), ToolError> {
 /// ticks crossed — so a 1000-frame run records 1000 frames regardless
 /// of whether the caller used `run_frames` or `run_ticks`.
 fn tick_for(s: &mut AmigaSession, ticks: u64) -> Result<(), ToolError> {
+    // Drives ticks through `tick_with_trace` so the cpu_trace tool
+    // sees every instruction boundary when armed. Overhead when
+    // disarmed is one bool check per tick.
     if s.recorder.is_none() {
-        let access = s.access_mut();
         for _ in 0..ticks {
-            access.tick();
+            s.tick_with_trace();
         }
         return Ok(());
     }
     for _ in 0..ticks {
-        s.access_mut().tick();
+        s.tick_with_trace();
         let now = s.access().tick_count();
         if now.saturating_sub(s.last_recorded_tick) >= PAL_FRAME_TICKS {
             push_recorder_frame(s)?;
@@ -212,11 +214,10 @@ fn tool_run_until_pc(args: Value, s: &mut AmigaSession) -> Result<Value, ToolErr
     let max_ticks = arg_u64_or(&args, "max_ticks", 100_000_000)?;
     let mut ticks_taken: u64 = 0;
     let mut hit = false;
-    let access = s.access_mut();
     while ticks_taken < max_ticks {
-        access.tick();
+        s.tick_with_trace();
         ticks_taken += 1;
-        if access.cpu_pc() == target {
+        if s.access().cpu_pc() == target {
             hit = true;
             break;
         }
@@ -713,6 +714,92 @@ fn tool_chipset_read_log(args: Value, s: &mut AmigaSession) -> Result<Value, Too
     }))
 }
 
+fn tool_chipset_write_log(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    // Every CPU write that lands in `dispatch_custom_register`'s write
+    // arm. Lets callers answer "when did COP2LC change?" or "what
+    // were all the writes to $DFF0xx during boot?" without polling
+    // `query_chipset` every N frames. Mirrors the shape and filters
+    // of `chipset_read_log`. Cross-cutting across OCS / ECS / AGA.
+    let log = s.access().custom_write_log();
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
+    let offset_filter = args
+        .get("offset")
+        .and_then(|v| {
+            if v.is_null() {
+                None
+            } else {
+                let one = json!({ "x": v });
+                arg_u32(&one, "x").ok().map(|n| n as u16)
+            }
+        });
+    let offset_min = args.get("offset_min").and_then(Value::as_u64).map(|n| n as u16);
+    let offset_max = args.get("offset_max").and_then(Value::as_u64).map(|n| n as u16);
+    let cck_lo = args.get("cck_min").and_then(Value::as_u64);
+    let cck_hi = args.get("cck_max").and_then(Value::as_u64);
+    let dedupe_mode = args
+        .get("dedupe")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
+
+    let mut filtered: Vec<&(u64, u32, u32, u16, u16, bool)> = log
+        .iter()
+        .filter(|(_, _, _, off, _, _)| offset_filter.map_or(true, |want| *off == want))
+        .filter(|(_, _, _, off, _, _)| offset_min.map_or(true, |lo| *off >= lo))
+        .filter(|(_, _, _, off, _, _)| offset_max.map_or(true, |hi| *off <= hi))
+        .collect();
+    if let Some(lo) = cck_lo {
+        filtered.retain(|(cck, _, _, _, _, _)| *cck >= lo);
+    }
+    if let Some(hi) = cck_hi {
+        filtered.retain(|(cck, _, _, _, _, _)| *cck <= hi);
+    }
+    if dedupe_mode != "none" {
+        let mut seen = std::collections::HashSet::new();
+        filtered.retain(|(_, pc, _, off, val, _)| {
+            let key: u64 = match dedupe_mode {
+                "pc_off" => ((*pc as u64) << 16) | (*off as u64),
+                "off"    => *off as u64,
+                _        => ((*pc as u64) << 32) | ((*off as u64) << 16) | (*val as u64),
+            };
+            seen.insert(key)
+        });
+    }
+    let total = filtered.len();
+    let entries: Vec<Value> = filtered
+        .iter()
+        .rev()
+        .take(limit)
+        .rev()
+        .map(|(cck, pc, addr, off, val, is_word)| {
+            json!({
+                "cck": cck,
+                "pc":     format!("${:08X}", pc),
+                "addr":   format!("${:08X}", addr),
+                "offset": format!("${:04X}", off),
+                "value":  format!("${:04X}", val),
+                "size":   if *is_word { "word" } else { "byte" },
+            })
+        })
+        .collect();
+    // Per-offset write count so callers can see at a glance which
+    // registers KS / app actually touches.
+    let mut off_counts: std::collections::BTreeMap<u16, u64> = std::collections::BTreeMap::new();
+    for &(_, _, _, off, _, _) in log {
+        *off_counts.entry(off).or_insert(0) += 1;
+    }
+    let summary: Vec<Value> = off_counts
+        .iter()
+        .map(|(off, count)| json!({ "offset": format!("${:04X}", off), "writes": count }))
+        .collect();
+    Ok(json!({
+        "total_logged": log.len(),
+        "filtered_total": total,
+        "returned": entries.len(),
+        "offset_summary": summary,
+        "entries": entries,
+    }))
+}
+
 fn tool_poke_word(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     let addr = arg_u32(&args, "addr")?;
     let val = arg_u32(&args, "val")?;
@@ -1029,24 +1116,146 @@ fn tool_query_stack(args: Value, s: &mut AmigaSession) -> Result<Value, ToolErro
     }))
 }
 
+fn tool_cpu_trace_arm(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    // Enable the instruction-boundary trace. Clears any previously
+    // captured entries so the new run starts fresh; the PC filter
+    // and max_entries from the previous arm are replaced if the
+    // caller supplies new values.
+    let pc_min = args.get("pc_min").and_then(|v| {
+        if v.is_null() { None } else {
+            let one = json!({ "x": v });
+            arg_u32(&one, "x").ok()
+        }
+    });
+    let pc_max = args.get("pc_max").and_then(|v| {
+        if v.is_null() { None } else {
+            let one = json!({ "x": v });
+            arg_u32(&one, "x").ok()
+        }
+    });
+    let pc_filter = match (pc_min, pc_max) {
+        (Some(lo), Some(hi)) if lo <= hi => Some((lo, hi)),
+        (Some(_), Some(_)) => {
+            return Err(ToolError::InvalidArguments(
+                "pc_min must be <= pc_max".into(),
+            ));
+        }
+        _ => None,
+    };
+    let max_entries = args
+        .get("max_entries")
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or(100_000);
+    if max_entries == 0 || max_entries > 10_000_000 {
+        return Err(ToolError::InvalidArguments(
+            "max_entries must be 1..=10_000_000".into(),
+        ));
+    }
+    s.cpu_trace.armed = true;
+    s.cpu_trace.pc_filter = pc_filter;
+    s.cpu_trace.max_entries = max_entries;
+    s.cpu_trace.entries.clear();
+    s.cpu_trace.last_seen_instr_starts = s.access().cpu_instruction_starts();
+    Ok(json!({
+        "armed": true,
+        "pc_filter": pc_filter.map(|(lo, hi)| json!({
+            "min": format!("${:08X}", lo),
+            "max": format!("${:08X}", hi),
+        })),
+        "max_entries": max_entries,
+    }))
+}
+
+fn tool_cpu_trace_disarm(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    let captured = s.cpu_trace.entries.len();
+    s.cpu_trace.armed = false;
+    Ok(json!({
+        "armed": false,
+        "captured": captured,
+    }))
+}
+
+fn tool_cpu_trace_clear(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    let dropped = s.cpu_trace.entries.len();
+    s.cpu_trace.entries.clear();
+    s.cpu_trace.last_seen_instr_starts = s.access().cpu_instruction_starts();
+    Ok(json!({
+        "dropped": dropped,
+        "armed": s.cpu_trace.armed,
+    }))
+}
+
+fn tool_cpu_trace_log(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    // Dump captured trace entries. Default returns the most-recent
+    // 256 entries (tail) so the response stays compact even when
+    // running long; callers wanting the full trace pass a higher
+    // `limit`. `from_start: true` switches to "first N entries"
+    // instead of "last N" for inspecting the beginning of a region.
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(256) as usize;
+    let from_start = args
+        .get("from_start")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let cck_lo = args.get("cck_min").and_then(Value::as_u64);
+    let cck_hi = args.get("cck_max").and_then(Value::as_u64);
+
+    let mut filtered: Vec<&(u64, u32, u16, u16)> = s
+        .cpu_trace
+        .entries
+        .iter()
+        .filter(|(cck, _, _, _)| cck_lo.map_or(true, |lo| *cck >= lo))
+        .filter(|(cck, _, _, _)| cck_hi.map_or(true, |hi| *cck <= hi))
+        .collect();
+    let total = filtered.len();
+    if !from_start {
+        // Tail mode: keep the trailing `limit` entries.
+        if filtered.len() > limit {
+            let drop = filtered.len() - limit;
+            filtered.drain(0..drop);
+        }
+    } else if filtered.len() > limit {
+        filtered.truncate(limit);
+    }
+    let entries: Vec<Value> = filtered
+        .iter()
+        .map(|(cck, pc, sr, opcode)| {
+            json!({
+                "cck": cck,
+                "pc":     format!("${:08X}", pc),
+                "sr":     format!("${:04X}", sr),
+                "opcode": format!("${:04X}", opcode),
+            })
+        })
+        .collect();
+    Ok(json!({
+        "armed": s.cpu_trace.armed,
+        "captured": s.cpu_trace.entries.len(),
+        "filtered_total": total,
+        "returned": entries.len(),
+        "at_limit": s.cpu_trace.entries.len() >= s.cpu_trace.max_entries,
+        "max_entries": s.cpu_trace.max_entries,
+        "entries": entries,
+    }))
+}
+
 fn tool_step(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     let n = arg_u64_or(&args, "count", 1)?;
     let max_ticks = arg_u64_or(&args, "max_ticks", 1_000_000)?;
-    let access = s.access_mut();
-    let start = access.cpu_instruction_starts();
+    let start = s.access().cpu_instruction_starts();
     let target = start.wrapping_add(n);
     let mut ticks_taken: u64 = 0;
     let mut trace: Vec<Value> = Vec::new();
     let mut last_seen = start;
-    while access.cpu_instruction_starts() != target && ticks_taken < max_ticks {
-        access.tick();
+    while s.access().cpu_instruction_starts() != target && ticks_taken < max_ticks {
+        s.tick_with_trace();
         ticks_taken += 1;
-        let now = access.cpu_instruction_starts();
-        if now != last_seen && !access.cpu_in_followup() {
+        let now = s.access().cpu_instruction_starts();
+        if now != last_seen && !s.access().cpu_in_followup() {
             last_seen = now;
             trace.push(json!({
                 "step": now.wrapping_sub(start),
-                "pc": format!("${:08X}", access.cpu_pc()),
+                "pc": format!("${:08X}", s.access().cpu_pc()),
             }));
             if trace.len() as u64 >= n {
                 break;
@@ -1055,9 +1264,9 @@ fn tool_step(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     }
     Ok(json!({
         "requested": n,
-        "completed": access.cpu_instruction_starts().wrapping_sub(start),
+        "completed": s.access().cpu_instruction_starts().wrapping_sub(start),
         "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", access.cpu_pc()),
+        "pc": format!("${:08X}", s.access().cpu_pc()),
         "trace": trace,
     }))
 }
@@ -1078,11 +1287,10 @@ fn tool_run_until_any_pc(args: Value, s: &mut AmigaSession) -> Result<Value, Too
     let max_ticks = arg_u64_or(&args, "max_ticks", 100_000_000)?;
     let mut ticks_taken: u64 = 0;
     let mut hit: Option<u32> = None;
-    let access = s.access_mut();
     while ticks_taken < max_ticks {
-        access.tick();
+        s.tick_with_trace();
         ticks_taken += 1;
-        let pc = access.cpu_pc();
+        let pc = s.access().cpu_pc();
         if wanted.iter().any(|t| *t == pc) {
             hit = Some(pc);
             break;
@@ -1091,7 +1299,7 @@ fn tool_run_until_any_pc(args: Value, s: &mut AmigaSession) -> Result<Value, Too
     Ok(json!({
         "hit": hit.map(|p| format!("${:08X}", p)),
         "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", access.cpu_pc()),
+        "pc": format!("${:08X}", s.access().cpu_pc()),
     }))
 }
 
@@ -1257,12 +1465,11 @@ fn tool_run_until_mem_change(args: Value, s: &mut AmigaSession) -> Result<Value,
     let max_ticks = arg_u64_or(&args, "max_ticks", 50_000_000)?;
     let mut ticks_taken: u64 = 0;
     let mut hit: Option<(u32, u32, u32)> = None;
-    let access = s.access_mut();
     while ticks_taken < max_ticks {
-        access.tick();
+        s.tick_with_trace();
         ticks_taken += 1;
         for (addr, old) in &watch {
-            let now = access.read_long(*addr);
+            let now = s.access().read_long(*addr);
             if now != *old {
                 hit = Some((*addr, *old, now));
                 break;
@@ -1280,7 +1487,7 @@ fn tool_run_until_mem_change(args: Value, s: &mut AmigaSession) -> Result<Value,
     Ok(json!({
         "hit": result,
         "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", access.cpu_pc()),
+        "pc": format!("${:08X}", s.access().cpu_pc()),
     }))
 }
 
@@ -1472,6 +1679,38 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "run_until_any_pc", "Run until PC matches any address in `targets` or max_ticks reached.", any_pc_schema, tool_run_until_any_pc);
     add(registry, "run_until_mem_change", "Run until any longword in `addrs` changes value, or max_ticks reached.", mem_change_schema, tool_run_until_mem_change);
     add(registry, "step",        "Step one or more CPU instructions, returning a PC trace.", step_schema, tool_step);
+    let cpu_trace_arm_schema = json!({
+        "type": "object",
+        "properties": {
+            "pc_min":      {"description": "Optional inclusive PC lower bound; entries outside the range are dropped before capture (hex/decimal)."},
+            "pc_max":      {"description": "Optional inclusive PC upper bound."},
+            "max_entries": {"type": "integer", "minimum": 1, "maximum": 10_000_000, "default": 100_000,
+                            "description": "Hard cap on captured entries; further pushes are silently dropped past this point."}
+        }
+    });
+    add(registry, "cpu_trace_arm",
+        "Start recording an instruction-boundary CPU trace. Captures (cck, instr_start_pc, sr, opcode_word) at every instruction completion that subsequent `run_*` / `step` calls cross. Clears any prior trace; replaces filter + max_entries. Use `pc_min`/`pc_max` to capture only inside a region of interest (e.g. KS palette init).",
+        cpu_trace_arm_schema, tool_cpu_trace_arm);
+    add(registry, "cpu_trace_disarm",
+        "Stop recording. The captured trace is kept; `cpu_trace_log` still reads it. Re-arming clears.",
+        empty(), tool_cpu_trace_disarm);
+    add(registry, "cpu_trace_clear",
+        "Discard captured entries without disarming. Lets you focus on a fresh window without re-arming.",
+        empty(), tool_cpu_trace_clear);
+    let cpu_trace_log_schema = json!({
+        "type": "object",
+        "properties": {
+            "limit":      {"type": "integer", "minimum": 1, "maximum": 10_000_000, "default": 256,
+                           "description": "Maximum entries to return. Default 256 to keep responses compact."},
+            "from_start": {"type": "boolean", "default": false,
+                           "description": "If false (default), return the trailing `limit` entries. If true, return the leading `limit` entries."},
+            "cck_min":    {"type": "integer", "description": "Only include entries at or after this cck."},
+            "cck_max":    {"type": "integer", "description": "Only include entries at or before this cck."}
+        }
+    });
+    add(registry, "cpu_trace_log",
+        "Dump captured CPU trace entries. Tail-window by default (most recent `limit`); pass `from_start:true` for the leading window. Filter by cck range for a specific time slice.",
+        cpu_trace_log_schema, tool_cpu_trace_log);
     let reset_schema = json!({
         "type": "object",
         "properties": {
@@ -1565,6 +1804,23 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "chipset_read_log",
         "Every CPU read from a chipset register ($DFFxxx) with the returned value and PC. Filter by `offset:` to see one register's read history, e.g. what value KS observed for DENISEID across the boot.",
         chipset_read_schema, tool_chipset_read_log);
+    let chipset_write_schema = json!({
+        "type": "object",
+        "properties": {
+            "limit":      {"type": "integer", "minimum": 1, "maximum": 8192, "default": 64},
+            "dedupe":     {"type": "string", "enum": ["none", "pc_off", "pc_off_val", "off"],
+                           "default": "none",
+                           "description": "Dedupe granularity. `pc_off` collapses identical write sites (e.g. copper-driven per-line writes)."},
+            "offset":     {"description": "Exact chipset offset to filter by (hex/decimal)."},
+            "offset_min": {"type": "integer", "description": "Inclusive lower offset bound (e.g. 0x80 to capture only copper-list-pointer writes)."},
+            "offset_max": {"type": "integer", "description": "Inclusive upper offset bound."},
+            "cck_min":    {"type": "integer", "description": "Only include writes at or after this cck."},
+            "cck_max":    {"type": "integer", "description": "Only include writes at or before this cck."}
+        }
+    });
+    add(registry, "chipset_write_log",
+        "Every CPU write to a chipset register ($DFFxxx). Filter by `offset:` for one register's history, or `offset_min`/`offset_max` for a range (e.g. 0x080..0x086 to track all COP1LC/COP2LC writes). Useful for answering 'when did cop2lc change?' or 'what writes hit $DFF000 during boot?' without polling.",
+        chipset_write_schema, tool_chipset_write_log);
     add(registry, "watch_memory",
         "Set a write-watchpoint on a chip-RAM byte range. Captures every CPU bus write that lands in the range as (cck, pc, addr, val, size). Clears any prior log.",
         watch_set_schema, tool_watch_memory);

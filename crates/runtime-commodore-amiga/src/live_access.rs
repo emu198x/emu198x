@@ -84,6 +84,12 @@ pub type Bplcon0LogEntry = (u64, u32, u16);
 /// AGA chipset-register-read log shape: `(tick, pc, addr, value)`.
 pub type RegReadLogEntry = (u64, u32, u16, u16);
 
+/// Chipset-register write log shape:
+/// `(tick, pc, addr, offset, raw_val, is_word)`. `addr` is the full
+/// 24-bit bus address; `offset` is the chipset-register offset
+/// (`addr & 0x1FF`). `is_word` distinguishes word vs byte writes.
+pub type CustomWriteEntry = (u64, u32, u32, u16, u16, bool);
+
 /// Chipset-agnostic read/write surface used by the family MCP tools.
 ///
 /// Implemented by every concrete machine struct (`AmigaOcs`,
@@ -188,6 +194,16 @@ pub trait AmigaLiveAccess {
     /// register. Useful for watching how an app or Kickstart probes
     /// the chipset (e.g., reading DENISEID to detect AGA).
     fn reg_read_log(&self) -> &[RegReadLogEntry];
+
+    /// Chipset-register-write log: every CPU write to a custom-chip
+    /// register that goes through `dispatch_custom_register`'s write
+    /// arm. Includes byte vs word, full bus address, and the offset
+    /// inside the custom-register window. Bounded at 1,048,576
+    /// entries (~24 MB) on each chip stack — silently truncates past
+    /// that. Lets callers answer "when did COP2LC change?", "what
+    /// were all the writes to $DFF0xx during the boot?", etc., in
+    /// one shot rather than polling `query_chipset`.
+    fn custom_write_log(&self) -> &[CustomWriteEntry];
 
     /// AGA Copper struct reference, for the `query_copper_list` tool.
     /// Returns `None` on OCS / ECS — those chipsets carry a different
@@ -357,6 +373,10 @@ impl AmigaLiveAccess for AmigaOcs {
 
     fn reg_read_log(&self) -> &[RegReadLogEntry] {
         &self.debug_reg_read_log
+    }
+
+    fn custom_write_log(&self) -> &[CustomWriteEntry] {
+        &self.debug_custom_write_log
     }
 
     fn aga_copper(&self) -> Option<&A1200Copper> {
@@ -542,6 +562,10 @@ impl AmigaLiveAccess for AmigaEcs {
         &self.debug_reg_read_log
     }
 
+    fn custom_write_log(&self) -> &[CustomWriteEntry] {
+        &self.debug_custom_write_log
+    }
+
     fn aga_copper(&self) -> Option<&A1200Copper> {
         None
     }
@@ -717,6 +741,10 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn reg_read_log(&self) -> &[RegReadLogEntry] {
         &self.debug_reg_read_log
+    }
+
+    fn custom_write_log(&self) -> &[CustomWriteEntry] {
+        &self.debug_custom_write_log
     }
 
     fn aga_copper(&self) -> Option<&A1200Copper> {
@@ -1023,6 +1051,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => rt.machine().reg_read_log(),
             Self::Ecs(rt) => rt.machine().reg_read_log(),
             Self::Aga(rt) => rt.machine().reg_read_log(),
+        }
+    }
+
+    fn custom_write_log(&self) -> &[CustomWriteEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().custom_write_log(),
+            Self::Ecs(rt) => rt.machine().custom_write_log(),
+            Self::Aga(rt) => rt.machine().custom_write_log(),
         }
     }
 
