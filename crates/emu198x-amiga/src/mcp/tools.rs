@@ -549,6 +549,99 @@ fn tool_query_exec_tasks(_args: Value, s: &mut AmigaSession) -> Result<Value, To
     }))
 }
 
+/// Decode one Exec `MsgPort` struct + count queued messages.
+/// Layout (Exec/Ports RKM):
+///   Node (14B) + mp_Flags (B) + mp_SigBit (B) + mp_SigTask (4B) +
+///   mp_MsgList (List, 14B)
+fn read_exec_port(
+    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
+    addr: u32,
+) -> Value {
+    let ln_succ = access.read_long(addr);
+    let type_pri = access.read_word(addr.wrapping_add(8));
+    let ln_type = (type_pri >> 8) as u8;
+    let ln_pri = (type_pri & 0xFF) as i8;
+    let ln_name = access.read_long(addr.wrapping_add(10));
+    let name = read_amiga_cstring(access, ln_name, 64);
+    let flags_sigbit = access.read_word(addr.wrapping_add(14));
+    let mp_flags = (flags_sigbit >> 8) as u8;
+    let mp_sigbit = (flags_sigbit & 0xFF) as u8;
+    let mp_sigtask = access.read_long(addr.wrapping_add(16));
+    // Walk mp_MsgList to count pending messages. The list lives at
+    // port+20; its tail sentinel is port+24 (= &mp_MsgList.ln_Tail).
+    let list_addr = addr.wrapping_add(20);
+    let sentinel = list_addr.wrapping_add(4);
+    let mut msg_count = 0u32;
+    let mut cur = access.read_long(list_addr);
+    let mut seen = std::collections::HashSet::new();
+    for _ in 0..1024 {
+        if cur == 0 || cur == sentinel {
+            break;
+        }
+        if !seen.insert(cur) {
+            break;
+        }
+        msg_count += 1;
+        cur = access.read_long(cur);
+    }
+    // mp_Flags bit layout (RKM): low 2 bits = PA_* action
+    //   PA_SIGNAL (0) — signal mp_SigTask when message arrives
+    //   PA_SOFTINT (1) — soft-interrupt mp_SigTask
+    //   PA_IGNORE (2) — no notification (used during port migration)
+    let action = mp_flags & 3;
+    let action_label = match action {
+        0 => "PA_SIGNAL",
+        1 => "PA_SOFTINT",
+        2 => "PA_IGNORE",
+        _ => "?",
+    };
+    let _ = ln_succ; // currently unused but cheap to keep for symmetry
+    json!({
+        "addr": format!("${:08X}", addr),
+        "ln_name": name,
+        "ln_type": ln_type,
+        "ln_pri":  ln_pri,
+        "mp_flags": format!("${:02X}", mp_flags),
+        "mp_action": action_label,
+        "mp_sigbit": mp_sigbit,
+        "mp_sigbit_mask": format!("${:08X}", 1u32 << mp_sigbit),
+        "mp_sigtask": format!("${:08X}", mp_sigtask),
+        "msg_count": msg_count,
+    })
+}
+
+fn tool_query_exec_ports(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    // ExecBase->PortList lives at SysBase + 392.
+    let access = s.access();
+    let exec_base = access.read_long(0x0000_0004);
+    if exec_base == 0 {
+        return Ok(json!({
+            "exec_base": "$00000000",
+            "note": "ExecBase not yet initialised — run a few hundred frames after boot before querying.",
+        }));
+    }
+    let port_list = exec_base.wrapping_add(392);
+    let sentinel = port_list.wrapping_add(4);
+    let mut ports: Vec<Value> = Vec::new();
+    let mut cur = access.read_long(port_list);
+    let mut seen = std::collections::HashSet::new();
+    while ports.len() < 256 {
+        if cur == 0 || cur == sentinel {
+            break;
+        }
+        if !seen.insert(cur) {
+            break;
+        }
+        ports.push(read_exec_port(access, cur));
+        cur = access.read_long(cur);
+    }
+    Ok(json!({
+        "exec_base": format!("${:08X}", exec_base),
+        "port_list_addr": format!("${:08X}", port_list),
+        "ports": ports,
+    }))
+}
+
 fn tool_start_video_recording(
     args: Value,
     s: &mut AmigaSession,
@@ -1891,6 +1984,9 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "query_exec_tasks",
         "Walk ExecBase (at $00000004) and dump ThisTask, TaskReady, TaskWait. Each entry decodes the Exec Node (name, type, priority) + Task (state, tc_SigWait, tc_SigRecvd, SP, user data). Use to find what WB.Workbench is blocked on — a non-zero `tc_sig_wait` on the WB task with `tc_state=WAIT` shows the signal it's waiting for.",
         empty(), tool_query_exec_tasks);
+    add(registry, "query_exec_ports",
+        "Walk ExecBase->PortList (SysBase+392) and dump every public MsgPort: name, mp_SigBit (which signal bit notifies the owner), mp_SigTask (owning task address), mp_Flags (PA_SIGNAL / PA_SOFTINT / PA_IGNORE), and queued-message count. Use to find which port WB.Workbench is blocked on — cross-reference `mp_sigtask` against `query_exec_tasks` Workbench addr, look for the port with the matching `mp_sigbit_mask`.",
+        empty(), tool_query_exec_ports);
     let query_aga_schema = json!({
         "type": "object",
         "properties": {
