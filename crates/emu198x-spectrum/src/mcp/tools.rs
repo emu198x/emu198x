@@ -647,6 +647,8 @@ fn execute_type_string(
     let settle = settle_frames.unwrap_or(DEFAULT_TYPE_STRING_SETTLE_FRAMES);
     let mut chars_typed: u32 = 0;
 
+    let mut prev_key: Option<String> = None;
+
     for ch in text.chars() {
         let (key_name, needs_caps_shift) = match ch {
             'a'..='z' => (ch.to_ascii_uppercase().to_string(), false),
@@ -659,6 +661,14 @@ fn execute_type_string(
 
         if common_sinclair_zx_spectrum::keyboard::SpectrumKey::from_name(&key_name).is_none() {
             continue;
+        }
+
+        // Extra settle before a repeated key so the ROM keyboard
+        // scan sees the release before the next press.
+        if prev_key.as_deref() == Some(&key_name) {
+            session
+                .run_frames(3)
+                .map_err(|err| ToolError::Execution(format!("type_string: repeat settle failed: {err}")))?;
         }
 
         // Press CapsShift if needed for uppercase.
@@ -680,7 +690,7 @@ fn execute_type_string(
 
         // Release the key.
         session.queue_input(emu198x_shell::InputEvent::Key {
-            name: key_name.into(),
+            name: key_name.clone().into(),
             pressed: false,
         });
         if needs_caps_shift {
@@ -695,6 +705,7 @@ fn execute_type_string(
             .run_frames(1)
             .map_err(|err| ToolError::Execution(format!("type_string: settle failed: {err}")))?;
 
+        prev_key = Some(key_name);
         chars_typed += 1;
     }
 
