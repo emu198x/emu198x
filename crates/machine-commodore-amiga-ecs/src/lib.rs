@@ -1172,6 +1172,30 @@ impl AmigaEcs {
                 self.joy1_x = (self.joy1_x & 0x03) | ((val as u8) & 0xFC);
                 self.joy1_y = (self.joy1_y & 0x03) | (((val >> 8) as u8) & 0xFC);
             }
+            // ECS-only blitter extension registers — intercept BEFORE
+            // the legacy $040..=$074 catchall so the OCS Agnus's
+            // "drop $05A..=$05E silently" fallback doesn't swallow
+            // these. KS 2.x / 3.x uses BLTCON0L for cheap LF-only
+            // updates and BLTSIZV/BLTSIZH for the bulk of text + icon
+            // blits; without these handlers WB content never renders.
+            0x05A => self.agnus.write_bltcon0l(val),
+            0x05C => self.agnus.write_bltsizv(val),
+            0x05E => {
+                self.agnus.write_bltsizh(val);
+                self.debug_blit_starts += 1;
+                self.debug_blit_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    self.agnus.bltcon0,
+                    self.agnus.bltcon1,
+                    self.agnus.blt_apt,
+                    self.agnus.blt_bpt,
+                    self.agnus.blt_cpt,
+                    self.agnus.blt_dpt,
+                    self.agnus.bltsize,
+                ));
+                self.run_blit_to_completion();
+            }
             // Agnus-owned blitter registers. BLTSIZE ($058) fires
             // `start_blit` inside the helper; we drive the blit to
             // completion below, raise INT_BLIT, and let the CPU see

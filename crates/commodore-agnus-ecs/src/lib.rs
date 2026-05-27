@@ -79,6 +79,17 @@ pub struct AgnusEcs {
     vsstrt: u16,
     diwhigh: u16,
     diwhigh_written: bool,
+    /// ECS BLTSIZV ($05C) shadow — extended vertical blit size in
+    /// lines (15 bits). Latched on write; consumed by the next
+    /// BLTSIZH-triggered blit. KS 2.x / 3.x uses this for any blit
+    /// that wouldn't fit the legacy BLTSIZE encoding (V > 1023 lines
+    /// or H > 63 words), and the routine path for many text / icon
+    /// blits even when small.
+    pub bltsizv: u16,
+    /// ECS BLTSIZH ($05E) shadow — extended horizontal blit size in
+    /// words (11 bits). Writing this triggers the blit using V from
+    /// the most recent BLTSIZV write.
+    pub bltsizh: u16,
 }
 
 impl AgnusEcs {
@@ -108,6 +119,8 @@ impl AgnusEcs {
             vsstrt: 0,
             diwhigh: 0,
             diwhigh_written: false,
+            bltsizv: 0,
+            bltsizh: 0,
         }
     }
 
@@ -137,7 +150,55 @@ impl AgnusEcs {
             vsstrt: 0,
             diwhigh: 0,
             diwhigh_written: false,
+            bltsizv: 0,
+            bltsizh: 0,
         }
+    }
+
+    /// BLTCON0L ($05A) — write the low byte of BLTCON0 (the LF
+    /// logic-function bits + USEx channel-enable bits) without
+    /// disturbing the high byte (shift amount, A/B/C/D enables).
+    ///
+    /// ECS only. The high byte of `val` is discarded — this is a
+    /// byte-write port even though the bus delivers a word. Doesn't
+    /// trigger a blit.
+    pub fn write_bltcon0l(&mut self, val: u16) {
+        let lo = val & 0x00FF;
+        self.inner.bltcon0 = (self.inner.bltcon0 & 0xFF00) | lo;
+    }
+
+    /// BLTSIZV ($05C) — set the ECS extended vertical blit size
+    /// (lines, 15 bits). Latched for the next BLTSIZH-triggered
+    /// blit; sticky across multiple blits (per WinUAE) so a series
+    /// of same-height blits can write BLTSIZH only.
+    ///
+    /// Doesn't trigger the blit.
+    pub fn write_bltsizv(&mut self, val: u16) {
+        self.bltsizv = val & 0x7FFF;
+    }
+
+    /// BLTSIZH ($05E) — set the ECS extended horizontal blit size
+    /// (words, 11 bits) AND trigger the blit. The blit runs with V
+    /// from the most recent BLTSIZV write.
+    ///
+    /// Encodes V+H into the legacy `bltsize` register so the existing
+    /// OCS blitter engine drives it unchanged. Most KS 2.x / WB blits
+    /// fit the legacy encoding (V ≤ 1023 lines, H ≤ 63 words); if a
+    /// caller hits the wider ECS range the encoding wraps — that's a
+    /// known gap, flagged for follow-up if any KS / app actually hits
+    /// it (none observed in the WB 2.x / 3.x boot to date).
+    pub fn write_bltsizh(&mut self, val: u16) {
+        let h = val & 0x07FF;
+        self.bltsizh = h;
+        // Pack into the legacy BLTSIZE encoding: bits 15..6 = V
+        // (10 bits, 0 = 1024), bits 5..0 = H (6 bits, 0 = 64). For
+        // sizes that overflow the legacy width we'd need to extend
+        // the blitter engine; until then we mask down so existing
+        // tests continue to pass.
+        let v6 = (self.bltsizv & 0x03FF) << 6;
+        let h6 = h & 0x003F;
+        self.inner.bltsize = v6 | h6;
+        self.inner.start_blit();
     }
 
     /// Borrow the wrapped OCS Agnus core.
@@ -631,6 +692,53 @@ mod tests {
         BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE, PaulaReturnProgressPolicy,
         SlotOwner,
     };
+
+    /// BLTCON0L is a byte-write port — only the low byte updates,
+    /// the high byte of BLTCON0 (shift amount + channel enables)
+    /// must remain untouched. KS 2.x relies on this to change LF
+    /// without re-issuing channel-enable bits.
+    #[test]
+    fn bltcon0l_updates_only_low_byte() {
+        let mut agnus = AgnusEcs::new();
+        agnus.inner.bltcon0 = 0x1234;
+        agnus.write_bltcon0l(0x56AB);
+        assert_eq!(agnus.inner.bltcon0, 0x12AB);
+    }
+
+    /// BLTSIZV just latches; doesn't trigger.
+    #[test]
+    fn bltsizv_latches_without_trigger() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_bltsizv(0x000B);
+        assert_eq!(agnus.bltsizv, 0x000B);
+        assert!(!agnus.inner.blitter_busy, "BLTSIZV alone must not start the blit");
+    }
+
+    /// BLTSIZH triggers the blit using the previously-latched
+    /// BLTSIZV. Packs into the legacy BLTSIZE encoding so the
+    /// existing OCS blitter engine drives it.
+    #[test]
+    fn bltsizh_triggers_blit_using_latched_bltsizv() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_bltsizv(11); // V = 11 lines
+        agnus.write_bltsizh(40); // H = 40 words; triggers
+        // Legacy encoding: bits 15..6 = V (10), bits 5..0 = H (6).
+        assert_eq!(agnus.inner.bltsize, (11 << 6) | 40);
+        assert!(agnus.inner.blitter_busy, "BLTSIZH must start the blit");
+    }
+
+    /// BLTSIZV is sticky across consecutive BLTSIZH-triggered blits
+    /// — a common pattern for text rendering (many same-height
+    /// blits, one per glyph).
+    #[test]
+    fn bltsizv_is_sticky_across_bltsizh_blits() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_bltsizv(8);
+        agnus.write_bltsizh(2); // first blit: 8 × 2
+        agnus.inner.blitter_busy = false; // simulate completion
+        agnus.write_bltsizh(2); // second blit: 8 × 2 again, no BLTSIZV between
+        assert_eq!(agnus.inner.bltsize, (8 << 6) | 2);
+    }
 
     #[test]
     fn wrapper_uses_ocs_baseline_state_for_now() {
