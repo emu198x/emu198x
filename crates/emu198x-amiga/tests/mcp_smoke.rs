@@ -132,7 +132,9 @@ fn mcp_server_boots_and_lists_tools() {
         "query_library",
         "address_to_library",
         "read_task_stack",
+        "dump_msgport_messages",
         "disasm",
+        "disasm_around",
         "insert_media",
         "eject_media",
         "query_disk",
@@ -527,6 +529,78 @@ fn mcp_tools_drive_a_real_boot() {
             assert!(
                 stack.get("layout_note").is_some(),
                 "response must carry a layout_note explaining how to read rom_hits"
+            );
+        }
+    }
+
+    // disasm_around: point at the current PC and ask for 2 before
+    // + 2 after. We expect aligned=true since the CPU PC is on a
+    // real instruction boundary, AND the target instruction must
+    // appear with is_target=true.
+    let cpu_now = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        33,
+        "tools/call",
+        json!({ "name": "query_cpu", "arguments": {} }),
+    ));
+    let pc_str = cpu_now.get("pc").and_then(Value::as_str).unwrap();
+    let around = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        34,
+        "tools/call",
+        json!({
+            "name": "disasm_around",
+            "arguments": { "addr": pc_str, "before": 2, "after": 2 }
+        }),
+    ));
+    assert_eq!(
+        around.get("target").and_then(Value::as_str),
+        Some(pc_str)
+    );
+    let instrs = around
+        .get("instructions")
+        .and_then(Value::as_array)
+        .expect("disasm_around carries an instructions list");
+    let target_marked = instrs
+        .iter()
+        .any(|i| i.get("is_target").and_then(Value::as_bool) == Some(true));
+    assert!(
+        target_marked,
+        "disasm_around must mark exactly one instruction with is_target=true"
+    );
+
+    // dump_msgport_messages: point at a known port from
+    // query_exec_ports. After 300 frames KS has at least one public
+    // port (input.device, dos.library, etc.). Find one and dump it.
+    let ports = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        35,
+        "tools/call",
+        json!({ "name": "query_exec_ports", "arguments": {} }),
+    ));
+    if let Some(port_arr) = ports.get("ports").and_then(Value::as_array) {
+        if let Some(first) = port_arr.first() {
+            let port_addr = first.get("addr").and_then(Value::as_str).unwrap();
+            let dump = unwrap_tool_text(&call(
+                &mut server,
+                &mut session,
+                36,
+                "tools/call",
+                json!({
+                    "name": "dump_msgport_messages",
+                    "arguments": { "port": port_addr }
+                }),
+            ));
+            // We can't assert a specific message count (depends on
+            // boot state), but the shape must match.
+            assert!(dump.get("messages").and_then(Value::as_array).is_some());
+            assert!(dump.get("count").and_then(Value::as_u64).is_some());
+            assert!(
+                dump.get("port").and_then(Value::as_object).is_some(),
+                "response must echo the decoded port header"
             );
         }
     }

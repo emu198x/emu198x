@@ -729,6 +729,72 @@ fn read_exec_port(
     })
 }
 
+/// Decode an Exec `Message` struct. Layout (Exec/Ports RKM):
+///   Node (14B) + mn_ReplyPort (4B) + mn_Length (2B)
+/// `mn_Length` is the size of the message *including* the Message
+/// struct header itself, so callers can find any application
+/// payload at `addr + 20` extending to `addr + mn_Length`.
+fn read_exec_message(
+    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
+    addr: u32,
+) -> Value {
+    let ln_succ = access.read_long(addr);
+    let type_pri = access.read_word(addr.wrapping_add(8));
+    let ln_type = (type_pri >> 8) as u8;
+    let ln_pri = (type_pri & 0xFF) as i8;
+    let ln_name = access.read_long(addr.wrapping_add(10));
+    let name = read_amiga_cstring(access, ln_name, 64);
+    let mn_reply_port = access.read_long(addr.wrapping_add(14));
+    let mn_length = access.read_word(addr.wrapping_add(18));
+    json!({
+        "addr":          format!("${:08X}", addr),
+        "ln_succ":       format!("${:08X}", ln_succ),
+        "ln_type":       ln_type,
+        "ln_type_label": node_type_label(ln_type),
+        "ln_pri":        ln_pri,
+        "ln_name":       name,
+        "mn_reply_port": format!("${:08X}", mn_reply_port),
+        "mn_length":     mn_length,
+    })
+}
+
+/// Walk one port's `mp_MsgList` and decode every queued message.
+/// Mirrors the queue-count walk in `read_exec_port` but returns the
+/// full decoded list instead of just a count. Use when a port has
+/// `msg_count > 0` and you want to see what's queued (e.g. for a
+/// device port to see pending IORequests, or for a process's DOS
+/// port to see pending packets).
+fn tool_dump_msgport_messages(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    let port_addr = arg_u32(&args, "port")?;
+    let max = arg_u64_or(&args, "max", 64)? as usize;
+    let access = s.access();
+    // Re-decode the port header so callers can sanity-check (e.g.
+    // confirm ln_Type == NT_MSGPORT).
+    let port_summary = read_exec_port(access, port_addr);
+    let list_addr = port_addr.wrapping_add(20);
+    let sentinel = list_addr.wrapping_add(4);
+    let mut messages: Vec<Value> = Vec::new();
+    let mut cur = access.read_long(list_addr);
+    let mut seen = std::collections::HashSet::new();
+    while messages.len() < max {
+        if cur == 0 || cur == sentinel {
+            break;
+        }
+        if !seen.insert(cur) {
+            break;
+        }
+        messages.push(read_exec_message(access, cur));
+        cur = access.read_long(cur);
+    }
+    let truncated = messages.len() >= max;
+    Ok(json!({
+        "port":      port_summary,
+        "messages":  messages,
+        "count":     messages.len(),
+        "truncated": truncated,
+    }))
+}
+
 fn tool_query_exec_ports(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     // ExecBase->PortList lives at SysBase + 392.
     let access = s.access();
@@ -2525,6 +2591,158 @@ fn tool_disasm(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     Ok(json!(lines))
 }
 
+/// Disasm `before` instructions ending at `addr`, then `addr` itself,
+/// then `after` instructions following. Backward disasm on m68k is
+/// heuristic (instruction length varies 2-10 bytes), so we try each
+/// possible start offset (target-2, target-4, ..., target-max) and
+/// pick the alignment whose forward disasm lands EXACTLY at target.
+/// That guarantees the `before` window is a valid instruction
+/// boundary, not a misaligned slice mid-instruction.
+///
+/// If no alignment lands exactly at `target` (rare — happens when
+/// target is itself mid-instruction, e.g. a stale pointer), we fall
+/// back to the closest-overshoot alignment so the caller still sees
+/// something coherent + an `aligned: false` flag.
+fn tool_disasm_around(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    let target = arg_u32(&args, "addr")?;
+    let before = arg_u64_or(&args, "before", 4)? as u32;
+    let after = arg_u64_or(&args, "after", 4)? as u32;
+    if before == 0 && after == 0 {
+        return Err(ToolError::InvalidArguments(
+            "at least one of `before` / `after` must be > 0".into(),
+        ));
+    }
+    if before > 32 || after > 64 {
+        return Err(ToolError::InvalidArguments(
+            "before must be 0..=32, after must be 0..=64".into(),
+        ));
+    }
+    let access = s.access();
+    let read = |a: u32| -> u8 {
+        let aligned = a & !3;
+        let long = access.read_long(aligned);
+        let shift = (3 - (a & 3)) * 8;
+        ((long >> shift) & 0xFF) as u8
+    };
+
+    // Find the start offset where forward disasm lands exactly at
+    // target AND produces ≥ `before` instructions. Try every even
+    // offset from largest down to 2 — the first valid alignment that
+    // covers the requested instruction count wins. Fall back to the
+    // largest valid alignment we found if none covers `before`.
+    let max_window = (before as i32 * 12).max(64) as u32;
+    let mut best_aligned: Option<(u32, Vec<(u32, u8, String)>)> = None;
+    let mut closest_overshoot: Option<(u32, i64, Vec<(u32, u8, String)>)> = None;
+
+    // Walk start_off from large to small. The first hit that
+    // produces ≥ before instructions is our answer; otherwise track
+    // the largest alignment we found.
+    let start_step = 2u32;
+    let mut start_off = max_window - (max_window % start_step);
+    if start_off == 0 {
+        start_off = start_step;
+    }
+    while start_off >= start_step {
+        let start = target.wrapping_sub(start_off);
+        let mut pc = start;
+        let mut instrs: Vec<(u32, u8, String)> = Vec::new();
+        for _ in 0..200u32 {
+            if pc == target {
+                break;
+            }
+            if pc > target {
+                break; // overshot — this alignment isn't clean
+            }
+            let (mn, len) = disassemble(pc, read);
+            instrs.push((pc, len, mn));
+            pc = pc.wrapping_add(u32::from(len));
+        }
+        if pc == target && !instrs.is_empty() {
+            // Clean alignment. If it covers the requested count, win.
+            if instrs.len() >= before as usize {
+                best_aligned = Some((start, instrs));
+                break;
+            }
+            // Otherwise track as fallback — keep the largest valid
+            // alignment we've found (this one is larger than any
+            // previous since we iterate large→small).
+            if best_aligned.is_none() {
+                best_aligned = Some((start, instrs));
+            }
+        } else {
+            // Overshoot — track for the no-alignment-at-all fallback.
+            let gap = (pc as i64) - (target as i64);
+            if closest_overshoot
+                .as_ref()
+                .is_none_or(|(_, prev_gap, _)| gap.abs() < prev_gap.abs())
+            {
+                closest_overshoot = Some((start, gap, instrs));
+            }
+        }
+        start_off -= start_step;
+    }
+
+    let (aligned, used_start, before_instrs) = if let Some((start, instrs)) = best_aligned {
+        (true, start, instrs)
+    } else if let Some((start, _, instrs)) = closest_overshoot {
+        (false, start, instrs)
+    } else {
+        (false, target, Vec::new())
+    };
+
+    // Trim before_instrs to the requested count (take the last N).
+    let before_count = (before as usize).min(before_instrs.len());
+    let before_drop = before_instrs.len().saturating_sub(before_count);
+    let mut lines: Vec<Value> = before_instrs
+        .into_iter()
+        .skip(before_drop)
+        .map(|(pc, len, mn)| {
+            let bytes_hex = (0..len)
+                .map(|i| format!("{:02X}", read(pc.wrapping_add(u32::from(i)))))
+                .collect::<Vec<_>>()
+                .join(" ");
+            json!({
+                "addr":   format!("${:08X}", pc),
+                "bytes":  bytes_hex,
+                "disasm": mn,
+                "is_target": false,
+            })
+        })
+        .collect();
+
+    // Now disasm `after + 1` from target (the +1 includes the target
+    // instruction itself).
+    let mut pc = target;
+    for i in 0..=after {
+        let (mn, len) = disassemble(pc, read);
+        let bytes_hex = (0..len)
+            .map(|j| format!("{:02X}", read(pc.wrapping_add(u32::from(j)))))
+            .collect::<Vec<_>>()
+            .join(" ");
+        lines.push(json!({
+            "addr":   format!("${:08X}", pc),
+            "bytes":  bytes_hex,
+            "disasm": mn,
+            "is_target": i == 0,
+        }));
+        pc = pc.wrapping_add(u32::from(len));
+    }
+
+    Ok(json!({
+        "target":         format!("${:08X}", target),
+        "before":         before,
+        "after":          after,
+        "aligned":        aligned,
+        "alignment_start": format!("${:08X}", used_start),
+        "alignment_note": if aligned {
+            "Forward disasm from alignment_start lands exactly at target — `before` instructions are real boundaries."
+        } else {
+            "No clean backward alignment found within search window. `before` entries may be mid-instruction garbage (target itself may be mid-instruction)."
+        },
+        "instructions":   lines,
+    }))
+}
+
 // ─── Registration ─────────────────────────────────────────────────────
 
 /// Registers every Amiga MCP tool on the supplied registry. The order
@@ -2909,6 +3127,32 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "read_task_stack",
         "Walk a parked task's saved stack starting at `tc_SPReg`. Scans every 2-byte boundary for ROM-pointing 32-bit values (the return-PC chain through libraries), optionally cross-referenced against the loaded library list. Returns the assumed KS 3.x Switch-frame decode (SR at sp+0, MOVEM D2-D7/A2-A6 at sp+2, return PC at sp+46) AND a layout-independent ROM-hit scan so misaligned frames still surface useful data. Folds the two-pass byte scan that found the IPrefs Wait-call chain into one tool.",
         read_task_stack_schema, tool_read_task_stack);
+    let disasm_around_schema = json!({
+        "type": "object",
+        "required": ["addr"],
+        "properties": {
+            "addr":   {"description": "Target address (typically a return PC). Decimal int or hex string ($XXX / 0xXXX)."},
+            "before": {"type": "integer", "minimum": 0, "maximum": 32, "default": 4,
+                       "description": "Instructions to disasm BEFORE target. Uses alignment search — tries every even start offset and picks the one whose forward disasm lands exactly at target."},
+            "after":  {"type": "integer", "minimum": 0, "maximum": 64, "default": 4,
+                       "description": "Instructions to disasm AFTER target (target itself is always included)."}
+        }
+    });
+    add(registry, "disasm_around",
+        "Disasm N instructions before and M instructions after a target address. Backward disasm uses alignment search: each even offset before target is tried; the one whose forward disasm lands EXACTLY at target wins. Response carries `aligned: true/false` so the caller can tell if the `before` window is real instructions or mid-instruction garbage. Use after `read_task_stack` to see what called what — point at each return PC, see the JSR/BSR that put it there.",
+        disasm_around_schema, tool_disasm_around);
+    let dump_msgport_messages_schema = json!({
+        "type": "object",
+        "required": ["port"],
+        "properties": {
+            "port": {"description": "MsgPort address — decimal int or hex string."},
+            "max":  {"type": "integer", "minimum": 1, "maximum": 1024, "default": 64,
+                     "description": "Maximum messages to return. `truncated: true` if the walk hit this cap."}
+        }
+    });
+    add(registry, "dump_msgport_messages",
+        "Walk a MsgPort's `mp_MsgList` and decode every queued `struct Message` (mn_ReplyPort, mn_Length, ln_Type / ln_Name). Use after `query_exec_ports` surfaces a port with `msg_count > 0` to see what's waiting to be processed — e.g. pending IORequests at a device port, pending DOS packets at a file-system handler.",
+        dump_msgport_messages_schema, tool_dump_msgport_messages);
     add(registry, "disasm",      "Disassemble `count` m68k instructions starting at `addr`.", disasm_schema, tool_disasm);
     add(registry, "insert_media", "Insert disk media into DF0 (only `adf` kind today; use `change_pending:true` to fire a disk-change event).", insert_media_schema, tool_insert_media);
     add(registry, "eject_media",  "Eject any disk currently in DF0.", empty(), tool_eject_media);
