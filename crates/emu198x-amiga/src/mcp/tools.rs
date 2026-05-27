@@ -432,8 +432,116 @@ fn read_amiga_cstring(
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
+/// Decode Exec ln_Type into the RKM mnemonic. Used to flag
+/// NT_PROCESS (=13) tasks so the inspector can decode their
+/// trailing Process struct.
+fn node_type_label(ln_type: u8) -> &'static str {
+    match ln_type {
+        0 => "UNKNOWN",
+        1 => "TASK",
+        2 => "INTERRUPT",
+        3 => "DEVICE",
+        4 => "MSGPORT",
+        5 => "MESSAGE",
+        6 => "FREEMSG",
+        7 => "REPLYMSG",
+        8 => "RESOURCE",
+        9 => "LIBRARY",
+        10 => "MEMORY",
+        11 => "SOFTINT",
+        12 => "FONT",
+        13 => "PROCESS",
+        14 => "SEMAPHORE",
+        15 => "SIGNALSEM",
+        16 => "BOOTNODE",
+        17 => "KICKMEM",
+        18 => "GRAPHICS",
+        19 => "DEATHMESSAGE",
+        _ => "?",
+    }
+}
+
+/// Decode the Process extension that sits after the Task struct
+/// when `ln_Type == NT_PROCESS` (=13). Offsets are from the start
+/// of the Process struct (= same address as the Task), per
+/// `dos/dosextens.i` in the RKM. BPTRs are stored as
+/// `address >> 2` — we report both the raw BPTR and the converted
+/// byte address so the consumer doesn't have to do the maths.
+fn read_exec_process(
+    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
+    addr: u32,
+) -> Value {
+    // Process struct: pr_Task occupies bytes 0..92 (we already
+    // decoded it). The Process-specific fields begin at +92.
+    let pr_msgport = addr.wrapping_add(92); // struct MsgPort — embedded
+    let pr_seg_list = access.read_long(addr.wrapping_add(128));
+    let pr_stack_size = access.read_long(addr.wrapping_add(132));
+    let pr_glob_vec = access.read_long(addr.wrapping_add(136));
+    let pr_task_num = access.read_long(addr.wrapping_add(140));
+    let pr_stack_base = access.read_long(addr.wrapping_add(144));
+    let pr_result2 = access.read_long(addr.wrapping_add(148));
+    let pr_current_dir = access.read_long(addr.wrapping_add(152));
+    let pr_cis = access.read_long(addr.wrapping_add(156));
+    let pr_cos = access.read_long(addr.wrapping_add(160));
+    let pr_console_task = access.read_long(addr.wrapping_add(164));
+    let pr_fs_task = access.read_long(addr.wrapping_add(168));
+    let pr_cli = access.read_long(addr.wrapping_add(172));
+    let pr_window_ptr = access.read_long(addr.wrapping_add(184));
+    let pr_home_dir = access.read_long(addr.wrapping_add(188)); // 3.0+
+    let pr_flags = access.read_long(addr.wrapping_add(192));    // 3.0+
+    let pr_exit_code = access.read_long(addr.wrapping_add(196));// 3.0+
+    let pr_arguments = access.read_long(addr.wrapping_add(204));
+    let pr_ces = access.read_long(addr.wrapping_add(224));      // 3.0+
+
+    let bptr_to_addr = |b: u32| b.wrapping_shl(2);
+    // BPTR(0) is the BCPL null. Report a `<null>` marker so callers
+    // don't waste time chasing a zero BPTR.
+    let fmt_bptr = |b: u32| {
+        if b == 0 {
+            json!({"bptr": "$00000000", "addr": "<null>"})
+        } else {
+            json!({
+                "bptr": format!("${:08X}", b),
+                "addr": format!("${:08X}", bptr_to_addr(b)),
+            })
+        }
+    };
+
+    // pr_MsgPort is an *embedded* MsgPort (not a pointer to one);
+    // decode it in place using the existing port helper so the
+    // caller can see if any messages have queued up for this Process.
+    let msg_port = read_exec_port(access, pr_msgport);
+
+    json!({
+        "pr_msgport_addr":  format!("${:08X}", pr_msgport),
+        "pr_msgport":       msg_port,
+        "pr_seg_list":      fmt_bptr(pr_seg_list),
+        "pr_stack_size":    pr_stack_size,
+        "pr_glob_vec":      format!("${:08X}", pr_glob_vec),
+        "pr_task_num":      pr_task_num,
+        "pr_stack_base":    fmt_bptr(pr_stack_base),
+        "pr_result2":       pr_result2,
+        "pr_current_dir":   fmt_bptr(pr_current_dir),
+        "pr_cis":           fmt_bptr(pr_cis),
+        "pr_cos":           fmt_bptr(pr_cos),
+        "pr_console_task":  format!("${:08X}", pr_console_task),
+        "pr_fs_task":       format!("${:08X}", pr_fs_task),
+        "pr_cli":           fmt_bptr(pr_cli),
+        "pr_window_ptr":    format!("${:08X}", pr_window_ptr),
+        "pr_home_dir":      fmt_bptr(pr_home_dir),
+        "pr_flags":         format!("${:08X}", pr_flags),
+        "pr_exit_code":     format!("${:08X}", pr_exit_code),
+        "pr_arguments":     format!("${:08X}", pr_arguments),
+        "pr_ces":           fmt_bptr(pr_ces),
+    })
+}
+
 /// Decode one Exec `Task` struct (with embedded `Node` at offset 0)
 /// into JSON. Field offsets follow the AmigaOS RKM (Exec/Tasks).
+/// When `ln_Type == NT_PROCESS` (=13), the trailing Process
+/// extension is decoded too — IPrefs / Workbench / shell are all
+/// Processes, not bare Tasks, so this is essential for tracing
+/// WB-side wedges.
 fn read_exec_task(
     access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
     addr: u32,
@@ -469,12 +577,13 @@ fn read_exec_task(
         6 => "REMOVED",
         _ => "?",
     };
-    json!({
+    let mut obj = json!({
         "addr": format!("${:08X}", addr),
         "ln_name": name,
         "ln_succ": format!("${:08X}", ln_succ),
         "ln_pred": format!("${:08X}", ln_pred),
         "ln_type": ln_type,
+        "ln_type_label": node_type_label(ln_type),
         "ln_pri":  ln_pri,
         "tc_flags": format!("${:02X}", tc_flags),
         "tc_state": tc_state,
@@ -485,7 +594,16 @@ fn read_exec_task(
         "tc_sig_except": format!("${:08X}", tc_sig_except),
         "tc_sp_reg":    format!("${:08X}", tc_sp_reg),
         "tc_user_data": format!("${:08X}", tc_user_data),
-    })
+    });
+    if ln_type == 13 {
+        // NT_PROCESS: decode the trailing Process struct so callers
+        // can see pr_MsgPort, pr_CIS/COS/CES, pr_CurrentDir, etc.
+        let process = read_exec_process(access, addr);
+        if let Value::Object(map) = &mut obj {
+            map.insert("process".to_string(), process);
+        }
+    }
+    obj
 }
 
 /// Walk one Exec `List` (struct at `list_addr`: ln_Head, ln_Tail,
@@ -2055,7 +2173,7 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "query_agnus", "Agnus snapshot (vpos / hpos / bitplane pointers / blitter pointers).", empty(), tool_query_agnus);
     add(registry, "query_blitter","Blitter snapshot (busy, exec_pending, ccks_remaining, APT/BPT/CPT/DPT).", empty(), tool_query_blitter);
     add(registry, "query_exec_tasks",
-        "Walk ExecBase (at $00000004) and dump ThisTask, TaskReady, TaskWait. Each entry decodes the Exec Node (name, type, priority) + Task (state, tc_SigWait, tc_SigRecvd, SP, user data). Use to find what WB.Workbench is blocked on — a non-zero `tc_sig_wait` on the WB task with `tc_state=WAIT` shows the signal it's waiting for.",
+        "Walk ExecBase (at $00000004) and dump ThisTask, TaskReady, TaskWait. Each entry decodes the Exec Node (name, type, priority — `ln_type_label` resolves to TASK / PROCESS / etc.) + Task (state, tc_SigWait, tc_SigRecvd, SP, user data). When `ln_type` is NT_PROCESS (=13) — true for IPrefs, Workbench, the shell, every loaded executable — the entry's `process` field decodes the trailing Process struct: embedded pr_MsgPort (with queued message count!), pr_CIS/COS/CES streams, pr_CurrentDir, pr_HomeDir, pr_CLI, pr_TaskNum. Use to find what WB.Workbench is blocked on (signal-side via tc_sig_wait + tc_state=WAIT) and what messages are queued at its private port (process side).",
         empty(), tool_query_exec_tasks);
     add(registry, "query_exec_ports",
         "Walk ExecBase->PortList (SysBase+392) and dump every public MsgPort: name, mp_SigBit (which signal bit notifies the owner), mp_SigTask (owning task address), mp_Flags (PA_SIGNAL / PA_SOFTINT / PA_IGNORE), and queued-message count. Use to find which port WB.Workbench is blocked on — cross-reference `mp_sigtask` against `query_exec_tasks` Workbench addr, look for the port with the matching `mp_sigbit_mask`.",

@@ -276,6 +276,59 @@ fn mcp_tools_drive_a_real_boot() {
         "memory_scan missed the ExecBase pointer at $00000004; hits={hits:?}"
     );
 
+    // query_exec_tasks must label every entry with the RKM node-type
+    // mnemonic (TASK, PROCESS, etc.) and, when an entry IS an
+    // NT_PROCESS, attach the decoded Process struct. We can't rely on
+    // disk-spawned processes existing here (no disk is inserted in
+    // this smoke test), so we assert the invariant that holds for
+    // every entry: ln_type_label is present, and Process decoding
+    // fires exactly when ln_type == 13.
+    let tasks = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        22,
+        "tools/call",
+        json!({ "name": "query_exec_tasks", "arguments": {} }),
+    ));
+    let mut all_entries: Vec<&Value> = Vec::new();
+    for key in ["task_wait", "task_ready"] {
+        if let Some(arr) = tasks.get(key).and_then(Value::as_array) {
+            all_entries.extend(arr);
+        }
+    }
+    if let Some(this_task) = tasks.get("this_task_info") {
+        if !this_task.is_null() {
+            all_entries.push(this_task);
+        }
+    }
+    assert!(
+        !all_entries.is_empty(),
+        "expected at least one task entry after 300 frames"
+    );
+    for entry in &all_entries {
+        let ln_type = entry.get("ln_type").and_then(Value::as_u64).unwrap();
+        let label = entry.get("ln_type_label").and_then(Value::as_str).unwrap();
+        assert!(!label.is_empty(), "ln_type_label must be populated");
+        let has_process = entry.get("process").is_some();
+        // Process decoder must fire iff the node is NT_PROCESS (13).
+        assert_eq!(
+            has_process,
+            ln_type == 13,
+            "process field presence must match ln_type==NT_PROCESS (got ln_type={ln_type}, label={label}, has_process={has_process})"
+        );
+        if has_process {
+            let p = entry.get("process").unwrap();
+            assert!(
+                p.get("pr_msgport").is_some(),
+                "decoded Process must include pr_msgport"
+            );
+            assert!(
+                p.get("pr_cli").is_some(),
+                "decoded Process must include pr_cli (BPTR-formatted)"
+            );
+        }
+    }
+
     // Eject (nothing inserted) and query: should report has_disk:false.
     let _ = call(
         &mut server,
