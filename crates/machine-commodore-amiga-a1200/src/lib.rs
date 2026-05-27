@@ -627,31 +627,24 @@ impl AmigaA1200 {
                 //   - cop2lc never switches; WB has not built its own
                 //   - disk stops at cylinder 40 in both OCS-fallback and AGA
                 //
-                // Until we identify what AGA-specific chipset behavior
-                // WB's graphics.library / intuition.library is waiting
-                // for, fall back to OCS Agnus IDs ($1000 PAL / $0000
-                // NTSC) — the real-chip 8367 / 8361 values. KS then
-                // sees AGA Denise + OCS Agnus = mismatched chipset and
-                // takes the OCS-compatibility WB boot path. WB renders
-                // properly (Stage AB behavior) — with the known wrong
-                // palette ($0F00 / $00F0 / $0FF0 at COLOR1/2/3 instead
-                // of grey). That palette gap is a separate problem to
-                // fix on the mismatched-chipset path.
+                // Report the real AGA Alice identifier so KS 3.x
+                // takes the full-AGA boot path. The Stage AE handoff
+                // documented that this previously made WB not install
+                // its view; Stage AE-k added ECS blitter extension
+                // support (BLTCON0L / BLTSIZV / BLTSIZH) which the
+                // KS 3.x WB-install code path likely uses too, and
+                // AE-j wired DENISEID to return $FFF8 — so the full
+                // AGA chipset identification chain is now honest.
                 //
-                // After Stage AE-j, `AgnusEcs::from_ocs` overrides the
-                // wrapped OCS Agnus's `agnus_id` to the true ECS 8375
-                // value ($2000/$3000). We undo that here so the
-                // documented OCS-impersonation workaround keeps
-                // working until the WB-install bug is fixed.
-                //
-                // TODO: drop this override and let the AGA Alice
-                // identifier ($2300/$3300) propagate once the AGA WB
-                // boot blocker is identified and fixed.
+                // If WB still fails to install its view after this
+                // change, the bug is something other than blitter
+                // registers and chipset ID — the cpu_trace tooling
+                // added in Stage AE-i is the next investigation step.
                 let mut chained =
                     AgnusAga::from_ecs(AgnusEcs::from_ocs(Agnus::new_with_region(region)));
                 chained.agnus_id = match region {
-                    AgnusRegion::Pal => 0x1000,
-                    AgnusRegion::Ntsc => 0x0000,
+                    AgnusRegion::Pal => 0x2300,
+                    AgnusRegion::Ntsc => 0x3300,
                 };
                 chained
             },
