@@ -416,6 +416,21 @@ pub enum ScriptStep {
         #[serde(default)]
         hold_frames: Option<u32>,
     },
+    /// Type a string of characters, pressing each key in sequence
+    /// with proper hold/release timing. Handles uppercase via
+    /// CapsShift automatically. Newlines in the string press Enter.
+    /// Runs `settle_frames` after the final keystroke (default 10).
+    TypeString {
+        /// The text to type. A-Z, 0-9, space, and newline are
+        /// supported. Uppercase letters use CapsShift automatically.
+        text: String,
+        /// Frames to hold each key (default 3).
+        #[serde(default)]
+        hold_frames: Option<u32>,
+        /// Extra frames to run after the last keystroke (default 10).
+        #[serde(default)]
+        settle_frames: Option<u32>,
+    },
     /// Reset the running machine.
     ///
     /// `kind = "hard"` is a power-cycle equivalent (machine state and
@@ -844,6 +859,13 @@ pub enum ScriptObservation {
         /// Machine time after the press / hold / release sequence.
         reached: crate::MachineTime,
     },
+    /// Result of typing a string.
+    TypeString {
+        /// Number of characters that were typed.
+        chars_typed: u32,
+        /// Machine time after the full string was typed.
+        reached: crate::MachineTime,
+    },
     /// Result of fetching the memory write log.
     WatchMemoryLog {
         /// Current watch range start, or `None` if no watch is active.
@@ -1050,6 +1072,9 @@ impl ScriptStep {
                 step: "watch_ay_log",
             }),
             Self::PressKey { .. } => Err(ScriptError::SystemSpecificStep { step: "press_key" }),
+            Self::TypeString { .. } => {
+                Err(ScriptError::SystemSpecificStep { step: "type_string" })
+            }
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
             }),

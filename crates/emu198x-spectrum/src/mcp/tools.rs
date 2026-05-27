@@ -119,6 +119,11 @@ fn mcp_execute_step(
         ScriptStep::PressKey { key, hold_frames } => {
             execute_press_key(session, key, *hold_frames).map(Some)
         }
+        ScriptStep::TypeString {
+            text,
+            hold_frames,
+            settle_frames,
+        } => execute_type_string(session, text, *hold_frames, *settle_frames).map(Some),
         ScriptStep::AutoloadTape {
             slot,
             max_boot_frames,
@@ -627,6 +632,85 @@ fn execute_press_key(
     })
 }
 
+const DEFAULT_TYPE_STRING_SETTLE_FRAMES: u32 = 10;
+
+fn execute_type_string(
+    session: &mut SpectrumSession,
+    text: &str,
+    hold_frames: Option<u32>,
+    settle_frames: Option<u32>,
+) -> Result<ScriptObservation, ToolError> {
+    let hold = hold_frames
+        .unwrap_or(DEFAULT_PRESS_KEY_HOLD_FRAMES)
+        .max(1)
+        .min(MAX_PRESS_KEY_HOLD_FRAMES);
+    let settle = settle_frames.unwrap_or(DEFAULT_TYPE_STRING_SETTLE_FRAMES);
+    let mut chars_typed: u32 = 0;
+
+    for ch in text.chars() {
+        let (key_name, needs_caps_shift) = match ch {
+            'a'..='z' => (ch.to_ascii_uppercase().to_string(), false),
+            'A'..='Z' => (ch.to_string(), true),
+            '0'..='9' => (ch.to_string(), false),
+            ' ' => ("Space".to_owned(), false),
+            '\n' => ("Enter".to_owned(), false),
+            _ => continue,
+        };
+
+        if common_sinclair_zx_spectrum::keyboard::SpectrumKey::from_name(&key_name).is_none() {
+            continue;
+        }
+
+        // Press CapsShift if needed for uppercase.
+        if needs_caps_shift {
+            session.queue_input(emu198x_shell::InputEvent::Key {
+                name: "CapsShift".to_owned().into(),
+                pressed: true,
+            });
+        }
+
+        // Press the key.
+        session.queue_input(emu198x_shell::InputEvent::Key {
+            name: key_name.clone().into(),
+            pressed: true,
+        });
+        session
+            .run_frames(hold)
+            .map_err(|err| ToolError::Execution(format!("type_string: hold failed: {err}")))?;
+
+        // Release the key.
+        session.queue_input(emu198x_shell::InputEvent::Key {
+            name: key_name.into(),
+            pressed: false,
+        });
+        if needs_caps_shift {
+            session.queue_input(emu198x_shell::InputEvent::Key {
+                name: "CapsShift".to_owned().into(),
+                pressed: false,
+            });
+        }
+
+        // Settle frame between keystrokes.
+        session
+            .run_frames(1)
+            .map_err(|err| ToolError::Execution(format!("type_string: settle failed: {err}")))?;
+
+        chars_typed += 1;
+    }
+
+    // Extra settle after the last key.
+    if settle > 0 {
+        session
+            .run_frames(settle)
+            .map_err(|err| ToolError::Execution(format!("type_string: final settle failed: {err}")))?;
+    }
+
+    Ok(ScriptObservation::TypeString {
+        chars_typed,
+        reached: session.time(),
+    })
+}
+
 fn execute_watch_ay_log(
     session: &SpectrumSession,
     limit: Option<u32>,
@@ -1118,6 +1202,20 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
                 "hold_frames": integer_field(),
             },
             "required": ["key"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "type_string",
+        description: "Type a string of characters with proper per-key hold/release timing. Each character is pressed individually with `hold_frames` (default 3) hold time and a 1-frame settle gap between keystrokes. Uppercase letters automatically use CapsShift. Newlines press Enter. `settle_frames` (default 10) extra frames run after the last keystroke. Much faster than calling press_key per character.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "text": string_field(),
+                "hold_frames": integer_field(),
+                "settle_frames": integer_field(),
+            },
+            "required": ["text"],
         }),
     }));
 
