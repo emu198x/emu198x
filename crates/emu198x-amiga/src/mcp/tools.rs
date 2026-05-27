@@ -23,6 +23,7 @@ use machine_commodore_amiga_a1200::{Adf, FB_HEIGHT, FB_WIDTH, PAL_FRAME_TICKS};
 use motorola_68000::disasm::disassemble;
 use serde_json::{Value, json};
 
+use super::lvo;
 use super::session::AmigaSession;
 
 /// Wrap a closure as a `Tool` impl. The closure receives parsed
@@ -1962,6 +1963,89 @@ fn tool_memory_scan(args: Value, s: &mut AmigaSession) -> Result<Value, ToolErro
     }))
 }
 
+/// Resolve `jsr -N(a6)` style LVO calls to function names. Two
+/// modes:
+///
+/// * `offset` (single integer, positive or negative): resolve one
+///   offset; reply carries `name` (or null) and `match` describing
+///   what happened.
+/// * No `offset`: list every known LVO for the requested library
+///   so the caller can browse the surface.
+///
+/// Always validates the library name against the static table and
+/// returns the supported library list when the name is unknown —
+/// makes it self-documenting for tool users.
+fn tool_resolve_lvo(args: Value, _s: &mut AmigaSession) -> Result<Value, ToolError> {
+    let library = args
+        .get("library")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::InvalidArguments("missing `library` (string)".into()))?;
+    if lvo::lvo_table(library).is_none() {
+        return Ok(json!({
+            "library":            library,
+            "match":              "unknown_library",
+            "supported_libraries": lvo::LIBRARY_NAMES,
+        }));
+    }
+    if let Some(off_value) = args.get("offset") {
+        let offset = if let Some(n) = off_value.as_i64() {
+            i32::try_from(n).map_err(|_| {
+                ToolError::InvalidArguments("offset out of i32 range".into())
+            })?
+        } else if let Some(s) = off_value.as_str() {
+            // accept hex / signed-decimal strings (`-318`, `-0x13E`,
+            // `$13E`). We normalise to negative below regardless.
+            let trimmed = s.trim();
+            let (sign, body) = if let Some(rest) = trimmed.strip_prefix('-') {
+                (-1, rest)
+            } else if let Some(rest) = trimmed.strip_prefix('+') {
+                (1, rest)
+            } else {
+                (1, trimmed)
+            };
+            let (b, radix) = if let Some(rest) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
+                (rest, 16)
+            } else if let Some(rest) = body.strip_prefix('$') {
+                (rest, 16)
+            } else {
+                (body, 10)
+            };
+            let mag = i32::from_str_radix(b, radix).map_err(|_| {
+                ToolError::InvalidArguments(format!("offset `{s}` not parseable"))
+            })?;
+            sign * mag
+        } else {
+            return Err(ToolError::InvalidArguments(
+                "offset must be integer or hex/decimal string".into(),
+            ));
+        };
+        let name = lvo::resolve(library, offset);
+        // Normalise the offset we report back so the caller sees the
+        // canonical negative form even if they passed a magnitude.
+        let canonical = if offset > 0 { -offset } else { offset };
+        return Ok(json!({
+            "library":      library,
+            "offset":       canonical,
+            "offset_input": offset,
+            "name":         name,
+            "match":        if name.is_some() { "hit" } else { "miss" },
+        }));
+    }
+    // No offset → dump the full table for the library.
+    let table = lvo::lvo_table(library).unwrap();
+    let entries: Vec<Value> = table
+        .iter()
+        .map(|(off, name)| json!({"offset": *off, "name": *name}))
+        .collect();
+    let entry_count = entries.len();
+    Ok(json!({
+        "library":     library,
+        "match":       "library_dump",
+        "entries":     entries,
+        "entry_count": entry_count,
+    }))
+}
+
 fn tool_disasm(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     let addr = arg_u32(&args, "addr")?;
     let count = arg_u64_or(&args, "count", 8)? as u32;
@@ -2331,6 +2415,22 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "memory_scan",
         "Scan a memory range for every aligned 32-bit longword whose value matches `value` (optionally AND'd with `mask`). Returns matching addresses + their values. Use to find structures that reference a known pointer — e.g. scan chip RAM for the WB task address to surface every MsgPort whose `mp_SigTask` field names WB.",
         memory_scan_schema, tool_memory_scan);
+    let resolve_lvo_schema = json!({
+        "type": "object",
+        "required": ["library"],
+        "properties": {
+            "library": {
+                "type": "string",
+                "description": "Library name: `exec.library`, `dos.library`, `intuition.library`, `graphics.library`, or `cia.resource`."
+            },
+            "offset": {
+                "description": "LVO offset — negative (`-318`) or absolute (`318`); decimal or hex (`$13E`, `0x13E`) string accepted. If omitted, the full LVO table for the library is returned."
+            }
+        }
+    });
+    add(registry, "resolve_lvo",
+        "Resolve a `jsr -N(a6)` LVO offset to its function name using the NDK 3.2 library tables (exec / dos / intuition / graphics + cia.resource). Omit `offset` to dump the entire library's LVO table. Match modes returned: `hit`, `miss`, `unknown_library`, `library_dump`.",
+        resolve_lvo_schema, tool_resolve_lvo);
     add(registry, "disasm",      "Disassemble `count` m68k instructions starting at `addr`.", disasm_schema, tool_disasm);
     add(registry, "insert_media", "Insert disk media into DF0 (only `adf` kind today; use `change_pending:true` to fire a disk-change event).", insert_media_schema, tool_insert_media);
     add(registry, "eject_media",  "Eject any disk currently in DF0.", empty(), tool_eject_media);

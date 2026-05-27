@@ -17,6 +17,8 @@ use std::path::PathBuf;
 use emu198x_shell::mcp::{JsonRpcId, JsonRpcRequest, Server, ServerInfo};
 use serde_json::{Value, json};
 
+#[path = "../src/mcp/lvo.rs"]
+mod lvo;
 #[path = "../src/mcp/session.rs"]
 mod session;
 #[path = "../src/mcp/tools.rs"]
@@ -126,6 +128,7 @@ fn mcp_server_boots_and_lists_tools() {
         "memory_read",
         "memory_read_long",
         "memory_scan",
+        "resolve_lvo",
         "disasm",
         "insert_media",
         "eject_media",
@@ -328,6 +331,81 @@ fn mcp_tools_drive_a_real_boot() {
             );
         }
     }
+
+    // resolve_lvo: known offset must hit; unknown library must
+    // report `unknown_library` + the supported list; omitted offset
+    // must dump the full table.
+    let lvo_hit = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        23,
+        "tools/call",
+        json!({
+            "name": "resolve_lvo",
+            "arguments": { "library": "exec.library", "offset": -318 }
+        }),
+    ));
+    assert_eq!(lvo_hit.get("match").and_then(Value::as_str), Some("hit"));
+    assert_eq!(lvo_hit.get("name").and_then(Value::as_str), Some("Wait"));
+    assert_eq!(
+        lvo_hit.get("offset").and_then(Value::as_i64),
+        Some(-318),
+        "resolver must normalise to negative form"
+    );
+    let lvo_pos = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        24,
+        "tools/call",
+        json!({
+            "name": "resolve_lvo",
+            "arguments": { "library": "dos.library", "offset": "84" }
+        }),
+    ));
+    assert_eq!(lvo_pos.get("name").and_then(Value::as_str), Some("Lock"));
+    let lvo_bad = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        25,
+        "tools/call",
+        json!({
+            "name": "resolve_lvo",
+            "arguments": { "library": "nosuch.library" }
+        }),
+    ));
+    assert_eq!(
+        lvo_bad.get("match").and_then(Value::as_str),
+        Some("unknown_library")
+    );
+    let supported = lvo_bad
+        .get("supported_libraries")
+        .and_then(Value::as_array)
+        .expect("unknown_library response carries supported list");
+    assert!(supported.iter().any(|v| v.as_str() == Some("exec.library")));
+
+    let lvo_dump = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        26,
+        "tools/call",
+        json!({
+            "name": "resolve_lvo",
+            "arguments": { "library": "graphics.library" }
+        }),
+    ));
+    assert_eq!(
+        lvo_dump.get("match").and_then(Value::as_str),
+        Some("library_dump")
+    );
+    let entries = lvo_dump
+        .get("entries")
+        .and_then(Value::as_array)
+        .expect("library_dump carries entries");
+    assert!(
+        entries.len() > 100,
+        "graphics.library has ~163 entries, got {}",
+        entries.len()
+    );
 
     // Eject (nothing inserted) and query: should report has_disk:false.
     let _ = call(

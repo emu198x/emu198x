@@ -33,6 +33,7 @@
 //!
 //! [`AmigaLiveAccess`]: runtime_commodore_amiga::AmigaLiveAccess
 
+mod lvo;
 mod session;
 mod tools;
 
