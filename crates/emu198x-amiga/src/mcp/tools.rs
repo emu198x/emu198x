@@ -795,6 +795,88 @@ fn tool_dump_msgport_messages(args: Value, s: &mut AmigaSession) -> Result<Value
     }))
 }
 
+/// Inject signal bits into a task's tc_SigRecvd. This is a
+/// debugging-only mutator — it ORs bits into tc_SigRecvd. It does
+/// NOT call exec's Signal() and does NOT touch tc_State or the
+/// TaskReady/TaskWait lists.
+///
+/// Important: this is NOT a wake-up tool. In real exec, Signal()
+/// performs the wake transition synchronously inside the API call —
+/// move from TaskWait → TaskReady, set tc_State = READY, kick the
+/// dispatcher. The scheduler itself does NOT poll tc_SigRecvd; it
+/// acts only on the API path. So writing tc_SigRecvd from outside
+/// makes the bits *visible* on the task struct (a subsequent
+/// `query_exec_tasks` will see them) but the task stays parked
+/// until something else triggers the list manipulation.
+///
+/// Use cases:
+///   * Inspect the wake-condition. Set bits, run a frame, see if
+///     the task got woken (it usually won't, for the reason above
+///     — that itself is useful info: it tells you the OS path
+///     responsible for delivering the signal hasn't run).
+///   * Pre-stage bits so the NEXT scheduler-driven Wait() call
+///     returns immediately (because sig_recvd will already cover
+///     sig_wait when Wait() checks).
+///
+/// Safety notes:
+///   * If the bits you set don't intersect tc_SigAlloc, the task
+///     wasn't expecting them and may produce unexpected behaviour
+///     when it next checks signals.
+///   * `would_wake` in the response is `(sig_recvd_after &
+///     sig_wait) != 0 && state == WAIT` — i.e. "the wake CONDITION
+///     is satisfied". Whether the task actually wakes depends on
+///     whether something invokes Signal() afterwards.
+fn tool_signal_task(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    let task_addr = arg_u32(&args, "task_addr")?;
+    let signals = arg_u32(&args, "signals")?;
+    // Read current state for the before snapshot + a sanity check
+    // that this looks like a Task.
+    let (old_sig_recvd, sig_alloc, sig_wait, tc_state) = {
+        let access = s.access();
+        let type_pri = access.read_word(task_addr.wrapping_add(8));
+        let ln_type = (type_pri >> 8) as u8;
+        // NT_TASK = 1, NT_PROCESS = 13. Anything else and the user
+        // likely passed an address that isn't a Task.
+        if ln_type != 1 && ln_type != 13 {
+            return Err(ToolError::InvalidArguments(format!(
+                "address ${:08X} has ln_type={ln_type} ({}) — not NT_TASK (1) or NT_PROCESS (13)",
+                task_addr,
+                node_type_label(ln_type),
+            )));
+        }
+        let flags_state = access.read_word(task_addr.wrapping_add(14));
+        let state = (flags_state & 0xFF) as u8;
+        let alloc = access.read_long(task_addr.wrapping_add(18));
+        let wait = access.read_long(task_addr.wrapping_add(22));
+        let recvd = access.read_long(task_addr.wrapping_add(26));
+        (recvd, alloc, wait, state)
+    };
+    let new_sig_recvd = old_sig_recvd | signals;
+    // Write back via two word pokes (poke_long isn't on the trait).
+    {
+        let access = s.access_mut();
+        access.poke_word(task_addr.wrapping_add(26), (new_sig_recvd >> 16) as u16);
+        access.poke_word(task_addr.wrapping_add(28), (new_sig_recvd & 0xFFFF) as u16);
+    }
+    let would_wake = (new_sig_recvd & sig_wait) != 0 && tc_state == 4; // 4 = WAIT
+    Ok(json!({
+        "task_addr":         format!("${:08X}", task_addr),
+        "signals_requested": format!("${:08X}", signals),
+        "sig_recvd_before":  format!("${:08X}", old_sig_recvd),
+        "sig_recvd_after":   format!("${:08X}", new_sig_recvd),
+        "sig_alloc":         format!("${:08X}", sig_alloc),
+        "sig_wait":          format!("${:08X}", sig_wait),
+        "tc_state":          tc_state,
+        "tc_state_label":    match tc_state {
+            0 => "INVALID", 1 => "ADDED", 2 => "RUN", 3 => "READY",
+            4 => "WAIT", 5 => "EXCEPT", 6 => "REMOVED", _ => "?",
+        },
+        "bits_outside_sig_alloc": format!("${:08X}", signals & !sig_alloc),
+        "would_wake":             would_wake,
+        "scheduler_kick_note":    "Bits are written to tc_SigRecvd. The task is NOT moved to TaskReady — real exec's Signal() does that synchronously, the scheduler does not poll. To force a wake, use a future `wake_task` tool or call into exec.Signal yourself.",
+    }))
+}
+
 fn tool_query_exec_ports(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     // ExecBase->PortList lives at SysBase + 392.
     let access = s.access();
@@ -3153,6 +3235,17 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "dump_msgport_messages",
         "Walk a MsgPort's `mp_MsgList` and decode every queued `struct Message` (mn_ReplyPort, mn_Length, ln_Type / ln_Name). Use after `query_exec_ports` surfaces a port with `msg_count > 0` to see what's waiting to be processed — e.g. pending IORequests at a device port, pending DOS packets at a file-system handler.",
         dump_msgport_messages_schema, tool_dump_msgport_messages);
+    let signal_task_schema = json!({
+        "type": "object",
+        "required": ["task_addr", "signals"],
+        "properties": {
+            "task_addr": {"description": "Task / Process address — decimal int or hex string."},
+            "signals":   {"description": "32-bit signal mask to OR into tc_SigRecvd. e.g. $00001000 to set bit 12 (one of the DOS-private signals)."}
+        }
+    });
+    add(registry, "signal_task",
+        "MUTATOR: OR `signals` into a task's tc_SigRecvd. This is NOT a wake-up tool — exec's Signal() does the wake transition (move to TaskReady, set tc_State = READY) synchronously inside the API call, and the scheduler does NOT poll tc_SigRecvd. This tool ONLY updates the field; the task stays parked until something else triggers the list move. Useful for (1) inspecting whether the bits would satisfy the wake condition (response's `would_wake` flag), and (2) pre-staging bits so the next Wait() call returns immediately when reached.",
+        signal_task_schema, tool_signal_task);
     add(registry, "disasm",      "Disassemble `count` m68k instructions starting at `addr`.", disasm_schema, tool_disasm);
     add(registry, "insert_media", "Insert disk media into DF0 (only `adf` kind today; use `change_pending:true` to fire a disk-change event).", insert_media_schema, tool_insert_media);
     add(registry, "eject_media",  "Eject any disk currently in DF0.", empty(), tool_eject_media);

@@ -133,6 +133,7 @@ fn mcp_server_boots_and_lists_tools() {
         "address_to_library",
         "read_task_stack",
         "dump_msgport_messages",
+        "signal_task",
         "disasm",
         "disasm_around",
         "insert_media",
@@ -601,6 +602,76 @@ fn mcp_tools_drive_a_real_boot() {
             assert!(
                 dump.get("port").and_then(Value::as_object).is_some(),
                 "response must echo the decoded port header"
+            );
+        }
+    }
+
+    // signal_task: pick the first task in TaskWait, OR an extra signal
+    // bit into it, then re-query and confirm the bit is now set.
+    // Crucially: we set a bit OUTSIDE sig_wait so the task doesn't
+    // actually wake — keeps the test reproducible across runs.
+    let tasks2 = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        37,
+        "tools/call",
+        json!({ "name": "query_exec_tasks", "arguments": {} }),
+    ));
+    if let Some(waiters) = tasks2.get("task_wait").and_then(Value::as_array) {
+        if let Some(first) = waiters.first() {
+            let task_addr = first.get("addr").and_then(Value::as_str).unwrap();
+            let sig_wait_str = first.get("tc_sig_wait").and_then(Value::as_str).unwrap();
+            let sig_wait = u32::from_str_radix(sig_wait_str.trim_start_matches('$'), 16).unwrap();
+            // Pick a bit NOT in sig_wait. Bit 0 is always allocated by
+            // exec to signify "memory list change", but not waited on
+            // here. If it happens to be in sig_wait, walk up the bits.
+            let mut probe_bit: u32 = 0;
+            for b in 0..32 {
+                if (sig_wait & (1 << b)) == 0 {
+                    probe_bit = 1 << b;
+                    break;
+                }
+            }
+            assert!(
+                probe_bit != 0,
+                "couldn't find an unwaited signal bit on the first waiter"
+            );
+            let signal = unwrap_tool_text(&call(
+                &mut server,
+                &mut session,
+                38,
+                "tools/call",
+                json!({
+                    "name": "signal_task",
+                    "arguments": { "task_addr": task_addr, "signals": probe_bit }
+                }),
+            ));
+            assert_eq!(
+                signal.get("would_wake").and_then(Value::as_bool),
+                Some(false),
+                "we picked a bit OUTSIDE sig_wait — wake-up must be false"
+            );
+            // Re-query the task and confirm tc_sig_recvd carries the
+            // bit we injected.
+            let tasks3 = unwrap_tool_text(&call(
+                &mut server,
+                &mut session,
+                39,
+                "tools/call",
+                json!({ "name": "query_exec_tasks", "arguments": {} }),
+            ));
+            let after = tasks3
+                .get("task_wait")
+                .and_then(Value::as_array)
+                .unwrap()
+                .iter()
+                .find(|e| e.get("addr").and_then(Value::as_str) == Some(task_addr))
+                .expect("task must still be in TaskWait — we didn't trigger a wake");
+            let recvd_str = after.get("tc_sig_recvd").and_then(Value::as_str).unwrap();
+            let recvd = u32::from_str_radix(recvd_str.trim_start_matches('$'), 16).unwrap();
+            assert!(
+                (recvd & probe_bit) != 0,
+                "signal_task didn't persist: tc_sig_recvd={recvd_str} probe_bit=${probe_bit:08X}"
             );
         }
     }
