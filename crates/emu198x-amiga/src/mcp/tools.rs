@@ -1771,6 +1771,79 @@ fn tool_memory_read_long(args: Value, s: &mut AmigaSession) -> Result<Value, Too
     }))
 }
 
+/// Scan a memory range for every longword-aligned address whose
+/// 32-bit big-endian value matches `value`. Generalises the chip-RAM
+/// scan that found Workbench's private MsgPorts (every MsgPort's
+/// mp_SigTask field points at its owner task — scanning for the task
+/// address surfaces the ports). `max_hits` caps the response so a
+/// bad mask doesn't return megabytes of matches.
+fn tool_memory_scan(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    let start = arg_u32(&args, "start")?;
+    let end = arg_u32(&args, "end")?;
+    if end <= start {
+        return Err(ToolError::InvalidArguments(
+            "`end` must be greater than `start`".into(),
+        ));
+    }
+    let span = end.saturating_sub(start);
+    if span > 16 * 1024 * 1024 {
+        return Err(ToolError::InvalidArguments(
+            "scan span exceeds 16 MiB — narrow the range".into(),
+        ));
+    }
+    let value = arg_u32(&args, "value")?;
+    let mask = match args.get("mask") {
+        Some(v) if !v.is_null() => arg_u32(&args, "mask")?,
+        _ => 0xFFFF_FFFF,
+    };
+    let max_hits = arg_u64_or(&args, "max_hits", 256)? as usize;
+    let stride = arg_u64_or(&args, "stride", 2)? as u32;
+    if stride == 0 || (stride & 1) != 0 {
+        return Err(ToolError::InvalidArguments(
+            "`stride` must be a positive even number (longword reads need 2-byte alignment)".into(),
+        ));
+    }
+    let target = value & mask;
+    let access = s.access();
+    let mut hits: Vec<Value> = Vec::new();
+    let mut scanned: u64 = 0;
+    let mut truncated = false;
+    let aligned_start = start & !1;
+    let mut addr = aligned_start;
+    while addr.wrapping_add(3) < end && addr.wrapping_add(3) >= addr {
+        let v = access.read_long(addr);
+        scanned += 1;
+        if (v & mask) == target {
+            if hits.len() >= max_hits {
+                truncated = true;
+                break;
+            }
+            hits.push(json!({
+                "addr": format!("${:08X}", addr),
+                "value": format!("${:08X}", v),
+            }));
+        }
+        let next = addr.wrapping_add(stride);
+        if next <= addr {
+            break;
+        }
+        addr = next;
+    }
+    let hit_count = hits.len();
+    Ok(json!({
+        "start":     format!("${:08X}", start),
+        "end":       format!("${:08X}", end),
+        "stride":    stride,
+        "value":     format!("${:08X}", value),
+        "mask":      format!("${:08X}", mask),
+        "scanned":   scanned,
+        "hits":      hits,
+        "hit_count": hit_count,
+        "truncated": truncated,
+        "max_hits":  max_hits,
+    }))
+}
+
 fn tool_disasm(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     let addr = arg_u32(&args, "addr")?;
     let count = arg_u64_or(&args, "count", 8)? as u32;
@@ -2123,6 +2196,23 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "query_stack", "Read `count` longwords off SSP (or USP via `usp:true`).", stack_schema, tool_query_stack);
     add(registry, "memory_read", "Read raw bytes from any address (chip RAM / ROM / chipset).", memory_schema, tool_memory_read);
     add(registry, "memory_read_long", "Read a 32-bit longword from an address.", addr_only, tool_memory_read_long);
+    let memory_scan_schema = json!({
+        "type": "object",
+        "required": ["start", "end", "value"],
+        "properties": {
+            "start":    {"description": "Inclusive start address (hex string `$XXX` / `0xXXX` or decimal). Forced to even alignment."},
+            "end":      {"description": "Exclusive end address; the last longword read is the one whose final byte is `< end`."},
+            "value":    {"description": "32-bit big-endian longword to match. Use a known pointer (e.g. a task address) to find every structure that references it."},
+            "mask":     {"description": "Optional AND mask applied to the read value before comparison (default $FFFFFFFF — exact match)."},
+            "stride":   {"type": "integer", "minimum": 2, "default": 2,
+                         "description": "Byte step between reads. Default 2 (word-aligned). Use 4 for longword-aligned-only sweeps (e.g. MsgPort.mp_SigTask is always longword-aligned)."},
+            "max_hits": {"type": "integer", "minimum": 1, "default": 256,
+                         "description": "Hard cap on returned hits. The reply sets `truncated: true` if reached. Scan span is capped at 16 MiB regardless."}
+        }
+    });
+    add(registry, "memory_scan",
+        "Scan a memory range for every aligned 32-bit longword whose value matches `value` (optionally AND'd with `mask`). Returns matching addresses + their values. Use to find structures that reference a known pointer — e.g. scan chip RAM for the WB task address to surface every MsgPort whose `mp_SigTask` field names WB.",
+        memory_scan_schema, tool_memory_scan);
     add(registry, "disasm",      "Disassemble `count` m68k instructions starting at `addr`.", disasm_schema, tool_disasm);
     add(registry, "insert_media", "Insert disk media into DF0 (only `adf` kind today; use `change_pending:true` to fire a disk-change event).", insert_media_schema, tool_insert_media);
     add(registry, "eject_media",  "Eject any disk currently in DF0.", empty(), tool_eject_media);

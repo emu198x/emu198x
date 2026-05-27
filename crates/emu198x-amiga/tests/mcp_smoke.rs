@@ -125,6 +125,7 @@ fn mcp_server_boots_and_lists_tools() {
         "query_stack",
         "memory_read",
         "memory_read_long",
+        "memory_scan",
         "disasm",
         "insert_media",
         "eject_media",
@@ -221,6 +222,58 @@ fn mcp_tools_drive_a_real_boot() {
     assert!(
         bplcon0_move,
         "expected the copper list to contain a MOVE to BPLCON0 ($0100); got: {entries:?}"
+    );
+
+    // memory_scan should find the ExecBase pointer ($00000004) referenced
+    // from itself or from chip-RAM structures that cache it. At minimum we
+    // expect *some* match — Exec writes its own base into several Node
+    // ln_Name fields and library jump-table slots. Use a tight chip-RAM
+    // window so the test stays fast.
+    let exec_base = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        20,
+        "tools/call",
+        json!({ "name": "memory_read_long", "arguments": { "addr": "$00000004" } }),
+    ));
+    let exec_base_str = exec_base
+        .get("value")
+        .and_then(Value::as_str)
+        .expect("memory_read_long returns value");
+    let scan = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        21,
+        "tools/call",
+        json!({
+            "name": "memory_scan",
+            "arguments": {
+                "start": "$00000000",
+                "end":   "$00010000",
+                "value": exec_base_str,
+                "stride": 4,
+                "max_hits": 8
+            }
+        }),
+    ));
+    assert_eq!(
+        scan.get("value").and_then(Value::as_str),
+        Some(exec_base_str)
+    );
+    let scanned = scan.get("scanned").and_then(Value::as_u64).unwrap();
+    assert!(scanned > 0, "memory_scan reported zero longwords scanned");
+    let hits = scan.get("hits").and_then(Value::as_array).unwrap();
+    let hit_count = scan.get("hit_count").and_then(Value::as_u64).unwrap();
+    assert_eq!(hits.len() as u64, hit_count);
+    // The longword at $00000004 IS the ExecBase pointer, so it must
+    // appear in the hit list when we scan from $00000000.
+    let self_hit = hits.iter().any(|h| {
+        h.get("addr").and_then(Value::as_str) == Some("$00000004")
+            && h.get("value").and_then(Value::as_str) == Some(exec_base_str)
+    });
+    assert!(
+        self_hit,
+        "memory_scan missed the ExecBase pointer at $00000004; hits={hits:?}"
     );
 
     // Eject (nothing inserted) and query: should report has_disk:false.
