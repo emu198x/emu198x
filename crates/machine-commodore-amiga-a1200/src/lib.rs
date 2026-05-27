@@ -1491,7 +1491,7 @@ impl AmigaA1200 {
                 0x00A => joydat(self.joy0_x, self.joy0_y),
                 0x00C => joydat(self.joy1_x, self.joy1_y),
                 // DENISEID — KS reads this to discriminate AGA Lisa
-                // ($FFF8) from ECS Super Denise ($FFFC) and OCS
+                // ($00F8) from ECS Super Denise ($FFFC) and OCS
                 // Denise ($FFFF, open bus). A1200 = Lisa.
                 0x07C => self.denise.deniseid(),
                 // Paula-owned read-side registers.
