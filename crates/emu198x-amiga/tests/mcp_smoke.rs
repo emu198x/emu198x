@@ -134,6 +134,7 @@ fn mcp_server_boots_and_lists_tools() {
         "read_task_stack",
         "dump_msgport_messages",
         "signal_task",
+        "wake_task",
         "disasm",
         "disasm_around",
         "insert_media",
@@ -672,6 +673,65 @@ fn mcp_tools_drive_a_real_boot() {
             assert!(
                 (recvd & probe_bit) != 0,
                 "signal_task didn't persist: tc_sig_recvd={recvd_str} probe_bit=${probe_bit:08X}"
+            );
+        }
+    }
+
+    // wake_task: pick a fresh waiter (not the same one we poked
+    // above — its sig_recvd may now overlap sig_wait), wake it,
+    // confirm state transitions to READY and the task no longer
+    // appears in TaskWait.
+    let tasks4 = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        40,
+        "tools/call",
+        json!({ "name": "query_exec_tasks", "arguments": {} }),
+    ));
+    if let Some(waiters) = tasks4.get("task_wait").and_then(Value::as_array) {
+        // Pick the LAST waiter to avoid colliding with the
+        // signal_task target above (which was the first).
+        if let Some(last) = waiters.last() {
+            let target = last.get("addr").and_then(Value::as_str).unwrap();
+            let resp = unwrap_tool_text(&call(
+                &mut server,
+                &mut session,
+                41,
+                "tools/call",
+                json!({
+                    "name": "wake_task",
+                    "arguments": { "task_addr": target }
+                }),
+            ));
+            assert_eq!(
+                resp.get("state_after").and_then(Value::as_u64),
+                Some(3),
+                "wake_task must set state_after = READY (3)"
+            );
+            assert_eq!(
+                resp.get("wake_condition_met").and_then(Value::as_bool),
+                Some(true),
+                "default signals = sig_wait, so wake condition must be met"
+            );
+            // Verify the task moved lists.
+            let tasks5 = unwrap_tool_text(&call(
+                &mut server,
+                &mut session,
+                42,
+                "tools/call",
+                json!({ "name": "query_exec_tasks", "arguments": {} }),
+            ));
+            let still_waiting = tasks5
+                .get("task_wait")
+                .and_then(Value::as_array)
+                .map(|v| {
+                    v.iter()
+                        .any(|e| e.get("addr").and_then(Value::as_str) == Some(target))
+                })
+                .unwrap_or(false);
+            assert!(
+                !still_waiting,
+                "task ${target} must have been removed from TaskWait"
             );
         }
     }

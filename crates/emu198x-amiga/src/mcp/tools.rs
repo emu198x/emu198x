@@ -877,6 +877,144 @@ fn tool_signal_task(args: Value, s: &mut AmigaSession) -> Result<Value, ToolErro
     }))
 }
 
+/// Helper: write a 32-bit longword via two 16-bit pokes. The
+/// AmigaLiveAccess trait has poke_byte / poke_word but not poke_long.
+fn poke_long(access: &mut dyn runtime_commodore_amiga::AmigaLiveAccess, addr: u32, value: u32) {
+    access.poke_word(addr, (value >> 16) as u16);
+    access.poke_word(addr.wrapping_add(2), (value & 0xFFFF) as u16);
+}
+
+/// MUTATOR: do the full TaskWait → TaskReady transition that exec's
+/// Signal() performs internally. Unlinks the node from TaskWait,
+/// appends to TaskReady (at the tail — exec normally enqueues by
+/// priority, but the dispatcher will run any READY task on the next
+/// switch). Sets tc_State = READY. Optionally ORs `signals` into
+/// tc_SigRecvd first; if not provided, defaults to OR'ing in
+/// tc_SigWait so that the task's pending Wait() call returns
+/// immediately when the dispatcher resumes it.
+///
+/// This bypasses Forbid/Permit and the supervisor-mode invariants
+/// that real exec maintains around list manipulation. It is a
+/// debugging tool only — use for testing "would the wedge clear
+/// if this task could just run?" hypotheses.
+///
+/// Safety:
+///   * Only operates on tasks in WAIT state. Tasks in RUN / READY
+///     / ADDED / EXCEPT are rejected.
+///   * Validates list integrity (ln_Pred.ln_Succ == task &&
+///     ln_Succ.ln_Pred == task) before unlinking. A corrupt list is
+///     refused — bailing out is safer than scribbling.
+fn tool_wake_task(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    let task_addr = arg_u32(&args, "task_addr")?;
+    let extra_signals = match args.get("signals") {
+        Some(v) if !v.is_null() => Some(arg_u32(&args, "signals")?),
+        _ => None,
+    };
+    // Pre-flight: confirm this is a Task/Process in WAIT state.
+    let (state_before, sig_wait, sig_alloc, sig_recvd_before, ln_succ, ln_pred) = {
+        let access = s.access();
+        let type_pri = access.read_word(task_addr.wrapping_add(8));
+        let ln_type = (type_pri >> 8) as u8;
+        if ln_type != 1 && ln_type != 13 {
+            return Err(ToolError::InvalidArguments(format!(
+                "address ${:08X} has ln_type={ln_type} ({}) — not NT_TASK (1) or NT_PROCESS (13)",
+                task_addr,
+                node_type_label(ln_type),
+            )));
+        }
+        let flags_state = access.read_word(task_addr.wrapping_add(14));
+        let state = (flags_state & 0xFF) as u8;
+        if state != 4 {
+            return Err(ToolError::InvalidArguments(format!(
+                "task ${:08X} is in state {} ({}) — wake_task only operates on WAIT (4)",
+                task_addr,
+                state,
+                match state {
+                    0 => "INVALID", 1 => "ADDED", 2 => "RUN", 3 => "READY",
+                    4 => "WAIT", 5 => "EXCEPT", 6 => "REMOVED", _ => "?",
+                },
+            )));
+        }
+        (
+            state,
+            access.read_long(task_addr.wrapping_add(22)),
+            access.read_long(task_addr.wrapping_add(18)),
+            access.read_long(task_addr.wrapping_add(26)),
+            access.read_long(task_addr),                  // ln_Succ
+            access.read_long(task_addr.wrapping_add(4)),  // ln_Pred
+        )
+    };
+    // List-integrity check. In a healthy list:
+    //   task.ln_Pred.ln_Succ == task
+    //   task.ln_Succ.ln_Pred == task
+    {
+        let access = s.access();
+        let pred_succ = access.read_long(ln_pred);
+        let succ_pred = access.read_long(ln_succ.wrapping_add(4));
+        if pred_succ != task_addr || succ_pred != task_addr {
+            return Err(ToolError::Execution(format!(
+                "list integrity check failed: pred.succ=${:08X}, succ.pred=${:08X}, task=${:08X} — bailing rather than scribble a bad list",
+                pred_succ, succ_pred, task_addr,
+            )));
+        }
+    }
+    // OR in the wake signals. Default = sig_wait (Wait() returns
+    // immediately when the dispatcher resumes the task).
+    let signals = extra_signals.unwrap_or(sig_wait);
+    let sig_recvd_after = sig_recvd_before | signals;
+    // Locate TaskReady list. SysBase + 406.
+    let exec_base = {
+        let access = s.access();
+        access.read_long(0x0000_0004)
+    };
+    if exec_base == 0 {
+        return Err(ToolError::Execution(
+            "ExecBase is null — can't locate TaskReady list".into(),
+        ));
+    }
+    let task_ready_head = exec_base.wrapping_add(406);
+    // Snapshot the TaskReady list's lh_TailPred so we can append.
+    let ready_tail_pred = {
+        let access = s.access();
+        access.read_long(task_ready_head.wrapping_add(8))
+    };
+    let access = s.access_mut();
+    // 1. Write the wake signals.
+    poke_long(access, task_addr.wrapping_add(26), sig_recvd_after);
+    // 2. Unlink the task from its current list (TaskWait):
+    //      task.ln_Pred.ln_Succ = task.ln_Succ
+    //      task.ln_Succ.ln_Pred = task.ln_Pred
+    poke_long(access, ln_pred, ln_succ);
+    poke_long(access, ln_succ.wrapping_add(4), ln_pred);
+    // 3. Append the task to TaskReady's tail.
+    //    new node's ln_Succ = &lh_Tail (= task_ready_head + 4)
+    //    new node's ln_Pred = old_tail_pred
+    //    old_tail_pred.ln_Succ = task
+    //    task_ready_head.lh_TailPred = task
+    poke_long(access, task_addr, task_ready_head.wrapping_add(4));
+    poke_long(access, task_addr.wrapping_add(4), ready_tail_pred);
+    poke_long(access, ready_tail_pred, task_addr);
+    poke_long(access, task_ready_head.wrapping_add(8), task_addr);
+    // 4. Set tc_State = READY (3). Keep the existing tc_Flags byte.
+    let flags_state = access.read_word(task_addr.wrapping_add(14));
+    let new_flags_state = (flags_state & 0xFF00) | 3;
+    access.poke_word(task_addr.wrapping_add(14), new_flags_state);
+    Ok(json!({
+        "task_addr":           format!("${:08X}", task_addr),
+        "state_before":        state_before,
+        "state_before_label":  "WAIT",
+        "state_after":         3,
+        "state_after_label":   "READY",
+        "sig_recvd_before":    format!("${:08X}", sig_recvd_before),
+        "sig_recvd_after":     format!("${:08X}", sig_recvd_after),
+        "sig_wait":            format!("${:08X}", sig_wait),
+        "sig_alloc":           format!("${:08X}", sig_alloc),
+        "signals_applied":     format!("${:08X}", signals),
+        "wake_condition_met":  (sig_recvd_after & sig_wait) != 0,
+        "next_step_note":      "Task is now in TaskReady. Call `run_frames` to let the dispatcher pick it up — usually the next VBlank IRQ triggers a Switch into the task.",
+    }))
+}
+
 fn tool_query_exec_ports(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     // ExecBase->PortList lives at SysBase + 392.
     let access = s.access();
@@ -3246,6 +3384,17 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "signal_task",
         "MUTATOR: OR `signals` into a task's tc_SigRecvd. This is NOT a wake-up tool — exec's Signal() does the wake transition (move to TaskReady, set tc_State = READY) synchronously inside the API call, and the scheduler does NOT poll tc_SigRecvd. This tool ONLY updates the field; the task stays parked until something else triggers the list move. Useful for (1) inspecting whether the bits would satisfy the wake condition (response's `would_wake` flag), and (2) pre-staging bits so the next Wait() call returns immediately when reached.",
         signal_task_schema, tool_signal_task);
+    let wake_task_schema = json!({
+        "type": "object",
+        "required": ["task_addr"],
+        "properties": {
+            "task_addr": {"description": "Task / Process address — decimal int or hex string. Must currently be in WAIT state."},
+            "signals":   {"description": "Optional signal bits to OR into tc_SigRecvd before waking. Default: the task's tc_SigWait (so Wait() returns immediately with the awaited bits set)."}
+        }
+    });
+    add(registry, "wake_task",
+        "MUTATOR: do the full TaskWait → TaskReady transition that exec.Signal() performs internally. ORs `signals` (default = tc_SigWait) into tc_SigRecvd, unlinks the task from TaskWait, appends to TaskReady, sets tc_State = READY. Use AFTER signal_task to actually KICK the task — the scheduler doesn't poll, so signal_task alone doesn't unblock. Validates state == WAIT and list integrity (pred.succ == task && succ.pred == task) before scribbling. Companion to signal_task: signal_task is observation (will it wake?), wake_task is action (force the wake).",
+        wake_task_schema, tool_wake_task);
     add(registry, "disasm",      "Disassemble `count` m68k instructions starting at `addr`.", disasm_schema, tool_disasm);
     add(registry, "insert_media", "Insert disk media into DF0 (only `adf` kind today; use `change_pending:true` to fire a disk-change event).", insert_media_schema, tool_insert_media);
     add(registry, "eject_media",  "Eject any disk currently in DF0.", empty(), tool_eject_media);
