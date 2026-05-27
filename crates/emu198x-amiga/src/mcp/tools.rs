@@ -390,6 +390,165 @@ fn tool_query_agnus(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolErr
     }))
 }
 
+/// Read a NUL-terminated C string from chip RAM via the trait's
+/// `read_word` accessor. The Amiga ROM / chip RAM is big-endian
+/// word-addressed; we walk word-by-word and decode each high/low
+/// byte until either NUL or `max_len` bytes have been collected.
+/// `addr == 0` returns an empty string (Amiga lists often carry
+/// null `ln_Name` for anonymous nodes).
+fn read_amiga_cstring(
+    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
+    addr: u32,
+    max_len: usize,
+) -> String {
+    if addr == 0 {
+        return String::new();
+    }
+    let mut bytes = Vec::with_capacity(max_len);
+    let mut a = addr & !1; // word-align — Amiga task names are always word-aligned
+    // If the original addr was odd, skip the high byte of the first word.
+    let skip_first_byte = addr & 1 != 0;
+    let mut first = true;
+    while bytes.len() < max_len {
+        let word = access.read_word(a);
+        let high = (word >> 8) as u8;
+        let low = (word & 0xFF) as u8;
+        if !(first && skip_first_byte) {
+            if high == 0 {
+                break;
+            }
+            bytes.push(high);
+        }
+        if bytes.len() >= max_len {
+            break;
+        }
+        if low == 0 {
+            break;
+        }
+        bytes.push(low);
+        a = a.wrapping_add(2);
+        first = false;
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// Decode one Exec `Task` struct (with embedded `Node` at offset 0)
+/// into JSON. Field offsets follow the AmigaOS RKM (Exec/Tasks).
+fn read_exec_task(
+    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
+    addr: u32,
+) -> Value {
+    // Node (14 bytes): ln_Succ, ln_Pred, ln_Type, ln_Pri, ln_Name
+    let ln_succ = access.read_long(addr);
+    let ln_pred = access.read_long(addr.wrapping_add(4));
+    let type_pri = access.read_word(addr.wrapping_add(8));
+    let ln_type = (type_pri >> 8) as u8;
+    // ln_Pri is a signed byte — interpret as i8.
+    let ln_pri = (type_pri & 0xFF) as i8;
+    let ln_name = access.read_long(addr.wrapping_add(10));
+    let name = read_amiga_cstring(access, ln_name, 64);
+    // Task (struct, +14 = tc_Flags, +15 = tc_State, +18 = tc_SigAlloc,
+    // +22 = tc_SigWait, +26 = tc_SigRecvd, +30 = tc_SigExcept,
+    // +54 = tc_SPReg, +88 = tc_UserData).
+    let flags_state = access.read_word(addr.wrapping_add(14));
+    let tc_flags = (flags_state >> 8) as u8;
+    let tc_state = (flags_state & 0xFF) as u8;
+    let tc_sig_alloc = access.read_long(addr.wrapping_add(18));
+    let tc_sig_wait = access.read_long(addr.wrapping_add(22));
+    let tc_sig_recvd = access.read_long(addr.wrapping_add(26));
+    let tc_sig_except = access.read_long(addr.wrapping_add(30));
+    let tc_sp_reg = access.read_long(addr.wrapping_add(54));
+    let tc_user_data = access.read_long(addr.wrapping_add(88));
+    let state_label = match tc_state {
+        0 => "INVALID",
+        1 => "ADDED",
+        2 => "RUN",
+        3 => "READY",
+        4 => "WAIT",
+        5 => "EXCEPT",
+        6 => "REMOVED",
+        _ => "?",
+    };
+    json!({
+        "addr": format!("${:08X}", addr),
+        "ln_name": name,
+        "ln_succ": format!("${:08X}", ln_succ),
+        "ln_pred": format!("${:08X}", ln_pred),
+        "ln_type": ln_type,
+        "ln_pri":  ln_pri,
+        "tc_flags": format!("${:02X}", tc_flags),
+        "tc_state": tc_state,
+        "tc_state_label": state_label,
+        "tc_sig_alloc":  format!("${:08X}", tc_sig_alloc),
+        "tc_sig_wait":   format!("${:08X}", tc_sig_wait),
+        "tc_sig_recvd":  format!("${:08X}", tc_sig_recvd),
+        "tc_sig_except": format!("${:08X}", tc_sig_except),
+        "tc_sp_reg":    format!("${:08X}", tc_sp_reg),
+        "tc_user_data": format!("${:08X}", tc_user_data),
+    })
+}
+
+/// Walk one Exec `List` (struct at `list_addr`: ln_Head, ln_Tail,
+/// ln_TailPred + 2 bytes). Returns each node decoded as a task.
+/// The standard Exec convention is that the tail-sentinel is the
+/// list struct itself + 4 — walking stops when `ln_Succ` either
+/// points there or is 0.
+fn walk_exec_list(
+    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
+    list_addr: u32,
+    max_nodes: usize,
+) -> Vec<Value> {
+    let mut out = Vec::new();
+    let sentinel = list_addr.wrapping_add(4);
+    let mut cur = access.read_long(list_addr);
+    let mut seen = std::collections::HashSet::new();
+    while out.len() < max_nodes {
+        if cur == 0 || cur == sentinel {
+            break;
+        }
+        if !seen.insert(cur) {
+            break; // cycle guard — list got corrupted
+        }
+        out.push(read_exec_task(access, cur));
+        cur = access.read_long(cur);
+    }
+    out
+}
+
+fn tool_query_exec_tasks(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+    // ExecBase pointer lives at $00000004 — set by Exec during boot.
+    // Until KS has booted past the very early stages, this read will
+    // return $00000000 (chip RAM is zero) and the rest degrades
+    // gracefully (empty lists, null this_task).
+    let access = s.access();
+    let exec_base = access.read_long(0x0000_0004);
+    if exec_base == 0 {
+        return Ok(json!({
+            "exec_base": "$00000000",
+            "note": "ExecBase not yet initialised — run a few hundred frames after boot before querying.",
+        }));
+    }
+    // Exec field offsets (RKM 3rd ed, Exec/Tasks):
+    //   +276 ThisTask           — currently-running task
+    //   +406 TaskReady   (14B)  — list of ready-to-run tasks
+    //   +420 TaskWait    (14B)  — list of waiting tasks
+    let this_task = access.read_long(exec_base.wrapping_add(276));
+    let this_task_info = if this_task != 0 {
+        Some(read_exec_task(access, this_task))
+    } else {
+        None
+    };
+    let ready = walk_exec_list(access, exec_base.wrapping_add(406), 64);
+    let waiting = walk_exec_list(access, exec_base.wrapping_add(420), 64);
+    Ok(json!({
+        "exec_base":      format!("${:08X}", exec_base),
+        "this_task":      format!("${:08X}", this_task),
+        "this_task_info": this_task_info,
+        "task_ready":     ready,
+        "task_wait":      waiting,
+    }))
+}
+
 fn tool_start_video_recording(
     args: Value,
     s: &mut AmigaSession,
@@ -1729,6 +1888,9 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     add(registry, "query_cia",   "CIA-A + CIA-B timer / ICR / port / TOD snapshot.", empty(), tool_query_cia);
     add(registry, "query_agnus", "Agnus snapshot (vpos / hpos / bitplane pointers / blitter pointers).", empty(), tool_query_agnus);
     add(registry, "query_blitter","Blitter snapshot (busy, exec_pending, ccks_remaining, APT/BPT/CPT/DPT).", empty(), tool_query_blitter);
+    add(registry, "query_exec_tasks",
+        "Walk ExecBase (at $00000004) and dump ThisTask, TaskReady, TaskWait. Each entry decodes the Exec Node (name, type, priority) + Task (state, tc_SigWait, tc_SigRecvd, SP, user data). Use to find what WB.Workbench is blocked on — a non-zero `tc_sig_wait` on the WB task with `tc_state=WAIT` shows the signal it's waiting for.",
+        empty(), tool_query_exec_tasks);
     let query_aga_schema = json!({
         "type": "object",
         "properties": {
