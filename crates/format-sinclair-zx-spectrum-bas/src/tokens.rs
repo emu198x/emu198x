@@ -113,7 +113,4 @@ pub const KEYWORDS: &[(&str, u8, KeywordRole)] = &[
     ("TAB ", 0xAD, PrintItem),
     ("PI", 0xA7, Expression),
     ("RND", 0xA5, Expression),
-    ("<>", 0xC9, Symbol),
-    ("<=", 0xC7, Symbol),
-    (">=", 0xC8, Symbol),
 ];
