@@ -1846,6 +1846,13 @@ impl AmigaEcs {
                 0x014 => self.paula.pot1dat(),
                 0x016 => self.paula.peek_potgor(),
                 0x002 => self.agnus.dmacon,
+                // DENISEID at $07C. ECS Denise 8373 returns `$FFFC`,
+                // distinguishing it from OCS Denise ($FFFF open bus)
+                // and AGA Lisa ($FFF8). KS 2.x reads this during chip
+                // discovery to decide whether the ECS-feature code
+                // paths (BPLCON3 BRDRBLNK / KILLEHB, programmable
+                // sync) are available.
+                0x07C => self.denise.deniseid(),
                 0x0A0..=0x0DA => paula_decode::audio_register(offset)
                     .map(|(ch, f)| self.paula.read_audio(ch, f))
                     .unwrap_or(0xFFFF),

@@ -82,11 +82,19 @@ pub struct AgnusEcs {
 }
 
 impl AgnusEcs {
-    /// Create a new ECS Agnus wrapper.
+    /// Create a new ECS Agnus wrapper. Defaults to PAL, the most
+    /// common ECS chipset region. `agnus_id` is set to the ECS 8375
+    /// PAL value (`$2000`) so VPOSR reads identify the chip as ECS,
+    /// not the inner OCS core's default. Use [`Self::from_ocs`] to
+    /// preserve a region-configured OCS core.
     #[must_use]
     pub fn new() -> Self {
+        let mut inner = InnerAgnusOcs::new();
+        // Override the OCS-inherited agnus_id with the ECS 8375 PAL
+        // identifier. Stored pre-shifted into VPOSR bits 14-8.
+        inner.agnus_id = 0x2000;
         Self {
-            inner: InnerAgnusOcs::new(),
+            inner,
             beamcon0: 0,
             htotal: 0,
             hsstop: 0,
@@ -104,10 +112,16 @@ impl AgnusEcs {
     }
 
     /// Wrap an existing OCS Agnus core while starting ECS extension registers
-    /// from reset state. Useful for behavior-identical OCS paths that route
-    /// through the ECS wrapper constructor during Phase 3 bring-up.
+    /// from reset state. Overrides the inner core's `agnus_id` so the
+    /// chip identifies as ECS 8375 (`$2000` PAL / `$3000` NTSC) rather
+    /// than inheriting the inner OCS Agnus's identifier — KS 2.x / 3.x
+    /// gate on this value when picking chipset-feature code paths.
     #[must_use]
-    pub fn from_ocs(inner: InnerAgnusOcs) -> Self {
+    pub fn from_ocs(mut inner: InnerAgnusOcs) -> Self {
+        inner.agnus_id = match inner.region {
+            commodore_agnus_ocs::AgnusRegion::Pal => 0x2000,
+            commodore_agnus_ocs::AgnusRegion::Ntsc => 0x3000,
+        };
         Self {
             inner,
             beamcon0: 0,

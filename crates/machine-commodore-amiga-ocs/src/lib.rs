@@ -1910,6 +1910,12 @@ impl AmigaOcs {
                 0x014 => self.paula.pot1dat(),
                 0x016 => self.paula.peek_potgor(),
                 0x002 => self.agnus.dmacon,
+                // DENISEID at $07C. OCS Denise 8362 has no version
+                // register — `denise.deniseid()` returns `$FFFF` (open
+                // bus). Wired explicitly so the intent is visible at
+                // the dispatch table; KS 2.x / 3.x compares this value
+                // against ECS ($FFFC) and AGA ($FFF8) markers.
+                0x07C => self.denise.deniseid(),
                 0x0A0..=0x0DA => paula_decode::audio_register(offset)
                     .map(|(ch, f)| self.paula.read_audio(ch, f))
                     .unwrap_or(0xFFFF),

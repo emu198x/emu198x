@@ -361,9 +361,19 @@ pub struct Agnus {
     /// construction time and used by `tick_cck()` for frame wrapping.
     pub lines_per_frame: u16,
 
-    /// Agnus revision ID (7-bit value placed in VPOSR bits 14-8).
-    /// OCS NTSC (8361/8370) = $00, OCS PAL (8367/8371) = $10,
-    /// ECS NTSC (8372A) = $20, ECS PAL (8372A) = $30.
+    /// Agnus revision ID, stored *pre-shifted* into bits 14-8 of a
+    /// `u16` — `vposr()` returns `agnus_id & 0x7F00`, so the field
+    /// is the literal value KS reads from VPOSR (minus LOF and the
+    /// vpos high bit). Real-chip values:
+    ///   * OCS NTSC 8361 / 8370 = `$0000`
+    ///   * OCS PAL  8367 / 8371 = `$1000`
+    ///   * ECS NTSC 8375        = `$3000`
+    ///   * ECS PAL  8375        = `$2000`
+    ///   * AGA Alice NTSC       = `$3300`
+    ///   * AGA Alice PAL        = `$2300`
+    /// Each wrapper (`AgnusEcs`, `AgnusAga`) overrides this in its
+    /// constructor so the inner OCS struct still serialises cleanly
+    /// while the bus-read returns the wrapper's true chip identity.
     pub agnus_id: u16,
 
     /// Selected video region. PAL or NTSC. Drives `lines_per_frame`,
@@ -434,7 +444,7 @@ impl Agnus {
             fmode: 0,
             lof: true,
             lines_per_frame: PAL_LINES_PER_FRAME,
-            agnus_id: 0x10,
+            agnus_id: 0x1000,
             region: AgnusRegion::Pal,
             lol: false,
             lol_toggle: false,
@@ -455,11 +465,12 @@ impl Agnus {
 
     /// Create a new Agnus configured for the named video region.
     /// PAL is the existing default — every line is 227 CCKs, frame
-    /// is 312 lines, agnus_id = $10. NTSC alternates short/long
-    /// lines (227/228) per HRM p. 785, frame is 262 lines, agnus_id
-    /// = $00. The first NTSC line is short; the alternation is
-    /// strict (every other line) until ECS adds the LOLDIS bit on
-    /// BPLCON3.
+    /// is 312 lines, `agnus_id = $1000` (8367 PAL OCS Agnus). NTSC
+    /// alternates short/long lines (227/228) per HRM p. 785, frame
+    /// is 262 lines, `agnus_id = $0000` (8361 NTSC OCS Agnus). The
+    /// first NTSC line is short; the alternation is strict (every
+    /// other line) until ECS adds the LOLDIS bit on BPLCON3. `agnus_id`
+    /// is stored pre-shifted into VPOSR bits 14-8.
     #[must_use]
     pub fn new_with_region(region: AgnusRegion) -> Self {
         let mut agnus = Self::new();
@@ -467,14 +478,14 @@ impl Agnus {
             AgnusRegion::Pal => {
                 agnus.region = AgnusRegion::Pal;
                 agnus.lines_per_frame = PAL_LINES_PER_FRAME;
-                agnus.agnus_id = 0x10;
+                agnus.agnus_id = 0x1000;
                 agnus.lol = false;
                 agnus.lol_toggle = false;
             }
             AgnusRegion::Ntsc => {
                 agnus.region = AgnusRegion::Ntsc;
                 agnus.lines_per_frame = NTSC_LINES_PER_FRAME;
-                agnus.agnus_id = 0x00;
+                agnus.agnus_id = 0x0000;
                 agnus.lol = false;
                 agnus.lol_toggle = true;
             }
@@ -1751,12 +1762,30 @@ mod tests {
 
     // ---------- region + line-length alternation ----------
 
+    /// VPOSR upper byte is what Kickstart reads to identify the
+    /// Agnus revision. Locks the bit-positions so future storage
+    /// refactors can't silently regress to the pre-Stage AE-j state
+    /// where every chipset reported `$0000` in the ID bits.
+    #[test]
+    fn vposr_reports_agnus_id_in_upper_byte() {
+        let pal = Agnus::new_with_region(AgnusRegion::Pal);
+        // PAL 8367: bits 14-8 = `0010000` → upper byte $10 → u16 $1000.
+        // LOF starts set + vpos bit 8 zero at reset → bit 15 = 1, bit 0 = 0.
+        assert_eq!(pal.vposr() & 0x7F00, 0x1000);
+
+        let ntsc = Agnus::new_with_region(AgnusRegion::Ntsc);
+        // NTSC 8361: upper byte $00 → u16 $0000.
+        assert_eq!(ntsc.vposr() & 0x7F00, 0x0000);
+    }
+
     #[test]
     fn pal_default_keeps_lol_zero_and_lines_at_227() {
         let agnus = Agnus::new_with_region(AgnusRegion::Pal);
         assert_eq!(agnus.region, AgnusRegion::Pal);
         assert_eq!(agnus.lines_per_frame, PAL_LINES_PER_FRAME);
-        assert_eq!(agnus.agnus_id, 0x10);
+        // 8367 PAL OCS Agnus stores its VPOSR ID pre-shifted into
+        // bits 14-8 — see the `agnus_id` field doc.
+        assert_eq!(agnus.agnus_id, 0x1000);
         assert!(!agnus.lol);
         assert!(!agnus.lol_toggle);
         assert_eq!(agnus.current_line_ccks(), PAL_CCKS_PER_LINE);
@@ -1767,7 +1796,8 @@ mod tests {
         let mut agnus = Agnus::new_with_region(AgnusRegion::Ntsc);
         assert_eq!(agnus.region, AgnusRegion::Ntsc);
         assert_eq!(agnus.lines_per_frame, NTSC_LINES_PER_FRAME);
-        assert_eq!(agnus.agnus_id, 0x00);
+        // 8361 NTSC OCS Agnus reports $0000 in VPOSR bits 14-8.
+        assert_eq!(agnus.agnus_id, 0x0000);
         assert!(!agnus.lol);
         assert!(agnus.lol_toggle);
         // First line = short (227).
