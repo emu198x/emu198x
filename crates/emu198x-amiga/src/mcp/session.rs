@@ -47,16 +47,22 @@ pub struct AmigaSession {
 
 impl AmigaSession {
     /// Build a session from a ROM image already loaded into memory.
-    /// Constructs the underlying `AmigaRuntime<AmigaA1200>` via
-    /// `AmigaRuntimeKind::new(Model::A1200AgaPal, ...)` so the MCP
-    /// session sees the same family-runtime surface a script-mode
-    /// boot would.
+    /// Constructs the underlying [`AmigaRuntimeKind`] via
+    /// [`AmigaRuntimeKind::new`] so the MCP session sees the same
+    /// family-runtime surface a script-mode boot would. The kind
+    /// arm is picked automatically from `model` (OCS / ECS / AGA).
     ///
     /// # Errors
     /// Returns `MachineError::InvalidFirmware` if the ROM size is
-    /// wrong for a Kickstart 3.0/3.1 image (must be 512 KiB).
-    pub fn new(rom_bytes: Vec<u8>, rom_path: PathBuf) -> Result<Self, MachineError> {
-        let kind = AmigaRuntimeKind::new(Model::A1200AgaPal, rom_bytes)?;
+    /// wrong for the model's expected Kickstart image — A1000 wants a
+    /// 64 KiB bootstrap, A500-family wants 256/512 KiB Kickstart,
+    /// A1200 wants 512 KiB AGA Kickstart.
+    pub fn new(
+        model: Model,
+        rom_bytes: Vec<u8>,
+        rom_path: PathBuf,
+    ) -> Result<Self, MachineError> {
+        let kind = AmigaRuntimeKind::new(model, rom_bytes)?;
         Ok(Self {
             kind,
             rom_path,
@@ -146,7 +152,7 @@ mod tests {
         // 512 KiB zero-filled ROM — passes validate_firmware_rom for
         // A1200 (KS 3.0/3.1 is 512 KiB).
         let rom = vec![0u8; 512 * 1024];
-        let session = AmigaSession::new(rom, PathBuf::from("/tmp/test.rom"))
+        let session = AmigaSession::new(Model::A1200AgaPal, rom, PathBuf::from("/tmp/test.rom"))
             .expect("blank Kickstart-sized ROM should build");
         assert!(matches!(session.kind, AmigaRuntimeKind::Aga(_)));
         assert_eq!(session.last_recorded_tick, 0);
@@ -156,7 +162,7 @@ mod tests {
     #[test]
     fn aga_machine_accessors_return_a1200() {
         let rom = vec![0u8; 512 * 1024];
-        let mut session = AmigaSession::new(rom, PathBuf::from("/tmp/test.rom"))
+        let mut session = AmigaSession::new(Model::A1200AgaPal, rom, PathBuf::from("/tmp/test.rom"))
             .expect("blank Kickstart-sized ROM should build");
         // PC starts at 0 in a freshly-built A1200; the reads just
         // verify the AGA-only downcasts don't panic.

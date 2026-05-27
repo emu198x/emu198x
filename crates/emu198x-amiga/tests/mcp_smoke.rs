@@ -22,6 +22,7 @@ mod session;
 #[path = "../src/mcp/tools.rs"]
 mod tools;
 
+use runtime_commodore_amiga::Model;
 use session::AmigaSession;
 
 fn load_rom() -> Option<(Vec<u8>, PathBuf)> {
@@ -85,7 +86,7 @@ fn mcp_server_boots_and_lists_tools() {
     let Some((rom_bytes, rom_path)) = load_rom() else {
         return;
     };
-    let mut session = AmigaSession::new(rom_bytes, rom_path)
+    let mut session = AmigaSession::new(Model::A1200AgaPal, rom_bytes, rom_path)
         .expect("session constructor accepts Kickstart-sized ROM");
     let mut server: Server<AmigaSession> =
         Server::new(ServerInfo::new("emu198x-amiga", "test"));
@@ -148,7 +149,7 @@ fn mcp_tools_drive_a_real_boot() {
     let Some((rom_bytes, rom_path)) = load_rom() else {
         return;
     };
-    let mut session = AmigaSession::new(rom_bytes, rom_path)
+    let mut session = AmigaSession::new(Model::A1200AgaPal, rom_bytes, rom_path)
         .expect("session constructor accepts Kickstart-sized ROM");
     let mut server: Server<AmigaSession> =
         Server::new(ServerInfo::new("emu198x-amiga", "test"));
