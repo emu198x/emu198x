@@ -293,14 +293,25 @@ impl<C: DeniseChip> Denise<C> {
                 && let Some(plane_u8) = agnus.cck_bus_plan().bitplane_dma_fetch_plane
             {
                 let plane = plane_u8 as usize;
+                let width = u32::from(agnus.bpl_fetch_width());
                 let addr = agnus.bpl_pt[plane];
+                // First word feeds the normal shift-register load path.
                 let word = memory.read_chip_ram_word(addr);
                 self.ocs.load_bitplane(plane, word);
                 if plane == 0 {
                     self.ocs.queue_shift_load_from_bpl1dat();
                 }
-                agnus.bpl_pt[plane] = agnus.bpl_pt[plane].wrapping_add(2);
-                self.bytes_this_line += 2;
+                // AGA wide fetch (FMODE > 0): a single DMA slot transfers
+                // 2 (32-bit) or 4 (64-bit) words. The extra words queue in
+                // Denise's per-plane FIFO and reload the shift register as
+                // it drains. Width 1 (OCS / ECS) skips this loop entirely.
+                for w in 1..width {
+                    let extra = memory.read_chip_ram_word(addr.wrapping_add(2 * w));
+                    self.ocs.push_bpl_fifo(plane, extra);
+                }
+                let bytes = 2 * width;
+                agnus.bpl_pt[plane] = agnus.bpl_pt[plane].wrapping_add(bytes);
+                self.bytes_this_line += bytes;
             }
 
             // End-of-line modulo — applied the moment hpos wraps to
@@ -625,5 +636,73 @@ mod tests {
             dma_claim(0x38 + 7, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
             DmaClaim::Free,
         );
+    }
+
+    #[test]
+    fn wide_fetch_advances_pointer_by_width_words_per_line() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        // Workbench 3.1 AGA: hires, 2 planes, FMODE=$0003 (64-bit). The
+        // DMA scheduler grants 11 plane accesses per line; the fetch
+        // loop turns each into 4 words, so each plane pointer must
+        // advance by 11*4*2 = 88 bytes (44 words) per line, before the
+        // end-of-line modulo. (Driven by Agnus FMODE, so the OCS chip
+        // exercises the same fetch-loop path the AGA chip uses.)
+        let mut agnus = Agnus::new();
+        agnus.max_bitplanes = 8;
+        agnus.dmacon = 0x0300; // DMAEN | BPLEN
+        agnus.bplcon0 = 0xA302; // HIRES + 2 planes
+        agnus.ddfstrt = 0x38;
+        agnus.ddfstop = 0xD8;
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+        agnus.fmode = 0x0003;
+        agnus.bpl_pt[0] = 0x2000;
+        agnus.bpl_pt[1] = 0x3000;
+        let (bpl0, bpl1) = (agnus.bpl_pt[0], agnus.bpl_pt[1]);
+
+        let mem = Memory::new(vec![0u8; 0x4_0000]);
+        let mut denise = Denise::<DeniseOcs>::new();
+
+        // Sweep one whole line (vpos inside the 44..300 DIW window);
+        // stop before wrapping to hpos 0 again so no modulo is applied.
+        for h in 0u16..=0xE2 {
+            agnus.hpos = h;
+            denise.tick(0, 100, h, agnus.dmacon, &mut agnus, &mem);
+        }
+
+        assert_eq!(agnus.bpl_pt[0] - bpl0, 88, "BPL1 bytes/line (44 words)");
+        assert_eq!(agnus.bpl_pt[1] - bpl1, 88, "BPL2 bytes/line (44 words)");
+    }
+
+    #[test]
+    fn narrow_fetch_advances_pointer_by_one_word_per_access() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        // OCS / ECS regression: FMODE=0 keeps 16-bit fetch. DDFSTRT=$40
+        // DDFSTOP=$D0 hires = 38 accesses/plane → 38 words = 76 bytes.
+        let mut agnus = Agnus::new();
+        agnus.dmacon = 0x0300;
+        agnus.bplcon0 = 0xA000; // HIRES + 2 planes
+        agnus.ddfstrt = 0x40;
+        agnus.ddfstop = 0xD0;
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+        agnus.bpl_pt[0] = 0x2000;
+        agnus.bpl_pt[1] = 0x3000;
+        let (bpl0, bpl1) = (agnus.bpl_pt[0], agnus.bpl_pt[1]);
+
+        let mem = Memory::new(vec![0u8; 0x4_0000]);
+        let mut denise = Denise::<DeniseOcs>::new();
+
+        for h in 0u16..=0xE2 {
+            agnus.hpos = h;
+            denise.tick(0, 100, h, agnus.dmacon, &mut agnus, &mem);
+        }
+
+        assert_eq!(agnus.bpl_pt[0] - bpl0, 76, "BPL1 bytes/line (38 words)");
+        assert_eq!(agnus.bpl_pt[1] - bpl1, 76, "BPL2 bytes/line (38 words)");
     }
 }

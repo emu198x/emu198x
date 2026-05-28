@@ -266,6 +266,10 @@ impl DeniseChip for DeniseAga {
         self.inner.as_inner_mut().load_bitplane(idx, val);
     }
 
+    fn push_bpl_fifo(&mut self, idx: usize, val: u16) {
+        self.inner.as_inner_mut().push_bpl_fifo(idx, val);
+    }
+
     fn queue_shift_load_from_bpl1dat(&mut self) {
         self.inner.as_inner_mut().queue_shift_load_from_bpl1dat();
     }

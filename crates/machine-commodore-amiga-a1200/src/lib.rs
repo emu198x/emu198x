@@ -1332,6 +1332,11 @@ impl AmigaA1200 {
             // derive sprite display width, so forward to Denise too.
             0x1FC => {
                 self.agnus.fmode = val;
+                // The bitplane/sprite fetch scheduler reads FMODE off the
+                // inner OCS Agnus (the type Denise's fetch loop is handed),
+                // so propagate it there too — not only the AGA wrapper copy
+                // that query/diagnostics read.
+                self.agnus.as_inner_mut().fmode = val;
                 self.denise.write_word(offset, val);
             }
             _ => self.denise.write_word(offset, val),

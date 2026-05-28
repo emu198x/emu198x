@@ -73,19 +73,18 @@ fn shres_consumes_four_source_pixels_per_output_call() {
 
 #[test]
 fn push_bpl_fifo_drives_auto_reload_after_first_word_drains() {
-    // Push two distinct words into the FIFO, then drive the regular
-    // shifter empty. When the first 16-bit shift register drains, the
-    // plane should auto-reload from the FIFO (popping 0x1234 first,
-    // then 0xBEEF on the next reload).
+    // Stage two tail words, then commit (word 0 -> shift register, tail ->
+    // FIFO). When the first 16-bit shift register drains, the plane should
+    // auto-reload from the FIFO (popping 0x8000 first, then 0x4000).
     let mut d = DeniseOcs::new();
     d.bplcon0 = 0x1000; // LORES, BPU=1
     d.set_palette(0, 0x000);
     d.set_palette(1, 0xFFF);
     d.begin_beam_line();
-    d.bpl_data[0] = 0x0000; // first word in regular shifter -> all zeros
-    d.trigger_shift_load();
-    d.push_bpl_fifo(0, 0x8000); // 1st FIFO word: MSB set -> pixel = 1
-    d.push_bpl_fifo(0, 0x4000); // 2nd FIFO word: bit 14 -> pixel = 0,1,0,...
+    d.bpl_data[0] = 0x0000; // word 0 -> shift register: all zeros
+    d.push_bpl_fifo(0, 0x8000); // tail word 1: MSB set -> pixel = 1
+    d.push_bpl_fifo(0, 0x4000); // tail word 2: bit 14 -> pixel = 0,1,0,...
+    d.trigger_shift_load(); // commit: word 0 -> shift, tail -> FIFO
 
     // Drain the original 16 zero pixels.
     for x in 0..16u32 {
@@ -113,39 +112,32 @@ fn push_bpl_fifo_drives_auto_reload_after_first_word_drains() {
 }
 
 #[test]
-fn push_bpl_fifo_caps_at_four_entries() {
-    // Push 6 words; the FIFO should silently discard the last 2.
-    // Verify by draining: only the first 4 words should be visible
-    // through the auto-reload path.
+fn push_bpl_fifo_caps_at_three_tail_words() {
+    // A wide fetch is one word in the shift register plus at most three
+    // tail words (64-bit = 4 words total). Stage 6; the cap keeps 3.
     let mut d = DeniseOcs::new();
     d.bplcon0 = 0x1000;
     d.set_palette(0, 0x000);
     d.set_palette(1, 0xFFF);
     d.begin_beam_line();
     d.bpl_data[0] = 0x0000;
-    d.trigger_shift_load();
-    // All four accepted FIFO words have MSB set -> first pixel after
-    // each reload should be 1. The two over-cap pushes (0x8000 again)
-    // are silently dropped.
+    // Over-cap stages (0x8000) past the third are silently dropped.
     for _ in 0..6 {
         d.push_bpl_fifo(0, 0x8000);
     }
+    d.trigger_shift_load(); // word 0 -> shift, 3 tail words -> FIFO
 
-    // Drain the first 16 zero pixels.
-    for x in 0..16u32 {
-        let _ = d.output_pixel_with_beam(x, 0, x, 0);
-    }
-    // After 4 FIFO reloads (4 × 16 = 64 pixels) the shift_count should
-    // hit 0 and stay there — the over-cap entries were dropped.
-    for _ in 0..64 {
+    // Word 0 (16 zero px) + 3 FIFO reloads (3 × 16) = 64 source pixels,
+    // after which the shift register is empty and stays empty.
+    for _ in 0..80 {
         let _ = d.output_pixel_with_beam(0, 0, 0, 0);
     }
-    assert_eq!(d.shift_count, 0, "FIFO should expose at most 4 reloads");
+    assert_eq!(d.shift_count, 0, "tail caps at 3 (word 0 + 3 FIFO reloads)");
 }
 
 #[test]
 fn push_bpl_fifo_ignores_idx_8_or_higher() {
-    // Out-of-range plane index is a no-op; verify the plane-0 FIFO is
+    // Out-of-range plane index is a no-op; verify the plane-0 tail is
     // untouched by an idx=8 push.
     let mut d = DeniseOcs::new();
     d.bplcon0 = 0x1000;
@@ -153,9 +145,9 @@ fn push_bpl_fifo_ignores_idx_8_or_higher() {
     d.set_palette(1, 0xFFF);
     d.begin_beam_line();
     d.bpl_data[0] = 0x0000;
-    d.trigger_shift_load();
     d.push_bpl_fifo(8, 0xDEAD); // ignored — must not appear later
-    d.push_bpl_fifo(0, 0x8000); // accepted
+    d.push_bpl_fifo(0, 0x8000); // staged as plane-0 tail word 1
+    d.trigger_shift_load(); // commit: word 0 -> shift, tail -> FIFO
 
     // Drain initial zero word.
     for x in 0..16u32 {
@@ -164,6 +156,48 @@ fn push_bpl_fifo_ignores_idx_8_or_higher() {
     // First FIFO entry (and only one) is the 0x8000 — its MSB drives pixel 16.
     let dbg = d.output_pixel_with_beam(16, 0, 16, 0);
     assert_eq!(dbg.final_color_idx, 1);
+}
+
+#[test]
+fn next_group_staging_does_not_corrupt_draining_group() {
+    // Regression for the WB3.1 AGA title-bar striping: the next wide-fetch
+    // group is fetched while the current group is still being displayed.
+    // Tail words must stage (not touch the live FIFO) until they commit,
+    // or the still-draining group's words get clobbered and whole 16-px
+    // words render the wrong colour.
+    let mut d = DeniseOcs::new();
+    d.bplcon0 = 0x1000; // LORES, BPU=1
+    d.set_palette(0, 0x000); // idx 0 = black
+    d.set_palette(1, 0xFFF); // idx 1 = white
+    d.begin_beam_line();
+
+    // Group G: solid white — word 0 + three tail words all 0xFFFF.
+    d.bpl_data[0] = 0xFFFF;
+    d.push_bpl_fifo(0, 0xFFFF);
+    d.push_bpl_fifo(0, 0xFFFF);
+    d.push_bpl_fifo(0, 0xFFFF);
+    d.trigger_shift_load();
+
+    // Display the first 20 of group G's 64 source pixels.
+    for x in 0..20u32 {
+        let dbg = d.output_pixel_with_beam(x, 0, x, 0);
+        assert_eq!(dbg.final_color_idx, 1, "group G px {x} should be white");
+    }
+
+    // The NEXT group's fetch overlaps group G's display: stage zero words.
+    // These must NOT enter group G's draining FIFO.
+    d.push_bpl_fifo(0, 0x0000);
+    d.push_bpl_fifo(0, 0x0000);
+    d.push_bpl_fifo(0, 0x0000);
+
+    // The remaining 44 pixels of group G must still be white.
+    for x in 20..64u32 {
+        let dbg = d.output_pixel_with_beam(x, 0, x, 0);
+        assert_eq!(
+            dbg.final_color_idx, 1,
+            "group G px {x} must stay white despite next-group staging"
+        );
+    }
 }
 
 #[test]

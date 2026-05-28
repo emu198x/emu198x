@@ -174,6 +174,53 @@ pub const HIRES_DDF_TO_PLANE: [Option<u8>; 4] = [
     Some(0), // BPL1 (triggers shift register load)
 ];
 
+/// AGA wide-fetch (FMODE > 0) plane order within a fetchstart group.
+///
+/// WinUAE's `bpl_sequence_8` (custom.cpp), here 0-based. Every FMODE > 0
+/// mode uses the 8-plane sequence (`fm_maxplane == 8`); the fetchstart
+/// group is wider than 8 CCK for some widths, so positions 8+ are idle
+/// and resolved as free slots by the caller. Index is
+/// `(hpos - ddfstrt) % fetchstart`. BPL1 (plane 0) is last among the
+/// active planes so Denise can trigger its shift-load on the final fetch.
+pub const WIDE_FETCH_PLANE_ORDER: [Option<u8>; 8] = [
+    Some(7), // BPL8
+    Some(3), // BPL4
+    Some(5), // BPL6
+    Some(1), // BPL2
+    Some(6), // BPL7
+    Some(2), // BPL3
+    Some(4), // BPL5
+    Some(0), // BPL1 (triggers shift register load)
+];
+
+/// Bitplane fetch cadence for a given fetch width and resolution,
+/// mirroring WinUAE's `fetchunits[]` / `fetchstarts[]` tables
+/// (custom.cpp), indexed `[fetchmode * 4 + res]`.
+///
+/// - `fetchunit` is the DDF stop-rounding granularity (color clocks):
+///   the fetch window always completes the unit containing DDFSTOP
+///   plus one more unit.
+/// - `fetchstart` is the plane-fetch group length: one DMA access per
+///   active plane per group, each access transferring `fetch_width`
+///   words (16-bit = 1, 32-bit = 2, 64-bit = 4).
+///
+/// `fetch_width == 1` (FMODE = 0, the only case on OCS / ECS) returns
+/// the historical 16-bit cadence — so this is a no-op for every
+/// non-AGA machine.
+#[must_use]
+pub const fn fetch_cadence(fetch_width: u8, hires: bool) -> (u32, u32) {
+    const FETCHUNITS: [u32; 12] = [8, 8, 8, 0, 16, 8, 8, 0, 32, 16, 8, 0];
+    const FETCHSTART_SHIFT: [u32; 12] = [3, 2, 1, 0, 4, 3, 2, 0, 5, 4, 3, 0];
+    let fetchmode = match fetch_width {
+        1 => 0,
+        2 => 1,
+        _ => 2,
+    };
+    let res = if hires { 1 } else { 0 };
+    let idx = fetchmode * 4 + res;
+    (FETCHUNITS[idx], 1u32 << FETCHSTART_SHIFT[idx])
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlitterDmaOp {
     ReadA,
@@ -519,20 +566,30 @@ impl Agnus {
         }
     }
 
-    /// Bitplane DMA fetch width: always 1 (16-bit) for OCS/ECS.
-    ///
-    /// The AGA wrapper crate shadows this to decode FMODE.
+    /// Bitplane DMA fetch width in 16-bit words, from FMODE bits 1..0:
+    /// 1 (16-bit), 2 (32-bit), or 4 (64-bit). `fmode` stays 0 on OCS /
+    /// ECS (Kickstart never writes $1FC there), so this returns 1 — the
+    /// historical behaviour. The bitplane fetch scheduler reads this
+    /// directly, so the AGA machine must propagate FMODE writes onto
+    /// this inner Agnus (not only the AGA wrapper).
     #[must_use]
     pub fn bpl_fetch_width(&self) -> u8 {
-        1
+        match self.fmode & 0x0003 {
+            0 => 1,
+            1 | 2 => 2,
+            _ => 4,
+        }
     }
 
-    /// Sprite DMA fetch width: always 1 (16-bit) for OCS/ECS.
-    ///
-    /// The AGA wrapper crate shadows this to decode FMODE bits 3-2.
+    /// Sprite DMA fetch width in 16-bit words, from FMODE bits 3..2.
+    /// Returns 1 on OCS / ECS (`fmode` always 0).
     #[must_use]
     pub fn spr_fetch_width(&self) -> u8 {
-        1
+        match (self.fmode >> 2) & 0x0003 {
+            0 => 1,
+            1 | 2 => 2,
+            _ => 4,
+        }
     }
 
     pub fn dma_enabled(&self, bit: u16) -> bool {
@@ -1246,25 +1303,57 @@ impl Agnus {
                 // fetching 38 BPL1 words (76 bytes).
                 let num_bpl = self.num_bitplanes();
                 let hires = (self.bplcon0 & 0x8000) != 0;
-                let group_len = if hires { 4 } else { 8 };
-                let fetchunit: u32 = 8;
-                let ddf_span = u32::from(self.ddfstop.saturating_sub(self.ddfstrt));
-                let blocks = ddf_span.div_ceil(fetchunit) + 1;
-                let fetch_window_end = u32::from(self.ddfstrt) + blocks * fetchunit - 1;
-                if self.dma_enabled(0x0100)
+                let fetch_width = self.bpl_fetch_width();
+                let bitplane = if self.dma_enabled(0x0100)
                     && num_bpl > 0
                     && self.hpos >= self.ddfstrt
-                    && u32::from(self.hpos) <= fetch_window_end
                 {
-                    let pos_in_group = ((self.hpos - self.ddfstrt) % group_len) as usize;
-                    let plane_slot = if hires {
-                        HIRES_DDF_TO_PLANE[pos_in_group]
+                    if fetch_width <= 1 {
+                        // OCS / ECS 16-bit cadence (unchanged).
+                        let group_len = if hires { 4 } else { 8 };
+                        let fetchunit: u32 = 8;
+                        let ddf_span = u32::from(self.ddfstop.saturating_sub(self.ddfstrt));
+                        let blocks = ddf_span.div_ceil(fetchunit) + 1;
+                        let fetch_window_end = u32::from(self.ddfstrt) + blocks * fetchunit - 1;
+                        if u32::from(self.hpos) <= fetch_window_end {
+                            let pos_in_group = ((self.hpos - self.ddfstrt) % group_len) as usize;
+                            let plane_slot = if hires {
+                                HIRES_DDF_TO_PLANE[pos_in_group]
+                            } else {
+                                LOWRES_DDF_TO_PLANE[pos_in_group]
+                            };
+                            plane_slot.filter(|&p| p < num_bpl)
+                        } else {
+                            None
+                        }
                     } else {
-                        LOWRES_DDF_TO_PLANE[pos_in_group]
-                    };
-                    if let Some(plane) = plane_slot.filter(|&p| p < num_bpl) {
-                        return SlotOwner::Bitplane(plane);
+                        // AGA wide fetch (FMODE > 0). For every width > 1,
+                        // fetchunit == fetchstart, so each fetchunit block holds
+                        // exactly one plane access per active plane, each access
+                        // transferring `fetch_width` words. The DDFSTOP-rounding
+                        // "complete the block plus one more" rule (div_ceil + 1)
+                        // is the same as the 16-bit path.
+                        let (fetchunit, fetchstart) = fetch_cadence(fetch_width, hires);
+                        let ddf_span = u32::from(self.ddfstop.saturating_sub(self.ddfstrt));
+                        let blocks = ddf_span.div_ceil(fetchunit) + 1;
+                        let fetch_window_end = u32::from(self.ddfstrt) + blocks * fetchunit - 1;
+                        if u32::from(self.hpos) <= fetch_window_end {
+                            let pos = ((u32::from(self.hpos) - u32::from(self.ddfstrt))
+                                % fetchstart) as usize;
+                            WIDE_FETCH_PLANE_ORDER
+                                .get(pos)
+                                .copied()
+                                .flatten()
+                                .filter(|&p| p < num_bpl)
+                        } else {
+                            None
+                        }
                     }
+                } else {
+                    None
+                };
+                if let Some(plane) = bitplane {
+                    return SlotOwner::Bitplane(plane);
                 }
 
                 // Copper
@@ -1511,6 +1600,74 @@ mod tests {
     const DMACON_COPEN: u16 = 0x0080;
     const DMACON_BPLEN: u16 = 0x0100;
     const DMACON_BLTPRI: u16 = 0x0400;
+
+    #[test]
+    fn fetch_cadence_matches_winuae_tables() {
+        // 16-bit (FMODE=0): historical OCS/ECS cadence — fetchunit 8,
+        // fetchstart 4 (hires) / 8 (lores). Must be unchanged.
+        assert_eq!(fetch_cadence(1, true), (8, 4));
+        assert_eq!(fetch_cadence(1, false), (8, 8));
+        // 32-bit (FMODE bits=01/10): fetchunit 8, fetchstart 8 (hires).
+        assert_eq!(fetch_cadence(2, true), (8, 8));
+        assert_eq!(fetch_cadence(2, false), (16, 16));
+        // 64-bit (FMODE bits=11): hires fetchunit 16, fetchstart 16 —
+        // one plane access per 16 CCK, four words each. This is the
+        // Workbench 3.1 AGA case.
+        assert_eq!(fetch_cadence(4, true), (16, 16));
+        assert_eq!(fetch_cadence(4, false), (32, 32));
+    }
+
+    /// Count bitplane DMA grants for one plane across a whole scan line.
+    fn bitplane_grants(agnus: &mut Agnus, plane: u8) -> usize {
+        let mut count = 0;
+        for h in 0u16..=0xE2 {
+            agnus.hpos = h;
+            if agnus.current_slot() == SlotOwner::Bitplane(plane) {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    #[test]
+    fn wide_fetch_workbench31_accesses_match_modulo_oracle() {
+        // Workbench 3.1 AGA desktop, captured live from the copper list:
+        //   DDFSTRT=$38 DDFSTOP=$D8, hires, 2 planes, FMODE=$0003 (64-bit).
+        // Interleaved bitmap, line-start BPL1PT=$3E328 BPL2PT=$3E378
+        // (row stride 80 bytes), BPL1MOD=BPL2MOD=72. Per-plane fetched
+        // bytes = 2*80 - 72 = 88 = 44 words. At 64-bit (4 words/access)
+        // that is 11 plane accesses per line. The wide-fetch loop turns
+        // each access into 4 words, giving the 44 the modulo demands.
+        let mut agnus = Agnus::new();
+        agnus.max_bitplanes = 8; // AGA
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        agnus.bplcon0 = 0xA302; // HIRES + 2 planes
+        agnus.ddfstrt = 0x38;
+        agnus.ddfstop = 0xD8;
+        agnus.fmode = 0x0003; // 64-bit bitplane fetch
+
+        assert_eq!(agnus.bpl_fetch_width(), 4);
+        assert_eq!(agnus.num_bitplanes(), 2);
+        assert_eq!(bitplane_grants(&mut agnus, 0), 11, "BPL1 accesses/line");
+        assert_eq!(bitplane_grants(&mut agnus, 1), 11, "BPL2 accesses/line");
+    }
+
+    #[test]
+    fn narrow_fetch_ocs_hires_accesses_unchanged() {
+        // OCS / ECS regression guard: FMODE=0 must keep the historical
+        // 16-bit cadence byte-for-byte. DDFSTRT=$40 DDFSTOP=$D0 hires =
+        // 19 fetchunit blocks ($40..$D7) → 38 accesses per active plane.
+        let mut agnus = Agnus::new(); // max_bitplanes = 6, fmode = 0
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        agnus.bplcon0 = 0xA000; // HIRES + 2 planes
+        agnus.ddfstrt = 0x40;
+        agnus.ddfstop = 0xD0;
+
+        assert_eq!(agnus.bpl_fetch_width(), 1);
+        assert_eq!(agnus.num_bitplanes(), 2);
+        assert_eq!(bitplane_grants(&mut agnus, 0), 38, "BPL1 accesses/line");
+        assert_eq!(bitplane_grants(&mut agnus, 1), 38, "BPL2 accesses/line");
+    }
 
     #[test]
     fn cck_bus_plan_reports_audio_service_grant() {

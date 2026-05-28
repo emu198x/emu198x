@@ -26,6 +26,13 @@ pub trait DeniseChip:
     // ── Register / data writes the wrapper forwards ──
     fn write_word(&mut self, offset: u16, val: u16);
     fn load_bitplane(&mut self, idx: usize, val: u16);
+    /// Queue an extra word from a wide (FMODE > 0) bitplane DMA fetch.
+    /// The first word of each access goes through `load_bitplane`; the
+    /// 32-/64-bit fetch's remaining 1 or 3 words queue here and reload
+    /// the plane's shift register as it drains. The board wrapper only
+    /// calls this when `Agnus::bpl_fetch_width() > 1`, so OCS / ECS
+    /// (always width 1) never touch the FIFO.
+    fn push_bpl_fifo(&mut self, idx: usize, val: u16);
     fn queue_shift_load_from_bpl1dat(&mut self);
     fn write_sprite_pos(&mut self, sprite: usize, val: u16);
     fn write_sprite_ctl(&mut self, sprite: usize, val: u16);
@@ -73,6 +80,9 @@ impl DeniseChip for DeniseOcs {
     }
     fn load_bitplane(&mut self, idx: usize, val: u16) {
         self.load_bitplane(idx, val);
+    }
+    fn push_bpl_fifo(&mut self, idx: usize, val: u16) {
+        self.push_bpl_fifo(idx, val);
     }
     fn queue_shift_load_from_bpl1dat(&mut self) {
         self.queue_shift_load_from_bpl1dat();
@@ -145,6 +155,9 @@ impl DeniseChip for DeniseEcs {
     }
     fn load_bitplane(&mut self, idx: usize, val: u16) {
         self.as_inner_mut().load_bitplane(idx, val);
+    }
+    fn push_bpl_fifo(&mut self, idx: usize, val: u16) {
+        self.as_inner_mut().push_bpl_fifo(idx, val);
     }
     fn queue_shift_load_from_bpl1dat(&mut self) {
         self.as_inner_mut().queue_shift_load_from_bpl1dat();

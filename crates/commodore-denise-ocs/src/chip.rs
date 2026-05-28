@@ -80,10 +80,21 @@ pub struct DeniseOcs {
     /// HAM8 mode: previous pixel's 24-bit RGB (0x00RRGGBB).
     /// Reset to palette_24[0] at the start of each scanline.
     pub ham_prev_rgb24: u32,
-    /// AGA bitplane FIFO for wider FMODE fetches.
-    /// Each plane has up to 4 queued words; `bpl_fifo_len` tracks fill level.
+    /// AGA bitplane FIFO for wider FMODE fetches — the tail words of the
+    /// *currently displayed* group. A 64-bit fetch is one word in the
+    /// shift register plus up to three here, popped as the shift register
+    /// drains. `bpl_fifo_len` tracks fill level.
     bpl_fifo: [[u16; 4]; 8],
     bpl_fifo_len: [u8; 8],
+    /// Staging latch for a wide fetch's tail words (1..=3). Filled at
+    /// fetch time by `push_bpl_fifo`, then moved into `bpl_fifo` atomically
+    /// when the group's first word commits to the shift register. This
+    /// keeps the FIFO synced to the shift-load: the next group's fetch
+    /// overlaps the current group's *display*, so writing the live FIFO at
+    /// fetch time would corrupt the still-draining group (whole-word colour
+    /// errors). Staging defers the handoff to the commit boundary.
+    bpl_fetch_tail: [[u16; 3]; 8],
+    bpl_fetch_tail_len: [u8; 8],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,6 +188,8 @@ impl DeniseOcs {
             ham_prev_rgb24: 0,
             bpl_fifo: [[0; 4]; 8],
             bpl_fifo_len: [0; 8],
+            bpl_fetch_tail: [[0; 3]; 8],
+            bpl_fetch_tail_len: [0; 8],
         }
     }
 
@@ -261,18 +274,41 @@ impl DeniseOcs {
         }
     }
 
-    /// Push a word into the AGA bitplane FIFO for wider FMODE fetches.
+    /// Stage a tail word from a wide (FMODE > 0) bitplane fetch.
     ///
-    /// Words are consumed in FIFO order when the shift register needs
-    /// reloading. Only used when `bpl_fetch_width() > 1`.
+    /// The words are held in `bpl_fetch_tail` until the group's first word
+    /// commits to the shift register (`load_fifo_tail`), then moved into
+    /// `bpl_fifo` to be popped as the shift register drains. Staging — not
+    /// writing `bpl_fifo` directly — is what keeps the FIFO synced to the
+    /// shift-load: the next group's fetch overlaps this group's display, so
+    /// a direct write would corrupt the still-draining group. Only the
+    /// 1..=3 words after word 0 are queued, so the cap is 3.
     pub fn push_bpl_fifo(&mut self, idx: usize, val: u16) {
         if idx < 8 {
-            let len = self.bpl_fifo_len[idx] as usize;
-            if len < 4 {
-                self.bpl_fifo[idx][len] = val;
-                self.bpl_fifo_len[idx] += 1;
+            let len = self.bpl_fetch_tail_len[idx] as usize;
+            if len < 3 {
+                self.bpl_fetch_tail[idx][len] = val;
+                self.bpl_fetch_tail_len[idx] += 1;
             }
         }
+    }
+
+    /// Move a plane's staged wide-fetch tail into the active FIFO, replacing
+    /// any prior contents, and clear the staging. Called when the group's
+    /// first word commits to the shift register so the FIFO holds exactly
+    /// the tail of the group now being displayed. A no-op for 16-bit
+    /// fetches (staging stays empty → FIFO cleared), keeping OCS / ECS
+    /// byte-identical.
+    fn load_fifo_tail(&mut self, plane: usize) {
+        if plane >= 8 {
+            return;
+        }
+        let len = self.bpl_fetch_tail_len[plane];
+        for i in 0..len as usize {
+            self.bpl_fifo[plane][i] = self.bpl_fetch_tail[plane][i];
+        }
+        self.bpl_fifo_len[plane] = len;
+        self.bpl_fetch_tail_len[plane] = 0;
     }
 
     /// Pop one word from the AGA bitplane FIFO, if available.
@@ -339,6 +375,10 @@ impl DeniseOcs {
         self.bpl_prev_data = [0; 8];
         self.ham_prev_rgb = self.palette[0];
         self.ham_prev_rgb24 = self.palette_24[0];
+        // Drop any wide-fetch words left over from the previous line so
+        // they cannot leak into this one.
+        self.bpl_fifo_len = [0; 8];
+        self.bpl_fetch_tail_len = [0; 8];
     }
 
     /// Write a pixel to the full-raster framebuffer.
@@ -796,6 +836,9 @@ impl DeniseOcs {
             self.bpl_shift_count[i] = 16;
             self.bpl_shift_delay[i] = 0;
             self.bpl_prev_data[i] = raw;
+            // Hand this group's wide-fetch tail to the FIFO in lockstep
+            // with the word-0 load (no-op for 16-bit fetches).
+            self.load_fifo_tail(i);
         }
         self.last_shift_load_debug = shift_dbg;
         self.shift_count = 16;
@@ -823,6 +866,8 @@ impl DeniseOcs {
             self.bpl_shift[plane] = self.bpl_pending_data[plane];
             self.bpl_shift_count[plane] = 16;
             self.bpl_shift_delay[plane] = 0;
+            // Sync this plane's wide-fetch tail to the committed word 0.
+            self.load_fifo_tail(plane);
         }
     }
 
