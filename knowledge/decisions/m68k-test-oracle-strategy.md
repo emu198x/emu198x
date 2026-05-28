@@ -46,7 +46,8 @@ Stop and revisit this decision if:
 
 - **A second public real-hardware corpus appears** for any of the higher variants. The Tom Harte project occasionally adds new processors (it now covers 6502 / 65C02 / 65816 / WDC65816 / Z80 / 68000); 68010+ may eventually arrive.
 - **Musashi merges a significant correctness fix** that affects M68k semantics. We pin `m68k-test-gen`'s Musashi version, so a known-good baseline doesn't drift, but a fix may indicate a class of bugs to investigate.
-- **A real-software regression** appears that the corpus passes. That's the canary for "Musashi got something wrong, we copied it, the corpus can't catch it."
+- **A real-software regression** appears that the corpus passes. That's the canary for "Musashi got something wrong, we copied it, the corpus can't catch it." (The AGA palette bug below was exactly this canary — caught by booting Workbench, not by the corpus.)
+- **You touch 68020+ effective-address decode** (`ea.rs`, indexed modes, extension words). The corpus does not exercise indexed or full-format EAs — see the coverage-gap section. Add hand-written cases or extend `m68k-test-gen`; do not trust a green Tom Harte run for these modes.
 
 ## Current state
 
@@ -65,6 +66,19 @@ Stop and revisit this decision if:
 The 68010's 8 failures are two clusters — 7 in `MOVEC_010` and 1 in `ADD.w_idxPC_D1` — at the 4-parts-per-million scale where multi-step exception sequences diverge in *when* state is captured (Musashi's `execute()` hook fires at instruction boundaries; some exception-frame pushes capture mid-sequence vs after). These are 68010-specific edge cases not present on the higher variants and not exercised by the inherited cross-check. Recorded here rather than chased: investigation cost ≫ correctness benefit at this scale, and the diagnostic value of count=8000 (catching the three Phase-7.6/Cpu68040-MOVEC bugs at higher rates than count=1000 would have) has already been collected.
 
 Mitigation A (inherited-subset cross-check) landed as `harte_real_hw.rs` in the 68010 / 68020 crates.
+
+## Coverage gap: indexed and full-format effective addresses (found 2026-05-28)
+
+**Neither harness exercises indexed addressing, so the 68020 full-format extension word had zero test coverage — despite the 100.00 % figures above.** This is a *structural* blind spot (the addressing mode is never generated or is filtered out), not a Musashi-disagreement, so it's invisible to both oracles at once.
+
+Two independent filters cause it:
+
+- **`harte_real_hw.rs`** skips every case whose disassembled name contains `"(d8,"` (`is_indexed_addressing_case`). The justification is real — the 68000 corpus's random brief extension words carry non-zero scale bits (10-9) that the 68020 honours but real 68000 hardware ignores, so the effective addresses legitimately diverge — but the blunt substring skip drops *all* indexed cases, including ones that would exercise scale and (if the corpus had them) full format.
+- **`m68k-test-gen`** only emits **brief** extension words: `generate_brief_ext_word` builds `d8 = rng.random::<u8>() & 0xFE`, so bit 8 (the brief/full selector) is always 0. The full format is never generated for any variant.
+
+Result: the AGA Workbench palette bug — `lea (A3,D0.w*2),A5` (`$4BF3 $0310`) decoded as the brief `(16,A3,D0.w)`, a constant +16 — survived a reported "68020 100 % Tom Harte" pass. The fix (full-format EA decode following WinUAE `get_disp_ea_020`) is covered by hand-written `motorola-68020/tests/full_format_ea.rs`, because no generated corpus reaches it.
+
+**Standing caveat:** the pass-rate table below measures the *generated/skipped* ISA, not the whole ISA. When touching 68020+ addressing, check EA-mode coverage explicitly — a green Tom Harte run says nothing about indexed or full-format EAs. Closing this properly means **extending `m68k-test-gen` to emit full-format words** (set bit 8, randomise BS/IS/BD-size/IS-field/scale, fetch the base/outer displacement words) and regenerating against Musashi (or, better, the WinUAE consensus oracle of mitigation B).
 
 ## Related
 

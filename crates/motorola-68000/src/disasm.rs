@@ -112,7 +112,7 @@ fn format_ea(ctx: &mut DisCtx, mode: u16, reg: u16, size: Size) -> String {
         }
         6 => {
             let ext = ctx.read_word();
-            format_brief_ext(ext, &format!("A{}", reg))
+            format_index_ext(ctx, ext, &format!("A{}", reg))
         }
         7 => match reg {
             0 => {
@@ -130,7 +130,7 @@ fn format_ea(ctx: &mut DisCtx, mode: u16, reg: u16, size: Size) -> String {
             }
             3 => {
                 let ext = ctx.read_word();
-                format_brief_ext(ext, "PC")
+                format_index_ext(ctx, ext, "PC")
             }
             4 => {
                 // Immediate
@@ -155,12 +155,85 @@ fn format_ea(ctx: &mut DisCtx, mode: u16, reg: u16, size: Size) -> String {
     }
 }
 
-fn format_brief_ext(ext: u16, base_reg: &str) -> String {
+/// Format an indexed addressing mode — both the brief extension word
+/// (`(d8,An,Xn)`) and the 68020+ full format (base/outer displacement,
+/// memory indirection, scaled index). Bit 8 selects the format. The
+/// disassembler consumes any base/outer displacement words so the
+/// reported instruction length stays correct.
+fn format_index_ext(ctx: &mut DisCtx, ext: u16, base_reg: &str) -> String {
     let xn_type = if ext & 0x8000 != 0 { "A" } else { "D" };
     let xn_reg = (ext >> 12) & 7;
     let xn_size = if ext & 0x0800 != 0 { ".l" } else { ".w" };
-    let disp = (ext & 0xFF) as i8;
-    format!("({},{},{}{}{}", disp, base_reg, xn_type, xn_reg, xn_size)
+    let scale = 1u16 << ((ext >> 9) & 0x3);
+    let scale_str = if scale > 1 {
+        format!("*{}", scale)
+    } else {
+        String::new()
+    };
+
+    if ext & 0x0100 == 0 {
+        // Brief extension word: 8-bit displacement.
+        let disp = (ext & 0xFF) as i8;
+        return format!(
+            "({},{},{}{}{}{})",
+            disp, base_reg, xn_type, xn_reg, xn_size, scale_str
+        );
+    }
+
+    // Full extension word (68020+).
+    let bd: i64 = match ext & 0x0030 {
+        0x20 => i64::from(ctx.read_word() as i16),
+        0x30 => i64::from(ctx.read_long() as i32),
+        _ => 0,
+    };
+    let indirect = ext & 0x0003 != 0;
+    let od: i64 = if indirect {
+        match ext & 0x0003 {
+            0x2 => i64::from(ctx.read_word() as i16),
+            0x3 => i64::from(ctx.read_long() as i32),
+            _ => 0,
+        }
+    } else {
+        0
+    };
+
+    let base_str = if ext & 0x0080 != 0 {
+        String::new() // base suppressed
+    } else {
+        base_reg.to_string()
+    };
+    let index_str = if ext & 0x0040 != 0 {
+        String::new() // index suppressed
+    } else {
+        format!("{}{}{}{}", xn_type, xn_reg, xn_size, scale_str)
+    };
+    let bd_str = if bd != 0 { bd.to_string() } else { String::new() };
+    let od_str = if od != 0 { od.to_string() } else { String::new() };
+
+    if !indirect {
+        format!("({})", join_nonempty(&[bd_str, base_str, index_str]))
+    } else if ext & 0x0004 == 0 {
+        // Pre-indexed: index inside the indirection brackets.
+        let inner = join_nonempty(&[bd_str, base_str, index_str]);
+        format!("({})", join_nonempty(&[format!("[{inner}]"), od_str]))
+    } else {
+        // Post-indexed: index applied after the indirection.
+        let inner = join_nonempty(&[bd_str, base_str]);
+        format!(
+            "({})",
+            join_nonempty(&[format!("[{inner}]"), index_str, od_str])
+        )
+    }
+}
+
+/// Join the non-empty fragments of an addressing-mode operand with commas.
+fn join_nonempty(parts: &[String]) -> String {
+    parts
+        .iter()
+        .filter(|p| !p.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn ea_mode_reg(opcode: u16) -> (u16, u16) {
@@ -793,6 +866,25 @@ mod tests {
         let (s, len) = dis(&[0x43, 0xD0]);
         assert_eq!(s, "lea (A0),A1");
         assert_eq!(len, 2);
+    }
+
+    #[test]
+    fn test_lea_full_format_scaled_index() {
+        // LEA (A3,D0.w*2),A5 — opcode $4BF3, full-format ext $0310.
+        // This is the Workbench 3.1 palette write; the brief decoder
+        // mis-rendered it as "(16,A3,D0.w".
+        let (s, len) = dis(&[0x4B, 0xF3, 0x03, 0x10]);
+        assert_eq!(s, "lea (A3,D0.w*2),A5");
+        assert_eq!(len, 4);
+    }
+
+    #[test]
+    fn test_lea_full_format_memory_indirect() {
+        // LEA ([16,A3,D0.w],4),A5 — pre-indexed memory indirect with
+        // word base ($0010) and word outer ($0004) displacements.
+        let (s, len) = dis(&[0x4B, 0xF3, 0x01, 0x22, 0x00, 0x10, 0x00, 0x04]);
+        assert_eq!(s, "lea ([16,A3,D0.w],4),A5");
+        assert_eq!(len, 8);
     }
 
     #[test]

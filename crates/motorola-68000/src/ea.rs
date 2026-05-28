@@ -12,8 +12,9 @@
 use crate::addressing::AddrMode;
 use crate::alu::Size;
 use crate::cpu::{
-    Cpu68000, TAG_EA_DST_DISP, TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP,
-    TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
+    Cpu68000, TAG_EA_DST_DISP, TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_FF_AFTER_BD,
+    TAG_EA_FF_INDIRECT_DONE, TAG_EA_FF_STREAM, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
+    TAG_FETCH_DST_DATA, TAG_FETCH_SRC_DATA,
 };
 use crate::microcode::MicroOp;
 
@@ -134,8 +135,18 @@ impl Cpu68000 {
             // The 68000 spends 2 CPU clocks computing base+disp+index
             // after fetching the extension word. The 68020 pipelines this.
             AddrMode::AddrIndIndex(r) => {
-                let ext = self.consume_irc();
                 let base = self.regs.a(r as usize);
+                let ext = self.consume_irc();
+                // Bit 8 set selects the 68020+ full extension word
+                // format (base displacement / memory indirection /
+                // outer displacement). On the 68000 / 68010 bit 8 is
+                // part of the brief displacement and the full format
+                // does not exist, so it is gated by the same
+                // `variant_scaled_index` flag that enables scaling.
+                if self.variant_scaled_index && ext & 0x0100 != 0 {
+                    return self.ff_begin(ext, base, is_src);
+                }
+                // Brief extension word.
                 let disp = (ext & 0xFF) as i8 as i32;
                 let idx_reg = ((ext >> 12) & 7) as usize;
                 let idx_val = if ext & 0x8000 != 0 {
@@ -176,6 +187,9 @@ impl Cpu68000 {
                 // PC value at the extension word location — use irc_addr
                 // so that prior consumed extension words are accounted for.
                 let base = self.irc_addr;
+                if self.variant_scaled_index && ext & 0x0100 != 0 {
+                    return self.ff_begin(ext, base, is_src);
+                }
                 let disp = (ext & 0xFF) as i8 as i32;
                 let idx_reg = ((ext >> 12) & 7) as usize;
                 let idx_val = if ext & 0x8000 != 0 {
@@ -206,5 +220,130 @@ impl Cpu68000 {
             } // All modes handled — DataReg/AddrReg/Immediate are instant,
               // all memory modes compute an address above.
         }
+    }
+
+    /// Scaled, sign-extended index register value from an extension
+    /// word. The 68020 full format always honours the scale field
+    /// (bits 10-9); this helper is only called on the 68020+ path.
+    fn ext_scaled_index(&self, ext: u16) -> u32 {
+        let idx_reg = ((ext >> 12) & 7) as usize;
+        let idx_val = if ext & 0x8000 != 0 {
+            self.regs.a(idx_reg)
+        } else {
+            self.regs.d[idx_reg]
+        };
+        let idx = if ext & 0x0800 != 0 {
+            idx_val // long index
+        } else {
+            idx_val as i16 as i32 as u32 // sign-extend word index
+        };
+        idx.wrapping_mul(1u32 << ((ext >> 9) & 0x3))
+    }
+
+    /// Begin a 68020 full-format indexed EA (extension word bit 8 set).
+    ///
+    /// Mirrors WinUAE `get_disp_ea_020` (newcpu_common.cpp). The
+    /// common scaled-index case — null base displacement and no memory
+    /// indirection, e.g. `(An,Xn*s)` — resolves synchronously and
+    /// returns `true`. Cases that carry a base displacement, an outer
+    /// displacement, or a memory-indirect long read cannot be served
+    /// from the single prefetched IRC word; they stash the decoded
+    /// pieces, set a `TAG_EA_FF_*` follow-up, and return `false`.
+    fn ff_begin(&mut self, ext: u16, base_in: u32, is_src: bool) -> bool {
+        let regd = if ext & 0x0040 != 0 {
+            0 // IS: index suppress
+        } else {
+            self.ext_scaled_index(ext)
+        };
+        let base = if ext & 0x0080 != 0 {
+            0 // BS: base suppress
+        } else {
+            base_in
+        };
+        // Bits 5-4: base-displacement size (00 reserved / 01 null →
+        // none, 10 word, 11 long).
+        let bd_words: u8 = match ext & 0x0030 {
+            0x20 => 1,
+            0x30 => 2,
+            _ => 0,
+        };
+        // Bits 2-0: index/indirect selection. A non-zero low two bits
+        // means a memory indirection is performed.
+        let indirect = ext & 0x0003 != 0;
+
+        if bd_words == 0 && !indirect {
+            // Synchronous: EA = base + scaled index.
+            self.addr = base.wrapping_add(regd);
+            self.micro_ops.push(MicroOp::Internal(2));
+            return true;
+        }
+
+        self.ff_dp = ext;
+        self.ff_base = base;
+        self.ff_regd = regd;
+        self.ff_outer = 0;
+        self.ff_disp = 0;
+        self.ff_is_src = is_src;
+        if bd_words > 0 {
+            self.ff_phase = 0;
+            self.ff_stream_left = bd_words;
+            self.followup_tag = TAG_EA_FF_STREAM;
+        } else {
+            // No base displacement, but a memory indirection remains.
+            self.followup_tag = TAG_EA_FF_AFTER_BD;
+        }
+        false
+    }
+
+    /// Full format: the base displacement is applied (or was null).
+    /// Set up the outer-displacement read, issue the memory-indirect
+    /// long read, or finalise the non-indirect address. Shared by the
+    /// `TAG_EA_FF_STREAM` (post-base-displacement) and
+    /// `TAG_EA_FF_AFTER_BD` continuations.
+    pub(crate) fn ff_after_bd(&mut self) {
+        if self.ff_dp & 0x0003 != 0 {
+            // Memory indirect — bits 1-0 also size the outer displacement
+            // (01 null, 10 word, 11 long).
+            let od_words: u8 = match self.ff_dp & 0x0003 {
+                0x2 => 1,
+                0x3 => 2,
+                _ => 0,
+            };
+            if od_words > 0 {
+                self.ff_phase = 1;
+                self.ff_disp = 0;
+                self.ff_stream_left = od_words;
+                self.followup_tag = TAG_EA_FF_STREAM;
+                self.micro_ops.push(MicroOp::Execute);
+            } else {
+                self.ff_outer = 0;
+                self.ff_indirect_read();
+            }
+        } else {
+            // No memory indirection: EA = base + scaled index.
+            self.ff_base = self.ff_base.wrapping_add(self.ff_regd);
+            self.addr = self.ff_base;
+            self.followup_tag = if self.ff_is_src {
+                TAG_FETCH_SRC_DATA
+            } else {
+                TAG_FETCH_DST_DATA
+            };
+            self.micro_ops.push(MicroOp::Execute);
+        }
+    }
+
+    /// Full format: issue the memory-indirect long read of the
+    /// (pre-indexed) base. The read result is picked up at
+    /// `TAG_EA_FF_INDIRECT_DONE`.
+    pub(crate) fn ff_indirect_read(&mut self) {
+        if self.ff_dp & 0x0004 == 0 {
+            // Pre-indexed: the index is added before the indirection.
+            self.ff_base = self.ff_base.wrapping_add(self.ff_regd);
+        }
+        self.addr = self.ff_base;
+        self.followup_tag = TAG_EA_FF_INDIRECT_DONE;
+        self.micro_ops.push(MicroOp::ReadLongHi);
+        self.micro_ops.push(MicroOp::ReadLongLo);
+        self.micro_ops.push(MicroOp::Execute);
     }
 }

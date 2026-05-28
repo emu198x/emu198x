@@ -1,157 +1,100 @@
-# AGA Workbench palette — handoff (Stage AF)
+# AGA Workbench palette — handoff (Stage AF) — RESOLVED
 
-**One-line summary**: DENISEID was wrong ($FFF8 → fixed to $00F8). Palette is still EGA because MrgCop reads color table entries 0–3 (EGA primaries) instead of 8–11 (WB grey/black/white/blue). Patching entries 0–3 of the color table with WB values before MrgCop runs produces the correct display.
+**Status: FIXED.** Root cause was the 68020 never decoding **full-format extension words** (bit 8 of the index extension word). LoadRGB32's palette pointer `lea (A3,D0.w*2),A5` (`$4BF3 $0310`, at `$00F85732`) was mis-decoded as the brief form `(16,A3,D0.w)` — a constant +16 displacement — so with `A3=$1B78` and `D0.w=0` it wrote to entry **8** instead of entry **0**, shifting the whole WB palette +8 entries and rendering the desktop in EGA primaries.
 
-## What changed this session
+**Verified end-to-end**: WB 3.1 now boots to the correct grey desktop. Framebuffer top colours are `$AAAAAA` (89%, grey), `$6688BB` (blue), `$FFFFFF` (white), `$000000` (black) — byte-matching the FS-UAE reference below. (A separate geometry/text-garbling issue remains in the unsettled boot frame — not palette-related.)
 
-### Fix applied: DENISEID value
+**The fix** (motorola-68000/68010/68020): implemented full-format extension word EA decode following WinUAE `get_disp_ea_020` — scaled index, base/outer displacement (word/long), base/index suppress, and pre/post-indexed memory indirection. Lives in `motorola-68000/src/ea.rs` (`ff_begin`/`ff_after_bd`/`ff_indirect_read`), `decode.rs` (`TAG_EA_FF_*` followups), and `disasm.rs` (full-format disassembly). Gated on `variant_scaled_index` (68020+).
 
-`commodore-denise-aga/src/lib.rs` — `LISA_DENISE_ID` changed from `0xFFF8` to `0x00F8`.
+**Why every prior verification missed it**: both Tom Harte harnesses structurally exclude full-format words. `harte_real_hw.rs` runs the *68000* corpus and skips every `(d8,` case; the m68k-generated 68020 corpus only emits brief words (`d8 = random u8 & 0xFE` → bit 8 always 0). New coverage: `motorola-68020/tests/full_format_ea.rs` (10 hand-computed cases) + 2 disasm cases in `motorola-68000/src/disasm.rs`.
 
-**Evidence**: WinUAE returns `$00F8` for A1200 AGA, `$FCF8` for A4000 AGA (`custom.cpp:2347`). The high byte matters: KS 3.1 at `$00F8B510` computes `NOT(DENISEID) & $0300 >> 8` and stores at GfxBase+454. With `$FFF8` this produces 0; with `$00F8` it produces 3. The value 3 is the sprite-width capability index that downstream code expects for Lisa.
+---
 
-**Downstream effects observed**:
-- GfxBase+454: 0 → 3 (sprite width capability)
-- GfxBase+237: 0 → 3 (same, set during MakeVPort at `$00F94BE4`)
-- ColorMap+18 (SpriteResDefault): 0 → 1
-- ColorMap+28 (CoerceDisplayInfo): NULL → $00005DD0 (DblPAL:HIRES $00029000)
-- Palette: **unchanged** — EGA primaries still in COLOR00–03
+## Original investigation (kept for context)
 
-### Proof-of-concept: two working patches
+**One-line summary**: DENISEID fixed ($FFF8 → $00F8). The remaining palette bug is now decisively characterised by a save-state diff against FS-UAE: the WB palette lands at color table entries **8-11** on our emulator but entries **0-3** on FS-UAE — an exact +8-entry (+16-byte) shift. All inputs (ROM, ColorMap struct, firstcolor, computed depth) are byte-identical between the two, so this is a **CPU execution divergence** in the screen-open / LoadRGB32 path, not a chipset-register or OS-struct issue.
 
-**Patch A — copper list**: manually poke WB values ($0AAA/$0000/$0FFF/$068B) into the copper list COLOR00–03 MOVE entries. Screenshot: `/tmp/wb31-aga-patched-copperlist.png`.
+## Fix applied this session: DENISEID
 
-**Patch B — color table entries 0–3**: poke WB values into entries 0–3 of both ColorTable and LowColorBits right after GetColorMap returns (before MrgCop). MrgCop then picks up the correct values. Screenshot: `/tmp/wb31-aga-patched-table-entries.png`.
+`commodore-denise-aga/src/lib.rs` — `LISA_DENISE_ID` `0xFFF8` → `0x00F8` (committed). WinUAE/FS-UAE both return `$00F8` for A1200 (`custom.cpp:2347`). Fixes GfxBase+454 (0→3) and enables CoerceDisplayInfo. Necessary but does NOT fix the palette.
 
-Both produce a correct grey/black/white/blue Workbench display. Patch B is the cleaner proof: **entries 0–3 need WB values, and MrgCop reads from entries 0–3 honestly.**
+Also fixed stale `$FFF8` comment in `machine-commodore-amiga-a1200/src/lib.rs:1494`.
 
-## The remaining bug: nothing writes WB values to entries 0–3
+## DECISIVE: FS-UAE save-state comparison
 
-### Color table layout
+FS-UAE 3.2.35 uses the **identical ROM** (`kick31_40_068_a1200.rom`, MD5 `646773759326fbac3b2311fd8c8793ee` — byte-for-byte same as ours). Booted WB 3.1, saved state, parsed the `CRAM` (zlib chip RAM) and `AGAC` (AGA palette) chunks. Dump saved at `/tmp/fsuae-chipram-wb31.bin`.
 
-```
-ColorMap at $00001B04, Type=2, Count=32
-  ColorTable    → $00001B78 (32 entries × 2 bytes)
-  LowColorBits  → $00001B38 (identical layout)
+### Color table (`$00001B78`), entries 0-15:
 
-Table entries after full boot:
-  0-7:  EGA primaries $0000/$0F00/$00F0/$0FF0/$000F/$0F0F/$00FF/$0FFF
-        (written by GetColorMap at $00F852A6, NEVER overwritten)
-  8-11: WB palette $0AAA/$0000/$0FFF/$068B
-        (written by LoadRGB32 at $00F85758/$00F8577C, +16 byte offset)
-  12-15: system colors (from GetColorMap ROM template)
-  16-31: sprite/gradient (template + LoadRGB32 sprite-color patches)
-```
+| Entry | FS-UAE (correct) | Our emulator |
+|---|---|---|
+| 0-3 | **`0AAA 0000 0FFF 068B`** (WB) | `0000 0F00 00F0 0FF0` (template) |
+| 4-7 | `000F 0F0F 00FF 0FFF` | `000F 0F0F 00FF 0FFF` (identical) |
+| 8-11 | `0620 0E50 09F1 0EB0` (template) | **`0AAA 0000 0FFF 068B`** (WB) |
+| 12-15 | `055F 092F 00F8 0CCC` | `055F 092F 00F8 0CCC` (identical) |
+| 16-31 | (grey/sprite ramp) | identical |
 
-### LoadRGB32's +16 offset is by design
+The WB palette (`0AAA 0000 0FFF 068B` = grey/black/white/blue) is written by LoadRGB32 to entries **0-3 on FS-UAE** and entries **8-11 on ours**. Everything else in the table is the identical GetColorMap template.
 
-LoadRGB32 (`$00F856E8`, LVO -882) uses `lea (16,A3,D0.w),A5` — constant +16 displacement — putting "user color 0" at table entry 8. The first 8 entries are reserved (EGA system colors). Same ROM code runs on real hardware.
+### Hardware palette (`AGAC` chunk) on FS-UAE:
+`palette[0]=AAAAAA palette[1]=000000 palette[2]=FFFFFF palette[3]=6688BB` — i.e. grey/black/white/blue at registers 0-3, BPLAM=0. Real AGA displays directly from palette[0-3]; no BPLAM remapping involved.
 
-### What definitely writes to the color tables
+### Structs are byte-identical (this is the key):
+| Field | FS-UAE | Ours |
+|---|---|---|
+| ColorMap addr | `$00001B04` | `$00001B04` |
+| ColorMap.Type | 2 | 2 |
+| ColorMap.ColorTable (+4) | `$00001B78` | `$00001B78` |
+| ColorMap.LowColorBits (+12) | `$00001B38` | `$00001B38` |
+| VPModeID (+36) | `$00008000` | `$00008000` |
+| Bp_0_base (+48) | 0 | 0 |
+| Bp_1_base (+50) | 8 | 8 |
+| Screen+612 | 3 | 3 |
 
-Full-table memory watch ($00001B38, 128 bytes covering both tables) captured exactly **14 writes** during the 3000-frame boot after GetColorMap:
+## Why this rules out everything previously chased
 
-| PC | Entries | Values | Source |
-|---|---|---|---|
-| `$00F85758` | 8-11 of table B | `$0AAA $0000 $0FFF $068B` | LoadRGB32 (WB palette) |
-| `$00F8577C` | 8-11 of table A | `$0AAA $0000 $0FFF $068B` | LoadRGB32 (WB palette) |
-| `$00F85758` | 25-27 of table B | `$0E44 $0000 $0EEC` | LoadRGB32 (sprite colors) |
-| `$00F8577C` | 25-27 of table A | `$0E44 $0000 $0EEC` | LoadRGB32 (sprite colors) |
+The earlier hypotheses are all **dead ends**, disproven by the identical structs:
+- **VPModeID / monitor database / DblPAL coercion**: VPModeID is bare `$8000` on FS-UAE too. Not the cause.
+- **Bp_0_base / BPLCON4.BPLAM**: Bp_0_base is 0 on FS-UAE too; FS-UAE's BPLAM is 0 and it still displays correctly because palette[0-3] directly holds WB. Not the cause.
+- **MakeVPort palette handlers**: would have to produce different structs; they don't.
 
-**Zero writes to entries 0–7 in either table.** On real hardware, something must write WB values to entries 0–3.
+## The narrowed paradox (next session starts here)
 
-### VPModeID
+The LoadRGB32 write uses `lea (16,A3,D0.w),A5` at `$00F85732` — a **constant +16 displacement**. On our emulator, at this instruction during the WB call:
+- A3 = `$00001B78` (ColorTable), D0.w = `0000` (firstcolor=0) → A5 = `$00001B88` = **entry 8**.
 
-VPModeID = `$00008000` (bare HIRES_KEY), written as MOVE.L D7,-(A3) at `$00F9731C` (PC observed as `$00F97322` in watch due to pipelining). This is the requested mode, not the coerced mode. CoerceDisplayInfo at `$00005DD0` contains mode `$00029000` (DblPAL:HIRES) at its offset +16 — coercion IS working.
+Confirmed inputs on our side (live trap at `$00F85732`):
+- Source RGB32 table at `$0003E0C4`: `0004 0000` (ncolors=4, firstcolor=0) followed by grey/black/white/blue 24-bit triples — the genuine WB call.
+- D0=`$00030000` (D0.w=0), A3=`$00001B78`, A4=`$00001B38`.
 
-### AGA monitor database IS populated
+For FS-UAE to land WB at entry 0 with the **same ROM, same A3, same +16**, its D0.w must be `-16` ($FFF0) at that instruction — i.e. a different firstcolor — yet the intuition call that builds the source table **hardcodes firstcolor=0** (`clr.l` at `$00FE24D4`), and every upstream input we can compare (Screen+612=3, etc.) is identical.
 
-Scan confirmed DblPAL ($00021000) = 5 hits, DblPAL:HIRES ($00029000) = 6 hits, DblPAL:HIRESLACE ($00029004) = 4 hits in chip RAM. The monitor database has AGA modes.
+**Therefore the divergence is a transient CPU-execution difference somewhere in the screen-open path** (it leaves no trace in the final structs). This matches the "are we skipping an instruction / returning to the wrong place?" hypothesis. Candidate areas:
+1. The intuition palette function `$00FE24B6` → `$00FE2528` → LoadRGB32 wrapper `$00FE7F70` → LoadRGB32 `$00F856E8`. Something in this chain computes a different firstcolor on real hardware, OR our CPU mis-executes producing firstcolor=0/entry-8.
+2. The LoadRGB32 inner loop ($00F8570A-$00F8577A) uses instructions the disassembler mis-decodes (ROXL, DBRA, MOVEP). Worth verifying our 68020 executes each correctly — especially anything that could feed D0 or the write pointer.
+3. GetColorMap loop ($00F85298-$00F852A4, DBRA-driven) — verified to produce the correct template, but the EGA-vs-data split (entries 0-7 algorithmic, 8-31 from ROM data) interacts with where LoadRGB32 writes.
 
-### Intuition palette setup function ($00FE24B6)
+## Recommended next step
 
-This function calls the LoadRGB32-wrapping `$00FE2528` up to THREE times:
+Trace the WB LoadRGB32 call **instruction-by-instruction** on our emulator from `$00FE24B6` through the `$00F85732` lea, recording D0/A0/A1/A3 at each step. Cross-check each instruction's effect against 68020 semantics. The bug is the single instruction (or skipped call/branch) that makes firstcolor resolve to 0→entry-8 instead of the value that yields entry-0. FS-UAE's WinUAE-core debugger can produce the reference trace for the same call if an instruction-level audit on our side isn't conclusive.
 
-1. **Call 1** (always): 4 colors from IntuitionBase+2914[0..3] at firstcolor=0 → entries 8–11 (via +16 offset) → WB grey/black/white/blue
-2. **Call 2** (if D3 > 2): 4 colors from IntuitionBase+2914[4..7] at firstcolor=(Screen+612 - 3) → entries 8+ of unknown offset — additional palette colors
-3. **Call 3** (always): 3 colors from IntuitionBase+2914[8..10] at firstcolor=17 → entries 25–27 (via +16 offset) → sprite highlight colors
-
-D3 = 12 on our emulator (read from offset 5 of the struct at Screen+88), so call 2 does execute. None of these calls write to entries 0–3 because of the +16 constant in LoadRGB32's lea.
-
-### The IntuitionBase system palette
-
-At IntuitionBase+2914 ($0000A8B6):
-```
-[0] AA AA AA = grey     [1] 00 00 00 = black    [2] FF FF FF = white
-[3] 66 88 BB = blue     [4] EE 44 44 = red      [5] 55 DD 55 = green
-[6] 00 44 DD = blue     [7] EE 99 00 = orange   [8] EE 44 44 = red
-[9] 00 00 00 = black    [10] EE EE CC = cream
-```
-
-These are the CORRECT WB system colors. They get written to entries 8+ via LoadRGB32. They need to ALSO reach entries 0–3.
-
-### ROM is verified correct
-
-ROM: `kick31a1200.rom`, version 40.68 (A1200 KS 3.1), 512KB. MD5 `646773759326fbac3b2311fd8c8793ee`. Contains `card.resource` (PCMCIA — A1200-specific). Confirmed distinct from A4000/A3000/A500 ROMs.
-
-## What's ruled out
-
-- **DENISEID**: Fixed ($00F8). Necessary but not sufficient.
-- **ROM**: Correct A1200 KS 3.1 (40.68).
-- **Renderer**: Correct — displays whatever the copper list loads.
-- **Color table population**: Correct — GetColorMap + LoadRGB32 produce the right values at entries 8–11.
-- **BPLCON4.BPLAM=$08**: Doesn't help alone because the copper list doesn't load COLOR08–11 either.
-- **SetRGB4/SetRGB32 calls**: No writes to entries 0–7 during entire boot.
-- **AGA monitor database**: DblPAL modes ARE registered.
-- **CoerceDisplayInfo**: Correctly points to DblPAL:HIRES ($00029000).
-- **BPLCON3.BANK**: Always 0.
-
-## ColorMap private fields
-
-| Offset (from ColorMap) | Field | Value | Expected |
-|---|---|---|---|
-| +44 | SpriteBase_Even | 16 | 16 ✓ |
-| +46 | SpriteBase_Odd | 16 | 16 ✓ |
-| +48 | Bp_0_base | **0** | **8?** |
-| +50 | Bp_1_base | 8 | 8 ✓ |
-
-`Bp_0_base` is never written during the entire boot (confirmed with memory watch). If MakeVPort uses it to compute BPLCON4.BPLAM and/or palette load range, its zero value explains both BPLAM=$00 and the limited COLOR00–03 load range.
-
-## Highest-priority next steps
-
-1. **Cross-validate against FS-UAE or WinUAE**: Run the exact same ROM + WB disk on a known-working AGA emulator. Capture:
-   - ColorTable entries 0–11 after boot
-   - BPLCON4 value in the copper list
-   - Bp_0_base value in the ColorMap
-   
-   This tells us definitively WHETHER real AGA uses BPLAM=$08 + wider palette load, OR has WB colors at entries 0–3. Both can fix the display but via different mechanisms.
-
-2. **Trace who should set Bp_0_base**: If cross-validation shows Bp_0_base=8 on real hardware, find the code that sets it. It's likely inside MakeVPort's AGA monitor handler, gated by a condition our emulator doesn't satisfy. The MakeVPort dispatch goes through function pointers loaded from the display record chain (`$00F8D1F4-$00F8D212`).
-
-3. **Check for a CPU execution bug**: The user raised whether we might be accidentally skipping an instruction. The palette-setting code paths involve complex function-pointer dispatch, tagged parameter lists, and DBRA loops. A CPU bug (wrong return address, wrong DBRA count, wrong address calculation) could cause a palette-setting subroutine to be skipped. Compare our 68020 execution against Musashi or a cycle-accurate reference for the critical MakeVPort call.
-
-## Reproduce
+## Reproduce / artifacts
 
 ```bash
-cargo build --release -p emu198x-amiga
-# Boot A1200 with WB 3.1 disk, 3000+ frames
-# Verify: color table entries 0-3 have EGA ($0000/$0F00/$00F0/$0FF0)
-# Verify: copper list COLOR00-03 have same EGA values
-# Patch proof: poke WB values into table entries 0-3 BEFORE MrgCop → correct display
+# FS-UAE reference capture (config at /tmp/wb31-capture.fs-uae):
+#   amiga_model=A1200, kick31_40_068_a1200.rom, WB3.1 disk, save_state_compression=0
+# Save state: ~/Documents/FS-UAE/Save States/A1200 - KS3.1 - 2MB Chip/Saved State 1.uss
+# Parsed chip RAM: /tmp/fsuae-chipram-wb31.bin (2 MiB, raw)
+#   ColorTable at offset 0x1B78, ColorMap at 0x1B04.
+
+# Our emulator: boot A1200 + WB3.1, trap $00F85732 → D0.w=0, A3=$1B78 → writes entry 8.
 ```
 
 ## Reference: call chains
 
 ```
-GetColorMap:
-  intuition $00FD042A → wrapper $00FE7E48 → GetColorMap (LVO -570) $00F85224
-
-LoadRGB32 (palette):
-  intuition $00FE24DE → $00FE2528 → wrapper $00FE7F70 → LoadRGB32 (LVO -882) $00F856E8
-
-VPModeID write:
-  graphics $00F9731C: MOVE.L D7,-(A3) where D7=$00008000, A3 → ColorMap+40
-
-Screen setup:
-  intuition $00FD052E → $00FDB2A4 (calls MakeVPort + MrgCop internally)
+GetColorMap:  intuition $00FD042A → wrapper $00FE7E48 → GetColorMap (-570) $00F85224
+LoadRGB32:    intuition $00FE24DE → $00FE2528 → wrapper $00FE7F70 → LoadRGB32 (-882) $00F856E8
+  WB write lea: $00F85732  lea (16,A3,D0.w),A5   [A3=$1B78, D0.w=0 → entry 8 (ours)]
+Screen setup: intuition $00FD052E → $00FDB2A4 (MakeVPort + MrgCop)
 ```

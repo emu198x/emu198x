@@ -21,7 +21,8 @@ use crate::cpu::{
     TAG_AE_FETCH_VECTOR, TAG_AE_FINISH, TAG_AE_FMT_A_STEP, TAG_AE_PUSH_FAULT, TAG_AE_PUSH_INFO,
     TAG_AE_PUSH_IR, TAG_AE_PUSH_SR, TAG_BCC_EXECUTE, TAG_BCD_DST_READ, TAG_BCD_SRC_READ,
     TAG_BSR_EXECUTE, TAG_CHK_EXECUTE, TAG_DATA_DST_LONG, TAG_DATA_SRC_LONG, TAG_DBCC_EXECUTE,
-    TAG_EA_DST_DISP, TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG,
+    TAG_EA_DST_DISP, TAG_EA_DST_LONG, TAG_EA_DST_PCDISP, TAG_EA_FF_AFTER_BD,
+    TAG_EA_FF_INDIRECT_DONE, TAG_EA_FF_STREAM, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG,
     TAG_EA_SRC_PCDISP, TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_FORMAT,
     TAG_EXC_STACK_INSTR_ADDR_HI, TAG_EXC_STACK_INSTR_ADDR_LO, TAG_EXC_STACK_PC_HI,
     TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA,
@@ -1597,6 +1598,58 @@ impl Cpu68000 {
                 let disp = self.consume_irc() as i16 as i32;
                 self.addr = self.ea_pc.wrapping_add(disp as u32);
                 self.followup_tag = TAG_FETCH_DST_DATA;
+                self.micro_ops.push(MicroOp::Execute);
+            }
+
+            // --- 68020 full-format EA handlers ---
+            // Consume one displacement word (base or outer) per entry.
+            // `ff_phase` selects which; a long displacement re-enters
+            // until both words have arrived. See `ff_begin` / WinUAE
+            // `get_disp_ea_020`.
+            TAG_EA_FF_STREAM => {
+                let w = self.consume_irc();
+                self.ff_disp = (self.ff_disp << 16) | u32::from(w);
+                self.ff_stream_left -= 1;
+                if self.ff_stream_left > 0 {
+                    // Long displacement: low word still to come.
+                    self.micro_ops.push(MicroOp::Execute);
+                } else if self.ff_phase == 0 {
+                    // Base displacement complete.
+                    let bd = if self.ff_dp & 0x0030 == 0x20 {
+                        self.ff_disp as u16 as i16 as i32 as u32 // word
+                    } else {
+                        self.ff_disp // long
+                    };
+                    self.ff_base = self.ff_base.wrapping_add(bd);
+                    self.ff_after_bd();
+                } else {
+                    // Outer displacement complete.
+                    let od = if self.ff_dp & 0x0003 == 0x2 {
+                        self.ff_disp as u16 as i16 as i32 as u32 // word
+                    } else {
+                        self.ff_disp // long
+                    };
+                    self.ff_outer = od;
+                    self.ff_indirect_read();
+                }
+            }
+
+            TAG_EA_FF_AFTER_BD => {
+                self.ff_after_bd();
+            }
+
+            TAG_EA_FF_INDIRECT_DONE => {
+                self.ff_base = self.data; // memory-indirect long read
+                if self.ff_dp & 0x0004 != 0 {
+                    // Post-indexed: index added after the indirection.
+                    self.ff_base = self.ff_base.wrapping_add(self.ff_regd);
+                }
+                self.addr = self.ff_base.wrapping_add(self.ff_outer);
+                self.followup_tag = if self.ff_is_src {
+                    TAG_FETCH_SRC_DATA
+                } else {
+                    TAG_FETCH_DST_DATA
+                };
                 self.micro_ops.push(MicroOp::Execute);
             }
 

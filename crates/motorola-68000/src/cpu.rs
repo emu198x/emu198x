@@ -223,6 +223,31 @@ pub const TAG_BF_MEM_WRITE: u8 = 99;
 /// `TAG_BF_MEM_EA_RESOLVE` in one shot.
 pub const TAG_BF_MEM_EA_ABSLONG_LO: u8 = 100;
 
+// 68020+ full-format extension word EA pipeline.
+//
+// The brief extension word (bit 8 = 0) resolves an indexed EA in one
+// shot inside `calc_ea_start`. The full format (bit 8 = 1, 68020+
+// only) can carry a base displacement (word/long), an outer
+// displacement (word/long), and a memory-indirect long read — none
+// of which the single prefetched IRC word can supply synchronously.
+// These tags drive the follow-up reads, mirroring WinUAE's
+// `get_disp_ea_020`. The synchronous sub-case (null base
+// displacement, no memory indirect) still resolves in
+// `calc_ea_start` and never reaches these tags.
+/// Full format: consume one displacement word (base or outer) into
+/// `ff_disp`; when the current displacement is complete, apply it and
+/// advance (`ff_phase` selects base vs outer).
+pub const TAG_EA_FF_STREAM: u8 = 110;
+/// Full format: base displacement applied (or null); branch to the
+/// outer-displacement / memory-indirect / finalize step. Also the
+/// entry point when there is no base displacement but a memory
+/// indirection is still required.
+pub const TAG_EA_FF_AFTER_BD: u8 = 111;
+/// Full format: the memory-indirect long read has landed in
+/// `self.data`; apply post-indexing and the outer displacement, then
+/// hand off to the source/destination data fetch.
+pub const TAG_EA_FF_INDIRECT_DONE: u8 = 112;
+
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum State {
@@ -310,6 +335,29 @@ pub struct Cpu68000 {
     pub ea_reg: u8,
     /// PC value captured for PC-relative addressing.
     pub ea_pc: u32,
+
+    // 68020+ full-format extension word EA, in-progress state.
+    // Populated by `calc_ea_start` when it decodes a bit-8-set
+    // extension word that needs follow-up reads; consumed by the
+    // `TAG_EA_FF_*` handlers. See `cpu::TAG_EA_FF_STREAM`.
+    /// The full-format extension word itself (BS/IS/BD/IS-field bits).
+    pub(crate) ff_dp: u16,
+    /// Running base: An (or PC), base-suppressed to 0 if BS set, plus
+    /// the base displacement once read.
+    pub(crate) ff_base: u32,
+    /// Scaled, sign-extended index register value (0 if IS set).
+    pub(crate) ff_regd: u32,
+    /// Outer displacement (memory-indirect modes only).
+    pub(crate) ff_outer: u32,
+    /// Displacement-word accumulator (big-endian: hi word then lo).
+    pub(crate) ff_disp: u32,
+    /// Which displacement is being read: 0 = base, 1 = outer.
+    pub(crate) ff_phase: u8,
+    /// Displacement words still to read for the current phase.
+    pub(crate) ff_stream_left: u8,
+    /// Whether this EA feeds the source (true) or destination (false).
+    pub(crate) ff_is_src: bool,
+
     /// ALU operation for the current instruction.
     pub alu_op: AluOp,
     /// Bit operation for the current instruction.
@@ -695,6 +743,14 @@ impl Cpu68000 {
             size: Size::Word,
             ea_reg: 0,
             ea_pc: 0,
+            ff_dp: 0,
+            ff_base: 0,
+            ff_regd: 0,
+            ff_outer: 0,
+            ff_disp: 0,
+            ff_phase: 0,
+            ff_stream_left: 0,
+            ff_is_src: false,
             alu_op: AluOp::Add,
             bit_op: BitOp::Btst,
             target_ipl: 0,
