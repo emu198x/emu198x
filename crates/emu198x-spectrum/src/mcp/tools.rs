@@ -101,11 +101,9 @@ fn mcp_execute_step(
             addr,
             max_halfcycles,
         } => Ok(Some(execute_run_until_pc(session, *addr, *max_halfcycles))),
-        ScriptStep::Disasm { addr, instructions } => Ok(Some(execute_disasm(
-            session,
-            *addr,
-            *instructions,
-        ))),
+        ScriptStep::Disasm { addr, instructions } => {
+            Ok(Some(execute_disasm(session, *addr, *instructions)))
+        }
         ScriptStep::PortRead { port } => Ok(Some(execute_port_read(session, *port))),
         ScriptStep::PortWrite { port, value } => {
             execute_port_write(session, *port, *value);
@@ -138,9 +136,7 @@ fn mcp_execute_step(
         ScriptStep::LoadBasicProgram { path, run } => {
             execute_load_basic_program(session, path, *run).map(Some)
         }
-        ScriptStep::MemoryRead { addr, len } => {
-            execute_memory_read(session, *addr, *len).map(Some)
-        }
+        ScriptStep::MemoryRead { addr, len } => execute_memory_read(session, *addr, *len).map(Some),
         ScriptStep::PokeByte { addr, value } => {
             execute_poke_byte(session, *addr, *value)?;
             Ok(None)
@@ -199,11 +195,7 @@ fn execute_memory_read(
     })
 }
 
-fn execute_poke_byte(
-    session: &mut SpectrumSession,
-    addr: u32,
-    value: u8,
-) -> Result<(), ToolError> {
+fn execute_poke_byte(session: &mut SpectrumSession, addr: u32, value: u8) -> Result<(), ToolError> {
     let a = addr_to_u16(addr, "poke_byte")?;
     session.machine_mut().write_byte(a, value);
     Ok(())
@@ -286,7 +278,8 @@ fn execute_watch_memory_log(
         });
     };
     let total_writes = records.len() as u32;
-    let mut filtered: Vec<&common_sinclair_zx_spectrum::MemoryWriteRecord> = records.iter().collect();
+    let mut filtered: Vec<&common_sinclair_zx_spectrum::MemoryWriteRecord> =
+        records.iter().collect();
     if unique {
         let mut seen = std::collections::HashSet::new();
         filtered.retain(|r| seen.insert((r.pc, r.addr, r.value)));
@@ -356,9 +349,8 @@ fn execute_set_machine(
     for (id, bytes) in &rom_bytes {
         firmware.push(FirmwareImage::new(id.clone(), bytes));
     }
-    let new_runtime = SpectrumRuntimeKind::from_firmware(model, &firmware).map_err(|err| {
-        ToolError::Execution(format!("set_machine: build runtime: {err}"))
-    })?;
+    let new_runtime = SpectrumRuntimeKind::from_firmware(model, &firmware)
+        .map_err(|err| ToolError::Execution(format!("set_machine: build runtime: {err}")))?;
     let profile = new_runtime.profile().clone();
 
     // Swap the inner machine + clear session-side state, and re-pace
@@ -389,7 +381,9 @@ fn execute_query_ay(session: &mut SpectrumSession) -> Result<ScriptObservation, 
         .query("spectrum.ay.registers")
         .map_err(|err| ay_unsupported_error(&err))?;
     let raw: Vec<u8> = serde_json::from_value(regs.value).map_err(|err| {
-        ToolError::Execution(format!("query_ay: malformed spectrum.ay.registers value: {err}"))
+        ToolError::Execution(format!(
+            "query_ay: malformed spectrum.ay.registers value: {err}"
+        ))
     })?;
     if raw.len() != 16 {
         return Err(ToolError::Execution(format!(
@@ -524,7 +518,7 @@ fn execute_disasm(
     let mut decoded = Vec::with_capacity(count as usize);
     let mut cursor = addr;
     for _ in 0..count {
-        let (mnemonic, len) = zilog_z80::disassemble(cursor, &read);
+        let (mnemonic, len) = zilog_z80::disassemble(cursor, read);
         let mut raw = Vec::with_capacity(len as usize);
         for off in 0..len {
             raw.push(machine.read_byte(cursor.wrapping_add(u16::from(off))));
@@ -601,8 +595,7 @@ fn execute_press_key(
 
     let hold = hold_frames
         .unwrap_or(DEFAULT_PRESS_KEY_HOLD_FRAMES)
-        .max(1)
-        .min(MAX_PRESS_KEY_HOLD_FRAMES);
+        .clamp(1, MAX_PRESS_KEY_HOLD_FRAMES);
 
     // Press.
     session.queue_input(emu198x_shell::InputEvent::Key {
@@ -642,8 +635,7 @@ fn execute_type_string(
 ) -> Result<ScriptObservation, ToolError> {
     let hold = hold_frames
         .unwrap_or(DEFAULT_PRESS_KEY_HOLD_FRAMES)
-        .max(1)
-        .min(MAX_PRESS_KEY_HOLD_FRAMES);
+        .clamp(1, MAX_PRESS_KEY_HOLD_FRAMES);
     let settle = settle_frames.unwrap_or(DEFAULT_TYPE_STRING_SETTLE_FRAMES);
     let mut chars_typed: u32 = 0;
 
@@ -666,9 +658,9 @@ fn execute_type_string(
         // Extra settle before a repeated key so the ROM keyboard
         // scan sees the release before the next press.
         if prev_key.as_deref() == Some(&key_name) {
-            session
-                .run_frames(3)
-                .map_err(|err| ToolError::Execution(format!("type_string: repeat settle failed: {err}")))?;
+            session.run_frames(3).map_err(|err| {
+                ToolError::Execution(format!("type_string: repeat settle failed: {err}"))
+            })?;
         }
 
         // Press CapsShift if needed for uppercase.
@@ -711,9 +703,9 @@ fn execute_type_string(
 
     // Extra settle after the last key.
     if settle > 0 {
-        session
-            .run_frames(settle)
-            .map_err(|err| ToolError::Execution(format!("type_string: final settle failed: {err}")))?;
+        session.run_frames(settle).map_err(|err| {
+            ToolError::Execution(format!("type_string: final settle failed: {err}"))
+        })?;
     }
 
     Ok(ScriptObservation::TypeString {
@@ -798,15 +790,13 @@ fn execute_load_basic_program(
             path.display()
         ))
     })?;
-    let result =
-        load_basic_program(session, &program, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES).map_err(
-            |err| {
-                ToolError::Execution(format!(
-                    "load_basic_program: BASIC loader failed for {}: {err}",
-                    path.display()
-                ))
-            },
-        )?;
+    let result = load_basic_program(session, &program, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
+        .map_err(|err| {
+            ToolError::Execution(format!(
+                "load_basic_program: BASIC loader failed for {}: {err}",
+                path.display()
+            ))
+        })?;
     Ok(ScriptObservation::LoadBasicProgram {
         program_bytes: result.program_bytes,
         ran: result.ran,
@@ -1340,9 +1330,19 @@ mod tests {
     fn parse_step_round_trips_reset_with_kind() {
         use emu198x_shell::ResetKind;
         let step = parse_step("reset", json!({"kind": "hard"})).expect("valid step");
-        assert_eq!(step, ScriptStep::Reset { kind: ResetKind::Hard });
+        assert_eq!(
+            step,
+            ScriptStep::Reset {
+                kind: ResetKind::Hard
+            }
+        );
         let step = parse_step("reset", json!({"kind": "soft"})).expect("valid step");
-        assert_eq!(step, ScriptStep::Reset { kind: ResetKind::Soft });
+        assert_eq!(
+            step,
+            ScriptStep::Reset {
+                kind: ResetKind::Soft
+            }
+        );
     }
 
     #[test]
@@ -1372,8 +1372,7 @@ mod tests {
 
     #[test]
     fn parse_step_round_trips_run_until_pc() {
-        let step =
-            parse_step("run_until_pc", json!({"addr": 0x1234})).expect("valid run_until_pc");
+        let step = parse_step("run_until_pc", json!({"addr": 0x1234})).expect("valid run_until_pc");
         assert_eq!(
             step,
             ScriptStep::RunUntilPc {

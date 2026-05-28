@@ -604,9 +604,7 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     /// clip, same rule as [`Self::restore_snapshot`].
     pub fn reset(&mut self, kind: ResetKind) -> Result<(), SessionError> {
         if self.recorder.is_some() {
-            return Err(SessionError::DisallowedDuringRecording {
-                operation: "reset",
-            });
+            return Err(SessionError::DisallowedDuringRecording { operation: "reset" });
         }
         self.machine.reset(kind);
         self.queued_input.clear();

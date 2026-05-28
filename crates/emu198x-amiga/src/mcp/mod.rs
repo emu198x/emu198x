@@ -64,13 +64,11 @@ pub fn run(cli: McpCli) -> Result<(), AppError> {
     let rom_path = find_rom_path(cli.model, cli.rom_dir.as_deref(), cli.kickstart.as_deref())
         .map_err(|reason| AppError::MissingRom { path: reason })?;
     let rom_bytes = std::fs::read(&rom_path).map_err(AppError::Io)?;
-    let mut session = AmigaSession::new(cli.model.to_model(), rom_bytes, rom_path)
-        .map_err(AppError::Machine)?;
+    let mut session =
+        AmigaSession::new(cli.model.to_model(), rom_bytes, rom_path).map_err(AppError::Machine)?;
 
-    let mut server: Server<AmigaSession> = Server::new(ServerInfo::new(
-        "emu198x-amiga",
-        env!("CARGO_PKG_VERSION"),
-    ));
+    let mut server: Server<AmigaSession> =
+        Server::new(ServerInfo::new("emu198x-amiga", env!("CARGO_PKG_VERSION")));
     tools::register_all(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(AppError::from)?;

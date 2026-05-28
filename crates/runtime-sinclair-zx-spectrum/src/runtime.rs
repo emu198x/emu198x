@@ -205,11 +205,7 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     ///
     /// Returns `Err` with a short reason on variants that don't
     /// implement the tracer.
-    fn start_memory_write_watch(
-        &mut self,
-        _addr: u16,
-        _len: u16,
-    ) -> Result<(), &'static str> {
+    fn start_memory_write_watch(&mut self, _addr: u16, _len: u16) -> Result<(), &'static str> {
         Err("memory write watch is not supported on this Spectrum variant")
     }
 

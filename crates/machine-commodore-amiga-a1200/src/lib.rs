@@ -1356,20 +1356,19 @@ impl AmigaA1200 {
         // remaps displayed indices into other palette banks; without
         // catching it we can't tell whether the OS is trying to
         // point a 4-colour display at the grey ramp at slots 16-23.
-        if (offset >= 0x180 && offset <= 0x1BE && (offset & 1) == 0)
+        if (((0x180..=0x1BE).contains(&offset) && (offset & 1) == 0)
             || offset == 0x0106
-            || offset == 0x010C
+            || offset == 0x010C)
+            && self.debug_palette_log.len() < 262144
         {
-            if self.debug_palette_log.len() < 262144 {
-                let bplcon3 = self.denise.ocs.bplcon3;
-                self.debug_palette_log.push((
-                    self.tick_count / TICKS_PER_CCK,
-                    self.cpu.regs.pc,
-                    offset,
-                    val,
-                    Some(bplcon3),
-                ));
-            }
+            let bplcon3 = self.denise.ocs.bplcon3;
+            self.debug_palette_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                offset,
+                val,
+                Some(bplcon3),
+            ));
         }
         if offset == 0x09A {
             self.debug_intena_writes += 1;

@@ -711,7 +711,10 @@ mod tests {
         let mut agnus = AgnusEcs::new();
         agnus.write_bltsizv(0x000B);
         assert_eq!(agnus.bltsizv, 0x000B);
-        assert!(!agnus.inner.blitter_busy, "BLTSIZV alone must not start the blit");
+        assert!(
+            !agnus.inner.blitter_busy,
+            "BLTSIZV alone must not start the blit"
+        );
     }
 
     /// BLTSIZH triggers the blit using the previously-latched

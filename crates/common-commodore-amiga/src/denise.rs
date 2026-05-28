@@ -609,7 +609,7 @@ mod tests {
         );
         // Slots 0 and 2 of each HIRES block are free for BPU=2.
         assert_eq!(
-            dma_claim(0x38 + 0, DMACON_BPL, bplcon0, DDFSTRT, DDFSTOP),
+            dma_claim(0x38, DMACON_BPL, bplcon0, DDFSTRT, DDFSTOP),
             DmaClaim::Free
         );
         assert_eq!(

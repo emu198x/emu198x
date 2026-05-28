@@ -35,9 +35,7 @@ use commodore_agnus_ocs::Agnus;
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::{AmigaA1200, Copper as A1200Copper};
 use machine_commodore_amiga_ecs::AmigaEcs;
-use machine_commodore_amiga_ocs::{
-    AmigaFloppyDrive, AmigaKeyboard, AmigaOcs, Cia, Paula8364,
-};
+use machine_commodore_amiga_ocs::{AmigaFloppyDrive, AmigaKeyboard, AmigaOcs, Cia, Paula8364};
 use motorola_68k_common::registers::Registers;
 
 use crate::variants::AmigaRuntimeKind;

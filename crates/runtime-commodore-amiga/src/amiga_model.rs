@@ -285,7 +285,11 @@ mod tests {
             assert_eq!(model.cpu(), CpuKind::M68000, "{model:?} should be 68000");
         }
         for model in [a1200::PAL, a1200::NTSC] {
-            assert_eq!(model.cpu(), CpuKind::M68EC020, "{model:?} should be 68EC020");
+            assert_eq!(
+                model.cpu(),
+                CpuKind::M68EC020,
+                "{model:?} should be 68EC020"
+            );
         }
     }
 

@@ -681,7 +681,7 @@ fn main() {
     // skip the winit / UI stack entirely and serve the JSON-RPC tool
     // surface over stdin / stdout.
     if raw_args.iter().any(|a| a == "--mcp") {
-        let mcp_cli = parse_mcp_cli(raw_args.into_iter());
+        let mcp_cli = parse_mcp_cli(raw_args);
         if let Err(err) = mcp::run(mcp_cli) {
             eprintln!("error: {err}");
             process::exit(1);
@@ -689,7 +689,7 @@ fn main() {
         return;
     }
 
-    let cli = parse_cli(raw_args.into_iter());
+    let cli = parse_cli(raw_args);
     if let Err(err) = run(cli) {
         eprintln!("error: {err}");
         process::exit(1);
@@ -1183,11 +1183,20 @@ mod tests {
     #[test]
     fn rom_candidates_branch_on_chipset() {
         // A1200 prefers AGA kickstart names first.
-        assert_eq!(rom_candidates_for_model(ModelArg::A1200)[0], "kick31a1200.rom");
+        assert_eq!(
+            rom_candidates_for_model(ModelArg::A1200)[0],
+            "kick31a1200.rom"
+        );
         // A600 lands on ECS Kickstart candidates.
         let ecs = rom_candidates_for_model(ModelArg::A600);
-        assert!(ecs.iter().any(|n| *n == "kick204.rom" || *n == "kick205.rom"));
+        assert!(
+            ecs.iter()
+                .any(|n| *n == "kick204.rom" || *n == "kick205.rom")
+        );
         // A1000 wants the bootstrap, not Kickstart.
-        assert_eq!(rom_candidates_for_model(ModelArg::A1000)[0], "a1000-bootstrap.rom");
+        assert_eq!(
+            rom_candidates_for_model(ModelArg::A1000)[0],
+            "a1000-bootstrap.rom"
+        );
     }
 }

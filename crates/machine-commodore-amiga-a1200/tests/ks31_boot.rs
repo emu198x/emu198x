@@ -634,12 +634,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
                 ipl_acceptable_ticks += 1;
             }
             if mask > prev_mask && mask_raises.len() < 40 {
-                mask_raises.push((
-                    tick_counter,
-                    m.cpu().instr_start_pc,
-                    prev_mask,
-                    mask,
-                ));
+                mask_raises.push((tick_counter, m.cpu().instr_start_pc, prev_mask, mask));
             }
             prev_mask = mask;
             // Instruction-boundary check: the tick where a new
@@ -718,9 +713,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         first_ipl_drop_frame, first_vbr_change_frame
     );
     let total_pin_samples: u64 = ipl_pin_counts.iter().sum();
-    eprintln!(
-        "Paula → CPU IPL pin distribution (max seen = {max_ipl_pin}):"
-    );
+    eprintln!("Paula → CPU IPL pin distribution (max seen = {max_ipl_pin}):");
     for (level, count) in ipl_pin_counts.iter().enumerate() {
         let pct = if total_pin_samples > 0 {
             (*count as f64 / total_pin_samples as f64) * 100.0
@@ -734,9 +727,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         eprintln!("  (mask never increased)");
     }
     for (tick, pc, old, new) in &mask_raises {
-        eprintln!(
-            "  tick={tick:>10} instr=${pc:08X}  mask: {old} -> {new}"
-        );
+        eprintln!("  tick={tick:>10} instr=${pc:08X}  mask: {old} -> {new}");
     }
     eprintln!("CPU interrupt-mask distribution (mask register, SR bits 10-8):");
     for (level, count) in mask_counts.iter().enumerate() {
@@ -1109,10 +1100,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // follow-up tag chain can distinguish interrupts from group-1/2
     // exceptions). `cpu.interrupts_taken` increments unconditionally
     // for every IRQ entry, regardless of vector.
-    eprintln!(
-        "CPU interrupts_taken counter: {}",
-        m.cpu().interrupts_taken
-    );
+    eprintln!("CPU interrupts_taken counter: {}", m.cpu().interrupts_taken);
 
     // Display state check — STRAP arrives if BPLCON0 hits $8303
     // (hires + 3 bitplanes + color + GAUD) and DMACON-set has
@@ -1201,9 +1189,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     let start = cr_log.len().saturating_sub(20);
     for (cck, pc, reg, val) in &cr_log[start..] {
         let name = cia_a_reg_name(*reg);
-        eprintln!(
-            "  cck={cck:>10} pc=${pc:08X} reg=${reg:02X} ({name}) val=${val:02X}"
-        );
+        eprintln!("  cck={cck:>10} pc=${pc:08X} reg=${reg:02X} ({name}) val=${val:02X}");
     }
     // CIA-A timer B current state
     let cia_a = m.cia_a();
@@ -1303,9 +1289,19 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             format!("MOVE ${lo:04X} -> ${reg_off:03X} ({reg_name})")
         } else if (lo & 1) == 0 {
             // WAIT: wait until beam reaches (vp,hp)
-            format!("WAIT vp=${:02X} hp=${:02X} mask=${:04X}", hi >> 8, hi & 0xFE, lo)
+            format!(
+                "WAIT vp=${:02X} hp=${:02X} mask=${:04X}",
+                hi >> 8,
+                hi & 0xFE,
+                lo
+            )
         } else {
-            format!("SKIP vp=${:02X} hp=${:02X} mask=${:04X}", hi >> 8, hi & 0xFE, lo)
+            format!(
+                "SKIP vp=${:02X} hp=${:02X} mask=${:04X}",
+                hi >> 8,
+                hi & 0xFE,
+                lo
+            )
         };
         eprintln!("  @${addr:08X}: ${hi:04X} ${lo:04X}  {inst_type}");
         // Stop at COPJMP/END marker
@@ -1317,9 +1313,13 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
 
     eprintln!("Display state at end of run:");
     let dmacon = m.dmacon();
-    eprintln!("  BPLCON0 = ${:04X} (STRAP target: $8303 — hires+3bpl+color+GAUD)", m.bplcon0());
+    eprintln!(
+        "  BPLCON0 = ${:04X} (STRAP target: $8303 — hires+3bpl+color+GAUD)",
+        m.bplcon0()
+    );
     eprintln!("  DMACON  = ${dmacon:04X} (STRAP needs $03C0 set: BPLEN+COPEN+BLTEN+SPREN)");
-    eprintln!("    BPLEN={} COPEN={} BLTEN={} SPREN={} DMAEN={}",
+    eprintln!(
+        "    BPLEN={} COPEN={} BLTEN={} SPREN={} DMAEN={}",
         (dmacon & 0x0100) != 0,
         (dmacon & 0x0080) != 0,
         (dmacon & 0x0040) != 0,
@@ -1477,8 +1477,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
         //   SSP+2..5: PC (low word of t0 + high word of t1)
         //   SSP+6..7: F/V word (low word of t1)
         let popped_sr = (*t0 >> 16) as u16;
-        let popped_pc =
-            ((*t0 & 0x0000_FFFF) << 16) | ((*t1 >> 16) & 0x0000_FFFF);
+        let popped_pc = ((*t0 & 0x0000_FFFF) << 16) | ((*t1 >> 16) & 0x0000_FFFF);
         let fv_word = (*t1 & 0x0000_FFFF) as u16;
         let format_nibble = (fv_word >> 12) & 0xF;
         let vec_offset = fv_word & 0x0FFF;
@@ -1532,9 +1531,7 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
             let l1 = m.read_long(a5_val.wrapping_add(4));
             let l2 = m.read_long(a5_val.wrapping_add(8));
             let l3 = m.read_long(a5_val.wrapping_add(12));
-            eprintln!(
-                "    Longs @ A5=${a5_val:08X}: ${l0:08X} ${l1:08X} ${l2:08X} ${l3:08X}"
-            );
+            eprintln!("    Longs @ A5=${a5_val:08X}: ${l0:08X} ${l1:08X} ${l2:08X} ${l3:08X}");
         }
     }
 

@@ -91,19 +91,27 @@ mod tests {
     #[test]
     fn integer_encoding() {
         let prog = tokenise("10 LET a=42").expect("should tokenise");
-        let pos_4 = prog.bytes.iter().position(|&b| b == b'4').unwrap();
+        let pos_4 = prog
+            .bytes
+            .iter()
+            .position(|&b| b == b'4')
+            .expect("'4' present");
         assert_eq!(prog.bytes[pos_4 + 2], 0x0E);
         assert_eq!(prog.bytes[pos_4 + 3], 0x00); // integer short form
         assert_eq!(prog.bytes[pos_4 + 4], 0x00); // sign = positive
-        assert_eq!(prog.bytes[pos_4 + 5], 42);   // low byte
-        assert_eq!(prog.bytes[pos_4 + 6], 0);    // high byte
+        assert_eq!(prog.bytes[pos_4 + 5], 42); // low byte
+        assert_eq!(prog.bytes[pos_4 + 6], 0); // high byte
         assert_eq!(prog.bytes[pos_4 + 7], 0x00);
     }
 
     #[test]
     fn zero_encoding() {
         let prog = tokenise("10 LET a=0").expect("should tokenise");
-        let pos_0 = prog.bytes.iter().position(|&b| b == b'0').unwrap();
+        let pos_0 = prog
+            .bytes
+            .iter()
+            .position(|&b| b == b'0')
+            .expect("'0' present");
         assert_eq!(prog.bytes[pos_0 + 1], 0x0E);
         assert_eq!(&prog.bytes[pos_0 + 2..pos_0 + 7], &[0, 0, 0, 0, 0]);
     }
@@ -112,7 +120,10 @@ mod tests {
     fn number_literal_has_hidden_float() {
         let prog = tokenise("10 LET a=42").expect("should tokenise");
         let bytes = &prog.bytes;
-        let pos_4 = bytes.iter().position(|&b| b == b'4').expect("digit 4 present");
+        let pos_4 = bytes
+            .iter()
+            .position(|&b| b == b'4')
+            .expect("digit 4 present");
         assert_eq!(bytes[pos_4], b'4');
         assert_eq!(bytes[pos_4 + 1], b'2');
         assert_eq!(bytes[pos_4 + 2], 0x0E);
@@ -238,7 +249,10 @@ mod tests {
         let after_header = &prog.bytes[4..prog.bytes.len() - 1];
         assert_eq!(after_header[0], 0xDA); // PAPER token
         // Find the colon — after it, INK should be a keyword
-        let colon_pos = after_header.iter().position(|&b| b == b':').unwrap();
+        let colon_pos = after_header
+            .iter()
+            .position(|&b| b == b':')
+            .expect("colon present");
         assert_eq!(after_header[colon_pos + 1], 0xD9); // INK keyword
     }
 
@@ -295,6 +309,9 @@ mod tests {
         assert_eq!(program.lines.len(), 2);
         assert_eq!(program.lines[0].number, 10);
         assert_eq!(program.lines[1].number, 20);
-        assert!(matches!(program.lines[0].statements[0], ast::Statement::Let { .. }));
+        assert!(matches!(
+            program.lines[0].statements[0],
+            ast::Statement::Let { .. }
+        ));
     }
 }

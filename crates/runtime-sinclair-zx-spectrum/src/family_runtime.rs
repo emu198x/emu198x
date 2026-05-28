@@ -520,9 +520,15 @@ mod tests {
 
         // 128K has an AY — start should succeed, range should be present.
         let mut k128 = SpectrumRuntimeKind::Spectrum128K(Spectrum128kRuntime::blank());
-        k128.start_ay_write_watch().expect("128K supports the AY watch");
+        k128.start_ay_write_watch()
+            .expect("128K supports the AY watch");
         assert!(k128.ay_write_watch_records().is_some());
-        assert_eq!(k128.ay_write_watch_records().unwrap().len(), 0);
+        assert_eq!(
+            k128.ay_write_watch_records()
+                .expect("128K AY watch active")
+                .len(),
+            0
+        );
 
         k128.stop_ay_write_watch();
         assert!(k128.ay_write_watch_records().is_none());

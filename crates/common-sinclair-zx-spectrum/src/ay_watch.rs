@@ -93,7 +93,11 @@ impl AyWriteWatch {
         if self.writes.len() >= self.cap {
             return false;
         }
-        self.writes.push(AyWriteRecord { pc, register, value });
+        self.writes.push(AyWriteRecord {
+            pc,
+            register,
+            value,
+        });
         true
     }
 }

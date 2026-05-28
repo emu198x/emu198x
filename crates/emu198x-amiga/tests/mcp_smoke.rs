@@ -10,7 +10,9 @@
 //! ROM lookup mirrors `ks31_boot.rs`:
 //!   1. `$EMU198X_KS31_A1200_ROM`
 //!   2. `~/.emu198x/roms/commodore-amiga/kick31a1200.rom`
+//!
 //! Missing ROM → skip loudly with `eprintln!`, don't fail.
+#![allow(clippy::unwrap_used)]
 
 use std::path::PathBuf;
 
@@ -90,8 +92,7 @@ fn mcp_server_boots_and_lists_tools() {
     };
     let mut session = AmigaSession::new(Model::A1200AgaPal, rom_bytes, rom_path)
         .expect("session constructor accepts Kickstart-sized ROM");
-    let mut server: Server<AmigaSession> =
-        Server::new(ServerInfo::new("emu198x-amiga", "test"));
+    let mut server: Server<AmigaSession> = Server::new(ServerInfo::new("emu198x-amiga", "test"));
     tools::register_all(server.registry_mut());
 
     let init = call(&mut server, &mut session, 1, "initialize", json!({}));
@@ -162,8 +163,7 @@ fn mcp_tools_drive_a_real_boot() {
     };
     let mut session = AmigaSession::new(Model::A1200AgaPal, rom_bytes, rom_path)
         .expect("session constructor accepts Kickstart-sized ROM");
-    let mut server: Server<AmigaSession> =
-        Server::new(ServerInfo::new("emu198x-amiga", "test"));
+    let mut server: Server<AmigaSession> = Server::new(ServerInfo::new("emu198x-amiga", "test"));
     tools::register_all(server.registry_mut());
 
     // Post-reset CPU state: PC in ROM window, SR with supervisor + IRQ mask.
@@ -306,10 +306,10 @@ fn mcp_tools_drive_a_real_boot() {
             all_entries.extend(arr);
         }
     }
-    if let Some(this_task) = tasks.get("this_task_info") {
-        if !this_task.is_null() {
-            all_entries.push(this_task);
-        }
+    if let Some(this_task) = tasks.get("this_task_info")
+        && !this_task.is_null()
+    {
+        all_entries.push(this_task);
     }
     assert!(
         !all_entries.is_empty(),
@@ -506,33 +506,33 @@ fn mcp_tools_drive_a_real_boot() {
         "tools/call",
         json!({ "name": "query_exec_tasks", "arguments": {} }),
     ));
-    if let Some(this_task) = tasks_state.get("this_task").and_then(Value::as_str) {
-        if this_task != "$00000000" {
-            let stack = unwrap_tool_text(&call(
-                &mut server,
-                &mut session,
-                32,
-                "tools/call",
-                json!({
-                    "name": "read_task_stack",
-                    "arguments": { "task_addr": this_task, "bytes": 128 }
-                }),
-            ));
-            assert!(stack.get("sp").is_some());
-            assert!(stack.get("rom_hits").and_then(Value::as_array).is_some());
-            assert!(
-                stack
-                    .get("libraries_searched")
-                    .and_then(Value::as_u64)
-                    .unwrap()
-                    > 0,
-                "read_task_stack must walk the library list"
-            );
-            assert!(
-                stack.get("layout_note").is_some(),
-                "response must carry a layout_note explaining how to read rom_hits"
-            );
-        }
+    if let Some(this_task) = tasks_state.get("this_task").and_then(Value::as_str)
+        && this_task != "$00000000"
+    {
+        let stack = unwrap_tool_text(&call(
+            &mut server,
+            &mut session,
+            32,
+            "tools/call",
+            json!({
+                "name": "read_task_stack",
+                "arguments": { "task_addr": this_task, "bytes": 128 }
+            }),
+        ));
+        assert!(stack.get("sp").is_some());
+        assert!(stack.get("rom_hits").and_then(Value::as_array).is_some());
+        assert!(
+            stack
+                .get("libraries_searched")
+                .and_then(Value::as_u64)
+                .unwrap()
+                > 0,
+            "read_task_stack must walk the library list"
+        );
+        assert!(
+            stack.get("layout_note").is_some(),
+            "response must carry a layout_note explaining how to read rom_hits"
+        );
     }
 
     // disasm_around: point at the current PC and ask for 2 before
@@ -557,10 +557,7 @@ fn mcp_tools_drive_a_real_boot() {
             "arguments": { "addr": pc_str, "before": 2, "after": 2 }
         }),
     ));
-    assert_eq!(
-        around.get("target").and_then(Value::as_str),
-        Some(pc_str)
-    );
+    assert_eq!(around.get("target").and_then(Value::as_str), Some(pc_str));
     let instrs = around
         .get("instructions")
         .and_then(Value::as_array)
@@ -583,28 +580,28 @@ fn mcp_tools_drive_a_real_boot() {
         "tools/call",
         json!({ "name": "query_exec_ports", "arguments": {} }),
     ));
-    if let Some(port_arr) = ports.get("ports").and_then(Value::as_array) {
-        if let Some(first) = port_arr.first() {
-            let port_addr = first.get("addr").and_then(Value::as_str).unwrap();
-            let dump = unwrap_tool_text(&call(
-                &mut server,
-                &mut session,
-                36,
-                "tools/call",
-                json!({
-                    "name": "dump_msgport_messages",
-                    "arguments": { "port": port_addr }
-                }),
-            ));
-            // We can't assert a specific message count (depends on
-            // boot state), but the shape must match.
-            assert!(dump.get("messages").and_then(Value::as_array).is_some());
-            assert!(dump.get("count").and_then(Value::as_u64).is_some());
-            assert!(
-                dump.get("port").and_then(Value::as_object).is_some(),
-                "response must echo the decoded port header"
-            );
-        }
+    if let Some(port_arr) = ports.get("ports").and_then(Value::as_array)
+        && let Some(first) = port_arr.first()
+    {
+        let port_addr = first.get("addr").and_then(Value::as_str).unwrap();
+        let dump = unwrap_tool_text(&call(
+            &mut server,
+            &mut session,
+            36,
+            "tools/call",
+            json!({
+                "name": "dump_msgport_messages",
+                "arguments": { "port": port_addr }
+            }),
+        ));
+        // We can't assert a specific message count (depends on
+        // boot state), but the shape must match.
+        assert!(dump.get("messages").and_then(Value::as_array).is_some());
+        assert!(dump.get("count").and_then(Value::as_u64).is_some());
+        assert!(
+            dump.get("port").and_then(Value::as_object).is_some(),
+            "response must echo the decoded port header"
+        );
     }
 
     // signal_task: pick the first task in TaskWait, OR an extra signal
@@ -618,63 +615,63 @@ fn mcp_tools_drive_a_real_boot() {
         "tools/call",
         json!({ "name": "query_exec_tasks", "arguments": {} }),
     ));
-    if let Some(waiters) = tasks2.get("task_wait").and_then(Value::as_array) {
-        if let Some(first) = waiters.first() {
-            let task_addr = first.get("addr").and_then(Value::as_str).unwrap();
-            let sig_wait_str = first.get("tc_sig_wait").and_then(Value::as_str).unwrap();
-            let sig_wait = u32::from_str_radix(sig_wait_str.trim_start_matches('$'), 16).unwrap();
-            // Pick a bit NOT in sig_wait. Bit 0 is always allocated by
-            // exec to signify "memory list change", but not waited on
-            // here. If it happens to be in sig_wait, walk up the bits.
-            let mut probe_bit: u32 = 0;
-            for b in 0..32 {
-                if (sig_wait & (1 << b)) == 0 {
-                    probe_bit = 1 << b;
-                    break;
-                }
+    if let Some(waiters) = tasks2.get("task_wait").and_then(Value::as_array)
+        && let Some(first) = waiters.first()
+    {
+        let task_addr = first.get("addr").and_then(Value::as_str).unwrap();
+        let sig_wait_str = first.get("tc_sig_wait").and_then(Value::as_str).unwrap();
+        let sig_wait = u32::from_str_radix(sig_wait_str.trim_start_matches('$'), 16).unwrap();
+        // Pick a bit NOT in sig_wait. Bit 0 is always allocated by
+        // exec to signify "memory list change", but not waited on
+        // here. If it happens to be in sig_wait, walk up the bits.
+        let mut probe_bit: u32 = 0;
+        for b in 0..32 {
+            if (sig_wait & (1 << b)) == 0 {
+                probe_bit = 1 << b;
+                break;
             }
-            assert!(
-                probe_bit != 0,
-                "couldn't find an unwaited signal bit on the first waiter"
-            );
-            let signal = unwrap_tool_text(&call(
-                &mut server,
-                &mut session,
-                38,
-                "tools/call",
-                json!({
-                    "name": "signal_task",
-                    "arguments": { "task_addr": task_addr, "signals": probe_bit }
-                }),
-            ));
-            assert_eq!(
-                signal.get("would_wake").and_then(Value::as_bool),
-                Some(false),
-                "we picked a bit OUTSIDE sig_wait — wake-up must be false"
-            );
-            // Re-query the task and confirm tc_sig_recvd carries the
-            // bit we injected.
-            let tasks3 = unwrap_tool_text(&call(
-                &mut server,
-                &mut session,
-                39,
-                "tools/call",
-                json!({ "name": "query_exec_tasks", "arguments": {} }),
-            ));
-            let after = tasks3
-                .get("task_wait")
-                .and_then(Value::as_array)
-                .unwrap()
-                .iter()
-                .find(|e| e.get("addr").and_then(Value::as_str) == Some(task_addr))
-                .expect("task must still be in TaskWait — we didn't trigger a wake");
-            let recvd_str = after.get("tc_sig_recvd").and_then(Value::as_str).unwrap();
-            let recvd = u32::from_str_radix(recvd_str.trim_start_matches('$'), 16).unwrap();
-            assert!(
-                (recvd & probe_bit) != 0,
-                "signal_task didn't persist: tc_sig_recvd={recvd_str} probe_bit=${probe_bit:08X}"
-            );
         }
+        assert!(
+            probe_bit != 0,
+            "couldn't find an unwaited signal bit on the first waiter"
+        );
+        let signal = unwrap_tool_text(&call(
+            &mut server,
+            &mut session,
+            38,
+            "tools/call",
+            json!({
+                "name": "signal_task",
+                "arguments": { "task_addr": task_addr, "signals": probe_bit }
+            }),
+        ));
+        assert_eq!(
+            signal.get("would_wake").and_then(Value::as_bool),
+            Some(false),
+            "we picked a bit OUTSIDE sig_wait — wake-up must be false"
+        );
+        // Re-query the task and confirm tc_sig_recvd carries the
+        // bit we injected.
+        let tasks3 = unwrap_tool_text(&call(
+            &mut server,
+            &mut session,
+            39,
+            "tools/call",
+            json!({ "name": "query_exec_tasks", "arguments": {} }),
+        ));
+        let after = tasks3
+            .get("task_wait")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .find(|e| e.get("addr").and_then(Value::as_str) == Some(task_addr))
+            .expect("task must still be in TaskWait — we didn't trigger a wake");
+        let recvd_str = after.get("tc_sig_recvd").and_then(Value::as_str).unwrap();
+        let recvd = u32::from_str_radix(recvd_str.trim_start_matches('$'), 16).unwrap();
+        assert!(
+            (recvd & probe_bit) != 0,
+            "signal_task didn't persist: tc_sig_recvd={recvd_str} probe_bit=${probe_bit:08X}"
+        );
     }
 
     // wake_task: pick a fresh waiter (not the same one we poked

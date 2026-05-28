@@ -418,6 +418,7 @@ pub struct Agnus {
     ///   * ECS PAL  8375        = `$2000`
     ///   * AGA Alice NTSC       = `$3300`
     ///   * AGA Alice PAL        = `$2300`
+    ///
     /// Each wrapper (`AgnusEcs`, `AgnusAga`) overrides this in its
     /// constructor so the inner OCS struct still serialises cleanly
     /// while the bus-read returns the wrapper's true chip identity.

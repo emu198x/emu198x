@@ -1072,9 +1072,9 @@ impl ScriptStep {
                 step: "watch_ay_log",
             }),
             Self::PressKey { .. } => Err(ScriptError::SystemSpecificStep { step: "press_key" }),
-            Self::TypeString { .. } => {
-                Err(ScriptError::SystemSpecificStep { step: "type_string" })
-            }
+            Self::TypeString { .. } => Err(ScriptError::SystemSpecificStep {
+                step: "type_string",
+            }),
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
             }),
@@ -1757,14 +1757,8 @@ mod tests {
     #[test]
     fn reset_step_round_trips_through_json_for_both_kinds() {
         for (json, kind) in [
-            (
-                r#"[{"action":"reset","kind":"hard"}]"#,
-                ResetKind::Hard,
-            ),
-            (
-                r#"[{"action":"reset","kind":"soft"}]"#,
-                ResetKind::Soft,
-            ),
+            (r#"[{"action":"reset","kind":"hard"}]"#, ResetKind::Hard),
+            (r#"[{"action":"reset","kind":"soft"}]"#, ResetKind::Soft),
         ] {
             let script = HeadlessScript::from_json_str(json).expect("script should parse");
             assert_eq!(script.steps, vec![ScriptStep::Reset { kind }]);
@@ -1782,10 +1776,7 @@ mod tests {
             reached: MachineTime::new(0),
         };
         let json = serde_json::to_string(&observation).expect("serialize observation");
-        assert_eq!(
-            json,
-            r#"{"kind":"reset","performed":"soft","reached":0}"#
-        );
+        assert_eq!(json, r#"{"kind":"reset","performed":"soft","reached":0}"#);
     }
 
     #[test]
@@ -1793,8 +1784,12 @@ mod tests {
         let script = HeadlessScript {
             steps: vec![
                 ScriptStep::RunFrames { frames: 2 },
-                ScriptStep::Reset { kind: ResetKind::Hard },
-                ScriptStep::Reset { kind: ResetKind::Soft },
+                ScriptStep::Reset {
+                    kind: ResetKind::Hard,
+                },
+                ScriptStep::Reset {
+                    kind: ResetKind::Soft,
+                },
             ],
         };
 

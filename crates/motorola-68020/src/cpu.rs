@@ -784,7 +784,7 @@ fn begin_bf_memory(cpu: &mut Cpu68000, opcode: u16, ea_mode: u8, ea_reg: u8) -> 
     // two's-complement.
     let byte_disp: i32 = offset_raw >> 3;
     let bit_offset: u8 = (offset_raw & 7) as u8;
-    let bytes_total: u8 = ((u32::from(bit_offset) + width + 7) / 8) as u8;
+    let bytes_total: u8 = (u32::from(bit_offset) + width).div_ceil(8) as u8;
 
     // Common pipeline state. Stash the per-instruction params so
     // both the instant-EA path below and the deferred resolve handler
@@ -802,10 +802,10 @@ fn begin_bf_memory(cpu: &mut Cpu68000, opcode: u16, ea_mode: u8, ea_reg: u8) -> 
     cpu.bf_source_val = match sub_op {
         7 => cpu.regs.d[dr as usize], // BFINS: snapshot Dr before any writes.
         5 => offset_raw as u32,       // BFFFO: stash the full signed offset
-                                      //         so the result (offset + first-one
-                                      //         position) sees its original
-                                      //         32-bit width, not the wrapped
-                                      //         5-bit value.
+        //         so the result (offset + first-one
+        //         position) sees its original
+        //         32-bit width, not the wrapped
+        //         5-bit value.
         _ => 0,
     };
 
@@ -832,7 +832,7 @@ fn begin_bf_memory(cpu: &mut Cpu68000, opcode: u16, ea_mode: u8, ea_reg: u8) -> 
         }
         // d16(An), (d8,An,Xn), AbsShort/Long, PcDisp, PcIndex —
         // defer EA resolution until the FetchIRC has refilled IRC.
-        5 | 6 | 7 => {
+        5..=7 => {
             cpu.followup_tag = TAG_BF_MEM_EA_RESOLVE;
             cpu.micro_ops.push(MicroOp::Execute);
         }
@@ -1027,10 +1027,10 @@ fn handle_bf_mem_read(cpu: &mut Cpu68000) {
 ///   - BFEXTU → zero-extend into Dr; finish.
 ///   - BFEXTS → sign-extend into Dr; finish.
 ///   - BFFFO  → Dr = (original signed offset) + (bit position of
-///              the first '1' MSB-first, or width if none); finish.
+///     the first '1' MSB-first, or width if none); finish.
 ///   - BFCHG / BFCLR / BFSET / BFINS → modify the field bits in
-///              `bf_buf` and hand off to `TAG_BF_MEM_WRITE` for the
-///              R-M-W byte chain.
+///     `bf_buf` and hand off to `TAG_BF_MEM_WRITE` for the
+///     R-M-W byte chain.
 fn handle_bf_mem_exec(cpu: &mut Cpu68000) {
     let width = u32::from(cpu.bf_width);
     let bit_offset = u32::from(cpu.bf_bit_offset);

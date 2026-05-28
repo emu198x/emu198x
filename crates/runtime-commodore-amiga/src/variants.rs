@@ -622,6 +622,10 @@ pub type AmigaA1200Runtime = AmigaRuntime<AmigaA1200>;
 /// `from_firmware` / `blank`); the inner case is picked by
 /// `Model::is_ecs()`. Implements `MachineCore` so callers can drive
 /// it like any other runtime.
+// One instance per session, held for its lifetime; boxing the larger
+// variant would only add heap indirection to the hot per-tick
+// `MachineCore` forwarding path.
+#[allow(clippy::large_enum_variant)]
 pub enum AmigaRuntimeKind {
     /// OCS chip stack — A1000, A500, A500-A501, A500-Maxed (PAL/NTSC).
     Ocs(AmigaOcsRuntime),
@@ -861,7 +865,11 @@ mod tests {
         sorted.sort();
         let mut deduped = sorted.clone();
         deduped.dedup();
-        assert_eq!(sorted.len(), deduped.len(), "duplicate AGA variant query paths");
+        assert_eq!(
+            sorted.len(),
+            deduped.len(),
+            "duplicate AGA variant query paths"
+        );
     }
 
     #[test]

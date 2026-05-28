@@ -207,8 +207,16 @@ fn format_index_ext(ctx: &mut DisCtx, ext: u16, base_reg: &str) -> String {
     } else {
         format!("{}{}{}{}", xn_type, xn_reg, xn_size, scale_str)
     };
-    let bd_str = if bd != 0 { bd.to_string() } else { String::new() };
-    let od_str = if od != 0 { od.to_string() } else { String::new() };
+    let bd_str = if bd != 0 {
+        bd.to_string()
+    } else {
+        String::new()
+    };
+    let od_str = if od != 0 {
+        od.to_string()
+    } else {
+        String::new()
+    };
 
     if !indirect {
         format!("({})", join_nonempty(&[bd_str, base_str, index_str]))

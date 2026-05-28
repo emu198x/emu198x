@@ -111,7 +111,9 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     /// Begin tracing every Z80 memory write whose target falls
     /// inside `[addr, addr + len)`. Replaces any prior watch.
     pub fn start_memory_write_watch(&mut self, addr: u16, len: u16) {
-        self.write_watch = Some(common_sinclair_zx_spectrum::MemoryWriteWatch::new(addr, len));
+        self.write_watch = Some(common_sinclair_zx_spectrum::MemoryWriteWatch::new(
+            addr, len,
+        ));
     }
 
     /// Drop the current watch entirely. After this call,

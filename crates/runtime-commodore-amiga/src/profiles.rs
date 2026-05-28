@@ -226,10 +226,7 @@ impl Model {
     pub const fn is_ecs(self) -> bool {
         matches!(
             self,
-            Self::A500PlusEcsPal
-                | Self::A500PlusEcsNtsc
-                | Self::A600EcsPal
-                | Self::A600EcsNtsc
+            Self::A500PlusEcsPal | Self::A500PlusEcsNtsc | Self::A600EcsPal | Self::A600EcsNtsc
         )
     }
 
@@ -253,10 +250,9 @@ impl Model {
             | Self::A500OcsNtscMaxed
             | Self::A2000OcsPal
             | Self::A2000OcsNtsc => ChipsetKind::Ocs,
-            Self::A500PlusEcsPal
-            | Self::A500PlusEcsNtsc
-            | Self::A600EcsPal
-            | Self::A600EcsNtsc => ChipsetKind::Ecs,
+            Self::A500PlusEcsPal | Self::A500PlusEcsNtsc | Self::A600EcsPal | Self::A600EcsNtsc => {
+                ChipsetKind::Ecs
+            }
             Self::A1200AgaPal | Self::A1200AgaNtsc => ChipsetKind::Aga,
         }
     }

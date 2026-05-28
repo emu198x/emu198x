@@ -129,7 +129,9 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     /// See `SpectrumMachineCore::start_memory_write_watch` on the
     /// 48K-class core.
     pub fn start_memory_write_watch(&mut self, addr: u16, len: u16) {
-        self.write_watch = Some(common_sinclair_zx_spectrum::MemoryWriteWatch::new(addr, len));
+        self.write_watch = Some(common_sinclair_zx_spectrum::MemoryWriteWatch::new(
+            addr, len,
+        ));
     }
 
     /// See `SpectrumMachineCore::stop_memory_write_watch`.
@@ -183,9 +185,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
 
     /// Captured AY writes since the last `start_ay_write_watch`.
     #[must_use]
-    pub fn ay_write_watch_records(
-        &self,
-    ) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]> {
+    pub fn ay_write_watch_records(&self) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]> {
         self.ay_watch.as_ref().map(|w| w.records())
     }
 

@@ -46,7 +46,12 @@ fn serialize_statement(stmt: &Statement, out: &mut Vec<u8>) {
             out.push(b'=');
             serialize_expr(value, out);
         }
-        Statement::For { variable, from, to, step } => {
+        Statement::For {
+            variable,
+            from,
+            to,
+            step,
+        } => {
             out.push(0xEB); // FOR
             serialize_variable(variable, out);
             out.push(b'=');
@@ -64,7 +69,10 @@ fn serialize_statement(stmt: &Statement, out: &mut Vec<u8>) {
                 serialize_variable(v, out);
             }
         }
-        Statement::If { condition, then_body } => {
+        Statement::If {
+            condition,
+            then_body,
+        } => {
             out.push(0xFA); // IF
             serialize_expr(condition, out);
             out.push(0xCB); // THEN
@@ -123,7 +131,10 @@ fn serialize_statement(stmt: &Statement, out: &mut Vec<u8>) {
                 }
             }
         }
-        Statement::Dim { variable, dimensions } => {
+        Statement::Dim {
+            variable,
+            dimensions,
+        } => {
             out.push(0xE9); // DIM
             serialize_variable(variable, out);
             out.push(b'(');
@@ -135,13 +146,34 @@ fn serialize_statement(stmt: &Statement, out: &mut Vec<u8>) {
             }
             out.push(b')');
         }
-        Statement::Ink(e) => { out.push(0xD9); serialize_expr(e, out); }
-        Statement::Paper(e) => { out.push(0xDA); serialize_expr(e, out); }
-        Statement::Border(e) => { out.push(0xE7); serialize_expr(e, out); }
-        Statement::Bright(e) => { out.push(0xDC); serialize_expr(e, out); }
-        Statement::Flash(e) => { out.push(0xDB); serialize_expr(e, out); }
-        Statement::Over(e) => { out.push(0xDE); serialize_expr(e, out); }
-        Statement::Inverse(e) => { out.push(0xDD); serialize_expr(e, out); }
+        Statement::Ink(e) => {
+            out.push(0xD9);
+            serialize_expr(e, out);
+        }
+        Statement::Paper(e) => {
+            out.push(0xDA);
+            serialize_expr(e, out);
+        }
+        Statement::Border(e) => {
+            out.push(0xE7);
+            serialize_expr(e, out);
+        }
+        Statement::Bright(e) => {
+            out.push(0xDC);
+            serialize_expr(e, out);
+        }
+        Statement::Flash(e) => {
+            out.push(0xDB);
+            serialize_expr(e, out);
+        }
+        Statement::Over(e) => {
+            out.push(0xDE);
+            serialize_expr(e, out);
+        }
+        Statement::Inverse(e) => {
+            out.push(0xDD);
+            serialize_expr(e, out);
+        }
         Statement::Plot { x, y } => {
             out.push(0xF6); // PLOT
             serialize_expr(x, out);
@@ -187,36 +219,59 @@ fn serialize_statement(stmt: &Statement, out: &mut Vec<u8>) {
         Statement::Cls => out.push(0xFB),
         Statement::Clear(e) => {
             out.push(0xFD);
-            if let Some(expr) = e { serialize_expr(expr, out); }
+            if let Some(expr) = e {
+                serialize_expr(expr, out);
+            }
         }
-        Statement::Pause(e) => { out.push(0xF2); serialize_expr(e, out); }
+        Statement::Pause(e) => {
+            out.push(0xF2);
+            serialize_expr(e, out);
+        }
         Statement::Run(e) => {
             out.push(0xF7);
-            if let Some(expr) = e { serialize_expr(expr, out); }
+            if let Some(expr) = e {
+                serialize_expr(expr, out);
+            }
         }
         Statement::Restore(e) => {
             out.push(0xE5);
-            if let Some(expr) = e { serialize_expr(expr, out); }
+            if let Some(expr) = e {
+                serialize_expr(expr, out);
+            }
         }
         Statement::Randomize(e) => {
             out.push(0xF9);
-            if let Some(expr) = e { serialize_expr(expr, out); }
+            if let Some(expr) = e {
+                serialize_expr(expr, out);
+            }
         }
         Statement::Continue => out.push(0xE8),
         Statement::New => out.push(0xE6),
         Statement::Copy => out.push(0xFF),
-        Statement::Save { filename, qualifier } => {
+        Statement::Save {
+            filename,
+            qualifier,
+        } => {
             out.push(0xF8);
             serialize_expr(filename, out);
             serialize_tape_qualifier(qualifier, out);
         }
-        Statement::Load { filename, qualifier } => {
+        Statement::Load {
+            filename,
+            qualifier,
+        } => {
             out.push(0xEF);
             serialize_expr(filename, out);
             serialize_tape_qualifier(qualifier, out);
         }
-        Statement::Merge(e) => { out.push(0xD5); serialize_expr(e, out); }
-        Statement::Verify { filename, qualifier } => {
+        Statement::Merge(e) => {
+            out.push(0xD5);
+            serialize_expr(e, out);
+        }
+        Statement::Verify {
+            filename,
+            qualifier,
+        } => {
             out.push(0xD6);
             serialize_expr(filename, out);
             serialize_tape_qualifier(qualifier, out);
@@ -227,7 +282,10 @@ fn serialize_statement(stmt: &Statement, out: &mut Vec<u8>) {
             out.push(b',');
             serialize_expr(args, out);
         }
-        Statement::CloseHash(e) => { out.push(0xD4); serialize_expr(e, out); }
+        Statement::CloseHash(e) => {
+            out.push(0xD4);
+            serialize_expr(e, out);
+        }
         Statement::Rem(text) => {
             out.push(0xEA);
             out.extend_from_slice(text.as_bytes());
@@ -248,19 +306,34 @@ fn serialize_statement(stmt: &Statement, out: &mut Vec<u8>) {
         }
         Statement::Cat(e) => {
             out.push(0xCF);
-            if let Some(expr) = e { serialize_expr(expr, out); }
+            if let Some(expr) = e {
+                serialize_expr(expr, out);
+            }
         }
         Statement::List(e) => {
             out.push(0xF0);
-            if let Some(expr) = e { serialize_expr(expr, out); }
+            if let Some(expr) = e {
+                serialize_expr(expr, out);
+            }
         }
         Statement::LList(e) => {
             out.push(0xE1);
-            if let Some(expr) = e { serialize_expr(expr, out); }
+            if let Some(expr) = e {
+                serialize_expr(expr, out);
+            }
         }
-        Statement::Format(e) => { out.push(0xD0); serialize_expr(e, out); }
-        Statement::Move(e) => { out.push(0xD1); serialize_expr(e, out); }
-        Statement::Erase(e) => { out.push(0xD2); serialize_expr(e, out); }
+        Statement::Format(e) => {
+            out.push(0xD0);
+            serialize_expr(e, out);
+        }
+        Statement::Move(e) => {
+            out.push(0xD1);
+            serialize_expr(e, out);
+        }
+        Statement::Erase(e) => {
+            out.push(0xD2);
+            serialize_expr(e, out);
+        }
         Statement::Expression(e) => serialize_expr(e, out),
     }
 }
@@ -269,19 +342,40 @@ fn serialize_print_items(items: &[PrintItem], out: &mut Vec<u8>) {
     for item in items {
         match item {
             PrintItem::Expr(e) => serialize_expr(e, out),
-            PrintItem::Ink(e) => { out.push(0xD9); serialize_expr(e, out); }
-            PrintItem::Paper(e) => { out.push(0xDA); serialize_expr(e, out); }
-            PrintItem::Bright(e) => { out.push(0xDC); serialize_expr(e, out); }
-            PrintItem::Flash(e) => { out.push(0xDB); serialize_expr(e, out); }
-            PrintItem::Over(e) => { out.push(0xDE); serialize_expr(e, out); }
-            PrintItem::Inverse(e) => { out.push(0xDD); serialize_expr(e, out); }
+            PrintItem::Ink(e) => {
+                out.push(0xD9);
+                serialize_expr(e, out);
+            }
+            PrintItem::Paper(e) => {
+                out.push(0xDA);
+                serialize_expr(e, out);
+            }
+            PrintItem::Bright(e) => {
+                out.push(0xDC);
+                serialize_expr(e, out);
+            }
+            PrintItem::Flash(e) => {
+                out.push(0xDB);
+                serialize_expr(e, out);
+            }
+            PrintItem::Over(e) => {
+                out.push(0xDE);
+                serialize_expr(e, out);
+            }
+            PrintItem::Inverse(e) => {
+                out.push(0xDD);
+                serialize_expr(e, out);
+            }
             PrintItem::At { row, col } => {
                 out.push(0xAC); // AT
                 serialize_expr(row, out);
                 out.push(b',');
                 serialize_expr(col, out);
             }
-            PrintItem::Tab(e) => { out.push(0xAD); serialize_expr(e, out); }
+            PrintItem::Tab(e) => {
+                out.push(0xAD);
+                serialize_expr(e, out);
+            }
             PrintItem::Separator(sep) => {
                 out.push(match sep {
                     PrintSep::Semicolon => b';',

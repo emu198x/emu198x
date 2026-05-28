@@ -103,11 +103,7 @@ impl AmigaSession {
     /// wrong for the model's expected Kickstart image — A1000 wants a
     /// 64 KiB bootstrap, A500-family wants 256/512 KiB Kickstart,
     /// A1200 wants 512 KiB AGA Kickstart.
-    pub fn new(
-        model: Model,
-        rom_bytes: Vec<u8>,
-        rom_path: PathBuf,
-    ) -> Result<Self, MachineError> {
+    pub fn new(model: Model, rom_bytes: Vec<u8>, rom_path: PathBuf) -> Result<Self, MachineError> {
         let kind = AmigaRuntimeKind::new(model, rom_bytes)?;
         Ok(Self {
             kind,
@@ -140,10 +136,10 @@ impl AmigaSession {
         }
         self.cpu_trace.last_seen_instr_starts = now;
         let pc = cpu.instr_start_pc;
-        if let Some((lo, hi)) = self.cpu_trace.pc_filter {
-            if pc < lo || pc > hi {
-                return;
-            }
+        if let Some((lo, hi)) = self.cpu_trace.pc_filter
+            && (pc < lo || pc > hi)
+        {
+            return;
         }
         if self.cpu_trace.entries.len() >= self.cpu_trace.max_entries {
             return;
@@ -162,6 +158,10 @@ impl AmigaSession {
     /// BPLCON3/4) calls this, and it's expected to be invoked only
     /// against an AGA session. OCS / ECS callers go through
     /// [`Self::access`] / [`Self::access_mut`] instead.
+    // Read-only half of the AGA downcast pair. Production tooling uses
+    // the `_mut` variant; this is kept for API symmetry and exercised
+    // by `aga_machine_accessors_return_a1200`.
+    #[allow(dead_code)]
     #[must_use]
     pub fn aga_machine(&self) -> &AmigaA1200 {
         match &self.kind {
@@ -215,9 +215,8 @@ impl AmigaSession {
     pub fn reset(&mut self) -> std::io::Result<()> {
         let rom = std::fs::read(&self.rom_path)?;
         let model = self.kind.model();
-        self.kind = AmigaRuntimeKind::new(model, rom).map_err(|err| {
-            std::io::Error::other(format!("reset: rebuild runtime: {err}"))
-        })?;
+        self.kind = AmigaRuntimeKind::new(model, rom)
+            .map_err(|err| std::io::Error::other(format!("reset: rebuild runtime: {err}")))?;
         self.recorder = None;
         self.last_recorded_tick = 0;
         // Reset trace state alongside the chip stack so the captured
@@ -253,8 +252,9 @@ mod tests {
     #[test]
     fn aga_machine_accessors_return_a1200() {
         let rom = vec![0u8; 512 * 1024];
-        let mut session = AmigaSession::new(Model::A1200AgaPal, rom, PathBuf::from("/tmp/test.rom"))
-            .expect("blank Kickstart-sized ROM should build");
+        let mut session =
+            AmigaSession::new(Model::A1200AgaPal, rom, PathBuf::from("/tmp/test.rom"))
+                .expect("blank Kickstart-sized ROM should build");
         // PC starts at 0 in a freshly-built A1200; the reads just
         // verify the AGA-only downcasts don't panic.
         let _pc = session.aga_machine().cpu().regs.pc;
@@ -266,8 +266,9 @@ mod tests {
     #[test]
     fn disarmed_tick_with_trace_does_not_capture() {
         let rom = vec![0u8; 512 * 1024];
-        let mut session = AmigaSession::new(Model::A1200AgaPal, rom, PathBuf::from("/tmp/test.rom"))
-            .expect("blank Kickstart-sized ROM should build");
+        let mut session =
+            AmigaSession::new(Model::A1200AgaPal, rom, PathBuf::from("/tmp/test.rom"))
+                .expect("blank Kickstart-sized ROM should build");
         assert!(!session.cpu_trace.armed);
         for _ in 0..200 {
             session.tick_with_trace();
@@ -280,8 +281,9 @@ mod tests {
     #[test]
     fn armed_tick_with_trace_captures_up_to_max_entries() {
         let rom = vec![0u8; 512 * 1024];
-        let mut session = AmigaSession::new(Model::A1200AgaPal, rom, PathBuf::from("/tmp/test.rom"))
-            .expect("blank Kickstart-sized ROM should build");
+        let mut session =
+            AmigaSession::new(Model::A1200AgaPal, rom, PathBuf::from("/tmp/test.rom"))
+                .expect("blank Kickstart-sized ROM should build");
         session.cpu_trace.armed = true;
         session.cpu_trace.max_entries = 4;
         // Blank ROM means the boot path traps quickly, but a handful of
@@ -290,6 +292,9 @@ mod tests {
         for _ in 0..1000 {
             session.tick_with_trace();
         }
-        assert!(session.cpu_trace.entries.len() <= 4, "respects max_entries cap");
+        assert!(
+            session.cpu_trace.entries.len() <= 4,
+            "respects max_entries cap"
+        );
     }
 }

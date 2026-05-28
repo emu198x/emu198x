@@ -1309,19 +1309,18 @@ impl AmigaOcs {
         // state to sample; the AGA / ECS impls sample their real
         // BPLCON3 register so callers can reconstruct AGA-bank /
         // sprite-resolution context.
-        if (offset >= 0x180 && offset <= 0x1BE && (offset & 1) == 0)
+        if (((0x180..=0x1BE).contains(&offset) && (offset & 1) == 0)
             || offset == 0x0106
-            || offset == 0x010C
+            || offset == 0x010C)
+            && self.debug_palette_log.len() < 262144
         {
-            if self.debug_palette_log.len() < 262144 {
-                self.debug_palette_log.push((
-                    self.tick_count / TICKS_PER_CCK,
-                    self.cpu.regs.pc,
-                    offset,
-                    val,
-                    None,
-                ));
-            }
+            self.debug_palette_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                offset,
+                val,
+                None,
+            ));
         }
         if offset == 0x09A {
             self.debug_intena_writes += 1;

@@ -126,9 +126,7 @@ where
     })
 }
 
-fn basic_prompt_ready<R, Q>(
-    session: &HeadlessSession<R, Q>,
-) -> Result<bool, SessionError>
+fn basic_prompt_ready<R, Q>(session: &HeadlessSession<R, Q>) -> Result<bool, SessionError>
 where
     R: MachineCore,
     Q: SessionQueryProvider<R>,

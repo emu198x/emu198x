@@ -1,7 +1,7 @@
 //! Recursive descent parser: plain-text BASIC → AST.
 
 use crate::ast::*;
-use crate::tokens::{KeywordRole, KEYWORDS};
+use crate::tokens::{KEYWORDS, KeywordRole};
 
 pub fn parse_program(source: &str) -> Result<Program, String> {
     let mut lines = Vec::new();
@@ -116,17 +116,13 @@ impl<'a> Parser<'a> {
                 continue;
             }
             let last_core = kw[core_len - 1];
-            if last_core.is_ascii_alphabetic() {
-                if let Some(&next) = text.get(core_len) {
-                    if next.is_ascii_alphanumeric() || next == b'$' {
-                        continue;
-                    }
-                }
-            }
-            let consume = if has_trailing_space
-                && text.len() > core_len
-                && text[core_len] == b' '
+            if last_core.is_ascii_alphabetic()
+                && let Some(&next) = text.get(core_len)
+                && (next.is_ascii_alphanumeric() || next == b'$')
             {
+                continue;
+            }
+            let consume = if has_trailing_space && text.len() > core_len && text[core_len] == b' ' {
                 core_len + 1
             } else {
                 core_len
@@ -156,17 +152,13 @@ impl<'a> Parser<'a> {
                 return false;
             }
             let last_core = kw[core_len - 1];
-            if last_core.is_ascii_alphabetic() {
-                if let Some(&next) = text.get(core_len) {
-                    if next.is_ascii_alphanumeric() || next == b'$' {
-                        return false;
-                    }
-                }
-            }
-            let consume = if has_trailing_space
-                && text.len() > core_len
-                && text[core_len] == b' '
+            if last_core.is_ascii_alphabetic()
+                && let Some(&next) = text.get(core_len)
+                && (next.is_ascii_alphanumeric() || next == b'$')
             {
+                return false;
+            }
+            let consume = if has_trailing_space && text.len() > core_len && text[core_len] == b' ' {
                 core_len + 1
             } else {
                 core_len
@@ -180,7 +172,9 @@ impl<'a> Parser<'a> {
     /// Match a keyword that is valid at a statement boundary.
     fn match_statement_keyword(&self) -> Option<(u8, usize)> {
         use KeywordRole::*;
-        self.match_keyword(&[Statement, PrintItem, RestOfLine, Expression, SubKeyword, Symbol])
+        self.match_keyword(&[
+            Statement, PrintItem, RestOfLine, Expression, SubKeyword, Symbol,
+        ])
     }
 
     fn match_expression_keyword(&self) -> Option<(u8, usize)> {
@@ -217,9 +211,15 @@ impl<'a> Parser<'a> {
                 0xFA => self.parse_if(),
                 0xE9 => self.parse_dim(),
                 0xE3 => self.parse_read(),
-                0xF5 => Statement::Print { items: self.parse_print_list() },
-                0xE0 => Statement::LPrint { items: self.parse_print_list() },
-                0xEE => Statement::Input { items: self.parse_print_list() },
+                0xF5 => Statement::Print {
+                    items: self.parse_print_list(),
+                },
+                0xE0 => Statement::LPrint {
+                    items: self.parse_print_list(),
+                },
+                0xEE => Statement::Input {
+                    items: self.parse_print_list(),
+                },
                 0xE4 => self.parse_data(),
                 0xEA => self.parse_rem(),
                 0xEC => Statement::GoTo(self.parse_expr(0)),
@@ -355,10 +355,7 @@ impl<'a> Parser<'a> {
                 items.push(DataItem::String(self.consume_string_contents()));
             } else {
                 let start = self.pos;
-                while !self.at_end()
-                    && self.peek() != Some(b',')
-                    && self.peek() != Some(b':')
-                {
+                while !self.at_end() && self.peek() != Some(b',') && self.peek() != Some(b':') {
                     self.pos += 1;
                 }
                 let text = String::from_utf8_lossy(&self.src[start..self.pos])
@@ -380,9 +377,7 @@ impl<'a> Parser<'a> {
     fn parse_rem(&mut self) -> Statement {
         let start = self.pos;
         self.pos = self.src.len();
-        Statement::Rem(
-            String::from_utf8_lossy(&self.src[start..]).to_string(),
-        )
+        Statement::Rem(String::from_utf8_lossy(&self.src[start..]).to_string())
     }
 
     fn parse_beep(&mut self) -> Statement {
@@ -595,7 +590,7 @@ impl<'a> Parser<'a> {
     /// Parse an expression in PRINT context — stops at `;`, `,`, `'`,
     /// and before PrintItem keywords.
     fn parse_expr_for_print(&mut self) -> Expr {
-        self.parse_expr_with_stops(&[b';', b',', b'\''], true)
+        self.parse_expr_with_stops(b";,'", true)
     }
 
     // ── Variable parsing ────────────────────────────────────────────
@@ -612,10 +607,13 @@ impl<'a> Parser<'a> {
             }
         }
         let is_string = self.try_consume(b'$');
-        let name = String::from_utf8_lossy(&self.src[start..self.pos - if is_string { 0 } else { 0 }])
-            .to_string();
+        let name = String::from_utf8_lossy(&self.src[start..self.pos]).to_string();
         Variable {
-            name: if is_string { name.trim_end_matches('$').to_string() } else { name },
+            name: if is_string {
+                name.trim_end_matches('$').to_string()
+            } else {
+                name
+            },
             is_string,
         }
     }
@@ -626,11 +624,7 @@ impl<'a> Parser<'a> {
         self.parse_expr_inner(min_bp, &[], false)
     }
 
-    fn parse_expr_with_stops(
-        &mut self,
-        stop_bytes: &[u8],
-        stop_at_print_items: bool,
-    ) -> Expr {
+    fn parse_expr_with_stops(&mut self, stop_bytes: &[u8], stop_at_print_items: bool) -> Expr {
         self.parse_expr_inner(0, stop_bytes, stop_at_print_items)
     }
 
@@ -658,10 +652,8 @@ impl<'a> Parser<'a> {
     ) -> Expr {
         self.skip_spaces();
 
-        if stop_at_print_items {
-            if let Some(_) = self.match_print_item_keyword() {
-                return Expr::Number(0.0);
-            }
+        if stop_at_print_items && self.match_print_item_keyword().is_some() {
+            return Expr::Number(0.0);
         }
 
         let mut left = self.parse_prefix(stop_bytes, stop_at_print_items);
@@ -671,15 +663,13 @@ impl<'a> Parser<'a> {
             if self.at_end() {
                 break;
             }
-            if let Some(&ch) = self.src.get(self.pos) {
-                if ch == b':' || stop_bytes.contains(&ch) {
-                    break;
-                }
+            if let Some(&ch) = self.src.get(self.pos)
+                && (ch == b':' || stop_bytes.contains(&ch))
+            {
+                break;
             }
-            if stop_at_print_items {
-                if let Some(_) = self.match_print_item_keyword() {
-                    break;
-                }
+            if stop_at_print_items && self.match_print_item_keyword().is_some() {
+                break;
             }
 
             if let Some((op, bp)) = self.peek_infix_op() {
@@ -833,7 +823,9 @@ impl<'a> Parser<'a> {
 
         // Number
         if ch.is_ascii_digit()
-            || (ch == b'.' && self.pos + 1 < self.src.len() && self.src[self.pos + 1].is_ascii_digit())
+            || (ch == b'.'
+                && self.pos + 1 < self.src.len()
+                && self.src[self.pos + 1].is_ascii_digit())
         {
             return self.parse_number_literal();
         }
@@ -859,7 +851,7 @@ impl<'a> Parser<'a> {
             0xA7 => Expr::Pi,
             0xA5 => Expr::Rnd,
             0xA6 => Expr::Inkey,
-            0xA8 => return self.parse_fn_call(), // FN
+            0xA8 => self.parse_fn_call(), // FN
             0xC4 => {
                 // BIN — consume binary digits
                 self.skip_spaces();
@@ -868,7 +860,9 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                 }
                 let bits = &self.src[start..self.pos];
-                let val = bits.iter().fold(0u32, |acc, &b| acc * 2 + (b - b'0') as u32);
+                let val = bits
+                    .iter()
+                    .fold(0u32, |acc, &b| acc * 2 + (b - b'0') as u32);
                 Expr::Number(val as f64)
             }
             _ => {
@@ -901,10 +895,8 @@ impl<'a> Parser<'a> {
                 };
                 // ATTR, POINT, and SCREEN$ take two comma-separated
                 // arguments; all others take one.
-                let two_arg = matches!(
-                    func,
-                    BuiltinFn::Attr | BuiltinFn::Point | BuiltinFn::Screen
-                );
+                let two_arg =
+                    matches!(func, BuiltinFn::Attr | BuiltinFn::Point | BuiltinFn::Screen);
                 let mut args = vec![self.parse_expr(13)];
                 if two_arg && self.try_consume(b',') {
                     args.push(self.parse_expr(13));
@@ -948,12 +940,11 @@ impl<'a> Parser<'a> {
 
     fn parse_number_literal(&mut self) -> Expr {
         let start = self.pos;
-        while !self.at_end() && (self.src[self.pos].is_ascii_digit() || self.src[self.pos] == b'.') {
+        while !self.at_end() && (self.src[self.pos].is_ascii_digit() || self.src[self.pos] == b'.')
+        {
             self.pos += 1;
         }
-        if !self.at_end()
-            && (self.src[self.pos] == b'e' || self.src[self.pos] == b'E')
-        {
+        if !self.at_end() && (self.src[self.pos] == b'e' || self.src[self.pos] == b'E') {
             self.pos += 1;
             if !self.at_end() && (self.src[self.pos] == b'+' || self.src[self.pos] == b'-') {
                 self.pos += 1;
@@ -1049,8 +1040,7 @@ impl<'a> Parser<'a> {
     fn parse_fn_call(&mut self) -> Expr {
         self.skip_spaces();
         let name = if !self.at_end() && self.src[self.pos].is_ascii_alphabetic() {
-            let ch = (self.advance() as char).to_ascii_lowercase();
-            ch
+            (self.advance() as char).to_ascii_lowercase()
         } else {
             'a'
         };

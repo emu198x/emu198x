@@ -28,7 +28,11 @@ struct Decoder<'a, F: Fn(u16) -> u8> {
 
 impl<F: Fn(u16) -> u8> Decoder<'_, F> {
     fn new(addr: u16, read: &F) -> Decoder<'_, F> {
-        Decoder { addr, offset: 0, read }
+        Decoder {
+            addr,
+            offset: 0,
+            read,
+        }
     }
 
     fn next(&mut self) -> u8 {
@@ -55,7 +59,10 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
 
     fn rel_target(&mut self) -> String {
         let d = self.next() as i8;
-        let target = self.addr.wrapping_add(u16::from(self.offset)).wrapping_add(d as u16);
+        let target = self
+            .addr
+            .wrapping_add(u16::from(self.offset))
+            .wrapping_add(d as u16);
         format!("${target:04X}")
     }
 }
@@ -66,40 +73,76 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
 
 fn r8(n: u8) -> &'static str {
     match n & 7 {
-        0 => "B", 1 => "C", 2 => "D", 3 => "E",
-        4 => "H", 5 => "L", 6 => "(HL)", 7 => "A",
+        0 => "B",
+        1 => "C",
+        2 => "D",
+        3 => "E",
+        4 => "H",
+        5 => "L",
+        6 => "(HL)",
+        7 => "A",
         _ => "?",
     }
 }
 
 fn r16(n: u8) -> &'static str {
-    match n & 3 { 0 => "BC", 1 => "DE", 2 => "HL", 3 => "SP", _ => "?" }
+    match n & 3 {
+        0 => "BC",
+        1 => "DE",
+        2 => "HL",
+        3 => "SP",
+        _ => "?",
+    }
 }
 
 fn r16af(n: u8) -> &'static str {
-    match n & 3 { 0 => "BC", 1 => "DE", 2 => "HL", 3 => "AF", _ => "?" }
+    match n & 3 {
+        0 => "BC",
+        1 => "DE",
+        2 => "HL",
+        3 => "AF",
+        _ => "?",
+    }
 }
 
 fn cc(n: u8) -> &'static str {
     match n & 7 {
-        0 => "NZ", 1 => "Z", 2 => "NC", 3 => "C",
-        4 => "PO", 5 => "PE", 6 => "P", 7 => "M",
+        0 => "NZ",
+        1 => "Z",
+        2 => "NC",
+        3 => "C",
+        4 => "PO",
+        5 => "PE",
+        6 => "P",
+        7 => "M",
         _ => "?",
     }
 }
 
 fn alu(n: u8) -> &'static str {
     match n & 7 {
-        0 => "ADD A,", 1 => "ADC A,", 2 => "SUB", 3 => "SBC A,",
-        4 => "AND", 5 => "XOR", 6 => "OR", 7 => "CP",
+        0 => "ADD A,",
+        1 => "ADC A,",
+        2 => "SUB",
+        3 => "SBC A,",
+        4 => "AND",
+        5 => "XOR",
+        6 => "OR",
+        7 => "CP",
         _ => "?",
     }
 }
 
 fn rot(n: u8) -> &'static str {
     match n & 7 {
-        0 => "RLC", 1 => "RRC", 2 => "RL", 3 => "RR",
-        4 => "SLA", 5 => "SRA", 6 => "SLL", 7 => "SRL",
+        0 => "RLC",
+        1 => "RRC",
+        2 => "RL",
+        3 => "RR",
+        4 => "SLA",
+        5 => "SRA",
+        6 => "SLL",
+        7 => "SRL",
         _ => "?",
     }
 }
@@ -120,33 +163,64 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
             (0, 0) => match y {
                 0 => "NOP".into(),
                 1 => "EX AF,AF'".into(),
-                2 => { let t = self.rel_target(); format!("DJNZ {t}") }
-                3 => { let t = self.rel_target(); format!("JR {t}") }
-                _ => { let t = self.rel_target(); format!("JR {},{t}", cc(y - 4)) }
+                2 => {
+                    let t = self.rel_target();
+                    format!("DJNZ {t}")
+                }
+                3 => {
+                    let t = self.rel_target();
+                    format!("JR {t}")
+                }
+                _ => {
+                    let t = self.rel_target();
+                    format!("JR {},{t}", cc(y - 4))
+                }
             },
-            (0, 1) if q == 0 => { let v = self.imm16(); format!("LD {},{v}", r16(p)) }
+            (0, 1) if q == 0 => {
+                let v = self.imm16();
+                format!("LD {},{v}", r16(p))
+            }
             (0, 1) => format!("ADD HL,{}", r16(p)),
             (0, 2) => match (p, q) {
                 (0, 0) => "LD (BC),A".into(),
                 (1, 0) => "LD (DE),A".into(),
-                (2, 0) => { let v = self.imm16(); format!("LD ({v}),HL") }
-                (3, 0) => { let v = self.imm16(); format!("LD ({v}),A") }
+                (2, 0) => {
+                    let v = self.imm16();
+                    format!("LD ({v}),HL")
+                }
+                (3, 0) => {
+                    let v = self.imm16();
+                    format!("LD ({v}),A")
+                }
                 (0, 1) => "LD A,(BC)".into(),
                 (1, 1) => "LD A,(DE)".into(),
-                (2, 1) => { let v = self.imm16(); format!("LD HL,({v})") }
-                (3, 1) => { let v = self.imm16(); format!("LD A,({v})") }
+                (2, 1) => {
+                    let v = self.imm16();
+                    format!("LD HL,({v})")
+                }
+                (3, 1) => {
+                    let v = self.imm16();
+                    format!("LD A,({v})")
+                }
                 _ => "???".into(),
             },
             (0, 3) if q == 0 => format!("INC {}", r16(p)),
             (0, 3) => format!("DEC {}", r16(p)),
             (0, 4) => format!("INC {}", r8(y)),
             (0, 5) => format!("DEC {}", r8(y)),
-            (0, 6) => { let v = self.imm8(); format!("LD {},{v}", r8(y)) }
+            (0, 6) => {
+                let v = self.imm8();
+                format!("LD {},{v}", r8(y))
+            }
             (0, 7) => match y {
-                0 => "RLCA".into(), 1 => "RRCA".into(),
-                2 => "RLA".into(), 3 => "RRA".into(),
-                4 => "DAA".into(), 5 => "CPL".into(),
-                6 => "SCF".into(), 7 => "CCF".into(),
+                0 => "RLCA".into(),
+                1 => "RRCA".into(),
+                2 => "RLA".into(),
+                3 => "RRA".into(),
+                4 => "DAA".into(),
+                5 => "CPL".into(),
+                6 => "SCF".into(),
+                7 => "CCF".into(),
                 _ => "???".into(),
             },
             (1, _) if y == 6 && z == 6 => "HALT".into(),
@@ -154,7 +228,11 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
             (2, _) => {
                 let a = alu(y);
                 let r = r8(z);
-                if a.ends_with(',') { format!("{a}{r}") } else { format!("{a} {r}") }
+                if a.ends_with(',') {
+                    format!("{a}{r}")
+                } else {
+                    format!("{a} {r}")
+                }
             }
             (3, 0) => format!("RET {}", cc(y)),
             (3, 1) if q == 0 => format!("POP {}", r16af(p)),
@@ -165,24 +243,46 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
                 3 => "LD SP,HL".into(),
                 _ => "???".into(),
             },
-            (3, 2) => { let v = self.imm16(); format!("JP {},{v}", cc(y)) }
+            (3, 2) => {
+                let v = self.imm16();
+                format!("JP {},{v}", cc(y))
+            }
             (3, 3) => match y {
-                0 => { let v = self.imm16(); format!("JP {v}") }
-                2 => { let v = self.imm8(); format!("OUT ({v}),A") }
-                3 => { let v = self.imm8(); format!("IN A,({v})") }
+                0 => {
+                    let v = self.imm16();
+                    format!("JP {v}")
+                }
+                2 => {
+                    let v = self.imm8();
+                    format!("OUT ({v}),A")
+                }
+                3 => {
+                    let v = self.imm8();
+                    format!("IN A,({v})")
+                }
                 4 => "EX (SP),HL".into(),
                 5 => "EX DE,HL".into(),
                 6 => "DI".into(),
                 7 => "EI".into(),
                 _ => "???".into(),
             },
-            (3, 4) => { let v = self.imm16(); format!("CALL {},{v}", cc(y)) }
+            (3, 4) => {
+                let v = self.imm16();
+                format!("CALL {},{v}", cc(y))
+            }
             (3, 5) if q == 0 => format!("PUSH {}", r16af(p)),
-            (3, 5) => { let v = self.imm16(); format!("CALL {v}") }
+            (3, 5) => {
+                let v = self.imm16();
+                format!("CALL {v}")
+            }
             (3, 6) => {
                 let v = self.imm8();
                 let a = alu(y);
-                if a.ends_with(',') { format!("{a}{v}") } else { format!("{a} {v}") }
+                if a.ends_with(',') {
+                    format!("{a}{v}")
+                } else {
+                    format!("{a} {v}")
+                }
             }
             (3, 7) => format!("RST ${:02X}", y * 8),
             _ => "???".into(),
@@ -210,36 +310,88 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
         let opcode = self.next();
 
         match opcode {
-            0x40 => "IN B,(C)".into(),   0x41 => "OUT (C),B".into(),
-            0x42 => "SBC HL,BC".into(),  0x43 => { let v = self.imm16(); format!("LD ({v}),BC") }
-            0x44 => "NEG".into(),        0x45 => "RETN".into(),
-            0x46 => "IM 0".into(),       0x47 => "LD I,A".into(),
-            0x48 => "IN C,(C)".into(),   0x49 => "OUT (C),C".into(),
-            0x4A => "ADC HL,BC".into(),  0x4B => { let v = self.imm16(); format!("LD BC,({v})") }
-            0x4D => "RETI".into(),       0x4F => "LD R,A".into(),
-            0x50 => "IN D,(C)".into(),   0x51 => "OUT (C),D".into(),
-            0x52 => "SBC HL,DE".into(),  0x53 => { let v = self.imm16(); format!("LD ({v}),DE") }
-            0x56 => "IM 1".into(),       0x57 => "LD A,I".into(),
-            0x58 => "IN E,(C)".into(),   0x59 => "OUT (C),E".into(),
-            0x5A => "ADC HL,DE".into(),  0x5B => { let v = self.imm16(); format!("LD DE,({v})") }
-            0x5E => "IM 2".into(),       0x5F => "LD A,R".into(),
-            0x60 => "IN H,(C)".into(),   0x61 => "OUT (C),H".into(),
-            0x62 => "SBC HL,HL".into(),  0x63 => { let v = self.imm16(); format!("LD ({v}),HL") }
+            0x40 => "IN B,(C)".into(),
+            0x41 => "OUT (C),B".into(),
+            0x42 => "SBC HL,BC".into(),
+            0x43 => {
+                let v = self.imm16();
+                format!("LD ({v}),BC")
+            }
+            0x44 => "NEG".into(),
+            0x45 => "RETN".into(),
+            0x46 => "IM 0".into(),
+            0x47 => "LD I,A".into(),
+            0x48 => "IN C,(C)".into(),
+            0x49 => "OUT (C),C".into(),
+            0x4A => "ADC HL,BC".into(),
+            0x4B => {
+                let v = self.imm16();
+                format!("LD BC,({v})")
+            }
+            0x4D => "RETI".into(),
+            0x4F => "LD R,A".into(),
+            0x50 => "IN D,(C)".into(),
+            0x51 => "OUT (C),D".into(),
+            0x52 => "SBC HL,DE".into(),
+            0x53 => {
+                let v = self.imm16();
+                format!("LD ({v}),DE")
+            }
+            0x56 => "IM 1".into(),
+            0x57 => "LD A,I".into(),
+            0x58 => "IN E,(C)".into(),
+            0x59 => "OUT (C),E".into(),
+            0x5A => "ADC HL,DE".into(),
+            0x5B => {
+                let v = self.imm16();
+                format!("LD DE,({v})")
+            }
+            0x5E => "IM 2".into(),
+            0x5F => "LD A,R".into(),
+            0x60 => "IN H,(C)".into(),
+            0x61 => "OUT (C),H".into(),
+            0x62 => "SBC HL,HL".into(),
+            0x63 => {
+                let v = self.imm16();
+                format!("LD ({v}),HL")
+            }
             0x67 => "RRD".into(),
-            0x68 => "IN L,(C)".into(),   0x69 => "OUT (C),L".into(),
-            0x6A => "ADC HL,HL".into(),  0x6B => { let v = self.imm16(); format!("LD HL,({v})") }
+            0x68 => "IN L,(C)".into(),
+            0x69 => "OUT (C),L".into(),
+            0x6A => "ADC HL,HL".into(),
+            0x6B => {
+                let v = self.imm16();
+                format!("LD HL,({v})")
+            }
             0x6F => "RLD".into(),
-            0x72 => "SBC HL,SP".into(),  0x73 => { let v = self.imm16(); format!("LD ({v}),SP") }
-            0x78 => "IN A,(C)".into(),   0x79 => "OUT (C),A".into(),
-            0x7A => "ADC HL,SP".into(),  0x7B => { let v = self.imm16(); format!("LD SP,({v})") }
-            0xA0 => "LDI".into(),  0xA1 => "CPI".into(),
-            0xA2 => "INI".into(),  0xA3 => "OUTI".into(),
-            0xA8 => "LDD".into(),  0xA9 => "CPD".into(),
-            0xAA => "IND".into(),  0xAB => "OUTD".into(),
-            0xB0 => "LDIR".into(), 0xB1 => "CPIR".into(),
-            0xB2 => "INIR".into(), 0xB3 => "OTIR".into(),
-            0xB8 => "LDDR".into(), 0xB9 => "CPDR".into(),
-            0xBA => "INDR".into(), 0xBB => "OTDR".into(),
+            0x72 => "SBC HL,SP".into(),
+            0x73 => {
+                let v = self.imm16();
+                format!("LD ({v}),SP")
+            }
+            0x78 => "IN A,(C)".into(),
+            0x79 => "OUT (C),A".into(),
+            0x7A => "ADC HL,SP".into(),
+            0x7B => {
+                let v = self.imm16();
+                format!("LD SP,({v})")
+            }
+            0xA0 => "LDI".into(),
+            0xA1 => "CPI".into(),
+            0xA2 => "INI".into(),
+            0xA3 => "OUTI".into(),
+            0xA8 => "LDD".into(),
+            0xA9 => "CPD".into(),
+            0xAA => "IND".into(),
+            0xAB => "OUTD".into(),
+            0xB0 => "LDIR".into(),
+            0xB1 => "CPIR".into(),
+            0xB2 => "INIR".into(),
+            0xB3 => "OTIR".into(),
+            0xB8 => "LDDR".into(),
+            0xB9 => "CPDR".into(),
+            0xBA => "INDR".into(),
+            0xBB => "OTDR".into(),
             _ => format!("DB $ED,${opcode:02X}"),
         }
     }
@@ -267,16 +419,37 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
         match opcode {
             0x09 | 0x19 | 0x29 | 0x39 => {
                 let p = (opcode >> 4) & 3;
-                let src = match p { 0 => "BC", 1 => "DE", 2 => reg, 3 => "SP", _ => "?" };
+                let src = match p {
+                    0 => "BC",
+                    1 => "DE",
+                    2 => reg,
+                    3 => "SP",
+                    _ => "?",
+                };
                 format!("ADD {reg},{src}")
             }
-            0x21 => { let v = self.imm16(); format!("LD {reg},{v}") }
-            0x22 => { let v = self.imm16(); format!("LD ({v}),{reg}") }
+            0x21 => {
+                let v = self.imm16();
+                format!("LD {reg},{v}")
+            }
+            0x22 => {
+                let v = self.imm16();
+                format!("LD ({v}),{reg}")
+            }
             0x23 => format!("INC {reg}"),
-            0x2A => { let v = self.imm16(); format!("LD {reg},({v})") }
+            0x2A => {
+                let v = self.imm16();
+                format!("LD {reg},({v})")
+            }
             0x2B => format!("DEC {reg}"),
-            0x34 => { let d = self.next() as i8; format!("INC {}", format_disp(reg, d)) }
-            0x35 => { let d = self.next() as i8; format!("DEC {}", format_disp(reg, d)) }
+            0x34 => {
+                let d = self.next() as i8;
+                format!("INC {}", format_disp(reg, d))
+            }
+            0x35 => {
+                let d = self.next() as i8;
+                format!("DEC {}", format_disp(reg, d))
+            }
             0x36 => {
                 let d = self.next() as i8;
                 let n = self.next();
@@ -302,16 +475,29 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
                         // ALU ops
                         let operand = self.ix_r8(reg, z);
                         let a = alu(y);
-                        if a.ends_with(',') { format!("{a}{operand}") } else { format!("{a} {operand}") }
+                        if a.ends_with(',') {
+                            format!("{a}{operand}")
+                        } else {
+                            format!("{a} {operand}")
+                        }
                     }
-                    0 if z == 4 => { let o = self.ix_r8(reg, y); format!("INC {o}") }
-                    0 if z == 5 => { let o = self.ix_r8(reg, y); format!("DEC {o}") }
+                    0 if z == 4 => {
+                        let o = self.ix_r8(reg, y);
+                        format!("INC {o}")
+                    }
+                    0 if z == 5 => {
+                        let o = self.ix_r8(reg, y);
+                        format!("DEC {o}")
+                    }
                     0 if z == 6 => {
                         let o = self.ix_r8(reg, y);
                         let v = self.imm8();
                         format!("LD {o},{v}")
                     }
-                    _ => format!("DB ${:02X},${opcode:02X}", if reg == "IX" { 0xDD } else { 0xFD })
+                    _ => format!(
+                        "DB ${:02X},${opcode:02X}",
+                        if reg == "IX" { 0xDD } else { 0xFD }
+                    ),
                 }
             }
         }
@@ -320,8 +506,12 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
     /// Get register name with IX/IY substitution. Consumes displacement byte for (IX+d).
     fn ix_r8(&mut self, reg: &str, n: u8) -> String {
         match n & 7 {
-            0 => "B".into(), 1 => "C".into(), 2 => "D".into(), 3 => "E".into(),
-            4 => format!("{reg}H"), 5 => format!("{reg}L"),
+            0 => "B".into(),
+            1 => "C".into(),
+            2 => "D".into(),
+            3 => "E".into(),
+            4 => format!("{reg}H"),
+            5 => format!("{reg}L"),
             6 => {
                 let d = self.next() as i8;
                 format_disp(reg, d)

@@ -175,11 +175,8 @@ where
     })
 }
 
-fn poke_program<R, Q>(
-    session: &mut HeadlessSession<R, Q>,
-    program: &BasicProgram,
-    program_len: u16,
-) where
+fn poke_program<R, Q>(session: &mut HeadlessSession<R, Q>, program: &BasicProgram, program_len: u16)
+where
     R: MachineCore + SpectrumLiveAccess,
     Q: SessionQueryProvider<R>,
 {

@@ -750,7 +750,7 @@ mod tests {
     #[test]
     fn all_offsets_are_negative_and_multiples_of_six() {
         for lib in LIBRARY_NAMES {
-            let table = lvo_table(lib).unwrap();
+            let table = lvo_table(lib).expect("LIBRARY_NAMES entry has a table");
             for (off, name) in table.iter() {
                 assert!(*off < 0, "{lib}::{name} has non-negative offset {off}");
                 assert_eq!(

@@ -72,7 +72,10 @@ fn arg_u64(args: &Value, key: &str) -> Result<u64, ToolError> {
     }
     if let Some(s) = v.as_str() {
         let trimmed = s.trim();
-        let (body, radix) = if let Some(rest) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")) {
+        let (body, radix) = if let Some(rest) = trimmed
+            .strip_prefix("0x")
+            .or_else(|| trimmed.strip_prefix("0X"))
+        {
             (rest, 16)
         } else if let Some(rest) = trimmed.strip_prefix('$') {
             (rest, 16)
@@ -99,9 +102,8 @@ fn arg_u64_or(args: &Value, key: &str, default: u64) -> Result<u64, ToolError> {
 
 fn arg_u32(args: &Value, key: &str) -> Result<u32, ToolError> {
     let v = arg_u64(args, key)?;
-    u32::try_from(v).map_err(|_| {
-        ToolError::InvalidArguments(format!("`{key}` value {v} doesn't fit in u32"))
-    })
+    u32::try_from(v)
+        .map_err(|_| ToolError::InvalidArguments(format!("`{key}` value {v} doesn't fit in u32")))
 }
 
 /// Read a longword from chip RAM (or wherever the machine routes
@@ -324,8 +326,8 @@ fn tool_query_paula(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolErr
 /// Bit 14 = master enable; bits 13..0 are individual interrupt sources.
 fn decode_int_bits(val: u16) -> Value {
     const NAMES: [&str; 15] = [
-        "TBE", "DSKBLK", "SOFT", "PORTS", "COPER", "VERTB", "BLIT", "AUD0",
-        "AUD1", "AUD2", "AUD3", "RBF", "DSKSYN", "EXTER", "INTEN",
+        "TBE", "DSKBLK", "SOFT", "PORTS", "COPER", "VERTB", "BLIT", "AUD0", "AUD1", "AUD2", "AUD3",
+        "RBF", "DSKSYN", "EXTER", "INTEN",
     ];
     let mut out = serde_json::Map::new();
     for (bit, name) in NAMES.iter().enumerate() {
@@ -468,10 +470,7 @@ fn node_type_label(ln_type: u8) -> &'static str {
 /// `dos/dosextens.i` in the RKM. BPTRs are stored as
 /// `address >> 2` — we report both the raw BPTR and the converted
 /// byte address so the consumer doesn't have to do the maths.
-fn read_exec_process(
-    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
-    addr: u32,
-) -> Value {
+fn read_exec_process(access: &dyn runtime_commodore_amiga::AmigaLiveAccess, addr: u32) -> Value {
     // Process struct: pr_Task occupies bytes 0..92 (we already
     // decoded it). The Process-specific fields begin at +92.
     let pr_msgport = addr.wrapping_add(92); // struct MsgPort — embedded
@@ -489,10 +488,10 @@ fn read_exec_process(
     let pr_cli = access.read_long(addr.wrapping_add(172));
     let pr_window_ptr = access.read_long(addr.wrapping_add(184));
     let pr_home_dir = access.read_long(addr.wrapping_add(188)); // 3.0+
-    let pr_flags = access.read_long(addr.wrapping_add(192));    // 3.0+
-    let pr_exit_code = access.read_long(addr.wrapping_add(196));// 3.0+
+    let pr_flags = access.read_long(addr.wrapping_add(192)); // 3.0+
+    let pr_exit_code = access.read_long(addr.wrapping_add(196)); // 3.0+
     let pr_arguments = access.read_long(addr.wrapping_add(204));
-    let pr_ces = access.read_long(addr.wrapping_add(224));      // 3.0+
+    let pr_ces = access.read_long(addr.wrapping_add(224)); // 3.0+
 
     let bptr_to_addr = |b: u32| b.wrapping_shl(2);
     // BPTR(0) is the BCPL null. Report a `<null>` marker so callers
@@ -543,10 +542,7 @@ fn read_exec_process(
 /// extension is decoded too — IPrefs / Workbench / shell are all
 /// Processes, not bare Tasks, so this is essential for tracing
 /// WB-side wedges.
-fn read_exec_task(
-    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
-    addr: u32,
-) -> Value {
+fn read_exec_task(access: &dyn runtime_commodore_amiga::AmigaLiveAccess, addr: u32) -> Value {
     // Node (14 bytes): ln_Succ, ln_Pred, ln_Type, ln_Pri, ln_Name
     let ln_succ = access.read_long(addr);
     let ln_pred = access.read_long(addr.wrapping_add(4));
@@ -672,10 +668,7 @@ fn tool_query_exec_tasks(_args: Value, s: &mut AmigaSession) -> Result<Value, To
 /// Layout (Exec/Ports RKM):
 ///   Node (14B) + mp_Flags (B) + mp_SigBit (B) + mp_SigTask (4B) +
 ///   mp_MsgList (List, 14B)
-fn read_exec_port(
-    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
-    addr: u32,
-) -> Value {
+fn read_exec_port(access: &dyn runtime_commodore_amiga::AmigaLiveAccess, addr: u32) -> Value {
     let ln_succ = access.read_long(addr);
     let type_pri = access.read_word(addr.wrapping_add(8));
     let ln_type = (type_pri >> 8) as u8;
@@ -734,10 +727,7 @@ fn read_exec_port(
 /// `mn_Length` is the size of the message *including* the Message
 /// struct header itself, so callers can find any application
 /// payload at `addr + 20` extending to `addr + mn_Length`.
-fn read_exec_message(
-    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
-    addr: u32,
-) -> Value {
+fn read_exec_message(access: &dyn runtime_commodore_amiga::AmigaLiveAccess, addr: u32) -> Value {
     let ln_succ = access.read_long(addr);
     let type_pri = access.read_word(addr.wrapping_add(8));
     let ln_type = (type_pri >> 8) as u8;
@@ -930,8 +920,14 @@ fn tool_wake_task(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError>
                 task_addr,
                 state,
                 match state {
-                    0 => "INVALID", 1 => "ADDED", 2 => "RUN", 3 => "READY",
-                    4 => "WAIT", 5 => "EXCEPT", 6 => "REMOVED", _ => "?",
+                    0 => "INVALID",
+                    1 => "ADDED",
+                    2 => "RUN",
+                    3 => "READY",
+                    4 => "WAIT",
+                    5 => "EXCEPT",
+                    6 => "REMOVED",
+                    _ => "?",
                 },
             )));
         }
@@ -940,8 +936,8 @@ fn tool_wake_task(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError>
             access.read_long(task_addr.wrapping_add(22)),
             access.read_long(task_addr.wrapping_add(18)),
             access.read_long(task_addr.wrapping_add(26)),
-            access.read_long(task_addr),                  // ln_Succ
-            access.read_long(task_addr.wrapping_add(4)),  // ln_Pred
+            access.read_long(task_addr),                 // ln_Succ
+            access.read_long(task_addr.wrapping_add(4)), // ln_Pred
         )
     };
     // List-integrity check. In a healthy list:
@@ -1068,10 +1064,7 @@ const ROM_DEFAULT_HI: u32 = 0x00FF_FFFF;
 ///     the jump table dispatches into. For Kickstart-resident
 ///     libraries this is the actual ROM code body; for LoadSeg'd
 ///     libraries it's wherever LoadSeg put the seglist.
-fn read_exec_library(
-    access: &dyn runtime_commodore_amiga::AmigaLiveAccess,
-    addr: u32,
-) -> Value {
+fn read_exec_library(access: &dyn runtime_commodore_amiga::AmigaLiveAccess, addr: u32) -> Value {
     let type_pri = access.read_word(addr.wrapping_add(8));
     let ln_type = (type_pri >> 8) as u8;
     let ln_pri = (type_pri & 0xFF) as i8;
@@ -1149,9 +1142,9 @@ fn tool_query_library(args: Value, s: &mut AmigaSession) -> Result<Value, ToolEr
             break;
         }
         let lib = read_exec_library(access, cur);
-        let name_ok = filter.as_deref().is_none_or(|wanted| {
-            lib.get("ln_name").and_then(Value::as_str) == Some(wanted)
-        });
+        let name_ok = filter
+            .as_deref()
+            .is_none_or(|wanted| lib.get("ln_name").and_then(Value::as_str) == Some(wanted));
         if name_ok {
             libs.push(lib);
         }
@@ -1289,6 +1282,7 @@ const LIBRARY_GAP_MAX: u32 = 0x10000;
 ///   1. JMP-table closest-preceding match across all libraries (the
 ///      common case for ROM PCs and internal helpers).
 ///   2. Chip-RAM struct + jump-table range (for in-table addresses).
+///
 /// Returns the LibraryExtent + a "match kind" tag.
 fn library_containing<'a>(
     extents: &'a [LibraryExtent],
@@ -1386,9 +1380,8 @@ fn tool_read_task_stack(args: Value, s: &mut AmigaSession) -> Result<Value, Tool
     // or a stack pointer directly (for non-Task callers).
     let sp = if let Some(t) = args.get("task_addr") {
         let task_addr = if let Some(n) = t.as_u64() {
-            u32::try_from(n).map_err(|_| {
-                ToolError::InvalidArguments("task_addr out of u32 range".into())
-            })?
+            u32::try_from(n)
+                .map_err(|_| ToolError::InvalidArguments("task_addr out of u32 range".into()))?
         } else if let Some(_s) = t.as_str() {
             arg_u32(&args, "task_addr")?
         } else {
@@ -1411,10 +1404,8 @@ fn tool_read_task_stack(args: Value, s: &mut AmigaSession) -> Result<Value, Tool
         }));
     }
     let bytes_len = arg_u64_or(&args, "bytes", 256)? as u32;
-    if bytes_len < 8 || bytes_len > 4096 {
-        return Err(ToolError::InvalidArguments(
-            "bytes must be 8..=4096".into(),
-        ));
+    if !(8..=4096).contains(&bytes_len) {
+        return Err(ToolError::InvalidArguments("bytes must be 8..=4096".into()));
     }
     let rom_lo = match args.get("rom_lo") {
         Some(v) if !v.is_null() => arg_u32(&args, "rom_lo")?,
@@ -1432,7 +1423,7 @@ fn tool_read_task_stack(args: Value, s: &mut AmigaSession) -> Result<Value, Tool
     // Read raw bytes via word reads. tc_SPReg is always word-aligned.
     let access = s.access();
     let mut raw: Vec<u8> = Vec::with_capacity(bytes_len as usize);
-    let words = (bytes_len + 1) / 2;
+    let words = bytes_len.div_ceil(2);
     for i in 0..words {
         let w = access.read_word(sp.wrapping_add(i.wrapping_mul(2)));
         raw.push((w >> 8) as u8);
@@ -1487,10 +1478,7 @@ fn tool_read_task_stack(args: Value, s: &mut AmigaSession) -> Result<Value, Tool
     }))
 }
 
-fn tool_start_video_recording(
-    args: Value,
-    s: &mut AmigaSession,
-) -> Result<Value, ToolError> {
+fn tool_start_video_recording(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     if s.recorder.is_some() {
         return Err(ToolError::Execution(
             "a recording is already in flight — stop it before starting another".into(),
@@ -1522,10 +1510,7 @@ fn tool_start_video_recording(
     }))
 }
 
-fn tool_stop_video_recording(
-    _args: Value,
-    s: &mut AmigaSession,
-) -> Result<Value, ToolError> {
+fn tool_stop_video_recording(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     let recorder = s
         .recorder
         .take()
@@ -1554,7 +1539,7 @@ fn tool_dump_framebuffer(args: Value, s: &mut AmigaSession) -> Result<Value, Too
         *hist.entry(p).or_insert(0) += 1;
     }
     let mut by_count: Vec<(u32, u32)> = hist.into_iter().collect();
-    by_count.sort_by(|a, b| b.1.cmp(&a.1));
+    by_count.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
     let top: Vec<Value> = by_count
         .iter()
         .take(8)
@@ -1581,11 +1566,11 @@ fn tool_dump_framebuffer(args: Value, s: &mut AmigaSession) -> Result<Value, Too
     let mut png_written: Option<String> = None;
     if let Some(p) = png_path {
         let path_buf = std::path::PathBuf::from(p);
-        if let Some(parent) = path_buf.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|err| ToolError::Execution(format!("mkdir: {err}")))?;
-            }
+        if let Some(parent) = path_buf.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|err| ToolError::Execution(format!("mkdir: {err}")))?;
         }
         let file = std::fs::File::create(&path_buf)
             .map_err(|err| ToolError::Execution(format!("create png: {err}")))?;
@@ -1625,10 +1610,7 @@ fn tool_bplcon0_log(args: Value, s: &mut AmigaSession) -> Result<Value, ToolErro
     // trait returns the live slice for whichever chipset variant the
     // session is hosting.
     let log = s.access().bplcon0_log();
-    let unique_only = args
-        .get("unique")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let unique_only = args.get("unique").and_then(Value::as_bool).unwrap_or(false);
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
 
     let mut entries: Vec<&(u64, u32, u16)> = log.iter().collect();
@@ -1710,7 +1692,11 @@ fn tool_query_aga(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError>
         .map(|c| format!("${:06X}", c))
         .collect();
     let mut full_palette: Option<Vec<String>> = None;
-    if args.get("all_banks").and_then(Value::as_bool).unwrap_or(false) {
+    if args
+        .get("all_banks")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
         full_palette = Some(
             aga.palette_24
                 .iter()
@@ -1739,20 +1725,18 @@ fn tool_chipset_read_log(args: Value, s: &mut AmigaSession) -> Result<Value, Too
     let log = s.access().reg_read_log();
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
     let unique = args.get("unique").and_then(Value::as_bool).unwrap_or(false);
-    let offset_filter = args
-        .get("offset")
-        .and_then(|v| {
-            if v.is_null() {
-                None
-            } else {
-                let one = json!({ "x": v });
-                arg_u32(&one, "x").ok().map(|n| n as u16)
-            }
-        });
+    let offset_filter = args.get("offset").and_then(|v| {
+        if v.is_null() {
+            None
+        } else {
+            let one = json!({ "x": v });
+            arg_u32(&one, "x").ok().map(|n| n as u16)
+        }
+    });
 
     let mut filtered: Vec<&(u64, u32, u16, u16)> = log
         .iter()
-        .filter(|(_, _, off, _)| offset_filter.map_or(true, |want| *off == want))
+        .filter(|(_, _, off, _)| offset_filter.is_none_or(|want| *off == want))
         .collect();
     let dedupe_mode = args
         .get("dedupe")
@@ -1771,8 +1755,8 @@ fn tool_chipset_read_log(args: Value, s: &mut AmigaSession) -> Result<Value, Too
         filtered.retain(|(_, pc, off, val)| {
             let key: u64 = match dedupe_mode {
                 "pc_off" => ((*pc as u64) << 16) | (*off as u64),
-                "off"    => *off as u64,
-                _        => ((*pc as u64) << 32) | ((*off as u64) << 16) | (*val as u64),
+                "off" => *off as u64,
+                _ => ((*pc as u64) << 32) | ((*off as u64) << 16) | (*val as u64),
             };
             seen.insert(key)
         });
@@ -1819,30 +1803,31 @@ fn tool_chipset_write_log(args: Value, s: &mut AmigaSession) -> Result<Value, To
     // of `chipset_read_log`. Cross-cutting across OCS / ECS / AGA.
     let log = s.access().custom_write_log();
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
-    let offset_filter = args
-        .get("offset")
-        .and_then(|v| {
-            if v.is_null() {
-                None
-            } else {
-                let one = json!({ "x": v });
-                arg_u32(&one, "x").ok().map(|n| n as u16)
-            }
-        });
-    let offset_min = args.get("offset_min").and_then(Value::as_u64).map(|n| n as u16);
-    let offset_max = args.get("offset_max").and_then(Value::as_u64).map(|n| n as u16);
+    let offset_filter = args.get("offset").and_then(|v| {
+        if v.is_null() {
+            None
+        } else {
+            let one = json!({ "x": v });
+            arg_u32(&one, "x").ok().map(|n| n as u16)
+        }
+    });
+    let offset_min = args
+        .get("offset_min")
+        .and_then(Value::as_u64)
+        .map(|n| n as u16);
+    let offset_max = args
+        .get("offset_max")
+        .and_then(Value::as_u64)
+        .map(|n| n as u16);
     let cck_lo = args.get("cck_min").and_then(Value::as_u64);
     let cck_hi = args.get("cck_max").and_then(Value::as_u64);
-    let dedupe_mode = args
-        .get("dedupe")
-        .and_then(Value::as_str)
-        .unwrap_or("none");
+    let dedupe_mode = args.get("dedupe").and_then(Value::as_str).unwrap_or("none");
 
     let mut filtered: Vec<&(u64, u32, u32, u16, u16, bool)> = log
         .iter()
-        .filter(|(_, _, _, off, _, _)| offset_filter.map_or(true, |want| *off == want))
-        .filter(|(_, _, _, off, _, _)| offset_min.map_or(true, |lo| *off >= lo))
-        .filter(|(_, _, _, off, _, _)| offset_max.map_or(true, |hi| *off <= hi))
+        .filter(|(_, _, _, off, _, _)| offset_filter.is_none_or(|want| *off == want))
+        .filter(|(_, _, _, off, _, _)| offset_min.is_none_or(|lo| *off >= lo))
+        .filter(|(_, _, _, off, _, _)| offset_max.is_none_or(|hi| *off <= hi))
         .collect();
     if let Some(lo) = cck_lo {
         filtered.retain(|(cck, _, _, _, _, _)| *cck >= lo);
@@ -1855,8 +1840,8 @@ fn tool_chipset_write_log(args: Value, s: &mut AmigaSession) -> Result<Value, To
         filtered.retain(|(_, pc, _, off, val, _)| {
             let key: u64 = match dedupe_mode {
                 "pc_off" => ((*pc as u64) << 16) | (*off as u64),
-                "off"    => *off as u64,
-                _        => ((*pc as u64) << 32) | ((*off as u64) << 16) | (*val as u64),
+                "off" => *off as u64,
+                _ => ((*pc as u64) << 32) | ((*off as u64) << 16) | (*val as u64),
             };
             seen.insert(key)
         });
@@ -1940,10 +1925,7 @@ fn tool_watch_memory_log(args: Value, s: &mut AmigaSession) -> Result<Value, Too
     let access = s.access();
     let log = access.watch_log();
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
-    let unique = args
-        .get("unique")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let unique = args.get("unique").and_then(Value::as_bool).unwrap_or(false);
 
     let mut entries: Vec<&(u64, u32, u32, u16, bool)> = log.iter().collect();
     if unique {
@@ -2014,16 +1996,13 @@ fn tool_palette_log(args: Value, s: &mut AmigaSession) -> Result<Value, ToolErro
         .get("only_bplcon3")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let unique = args
-        .get("unique")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let unique = args.get("unique").and_then(Value::as_bool).unwrap_or(false);
 
     let idx_range: Option<(u16, u16)> = args
         .get("color_idx_range")
         .and_then(Value::as_array)
         .and_then(|a| {
-            let lo = a.get(0)?.as_u64()? as u16;
+            let lo = a.first()?.as_u64()? as u16;
             let hi = a.get(1)?.as_u64()? as u16;
             Some((lo, hi))
         });
@@ -2131,7 +2110,11 @@ fn tool_query_copper_list(args: Value, s: &mut AmigaSession) -> Result<Value, To
     let access = s.access();
     let default_start = access.copper_cop1lc();
     let start = if let Some(v) = args.get("addr") {
-        if v.is_null() { default_start } else { arg_u32(&args, "addr")? }
+        if v.is_null() {
+            default_start
+        } else {
+            arg_u32(&args, "addr")?
+        }
     } else {
         default_start
     };
@@ -2219,13 +2202,17 @@ fn tool_cpu_trace_arm(args: Value, s: &mut AmigaSession) -> Result<Value, ToolEr
     // and max_entries from the previous arm are replaced if the
     // caller supplies new values.
     let pc_min = args.get("pc_min").and_then(|v| {
-        if v.is_null() { None } else {
+        if v.is_null() {
+            None
+        } else {
             let one = json!({ "x": v });
             arg_u32(&one, "x").ok()
         }
     });
     let pc_max = args.get("pc_max").and_then(|v| {
-        if v.is_null() { None } else {
+        if v.is_null() {
+            None
+        } else {
             let one = json!({ "x": v });
             arg_u32(&one, "x").ok()
         }
@@ -2301,8 +2288,8 @@ fn tool_cpu_trace_log(args: Value, s: &mut AmigaSession) -> Result<Value, ToolEr
         .cpu_trace
         .entries
         .iter()
-        .filter(|(cck, _, _, _)| cck_lo.map_or(true, |lo| *cck >= lo))
-        .filter(|(cck, _, _, _)| cck_hi.map_or(true, |hi| *cck <= hi))
+        .filter(|(cck, _, _, _)| cck_lo.is_none_or(|lo| *cck >= lo))
+        .filter(|(cck, _, _, _)| cck_hi.is_none_or(|hi| *cck <= hi))
         .collect();
     let total = filtered.len();
     if !from_start {
@@ -2379,7 +2366,9 @@ fn tool_run_until_any_pc(args: Value, s: &mut AmigaSession) -> Result<Value, Too
         wanted.push(arg_u32(&one, "x")?);
     }
     if wanted.is_empty() {
-        return Err(ToolError::InvalidArguments("`targets` must be non-empty".into()));
+        return Err(ToolError::InvalidArguments(
+            "`targets` must be non-empty".into(),
+        ));
     }
     let max_ticks = arg_u64_or(&args, "max_ticks", 100_000_000)?;
     let mut ticks_taken: u64 = 0;
@@ -2388,7 +2377,7 @@ fn tool_run_until_any_pc(args: Value, s: &mut AmigaSession) -> Result<Value, Too
         s.tick_with_trace();
         ticks_taken += 1;
         let pc = s.access().cpu_pc();
-        if wanted.iter().any(|t| *t == pc) {
+        if wanted.contains(&pc) {
             hit = Some(pc);
             break;
         }
@@ -2405,10 +2394,7 @@ fn tool_insert_media(args: Value, s: &mut AmigaSession) -> Result<Value, ToolErr
         .get("path")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::InvalidArguments("missing string `path`".into()))?;
-    let kind = args
-        .get("kind")
-        .and_then(Value::as_str)
-        .unwrap_or("adf");
+    let kind = args.get("kind").and_then(Value::as_str).unwrap_or("adf");
     let change_pending = args
         .get("change_pending")
         .and_then(Value::as_bool)
@@ -2473,11 +2459,11 @@ fn load_media_bytes(
         if entry.is_dir() {
             continue;
         }
-        if let Some(want) = entry_hint {
-            if name == want {
-                chosen_index = Some(i);
-                break;
-            }
+        if let Some(want) = entry_hint
+            && name == want
+        {
+            chosen_index = Some(i);
+            break;
         }
         if name.to_lowercase().ends_with(".adf") {
             adf_entries.push((i, name));
@@ -2557,7 +2543,9 @@ fn tool_run_until_mem_change(args: Value, s: &mut AmigaSession) -> Result<Value,
         }
     }
     if watch.is_empty() {
-        return Err(ToolError::InvalidArguments("`addrs` must be non-empty".into()));
+        return Err(ToolError::InvalidArguments(
+            "`addrs` must be non-empty".into(),
+        ));
     }
     let max_ticks = arg_u64_or(&args, "max_ticks", 50_000_000)?;
     let mut ticks_taken: u64 = 0;
@@ -2576,11 +2564,13 @@ fn tool_run_until_mem_change(args: Value, s: &mut AmigaSession) -> Result<Value,
             break;
         }
     }
-    let result = hit.map(|(a, o, n)| json!({
-        "addr": format!("${:08X}", a),
-        "old": format!("${:08X}", o),
-        "new": format!("${:08X}", n),
-    }));
+    let result = hit.map(|(a, o, n)| {
+        json!({
+            "addr": format!("${:08X}", a),
+            "old": format!("${:08X}", o),
+            "new": format!("${:08X}", n),
+        })
+    });
     Ok(json!({
         "hit": result,
         "ticks_taken": ticks_taken,
@@ -2591,12 +2581,10 @@ fn tool_run_until_mem_change(args: Value, s: &mut AmigaSession) -> Result<Value,
 fn tool_memory_read(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     let addr = arg_u32(&args, "addr")?;
     let len = arg_u64_or(&args, "len", 16)?;
-    let len = u32::try_from(len)
-        .map_err(|_| ToolError::InvalidArguments("len exceeds u32".into()))?;
+    let len =
+        u32::try_from(len).map_err(|_| ToolError::InvalidArguments("len exceeds u32".into()))?;
     if len == 0 || len > 4096 {
-        return Err(ToolError::InvalidArguments(
-            "len must be 1..=4096".into(),
-        ));
+        return Err(ToolError::InvalidArguments("len must be 1..=4096".into()));
     }
     let bytes: Vec<String> = (0..len)
         .map(|i| format!("{:02X}", read_byte(s, addr.wrapping_add(i))))
@@ -2715,9 +2703,8 @@ fn tool_resolve_lvo(args: Value, _s: &mut AmigaSession) -> Result<Value, ToolErr
     }
     if let Some(off_value) = args.get("offset") {
         let offset = if let Some(n) = off_value.as_i64() {
-            i32::try_from(n).map_err(|_| {
-                ToolError::InvalidArguments("offset out of i32 range".into())
-            })?
+            i32::try_from(n)
+                .map_err(|_| ToolError::InvalidArguments("offset out of i32 range".into()))?
         } else if let Some(s) = off_value.as_str() {
             // accept hex / signed-decimal strings (`-318`, `-0x13E`,
             // `$13E`). We normalise to negative below regardless.
@@ -2729,16 +2716,16 @@ fn tool_resolve_lvo(args: Value, _s: &mut AmigaSession) -> Result<Value, ToolErr
             } else {
                 (1, trimmed)
             };
-            let (b, radix) = if let Some(rest) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
-                (rest, 16)
-            } else if let Some(rest) = body.strip_prefix('$') {
-                (rest, 16)
-            } else {
-                (body, 10)
-            };
-            let mag = i32::from_str_radix(b, radix).map_err(|_| {
-                ToolError::InvalidArguments(format!("offset `{s}` not parseable"))
-            })?;
+            let (b, radix) =
+                if let Some(rest) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
+                    (rest, 16)
+                } else if let Some(rest) = body.strip_prefix('$') {
+                    (rest, 16)
+                } else {
+                    (body, 10)
+                };
+            let mag = i32::from_str_radix(b, radix)
+                .map_err(|_| ToolError::InvalidArguments(format!("offset `{s}` not parseable")))?;
             sign * mag
         } else {
             return Err(ToolError::InvalidArguments(
@@ -2758,7 +2745,11 @@ fn tool_resolve_lvo(args: Value, _s: &mut AmigaSession) -> Result<Value, ToolErr
         }));
     }
     // No offset → dump the full table for the library.
-    let table = lvo::lvo_table(library).unwrap();
+    let Some(table) = lvo::lvo_table(library) else {
+        return Err(ToolError::InvalidArguments(format!(
+            "unknown library `{library}`"
+        )));
+    };
     let entries: Vec<Value> = table
         .iter()
         .map(|(off, name)| json!({"offset": *off, "name": *name}))
@@ -2776,9 +2767,7 @@ fn tool_disasm(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     let addr = arg_u32(&args, "addr")?;
     let count = arg_u64_or(&args, "count", 8)? as u32;
     if count == 0 || count > 128 {
-        return Err(ToolError::InvalidArguments(
-            "count must be 1..=128".into(),
-        ));
+        return Err(ToolError::InvalidArguments("count must be 1..=128".into()));
     }
     let mut pc = addr;
     let mut lines: Vec<Value> = Vec::new();
@@ -2850,9 +2839,11 @@ fn tool_disasm_around(args: Value, s: &mut AmigaSession) -> Result<Value, ToolEr
     // offset from largest down to 2 — the first valid alignment that
     // covers the requested instruction count wins. Fall back to the
     // largest valid alignment we found if none covers `before`.
+    // (address, size, mnemonic) for each decoded instruction in a run.
+    type DisasmRun = Vec<(u32, u8, String)>;
     let max_window = (before as i32 * 12).max(64) as u32;
-    let mut best_aligned: Option<(u32, Vec<(u32, u8, String)>)> = None;
-    let mut closest_overshoot: Option<(u32, i64, Vec<(u32, u8, String)>)> = None;
+    let mut best_aligned: Option<(u32, DisasmRun)> = None;
+    let mut closest_overshoot: Option<(u32, i64, DisasmRun)> = None;
 
     // Walk start_off from large to small. The first hit that
     // produces ≥ before instructions is our answer; otherwise track
@@ -3078,12 +3069,48 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
         }
     });
 
-    add(registry, "run_frames",  "Advance the machine by N PAL frames.", frames_schema, tool_run_frames);
-    add(registry, "run_ticks",   "Advance the machine by N master/4 ticks.", ticks_schema, tool_run_ticks);
-    add(registry, "run_until_pc","Run until PC == target or max_ticks reached.", until_pc_schema, tool_run_until_pc);
-    add(registry, "run_until_any_pc", "Run until PC matches any address in `targets` or max_ticks reached.", any_pc_schema, tool_run_until_any_pc);
-    add(registry, "run_until_mem_change", "Run until any longword in `addrs` changes value, or max_ticks reached.", mem_change_schema, tool_run_until_mem_change);
-    add(registry, "step",        "Step one or more CPU instructions, returning a PC trace.", step_schema, tool_step);
+    add(
+        registry,
+        "run_frames",
+        "Advance the machine by N PAL frames.",
+        frames_schema,
+        tool_run_frames,
+    );
+    add(
+        registry,
+        "run_ticks",
+        "Advance the machine by N master/4 ticks.",
+        ticks_schema,
+        tool_run_ticks,
+    );
+    add(
+        registry,
+        "run_until_pc",
+        "Run until PC == target or max_ticks reached.",
+        until_pc_schema,
+        tool_run_until_pc,
+    );
+    add(
+        registry,
+        "run_until_any_pc",
+        "Run until PC matches any address in `targets` or max_ticks reached.",
+        any_pc_schema,
+        tool_run_until_any_pc,
+    );
+    add(
+        registry,
+        "run_until_mem_change",
+        "Run until any longword in `addrs` changes value, or max_ticks reached.",
+        mem_change_schema,
+        tool_run_until_mem_change,
+    );
+    add(
+        registry,
+        "step",
+        "Step one or more CPU instructions, returning a PC trace.",
+        step_schema,
+        tool_step,
+    );
     let cpu_trace_arm_schema = json!({
         "type": "object",
         "properties": {
@@ -3093,15 +3120,27 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
                             "description": "Hard cap on captured entries; further pushes are silently dropped past this point."}
         }
     });
-    add(registry, "cpu_trace_arm",
+    add(
+        registry,
+        "cpu_trace_arm",
         "Start recording an instruction-boundary CPU trace. Captures (cck, instr_start_pc, sr, opcode_word) at every instruction completion that subsequent `run_*` / `step` calls cross. Clears any prior trace; replaces filter + max_entries. Use `pc_min`/`pc_max` to capture only inside a region of interest (e.g. KS palette init).",
-        cpu_trace_arm_schema, tool_cpu_trace_arm);
-    add(registry, "cpu_trace_disarm",
+        cpu_trace_arm_schema,
+        tool_cpu_trace_arm,
+    );
+    add(
+        registry,
+        "cpu_trace_disarm",
         "Stop recording. The captured trace is kept; `cpu_trace_log` still reads it. Re-arming clears.",
-        empty(), tool_cpu_trace_disarm);
-    add(registry, "cpu_trace_clear",
+        empty(),
+        tool_cpu_trace_disarm,
+    );
+    add(
+        registry,
+        "cpu_trace_clear",
         "Discard captured entries without disarming. Lets you focus on a fresh window without re-arming.",
-        empty(), tool_cpu_trace_clear);
+        empty(),
+        tool_cpu_trace_clear,
+    );
     let cpu_trace_log_schema = json!({
         "type": "object",
         "properties": {
@@ -3113,9 +3152,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             "cck_max":    {"type": "integer", "description": "Only include entries at or before this cck."}
         }
     });
-    add(registry, "cpu_trace_log",
+    add(
+        registry,
+        "cpu_trace_log",
         "Dump captured CPU trace entries. Tail-window by default (most recent `limit`); pass `from_start:true` for the leading window. Filter by cck range for a specific time slice.",
-        cpu_trace_log_schema, tool_cpu_trace_log);
+        cpu_trace_log_schema,
+        tool_cpu_trace_log,
+    );
     let reset_schema = json!({
         "type": "object",
         "properties": {
@@ -3127,19 +3170,69 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             }
         }
     });
-    add(registry, "reset",       "Reload the ROM and re-create the A1200 (fresh boot). Accepts an optional `kind` (\"hard\" / \"soft\"; both currently behave as hard).", reset_schema, tool_reset);
-    add(registry, "query_cpu",   "Full CPU register snapshot (D0-D7, A0-A7, PC, SR, SSP, USP, VBR, IPL pin, exception state).", empty(), tool_query_cpu);
-    add(registry, "query_chipset","BPLCON0 / DMACON / ADKCON / COLOR00 / COP1LC / copper PC / overlay state.", empty(), tool_query_chipset);
-    add(registry, "query_paula", "Paula INTENA / INTREQ with bit names decoded.", empty(), tool_query_paula);
-    add(registry, "query_cia",   "CIA-A + CIA-B timer / ICR / port / TOD snapshot.", empty(), tool_query_cia);
-    add(registry, "query_agnus", "Agnus snapshot (vpos / hpos / bitplane pointers / blitter pointers).", empty(), tool_query_agnus);
-    add(registry, "query_blitter","Blitter snapshot (busy, exec_pending, ccks_remaining, APT/BPT/CPT/DPT).", empty(), tool_query_blitter);
-    add(registry, "query_exec_tasks",
+    add(
+        registry,
+        "reset",
+        "Reload the ROM and re-create the A1200 (fresh boot). Accepts an optional `kind` (\"hard\" / \"soft\"; both currently behave as hard).",
+        reset_schema,
+        tool_reset,
+    );
+    add(
+        registry,
+        "query_cpu",
+        "Full CPU register snapshot (D0-D7, A0-A7, PC, SR, SSP, USP, VBR, IPL pin, exception state).",
+        empty(),
+        tool_query_cpu,
+    );
+    add(
+        registry,
+        "query_chipset",
+        "BPLCON0 / DMACON / ADKCON / COLOR00 / COP1LC / copper PC / overlay state.",
+        empty(),
+        tool_query_chipset,
+    );
+    add(
+        registry,
+        "query_paula",
+        "Paula INTENA / INTREQ with bit names decoded.",
+        empty(),
+        tool_query_paula,
+    );
+    add(
+        registry,
+        "query_cia",
+        "CIA-A + CIA-B timer / ICR / port / TOD snapshot.",
+        empty(),
+        tool_query_cia,
+    );
+    add(
+        registry,
+        "query_agnus",
+        "Agnus snapshot (vpos / hpos / bitplane pointers / blitter pointers).",
+        empty(),
+        tool_query_agnus,
+    );
+    add(
+        registry,
+        "query_blitter",
+        "Blitter snapshot (busy, exec_pending, ccks_remaining, APT/BPT/CPT/DPT).",
+        empty(),
+        tool_query_blitter,
+    );
+    add(
+        registry,
+        "query_exec_tasks",
         "Walk ExecBase (at $00000004) and dump ThisTask, TaskReady, TaskWait. Each entry decodes the Exec Node (name, type, priority — `ln_type_label` resolves to TASK / PROCESS / etc.) + Task (state, tc_SigWait, tc_SigRecvd, SP, user data). When `ln_type` is NT_PROCESS (=13) — true for IPrefs, Workbench, the shell, every loaded executable — the entry's `process` field decodes the trailing Process struct: embedded pr_MsgPort (with queued message count!), pr_CIS/COS/CES streams, pr_CurrentDir, pr_HomeDir, pr_CLI, pr_TaskNum. Use to find what WB.Workbench is blocked on (signal-side via tc_sig_wait + tc_state=WAIT) and what messages are queued at its private port (process side).",
-        empty(), tool_query_exec_tasks);
-    add(registry, "query_exec_ports",
+        empty(),
+        tool_query_exec_tasks,
+    );
+    add(
+        registry,
+        "query_exec_ports",
         "Walk ExecBase->PortList (SysBase+392) and dump every public MsgPort: name, mp_SigBit (which signal bit notifies the owner), mp_SigTask (owning task address), mp_Flags (PA_SIGNAL / PA_SOFTINT / PA_IGNORE), and queued-message count. Use to find which port WB.Workbench is blocked on — cross-reference `mp_sigtask` against `query_exec_tasks` Workbench addr, look for the port with the matching `mp_sigbit_mask`.",
-        empty(), tool_query_exec_ports);
+        empty(),
+        tool_query_exec_ports,
+    );
     let query_aga_schema = json!({
         "type": "object",
         "properties": {
@@ -3147,7 +3240,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
                           "description": "Include the full 256-entry palette_24 dump in the response."}
         }
     });
-    add(registry, "query_aga",    "AGA Lisa state. DENISEID, BPLCON3 bank+LOCT, BPLCON4, palette_24 bank 0 + non-zero counts per bank, OCS 12-bit palette side-by-side. Pass `all_banks:true` for the full 256-entry dump.", query_aga_schema, tool_query_aga);
+    add(
+        registry,
+        "query_aga",
+        "AGA Lisa state. DENISEID, BPLCON3 bank+LOCT, BPLCON4, palette_24 bank 0 + non-zero counts per bank, OCS 12-bit palette side-by-side. Pass `all_banks:true` for the full 256-entry dump.",
+        query_aga_schema,
+        tool_query_aga,
+    );
     let palette_log_schema = json!({
         "type": "object",
         "properties": {
@@ -3160,7 +3259,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
                                 "description": "Filter to COLOR writes whose index is in [lo, hi] inclusive."}
         }
     });
-    add(registry, "palette_log", "Every COLOR / BPLCON3 write captured during the run, with BPLCON3 BANK + LOCT decoded for each write. Use to reconstruct the AGA palette-programming sequence KS uses.", palette_log_schema, tool_palette_log);
+    add(
+        registry,
+        "palette_log",
+        "Every COLOR / BPLCON3 write captured during the run, with BPLCON3 BANK + LOCT decoded for each write. Use to reconstruct the AGA palette-programming sequence KS uses.",
+        palette_log_schema,
+        tool_palette_log,
+    );
     let restart_schema = json!({
         "type": "object",
         "properties": {
@@ -3168,9 +3273,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
                           "description": "Process exit code. Non-zero useful for hosts that only respawn on crash."}
         }
     });
-    add(registry, "restart",
+    add(
+        registry,
+        "restart",
         "Exit the MCP server process so the host re-spawns the freshly built binary on the next call. Response is flushed before exit.",
-        restart_schema, tool_restart);
+        restart_schema,
+        tool_restart,
+    );
     let watch_set_schema = json!({
         "type": "object",
         "required": ["addr", "len"],
@@ -3195,9 +3304,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             "val":  {"description": "16-bit value to write. Hex/decimal accepted."}
         }
     });
-    add(registry, "poke_word",
+    add(
+        registry,
+        "poke_word",
         "Backdoor word write via the machine's `poke_word` path. Useful for testing: e.g. force-write to a chipset COLOR register and see if the display reflects it.",
-        poke_word_schema, tool_poke_word);
+        poke_word_schema,
+        tool_poke_word,
+    );
     let chipset_read_schema = json!({
         "type": "object",
         "properties": {
@@ -3212,9 +3325,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             "cck_max": {"type": "integer", "description": "Only include reads at or before this cck."}
         }
     });
-    add(registry, "chipset_read_log",
+    add(
+        registry,
+        "chipset_read_log",
         "Every CPU read from a chipset register ($DFFxxx) with the returned value and PC. Filter by `offset:` to see one register's read history, e.g. what value KS observed for DENISEID across the boot.",
-        chipset_read_schema, tool_chipset_read_log);
+        chipset_read_schema,
+        tool_chipset_read_log,
+    );
     let chipset_write_schema = json!({
         "type": "object",
         "properties": {
@@ -3229,18 +3346,34 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             "cck_max":    {"type": "integer", "description": "Only include writes at or before this cck."}
         }
     });
-    add(registry, "chipset_write_log",
+    add(
+        registry,
+        "chipset_write_log",
         "Every CPU write to a chipset register ($DFFxxx). Filter by `offset:` for one register's history, or `offset_min`/`offset_max` for a range (e.g. 0x080..0x086 to track all COP1LC/COP2LC writes). Useful for answering 'when did cop2lc change?' or 'what writes hit $DFF000 during boot?' without polling.",
-        chipset_write_schema, tool_chipset_write_log);
-    add(registry, "watch_memory",
+        chipset_write_schema,
+        tool_chipset_write_log,
+    );
+    add(
+        registry,
+        "watch_memory",
         "Set a write-watchpoint on a chip-RAM byte range. Captures every CPU bus write that lands in the range as (cck, pc, addr, val, size). Clears any prior log.",
-        watch_set_schema, tool_watch_memory);
-    add(registry, "watch_memory_clear",
+        watch_set_schema,
+        tool_watch_memory,
+    );
+    add(
+        registry,
+        "watch_memory_clear",
         "Clear the active write-watchpoint (stops further capture). Returns how many writes were captured.",
-        empty(), tool_watch_memory_clear);
-    add(registry, "watch_memory_log",
+        empty(),
+        tool_watch_memory_clear,
+    );
+    add(
+        registry,
+        "watch_memory_log",
         "Dump the writes captured by the watchpoint. `unique:true` de-dupes by (PC, addr, value).",
-        watch_log_schema, tool_watch_memory_log);
+        watch_log_schema,
+        tool_watch_memory_log,
+    );
     let bplcon0_log_schema = json!({
         "type": "object",
         "properties": {
@@ -3249,14 +3382,26 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             "limit": {"type": "integer", "minimum": 1, "maximum": 1024, "default": 64}
         }
     });
-    add(registry, "bplcon0_log", "Every BPLCON0 write captured during the run (CPU + copper). Includes BPU histogram so 'does KS ever try BPU>0?' is one query.", bplcon0_log_schema, tool_bplcon0_log);
+    add(
+        registry,
+        "bplcon0_log",
+        "Every BPLCON0 write captured during the run (CPU + copper). Includes BPU histogram so 'does KS ever try BPU>0?' is one query.",
+        bplcon0_log_schema,
+        tool_bplcon0_log,
+    );
     let dump_fb_schema = json!({
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Optional filesystem path for a PNG snapshot. Omit to skip the write."}
         }
     });
-    add(registry, "dump_framebuffer", "Snapshot the Denise ARGB framebuffer: top colours, FNV-1a hash, optional PNG write.", dump_fb_schema, tool_dump_framebuffer);
+    add(
+        registry,
+        "dump_framebuffer",
+        "Snapshot the Denise ARGB framebuffer: top colours, FNV-1a hash, optional PNG write.",
+        dump_fb_schema,
+        tool_dump_framebuffer,
+    );
     let start_rec_schema = json!({
         "type": "object",
         "required": ["path"],
@@ -3266,16 +3411,48 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
                     "description": "Frame rate written to the MP4. Default is PAL (50)."}
         }
     });
-    add(registry, "start_video_recording",
+    add(
+        registry,
+        "start_video_recording",
         "Begin recording the live framebuffer to one MP4 file (uses ffmpeg from PATH).",
-        start_rec_schema, tool_start_video_recording);
-    add(registry, "stop_video_recording",
+        start_rec_schema,
+        tool_start_video_recording,
+    );
+    add(
+        registry,
+        "stop_video_recording",
         "Finalise the in-flight recording and return the MP4 summary.",
-        empty(), tool_stop_video_recording);
-    add(registry, "query_copper_list", "Decode the copper list at `addr` (or COP1LC) into MOVE/WAIT/SKIP entries.", copper_list_schema, tool_query_copper_list);
-    add(registry, "query_stack", "Read `count` longwords off SSP (or USP via `usp:true`).", stack_schema, tool_query_stack);
-    add(registry, "memory_read", "Read raw bytes from any address (chip RAM / ROM / chipset).", memory_schema, tool_memory_read);
-    add(registry, "memory_read_long", "Read a 32-bit longword from an address.", addr_only, tool_memory_read_long);
+        empty(),
+        tool_stop_video_recording,
+    );
+    add(
+        registry,
+        "query_copper_list",
+        "Decode the copper list at `addr` (or COP1LC) into MOVE/WAIT/SKIP entries.",
+        copper_list_schema,
+        tool_query_copper_list,
+    );
+    add(
+        registry,
+        "query_stack",
+        "Read `count` longwords off SSP (or USP via `usp:true`).",
+        stack_schema,
+        tool_query_stack,
+    );
+    add(
+        registry,
+        "memory_read",
+        "Read raw bytes from any address (chip RAM / ROM / chipset).",
+        memory_schema,
+        tool_memory_read,
+    );
+    add(
+        registry,
+        "memory_read_long",
+        "Read a 32-bit longword from an address.",
+        addr_only,
+        tool_memory_read_long,
+    );
     let memory_scan_schema = json!({
         "type": "object",
         "required": ["start", "end", "value"],
@@ -3290,9 +3467,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
                          "description": "Hard cap on returned hits. The reply sets `truncated: true` if reached. Scan span is capped at 16 MiB regardless."}
         }
     });
-    add(registry, "memory_scan",
+    add(
+        registry,
+        "memory_scan",
         "Scan a memory range for every aligned 32-bit longword whose value matches `value` (optionally AND'd with `mask`). Returns matching addresses + their values. Use to find structures that reference a known pointer — e.g. scan chip RAM for the WB task address to surface every MsgPort whose `mp_SigTask` field names WB.",
-        memory_scan_schema, tool_memory_scan);
+        memory_scan_schema,
+        tool_memory_scan,
+    );
     let resolve_lvo_schema = json!({
         "type": "object",
         "required": ["library"],
@@ -3306,9 +3487,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             }
         }
     });
-    add(registry, "resolve_lvo",
+    add(
+        registry,
+        "resolve_lvo",
         "Resolve a `jsr -N(a6)` LVO offset to its function name using the NDK 3.2 library tables (exec / dos / intuition / graphics + cia.resource). Omit `offset` to dump the entire library's LVO table. Match modes returned: `hit`, `miss`, `unknown_library`, `library_dump`.",
-        resolve_lvo_schema, tool_resolve_lvo);
+        resolve_lvo_schema,
+        tool_resolve_lvo,
+    );
     let query_library_schema = json!({
         "type": "object",
         "properties": {
@@ -3318,9 +3503,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             }
         }
     });
-    add(registry, "query_library",
+    add(
+        registry,
+        "query_library",
         "Walk ExecBase->LibList and decode each `struct Library`: name, version + revision, lib_OpenCnt, lib_Sum, lib_Flags, neg_size + pos_size, and the [base - NegSize, base + PosSize) code range. Pass `name` to filter to one library. Use with `address_to_library` to identify which library a ROM address lives in.",
-        query_library_schema, tool_query_library);
+        query_library_schema,
+        tool_query_library,
+    );
     let address_to_library_schema = json!({
         "type": "object",
         "required": ["addr"],
@@ -3328,9 +3517,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             "addr": {"description": "Address to classify — decimal int or hex string ($XXX / 0xXXX)."}
         }
     });
-    add(registry, "address_to_library",
+    add(
+        registry,
+        "address_to_library",
         "Reverse-lookup: given any address, walk ExecBase->LibList and find which loaded library's code range contains it. Returns the library name, base address, code range, and signed offset from base (negative = jump-table / LVO region, positive = code body). Match modes: `hit`, `no_library_contains_addr`, `exec_base_uninitialised`.",
-        address_to_library_schema, tool_address_to_library);
+        address_to_library_schema,
+        tool_address_to_library,
+    );
     let read_task_stack_schema = json!({
         "type": "object",
         "properties": {
@@ -3344,9 +3537,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
                           "description": "If true, cross-reference each ROM hit against ExecBase->LibList and tag with the owning library name."}
         }
     });
-    add(registry, "read_task_stack",
+    add(
+        registry,
+        "read_task_stack",
         "Walk a parked task's saved stack starting at `tc_SPReg`. Scans every 2-byte boundary for ROM-pointing 32-bit values (the return-PC chain through libraries), optionally cross-referenced against the loaded library list. Returns the assumed KS 3.x Switch-frame decode (SR at sp+0, MOVEM D2-D7/A2-A6 at sp+2, return PC at sp+46) AND a layout-independent ROM-hit scan so misaligned frames still surface useful data. Folds the two-pass byte scan that found the IPrefs Wait-call chain into one tool.",
-        read_task_stack_schema, tool_read_task_stack);
+        read_task_stack_schema,
+        tool_read_task_stack,
+    );
     let disasm_around_schema = json!({
         "type": "object",
         "required": ["addr"],
@@ -3358,9 +3555,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
                        "description": "Instructions to disasm AFTER target (target itself is always included)."}
         }
     });
-    add(registry, "disasm_around",
+    add(
+        registry,
+        "disasm_around",
         "Disasm N instructions before and M instructions after a target address. Backward disasm uses alignment search: each even offset before target is tried; the one whose forward disasm lands EXACTLY at target wins. Response carries `aligned: true/false` so the caller can tell if the `before` window is real instructions or mid-instruction garbage. Use after `read_task_stack` to see what called what — point at each return PC, see the JSR/BSR that put it there.",
-        disasm_around_schema, tool_disasm_around);
+        disasm_around_schema,
+        tool_disasm_around,
+    );
     let dump_msgport_messages_schema = json!({
         "type": "object",
         "required": ["port"],
@@ -3370,9 +3571,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
                      "description": "Maximum messages to return. `truncated: true` if the walk hit this cap."}
         }
     });
-    add(registry, "dump_msgport_messages",
+    add(
+        registry,
+        "dump_msgport_messages",
         "Walk a MsgPort's `mp_MsgList` and decode every queued `struct Message` (mn_ReplyPort, mn_Length, ln_Type / ln_Name). Use after `query_exec_ports` surfaces a port with `msg_count > 0` to see what's waiting to be processed — e.g. pending IORequests at a device port, pending DOS packets at a file-system handler.",
-        dump_msgport_messages_schema, tool_dump_msgport_messages);
+        dump_msgport_messages_schema,
+        tool_dump_msgport_messages,
+    );
     let signal_task_schema = json!({
         "type": "object",
         "required": ["task_addr", "signals"],
@@ -3381,9 +3586,13 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             "signals":   {"description": "32-bit signal mask to OR into tc_SigRecvd. e.g. $00001000 to set bit 12 (one of the DOS-private signals)."}
         }
     });
-    add(registry, "signal_task",
+    add(
+        registry,
+        "signal_task",
         "MUTATOR: OR `signals` into a task's tc_SigRecvd. This is NOT a wake-up tool — exec's Signal() does the wake transition (move to TaskReady, set tc_State = READY) synchronously inside the API call, and the scheduler does NOT poll tc_SigRecvd. This tool ONLY updates the field; the task stays parked until something else triggers the list move. Useful for (1) inspecting whether the bits would satisfy the wake condition (response's `would_wake` flag), and (2) pre-staging bits so the next Wait() call returns immediately when reached.",
-        signal_task_schema, tool_signal_task);
+        signal_task_schema,
+        tool_signal_task,
+    );
     let wake_task_schema = json!({
         "type": "object",
         "required": ["task_addr"],
@@ -3392,11 +3601,39 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
             "signals":   {"description": "Optional signal bits to OR into tc_SigRecvd before waking. Default: the task's tc_SigWait (so Wait() returns immediately with the awaited bits set)."}
         }
     });
-    add(registry, "wake_task",
+    add(
+        registry,
+        "wake_task",
         "MUTATOR: do the full TaskWait → TaskReady transition that exec.Signal() performs internally. ORs `signals` (default = tc_SigWait) into tc_SigRecvd, unlinks the task from TaskWait, appends to TaskReady, sets tc_State = READY. Use AFTER signal_task to actually KICK the task — the scheduler doesn't poll, so signal_task alone doesn't unblock. Validates state == WAIT and list integrity (pred.succ == task && succ.pred == task) before scribbling. Companion to signal_task: signal_task is observation (will it wake?), wake_task is action (force the wake).",
-        wake_task_schema, tool_wake_task);
-    add(registry, "disasm",      "Disassemble `count` m68k instructions starting at `addr`.", disasm_schema, tool_disasm);
-    add(registry, "insert_media", "Insert disk media into DF0 (only `adf` kind today; use `change_pending:true` to fire a disk-change event).", insert_media_schema, tool_insert_media);
-    add(registry, "eject_media",  "Eject any disk currently in DF0.", empty(), tool_eject_media);
-    add(registry, "query_disk",   "DF0 drive status (cylinder, head, motor, status bits, has_disk).", empty(), tool_query_disk);
+        wake_task_schema,
+        tool_wake_task,
+    );
+    add(
+        registry,
+        "disasm",
+        "Disassemble `count` m68k instructions starting at `addr`.",
+        disasm_schema,
+        tool_disasm,
+    );
+    add(
+        registry,
+        "insert_media",
+        "Insert disk media into DF0 (only `adf` kind today; use `change_pending:true` to fire a disk-change event).",
+        insert_media_schema,
+        tool_insert_media,
+    );
+    add(
+        registry,
+        "eject_media",
+        "Eject any disk currently in DF0.",
+        empty(),
+        tool_eject_media,
+    );
+    add(
+        registry,
+        "query_disk",
+        "DF0 drive status (cylinder, head, motor, status bits, has_disk).",
+        empty(),
+        tool_query_disk,
+    );
 }
