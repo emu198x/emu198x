@@ -269,7 +269,7 @@ Live controls:
 ### Spectrum 48K headless runner
 
 ```bash
-cargo run -p emu198x-script-spectrum -- \
+cargo run -p emu198x-spectrum --no-default-features -- \
   --rom ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom \
   --tape ~/.emu198x/media/sinclair-zx-spectrum-48k/'Manic Miner (1983)(Bug-Byte).zip' \
   --autoload-tape \

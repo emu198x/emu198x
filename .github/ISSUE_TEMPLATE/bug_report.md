@@ -25,7 +25,8 @@ ROM". Don't name commercial titles; describe the symptom.)
 
 ## Steps to reproduce
 
-(Ideally a `--script` JSON or a short `cargo run -p emu198x-script-…` command
+(Ideally a `--script` JSON or a short
+`cargo run -p emu198x-<system> --no-default-features -- --script …` command
 that reproduces the issue starting from a clean state.)
 
 ## Environment

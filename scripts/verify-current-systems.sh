@@ -497,7 +497,7 @@ mkdir -p "${script_dir}"
 if [[ "${mode}" != "local" ]]; then
     run_step "current-script-runner-tests" \
         cargo test \
-            -p emu198x-script-spectrum \
+            -p emu198x-spectrum \
             -p emu198x-c64 \
             -p emu198x-nes \
             -p emu198x-amiga \
@@ -520,7 +520,7 @@ if [[ "${mode}" != "unit" ]]; then
     write_boot_script "${script_dir}/spectrum-boot.json" 250
     if [[ -f "${spectrum_rom}" ]]; then
         run_step_expect_log "spectrum-48k-boot" '"value":true' \
-            cargo run -q -p emu198x-script-spectrum -- \
+            cargo run -q -p emu198x-spectrum --no-default-features -- \
                 --rom "${spectrum_rom}" \
                 --script "${script_dir}/spectrum-boot.json"
     else

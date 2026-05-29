@@ -608,7 +608,7 @@ pub type AmigaA1200Runtime = AmigaRuntime<AmigaA1200>;
 // ===================================================================
 // AmigaRuntimeKind — runtime-time dispatch over OCS / ECS / AGA.
 //
-// Verifier binaries (emu198x-amiga, emu198x-script-amiga) take a
+// Verifier binaries (emu198x-amiga) take a
 // `--model` argument that may pick either an OCS or an ECS variant.
 // Storing a concrete `AmigaOcsRuntime` field in the binary forces
 // every model through OCS chips even when the Model is ECS-flavoured

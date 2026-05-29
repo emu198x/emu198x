@@ -86,7 +86,8 @@ why-in-the-body rules above are the higher bar.
 Use the bug report template. The most useful bug reports include the system
 being emulated, the media kind (TZX tape / D64 disk / iNES cartridge / …),
 what you expected, what you saw, and a `--script` JSON or short
-`cargo run -p emu198x-script-…` command that reproduces it.
+`cargo run -p emu198x-<system> --no-default-features -- --script …` command
+that reproduces it.
 
 Security issues go through [SECURITY.md](SECURITY.md), not the public issue
 tracker.

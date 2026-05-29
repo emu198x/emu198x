@@ -1,7 +1,7 @@
 //! Dragon 32 machine substrate.
 //!
 //! This crate owns the reusable board-level state that was first proven in the
-//! `emu198x-script-dragon` harness: MC6809 execution, 32 KiB RAM, mirrored
+//! `emu198x-dragon` harness: MC6809 execution, 32 KiB RAM, mirrored
 //! 16 KiB BASIC ROM, SAM-backed RAM paging, two MC6821 PIAs, MC6883 SAM
 //! latches, keyboard matrix input, and MC6847 text-screen capture. It
 //! deliberately stops short of a full native runtime; later runtime crates

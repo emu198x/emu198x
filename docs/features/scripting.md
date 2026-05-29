@@ -2,7 +2,7 @@
 
 > **Current fresh-workspace status.** Shared headless scripting exists today in
 > `emu198x-shell`, and the current fresh-workspace runners exposing that path
-> are `emu198x-script-spectrum` and `emu198x-c64`. References in older
+> are `emu198x-spectrum` and `emu198x-c64`. References in older
 > docs to NES, Amiga, or JSON-RPC/MCP scripting flows should be treated as
 > historical until those families and host surfaces land again in this Rust
 > workspace.
@@ -29,11 +29,11 @@ surfaces, not for embedding UI policy into machine runtimes.
 
 ## CLI Usage
 
-The current runners are `emu198x-script-spectrum` and `emu198x-c64`.
+The current runners are `emu198x-spectrum` and `emu198x-c64`.
 Spectrum currently exposes the richer family-specific workflow surface:
 
 ```bash
-cargo run -p emu198x-script-spectrum -- \
+cargo run -p emu198x-spectrum --no-default-features -- \
   --rom 48.rom \
   --script capture.json
 ```
@@ -338,7 +338,7 @@ time, and save a screenshot:
 Run it with:
 
 ```bash
-cargo run -p emu198x-script-spectrum -- \
+cargo run -p emu198x-spectrum --no-default-features -- \
   --rom 48.rom \
   --script capture.json
 ```
@@ -346,7 +346,7 @@ cargo run -p emu198x-script-spectrum -- \
 For the current Spectrum runner, the equivalent launch-time convenience is:
 
 ```bash
-cargo run -p emu198x-script-spectrum -- \
+cargo run -p emu198x-spectrum --no-default-features -- \
   --rom 48.rom \
   --tape manic_miner.tzx \
   --autoload-tape \
