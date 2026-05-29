@@ -294,21 +294,21 @@ Expected ROM names:
 Examples:
 
 ```bash
-cargo run -p emu198x-script-c64 -- \
+cargo run -p emu198x-c64 --no-default-features -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
   --wait-for-boot 200 \
   --screenshot ready.png
 ```
 
 ```bash
-cargo run -p emu198x-script-c64 -- \
+cargo run -p emu198x-c64 --no-default-features -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
   --load demo.bas \
   --save-snapshot demo.c64.pst
 ```
 
 ```bash
-cargo run -p emu198x-script-c64 -- \
+cargo run -p emu198x-c64 --no-default-features -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
   --tape game.tap \
   --autoload-tape \

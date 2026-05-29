@@ -2,7 +2,7 @@
 
 > **Current fresh-workspace status.** Shared headless scripting exists today in
 > `emu198x-shell`, and the current fresh-workspace runners exposing that path
-> are `emu198x-script-spectrum` and `emu198x-script-c64`. References in older
+> are `emu198x-script-spectrum` and `emu198x-c64`. References in older
 > docs to NES, Amiga, or JSON-RPC/MCP scripting flows should be treated as
 > historical until those families and host surfaces land again in this Rust
 > workspace.
@@ -29,7 +29,7 @@ surfaces, not for embedding UI policy into machine runtimes.
 
 ## CLI Usage
 
-The current runners are `emu198x-script-spectrum` and `emu198x-script-c64`.
+The current runners are `emu198x-script-spectrum` and `emu198x-c64`.
 Spectrum currently exposes the richer family-specific workflow surface:
 
 ```bash
@@ -72,21 +72,21 @@ C64 currently exposes both a narrower host-side software-import surface and the
 first real datasette media path:
 
 ```bash
-cargo run -p emu198x-script-c64 -- \
+cargo run -p emu198x-c64 --no-default-features -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
   --load demo.bas \
   --save-snapshot demo.c64.pst
 ```
 
 ```bash
-cargo run -p emu198x-script-c64 -- \
+cargo run -p emu198x-c64 --no-default-features -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
   --load game.d64 \
   --save-snapshot game.c64.pst
 ```
 
 ```bash
-cargo run -p emu198x-script-c64 -- \
+cargo run -p emu198x-c64 --no-default-features -- \
   --rom-dir ~/.emu198x/roms/commodore-c64 \
   --tape game.tap \
   --autoload-tape \

@@ -1,4 +1,10 @@
-//! `emu198x-script-c64` — minimal headless C64 runner.
+//! Headless C64 runner — `--script` / `--headless` mode.
+//!
+//! Boots the C64 from firmware (KERNAL/BASIC/chargen/1541), runs native
+//! frames, executes shared JSON session steps, imports PRG/BAS/disk/tape
+//! media, and captures screenshots / snapshots / screen-text / traces.
+//! The non-interactive half of the `emu198x-c64` binary; the dispatcher
+//! in `main.rs` routes here when a headless-only flag is present.
 //!
 //! This binary is intentionally thin. It resolves ROM paths, optional
 //! snapshot/script inputs, and output captures, then hands execution to the
@@ -146,7 +152,7 @@ impl TraceSink for TraceCollector {
 }
 
 const USAGE: &str = "\
-Usage: emu198x-script-c64 [OPTIONS]
+Usage: emu198x-c64 --headless [OPTIONS]
 
 Cold boot:
     --rom-dir DIR             directory containing Commodore ROM images
@@ -193,59 +199,73 @@ Filename resolution inside the ROM directory:
     - 1541.rom or dos1541.rom or c1541.rom (optional, for live drive-8)
 
 Examples:
-    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --wait-for-boot 200 --screenshot ready.png
-    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas --save-snapshot demo.c64.pst
-    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load game.d64 --save-snapshot game.c64.pst
-    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --wait-for-boot 200 --print-query c64.drive8.disk.name
-    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk --frames 300
-    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --wait-for-tape-stop 12000
-    emu198x-script-c64 --load-snapshot ready.c64.pst --frames 25 --save-snapshot later.c64.pst
-    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --frames 300 --trace-vic-colours
-    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk --frames 1200 --trace-drive-rom EC20 ECA0
-    emu198x-script-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --script capture.json
+    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --wait-for-boot 200 --screenshot ready.png
+    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas --save-snapshot demo.c64.pst
+    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --load game.d64 --save-snapshot game.c64.pst
+    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --wait-for-boot 200 --print-query c64.drive8.disk.name
+    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk --frames 300
+    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --wait-for-tape-stop 12000
+    emu198x-c64 --headless --load-snapshot ready.c64.pst --frames 25 --save-snapshot later.c64.pst
+    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --frames 300 --trace-vic-colours
+    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk --frames 1200 --trace-drive-rom EC20 ECA0
+    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --script capture.json
 ";
 
-fn main() {
-    let cli = parse_cli(std::env::args().skip(1));
+/// Headless entry point. Parses the automation CLI, runs the session,
+/// and prints the JSON (script mode) or summary report.
+pub fn run(args: Vec<String>) -> Result<(), String> {
+    let cli = parse_cli(args);
     let script_mode = cli.script.is_some();
-    match run(cli) {
-        Ok(report) => {
-            if script_mode {
-                let json = serde_json::to_string(&report).unwrap_or_else(|err| {
-                    eprintln!("error: failed to serialize runner report: {err}");
-                    process::exit(1);
-                });
-                println!("{json}");
-            } else {
-                println!(
-                    "C64 runtime: time={} boot_detected={} boot_reason={}",
-                    report.time, report.boot_detected, report.boot_reason
-                );
-                if let Some(message) = &report.loaded_program {
-                    println!("{message}");
-                }
-                for query in &report.query_values {
-                    println!("{}={}", query.path, query.value);
-                }
-                if let Some(lines) = &report.screen_text_lines {
-                    println!("screen_text_lines:");
-                    for line in lines {
-                        println!("{line}");
-                    }
-                }
-                if let Some(lines) = &report.trace_lines {
-                    println!("trace_lines:");
-                    for line in lines {
-                        println!("{line}");
-                    }
-                }
+    let report = run_cli(cli)?;
+    if script_mode {
+        let json = serde_json::to_string(&report)
+            .map_err(|err| format!("failed to serialize runner report: {err}"))?;
+        println!("{json}");
+    } else {
+        println!(
+            "C64 runtime: time={} boot_detected={} boot_reason={}",
+            report.time, report.boot_detected, report.boot_reason
+        );
+        if let Some(message) = &report.loaded_program {
+            println!("{message}");
+        }
+        for query in &report.query_values {
+            println!("{}={}", query.path, query.value);
+        }
+        if let Some(lines) = &report.screen_text_lines {
+            println!("screen_text_lines:");
+            for line in lines {
+                println!("{line}");
             }
         }
-        Err(err) => {
-            eprintln!("error: {err}");
-            process::exit(1);
+        if let Some(lines) = &report.trace_lines {
+            println!("trace_lines:");
+            for line in lines {
+                println!("{line}");
+            }
         }
     }
+    Ok(())
+}
+
+/// Builds a booted C64 session for the MCP server, resolving firmware
+/// from the default ROM directory (`EMU198X_C64_ROM_DIR` or
+/// `~/.emu198x/roms/commodore-c64`). The client loads programs / media
+/// and drives the machine through the shared tools.
+///
+/// # Errors
+///
+/// Returns an error string if the C64 ROMs cannot be resolved or the
+/// machine fails to boot.
+pub fn mcp_session() -> Result<HeadlessSession<C64Runtime, C64SessionQueryProvider>, String> {
+    let cli = Cli::default();
+    let machine = boot_runtime(&cli)?;
+    let native_frame_ticks = u64::from(TIMING_PAL_BREADBIN.cycles_per_frame);
+    Ok(HeadlessSession::new_with_query_provider(
+        machine,
+        native_frame_ticks,
+        C64SessionQueryProvider,
+    ))
 }
 
 fn parse_cli<I>(args: I) -> Cli
@@ -322,6 +342,7 @@ where
                     .parse()
                     .unwrap_or_else(|_| die("--frames requires a non-negative integer"));
             }
+            "--headless" => {}
             "--help" | "-h" => {
                 println!("{USAGE}");
                 process::exit(0);
@@ -364,7 +385,7 @@ fn die(message: &str) -> ! {
     process::exit(2);
 }
 
-fn run(cli: Cli) -> Result<RunnerReport, String> {
+fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
     if cli.autoload_disk && cli.autoload_tape {
         return Err("--autoload-disk conflicts with --autoload-tape".into());
     }

@@ -1,17 +1,29 @@
 [package]
 name = "emu198x-c64"
+description = "Native Commodore 64 verifier with interactive UI, headless script, and MCP modes"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# UI mode is on by default for interactive / dev builds. The headless
+# boot / capture / trace pipeline builds with `--no-default-features` to
+# skip the heavy graphics stack (winit + wgpu) — the `--script` and
+# `--mcp` modes still work, only the default UI path errors out at
+# runtime with a "rebuild with --features ui" message.
+default = ["ui"]
+ui = ["dep:emu198x-native-video", "dep:winit"]
+
 [dependencies]
 common-commodore-c64 = { path = "../common-commodore-c64" }
-emu198x-native-video = { path = "../emu198x-native-video" }
+emu198x-native-video = { path = "../emu198x-native-video", optional = true }
 emu198x-shell = { path = "../emu198x-shell" }
 runtime-commodore-c64 = { path = "../runtime-commodore-c64" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror.workspace = true
-winit.workspace = true
+winit = { workspace = true, optional = true }
 
 [lints]
 workspace = true

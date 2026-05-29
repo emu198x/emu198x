@@ -498,7 +498,7 @@ if [[ "${mode}" != "local" ]]; then
     run_step "current-script-runner-tests" \
         cargo test \
             -p emu198x-script-spectrum \
-            -p emu198x-script-c64 \
+            -p emu198x-c64 \
             -p emu198x-nes \
             -p emu198x-script-amiga \
             -p emu198x-game-boy \
@@ -531,7 +531,7 @@ if [[ "${mode}" != "unit" ]]; then
     write_boot_script "${script_dir}/c64-boot.json" 220
     if [[ -d "${c64_rom_dir}" ]]; then
         run_step_expect_log "c64-pal-boot" '"value":true' \
-            cargo run -q -p emu198x-script-c64 -- \
+            cargo run -q -p emu198x-c64 --no-default-features -- \
                 --rom-dir "${c64_rom_dir}" \
                 --script "${script_dir}/c64-boot.json"
     else

@@ -108,7 +108,7 @@ The April 12 plan and [`product-roadmap.md`](../../knowledge/decisions/product-r
 
 **Verify.** Inspect `emu198x-shell` and the per-family scripts for any video output beyond per-frame PNG. Audio capture is already known to exist headless.
 **Build (if absent).** Add an mp4/webm sink to `emu198x-shell`. Default to invoking ffmpeg as a sidecar (boring choice; no Rust video-encoder dependency rabbit hole). Sync the existing audio capture stream so output is a single playable file. Expose `--video out.mp4` on each headless runner.
-**Done when.** `cargo run -p emu198x-script-c64 -- --tape demo.tap --video out.mp4 --frames 1800` produces a playable file with synchronised audio.
+**Done when.** `cargo run -p emu198x-c64 --no-default-features -- --tape demo.tap --video out.mp4 --frames 1800` produces a playable file with synchronised audio.
 
 ### B.3 — MCP control surface for the four anchors
 
