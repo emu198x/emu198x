@@ -942,10 +942,7 @@ impl Ppu {
             // $2003 - OAMADDR
             3 => self.oam_addr = val,
             // $2004 - OAMDATA
-            4 => {
-                self.oam[self.oam_addr as usize] = val;
-                self.oam_addr = self.oam_addr.wrapping_add(1);
-            }
+            4 => self.write_oam_via_addr(val),
             // $2005 - PPUSCROLL
             5 => {
                 if self.w {
@@ -1156,14 +1153,28 @@ impl Ppu {
         self.oam[offset as usize] = value;
     }
 
+    /// Write one byte through the OAMDATA port: store at the current
+    /// OAMADDR with bits 2-4 of attribute bytes masked off (those bits
+    /// are unimplemented on real silicon and read back as zero), then
+    /// post-increment OAMADDR. Shared by `$2004` and `$4014` DMA so
+    /// the mask applies consistently in both paths.
+    fn write_oam_via_addr(&mut self, value: u8) {
+        let v = if self.oam_addr & 0x03 == 0x02 {
+            value & 0xE3
+        } else {
+            value
+        };
+        self.oam[self.oam_addr as usize] = v;
+        self.oam_addr = self.oam_addr.wrapping_add(1);
+    }
+
     /// Write one byte during a `$4014` OAM DMA. The transfer is routed
     /// through the OAMDATA ($2004) port: the byte lands at the current
     /// OAMADDR ($2003) and OAMADDR post-increments. The 256-byte copy
     /// therefore starts at OAMADDR and wraps, and because it advances
     /// 256 times OAMADDR is left unchanged afterwards.
     pub fn oam_dma_write(&mut self, value: u8) {
-        self.oam[self.oam_addr as usize] = value;
-        self.oam_addr = self.oam_addr.wrapping_add(1);
+        self.write_oam_via_addr(value);
     }
 
     /// Read OAM data (for observation).
@@ -1759,13 +1770,38 @@ mod tests {
     fn oam_dma_write_starts_at_oamaddr_and_wraps() {
         let mut ppu = Ppu::new();
         ppu.oam_addr = 0xFE;
-        ppu.oam_dma_write(0x11); // -> oam[0xFE]
-        ppu.oam_dma_write(0x22); // -> oam[0xFF]
-        ppu.oam_dma_write(0x33); // -> oam[0x00] (wrapped)
-        assert_eq!(ppu.oam[0xFE], 0x11);
+        // Values picked so the attribute-byte mask (0xE3 applied at
+        // oam_addr % 4 == 2, here $FE) leaves them unchanged — this
+        // test focuses on the OAMADDR start/wrap behaviour.
+        ppu.oam_dma_write(0xC1); // -> oam[0xFE] (attr; 0xC1 & 0xE3 == 0xC1)
+        ppu.oam_dma_write(0x22); // -> oam[0xFF] (X)
+        ppu.oam_dma_write(0x33); // -> oam[0x00] (Y, wrapped)
+        assert_eq!(ppu.oam[0xFE], 0xC1);
         assert_eq!(ppu.oam[0xFF], 0x22);
         assert_eq!(ppu.oam[0x00], 0x33);
         assert_eq!(ppu.oam_addr, 0x01, "OAMADDR post-increments and wraps");
+    }
+
+    #[test]
+    fn oam_writes_mask_unimplemented_attribute_bits() {
+        // Bits 2-4 of the sprite attribute byte are unimplemented on
+        // real silicon (NESdev: "read back as 0"). Mesen masks $2004
+        // and $4014 writes with 0xE3 at attribute positions — required
+        // for blargg oam_stress.
+        let mut mapper = dummy_mapper();
+        let mut ppu = Ppu::new();
+        ppu.oam_addr = 0x02; // attribute byte of sprite 0
+        ppu.cpu_write(0x2004, 0xFF, &mut mapper);
+        assert_eq!(ppu.oam[0x02], 0xE3, "attribute write masks bits 2-4");
+
+        ppu.oam_addr = 0x03; // X byte — no mask
+        ppu.cpu_write(0x2004, 0xFF, &mut mapper);
+        assert_eq!(ppu.oam[0x03], 0xFF, "non-attribute write is unmodified");
+
+        // OAM DMA uses the same write path, so the mask applies there too.
+        ppu.oam_addr = 0x06; // attribute byte of sprite 1
+        ppu.oam_dma_write(0xFF);
+        assert_eq!(ppu.oam[0x06], 0xE3, "DMA attribute write also masks");
     }
 
     #[test]

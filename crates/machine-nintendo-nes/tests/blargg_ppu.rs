@@ -29,11 +29,11 @@ use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
 use std::path::PathBuf;
 
-/// Maximum CPU cycles to give a blargg ROM before declaring a hang.
-/// Most blargg PPU tests complete within 30M PPU dots (~10M CPU
-/// cycles, ~5 s emulated). 100M is a comfortable ceiling that catches
-/// runaway loops without false-positive timeouts.
-const MAX_TICKS: u64 = 100_000_000;
+/// Maximum master-clock ticks to give a blargg ROM before declaring a
+/// hang. Most PPU tests complete within ~30M ticks (~5 s emulated),
+/// but oam_stress runs ~30 s by design (it stresses OAM access for
+/// tens of seconds), so the ceiling needs ~200M ticks of headroom.
+const MAX_TICKS: u64 = 250_000_000;
 
 /// Resolve the blargg ROM root directory.
 fn blargg_root() -> Option<PathBuf> {
