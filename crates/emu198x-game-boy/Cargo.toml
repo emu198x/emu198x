@@ -1,18 +1,29 @@
 [package]
 name = "emu198x-game-boy"
-description = "Minimal native Game Boy verifier shell"
+description = "Native Game Boy verifier with interactive UI, headless script, and MCP modes"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# UI mode is on by default for interactive / dev builds. The headless
+# screenshot / capture pipeline builds with `--no-default-features` to
+# skip the heavy graphics stack (winit + wgpu) — the `--script` and
+# `--mcp` modes still work, only the default UI path errors out at
+# runtime with a "rebuild with --features ui" message.
+default = ["ui"]
+ui = ["dep:emu198x-native-video", "dep:winit"]
+
 [dependencies]
 common-nintendo-game-boy = { path = "../common-nintendo-game-boy" }
+emu198x-native-video = { path = "../emu198x-native-video", optional = true }
 emu198x-shell = { path = "../emu198x-shell" }
-emu198x-native-video = { path = "../emu198x-native-video" }
 runtime-nintendo-game-boy = { path = "../runtime-nintendo-game-boy" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror.workspace = true
-winit.workspace = true
+winit = { workspace = true, optional = true }
 
 [lints]
 workspace = true

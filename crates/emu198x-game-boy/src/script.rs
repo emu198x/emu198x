@@ -1,4 +1,10 @@
-//! `emu198x-script-game-boy` — minimal headless Game Boy runner.
+//! Headless Game Boy runner — `--script` / `--headless` mode.
+//!
+//! Loads cartridge media (and optional snapshot / battery-save sidecar),
+//! runs native Game Boy frames, executes shared JSON session steps, and
+//! captures screenshots / audio / snapshots. The non-interactive half of
+//! the `emu198x-game-boy` binary; the dispatcher in `main.rs` routes here
+//! when a headless-only flag is present.
 
 use std::path::{Path, PathBuf};
 use std::process;
@@ -66,7 +72,7 @@ struct RunnerReport {
 }
 
 const USAGE: &str = "\
-Usage: emu198x-script-game-boy [OPTIONS]
+Usage: emu198x-game-boy --script [OPTIONS]   (headless; add --no-default-features for graphics-free builds)
 
 Model:
     --model MODEL              dmg0 | dmg | mgb | sgb | sgb2 [default: dmg]
@@ -77,6 +83,7 @@ Media:
 
 Automation:
     --script PATH              execute shared JSON session steps
+    --headless                 force headless mode without a script
     --frames N                 number of native Game Boy video frames to run
     --load-snapshot PATH       restore a runtime snapshot before running
     --save-snapshot PATH       write a runtime snapshot after running
@@ -89,34 +96,28 @@ Other:
     --help, -h                 show this help
 
 Examples:
-    emu198x-script-game-boy --rom tetris.gb --frames 60 --screenshot frame.png
-    emu198x-script-game-boy --rom game.gb --script steps.json
-    emu198x-script-game-boy --load-snapshot ready.gb.pst --frames 10 --save-snapshot later.gb.pst
+    emu198x-game-boy --rom tetris.gb --frames 60 --screenshot frame.png
+    emu198x-game-boy --rom game.gb --script steps.json
+    emu198x-game-boy --load-snapshot ready.gb.pst --frames 10 --save-snapshot later.gb.pst
 ";
 
-fn main() {
-    let cli = parse_cli(std::env::args().skip(1));
+/// Headless entry point. Parses the automation CLI, runs the session,
+/// and prints the JSON (script mode) or summary report.
+pub fn run(args: Vec<String>) -> Result<(), String> {
+    let cli = parse_cli(args);
     let script_mode = cli.script.is_some();
-    match run(cli) {
-        Ok(report) => {
-            if script_mode {
-                let json = serde_json::to_string(&report).unwrap_or_else(|err| {
-                    eprintln!("error: failed to serialize runner report: {err}");
-                    process::exit(1);
-                });
-                println!("{json}");
-            } else {
-                println!(
-                    "Game Boy runtime: time={} cartridge_loaded={}",
-                    report.time, report.cartridge_loaded
-                );
-            }
-        }
-        Err(err) => {
-            eprintln!("error: {err}");
-            process::exit(1);
-        }
+    let report = run_cli(cli)?;
+    if script_mode {
+        let json = serde_json::to_string(&report)
+            .map_err(|err| format!("failed to serialize runner report: {err}"))?;
+        println!("{json}");
+    } else {
+        println!(
+            "Game Boy runtime: time={} cartridge_loaded={}",
+            report.time, report.cartridge_loaded
+        );
     }
+    Ok(())
 }
 
 fn parse_cli<I>(args: I) -> Cli
@@ -145,6 +146,7 @@ where
             "--save-snapshot" => {
                 cli.save_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--save-snapshot")));
             }
+            "--headless" => {}
             "--script" => {
                 cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script")));
             }
@@ -232,7 +234,7 @@ fn die(message: &str) -> ! {
     process::exit(2);
 }
 
-fn run(cli: Cli) -> Result<RunnerReport, String> {
+fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
     if cli.no_battery_save && cli.battery_save.is_some() {
         return Err("--battery-save conflicts with --no-battery-save".into());
     }
@@ -510,25 +512,25 @@ mod tests {
     fn run_can_capture_png_wav_and_snapshot() {
         let temp_dir = std::env::temp_dir();
         let rom_path = temp_dir.join(format!(
-            "emu198x-script-game-boy-{}-capture.gb",
+            "emu198x-game-boy-{}-capture.gb",
             std::process::id()
         ));
         let screenshot_path = temp_dir.join(format!(
-            "emu198x-script-game-boy-{}-capture.png",
+            "emu198x-game-boy-{}-capture.png",
             std::process::id()
         ));
         let audio_path = temp_dir.join(format!(
-            "emu198x-script-game-boy-{}-capture.wav",
+            "emu198x-game-boy-{}-capture.wav",
             std::process::id()
         ));
         let snapshot_path = temp_dir.join(format!(
-            "emu198x-script-game-boy-{}-capture.pst",
+            "emu198x-game-boy-{}-capture.pst",
             std::process::id()
         ));
 
         fs::write(&rom_path, loop_rom()).expect("temporary ROM write should succeed");
 
-        let result = run(Cli {
+        let result = run_cli(Cli {
             model: Model::Dmg,
             media: vec![MediaArg {
                 slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),
@@ -563,11 +565,11 @@ mod tests {
     fn run_loads_and_writes_battery_save() {
         let temp_dir = std::env::temp_dir();
         let rom_path = temp_dir.join(format!(
-            "emu198x-script-game-boy-{}-battery.gb",
+            "emu198x-game-boy-{}-battery.gb",
             std::process::id()
         ));
         let save_path = temp_dir.join(format!(
-            "emu198x-script-game-boy-{}-battery.sav",
+            "emu198x-game-boy-{}-battery.sav",
             std::process::id()
         ));
         let save = vec![0x5A; 0x2000];
@@ -575,7 +577,7 @@ mod tests {
         fs::write(&rom_path, battery_ram_rom()).expect("temporary ROM write should succeed");
         fs::write(&save_path, &save).expect("temporary save write should succeed");
 
-        let result = run(Cli {
+        let result = run_cli(Cli {
             model: Model::Dmg,
             media: vec![MediaArg {
                 slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),
@@ -608,12 +610,9 @@ mod tests {
     #[test]
     fn run_can_execute_shared_json_script() {
         let temp_dir = std::env::temp_dir();
-        let rom_path = temp_dir.join(format!(
-            "emu198x-script-game-boy-{}-script.gb",
-            std::process::id()
-        ));
+        let rom_path = temp_dir.join(format!("emu198x-game-boy-{}-script.gb", std::process::id()));
         let script_path = temp_dir.join(format!(
-            "emu198x-script-game-boy-{}-steps.json",
+            "emu198x-game-boy-{}-steps.json",
             std::process::id()
         ));
 
@@ -629,7 +628,7 @@ mod tests {
         )
         .expect("script fixture should write");
 
-        let result = run(Cli {
+        let result = run_cli(Cli {
             model: Model::Dmg,
             media: vec![MediaArg {
                 slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),

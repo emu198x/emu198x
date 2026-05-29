@@ -784,6 +784,8 @@ dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
  "runtime-nintendo-game-boy",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "winit",
 ]
@@ -851,17 +853,6 @@ dependencies = [
  "serde",
  "serde_json",
  "zip",
-]
-
-[[package]]
-name = "emu198x-script-game-boy"
-version = "0.1.0"
-dependencies = [
- "common-nintendo-game-boy",
- "emu198x-shell",
- "runtime-nintendo-game-boy",
- "serde",
- "serde_json",
 ]
 
 [[package]]

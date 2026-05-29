@@ -501,7 +501,7 @@ if [[ "${mode}" != "local" ]]; then
             -p emu198x-script-c64 \
             -p emu198x-nes \
             -p emu198x-script-amiga \
-            -p emu198x-script-game-boy \
+            -p emu198x-game-boy \
             -p emu198x-script-dragon
 
     run_step "current-runtime-lib-tests" \
