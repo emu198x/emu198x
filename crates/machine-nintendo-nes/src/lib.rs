@@ -274,8 +274,10 @@ impl Nes {
             let addr = u16::from(self.dma_page) << 8 | u16::from(self.dma_offset);
             self.cpu.data_in = self.cpu_read(addr);
         } else {
-            // Write cycle.
-            self.ppu.write_oam(self.dma_offset, self.cpu.data_in);
+            // Write cycle: route through OAMADDR ($2003), which the
+            // copy post-increments — so the transfer starts at OAMADDR
+            // and wraps. `dma_offset` advances the read source only.
+            self.ppu.oam_dma_write(self.cpu.data_in);
             self.dma_offset = self.dma_offset.wrapping_add(1);
         }
 

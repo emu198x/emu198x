@@ -1016,9 +1016,20 @@ impl Ppu {
     //  OAM DMA support
     // ════════════════════════════════════════════════════════════
 
-    /// Write OAM data (for OAMDMA).
+    /// Write OAM data directly at an absolute offset (observation /
+    /// test helper — bypasses OAMADDR).
     pub fn write_oam(&mut self, offset: u8, value: u8) {
         self.oam[offset as usize] = value;
+    }
+
+    /// Write one byte during a `$4014` OAM DMA. The transfer is routed
+    /// through the OAMDATA ($2004) port: the byte lands at the current
+    /// OAMADDR ($2003) and OAMADDR post-increments. The 256-byte copy
+    /// therefore starts at OAMADDR and wraps, and because it advances
+    /// 256 times OAMADDR is left unchanged afterwards.
+    pub fn oam_dma_write(&mut self, value: u8) {
+        self.oam[self.oam_addr as usize] = value;
+        self.oam_addr = self.oam_addr.wrapping_add(1);
     }
 
     /// Read OAM data (for observation).
@@ -1608,6 +1619,19 @@ mod tests {
         ppu.write_oam(0xFF, 0x99);
         assert_eq!(ppu.read_oam(0x10), 0x42);
         assert_eq!(ppu.read_oam(0xFF), 0x99);
+    }
+
+    #[test]
+    fn oam_dma_write_starts_at_oamaddr_and_wraps() {
+        let mut ppu = Ppu::new();
+        ppu.oam_addr = 0xFE;
+        ppu.oam_dma_write(0x11); // -> oam[0xFE]
+        ppu.oam_dma_write(0x22); // -> oam[0xFF]
+        ppu.oam_dma_write(0x33); // -> oam[0x00] (wrapped)
+        assert_eq!(ppu.oam[0xFE], 0x11);
+        assert_eq!(ppu.oam[0xFF], 0x22);
+        assert_eq!(ppu.oam[0x00], 0x33);
+        assert_eq!(ppu.oam_addr, 0x01, "OAMADDR post-increments and wraps");
     }
 
     #[test]
