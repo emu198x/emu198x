@@ -1088,35 +1088,39 @@ impl M6502 {
     }
 
     fn alu_adc_bcd(&mut self, data: u8) {
-        // NMOS BCD per Oxyron ("Extra Instructions of the 65XX Series CPU"):
-        //   N, Z come from the straight binary sum (bin = a + data + c).
-        //   V comes from the two's-complement overflow of the binary sum.
+        // NMOS 6502 decimal ADC (Bruce Clark, "Decimal Mode in the 6502"):
+        //   Z comes from the straight binary sum.
+        //   N and V come from the high-nibble *decimal intermediate* (after
+        //     the low-nibble fixup, before the final high-nibble fixup) — NOT
+        //     the binary sum. This is the NMOS quirk Tom Harte enforces.
         //   C comes from the final decimal adjustment.
         let a = self.regs.a;
-        let carry_in = self.regs.carry() as u8;
+        let b = data;
+        let c = u16::from(self.regs.carry());
 
-        // Binary sum — used for N, Z, V (Oxyron semantics).
-        let bin = a.wrapping_add(data).wrapping_add(carry_in);
-        self.regs.set_flag(FLAG_Z, bin == 0);
-        self.regs.set_flag(FLAG_N, bin & 0x80 != 0);
+        // Z: straight binary sum.
         self.regs
-            .set_flag(FLAG_V, ((!(a ^ data) & (a ^ bin)) & 0x80) != 0);
+            .set_flag(FLAG_Z, a.wrapping_add(b).wrapping_add(c as u8) == 0);
 
-        // Decimal correction produces the result byte and carry-out.
-        let mut lo = (a & 0x0F) + (data & 0x0F) + carry_in;
-        let mut hi = (a >> 4) + (data >> 4);
-        if lo > 9 {
-            lo -= 10;
-            hi += 1;
+        // Low nibble with BCD fixup.
+        let mut al = u16::from(a & 0x0F) + u16::from(b & 0x0F) + c;
+        if al >= 0x0A {
+            al = ((al + 0x06) & 0x0F) + 0x10;
         }
-        if hi > 9 {
-            hi -= 10;
-            self.regs.set_flag(FLAG_C, true);
-        } else {
-            self.regs.set_flag(FLAG_C, false);
-        }
+        // High-nibble intermediate — source of N and V.
+        let mut s = u16::from(a & 0xF0) + u16::from(b & 0xF0) + al;
+        self.regs.set_flag(FLAG_N, (s & 0x80) != 0);
+        let a16 = u16::from(a);
+        let b16 = u16::from(b);
+        self.regs
+            .set_flag(FLAG_V, ((!(a16 ^ b16) & (a16 ^ s)) & 0x80) != 0);
 
-        self.regs.a = (hi << 4) | (lo & 0x0F);
+        // Final high-nibble fixup gives the result byte and carry-out.
+        if s >= 0xA0 {
+            s += 0x60;
+        }
+        self.regs.set_flag(FLAG_C, s >= 0x100);
+        self.regs.a = (s & 0xFF) as u8;
     }
 
     fn alu_arr_bcd(&mut self, data: u8) {
