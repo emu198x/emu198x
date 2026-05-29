@@ -131,6 +131,12 @@ pub struct Ppu {
     eval_in_range: bool,       // current sprite is in range for next scanline
     eval_overflow_counter: u8, // post-overflow bug fetch counter (0 or 3,2,1)
     eval_sprite0_added: bool,  // staged sprite-0-in-range, committed at cycle 256
+    // Rendering-enabled snapshot captured at the end of the previous
+    // PPU cycle. Mesen NesPpu::UpdateState commits $2001 writes to
+    // _renderingEnabled with a 1-cycle delay; reading this lagged copy
+    // for the pre-render dot-339 odd-frame skip matches that delay
+    // (blargg ppu_vbl_nmi 10-even_odd_timing).
+    prev_rendering_enabled: bool,
 
     // ── Output ──────────────────────────────────────────────────
     framebuffer: Vec<u32>,
@@ -233,6 +239,7 @@ impl Ppu {
             eval_in_range: false,
             eval_overflow_counter: 0,
             eval_sprite0_added: false,
+            prev_rendering_enabled: false,
 
             framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT) as usize],
 
@@ -288,6 +295,12 @@ impl Ppu {
         // Notify mapper of A12 transitions during rendering.
         self.check_a12(mapper);
 
+        // Snapshot rendering-enabled at the end of this cycle so the
+        // NEXT cycle's checks (currently just the dot-339 odd-frame
+        // skip) see the value as of one cycle ago — matching Mesen's
+        // 1-cycle commit delay for `$2001` writes.
+        self.prev_rendering_enabled = self.rendering_enabled();
+
         // Advance dot/scanline.
         self.dot += 1;
         if self.dot > 340 {
@@ -332,10 +345,14 @@ impl Ppu {
             if self.dot >= 280 && self.dot <= 304 {
                 self.copy_vertical();
             }
-            // Odd frame skip: skip last dot on odd frames.
-            if self.dot == 339 && self.frame_odd {
-                self.dot = 340;
-            }
+        }
+        // Odd-frame dot-skip uses the rendering-enabled state captured
+        // at the end of the previous PPU cycle. A `$2001` write that
+        // toggles BG on (or off) immediately before dot 339 therefore
+        // does not affect this frame's skip — matching Mesen's 1-cycle
+        // delay on `_renderingEnabled` (blargg 10-even_odd_timing).
+        if self.dot == 339 && self.frame_odd && self.prev_rendering_enabled {
+            self.dot = 340;
         }
     }
 
