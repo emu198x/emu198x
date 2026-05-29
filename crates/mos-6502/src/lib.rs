@@ -47,6 +47,15 @@ pub struct M6502 {
     /// cycle is serviced after the NEXT instruction rather than being
     /// dropped (matches NES `04-nmi_control` / `06-suppression`).
     pub(crate) prev_pending_nmi: bool,
+    /// One-shot flag set by `tick_relative` when a branch is taken,
+    /// suppressing the next penultimate-cycle IRQ poll. Implements the
+    /// silicon quirk "a taken non-page-crossing branch ignores IRQ
+    /// during its last clock" (blargg `cpu_interrupts_v2/5-branch_delays_irq`).
+    /// For page-crossed branches, the suppression is harmless: the
+    /// extra dummy-read cycle re-latches IRQ on its own penultimate
+    /// poll, so only the genuinely-non-page-crossing case drops the
+    /// last-cycle IRQ as intended.
+    pub(crate) branch_irq_suppress: bool,
 }
 
 impl M6502 {
@@ -83,6 +92,7 @@ impl M6502 {
             pending_i_mask: true,
             pending_nmi: false,
             prev_pending_nmi: false,
+            branch_irq_suppress: false,
         }
     }
 
@@ -117,6 +127,7 @@ impl M6502 {
         self.pending_i_mask = true;
         self.pending_nmi = false;
         self.prev_pending_nmi = false;
+        self.branch_irq_suppress = false;
     }
 
     #[must_use]

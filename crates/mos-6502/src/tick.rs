@@ -147,6 +147,12 @@ impl M6502 {
         if done {
             self.cs.cycle = 0;
             self.schedule_opcode_fetch(self.regs.pc);
+        } else if self.branch_irq_suppress {
+            // Branch quirk: a taken non-page-crossing branch ignores
+            // IRQ during its last clock. The suppression is one-shot —
+            // for page-crossed taken branches, the following dummy-read
+            // cycle re-latches IRQ normally.
+            self.branch_irq_suppress = false;
         } else {
             // Sample IRQ/NMI on every non-final cycle. The last sample
             // taken before done=true is the one from the penultimate
@@ -512,6 +518,15 @@ impl M6502 {
                 }
                 self.cs.cycle = 2;
                 self.schedule_read(self.regs.pc);
+                // Suppress this cycle's IRQ poll. For a 3-cycle
+                // (same-page) taken branch this is the penultimate
+                // cycle and dropping its poll is the silicon quirk
+                // tested by `5-branch_delays_irq`. For a 4-cycle
+                // (page-crossed) taken branch the next dummy-read
+                // cycle is the penultimate and re-latches IRQ, so the
+                // suppression is harmlessly overridden — matching the
+                // expected `test_branch_taken_pagecross` row.
+                self.branch_irq_suppress = true;
                 false
             }
             2 => {
