@@ -769,11 +769,19 @@ version = "0.1.0"
 dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
+ "format-dragon-bin",
+ "format-dragon-cas",
+ "format-dragon-disk",
+ "format-dragon-pak",
  "machine-dragon-32",
  "motorola-vdg-6847",
+ "png",
  "runtime-dragon",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "winit",
+ "zip",
 ]
 
 [[package]]
@@ -835,24 +843,6 @@ dependencies = [
  "runtime-commodore-c64",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "emu198x-script-dragon"
-version = "0.1.0"
-dependencies = [
- "emu198x-shell",
- "format-dragon-bin",
- "format-dragon-cas",
- "format-dragon-disk",
- "format-dragon-pak",
- "machine-dragon-32",
- "motorola-vdg-6847",
- "png",
- "runtime-dragon",
- "serde",
- "serde_json",
- "zip",
 ]
 
 [[package]]

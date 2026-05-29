@@ -13,7 +13,7 @@ with it, and the shortest path to making it comfortable to use.
 | Nintendo NES | `emu198x-nes` | Native verifier window with shared `wgpu` video and `raw`/`lcd`/`crt` modes plus headless cartridge runner with screenshots, live audio/audio capture, keyboard/gamepad controller input, scripts, snapshots, local smoke-matrix reporting, Blargg-style `$6000` test ROM assertions, and NROM/MMC1/UxROM/CNROM/MMC3/MMC5/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica mapper support. | Use the smoke matrix and automated Blargg assertions to choose the next mapper or accuracy target; MMC5 now has memory mapping, expansion audio, and scanline IRQ coverage, but more hardware-test comparison would still be useful. |
 | Commodore Amiga | `emu198x-amiga`, `emu198x-script-amiga` | Native OCS verifier window with shared `wgpu` video with `raw`/`lcd`/`crt` modes, keyboard/mouse input, port-1 joystick/gamepad input, and live Paula audio, plus headless Kickstart/Workbench runner with A1000 and A500-family profiles, DF0 `ADF`, screenshots, audio capture, and scripted input. | Broaden game/application software validation. |
 | Nintendo Game Boy | `emu198x-game-boy` | Native DMG-family verifier window using the shared `wgpu` video presenter with `raw`/`lcd`/`crt` modes, plus headless cartridge runner with screenshots, live audio/audio capture, keyboard/gamepad joypad input, scripts, snapshots, and `.sav` battery-RAM sidecars. | Tune LCD presentation against hardware references and broaden real-game smoke coverage. |
-| Dragon 32 | `emu198x-dragon`, `emu198x-script-dragon` | Early native verifier window with shared `wgpu` video, live PIA-derived mono audio pinned to XRoar's DAC/tape/cartridge-SND/single-bit level model, real Dragon 32 BASIC ROM boot, semantic keyboard input, gamepad-to-analogue-joystick input, CAS media mounting, direct DragonDOS `.BIN` program loading, ROM/DGN cartridge mounting with GMC banking, initial DragonDOS VDK disk-sector reads through the P2 controller register path, PC-Dragon PAK snapshot mounting and snapshot smoke screenshots, native `--autoload` over ROM-level `CLOAD`/`CLOADM`, beam-updated MC6847 framebuffer, repeatable fetch/write trace watches, deterministic PAK trace-signature smoke, and optional patched-XRoar screenshot comparisons for CAS and PAK snapshot smokes. | Run real DragonDOS ROM + VDK software smokes, then fill in exact controller timing/status/write behavior from observed failures. |
+| Dragon 32 | `emu198x-dragon` | Early native verifier window with shared `wgpu` video, live PIA-derived mono audio pinned to XRoar's DAC/tape/cartridge-SND/single-bit level model, real Dragon 32 BASIC ROM boot, semantic keyboard input, gamepad-to-analogue-joystick input, CAS media mounting, direct DragonDOS `.BIN` program loading, ROM/DGN cartridge mounting with GMC banking, initial DragonDOS VDK disk-sector reads through the P2 controller register path, PC-Dragon PAK snapshot mounting and snapshot smoke screenshots, native `--autoload` over ROM-level `CLOAD`/`CLOADM`, beam-updated MC6847 framebuffer, repeatable fetch/write trace watches, deterministic PAK trace-signature smoke, and optional patched-XRoar screenshot comparisons for CAS and PAK snapshot smokes. | Run real DragonDOS ROM + VDK software smokes, then fill in exact controller timing/status/write behavior from observed failures. |
 
 ## Launch Commands
 
@@ -61,15 +61,15 @@ cargo run --release -p emu198x-dragon -- --rom ~/.emu198x/roms/dragon/dragon32.r
 ```
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- --rom ~/.emu198x/roms/dragon/dragon32.rom --smoke-root '/path/to/Dragon/Applications/[CAS]' --smoke-run-limit 12 --smoke-report dragon-smoke.json
+cargo run --release -q -p emu198x-dragon --no-default-features -- --rom ~/.emu198x/roms/dragon/dragon32.rom --smoke-root '/path/to/Dragon/Applications/[CAS]' --smoke-run-limit 12 --smoke-report dragon-smoke.json
 ```
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- --rom ~/.emu198x/roms/dragon/dragon32.rom --snapshot-smoke-root '/path/to/Dragon/Games/[PAK]' --smoke-run-limit 32 --smoke-report dragon-pak-smoke.json --smoke-screenshot-dir dragon-pak-screens
+cargo run --release -q -p emu198x-dragon --no-default-features -- --rom ~/.emu198x/roms/dragon/dragon32.rom --snapshot-smoke-root '/path/to/Dragon/Games/[PAK]' --smoke-run-limit 32 --smoke-report dragon-pak-smoke.json --smoke-screenshot-dir dragon-pak-screens
 ```
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- --rom ~/.emu198x/roms/dragon/dragon32.rom --cart dragon-dos.rom --disk game.vdk --cycles 2000000 --dump-text
+cargo run --release -q -p emu198x-dragon --no-default-features -- --rom ~/.emu198x/roms/dragon/dragon32.rom --cart dragon-dos.rom --disk game.vdk --cycles 2000000 --dump-text
 ```
 
 ## Immediate Product Track

@@ -1,7 +1,11 @@
-//! Minimal Dragon 32 ROM bring-up harness.
+//! Headless Dragon runner — `--script` / `--headless` mode.
 //!
-//! This is deliberately smaller than the full machine/runtime path. It gives us
-//! an executable ROM/CPU loop while PIA, SAM, and VDG are still being rebuilt.
+//! The bring-up and verification harness: CAS/VDK/PAK smoke matrices,
+//! typed-command runs, direct DragonDOS `.BIN` loading, opcode-fetch /
+//! write trace watches, snapshot trace signatures, and optional
+//! patched-XRoar screenshot comparison. The non-interactive half of the
+//! `emu198x-dragon` binary; the dispatcher in `main.rs` routes here when
+//! a headless-only flag is present.
 
 use std::env;
 use std::fs;
@@ -58,7 +62,7 @@ const MAX_SAM_BUS_CYCLE_MASTER_TICKS: u64 = 25;
 const SMOKE_START_SETTLE_FRAMES: u32 = 60;
 
 const USAGE: &str = "\
-Usage: emu198x-script-dragon --rom PATH [OPTIONS]
+Usage: emu198x-dragon --headless --rom PATH [OPTIONS]   (add --no-default-features for graphics-free builds)
 
 Firmware:
     --model MODEL       dragon32 | dragon64 [default: dragon32]
@@ -775,15 +779,11 @@ struct DiskSmokeOptions<'a> {
     cycle_limit: u64,
 }
 
-fn main() {
-    if let Err(err) = run_main() {
-        eprintln!("{err}");
-        process::exit(1);
-    }
-}
-
-fn run_main() -> Result<(), String> {
-    let args: Vec<_> = env::args().skip(1).collect();
+/// Headless entry point: runs the bring-up and verification harness
+/// (smoke matrices, typed-command runs, XRoar comparison, direct MC6809
+/// harness). The dispatcher in `main.rs` routes here when a
+/// headless-only flag is present.
+pub fn run(args: Vec<String>) -> Result<(), String> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!("{USAGE}");
         return Ok(());
@@ -1171,6 +1171,7 @@ where
                 )?;
             }
             "--help" | "-h" => return Err(USAGE.to_owned()),
+            "--headless" => {}
             _ => return Err(format!("unknown argument: {arg}\n\n{USAGE}")),
         }
     }

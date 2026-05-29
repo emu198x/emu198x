@@ -191,7 +191,7 @@ run_dragon_audio_smoke() {
     mkdir -p "${artifact_root}"
     audio_dir="$(mktemp -d "${artifact_root}/dragon-backgammon-audio.XXXXXX")"
     screen_dir="$(mktemp -d "${artifact_root}/dragon-backgammon-screens.XXXXXX")"
-    cargo run -q -p emu198x-script-dragon -- \
+    cargo run -q -p emu198x-dragon --no-default-features -- \
         --rom "${rom}" \
         --smoke-root "${cas}" \
         --smoke-run-limit 1 \
@@ -266,7 +266,7 @@ run_dragon_joystick_game_smoke() {
     idle_screen_dir="$(mktemp -d "${artifact_root}/dragon-joystick-game-idle.XXXXXX")"
     input_screen_dir="$(mktemp -d "${artifact_root}/dragon-joystick-game-input.XXXXXX")"
 
-    cargo run -q -p emu198x-script-dragon -- \
+    cargo run -q -p emu198x-dragon --no-default-features -- \
         --rom "${rom}" \
         --smoke-root "${cas}" \
         --smoke-run-limit 1 \
@@ -274,7 +274,7 @@ run_dragon_joystick_game_smoke() {
         --smoke-screenshot-dir "${idle_screen_dir}" \
         --smoke-idle-after-start 492
 
-    cargo run -q -p emu198x-script-dragon -- \
+    cargo run -q -p emu198x-dragon --no-default-features -- \
         --rom "${rom}" \
         --smoke-root "${cas}" \
         --smoke-run-limit 1 \
@@ -323,7 +323,7 @@ run_dragon_joystick_axis_sweep_smoke() {
 
     mkdir -p "${artifact_root}"
     screen_dir="$(mktemp -d "${artifact_root}/dragon-joystick-axis-sweep.XXXXXX")"
-    cargo run -q -p emu198x-script-dragon -- \
+    cargo run -q -p emu198x-dragon --no-default-features -- \
         --rom "${rom}" \
         --smoke-root "${cas}" \
         --smoke-run-limit 1 \
@@ -385,7 +385,7 @@ run_dragon_pak_trace_alignment_smoke() {
     first_screen_dir="$(mktemp -d "${artifact_root}/dragon-pak-trace-${label}-a.XXXXXX")"
     second_screen_dir="$(mktemp -d "${artifact_root}/dragon-pak-trace-${label}-b.XXXXXX")"
 
-    cargo run -q -p emu198x-script-dragon -- \
+    cargo run -q -p emu198x-dragon --no-default-features -- \
         --rom "${rom}" \
         --snapshot-smoke-root "${pak}" \
         --smoke-run-limit 1 \
@@ -395,7 +395,7 @@ run_dragon_pak_trace_alignment_smoke() {
         --smoke-screenshot-dir "${first_screen_dir}" \
         --screenshot-phase completed-frame
 
-    cargo run -q -p emu198x-script-dragon -- \
+    cargo run -q -p emu198x-dragon --no-default-features -- \
         --rom "${rom}" \
         --snapshot-smoke-root "${pak}" \
         --smoke-run-limit 1 \
@@ -502,7 +502,7 @@ if [[ "${mode}" != "local" ]]; then
             -p emu198x-nes \
             -p emu198x-script-amiga \
             -p emu198x-game-boy \
-            -p emu198x-script-dragon
+            -p emu198x-dragon
 
     run_step "current-runtime-lib-tests" \
         cargo test \
@@ -738,7 +738,7 @@ if [[ "${mode}" != "unit" ]]; then
         run_step_expect_file "dragon-textstar-cload-run" \
             "${out_dir}/dragon-textstar-smoke.json" \
             '"classification": "started-text-drawing"' \
-            cargo run -q -p emu198x-script-dragon -- \
+            cargo run -q -p emu198x-dragon --no-default-features -- \
                 --rom "${dragon_rom}" \
                 --smoke-root "${dragon_textstar_cas}" \
                 --smoke-run-limit 1 \
@@ -752,7 +752,7 @@ if [[ "${mode}" != "unit" ]]; then
         run_step_expect_file "dragon64-textstar-cload-run" \
             "${out_dir}/dragon64-textstar-smoke.json" \
             '"classification": "started-text-drawing"' \
-            cargo run -q -p emu198x-script-dragon -- \
+            cargo run -q -p emu198x-dragon --no-default-features -- \
                 --model dragon64 \
                 --rom "${dragon64_compat_rom}" \
                 --rom64 "${dragon64_rom}" \
@@ -768,7 +768,7 @@ if [[ "${mode}" != "unit" ]]; then
         run_step_expect_file "dragon64-bin-smoke" \
             "${out_dir}/dragon64-bin-smoke.json" \
             '"classification": "running-visible"' \
-            cargo run -q -p emu198x-script-dragon -- \
+            cargo run -q -p emu198x-dragon --no-default-features -- \
                 --model dragon64 \
                 --rom "${dragon64_compat_rom}" \
                 --rom64 "${dragon64_rom}" \
@@ -785,7 +785,7 @@ if [[ "${mode}" != "unit" ]]; then
         run_step_expect_file "dragon64-pak-smoke" \
             "${out_dir}/dragon64-pak-smoke.json" \
             '"classification": "running-visible"' \
-            cargo run -q -p emu198x-script-dragon -- \
+            cargo run -q -p emu198x-dragon --no-default-features -- \
                 --model dragon64 \
                 --rom "${dragon64_compat_rom}" \
                 --rom64 "${dragon64_rom}" \
@@ -802,7 +802,7 @@ if [[ "${mode}" != "unit" ]]; then
         run_step_expect_file "dragon-cloadm-exec" \
             "${out_dir}/dragon-cloadm-smoke.json" \
             '"start_command": "EXEC"' \
-            cargo run -q -p emu198x-script-dragon -- \
+            cargo run -q -p emu198x-dragon --no-default-features -- \
                 --rom "${dragon_rom}" \
                 --smoke-root "${dragon_cloadm_cas}" \
                 --smoke-run-limit 1 \
@@ -816,7 +816,7 @@ if [[ "${mode}" != "unit" ]]; then
         run_step_expect_file "dragon-dos-vdk-dir-smoke" \
             "${out_dir}/dragon-dos-vdk-smoke.json" \
             '"classification": "directory-visible"' \
-            cargo run -q -p emu198x-script-dragon -- \
+            cargo run -q -p emu198x-dragon --no-default-features -- \
                 --rom "${dragon_rom}" \
                 --cart "${dragon_dos_rom}" \
                 --disk-smoke-root "${dragon_dos_vdk}" \
@@ -832,7 +832,7 @@ if [[ "${mode}" != "unit" ]]; then
         run_step_expect_file "dragon-dos-vdk-launch-smoke" \
             "${out_dir}/dragon-dos-vdk-launch-smoke.json" \
             '"classification": "launch-visible"' \
-            cargo run -q -p emu198x-script-dragon -- \
+            cargo run -q -p emu198x-dragon --no-default-features -- \
                 --rom "${dragon_rom}" \
                 --cart "${dragon_dos_rom}" \
                 --disk-smoke-root "${dragon_dos_launch_vdk}" \
@@ -860,7 +860,7 @@ if [[ "${mode}" != "unit" ]]; then
         run_step_expect_file "dragon-joystick-scripted-input" \
             "${out_dir}/dragon-joystick-smoke.json" \
             '"joystick_visible_change": true' \
-            cargo run -q -p emu198x-script-dragon -- \
+            cargo run -q -p emu198x-dragon --no-default-features -- \
                 --rom "${dragon_rom}" \
                 --smoke-root "${dragon_joystick_cas}" \
                 --smoke-run-limit 1 \
@@ -923,7 +923,7 @@ if [[ "${mode}" != "unit" ]]; then
         run_step_expect_file "dragon-xroar-textstar-reference" \
             "${out_dir}/dragon-xroar-textstar-smoke.json" \
             '"differing_pixels": 0' \
-            cargo run -q -p emu198x-script-dragon -- \
+            cargo run -q -p emu198x-dragon --no-default-features -- \
                 --rom "${dragon_rom}" \
                 --smoke-root "${dragon_textstar_cas}" \
                 --smoke-run-limit 1 \

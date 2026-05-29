@@ -118,7 +118,7 @@ complete WD2797 timing/write implementation.
   blocks, exposes checksum validity, and decodes the standard 15-byte namefile
   header. Runtime playback converts CAS blocks into motor-gated cassette input
   pulses consumed by the real ROM loader path.
-- **Smoke harness:** `emu198x-script-dragon --smoke-root` classifies real CAS
+- **Smoke harness:** `emu198x-dragon --smoke-root` classifies real CAS
   loads as load errors, BASIC errors, visible text changes, machine-code
   auto-runs, video-control changes, blank graphics screens, or graphics that
   continue drawing after the post-start settle window. The regular Backgammon
@@ -136,7 +136,7 @@ complete WD2797 timing/write implementation.
   traps; PAK smoke can still produce patched-XRoar references, but the regular
   verifier now uses repeated internal trace signatures as the stable PAK
   alignment gate.
-- **Trace probes:** `emu198x-script-dragon` can retain bounded opcode-fetch
+- **Trace probes:** `emu198x-dragon` can retain bounded opcode-fetch
   and bus-write traces. `--watch-fetch A[-B]` and `--watch-write A[-B]` may be
   repeated, which lets investigations correlate state variables, framebuffer
   writes, and VDG fetch samples in one deterministic run.
@@ -176,7 +176,7 @@ cargo run --release -p emu198x-dragon -- \
 Direct DragonDOS `.BIN` program smoke:
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- \
+cargo run --release -q -p emu198x-dragon --no-default-features -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --bin '/path/to/Dragon/Games/[BIN]/Cross Chase (2021-05-13)(Caruso, Fabrizio).zip' \
   --cycles 3000000 \
@@ -191,7 +191,7 @@ ROM-initialized stack, display base, and device state.
 DragonDOS VDK disk smoke:
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- \
+cargo run --release -q -p emu198x-dragon --no-default-features -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --cart dragon-dos.rom \
   --disk game.vdk \
@@ -211,7 +211,7 @@ encoding remains future work.
 Headless smoke over a DragonDOS VDK disk tree:
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- \
+cargo run --release -q -p emu198x-dragon --no-default-features -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --cart dragon-dos.rom \
   --disk-smoke-root '/path/to/Dragon/Applications/[VDK]' \
@@ -243,7 +243,7 @@ VDK sample before running it:
 EMU198X_DRAGON32_ROM=/path/to/dragon32.rom \
 EMU198X_DRAGON_DOS_ROM=/path/to/dragon-dos.rom \
 EMU198X_DRAGON_DOS_DIR_VDK=/path/to/disk-doctor.vdk \
-cargo test -p emu198x-script-dragon dragon_dos_dir_command_lists_vdk_directory
+cargo test -p emu198x-dragon --no-default-features dragon_dos_dir_command_lists_vdk_directory
 ```
 
 The matching write-path smoke uses the same ROM variables plus a scratch VDK
@@ -253,13 +253,13 @@ path. The mounted image is mutated only in memory:
 EMU198X_DRAGON32_ROM=/path/to/dragon32.rom \
 EMU198X_DRAGON_DOS_ROM=/path/to/dragon-dos.rom \
 EMU198X_DRAGON_DOS_SAVE_VDK=/path/to/scratch.vdk \
-cargo test -p emu198x-script-dragon dragon_dos_save_command_exports_persisted_vdk_entry
+cargo test -p emu198x-dragon --no-default-features dragon_dos_save_command_exports_persisted_vdk_entry
 ```
 
 Headless smoke over a DragonDOS `.BIN` tree:
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- \
+cargo run --release -q -p emu198x-dragon --no-default-features -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --bin-smoke-root '/path/to/Dragon/Games/[BIN]' \
   --smoke-run-limit 8 \
@@ -273,7 +273,7 @@ cargo run --release -q -p emu198x-script-dragon -- \
 The script crate also has a synthetic real-ROM regression for this path:
 
 ```sh
-cargo test -p emu198x-script-dragon bin_smoke_matrix_runs_synthetic_program_when_dragon_rom_available
+cargo test -p emu198x-dragon --no-default-features bin_smoke_matrix_runs_synthetic_program_when_dragon_rom_available
 ```
 
 It builds a tiny DragonDOS `.BIN` fixture at test time, boots BASIC from the
@@ -285,7 +285,7 @@ local archive locations.
 Headless smoke over one cassette tree:
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- \
+cargo run --release -q -p emu198x-dragon --no-default-features -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --smoke-root '/path/to/Dragon/Applications/[CAS]' \
   --smoke-run-limit 12 \
@@ -302,7 +302,7 @@ Dragon 64 CAS smoke uses the same runtime-backed path with the Dragon 64
 compatible-mode ROM and the separate 64-mode BASIC ROM:
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- \
+cargo run --release -q -p emu198x-dragon --no-default-features -- \
   --model dragon64 \
   --rom ~/.emu198x/roms/dragon/dragon64-compat.rom \
   --rom64 ~/.emu198x/roms/dragon/dragon64.rom \
@@ -322,7 +322,7 @@ wrong model.
 Known joystick comparator fixture:
 
 ```sh
-cargo run -p emu198x-script-dragon -- \
+cargo run -p emu198x-dragon --no-default-features -- \
   --rom '../assets/dragon/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)(Dragon Data).zip' \
   --smoke-root '../assets/dragon/Dragon/Applications/[CAS]/Joystick Test (198x)(-).zip' \
   --smoke-run-limit 1 \
@@ -350,7 +350,7 @@ loads it twice, so it is too slow for the routine local gate.
 Headless smoke over one PC-Dragon PAK snapshot tree:
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- \
+cargo run --release -q -p emu198x-dragon --no-default-features -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --snapshot-smoke-root '/path/to/Dragon/Games/[PAK]' \
   --smoke-run-limit 32 \
@@ -381,7 +381,7 @@ writes where expected, and known-good signatures:
 Patched-XRoar comparison, when the local patched XRoar binary is available:
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- \
+cargo run --release -q -p emu198x-dragon --no-default-features -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --smoke-root '/path/to/Dragon/Applications/[CAS]' \
   --smoke-run-limit 12 \
@@ -402,7 +402,7 @@ rather than a timing or accuracy authority.
 Focused trace probe for a running PAK snapshot:
 
 ```sh
-cargo run --release -q -p emu198x-script-dragon -- \
+cargo run --release -q -p emu198x-dragon --no-default-features -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --snapshot game.pak \
   --cycles 120000 \

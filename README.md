@@ -371,7 +371,7 @@ cargo run -p emu198x-dragon -- \
 ### Dragon 32 headless smoke runner
 
 ```bash
-cargo run -q -p emu198x-script-dragon -- \
+cargo run -q -p emu198x-dragon --no-default-features -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --smoke-root '/path/to/Dragon/Applications/[CAS]' \
   --smoke-run-limit 12 \
@@ -379,7 +379,7 @@ cargo run -q -p emu198x-script-dragon -- \
 ```
 
 ```bash
-cargo run -q -p emu198x-script-dragon -- \
+cargo run -q -p emu198x-dragon --no-default-features -- \
   --rom ~/.emu198x/roms/dragon/dragon32.rom \
   --snapshot-smoke-root '/path/to/Dragon/Games/[PAK]' \
   --smoke-run-limit 32 \

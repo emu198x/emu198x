@@ -314,10 +314,10 @@ Progress:
   the BASIC `EXEC` vector, and autorun from the declared exec address. The
   boot-before-EXEC step is required: starting at the entry point from reset-time
   state leaves the hardware stack and display state invalid for real programs.
-  `emu198x-script-dragon --bin-smoke-root` now turns DragonDOS `.BIN` trees into
+  `emu198x-dragon --bin-smoke-root` now turns DragonDOS `.BIN` trees into
   structured parse/runtime/screenshot regression reports. The script crate also
   has a synthetic real-ROM `.BIN` smoke regression, so the EXEC path is covered
-  without committing archived program binaries. `emu198x-script-dragon --model
+  without committing archived program binaries. `emu198x-dragon --model
   dragon64 --rom ... --rom64 ...` now routes CAS, `.BIN`, and PAK smoke through
   the Dragon 64 runtime profile. Dragon 32 `.BIN` and PAK smoke intentionally
   keep the older trace-rich harness for now so existing deterministic trace
@@ -326,7 +326,7 @@ Progress:
 - The shared shell input surface now has analogue axis events, and the native
   Dragon shell maps left-stick X/Y to continuous Dragon joystick 1 comparator
   values while preserving D-pad/button digital controls.
-- `emu198x-script-dragon` now exposes `--smoke-joystick-axis` and
+- `emu198x-dragon` now exposes `--smoke-joystick-axis` and
   `--smoke-joystick-axis-sweep`, so headless CAS smoke can drive continuous
   comparator values without a physical gamepad and record which sweep points
   visibly affect software output.
