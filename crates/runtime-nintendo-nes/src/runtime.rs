@@ -244,6 +244,53 @@ impl MachineCore for NesRuntime {
         Ok(RunResult::new(self.time, StopReason::ReachedTarget))
     }
 
+    fn run_ticks(&mut self, ticks: u64, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        if self.machine.is_none() {
+            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
+        }
+
+        for event in host.input_events {
+            if let Some(machine) = self.machine.as_mut() {
+                apply_input_event(machine, event);
+            }
+        }
+
+        {
+            let machine = self.machine.as_mut().expect("machine checked above");
+            for _ in 0..ticks {
+                machine.tick();
+            }
+        }
+        self.time = self.time.saturating_add(ticks);
+        self.update_rgba_framebuffer();
+
+        // Emit the (possibly mid-frame) framebuffer so screenshots and
+        // the latest-frame query reflect post-tick state, and drain any
+        // audio produced during the ticks.
+        host.frame_sink.push_frame(FramePacket {
+            timestamp: self.time,
+            format: emu198x_shell::PixelFormat::Rgba8888,
+            width: FB_WIDTH,
+            height: FB_HEIGHT,
+            palette: None,
+            pixels: &self.rgba_framebuffer,
+        })?;
+
+        let audio = self
+            .machine
+            .as_mut()
+            .expect("machine checked above")
+            .take_audio_buffer();
+        host.audio_sink.push_audio(AudioPacket {
+            timestamp: self.time,
+            sample_rate: 48_000,
+            channels: 1,
+            samples: &audio,
+        })?;
+
+        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
         snapshot::encode(self)
     }

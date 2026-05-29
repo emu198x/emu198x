@@ -219,6 +219,30 @@ pub trait MachineCore {
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError>;
 
+    /// Runs the machine for an exact number of sub-frame ticks, where
+    /// one tick is one unit of the machine's authoritative clock (for
+    /// the NES, one PPU dot / master clock). This enables cycle-exact
+    /// stepping for debugging — advancing a few ticks at a time and
+    /// querying state in between, which `run_until`'s frame granularity
+    /// cannot express.
+    ///
+    /// The default implementation reports the operation as unsupported;
+    /// runtimes whose core exposes a single-tick step override it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the runtime does not support sub-frame
+    /// stepping, or if a host-side sink rejects emitted data.
+    fn run_ticks(
+        &mut self,
+        _ticks: u64,
+        _host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        Err(MachineError::UnsupportedOperation {
+            operation: "run_ticks",
+        })
+    }
+
     /// Serializes a machine snapshot.
     ///
     /// # Errors

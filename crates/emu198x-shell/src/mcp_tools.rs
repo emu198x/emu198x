@@ -108,6 +108,18 @@ where
         }),
     }));
     registry.register(Box::new(ScriptStepTool {
+        name: "run_ticks",
+        description: "Run the machine for an exact number of sub-frame ticks \
+                      (one authoritative-clock unit each, e.g. one PPU dot on \
+                      the NES) for cycle-exact debugging. Errors if the system \
+                      does not support sub-frame stepping.",
+        schema: json!({
+            "type": "object",
+            "properties": { "ticks": { "type": "integer", "minimum": 0 } },
+            "required": ["ticks"]
+        }),
+    }));
+    registry.register(Box::new(ScriptStepTool {
         name: "wait_for_boot",
         description: "Run frames until the machine reports it has booted (or the frame budget is exhausted).",
         schema: json!({

@@ -130,6 +130,14 @@ pub enum ScriptStep {
         /// Number of native video frames to execute.
         frames: u32,
     },
+    /// Run the machine for an exact number of sub-frame ticks (one
+    /// tick = one unit of the authoritative clock, e.g. one PPU dot on
+    /// the NES). For cycle-exact debugging; not all runtimes support
+    /// it. See [`crate::MachineCore::run_ticks`].
+    RunTicks {
+        /// Number of authoritative-clock ticks to execute.
+        ticks: u64,
+    },
     /// Run native frames until `boot.detected = true`.
     WaitForBoot {
         /// Maximum number of native video frames to execute while waiting.
@@ -533,6 +541,15 @@ pub enum ScriptObservation {
     RunFrames {
         /// Number of requested native frames.
         frames: u32,
+        /// Machine time reached after the run.
+        reached: crate::MachineTime,
+        /// Why the machine stopped.
+        stop_reason: crate::StopReason,
+    },
+    /// Result of a sub-frame tick-run step.
+    RunTicks {
+        /// Number of requested authoritative-clock ticks.
+        ticks: u64,
         /// Machine time reached after the run.
         reached: crate::MachineTime,
         /// Why the machine stopped.
@@ -981,6 +998,14 @@ impl ScriptStep {
                 let result = session.run_frames(*frames)?;
                 Ok(Some(ScriptObservation::RunFrames {
                     frames: *frames,
+                    reached: result.reached,
+                    stop_reason: result.stop_reason,
+                }))
+            }
+            Self::RunTicks { ticks } => {
+                let result = session.run_ticks(*ticks)?;
+                Ok(Some(ScriptObservation::RunTicks {
+                    ticks: *ticks,
                     reached: result.reached,
                     stop_reason: result.stop_reason,
                 }))

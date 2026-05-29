@@ -43,6 +43,42 @@ fn runtime_loads_cartridge_and_runs_one_frame() {
 }
 
 #[test]
+fn run_ticks_advances_sub_frame_precisely() {
+    let rom = minimal_ines();
+    let mut runtime = NesRuntime::blank(Model::NesNtsc);
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
+    runtime.load_media(&media).expect("valid iNES should load");
+
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+    let mut host = HostIo {
+        input_events: &[],
+        frame_sink: &mut frame_sink,
+        audio_sink: &mut audio_sink,
+        trace_sink: &mut trace_sink,
+    };
+
+    // 100 master-clock ticks is far short of one NTSC frame, so the
+    // run advances exactly 100 ticks and completes no frame — the
+    // sub-frame precision that run_until's frame granularity can't hit.
+    let result = runtime
+        .run_ticks(100, &mut host)
+        .expect("sub-frame ticks should run");
+
+    assert_eq!(result.stop_reason, StopReason::ReachedTarget);
+    assert_eq!(runtime.time(), MachineTime::new(100));
+    let machine = runtime.machine().expect("cartridge loaded");
+    assert_eq!(machine.master_clock(), 100);
+    assert_eq!(
+        machine.frame_count(),
+        0,
+        "100 ticks is sub-frame and must not complete a frame"
+    );
+}
+
+#[test]
 fn button_input_updates_controller_state() {
     let rom = minimal_ines();
     let mut runtime = NesRuntime::blank(Model::NesNtsc);

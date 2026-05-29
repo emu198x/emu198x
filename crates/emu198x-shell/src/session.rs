@@ -742,6 +742,29 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         self.run_until(self.time().saturating_add(delta))
     }
 
+    /// Runs the machine for an exact number of sub-frame ticks (one
+    /// tick = one unit of the machine's authoritative clock). Used for
+    /// cycle-exact debugging; queries between calls observe per-tick
+    /// state that `run_frames` cannot reach. The runtime emits at most
+    /// one (possibly mid-frame) frame at the end of the run.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the runtime does not support sub-frame
+    /// stepping or if a host-side sink rejects emitted data.
+    pub fn run_ticks(&mut self, ticks: u64) -> Result<RunResult, SessionError> {
+        let inputs = std::mem::take(&mut self.queued_input);
+        let mut host = HostIo {
+            input_events: &inputs,
+            frame_sink: &mut self.frame_capture,
+            audio_sink: &mut self.audio_capture,
+            trace_sink: &mut self.trace_sink,
+        };
+        let result = self.machine.run_ticks(ticks, &mut host)?;
+        self.last_run_result = Some(result);
+        Ok(result)
+    }
+
     /// Runs the machine for `count` native video frames while emitting trace
     /// events to one caller-provided sink.
     ///
