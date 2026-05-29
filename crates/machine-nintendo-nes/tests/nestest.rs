@@ -28,7 +28,8 @@ use machine_nintendo_nes::Nes;
 use std::path::PathBuf;
 
 fn fixture_dir() -> Option<PathBuf> {
-    let has_fixture = |d: &PathBuf| d.join("nestest.nes").exists() && d.join("nestest.log").exists();
+    let has_fixture =
+        |d: &PathBuf| d.join("nestest.nes").exists() && d.join("nestest.log").exists();
 
     if let Ok(p) = std::env::var("NES_TEST_DATA") {
         let d = PathBuf::from(p);
