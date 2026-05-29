@@ -344,14 +344,14 @@ Expected Kickstart names:
 Examples:
 
 ```bash
-cargo run -p emu198x-script-amiga -- \
+cargo run -p emu198x-amiga --no-default-features -- \
   --rom-dir ~/.emu198x/roms/commodore-amiga \
   --wait-for-boot 300 \
   --screenshot amiga-kick13.png
 ```
 
 ```bash
-cargo run -p emu198x-script-amiga -- \
+cargo run -p emu198x-amiga --no-default-features -- \
   --rom-dir ~/.emu198x/roms/commodore-amiga \
   --disk ~/.emu198x/media/commodore-amiga/'Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip' \
   --wait-for-boot 300 \
@@ -412,7 +412,7 @@ Current examples include:
   the headless `emu198x-nes` runner and emits screenshots
 - Amiga machine/runtime tests over the imported A500 OCS PAL chip stack, plus
   fresh headless smokes that boot Kickstart 1.3 to the insert-disk screen and
-  accept DF0 `ADF` insertion through `emu198x-script-amiga`
+  accept DF0 `ADF` insertion through `emu198x-amiga`
 - C64 datasette board/runtime tests for TAP pulse parsing, 6510 port sense,
   CIA1 FLAG delivery, plus ROM-backed `Thinker` and `Thomas` TAP paths that
   reach observable loader-banner states over the real datasette flow, and a

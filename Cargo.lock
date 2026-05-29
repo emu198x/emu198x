@@ -719,6 +719,7 @@ dependencies = [
  "motorola-68000",
  "png",
  "runtime-commodore-amiga",
+ "serde",
  "serde_json",
  "thiserror 2.0.18",
  "winit",
@@ -824,16 +825,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "winit",
-]
-
-[[package]]
-name = "emu198x-script-amiga"
-version = "0.1.0"
-dependencies = [
- "emu198x-shell",
- "runtime-commodore-amiga",
- "serde",
- "serde_json",
 ]
 
 [[package]]

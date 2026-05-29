@@ -1,55 +1,49 @@
-//! `emu198x-amiga` — minimal native Amiga verifier shell.
+//! `emu198x-amiga` — Commodore Amiga native binary.
+//!
+//! One binary, three modes: UI (default), headless script, and MCP.
+//! `main.rs` is a thin dispatcher plus the items shared across modes
+//! (the [`AppError`] type, the [`ModelArg`] model selector, and ROM
+//! resolution). The modes live in `src/ui.rs`, `src/script.rs`, and
+//! `src/mcp/`.
+//!
+//! # Cargo features
+//!
+//! - `ui` (default) — compiles in winit + wgpu for the interactive
+//!   verifier window. Required for the default UI mode.
+//! - Without `ui` (`--no-default-features`) — `--script` and `--mcp`
+//!   still work; the default UI path errors at runtime with a
+//!   "rebuild with `--features ui`" message. The MCP debugging surface
+//!   and the headless capture pipeline use this build to skip the heavy
+//!   graphics stack.
+//!
+//! Mode selection: `--mcp` wins; otherwise a headless-only flag
+//! (`--script`, `--headless`, `--frames`, `--screenshot`,
+//! `--audio-capture`, `--wait-for-boot`, `--print-query`) selects
+//! headless script mode; otherwise the interactive UI runs. Flags shared
+//! with the UI (`--rom-dir`, `--kickstart`, `--model`, `--disk`,
+//! `--scale`, `--video`) do not force headless, so `--model a500-a501
+//! --disk workbench13.adf` opens the window.
 
 mod mcp;
+mod script;
 
-use std::collections::HashMap;
+#[cfg(feature = "ui")]
+mod ui;
+
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::time::{Duration, Instant};
 
-use emu198x_native_video::{
-    PresentationProfile, VideoFilter, VideoPresenterError, WgpuVideoPresenter,
-};
-use emu198x_shell::{
-    ButtonInputMap, ButtonTarget, CapturedFrame, FirmwareImage, FirmwareSet, HostControl, HostIo,
-    InputEvent, LatestFrameCapture, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
-    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, ResetKind, RunResult,
-    read_firmware_asset, read_media_asset,
-};
-use runtime_commodore_amiga::{
-    A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AudioControls, DISPLAY_HEIGHT,
-    DISPLAY_WIDTH, Model, PaulaChannel,
-};
+use emu198x_shell::{MachineError, NativeAudioError};
+use runtime_commodore_amiga::Model;
 use thiserror::Error;
-use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
+
+#[cfg(feature = "ui")]
+use emu198x_native_video::VideoPresenterError;
+#[cfg(feature = "ui")]
 use winit::error::{EventLoopError, OsError};
-use winit::event::{ElementState, MouseButton, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::{Window, WindowAttributes, WindowId};
 
-const KICKSTART_ID: &str = "commodore-amiga-kickstart-rom";
-const A1000_BOOTSTRAP_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
-const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
-const DEFAULT_SCALE: u32 = 1;
-const INPUT_SLICES_PER_FRAME: u32 = 4;
-const MAX_CATCH_UP_FRAMES: u32 = 4;
-const MAX_AUDIO_BUFFER_MS: u32 = 250;
-const WINDOW_TITLE: &str = "Emu198x Amiga";
-const AMIGA_JOYSTICK_MAP: ButtonInputMap = ButtonInputMap::new(&[
-    (HostControl::Up, ButtonTarget::new(1, "up")),
-    (HostControl::Down, ButtonTarget::new(1, "down")),
-    (HostControl::Left, ButtonTarget::new(1, "left")),
-    (HostControl::Right, ButtonTarget::new(1, "right")),
-    (HostControl::South, ButtonTarget::new(1, "fire")),
-    (HostControl::East, ButtonTarget::new(1, "fire")),
-    (HostControl::West, ButtonTarget::new(1, "fire")),
-    (HostControl::North, ButtonTarget::new(1, "fire")),
-]);
-
-const USAGE: &str = "\
+pub(crate) const USAGE: &str = "\
 Usage: emu198x-amiga [OPTIONS]
 
 Options:
@@ -83,22 +77,19 @@ ROM directory resolution (first match wins):
     3. ~/.emu198x/roms/commodore-amiga
     4. ~/.emu198x/roms/amiga
 
+Headless (add --no-default-features to skip the graphics stack):
+    emu198x-amiga --script steps.json --model a500-a501 --disk workbench13.adf
+    emu198x-amiga --wait-for-boot 300 --screenshot kick13.png
+
 Examples:
     emu198x-amiga --model a500-a501 --disk workbench13.adf
     emu198x-amiga --kickstart kick13.rom --disk workbench13.adf
     emu198x-amiga --model a1000 --kickstart a1000-bootstrap.rom --disk kick12.adf
 ";
 
-#[derive(Debug, Default, PartialEq, Eq)]
-struct Cli {
-    model: ModelArg,
-    rom_dir: Option<PathBuf>,
-    kickstart: Option<PathBuf>,
-    disk: Option<PathBuf>,
-    scale: u32,
-    video: VideoFilter,
-}
-
+/// Model selector shared by the UI's `parse_cli`, the MCP CLI, and ROM
+/// resolution. The full eight-model surface (the AGA A1200 included) so
+/// `--model a1200` selects the AGA chipset across every mode.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum ModelArg {
     A1000,
@@ -112,17 +103,39 @@ pub(crate) enum ModelArg {
     A2000,
 }
 
+impl ModelArg {
+    pub(crate) const fn to_model(self) -> Model {
+        match self {
+            Self::A1000 => Model::A1000OcsPal,
+            Self::A500 => Model::A500OcsPal,
+            Self::A500A501 => Model::A500OcsPalA501,
+            Self::A500Plus => Model::A500PlusEcsPal,
+            Self::A500Maxed => Model::A500OcsPalMaxed,
+            Self::A600 => Model::A600EcsPal,
+            Self::A1200 => Model::A1200AgaPal,
+            Self::A2000 => Model::A2000OcsPal,
+        }
+    }
+}
+
+/// Top-level error shared by every mode. The winit / wgpu error arms are
+/// gated behind the `ui` feature so headless builds don't pull them in;
+/// the MCP and script paths only ever construct `Machine` / `Io` /
+/// `MissingRom` / `Setup`.
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error(transparent)]
     Machine(#[from] MachineError),
 
+    #[cfg(feature = "ui")]
     #[error(transparent)]
     Video(#[from] VideoPresenterError),
 
+    #[cfg(feature = "ui")]
     #[error(transparent)]
     EventLoop(#[from] EventLoopError),
 
+    #[cfg(feature = "ui")]
     #[error(transparent)]
     Os(#[from] OsError),
 
@@ -139,575 +152,80 @@ pub enum AppError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    /// MCP boot ROM missing — checked `EMU198X_KS31_A1200_ROM` and the
-    /// default `~/.emu198x/roms/commodore-amiga/kick31a1200.rom`.
+    /// MCP / headless boot ROM missing for the chosen model.
     #[error("Kickstart ROM not found at {path}")]
     MissingRom { path: String },
 }
 
-struct AmigaRunner {
-    runtime: AmigaRuntimeKind,
-    frame_capture: LatestFrameCapture,
-    audio_output: NativeAudioOutput,
-    last_run_result: Option<RunResult>,
+#[derive(Debug, PartialEq, Eq)]
+enum Mode {
+    Ui,
+    Script,
+    Mcp,
 }
 
-impl AmigaRunner {
-    fn from_cli(cli: &Cli) -> Result<Self, AppError> {
-        let model = cli.model.to_model();
-        let firmware_path =
-            resolve_firmware_path(cli).map_err(|reason| AppError::Setup { reason })?;
-        let firmware_bytes =
-            read_firmware_asset(&firmware_path).map_err(|err| AppError::Setup {
-                reason: format!(
-                    "failed to read Amiga firmware {}: {err}",
-                    firmware_path.display()
-                ),
-            })?;
-
-        let mut firmware = FirmwareSet::new();
-        firmware.push(FirmwareImage::new(
-            firmware_id_for_model_arg(cli.model),
-            &firmware_bytes.bytes,
-        ));
-        let mut runtime = AmigaRuntimeKind::from_firmware(model, &firmware)?;
-
-        if let Some(path) = &cli.disk {
-            let disk = read_media_asset(path, MediaKind::Disk).map_err(|err| AppError::Setup {
-                reason: format!("failed to read disk {}: {err}", path.display()),
-            })?;
-            let mut media = MediaSet::new();
-            media.push(MediaImage::new(
-                DEFAULT_FLOPPY_SLOT,
-                MediaKind::Disk,
-                &disk.bytes,
-            ));
-            runtime.load_media(&media)?;
-        }
-
-        let mut runner = Self {
-            runtime,
-            frame_capture: LatestFrameCapture::default(),
-            audio_output: NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)?,
-            last_run_result: None,
-        };
-        runner.run_frame(&[])?;
-        Ok(runner)
-    }
-
-    fn reset(&mut self) -> Result<(), AppError> {
-        self.runtime.reset(ResetKind::Hard);
-        self.last_run_result = None;
-        self.frame_capture = LatestFrameCapture::default();
-        self.audio_output.clear();
-        self.run_frame(&[])?;
-        Ok(())
-    }
-
-    fn run_frame(&mut self, input_events: &[InputEvent]) -> Result<(), AppError> {
-        let _ = self.run_ticks(input_events, A500_PAL_FRAME_TICKS)?;
-        Ok(())
-    }
-
-    fn run_ticks(&mut self, input_events: &[InputEvent], ticks: u64) -> Result<bool, AppError> {
-        let previous_frame_timestamp = self.frame().map(|frame| frame.timestamp);
-        let target = self.runtime.time().saturating_add(ticks);
-        let mut trace_sink = NullTraceSink;
-        let mut host = HostIo {
-            input_events,
-            frame_sink: &mut self.frame_capture,
-            audio_sink: &mut self.audio_output,
-            trace_sink: &mut trace_sink,
-        };
-        self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
-        Ok(self.frame().map(|frame| frame.timestamp) != previous_frame_timestamp)
-    }
-
-    fn frame(&self) -> Option<&CapturedFrame> {
-        self.frame_capture.frame()
-    }
-
-    fn toggle_audio_channel(&mut self, channel: PaulaChannel) -> bool {
-        let controls = self.runtime.audio_controls();
-        let enabled = !controls.channel(channel).enabled();
-        self.runtime.set_audio_channel_enabled(channel, enabled);
-        enabled
-    }
-
-    fn cycle_audio_channel_gain(&mut self, channel: PaulaChannel) -> f32 {
-        let controls = self.runtime.audio_controls();
-        let next = next_audio_gain(controls.channel(channel).gain());
-        self.runtime.set_audio_channel_gain(channel, next);
-        next
-    }
-
-    fn reset_audio_controls(&mut self) {
-        self.runtime.set_audio_controls(AudioControls::default());
+fn detect_mode(args: &[String]) -> Mode {
+    if args.iter().any(|arg| arg == "--mcp") {
+        Mode::Mcp
+    } else if args.iter().any(|arg| is_script_flag(arg)) {
+        Mode::Script
+    } else {
+        Mode::Ui
     }
 }
 
-struct AmigaApp {
-    runner: AmigaRunner,
-    scale: u32,
-    slice_ticks: u64,
-    slice_duration: Duration,
-    next_slice_at: Instant,
-    pending_inputs: Vec<InputEvent>,
-    pressed_keys: HashMap<KeyCode, &'static str>,
-    pressed_buttons: HashMap<KeyCode, HostControl>,
-    pressed_mouse_buttons: HashMap<MouseButton, &'static str>,
-    last_cursor_position: Option<(f64, f64)>,
-    keyboard_joystick: bool,
-    gamepads: NativeGamepadInput,
-    window: Option<std::sync::Arc<Window>>,
-    video: Option<WgpuVideoPresenter>,
-    presentation: PresentationProfile,
-    fatal_error: Option<AppError>,
-}
-
-impl AmigaApp {
-    fn new(runner: AmigaRunner, scale: u32, video: VideoFilter) -> Result<Self, AppError> {
-        if scale == 0 {
-            return Err(AppError::InvalidScale { value: scale });
-        }
-
-        Ok(Self {
-            runner,
-            scale,
-            slice_ticks: subframe_ticks(A500_PAL_FRAME_TICKS),
-            slice_duration: subframe_duration(amiga_frame_duration()),
-            next_slice_at: Instant::now(),
-            pending_inputs: Vec::new(),
-            pressed_keys: HashMap::new(),
-            pressed_buttons: HashMap::new(),
-            pressed_mouse_buttons: HashMap::new(),
-            last_cursor_position: None,
-            keyboard_joystick: false,
-            gamepads: NativeGamepadInput::new(),
-            window: None,
-            video: None,
-            presentation: PresentationProfile::for_filter(video),
-            fatal_error: None,
-        })
-    }
-
-    fn take_error(&mut self) -> Option<AppError> {
-        self.fatal_error.take()
-    }
-
-    fn fail(&mut self, event_loop: &ActiveEventLoop, err: AppError) {
-        eprintln!("error: {err}");
-        self.fatal_error = Some(err);
-        event_loop.exit();
-    }
-
-    fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), AppError> {
-        if self.window.is_some() {
-            return Ok(());
-        }
-
-        let logical_width = f64::from(DISPLAY_WIDTH.saturating_mul(self.scale));
-        let logical_height = f64::from(DISPLAY_HEIGHT.saturating_mul(self.scale));
-        let attributes = WindowAttributes::default()
-            .with_title(self.window_title())
-            .with_inner_size(LogicalSize::new(logical_width, logical_height))
-            .with_min_inner_size(LogicalSize::new(
-                f64::from(DISPLAY_WIDTH),
-                f64::from(DISPLAY_HEIGHT),
-            ));
-        let window = std::sync::Arc::new(event_loop.create_window(attributes)?);
-        let video = WgpuVideoPresenter::new(window.clone(), DISPLAY_WIDTH, DISPLAY_HEIGHT)?;
-
-        self.window = Some(window);
-        self.video = Some(video);
-        self.next_slice_at = Instant::now();
-        Ok(())
-    }
-
-    fn window_id(&self) -> Option<WindowId> {
-        self.window.as_ref().map(|window| window.id())
-    }
-
-    fn window_title(&self) -> String {
-        let mut title = WINDOW_TITLE.to_owned();
-        if self.keyboard_joystick {
-            title.push_str(" | joy1 keys");
-        }
-        title
-    }
-
-    fn advance_machine(&mut self) -> Result<bool, AppError> {
-        self.gamepads
-            .drain_events(&AMIGA_JOYSTICK_MAP, &mut self.pending_inputs);
-
-        let now = Instant::now();
-        if now < self.next_slice_at {
-            return Ok(false);
-        }
-
-        let mut ran_slices = 0;
-        let max_catch_up_slices = MAX_CATCH_UP_FRAMES.saturating_mul(INPUT_SLICES_PER_FRAME);
-        let mut frame_completed = false;
-        while Instant::now() >= self.next_slice_at && ran_slices < max_catch_up_slices {
-            let inputs = std::mem::take(&mut self.pending_inputs);
-            frame_completed |= self.runner.run_ticks(&inputs, self.slice_ticks)?;
-            self.next_slice_at += self.slice_duration;
-            ran_slices += 1;
-        }
-
-        if ran_slices == max_catch_up_slices && Instant::now() >= self.next_slice_at {
-            self.next_slice_at = Instant::now() + self.slice_duration;
-        }
-
-        Ok(frame_completed)
-    }
-
-    fn render(&mut self) -> Result<(), AppError> {
-        let Some(frame) = self.runner.frame() else {
-            return Ok(());
-        };
-        let Some(video) = self.video.as_mut() else {
-            return Ok(());
-        };
-
-        video.present(frame, &self.presentation)?;
-        Ok(())
-    }
-
-    fn resize_surface(&mut self, width: u32, height: u32) {
-        if let Some(video) = self.video.as_mut() {
-            video.resize_surface(width, height);
-        }
-    }
-
-    fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
-        if self.keyboard_joystick && self.queue_joystick_key_state(code, pressed) {
-            return;
-        }
-
-        let Some(name) = map_amiga_key(code) else {
-            return;
-        };
-
-        if pressed {
-            if self.pressed_keys.contains_key(&code) {
-                return;
-            }
-            self.pressed_keys.insert(code, name);
-            self.pending_inputs.push(key_event(name, true));
-            self.next_slice_at = Instant::now();
-        } else if let Some(name) = self.pressed_keys.remove(&code) {
-            self.pending_inputs.push(key_event(name, false));
-            self.next_slice_at = Instant::now();
-        }
-    }
-
-    fn queue_joystick_key_state(&mut self, code: KeyCode, pressed: bool) -> bool {
-        let Some(control) = map_amiga_joystick_key(code) else {
-            return false;
-        };
-
-        if pressed {
-            if self.pressed_buttons.contains_key(&code) {
-                return true;
-            }
-            self.pressed_buttons.insert(code, control);
-            if let Some(input) = AMIGA_JOYSTICK_MAP.event(control, true) {
-                self.pending_inputs.push(input);
-            }
-        } else if let Some(control) = self.pressed_buttons.remove(&code)
-            && let Some(input) = AMIGA_JOYSTICK_MAP.event(control, false)
-        {
-            self.pending_inputs.push(input);
-        }
-        self.next_slice_at = Instant::now();
-        true
-    }
-
-    fn set_keyboard_joystick(&mut self, enabled: bool) {
-        if self.keyboard_joystick == enabled {
-            return;
-        }
-        self.release_all_inputs();
-        self.keyboard_joystick = enabled;
-        self.next_slice_at = Instant::now();
-    }
-
-    fn queue_mouse_motion(&mut self, x: f64, y: f64) {
-        let (x, y) = self.cursor_to_frame_position(x, y);
-        let Some((last_x, last_y)) = self.last_cursor_position.replace((x, y)) else {
-            return;
-        };
-
-        let dx = round_f64_to_i32(x - last_x);
-        let dy = round_f64_to_i32(y - last_y);
-        if dx == 0 && dy == 0 {
-            return;
-        }
-
-        self.pending_inputs.push(InputEvent::PointerMotion {
-            device: "mouse-1".into(),
-            dx,
-            dy,
-        });
-        self.next_slice_at = Instant::now();
-    }
-
-    fn cursor_to_frame_position(&self, x: f64, y: f64) -> (f64, f64) {
-        let Some(window) = &self.window else {
-            return (x, y);
-        };
-        let size = window.inner_size();
-        let width = f64::from(size.width.max(1));
-        let height = f64::from(size.height.max(1));
-        (
-            x * f64::from(DISPLAY_WIDTH) / width,
-            y * f64::from(DISPLAY_HEIGHT) / height,
-        )
-    }
-
-    fn queue_mouse_button_state(&mut self, button: MouseButton, pressed: bool) {
-        let Some(name) = map_mouse_button(button) else {
-            return;
-        };
-
-        if pressed {
-            if self.pressed_mouse_buttons.contains_key(&button) {
-                return;
-            }
-            self.pressed_mouse_buttons.insert(button, name);
-            self.pending_inputs.push(pointer_button_event(name, true));
-            self.next_slice_at = Instant::now();
-        } else if let Some(name) = self.pressed_mouse_buttons.remove(&button) {
-            self.pending_inputs.push(pointer_button_event(name, false));
-            self.next_slice_at = Instant::now();
-        }
-    }
-
-    fn release_all_inputs(&mut self) {
-        self.release_all_keys();
-        self.release_all_buttons();
-        self.release_all_mouse_buttons();
-        self.last_cursor_position = None;
-        self.next_slice_at = Instant::now();
-    }
-
-    fn release_all_keys(&mut self) {
-        let keys = std::mem::take(&mut self.pressed_keys);
-        for name in keys.into_values() {
-            self.pending_inputs.push(key_event(name, false));
-        }
-    }
-
-    fn release_all_buttons(&mut self) {
-        let buttons = std::mem::take(&mut self.pressed_buttons);
-        for control in buttons.into_values() {
-            if let Some(input) = AMIGA_JOYSTICK_MAP.event(control, false) {
-                self.pending_inputs.push(input);
-            }
-        }
-    }
-
-    fn release_all_mouse_buttons(&mut self) {
-        let buttons = std::mem::take(&mut self.pressed_mouse_buttons);
-        for name in buttons.into_values() {
-            self.pending_inputs.push(pointer_button_event(name, false));
-        }
-    }
-
-    fn handle_shortcut(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        code: KeyCode,
-        pressed: bool,
-    ) -> bool {
-        if !pressed {
-            return matches!(
-                code,
-                KeyCode::Escape
-                    | KeyCode::F12
-                    | KeyCode::PageUp
-                    | KeyCode::Numpad0
-                    | KeyCode::Numpad1
-                    | KeyCode::Numpad2
-                    | KeyCode::Numpad3
-                    | KeyCode::Numpad4
-                    | KeyCode::Numpad5
-                    | KeyCode::Numpad6
-                    | KeyCode::Numpad7
-                    | KeyCode::Numpad8
-            );
-        }
-
-        match code {
-            KeyCode::Escape => {
-                event_loop.exit();
-                true
-            }
-            KeyCode::F12 => {
-                self.release_all_inputs();
-                if let Err(err) = self.runner.reset() {
-                    self.fail(event_loop, err);
-                }
-                true
-            }
-            KeyCode::PageUp => {
-                self.set_keyboard_joystick(!self.keyboard_joystick);
-                eprintln!(
-                    "input: keyboard joystick {}",
-                    if self.keyboard_joystick {
-                        "enabled on port 1"
-                    } else {
-                        "disabled"
-                    }
-                );
-                if let Some(window) = &self.window {
-                    window.set_title(&self.window_title());
-                    window.request_redraw();
-                }
-                true
-            }
-            KeyCode::Numpad0 => {
-                self.runner.reset_audio_controls();
-                eprintln!("audio: reset Paula channel controls");
-                true
-            }
-            KeyCode::Numpad1 => self.toggle_audio_channel_shortcut(PaulaChannel::Channel0),
-            KeyCode::Numpad2 => self.toggle_audio_channel_shortcut(PaulaChannel::Channel1),
-            KeyCode::Numpad3 => self.toggle_audio_channel_shortcut(PaulaChannel::Channel2),
-            KeyCode::Numpad4 => self.toggle_audio_channel_shortcut(PaulaChannel::Channel3),
-            KeyCode::Numpad5 => self.cycle_audio_channel_gain_shortcut(PaulaChannel::Channel0),
-            KeyCode::Numpad6 => self.cycle_audio_channel_gain_shortcut(PaulaChannel::Channel1),
-            KeyCode::Numpad7 => self.cycle_audio_channel_gain_shortcut(PaulaChannel::Channel2),
-            KeyCode::Numpad8 => self.cycle_audio_channel_gain_shortcut(PaulaChannel::Channel3),
-            _ => false,
-        }
-    }
-
-    fn toggle_audio_channel_shortcut(&mut self, channel: PaulaChannel) -> bool {
-        let enabled = self.runner.toggle_audio_channel(channel);
-        eprintln!(
-            "audio: {} {}",
-            channel.label(),
-            if enabled { "enabled" } else { "muted" }
-        );
-        true
-    }
-
-    fn cycle_audio_channel_gain_shortcut(&mut self, channel: PaulaChannel) -> bool {
-        let gain = self.runner.cycle_audio_channel_gain(channel);
-        eprintln!("audio: {} gain {:.0}%", channel.label(), gain * 100.0);
-        true
-    }
-}
-
-impl ApplicationHandler for AmigaApp {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if let Err(err) = self.create_window(event_loop) {
-            self.fail(event_loop, err);
-        }
-    }
-
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: WindowId,
-        event: WindowEvent,
-    ) {
-        if self.window_id() != Some(window_id) {
-            return;
-        }
-
-        match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Focused(false) => self.release_all_inputs(),
-            WindowEvent::Resized(size) => {
-                self.resize_surface(size.width, size.height);
-            }
-            WindowEvent::ScaleFactorChanged { .. } => {
-                if let Some(window) = &self.window {
-                    let size = window.inner_size();
-                    self.resize_surface(size.width, size.height);
-                }
-            }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.repeat {
-                    return;
-                }
-                let PhysicalKey::Code(code) = event.physical_key else {
-                    return;
-                };
-                let pressed = event.state == ElementState::Pressed;
-                if self.handle_shortcut(event_loop, code, pressed) {
-                    return;
-                }
-                self.queue_key_state(code, pressed);
-            }
-            WindowEvent::CursorMoved { position, .. } => {
-                self.queue_mouse_motion(position.x, position.y);
-            }
-            WindowEvent::MouseInput { state, button, .. } => {
-                self.queue_mouse_button_state(button, state == ElementState::Pressed);
-            }
-            WindowEvent::RedrawRequested => {
-                if let Err(err) = self.render() {
-                    self.fail(event_loop, err);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        match self.advance_machine() {
-            Ok(true) => {
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
-            }
-            Ok(false) => {}
-            Err(err) => {
-                self.fail(event_loop, err);
-                return;
-            }
-        }
-        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
-    }
+/// Flags only the headless runner understands. Flags shared with the UI
+/// (`--rom-dir`, `--kickstart`, `--model`, `--disk`, `--scale`,
+/// `--video`) are intentionally absent so an interactive invocation
+/// opens the window.
+fn is_script_flag(arg: &str) -> bool {
+    matches!(
+        arg,
+        "--script"
+            | "--headless"
+            | "--frames"
+            | "--screenshot"
+            | "--audio-capture"
+            | "--wait-for-boot"
+            | "--print-query"
+    )
 }
 
 fn main() {
-    let raw_args: Vec<String> = std::env::args().skip(1).collect();
-    // MCP mode: when `--mcp` is present anywhere on the command line,
-    // skip the winit / UI stack entirely and serve the JSON-RPC tool
-    // surface over stdin / stdout.
-    if raw_args.iter().any(|a| a == "--mcp") {
-        let mcp_cli = parse_mcp_cli(raw_args);
-        if let Err(err) = mcp::run(mcp_cli) {
-            eprintln!("error: {err}");
-            process::exit(1);
-        }
-        return;
-    }
+    let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let cli = parse_cli(raw_args);
-    if let Err(err) = run(cli) {
+    let result: Result<(), String> = match detect_mode(&args) {
+        Mode::Ui => run_ui(args),
+        Mode::Script => script::run(args),
+        Mode::Mcp => mcp::run(parse_mcp_cli(args)).map_err(|err| err.to_string()),
+    };
+
+    if let Err(err) = result {
         eprintln!("error: {err}");
         process::exit(1);
     }
 }
 
+#[cfg(feature = "ui")]
+fn run_ui(args: Vec<String>) -> Result<(), String> {
+    let cli = ui::parse_cli(args);
+    ui::run(cli).map_err(|err| err.to_string())
+}
+
+#[cfg(not(feature = "ui"))]
+fn run_ui(_args: Vec<String>) -> Result<(), String> {
+    Err("this binary was built without the `ui` feature; rebuild with `--features ui` for interactive mode, or use --script / --mcp instead".to_owned())
+}
+
 /// Parse the MCP-relevant subset of CLI flags. The MCP mode skips
-/// `--scale`, `--video`, `--disk` (no UI / no media-management on
-/// the JSON-RPC surface today) — accepting them is a soft error so
-/// users mistyping the mode get a clear hint.
+/// `--scale`, `--video`, `--disk` (no UI / no media-management on the
+/// JSON-RPC surface today) — accepting them is a soft error so users
+/// mistyping the mode get a clear hint.
 fn parse_mcp_cli<I>(args: I) -> mcp::McpCli
 where
     I: IntoIterator<Item = String>,
 {
-    // Default to the canonical Amiga — A500 OCS PAL with Kickstart
-    // 1.3. That's what vAmiga / FS-UAE / WinUAE default to too, and
-    // it's the most software-compatible model in the family. Callers
-    // wanting the AGA chipset pass `--model a1200` explicitly.
+    // Default to the canonical Amiga — A500 OCS PAL with Kickstart 1.3.
     let mut model = ModelArg::A500;
     let mut rom_dir: Option<PathBuf> = None;
     let mut kickstart: Option<PathBuf> = None;
@@ -739,66 +257,6 @@ where
     }
 }
 
-fn run(cli: Cli) -> Result<(), AppError> {
-    println!(
-        "Controls: Esc quit, F12 reset, mouse port 0, gamepad joystick port 1, Page Up toggles joy1 arrows/space, A-Z/0-9/Space/Enter/Tab/Backspace keyboard, numpad 1-4 toggle Paula channels, numpad 5-8 cycle channel gain, numpad 0 reset audio."
-    );
-
-    let runner = AmigaRunner::from_cli(&cli)?;
-    let mut app = AmigaApp::new(runner, cli.scale, cli.video)?;
-    let event_loop = EventLoop::new()?;
-    event_loop.run_app(&mut app)?;
-
-    if let Some(err) = app.take_error() {
-        return Err(err);
-    }
-
-    Ok(())
-}
-
-fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli {
-        scale: DEFAULT_SCALE,
-        ..Cli::default()
-    };
-    let mut iter = args.into_iter();
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom-dir" => cli.rom_dir = Some(PathBuf::from(next_arg(&mut iter, "--rom-dir"))),
-            "--kickstart" => {
-                cli.kickstart = Some(PathBuf::from(next_arg(&mut iter, "--kickstart")));
-            }
-            "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
-            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
-        }
-    }
-
-    cli
-}
-
-fn parse_video_arg(video: &str) -> VideoFilter {
-    video
-        .parse()
-        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
-}
-
 pub(crate) fn parse_model_arg(value: &str) -> ModelArg {
     match value {
         "a1000" => ModelArg::A1000,
@@ -815,7 +273,7 @@ pub(crate) fn parse_model_arg(value: &str) -> ModelArg {
     }
 }
 
-fn next_arg<I>(iter: &mut I, flag: &str) -> String
+pub(crate) fn next_arg<I>(iter: &mut I, flag: &str) -> String
 where
     I: Iterator<Item = String>,
 {
@@ -823,44 +281,16 @@ where
         .unwrap_or_else(|| die(&format!("{flag} requires a path or value")))
 }
 
-fn die(message: &str) -> ! {
+pub(crate) fn die(message: &str) -> ! {
     eprintln!("error: {message}");
     eprintln!();
     eprintln!("{USAGE}");
     process::exit(2);
 }
 
-impl ModelArg {
-    pub(crate) const fn to_model(self) -> Model {
-        match self {
-            Self::A1000 => Model::A1000OcsPal,
-            Self::A500 => Model::A500OcsPal,
-            Self::A500A501 => Model::A500OcsPalA501,
-            Self::A500Plus => Model::A500PlusEcsPal,
-            Self::A500Maxed => Model::A500OcsPalMaxed,
-            Self::A600 => Model::A600EcsPal,
-            Self::A1200 => Model::A1200AgaPal,
-            Self::A2000 => Model::A2000OcsPal,
-        }
-    }
-}
-
-fn firmware_id_for_model_arg(model: ModelArg) -> &'static str {
-    match model {
-        ModelArg::A1000 => A1000_BOOTSTRAP_ID,
-        ModelArg::A500
-        | ModelArg::A500A501
-        | ModelArg::A500Plus
-        | ModelArg::A500Maxed
-        | ModelArg::A600
-        | ModelArg::A1200
-        | ModelArg::A2000 => KICKSTART_ID,
-    }
-}
-
 /// Candidate ROM filenames to search in a `rom-dir` for a given model.
 /// Order matters — first hit wins. Shared between the windowed UI's
-/// [`resolve_firmware_path`] and the MCP path so both stay in sync.
+/// `resolve_firmware_path` and the MCP path so both stay in sync.
 pub(crate) fn rom_candidates_for_model(model: ModelArg) -> &'static [&'static str] {
     match model {
         ModelArg::A1000 => &[
@@ -898,16 +328,10 @@ pub(crate) fn rom_candidates_for_model(model: ModelArg) -> &'static [&'static st
     }
 }
 
-fn resolve_firmware_path(cli: &Cli) -> Result<PathBuf, String> {
-    find_rom_path(cli.model, cli.rom_dir.as_deref(), cli.kickstart.as_deref())
-}
-
-/// Locate the ROM file for `model`, honouring an explicit
-/// `kickstart` path first, otherwise searching `rom_dir_override` and
-/// the standard fallback directories for [`rom_candidates_for_model`].
-///
-/// Shared by both the windowed UI ([`resolve_firmware_path`]) and the
-/// MCP mode in [`mcp::run`].
+/// Locate the ROM file for `model`, honouring an explicit `kickstart`
+/// path first, otherwise searching `rom_dir_override` and the standard
+/// fallback directories for [`rom_candidates_for_model`]. Shared by the
+/// windowed UI and the MCP mode in [`mcp::run`].
 pub(crate) fn find_rom_path(
     model: ModelArg,
     rom_dir_override: Option<&Path>,
@@ -955,193 +379,53 @@ fn candidate_rom_dirs(rom_dir_override: Option<&Path>) -> Vec<PathBuf> {
     dirs
 }
 
-fn amiga_frame_duration() -> Duration {
-    Duration::from_secs_f64(A500_PAL_FRAME_TICKS as f64 / (A500_PAL_CCK_HZ * 2) as f64)
-}
-
-fn subframe_ticks(frame_ticks: u64) -> u64 {
-    frame_ticks.div_ceil(u64::from(INPUT_SLICES_PER_FRAME))
-}
-
-fn subframe_duration(frame_duration: Duration) -> Duration {
-    Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(INPUT_SLICES_PER_FRAME))
-}
-
-fn next_audio_gain(gain: f32) -> f32 {
-    if gain > 0.75 {
-        0.5
-    } else if gain > 0.375 {
-        0.25
-    } else if gain > 0.0 {
-        0.0
-    } else {
-        1.0
-    }
-}
-
-fn key_event(name: &'static str, pressed: bool) -> InputEvent {
-    InputEvent::Key {
-        name: name.into(),
-        pressed,
-    }
-}
-
-fn pointer_button_event(name: &'static str, pressed: bool) -> InputEvent {
-    InputEvent::PointerButton {
-        device: "mouse-1".into(),
-        button: name.into(),
-        pressed,
-    }
-}
-
-fn map_amiga_joystick_key(code: KeyCode) -> Option<HostControl> {
-    Some(match code {
-        KeyCode::ArrowUp => HostControl::Up,
-        KeyCode::ArrowDown => HostControl::Down,
-        KeyCode::ArrowLeft => HostControl::Left,
-        KeyCode::ArrowRight => HostControl::Right,
-        KeyCode::Space => HostControl::South,
-        _ => return None,
-    })
-}
-
-fn round_f64_to_i32(value: f64) -> i32 {
-    if value.is_nan() {
-        0
-    } else if value > f64::from(i32::MAX) {
-        i32::MAX
-    } else if value < f64::from(i32::MIN) {
-        i32::MIN
-    } else {
-        value.round() as i32
-    }
-}
-
-fn map_amiga_key(code: KeyCode) -> Option<&'static str> {
-    Some(match code {
-        KeyCode::Digit1 => "1",
-        KeyCode::Digit2 => "2",
-        KeyCode::Digit3 => "3",
-        KeyCode::Digit4 => "4",
-        KeyCode::Digit5 => "5",
-        KeyCode::Digit6 => "6",
-        KeyCode::Digit7 => "7",
-        KeyCode::Digit8 => "8",
-        KeyCode::Digit9 => "9",
-        KeyCode::Digit0 => "0",
-        KeyCode::KeyA => "a",
-        KeyCode::KeyB => "b",
-        KeyCode::KeyC => "c",
-        KeyCode::KeyD => "d",
-        KeyCode::KeyE => "e",
-        KeyCode::KeyF => "f",
-        KeyCode::KeyG => "g",
-        KeyCode::KeyH => "h",
-        KeyCode::KeyI => "i",
-        KeyCode::KeyJ => "j",
-        KeyCode::KeyK => "k",
-        KeyCode::KeyL => "l",
-        KeyCode::KeyM => "m",
-        KeyCode::KeyN => "n",
-        KeyCode::KeyO => "o",
-        KeyCode::KeyP => "p",
-        KeyCode::KeyQ => "q",
-        KeyCode::KeyR => "r",
-        KeyCode::KeyS => "s",
-        KeyCode::KeyT => "t",
-        KeyCode::KeyU => "u",
-        KeyCode::KeyV => "v",
-        KeyCode::KeyW => "w",
-        KeyCode::KeyX => "x",
-        KeyCode::KeyY => "y",
-        KeyCode::KeyZ => "z",
-        KeyCode::Space => "space",
-        KeyCode::Backspace => "backspace",
-        KeyCode::Tab => "tab",
-        KeyCode::Enter | KeyCode::NumpadEnter => "enter",
-        _ => return None,
-    })
-}
-
-fn map_mouse_button(button: MouseButton) -> Option<&'static str> {
-    Some(match button {
-        MouseButton::Left => "left",
-        MouseButton::Right => "right",
-        MouseButton::Middle => "middle",
-        _ => return None,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_accepts_model_disk_and_scale() {
-        let cli = parse_cli([
+    fn detect_mode_defaults_to_ui_with_no_args() {
+        assert_eq!(detect_mode(&[]), Mode::Ui);
+    }
+
+    #[test]
+    fn detect_mode_treats_interactive_flags_as_ui() {
+        let args = vec![
             "--model".to_owned(),
             "a500-a501".to_owned(),
             "--disk".to_owned(),
-            "workbench13.adf".to_owned(),
-            "--scale".to_owned(),
-            "2".to_owned(),
-        ]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                model: ModelArg::A500A501,
-                rom_dir: None,
-                kickstart: None,
-                disk: Some(PathBuf::from("workbench13.adf")),
-                scale: 2,
-                video: VideoFilter::Raw,
-            }
-        );
+            "wb.adf".to_owned(),
+        ];
+        assert_eq!(detect_mode(&args), Mode::Ui);
     }
 
     #[test]
-    fn parse_cli_accepts_video_filter() {
-        let cli = parse_cli(["--video".to_owned(), "crt".to_owned()]);
-
-        assert_eq!(cli.video, VideoFilter::Crt);
+    fn detect_mode_recognises_script_via_automation_flags() {
+        for flag in [
+            "--script",
+            "--headless",
+            "--frames",
+            "--screenshot",
+            "--wait-for-boot",
+            "--print-query",
+        ] {
+            let args = vec!["--disk".to_owned(), "wb.adf".to_owned(), flag.to_owned()];
+            assert_eq!(
+                detect_mode(&args),
+                Mode::Script,
+                "flag {flag} should be script"
+            );
+        }
     }
 
     #[test]
-    fn maps_basic_keyboard_keys() {
-        assert_eq!(map_amiga_key(KeyCode::KeyA), Some("a"));
-        assert_eq!(map_amiga_key(KeyCode::Digit1), Some("1"));
-        assert_eq!(map_amiga_key(KeyCode::Space), Some("space"));
-        assert_eq!(map_amiga_key(KeyCode::Enter), Some("enter"));
-    }
-
-    #[test]
-    fn maps_mouse_buttons() {
-        assert_eq!(map_mouse_button(MouseButton::Left), Some("left"));
-        assert_eq!(map_mouse_button(MouseButton::Right), Some("right"));
-        assert_eq!(map_mouse_button(MouseButton::Middle), Some("middle"));
-        assert_eq!(map_mouse_button(MouseButton::Other(1)), None);
-    }
-
-    #[test]
-    fn maps_host_keys_to_joystick_mode_controls() {
-        assert_eq!(
-            map_amiga_joystick_key(KeyCode::ArrowUp),
-            Some(HostControl::Up)
-        );
-        assert_eq!(
-            map_amiga_joystick_key(KeyCode::Space),
-            Some(HostControl::South)
-        );
-        assert_eq!(map_amiga_key(KeyCode::PageUp), None);
-    }
-
-    #[test]
-    fn audio_gain_cycles_through_debug_levels() {
-        assert_eq!(next_audio_gain(1.0), 0.5);
-        assert_eq!(next_audio_gain(0.5), 0.25);
-        assert_eq!(next_audio_gain(0.25), 0.0);
-        assert_eq!(next_audio_gain(0.0), 1.0);
+    fn detect_mode_mcp_takes_precedence_over_script() {
+        let args = vec![
+            "--mcp".to_owned(),
+            "--script".to_owned(),
+            "steps.json".to_owned(),
+        ];
+        assert_eq!(detect_mode(&args), Mode::Mcp);
     }
 
     #[test]
@@ -1157,10 +441,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_model_arg_covers_full_family() {
+        assert_eq!(parse_model_arg("a1200").to_model(), Model::A1200AgaPal);
+        assert_eq!(
+            parse_model_arg("a500-maxed").to_model(),
+            Model::A500OcsPalMaxed
+        );
+        assert_eq!(parse_model_arg("a1000").to_model(), Model::A1000OcsPal);
+    }
+
+    #[test]
     fn parse_mcp_cli_defaults_to_a500() {
-        // Canonical Amiga: A500 OCS PAL with Kickstart 1.3. vAmiga /
-        // FS-UAE / WinUAE all default here; we match for software
-        // compatibility.
         let cli = parse_mcp_cli(["--mcp".to_owned()]);
         assert_eq!(cli.model, ModelArg::A500);
         assert!(cli.rom_dir.is_none());
@@ -1182,21 +473,24 @@ mod tests {
 
     #[test]
     fn rom_candidates_branch_on_chipset() {
-        // A1200 prefers AGA kickstart names first.
         assert_eq!(
             rom_candidates_for_model(ModelArg::A1200)[0],
             "kick31a1200.rom"
         );
-        // A600 lands on ECS Kickstart candidates.
         let ecs = rom_candidates_for_model(ModelArg::A600);
         assert!(
             ecs.iter()
                 .any(|n| *n == "kick204.rom" || *n == "kick205.rom")
         );
-        // A1000 wants the bootstrap, not Kickstart.
         assert_eq!(
             rom_candidates_for_model(ModelArg::A1000)[0],
             "a1000-bootstrap.rom"
         );
+    }
+
+    #[cfg(not(feature = "ui"))]
+    #[test]
+    fn run_ui_errors_when_feature_off() {
+        assert!(run_ui(vec![]).is_err());
     }
 }

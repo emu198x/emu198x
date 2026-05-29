@@ -1,4 +1,11 @@
-//! `emu198x-script-amiga` — minimal headless Amiga runner.
+//! Headless Amiga runner — `--script` / `--headless` mode.
+//!
+//! Boots the chosen Amiga model from Kickstart firmware, runs native
+//! frames, executes shared JSON session steps, inserts a DF0 ADF, and
+//! captures screenshots / audio / boot-state queries. The
+//! non-interactive half of the `emu198x-amiga` binary; the dispatcher
+//! in `main.rs` routes here when a headless-only flag is present. The
+//! rich chip-level debugging surface lives in `--mcp` mode.
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -58,7 +65,7 @@ struct ReportedQuery {
 }
 
 const USAGE: &str = "\
-Usage: emu198x-script-amiga [OPTIONS]
+Usage: emu198x-amiga --headless [OPTIONS]   (add --no-default-features for graphics-free builds)
 
 Firmware:
     --rom-dir DIR             directory containing Kickstart ROM images
@@ -99,37 +106,31 @@ Filename resolution inside the ROM directory:
     - kick.rom
 
 Examples:
-    emu198x-script-amiga --wait-for-boot 300 --screenshot kick13.png
-    emu198x-script-amiga --disk workbench13.adf --wait-for-boot 400
-    emu198x-script-amiga --model a500-a501 --disk workbench13.adf --frames 900 --screenshot wb13.png
+    emu198x-amiga --headless --wait-for-boot 300 --screenshot kick13.png
+    emu198x-amiga --headless --disk workbench13.adf --wait-for-boot 400
+    emu198x-amiga --headless --model a500-a501 --disk workbench13.adf --frames 900 --screenshot wb13.png
 ";
 
-fn main() {
-    let cli = parse_cli(std::env::args().skip(1));
+/// Headless entry point. Parses the automation CLI, runs the session,
+/// and prints the JSON (script mode) or summary report.
+pub fn run(args: Vec<String>) -> Result<(), String> {
+    let cli = parse_cli(args);
     let script_mode = cli.script.is_some();
-    match run(cli) {
-        Ok(report) => {
-            if script_mode {
-                let json = serde_json::to_string(&report).unwrap_or_else(|err| {
-                    eprintln!("error: failed to serialize runner report: {err}");
-                    process::exit(1);
-                });
-                println!("{json}");
-            } else {
-                println!(
-                    "Amiga runtime: time={} boot_detected={} boot_reason={}",
-                    report.time, report.boot_detected, report.boot_reason
-                );
-                for query in &report.query_values {
-                    println!("{}={}", query.path, query.value);
-                }
-            }
-        }
-        Err(err) => {
-            eprintln!("error: {err}");
-            process::exit(1);
+    let report = run_cli(cli)?;
+    if script_mode {
+        let json = serde_json::to_string(&report)
+            .map_err(|err| format!("failed to serialize runner report: {err}"))?;
+        println!("{json}");
+    } else {
+        println!(
+            "Amiga runtime: time={} boot_detected={} boot_reason={}",
+            report.time, report.boot_detected, report.boot_reason
+        );
+        for query in &report.query_values {
+            println!("{}={}", query.path, query.value);
         }
     }
+    Ok(())
 }
 
 fn parse_cli<I>(args: I) -> Cli
@@ -171,6 +172,7 @@ where
                 println!("{USAGE}");
                 process::exit(0);
             }
+            "--headless" => {}
             _ => die(&format!("unknown flag: {arg}")),
         }
     }
@@ -204,7 +206,7 @@ fn die(message: &str) -> ! {
     process::exit(2);
 }
 
-fn run(cli: Cli) -> Result<RunnerReport, String> {
+fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
     if cli.screenshot.is_some()
         && cli.frames == 0
         && cli.script.is_none()
@@ -486,28 +488,18 @@ mod tests {
     #[test]
     fn run_can_capture_png_and_wav() {
         let temp_dir = std::env::temp_dir();
-        let kickstart_path = temp_dir.join(format!(
-            "emu198x-script-amiga-{}-kick13.rom",
-            std::process::id()
-        ));
-        let screenshot_path = temp_dir.join(format!(
-            "emu198x-script-amiga-{}-frame.png",
-            std::process::id()
-        ));
-        let audio_path = temp_dir.join(format!(
-            "emu198x-script-amiga-{}-audio.wav",
-            std::process::id()
-        ));
-        let disk_path = temp_dir.join(format!(
-            "emu198x-script-amiga-{}-disk.adf",
-            std::process::id()
-        ));
+        let kickstart_path =
+            temp_dir.join(format!("emu198x-amiga-{}-kick13.rom", std::process::id()));
+        let screenshot_path =
+            temp_dir.join(format!("emu198x-amiga-{}-frame.png", std::process::id()));
+        let audio_path = temp_dir.join(format!("emu198x-amiga-{}-audio.wav", std::process::id()));
+        let disk_path = temp_dir.join(format!("emu198x-amiga-{}-disk.adf", std::process::id()));
 
         fs::write(&kickstart_path, dummy_kickstart())
             .expect("temporary Kickstart write should succeed");
         fs::write(&disk_path, vec![0u8; ADF_SIZE_DD]).expect("temporary ADF write should succeed");
 
-        let result = run(Cli {
+        let result = run_cli(Cli {
             model: ModelArg::A500,
             rom_dir: None,
             kickstart: Some(kickstart_path.clone()),

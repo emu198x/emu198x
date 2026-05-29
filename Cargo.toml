@@ -79,7 +79,6 @@ members = [
     "crates/commodore-amiga-autoconfig",
     "crates/machine-commodore-amiga-a1200",
     "crates/runtime-commodore-amiga",
-    "crates/emu198x-script-amiga",
     "crates/runtime-dragon",
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
@@ -167,8 +166,8 @@ codegen-units = 1
 # editing this section. A `v*` tag push triggers a build of the six
 # native verifier shells (emu198x-{spectrum,c64,amiga,dragon,game-boy,nes})
 # across four targets and attaches the archives to a GitHub Release.
-# The headless `emu198x-script-*` crates and the catalogue tool opt out
-# of the release via `dist = false` in their own Cargo.toml.
+# The catalogue tool opts out
+# of the release via `dist = false` in its own Cargo.toml.
 [workspace.metadata.dist]
 cargo-dist-version = "0.32.0"
 ci = "github"

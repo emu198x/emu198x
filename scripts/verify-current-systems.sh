@@ -500,7 +500,7 @@ if [[ "${mode}" != "local" ]]; then
             -p emu198x-script-spectrum \
             -p emu198x-c64 \
             -p emu198x-nes \
-            -p emu198x-script-amiga \
+            -p emu198x-amiga \
             -p emu198x-game-boy \
             -p emu198x-dragon
 
@@ -542,7 +542,7 @@ if [[ "${mode}" != "unit" ]]; then
     write_boot_script "${script_dir}/amiga-a500-boot.json" 450
     if [[ -d "${amiga_rom_dir}" ]]; then
         run_step_expect_log "amiga-a500-boot" '"value":true' \
-            cargo run -q -p emu198x-script-amiga -- \
+            cargo run -q -p emu198x-amiga --no-default-features -- \
                 --rom-dir "${amiga_rom_dir}" \
                 --model a500 \
                 --script "${script_dir}/amiga-a500-boot.json"

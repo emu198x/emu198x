@@ -937,7 +937,7 @@ So the underlying behavior is:
 - it was because the headless Amiga script runner was still hard-wired to the
   stock `A500OcsPal` model, which has no RTC
 
-To make that path reproducible from the CLI, `emu198x-script-amiga` now exposes
+To make that path reproducible from the CLI, `emu198x-amiga` now exposes
 the model selection explicitly:
 
 - `--model a1000`
@@ -948,4 +948,4 @@ the model selection explicitly:
 
 For the RTC-equipped KS 1.3 Workbench path, use:
 
-- `cargo run --release -q -p emu198x-script-amiga -- --model a500-a501 --kickstart ~/.emu198x/roms/commodore-amiga/kick13.rom --disk ~/.emu198x/media/commodore-amiga/workbench-1.3.adf --frames 900 --screenshot wb13.png`
+- `cargo run --release -q -p emu198x-amiga --no-default-features -- --model a500-a501 --kickstart ~/.emu198x/roms/commodore-amiga/kick13.rom --disk ~/.emu198x/media/commodore-amiga/workbench-1.3.adf --frames 900 --screenshot wb13.png`

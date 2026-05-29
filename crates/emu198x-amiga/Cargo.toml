@@ -1,22 +1,32 @@
 [package]
 name = "emu198x-amiga"
-description = "Minimal native Amiga verifier shell"
+description = "Native Amiga verifier with interactive UI, headless script, and MCP debugging modes"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# UI mode is on by default for interactive / dev builds. The MCP
+# debugging surface and the headless capture pipeline build with
+# `--no-default-features` to skip the heavy graphics stack (winit +
+# wgpu) — `--script` and `--mcp` still work, only the default UI path
+# errors out at runtime with a "rebuild with --features ui" message.
+default = ["ui"]
+ui = ["dep:emu198x-native-video", "dep:winit"]
+
 [dependencies]
-emu198x-native-video = { path = "../emu198x-native-video" }
+emu198x-native-video = { path = "../emu198x-native-video", optional = true }
 emu198x-shell = { path = "../emu198x-shell" }
 machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200" }
 mos-cia-8520 = { path = "../mos-cia-8520" }
 motorola-68000 = { path = "../motorola-68000" }
 runtime-commodore-amiga = { path = "../runtime-commodore-amiga" }
+serde = { workspace = true }
 serde_json.workspace = true
 thiserror.workspace = true
 png = { workspace = true }
-winit.workspace = true
+winit = { workspace = true, optional = true }
 zip = { workspace = true }
 
 [lints]
