@@ -19,24 +19,31 @@
 //!
 //! Resolved in order:
 //! 1. `NES_TEST_DATA` environment variable (directory containing both)
-//! 2. `~/Projects/Emu198x-Unclean/Reference/nintendo/nes/test-suites/other/`
+//! 2. `~/Projects/198x/assets/nintendo/nes/test-suites/other/`
+//! 3. `~/Projects/198x/assets/test-suites/nes-test-roms/other/`
 //!
-//! If neither resolves, the test is a no-op.
+//! If none resolves, the test is a no-op.
 
 use machine_nintendo_nes::Nes;
 use std::path::PathBuf;
 
 fn fixture_dir() -> Option<PathBuf> {
+    let has_fixture = |d: &PathBuf| d.join("nestest.nes").exists() && d.join("nestest.log").exists();
+
     if let Ok(p) = std::env::var("NES_TEST_DATA") {
         let d = PathBuf::from(p);
-        if d.join("nestest.nes").exists() && d.join("nestest.log").exists() {
+        if has_fixture(&d) {
             return Some(d);
         }
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        let d = PathBuf::from(home)
-            .join("Projects/Emu198x-Unclean/Reference/nintendo/nes/test-suites/other");
-        if d.join("nestest.nes").exists() && d.join("nestest.log").exists() {
+    let home = std::env::var_os("HOME")?;
+    for rel in [
+        "Projects/198x/assets/nintendo/nes/test-suites/other",
+        "Projects/198x/assets/test-suites/nes-test-roms/other",
+        "Projects/Emu198x-Unclean/Reference/nintendo/nes/test-suites/other",
+    ] {
+        let d = PathBuf::from(&home).join(rel);
+        if has_fixture(&d) {
             return Some(d);
         }
     }
@@ -207,13 +214,20 @@ fn run_all() {
     let parsed = format_nintendo_nes_ines::parse_ines(&rom_data).expect("parse nestest.nes");
     let mut nes = Nes::new(parsed.mapper);
 
-    // Reset bootstrap.
-    for _ in 0..6 {
+    // Run the full 7-cycle reset bootstrap (21 PPU dots) so the reset
+    // sequence completes before we override entry state — otherwise the
+    // unfinished reset reloads PC from the reset vector and clobbers the
+    // forced value.
+    for _ in 0..21 {
         nes.tick();
     }
 
-    // Force PC to $C000 (automated test entry).
+    // Force PC to $C000 (automated test entry, not the $C004 visual-mode
+    // entry the reset vector points to) and restore SP to the
+    // nestest-log starting value (reset decrements SP by 3 for phantom
+    // pushes, but the reference log was recorded from SP=FD).
     nes.cpu.regs.pc = 0xC000;
+    nes.cpu.regs.sp = 0xFD;
     nes.cpu.addr = 0xC000;
     nes.cpu.rw = true;
     nes.cpu.sync = true;
