@@ -167,9 +167,17 @@ impl Ppu {
     /// NTSC: 261, PAL: 311.
     #[must_use]
     pub fn new_with_pre_render_line(pre_render_line: u16) -> Self {
+        // Real palette RAM powers up indeterminate, but emulators
+        // converge on this canonical table — the values blargg's
+        // power_up_palette test expects, also used by Mesen/FCEUX.
+        const POWER_ON_PALETTE: [u8; 32] = [
+            0x09, 0x01, 0x00, 0x01, 0x00, 0x02, 0x02, 0x0D, 0x08, 0x10, 0x08, 0x24, 0x00, 0x00,
+            0x04, 0x2C, 0x09, 0x01, 0x34, 0x03, 0x00, 0x04, 0x00, 0x14, 0x08, 0x3A, 0x00, 0x02,
+            0x00, 0x20, 0x2C, 0x08,
+        ];
         Self {
             nametable_ram: [0; 2048],
-            palette_ram: [0; 32],
+            palette_ram: POWER_ON_PALETTE,
             oam: [0; 256],
 
             ctrl: 0,
