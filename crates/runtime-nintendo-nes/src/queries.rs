@@ -18,8 +18,14 @@ pub(crate) const NES_QUERY_PATHS: &[&str] = &[
     "nes.cpu.pc",
     "nes.machine.frame_count",
     "nes.machine.master_clock",
+    "nes.ppu.ctrl",
     "nes.ppu.dot",
+    "nes.ppu.frame_odd",
+    "nes.ppu.mask",
+    "nes.ppu.nmi",
+    "nes.ppu.rendering_enabled",
     "nes.ppu.scanline",
+    "nes.ppu.status",
     "nes.test.blargg.signature",
     "nes.test.blargg.status",
     "nes.test.blargg.text",
@@ -89,6 +95,14 @@ impl SessionQueryProvider<NesRuntime> for NesSessionQueryProvider {
                     .ppu
                     .dot()
             ),
+            "nes.ppu.ctrl" => json!(loaded_machine(machine, path)?.ppu.ctrl()),
+            "nes.ppu.mask" => json!(loaded_machine(machine, path)?.ppu.mask()),
+            "nes.ppu.status" => json!(loaded_machine(machine, path)?.ppu.status()),
+            "nes.ppu.frame_odd" => json!(loaded_machine(machine, path)?.ppu.frame_odd()),
+            "nes.ppu.rendering_enabled" => {
+                json!(loaded_machine(machine, path)?.ppu.mask() & 0x18 != 0)
+            }
+            "nes.ppu.nmi" => json!(loaded_machine(machine, path)?.ppu.nmi),
             "nes.test.blargg.status" => {
                 json!(loaded_machine(machine, path)?.peek(BLARGG_STATUS_ADDR))
             }
