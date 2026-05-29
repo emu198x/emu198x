@@ -10,7 +10,7 @@ with it, and the shortest path to making it comfortable to use.
 |--------|---------------------|----------------------|---------------------|
 | ZX Spectrum | `emu198x-spectrum`, `emu198x-script-spectrum` | Best current interactive path. Shared `wgpu` native video with `raw`/`lcd`/`crt` modes, keyboard, audio, tape loading/autoload, snapshots through the shared runtime. | Tighten model/media defaults and keep expanding verification for non-48K variants. |
 | Commodore 64 | `emu198x-c64`, `emu198x-script-c64` | Interactive verifier shell with shared `wgpu` native video with `raw`/`lcd`/`crt` modes, keyboard, audio, PRG/BAS/T64 import, TAP autoload, optional 1541/`D64` path, physical gamepad input, and host-key joystick mode for port 2. | Make drive/tape workflows less flag-heavy and broaden software proofs. |
-| Nintendo NES | `emu198x-nes`, `emu198x-script-nes` | Native verifier window with shared `wgpu` video and `raw`/`lcd`/`crt` modes plus headless cartridge runner with screenshots, live audio/audio capture, keyboard/gamepad controller input, scripts, snapshots, local smoke-matrix reporting, Blargg-style `$6000` test ROM assertions, and NROM/MMC1/UxROM/CNROM/MMC3/MMC5/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica mapper support. | Use the smoke matrix and automated Blargg assertions to choose the next mapper or accuracy target; MMC5 now has memory mapping, expansion audio, and scanline IRQ coverage, but more hardware-test comparison would still be useful. |
+| Nintendo NES | `emu198x-nes` | Native verifier window with shared `wgpu` video and `raw`/`lcd`/`crt` modes plus headless cartridge runner with screenshots, live audio/audio capture, keyboard/gamepad controller input, scripts, snapshots, local smoke-matrix reporting, Blargg-style `$6000` test ROM assertions, and NROM/MMC1/UxROM/CNROM/MMC3/MMC5/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica mapper support. | Use the smoke matrix and automated Blargg assertions to choose the next mapper or accuracy target; MMC5 now has memory mapping, expansion audio, and scanline IRQ coverage, but more hardware-test comparison would still be useful. |
 | Commodore Amiga | `emu198x-amiga`, `emu198x-script-amiga` | Native OCS verifier window with shared `wgpu` video with `raw`/`lcd`/`crt` modes, keyboard/mouse input, port-1 joystick/gamepad input, and live Paula audio, plus headless Kickstart/Workbench runner with A1000 and A500-family profiles, DF0 `ADF`, screenshots, audio capture, and scripted input. | Broaden game/application software validation. |
 | Nintendo Game Boy | `emu198x-game-boy`, `emu198x-script-game-boy` | Native DMG-family verifier window using the shared `wgpu` video presenter with `raw`/`lcd`/`crt` modes, plus headless cartridge runner with screenshots, live audio/audio capture, keyboard/gamepad joypad input, scripts, snapshots, and `.sav` battery-RAM sidecars. | Tune LCD presentation against hardware references and broaden real-game smoke coverage. |
 | Dragon 32 | `emu198x-dragon`, `emu198x-script-dragon` | Early native verifier window with shared `wgpu` video, live PIA-derived mono audio pinned to XRoar's DAC/tape/cartridge-SND/single-bit level model, real Dragon 32 BASIC ROM boot, semantic keyboard input, gamepad-to-analogue-joystick input, CAS media mounting, direct DragonDOS `.BIN` program loading, ROM/DGN cartridge mounting with GMC banking, initial DragonDOS VDK disk-sector reads through the P2 controller register path, PC-Dragon PAK snapshot mounting and snapshot smoke screenshots, native `--autoload` over ROM-level `CLOAD`/`CLOADM`, beam-updated MC6847 framebuffer, repeatable fetch/write trace watches, deterministic PAK trace-signature smoke, and optional patched-XRoar screenshot comparisons for CAS and PAK snapshot smokes. | Run real DragonDOS ROM + VDK software smokes, then fill in exact controller timing/status/write behavior from observed failures. |
@@ -29,11 +29,11 @@ cargo run --release -p emu198x-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --
 ```
 
 ```sh
-cargo run --release -p emu198x-script-nes -- --rom game.nes --frames 300 --screenshot nes.png
+cargo run --release -p emu198x-nes --no-default-features -- --rom game.nes --frames 300 --screenshot nes.png
 ```
 
 ```sh
-cargo run --release -p emu198x-script-nes -- --rom apu_test.nes --frames 3000 --assert-blargg
+cargo run --release -p emu198x-nes --no-default-features -- --rom apu_test.nes --frames 3000 --assert-blargg
 ```
 
 ```sh

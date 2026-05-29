@@ -1,4 +1,10 @@
-//! `emu198x-script-nes` — minimal headless NES runner.
+//! Headless NES runner — `--script` / `--headless` mode.
+//!
+//! Loads cartridge media, runs native NES frames, executes shared JSON
+//! session steps, captures screenshots / audio, asserts Blargg-style
+//! test ROM status, and emits a local smoke-matrix report. This is the
+//! non-interactive half of the `emu198x-nes` binary; the dispatcher in
+//! `main.rs` routes here whenever any automation flag is present.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -87,7 +93,7 @@ struct InesHeaderSummary {
 }
 
 const USAGE: &str = "\
-Usage: emu198x-script-nes [OPTIONS]
+Usage: emu198x-nes --script [OPTIONS]   (headless; add --no-default-features for graphics-free builds)
 
 Media:
     --media SLOT:KIND=PATH     media image by slot and kind
@@ -95,6 +101,7 @@ Media:
 
 Automation:
     --script PATH              execute shared JSON session steps
+    --headless                 force headless mode without a script
     --frames N                 number of native NES video frames to run
     --assert-blargg            assert Blargg-style status output at $6000
     --screenshot PATH          write the last emitted frame as PNG
@@ -108,57 +115,43 @@ Other:
     --help, -h                 show this help
 
 Examples:
-    emu198x-script-nes --rom nestest.nes --frames 60 --screenshot frame.png
-    emu198x-script-nes --rom apu_test.nes --frames 600 --assert-blargg
-    emu198x-script-nes --rom smb.nes --script steps.json
+    emu198x-nes --rom nestest.nes --frames 60 --screenshot frame.png
+    emu198x-nes --rom apu_test.nes --frames 600 --assert-blargg
+    emu198x-nes --rom smb.nes --script steps.json
 ";
 
-fn main() {
-    let cli = parse_cli(std::env::args().skip(1));
+/// Headless entry point. Parses the automation CLI, dispatches to the
+/// smoke matrix or single-run path, and prints the JSON or summary
+/// report. Errors propagate to the dispatcher, which prints them and
+/// exits non-zero (Blargg failures included, so CI sees a red step).
+pub fn run(args: Vec<String>) -> Result<(), String> {
+    let cli = parse_cli(args);
     if cli.smoke_root.is_some() {
-        match run_smoke_matrix(&cli) {
-            Ok(report) => {
-                let json = serde_json::to_string_pretty(&report).unwrap_or_else(|err| {
-                    eprintln!("error: failed to serialize smoke matrix report: {err}");
-                    process::exit(1);
-                });
-                if let Some(path) = &cli.smoke_report {
-                    if let Err(err) = fs::write(path, json.as_bytes()) {
-                        eprintln!("error: failed to write {}: {err}", path.display());
-                        process::exit(1);
-                    }
-                } else {
-                    println!("{json}");
-                }
-            }
-            Err(err) => {
-                eprintln!("error: {err}");
-                process::exit(1);
-            }
+        let report = run_smoke_matrix(&cli)?;
+        let json = serde_json::to_string_pretty(&report)
+            .map_err(|err| format!("failed to serialize smoke matrix report: {err}"))?;
+        if let Some(path) = &cli.smoke_report {
+            fs::write(path, json.as_bytes())
+                .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+        } else {
+            println!("{json}");
         }
-        return;
+        return Ok(());
     }
+
     let json_mode = cli.script.is_some() || cli.assert_blargg;
-    match run(cli) {
-        Ok(report) => {
-            if json_mode {
-                let json = serde_json::to_string(&report).unwrap_or_else(|err| {
-                    eprintln!("error: failed to serialize runner report: {err}");
-                    process::exit(1);
-                });
-                println!("{json}");
-            } else {
-                println!(
-                    "NES runtime: time={} cartridge_loaded={}",
-                    report.time, report.cartridge_loaded
-                );
-            }
-        }
-        Err(err) => {
-            eprintln!("error: {err}");
-            process::exit(1);
-        }
+    let report = run_cli(cli)?;
+    if json_mode {
+        let json = serde_json::to_string(&report)
+            .map_err(|err| format!("failed to serialize runner report: {err}"))?;
+        println!("{json}");
+    } else {
+        println!(
+            "NES runtime: time={} cartridge_loaded={}",
+            report.time, report.cartridge_loaded
+        );
     }
+    Ok(())
 }
 
 fn parse_cli<I>(args: I) -> Cli
@@ -178,6 +171,7 @@ where
                 kind: MediaKind::Cartridge,
                 path: PathBuf::from(next_arg(&mut iter, "--rom")),
             }),
+            "--headless" => {}
             "--script" => {
                 cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script")));
             }
@@ -261,7 +255,7 @@ fn die(message: &str) -> ! {
     process::exit(2);
 }
 
-fn run(cli: Cli) -> Result<RunnerReport, String> {
+fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
     if cli.media.is_empty() {
         return Err(
             "a cartridge image is required; use --rom or --media cartridge-1:cartridge=PATH".into(),
@@ -471,7 +465,7 @@ fn run_smoke_matrix(cli: &Cli) -> Result<SmokeMatrixReport, String> {
             .smoke_screenshot_dir
             .as_ref()
             .map(|dir| dir.join(format!("{index:04}-{}.png", safe_stem(rom))));
-        let result = run(Cli {
+        let result = run_cli(Cli {
             media: vec![MediaArg {
                 slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),
                 kind: MediaKind::Cartridge,
@@ -689,22 +683,14 @@ mod tests {
     #[test]
     fn run_can_capture_png_and_wav() {
         let temp_dir = std::env::temp_dir();
-        let rom_path = temp_dir.join(format!(
-            "emu198x-script-nes-{}-capture.nes",
-            std::process::id()
-        ));
-        let screenshot_path = temp_dir.join(format!(
-            "emu198x-script-nes-{}-capture.png",
-            std::process::id()
-        ));
-        let audio_path = temp_dir.join(format!(
-            "emu198x-script-nes-{}-capture.wav",
-            std::process::id()
-        ));
+        let rom_path = temp_dir.join(format!("emu198x-nes-{}-capture.nes", std::process::id()));
+        let screenshot_path =
+            temp_dir.join(format!("emu198x-nes-{}-capture.png", std::process::id()));
+        let audio_path = temp_dir.join(format!("emu198x-nes-{}-capture.wav", std::process::id()));
 
         fs::write(&rom_path, minimal_ines()).expect("temporary ROM write should succeed");
 
-        let result = run(Cli {
+        let result = run_cli(Cli {
             media: vec![MediaArg {
                 slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),
                 kind: MediaKind::Cartridge,
@@ -735,14 +721,8 @@ mod tests {
     #[test]
     fn run_can_execute_shared_json_script() {
         let temp_dir = std::env::temp_dir();
-        let rom_path = temp_dir.join(format!(
-            "emu198x-script-nes-{}-script.nes",
-            std::process::id()
-        ));
-        let script_path = temp_dir.join(format!(
-            "emu198x-script-nes-{}-steps.json",
-            std::process::id()
-        ));
+        let rom_path = temp_dir.join(format!("emu198x-nes-{}-script.nes", std::process::id()));
+        let script_path = temp_dir.join(format!("emu198x-nes-{}-steps.json", std::process::id()));
 
         fs::write(&rom_path, minimal_ines()).expect("temporary ROM write should succeed");
         fs::write(
@@ -756,7 +736,7 @@ mod tests {
         )
         .expect("script fixture should write");
 
-        let result = run(Cli {
+        let result = run_cli(Cli {
             media: vec![MediaArg {
                 slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),
                 kind: MediaKind::Cartridge,
@@ -783,7 +763,7 @@ mod tests {
     #[test]
     fn run_smoke_matrix_reports_successful_rom() {
         let temp_dir =
-            std::env::temp_dir().join(format!("emu198x-script-nes-{}-smoke", std::process::id()));
+            std::env::temp_dir().join(format!("emu198x-nes-{}-smoke", std::process::id()));
         fs::create_dir_all(&temp_dir).expect("temporary smoke dir should be created");
         let rom_path = temp_dir.join("demo.nes");
         fs::write(&rom_path, minimal_ines()).expect("temporary ROM write should succeed");
@@ -812,13 +792,10 @@ mod tests {
     #[test]
     fn run_can_assert_blargg_success() {
         let temp_dir = std::env::temp_dir();
-        let rom_path = temp_dir.join(format!(
-            "emu198x-script-nes-{}-blargg.nes",
-            std::process::id()
-        ));
+        let rom_path = temp_dir.join(format!("emu198x-nes-{}-blargg.nes", std::process::id()));
         fs::write(&rom_path, blargg_ines(0, b"ok\n")).expect("temporary ROM write should succeed");
 
-        let report = run(Cli {
+        let report = run_cli(Cli {
             media: vec![MediaArg {
                 slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),
                 kind: MediaKind::Cartridge,

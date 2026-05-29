@@ -23,11 +23,11 @@ The NES path now has a usable NTSC machine/runtime/native baseline. It runs thro
 
 ## Automated test ROM checks
 
-`emu198x-script-nes` can assert Blargg-style test ROM output written at `$6000`. A passing ROM exits successfully and includes `test_result` in the JSON report; running, reset-requested, failed, or non-Blargg ROMs return a non-zero exit code.
+The headless `emu198x-nes` runner (`--no-default-features` skips the graphics stack) can assert Blargg-style test ROM output written at `$6000`. A passing ROM exits successfully and includes `test_result` in the JSON report; running, reset-requested, failed, or non-Blargg ROMs return a non-zero exit code.
 
 ```sh
-cargo run --release -p emu198x-script-nes -- --rom apu_test.nes --frames 3000 --assert-blargg
-cargo run --release -p emu198x-script-nes -- --smoke-root path/to/blargg/rom_singles --frames 1200 --assert-blargg --smoke-report tmp/nes-apu-blargg-report.json
+cargo run --release -p emu198x-nes --no-default-features -- --rom apu_test.nes --frames 3000 --assert-blargg
+cargo run --release -p emu198x-nes --no-default-features -- --smoke-root path/to/blargg/rom_singles --frames 1200 --assert-blargg --smoke-report tmp/nes-apu-blargg-report.json
 ```
 
 ## Crates

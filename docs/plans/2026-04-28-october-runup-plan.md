@@ -146,7 +146,7 @@ Order within this phase is flexible; each item is independent.
 
 **Verify.** Cross-reference current mapper coverage (NROM, MMC1, UxROM, CNROM, MMC3, MMC5, AxROM, BxROM, NINA-001, Camerica, VRC2a, Action 53, Sunsoft-4, Color Dreams) against the Code198x NES curriculum game list.
 **Build.** Pick 2-4 mappers from the gap by *curriculum game value*, not chip prestige. Strong candidates if curriculum needs them: VRC6 (Akumajou Densetsu — expansion audio), VRC7 (Lagrange Point — FM expansion audio), MMC2 (Punch-Out!! — bank-switching trick), FME-7 (Gimmick! — expansion audio).
-**Done when.** Each chosen mapper has chip-level tests, an iNES smoke test, and a real-ROM regression in `emu198x-script-nes`.
+**Done when.** Each chosen mapper has chip-level tests, an iNES smoke test, and a real-ROM regression in the headless `emu198x-nes` runner.
 **Caveat.** Expansion-audio mappers also touch the APU mixer; scope grows accordingly. Pick non-audio mappers first if time is tight.
 
 ### C.3 — Amiga seam 3 (chip-owned `read_register_word`)

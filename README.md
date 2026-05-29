@@ -318,7 +318,7 @@ cargo run -p emu198x-script-c64 -- \
 ### NES headless runner
 
 ```bash
-cargo run -p emu198x-script-nes -- \
+cargo run -p emu198x-nes --no-default-features -- \
   --rom ~/.emu198x/media/nintendo-nes/nestest.nes \
   --frames 60 \
   --screenshot nestest.png
@@ -409,7 +409,7 @@ Current examples include:
 - C64 ROM-backed `READY.` boot detection plus snapshot round-trip checks
 - NES machine regressions over real `nestest.nes`, plus a fresh headless
   cartridge path that now runs `nestest.nes` and `Super Mario Bros.` through
-  `emu198x-script-nes` and emits screenshots
+  the headless `emu198x-nes` runner and emits screenshots
 - Amiga machine/runtime tests over the imported A500 OCS PAL chip stack, plus
   fresh headless smokes that boot Kickstart 1.3 to the insert-disk screen and
   accept DF0 `ADF` insertion through `emu198x-script-amiga`

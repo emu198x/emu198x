@@ -499,7 +499,7 @@ if [[ "${mode}" != "local" ]]; then
         cargo test \
             -p emu198x-script-spectrum \
             -p emu198x-script-c64 \
-            -p emu198x-script-nes \
+            -p emu198x-nes \
             -p emu198x-script-amiga \
             -p emu198x-script-game-boy \
             -p emu198x-script-dragon
@@ -559,7 +559,7 @@ if [[ "${mode}" != "unit" ]]; then
     fi
     if [[ -n "${nes_apu_root}" && -d "${nes_apu_root}" ]]; then
         run_step "nes-blargg-apu" \
-            cargo run -q -p emu198x-script-nes -- \
+            cargo run -q -p emu198x-nes --no-default-features -- \
                 --smoke-root "${nes_apu_root}" \
                 --frames 1200 \
                 --assert-blargg \
