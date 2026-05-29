@@ -416,6 +416,14 @@ impl Z80 {
     fn tick_m1(&mut self, phase: M1Phase) {
         match phase {
             M1Phase::T1Rise => {
+                // While halted, run a phantom M1 cycle that re-fetches the
+                // HALT opcode: rewind PC so this fetch reads HALT again
+                // (T2Fall re-increments it). PC therefore oscillates between
+                // the HALT byte and HALT+1 during the halt loop, but rests at
+                // HALT+1 at every instruction boundary.
+                if self.halt {
+                    self.regs.pc = self.regs.pc.wrapping_sub(1);
+                }
                 // Address bus = PC, assert M1
                 self.addr = self.regs.pc;
                 self.m1 = true;
@@ -956,23 +964,12 @@ impl Z80 {
         // Clear EI pending flag (EI defers interrupts by one instruction)
         self.ei_pending = false;
 
-        // HALT: re-execute the HALT opcode by rewinding PC one byte. The
-        // real Z80 stays at the same PC and runs phantom 4 T-state M1
-        // fetches forever until IRQ/NMI clears `halt`; equivalently we
-        // back PC up to the HALT byte each instruction boundary so the
-        // next M1 fetch reads HALT again. PC oscillates between the
-        // HALT byte and the byte after across each phantom cycle (T2Fall
-        // advances it during fetch). When IRQ accept fires in the
-        // branches above, the M1 fetch that latched HALT has already
-        // completed — so PC at that moment is the byte after HALT,
-        // which is the address pushed to the stack. RETI / RET from the
-        // ISR therefore returns past HALT, matching real-hardware
-        // behaviour.
-        if self.halt {
-            self.regs.pc = self.regs.pc.wrapping_sub(1);
-        }
-
-        // Normal: start next M1 fetch
+        // Start next M1 fetch. While halted, the phantom re-fetch of the
+        // HALT opcode is handled at M1 T1Rise (PC is rewound there, then
+        // re-incremented by the fetch) — NOT here. Keeping PC at HALT+1 at
+        // the instruction boundary matches real hardware and the Tom Harte
+        // single-step oracle, and leaves the post-HALT address for an
+        // accepted interrupt to push (RETI returns past HALT).
         self.phase = Phase::M1(M1Phase::T1Rise);
     }
 
