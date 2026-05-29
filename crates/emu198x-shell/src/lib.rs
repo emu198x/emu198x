@@ -16,6 +16,7 @@ pub mod host;
 pub mod input;
 pub mod machine;
 pub mod mcp;
+pub mod mcp_tools;
 pub mod media;
 pub mod query;
 pub mod script;
