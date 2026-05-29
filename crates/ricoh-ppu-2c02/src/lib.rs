@@ -529,43 +529,49 @@ impl Ppu {
         self.sprite_count = 0;
         self.sprite_zero_on_line = false;
 
-        for i in 0..64u8 {
-            let y = u16::from(self.oam[i as usize * 4]);
-            let diff = next_scanline.wrapping_sub(y);
+        // Phase 1: scan primary OAM, copying the first 8 in-range
+        // sprites into secondary OAM. This is exactly what sprite
+        // rendering and sprite-0-hit consume.
+        let mut n = 0usize;
+        while n < 64 {
+            let y = u16::from(self.oam[n * 4]);
+            if next_scanline.wrapping_sub(y) < sprite_height {
+                let idx = self.sprite_count as usize;
+                self.secondary_oam[idx * 4] = self.oam[n * 4];
+                self.secondary_oam[idx * 4 + 1] = self.oam[n * 4 + 1];
+                self.secondary_oam[idx * 4 + 2] = self.oam[n * 4 + 2];
+                self.secondary_oam[idx * 4 + 3] = self.oam[n * 4 + 3];
 
-            if diff < sprite_height {
-                if self.sprite_count < 8 {
-                    let idx = self.sprite_count as usize;
-                    self.secondary_oam[idx * 4] = self.oam[i as usize * 4];
-                    self.secondary_oam[idx * 4 + 1] = self.oam[i as usize * 4 + 1];
-                    self.secondary_oam[idx * 4 + 2] = self.oam[i as usize * 4 + 2];
-                    self.secondary_oam[idx * 4 + 3] = self.oam[i as usize * 4 + 3];
-
-                    if i == 0 {
-                        self.sprite_zero_on_line = true;
-                    }
-                    self.sprite_count += 1;
-                } else {
-                    // 2C02 hardware bug: after finding 8 sprites, the
-                    // PPU continues scanning but increments the OAM
-                    // byte offset (m) alongside the sprite index (n) on
-                    // each miss. This causes it to compare tile,
-                    // attribute, or X bytes as if they were Y
-                    // coordinates — missing real overflows and producing
-                    // false positives.
-                    let mut n = (i + 1) as usize;
-                    let mut m: usize = 0;
-                    while n < 64 {
-                        let byte = u16::from(self.oam[(n * 4 + m) & 0xFF]);
-                        if next_scanline.wrapping_sub(byte) < sprite_height {
-                            self.status |= 0x20;
-                            break;
-                        }
-                        n += 1;
-                        m = (m + 1) & 3;
-                    }
+                if n == 0 {
+                    self.sprite_zero_on_line = true;
+                }
+                self.sprite_count += 1;
+                if self.sprite_count == 8 {
+                    n += 1;
                     break;
                 }
+            }
+            n += 1;
+        }
+
+        // Phase 2: with 8 sprites found, the 2C02 keeps scanning for a
+        // 9th in-range sprite to raise the overflow flag. The first
+        // check reads the next sprite's Y at byte offset 0 — so a true
+        // 9th in-range sprite sets overflow. But a hardware bug then
+        // increments the OAM byte offset (m) alongside the sprite index
+        // (n) on every miss, comparing tile / attribute / X bytes as if
+        // they were Y coordinates: this both misses real overflows and
+        // invents false ones.
+        if self.sprite_count == 8 {
+            let mut m = 0usize;
+            while n < 64 {
+                let byte = u16::from(self.oam[(n * 4 + m) & 0xFF]);
+                if next_scanline.wrapping_sub(byte) < sprite_height {
+                    self.status |= 0x20;
+                    break;
+                }
+                n += 1;
+                m = (m + 1) & 3;
             }
         }
 
@@ -1223,23 +1229,31 @@ mod tests {
 
     #[test]
     fn sprite_overflow_bug_skips_real_overflow() {
+        // Diagonal-bug false NEGATIVE. Eight in-range sprites fill
+        // secondary OAM; one out-of-range sprite then shifts the byte
+        // index m, so the next sprite — genuinely in range — is read at
+        // its tile byte instead of its Y and is missed. A correct
+        // (non-buggy) scan would have flagged overflow.
         let mut mapper = dummy_mapper();
         let mut ppu = Ppu::new();
         ppu.scanline = 50;
         ppu.ctrl = 0;
 
+        // Sprites 0-7: in range → secondary OAM full (8 found).
         for i in 0..8 {
             ppu.oam[i * 4] = 50;
         }
-        ppu.oam[8 * 4] = 50;
-
-        for i in 9..64 {
-            let m_at_i = (i - 9) & 3;
-            if m_at_i == 0 {
-                ppu.oam[i * 4] = 200;
-            } else {
-                ppu.oam[i * 4] = 50;
-            }
+        // Sprite 8: out of range → the m=0 read misses and m shifts to 1.
+        ppu.oam[8 * 4] = 200;
+        // Sprite 9: REALLY in range (Y=50) but read at byte m=1 (tile),
+        // which is 200 → skipped despite being a real overflow.
+        ppu.oam[9 * 4] = 50;
+        ppu.oam[9 * 4 + 1] = 200;
+        ppu.oam[9 * 4 + 2] = 200;
+        ppu.oam[9 * 4 + 3] = 200;
+        // Remaining sprites are out of range at every byte offset.
+        for i in 10..64 {
+            ppu.oam[i * 4] = 200;
             ppu.oam[i * 4 + 1] = 200;
             ppu.oam[i * 4 + 2] = 200;
             ppu.oam[i * 4 + 3] = 200;
@@ -1247,31 +1261,37 @@ mod tests {
 
         ppu.evaluate_sprites(&mut mapper);
         assert_eq!(ppu.sprite_count, 8);
-        assert_eq!(ppu.status & 0x20, 0, "overflow flag set despite bug");
+        assert_eq!(
+            ppu.status & 0x20,
+            0,
+            "diagonal bug should skip the real overflow"
+        );
     }
 
     #[test]
     fn sprite_overflow_bug_false_positive() {
+        // Diagonal-bug false POSITIVE. Only eight sprites are truly in
+        // range, but after the byte index m shifts, a later sprite's
+        // tile byte happens to read as an in-range Y, raising overflow
+        // when a correct scan would not.
         let mut mapper = dummy_mapper();
         let mut ppu = Ppu::new();
         ppu.scanline = 50;
         ppu.ctrl = 0;
 
+        // Sprites 0-7: in range → 8 found.
         for i in 0..8 {
             ppu.oam[i * 4] = 50;
         }
-        ppu.oam[8 * 4] = 50;
+        // Sprite 8: out of range → miss shifts m to 1.
+        ppu.oam[8 * 4] = 200;
+        // Sprite 9: out of range as a real sprite (Y=200), but its tile
+        // byte (read at m=1) is 50 → falsely "in range" → sets overflow.
         ppu.oam[9 * 4] = 200;
-        ppu.oam[9 * 4 + 1] = 200;
+        ppu.oam[9 * 4 + 1] = 50;
         ppu.oam[9 * 4 + 2] = 200;
         ppu.oam[9 * 4 + 3] = 200;
-        // Sprite 10: tile byte read as "Y" → false positive.
-        ppu.oam[10 * 4] = 200;
-        ppu.oam[10 * 4 + 1] = 50;
-        ppu.oam[10 * 4 + 2] = 200;
-        ppu.oam[10 * 4 + 3] = 200;
-
-        for i in 11..64 {
+        for i in 10..64 {
             ppu.oam[i * 4] = 200;
             ppu.oam[i * 4 + 1] = 200;
             ppu.oam[i * 4 + 2] = 200;
@@ -1283,7 +1303,7 @@ mod tests {
         assert_ne!(
             ppu.status & 0x20,
             0,
-            "overflow flag not set on false positive"
+            "diagonal bug should raise a false overflow"
         );
     }
 
