@@ -1089,6 +1089,22 @@ impl Ppu {
         self.status
     }
 
+    /// NMI-occurred latch — set at scanline 241 dot 3, cleared at
+    /// pre-render dot 3 or by a `$2002` read. Read-only; exposed for
+    /// cycle-exact NMI-timing debugging.
+    #[must_use]
+    pub fn nmi_occurred(&self) -> bool {
+        self.nmi_occurred
+    }
+
+    /// NMI-output enable (`$2000` bit 7, after the 1-cycle commit
+    /// delay). The `/NMI` pin is asserted when both this and
+    /// `nmi_occurred` are true. Read-only.
+    #[must_use]
+    pub fn nmi_output(&self) -> bool {
+        self.nmi_output
+    }
+
     /// Loopy V register.
     #[must_use]
     pub fn v_reg(&self) -> u16 {

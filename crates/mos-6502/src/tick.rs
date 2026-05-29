@@ -16,6 +16,21 @@ impl M6502 {
             return false;
         }
 
+        let done = self.run_cycle();
+        // The NMI edge detector is clocked every cycle on real
+        // silicon, independent of the instruction-boundary servicing
+        // poll. Run it after the cycle's work so an edge that arrives
+        // on an instruction's final cycle is still latched (and then
+        // deferred one instruction via `prev_pending_nmi`) rather than
+        // dropped.
+        self.poll_nmi_edge();
+        done
+    }
+
+    /// Execute one CPU cycle of the current instruction, interrupt
+    /// sequence, or reset sequence. The returned flag is the stall
+    /// indicator the machine ignores; tests read it directly.
+    fn run_cycle(&mut self) -> bool {
         self.total_cycles += 1;
         if self.so_prev && !self.so {
             self.regs.set_flag(FLAG_V, true);
@@ -36,9 +51,8 @@ impl M6502 {
         // penultimate cycle — giving CLI/SEI/PLP their one-instruction
         // delay for free.
         if self.cs.cycle == 0 {
-            if self.pending_nmi {
+            if self.prev_pending_nmi {
                 self.pending_nmi = false;
-                self.nmi_prev = self.nmi;
                 self.cs.opcode = 0x00;
                 self.cs.info = Some(cycle::OpcodeInfo {
                     addr_mode: AddrMode::Brk,
@@ -53,17 +67,13 @@ impl M6502 {
                 return false;
             }
 
-            // No boundary-time NMI edge detection. Silicon samples NMI
-            // exclusively at the penultimate cycle of an instruction
-            // (via `latch_interrupt_samples`), and an NMI rise that
-            // happens after the penultimate cycle must wait for the
-            // *next* instruction's penultimate cycle to be latched.
-            // The previous "safety net at boundary" path fired NMI one
-            // instruction too early — broke blargg ppu_vbl_nmi/04
-            // ("Immediate occurrence should be after NEXT instruction").
-            // `nmi_prev` is maintained only by `latch_interrupt_samples`
-            // so it accurately reflects the last cycle on which NMI was
-            // sampled.
+            // NMI servicing reads `prev_pending_nmi` — the FF as it
+            // stood at the START of the previous cycle. An edge latched
+            // on an instruction's final cycle therefore isn't visible
+            // here until one further instruction has run, giving the
+            // "occurrence after NEXT instruction" behaviour (blargg
+            // ppu_vbl_nmi/04) while still catching final-cycle edges
+            // that the old penultimate-only sampling dropped (/06).
 
             if self.pending_irq_line && !self.pending_i_mask {
                 self.cs.opcode = 0x00;
@@ -147,14 +157,25 @@ impl M6502 {
         done
     }
 
-    /// Capture the interrupt lines + I-bit into the penultimate-cycle
-    /// latches. Called from the opcode-fetch path (to cover the
-    /// 2-cycle-instruction case where the fetch IS the penultimate
-    /// cycle) and after any helper that returns done=false (so the
-    /// last pre-final sample survives into the next boundary check).
+    /// Capture the IRQ line + I-bit into the penultimate-cycle latches.
+    /// Called from the opcode-fetch path (to cover the 2-cycle-
+    /// instruction case where the fetch IS the penultimate cycle) and
+    /// after any helper that returns done=false (so the last pre-final
+    /// sample survives into the next boundary check). IRQ is level-
+    /// sampled, so the penultimate sample is what real hardware uses.
     fn latch_interrupt_samples(&mut self) {
         self.pending_irq_line = self.irq;
         self.pending_i_mask = self.regs.interrupt_disable();
+    }
+
+    /// Clock the NMI edge detector once per CPU cycle. Stages the
+    /// current FF into `prev_pending_nmi` BEFORE detecting this cycle's
+    /// edge, so the boundary servicing check (which reads the staged
+    /// value) sees an edge one cycle late — deferring a final-cycle
+    /// edge by one instruction instead of dropping it. `pending_nmi`
+    /// is the FF: once set by an edge it stays set until serviced.
+    fn poll_nmi_edge(&mut self) {
+        self.prev_pending_nmi = self.pending_nmi;
         if self.nmi && !self.nmi_prev {
             self.pending_nmi = true;
         }

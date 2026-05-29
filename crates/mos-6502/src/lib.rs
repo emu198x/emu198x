@@ -35,11 +35,18 @@ pub struct M6502 {
     /// change in the current instruction doesn't affect IRQ servicing
     /// until the NEXT instruction boundary.
     pub(crate) pending_i_mask: bool,
-    /// NMI edge-detect latch for penultimate-cycle sampling. When the
-    /// NMI line rises (low-to-high active-low = high-to-low signal)
-    /// during any non-final cycle, this latch is set and remains set
-    /// until the NMI is serviced.
+    /// NMI edge-detect latch (the internal "NMI detected" flip-flop).
+    /// Set on the cycle an NMI rising edge is detected and held until
+    /// the NMI is serviced. Edge detection runs every cycle (see
+    /// `poll_nmi_edge`); servicing reads the staged `prev_pending_nmi`.
     pub(crate) pending_nmi: bool,
+    /// One-cycle-staged view of `pending_nmi`, captured at the start of
+    /// each cycle before that cycle's edge detection. The
+    /// instruction-boundary servicing check reads this, not
+    /// `pending_nmi`, so an edge detected on an instruction's final
+    /// cycle is serviced after the NEXT instruction rather than being
+    /// dropped (matches NES `04-nmi_control` / `06-suppression`).
+    pub(crate) prev_pending_nmi: bool,
 }
 
 impl M6502 {
@@ -75,6 +82,7 @@ impl M6502 {
             pending_irq_line: false,
             pending_i_mask: true,
             pending_nmi: false,
+            prev_pending_nmi: false,
         }
     }
 
@@ -108,11 +116,34 @@ impl M6502 {
         self.pending_irq_line = false;
         self.pending_i_mask = true;
         self.pending_nmi = false;
+        self.prev_pending_nmi = false;
     }
 
     #[must_use]
     pub fn instruction_complete(&self) -> bool {
         self.cs.cycle == 0 && self.reset_phase == 0
+    }
+
+    /// Cycle index within the executing instruction (0 at an
+    /// instruction boundary, i.e. opcode-fetch pending). Read-only;
+    /// exposed for cycle-exact interrupt-timing debugging.
+    #[must_use]
+    pub fn instruction_cycle(&self) -> u8 {
+        self.cs.cycle
+    }
+
+    /// NMI edge latch (`pending_nmi`): set once the CPU has detected an
+    /// NMI rising edge that has not yet been serviced. Read-only.
+    #[must_use]
+    pub fn pending_nmi(&self) -> bool {
+        self.pending_nmi
+    }
+
+    /// Last-sampled NMI line state (`nmi_prev`). The edge detector
+    /// compares the live `nmi` pin against this every cycle. Read-only.
+    #[must_use]
+    pub fn nmi_prev(&self) -> bool {
+        self.nmi_prev
     }
 }
 

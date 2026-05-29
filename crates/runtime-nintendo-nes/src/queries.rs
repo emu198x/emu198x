@@ -15,6 +15,9 @@ use crate::runtime::NesRuntime;
 pub(crate) const NES_QUERY_PATHS: &[&str] = &[
     "nes.cartridge.loaded",
     "nes.cartridge.mapper",
+    "nes.cpu.nmi",
+    "nes.cpu.nmi_pending",
+    "nes.cpu.nmi_prev",
     "nes.cpu.pc",
     "nes.machine.frame_count",
     "nes.machine.master_clock",
@@ -95,6 +98,9 @@ impl SessionQueryProvider<NesRuntime> for NesSessionQueryProvider {
                     .ppu
                     .dot()
             ),
+            "nes.cpu.nmi" => json!(loaded_machine(machine, path)?.cpu.nmi),
+            "nes.cpu.nmi_pending" => json!(loaded_machine(machine, path)?.cpu.pending_nmi()),
+            "nes.cpu.nmi_prev" => json!(loaded_machine(machine, path)?.cpu.nmi_prev()),
             "nes.ppu.ctrl" => json!(loaded_machine(machine, path)?.ppu.ctrl()),
             "nes.ppu.mask" => json!(loaded_machine(machine, path)?.ppu.mask()),
             "nes.ppu.status" => json!(loaded_machine(machine, path)?.ppu.status()),
