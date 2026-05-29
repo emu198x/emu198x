@@ -18,6 +18,7 @@ pub fn find_sm83_tennant_dir() -> Result<PathBuf, String> {
         candidates.push(PathBuf::from(path));
     }
 
+    candidates.push(home_projects_path("198x/assets/test-suites/gameboy/v2"));
     candidates.push(repo_root.join("test-data/sm83/v2"));
     candidates.push(home_projects_path("Emu198x-Unclean/GameboyCPUTests/v2"));
 

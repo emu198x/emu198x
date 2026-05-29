@@ -14,6 +14,7 @@ pub fn find_tom_harte_z80_dir() -> Result<PathBuf, String> {
         candidates.push(PathBuf::from(path));
     }
 
+    candidates.push(repo_root.join("../assets/test-suites/processor-tests/z80/v1"));
     candidates.push(repo_root.join("test-data/z80/v1"));
 
     first_existing_path(candidates).ok_or_else(|| {
@@ -34,6 +35,7 @@ pub fn find_zex_binary(name: &str) -> Result<PathBuf, String> {
         candidates.push(PathBuf::from(dir).join(&filename));
     }
 
+    candidates.push(repo_root.join("../assets/test-suites/zex").join(&filename));
     candidates.push(repo_root.join("test-data/zex").join(&filename));
 
     first_existing_path(candidates).ok_or_else(|| {

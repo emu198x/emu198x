@@ -48,6 +48,9 @@ pub fn find_tom_harte_6502_dir() -> Result<PathBuf, String> {
         candidates.push(PathBuf::from(path));
     }
 
+    candidates.push(home_projects_path(
+        "198x/assets/test-suites/processor-tests/65x02/6502/v1",
+    ));
     candidates.push(repo_root.join("test-data/6502/v1"));
     candidates.push(home_projects_path("Emu198x-Unclean/65x02/6502/v1"));
     candidates.push(home_projects_path(
@@ -79,6 +82,9 @@ pub fn find_dormann_6502_dir() -> Result<PathBuf, String> {
         candidates.push(PathBuf::from(path));
     }
 
+    candidates.push(home_projects_path(
+        "198x/assets/test-suites/6502/klaus-functional-tests",
+    ));
     candidates.push(repo_root.join("test-data/6502_65C02_functional_tests"));
     candidates.push(home_projects_path(
         "Emu198x-Unclean/6502_65C02_functional_tests",
