@@ -71,6 +71,41 @@ const RESET_DELAY_TICKS: u64 = 600_000;
 /// reasonable wall-clock time.
 const SETTLE_TICKS: u64 = 3_000_000;
 
+/// Scan the PPU's nametable RAM for the blargg shell's "Passed"
+/// / "Failed" / "Error" final-status strings. Returns the
+/// corresponding verdict the moment one is found.
+///
+/// blargg's `print_str` writes ASCII tile codes directly into the
+/// nametable via `$2007`, so the final status text persists in
+/// nametable RAM after the test's infinite `forever` loop kicks
+/// in. This is the only programmatic signal for the visual-only
+/// dmc_tests / dmc_dma_during_read4 / blargg_nes_cpu_test5
+/// suites, which never write to `$6000` / `$F8` / `$F0`.
+fn try_nametable_protocol(nes: &Nes) -> Option<Verdict> {
+    let nt = nes.ppu.nametable_ram();
+    // The blargg shell prints the entire exit string in one
+    // newline-flanked block: e.g. `"\n\nPassed\n\n\n"`. Detect
+    // only the clean tokens, not the bare "Error " (initial
+    // banner / opcode-list text contains incidental matches).
+    if find_ascii(nt, b"Passed") {
+        return Some(Verdict::Pass {
+            ticks: nes.master_clock(),
+        });
+    }
+    if find_ascii(nt, b"Failed") {
+        return Some(Verdict::Fail {
+            code: 1,
+            text: "Failed (detected in nametable)".into(),
+            ticks: nes.master_clock(),
+        });
+    }
+    None
+}
+
+fn find_ascii(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
 /// Power-on garbage at `$F8` is typically `$00`. Treat the
 /// settle as meaningful only after we've observed at least one
 /// non-zero value — otherwise a ROM that never touches `$F8`
@@ -194,10 +229,20 @@ fn run_one(path: &Path) -> Result<Verdict, String> {
                     ticks: nes.master_clock(),
                 });
             }
+            // PPU nametable grader is more expensive than a byte
+            // peek, so sample it every NAMETABLE_POLL_INTERVAL
+            // ticks rather than every tick.
+            if tick_count.is_multiple_of(NAMETABLE_POLL_INTERVAL)
+                && let Some(v) = try_nametable_protocol(&nes)
+            {
+                return Ok(v);
+            }
         }
     }
     Ok(Verdict::Timeout)
 }
+
+const NAMETABLE_POLL_INTERVAL: u64 = 200_000;
 
 /// Prefer `<dir>/rom_singles/*.nes` for granular per-subtest results;
 /// fall back to top-level `*.nes` when that subdir is absent.
