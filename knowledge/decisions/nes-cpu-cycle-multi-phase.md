@@ -32,7 +32,19 @@ Three working data points, three different shapes:
 | NES (target) | 1:3 | separate (PRG + CHR), no arbitration; phase-lag for register I/O |
 | Atari 800XL (`Emu198x-Oldest` donor) | 1:2 colour clocks | shared, ANTIC steals via `dma_budget` + `wsync_halt`; ANTIC currently processes whole scan lines per line boundary, not per-dot |
 
-Each chip family forces a different dance. Extracting a single `tick_cpu_cycle` trait at N=2 — let alone N=3 — would either lock in a NES-shaped abstraction the other machines can't fit, or a meta-abstraction that's so general it stops carrying meaning. The right move is to do the NES refactor with C64-style structural alignment as a guidepost (peripherals advance, then CPU bus op, then sample pins, then CPU tick — but split into two passes per CPU cycle), and revisit shared abstraction when a fourth or fifth 6502+video machine wiring is on the table and the common shape can be measured rather than guessed.
+A wider survey of 6502-family machines turns up at least seven distinct shape families — three is the floor, not the ceiling.
+
+| Shape family | Mechanism | Examples |
+|---|---|---|
+| Concurrent tick with stall signal | Chip raises a stall flag, CPU honours it for a cycle or more | C64 (`RDY`), Atari 800XL (`dma_budget`), Atari 2600 (TIA `wsync_halt`) |
+| Block halt | Chip halts CPU for a contiguous run of cycles | Atari 7800 (MARIA display kernel), Acorn Electron (ULA halts MODE 0-3 scanlines) |
+| Phase-lagged register I/O | PPU state is sampled one master tick behind so register reads land in the right phase | NES (Mesen `_ppuOffset`) — this entry's target |
+| Dynamic CPU frequency | CPU clock divider changes based on address or mode | BBC Micro (1 MHz peripheral bus at `$FCxx-$FExx`), C128 (1/2 MHz mode), HuC6280 (overclock instruction) |
+| Cycle-stretching on access | Per-access penalty added to CPU cycles | Oric (DRAM refresh), BBC Micro (alternate framing of 1 MHz bus) |
+| Half-cycle bus sharing | Sub-CPU-cycle clock granularity required for cycle-accurate emulation | Apple II — same precedent as [half-cycle-signals.md](half-cycle-signals.md) on Spectrum |
+| Beam-racing only | No video-side interrupt — CPU manually writes registers during each scanline | Atari 2600 (TIA) — overlaps Concurrent stall, but the *programming model* is fundamentally different |
+
+Each chip family forces a different dance. Extracting a single `tick_cpu_cycle` trait at N=2 — or even N=3 — would either lock in a NES-shaped abstraction the other machines can't fit, or a meta-abstraction that's so general it stops carrying meaning. With seven shape families visible, the question shifts from *"what's our shared abstraction"* to *"which pairs of machines actually share a shape"* — and the answer right now is essentially none. C64 and Atari 800XL both have "concurrent tick with stall signal" but use different mechanisms (RDY/BA vs dma_budget) and different ratios; refactoring one to be expressible in the other's terms costs more than it buys. The right move is to do the NES refactor with C64-style structural alignment as a guidepost (peripherals advance, then CPU bus op, then sample pins, then CPU tick — but split into two passes per CPU cycle), and revisit shared abstraction only when two different machines genuinely need the same shape, not when their shapes can be made to *look* alike through a thick enough trait.
 
 ## Implications
 
