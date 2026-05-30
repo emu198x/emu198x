@@ -39,6 +39,52 @@ enum Verdict {
 /// minimum.
 const RESET_DELAY_TICKS: u64 = 600_000;
 
+/// Older blargg test ROMs (pre-`$6000` protocol — branch_timing,
+/// cpu_dummy_reads, instr_timing, dmc_tests, …) report results
+/// via a single byte at `$00F8` or `$00F0` that the test writes
+/// continuously, then freezes once the test ends. 1 = pass,
+/// other = fail with that code. The settle window must be long
+/// enough to ride out the gap between intermediate sub-tests but
+/// short enough that the harness still finishes per-ROM in
+/// reasonable wall-clock time.
+const SETTLE_TICKS: u64 = 3_000_000;
+
+/// Power-on garbage at `$F8` is typically `$00`. Treat the
+/// settle as meaningful only after we've observed at least one
+/// non-zero value — otherwise a ROM that never touches `$F8`
+/// would falsely score as "settled at 0".
+fn try_settle_protocol(nes: &Nes, history: &SettleHistory) -> Option<u8> {
+    if history.steady < SETTLE_TICKS {
+        return None;
+    }
+    if !history.saw_nonzero {
+        return None;
+    }
+    let _ = nes; // for symmetry with future per-ROM hooks
+    Some(history.last)
+}
+
+#[derive(Default)]
+struct SettleHistory {
+    last: u8,
+    steady: u64,
+    saw_nonzero: bool,
+}
+
+impl SettleHistory {
+    fn observe(&mut self, value: u8) {
+        if value == self.last {
+            self.steady = self.steady.saturating_add(1);
+        } else {
+            self.last = value;
+            self.steady = 0;
+        }
+        if value != 0 {
+            self.saw_nonzero = true;
+        }
+    }
+}
+
 fn run_one(path: &Path) -> Result<Verdict, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
     let parsed = parse_ines(&bytes).map_err(|e| format!("parse: {e}"))?;
@@ -46,6 +92,8 @@ fn run_one(path: &Path) -> Result<Verdict, String> {
 
     let mut signature_seen = false;
     let mut tick_count: u64 = 0;
+    let mut hist_f8 = SettleHistory::default();
+    let mut hist_f0 = SettleHistory::default();
     while tick_count < MAX_TICKS {
         nes.tick();
         tick_count += 1;
@@ -87,6 +135,35 @@ fn run_one(path: &Path) -> Result<Verdict, String> {
                 return Ok(Verdict::Fail {
                     code: status,
                     text: String::from_utf8_lossy(&text).into_owned(),
+                    ticks: nes.master_clock(),
+                });
+            }
+        } else {
+            // No `$6000` signature yet — track the older `$F8` and
+            // `$F0` protocols in parallel. Either may settle first.
+            hist_f8.observe(nes.peek(0x00F8));
+            hist_f0.observe(nes.peek(0x00F0));
+            if let Some(code) = try_settle_protocol(&nes, &hist_f8) {
+                if code == 1 {
+                    return Ok(Verdict::Pass {
+                        ticks: nes.master_clock(),
+                    });
+                }
+                return Ok(Verdict::Fail {
+                    code,
+                    text: format!("settled at $00F8 = {code:#04X}"),
+                    ticks: nes.master_clock(),
+                });
+            }
+            if let Some(code) = try_settle_protocol(&nes, &hist_f0) {
+                if code == 1 {
+                    return Ok(Verdict::Pass {
+                        ticks: nes.master_clock(),
+                    });
+                }
+                return Ok(Verdict::Fail {
+                    code,
+                    text: format!("settled at $00F0 = {code:#04X}"),
                     ticks: nes.master_clock(),
                 });
             }
