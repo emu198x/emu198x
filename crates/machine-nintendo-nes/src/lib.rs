@@ -149,6 +149,14 @@ pub struct Nes {
     /// strobe controls both controllers — `$4017` is read-only and
     /// `$4016`'s strobe bit governs the latch.
     controller_strobe: bool,
+
+    /// Last value driven onto the CPU data bus. Read from any
+    /// write-only or unallocated APU register (`$4000-$4014`,
+    /// `$4018-$401F`) returns this, and bits 5-7 of `$4016`/`$4017`
+    /// reads are sourced from it (controller data lives in bits 0-4).
+    /// Updated by [`Self::cpu_read`] after each successful resolve.
+    /// Required by blargg `cpu_exec_space/test_cpu_exec_space_apu`.
+    open_bus: u8,
 }
 
 impl Nes {
@@ -180,6 +188,7 @@ impl Nes {
             controller2_shift: 0,
             controller2_state: 0,
             controller_strobe: false,
+            open_bus: 0,
         }
     }
 
@@ -349,7 +358,19 @@ impl Nes {
     // ════════════════════════════════════════════════════════════
 
     /// Resolve a CPU read through the NES address space.
+    ///
+    /// Wraps [`Self::cpu_read_resolve`] and latches the returned
+    /// value into `self.open_bus`, so the next read from any
+    /// write-only / unallocated APU register sees whatever was last
+    /// on the data bus — the behaviour blargg's `cpu_exec_space`
+    /// suite relies on.
     fn cpu_read(&mut self, addr: u16) -> u8 {
+        let value = self.cpu_read_resolve(addr);
+        self.open_bus = value;
+        value
+    }
+
+    fn cpu_read_resolve(&mut self, addr: u16) -> u8 {
         match addr {
             // $0000-$1FFF: internal RAM (2 KiB, mirrored).
             0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize],
@@ -358,43 +379,51 @@ impl Nes {
             0x2000..=0x3FFF => self.ppu.cpu_read(addr, self.mapper.as_mut()),
 
             // $4000-$4014: APU registers (write-only except $4015).
-            0x4000..=0x4014 => 0,
+            // Reads return whatever was last on the data bus.
+            0x4000..=0x4014 => self.open_bus,
 
             // $4015: APU status (readable).
             0x4015 => self.apu.read(0x4015),
 
-            // $4016: Controller 1.
+            // $4016: Controller 1. Bits 0-4 are real data, bits
+            // 5-7 are open bus (per nesdev).
             0x4016 => {
-                if self.controller_strobe {
-                    // While strobe is active, return button A.
+                let data = if self.controller_strobe {
                     self.controller1_state & 1
                 } else {
                     let bit = self.controller1_shift & 1;
                     self.controller1_shift >>= 1;
-                    // After all 8 bits are shifted out, reads
-                    // return 1 (open bus on D0).
                     bit
-                }
+                };
+                (self.open_bus & 0xE0) | (data & 0x1F)
             }
 
             // $4017: Controller 2. Same protocol as $4016 — bit 0 of
             // the strobe (latched from the last $4016 write) governs
             // the latch/shift behaviour for both controllers.
             0x4017 => {
-                if self.controller_strobe {
+                let data = if self.controller_strobe {
                     self.controller2_state & 1
                 } else {
                     let bit = self.controller2_shift & 1;
                     self.controller2_shift >>= 1;
                     bit
-                }
+                };
+                (self.open_bus & 0xE0) | (data & 0x1F)
             }
 
-            // $4018-$401F: APU test registers (unused).
-            0x4018..=0x401F => 0,
+            // $4018-$401F: APU test registers (unused). Open bus.
+            0x4018..=0x401F => self.open_bus,
 
-            // $4020-$FFFF: cartridge space.
-            0x4020..=0xFFFF => self.mapper.cpu_read_side_effect(addr),
+            // $4020-$5FFF: cartridge expansion area. Unused by every
+            // mapper we currently support (NROM, MMC1, UxROM, CNROM,
+            // MMC3, AxROM), so it reads as open bus. Mappers like
+            // MMC5 that put registers here will need to claim this
+            // range explicitly when added.
+            0x4020..=0x5FFF => self.open_bus,
+
+            // $6000-$FFFF: PRG-RAM + PRG-ROM.
+            0x6000..=0xFFFF => self.mapper.cpu_read_side_effect(addr),
         }
     }
 
@@ -590,6 +619,9 @@ impl Nes {
             controller2_shift: snapshot.controller2_shift,
             controller2_state: snapshot.controller2_state,
             controller_strobe: snapshot.controller_strobe,
+            // open_bus isn't snapshotted — the next CPU read will
+            // refresh it before any code can observe the value.
+            open_bus: 0,
         }
     }
 }
