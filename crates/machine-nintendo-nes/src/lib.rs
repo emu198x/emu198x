@@ -195,51 +195,69 @@ impl Nes {
         // can drive `ppu.run` at sub-PPU-dot precision. Public
         // master_clock stays at PPU-dot resolution for back-compat.
         self.internal_master_clock += ricoh_ppu_2c02::MASTER_CLOCK_DIVIDER;
-
-        // ── 1. PPU run-to-target ──
-        // Single-phase for now: PPU catches up to the new
-        // internal_master_clock, advancing exactly one dot
-        // (because the target moved by MASTER_CLOCK_DIVIDER).
-        // Phase 4 will split this into start-phase / end-phase
-        // around the CPU bus op and introduce the `target - 1`
-        // lag that makes blargg 05/06/07/08 align.
-        self.ppu.run(self.mapper.as_mut(), self.internal_master_clock);
-
-        // ── 2. CPU tick (every 3rd PPU dot) ──
         self.cpu_divider = (self.cpu_divider + 1) % 3;
-        if self.cpu_divider == 0 {
-            // Route pins from PPU / mapper / APU to CPU.
-            self.cpu.nmi = self.ppu.nmi;
-            self.cpu.irq = self.mapper.irq_pending() || self.apu.irq_pending();
 
-            if self.dma_cycles_remaining > 0 {
-                self.tick_dma();
-            } else if self.apu.dmc.dma_pending {
-                // DMC sample DMA steals a CPU cycle. The APU keeps
-                // ticking, but the CPU does not advance this cycle.
-                let addr = self.apu.dmc.current_address;
-                let byte = self.cpu_read(addr);
-                self.apu.dmc.receive_dma_byte(byte);
-            } else {
-                // Normal CPU cycle: perform bus op then tick.
-                if self.cpu.rw {
-                    self.cpu.data_in = self.cpu_read(self.cpu.addr);
-                } else {
-                    self.cpu_write(self.cpu.addr, self.cpu.data);
-                }
-                self.cpu.tick();
-            }
-
-            // Mapper and APU tick once per CPU cycle. Mapper expansion
-            // audio is sampled just before the APU downsampler runs.
-            self.mapper.cpu_tick();
-            self.apu.expansion_audio = self.mapper.expansion_audio_sample();
-            self.apu.tick();
-
-            // Flush deferred $2000 NMI enable — after all 3 PPU
-            // dots in this CPU cycle have run.
-            self.ppu.flush_nmi_line();
+        if self.cpu_divider != 0 {
+            // Non-CPU master tick: PPU runs with the 1-master-tick
+            // lag (Mesen `_ppuOffset = 1` analog). PPU is
+            // permanently behind the wall clock by 1 master tick.
+            self.ppu
+                .run(self.mapper.as_mut(), self.internal_master_clock - 1);
+            return;
         }
+
+        // ── CPU master tick — start/end phase split ──
+        //
+        // 1. BUS OP first, while PPU is still at its prior-tick
+        //    lagged state. A $2002 read here clears
+        //    `nmi_occurred` BEFORE the PPU processes this CPU
+        //    cycle's final PPU dot — the suppression window for
+        //    blargg 06/07/08.
+        let do_cpu_tick = if self.dma_cycles_remaining > 0 {
+            self.tick_dma();
+            false
+        } else if self.apu.dmc.dma_pending {
+            // DMC sample DMA steals a CPU cycle. The APU keeps
+            // ticking, but the CPU does not advance this cycle.
+            let addr = self.apu.dmc.current_address;
+            let byte = self.cpu_read(addr);
+            self.apu.dmc.receive_dma_byte(byte);
+            false
+        } else {
+            if self.cpu.rw {
+                self.cpu.data_in = self.cpu_read(self.cpu.addr);
+            } else {
+                self.cpu_write(self.cpu.addr, self.cpu.data);
+            }
+            true
+        };
+
+        // 2. END PHASE — PPU catches up to `master - 1`.
+        self.ppu
+            .run(self.mapper.as_mut(), self.internal_master_clock - 1);
+
+        // 3. SAMPLE PINS — post-end-phase PPU state. Matches
+        //    Mesen's `EndCpuCycle` NmiFlag sample with PPU at
+        //    master - 1.
+        self.cpu.nmi = self.ppu.nmi;
+        self.cpu.irq = self.mapper.irq_pending() || self.apu.irq_pending();
+
+        // 4. CPU TICK — only on a "normal" (non-DMA, non-DMC)
+        //    CPU cycle. DMA and DMC stall the CPU; their bus ops
+        //    above already consumed the cycle.
+        if do_cpu_tick {
+            self.cpu.tick();
+        }
+
+        // Mapper and APU tick once per CPU cycle. Mapper expansion
+        // audio is sampled just before the APU downsampler runs.
+        self.mapper.cpu_tick();
+        self.apu.expansion_audio = self.mapper.expansion_audio_sample();
+        self.apu.tick();
+
+        // Flush deferred $2000 NMI enable — after all 3 PPU
+        // dots in this CPU cycle have run.
+        self.ppu.flush_nmi_line();
     }
 
     /// Run until the PPU completes a frame (scanline wraps from

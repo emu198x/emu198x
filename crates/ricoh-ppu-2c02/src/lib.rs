@@ -315,18 +315,21 @@ impl Ppu {
             self.bus_address = self.v & 0x3FFF;
         }
 
-        // VBlank start: VBL flag at dot 1, NMI pin at dot 3
-        // (2-dot pipeline delay on real hardware).
+        // VBlank start: VBL flag + NMI both at scanline 241 dot 1.
+        // Matches Mesen's `BeginVBlank` — under the multi-phase
+        // CPU cycle + PPU lag introduced in Phase 4 of the
+        // refactor, the suppression windows for blargg
+        // 06-suppression / 07-nmi_on_timing / 08-nmi_off_timing
+        // align around dot-1 assertion; the earlier dot-3 model
+        // was a hack to compensate for the missing phase split.
         if self.scanline == 241 && self.dot == 1 {
             if self.suppress_vbl {
                 self.suppress_vbl = false;
             } else {
                 self.status |= 0x80;
+                self.nmi_occurred = true;
+                self.update_nmi_line();
             }
-        }
-        if self.scanline == 241 && self.dot == 3 && self.status & 0x80 != 0 {
-            self.nmi_occurred = true;
-            self.update_nmi_line();
         }
 
         // Notify mapper of A12 transitions during rendering.
@@ -353,13 +356,12 @@ impl Ppu {
 
     fn tick_prerender(&mut self, mapper: &mut dyn Mapper) {
         if self.dot == 1 {
-            // Clear VBlank flag, sprite 0 hit, sprite overflow.
+            // Clear VBlank flag, sprite 0 hit, sprite overflow,
+            // AND the NMI latch — symmetric with VBL start (now
+            // also dot 1 under the multi-phase refactor).
             self.status &= 0x1F;
             self.sprite_patterns_lo = [0; 8];
             self.sprite_patterns_hi = [0; 8];
-        }
-        // Clear nmi_occurred at dot 3 — same 2-dot pipeline delay.
-        if self.dot == 3 {
             self.nmi_occurred = false;
             self.update_nmi_line();
         }
@@ -973,7 +975,13 @@ impl Ppu {
             0 => {
                 self.ctrl = val;
                 self.t = (self.t & !0x0C00) | (u16::from(val & 0x03) << 10);
-                self.pending_nmi_output = Some(val & 0x80 != 0);
+                // Commit nmi_output immediately — Mesen's $2000
+                // writer calls Cpu::SetNmiFlag / ClearNmiFlag
+                // synchronously. The deferred `pending_nmi_output`
+                // path was a compensation for the pre-phase-split
+                // model and is no longer needed.
+                self.nmi_output = val & 0x80 != 0;
+                self.update_nmi_line();
             }
             // $2001 - PPUMASK
             1 => self.mask = val,
@@ -1575,7 +1583,7 @@ mod tests {
     }
 
     #[test]
-    fn nmi_asserted_at_241_dot_3() {
+    fn nmi_asserted_at_241_dot_1() {
         let mut mapper = dummy_mapper();
         let mut ppu = Ppu::new();
         ppu.scanline = 241;
@@ -1583,14 +1591,11 @@ mod tests {
         ppu.status = 0;
         ppu.nmi_output = true; // NMI enabled via $2000
 
-        for _ in 0..3 {
-            ppu.tick(&mut mapper);
-        }
-        assert!(!ppu.nmi, "NMI should not be asserted before dot 3");
+        ppu.tick(&mut mapper); // processes dot 0
+        assert!(!ppu.nmi, "NMI should not be asserted before dot 1");
 
-        // Dot 3: NMI should fire.
-        ppu.tick(&mut mapper);
-        assert!(ppu.nmi, "NMI not asserted at (241, 3)");
+        ppu.tick(&mut mapper); // processes dot 1 — NMI fires with VBL
+        assert!(ppu.nmi, "NMI not asserted at (241, 1)");
     }
 
     #[test]
@@ -1728,23 +1733,20 @@ mod tests {
     }
 
     #[test]
-    fn flush_nmi_line_commits_pending() {
+    fn writing_2000_with_vbl_set_asserts_nmi_immediately() {
+        // $2000 enabling NMI while VBL is set asserts the NMI line
+        // synchronously. Matches Mesen's `Cpu::SetNmiFlag` call
+        // inside the PPU's $2000 writer — required under the
+        // multi-phase CPU cycle refactor for blargg
+        // 07-nmi_on_timing to align.
         let mut mapper = dummy_mapper();
         let mut ppu = Ppu::new();
         ppu.nmi_occurred = true;
         ppu.nmi_output = false;
         ppu.nmi = false;
 
-        // Simulate a $2000 write enabling NMI.
         ppu.cpu_write(0x2000, 0x80, &mut mapper);
-        // NMI should not yet be asserted (pending).
-        assert!(!ppu.nmi, "NMI should stay deasserted until flush");
-
-        ppu.flush_nmi_line();
-        assert!(
-            ppu.nmi,
-            "NMI should be asserted after flush with nmi_occurred=true"
-        );
+        assert!(ppu.nmi, "NMI should be asserted on the $2000 write");
     }
 
     // ─── Cov-5c wave 2: directed tests ─────────────────────────────
@@ -2333,17 +2335,17 @@ mod tests {
     //     sprite bus address; copy_horizontal; increment_y. ───────
 
     #[test]
-    fn prerender_dot_3_clears_nmi_occurred() {
+    fn prerender_dot_1_clears_nmi_occurred() {
         let mut mapper = dummy_mapper();
         let mut ppu = Ppu::new();
         ppu.scanline = ppu.pre_render_line;
-        ppu.dot = 3; // tick processes current dot first
+        ppu.dot = 1; // tick processes current dot first
         ppu.nmi_occurred = true;
         ppu.nmi_output = true;
         ppu.update_nmi_line();
         assert!(ppu.nmi);
 
-        ppu.tick(&mut mapper); // executes dot 3 → nmi_occurred cleared
+        ppu.tick(&mut mapper); // executes dot 1 → nmi_occurred cleared
         assert!(!ppu.nmi_occurred, "nmi_occurred should be cleared");
         assert!(!ppu.nmi);
     }
