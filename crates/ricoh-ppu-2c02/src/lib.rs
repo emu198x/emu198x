@@ -173,7 +173,23 @@ pub struct Ppu {
     /// dots in the current CPU cycle have run — preserving the
     /// 1-cycle delay for `$2000` writes.
     pending_nmi_output: Option<bool>,
+    /// Internal master clock counter at 4× PPU-dot resolution
+    /// (12 ticks per CPU cycle on NTSC). Incremented by
+    /// [`MASTER_CLOCK_DIVIDER`] each time [`tick`](Ppu::tick)
+    /// advances one PPU dot, giving the machine layer the
+    /// resolution it needs for Mesen-style start/end phase
+    /// splitting and the `_ppuOffset = 1` analog. See
+    /// `knowledge/decisions/nes-cpu-cycle-multi-phase.md`.
+    #[serde(default)]
+    ppu_clock: u64,
 }
+
+/// One PPU dot in internal master clock units. Mesen's NES uses
+/// `_masterClockDivider = 4` for the same reason: the CPU side
+/// counts master clocks at 12 per CPU cycle (5 / 7 split for
+/// reads, 7 / 5 for writes), giving sub-PPU-dot resolution for
+/// the start / end phase split.
+pub const MASTER_CLOCK_DIVIDER: u64 = 4;
 
 impl Ppu {
     #[must_use]
@@ -252,12 +268,33 @@ impl Ppu {
             bus_address: 0,
             prev_a12: false,
             pending_nmi_output: None,
+            ppu_clock: 0,
         }
     }
 
     // ════════════════════════════════════════════════════════════
     //  Tick — one PPU dot
     // ════════════════════════════════════════════════════════════
+
+    /// Internal master clock at 4× PPU-dot resolution. Useful for
+    /// the machine layer to compare against its own counter when
+    /// driving the PPU via [`run`](Ppu::run).
+    #[must_use]
+    pub fn ppu_clock(&self) -> u64 {
+        self.ppu_clock
+    }
+
+    /// Advance the PPU until its internal clock would step past
+    /// `target_master_clock`. Each iteration of the loop advances
+    /// one PPU dot ([`MASTER_CLOCK_DIVIDER`] internal master ticks).
+    /// Mirrors Mesen's `NesPpu::Run(runTo)` shape. The machine
+    /// calls this with `target = internal_master_clock - 1` to
+    /// realise the `_ppuOffset = 1` phase lag.
+    pub fn run(&mut self, mapper: &mut dyn Mapper, target_master_clock: u64) {
+        while self.ppu_clock + MASTER_CLOCK_DIVIDER <= target_master_clock {
+            self.tick(mapper);
+        }
+    }
 
     /// Advance the PPU by one dot.
     ///
@@ -301,7 +338,8 @@ impl Ppu {
         // 1-cycle commit delay for `$2001` writes.
         self.prev_rendering_enabled = self.rendering_enabled();
 
-        // Advance dot/scanline.
+        // Advance dot/scanline + internal master clock counter.
+        self.ppu_clock = self.ppu_clock.saturating_add(MASTER_CLOCK_DIVIDER);
         self.dot += 1;
         if self.dot > 340 {
             self.dot = 0;
