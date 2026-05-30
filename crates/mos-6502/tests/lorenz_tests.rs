@@ -38,6 +38,12 @@ struct LorenzHarness {
     mem: [u8; 0x10000],
     output: Vec<u8>,
     last_opcode_addr: u16,
+    /// External pin state for the 6510 zero-page port at `$0001`.
+    /// Updated only on writes to `$01` for bits where the DDR
+    /// (`$00`) is 1 — i.e. the CPU is actually driving the pin.
+    /// Reads compose this with pull-up / no-pin masks; see
+    /// [`Self::read_with_6510_port`].
+    pin_state_01: u8,
 }
 
 enum StepOutcome {
@@ -115,6 +121,7 @@ impl LorenzHarness {
             mem,
             output: Vec::new(),
             last_opcode_addr: 0x0000,
+            pin_state_01: 0x00,
         };
         harness.complete_reset();
         harness.cpu.regs.a = 0x00;
@@ -189,11 +196,56 @@ impl LorenzHarness {
 
     fn step_bus_only(&mut self) {
         if self.cpu.rw {
-            self.cpu.data_in = self.mem[self.cpu.addr as usize];
+            self.cpu.data_in = self.read_with_6510_port(self.cpu.addr);
         } else {
             self.mem[self.cpu.addr as usize] = self.cpu.data;
+            if self.cpu.addr == 0x0000 || self.cpu.addr == 0x0001 {
+                self.update_pin_state_01();
+            }
         }
         self.cpu.tick();
+    }
+
+    /// Recompute the external pin-state snapshot for `$0001`.
+    ///
+    /// For each bit where the DDR (`$0000`) is 1 the pin is being
+    /// driven by `mem[$0001]`, so we overlay that value onto
+    /// `pin_state_01`. For each bit where the DDR is 0 the pin is
+    /// floating; we leave `pin_state_01` untouched so it preserves
+    /// the last driven value (capacitor memory). Called after any
+    /// write to `$00` or `$01`.
+    fn update_pin_state_01(&mut self) {
+        let ddr = self.mem[0x0000];
+        let mem01 = self.mem[0x0001];
+        self.pin_state_01 = (self.pin_state_01 & !ddr) | (mem01 & ddr);
+    }
+
+    /// Read with 6510 zero-page-port semantics at `$0001`.
+    ///
+    /// Output bits (DDR=1) return the value the CPU last wrote
+    /// (which is what sits in memory). Input bits (DDR=0) compose:
+    /// pull-ups on bits 0-2 + 4 (LORAM, HIRAM, CHAREN, CASS_SENSE)
+    /// always read high once their capacitors decay (modelled as
+    /// instantaneous); bit 5 (CASS_MOTOR) has an external load that
+    /// drags it back to ground when no longer driven, so it reads
+    /// as a pull-down; bits 3, 6, 7 float and retain the last
+    /// driven value (capacitor memory tracked in `pin_state_01`,
+    /// kept in sync by [`Self::update_pin_state_01`]).
+    ///
+    /// That gives `$17` when the pins were last driven low and
+    /// `$DF` when they were last driven high — both patterns
+    /// Lorenz's `cpuport` test compares against.
+    fn read_with_6510_port(&self, addr: u16) -> u8 {
+        if addr == 0x0001 {
+            const PULL_UPS: u8 = 0x17;
+            const PULL_DOWNS: u8 = 0x20;
+            let ddr = self.mem[0x0000];
+            let written = self.mem[0x0001];
+            let pins = PULL_UPS | (self.pin_state_01 & !PULL_DOWNS);
+            (written & ddr) | (pins & !ddr)
+        } else {
+            self.mem[addr as usize]
+        }
     }
 
     fn petscii_output(&self) -> String {
@@ -525,8 +577,6 @@ fn find_c64_kernal_rom_path_for_report() -> std::path::PathBuf {
 /// through `trap15` — were moved out of this list to reflect
 /// actual behaviour.
 const KNOWN_HARDWARE_DEPENDENT: &[&str] = &[
-    // 6510 zero-page I/O port at $00/$01.
-    "cpuport",
     // CIA timer A / B internals + interaction.
     "cia1ta",
     "cia1tab",
