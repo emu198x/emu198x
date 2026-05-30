@@ -108,10 +108,10 @@ impl SettleHistory {
 }
 
 fn run_one(path: &Path) -> Result<Verdict, String> {
-    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-        if VISUAL_ROMS.iter().any(|v| *v == name) {
-            return Ok(Verdict::Visual);
-        }
+    if let Some(name) = path.file_name().and_then(|n| n.to_str())
+        && VISUAL_ROMS.contains(&name)
+    {
+        return Ok(Verdict::Visual);
     }
     let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
     let parsed = parse_ines(&bytes).map_err(|e| format!("parse: {e}"))?;
