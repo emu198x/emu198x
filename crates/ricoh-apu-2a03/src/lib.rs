@@ -761,6 +761,18 @@ impl Dmc {
         }
     }
 
+    /// Whether DMC playback is enabled via `$4015` bit 4.
+    #[must_use]
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Whether the DMC's per-sample IRQ is armed via `$4010` bit 7.
+    #[must_use]
+    pub fn irq_enabled(&self) -> bool {
+        self.irq_enabled
+    }
+
     /// Deliver a byte fetched by the DMA controller.
     pub fn receive_dma_byte(&mut self, byte: u8) {
         self.sample_buffer = byte;

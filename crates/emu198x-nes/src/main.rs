@@ -20,6 +20,7 @@
 //! selects headless script mode; otherwise the interactive UI runs.
 
 mod mcp;
+mod mcp_tools;
 mod script;
 
 #[cfg(feature = "ui")]

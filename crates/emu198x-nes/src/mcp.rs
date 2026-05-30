@@ -1,10 +1,17 @@
 //! MCP server mode — `--mcp`.
 //!
-//! Boots a blank NTSC NES session and exposes the shared machine-agnostic
-//! tool surface (run frames, query state, load media, snapshots, capture)
-//! over JSON-RPC stdio. The cartridge is loaded at runtime via the
-//! `load_media` tool, so the server starts without media — the client
-//! drives it the same way the `--script` path drives a JSON session.
+//! Boots a blank NTSC NES session and exposes:
+//! - the shared machine-agnostic tool surface (run frames /
+//!   ticks, query state, load media, snapshots, capture) via
+//!   `register_common_tools`, AND
+//! - the NES-specific debugging surface (`query_cpu`, `query_ppu`,
+//!   `query_apu`, `query_mapper`, `memory_read`, `dump_palette`,
+//!   `dump_oam`, `dump_nametable`, `step`, `run_until_pc`,
+//!   `run_until_mem_change`) via `register_nes_tools`.
+//!
+//! Cartridge is loaded at runtime via the `load_media` tool, so
+//! the server starts without media — the client drives it the
+//! same way the `--script` path drives a JSON session.
 
 use emu198x_shell::{
     HeadlessSession,
@@ -13,10 +20,13 @@ use emu198x_shell::{
 };
 use runtime_nintendo_nes::{Model, NesRuntime, NesSessionQueryProvider};
 
+use crate::mcp_tools::register_nes_tools;
+
 const NES_FRAME_TICKS: u64 = 341 * 262;
 
-/// Runs MCP mode: builds the blank session, registers the shared tools,
-/// and drives the stdio loop until stdin closes.
+/// Runs MCP mode. Builds the blank session, registers the shared
+/// and NES-specific tool surfaces, and drives the stdio loop
+/// until stdin closes.
 ///
 /// # Errors
 ///
@@ -28,6 +38,7 @@ pub fn run() -> Result<(), String> {
 
     let mut server = Server::new(ServerInfo::new("emu198x-nes", env!("CARGO_PKG_VERSION")));
     register_common_tools(server.registry_mut());
+    register_nes_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }
