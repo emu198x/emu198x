@@ -27,10 +27,32 @@ fn nes_test_roms_root() -> Option<PathBuf> {
 
 #[derive(Debug)]
 enum Verdict {
-    Pass { ticks: u64 },
-    Fail { code: u8, text: String, ticks: u64 },
+    Pass {
+        ticks: u64,
+    },
+    Fail {
+        code: u8,
+        text: String,
+        ticks: u64,
+    },
     Timeout,
+    /// Visual demo with no programmatic result protocol — it draws
+    /// to the screen for human inspection. Counted separately so
+    /// it doesn't pollute the fail / timeout counts.
+    Visual,
 }
+
+/// ROM filenames that are visual demos (no programmatic result
+/// channel). Matched on the leaf filename only; any test ROM
+/// with one of these names is graded as `Verdict::Visual`.
+const VISUAL_ROMS: &[&str] = &[
+    "demo_ntsc.nes",
+    "demo_pal.nes",
+    "flowing_palette.nes",
+    "full_palette.nes",
+    "full_palette_smooth.nes",
+    "dpcmletterbox.nes",
+];
 
 /// Delay between observing the `$81` "needs reset" status and
 /// actually performing the soft reset. blargg's apu_reset tests
@@ -86,6 +108,11 @@ impl SettleHistory {
 }
 
 fn run_one(path: &Path) -> Result<Verdict, String> {
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if VISUAL_ROMS.iter().any(|v| *v == name) {
+            return Ok(Verdict::Visual);
+        }
+    }
     let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
     let parsed = parse_ines(&bytes).map_err(|e| format!("parse: {e}"))?;
     let mut nes = Nes::new(parsed.mapper);
@@ -237,6 +264,7 @@ fn sweep() {
     let mut failed = 0u32;
     let mut timed_out = 0u32;
     let mut paniced = 0u32;
+    let mut visual = 0u32;
 
     for dir_name in SWEEP_DIRS {
         let dir_path = root.join(dir_name);
@@ -269,6 +297,10 @@ fn sweep() {
                     timed_out += 1;
                     eprintln!("  ---T---  {label:<32} (no $6000 result in {MAX_TICKS} ticks)");
                 }
+                Ok(Ok(Verdict::Visual)) => {
+                    visual += 1;
+                    eprintln!("  VISUAL   {label:<32} (visual demo — no result protocol)");
+                }
                 Ok(Err(e)) => {
                     paniced += 1;
                     eprintln!("  ERROR    {label:<32} — {e}");
@@ -283,6 +315,6 @@ fn sweep() {
 
     eprintln!("\n=== SWEEP SUMMARY ===");
     eprintln!(
-        "Total: {total}  Pass: {passed}  Fail: {failed}  Timeout: {timed_out}  Panic/load: {paniced}"
+        "Total: {total}  Pass: {passed}  Fail: {failed}  Timeout: {timed_out}  Visual: {visual}  Panic/load: {paniced}"
     );
 }
