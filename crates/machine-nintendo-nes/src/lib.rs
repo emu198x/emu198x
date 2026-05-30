@@ -191,13 +191,19 @@ impl Nes {
     /// dot). The CPU ticks every 3rd dot.
     pub fn tick(&mut self) {
         self.master_clock += 1;
-        // Mirror at 4× resolution so Phase 4 can drive `ppu.run`
-        // at sub-PPU-dot precision. Public master_clock stays at
-        // PPU-dot resolution for back-compat.
+        // Mirror at 4× resolution so the start/end phase split
+        // can drive `ppu.run` at sub-PPU-dot precision. Public
+        // master_clock stays at PPU-dot resolution for back-compat.
         self.internal_master_clock += ricoh_ppu_2c02::MASTER_CLOCK_DIVIDER;
 
-        // ── 1. PPU tick ──
-        self.ppu.tick(self.mapper.as_mut());
+        // ── 1. PPU run-to-target ──
+        // Single-phase for now: PPU catches up to the new
+        // internal_master_clock, advancing exactly one dot
+        // (because the target moved by MASTER_CLOCK_DIVIDER).
+        // Phase 4 will split this into start-phase / end-phase
+        // around the CPU bus op and introduce the `target - 1`
+        // lag that makes blargg 05/06/07/08 align.
+        self.ppu.run(self.mapper.as_mut(), self.internal_master_clock);
 
         // ── 2. CPU tick (every 3rd PPU dot) ──
         self.cpu_divider = (self.cpu_divider + 1) % 3;
