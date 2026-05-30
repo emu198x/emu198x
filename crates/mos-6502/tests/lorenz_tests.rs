@@ -509,57 +509,47 @@ fn find_c64_kernal_rom_path_for_report() -> std::path::PathBuf {
 //        lorenz_sweep -- --ignored --nocapture
 // ════════════════════════════════════════════════════════════════
 
-/// Lorenz cases that fundamentally need a real C64 machine — CIA
-/// chips, VIC raster IRQs, the 6510 zero-page I/O port, NMI/IRQ
-/// gating, KERNAL load-from-tape traps. Skipping them rather than
-/// timing-out keeps the sweep summary honest: the CPU side of the
-/// emulator passes 100 % of the Lorenz CPU subset; the rest is a
-/// full-machine concern.
+/// Lorenz cases that fundamentally need a real C64 machine. Each
+/// entry was empirically verified to FAIL in the CPU-only +
+/// KERNAL-trap harness and PASS in a real C64 (per Lorenz's
+/// published expected results).
+///
+/// The categories below are the natural sub-tasks for any future
+/// "make the C64 machine cycle-accurate" session: each name calls
+/// out exactly which feature it probes.
+///
+/// Tests previously assumed-hardware that turned out to run fine
+/// in the CPU harness — `branchwrap`, `cntdef`, `cnto2`, `flipos`,
+/// `icr01`, `imr`, `oneshot`, `loadth`, `cia1pb6` / `cia1pb7` /
+/// `cia2pb6` / `cia2pb7` (CIA port-bit static reads), `trap1`
+/// through `trap15` — were moved out of this list to reflect
+/// actual behaviour.
 const KNOWN_HARDWARE_DEPENDENT: &[&str] = &[
-    "branchwrap",
-    "cia1pb6",
-    "cia1pb7",
+    // 6510 zero-page I/O port at $00/$01.
+    "cpuport",
+    // CIA timer A / B internals + interaction.
     "cia1ta",
     "cia1tab",
     "cia1tb",
     "cia1tb123",
-    "cia2pb6",
-    "cia2pb7",
     "cia2ta",
     "cia2tb",
     "cia2tb123",
-    "cntdef",
-    "cnto2",
-    "cpuport",
-    "cputiming",
-    "flipos",
-    "icr01",
-    "imr",
+    // CPU-side IRQ / NMI gating, NMI taken-priority-over-IRQ.
     "irq",
-    "loadth",
+    "nmi",
+    // CPU bus timing variants the CPU-only harness can't measure.
+    "cputiming",
+    // 6510 MMU / banking — the harness has a flat memory map.
     "mmu",
     "mmufetch",
-    "nmi",
-    "oneshot",
-    "trap1",
-    "trap2",
-    "trap3",
-    "trap4",
-    "trap5",
-    "trap6",
-    "trap7",
-    "trap8",
-    "trap9",
-    "trap10",
-    "trap11",
-    "trap12",
-    "trap13",
-    "trap14",
-    "trap15",
+    // Last two of the 17 KERNAL load-trap variants exercise
+    // tape-side timing the harness can't simulate.
     "trap16",
     "trap17",
-    // Lorenz's `finish` is a final synthesizer, not a probe; the
-    // CPU harness can't drive it meaningfully.
+    // Lorenz's `finish` is a final synthesizer that drives the
+    // KERNAL screen-clear routine; the CPU harness can't carry it
+    // through.
     "finish",
 ];
 
@@ -656,5 +646,4 @@ fn lorenz_sweep() {
             eprintln!("  {failure}");
         }
     }
-
 }
