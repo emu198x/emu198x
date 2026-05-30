@@ -104,6 +104,18 @@ fn try_nametable_protocol(nes: &Nes) -> Option<Verdict> {
             ticks: nes.master_clock(),
         });
     }
+    // blargg_nes_cpu_test5/official.nes is a BUILD_MULTI build —
+    // it prints "All tests complete" regardless of per-test
+    // pass/fail and stores the final result code at $00FF. 0xFF
+    // is the sentinel set whenever any sub-test fails. See
+    // docs/handoffs/2026-05-30-nes-official-cpu-test5-investigation.md.
+    if find_ascii(nt, b"All tests complete") && nes.peek(0x00FF) == 0xFF {
+        return Some(Verdict::Fail {
+            code: 0xFF,
+            text: "blargg multi-test variant: $00FF == 0xFF (sub-test failed)".into(),
+            ticks: nes.master_clock(),
+        });
+    }
     None
 }
 
