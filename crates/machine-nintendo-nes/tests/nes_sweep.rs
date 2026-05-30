@@ -29,14 +29,23 @@ enum Verdict {
     Timeout,
 }
 
+/// Delay between observing the `$81` "needs reset" status and
+/// actually performing the soft reset. blargg's apu_reset tests
+/// require ≥ 100 ms; at ~5.37 MHz master clock that's ~537 000
+/// master ticks. We use 600 000 to stay comfortably above the
+/// minimum.
+const RESET_DELAY_TICKS: u64 = 600_000;
+
 fn run_one(path: &Path) -> Result<Verdict, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
     let parsed = parse_ines(&bytes).map_err(|e| format!("parse: {e}"))?;
     let mut nes = Nes::new(parsed.mapper);
 
     let mut signature_seen = false;
-    for _ in 0..MAX_TICKS {
+    let mut tick_count: u64 = 0;
+    while tick_count < MAX_TICKS {
         nes.tick();
+        tick_count += 1;
         if !signature_seen
             && nes.peek(0x6001) == 0xDE
             && nes.peek(0x6002) == 0xB0
@@ -46,6 +55,18 @@ fn run_one(path: &Path) -> Result<Verdict, String> {
         }
         if signature_seen {
             let status = nes.peek(0x6000);
+            if status == 0x81 {
+                // Test is waiting for a soft reset. Let it settle
+                // for the required ≥ 100 ms, then press the reset
+                // button and keep running. The test continues
+                // with its post-reset sub-test.
+                for _ in 0..RESET_DELAY_TICKS {
+                    nes.tick();
+                    tick_count += 1;
+                }
+                nes.soft_reset();
+                continue;
+            }
             if status != 0x80 {
                 if status == 0 {
                     return Ok(Verdict::Pass {

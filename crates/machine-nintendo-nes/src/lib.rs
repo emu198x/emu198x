@@ -183,6 +183,25 @@ impl Nes {
         }
     }
 
+    /// Soft reset — equivalent to pressing the reset button on the
+    /// Famicom / NES front panel. The CPU is reset (refetches the
+    /// reset vector at `$FFFC`/`$FFFD`, sets I, decrements SP by 3,
+    /// 7-cycle reset sequence on the next tick). The APU has reset
+    /// quirks (`$4015` cleared, `$4017` rewritten with last value
+    /// rather than `$00`, IRQ flag cleared, length counters
+    /// unaffected on triangle) which are not yet modelled in this
+    /// minimal stub — `apu.soft_reset()` will land in a follow-up.
+    /// The PPU and mapper are NOT reset (matches real hardware).
+    ///
+    /// Required by blargg `apu_reset/*` tests which write the `$81`
+    /// status code at `$6000` to signal "press reset button now."
+    pub fn soft_reset(&mut self) {
+        self.cpu.reset();
+        // DMA / DMC state is dropped on reset.
+        self.dma_cycles_remaining = 0;
+        self.dma_alignment_done = false;
+    }
+
     // ════════════════════════════════════════════════════════════
     //  Master-clock tick
     // ════════════════════════════════════════════════════════════
