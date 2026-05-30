@@ -57,6 +57,22 @@ const VISUAL_ROMS: &[&str] = &[
     "full_palette.nes",
     "full_palette_smooth.nes",
     "dpcmletterbox.nes",
+    // blargg's dmc_tests + the read-side variants of
+    // dmc_dma_during_read4 — these probe audio-side behaviour
+    // (DMC IRQ timing, DMA-during-`$2007`/`$4016`-read collisions)
+    // that the test framework can't reduce to a `$6000` result;
+    // they never print "Passed" / "Failed" tokens, so the
+    // multi-protocol grader gets no signal and times out.
+    // The write-side variants (`dma_2007_write.nes`,
+    // `read_write_2007.nes`) DO emit nametable text on the
+    // observable cases and stay graded normally.
+    "buffer_retained.nes",
+    "latency.nes",
+    "status.nes",
+    "status_irq.nes",
+    "dma_2007_read.nes",
+    "dma_4016_read.nes",
+    "double_2007_read.nes",
 ];
 
 /// Delay between observing the `$81` "needs reset" status and
