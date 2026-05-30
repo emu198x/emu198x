@@ -56,6 +56,13 @@ pub struct M6502 {
     /// poll, so only the genuinely-non-page-crossing case drops the
     /// last-cycle IRQ as intended.
     pub(crate) branch_irq_suppress: bool,
+    /// One-shot flag set at the end of `tick_brk` so the next
+    /// `poll_nmi_edge` skips re-staging `prev_pending_nmi`. Without
+    /// this, an NMI still pending at the end of BRK/IRQ would
+    /// immediately re-vector before the first handler instruction
+    /// could run. Mirrors Mesen's `_prevNeedNmi = false` at the
+    /// end of BRK (blargg `cpu_interrupts_v2/2-nmi_and_brk`).
+    pub(crate) suppress_prev_nmi_stage: bool,
 }
 
 impl M6502 {
@@ -93,6 +100,7 @@ impl M6502 {
             pending_nmi: false,
             prev_pending_nmi: false,
             branch_irq_suppress: false,
+            suppress_prev_nmi_stage: false,
         }
     }
 
@@ -128,6 +136,7 @@ impl M6502 {
         self.pending_nmi = false;
         self.prev_pending_nmi = false;
         self.branch_irq_suppress = false;
+        self.suppress_prev_nmi_stage = false;
     }
 
     #[must_use]

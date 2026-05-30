@@ -181,7 +181,16 @@ impl M6502 {
     /// edge by one instruction instead of dropping it. `pending_nmi`
     /// is the FF: once set by an edge it stays set until serviced.
     fn poll_nmi_edge(&mut self) {
-        self.prev_pending_nmi = self.pending_nmi;
+        // The one-shot suppression is set at the end of `tick_brk`
+        // so a still-pending NMI cannot immediately re-vector before
+        // the first handler instruction runs. Edge detection continues
+        // normally; only the `prev_pending_nmi` staging is skipped for
+        // exactly one cycle.
+        if self.suppress_prev_nmi_stage {
+            self.suppress_prev_nmi_stage = false;
+        } else {
+            self.prev_pending_nmi = self.pending_nmi;
+        }
         if self.nmi && !self.nmi_prev {
             self.pending_nmi = true;
         }
@@ -586,7 +595,23 @@ impl M6502 {
                 self.regs.sp = self.regs.sp.wrapping_sub(1);
                 self.regs.set_flag(FLAG_I, true);
                 self.cs.cycle = 5;
-                self.schedule_read(if is_nmi { 0xFFFA } else { 0xFFFE });
+                // NMI hijack: an NMI edge detected during BRK's
+                // earlier cycles overrides the vector address — the
+                // CPU loads $FFFA instead of $FFFE — but the P value
+                // already pushed at cycle 3 keeps its B-bit (set for
+                // software BRK, clear for IRQ). Mirrors Mesen's
+                // `if(_needNmi)` check inside BRK(). Tests:
+                // blargg `cpu_interrupts_v2/2-nmi_and_brk` (software
+                // BRK hijacked) and `/3-nmi_and_irq` (IRQ hijacked).
+                if !is_nmi && self.pending_nmi {
+                    self.pending_nmi = false;
+                    // Promote to NMI for cycles 5/6 vector picks. The
+                    // cs.data distinction is only consulted after
+                    // cycle 3, so flipping it here cannot change the
+                    // already-pushed P flags.
+                    self.cs.data = 1;
+                }
+                self.schedule_read(if self.cs.data == 1 { 0xFFFA } else { 0xFFFE });
                 false
             }
             5 => {
@@ -598,6 +623,17 @@ impl M6502 {
             6 => {
                 self.cs.addr |= (self.data_in as u16) << 8;
                 self.regs.pc = self.cs.addr;
+                // After ANY interrupt-vectoring instruction (NMI,
+                // IRQ, software BRK — hijacked or not), the first
+                // instruction of the handler must run before the
+                // boundary check can re-vector NMI. Mirrors Mesen's
+                // `_prevNeedNmi = false` at the end of BRK. The
+                // companion `suppress_prev_nmi_stage` flag prevents
+                // our end-of-cycle `poll_nmi_edge` from re-staging
+                // `prev_pending_nmi` from a still-pending NMI before
+                // the next boundary check sees this cleared value.
+                self.prev_pending_nmi = false;
+                self.suppress_prev_nmi_stage = true;
                 true
             }
             _ => true,
