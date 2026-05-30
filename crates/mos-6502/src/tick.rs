@@ -925,6 +925,15 @@ impl M6502 {
                 self.regs.set_nz(self.regs.a);
             }
             Operation::Lxa => {
+                // LXA (`$AB`, also known as ATX) is silicon-batch
+                // dependent — the magic constant differs across
+                // emulator references. Tom Harte's `ab.json`
+                // (~10000 randomised cases per opcode) expects
+                // the `(A | 0xEE) & data` model; Mesen models it
+                // as a stable `data → A,X` with no magic. The two
+                // give different CRC for blargg's
+                // `instr_test/02-immediate` ATX subtest, but Tom
+                // Harte is the more rigorous corpus — keep magic.
                 let result = (self.regs.a | Self::LXA_MAGIC) & data;
                 self.regs.a = result;
                 self.regs.x = result;
