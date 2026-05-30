@@ -17,6 +17,11 @@ use std::path::{Path, PathBuf};
 /// apu_reset / cpu_interrupts_v2 sub-tests can take ~40-50 s when
 /// they include 100-ms reset-button delays as part of the test
 /// sequence.
+///
+/// 250M was tried — no extra tests flipped, because the remaining
+/// 10 timeouts are stuck in tight infinite loops (DMC waiting on
+/// DMA that doesn't fire, official.nes spinning at $8003-$8005)
+/// rather than just slow. Time bumps don't help.
 const MAX_TICKS: u64 = 150_000_000;
 
 fn nes_test_roms_root() -> Option<PathBuf> {
