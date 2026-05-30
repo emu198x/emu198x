@@ -11,10 +11,13 @@ use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
 use std::path::{Path, PathBuf};
 
-/// Per-ROM master-clock ceiling. 80M ≈ 27 s emulated — generous for
-/// every blargg CPU/APU test we've seen except `oam_stress`, which
-/// already has its own harness with a higher cap.
-const MAX_TICKS: u64 = 80_000_000;
+/// Per-ROM master-clock ceiling. 150M ≈ 51 s emulated — generous
+/// for every blargg CPU/APU test we've seen except `oam_stress`,
+/// which already has its own harness with a higher cap. The
+/// apu_reset / cpu_interrupts_v2 sub-tests can take ~40-50 s when
+/// they include 100-ms reset-button delays as part of the test
+/// sequence.
+const MAX_TICKS: u64 = 150_000_000;
 
 fn nes_test_roms_root() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;

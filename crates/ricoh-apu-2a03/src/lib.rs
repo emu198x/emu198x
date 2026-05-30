@@ -847,6 +847,11 @@ pub struct Apu {
     frame_step: u8,
     frame_irq_inhibit: bool,
     frame_irq_flag: bool,
+    /// Last value written to `$4017`. Captured so [`soft_reset`]
+    /// can rewrite it (real silicon rewrites the last value on
+    /// reset, not `$00` as at power-on — blargg `4017_written`).
+    #[serde(default)]
+    last_4017: u8,
 
     /// CPU cycle parity: true on odd CPU cycles (pulse/noise tick on even).
     odd_cycle: bool,
@@ -952,6 +957,7 @@ impl Apu {
             frame_step: 0,
             frame_irq_inhibit: false,
             frame_irq_flag: false,
+            last_4017: 0,
             odd_cycle: false,
             frame_counter_pending: None,
             frame_reset_countdown: 0,
@@ -978,6 +984,26 @@ impl Apu {
             hp_prev_out: 0.0,
             expansion_audio: 0.0,
         }
+    }
+
+    /// Soft reset — pressing the front-panel reset button.
+    ///
+    /// Per blargg `apu_reset/*`: `$4015` is cleared (channels off,
+    /// DMC IRQ cleared), the frame IRQ flag is cleared, and the
+    /// last value written to `$4017` is re-applied (so the frame
+    /// counter mode is preserved — distinct from power-on, which
+    /// behaves as if `$00` were written to `$4017`). The triangle
+    /// length counter is unaffected — disable+re-enable would
+    /// silence it; explicit re-write of `$4015` by the test ROM
+    /// chooses what re-enables.
+    pub fn soft_reset(&mut self) {
+        // $4015 := 0 — channels off, DMC IRQ clear.
+        self.write(0x4015, 0);
+        // Re-apply last $4017 (preserves mode + irq-inhibit).
+        let last = self.last_4017;
+        self.write(0x4017, last);
+        // Frame IRQ flag clears on reset.
+        self.frame_irq_flag = false;
     }
 
     /// Reattach the `&'static` region-dependent timing tables after a
@@ -1217,6 +1243,7 @@ impl Apu {
             // and mode change happen 1 cycle apart on even vs odd writes.
             // Only the IRQ inhibit flag clears immediately.
             0x4017 => {
+                self.last_4017 = value;
                 // IRQ-inhibit clears immediately
                 if value & 0x40 != 0 {
                     self.frame_irq_flag = false;
