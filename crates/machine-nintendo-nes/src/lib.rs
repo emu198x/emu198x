@@ -62,6 +62,8 @@ pub struct NesSnapshot {
     ram: [u8; 2048],
     cpu_divider: u8,
     master_clock: u64,
+    #[serde(default)]
+    internal_master_clock: u64,
     frame_count: u64,
     dma_cycles_remaining: u16,
     dma_page: u8,
@@ -101,6 +103,17 @@ pub struct Nes {
 
     /// Master clock: PPU dots since construction.
     master_clock: u64,
+
+    /// Internal master clock at 4× PPU-dot resolution (12 ticks
+    /// per NTSC CPU cycle). The PPU side mirrors this via
+    /// `ppu.ppu_clock()`. Private to the machine layer; the
+    /// public [`master_clock()`](Self::master_clock) accessor
+    /// keeps the PPU-dot resolution contract for existing test
+    /// harnesses and the runtime / MCP layer. The 4× counter is
+    /// what Phase 4 of the multi-phase refactor uses to drive
+    /// `ppu.run(target - 1)` at start and end of each CPU cycle.
+    /// See `docs/plans/2026-05-30-refactor-nes-cpu-cycle-multi-phase-plan.md`.
+    internal_master_clock: u64,
 
     /// Completed frame counter.
     frame_count: u64,
@@ -156,6 +169,7 @@ impl Nes {
             ram: [0; 2048],
             cpu_divider: 0,
             master_clock: 0,
+            internal_master_clock: 0,
             frame_count: 0,
             dma_cycles_remaining: 0,
             dma_page: 0,
@@ -177,6 +191,10 @@ impl Nes {
     /// dot). The CPU ticks every 3rd dot.
     pub fn tick(&mut self) {
         self.master_clock += 1;
+        // Mirror at 4× resolution so Phase 4 can drive `ppu.run`
+        // at sub-PPU-dot precision. Public master_clock stays at
+        // PPU-dot resolution for back-compat.
+        self.internal_master_clock += ricoh_ppu_2c02::MASTER_CLOCK_DIVIDER;
 
         // ── 1. PPU tick ──
         self.ppu.tick(self.mapper.as_mut());
@@ -464,6 +482,7 @@ impl Nes {
             ram: self.ram,
             cpu_divider: self.cpu_divider,
             master_clock: self.master_clock,
+            internal_master_clock: self.internal_master_clock,
             frame_count: self.frame_count,
             dma_cycles_remaining: self.dma_cycles_remaining,
             dma_page: self.dma_page,
@@ -491,6 +510,7 @@ impl Nes {
         self.ram = snapshot.ram;
         self.cpu_divider = snapshot.cpu_divider;
         self.master_clock = snapshot.master_clock;
+        self.internal_master_clock = snapshot.internal_master_clock;
         self.frame_count = snapshot.frame_count;
         self.dma_cycles_remaining = snapshot.dma_cycles_remaining;
         self.dma_page = snapshot.dma_page;
@@ -517,6 +537,7 @@ impl Nes {
             ram: snapshot.ram,
             cpu_divider: snapshot.cpu_divider,
             master_clock: snapshot.master_clock,
+            internal_master_clock: snapshot.internal_master_clock,
             frame_count: snapshot.frame_count,
             dma_cycles_remaining: snapshot.dma_cycles_remaining,
             dma_page: snapshot.dma_page,
