@@ -486,3 +486,175 @@ fn run_lorenz_6502_cpu_suite() {
 fn find_c64_kernal_rom_path_for_report() -> std::path::PathBuf {
     find_c64_kernal_rom().expect("local C64 KERNAL ROM should be available")
 }
+
+// ════════════════════════════════════════════════════════════════
+//  Lorenz sweep — `nes_sweep`-style coverage over the ENTIRE Lorenz
+//  suite, not just the curated CPU subset.
+//
+//  Each test in the suite directory is run through the same
+//  KERNAL-trap harness and categorised:
+//
+//    PASS    — Reached `TRAP_SUCCESS`.
+//    FAIL    — Reached a fail trap, hit a JAM, or printed an
+//              explicit `*** FAIL` body.
+//    SKIP    — Requires a feature the CPU-only harness doesn't
+//              model (CIA timer IRQs, raster interrupts, NMI/IRQ
+//              gating, MMU/zero-page port quirks). Listed
+//              explicitly in `KNOWN_HARDWARE_DEPENDENT` so the
+//              sweep number reflects "what the CPU passes" rather
+//              than "what blargg-style ROMs we can hand-grade."
+//
+//  Run with:
+//    cargo test --release -p mos-6502 --test lorenz_tests \
+//        lorenz_sweep -- --ignored --nocapture
+// ════════════════════════════════════════════════════════════════
+
+/// Lorenz cases that fundamentally need a real C64 machine — CIA
+/// chips, VIC raster IRQs, the 6510 zero-page I/O port, NMI/IRQ
+/// gating, KERNAL load-from-tape traps. Skipping them rather than
+/// timing-out keeps the sweep summary honest: the CPU side of the
+/// emulator passes 100 % of the Lorenz CPU subset; the rest is a
+/// full-machine concern.
+const KNOWN_HARDWARE_DEPENDENT: &[&str] = &[
+    "branchwrap",
+    "cia1pb6",
+    "cia1pb7",
+    "cia1ta",
+    "cia1tab",
+    "cia1tb",
+    "cia1tb123",
+    "cia2pb6",
+    "cia2pb7",
+    "cia2ta",
+    "cia2tb",
+    "cia2tb123",
+    "cntdef",
+    "cnto2",
+    "cpuport",
+    "cputiming",
+    "flipos",
+    "icr01",
+    "imr",
+    "irq",
+    "loadth",
+    "mmu",
+    "mmufetch",
+    "nmi",
+    "oneshot",
+    "trap1",
+    "trap2",
+    "trap3",
+    "trap4",
+    "trap5",
+    "trap6",
+    "trap7",
+    "trap8",
+    "trap9",
+    "trap10",
+    "trap11",
+    "trap12",
+    "trap13",
+    "trap14",
+    "trap15",
+    "trap16",
+    "trap17",
+    // Lorenz's `finish` is a final synthesizer, not a probe; the
+    // CPU harness can't drive it meaningfully.
+    "finish",
+];
+
+#[test]
+#[ignore = "long survey; run with --release --ignored --nocapture"]
+fn lorenz_sweep() {
+    let suite_dir = match find_lorenz_6502_dir() {
+        Ok(d) => d,
+        Err(message) => {
+            eprintln!("Wolfgang Lorenz suite not found; skipping sweep: {message}");
+            return;
+        }
+    };
+    let kernal = match load_kernal_rom() {
+        Ok(k) => k,
+        Err(message) => {
+            eprintln!("C64 KERNAL ROM not found; skipping sweep: {message}");
+            return;
+        }
+    };
+
+    eprintln!("=== Wolfgang Lorenz 6502 Sweep ===");
+    eprintln!("Suite root: {}", suite_dir.display());
+
+    let mut entries: Vec<String> = match fs::read_dir(&suite_dir) {
+        Ok(rd) => rd
+            .flatten()
+            .filter_map(|e| {
+                let p = e.path();
+                if p.is_file() {
+                    p.file_name().and_then(|n| n.to_str()).map(String::from)
+                } else {
+                    None
+                }
+            })
+            .filter(|name| !name.starts_with('.'))
+            .filter(|name| !name.ends_with(".md"))
+            .filter(|name| !name.ends_with(".txt"))
+            .filter(|name| !name.ends_with(".swift"))
+            .collect(),
+        Err(err) => {
+            eprintln!("read_dir failed: {err}");
+            return;
+        }
+    };
+    entries.sort();
+
+    let total = entries.len();
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+    let mut skipped = 0usize;
+    let mut first_failures: Vec<String> = Vec::new();
+
+    for name in &entries {
+        let label = name.as_str();
+        // Lorenz includes one file literally called " start"
+        // (leading space) as the suite preamble. Preserve the
+        // raw filename for `run_case`; only trim for the
+        // hardware-dependent skip-list lookup.
+        if KNOWN_HARDWARE_DEPENDENT.contains(&label.trim()) {
+            skipped += 1;
+            eprintln!("  SKIP    {label:<24} (hardware-dependent — needs full C64 machine)");
+            continue;
+        }
+        match run_case(label, &kernal) {
+            Ok(cycles) => {
+                passed += 1;
+                eprintln!("  PASS    {label:<24} ({cycles} cycles)");
+            }
+            Err(message) => {
+                failed += 1;
+                let trimmed: String = message
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .chars()
+                    .take(80)
+                    .collect();
+                eprintln!("  FAIL    {label:<24} — {trimmed}");
+                if first_failures.len() < 16 {
+                    first_failures.push(format!("FAIL {label}: {message}"));
+                }
+            }
+        }
+    }
+
+    eprintln!("\n=== LORENZ SWEEP SUMMARY ===");
+    eprintln!(
+        "Total: {total}  Pass: {passed}  Fail: {failed}  Skip (hardware-dependent): {skipped}"
+    );
+    if !first_failures.is_empty() {
+        eprintln!("\nFirst failures:");
+        for failure in &first_failures {
+            eprintln!("  {failure}");
+        }
+    }
+
+}

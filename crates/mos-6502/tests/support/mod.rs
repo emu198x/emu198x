@@ -17,6 +17,9 @@ pub fn find_lorenz_6502_dir() -> Result<PathBuf, String> {
 
     candidates.push(repo_root.join("test-data/commodore/c64/lorenz"));
     candidates.push(home_projects_path(
+        "198x/assets/commodore/c64/lorenz/Wolfgang Lorenz 6502 test suite",
+    ));
+    candidates.push(home_projects_path(
         "Emu198x-Unclean/Reference/commodore/c64/lorenz/Wolfgang Lorenz 6502 test suite",
     ));
     candidates.push(home_projects_path(
@@ -29,6 +32,9 @@ pub fn find_lorenz_6502_dir() -> Result<PathBuf, String> {
             LORENZ_6502_DIR_ENV,
             &[
                 repo_root.join("test-data/commodore/c64/lorenz"),
+                home_projects_path(
+                    "198x/assets/commodore/c64/lorenz/Wolfgang Lorenz 6502 test suite",
+                ),
                 home_projects_path(
                     "Emu198x-Unclean/Reference/commodore/c64/lorenz/Wolfgang Lorenz 6502 test suite",
                 ),
