@@ -181,12 +181,21 @@ mod tests {
     fn power_on_state() {
         let cpu = M6502::new();
         assert_eq!(cpu.regs.a, 0);
-        assert_eq!(cpu.regs.sp, 0xFD);
+        // Cold-boot SP is modelled as $00; the canonical $FD is the
+        // post-reset value (see [`Registers::new`] and [`Self::reset`]).
+        assert_eq!(cpu.regs.sp, 0x00);
         assert!(cpu.regs.interrupt_disable());
         assert_eq!(cpu.total_cycles, 0);
         assert!(!cpu.halted);
         assert!(cpu.rdy);
         assert!(cpu.instruction_complete());
+    }
+
+    #[test]
+    fn post_reset_sp_is_fd() {
+        let mut cpu = M6502::new();
+        cpu.reset();
+        assert_eq!(cpu.regs.sp, 0xFD);
     }
 
     #[test]

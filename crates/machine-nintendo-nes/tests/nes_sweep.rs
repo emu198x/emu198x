@@ -211,6 +211,18 @@ fn run_one(path: &Path) -> Result<Verdict, String> {
                     tick_count += 1;
                 }
                 nes.soft_reset();
+                // RAM is preserved through soft reset, so $6000 is
+                // still $81 until the test code overwrites it.
+                // Tick until that happens (bounded by a budget) so
+                // we don't immediately re-enter this branch and
+                // reset mid-sequence — every extra reset decrements
+                // SP by 3 and breaks the test's reset-state CRC.
+                let cooldown_budget: u64 = 2_000_000;
+                let cooldown_end = tick_count + cooldown_budget;
+                while tick_count < cooldown_end && nes.peek(0x6000) == 0x81 {
+                    nes.tick();
+                    tick_count += 1;
+                }
                 continue;
             }
             if status != 0x80 {

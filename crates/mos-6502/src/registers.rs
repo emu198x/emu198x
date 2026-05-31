@@ -20,13 +20,23 @@ pub const FLAG_V: u8 = 0x40;
 pub const FLAG_N: u8 = 0x80;
 
 impl Registers {
+    /// Construct a freshly-powered Registers in the cold-boot state.
+    ///
+    /// On real silicon the stack pointer is undefined at power-on
+    /// (the bits start at whatever the SRAM cells decay to). It
+    /// becomes `$FD` *after* the 7-cycle reset sequence runs and
+    /// decrements SP by 3 from its starting value. We model that
+    /// undefined state as `$00` here so that
+    /// [`M6502::reset`](crate::M6502::reset)'s `wrapping_sub(3)`
+    /// produces the canonical post-reset `$FD` — the value blargg's
+    /// `cpu_reset/registers` CRC expects to see at power.
     #[must_use]
     pub fn new() -> Self {
         Self {
             a: 0,
             x: 0,
             y: 0,
-            sp: 0xFD,
+            sp: 0x00,
             pc: 0,
             p: FLAG_U | FLAG_I,
         }
@@ -97,7 +107,9 @@ mod tests {
         assert_eq!(registers.a, 0);
         assert_eq!(registers.x, 0);
         assert_eq!(registers.y, 0);
-        assert_eq!(registers.sp, 0xFD);
+        // Cold-boot SP is modelled as $00; the 7-cycle reset
+        // sequence then decrements by 3 to the canonical $FD.
+        assert_eq!(registers.sp, 0x00);
         assert!(registers.flag(FLAG_U));
         assert!(registers.interrupt_disable());
     }
