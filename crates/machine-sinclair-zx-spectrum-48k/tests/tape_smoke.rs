@@ -1,18 +1,23 @@
-//! Smoke tests for ULA / contention / timing TAPs that ship with
-//! Spectron and Mark Woodmass's Super HALT Invaders set.
+//! Golden-screenshot tests for the ULA / contention / timing TAPs
+//! that ship with Spectron and Mark Woodmass's Super HALT Invaders
+//! set.
 //!
 //! Each test loads its TAP via the cycle-accurate tape pipeline
-//! (boot, type `LOAD ""`, play tape, run until quiescent), saves a
-//! framebuffer screenshot under `$TMPDIR`, and asserts the screen
-//! has rendered enough non-zero content to constitute "test ran
-//! to completion." This is a deliberately weak signal — it catches
-//! crashes, boot regressions, tape-loader breakage, and the load
-//! chain itself, but not finer-grained timing correctness.
+//! (boot, type `LOAD ""`, play tape, run to quiescent), encodes the
+//! resulting 352×296 paletted framebuffer through `SPECTRUM_PALETTE`
+//! as a 16-colour indexed PNG, and either writes it as a new golden
+//! (when `UPDATE_GOLDENS=1` is set or the golden is missing) or
+//! compares decoded bytes against the checked-in golden in
+//! `tests/goldens/`. Same shape as `runtime-sinclair-zx-spectrum`'s
+//! `goldens.rs` for the boot screens.
 //!
-//! Strict per-test PNG comparison against Spectron's
-//! `tests/Results/<name>_48.png` references is a follow-up; the
-//! reference PNGs live at
-//! `~/Projects/198x/emulators/zx-spectrum/Spectron/tests/Results/`.
+//! Strict byte-equal comparison against Spectron's
+//! `tests/Results/<name>_48.png` references is impractical (Spectron
+//! renders at 1224×968 with border + scaling), but locking our own
+//! goldens still gives a regression contract over every cycle-counted
+//! line of the result frame — drift in tape timing, BASIC interpreter
+//! cycle budget, ULA contention, or the Z80's bus probe all show up
+//! as a pixel diff.
 //!
 //! Required local fixtures (resolved in this order):
 //!
@@ -25,14 +30,11 @@
 //! local data stays green.
 
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
-use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::palette::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::tape::TapeBlock;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use format_sinclair_zx_spectrum_tap::{TapBlock, parse_tap};
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 const ROM_PATH_ENV: &str = "EMU198X_SPECTRUM_48K_ROM";
@@ -115,45 +117,113 @@ fn type_load_command(machine: &mut Spectrum48k, start_frame: usize) -> usize {
     frame
 }
 
-/// Save the current framebuffer as an RGBA PNG using the Spectrum
-/// palette.
-fn save_framebuffer_png(machine: &Spectrum48k, path: &Path) -> std::io::Result<()> {
-    let framebuffer = machine.framebuffer();
-    assert_eq!(framebuffer.len(), SCREEN_WIDTH * SCREEN_HEIGHT);
-
-    let mut rgba = Vec::with_capacity(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
-    for &idx in framebuffer {
-        let rgb = SPECTRUM_PALETTE[(idx as usize) & 0x0F];
-        rgba.push(((rgb >> 16) & 0xFF) as u8);
-        rgba.push(((rgb >> 8) & 0xFF) as u8);
-        rgba.push((rgb & 0xFF) as u8);
-        rgba.push(0xFF);
-    }
-
-    let file = File::create(path)?;
-    let writer = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(writer, SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder
-        .write_header()
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    writer
-        .write_image_data(&rgba)
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    Ok(())
+fn goldens_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens")
 }
 
-/// Common smoke runner: load TAP, boot, type LOAD"", play tape, run
-/// for the budget, save PNG. Returns the count of distinct attribute
-/// values in the screen RAM (a rough "test wrote results to screen"
-/// signal that beats simple nonzero count for test ROMs that paint a
-/// full coloured screen).
-fn run_tap_smoke(test_name: &str) -> Option<(u32, PathBuf)> {
+/// Spectrum palette flattened to RGB bytes for PNG indexed colour mode.
+fn palette_rgb() -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(SPECTRUM_PALETTE.len() * 3);
+    for entry in &SPECTRUM_PALETTE {
+        let r = ((entry >> 24) & 0xFF) as u8;
+        let g = ((entry >> 16) & 0xFF) as u8;
+        let b = ((entry >> 8) & 0xFF) as u8;
+        bytes.extend_from_slice(&[r, g, b]);
+    }
+    bytes
+}
+
+fn write_indexed_png(path: &Path, framebuffer: &[u8]) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("create goldens dir");
+    }
+    let file = std::fs::File::create(path).expect("create golden file");
+    let writer = std::io::BufWriter::new(file);
+    let mut encoder = png::Encoder::new(writer, SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32);
+    encoder.set_color(png::ColorType::Indexed);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_palette(palette_rgb());
+    let mut writer = encoder.write_header().expect("write png header");
+    writer
+        .write_image_data(framebuffer)
+        .expect("write png image data");
+}
+
+fn read_indexed_png(path: &Path) -> Vec<u8> {
+    let file = std::fs::File::open(path).expect("open golden");
+    let decoder = png::Decoder::new(std::io::BufReader::new(file));
+    let mut reader = decoder.read_info().expect("decode png header");
+    let mut buf = vec![
+        0u8;
+        reader
+            .output_buffer_size()
+            .expect("png buffer size fits in usize")
+    ];
+    let info = reader.next_frame(&mut buf).expect("decode png frame");
+    buf.truncate(info.buffer_size());
+    assert_eq!(
+        info.color_type,
+        png::ColorType::Indexed,
+        "golden {} should be indexed PNG",
+        path.display()
+    );
+    assert_eq!(
+        (info.width as usize, info.height as usize),
+        (SCREEN_WIDTH, SCREEN_HEIGHT),
+        "golden {} dimensions {}×{} don't match expected {}×{}",
+        path.display(),
+        info.width,
+        info.height,
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT,
+    );
+    buf
+}
+
+fn compare_or_update(test_name: &str, framebuffer: &[u8]) {
+    let path = goldens_dir().join(format!("{test_name}.png"));
+    let updating = std::env::var_os("UPDATE_GOLDENS").is_some();
+    let missing = !path.exists();
+
+    if updating || missing {
+        write_indexed_png(&path, framebuffer);
+        if missing && !updating {
+            panic!(
+                "golden {} did not exist — wrote it now, re-run to verify",
+                path.display()
+            );
+        }
+        return;
+    }
+
+    let expected = read_indexed_png(&path);
+    if expected == framebuffer {
+        return;
+    }
+    let differing = expected
+        .iter()
+        .zip(framebuffer.iter())
+        .filter(|(a, b)| a != b)
+        .count();
+    let live_path = std::env::temp_dir().join(format!("{test_name}-live.png"));
+    write_indexed_png(&live_path, framebuffer);
+    panic!(
+        "framebuffer for {test_name} differs from {} ({differing} of {} pixels). \
+         Live frame written to {} for visual diff. \
+         Re-run with UPDATE_GOLDENS=1 to refresh after eyeballing the change.",
+        path.display(),
+        framebuffer.len(),
+        live_path.display(),
+    );
+}
+
+/// Common runner: load TAP, boot, type LOAD"", play tape, run for the
+/// budget, compare framebuffer to the locked golden.
+fn run_and_compare(test_name: &str) {
     let rom_path = rom_path();
     if !rom_path.is_file() {
         eprintln!("48K ROM not found at {} — skipping", rom_path.display());
-        return None;
+        return;
     }
     let tap_path = system_tests_dir().join(format!("{test_name}.tap"));
     if !tap_path.is_file() {
@@ -162,7 +232,7 @@ fn run_tap_smoke(test_name: &str) -> Option<(u32, PathBuf)> {
             test_name,
             tap_path.display()
         );
-        return None;
+        return;
     }
 
     let rom = std::fs::read(&rom_path).expect("48K ROM should read");
@@ -188,59 +258,31 @@ fn run_tap_smoke(test_name: &str) -> Option<(u32, PathBuf)> {
         machine.run_frame();
     }
 
-    let png_path = std::env::temp_dir().join(format!("{test_name}.png"));
-    save_framebuffer_png(&machine, &png_path).expect("framebuffer should encode as PNG");
-    eprintln!("Framebuffer screenshot: {}", png_path.display());
-
-    // Count distinct attribute bytes in screen RAM attribute area
-    // ($5800-$5AFF, 768 bytes). A blank-screen Spectrum has 1 distinct
-    // value; a test-result screen typically has 3+ (border, panels,
-    // text colours).
-    let mut seen = [false; 256];
-    for addr in 0x5800u16..=0x5AFF {
-        let v = machine.read(addr);
-        seen[v as usize] = true;
-    }
-    let distinct = seen.iter().filter(|s| **s).count() as u32;
-
-    Some((distinct, png_path))
-}
-
-fn assert_test_ran(test_name: &str) {
-    let Some((distinct, png_path)) = run_tap_smoke(test_name) else {
-        return;
-    };
-    assert!(
-        distinct >= 2,
-        "{test_name}: screen attributes show {distinct} distinct values \
-         (a blank screen is 1; a test-result screen is typically 3+). \
-         Screenshot at {} — inspect to triage whether the load chain ran.",
-        png_path.display(),
-    );
+    compare_or_update(test_name, machine.framebuffer());
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and floatspy.tap; ~100 s wall time at cycle-accurate tape speed"]
 fn floatspy_runs_to_completion() {
-    assert_test_ran("floatspy");
+    run_and_compare("floatspy");
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and halt2int.tap; ~100 s wall time"]
 fn halt2int_runs_to_completion() {
-    assert_test_ran("halt2int");
+    run_and_compare("halt2int");
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and btime.tap; ~100 s wall time"]
 fn btime_runs_to_completion() {
-    assert_test_ran("btime");
+    run_and_compare("btime");
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and ptime.tap; ~100 s wall time"]
 fn ptime_runs_to_completion() {
-    assert_test_ran("ptime");
+    run_and_compare("ptime");
 }
 
 // Super HALT Invaders Test is 128K-only; see the 128K crate's

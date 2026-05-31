@@ -1,23 +1,20 @@
-//! Smoke tests for 128K-specific ULA / timing TAPs.
+//! Golden-screenshot tests for 128K-specific ULA / timing TAPs.
 //!
 //! Same shape as the 48K equivalent
 //! (`machine-sinclair-zx-spectrum-48k/tests/tape_smoke.rs`):
 //! boot, press ENTER on the 128K firmware menu to select the Tape
-//! Loader, play the TAP, run the budget, save a PNG, and assert the
-//! result screen has rendered enough non-zero attribute variety to
-//! constitute "the test ran." Strict per-TAP PNG comparison against
-//! Spectron's `tests/Results/<name>_128.png` references is a
-//! follow-up.
+//! Loader, play the TAP, run the budget, encode the 352×296
+//! paletted framebuffer as a 16-colour indexed PNG, and compare to
+//! the checked-in golden in `tests/goldens/`. Re-run with
+//! `UPDATE_GOLDENS=1` to refresh after eyeballing a deliberate
+//! change.
 
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
-use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::palette::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::tape::TapeBlock;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use format_sinclair_zx_spectrum_tap::{TapBlock, parse_tap};
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 const ROM0_PATH_ENV: &str = "EMU198X_SPECTRUM_128K_ROM0";
@@ -92,44 +89,116 @@ fn press_enter(machine: &mut Spectrum128K) {
     }
 }
 
-fn save_framebuffer_png(machine: &Spectrum128K, path: &Path) -> std::io::Result<()> {
-    let framebuffer = &machine.framebuffer;
-    assert_eq!(framebuffer.len(), SCREEN_WIDTH * SCREEN_HEIGHT);
-
-    let mut rgba = Vec::with_capacity(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
-    for &idx in framebuffer {
-        let rgb = SPECTRUM_PALETTE[(idx as usize) & 0x0F];
-        rgba.push(((rgb >> 16) & 0xFF) as u8);
-        rgba.push(((rgb >> 8) & 0xFF) as u8);
-        rgba.push((rgb & 0xFF) as u8);
-        rgba.push(0xFF);
-    }
-
-    let file = File::create(path)?;
-    let writer = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(writer, SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder
-        .write_header()
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    writer
-        .write_image_data(&rgba)
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    Ok(())
+fn goldens_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens")
 }
 
-fn run_tap_smoke(tap_filename: &str, png_stem: &str) -> Option<(u32, PathBuf)> {
+fn palette_rgb() -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(SPECTRUM_PALETTE.len() * 3);
+    for entry in &SPECTRUM_PALETTE {
+        let r = ((entry >> 24) & 0xFF) as u8;
+        let g = ((entry >> 16) & 0xFF) as u8;
+        let b = ((entry >> 8) & 0xFF) as u8;
+        bytes.extend_from_slice(&[r, g, b]);
+    }
+    bytes
+}
+
+fn write_indexed_png(path: &Path, framebuffer: &[u8]) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("create goldens dir");
+    }
+    let file = std::fs::File::create(path).expect("create golden file");
+    let writer = std::io::BufWriter::new(file);
+    let mut encoder = png::Encoder::new(writer, SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32);
+    encoder.set_color(png::ColorType::Indexed);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_palette(palette_rgb());
+    let mut writer = encoder.write_header().expect("write png header");
+    writer
+        .write_image_data(framebuffer)
+        .expect("write png image data");
+}
+
+fn read_indexed_png(path: &Path) -> Vec<u8> {
+    let file = std::fs::File::open(path).expect("open golden");
+    let decoder = png::Decoder::new(std::io::BufReader::new(file));
+    let mut reader = decoder.read_info().expect("decode png header");
+    let mut buf = vec![
+        0u8;
+        reader
+            .output_buffer_size()
+            .expect("png buffer size fits in usize")
+    ];
+    let info = reader.next_frame(&mut buf).expect("decode png frame");
+    buf.truncate(info.buffer_size());
+    assert_eq!(
+        info.color_type,
+        png::ColorType::Indexed,
+        "golden {} should be indexed PNG",
+        path.display()
+    );
+    assert_eq!(
+        (info.width as usize, info.height as usize),
+        (SCREEN_WIDTH, SCREEN_HEIGHT),
+        "golden {} dimensions {}×{} don't match expected {}×{}",
+        path.display(),
+        info.width,
+        info.height,
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT,
+    );
+    buf
+}
+
+fn compare_or_update(png_stem: &str, framebuffer: &[u8]) {
+    let path = goldens_dir().join(format!("{png_stem}.png"));
+    let updating = std::env::var_os("UPDATE_GOLDENS").is_some();
+    let missing = !path.exists();
+
+    if updating || missing {
+        write_indexed_png(&path, framebuffer);
+        if missing && !updating {
+            panic!(
+                "golden {} did not exist — wrote it now, re-run to verify",
+                path.display()
+            );
+        }
+        return;
+    }
+
+    let expected = read_indexed_png(&path);
+    if expected == framebuffer {
+        return;
+    }
+    let differing = expected
+        .iter()
+        .zip(framebuffer.iter())
+        .filter(|(a, b)| a != b)
+        .count();
+    let live_path = std::env::temp_dir().join(format!("{png_stem}-live.png"));
+    write_indexed_png(&live_path, framebuffer);
+    panic!(
+        "framebuffer for {png_stem} differs from {} ({differing} of {} pixels). \
+         Live frame written to {} for visual diff. \
+         Re-run with UPDATE_GOLDENS=1 to refresh after eyeballing the change.",
+        path.display(),
+        framebuffer.len(),
+        live_path.display(),
+    );
+}
+
+fn run_and_compare(tap_filename: &str, png_stem: &str) {
     let rom0_path = rom0_path();
     let rom1_path = rom1_path();
     if !rom0_path.is_file() || !rom1_path.is_file() {
         eprintln!("128K ROMs not found — skipping");
-        return None;
+        return;
     }
     let tap_path = system_tests_dir().join(tap_filename);
     if !tap_path.is_file() {
         eprintln!("{tap_filename} not found at {} — skipping", tap_path.display());
-        return None;
+        return;
     }
 
     let tap_bytes = std::fs::read(&tap_path).unwrap_or_else(|e| panic!("{tap_filename}: {e}"));
@@ -151,43 +220,19 @@ fn run_tap_smoke(tap_filename: &str, png_stem: &str) -> Option<(u32, PathBuf)> {
         machine.run_frame();
     }
 
-    let png_path = std::env::temp_dir().join(format!("{png_stem}.png"));
-    save_framebuffer_png(&machine, &png_path).expect("framebuffer should encode as PNG");
-    eprintln!("Framebuffer screenshot: {}", png_path.display());
-
-    let mut seen = [false; 256];
-    for addr in 0x5800u16..=0x5AFF {
-        let v = machine.memory.read(addr);
-        seen[v as usize] = true;
-    }
-    let distinct = seen.iter().filter(|s| **s).count() as u32;
-
-    Some((distinct, png_path))
-}
-
-fn assert_test_ran(tap_filename: &str, png_stem: &str) {
-    let Some((distinct, png_path)) = run_tap_smoke(tap_filename, png_stem) else {
-        return;
-    };
-    assert!(
-        distinct >= 2,
-        "{tap_filename}: screen attributes show {distinct} distinct values \
-         (a blank screen is 1; a test-result screen is typically 3+). \
-         Screenshot at {} — inspect to triage whether the load chain ran.",
-        png_path.display(),
-    );
+    compare_or_update(png_stem, &machine.framebuffer);
 }
 
 #[test]
 #[ignore = "requires local 128K ROMs and halt2int128.tap; ~100 s wall time"]
 fn halt2int128_runs_to_completion() {
-    assert_test_ran("halt2int128.tap", "halt2int128");
+    run_and_compare("halt2int128.tap", "halt2int128");
 }
 
 #[test]
 #[ignore = "requires local 128K ROMs and Super HALT Invaders TAP; ~120 s wall time"]
 fn super_halt_invaders_runs_to_completion() {
-    assert_test_ran(
+    run_and_compare(
         "Super HALT Invaders Test (2021-10-07)(Woodmass, Mark)[!].tap",
         "super-halt-invaders",
     );
