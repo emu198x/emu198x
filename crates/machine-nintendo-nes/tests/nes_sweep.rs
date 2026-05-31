@@ -22,7 +22,10 @@ use std::path::{Path, PathBuf};
 /// 10 timeouts are stuck in tight infinite loops (DMC waiting on
 /// DMA that doesn't fire, official.nes spinning at $8003-$8005)
 /// rather than just slow. Time bumps don't help.
-const MAX_TICKS: u64 = 150_000_000;
+/// Per-ROM tick budget. The slowest legitimate test we run
+/// (oam_stress) finishes at ~152M ticks, so the budget needs to
+/// be above that. Adds a little headroom for future tests.
+const MAX_TICKS: u64 = 200_000_000;
 
 fn nes_test_roms_root() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
