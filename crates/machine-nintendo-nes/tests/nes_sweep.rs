@@ -89,8 +89,9 @@ const RESET_DELAY_TICKS: u64 = 600_000;
 /// other = fail with that code. The settle window must be long
 /// enough to ride out the gap between intermediate sub-tests but
 /// short enough that the harness still finishes per-ROM in
-/// reasonable wall-clock time.
-const SETTLE_TICKS: u64 = 3_000_000;
+/// reasonable wall-clock time. vbl_nmi_timing/1.frame_basics has
+/// a ~7.3M-tick gap between sub-tests, so 10M is the floor.
+const SETTLE_TICKS: u64 = 10_000_000;
 
 /// Scan the PPU's nametable RAM for the blargg shell's "Passed"
 /// / "Failed" / "Error" final-status strings. Returns the
