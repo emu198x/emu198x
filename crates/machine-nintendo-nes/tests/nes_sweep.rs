@@ -76,6 +76,10 @@ const VISUAL_ROMS: &[&str] = &[
     "dma_2007_read.nes",
     "dma_4016_read.nes",
     "double_2007_read.nes",
+    // Damian Yerrick's volume_tests — plays calibrated tones for
+    // human / oscilloscope inspection of inter-channel mixing
+    // levels. No `$6000` protocol, no nametable verdict.
+    "volumes.nes",
 ];
 
 /// Delay between observing the `$81` "needs reset" status and
