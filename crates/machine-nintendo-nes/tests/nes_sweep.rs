@@ -336,9 +336,20 @@ const SWEEP_DIRS: &[&str] = &[
     "dmc_tests",
     "dmc_dma_during_read4",
     "dpcmletterbox",
-    // PPU corners we missed
+    "volume_tests",
+    "sprdma_and_dmc_dma",
+    // PPU
     "nmi_sync",
     "full_palette",
+    "blargg_ppu_tests_2005.09.15b",
+    "ppu_vbl_nmi",
+    "vbl_nmi_timing",
+    "sprite_hit_tests_2005.10.05",
+    "sprite_overflow_tests",
+    "oam_read",
+    "oam_stress",
+    "ppu_open_bus",
+    "ppu_read_buffer",
 ];
 
 #[test]
