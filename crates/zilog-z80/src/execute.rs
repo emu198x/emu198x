@@ -1393,11 +1393,19 @@ fn execute_ini_ind(z80: &mut Z80, increment: bool, repeat: bool) {
 
             z80.regs.set_f_q(f);
 
-            // Repeat logic
+            // Repeat logic.
+            //
+            // WZ was set to `BC + 1` (or `BC - 1` for IND) in exec_count
+            // 0 and must NOT be overwritten when the repeat path kicks
+            // in — FUSE's `edb2_1` / `edba_1` and Patrik Rak's
+            // `z80memptr` 102 / 103 both observe state mid-repeat (B
+            // already decremented, but before the next M1 fetch) and
+            // assert WZ == BC_initial ± 1. Per
+            // `decisions/spectrum-test-oracle-priority.md`, FUSE +
+            // Patrik Rak's consensus wins over Tom Harte for Spectrum.
             if repeat {
                 if b_after != 0 {
                     z80.regs.pc = z80.regs.pc.wrapping_sub(2);
-                    z80.regs.wz = z80.regs.pc.wrapping_add(1);
                     repeat_block_io_flags(z80, b_after);
                 } else {
                     z80.walker.done = true;
@@ -1473,11 +1481,12 @@ fn execute_outi_outd(z80: &mut Z80, increment: bool, repeat: bool) {
                 z80.regs.wz = z80.regs.bc.wrapping_sub(1);
             }
 
-            // Repeat logic
+            // Repeat logic. As with INI/IND, WZ was already set to
+            // `BC ± 1` just above and the repeat path must not stomp
+            // it — same FUSE / Patrik Rak observation point.
             if repeat {
                 if b_after != 0 {
                     z80.regs.pc = z80.regs.pc.wrapping_sub(2);
-                    z80.regs.wz = z80.regs.pc.wrapping_add(1);
                     repeat_block_io_flags(z80, b_after);
                 } else {
                     z80.walker.done = true;

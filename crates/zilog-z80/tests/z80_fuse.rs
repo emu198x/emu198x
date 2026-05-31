@@ -130,11 +130,17 @@ struct FuseObserved {
 
 const ACCEPTED_FUSE_DISAGREEMENTS: &[(&str, &[&str])] = &[
     ("76", &["PC"]),
-    ("edb2_1", &["AF", "WZ"]),
-    ("edb3_1", &["AF", "WZ"]),
+    // INIR / OTIR / INDR / OTDR — WZ now matches FUSE (and Patrik
+    // Rak's z80memptr) after the 2026-05-31 fix to stop the repeat
+    // path from clobbering WZ that was correctly set to BC ± 1
+    // during the IN / OUT portion. `edba_1` (INDR) passed all bits
+    // after the WZ fix and is no longer listed. AF (specifically
+    // the X/Y undocumented bits, F bits 2 and 3) remains a
+    // separate disagreement — silicon evidence pending.
+    ("edb2_1", &["AF"]),
+    ("edb3_1", &["AF"]),
     ("edb9_2", &["AF"]),
-    ("edba_1", &["WZ"]),
-    ("edbb_1", &["AF", "WZ"]),
+    ("edbb_1", &["AF"]),
 ];
 
 fn parse_hex_u16(token: &str) -> u16 {

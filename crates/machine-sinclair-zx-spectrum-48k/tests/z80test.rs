@@ -384,12 +384,12 @@ fn z80ccf() {
     assert_passed("z80ccf", &outcome);
 }
 
-/// Two known-accepted disagreements: INIR and INDR followed by NOP into the
-/// shadow set, where Patrik Rak's expected MEMPTR/WZ behaviour matches FUSE
-/// but disagrees with Tom Harte and our current core. See the FUSE accepted
-/// disagreement table in `knowledge/tests/spectrum.md` for the matching INIR /
-/// INDR cases.
-const Z80MEMPTR_ALLOWLIST: &[&str] = &["INIR->NOP'", "INDR->NOP'"];
+/// Allowlist for `z80memptr` failures. The 2026-05-31 fix to stop
+/// the INIR/INDR/OTIR/OTDR repeat path from clobbering WZ closed
+/// the `102 INIR->NOP'` and `103 INDR->NOP'` cases — they now pass
+/// cleanly along with the rest of the suite. Empty slice retained
+/// so the regression contract still flows through the assert.
+const Z80MEMPTR_ALLOWLIST: &[&str] = &[];
 
 #[test]
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
