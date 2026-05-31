@@ -15,3 +15,6 @@ serde = { workspace = true }
 serde-big-array = { workspace = true }
 timex-scld = { path = "../timex-scld" }
 zilog-z80 = { path = "../zilog-z80" }
+
+[dev-dependencies]
+png = { workspace = true }
