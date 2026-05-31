@@ -95,6 +95,14 @@ pub struct Ppu {
     read_buffer: u8,
     /// Open bus latch: last value written to any PPU register.
     open_bus: u8,
+    /// Per-bit decay tracking for [`Self::open_bus`]. Each entry
+    /// stores the [`Self::ppu_clock`] value at which that bit was
+    /// last refreshed. After [`OPEN_BUS_DECAY_TICKS`] elapse without
+    /// a refresh, a bit decays back to 0 — modelling the silicon
+    /// "decay register" probed by blargg's `ppu_open_bus` test 3.
+    /// Skipped at deserialize: next refresh re-establishes timing.
+    #[serde(skip, default = "default_open_bus_decay")]
+    open_bus_decay: [u64; 8],
 
     // ── Rendering position ──────────────────────────────────────
     scanline: u16,
@@ -191,6 +199,18 @@ pub struct Ppu {
 /// the start / end phase split.
 pub const MASTER_CLOCK_DIVIDER: u64 = 4;
 
+/// Number of PPU-clock ticks (4× PPU dots) after which an open-bus
+/// bit decays back to 0 if not refreshed. Real hardware varies with
+/// chip + temperature, with ~600 ms typical (per nesdev). At
+/// ~5.369 MHz PPU dot rate × 4 master ticks/dot, 600 ms is
+/// ~12.9M ppu_clock units. Round down to 12M to land safely below
+/// the 1-second probe in blargg ppu_open_bus test 3.
+pub const OPEN_BUS_DECAY_TICKS: u64 = 12_000_000;
+
+fn default_open_bus_decay() -> [u64; 8] {
+    [0; 8]
+}
+
 impl Ppu {
     #[must_use]
     pub fn new() -> Self {
@@ -226,6 +246,7 @@ impl Ppu {
 
             read_buffer: 0,
             open_bus: 0,
+            open_bus_decay: [0; 8],
 
             scanline: pre_render_line,
             dot: 0,
@@ -928,32 +949,79 @@ impl Ppu {
     //  Register access (CPU side)
     // ════════════════════════════════════════════════════════════
 
+    /// Read the decay-aware open-bus value. Bits whose per-bit
+    /// timer hasn't been refreshed within [`OPEN_BUS_DECAY_TICKS`]
+    /// fade back to 0.
+    fn read_open_bus_with_decay(&self) -> u8 {
+        let mut valid = 0u8;
+        for (i, &refreshed_at) in self.open_bus_decay.iter().enumerate() {
+            if self.ppu_clock.saturating_sub(refreshed_at) < OPEN_BUS_DECAY_TICKS {
+                valid |= 1 << i;
+            }
+        }
+        self.open_bus & valid
+    }
+
+    /// Refresh the open-bus latch for the bits specified by `mask`
+    /// with the corresponding bits of `value`. Marks each refreshed
+    /// bit as just-refreshed in [`Self::open_bus_decay`].
+    fn refresh_open_bus(&mut self, mask: u8, value: u8) {
+        self.open_bus = (self.open_bus & !mask) | (value & mask);
+        for i in 0..8 {
+            if mask & (1 << i) != 0 {
+                self.open_bus_decay[i] = self.ppu_clock;
+            }
+        }
+    }
+
     /// CPU read from PPU register (`$2000-$2007` mirrored).
     pub fn cpu_read(&mut self, reg: u16, mapper: &mut dyn Mapper) -> u8 {
-        let result = match reg & 0x07 {
-            // $2002 - PPUSTATUS
+        match reg & 0x07 {
+            // $2002 - PPUSTATUS. Bits 7-5 are PPU-defined and
+            // refresh those bits of the decay register; bits 4-0
+            // are read from the decay register without refreshing.
             2 => {
                 if self.scanline == 241 && self.dot == 1 {
                     self.suppress_vbl = true;
                 }
-                let result = (self.status & 0xE0) | (self.open_bus & 0x1F);
+                let status_bits = self.status & 0xE0;
+                let result = status_bits | (self.read_open_bus_with_decay() & 0x1F);
+                self.refresh_open_bus(0xE0, status_bits);
                 self.status &= !0x80;
                 self.nmi_occurred = false;
                 self.update_nmi_line();
                 self.w = false;
                 result
             }
-            // $2004 - OAMDATA
-            4 => self.oam[self.oam_addr as usize],
-            // $2007 - PPUDATA
+            // $2004 - OAMDATA. All 8 bits are PPU-defined and
+            // refresh the decay register.
+            4 => {
+                let value = self.oam[self.oam_addr as usize];
+                self.refresh_open_bus(0xFF, value);
+                value
+            }
+            // $2007 - PPUDATA.
             7 => {
                 let addr = self.v & 0x3FFF;
-                let mut result = self.read_buffer;
-                self.read_buffer = self.ppu_read(addr, mapper);
-                if addr >= 0x3F00 {
-                    result = self.palette_ram[self.mirror_palette_addr(addr) as usize];
+                let result = if addr >= 0x3F00 {
+                    // Palette reads are immediate (not buffered).
+                    // The palette stores only 6 bits per entry, so
+                    // bits 5-0 come from palette RAM and bits 7-6
+                    // from the decay register without refreshing.
+                    let palette = self.palette_ram[self.mirror_palette_addr(addr) as usize];
+                    let result = (self.read_open_bus_with_decay() & 0xC0) | (palette & 0x3F);
+                    self.refresh_open_bus(0x3F, palette);
+                    // The buffer is filled with the nametable byte
+                    // that would have been read at the mirrored
+                    // address `addr & 0x2FFF`.
                     self.read_buffer = self.ppu_read(addr & 0x2FFF, mapper);
-                }
+                    result
+                } else {
+                    let result = self.read_buffer;
+                    self.read_buffer = self.ppu_read(addr, mapper);
+                    self.refresh_open_bus(0xFF, result);
+                    result
+                };
                 let new_v = self
                     .v
                     .wrapping_add(if self.ctrl & 0x04 != 0 { 32 } else { 1 })
@@ -961,15 +1029,18 @@ impl Ppu {
                 self.set_v(new_v);
                 result
             }
-            _ => self.open_bus,
-        };
-        self.open_bus = result;
-        result
+            // $2000, $2001, $2003, $2005, $2006: write-only. Reads
+            // return the decay register without refreshing it.
+            _ => self.read_open_bus_with_decay(),
+        }
     }
 
     /// CPU write to PPU register (`$2000-$2007` mirrored).
     pub fn cpu_write(&mut self, reg: u16, val: u8, mapper: &mut dyn Mapper) {
-        self.open_bus = val;
+        // Writes to ANY PPU register refresh the full decay
+        // register (per nesdev `ppu_open_bus` table — every cell
+        // in the write row is `-`).
+        self.refresh_open_bus(0xFF, val);
         match reg & 0x07 {
             // $2000 - PPUCTRL
             0 => {
