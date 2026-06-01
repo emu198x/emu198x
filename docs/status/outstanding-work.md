@@ -457,6 +457,47 @@ here.
 - **A — `.prg` / `.tap` load not implemented.**
 - **S — Full shell parity**.
 
+## Commodore VIC-20 — `emu198x-commodore-vic-20` (new, 2026-06-01)
+
+Twenty-second and final donor-codebase extraction. Commodore's
+1981 mass-market home computer — first computer to sell over a
+million units, designed to a $300 price point with Robert
+Yannes' MOS 6560/6561 VIC handling video AND audio on a single
+chip.
+
+The donor ships a VIC 6560/6561 chip implementation inline
+(187 LoC, text-mode-only rendering with 16-colour ARGB palette
+and PAL/NTSC timing); we deliberately **don't promote** it to a
+shared `commodore-vic-i` crate — promotion is tracked as a
+follow-up once a second consumer surfaces. It stays as
+`machine_commodore_vic_20::vic::Vic6560`.
+
+Fresh-write machine layer (`machine-commodore-vic-20`, 9/9 tests
++ inline VIC + keyboard + input modules) wiring the 6502 through
+public pin fields to the standard VIC-20 memory map: 1 KB low
+RAM `$0000-$03FF`, 3 KB low expansion `$0400-$0FFF`, 4 KB main
+RAM `$1000-$1FFF`, 24 KB high expansion `$2000-$7FFF`, 4 KB
+character ROM `$8000-$8FFF`, VIC registers `$9000-$93FF`, 1 KB
+colour RAM `$9400-$97FF`, 8 KB BASIC `$A000-$BFFF`, 8 KB Kernal
+`$E000-$FFFF` (also mirrored at `$C000-$DFFF`).
+
+Live boot verified 2026-06-01 with PAL-B ROM set (Kernal
+901486-07, BASIC 901486-01, Characters 901460-03).
+
+- **A — Display black** until KERNAL clears screen RAM + sets
+  VIC background colour — boot path through to first character
+  render not yet verified.
+- **A — Audio unwired** (VIC's 3 tone generators + noise).
+- **A — Keyboard scan unwired.** VIA 6522 × 2 not implemented;
+  donor stubbed too.
+- **A — Joystick unwired.**
+- **A — Cassette / IEEE-488 unwired.**
+- **A — Snapshot deferred** (shared family pattern).
+- **A — `.prg` / `.tap` load not implemented.**
+- **S — Full shell parity**.
+- **S — Promote inline VIC to `commodore-vic-i` crate** when a
+  second consumer surfaces.
+
 ## Acorn Atom — `emu198x-acorn-atom` (new, 2026-06-01)
 
 Twenty-first donor-codebase extraction. Acorn's £120 self-build
@@ -981,8 +1022,8 @@ frames, asserts a non-trivial framebuffer).
 
 Status of the Emu198x-Oldest donor codebase extraction.
 
-**Twenty-one already extracted** in this run — see their
-dedicated sections above:
+**Twenty-two already extracted** in this run — the donor
+codebase is now fully harvested. See dedicated sections above:
 
 | # | System | Live boot status |
 |---|--------|------------------|
@@ -1007,22 +1048,23 @@ dedicated sections above:
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
 | 20 | Memotech MTX500 | ROM boots (live); display still blank |
 | 21 | Acorn Atom | **Awaiting ROM** (24 KB combined) |
+| 22 | Commodore VIC-20 | ROM boots (live); display still black |
 
-**Thirteen chip crates ported** as foundation:
+**Fourteen chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,
 `mos-riot-6532`, `atari-tia`, `atari-antic`, `atari-gtia`,
-`atari-pokey`, `atari-maria`, `mos-pia-6520`, plus our pre-existing
-`gi-ay-3-8912` and `mos-via-6522` reused across the family.
+`atari-pokey`, `atari-maria`, `mos-pia-6520`, `sinclair-zx81-ula`,
+plus our pre-existing `gi-ay-3-8912` and `mos-via-6522` reused
+across the family. Two more inline-only chip implementations land
+inside their machine crates (Atom's text-mode MC6847; VIC-20's
+6560/6561 VIC) — promotion to standalone crates is deferred until
+a second consumer surfaces.
 
-**Still in the donor** (substantive, ready to port):
-- The Amiga **AGA chipset scaffold** (Agnus AGA + Denise AGA —
-  lighter, possibly incomplete; the current AGA path is the forward
-  port).
-
-**Donor stubs** (placeholder crates that aren't filled in — would
-need writing from scratch): Jupiter Ace, Acorn Atom, ZX80 / ZX81,
-Commodore PET, Commodore VIC-20,
-Memotech MTX.
+**Donor codebase: fully harvested.** The Amiga **AGA chipset
+scaffold** (Agnus AGA + Denise AGA in the donor) is structurally
+identical to our forward-port; we consult it as a reference
+snapshot only — see [decisions/aga-donor-reference-only.md].
+Nothing else substantive remains.
 
 External-blocker holds:
 - Sord M5 boot completion needs a `zilog-z80-ctc` chip crate (also

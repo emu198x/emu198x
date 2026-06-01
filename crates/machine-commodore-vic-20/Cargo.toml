@@ -1,0 +1,13 @@
+[package]
+name = "machine-commodore-vic-20"
+description = "Commodore VIC-20 (1981) — 6502 + VIC 6560/6561 (inline) + character/screen RAM"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+mos-6502 = { path = "../mos-6502" }
+
+[lints]
+workspace = true
