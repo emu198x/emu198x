@@ -1,0 +1,13 @@
+[package]
+name = "atari-antic"
+description = "Atari ANTIC display list processor — Atari 5200, 800XL, 130XE"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atari-gtia = { path = "../atari-gtia" }
+
+[lints]
+workspace = true

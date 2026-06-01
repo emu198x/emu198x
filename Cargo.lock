@@ -156,6 +156,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "atari-antic"
+version = "0.1.0"
+dependencies = [
+ "atari-gtia",
+]
+
+[[package]]
+name = "atari-gtia"
+version = "0.1.0"
+
+[[package]]
+name = "atari-pokey"
+version = "0.1.0"
+
+[[package]]
 name = "atari-tia"
 version = "0.1.0"
 
