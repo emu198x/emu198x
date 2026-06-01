@@ -1,0 +1,10 @@
+[package]
+name = "sinclair-zx81-ula"
+description = "Sinclair ZX81 ULA — display, NMI timing, keyboard scan (used by ZX80 too)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

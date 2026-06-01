@@ -1102,6 +1102,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-sinclair-zx80"
+version = "0.1.0"
+dependencies = [
+ "machine-sinclair-zx80",
+ "png",
+]
+
+[[package]]
+name = "emu198x-sinclair-zx81"
+version = "0.1.0"
+dependencies = [
+ "machine-sinclair-zx81",
+ "png",
+]
+
+[[package]]
 name = "emu198x-sord-m5"
 version = "0.1.0"
 dependencies = [
@@ -2212,6 +2228,22 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
  "nec-upd765a",
+]
+
+[[package]]
+name = "machine-sinclair-zx80"
+version = "0.1.0"
+dependencies = [
+ "sinclair-zx81-ula",
+ "zilog-z80",
+]
+
+[[package]]
+name = "machine-sinclair-zx81"
+version = "0.1.0"
+dependencies = [
+ "sinclair-zx81-ula",
+ "zilog-z80",
 ]
 
 [[package]]
@@ -3660,6 +3692,10 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
 ]
+
+[[package]]
+name = "sinclair-zx81-ula"
+version = "0.1.0"
 
 [[package]]
 name = "slab"

@@ -457,6 +457,50 @@ here.
 - **A — `.prg` / `.tap` load not implemented.**
 - **S — Full shell parity**.
 
+## Sinclair ZX80 + ZX81 — `emu198x-sinclair-zx80` / `emu198x-sinclair-zx81` (new, 2026-06-01)
+
+Eighteenth and nineteenth donor-codebase extractions. Both
+share **one new chip crate** — `sinclair-zx81-ula` (6/6 tests):
+the ZX81 family ULA handling display generation (32 × 24 D_FILE
+walk with character-ROM glyph decode), NMI timing, and the
+keyboard half-row read protocol. The ZX80 uses the same ULA
+hardware silicon — only the NMI wire and ROM size differ
+between the two systems.
+
+**ZX80** (`machine-sinclair-zx80`, 11/11 tests). Sinclair's
+£100 launch (1980), around 100,000 units. No NMI wired to the
+ULA — display is blanked while the CPU runs (FAST mode), shown
+only during HALT (SLOW mode). 4 KB ROM at `$0000-$0FFF`
+mirrored to `$1000-$3FFF` and `$8000-$BFFF`; 1 KB or 16 KB RAM
+at `$4000-$7FFF` mirrored to `$C000-$FFFF`.
+
+**ZX81** (`machine-sinclair-zx81`, 9/9 tests). The £49.95
+follow-up (1981), ~1.5 million units. Pioneers NMI-driven bus-
+stealing display: the NMI handler at `$0066` executes HALT,
+and the ULA puts character-ROM data on the data bus during the
+Z80's refresh cycles. NMI generator gated by an enable bit
+toggled via OUT($FE) (on) / OUT($FD) (off). 8 KB ROM at
+`$0000-$1FFF` mirrored to `$2000-$3FFF` and `$8000-$BFFF`.
+
+Both share an identical 8 × 5 Spectrum-style keyboard matrix
+scanned through port `$FE` with the row selector in the high
+address byte.
+
+Live boot verified 2026-06-01 with the ZESARUX-bundled
+`zx80.rom` (4 KB) and `zx81.rom` (8 KB). Both render real
+character output from D_FILE through the ULA pipeline.
+
+- **A — SLOW-mode rendering not yet correct.** ZX80 shows the
+  canonical FAST-mode display with the "K" cursor visible —
+  but SLOW mode (the v1 ULA model) blanks the screen during
+  CPU execution and renders only during HALT, which doesn't
+  yet match real hardware behaviour.
+- **A — `.p` / `.p81` snapshot load not implemented** for the
+  ZX81 (donor didn't have it either).
+- **A — Cassette in/out unwired.**
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Full shell parity**.
+
 ## Acorn BBC Micro Model B — `emu198x-acorn-bbc-micro` (new, 2026-06-01)
 
 Eleventh donor-codebase extraction. **One new chip crate** —
@@ -865,7 +909,7 @@ frames, asserts a non-trivial framebuffer).
 
 Status of the Emu198x-Oldest donor codebase extraction.
 
-**Seventeen already extracted** in this run — see their dedicated
+**Nineteen already extracted** in this run — see their dedicated
 sections above:
 
 | # | System | Live boot status |
@@ -887,6 +931,8 @@ sections above:
 | 15 | Atari 800XL | OS boots (live); BASIC ROM not yet sourced |
 | 16 | Jupiter Ace | **Awaiting ROM** (8 KB Forth interpreter) |
 | 17 | Commodore PET | Char grid renders (live) — full boot pending |
+| 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
+| 19 | Sinclair ZX81 | Boot screen renders (live) |
 
 **Thirteen chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,

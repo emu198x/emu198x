@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-sinclair-zx80"
+description = "Sinclair ZX80 headless runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-sinclair-zx80"
+path = "src/main.rs"
+
+[dependencies]
+machine-sinclair-zx80 = { path = "../machine-sinclair-zx80" }
+png = { workspace = true }
+
+[lints]
+workspace = true
