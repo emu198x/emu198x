@@ -89,6 +89,7 @@ members = [
     "crates/machine-sega-master-system",
     "crates/machine-sega-sg-1000",
     "crates/machine-sord-m5",
+    "crates/machine-spectravideo-svi-328",
     "crates/runtime-commodore-amiga",
     "crates/runtime-dragon",
     "crates/mos-sid-6581",
