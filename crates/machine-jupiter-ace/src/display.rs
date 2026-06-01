@@ -13,9 +13,22 @@
 //! T-states per frame at 3.25 MHz (~50.3 Hz). The active display area is
 //! 256x192 pixels (32x24 characters x 8x8 pixels).
 
-/// Framebuffer dimensions: 256x192 active area.
-pub const FB_WIDTH: u32 = 256;
-pub const FB_HEIGHT: u32 = 192;
+/// Active display area: 32 x 24 characters @ 8 x 8 px.
+pub const ACTIVE_WIDTH: u32 = 256;
+pub const ACTIVE_HEIGHT: u32 = 192;
+
+/// Border thickness around the active area. The Jupiter Ace shares
+/// the ZX80/81's broad TV-visible envelope (~320 x 240); using the
+/// same 32 px L/R + 24 px T/B border as the ZX81 ULA so screenshots
+/// match the period look of the machine.
+pub const BORDER_LEFT: u32 = 32;
+pub const BORDER_RIGHT: u32 = 32;
+pub const BORDER_TOP: u32 = 24;
+pub const BORDER_BOTTOM: u32 = 24;
+
+/// Framebuffer dimensions (active + border).
+pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
+pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 /// Characters per row.
 const CHARS_PER_ROW: usize = 32;
@@ -97,6 +110,12 @@ impl Display {
     /// This is simpler than scanline-accurate rendering but sufficient for the
     /// Ace's character-based display, which has no mid-frame effects.
     pub fn render_frame(&mut self, video_ram: &[u8], char_ram: &[u8]) {
+        // Repaint the border with the inactive (white) colour so any
+        // previous active content in the border region is cleared.
+        // The Ace's monochrome display always shows white for inactive
+        // pixels — no programmable border colour.
+        self.framebuffer.fill(WHITE);
+
         for char_row in 0..CHAR_ROWS {
             for char_col in 0..CHARS_PER_ROW {
                 let char_code = video_ram[char_row * CHARS_PER_ROW + char_col];
@@ -105,8 +124,8 @@ impl Display {
 
                 for pixel_row in 0..CHAR_SIZE {
                     let pattern_byte = char_ram[base_code * CHAR_SIZE + pixel_row];
-                    let fb_y = char_row * CHAR_SIZE + pixel_row;
-                    let fb_x_base = char_col * CHAR_SIZE;
+                    let fb_y = BORDER_TOP as usize + char_row * CHAR_SIZE + pixel_row;
+                    let fb_x_base = BORDER_LEFT as usize + char_col * CHAR_SIZE;
 
                     for pixel_col in 0..CHAR_SIZE {
                         let bit_set = pattern_byte & (0x80 >> pixel_col) != 0;
@@ -204,10 +223,13 @@ mod tests {
         // Place character 1 at position (0,0)
         video_ram[0] = 1;
         display.render_frame(&video_ram, &char_ram);
-        // Top-left 8x8 should be black
+        // Top-left active 8x8 should be black (offset into the border).
+        let active_start =
+            BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         for y in 0..8 {
             for x in 0..8 {
-                assert_eq!(display.framebuffer()[y * FB_WIDTH as usize + x], BLACK);
+                let idx = active_start + y * FB_WIDTH as usize + x;
+                assert_eq!(display.framebuffer()[idx], BLACK);
             }
         }
     }
@@ -220,10 +242,13 @@ mod tests {
         // Place inverse of character 0 (code 0x80)
         video_ram[0] = 0x80;
         display.render_frame(&video_ram, &char_ram);
-        // Inverse of all-zero pattern = all black
+        // Inverse of all-zero pattern = all black in the active region.
+        let active_start =
+            BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         for y in 0..8 {
             for x in 0..8 {
-                assert_eq!(display.framebuffer()[y * FB_WIDTH as usize + x], BLACK);
+                let idx = active_start + y * FB_WIDTH as usize + x;
+                assert_eq!(display.framebuffer()[idx], BLACK);
             }
         }
     }
