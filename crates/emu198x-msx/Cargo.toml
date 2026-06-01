@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-msx"
-description = "MSX1 headless runner — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
+description = "MSX1 headless runner with shell-backed script + MCP parity — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-msx"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-msx = { path = "../machine-msx" }
 png = { workspace = true }
+runtime-msx = { path = "../runtime-msx" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

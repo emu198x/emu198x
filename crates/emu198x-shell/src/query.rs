@@ -193,6 +193,7 @@ fn family_name(profile: &MachineProfile) -> &'static str {
         crate::Family::Amiga => "amiga",
         crate::Family::GameBoy => "game-boy",
         crate::Family::Dragon => "dragon",
+        crate::Family::Msx => "msx",
     }
 }
 

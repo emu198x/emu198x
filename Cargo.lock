@@ -1057,8 +1057,11 @@ dependencies = [
 name = "emu198x-msx"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-msx",
  "png",
+ "runtime-msx",
+ "serde_json",
 ]
 
 [[package]]
@@ -3479,6 +3482,17 @@ dependencies = [
  "machine-dragon-32",
  "motorola-vdg-6847",
  "png",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-msx"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-msx",
  "postcard",
  "serde",
  "serde_json",

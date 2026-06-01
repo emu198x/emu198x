@@ -1,0 +1,17 @@
+[package]
+name = "runtime-msx"
+description = "MSX1 family metadata and headless runtime wrapper around machine-msx"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
+machine-msx = { path = "../machine-msx" }
+postcard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

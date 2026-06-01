@@ -486,6 +486,15 @@ impl Msx {
     pub fn frame_count(&self) -> u64 {
         self.frame_count
     }
+
+    /// Observe one byte on the Z80 bus without side effects (slot
+    /// resolution against current PPI port A, then BIOS / cartridge /
+    /// RAM read). Mirrors the private `mem_read`; exposed for host
+    /// debugging tools (`memory_read` MCP, watch points, etc.).
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.mem_read(addr)
+    }
 }
 
 #[cfg(test)]

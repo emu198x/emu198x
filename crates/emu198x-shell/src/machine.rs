@@ -27,6 +27,8 @@ pub enum Family {
     GameBoy,
     /// Dragon Data Dragon-family machines.
     Dragon,
+    /// ASCII / Microsoft MSX-family machines.
+    Msx,
 }
 
 /// Region or video-standard family for a machine profile.
