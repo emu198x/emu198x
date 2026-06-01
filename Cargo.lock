@@ -1363,6 +1363,14 @@ name = "format-sinclair-zx-spectrum-bas"
 version = "0.1.0"
 
 [[package]]
+name = "format-sinclair-zx-spectrum-rzx"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "serde",
+]
+
+[[package]]
 name = "format-sinclair-zx-spectrum-sna"
 version = "0.1.0"
 dependencies = [
