@@ -1,0 +1,17 @@
+[package]
+name = "machine-atari-800xl"
+description = "Atari 800XL machine wiring — 6502C 'Sally' + ANTIC + GTIA + POKEY + PIA-6520"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atari-antic = { path = "../atari-antic" }
+atari-gtia = { path = "../atari-gtia" }
+atari-pokey = { path = "../atari-pokey" }
+mos-6502 = { path = "../mos-6502" }
+mos-pia-6520 = { path = "../mos-pia-6520" }
+
+[lints]
+workspace = true

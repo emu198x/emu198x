@@ -330,8 +330,56 @@ Asteroids (1987)(Atari)(NTSC).a78 — cart loads, machine ticks
   six registers are stored but no synthesis path is wired.
 - **A — Snapshot deferred** (shared family pattern).
 - **S — Full shell parity**.
-- **S — Atari 800XL.** Reuses ANTIC + GTIA + POKEY; adds MOS
-  PIA-6520. Now the last donor 8-bit Atari to extract.
+
+## Atari 800XL — `emu198x-atari-800xl` (new, 2026-06-01)
+
+Fifteenth donor-codebase extraction — the last 8-bit Atari in
+the donor. **One new chip crate** — `mos-pia-6520` (14/14 tests),
+the MOS 6520 / Motorola 6821 Peripheral Interface Adapter used in
+many early-1980s machines (here for joystick + console-key input
++ PORTB-controlled ROM banking). Reuses ANTIC, GTIA, POKEY now
+that the 5200 has landed them, and our `mos-6502` as the 6502C
+"Sally".
+
+Fresh-write machine layer (`machine-atari-800xl`, 15/15 tests)
+wiring CPU + ANTIC + GTIA + POKEY + PIA through the 800XL memory
+map: 64 KB RAM, ROM overlays via PIA PORTB. Bit 0 = 1 enables OS
+ROM at `$C000-$FFFF` (with the `$D000-$D7FF` I/O gap); bit 1 = 0
+enables BASIC ROM at `$A000-$BFFF`; bit 7 = 0 enables a self-test
+ROM at `$5000-$57FF`. Cartridges in `$A000-$BFFF` shadow BASIC,
+16 KB carts cover `$8000-$BFFF`. Without OS ROM, the reset vector
+is fetched from the cart entry point (cart-only boot).
+
+I/O area at `$D000-$D7FF`: GTIA `$D000-$D0FF`, POKEY
+`$D200-$D2FF`, PIA `$D300-$D3FF`, ANTIC `$D400-$D4FF`. Joystick
+wired through PIA PORTA (active-low bits 0-3) via
+`set_joystick(up, down, left, right)`; fire button through GTIA
+TRIG0; console keys (START / SELECT / OPTION) through GTIA
+CONSOL.
+
+Scope of this slice is the **800XL model**: 64 KB RAM with
+XL-style PORTB banking. The 400 / 800 (no XL banking) and 130XE
+(extended bank-switched RAM) variants are deliberately deferred.
+
+Gated OS-boot smoke at `crates/machine-atari-800xl/tests/os_boot.rs`
+passes with the TOSEC `Atari OS Rev 2 (1983)(Atari)[800XL]`
+ROM — machine ticks 200 frames without panic, framebuffer is
+correctly sized.
+
+- **A — BASIC ROM not bundled.** TOSEC's `8bit/Operating Systems`
+  doesn't carry a `ataribas.rom` extract; without BASIC, the OS
+  falls into its disk-boot loop and the canonical "READY" prompt
+  doesn't appear. Sourcing an 8 KB Atari BASIC Rev C ROM is the
+  next step.
+- **A — POKEY audio synthesis unwired** in the binary.
+- **A — XEX / disk loading not implemented.** Cart-only and
+  cart-with-OS for now.
+- **A — Snapshot deferred** (shared family pattern).
+- **S — 130XE 128 KB extended-RAM banking.** PORTB bits 2-5
+  drive the 4 × 16 KB extended banks; not modelled in this slice.
+- **S — Atari 400 / 800 variants.** Same chip family, different
+  RAM size, no XL banking; would only need a model-selector flag.
+- **S — Full shell parity**.
 
 ## Acorn BBC Micro Model B — `emu198x-acorn-bbc-micro` (new, 2026-06-01)
 
@@ -741,7 +789,7 @@ frames, asserts a non-trivial framebuffer).
 
 Status of the Emu198x-Oldest donor codebase extraction.
 
-**Fourteen already extracted** in this run — see their dedicated
+**Fifteen already extracted** in this run — see their dedicated
 sections above:
 
 | # | System | Live boot status |
@@ -760,17 +808,16 @@ sections above:
 | 12 | Atari 2600 | Combat playfield (live) |
 | 13 | Atari 5200 SuperSystem | Pac-Man title (live, partial render) |
 | 14 | Atari 7800 ProSystem | Cart accepts (live); BIOS-driven boot pending |
+| 15 | Atari 800XL | OS boots (live); BASIC ROM not yet sourced |
 
-**Twelve chip crates ported** as foundation:
+**Thirteen chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,
 `mos-riot-6532`, `atari-tia`, `atari-antic`, `atari-gtia`,
-`atari-pokey`, `atari-maria`, plus our pre-existing `gi-ay-3-8912`
-and `mos-via-6522` reused across the family.
+`atari-pokey`, `atari-maria`, `mos-pia-6520`, plus our pre-existing
+`gi-ay-3-8912` and `mos-via-6522` reused across the family.
 
 **Still in the donor** (substantive, ready to port):
-- **Atari 800XL** (1980 LoC; needs MOS PIA-6520 — reuses ANTIC +
-  GTIA + POKEY now landed for 5200)
-- Plus the Amiga **AGA chipset scaffold** (Agnus AGA + Denise AGA —
+- The Amiga **AGA chipset scaffold** (Agnus AGA + Denise AGA —
   lighter, possibly incomplete; the current AGA path is the forward
   port).
 

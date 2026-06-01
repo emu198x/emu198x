@@ -915,6 +915,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-atari-800xl"
+version = "0.1.0"
+dependencies = [
+ "machine-atari-800xl",
+ "png",
+]
+
+[[package]]
 name = "emu198x-c64"
 version = "0.1.0"
 dependencies = [
@@ -1866,6 +1874,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-atari-800xl"
+version = "0.1.0"
+dependencies = [
+ "atari-antic",
+ "atari-gtia",
+ "atari-pokey",
+ "mos-6502",
+ "mos-pia-6520",
+]
+
+[[package]]
 name = "machine-coleco-colecovision"
 version = "0.1.0"
 dependencies = [
@@ -2289,6 +2308,10 @@ version = "0.1.0"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "mos-pia-6520"
+version = "0.1.0"
 
 [[package]]
 name = "mos-riot-6532"
