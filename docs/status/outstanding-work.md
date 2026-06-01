@@ -163,12 +163,21 @@ the address bus on `$FE00` reads, VBlank + 100 Hz RTC IRQ sources,
 sound generation through the ULA's tone counter, and ROM-page
 register at `$FE05`.
 
-- **L — BIOS not yet available.** Acorn OS ROM + BASIC ROM (16 KB
-  each) are not in the TOSEC dump. Smoke at
-  `crates/machine-acorn-electron/tests/bios_boot.rs` waits for
-  `os.rom` + `basic.rom` at `~/.emu198x/roms/acorn-electron/`.
-  Both ROMs are widely distributed by Acorn-preservation projects
-  (Stairway to Hell etc.).
+- **L — Acorn BASIC II ROM missing from TOSEC.** The Electron OS
+  ROM (16 KB, SHA-256
+  `b63f851d79498f598999d923b7c9f62e2525c34f0b9cd2d4b328b89d622dcda4`)
+  is in TOSEC at
+  `Acorn/Electron/Operating Systems/Acorn Electron OS (1983)(Acorn).zip`
+  and now installed at `~/.emu198x/roms/acorn-electron/os.rom`.
+  The 16 KB **Acorn BASIC II ROM is not in TOSEC's Acorn tree**
+  (neither under Acorn/BBC nor Acorn/Electron — `Acorn BASIC` only
+  appears as cassette/disk programs). Confirmed live: with a stub
+  16 KB `$FF`-filled BASIC, the OS reaches MODE 6 display init
+  and paints the canonical **all-red "Language?" error screen**
+  (real-hardware behaviour when no valid language ROM sits in the
+  sideways slot). Sourcing options: Stairway to Hell preservation
+  archive, openMSX/B-em firmware bundles, or extraction from a
+  real Electron / BBC.
 - **A — ULA bus contention not modelled.** Real Electron CPU
   halves to 1 MHz during ULA RAM-fetch windows; this initial port
   runs CPU at a flat 2 MHz. Significant cycle-accuracy gap on a
