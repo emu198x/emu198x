@@ -1030,6 +1030,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-memotech-mtx"
+version = "0.1.0"
+dependencies = [
+ "machine-memotech-mtx",
+ "png",
+]
+
+[[package]]
 name = "emu198x-msx"
 version = "0.1.0"
 dependencies = [
@@ -2058,6 +2066,15 @@ dependencies = [
 name = "machine-mattel-aquarius"
 version = "0.1.0"
 dependencies = [
+ "zilog-z80",
+]
+
+[[package]]
+name = "machine-memotech-mtx"
+version = "0.1.0"
+dependencies = [
+ "ti-sn76489",
+ "ti-tms9918",
  "zilog-z80",
 ]
 

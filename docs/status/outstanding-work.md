@@ -457,6 +457,44 @@ here.
 - **A — `.prg` / `.tap` load not implemented.**
 - **S — Full shell parity**.
 
+## Memotech MTX500 / MTX512 — `emu198x-memotech-mtx` (new, 2026-06-01)
+
+Twentieth donor-codebase extraction. UK-built Z80A home
+computer from Memotech (1983) — aluminium case, pro-grade
+keyboard, MTX BASIC + Noddy + SuperPascal ROMs. Critically
+respected; commercially overshadowed. **No new chip crate
+needed** — uses `zilog-z80`, `ti-tms9918`, `ti-sn76489` (all
+already in the workspace).
+
+Fresh-write machine layer (`machine-memotech-mtx`, 10/10 tests)
+wiring CPU + VDP + PSG through the MTX I/O ports: `$00` page
+register (bit 0 = page 0 RAM, bit 1 = page 1 RAM), `$01` VDP
+data, `$02` VDP status / register, `$03` PSG, `$05` keyboard
+row select + read. Memory map: 8 KB OS at `$0000-$1FFF` and
+8 KB BASIC at `$2000-$3FFF` (both switchable to RAM via port
+`$00`); page 2 `$4000-$7FFF` always RAM; pages 3-4
+`$8000-$FFFF` full RAM on MTX512 or wrapping to page 2 on
+MTX500.
+
+Clock model: CPU at 4 MHz; VDP at 5.37 MHz via Bresenham
+counter against the CPU clock; PSG at 4 MHz with internal ÷16.
+VDP interrupt drives Z80 IRQ.
+
+Live boot verified 2026-06-01 with TOSEC's "OS ROM
+(1984)(Memotech)" + "BASIC ROM (1984)(Memotech)" concatenated
+to 16 KB.
+
+- **A — Display still blank** after 300 frames — the OS may
+  not have enabled the VDP display through the early boot
+  path yet, or the donor's keyboard wait loop is stuck. CPU
+  pipeline + page register + VDP wiring verified by tests;
+  this is correctness, not structure.
+- **A — Cassette in/out unwired** (port `$06`).
+- **A — Centronics printer not implemented.**
+- **A — Snapshot deferred** (shared family pattern).
+- **A — `.mtx` / `.run` snapshot load not implemented.**
+- **S — Full shell parity**.
+
 ## Sinclair ZX80 + ZX81 — `emu198x-sinclair-zx80` / `emu198x-sinclair-zx81` (new, 2026-06-01)
 
 Eighteenth and nineteenth donor-codebase extractions. Both
@@ -909,7 +947,7 @@ frames, asserts a non-trivial framebuffer).
 
 Status of the Emu198x-Oldest donor codebase extraction.
 
-**Nineteen already extracted** in this run — see their dedicated
+**Twenty already extracted** in this run — see their dedicated
 sections above:
 
 | # | System | Live boot status |
@@ -933,6 +971,7 @@ sections above:
 | 17 | Commodore PET | Char grid renders (live) — full boot pending |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
+| 20 | Memotech MTX500 | ROM boots (live); display still blank |
 
 **Thirteen chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,

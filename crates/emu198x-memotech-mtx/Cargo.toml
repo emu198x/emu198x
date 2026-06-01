@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-memotech-mtx"
+description = "Memotech MTX headless runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-memotech-mtx"
+path = "src/main.rs"
+
+[dependencies]
+machine-memotech-mtx = { path = "../machine-memotech-mtx" }
+png = { workspace = true }
+
+[lints]
+workspace = true

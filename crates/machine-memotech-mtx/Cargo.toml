@@ -1,0 +1,15 @@
+[package]
+name = "machine-memotech-mtx"
+description = "Memotech MTX500/MTX512 (1983) — Z80A + TMS9918A + SN76489"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ti-sn76489 = { path = "../ti-sn76489" }
+ti-tms9918 = { path = "../ti-tms9918" }
+zilog-z80 = { path = "../zilog-z80" }
+
+[lints]
+workspace = true
