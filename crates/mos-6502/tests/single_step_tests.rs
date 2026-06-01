@@ -22,6 +22,45 @@ use support::find_tom_harte_6502_dir;
 const OPCODE_ENV: &str = "EMU198X_6502_OPCODE";
 const LIMIT_ENV: &str = "EMU198X_6502_LIMIT";
 
+/// Per-opcode allowlist for fields that are accepted as differing
+/// from Tom Harte's expected final state.
+///
+/// Each entry: `(opcode, &[field_labels])`. Field labels match the
+/// strings emitted by `check_cpu` ("A", "X", "Y", "P", "S", "PC").
+/// An error whose label is in the allowlist is silently dropped for
+/// that opcode.
+///
+/// **`0xAB` (LXA / ATX)** is silicon-batch dependent. Tom Harte's
+/// vectors codify the `(A | 0xEE) & data` model, while blargg's
+/// NES test ROMs CRC against Mesen2's stable `A = operand; X = A`
+/// model. Per `knowledge/decisions/nes-test-oracle-priority.md`
+/// (2026-06-01), NES-validated oracles win for 2A03 work — so the
+/// core matches Mesen, and Tom Harte's A/X/P disagreements on
+/// `0xAB` are documented here rather than fought through a
+/// magic-constant guess that would still differ from blargg.
+const ACCEPTED_TOM_HARTE_DISAGREEMENTS: &[(u8, &[&str])] = &[(0xAB, &["A", "X", "P"])];
+
+fn accepted_labels_for(opcode: u8) -> &'static [&'static str] {
+    ACCEPTED_TOM_HARTE_DISAGREEMENTS
+        .iter()
+        .find_map(|(stem, labels)| if *stem == opcode { Some(*labels) } else { None })
+        .unwrap_or(&[])
+}
+
+fn filter_errors(opcode: u8, errors: Vec<String>) -> Vec<String> {
+    let allowed = accepted_labels_for(opcode);
+    if allowed.is_empty() {
+        return errors;
+    }
+    errors
+        .into_iter()
+        .filter(|err| {
+            let label = err.split(':').next().unwrap_or("");
+            !allowed.contains(&label)
+        })
+        .collect()
+}
+
 #[derive(Deserialize)]
 struct TestCase {
     name: String,
@@ -128,6 +167,13 @@ fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
     let data = std::fs::read_to_string(path).expect("failed to read JSON opcode file");
     let tests: Vec<TestCase> =
         serde_json::from_str(&data).expect("failed to parse JSON opcode file");
+    // Derive the opcode from the filename (e.g. "ab.json" → 0xAB)
+    // for the per-opcode allowlist lookup.
+    let opcode = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .and_then(|s| u8::from_str_radix(s, 16).ok())
+        .unwrap_or(0);
 
     let mut pass = 0usize;
     let mut fail = 0usize;
@@ -136,13 +182,15 @@ fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
     for test in &tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_test(test)));
         match result {
-            Ok(errors) if errors.is_empty() => {
-                pass += 1;
-            }
             Ok(errors) => {
-                fail += 1;
-                if first_failures.len() < 3 {
-                    first_failures.push(format!("FAIL {}: {}", test.name, errors.join(", ")));
+                let errors = filter_errors(opcode, errors);
+                if errors.is_empty() {
+                    pass += 1;
+                } else {
+                    fail += 1;
+                    if first_failures.len() < 3 {
+                        first_failures.push(format!("FAIL {}: {}", test.name, errors.join(", ")));
+                    }
                 }
             }
             Err(_) => {

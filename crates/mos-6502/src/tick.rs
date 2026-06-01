@@ -4,7 +4,6 @@ use crate::registers::*;
 
 impl M6502 {
     const ANE_MAGIC: u8 = 0xEE;
-    const LXA_MAGIC: u8 = 0xEE;
 
     pub fn tick(&mut self) -> bool {
         // RDY pin: if external hardware (e.g. VIC-II during a bad line)
@@ -927,17 +926,20 @@ impl M6502 {
             Operation::Lxa => {
                 // LXA (`$AB`, also known as ATX) is silicon-batch
                 // dependent — the magic constant differs across
-                // emulator references. Tom Harte's `ab.json`
-                // (~10000 randomised cases per opcode) expects
-                // the `(A | 0xEE) & data` model; Mesen models it
-                // as a stable `data → A,X` with no magic. The two
-                // give different CRC for blargg's
-                // `instr_test/02-immediate` ATX subtest, but Tom
-                // Harte is the more rigorous corpus — keep magic.
-                let result = (self.regs.a | Self::LXA_MAGIC) & data;
-                self.regs.a = result;
-                self.regs.x = result;
-                self.regs.set_nz(result);
+                // emulator references. Per
+                // `knowledge/decisions/nes-test-oracle-priority.md`
+                // (2026-06-01), blargg's NES test ROMs outrank
+                // Tom Harte for 2A03 work. blargg's `instr_test`
+                // CRC matches Mesen2's stable `A = operand;
+                // X = A` model — switching satisfies three blargg
+                // sub-tests (`instr_test-v3/02-immediate`,
+                // `instr_test-v5/02-immediate`,
+                // `nes_instr_test/03-immediate`). Tom Harte's
+                // `ab.json` regresses as a result; that opcode is
+                // allowlisted in `mos-6502`'s Tom Harte harness.
+                self.regs.a = data;
+                self.regs.x = data;
+                self.regs.set_nz(data);
             }
             Operation::Las => {
                 let result = data & self.regs.sp;
