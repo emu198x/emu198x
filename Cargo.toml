@@ -111,6 +111,7 @@ members = [
     "crates/motorola-68030",
     "crates/motorola-68040",
     "crates/motorola-68k-common",
+    "crates/motorola-6845",
     "crates/motorola-sam-6883",
     "crates/motorola-vdg-6847",
     "crates/nec-upd765a",

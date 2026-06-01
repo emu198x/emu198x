@@ -2288,6 +2288,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "motorola-6845"
+version = "0.1.0"
+
+[[package]]
 name = "motorola-68k-common"
 version = "0.1.0"
 dependencies = [
