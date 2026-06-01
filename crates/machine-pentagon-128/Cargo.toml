@@ -15,3 +15,6 @@ pentagon-ula = { path = "../pentagon-ula" }
 peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick" }
 serde = { workspace = true }
 zilog-z80 = { path = "../zilog-z80" }
+
+[dev-dependencies]
+png = { workspace = true }

@@ -4,21 +4,28 @@ use std::path::Path;
 
 /// Scorpion ZS-256 memory: 4 × 16K ROM + 16 × 16K RAM banks.
 ///
-/// Paging via two ports:
+/// Paging via two ports (cross-referenced against FUSE's
+/// `machines/scorpion.c`):
 ///
 /// Port $7FFD (standard 128K paging):
-///   Bits 0-2: RAM bank at $C000 (0-7, from the standard 128K set)
+///   Bits 0-2: low 3 bits of RAM-bank index at $C000
 ///   Bit 3:    Screen bank (0 = bank 5, 1 = bank 7)
-///   Bit 4:    ROM select low bit
+///   Bit 4:    ROM select between ROM 0 and ROM 1
 ///   Bit 5:    Paging lock
 ///
 /// Port $1FFD (Scorpion extension):
-///   Bit 0:    RAM bank bit 3 at $C000 (extends to 16 banks)
-///   Bit 1:    ROM select high bit
-///   Bits 2-4: Reserved
+///   Bit 0:    "all RAM at $0000-$3FFF" mode (+3-style, unused at boot)
+///   Bit 1:    When set, forces ROM 2 (TR-DOS / Service swap)
+///             regardless of $7FFD bit 4
+///   Bit 4:    high bit (bit 3) of the 16-bank RAM index
 ///
-/// ROM select = ($1FFD bit 1) << 1 | ($7FFD bit 4). Four ROMs:
-///   0 = Service monitor, 1 = TR-DOS, 2 = 128K editor, 3 = 48K BASIC
+/// ROM bank layout (matching FUSE's `rom_scorpion_{0,1,2,3}`):
+///   0 = 128 Editor (Scorpion-branded, "Scorpion ZS 256 1992-94")
+///   1 = 48 BASIC ("© 1982 Sinclair Research Ltd")
+///   2 = TR-DOS / Service swap, paged in via $1FFD bit 1
+///   3 = Beta Disk ROMCS overlay, paged in by the M1 address trap
+///       when PC enters $3D00-$3DFF; NOT reachable via $7FFD/$1FFD.
+///
 /// Banks live behind `Vec<Bank16K>` so that `serde`'s deserializer
 /// processes one 16 KB chunk at a time into heap memory rather than
 /// materialising the whole 320 KB inline-array on the caller's stack.
@@ -71,7 +78,13 @@ impl MemoryScorpion {
         }
     }
 
-    /// Read from the TR-DOS ROM (ROM 1) — used when Beta disk is paged in.
+    /// Read from the Beta Disk overlay — used when the M1 address
+    /// trap pages it in. Per FUSE's `machines/scorpion.c` the Beta
+    /// overlay is intended to live in a separate ROMCS bank (loaded
+    /// from `rom_scorpion_3`). The ROM distribution we currently
+    /// ship surfaces TR-DOS in ROM bank 1 instead — switching this
+    /// to read from `rom[3]` regressed the boot, so we keep the
+    /// existing index until the ROM layout is verified.
     pub fn read_trdos_rom(&self, addr: u16) -> u8 {
         self.rom[1][addr as usize & 0x3FFF]
     }
@@ -83,14 +96,27 @@ impl MemoryScorpion {
         self.paging_1ffd = val;
     }
 
-    /// RAM bank at $C000: bits 0-2 of $7FFD + bit 0 of $1FFD as bit 3.
+    /// RAM bank at $C000. FUSE's `machines/scorpion.c` formula is
+    /// `((last_byte2 & 0x10) >> 1) | (last_byte & 0x07)` (high bit
+    /// from $1FFD bit 4). The Scorpion ROM distribution we currently
+    /// ship targets the alternate convention where $1FFD bit 0
+    /// carries the high page bit. Switching to FUSE's formula
+    /// regresses the boot — the Editor's banks land in the wrong
+    /// slots and the CPU never reaches `EI`. Tracked as a separate
+    /// open question pending evidence on which Scorpion ROM
+    /// distribution our files match.
     fn current_bank(&self) -> usize {
         let low = (self.paging_7ffd & 0x07) as usize;
         let high = ((self.paging_1ffd & 0x01) as usize) << 3;
         low | high
     }
 
-    /// ROM select: bit 4 of $7FFD (low) + bit 1 of $1FFD (high).
+    /// ROM bank at $0000-$3FFF. FUSE's logic is "if $1FFD bit 1 then
+    /// ROM 2, else $7FFD bit 4 → ROM 0/1" — but the Scorpion ROM
+    /// distribution we ship boots correctly only with the 2-bit
+    /// composite `($1FFD bit 1) << 1 | ($7FFD bit 4)` index that
+    /// reaches all 4 ROM slots. Tracked as the same open question
+    /// as `current_bank()` above.
     fn current_rom(&self) -> usize {
         let low = ((self.paging_7ffd >> 4) & 0x01) as usize;
         let high = ((self.paging_1ffd >> 1) & 0x01) as usize;
@@ -178,27 +204,48 @@ mod tests {
         // Default: bank 0
         assert_eq!(mem.read(0xC000), 0xAA);
 
-        // Bank 8: $7FFD bits 0-2 = 0, $1FFD bit 0 = 1
+        // Bank 8: $7FFD bits 0-2 = 0, $1FFD bit 0 = 1.
+        // Our current Scorpion ROM distribution targets this
+        // convention — see the note on `current_bank()` for the
+        // FUSE-vs-distribution open question.
         mem.write_7ffd(0x00);
         mem.write_1ffd(0x01);
         assert_eq!(mem.read(0xC000), 0xBB);
     }
 
     #[test]
-    fn four_roms() {
+    fn three_main_roms_plus_beta_overlay() {
+        // Per FUSE machines/scorpion.c: $7FFD bit 4 selects between
+        // ROM 0 (Scorpion-branded 128 Editor) and ROM 1 (48 BASIC);
+        // $1FFD bit 1 forces ROM 2 (TR-DOS / Service swap) regardless
+        // of $7FFD bit 4. ROM 3 is the Beta Disk overlay and is not
+        // reachable through this bank-select path — it's paged in by
+        // the M1 trap mechanism (read_trdos_rom).
         let mut mem = MemoryScorpion::new();
         mem.rom[0][0] = 0x00;
         mem.rom[1][0] = 0x11;
         mem.rom[2][0] = 0x22;
         mem.rom[3][0] = 0x33;
 
-        assert_eq!(mem.read(0x0000), 0x00); // ROM 0
-        mem.write_7ffd(0x10); // ROM 1
+        // Default state — ROM 0.
+        assert_eq!(mem.read(0x0000), 0x00);
+
+        // $7FFD bit 4 → ROM 1.
+        mem.write_7ffd(0x10);
         assert_eq!(mem.read(0x0000), 0x11);
+
+        // $1FFD bit 1 + $7FFD bit 4 clear → ROM 2.
         mem.write_7ffd(0x00);
-        mem.write_1ffd(0x02); // ROM 2
+        mem.write_1ffd(0x02);
         assert_eq!(mem.read(0x0000), 0x22);
-        mem.write_7ffd(0x10); // ROM 3
+
+        // $1FFD bit 1 + $7FFD bit 4 both set → ROM 3 (with the
+        // composite 2-bit index our current Scorpion ROM expects).
+        mem.write_7ffd(0x10);
         assert_eq!(mem.read(0x0000), 0x33);
+
+        // M1-trap read currently sources from ROM 1 (see comment on
+        // read_trdos_rom for the FUSE-vs-our-ROM-layout question).
+        assert_eq!(mem.read_trdos_rom(0x0000), 0x11);
     }
 }
