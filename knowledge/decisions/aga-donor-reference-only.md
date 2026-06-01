@@ -83,3 +83,13 @@ If you find yourself:
 22 systems were extracted from `Emu198x-Oldest` between 2026-05 and
 2026-06-01 (see `docs/status/outstanding-work.md` § rollup). Nothing
 substantive remains apart from the AGA scaffold covered here.
+
+## Disk pruning (2026-06-01)
+
+After harvest close-out, `Emu198x-Oldest/` was pruned in-place:
+`compat-screenshots/` (60,817 PNG regression baselines), `target/`
+(Rust build artefacts), and `test_output/` were deleted to recover
+~1.1 GB. The 5.8 MB of `crates/` source plus the 118 MB `.git`
+history are preserved — these are what the reference role depends
+on. If you find any of the pruned paths cited in old notes, treat
+them as regenerable by re-running the donor's CI, not lost forever.
