@@ -67,10 +67,23 @@ mod palette;
 pub use palette::{NTSC_PALETTE, PAL_PALETTE};
 
 /// Framebuffer width: 320 pixels (hires resolution).
-pub const FB_WIDTH: u32 = 320;
+/// Active display area dimensions (the pixels MARIA actually draws
+/// through its DLL/DL pipeline).
+pub const ACTIVE_WIDTH: u32 = 320;
+/// Border thickness — same canonical Atari 8-bit TV-visible envelope
+/// as GTIA (32 px L/R + 24 px T/B around the 320 x 240 active region).
+pub const BORDER_LEFT: u32 = 32;
+pub const BORDER_RIGHT: u32 = 32;
+pub const BORDER_TOP: u32 = 24;
+pub const BORDER_BOTTOM: u32 = 24;
+
+pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 
 /// Framebuffer height: 240 scanlines (covers NTSC visible area; PAL uses up to 240).
-pub const FB_HEIGHT: u32 = 240;
+/// Active display height in scan lines.
+pub const ACTIVE_HEIGHT: u32 = 240;
+
+pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 // ---------------------------------------------------------------------------
 // Internal constants
@@ -202,7 +215,7 @@ pub struct Maria {
 
     // -- Framebuffer --------------------------------------------------------
     framebuffer: Vec<u32>,
-    line_buffer: [u8; FB_WIDTH as usize],
+    line_buffer: [u8; ACTIVE_WIDTH as usize],
 }
 
 impl Maria {
@@ -235,7 +248,7 @@ impl Maria {
             dma_cycles: 0,
 
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
-            line_buffer: [0; FB_WIDTH as usize],
+            line_buffer: [0; ACTIVE_WIDTH as usize],
         }
     }
 
@@ -429,7 +442,7 @@ impl Maria {
     pub fn render_line(&mut self, read_byte: &mut dyn FnMut(u16) -> u8) -> u8 {
         self.dma_cycles = 0;
 
-        let visible_bottom = VISIBLE_TOP + FB_HEIGHT as u16;
+        let visible_bottom = VISIBLE_TOP + ACTIVE_HEIGHT as u16;
         let lines = self.region.lines_per_frame();
 
         // Determine VBLANK status.
@@ -593,7 +606,7 @@ impl Maria {
             if use_320 {
                 // 320A: 1 bit per pixel, 8 pixels per byte.
                 for bit in (0..8).rev() {
-                    if x < FB_WIDTH as usize {
+                    if x < ACTIVE_WIDTH as usize {
                         let pixel = (byte >> bit) & 1;
                         if pixel != 0 {
                             // Colour 1 from the selected palette.
@@ -610,10 +623,10 @@ impl Maria {
                     if pixel != 0 {
                         let colour =
                             self.palettes[entry.palette as usize][(pixel - 1) as usize];
-                        if x < FB_WIDTH as usize {
+                        if x < ACTIVE_WIDTH as usize {
                             self.line_buffer[x] = colour;
                         }
-                        if x + 1 < FB_WIDTH as usize {
+                        if x + 1 < ACTIVE_WIDTH as usize {
                             self.line_buffer[x + 1] = colour;
                         }
                     }
@@ -652,7 +665,7 @@ impl Maria {
 
             if use_320 {
                 for bit in (0..8).rev() {
-                    if x < FB_WIDTH as usize {
+                    if x < ACTIVE_WIDTH as usize {
                         let pixel = (byte >> bit) & 1;
                         if pixel != 0 {
                             self.line_buffer[x] = self.palettes[entry.palette as usize][0];
@@ -666,10 +679,10 @@ impl Maria {
                     if pixel != 0 {
                         let colour =
                             self.palettes[entry.palette as usize][(pixel - 1) as usize];
-                        if x < FB_WIDTH as usize {
+                        if x < ACTIVE_WIDTH as usize {
                             self.line_buffer[x] = colour;
                         }
-                        if x + 1 < FB_WIDTH as usize {
+                        if x + 1 < ACTIVE_WIDTH as usize {
                             self.line_buffer[x + 1] = colour;
                         }
                     }
@@ -686,12 +699,28 @@ impl Maria {
         self.line_buffer.fill(self.backgrnd);
     }
 
+    /// Fill the entire framebuffer with the current BACKGRND colour.
+    /// Called by the machine at frame start so the canonical TV-visible
+    /// border around the active 320 x 240 region carries the current
+    /// MARIA background colour. Mid-frame BACKGRND changes affect the
+    /// *next* frame's border (v1 simplification, matches GTIA).
+    pub fn fill_border(&mut self) {
+        let palette = match self.region {
+            MariaRegion::Ntsc => &NTSC_PALETTE,
+            MariaRegion::Pal => &PAL_PALETTE,
+        };
+        let index = (self.backgrnd >> 1) as usize;
+        let argb = palette.get(index).copied().unwrap_or(0xFF00_0000);
+        self.framebuffer.fill(argb);
+    }
+
     /// Convert line buffer colour indices to ARGB32 and write to framebuffer.
     fn flush_line_to_framebuffer(&mut self) {
-        let fb_y = self.scan_line.saturating_sub(VISIBLE_TOP) as usize;
-        if fb_y >= FB_HEIGHT as usize {
+        let active_y = self.scan_line.saturating_sub(VISIBLE_TOP) as usize;
+        if active_y >= ACTIVE_HEIGHT as usize {
             return;
         }
+        let fb_y = BORDER_TOP as usize + active_y;
 
         let palette = match self.region {
             MariaRegion::Ntsc => &NTSC_PALETTE,
@@ -699,7 +728,7 @@ impl Maria {
         };
 
         let kill = self.ctrl & CTRL_COLOUR_KILL != 0;
-        let row_start = fb_y * FB_WIDTH as usize;
+        let row_start = fb_y * FB_WIDTH as usize + BORDER_LEFT as usize;
 
         for (i, &colour_reg) in self.line_buffer.iter().enumerate() {
             let index = if kill {
@@ -887,9 +916,13 @@ mod tests {
         // Render one visible line.
         maria.render_line(&mut |addr| mem[addr as usize]);
 
-        // Every pixel on the line should be the background colour.
+        // Every pixel of the active region on the first active row should be
+        // the background colour. (The border rows around the active area are
+        // painted by the machine via fill_border() at frame start; they're
+        // outside the scope of this chip-level test.)
         let bg_argb = NTSC_PALETTE[(0x0E >> 1) as usize];
-        let row = &maria.framebuffer[0..FB_WIDTH as usize];
+        let row_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let row = &maria.framebuffer[row_start..row_start + ACTIVE_WIDTH as usize];
         assert!(row.iter().all(|&px| px == bg_argb));
     }
 
@@ -941,13 +974,16 @@ mod tests {
         let bg_argb = NTSC_PALETTE[(0x0E >> 1) as usize];
         let fg_argb = NTSC_PALETTE[(0x66 >> 1) as usize]; // palette 0, colour 3
 
-        // First two framebuffer pixels (one 160A pixel = 2 FB pixels) should
-        // be the foreground colour.
-        assert_eq!(maria.framebuffer[0], fg_argb);
-        assert_eq!(maria.framebuffer[1], fg_argb);
+        // Active region starts at (BORDER_LEFT, BORDER_TOP). First two
+        // framebuffer pixels of the active row (one 160A pixel = 2 FB
+        // pixels) should be the foreground colour.
+        let active_start =
+            BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        assert_eq!(maria.framebuffer[active_start], fg_argb);
+        assert_eq!(maria.framebuffer[active_start + 1], fg_argb);
         // Next pixels should be background (transparent).
-        assert_eq!(maria.framebuffer[2], bg_argb);
-        assert_eq!(maria.framebuffer[3], bg_argb);
+        assert_eq!(maria.framebuffer[active_start + 2], bg_argb);
+        assert_eq!(maria.framebuffer[active_start + 3], bg_argb);
     }
 
     #[test]
