@@ -457,6 +457,40 @@ here.
 - **A — `.prg` / `.tap` load not implemented.**
 - **S — Full shell parity**.
 
+## Acorn Atom — `emu198x-acorn-atom` (new, 2026-06-01)
+
+Twenty-first donor-codebase extraction. Acorn's £120 self-build
+(1980) designed by Sophie Wilson and Steve Furber — the team
+that would design the BBC Micro the following year.
+
+The donor ships an Atom-specific MC6847 VDG (265 LoC, embedded
+64-glyph character set, text mode only) inline; we deliberately
+**don't promote** it to the shared `motorola-vdg-6847` crate
+(which has its own Dragon/CoCo-targeted model). It stays as
+`machine_acorn_atom::vdg::Mc6847` — a stub-y text renderer
+named for the silicon it pretends to be. Graphics modes 1-5 are
+a known follow-up.
+
+Fresh-write machine layer (`machine-acorn-atom`, 8/8 tests +
+inline VDG/keyboard) wiring the 6502 through public pin fields
+to: 2.5 KB base RAM (expandable to 12 KB), 1 KB video RAM at
+`$8000-$83FF` mirrored to `$9FFF`, 24 KB combined ROM (BASIC1
+`$A000`, FP `$B004`, BASIC2 `$C000`, OS `$D000`), VDG control
+register at `$B000`, PIA 6520 at `$B001-$B003`. PIA port A
+column-select; port B row data.
+
+- **A — Awaiting ROM.** TOSEC's Acorn/Atom subtree has no
+  firmware folder. Atom ROMs (akernel + abasic + afloat) are
+  typically distributed with Atomulator or sourced from
+  Acorn-preservation sites. Gated boot smoke skips until
+  `EMU198X_ATOM_ROM` is set or `~/.emu198x/roms/acorn-atom/atom.rom`
+  exists (24 KB combined).
+- **A — Graphics modes 1-5 not implemented.** VDG renders text
+  mode only; graphics modes show solid green (donor stub).
+- **A — Cassette / printer unwired.**
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Full shell parity**.
+
 ## Memotech MTX500 / MTX512 — `emu198x-memotech-mtx` (new, 2026-06-01)
 
 Twentieth donor-codebase extraction. UK-built Z80A home
@@ -947,8 +981,8 @@ frames, asserts a non-trivial framebuffer).
 
 Status of the Emu198x-Oldest donor codebase extraction.
 
-**Twenty already extracted** in this run — see their dedicated
-sections above:
+**Twenty-one already extracted** in this run — see their
+dedicated sections above:
 
 | # | System | Live boot status |
 |---|--------|------------------|
@@ -972,6 +1006,7 @@ sections above:
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
 | 20 | Memotech MTX500 | ROM boots (live); display still blank |
+| 21 | Acorn Atom | **Awaiting ROM** (24 KB combined) |
 
 **Thirteen chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,
