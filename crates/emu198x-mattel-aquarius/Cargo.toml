@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-mattel-aquarius"
+description = "Mattel Aquarius headless runner — Z80 + memory-mapped char display"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-mattel-aquarius"
+path = "src/main.rs"
+
+[dependencies]
+machine-mattel-aquarius = { path = "../machine-mattel-aquarius" }
+png = { workspace = true }
+
+[lints]
+workspace = true

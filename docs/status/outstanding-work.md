@@ -148,6 +148,42 @@ PAK snapshot smokes, optional patched-XRoar screenshot comparisons.
 - **S — Real DragonDOS ROM + VDK software smokes** at the same bar as
   the CAS / PAK paths.
 
+## Mattel Aquarius — `emu198x-mattel-aquarius` (new, 2026-06-01)
+
+Seventh donor-codebase extraction. **Zero new chips** — Z80-only
+machine with custom character-display rendering (320×192 = 40×24
+8×8 cells, TEA1002 16-colour palette, character generator at the
+upper 2 KB of the 8 KB Microsoft BASIC ROM). 8-row keyboard read
+through port `$FF` with the row select on address lines A8-A15
+(active-low). VBlank drives Z80 NMI (50 Hz PAL pulse).
+
+**Live boot verified 2026-06-01** with the 1982 Microsoft Aquarius
+BASIC ROM (8 KB, SHA-256
+`277b2655a0599861302e6ec86b027c65a29e284fe7aadc296c4570498ab0e249`).
+BIOS reaches its idle loop (PC ≈ `$1EA7`) and paints the
+characteristic magenta-and-black title screen — the cold-init fill
+character produces the iconic repeated-tile background, with the
+title text rendered as dark glyphs over the magenta backdrop. Gated
+smoke at `crates/machine-mattel-aquarius/tests/bios_boot.rs` (1/1).
+
+Bug fixed during boot bring-up: the donor's source comment on the
+colour byte layout claimed `bits 0-3 = foreground`, but the BIOS
+actually writes `high nibble = foreground, low nibble = background`.
+Corrected with a note pointing at the donor's misleading comment.
+
+- **A — Per-scanline display rendering.** The current port renders
+  the whole framebuffer in one call at end-of-frame. Mid-frame
+  changes to char / colour RAM won't be visible until the next
+  frame.
+- **A — TEA1002 palette tuning.** Donor palette is plausible but
+  not calibrated against real-hardware photos.
+- **A — 1-bit speaker downsample to 48 kHz** is exposed via
+  `speaker_bit()` but the binary doesn't write a .wav yet.
+- **A — Mini-Expander AY-3-8910 stub.** Port `$FC` writes are
+  swallowed; some games rely on the optional Mini-Expander PSG.
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Cassette I/O** via port `$FE` not yet wired.
+
 ## Spectravideo SVI-328 — `emu198x-spectravideo-svi-328` (new, 2026-06-01)
 
 Sixth donor-codebase extraction. **Zero new chips** — reuses

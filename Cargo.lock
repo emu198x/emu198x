@@ -935,6 +935,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-mattel-aquarius"
+version = "0.1.0"
+dependencies = [
+ "machine-mattel-aquarius",
+ "png",
+]
+
+[[package]]
 name = "emu198x-msx"
 version = "0.1.0"
 dependencies = [
@@ -1852,6 +1860,13 @@ dependencies = [
  "motorola-sam-6883",
  "motorola-vdg-6847",
  "serde",
+]
+
+[[package]]
+name = "machine-mattel-aquarius"
+version = "0.1.0"
+dependencies = [
+ "zilog-z80",
 ]
 
 [[package]]
