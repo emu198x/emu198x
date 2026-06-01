@@ -7,8 +7,21 @@
 //! For v1, text mode display is implemented. Audio is stubbed.
 
 /// Framebuffer dimensions (visible area for text mode).
-pub const FB_WIDTH: u32 = 176;
-pub const FB_HEIGHT: u32 = 184;
+pub const ACTIVE_WIDTH: u32 = 176;
+pub const ACTIVE_HEIGHT: u32 = 184;
+
+/// Border thickness around the active area. The VIC chip generates a
+/// substantial border around the active 22 x 23 character display;
+/// VIC-20 reference emulators (VICE) typically render ~30-40 px of
+/// border each side. 24 px L/R + 16 px T/B is a clean approximation
+/// that matches the period look on a typical PAL television set.
+pub const BORDER_LEFT: u32 = 24;
+pub const BORDER_RIGHT: u32 = 24;
+pub const BORDER_TOP: u32 = 16;
+pub const BORDER_BOTTOM: u32 = 16;
+
+pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
+pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 /// VIC 6560/6561 chip.
 pub struct Vic6560 {
@@ -85,6 +98,16 @@ impl Vic6560 {
         let visible_y_start = 28u32;
         let visible_y_end = visible_y_start + 184;
 
+        // At the start of each new frame, repaint the entire framebuffer
+        // with the VIC border colour (register $F low nibble) so the
+        // border around the 176 x 184 active region carries the right
+        // colour. Mid-frame border-colour changes affect the next frame
+        // — v1 simplification.
+        if self.scanline == 0 && self.pixel_x == 0 {
+            let border_colour = VIC_PALETTE[(self.regs[0x0F] as usize) & 0x0F];
+            self.framebuffer.fill(border_colour);
+        }
+
         if self.scanline >= visible_y_start
             && self.scanline < visible_y_end
             && self.pixel_x < 22
@@ -111,13 +134,16 @@ impl Vic6560 {
             let bg_colour = VIC_PALETTE[(self.regs[0x0F] as usize >> 4) & 0x0F];
             let fg_colour = VIC_PALETTE[colour_nibble as usize];
 
-            // Render 8 pixels for this character column
+            // Render 8 pixels for this character column, offset into
+            // the active region of the framebuffer (skip the border).
             for px in 0..8 {
-                let fb_x = char_col * 8 + px;
-                if fb_x < FB_WIDTH {
+                let active_x = char_col * 8 + px;
+                if active_x < ACTIVE_WIDTH {
                     let bit = (char_data >> (7 - px)) & 1;
                     let colour = if bit != 0 { fg_colour } else { bg_colour };
-                    let idx = (vis_y * FB_WIDTH + fb_x) as usize;
+                    let fb_x = BORDER_LEFT + active_x;
+                    let fb_y = BORDER_TOP + vis_y;
+                    let idx = (fb_y * FB_WIDTH + fb_x) as usize;
                     if idx < self.framebuffer.len() {
                         self.framebuffer[idx] = colour;
                     }
