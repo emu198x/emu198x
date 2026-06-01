@@ -647,25 +647,45 @@ frames, asserts a non-trivial framebuffer).
 
 ## Roadmap-adjacent (not active)
 
-System-scope expansion candidates remaining in the Emu198x-Oldest donor
-codebase — substantive implementations exist but are not yet wired into
-the current workspace. **Eight already extracted** (ColecoVision, SG-1000,
-MSX1, Sord M5, Sega Master System, Spectravideo SVI-328, Mattel Aquarius,
-Tatung Einstein) — see their dedicated sections above.
+Status of the Emu198x-Oldest donor codebase extraction.
 
-Still in the donor (substantive, ready to port):
-- **Atari** 2600 / 5200 / 7800 / 800XL with full chipset (ANTIC, GTIA,
-  MARIA, POKEY, TIA — TIA is the well-known accuracy-hard one)
-- **BBC Micro** (935 LoC; needs MOS VIA-6522 + Motorola 6845 CRTC, plus
-  reuses our `ti-sn76489`)
-- **Acorn Electron** (1105 LoC; inline ULA, no external chip deps)
-- **Oric Atmos** (1315 LoC; needs MOS VIA-6522 + AY-3-8910 ✓)
+**Twelve already extracted** in this run — see their dedicated
+sections above:
+
+| # | System | Live boot status |
+|---|--------|------------------|
+| 1 | ColecoVision | BIOS to title (live) |
+| 2 | Sega SG-1000 / SC-3000 | Othello Multivision cart (live) |
+| 3 | MSX1 | Microsoft BASIC (live) |
+| 4 | Sord M5 | **Incomplete** — needs `zilog-z80-ctc` |
+| 5 | Sega Master System | Alex Kidd in Miracle World (live) |
+| 6 | Spectravideo SVI-328 | **Awaiting BIOS** (32 KB MSX-style system ROM) |
+| 7 | Mattel Aquarius | Microsoft BASIC (live) |
+| 8 | Tatung Einstein TC-01 | **VDP-init only** — needs WD1770 floppy |
+| 9 | Acorn Electron | "Language?" red error (live) — needs Acorn BASIC II |
+| 10 | Oric-1 / Atmos | **Awaiting BIOS** (16 KB Tangerine ROM) |
+| 11 | Acorn BBC Micro Model B | OS bank-scan reaches BASIC slot (live) — needs SAA5050 + BASIC for full |
+| 12 | Atari 2600 | Combat playfield (live) |
+
+**Eight chip crates ported** as foundation:
+`ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,
+`mos-riot-6532`, `atari-tia`, plus our pre-existing `gi-ay-3-8912`
+and `mos-via-6522` reused across the family.
+
+**Still in the donor** (substantive, ready to port):
+- **Atari 5200** (1071 LoC; needs Atari ANTIC + GTIA + POKEY — three
+  new chip crates)
+- **Atari 7800** (1422 LoC; needs MARIA — reuses TIA + RIOT, plus
+  POKEY from 5200 if landed)
+- **Atari 800XL** (1980 LoC; needs MOS PIA-6520 — reuses ANTIC +
+  GTIA + POKEY from 5200)
 - Plus the Amiga **AGA chipset scaffold** (Agnus AGA + Denise AGA —
   lighter, possibly incomplete; the current AGA path is the forward
   port).
 
-Donor stubs (not real implementations — would need writing from scratch):
-Jupiter Ace, Acorn Atom, ZX80 / ZX81, Commodore PET, Commodore VIC-20,
+**Donor stubs** (placeholder crates that aren't filled in — would
+need writing from scratch): Jupiter Ace, Acorn Atom, ZX80 / ZX81,
+Commodore PET, Commodore VIC-20,
 Memotech MTX.
 
 External-blocker holds:
