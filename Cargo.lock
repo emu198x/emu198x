@@ -1464,6 +1464,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "intel-8255"
+version = "0.1.0"
+
+[[package]]
 name = "is-terminal"
 version = "0.4.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"

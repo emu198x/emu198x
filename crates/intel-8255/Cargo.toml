@@ -1,0 +1,10 @@
+[package]
+name = "intel-8255"
+description = "Intel 8255 Programmable Peripheral Interface"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

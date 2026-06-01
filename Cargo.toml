@@ -42,6 +42,7 @@ members = [
     "crates/format-sinclair-zx-spectrum-tzx",
     "crates/format-sinclair-zx-spectrum-z80",
     "crates/gi-ay-3-8912",
+    "crates/intel-8255",
     "crates/machine-commodore-amiga-ocs",
     "crates/machine-commodore-amiga-ecs",
     "crates/machine-commodore-c64",
