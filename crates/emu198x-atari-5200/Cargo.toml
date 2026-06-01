@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-atari-5200"
+description = "Atari 5200 SuperSystem headless runner — 6502 'Sally' + ANTIC + GTIA + POKEY"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-atari-5200"
+path = "src/main.rs"
+
+[dependencies]
+machine-atari-5200 = { path = "../machine-atari-5200" }
+png = { workspace = true }
+
+[lints]
+workspace = true

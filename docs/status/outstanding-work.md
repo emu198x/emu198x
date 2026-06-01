@@ -238,8 +238,57 @@ free-running.
   surface yet.
 - **A — Snapshot deferred** (shared family pattern).
 - **S — Full shell parity**.
+
+## Atari 5200 SuperSystem — `emu198x-atari-5200` (new, 2026-06-01)
+
+Thirteenth donor-codebase extraction. **Three new chip crates** —
+`atari-antic` (14/14 tests, display-list processor + DMA
+controller), `atari-gtia` (9/9 tests, video output + player /
+missile graphics + collision), `atari-pokey` (13/13 tests,
+4-channel audio + paddle pot scanner + serial I/O). Same ANTIC
++ GTIA + POKEY chip family the 800XL / 130XE share — so this
+extraction is the foundation for the rest of the 8-bit Atari
+home-computer line.
+
+Fresh-write machine layer (`machine-atari-5200`, 14/14 tests)
+wiring the 6502 "Sally" to ANTIC + GTIA + POKEY through the
+5200 memory map: 16 KB RAM at `$0000-$3FFF`, cart at
+`$4000-$BFFF` (size-mirrored 4 KB / 8 KB / 16 KB / 32 KB), GTIA
+`$C000-$CFFF`, ANTIC `$D400-$D5FF`, POKEY `$E800-$E9FF`, 2 KB
+BIOS at `$F800-$FFFF` (cart's `$FFFC/$FFFD` mirror falls
+through when BIOS is absent). Master clock = colour clock;
+CPU + POKEY tick every 2nd colour clock = 1.79 MHz NTSC; ANTIC
+processes one scan line at every 228-clock boundary and stalls
+the CPU for its DMA budget at the start of each line.
+
+Joystick wired through POKEY pots (0-228 each, 114 = centre)
+via `set_joystick(x, y)`; fire button wired through GTIA TRIG0
+via `set_fire(pressed)`.
+
+**Live boot verified 2026-06-01** with the 1982 Atari Pac-Man
+cart (16 KB, NTSC) + 5200 BIOS. Gated smoke at
+`crates/machine-atari-5200/tests/cart_boot.rs` (picks first
+`.a52` / `.bin` / `.car` from `~/.emu198x/media/atari-5200/`)
+passes (1/1). Cart drives real ANTIC scan-line output —
+captured screenshot shows partial title-screen pixels
+(scoreboard fragments, dot field).
+
+- **A — Partial render fidelity.** Pac-Man title boots but
+  most of the title-screen sprites are missing. ANTIC scan-line
+  indexing into GTIA's framebuffer and/or DMA budget are off;
+  pin further once more carts are exercised. The pipeline is
+  wired end-to-end — this is correctness, not structure.
+- **A — Cycle-accurate WSYNC + DMA stealing.** Current model
+  treats the DMA budget as a fixed CPU-cycle stall at the start
+  of the line; real ANTIC interleaves DMA cycles through the
+  scanline.
+- **A — Audio output unwired.** POKEY buffer drained via
+  `take_audio_buffer()` but the binary doesn't write a WAV.
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Full shell parity**.
 - **S — Atari 7800.** Reuses TIA + RIOT + POKEY; adds MARIA.
-  Next extraction along this chip thread.
+- **S — Atari 800XL.** Reuses ANTIC + GTIA + POKEY (now
+  unblocked); adds MOS PIA-6520.
 
 ## Acorn BBC Micro Model B — `emu198x-acorn-bbc-micro` (new, 2026-06-01)
 
@@ -649,7 +698,7 @@ frames, asserts a non-trivial framebuffer).
 
 Status of the Emu198x-Oldest donor codebase extraction.
 
-**Twelve already extracted** in this run — see their dedicated
+**Thirteen already extracted** in this run — see their dedicated
 sections above:
 
 | # | System | Live boot status |
@@ -666,19 +715,18 @@ sections above:
 | 10 | Oric-1 / Atmos | **Awaiting BIOS** (16 KB Tangerine ROM) |
 | 11 | Acorn BBC Micro Model B | OS bank-scan reaches BASIC slot (live) — needs SAA5050 + BASIC for full |
 | 12 | Atari 2600 | Combat playfield (live) |
+| 13 | Atari 5200 SuperSystem | Pac-Man title (live, partial render) |
 
-**Eight chip crates ported** as foundation:
+**Eleven chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,
-`mos-riot-6532`, `atari-tia`, plus our pre-existing `gi-ay-3-8912`
-and `mos-via-6522` reused across the family.
+`mos-riot-6532`, `atari-tia`, `atari-antic`, `atari-gtia`,
+`atari-pokey`, plus our pre-existing `gi-ay-3-8912` and
+`mos-via-6522` reused across the family.
 
 **Still in the donor** (substantive, ready to port):
-- **Atari 5200** (1071 LoC; needs Atari ANTIC + GTIA + POKEY — three
-  new chip crates)
-- **Atari 7800** (1422 LoC; needs MARIA — reuses TIA + RIOT, plus
-  POKEY from 5200 if landed)
+- **Atari 7800** (1422 LoC; needs MARIA — reuses TIA + RIOT + POKEY)
 - **Atari 800XL** (1980 LoC; needs MOS PIA-6520 — reuses ANTIC +
-  GTIA + POKEY from 5200)
+  GTIA + POKEY now landed for 5200)
 - Plus the Amiga **AGA chipset scaffold** (Agnus AGA + Denise AGA —
   lighter, possibly incomplete; the current AGA path is the forward
   port).
