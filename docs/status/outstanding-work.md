@@ -148,6 +148,37 @@ PAK snapshot smokes, optional patched-XRoar screenshot comparisons.
 - **S — Real DragonDOS ROM + VDK software smokes** at the same bar as
   the CAS / PAK paths.
 
+## Spectravideo SVI-328 — `emu198x-spectravideo-svi-328` (new, 2026-06-01)
+
+Sixth donor-codebase extraction. **Zero new chips** — reuses
+TMS9918A, AY-3-8910 (via `gi-ay-3-8912`), and Intel 8255 PPI exactly
+as MSX1 does. Fresh-write machine layer with Spectravideo-specific
+simpler memory map: 32 KB system ROM at `$0000-$7FFF` overlaid with
+RAM via port `$97` bit 0, 16 KB RAM at `$8000-$BFFF` overlaid with
+cart via port `$97` bit 1, 16 KB RAM at `$C000-$FFFF` always. I/O
+window tightened to `$80-$97` with 11×8 keyboard matrix via the
+8255 (row select on port C, column read on port B).
+
+- **L — BIOS not yet available.** The 32 KB SVI-318/328 system ROM
+  (BASIC + OS) is not in the TOSEC dump and not in any standard
+  emulator-bundle path on this machine. Gated smoke at
+  `crates/machine-spectravideo-svi-328/tests/bios_boot.rs` waits
+  for one to land at
+  `~/.emu198x/roms/spectravideo-svi-328/svi-328.rom`. Real BIOS
+  ships with openMSX/blueMSX firmware bundles; can also be
+  extracted from a real SVI-328.
+- **A — TMS9918A scanline-batched render** (shared family debt).
+- **A — Centronics printer is a write-stub** (`$90-$91`).
+- **A — Cassette I/O.** Real SVI-328 software loads from cassette
+  through PPI port C bits 4-7; not yet wired (port C bits 0-3 do
+  drive the keyboard row select correctly).
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Full shell parity** for `emu198x-spectravideo-svi-328`
+  follows once boot completes.
+- **S — SVI-318 sibling.** Same chip stack, 16 KB RAM instead of
+  32 KB, slightly different keyboard matrix. Mostly the same
+  binary with a variant flag.
+
 ## Sega Master System — `emu198x-sega-master-system` (new, 2026-06-01)
 
 Fifth donor-codebase extraction. Adds the **Sega VDP** (315-5124 /

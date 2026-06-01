@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-spectravideo-svi-328"
+description = "Spectravideo SVI-328 headless runner — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-spectravideo-svi-328"
+path = "src/main.rs"
+
+[dependencies]
+machine-spectravideo-svi-328 = { path = "../machine-spectravideo-svi-328" }
+png = { workspace = true }
+
+[lints]
+workspace = true

@@ -1007,6 +1007,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-spectravideo-svi-328"
+version = "0.1.0"
+dependencies = [
+ "machine-spectravideo-svi-328",
+ "png",
+]
+
+[[package]]
 name = "emu198x-spectrum"
 version = "0.1.0"
 dependencies = [
