@@ -164,9 +164,16 @@ at `crates/machine-msx/tests/bios_boot.rs` waiting for a 32 KB
 BIOS at `~/.emu198x/roms/microsoft-msx/msx.rom` (real BIOS from
 TOSEC) or `cbios_main_msx1.rom` (free GPL C-BIOS replacement).
 
-- **A — BIOS-boot smoke not yet run live.** Test harness is
-  written and `#[ignore]`-gated. Lands the first real run as soon
-  as a 32 KB MSX1 BIOS or C-BIOS lands at the configured path.
+- **Live boot verified 2026-06-01.** The 1983 Microsoft US MSX
+  System v1.0 + BASIC BIOS (32 KB, SHA-256
+  `3b33130d959337be63182c4eae217797774b52322f8eb9e35ab20747412ed417`)
+  boots cleanly to the canonical MSX BASIC prompt — `MSX BASIC
+  version 1.0 / Copyright 1983 by Microsoft / 28815 Bytes free /
+  Ok` plus the function-key strip — on a light-blue background.
+  Slot 0 BIOS read, slot 3 RAM hydration, PPI port A slot select,
+  TMS9918A text-mode render, and keyboard-matrix-quiescent BASIC
+  init all verified through real BIOS code. Gated smoke at
+  `crates/machine-msx/tests/bios_boot.rs` now passes (1/1).
 - **A — TMS9918A scanline-batched render** (shared with Coleco +
   SG-1000; will resolve together).
 - **A — Subslot expansion.** MSX1 doesn't need it; MSX2+ uses
