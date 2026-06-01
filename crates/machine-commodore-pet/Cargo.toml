@@ -1,0 +1,16 @@
+[package]
+name = "machine-commodore-pet"
+description = "Commodore PET (1977/79) — 6502 + 6845 CRTC + 6520 PIA + 6522 VIA"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+mos-6502 = { path = "../mos-6502" }
+mos-pia-6520 = { path = "../mos-pia-6520" }
+mos-via-6522 = { path = "../mos-via-6522" }
+motorola-6845 = { path = "../motorola-6845" }
+
+[lints]
+workspace = true

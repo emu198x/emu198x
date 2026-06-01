@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-commodore-pet"
+description = "Commodore PET headless runner — 6502 + 6845 CRTC + 6520 + 6522"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-commodore-pet"
+path = "src/main.rs"
+
+[dependencies]
+machine-commodore-pet = { path = "../machine-commodore-pet" }
+png = { workspace = true }
+
+[lints]
+workspace = true

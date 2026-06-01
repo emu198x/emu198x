@@ -417,6 +417,46 @@ first 32 T-states.
   ported (RAM dump at `$2000`).
 - **S — Full shell parity**.
 
+## Commodore PET — `emu198x-commodore-pet` (new, 2026-06-01)
+
+Seventeenth donor-codebase extraction. The 1977/79 Commodore
+business computer — one of the original "1977 trinity"
+alongside the Apple II and TRS-80 Model I. **No new chip crate
+needed** — reuses `mos-6502`, `mos-pia-6520`, `mos-via-6522`,
+`motorola-6845` (all four already in the workspace).
+
+Fresh-write machine layer (`machine-commodore-pet`, 7/7 tests)
+wiring the 6502 through the public pin fields to: 32 KB RAM at
+`$0000-$7FFF`, video RAM 2 KB at `$8000-$87FF`, BASIC ROM
+`$C000-$DFFF`, Editor ROM `$E000-$E7FF`, Kernal ROM
+`$F000-$FFFF`, PIA at `$E810`, VIA at `$E840`, CRTC at `$E880`.
+
+PIA port A drives the keyboard column-select; row data is read
+back on port B (10 × 8 matrix). The CRTC is pre-configured at
+construction for 40-column or 80-column geometry; one master
+tick = one 6502 cycle, CRTC ticks at the same rate (donor v1
+simplification — real 80-column hardware clocks the CRTC at
+2 MHz).
+
+Live boot verified 2026-06-01 with VICE 901465-* ROM set (BASIC
+2 + Kernal 2 + Editor 2N) duplicated 2 × 2 KB character ROM
+into 4 KB. Renders the canonical zeroed-video-RAM "@" grid in
+green — chars decode correctly from the character ROM through
+the CRTC pipeline. Full "*** COMMODORE BASIC ***" boot needs
+more frames + the BASIC ROM's screen-clear path; not chased
+here.
+
+- **A — Full boot to READY** — the canonical BASIC banner
+  hasn't been observed yet. Frame budget per `run_frame()` is
+  capped defensively; CRTC may need more cycles to drive the
+  boot path.
+- **A — Cassette / IEEE-488 unwired.** VIA exists but the
+  external lines aren't connected.
+- **A — Speaker unwired** (VIA CB2 piezo).
+- **A — Snapshot deferred** (shared family pattern).
+- **A — `.prg` / `.tap` load not implemented.**
+- **S — Full shell parity**.
+
 ## Acorn BBC Micro Model B — `emu198x-acorn-bbc-micro` (new, 2026-06-01)
 
 Eleventh donor-codebase extraction. **One new chip crate** —
@@ -825,7 +865,7 @@ frames, asserts a non-trivial framebuffer).
 
 Status of the Emu198x-Oldest donor codebase extraction.
 
-**Sixteen already extracted** in this run — see their dedicated
+**Seventeen already extracted** in this run — see their dedicated
 sections above:
 
 | # | System | Live boot status |
@@ -846,6 +886,7 @@ sections above:
 | 14 | Atari 7800 ProSystem | Cart accepts (live); BIOS-driven boot pending |
 | 15 | Atari 800XL | OS boots (live); BASIC ROM not yet sourced |
 | 16 | Jupiter Ace | **Awaiting ROM** (8 KB Forth interpreter) |
+| 17 | Commodore PET | Char grid renders (live) — full boot pending |
 
 **Thirteen chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,

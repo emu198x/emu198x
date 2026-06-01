@@ -971,6 +971,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-commodore-pet"
+version = "0.1.0"
+dependencies = [
+ "machine-commodore-pet",
+ "png",
+]
+
+[[package]]
 name = "emu198x-dragon"
 version = "0.1.0"
 dependencies = [
@@ -1999,6 +2007,16 @@ dependencies = [
  "mos-vic-ii",
  "serde",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "machine-commodore-pet"
+version = "0.1.0"
+dependencies = [
+ "mos-6502",
+ "mos-pia-6520",
+ "mos-via-6522",
+ "motorola-6845",
 ]
 
 [[package]]
