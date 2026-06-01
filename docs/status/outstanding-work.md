@@ -187,6 +187,57 @@ Atmos a de-facto French home computer in the mid-1980s.
 - **A — Snapshot deferred** (shared family pattern).
 - **S — Full shell parity**.
 
+## Acorn BBC Micro Model B — `emu198x-acorn-bbc-micro` (new, 2026-06-01)
+
+Eleventh donor-codebase extraction. **One new chip crate** —
+`motorola-6845` CRTC ported alongside (417 LoC, self-contained,
+8/8 tests). Reuses our `mos-6502`, `mos-via-6522` (×2 — one
+System VIA at `$FE40` for sound + keyboard + IC32 addressable
+latch, one User VIA at `$FE60` for Centronics + user port),
+`ti-sn76489` PSG, plus an inline Acorn Video ULA.
+
+Fresh-write machine layer with the SHEILA I/O page at
+`$FE00-$FEFF`, 16 sideways ROM banks at `$8000-$BFFF` switched
+via `$FE30`, 32 KB RAM at `$0000-$7FFF`, 16 KB MOS at
+`$C000-$FFFF`, and the BBC-specific **IC32 addressable latch** —
+the SN76489 PSG isn't memory-mapped, it's written by putting the
+PSG byte on System VIA port A and then **pulse-falling the latch
+bit 0** through a port B write encoding `(addr=value&7,
+data=value&8)`.
+
+CRTC VSYNC drives System VIA CA1 (sets the line so the VIA edge
+detector latches the interrupt). System VIA + User VIA IRQs OR
+into the CPU `irq` pin.
+
+**Live-tested with Acorn OS v1.2** (16 KB, SHA-256
+`b0ad5c0b2e7d5776cc65d643989c02c66f7823df1f5c1c528833588c5a3e7a07`,
+from TOSEC `Acorn/BBC/Operating Systems/`). The MOS executes
+through to its sideways-ROM scan and ends up selecting bank 15
+(the conventional BASIC slot — same scan logic as the Electron).
+Framebuffer stays at MODE 7 backdrop (black) because the OS
+defaults to MODE 7 teletext and the **SAA5050 teletext chip is
+absent** from this port.
+
+- **L — Acorn BASIC II ROM still missing.** Same blocker as the
+  Electron — TOSEC has neither under Acorn/BBC nor anywhere
+  searchable. Without BASIC the OS shows the canonical "Language?"
+  error in MODE 7. Source from Stairway to Hell.
+- **A — SAA5050 teletext chip not modelled.** MODE 7 stays blank.
+  The OS uses MODE 7 by default (BASIC then usually moves to
+  MODE 0/1 etc); without SAA5050 we can't see the boot screen
+  text even with BASIC loaded.
+- **A — Keyboard scan via System VIA + IC32 latch + addressable
+  output not wired.** Keyboard matrix is allocated; scan path
+  through the OS reads the column data which the System VIA
+  pulls from IC32-controlled lines. Not yet implemented; affects
+  any key-driven boot path.
+- **A — CRTC bus contention timing.** Donor and this port both
+  run CPU at flat 2 MHz; real BBC has the famous 1 MHz / 2 MHz
+  alternating per-cycle scheme.
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Floppy disk** (Intel 8271 or WD 1770 — different variants).
+- **S — Full shell parity**.
+
 ## Acorn Electron — `emu198x-acorn-electron` (new, 2026-06-01)
 
 Ninth donor-codebase extraction. **Zero new chip crates** — the

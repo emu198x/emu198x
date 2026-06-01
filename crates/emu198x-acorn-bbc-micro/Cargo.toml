@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-acorn-bbc-micro"
+description = "BBC Micro Model B headless runner — 6502 + 6845 + Video ULA + 2x VIA + SN76489"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-acorn-bbc-micro"
+path = "src/main.rs"
+
+[dependencies]
+machine-acorn-bbc-micro = { path = "../machine-acorn-bbc-micro" }
+png = { workspace = true }
+
+[lints]
+workspace = true

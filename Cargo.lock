@@ -834,6 +834,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
+name = "emu198x-acorn-bbc-micro"
+version = "0.1.0"
+dependencies = [
+ "machine-acorn-bbc-micro",
+ "png",
+]
+
+[[package]]
 name = "emu198x-acorn-electron"
 version = "0.1.0"
 dependencies = [
@@ -1763,6 +1771,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a1b95cd5421ec55b445b5ae102f5ea0e768de1f82bd3001e11f426c269c3aea"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "machine-acorn-bbc-micro"
+version = "0.1.0"
+dependencies = [
+ "mos-6502",
+ "mos-via-6522",
+ "motorola-6845",
+ "ti-sn76489",
 ]
 
 [[package]]
