@@ -148,6 +148,46 @@ PAK snapshot smokes, optional patched-XRoar screenshot comparisons.
 - **S — Real DragonDOS ROM + VDK software smokes** at the same bar as
   the CAS / PAK paths.
 
+## Acorn Electron — `emu198x-acorn-electron` (new, 2026-06-01)
+
+Ninth donor-codebase extraction. **Zero new chip crates** — the
+Electron's custom ULA is the only non-CPU chip, and donor's ULA is
+~250 LoC of `match` statements that port cleanly inline into the
+machine layer. Reuses our `mos-6502` (the 2A03 sibling chip-crate
+from NES).
+
+Fresh-write machine layer with the BBC-Micro-compatible 8-colour
+palette, eight display modes (0-7 except MODE 7 teletext which the
+Electron's ULA doesn't implement), 14×4 keyboard matrix scanned via
+the address bus on `$FE00` reads, VBlank + 100 Hz RTC IRQ sources,
+sound generation through the ULA's tone counter, and ROM-page
+register at `$FE05`.
+
+- **L — BIOS not yet available.** Acorn OS ROM + BASIC ROM (16 KB
+  each) are not in the TOSEC dump. Smoke at
+  `crates/machine-acorn-electron/tests/bios_boot.rs` waits for
+  `os.rom` + `basic.rom` at `~/.emu198x/roms/acorn-electron/`.
+  Both ROMs are widely distributed by Acorn-preservation projects
+  (Stairway to Hell etc.).
+- **A — ULA bus contention not modelled.** Real Electron CPU
+  halves to 1 MHz during ULA RAM-fetch windows; this initial port
+  runs CPU at a flat 2 MHz. Significant cycle-accuracy gap on a
+  machine whose software is heavily sensitive to it (Elite, many
+  scrollers).
+- **A — Sideways ROM paging at `$FE05`** stores the page register
+  but doesn't yet swap a paged-ROM array into the
+  `$8000-$BFFF` window — only the default BASIC ROM is visible.
+- **A — Cassette I/O via `$FE04`** is a write-stub.
+- **A — Palette encoding** uses a simplified
+  "physical = (value >> 4) & 0x07" decode for each register; real
+  ULA encoding is more elaborate per the BBC-Micro-compatible
+  spec.
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Full shell parity**.
+- **S — BBC Micro** is the natural next 6502-family extraction
+  from this base. It reuses 6502 ✓ and SN76489 ✓, adds VIA-6522
+  (new) and Motorola 6845 CRTC (new).
+
 ## Tatung Einstein TC-01 — `emu198x-tatung-einstein` (new, 2026-06-01)
 
 Eighth donor-codebase extraction. **Zero new chips** — reuses

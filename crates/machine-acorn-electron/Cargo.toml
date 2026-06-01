@@ -1,0 +1,13 @@
+[package]
+name = "machine-acorn-electron"
+description = "Acorn Electron machine wiring — 6502A + custom ULA"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+mos-6502 = { path = "../mos-6502" }
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-acorn-electron"
+description = "Acorn Electron headless runner — 6502A + custom ULA"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-acorn-electron"
+path = "src/main.rs"
+
+[dependencies]
+machine-acorn-electron = { path = "../machine-acorn-electron" }
+png = { workspace = true }
+
+[lints]
+workspace = true
