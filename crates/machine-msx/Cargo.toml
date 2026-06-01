@@ -1,0 +1,16 @@
+[package]
+name = "machine-msx"
+description = "MSX1 home computer machine wiring — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
+intel-8255 = { path = "../intel-8255" }
+ti-tms9918 = { path = "../ti-tms9918" }
+zilog-z80 = { path = "../zilog-z80" }
+
+[lints]
+workspace = true

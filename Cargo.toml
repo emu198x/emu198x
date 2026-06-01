@@ -82,6 +82,7 @@ members = [
     "crates/emu198x-sega-sg-1000",
     "crates/machine-coleco-colecovision",
     "crates/machine-commodore-amiga-a1200",
+    "crates/machine-msx",
     "crates/machine-sega-sg-1000",
     "crates/runtime-commodore-amiga",
     "crates/runtime-dragon",
