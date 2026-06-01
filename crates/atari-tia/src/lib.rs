@@ -82,7 +82,15 @@ mod palette;
 pub use palette::{NTSC_PALETTE, PAL_PALETTE};
 
 /// Framebuffer width: 160 visible colour clocks per line.
-pub const FB_WIDTH: u32 = 160;
+/// Width of the visible playfield region (TIA renders `tile` + sprite +
+/// playfield + ball pixels into here).
+pub const ACTIVE_WIDTH: u32 = 160;
+
+/// Full colour-clocks per line including HBLANK. The HBLANK region is
+/// the canonical horizontal border — the beam is off-screen during
+/// HBLANK and real TVs displayed COLUBK there. Reference emulators
+/// like Stella expose this as part of the "TV-visible" framebuffer.
+pub const FB_WIDTH: u32 = 228;
 
 /// Number of colour clocks per scanline (68 hblank + 160 visible).
 pub const CLOCKS_PER_LINE: u16 = 228;
@@ -320,30 +328,42 @@ impl Tia {
     ///
     /// This is the master clock tick. The CPU ticks every 3rd colour clock.
     pub fn tick(&mut self) {
-        // Render pixel if in visible region.
-        if self.hpos >= HBLANK_CLOCKS && self.vpos < self.max_lines {
-            let pixel_x = self.hpos - HBLANK_CLOCKS;
+        let palette = match self.region {
+            TiaRegion::Ntsc => &NTSC_PALETTE,
+            TiaRegion::Pal => &PAL_PALETTE,
+        };
 
-            let colour = if self.vblank {
-                0 // Black during VBLANK
+        if self.vpos < self.max_lines {
+            let line_offset = self.vpos as usize * FB_WIDTH as usize;
+            let fb_idx = line_offset + self.hpos as usize;
+            if self.hpos >= HBLANK_CLOCKS {
+                let pixel_x = self.hpos - HBLANK_CLOCKS;
+
+                let colour = if self.vblank {
+                    0 // Black during VBLANK
+                } else {
+                    self.compose_pixel(pixel_x)
+                };
+
+                let argb = palette[(colour >> 1) as usize];
+
+                // Update collision latches for every visible pixel.
+                if !self.vblank {
+                    self.update_collisions(pixel_x);
+                }
+
+                if fb_idx < self.framebuffer.len() {
+                    self.framebuffer[fb_idx] = argb;
+                }
             } else {
-                self.compose_pixel(pixel_x)
-            };
-
-            let palette = match self.region {
-                TiaRegion::Ntsc => &NTSC_PALETTE,
-                TiaRegion::Pal => &PAL_PALETTE,
-            };
-            let argb = palette[(colour >> 1) as usize];
-
-            // Update collision latches for every visible pixel.
-            if !self.vblank {
-                self.update_collisions(pixel_x);
-            }
-
-            let fb_idx = self.vpos as usize * FB_WIDTH as usize + pixel_x as usize;
-            if fb_idx < self.framebuffer.len() {
-                self.framebuffer[fb_idx] = argb;
+                // HBLANK region — backdrop (COLUBK) as the horizontal
+                // "border" the TV would display while the beam returns
+                // to the left edge. Drives the canonical wide-TV view
+                // (228 colour clocks per line, not just the 160 visible).
+                let argb = palette[(self.colubk >> 1) as usize];
+                if fb_idx < self.framebuffer.len() {
+                    self.framebuffer[fb_idx] = argb;
+                }
             }
         }
 
@@ -985,7 +1005,7 @@ mod tests {
     }
 
     #[test]
-    fn vblank_produces_black() {
+    fn vblank_produces_black_in_active_region() {
         let mut tia = Tia::new(TiaRegion::Ntsc);
         tia.write(0x09, 0x9A); // Set background
         tia.write(0x01, 0x02); // VBLANK on
@@ -994,24 +1014,28 @@ mod tests {
             tia.tick();
         }
 
-        // Pixels should be black (palette index 0)
-        assert_eq!(tia.framebuffer()[0], NTSC_PALETTE[0]);
+        // First visible pixel (after the 68-clock HBLANK) should be
+        // black during VBLANK. The HBLANK region carries COLUBK.
+        assert_eq!(
+            tia.framebuffer()[HBLANK_CLOCKS as usize],
+            NTSC_PALETTE[0]
+        );
     }
 
     #[test]
     fn framebuffer_size_ntsc() {
         let tia = Tia::new(TiaRegion::Ntsc);
-        assert_eq!(tia.framebuffer_width(), 160);
+        assert_eq!(tia.framebuffer_width(), 228);
         assert_eq!(tia.framebuffer_height(), 262);
-        assert_eq!(tia.framebuffer().len(), 160 * 262);
+        assert_eq!(tia.framebuffer().len(), 228 * 262);
     }
 
     #[test]
     fn framebuffer_size_pal() {
         let tia = Tia::new(TiaRegion::Pal);
-        assert_eq!(tia.framebuffer_width(), 160);
+        assert_eq!(tia.framebuffer_width(), 228);
         assert_eq!(tia.framebuffer_height(), 312);
-        assert_eq!(tia.framebuffer().len(), 160 * 312);
+        assert_eq!(tia.framebuffer().len(), 228 * 312);
     }
 
     #[test]
