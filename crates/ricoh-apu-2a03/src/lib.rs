@@ -332,11 +332,33 @@ impl Envelope {
 
 /// Length counter — counts down at half-frame rate. When it reaches zero
 /// the channel is silenced.
+///
+/// Half-frame clocking is split into **detection** (when the frame
+/// counter decides an HF is due) and **application** (when the
+/// length counter actually decrements). Between those two events the
+/// CPU can run one bus cycle that writes the channel's control
+/// register, and the blargg `10.len_halt_timing` / `11.len_reload_timing`
+/// tests probe exactly that gap.
+///
+/// To match silicon-validated behaviour the LengthCounter:
+///
+/// - Snapshots `halt` at HF detection (`snapshot_for_half_frame`).
+/// - Tracks whether `load()` has fired since the last snapshot.
+/// - The deferred HF clock (`clock_via_snapshot`) uses the snapshot
+///   `halt` and skips the decrement entirely if a `load()` fell in
+///   the window — both quirks documented at NESdev wiki
+///   `APU_Length_Counter`.
 #[derive(Clone, Serialize, Deserialize)]
 struct LengthCounter {
     counter: u8,
     halt: bool,
     enabled: bool,
+    #[serde(default)]
+    halt_snapshot: bool,
+    #[serde(default)]
+    counter_snapshot: u8,
+    #[serde(default)]
+    loaded_since_snapshot: bool,
 }
 
 impl LengthCounter {
@@ -345,11 +367,53 @@ impl LengthCounter {
             counter: 0,
             halt: false,
             enabled: false,
+            halt_snapshot: false,
+            counter_snapshot: 0,
+            loaded_since_snapshot: false,
         }
     }
 
-    /// Clock the length counter (called at half-frame rate).
-    fn clock(&mut self) {
+    /// Capture the current halt + counter values for use by the
+    /// next deferred half-frame clock. Called by the APU when the
+    /// frame counter detects a half-frame event.
+    fn snapshot_for_half_frame(&mut self) {
+        self.halt_snapshot = self.halt;
+        self.counter_snapshot = self.counter;
+        self.loaded_since_snapshot = false;
+    }
+
+    /// Clock the length counter using the most recent snapshot.
+    /// Used by the deferred half-frame path. Implements the silicon
+    /// rules from NESdev wiki `APU_Length_Counter`:
+    ///
+    /// - Plain HF (no intervening load): decrement uses the
+    ///   snapshot halt.
+    /// - Load coincided with HF AND snapshot counter was 0: load
+    ///   wins, no decrement (the counter is already the new value).
+    /// - Load coincided with HF AND snapshot counter was > 0: load
+    ///   is **ignored** — restore the pre-load counter, then apply
+    ///   the snapshot-halt decrement to it.
+    fn clock_via_snapshot(&mut self) {
+        if self.loaded_since_snapshot {
+            if self.counter_snapshot == 0 {
+                // Counter was 0 before the HF. Load takes effect;
+                // no decrement.
+                return;
+            }
+            // Counter was non-zero before the HF — load is ignored.
+            // Restore the pre-load value and apply the HF decrement.
+            self.counter = self.counter_snapshot;
+        }
+        if !self.halt_snapshot && self.counter > 0 {
+            self.counter -= 1;
+        }
+    }
+
+    /// Clock the length counter using the current halt value.
+    /// Used by the immediate 5-step path (which fires off a $4017
+    /// write rather than the frame counter's HF detection, so no
+    /// snapshot exists yet).
+    fn clock_immediate(&mut self) {
         if !self.halt && self.counter > 0 {
             self.counter -= 1;
         }
@@ -364,6 +428,7 @@ impl LengthCounter {
     fn load(&mut self, index: u8) {
         if self.enabled {
             self.counter = LENGTH_TABLE[index as usize];
+            self.loaded_since_snapshot = true;
         }
     }
 
@@ -1282,7 +1347,7 @@ impl Apu {
                 self.clock_quarter_frame();
             }
             if self.pending_frame_clock & 2 != 0 {
-                self.clock_half_frame();
+                self.clock_half_frame_via_snapshot();
             }
             self.pending_frame_clock = 0;
         }
@@ -1436,10 +1501,14 @@ impl Apu {
                 {
                     match self.frame_step {
                         0 => self.pending_frame_clock |= 1, // QF
-                        1 => self.pending_frame_clock |= 3, // QF + HF
+                        1 => {
+                            self.pending_frame_clock |= 3; // QF + HF
+                            self.snapshot_lengths_for_half_frame();
+                        }
                         2 => self.pending_frame_clock |= 1, // QF
                         3 => {
                             self.pending_frame_clock |= 3; // QF + HF
+                            self.snapshot_lengths_for_half_frame();
                             if !self.frame_irq_inhibit {
                                 self.frame_irq_flag = true;
                             }
@@ -1459,11 +1528,15 @@ impl Apu {
                 {
                     match self.frame_step {
                         0 => self.pending_frame_clock |= 1, // QF
-                        1 => self.pending_frame_clock |= 3, // QF + HF
+                        1 => {
+                            self.pending_frame_clock |= 3; // QF + HF
+                            self.snapshot_lengths_for_half_frame();
+                        }
                         2 => self.pending_frame_clock |= 1, // QF
                         3 => {}                             // No clocking on step 4 of 5-step
                         4 => {
                             self.pending_frame_clock |= 3; // QF + HF
+                            self.snapshot_lengths_for_half_frame();
                             // Don't reset counter here — delayed by 2 ticks,
                             // matching mode 0's reset delay.
                             self.frame_reset_countdown = 2;
@@ -1476,6 +1549,19 @@ impl Apu {
         }
     }
 
+    /// Capture each length counter's halt bit at the moment the
+    /// frame counter detects a half-frame event. The deferred HF
+    /// clock applied at the next CPU cycle uses these snapshots
+    /// (not the live `halt` field) so that a same-cycle bus write
+    /// to `$400X` doesn't mis-affect the decrement. See the doc
+    /// block on `LengthCounter`.
+    fn snapshot_lengths_for_half_frame(&mut self) {
+        self.pulse1.length.snapshot_for_half_frame();
+        self.pulse2.length.snapshot_for_half_frame();
+        self.triangle.length.snapshot_for_half_frame();
+        self.noise.length.snapshot_for_half_frame();
+    }
+
     /// Quarter-frame: clock envelopes and triangle linear counter.
     fn clock_quarter_frame(&mut self) {
         self.pulse1.envelope.clock();
@@ -1484,12 +1570,30 @@ impl Apu {
         self.triangle.clock_linear_counter();
     }
 
-    /// Half-frame: clock length counters and sweep units.
+    /// Half-frame via the deferred-from-previous-tick path: length
+    /// counters use the snapshot halt captured at HF detection so
+    /// intervening bus writes to `$400X` honour the silicon-validated
+    /// timing window described on `LengthCounter`.
+    fn clock_half_frame_via_snapshot(&mut self) {
+        self.pulse1.length.clock_via_snapshot();
+        self.pulse2.length.clock_via_snapshot();
+        self.triangle.length.clock_via_snapshot();
+        self.noise.length.clock_via_snapshot();
+        let p = self.pulse1.sweep.clock(self.pulse1.timer_period);
+        self.pulse1.timer_period = p;
+        let p = self.pulse2.sweep.clock(self.pulse2.timer_period);
+        self.pulse2.timer_period = p;
+    }
+
+    /// Half-frame: clock length counters and sweep units using the
+    /// live halt value. Reserved for the immediate 5-step path
+    /// triggered by `$4017` writes — there's no separate detection
+    /// step so the snapshot path doesn't apply.
     fn clock_half_frame(&mut self) {
-        self.pulse1.length.clock();
-        self.pulse2.length.clock();
-        self.triangle.length.clock();
-        self.noise.length.clock();
+        self.pulse1.length.clock_immediate();
+        self.pulse2.length.clock_immediate();
+        self.triangle.length.clock_immediate();
+        self.noise.length.clock_immediate();
         let p = self.pulse1.sweep.clock(self.pulse1.timer_period);
         self.pulse1.timer_period = p;
         let p = self.pulse2.sweep.clock(self.pulse2.timer_period);
@@ -2508,11 +2612,58 @@ mod tests {
         lc.set_enabled(true);
         lc.load(0); // index 0 → 10
         assert_eq!(lc.counter, 10);
-        lc.clock();
+        lc.clock_immediate();
         assert_eq!(lc.counter, 9);
         lc.halt = true;
-        lc.clock();
+        lc.clock_immediate();
         assert_eq!(lc.counter, 9, "halt freezes the counter");
+    }
+
+    #[test]
+    fn length_counter_snapshot_halt_drives_deferred_clock() {
+        let mut lc = LengthCounter::new();
+        lc.set_enabled(true);
+        lc.load(1); // index 1 → 254
+        assert_eq!(lc.counter, 254);
+        // HF detection happens with halt = false → snapshot captures false.
+        lc.snapshot_for_half_frame();
+        // CPU bus write changes the live halt between detection and apply.
+        lc.halt = true;
+        // Deferred HF apply still decrements (uses snapshot halt, not live).
+        lc.clock_via_snapshot();
+        assert_eq!(lc.counter, 253);
+    }
+
+    #[test]
+    fn length_counter_load_with_ctr_zero_overrides_pending_clock() {
+        // blargg `len_reload_timing` sub-test 4: when the prior
+        // counter was 0, a load coinciding with the HF takes effect
+        // and there's nothing to decrement.
+        let mut lc = LengthCounter::new();
+        lc.set_enabled(true);
+        // counter starts at 0 (no prior load)
+        lc.snapshot_for_half_frame();
+        lc.load(3); // counter = LENGTH_TABLE[3] = 2
+        lc.clock_via_snapshot();
+        assert_eq!(lc.counter, 2, "load wins when snapshot counter was 0");
+    }
+
+    #[test]
+    fn length_counter_load_with_ctr_nonzero_is_ignored() {
+        // blargg `len_reload_timing` sub-test 5: when the prior
+        // counter was non-zero, a load coinciding with the HF is
+        // IGNORED — the HF decrement applies to the previous value.
+        let mut lc = LengthCounter::new();
+        lc.set_enabled(true);
+        lc.load(7); // counter = LENGTH_TABLE[7] = 6
+        lc.snapshot_for_half_frame();
+        // Same-cycle reload attempt.
+        lc.load(3); // would set counter = 2, but should be ignored
+        lc.clock_via_snapshot();
+        assert_eq!(
+            lc.counter, 5,
+            "load ignored when snapshot counter > 0; HF decrement of pre-load value"
+        );
     }
 
     // -----------------------------------------------------------------------
