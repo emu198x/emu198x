@@ -77,6 +77,7 @@ members = [
     "crates/commodore-gary",
     "crates/commodore-gayle",
     "crates/commodore-amiga-autoconfig",
+    "crates/machine-coleco-colecovision",
     "crates/machine-commodore-amiga-a1200",
     "crates/runtime-commodore-amiga",
     "crates/runtime-dragon",

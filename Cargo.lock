@@ -1682,6 +1682,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-coleco-colecovision"
+version = "0.1.0"
+dependencies = [
+ "ti-sn76489",
+ "ti-tms9918",
+ "zilog-z80",
+]
+
+[[package]]
 name = "machine-commodore-1541"
 version = "0.1.0"
 dependencies = [
