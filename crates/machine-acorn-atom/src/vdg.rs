@@ -13,8 +13,23 @@
 //! lines (PAL). The Atom uses the PAL version.
 
 /// Framebuffer dimensions.
-pub const FB_WIDTH: u32 = 256;
-pub const FB_HEIGHT: u32 = 192;
+pub const ACTIVE_WIDTH: u32 = 256;
+pub const ACTIVE_HEIGHT: u32 = 192;
+
+/// Border thickness around the active area. Approximates the MC6847's
+/// canonical TV-visible envelope (around 56-60 px L/R + 25-26 lines
+/// T/B per the reference `motorola-vdg-6847` constants), rounded to
+/// even numbers for a cleaner crop.
+pub const BORDER_LEFT: u32 = 32;
+pub const BORDER_RIGHT: u32 = 32;
+pub const BORDER_TOP: u32 = 24;
+pub const BORDER_BOTTOM: u32 = 24;
+
+pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
+pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
+
+/// Atom MC6847 displays text mode on a green-phosphor border.
+pub const BORDER_COLOUR: u32 = 0xFF00_4000;
 
 /// MC6847 Video Display Generator.
 pub struct Mc6847 {
@@ -42,7 +57,7 @@ impl Mc6847 {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: vec![BORDER_COLOUR; (FB_WIDTH * FB_HEIGHT) as usize],
             control: 0,
             frame_complete: false,
             scanline: 0,
@@ -64,6 +79,10 @@ impl Mc6847 {
             if self.scanline >= TOTAL_LINES {
                 self.scanline = 0;
                 self.frame_complete = true;
+                // Repaint the canonical TV-visible border (green
+                // phosphor) at frame start so prior active content
+                // outside the new active region is cleared.
+                self.framebuffer.fill(BORDER_COLOUR);
                 return true;
             }
         }
@@ -88,7 +107,11 @@ impl Mc6847 {
                 0xFF00_8000
             };
 
-            let idx = (vis_y * FB_WIDTH + vis_x) as usize;
+            // Offset write into the active region inside the TV-visible
+            // framebuffer: skip BORDER_TOP rows + BORDER_LEFT columns.
+            let fb_y = vis_y + BORDER_TOP;
+            let fb_x = vis_x + BORDER_LEFT;
+            let idx = (fb_y * FB_WIDTH + fb_x) as usize;
             if idx < self.framebuffer.len() {
                 self.framebuffer[idx] = pixel;
             }
