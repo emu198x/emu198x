@@ -43,9 +43,21 @@ use mos_pia_6520::Pia6520;
 use mos_via_6522::Via6522;
 use motorola_6845::Crtc6845;
 
-pub const SCREEN_WIDTH_40: u32 = 320;
-pub const SCREEN_WIDTH_80: u32 = 640;
-pub const SCREEN_HEIGHT: u32 = 200;
+pub const ACTIVE_WIDTH_40: u32 = 320;
+pub const ACTIVE_WIDTH_80: u32 = 640;
+pub const ACTIVE_HEIGHT: u32 = 200;
+
+/// Border thickness around the active text display. The PET's
+/// monochrome P1 phosphor display always shows black around the
+/// green-on-black active region — no programmable border colour.
+pub const BORDER_LEFT: u32 = 32;
+pub const BORDER_RIGHT: u32 = 32;
+pub const BORDER_TOP: u32 = 24;
+pub const BORDER_BOTTOM: u32 = 24;
+
+pub const SCREEN_WIDTH_40: u32 = ACTIVE_WIDTH_40 + BORDER_LEFT + BORDER_RIGHT;
+pub const SCREEN_WIDTH_80: u32 = ACTIVE_WIDTH_80 + BORDER_LEFT + BORDER_RIGHT;
+pub const SCREEN_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 /// Commodore PET machine.
 pub struct Pet {
@@ -162,12 +174,14 @@ impl Pet {
         let chars_per_row = self.screen_chars;
         let char_col = ma % chars_per_row as u16;
         let char_row = ma / chars_per_row as u16;
-        let fb_y = u32::from(char_row) * (u32::from(self.crtc.max_scanline()) + 1)
+        let active_y = u32::from(char_row) * (u32::from(self.crtc.max_scanline()) + 1)
             + u32::from(ra);
-        let fb_x_base = u32::from(char_col) * 8;
-        if fb_y >= SCREEN_HEIGHT {
+        let active_x_base = u32::from(char_col) * 8;
+        if active_y >= ACTIVE_HEIGHT {
             return;
         }
+        let fb_y = BORDER_TOP + active_y;
+        let fb_x_base = BORDER_LEFT + active_x_base;
         for px in 0..8u32 {
             let fb_x = fb_x_base + px;
             if fb_x >= self.screen_width_px {
