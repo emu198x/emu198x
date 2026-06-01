@@ -1,0 +1,15 @@
+[package]
+name = "machine-sega-master-system"
+description = "Sega Master System / Game Gear machine wiring — Z80 + Sega VDP + SN76489A"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sega-vdp = { path = "../sega-vdp" }
+ti-sn76489 = { path = "../ti-sn76489" }
+zilog-z80 = { path = "../zilog-z80" }
+
+[lints]
+workspace = true

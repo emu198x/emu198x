@@ -85,6 +85,7 @@ members = [
     "crates/machine-coleco-colecovision",
     "crates/machine-commodore-amiga-a1200",
     "crates/machine-msx",
+    "crates/machine-sega-master-system",
     "crates/machine-sega-sg-1000",
     "crates/machine-sord-m5",
     "crates/runtime-commodore-amiga",
