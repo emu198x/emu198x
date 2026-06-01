@@ -3476,6 +3476,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti-sn76489"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "ti-tms9918"
 version = "0.1.0"
 dependencies = [

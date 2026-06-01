@@ -109,6 +109,7 @@ members = [
     "crates/runtime-nintendo-nes",
     "crates/runtime-sinclair-zx-spectrum",
     "crates/sinclair-ula-7k010e",
+    "crates/ti-sn76489",
     "crates/ti-tms9918",
     "crates/zilog-z80",
 ]
