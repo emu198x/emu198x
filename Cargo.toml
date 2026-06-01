@@ -129,6 +129,7 @@ members = [
     "crates/runtime-dragon",
     "crates/mos-sid-6581",
     "crates/mos-via-6522",
+    "crates/mos-vic-i",
     "crates/mos-vic-ii",
     "crates/motorola-6809",
     "crates/motorola-68000",

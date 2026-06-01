@@ -22,19 +22,17 @@
 //! - **ROMs:** 8 KB Kernal at `$E000`, 8 KB BASIC at `$A000`, 4 KB
 //!   character ROM at `$8000`
 //!
-//! Scope of this initial port — VIC chip stays inline (named for the
-//! silicon but only modelling text-mode video; audio is stubbed).
-//! Promoting the VIC chip to a `commodore-vic-i` crate is a known
-//! follow-up. The donor also stubbed VIA 6522 ×2 wiring (keyboard +
-//! joystick); the same stubs land here.
+//! Scope of this initial port — VIC chip lives in the dedicated
+//! [`mos_vic_i`] chip crate (text-mode video only; audio is stubbed).
+//! The donor also stubbed VIA 6522 ×2 wiring (keyboard + joystick);
+//! the same stubs land here.
 
 pub mod input;
 mod keyboard;
-pub mod vic;
 
 pub use input::Vic20Key;
 pub use keyboard::KeyboardState;
-pub use vic::{Vic6560, FB_HEIGHT, FB_WIDTH};
+pub use mos_vic_i::{FB_HEIGHT, FB_WIDTH, Vic6560};
 
 use mos_6502::M6502;
 

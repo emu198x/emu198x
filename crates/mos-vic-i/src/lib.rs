@@ -1,10 +1,14 @@
-//! VIC 6560/6561 Video Interface Chip.
+//! MOS Technology 6560 (NTSC) / 6561 (PAL) — VIC chip ("VIC-I").
 //!
 //! The VIC chip handles both video AND audio for the VIC-20. Video output
-//! is 22x23 characters in text mode (176x184 pixels). The chip also provides
-//! 3 tone generators and 1 noise generator.
+//! is 22×23 characters in text mode (176×184 px active area surrounded by
+//! a substantial border for a TV-visible 224×216 frame). The chip also
+//! provides 3 tone generators and 1 noise generator.
 //!
-//! For v1, text mode display is implemented. Audio is stubbed.
+//! Extracted from `machine-commodore-vic-20::vic` as a stand-alone chip
+//! crate so the wider workspace can reuse it.
+//!
+//! v1: text-mode display is implemented; audio is stubbed.
 
 /// Framebuffer dimensions (visible area for text mode).
 pub const ACTIVE_WIDTH: u32 = 176;

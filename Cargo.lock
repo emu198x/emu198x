@@ -2083,6 +2083,7 @@ name = "machine-commodore-vic-20"
 version = "0.1.0"
 dependencies = [
  "mos-6502",
+ "mos-vic-i",
 ]
 
 [[package]]
@@ -2454,6 +2455,10 @@ version = "0.1.0"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "mos-vic-i"
+version = "0.1.0"
 
 [[package]]
 name = "mos-vic-ii"
