@@ -156,6 +156,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "atari-tia"
+version = "0.1.0"
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2214,6 +2218,10 @@ version = "0.1.0"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "mos-riot-6532"
+version = "0.1.0"
 
 [[package]]
 name = "mos-sid-6581"
