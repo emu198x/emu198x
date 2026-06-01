@@ -35,10 +35,15 @@ thiserror = { workspace = true }
 zilog-z80 = { path = "../zilog-z80" }
 
 [dev-dependencies]
+criterion = { workspace = true }
 format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna" }
 format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" }
 png = { workspace = true }
 twox-hash = { workspace = true }
+
+[[bench]]
+name = "frame_throughput"
+harness = false
 
 [lints]
 workspace = true
