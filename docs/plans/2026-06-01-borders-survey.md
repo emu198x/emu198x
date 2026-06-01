@@ -82,25 +82,35 @@ visibility:
 Ordering by **leverage** (one chip fix unlocks multiple machines)
 and **complexity** (low first to build confidence in the pattern):
 
-1. **`ti-tms9918`** — unlocks 8 machines (MSX, ColecoVision, SG-1000,
+1. ✅ **`ti-tms9918`** — unlocks 8 machines (MSX, ColecoVision, SG-1000,
    MTX, Aquarius, Sord M5, Tatung Einstein, SVI-328); medium
    complexity; border colour register exists (R7 low nibble).
-2. **`sega-vdp`** — unlocks SMS; pattern mirrors TMS9918; medium
-   complexity.
-3. **`atari-tia`** — Atari 2600 only; low complexity; just extend
-   FB to include HBLANK as black.
-4. **Jupiter Ace inline display** — pattern after `sinclair-zx81-ula`
-   directly; low complexity.
-5. **`atari-antic` + `atari-gtia`** — Atari 5200 + 800XL; medium;
-   already partial.
-6. **`atari-maria`** — Atari 7800; mirrors ANTIC/GTIA.
-7. **`motorola-vdg-6847`** + **Acorn Atom inline VDG** — Dragon-32 +
+   *Done in 79eb01a (256 × 192 → 288 × 240).*
+2. ✅ **`sega-vdp`** — unlocks SMS; pattern mirrors TMS9918; medium
+   complexity. *Done in 2121c5c (288 × 240).*
+3. ✅ **`atari-tia`** — Atari 2600 only; low complexity; just extend
+   FB to include HBLANK as black. *Done in fcfaff3 (160 → 228 wide).*
+4. ✅ **Jupiter Ace inline display** — pattern after `sinclair-zx81-ula`
+   directly; low complexity. *Done in 6473efd (256 × 192 → 320 × 240).*
+5. ✅ **`atari-antic` + `atari-gtia`** — Atari 5200 + 800XL; medium;
+   already partial. *Done in e79d42f (320 × 240 → 384 × 288).*
+6. ✅ **`atari-maria`** — Atari 7800; mirrors ANTIC/GTIA. *Done in
+   6bc34fc (320 × 240 → 384 × 288).*
+7. ✅ **`motorola-vdg-6847`** + **Acorn Atom inline VDG** — Dragon-32 +
    Atom; medium; canonical MC6847 border behaviour is well-documented.
-8. **`ricoh-ppu-2c02`** — NES; document + add overscan-crop option.
+   *Dragon already had border via `motorola-vdg-6847`; Atom inline done
+   in 8d1d4bb (256 × 192 → 320 × 240).*
+8. ✅ **`ricoh-ppu-2c02`** — NES; document + add overscan-crop option.
    Not really a border but worth aligning with reference emulators.
-9. **VIC-20 inline VIC** — single machine; medium.
-10. **PET inline CRTC renderer** — single machine; medium.
-11. **BBC Micro CRTC + renderer** — needs SAA5050 work anyway, defer.
+   *Done: documented overscan in `FB_WIDTH/FB_HEIGHT`, added
+   `TV_CROP_TOP/BOTTOM`, `TV_VISIBLE_WIDTH/HEIGHT` constants and
+   `framebuffer_tv_visible()` 256 × 224 helper on the NES machine.*
+9. ✅ **VIC-20 inline VIC** — single machine; medium. *Done in ce36e80
+   (176 × 184 → 224 × 216).*
+10. ✅ **PET inline CRTC renderer** — single machine; medium. *Done in
+    e02984d (320 × 200 / 640 × 200 → 384 × 248 / 704 × 248).*
+11. ⏸️ **BBC Micro CRTC + renderer** — needs SAA5050 work anyway, defer.
+    *Deferred to BBC Micro's own work programme.*
 
 ## What stays out
 

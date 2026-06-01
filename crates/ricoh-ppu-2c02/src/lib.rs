@@ -66,8 +66,25 @@ use serde_big_array::BigArray;
 pub const FRAME_ROUTING_VERSION: u32 = 1;
 
 /// Framebuffer dimensions.
+///
+/// The PPU outputs the full 256 × 240 raster — this is the chip's true
+/// envelope, not a "no border" deficiency. On a real TV the top 8 lines
+/// and bottom 8 lines fell into overscan and were not visible to the
+/// viewer, leaving an effective 256 × 224 display. Software (and TV
+/// adjustments) varied as to how much of that was relied on, so we keep
+/// the full 256 × 240 in the framebuffer and expose a TV-safe crop at
+/// the machine layer via `TV_CROP_TOP` / `TV_CROP_BOTTOM`.
 pub const FB_WIDTH: u32 = 256;
 pub const FB_HEIGHT: u32 = 240;
+
+/// Lines obscured by overscan at the top of a typical NTSC TV.
+pub const TV_CROP_TOP: u32 = 8;
+/// Lines obscured by overscan at the bottom of a typical NTSC TV.
+pub const TV_CROP_BOTTOM: u32 = 8;
+/// Visible width once TV overscan is taken into account (= `FB_WIDTH`).
+pub const TV_VISIBLE_WIDTH: u32 = FB_WIDTH;
+/// Visible height once TV overscan is taken into account (= 224).
+pub const TV_VISIBLE_HEIGHT: u32 = FB_HEIGHT - TV_CROP_TOP - TV_CROP_BOTTOM;
 
 /// PPU 2C02.
 #[derive(Clone, Serialize, Deserialize)]

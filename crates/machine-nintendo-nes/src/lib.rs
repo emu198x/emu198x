@@ -49,7 +49,9 @@ use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 pub use ricoh_apu_2a03::{ApuChannel, AudioControls};
-pub use ricoh_ppu_2c02::{FB_HEIGHT, FB_WIDTH};
+pub use ricoh_ppu_2c02::{
+    FB_HEIGHT, FB_WIDTH, TV_CROP_BOTTOM, TV_CROP_TOP, TV_VISIBLE_HEIGHT, TV_VISIBLE_WIDTH,
+};
 
 /// Serializable NES machine state.
 #[derive(Clone, Serialize, Deserialize)]
@@ -480,6 +482,31 @@ impl Nes {
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         self.ppu.framebuffer()
+    }
+
+    /// PPU framebuffer width (256).
+    #[must_use]
+    pub const fn framebuffer_width(&self) -> u32 {
+        FB_WIDTH
+    }
+
+    /// PPU framebuffer height (240).
+    #[must_use]
+    pub const fn framebuffer_height(&self) -> u32 {
+        FB_HEIGHT
+    }
+
+    /// Copy the TV-visible region of the framebuffer (256 × 224 — the
+    /// PPU's full 256 × 240 with the top 8 and bottom 8 overscan lines
+    /// removed). Allocates a fresh `Vec<u32>`; for high-frequency
+    /// snapshotting prefer reading the raw `framebuffer()` slice and
+    /// indexing from `TV_CROP_TOP * FB_WIDTH`.
+    #[must_use]
+    pub fn framebuffer_tv_visible(&self) -> Vec<u32> {
+        let fb = self.ppu.framebuffer();
+        let start = (TV_CROP_TOP * FB_WIDTH) as usize;
+        let end = ((FB_HEIGHT - TV_CROP_BOTTOM) * FB_WIDTH) as usize;
+        fb[start..end].to_vec()
     }
 
     /// Drain the APU's mixed audio output buffer (48 kHz f32).
