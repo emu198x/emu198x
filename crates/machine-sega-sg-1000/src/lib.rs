@@ -267,10 +267,21 @@ impl Sg1000 {
         }
     }
 
-    /// Framebuffer (256×192 ARGB32).
+    /// Framebuffer (ARGB32) — TMS9918A active display plus canonical
+    /// TV-visible border.
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         self.vdp.framebuffer()
+    }
+
+    #[must_use]
+    pub fn framebuffer_width(&self) -> u32 {
+        self.vdp.framebuffer_width()
+    }
+
+    #[must_use]
+    pub fn framebuffer_height(&self) -> u32 {
+        self.vdp.framebuffer_height()
     }
 
     /// Take the accumulated mono PSG audio buffer (f32, 48 kHz).

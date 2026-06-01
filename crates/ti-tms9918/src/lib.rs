@@ -95,9 +95,24 @@ enum Mode {
 // VDP
 // ---------------------------------------------------------------------------
 
-/// Framebuffer dimensions.
-pub const FB_WIDTH: u32 = 256;
-pub const FB_HEIGHT: u32 = 192;
+/// Active display area dimensions (the pixels the chip actually draws
+/// tiles/sprites into).
+pub const ACTIVE_WIDTH: u32 = 256;
+pub const ACTIVE_HEIGHT: u32 = 192;
+
+/// Border thickness in pixels around the active area. Chosen as a
+/// canonical TV-visible frame approximating both NTSC (TMS9918A /
+/// TMS9928A) and PAL (TMS9929A) overscan envelopes — close enough
+/// for screenshots, generous enough that the backdrop register
+/// matters. Border colour comes from VR7 low nibble (the backdrop).
+pub const BORDER_LEFT: u32 = 16;
+pub const BORDER_RIGHT: u32 = 16;
+pub const BORDER_TOP: u32 = 24;
+pub const BORDER_BOTTOM: u32 = 24;
+
+/// Framebuffer dimensions (active + border).
+pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
+pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 /// TMS9918 Video Display Processor.
 pub struct Tms9918 {
@@ -300,6 +315,13 @@ impl Tms9918 {
         if self.dot >= 342 {
             self.dot = 0;
 
+            // Paint the entire framebuffer with the current backdrop
+            // colour at frame start; active rendering then overwrites
+            // the 256 x 192 interior, leaving the border around it.
+            if self.scanline == 0 {
+                self.fill_border();
+            }
+
             // Render this scanline if it's in the active display area.
             if self.scanline < 192 {
                 self.render_scanline(self.scanline);
@@ -323,6 +345,11 @@ impl Tms9918 {
 
     /// Run for one complete scanline (342 dots). Returns true at frame end.
     pub fn tick_scanline(&mut self) -> bool {
+        // Paint the border at frame start (see `tick` for the rationale).
+        if self.scanline == 0 {
+            self.fill_border();
+        }
+
         // Render if active.
         if self.scanline < 192 {
             self.render_scanline(self.scanline);
@@ -407,13 +434,25 @@ impl Tms9918 {
     // Scanline rendering
     // -----------------------------------------------------------------------
 
+    /// Fill the entire framebuffer with the current backdrop colour.
+    /// Called at frame start so the top and bottom border regions plus
+    /// the left and right columns of each active row carry the current
+    /// border colour. Mid-frame backdrop changes affect the *next*
+    /// frame's border — a v1 simplification; real hardware redraws
+    /// border pixel-by-pixel from the live register.
+    fn fill_border(&mut self) {
+        let backdrop = self.backdrop_color();
+        self.framebuffer.fill(backdrop);
+    }
+
     fn render_scanline(&mut self, line: u16) {
         let line = line as usize;
-        let offset = line * FB_WIDTH as usize;
+        let offset = (BORDER_TOP as usize + line) * FB_WIDTH as usize
+            + BORDER_LEFT as usize;
 
         if !self.display_enabled() {
             let bg = self.backdrop_color();
-            self.framebuffer[offset..offset + FB_WIDTH as usize].fill(bg);
+            self.framebuffer[offset..offset + ACTIVE_WIDTH as usize].fill(bg);
             return;
         }
 
@@ -957,9 +996,15 @@ mod tests {
 
         vdp.render_scanline(0);
 
-        // First 8 pixels should be white
+        // First 8 pixels of the active area should be white.
+        let active_start =
+            BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         for x in 0..8 {
-            assert_eq!(vdp.framebuffer[x], PALETTE[15], "pixel {x} should be white");
+            assert_eq!(
+                vdp.framebuffer[active_start + x],
+                PALETTE[15],
+                "active pixel {x} should be white"
+            );
         }
     }
 }

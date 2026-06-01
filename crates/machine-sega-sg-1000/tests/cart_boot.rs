@@ -69,7 +69,10 @@ fn cart_boots_to_title_screen() {
     }
 
     let fb = sys.framebuffer();
-    assert_eq!(fb.len(), 256 * 192);
+    assert_eq!(
+        fb.len(),
+        (sys.framebuffer_width() * sys.framebuffer_height()) as usize
+    );
     // TMS9918A has no anti-aliasing; many carts use only 3-4 palette
     // entries on the title screen (backdrop + 1-2 foreground colours).
     // Require >= 2 to catch the "framebuffer stays all backdrop" failure

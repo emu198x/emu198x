@@ -13,9 +13,6 @@ use std::process::ExitCode;
 
 use machine_msx::{MapperType, Msx, MsxRegion};
 
-const FB_WIDTH: u32 = 256;
-const FB_HEIGHT: u32 = 192;
-
 fn usage() {
     eprintln!(
         "\
@@ -119,7 +116,12 @@ fn default_bios_path() -> PathBuf {
     PathBuf::from(home).join(".emu198x/roms/microsoft-msx/msx.rom")
 }
 
-fn write_screenshot(path: &Path, framebuffer: &[u32]) -> Result<(), String> {
+fn write_screenshot(
+    path: &Path,
+    framebuffer: &[u32],
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
     let mut rgba = Vec::with_capacity(framebuffer.len() * 4);
     for &px in framebuffer {
         rgba.push(((px >> 16) & 0xFF) as u8);
@@ -129,7 +131,7 @@ fn write_screenshot(path: &Path, framebuffer: &[u32]) -> Result<(), String> {
     }
     let file = fs::File::create(path)
         .map_err(|e| format!("failed to create screenshot {}: {e}", path.display()))?;
-    let mut encoder = png::Encoder::new(file, FB_WIDTH, FB_HEIGHT);
+    let mut encoder = png::Encoder::new(file, width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder
@@ -167,7 +169,12 @@ fn run(cli: Cli) -> Result<(), String> {
         sys.frame_count()
     );
     if let Some(path) = cli.screenshot.as_deref() {
-        write_screenshot(path, sys.framebuffer())?;
+        write_screenshot(
+            path,
+            sys.framebuffer(),
+            sys.framebuffer_width(),
+            sys.framebuffer_height(),
+        )?;
         println!("Screenshot written: {}", path.display());
     }
     Ok(())

@@ -57,7 +57,11 @@ fn bios_boots_to_title_screen() {
     // colour. We sample for >= 4 distinct colours including at least
     // one non-zero (non-backdrop) value.
     let fb = cv.framebuffer();
-    assert_eq!(fb.len(), 256 * 192, "framebuffer dimensions are 256x192");
+    assert_eq!(
+        fb.len(),
+        (cv.framebuffer_width() * cv.framebuffer_height()) as usize,
+        "framebuffer size matches reported dimensions"
+    );
 
     let mut colours = std::collections::HashSet::new();
     for &px in fb {

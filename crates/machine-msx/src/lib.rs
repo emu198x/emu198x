@@ -396,10 +396,23 @@ impl Msx {
         }
     }
 
-    /// Framebuffer (256×192 ARGB32).
+    /// Framebuffer (ARGB32) — active TMS9918 display plus canonical
+    /// TV-visible border. Exact dimensions reported by
+    /// [`framebuffer_width`](Self::framebuffer_width) and
+    /// [`framebuffer_height`](Self::framebuffer_height).
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         self.vdp.framebuffer()
+    }
+
+    #[must_use]
+    pub fn framebuffer_width(&self) -> u32 {
+        self.vdp.framebuffer_width()
+    }
+
+    #[must_use]
+    pub fn framebuffer_height(&self) -> u32 {
+        self.vdp.framebuffer_height()
     }
 
     /// Press a key at the given (row, bit) matrix cell.
