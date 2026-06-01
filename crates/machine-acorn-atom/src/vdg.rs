@@ -1,155 +1,123 @@
-//! MC6847 Video Display Generator (VDG).
+//! MC6847 wiring for the Acorn Atom.
 //!
-//! The MC6847 generates video output for the Acorn Atom. It supports text
-//! (32x16 characters) and graphics modes (up to 256x192). For v1, only
-//! text mode is implemented.
+//! Atom-specific thin wrapper around the shared
+//! [`motorola_vdg_6847`] helper crate. The shared crate owns the
+//! canonical MC6847 character ROM, mode decode, and per-line render;
+//! this wrapper keeps the Atom-specific bits:
 //!
-//! The VDG reads character data from RAM ($8000-$83FF on the Atom, but
-//! the machine provides the read callback). Each character is 8x12 pixels
-//! using an internal character ROM.
+//! - per-master-clock `tick()` that advances scanline / frame timing
+//!   to drive `take_frame_complete()` (PAL: 312 lines × 228 ticks).
+//! - the green-phosphor `TextPalette` (Atom monitor aesthetic).
+//! - the $B000 control register (A/G bit only — Atom v1 is text-mode).
+//! - a per-frame render that calls the shared
+//!   [`render_visible_argb_into`] at VBLANK so screenshots see a
+//!   clean frame.
 //!
-//! Display timing: 256 visible pixels/line, 192 visible lines (text: 32
-//! columns x 16 rows x 12 scanlines). Total ~262 lines (NTSC) or ~312
-//! lines (PAL). The Atom uses the PAL version.
+//! Before this slice the Atom carried its own duplicate per-pixel
+//! renderer plus a tiny 5×7 ASCII subset CHAR_ROM. Switching to the
+//! shared crate aligns Atom with Dragon-32's render path and removes
+//! ~200 lines of duplicated code.
 
-/// Framebuffer dimensions.
-pub const ACTIVE_WIDTH: u32 = 256;
-pub const ACTIVE_HEIGHT: u32 = 192;
+use motorola_vdg_6847::{
+    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS,
+    TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette, VdgControl, render_visible_argb_into,
+};
 
-/// Border thickness around the active area. Approximates the MC6847's
-/// canonical TV-visible envelope (around 56-60 px L/R + 25-26 lines
-/// T/B per the reference `motorola-vdg-6847` constants), rounded to
-/// even numbers for a cleaner crop.
-pub const BORDER_LEFT: u32 = 32;
-pub const BORDER_RIGHT: u32 = 32;
-pub const BORDER_TOP: u32 = 24;
-pub const BORDER_BOTTOM: u32 = 24;
-
-pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
-pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
-
-/// Atom MC6847 displays text mode on a green-phosphor border.
-pub const BORDER_COLOUR: u32 = 0xFF00_4000;
-
-/// MC6847 Video Display Generator.
-pub struct Mc6847 {
-    /// ARGB32 framebuffer.
-    framebuffer: Vec<u32>,
-    /// VDG control register (AG, AS, CSS, INV, etc.).
-    pub control: u8,
-    /// Whether a frame has completed.
-    frame_complete: bool,
-    /// Current scanline counter.
-    scanline: u32,
-    /// Current pixel position within the scanline.
-    pixel_x: u32,
-    /// Total ticks this frame.
-    ticks_in_frame: u32,
-}
+/// Framebuffer width (active 256 + 60 + 56 border = shared 372).
+pub const FB_WIDTH: u32 = TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32;
+/// Framebuffer height (active 192 + 25 + 26 border = shared 243).
+pub const FB_HEIGHT: u32 = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32;
 
 /// PAL line count for the Atom's MC6847.
 const TOTAL_LINES: u32 = 312;
-/// Characters per line for the Atom's MC6847.
+/// Ticks per scanline for the Atom's MC6847.
 const TICKS_PER_LINE: u32 = 228;
 
+/// Atom green-phosphor text palette — green-on-black with green border.
+const ATOM_PALETTE: TextPalette = TextPalette {
+    background: 0xFF00_2000,
+    foreground: 0xFF00_FF00,
+    border: 0xFF00_4000,
+};
+
+/// MC6847 Video Display Generator (Atom wiring).
+pub struct Mc6847 {
+    framebuffer: Vec<u32>,
+    /// VDG control register (A/G bit — Atom v1 only checks alpha vs
+    /// graphics; CSS/INT_EXT/GM bits are stored but not honoured).
+    pub control: u8,
+    /// Cached last-frame video RAM contents, used by `render_frame`.
+    last_video_ram: [u8; 512],
+    frame_complete: bool,
+    scanline: u32,
+    pixel_x: u32,
+    /// Whether the latest frame has been rendered into the framebuffer.
+    /// Set false at frame start; render happens lazily at frame end.
+    needs_render: bool,
+}
+
 impl Mc6847 {
-    /// Create a new VDG.
+    /// Create a new VDG, framebuffer pre-painted with the green border.
     #[must_use]
     pub fn new() -> Self {
         Self {
-            framebuffer: vec![BORDER_COLOUR; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: vec![ATOM_PALETTE.border; TEXT_VISIBLE_FRAMEBUFFER_PIXELS],
             control: 0,
+            last_video_ram: [0; 512],
             frame_complete: false,
             scanline: 0,
             pixel_x: 0,
-            ticks_in_frame: 0,
+            needs_render: false,
         }
     }
 
-    /// Tick one VDG cycle. Call with a memory read callback for fetching
-    /// video RAM. Returns true at the start of a new frame.
+    /// Tick one VDG clock. The Atom's `tick` loop advances scanline /
+    /// pixel counters and snapshots video RAM continuously; the actual
+    /// framebuffer render runs once per frame at VBLANK.
     pub fn tick(&mut self, read_video_ram: impl Fn(u16) -> u8) -> bool {
-        self.ticks_in_frame += 1;
-        self.pixel_x += 1;
+        // Snapshot the video RAM into the cached buffer so the frame-
+        // end render sees the post-CPU contents without needing the
+        // closure across the render boundary.
+        if self.pixel_x == 0 && self.scanline == 0 {
+            for index in 0..512u16 {
+                self.last_video_ram[index as usize] = read_video_ram(index);
+            }
+            self.needs_render = true;
+        }
 
+        self.pixel_x += 1;
         if self.pixel_x >= TICKS_PER_LINE {
             self.pixel_x = 0;
             self.scanline += 1;
-
             if self.scanline >= TOTAL_LINES {
                 self.scanline = 0;
                 self.frame_complete = true;
-                // Repaint the canonical TV-visible border (green
-                // phosphor) at frame start so prior active content
-                // outside the new active region is cleared.
-                self.framebuffer.fill(BORDER_COLOUR);
+                if self.needs_render {
+                    self.render_frame();
+                    self.needs_render = false;
+                }
                 return true;
             }
         }
-
-        // Render during the visible area
-        // Visible lines: scanlines 24..216 (192 visible lines)
-        let visible_start = 24;
-        let visible_end = visible_start + 192;
-
-        if self.scanline >= visible_start
-            && self.scanline < visible_end
-            && self.pixel_x < 256
-        {
-            let vis_y = self.scanline - visible_start;
-            let vis_x = self.pixel_x;
-
-            let pixel = if self.control & 0x80 == 0 {
-                // Text mode (alphanumeric): 32x16 characters, 8x12 each
-                self.render_text_pixel(vis_x, vis_y, &read_video_ram)
-            } else {
-                // Graphics mode stub: green for now
-                0xFF00_8000
-            };
-
-            // Offset write into the active region inside the TV-visible
-            // framebuffer: skip BORDER_TOP rows + BORDER_LEFT columns.
-            let fb_y = vis_y + BORDER_TOP;
-            let fb_x = vis_x + BORDER_LEFT;
-            let idx = (fb_y * FB_WIDTH + fb_x) as usize;
-            if idx < self.framebuffer.len() {
-                self.framebuffer[idx] = pixel;
-            }
-        }
-
         false
     }
 
-    /// Render one pixel in text mode.
-    fn render_text_pixel(
-        &self,
-        x: u32,
-        y: u32,
-        read_video_ram: &impl Fn(u16) -> u8,
-    ) -> u32 {
-        let char_col = x / 8;
-        let char_row = y / 12;
-        let pixel_in_char_x = x % 8;
-        let pixel_in_char_y = y % 12;
-
-        // Read character code from video RAM
-        let char_addr = (char_row * 32 + char_col) as u16;
-        let char_code = read_video_ram(char_addr);
-
-        // Look up pixel from internal character ROM
-        let inverted = char_code & 0x80 != 0;
-        let char_index = (char_code & 0x3F) as usize;
-        let row_data = CHAR_ROM[char_index * 12 + pixel_in_char_y as usize];
-        let bit = (row_data >> (7 - pixel_in_char_x)) & 1;
-
-        let fg = if inverted { bit == 0 } else { bit != 0 };
-
-        // Green phosphor text
-        if fg {
-            0xFF00_FF00 // Green on black
-        } else {
-            0xFF00_0000 // Black
-        }
+    /// Render the latest snapshot of video RAM into the framebuffer
+    /// via the shared MC6847 helper crate.
+    fn render_frame(&mut self) {
+        let control = VdgControl {
+            graphics: self.control & 0x80 != 0,
+            css: self.control & 0x08 != 0,
+            int_ext: self.control & 0x10 != 0,
+            gm: (self.control >> 4) & 0x07,
+        };
+        let video_ram = &self.last_video_ram;
+        render_visible_argb_into(
+            |index| video_ram[index & 0x01FF],
+            control,
+            ATOM_PALETTE.into(),
+            &mut self.framebuffer,
+        );
     }
 
     /// Take the frame-complete flag.
@@ -183,106 +151,3 @@ impl Default for Mc6847 {
         Self::new()
     }
 }
-
-// Minimal 5x7 character set embedded in the MC6847 ROM, stored as 12 rows
-// per character (top 2 and bottom 3 rows blank for spacing within the 8x12
-// cell). 64 characters: space, punctuation, digits, uppercase A-Z.
-static CHAR_ROM: [u8; 64 * 12] = {
-    let mut rom = [0u8; 64 * 12];
-
-    // Helper: sets rows 2..9 (the 7 active rows out of 12) for a character
-    macro_rules! char_data {
-        ($idx:expr, $r0:expr, $r1:expr, $r2:expr, $r3:expr, $r4:expr, $r5:expr, $r6:expr) => {
-            let base = $idx * 12;
-            rom[base + 2] = $r0;
-            rom[base + 3] = $r1;
-            rom[base + 4] = $r2;
-            rom[base + 5] = $r3;
-            rom[base + 6] = $r4;
-            rom[base + 7] = $r5;
-            rom[base + 8] = $r6;
-        };
-    }
-
-    // Space (0x20 mapped to index 0)
-    char_data!(0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00);
-    // ! (index 1)
-    char_data!(1, 0x10, 0x10, 0x10, 0x10, 0x00, 0x10, 0x00);
-    // A-Z at indices 33-58 (0x41-0x5A mapped to indices 0x41-0x20=33..58)
-    // A
-    char_data!(33, 0x38, 0x44, 0x44, 0x7C, 0x44, 0x44, 0x44);
-    // B
-    char_data!(34, 0x78, 0x44, 0x78, 0x44, 0x44, 0x44, 0x78);
-    // C
-    char_data!(35, 0x38, 0x44, 0x40, 0x40, 0x40, 0x44, 0x38);
-    // D
-    char_data!(36, 0x78, 0x44, 0x44, 0x44, 0x44, 0x44, 0x78);
-    // E
-    char_data!(37, 0x7C, 0x40, 0x78, 0x40, 0x40, 0x40, 0x7C);
-    // F
-    char_data!(38, 0x7C, 0x40, 0x78, 0x40, 0x40, 0x40, 0x40);
-    // G
-    char_data!(39, 0x38, 0x44, 0x40, 0x5C, 0x44, 0x44, 0x38);
-    // H
-    char_data!(40, 0x44, 0x44, 0x7C, 0x44, 0x44, 0x44, 0x44);
-    // I
-    char_data!(41, 0x38, 0x10, 0x10, 0x10, 0x10, 0x10, 0x38);
-    // J
-    char_data!(42, 0x1C, 0x08, 0x08, 0x08, 0x08, 0x48, 0x30);
-    // K
-    char_data!(43, 0x44, 0x48, 0x50, 0x60, 0x50, 0x48, 0x44);
-    // L
-    char_data!(44, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x7C);
-    // M
-    char_data!(45, 0x44, 0x6C, 0x54, 0x44, 0x44, 0x44, 0x44);
-    // N
-    char_data!(46, 0x44, 0x64, 0x54, 0x4C, 0x44, 0x44, 0x44);
-    // O
-    char_data!(47, 0x38, 0x44, 0x44, 0x44, 0x44, 0x44, 0x38);
-    // P
-    char_data!(48, 0x78, 0x44, 0x44, 0x78, 0x40, 0x40, 0x40);
-    // Q
-    char_data!(49, 0x38, 0x44, 0x44, 0x44, 0x54, 0x48, 0x34);
-    // R
-    char_data!(50, 0x78, 0x44, 0x44, 0x78, 0x50, 0x48, 0x44);
-    // S
-    char_data!(51, 0x38, 0x44, 0x40, 0x38, 0x04, 0x44, 0x38);
-    // T
-    char_data!(52, 0x7C, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10);
-    // U
-    char_data!(53, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x38);
-    // V
-    char_data!(54, 0x44, 0x44, 0x44, 0x28, 0x28, 0x10, 0x10);
-    // W
-    char_data!(55, 0x44, 0x44, 0x44, 0x44, 0x54, 0x6C, 0x44);
-    // X
-    char_data!(56, 0x44, 0x44, 0x28, 0x10, 0x28, 0x44, 0x44);
-    // Y
-    char_data!(57, 0x44, 0x44, 0x28, 0x10, 0x10, 0x10, 0x10);
-    // Z
-    char_data!(58, 0x7C, 0x04, 0x08, 0x10, 0x20, 0x40, 0x7C);
-
-    // Digits 0-9 at indices 16-25 (0x30-0x39 mapped to 0x30-0x20=16..25)
-    // 0
-    char_data!(16, 0x38, 0x44, 0x4C, 0x54, 0x64, 0x44, 0x38);
-    // 1
-    char_data!(17, 0x10, 0x30, 0x10, 0x10, 0x10, 0x10, 0x38);
-    // 2
-    char_data!(18, 0x38, 0x44, 0x04, 0x08, 0x10, 0x20, 0x7C);
-    // 3
-    char_data!(19, 0x38, 0x44, 0x04, 0x18, 0x04, 0x44, 0x38);
-    // 4
-    char_data!(20, 0x08, 0x18, 0x28, 0x48, 0x7C, 0x08, 0x08);
-    // 5
-    char_data!(21, 0x7C, 0x40, 0x78, 0x04, 0x04, 0x44, 0x38);
-    // 6
-    char_data!(22, 0x38, 0x44, 0x40, 0x78, 0x44, 0x44, 0x38);
-    // 7
-    char_data!(23, 0x7C, 0x04, 0x08, 0x10, 0x20, 0x20, 0x20);
-    // 8
-    char_data!(24, 0x38, 0x44, 0x44, 0x38, 0x44, 0x44, 0x38);
-    // 9
-    char_data!(25, 0x38, 0x44, 0x44, 0x3C, 0x04, 0x44, 0x38);
-
-    rom
-};

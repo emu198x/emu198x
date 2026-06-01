@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 mos-6502 = { path = "../mos-6502" }
 mos-pia-6520 = { path = "../mos-pia-6520" }
+motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
 
 [lints]
 workspace = true

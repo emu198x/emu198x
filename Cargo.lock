@@ -1901,6 +1901,7 @@ version = "0.1.0"
 dependencies = [
  "mos-6502",
  "mos-pia-6520",
+ "motorola-vdg-6847",
 ]
 
 [[package]]
