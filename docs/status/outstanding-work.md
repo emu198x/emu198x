@@ -148,6 +148,39 @@ PAK snapshot smokes, optional patched-XRoar screenshot comparisons.
 - **S — Real DragonDOS ROM + VDK software smokes** at the same bar as
   the CAS / PAK paths.
 
+## Sord M5 — `emu198x-sord-m5` (new, 2026-06-01)
+
+Fourth donor-codebase extraction. Reuses TMS9918A + SN76489 from
+ColecoVision / SG-1000; no new chips at the chip-crate level.
+Fresh-write machine layer with Sord-specific memory map (cart at
+`$2000-$6FFF`, 4 KB RAM at `$7000-$7FFF`, optional cart RAM at
+`$8000-$BFFF`), 10×8 keyboard matrix on PPI port C → port B-style
+row strobe + column read at `$30-$37` / `$20-$27`, and the same
+correct 3:2 VDP-phase clock as SG-1000 / MSX.
+
+- **L — BIOS boot does not complete.** The Monitor ROM uses IM 2
+  with `I = $70` and expects the Z80 CTC channel that receives
+  VDP `/INT` to deliver its programmed vector byte. We model VDP
+  `/INT` as driving the Z80 `/IRQ` line directly, with IntAck
+  returning `$FF` (the documented stub). The BIOS init loop
+  reaches roughly `$0BFE` / `$14AC` but never crosses past VDP
+  register init — the framebuffer stays all-backdrop and the
+  CPU never reaches cart code at `$2000+`. The IM 2 vector
+  table at `$7000-$7007` is correctly populated (`$186C` no-op,
+  `$1861` VBlank, `$01DF` cassette / keyboard) but the CTC's
+  channel-VDP wiring + vector-base programming aren't modelled.
+  **Prereq: `zilog-z80-ctc` chip crate.**
+- **A — Z80 CTC is the natural next chip-crate addition.** Four
+  channels, counter / timer modes, control-register decode,
+  channel-specific vector generation off clock pulses. The CTC
+  is also used by Memotech MTX (keyboard timing) and Tatung
+  Einstein (system timing), so the cost amortises across three
+  machines on this list.
+- **A — TMS9918A scanline-batched render** (shared family debt).
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Full shell parity** for `emu198x-sord-m5` follows once
+  boot completes.
+
 ## MSX1 — `emu198x-msx` (new, 2026-06-01)
 
 Third donor-codebase extraction. Reuses TMS9918A from ColecoVision

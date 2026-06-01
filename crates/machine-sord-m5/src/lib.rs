@@ -201,8 +201,28 @@ impl SordM5 {
                 self.io_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IntAck) => {
-                // Monitor ROM sets IM 1 — INT fetches RST 38h via
-                // floating bus.
+                // **Known incomplete.** The Monitor ROM sets IM 2 with
+                // `I = $70` and expects the Z80 CTC channel that
+                // receives VDP /INT to deliver its programmed vector
+                // byte. The CTC's vector base and channel-VDP wiring
+                // are configured by the BIOS during early init.
+                //
+                // The IM 2 vector table at `$7000-$7007` (copied by
+                // the BIOS from ROM `$0165`) holds:
+                //   `$7000 -> $186C` (no-op `EI; RETI`)
+                //   `$7002 -> $1861` (VBlank: dec jiffy counter)
+                //   `$7004 -> $186C`
+                //   `$7006 -> $01DF` (cassette / keyboard handler)
+                //
+                // Without a proper Z80 CTC chip emulation (counters,
+                // control-register decode, channel-specific vector
+                // generation off VDP /INT clock pulses), this initial
+                // port returns `$FF` and the BIOS init loop never
+                // advances past VDP setup — Dig Dug and other carts
+                // stay on a black screen.
+                //
+                // Tracked in docs/status/outstanding-work.md
+                // § Sord M5 as a `zilog-z80-ctc` chip-crate prereq.
                 self.cpu.data_in = 0xFF;
             }
             None => {}

@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-sord-m5"
+description = "Sord M5 headless runner — Z80 + TMS9918A + SN76489A"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-sord-m5"
+path = "src/main.rs"
+
+[dependencies]
+machine-sord-m5 = { path = "../machine-sord-m5" }
+png = { workspace = true }
+
+[lints]
+workspace = true

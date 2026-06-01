@@ -991,6 +991,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-sord-m5"
+version = "0.1.0"
+dependencies = [
+ "machine-sord-m5",
+ "png",
+]
+
+[[package]]
 name = "emu198x-spectrum"
 version = "0.1.0"
 dependencies = [
