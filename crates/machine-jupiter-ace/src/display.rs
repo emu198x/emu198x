@@ -1,17 +1,29 @@
 //! Jupiter Ace character-based display.
 //!
-//! The Ace has a 32x24 character display. Each character position reads a
-//! character code from video RAM ($2000-$23FF) and looks up the 8x8 pixel
+//! The Ace has a 32×24 character display. Each character position reads a
+//! character code from video RAM ($2000-$23FF) and looks up the 8×8 pixel
 //! pattern from character RAM ($2400-$27FF). The first 128 entries are
 //! user-definable; codes 128-255 display the inverse of code 0-127.
 //!
 //! The display is monochrome: black on white (like the real hardware).
 //!
+//! # Why inline (not a chip crate)
+//!
+//! There is no dedicated video IC on the Jupiter Ace board — the display
+//! is the Z80 + DRAM rendering scanout from RAM-resident character data
+//! at frame rate. There is no separate silicon to wrap, and no other
+//! workspace consumer would reuse this rendering loop (no other Ace-
+//! family machine exists), so this stays inline as part of the
+//! machine itself. Contrast with the VIC-20's MOS 6560/6561 (real IC,
+//! extracted to `mos-vic-i`) or the Atom's MC6847 (real IC, shared via
+//! `motorola-vdg-6847`).
+//!
 //! # Timing
 //!
 //! The Ace uses a PAL display: 312 lines, 207 T-states per line = 64,584
 //! T-states per frame at 3.25 MHz (~50.3 Hz). The active display area is
-//! 256x192 pixels (32x24 characters x 8x8 pixels).
+//! 256×192 pixels (32×24 characters × 8×8 pixels), surrounded by a
+//! 32 / 24 px border to match the wider TV-visible envelope.
 
 /// Active display area: 32 x 24 characters @ 8 x 8 px.
 pub const ACTIVE_WIDTH: u32 = 256;
