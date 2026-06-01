@@ -1982,6 +1982,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-sord-m5"
+version = "0.1.0"
+dependencies = [
+ "ti-sn76489",
+ "ti-tms9918",
+ "zilog-z80",
+]
+
+[[package]]
 name = "machine-timex-tc2048"
 version = "0.1.0"
 dependencies = [
