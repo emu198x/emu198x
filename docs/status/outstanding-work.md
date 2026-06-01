@@ -454,14 +454,32 @@ frames, asserts a non-trivial framebuffer).
 
 ## Roadmap-adjacent (not active)
 
-System-scope expansion candidates extracted from the Emu198x-Oldest donor
-codebase — substantive (1000+ lines per crate) implementations exist but
-are not yet wired into the current workspace: **Atari** 2600 / 5200 / 7800
-/ 800XL with full chipset (ANTIC, GTIA, MARIA, POKEY, TIA), **MSX**,
-**ColecoVision**, **BBC Micro**, **Acorn** Atom / Electron, **Sega**
-Master System / SG-1000, **Oric**, **ZX80** / **ZX81**, **Jupiter Ace**,
-**Memotech MTX**, **Mattel Aquarius**, **Tatung Einstein**, **Spectravideo
-SVI-328**, **Sord M5**. Plus the Amiga **AGA chipset scaffold** (Agnus AGA
-+ Denise AGA — lighter, possibly incomplete; the current AGA path is the
-forward port). Extract on demand when expanding scope; do not rewrite from
-scratch.
+System-scope expansion candidates remaining in the Emu198x-Oldest donor
+codebase — substantive implementations exist but are not yet wired into
+the current workspace. **Eight already extracted** (ColecoVision, SG-1000,
+MSX1, Sord M5, Sega Master System, Spectravideo SVI-328, Mattel Aquarius,
+Tatung Einstein) — see their dedicated sections above.
+
+Still in the donor (substantive, ready to port):
+- **Atari** 2600 / 5200 / 7800 / 800XL with full chipset (ANTIC, GTIA,
+  MARIA, POKEY, TIA — TIA is the well-known accuracy-hard one)
+- **BBC Micro** (935 LoC; needs MOS VIA-6522 + Motorola 6845 CRTC, plus
+  reuses our `ti-sn76489`)
+- **Acorn Electron** (1105 LoC; inline ULA, no external chip deps)
+- **Oric Atmos** (1315 LoC; needs MOS VIA-6522 + AY-3-8910 ✓)
+- Plus the Amiga **AGA chipset scaffold** (Agnus AGA + Denise AGA —
+  lighter, possibly incomplete; the current AGA path is the forward
+  port).
+
+Donor stubs (not real implementations — would need writing from scratch):
+Jupiter Ace, Acorn Atom, ZX80 / ZX81, Commodore PET, Commodore VIC-20,
+Memotech MTX.
+
+External-blocker holds:
+- Sord M5 boot completion needs a `zilog-z80-ctc` chip crate (also
+  unlocks Memotech MTX boot, plus Tatung Einstein's CTC channel 0
+  stub).
+- Tatung Einstein full boot needs a `western-digital-wd1770` floppy
+  controller for the X-TAL MOS disk wait.
+
+Extract on demand when expanding scope; do not rewrite from scratch.
