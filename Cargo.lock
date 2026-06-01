@@ -167,6 +167,10 @@ name = "atari-gtia"
 version = "0.1.0"
 
 [[package]]
+name = "atari-maria"
+version = "0.1.0"
+
+[[package]]
 name = "atari-pokey"
 version = "0.1.0"
 
@@ -899,6 +903,14 @@ name = "emu198x-atari-5200"
 version = "0.1.0"
 dependencies = [
  "machine-atari-5200",
+ "png",
+]
+
+[[package]]
+name = "emu198x-atari-7800"
+version = "0.1.0"
+dependencies = [
+ "machine-atari-7800",
  "png",
 ]
 
@@ -1842,6 +1854,15 @@ dependencies = [
  "atari-gtia",
  "atari-pokey",
  "mos-6502",
+]
+
+[[package]]
+name = "machine-atari-7800"
+version = "0.1.0"
+dependencies = [
+ "atari-maria",
+ "mos-6502",
+ "mos-riot-6532",
 ]
 
 [[package]]

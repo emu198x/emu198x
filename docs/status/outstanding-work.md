@@ -286,9 +286,52 @@ captured screenshot shows partial title-screen pixels
   `take_audio_buffer()` but the binary doesn't write a WAV.
 - **A — Snapshot deferred** (shared family pattern).
 - **S — Full shell parity**.
-- **S — Atari 7800.** Reuses TIA + RIOT + POKEY; adds MARIA.
 - **S — Atari 800XL.** Reuses ANTIC + GTIA + POKEY (now
   unblocked); adds MOS PIA-6520.
+
+## Atari 7800 ProSystem — `emu198x-atari-7800` (new, 2026-06-01)
+
+Fourteenth donor-codebase extraction. **One new chip crate** —
+`atari-maria` (15/15 tests, 1009 LoC), the zone-based display
+processor that replaces the 2600's race-the-beam model: MARIA
+walks a Display List List (DLL) at every scanline, DMAs sprite /
+tile data from RAM, and stalls the 6502C "Sally" for the DMA
+budget. Reuses our `mos-6502` as the 6502C "Sally" (stock 6502
+with Atari's HALT pin) and `mos-riot-6532` for joystick / console
+switches / timer.
+
+Fresh-write machine layer (`machine-atari-7800`, 18/18 tests)
+wiring CPU + MARIA + RIOT + a thin TIA-audio register stub through
+the 7800 memory map: TIA at `$0000-$001F` (audio only — MARIA
+handles video), MARIA at `$0020-$003F`, zero-page RAM
+`$0040-$00FF`, stack RAM `$0140-$01FF`, RIOT `$0280-$02FF`, main
+RAM 4 KB at `$1800-$27FF` (mirrored to `$3FFF`), cart
+`$4000-$FFFF`. Cartridge handling: flat 16 KB / 32 KB / 48 KB
+mapping or 8 × 16 KB SuperGame banking with bank 7 fixed at
+`$C000` and writes to `$8000-$BFFF` switching the middle window.
+A78 header auto-stripped.
+
+Joystick wired via RIOT port A bits 4-7 (active-low) through
+`set_joystick(up, down, left, right)`; console switches (Reset /
+Select / Pause) via RIOT port B through `set_console(...)`.
+
+Gated cart-boot smoke at
+`crates/machine-atari-7800/tests/cart_boot.rs` passes with TOSEC
+Asteroids (1987)(Atari)(NTSC).a78 — cart loads, machine ticks
+300 frames without panic, framebuffer correctly sized.
+
+- **A — BIOS-driven boot not yet wired.** Native 7800 games
+  depend on the 4 KB 7800 BIOS at `$F000-$FFFF` for region +
+  encryption checks before transferring control. Without it both
+  Asteroids and Dig Dug boot to black. Adding `--bios` and the
+  BIOS-overlay toggle (via MARIA CTRL) is the next concrete
+  follow-up on this thread.
+- **A — TIA audio synthesis.** The 7800 uses TIA only for sound;
+  six registers are stored but no synthesis path is wired.
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Full shell parity**.
+- **S — Atari 800XL.** Reuses ANTIC + GTIA + POKEY; adds MOS
+  PIA-6520. Now the last donor 8-bit Atari to extract.
 
 ## Acorn BBC Micro Model B — `emu198x-acorn-bbc-micro` (new, 2026-06-01)
 
@@ -698,7 +741,7 @@ frames, asserts a non-trivial framebuffer).
 
 Status of the Emu198x-Oldest donor codebase extraction.
 
-**Thirteen already extracted** in this run — see their dedicated
+**Fourteen already extracted** in this run — see their dedicated
 sections above:
 
 | # | System | Live boot status |
@@ -716,15 +759,15 @@ sections above:
 | 11 | Acorn BBC Micro Model B | OS bank-scan reaches BASIC slot (live) — needs SAA5050 + BASIC for full |
 | 12 | Atari 2600 | Combat playfield (live) |
 | 13 | Atari 5200 SuperSystem | Pac-Man title (live, partial render) |
+| 14 | Atari 7800 ProSystem | Cart accepts (live); BIOS-driven boot pending |
 
-**Eleven chip crates ported** as foundation:
+**Twelve chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,
 `mos-riot-6532`, `atari-tia`, `atari-antic`, `atari-gtia`,
-`atari-pokey`, plus our pre-existing `gi-ay-3-8912` and
-`mos-via-6522` reused across the family.
+`atari-pokey`, `atari-maria`, plus our pre-existing `gi-ay-3-8912`
+and `mos-via-6522` reused across the family.
 
 **Still in the donor** (substantive, ready to port):
-- **Atari 7800** (1422 LoC; needs MARIA — reuses TIA + RIOT + POKEY)
 - **Atari 800XL** (1980 LoC; needs MOS PIA-6520 — reuses ANTIC +
   GTIA + POKEY now landed for 5200)
 - Plus the Amiga **AGA chipset scaffold** (Agnus AGA + Denise AGA —

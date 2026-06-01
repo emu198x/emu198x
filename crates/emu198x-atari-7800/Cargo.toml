@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-atari-7800"
+description = "Atari 7800 ProSystem headless runner — 6502C 'Sally' + MARIA + RIOT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-atari-7800"
+path = "src/main.rs"
+
+[dependencies]
+machine-atari-7800 = { path = "../machine-atari-7800" }
+png = { workspace = true }
+
+[lints]
+workspace = true

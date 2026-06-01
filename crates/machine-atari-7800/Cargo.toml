@@ -1,0 +1,15 @@
+[package]
+name = "machine-atari-7800"
+description = "Atari 7800 ProSystem machine wiring — 6502C 'Sally' + MARIA + RIOT + TIA audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atari-maria = { path = "../atari-maria" }
+mos-6502 = { path = "../mos-6502" }
+mos-riot-6532 = { path = "../mos-riot-6532" }
+
+[lints]
+workspace = true
