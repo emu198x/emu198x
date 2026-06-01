@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-sega-sg-1000"
+description = "Sega SG-1000 / SC-3000 headless runner — Z80 + TMS9918A + SN76489A"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-sega-sg-1000"
+path = "src/main.rs"
+
+[dependencies]
+machine-sega-sg-1000 = { path = "../machine-sega-sg-1000" }
+png = { workspace = true }
+
+[lints]
+workspace = true

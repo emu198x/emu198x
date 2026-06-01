@@ -148,6 +148,33 @@ PAK snapshot smokes, optional patched-XRoar screenshot comparisons.
 - **S — Real DragonDOS ROM + VDK software smokes** at the same bar as
   the CAS / PAK paths.
 
+## Sega SG-1000 / SC-3000 — `emu198x-sega-sg-1000` (new, 2026-06-01)
+
+Second donor-codebase extraction landed: reuses the TMS9918A + SN76489A
+chip pair from the ColecoVision extraction, no new chips. Fresh-write
+machine layer with a **correct 3:2 VDP-dot-to-CPU-T-state phase
+counter** (more accurate than ColecoVision's initial-port 3:1 ratio).
+Headless binary `emu198x-sega-sg-1000` boots the canonical Tsukuda
+Original "007 James Bond" Othello Multivision cart to its
+level-select title screen. Gated cart-boot smoke at
+`crates/machine-sega-sg-1000/tests/cart_boot.rs` (picks first `.sg`
+file from `~/.emu198x/media/sega-sg-1000/` or `~/Downloads/`).
+
+- **A — TMS9918A scanline-batched render** (shared with Coleco; will
+  resolve together).
+- **A — Upgrade ColecoVision to the 3:2 phase counter.** SG-1000 has
+  it right; ColecoVision's initial port runs the VDP 3× too fast.
+  Mechanical fix once the SG-1000 model is comfortable.
+- **A — SC-3000 keyboard.** `set_pause_pressed` already drives the
+  Z80 NMI line; full SC-3000 8255 keyboard matrix not yet modelled.
+- **A — Snapshot deferred** (shared pattern with ColecoVision).
+- **S — Full shell parity** for `emu198x-sega-sg-1000` (native
+  verifier window).
+- **S — Cart-mapper support.** SG-1000 ceiling is 48 KB; some Sega
+  Mark III / late SG-1000 carts have bank-switching mappers (Sega,
+  Codemasters, Korean variants). Out of scope for initial port; SMS
+  will likely share the mapper layer when it lands.
+
 ## ColecoVision — `emu198x-colecovision` (new, 2026-06-01)
 
 First donor-codebase extraction landed: TMS9918A + SN76489AN chip

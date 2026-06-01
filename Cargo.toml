@@ -78,6 +78,7 @@ members = [
     "crates/commodore-gayle",
     "crates/commodore-amiga-autoconfig",
     "crates/emu198x-colecovision",
+    "crates/emu198x-sega-sg-1000",
     "crates/machine-coleco-colecovision",
     "crates/machine-commodore-amiga-a1200",
     "crates/machine-sega-sg-1000",
