@@ -47,6 +47,9 @@ enum ModelArg {
     A500A501,
     A500Plus,
     A500Maxed,
+    A600,
+    A1200,
+    A2000,
 }
 
 #[derive(Debug, Serialize)]
@@ -70,7 +73,8 @@ Usage: emu198x-amiga --headless [OPTIONS]   (add --no-default-features for graph
 Firmware:
     --rom-dir DIR             directory containing Kickstart ROM images
     --kickstart PATH          explicit ROM path (Kickstart on A500, bootstrap on A1000)
-    --model MODEL             a1000 | a500 | a500-a501 | a500-plus | a500-maxed [default: a500]
+    --model MODEL             a1000 | a500 | a500-a501 | a500-plus | a500-maxed
+                              | a600 | a1200 | a2000 [default: a500]
 
 Media:
     --disk PATH               insert one ADF image into DF0:
@@ -187,7 +191,13 @@ fn parse_model_arg(value: &str) -> ModelArg {
         "a500-a501" => ModelArg::A500A501,
         "a500-plus" => ModelArg::A500Plus,
         "a500-maxed" => ModelArg::A500Maxed,
-        _ => die("--model expects a1000, a500, a500-a501, a500-plus, or a500-maxed"),
+        "a600" => ModelArg::A600,
+        "a1200" => ModelArg::A1200,
+        "a2000" => ModelArg::A2000,
+        _ => die(
+            "--model expects a1000, a500, a500-a501, a500-plus, a500-maxed, \
+             a600, a1200, or a2000",
+        ),
     }
 }
 
@@ -335,6 +345,9 @@ impl ModelArg {
             Self::A500A501 => Model::A500OcsPalA501,
             Self::A500Plus => Model::A500PlusEcsPal,
             Self::A500Maxed => Model::A500OcsPalMaxed,
+            Self::A600 => Model::A600EcsPal,
+            Self::A1200 => Model::A1200AgaPal,
+            Self::A2000 => Model::A2000OcsPal,
         }
     }
 }
@@ -342,9 +355,13 @@ impl ModelArg {
 fn firmware_id_for_model_arg(model: ModelArg) -> &'static str {
     match model {
         ModelArg::A1000 => A1000_BOOTSTRAP_ID,
-        ModelArg::A500 | ModelArg::A500A501 | ModelArg::A500Plus | ModelArg::A500Maxed => {
-            KICKSTART_ID
-        }
+        ModelArg::A500
+        | ModelArg::A500A501
+        | ModelArg::A500Plus
+        | ModelArg::A500Maxed
+        | ModelArg::A600
+        | ModelArg::A1200
+        | ModelArg::A2000 => KICKSTART_ID,
     }
 }
 
@@ -366,7 +383,26 @@ fn resolve_firmware_path(cli: &Cli) -> Result<PathBuf, String> {
             "a1000_bootstrap.rom",
             "bootstrap.rom",
         ],
-        ModelArg::A500 | ModelArg::A500A501 | ModelArg::A500Plus | ModelArg::A500Maxed => &[
+        ModelArg::A600 => &[
+            "kick31.rom",
+            "kick31a600.rom",
+            "kick30.rom",
+            "kick20.rom",
+            "kickstart.rom",
+            "kick.rom",
+        ],
+        ModelArg::A1200 => &[
+            "kick31a1200.rom",
+            "kick31.rom",
+            "kick30.rom",
+            "kickstart.rom",
+            "kick.rom",
+        ],
+        ModelArg::A500
+        | ModelArg::A500A501
+        | ModelArg::A500Plus
+        | ModelArg::A500Maxed
+        | ModelArg::A2000 => &[
             "kick13.rom",
             "kick12.rom",
             "kick31.rom",
