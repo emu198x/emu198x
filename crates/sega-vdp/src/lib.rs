@@ -47,9 +47,22 @@ pub enum VdpVariant {
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Framebuffer dimensions (full SMS resolution).
-pub const FB_WIDTH: u32 = 256;
-pub const FB_HEIGHT: u32 = 192;
+/// Active display area dimensions (the pixels the SMS VDP actually
+/// draws tiles + sprites into).
+pub const ACTIVE_WIDTH: u32 = 256;
+pub const ACTIVE_HEIGHT: u32 = 192;
+
+/// Border thickness around the active area. Same canonical TV-visible
+/// envelope as the TMS9918 family — close enough for screenshots,
+/// generous enough that the backdrop register matters.
+pub const BORDER_LEFT: u32 = 16;
+pub const BORDER_RIGHT: u32 = 16;
+pub const BORDER_TOP: u32 = 24;
+pub const BORDER_BOTTOM: u32 = 24;
+
+/// Framebuffer dimensions (active + border).
+pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
+pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 // ---------------------------------------------------------------------------
 // VDP
@@ -310,9 +323,25 @@ impl SegaVdp {
     // Timing
     // -----------------------------------------------------------------------
 
+    /// Fill the entire framebuffer with the current backdrop colour.
+    /// Called at frame start so top + bottom border regions plus the
+    /// left + right columns of each active row carry the border
+    /// colour. Mid-frame backdrop changes affect the *next* frame —
+    /// a v1 simplification, matches the TMS9918 family's treatment.
+    fn fill_border(&mut self) {
+        let backdrop = self.backdrop_color();
+        self.framebuffer.fill(backdrop);
+    }
+
     /// Tick one scanline. Returns true at frame end.
     pub fn tick_scanline(&mut self) -> bool {
         let active_lines: u16 = 192;
+
+        // Paint the border at frame start; active rendering then
+        // overwrites the 256 x 192 interior.
+        if self.scanline == 0 {
+            self.fill_border();
+        }
 
         // Render active scanlines
         if self.scanline < active_lines {
@@ -367,13 +396,17 @@ impl SegaVdp {
     // Rendering
     // -----------------------------------------------------------------------
 
+    fn active_offset(line: usize) -> usize {
+        (BORDER_TOP as usize + line) * FB_WIDTH as usize + BORDER_LEFT as usize
+    }
+
     fn render_scanline(&mut self, line: u16) {
         let line = line as usize;
-        let offset = line * FB_WIDTH as usize;
+        let offset = Self::active_offset(line);
 
         if !self.display_enabled() {
             let bg = self.backdrop_color();
-            self.framebuffer[offset..offset + FB_WIDTH as usize].fill(bg);
+            self.framebuffer[offset..offset + ACTIVE_WIDTH as usize].fill(bg);
             return;
         }
 
@@ -383,7 +416,7 @@ impl SegaVdp {
         } else {
             // Legacy TMS9918A modes — render backdrop as placeholder
             let bg = self.backdrop_color();
-            self.framebuffer[offset..offset + FB_WIDTH as usize].fill(bg);
+            self.framebuffer[offset..offset + ACTIVE_WIDTH as usize].fill(bg);
         }
     }
 

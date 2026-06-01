@@ -318,11 +318,21 @@ impl Sms {
         }
     }
 
-    /// Framebuffer (256×192 / 256×224 / 256×240 ARGB32 depending on
-    /// the VDP mode).
+    /// Framebuffer (ARGB32) — VDP active display plus canonical
+    /// TV-visible border.
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         self.vdp.framebuffer()
+    }
+
+    #[must_use]
+    pub fn framebuffer_width(&self) -> u32 {
+        self.vdp.framebuffer_width()
+    }
+
+    #[must_use]
+    pub fn framebuffer_height(&self) -> u32 {
+        self.vdp.framebuffer_height()
     }
 
     /// Take the accumulated mono PSG audio buffer.

@@ -70,7 +70,10 @@ fn cart_boots_to_title_screen() {
     }
 
     let fb = sys.framebuffer();
-    assert_eq!(fb.len(), 256 * 192);
+    assert_eq!(
+        fb.len(),
+        (sys.framebuffer_width() * sys.framebuffer_height()) as usize
+    );
     let mut colours = std::collections::HashSet::new();
     for &px in fb {
         colours.insert(px);

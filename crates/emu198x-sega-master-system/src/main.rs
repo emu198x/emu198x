@@ -91,14 +91,11 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Result<Cli, String> {
     Ok(cli)
 }
 
-fn framebuffer_dimensions(variant: SmsVariant) -> (u32, u32) {
-    // The Sega VDP supports several display heights (192 / 224 / 240).
-    // The donor framebuffer is sized for the largest active region;
-    // SMS variants render 256x192 by default and Game Gear renders
-    // 160x144 inside a 256x192 buffer. Using 256x192 for both gives
-    // the full SMS view and the GG content in the centre.
-    let _ = variant;
-    (256, 192)
+fn framebuffer_dimensions(_variant: SmsVariant, sys: &Sms) -> (u32, u32) {
+    // Read dimensions from the live machine — the VDP picks the
+    // active height (192 / 224 / 240) and adds the canonical
+    // TV-visible border around it (see sega-vdp BORDER_* constants).
+    (sys.framebuffer_width(), sys.framebuffer_height())
 }
 
 fn write_screenshot(path: &Path, framebuffer: &[u32], width: u32, height: u32) -> Result<(), String> {
@@ -144,7 +141,7 @@ fn run(cli: Cli) -> Result<(), String> {
     for _ in 0..cli.frames {
         sys.run_frame();
     }
-    let (w, h) = framebuffer_dimensions(cli.variant);
+    let (w, h) = framebuffer_dimensions(cli.variant, &sys);
     println!(
         "SMS runtime: tstates={} frames={} variant={:?}",
         sys.cpu_tstates(),
