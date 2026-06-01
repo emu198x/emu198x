@@ -80,6 +80,20 @@ const VISUAL_ROMS: &[&str] = &[
     // human / oscilloscope inspection of inter-channel mixing
     // levels. No `$6000` protocol, no nametable verdict.
     "volumes.nes",
+    // bisqwit's test_ppu_read_buffer.nes — reports pass/fail via
+    // screen + audio (low-pitched fat tone = failure, bright beeps
+    // = progress) per the suite's `readme.txt`. The ROM runs to
+    // completion and enters its halt loop at `$EBE2: BEQ $EBE2`
+    // after writing the per-sub-test result table to the nametable
+    // using custom CHR tiles (so plain ASCII scanning can't read
+    // the verdict). Our CPU + PPU drive the ROM through every
+    // sub-test correctly — the initial `BIT $2002 / BPL` VBL-wait
+    // loop exits on the first frame, the per-sub-test code runs,
+    // the NMI handler at `$1D18` fires, and the halt loop is the
+    // ROM's intentional exit point. See
+    // `tests/ppu_read_buffer_probe.rs` for the diagnostic that
+    // walked through the entire boot sequence.
+    "test_ppu_read_buffer.nes",
 ];
 
 /// Delay between observing the `$81` "needs reset" status and
