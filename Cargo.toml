@@ -80,6 +80,7 @@ members = [
     "crates/emu198x-colecovision",
     "crates/machine-coleco-colecovision",
     "crates/machine-commodore-amiga-a1200",
+    "crates/machine-sega-sg-1000",
     "crates/runtime-commodore-amiga",
     "crates/runtime-dragon",
     "crates/mos-sid-6581",

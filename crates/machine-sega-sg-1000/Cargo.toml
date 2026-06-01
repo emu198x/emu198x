@@ -1,0 +1,15 @@
+[package]
+name = "machine-sega-sg-1000"
+description = "Sega SG-1000 / SC-3000 machine wiring — Z80 + TMS9918A + SN76489A"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ti-sn76489 = { path = "../ti-sn76489" }
+ti-tms9918 = { path = "../ti-tms9918" }
+zilog-z80 = { path = "../zilog-z80" }
+
+[lints]
+workspace = true

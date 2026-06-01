@@ -1867,6 +1867,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-sega-sg-1000"
+version = "0.1.0"
+dependencies = [
+ "ti-sn76489",
+ "ti-tms9918",
+ "zilog-z80",
+]
+
+[[package]]
 name = "machine-sinclair-zx-spectrum-128k"
 version = "0.1.0"
 dependencies = [
