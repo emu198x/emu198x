@@ -109,6 +109,7 @@ members = [
     "crates/nintendo-game-boy-timer",
     "crates/pentagon-ula",
     "crates/scorpion-ula",
+    "crates/sega-vdp",
     "crates/sharp-lr35902",
     "crates/timex-scld",
     "crates/ricoh-apu-2a03",

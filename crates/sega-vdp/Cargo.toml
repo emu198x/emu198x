@@ -1,0 +1,10 @@
+[package]
+name = "sega-vdp"
+description = "Sega Master System / Game Gear VDP (315-5124 / 315-5246)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
