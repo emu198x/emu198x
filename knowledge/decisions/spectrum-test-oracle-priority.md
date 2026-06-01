@@ -67,6 +67,31 @@ Stop and re-read this decision if you find yourself:
 - **Not** an instruction to fix the INIR/INDR MEMPTR bug immediately. The fix needs silicon evidence; until that lands, the allowlist remains and the bug stays tracked. This decision is the framing change that makes the bug a bug rather than a permanent accepted disagreement.
 - **Not** specific to MEMPTR. The same priority applies to any future disagreement between Spectrum-validated and CPU-generic oracles on Z80 behaviour observable in a Spectrum context.
 
+## Update 2026-05-31 — the trigger MEMPTR cases resolved
+
+The decision did its job. The two `z80memptr` failures (`102 INIR->NOP'`,
+`103 INDR->NOP'`) and the matching FUSE `edba_1 INDR` case are all now
+**passing** — turned out not to need silicon-level evidence at all.
+
+Root cause: the INIR/INDR/OTIR/OTDR repeat handler in `execute.rs` was
+writing `WZ = PC + 1` after the IN/OUT step had already correctly set
+`WZ = BC ± 1` per the documented MEMPTR behaviour. The stale write was
+a leftover "we'll re-execute" marker from the pre-2026 vectors. Removing
+that single line satisfied both Spectrum-validated oracles in one change.
+
+Tom Harte's pass count did not drop. Instead the suite's per-opcode
+allowlist now carries four documented WZ-only entries for
+`ed b2 / b3 / ba / bb`, reflecting that Tom Harte's pre-2026 vectors
+record the old marker. This is exactly the trade the decision predicted
+in § Implications, paragraph 3 — modulo Tom Harte being kept green via
+allowlist rather than dropping pass count.
+
+The four residual FUSE block-I/O disagreements are now AF-only (X/Y
+undocumented flag bits on the final repeat iteration); WZ is correct
+across all four. Those remain tracked as
+[`Emu198x-Reference/_organised/known-unknowns.md`](../../../../Emu198x-Reference/_organised/known-unknowns.md)
+§ Zilog Z80, and are correctness debt, not launch-blockers.
+
 ## See also
 
 - [`concepts/test-methodology.md`](../concepts/test-methodology.md) — original adjudication paragraph, now superseded for the Spectrum case.
