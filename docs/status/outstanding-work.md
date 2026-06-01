@@ -148,6 +148,38 @@ PAK snapshot smokes, optional patched-XRoar screenshot comparisons.
 - **S — Real DragonDOS ROM + VDK software smokes** at the same bar as
   the CAS / PAK paths.
 
+## Tatung Einstein TC-01 — `emu198x-tatung-einstein` (new, 2026-06-01)
+
+Eighth donor-codebase extraction. **Zero new chips** — reuses
+TMS9918A and AY-3-8910 (via `gi-ay-3-8912`). Fresh-write machine
+layer with Einstein-specific port-`$21` ROM page-out (any write
+flips the 8 KB X-TAL MOS ROM out of `$0000-$1FFF` and exposes the
+full 64 KB RAM), AY-driven keyboard (8×8 matrix, row select on
+AY R14 / port A, column read on port `$20`), and Z80 CTC channel 0
+stub at `$28`.
+
+- **L — BIOS boot reaches VDP init but no text output.** With the
+  1983 X-TAL MOS v1.2 ROM (8 KB, SHA-256
+  `401d0e0bf6f64ba82e68137525749171fbcf9bd9055a49e5ac9a47941a6a0ae1`)
+  the BIOS sets the TMS9918A backdrop to blue and then hangs
+  waiting for the **WD1770 floppy controller** that we don't
+  model. Real Einstein hardware shows a "DISK FAIL" message or
+  loads CP/M from disk; without the WD1770 the boot can't proceed
+  to text. Gated smoke at
+  `crates/machine-tatung-einstein/tests/bios_boot.rs` asserts the
+  VDP-init stage (1024+ non-black pixels = display enabled with
+  backdrop) so we know the chips are reachable.
+- **A — Z80 CTC may also be required.** Channel 0 is stubbed at
+  port `$28`; like Sord M5, the Einstein wires VDP /INT through
+  the CTC for IM-2 vectoring. The X-TAL MOS does set IM 1 early
+  (visible in the disassembly), so the immediate boot path is
+  unlikely to need CTC vectors, but later software almost
+  certainly will.
+- **A — TMS9918A scanline-batched render** (shared family debt).
+- **A — Cassette / printer ports** unwired.
+- **A — Snapshot deferred**.
+- **S — Full shell parity**.
+
 ## Mattel Aquarius — `emu198x-mattel-aquarius` (new, 2026-06-01)
 
 Seventh donor-codebase extraction. **Zero new chips** — Z80-only

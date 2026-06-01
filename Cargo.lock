@@ -1043,6 +1043,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-tatung-einstein"
+version = "0.1.0"
+dependencies = [
+ "machine-tatung-einstein",
+ "png",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2044,6 +2052,15 @@ version = "0.1.0"
 dependencies = [
  "gi-ay-3-8912",
  "intel-8255",
+ "ti-tms9918",
+ "zilog-z80",
+]
+
+[[package]]
+name = "machine-tatung-einstein"
+version = "0.1.0"
+dependencies = [
+ "gi-ay-3-8912",
  "ti-tms9918",
  "zilog-z80",
 ]

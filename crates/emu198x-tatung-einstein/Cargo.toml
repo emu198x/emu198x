@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-tatung-einstein"
+description = "Tatung Einstein TC-01 headless runner — Z80 + TMS9918A + AY-3-8910"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-tatung-einstein"
+path = "src/main.rs"
+
+[dependencies]
+machine-tatung-einstein = { path = "../machine-tatung-einstein" }
+png = { workspace = true }
+
+[lints]
+workspace = true
