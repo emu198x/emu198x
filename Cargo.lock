@@ -872,6 +872,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-atari-2600"
+version = "0.1.0"
+dependencies = [
+ "machine-atari-2600",
+ "png",
+]
+
+[[package]]
 name = "emu198x-c64"
 version = "0.1.0"
 dependencies = [
@@ -1792,6 +1800,15 @@ name = "machine-acorn-electron"
 version = "0.1.0"
 dependencies = [
  "mos-6502",
+]
+
+[[package]]
+name = "machine-atari-2600"
+version = "0.1.0"
+dependencies = [
+ "atari-tia",
+ "mos-6502",
+ "mos-riot-6532",
 ]
 
 [[package]]

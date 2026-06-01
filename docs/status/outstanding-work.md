@@ -187,6 +187,60 @@ Atmos a de-facto French home computer in the mid-1980s.
 - **A — Snapshot deferred** (shared family pattern).
 - **S — Full shell parity**.
 
+## Atari 2600 — `emu198x-atari-2600` (new, 2026-06-01)
+
+Twelfth donor-codebase extraction. **Two new chip crates** —
+`mos-riot-6532` (477 LoC, 11/11 tests) and `atari-tia` (1204 LoC +
+inline NTSC/PAL palette module, 13/13 tests). Reuses our `mos-6502`
+(running as the 6507 — the pin-limited 13-address-line 6502).
+
+Fresh-write machine layer wiring the 6507 to TIA + RIOT through
+the 2600's distinctive **A12/A7/A9 address decode**: A12 = cart at
+`$1000-$1FFF`; A12 = 0, A7 = 0 = TIA registers; A12 = 0, A7 = 1 =
+RIOT (A9 picks RAM vs I/O+timer). Master clock = TIA colour clock
+at 3.58 MHz NTSC / 3.55 MHz PAL; 6507 and RIOT tick every 3rd
+colour clock; TIA WSYNC line halts the CPU until next hblank.
+
+Cartridge bank-switching support: 2 KB / 4 KB (no banking), F8
+(8 KB / 2 banks at `$1FF8/$1FF9`), F6 (16 KB / 4 banks at
+`$1FF6-$1FF9`), F4 (32 KB / 8 banks at `$1FF4-$1FFB`). Reads or
+writes to the hotspot addresses trigger bank switches.
+
+**Live boot verified 2026-06-01** with the 1977 Atari Combat
+cart (2 KB, NTSC). Renders the canonical olive-on-peach
+two-tank playfield: red tank left, blue tank right, missile
+indicator at top, peach borders. Gated smoke at
+`crates/machine-atari-2600/tests/cart_boot.rs` (picks first
+`.a26` / `.bin` from `~/.emu198x/media/atari-2600/`) passes (1/1).
+
+Bug fixed during boot bring-up: the donor's `mos-riot-6532`
+reset the timer prescaler + cleared `post_underflow` state on
+**every read of INTIM** (`$0284`). Real 6532 silicon doesn't
+touch the prescaler from a read; the timer free-runs
+independently. Combat (and many 2600 games) polls INTIM in a
+tight loop expecting the prescaler to keep decrementing — with
+the donor's behaviour the prescaler was reset every read and the
+game wait-loop never exited. Fix: reading INTIM clears only the
+underflow flag; prescaler and post-underflow state are
+free-running.
+
+- **A — TIA cycle-perfect timing.** The TIA is famously hard.
+  Pixel-level rendering works for normal cart code paths, but
+  HMOVE quirks, RESP starfield edge cases, and audio mixing
+  refinements are in the accuracy backlog. Bigger games (Pitfall,
+  Adventure, Star Raiders) may surface issues this initial port
+  doesn't catch.
+- **A — Audio output unwired.** TIA AUDx registers latch but
+  the binary doesn't drain or write a WAV.
+- **A — Joystick / console-switch input** exposed on the
+  machine via `set_joystick_input(byte)` and `set_switch_input
+  (byte)` but the binary doesn't have a runtime interactive
+  surface yet.
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Full shell parity**.
+- **S — Atari 7800.** Reuses TIA + RIOT + POKEY; adds MARIA.
+  Next extraction along this chip thread.
+
 ## Acorn BBC Micro Model B — `emu198x-acorn-bbc-micro` (new, 2026-06-01)
 
 Eleventh donor-codebase extraction. **One new chip crate** —

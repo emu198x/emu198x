@@ -1,0 +1,15 @@
+[package]
+name = "machine-atari-2600"
+description = "Atari 2600 (VCS) machine wiring — 6507 + TIA + RIOT-6532"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atari-tia = { path = "../atari-tia" }
+mos-6502 = { path = "../mos-6502" }
+mos-riot-6532 = { path = "../mos-riot-6532" }
+
+[lints]
+workspace = true

@@ -146,11 +146,19 @@ impl Riot6532 {
             0x02 => self.read_port_b(),
             // $283: SWBCNT — Port B DDR
             0x03 => self.ddr_b,
-            // $284: INTIM — Timer value (reading clears underflow flag)
+            // $284: INTIM — Timer value (reading clears the timer
+            // underflow flag on real hardware, but does NOT touch
+            // the prescaler or post-underflow state — those are
+            // free-running side-channel state independent of the
+            // CPU read).
+            //
+            // Donor `mos-riot-6532` reset `post_underflow` and the
+            // prescaler here, which broke the Atari 2600 "poll
+            // INTIM in a tight loop until it expires" idiom (Combat
+            // and many others). Removing those resets is the
+            // correct silicon behaviour.
             0x04 => {
                 self.underflow = false;
-                self.post_underflow = false;
-                self.prescaler = self.divider;
                 self.timer
             }
             // $285: INSTAT — Timer status
