@@ -1,0 +1,15 @@
+[package]
+name = "machine-oric-atmos"
+description = "Oric-1 / Atmos machine wiring — 6502 + custom ULA + VIA-6522 + AY-3-8910"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
+mos-6502 = { path = "../mos-6502" }
+mos-via-6522 = { path = "../mos-via-6522" }
+
+[lints]
+workspace = true

@@ -985,6 +985,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-oric-atmos"
+version = "0.1.0"
+dependencies = [
+ "machine-oric-atmos",
+ "png",
+]
+
+[[package]]
 name = "emu198x-sega-master-system"
 version = "0.1.0"
 dependencies = [
@@ -1927,6 +1935,15 @@ dependencies = [
  "ricoh-ppu-2c02",
  "serde",
  "serde-big-array",
+]
+
+[[package]]
+name = "machine-oric-atmos"
+version = "0.1.0"
+dependencies = [
+ "gi-ay-3-8912",
+ "mos-6502",
+ "mos-via-6522",
 ]
 
 [[package]]

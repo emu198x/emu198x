@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-oric-atmos"
+description = "Oric-1 / Atmos headless runner — 6502 + ULA + VIA-6522 + AY-3-8910"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-oric-atmos"
+path = "src/main.rs"
+
+[dependencies]
+machine-oric-atmos = { path = "../machine-oric-atmos" }
+png = { workspace = true }
+
+[lints]
+workspace = true

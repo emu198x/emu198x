@@ -148,6 +148,45 @@ PAK snapshot smokes, optional patched-XRoar screenshot comparisons.
 - **S — Real DragonDOS ROM + VDK software smokes** at the same bar as
   the CAS / PAK paths.
 
+## Oric-1 / Atmos — `emu198x-oric-atmos` (new, 2026-06-01)
+
+Tenth donor-codebase extraction. **Zero new chip crates** — reuses
+`mos-6502` ✓, `mos-via-6522` (we already had a more complete impl
+than the donor — 898 vs 839 lines, plus serde + detailed SR mode
+types), and `gi-ay-3-8912` ✓. The Oric's custom video ULA ports
+inline into the machine layer like the Electron's.
+
+Fresh-write machine layer with the distinctive **AY-via-VIA wiring**
+(VIA port A = AY data bus, CA2 = AY BDIR, CB2 = AY BC1; software
+puts PCR into one of four `(BDIR, BC1)` modes per AY operation),
+8×8 keyboard via VIA port B column select + port A row read,
+TEXT and HIRES display modes with serial-attribute rendering, full
+BBC-Micro-compatible 8-colour 3-bit RGB palette.
+
+Strong cultural anchor in **France** — Loriciels and ESAT made the
+Atmos a de-facto French home computer in the mid-1980s.
+
+- **L — BIOS not yet available.** The 16 KB BASIC + OS ROM is not
+  in the TOSEC dump (Tangerine/Oric-1 & Oric Atmos/ exists as
+  empty directories pending copy). Gated smoke at
+  `crates/machine-oric-atmos/tests/bios_boot.rs` waits for
+  `atmos.rom` (or `oric1.rom`) at
+  `~/.emu198x/roms/oric-atmos/`. Defence-Force preservation
+  archive (`defence-force.org`) is the canonical source.
+- **A — Atmos RAM-under-ROM not fully wired.** 64 KB is allocated
+  and writes go to RAM even at ROM addresses, but ROM still wins
+  on reads (matching standard reset state). Bank-switching to
+  expose the RAM at `$C000-$FFFF` for advanced software is not
+  modelled.
+- **A — TAP cassette loader.** Donor has Oric `.tap` parser
+  ($16 sync / $24 marker / type + autorun + end + start + name
+  + payload); not yet wired into our binary.
+- **A — Display rendering** runs end-of-frame; mid-frame palette
+  changes via serial attributes work within a line but not across
+  scanlines mid-render.
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Full shell parity**.
+
 ## Acorn Electron — `emu198x-acorn-electron` (new, 2026-06-01)
 
 Ninth donor-codebase extraction. **Zero new chip crates** — the
