@@ -239,7 +239,16 @@ impl Sms {
     }
 
     fn read_rom(&self, bank: u8, offset: usize) -> u8 {
-        let addr = (bank as usize) * 0x4000 + offset;
+        // Sega mapper masks the bank register against the number of
+        // 16 KB banks in the cart (assumed power-of-two). For a 128 KB
+        // cart (8 banks), bank $82 reads as bank 2.
+        let cart_banks = self.cart_rom.len() / 0x4000;
+        if cart_banks == 0 {
+            return 0xFF;
+        }
+        let mask = cart_banks.next_power_of_two().saturating_sub(1).max(0);
+        let bank = (bank as usize) & mask;
+        let addr = bank * 0x4000 + offset;
         self.cart_rom.get(addr).copied().unwrap_or(0xFF)
     }
 

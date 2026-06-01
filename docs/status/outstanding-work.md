@@ -148,6 +148,54 @@ PAK snapshot smokes, optional patched-XRoar screenshot comparisons.
 - **S — Real DragonDOS ROM + VDK software smokes** at the same bar as
   the CAS / PAK paths.
 
+## Sega Master System — `emu198x-sega-master-system` (new, 2026-06-01)
+
+Fifth donor-codebase extraction. Adds the **Sega VDP** (315-5124 /
+315-5246) as a new chip crate — TMS9918A derivative with Mode 4
+(4bpp tiles, dual 16-colour palettes from 64-colour pool, 8 sprites
+per line, scroll registers, line interrupt counter, H/V counter
+readback). Reuses SN76489 from the Coleco family. Fresh-write
+machine layer with the **Sega mapper** (`$FFFC-$FFFF` bank
+registers + cart RAM control), 8 KB RAM mirrored across
+`$C000-$FFFF`, GG-specific extensions (`$00` START button + `$06`
+PSG stereo), Pause→NMI line, no BIOS required.
+
+**Live boot verified 2026-06-01.** Alex Kidd in Miracle World
+(1986, US, 128 KB) boots straight to the canonical title screen on
+first try after the cart-bank-masking fix landed —
+"ALEX KIDD / IN MIRACLE WORLD" full Mode 4 multi-colour title,
+character vignettes, "PUSH START BUTTON / © SEGA 1986" footer.
+Gated smoke at `crates/machine-sega-master-system/tests/cart_boot.rs`
+(picks first `.sms` from `~/.emu198x/media/sega-master-system/`)
+passes (1/1).
+
+- **A — Sega VDP only exposes `tick_scanline()`** (no per-dot
+  tick), so the machine accumulates 228 T-states per scanline and
+  issues one batched scanline tick at the boundary. More
+  accuracy-relaxed than `ti-tms9918`'s per-dot tick. Refining
+  `sega-vdp` to a per-dot model is the obvious next step.
+- **A — Cart RAM at `$8000-$BFFF`** (when mapper control bit 3 is
+  set) reads as `$FF` in this initial port; full SRAM
+  write/read/persistence path needed for Phantasy Star, Wonder Boy
+  III, Golvellius etc.
+- **A — Sega mapper bank masking.** Real-hardware bug behaviour
+  around non-power-of-two cart sizes not yet modelled; current
+  impl uses `next_power_of_two() - 1` mask which is correct for
+  the common power-of-two cart sizes (32 / 64 / 128 / 256 / 512 KB).
+- **A — Line interrupt counter** wired through `vdp.interrupt` but
+  programmer-side behaviour (R10 reload + status bit) needs
+  validation against real software that scrolls split-screens.
+- **A — YM2413 FM-PAC.** Mark III + some carts have an optional
+  YM2413 FM synthesis chip mapped at `$F0-$F2`. Out of scope here;
+  separate chip crate when needed.
+- **A — Snapshot deferred** (shared family pattern).
+- **S — Game Gear** is most of the way there — same chip stack,
+  smaller 160×144 visible region inside the same VDP framebuffer.
+  Stereo PSG via `$06` is wired; runtime exposes
+  `SmsVariant::GameGear`. Lacks a `.gg` cart smoke test.
+- **S — Full shell parity** for `emu198x-sega-master-system`
+  (native verifier window).
+
 ## Sord M5 — `emu198x-sord-m5` (new, 2026-06-01)
 
 Fourth donor-codebase extraction. Reuses TMS9918A + SN76489 from

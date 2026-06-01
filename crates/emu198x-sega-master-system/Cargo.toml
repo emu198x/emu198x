@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-sega-master-system"
+description = "Sega Master System / Game Gear headless runner — Z80 + Sega VDP + SN76489A"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-sega-master-system"
+path = "src/main.rs"
+
+[dependencies]
+machine-sega-master-system = { path = "../machine-sega-master-system" }
+png = { workspace = true }
+
+[lints]
+workspace = true

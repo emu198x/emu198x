@@ -80,6 +80,7 @@ members = [
     "crates/commodore-amiga-autoconfig",
     "crates/emu198x-colecovision",
     "crates/emu198x-msx",
+    "crates/emu198x-sega-master-system",
     "crates/emu198x-sega-sg-1000",
     "crates/emu198x-sord-m5",
     "crates/machine-coleco-colecovision",
