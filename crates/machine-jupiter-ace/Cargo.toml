@@ -1,0 +1,13 @@
+[package]
+name = "machine-jupiter-ace"
+description = "Jupiter Ace (Jupiter Cantab, 1982) — Z80A + 8 KB Forth ROM + character display"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zilog-z80 = { path = "../zilog-z80" }
+
+[lints]
+workspace = true

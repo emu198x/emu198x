@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-jupiter-ace"
+description = "Jupiter Ace headless runner — Z80A + 8 KB Forth ROM"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-jupiter-ace"
+path = "src/main.rs"
+
+[dependencies]
+machine-jupiter-ace = { path = "../machine-jupiter-ace" }
+png = { workspace = true }
+
+[lints]
+workspace = true

@@ -1006,6 +1006,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-jupiter-ace"
+version = "0.1.0"
+dependencies = [
+ "machine-jupiter-ace",
+ "png",
+]
+
+[[package]]
 name = "emu198x-mattel-aquarius"
 version = "0.1.0"
 dependencies = [
@@ -2003,6 +2011,13 @@ dependencies = [
  "motorola-sam-6883",
  "motorola-vdg-6847",
  "serde",
+]
+
+[[package]]
+name = "machine-jupiter-ace"
+version = "0.1.0"
+dependencies = [
+ "zilog-z80",
 ]
 
 [[package]]

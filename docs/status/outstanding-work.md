@@ -381,6 +381,42 @@ correctly sized.
   RAM size, no XL banking; would only need a model-selector flag.
 - **S — Full shell parity**.
 
+## Jupiter Ace — `emu198x-jupiter-ace` (new, 2026-06-01)
+
+Sixteenth donor-codebase extraction. The Forth-instead-of-BASIC
+home machine from Steven Vickers + Richard Altwasser (the team
+behind the ZX Spectrum's ROM). **No new chip crate needed** —
+the Ace is a Z80A + 8 KB ROM + simple character display, with
+the keyboard scanned by the same 8 × 5 matrix protocol as the
+Spectrum.
+
+Fresh-write machine layer (`machine-jupiter-ace`, 18/18 tests
+including ported display + keyboard + input modules) wiring
+[`zilog_z80::Z80`] through `bus_request()` to: ROM at
+`$0000-$1FFF`, video RAM at `$2000-$23FF` (768 character codes
+used out of 1 KB), character RAM at `$2400-$27FF` (128 × 8-byte
+user-redefinable glyphs), general RAM from `$2800` onwards. Port
+`$FE` bit 0 clear drives keyboard read (row selector in high
+address byte) on read and 1-bit beeper on bit 4 on write.
+
+PAL display: 312 lines × 207 T-states/line = 64,584 T-states at
+3.25 MHz, ~50.3 Hz. INT pulsed at the top of each frame for the
+first 32 T-states.
+
+- **A — Awaiting ROM** (8 KB Forth interpreter). Not in TOSEC's
+  Jupiter Cantab firmware area; typically sourced from Jupiter
+  preservation sites or the Forth Inc archive. Gated boot smoke
+  at `crates/machine-jupiter-ace/tests/rom_boot.rs` skips until
+  `EMU198X_JUPITER_ACE_ROM` or
+  `~/.emu198x/roms/jupiter-ace/jupiter-ace.rom` exists.
+- **A — Audio output unwired** in the binary (mono beeper
+  buffer is taken via `take_audio_buffer()` but no WAV is
+  written).
+- **A — Snapshot deferred** (shared family pattern).
+- **A — `.ace` snapshot load** — donor handled this; not yet
+  ported (RAM dump at `$2000`).
+- **S — Full shell parity**.
+
 ## Acorn BBC Micro Model B — `emu198x-acorn-bbc-micro` (new, 2026-06-01)
 
 Eleventh donor-codebase extraction. **One new chip crate** —
@@ -789,7 +825,7 @@ frames, asserts a non-trivial framebuffer).
 
 Status of the Emu198x-Oldest donor codebase extraction.
 
-**Fifteen already extracted** in this run — see their dedicated
+**Sixteen already extracted** in this run — see their dedicated
 sections above:
 
 | # | System | Live boot status |
@@ -809,6 +845,7 @@ sections above:
 | 13 | Atari 5200 SuperSystem | Pac-Man title (live, partial render) |
 | 14 | Atari 7800 ProSystem | Cart accepts (live); BIOS-driven boot pending |
 | 15 | Atari 800XL | OS boots (live); BASIC ROM not yet sourced |
+| 16 | Jupiter Ace | **Awaiting ROM** (8 KB Forth interpreter) |
 
 **Thirteen chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,
