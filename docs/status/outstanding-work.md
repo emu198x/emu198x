@@ -148,6 +148,44 @@ PAK snapshot smokes, optional patched-XRoar screenshot comparisons.
 - **S — Real DragonDOS ROM + VDK software smokes** at the same bar as
   the CAS / PAK paths.
 
+## ColecoVision — `emu198x-colecovision` (new, 2026-06-01)
+
+First donor-codebase extraction landed: TMS9918A + SN76489AN chip
+crates ported from `Emu198x-Oldest`, machine wiring fresh-written
+against the pin-driven bus pattern, headless binary boots the
+canonical 1982 ColecoVision BIOS to its title screen
+("COLECOVISION™ / TURN GAME OFF / © 1982 COLECO"). Gated BIOS-boot
+smoke at `crates/machine-coleco-colecovision/tests/bios_boot.rs`
+(loads BIOS from `~/.emu198x/roms/coleco-colecovision/`, runs 200
+frames, asserts a non-trivial framebuffer).
+
+- **A — Initial-port clock ratios.** Inherited from the donor:
+  VDP runs 3 dots per CPU cycle with NTSC/PAL frame budgets of
+  `342 × 262` and `342 × 313` CPU cycles. Real ColecoVision
+  master crystal is 10.738635 MHz (CPU ÷ 3 = 3.579545 MHz; VDP
+  dot ÷ 2 = 5.369 MHz), so the actual ratio is 1.5 dots per CPU
+  cycle, not 3. Frame structure still completes correctly; real-time
+  speed is off. Tracked here, fix when wall-clock matters.
+- **A — TMS9918A scanline-batched render.** Donor renders the
+  full scanline on dot-wrap-to-0 rather than incrementing pixels
+  through the active display. Misses mid-scanline register writes
+  and per-pixel effects. Refine when test ROMs (e.g. ColecoVision
+  diagnostics, SCV graphics tests) point at visible defects.
+- **A — Snapshot story.** Deferred from the machine layer. The
+  current `ColecoVision` struct is unsynchronised; a runtime layer
+  with proper `serde(skip)` design for chip framebuffer + audio
+  buffer hydration is the natural home for save/restore.
+- **A — IM 1 IntAck.** Returns `$FF` (floating bus) — matches BIOS
+  expectation of `RST 38h` fetch. Real-hardware behaviour with a
+  cartridge that drives the data bus during IntAck is unverified.
+- **S — Full shell parity.** Headless-only `emu198x-colecovision`
+  for now; native verifier window with `wgpu`/keyboard/audio/scripts
+  matching `emu198x-nes`/`emu198x-c64` is a future commit.
+- **S — TMS9918 family expansion.** Same chip crate is the
+  foundation for SG-1000, MSX-1, Sord M5, Memotech MTX, Spectravideo
+  SV-328. Same SN76489 also feeds SG-1000, SMS (with Sega VDP),
+  BBC Micro. Pick the next extraction by curriculum / scene value.
+
 ## Cross-system shared work
 
 - **A — Shared `wgpu` filter preset calibration** against hardware

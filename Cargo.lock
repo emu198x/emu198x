@@ -892,6 +892,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-colecovision"
+version = "0.1.0"
+dependencies = [
+ "machine-coleco-colecovision",
+ "png",
+]
+
+[[package]]
 name = "emu198x-dragon"
 version = "0.1.0"
 dependencies = [
