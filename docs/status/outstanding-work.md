@@ -148,6 +148,47 @@ PAK snapshot smokes, optional patched-XRoar screenshot comparisons.
 - **S — Real DragonDOS ROM + VDK software smokes** at the same bar as
   the CAS / PAK paths.
 
+## MSX1 — `emu198x-msx` (new, 2026-06-01)
+
+Third donor-codebase extraction. Reuses TMS9918A from ColecoVision
+and our existing `gi-ay-3-8912` PSG (software-equivalent to the
+AY-3-8910 for MSX's joystick scheme); adds the **Intel 8255 PPI**
+chip crate as the only new silicon. Fresh-write machine layer with
+the **MSX-signature memory-slot system** (PPI port A → primary slot
+per 16 KB page), an 11×8 keyboard matrix, two cart slots with
+**MegaROM mapper support** (Plain / Konami / Konami SCC / ASCII 8 /
+ASCII 16), and the **correct 3:2 VDP-dot-per-T-state phase clock**.
+Headless binary `emu198x-msx` with `--bios`, `--cart`, `--mapper`,
+`--region`, `--frames`, `--screenshot` flags. Gated BIOS-boot smoke
+at `crates/machine-msx/tests/bios_boot.rs` waiting for a 32 KB
+BIOS at `~/.emu198x/roms/microsoft-msx/msx.rom` (real BIOS from
+TOSEC) or `cbios_main_msx1.rom` (free GPL C-BIOS replacement).
+
+- **A — BIOS-boot smoke not yet run live.** Test harness is
+  written and `#[ignore]`-gated. Lands the first real run as soon
+  as a 32 KB MSX1 BIOS or C-BIOS lands at the configured path.
+- **A — TMS9918A scanline-batched render** (shared with Coleco +
+  SG-1000; will resolve together).
+- **A — Subslot expansion.** MSX1 doesn't need it; MSX2+ uses
+  writes to `$FFFF` (when slot 3 is selected for page 3) to
+  expand each primary slot into 4 subslots. Field recognised in
+  the spec but disabled. Wire when targeting MSX2.
+- **A — Joystick / cassette / printer ports.** PSG R15 selects
+  joystick; PSG R14 reads joystick data. The hookup is in place
+  on the chip side but no joystick input surface on the machine
+  yet (host can poke registers via `psg_mut()` if needed). Cassette
+  and printer through PPI port C bits 4-7 unwired.
+- **A — Snapshot deferred** (shared pattern with Coleco + SG-1000).
+- **S — Full shell parity** for `emu198x-msx` (native verifier
+  window).
+- **S — MSX2 / MSX2+ / TurboR.** V9938 / V9958 VDP, mapped RAM,
+  YM2413 FM-PAC, subslots. Out of scope; current `machine-msx`
+  is MSX1-only.
+- **S — TMS9918 family expansion** continues to be cheap from
+  here: Sord M5, Memotech MTX, Spectravideo SVI-328 all reuse
+  TMS9918 + SN76489 (Sord/Memotech) or TMS9918 + AY-3-8910
+  (SVI-328 same as MSX, basically).
+
 ## Sega SG-1000 / SC-3000 — `emu198x-sega-sg-1000` (new, 2026-06-01)
 
 Second donor-codebase extraction landed: reuses the TMS9918A + SN76489A

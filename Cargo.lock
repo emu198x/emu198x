@@ -935,6 +935,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-msx"
+version = "0.1.0"
+dependencies = [
+ "machine-msx",
+ "png",
+]
+
+[[package]]
 name = "emu198x-native-video"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-msx"
+description = "MSX1 headless runner — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "emu198x-msx"
+path = "src/main.rs"
+
+[dependencies]
+machine-msx = { path = "../machine-msx" }
+png = { workspace = true }
+
+[lints]
+workspace = true
