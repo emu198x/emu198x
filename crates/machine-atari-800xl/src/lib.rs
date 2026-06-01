@@ -186,6 +186,8 @@ impl Atari800xl {
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;
+        // Paint the canonical TV-visible border (COLBK) at frame start.
+        self.gtia.fill_border();
         while self.master_clock < target {
             self.tick_colour_clock();
         }

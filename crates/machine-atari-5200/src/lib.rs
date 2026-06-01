@@ -149,6 +149,11 @@ impl Atari5200 {
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;
+        // Paint the canonical TV-visible border at frame start so the
+        // 384 x 288 framebuffer carries COLBK around the 320 x 240
+        // active playfield. Mid-frame COLBK changes affect the next
+        // frame's border — v1 simplification.
+        self.gtia.fill_border();
         while self.master_clock < target {
             self.tick_colour_clock();
         }

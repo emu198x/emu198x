@@ -17,10 +17,24 @@ use palette::NTSC_PALETTE;
 // ---------------------------------------------------------------------------
 
 /// Framebuffer width (hires resolution: 320 pixels).
-pub const FB_WIDTH: u32 = 320;
+/// Active playfield area dimensions (the pixels ANTIC + GTIA draw
+/// playfield + player/missile content into).
+pub const ACTIVE_WIDTH: u32 = 320;
+/// Border thickness around the active area. Canonical Atari 8-bit
+/// TV-visible envelope — 32 px L/R + 24 px T/B around the 320 x 240
+/// active region, total 384 x 288.
+pub const BORDER_LEFT: u32 = 32;
+pub const BORDER_RIGHT: u32 = 32;
+pub const BORDER_TOP: u32 = 24;
+pub const BORDER_BOTTOM: u32 = 24;
+
+pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 
 /// Framebuffer height (240 visible scan lines).
-pub const FB_HEIGHT: u32 = 240;
+/// Active playfield height in scan lines.
+pub const ACTIVE_HEIGHT: u32 = 240;
+
+pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 /// First visible colour clock in the normal playfield (160 clocks wide).
 const PF_LEFT_CC: u16 = 48;
@@ -235,6 +249,17 @@ impl Gtia {
     // Rendering
     // -----------------------------------------------------------------------
 
+    /// Fill the entire framebuffer with the current backdrop colour
+    /// (COLBK / colour register 0). Called by the machine at frame
+    /// start so the canonical TV-visible border around the active
+    /// 320 x 240 playfield carries the current backdrop colour.
+    /// Mid-frame COLBK changes affect the *next* frame — v1
+    /// simplification matching the TMS9918/sega-vdp treatment.
+    pub fn fill_border(&mut self) {
+        let argb = colour_to_argb32(self.colbk);
+        self.framebuffer.fill(argb);
+    }
+
     /// Render one scan line from ANTIC playfield data.
     ///
     /// - `line`: scan line number (0-239 within the visible region)
@@ -248,27 +273,28 @@ impl Gtia {
         pf_width: u16,
         mode: AnticMode,
     ) {
-        if line >= FB_HEIGHT as u16 {
+        if line >= ACTIVE_HEIGHT as u16 {
             return;
         }
 
-        let fb_offset = line as usize * FB_WIDTH as usize;
+        let fb_row = BORDER_TOP as usize + line as usize;
+        let fb_offset = fb_row * FB_WIDTH as usize + BORDER_LEFT as usize;
         let gtia_mode = (self.prior >> 6) & 0x03;
 
         // -- Build a 320-pixel line of colour register indices --
-        let mut line_buf = [0u8; FB_WIDTH as usize];
+        let mut line_buf = [0u8; ACTIVE_WIDTH as usize];
 
         if mode != AnticMode::Blank {
             self.fill_playfield_line(&mut line_buf, playfield, pf_width, mode, gtia_mode);
         }
 
         // -- Build player/missile overlay --
-        let mut pm_colour = [0u8; FB_WIDTH as usize]; // 0 = no PM pixel
-        let mut pm_index = [0u8; FB_WIDTH as usize];  // which PM object (for collisions)
+        let mut pm_colour = [0u8; ACTIVE_WIDTH as usize]; // 0 = no PM pixel
+        let mut pm_index = [0u8; ACTIVE_WIDTH as usize];  // which PM object (for collisions)
         self.overlay_players_missiles(&mut pm_colour, &mut pm_index);
 
         // -- Compose final pixels with priority and collision detection --
-        for x in 0..FB_WIDTH as usize {
+        for x in 0..ACTIVE_WIDTH as usize {
             let pf_col_idx = line_buf[x];
 
             // Collision detection: PM vs playfield
@@ -293,7 +319,7 @@ impl Gtia {
     #[allow(clippy::unused_self)] // will use colour registers for GTIA mode expansion
     fn fill_playfield_line(
         &self,
-        line_buf: &mut [u8; FB_WIDTH as usize],
+        line_buf: &mut [u8; ACTIVE_WIDTH as usize],
         playfield: &[u8],
         pf_width: u16,
         mode: AnticMode,
@@ -308,14 +334,14 @@ impl Gtia {
         };
 
         // Centre the playfield in the 320-pixel framebuffer
-        let pf_fb_width = u16::min(pf_width * pixels_per_cc, FB_WIDTH as u16);
-        let fb_start = (FB_WIDTH as u16 - pf_fb_width) / 2;
+        let pf_fb_width = u16::min(pf_width * pixels_per_cc, ACTIVE_WIDTH as u16);
+        let fb_start = (ACTIVE_WIDTH as u16 - pf_fb_width) / 2;
 
         if hires {
             // Hires: each playfield byte is one pixel → 1 fb pixel
             for (i, &px) in playfield.iter().enumerate() {
                 let fb_x = fb_start as usize + i;
-                if fb_x < FB_WIDTH as usize {
+                if fb_x < ACTIVE_WIDTH as usize {
                     if gtia_mode != 0 {
                         // GTIA colour modes use the raw pixel value
                         line_buf[fb_x] = px;
@@ -328,7 +354,7 @@ impl Gtia {
             // Non-hires: each playfield pixel maps to 2 fb pixels
             for (i, &px) in playfield.iter().enumerate() {
                 let fb_x = fb_start as usize + i * 2;
-                if fb_x + 1 < FB_WIDTH as usize {
+                if fb_x + 1 < ACTIVE_WIDTH as usize {
                     line_buf[fb_x] = px;
                     line_buf[fb_x + 1] = px;
                 }
@@ -339,8 +365,8 @@ impl Gtia {
     /// Overlay player/missile graphics onto the PM buffers.
     fn overlay_players_missiles(
         &self,
-        pm_colour: &mut [u8; FB_WIDTH as usize],
-        pm_index: &mut [u8; FB_WIDTH as usize],
+        pm_colour: &mut [u8; ACTIVE_WIDTH as usize],
+        pm_index: &mut [u8; ACTIVE_WIDTH as usize],
     ) {
         let fifth_player = (self.prior & 0x10) != 0;
 
@@ -369,7 +395,7 @@ impl Gtia {
                         // Each colour clock = 2 hires pixels
                         for dx in 0..2usize {
                             let fx = x + dx;
-                            if fx < FB_WIDTH as usize && pm_colour[fx] == 0 {
+                            if fx < ACTIVE_WIDTH as usize && pm_colour[fx] == 0 {
                                 pm_colour[fx] = colour;
                                 pm_index[fx] |= 1 << (m + 4);
                             }
@@ -400,7 +426,7 @@ impl Gtia {
                         // Each colour clock = 2 hires pixels
                         for dx in 0..2usize {
                             let fx = x + dx;
-                            if fx < FB_WIDTH as usize {
+                            if fx < ACTIVE_WIDTH as usize {
                                 pm_colour[fx] = colour;
                                 pm_index[fx] |= 1 << p;
                             }
@@ -580,10 +606,10 @@ impl Default for Gtia {
 /// Convert a colour clock position to a framebuffer x coordinate.
 /// Returns `None` if the position is outside the visible region.
 fn cc_to_fb_x(cc: u16) -> Option<usize> {
-    if cc >= PF_LEFT_CC && cc < PF_LEFT_CC + (FB_WIDTH as u16 / 2) {
+    if cc >= PF_LEFT_CC && cc < PF_LEFT_CC + (ACTIVE_WIDTH as u16 / 2) {
         // Each colour clock = 2 hires pixels
         let x = ((cc - PF_LEFT_CC) * 2) as usize;
-        if x + 1 < FB_WIDTH as usize {
+        if x + 1 < ACTIVE_WIDTH as usize {
             Some(x)
         } else {
             None
@@ -659,12 +685,15 @@ mod tests {
         let playfield = vec![0u8; 160];
         gtia.render_line(0, &playfield, 160, AnticMode::ModeD);
 
-        // Player at HPOS=80, PF_LEFT_CC=48, so fb_x = (80-48)*2 = 64
-        // 8 pixels wide at normal size, each 1 cc = 2 fb pixels
+        // Player at HPOS=80, PF_LEFT_CC=48, so active-region x = (80-48)*2 = 64.
+        // 8 pixels wide at normal size, each 1 cc = 2 fb pixels.
+        // The active region starts at (BORDER_LEFT, BORDER_TOP) within the
+        // 384 x 288 TV-visible framebuffer.
         let fb = gtia.framebuffer();
+        let active_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         let player_argb = colour_to_argb32(0x38);
-        assert_eq!(fb[64], player_argb);
-        assert_eq!(fb[65], player_argb);
+        assert_eq!(fb[active_start + 64], player_argb);
+        assert_eq!(fb[active_start + 65], player_argb);
     }
 
     #[test]
@@ -730,9 +759,12 @@ mod tests {
     #[test]
     fn framebuffer_size() {
         let gtia = Gtia::new();
-        assert_eq!(gtia.framebuffer_width(), 320);
-        assert_eq!(gtia.framebuffer_height(), 240);
-        assert_eq!(gtia.framebuffer().len(), 320 * 240);
+        assert_eq!(gtia.framebuffer_width(), FB_WIDTH);
+        assert_eq!(gtia.framebuffer_height(), FB_HEIGHT);
+        assert_eq!(
+            gtia.framebuffer().len(),
+            (FB_WIDTH * FB_HEIGHT) as usize
+        );
     }
 
     #[test]
@@ -753,8 +785,14 @@ mod tests {
         // With default priority, player should win
         let fb = gtia.framebuffer();
         let player_argb = colour_to_argb32(0x38);
-        let fb_x = ((60 - PF_LEFT_CC) * 2) as usize;
-        assert_eq!(fb[fb_x], player_argb, "Player should be on top at default priority");
+        let active_x = ((60 - PF_LEFT_CC) * 2) as usize;
+        let fb_idx =
+            BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize + active_x;
+        assert_eq!(
+            fb[fb_idx],
+            player_argb,
+            "Player should be on top at default priority"
+        );
     }
 
     #[test]
