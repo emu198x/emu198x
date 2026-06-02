@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-spectravideo-svi-328"
-description = "Spectravideo SVI-328 headless runner — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
+description = "Spectravideo SVI-328 headless runner with shell-backed script + MCP parity — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-spectravideo-svi-328"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-spectravideo-svi-328 = { path = "../machine-spectravideo-svi-328" }
 png = { workspace = true }
+runtime-spectravideo-svi-328 = { path = "../runtime-spectravideo-svi-328" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

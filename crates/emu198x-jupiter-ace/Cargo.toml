@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-jupiter-ace"
-description = "Jupiter Ace headless runner — Z80A + 8 KB Forth ROM"
+description = "Jupiter Ace headless runner with shell-backed script + MCP parity — Z80A + 8 KB Forth ROM"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-jupiter-ace"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-jupiter-ace = { path = "../machine-jupiter-ace" }
 png = { workspace = true }
+runtime-jupiter-ace = { path = "../runtime-jupiter-ace" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

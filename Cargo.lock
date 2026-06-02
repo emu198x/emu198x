@@ -860,8 +860,11 @@ checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 name = "emu198x-acorn-atom"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-acorn-atom",
  "png",
+ "runtime-acorn-atom",
+ "serde_json",
 ]
 
 [[package]]
@@ -1060,8 +1063,11 @@ dependencies = [
 name = "emu198x-jupiter-ace"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-jupiter-ace",
  "png",
+ "runtime-jupiter-ace",
+ "serde_json",
 ]
 
 [[package]]
@@ -1127,8 +1133,11 @@ dependencies = [
 name = "emu198x-oric-atmos"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-oric-atmos",
  "png",
+ "runtime-oric-atmos",
+ "serde_json",
 ]
 
 [[package]]
@@ -1204,8 +1213,11 @@ dependencies = [
 name = "emu198x-spectravideo-svi-328"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-spectravideo-svi-328",
  "png",
+ "runtime-spectravideo-svi-328",
+ "serde_json",
 ]
 
 [[package]]
@@ -3491,6 +3503,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime-acorn-atom"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-acorn-atom",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "runtime-acorn-bbc-micro"
 version = "0.1.0"
 dependencies = [
@@ -3644,6 +3667,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime-jupiter-ace"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-jupiter-ace",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "runtime-mattel-aquarius"
 version = "0.1.0"
 dependencies = [
@@ -3695,6 +3729,17 @@ dependencies = [
  "emu198x-shell",
  "format-nintendo-nes-ines",
  "machine-nintendo-nes",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-oric-atmos"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-oric-atmos",
  "postcard",
  "serde",
  "serde_json",
@@ -3790,6 +3835,18 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "runtime-spectravideo-svi-328"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-spectravideo-svi-328",
+ "postcard",
+ "serde",
+ "serde_json",
+ "ti-tms9918",
 ]
 
 [[package]]

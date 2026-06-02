@@ -1,175 +1,34 @@
-//! Spectravideo SVI-328 headless runner — minimal first-port binary.
+//! `emu198x-spectravideo-svi-328` — SVI-328 native binary.
 
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+mod mcp;
+mod mcp_tools;
+mod script;
 
-use machine_spectravideo_svi_328::{Svi328, SviRegion};
+use std::process;
 
-const FB_WIDTH: u32 = 256;
-const FB_HEIGHT: u32 = 192;
-
-fn usage() {
-    eprintln!(
-        "\
-Usage: emu198x-spectravideo-svi-328 --bios PATH [OPTIONS]
-
-Required:
-    --bios PATH               SVI-328 system ROM (32 KB BASIC + OS)
-
-Options:
-    --cart PATH               cartridge ROM (up to 16 KB at $8000-$BFFF)
-    --region MODE             ntsc | pal [default: ntsc]
-    --frames N                native video frames to run [default: 200]
-    --screenshot PATH         write the last emitted frame as PNG
-    --help, -h                show this help
-
-BIOS source (when --bios is omitted):
-    1. EMU198X_SVI_328_BIOS env var
-    2. ~/.emu198x/roms/spectravideo-svi-328/svi-328.rom
-
-Examples:
-    emu198x-spectravideo-svi-328 \\
-        --bios ~/.emu198x/roms/spectravideo-svi-328/svi-328.rom \\
-        --frames 300 --screenshot svi-boot.png
-"
-    );
+#[derive(Debug, PartialEq, Eq)]
+enum Mode {
+    Script,
+    Mcp,
 }
 
-struct Cli {
-    bios: Option<PathBuf>,
-    cart: Option<PathBuf>,
-    region: SviRegion,
-    frames: u32,
-    screenshot: Option<PathBuf>,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            bios: None,
-            cart: None,
-            region: SviRegion::Ntsc,
-            frames: 200,
-            screenshot: None,
-        }
+fn detect_mode(args: &[String]) -> Mode {
+    if args.iter().any(|a| a == "--mcp" || a == "--mcp-stdio") {
+        Mode::Mcp
+    } else {
+        Mode::Script
     }
 }
 
-fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Result<Cli, String> {
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        let mut next_value = || iter.next().ok_or_else(|| format!("{arg} expects a value"));
-        match arg.as_str() {
-            "--help" | "-h" => {
-                usage();
-                std::process::exit(0);
-            }
-            "--bios" => cli.bios = Some(PathBuf::from(next_value()?)),
-            "--cart" => cli.cart = Some(PathBuf::from(next_value()?)),
-            "--region" => {
-                cli.region = match next_value()?.as_str() {
-                    "ntsc" => SviRegion::Ntsc,
-                    "pal" => SviRegion::Pal,
-                    other => return Err(format!("--region expects ntsc or pal, got {other}")),
-                };
-            }
-            "--frames" => {
-                cli.frames = next_value()?
-                    .parse()
-                    .map_err(|e| format!("--frames expects a positive integer: {e}"))?;
-            }
-            "--screenshot" => cli.screenshot = Some(PathBuf::from(next_value()?)),
-            other => return Err(format!("unknown argument: {other}")),
-        }
-    }
-    Ok(cli)
-}
-
-fn default_bios_path() -> PathBuf {
-    let home = env::var("HOME").unwrap_or_default();
-    PathBuf::from(home).join(".emu198x/roms/spectravideo-svi-328/svi-328.rom")
-}
-
-fn write_screenshot(path: &Path, framebuffer: &[u32]) -> Result<(), String> {
-    let mut rgba = Vec::with_capacity(framebuffer.len() * 4);
-    for &px in framebuffer {
-        rgba.push(((px >> 16) & 0xFF) as u8);
-        rgba.push(((px >> 8) & 0xFF) as u8);
-        rgba.push((px & 0xFF) as u8);
-        rgba.push(0xFF);
-    }
-    let file = fs::File::create(path)
-        .map_err(|e| format!("failed to create screenshot {}: {e}", path.display()))?;
-    let mut encoder = png::Encoder::new(file, FB_WIDTH, FB_HEIGHT);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder
-        .write_header()
-        .map_err(|e| format!("PNG header write failed: {e}"))?;
-    writer
-        .write_image_data(&rgba)
-        .map_err(|e| format!("PNG body write failed: {e}"))?;
-    Ok(())
-}
-
-fn run(cli: Cli) -> Result<(), String> {
-    let bios_path = cli.bios.unwrap_or_else(default_bios_path);
-    let bios = fs::read(&bios_path)
-        .map_err(|e| format!("failed to read BIOS at {}: {e}", bios_path.display()))?;
-    if bios.len() != 0x8000 {
-        return Err(format!(
-            "BIOS at {} is {} bytes; expected 32768 (32 KB)",
-            bios_path.display(),
-            bios.len()
-        ));
-    }
-    let mut sys = Svi328::new(bios, cli.region);
-    if let Some(cart_path) = cli.cart.as_deref() {
-        let cart = fs::read(cart_path)
-            .map_err(|e| format!("failed to read cart at {}: {e}", cart_path.display()))?;
-        if cart.len() > 0x4000 {
-            return Err(format!(
-                "cart at {} is {} bytes; SVI-328 cart ceiling is 16 KB",
-                cart_path.display(),
-                cart.len()
-            ));
-        }
-        sys.insert_cart(cart);
-    }
-    for _ in 0..cli.frames {
-        sys.run_frame();
-    }
-    println!(
-        "SVI-328 runtime: tstates={} frames={}",
-        sys.cpu_tstates(),
-        sys.frame_count()
-    );
-    if let Some(path) = cli.screenshot.as_deref() {
-        write_screenshot(path, sys.framebuffer())?;
-        println!("Screenshot written: {}", path.display());
-    }
-    Ok(())
-}
-
-fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
-    let cli = match parse_cli(args) {
-        Ok(cli) => cli,
-        Err(e) => {
-            eprintln!("error: {e}");
-            usage();
-            return ExitCode::from(2);
-        }
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let result = match detect_mode(&args) {
+        Mode::Script => script::run(args),
+        Mode::Mcp => mcp::run(),
     };
-    match run(cli) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::FAILURE
-        }
+    if let Err(err) = result {
+        eprintln!("error: {err}");
+        process::exit(1);
     }
 }
 
@@ -178,39 +37,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_defaults() {
-        let cli = parse_cli(Vec::<String>::new()).expect("empty args ok");
-        assert!(cli.bios.is_none());
-        assert!(cli.cart.is_none());
-        assert!(matches!(cli.region, SviRegion::Ntsc));
-        assert_eq!(cli.frames, 200);
+    fn detect_mode_defaults_to_script() {
+        assert_eq!(detect_mode(&[]), Mode::Script);
     }
 
     #[test]
-    fn parse_cli_accepts_full_flags() {
-        let argv = vec![
-            "--bios".to_string(),
-            "/tmp/svi.rom".to_string(),
-            "--cart".to_string(),
-            "/tmp/game.bin".to_string(),
-            "--region".to_string(),
-            "pal".to_string(),
-            "--frames".to_string(),
-            "60".to_string(),
-            "--screenshot".to_string(),
-            "/tmp/shot.png".to_string(),
-        ];
-        let cli = parse_cli(argv).expect("ok");
-        assert_eq!(cli.bios.unwrap(), Path::new("/tmp/svi.rom"));
-        assert_eq!(cli.cart.unwrap(), Path::new("/tmp/game.bin"));
-        assert!(matches!(cli.region, SviRegion::Pal));
-        assert_eq!(cli.frames, 60);
-        assert_eq!(cli.screenshot.unwrap(), Path::new("/tmp/shot.png"));
-    }
-
-    #[test]
-    fn parse_cli_rejects_unknown_arg() {
-        let argv = vec!["--frobozz".to_string()];
-        assert!(parse_cli(argv).is_err());
+    fn detect_mode_recognises_mcp() {
+        assert_eq!(detect_mode(&["--mcp".to_owned()]), Mode::Mcp);
     }
 }

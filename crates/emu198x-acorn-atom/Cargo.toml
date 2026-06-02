@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-acorn-atom"
-description = "Acorn Atom headless runner"
+description = "Acorn Atom headless runner with shell-backed script + MCP parity — 6502 + 24 KB combined ROM"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-acorn-atom"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-acorn-atom = { path = "../machine-acorn-atom" }
 png = { workspace = true }
+runtime-acorn-atom = { path = "../runtime-acorn-atom" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
