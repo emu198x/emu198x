@@ -1181,8 +1181,11 @@ dependencies = [
 name = "emu198x-sord-m5"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-sord-m5",
  "png",
+ "runtime-sord-m5",
+ "serde_json",
 ]
 
 [[package]]
@@ -3714,6 +3717,17 @@ version = "0.1.0"
 dependencies = [
  "emu198x-shell",
  "machine-sinclair-zx81",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-sord-m5"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-sord-m5",
  "postcard",
  "serde",
  "serde_json",

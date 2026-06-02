@@ -299,10 +299,28 @@ impl SordM5 {
         }
     }
 
-    /// Framebuffer (256×192 ARGB32).
+    /// Framebuffer (ARGB32).
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         self.vdp.framebuffer()
+    }
+
+    /// Framebuffer width.
+    #[must_use]
+    pub fn framebuffer_width(&self) -> u32 {
+        self.vdp.framebuffer_width()
+    }
+
+    /// Framebuffer height.
+    #[must_use]
+    pub fn framebuffer_height(&self) -> u32 {
+        self.vdp.framebuffer_height()
+    }
+
+    /// Observe one byte on the Z80 bus without side effects.
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.mem_read(addr)
     }
 
     /// Take the accumulated PSG audio buffer.
