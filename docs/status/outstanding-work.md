@@ -366,11 +366,19 @@ passes with the TOSEC `Atari OS Rev 2 (1983)(Atari)[800XL]`
 ROM — machine ticks 200 frames without panic, framebuffer is
 correctly sized.
 
-- **A — BASIC ROM not bundled.** TOSEC's `8bit/Operating Systems`
-  doesn't carry a `ataribas.rom` extract; without BASIC, the OS
-  falls into its disk-boot loop and the canonical "READY" prompt
-  doesn't appear. Sourcing an 8 KB Atari BASIC Rev C ROM is the
-  next step.
+- ~~**A — BASIC ROM not bundled.**~~ **Closed 2026-06-02.** The
+  Atari800 MiSTer core ships an 8 KB `ataribas.rom` as
+  `releases/boot1.rom` (see
+  `emulators/atari/Atari800_MiSTer/instructions.txt`). Copied to
+  `~/.emu198x/roms/atari-800xl/ataribas.rom` (8192 bytes, SHA-256
+  `4988cb41121921f997ab17a59dd1909fece9273699eba0c6fbaafae104aa27b0`).
+  The binary's default-path resolver
+  (`$EMU198X_A800XL_BASIC` ➜ `~/.emu198x/roms/atari-800xl/ataribas.rom`)
+  picks it up automatically; the runtime constructs with
+  `basic_enabled: true` and the OS boot sequence completes without
+  error. Visual confirmation of the `READY` prompt is still gated
+  by the 8-bit Atari render pipeline (shared with the 5200 — see
+  task #76).
 - **A — POKEY audio synthesis unwired** in the binary.
 - **A — XEX / disk loading not implemented.** Cart-only and
   cart-with-OS for now.
@@ -1041,7 +1049,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 12 | Atari 2600 | Combat playfield (live) |
 | 13 | Atari 5200 SuperSystem | Pac-Man title (live, partial render) |
 | 14 | Atari 7800 ProSystem | Cart accepts (live); BIOS-driven boot pending |
-| 15 | Atari 800XL | OS boots (live); BASIC ROM not yet sourced |
+| 15 | Atari 800XL | OS + BASIC boot (live); display gated on the Atari 8-bit render pipeline (task #76) |
 | 16 | Jupiter Ace | **Awaiting ROM** (8 KB Forth interpreter) |
 | 17 | Commodore PET | Char grid renders (live) — full boot pending |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
