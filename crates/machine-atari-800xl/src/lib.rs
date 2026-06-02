@@ -198,7 +198,10 @@ impl Atari800xl {
     fn tick_colour_clock(&mut self) {
         self.master_clock += 1;
 
-        if self.master_clock.is_multiple_of(u64::from(COLOUR_CLOCKS_PER_LINE)) {
+        if self
+            .master_clock
+            .is_multiple_of(u64::from(COLOUR_CLOCKS_PER_LINE))
+        {
             self.process_scan_line();
         }
 
@@ -243,6 +246,24 @@ impl Atari800xl {
         self.pia.port_b_output() | !self.pia.ddr_b()
     }
 
+    /// Translate a CPU bus address ($D300/01/02/03) to the PIA's RS pins.
+    /// The Atari board cross-wires CPU A0↔A1 into PIA RS0/RS1, so:
+    ///
+    /// | bus addr | bus bits A1 A0 | PIA RS1 RS0 | register |
+    /// |----------|----------------|-------------|----------|
+    /// | $D300    | 0 0            | 0 0         | PORTA    |
+    /// | $D301    | 0 1            | 1 0         | PORTB    |
+    /// | $D302    | 1 0            | 0 1         | CRA      |
+    /// | $D303    | 1 1            | 1 1         | CRB      |
+    ///
+    /// Our `Pia6520` follows the raw MOS 6520 datasheet layout —
+    /// `addr 0/1/2/3 = PORTA / CRA / PORTB / CRB` — so we swap A0 and A1
+    /// here to match the OS's expectations.
+    const fn bus_to_pia_addr(addr: u16) -> u8 {
+        let bus = (addr & 0x03) as u8;
+        ((bus & 0x01) << 1) | ((bus >> 1) & 0x01)
+    }
+
     fn mem_read(&mut self, addr: u16) -> u8 {
         let portb = self.effective_portb();
         let os_on = portb & 0x01 != 0;
@@ -253,7 +274,8 @@ impl Atari800xl {
             0x0000..=0x3FFF => self.ram[addr as usize],
             0x4000..=0x4FFF => self.ram[addr as usize],
             0x5000..=0x57FF => {
-                if self_test && os_on
+                if self_test
+                    && os_on
                     && let Some(ref os) = self.os_rom
                 {
                     let offset = (addr - 0x5000 + 0x1000) as usize;
@@ -276,18 +298,14 @@ impl Atari800xl {
                 {
                     return cart.read(addr);
                 }
-                if basic_on
-                    && let Some(ref basic) = self.basic_rom
-                {
+                if basic_on && let Some(ref basic) = self.basic_rom {
                     let offset = (addr - 0xA000) as usize;
                     return basic.get(offset).copied().unwrap_or(0xFF);
                 }
                 self.ram[addr as usize]
             }
             0xC000..=0xCFFF => {
-                if os_on
-                    && let Some(ref os) = self.os_rom
-                {
+                if os_on && let Some(ref os) = self.os_rom {
                     let offset = (addr - 0xC000) as usize;
                     return os.get(offset).copied().unwrap_or(0xFF);
                 }
@@ -296,13 +314,11 @@ impl Atari800xl {
             0xD000..=0xD0FF => self.gtia.read(addr as u8),
             0xD100..=0xD1FF => 0xFF,
             0xD200..=0xD2FF => self.pokey.read(addr as u8),
-            0xD300..=0xD3FF => self.pia.read((addr & 0x03) as u8),
+            0xD300..=0xD3FF => self.pia.read(Self::bus_to_pia_addr(addr)),
             0xD400..=0xD4FF => self.antic.read(addr as u8),
             0xD500..=0xD7FF => 0xFF,
             0xD800..=0xFFFF => {
-                if os_on
-                    && let Some(ref os) = self.os_rom
-                {
+                if os_on && let Some(ref os) = self.os_rom {
                     let offset = (addr - 0xC000) as usize;
                     return os.get(offset).copied().unwrap_or(0xFF);
                 }
@@ -317,7 +333,7 @@ impl Atari800xl {
             0xD000..=0xD0FF => self.gtia.write(addr as u8, value),
             0xD100..=0xD1FF => {}
             0xD200..=0xD2FF => self.pokey.write(addr as u8, value),
-            0xD300..=0xD3FF => self.pia.write((addr & 0x03) as u8, value),
+            0xD300..=0xD3FF => self.pia.write(Self::bus_to_pia_addr(addr), value),
             0xD400..=0xD4FF => self.antic.write(addr as u8, value),
             0xD500..=0xD7FF => {}
             // Writes under OS ROM go to underlying RAM.
@@ -406,6 +422,13 @@ impl Atari800xl {
     pub fn pia(&self) -> &Pia6520 {
         &self.pia
     }
+    /// Raw RAM, for diagnostics. The 64KB array is fully resident; OS/ROM
+    /// banking shadows portions of it through `mem_read`, but this view
+    /// returns the underlying bytes regardless of which bank is selected.
+    #[must_use]
+    pub fn ram(&self) -> &[u8] {
+        &self.ram
+    }
     #[must_use]
     pub fn region(&self) -> Atari800xlRegion {
         self.region
@@ -438,14 +461,8 @@ mod tests {
 
     #[test]
     fn frame_advances_master_clock_and_count() {
-        let mut sys = Atari800xl::new(
-            None,
-            None,
-            Some(trap_cart()),
-            Atari800xlRegion::Ntsc,
-            false,
-        )
-        .expect("init");
+        let mut sys = Atari800xl::new(None, None, Some(trap_cart()), Atari800xlRegion::Ntsc, false)
+            .expect("init");
         let clocks = sys.run_frame();
         assert_eq!(clocks, 228 * 262);
         assert_eq!(sys.frame_count(), 1);
@@ -453,35 +470,18 @@ mod tests {
 
     #[test]
     fn pal_runs_more_clocks_than_ntsc() {
-        let mut ntsc = Atari800xl::new(
-            None,
-            None,
-            Some(trap_cart()),
-            Atari800xlRegion::Ntsc,
-            false,
-        )
-        .expect("init");
-        let mut pal = Atari800xl::new(
-            None,
-            None,
-            Some(trap_cart()),
-            Atari800xlRegion::Pal,
-            false,
-        )
-        .expect("init");
+        let mut ntsc =
+            Atari800xl::new(None, None, Some(trap_cart()), Atari800xlRegion::Ntsc, false)
+                .expect("init");
+        let mut pal = Atari800xl::new(None, None, Some(trap_cart()), Atari800xlRegion::Pal, false)
+            .expect("init");
         assert!(pal.run_frame() > ntsc.run_frame());
     }
 
     #[test]
     fn cpu_starts_at_cart_entry_without_os_rom() {
-        let sys = Atari800xl::new(
-            None,
-            None,
-            Some(trap_cart()),
-            Atari800xlRegion::Ntsc,
-            false,
-        )
-        .expect("init");
+        let sys = Atari800xl::new(None, None, Some(trap_cart()), Atari800xlRegion::Ntsc, false)
+            .expect("init");
         assert_eq!(sys.cpu().regs.pc, 0xA000);
     }
 
@@ -490,42 +490,24 @@ mod tests {
         let mut os = vec![0u8; 16384];
         os[0x3FFC] = 0x00;
         os[0x3FFD] = 0xE0;
-        let sys = Atari800xl::new(
-            Some(os),
-            None,
-            None,
-            Atari800xlRegion::Ntsc,
-            false,
-        )
-        .expect("init");
+        let sys =
+            Atari800xl::new(Some(os), None, None, Atari800xlRegion::Ntsc, false).expect("init");
         assert_eq!(sys.cpu().regs.pc, 0xE000);
     }
 
     #[test]
     fn basic_rom_visible_when_enabled() {
         let basic = vec![0xAA_u8; 8192];
-        let mut sys = Atari800xl::new(
-            None,
-            Some(basic),
-            None,
-            Atari800xlRegion::Ntsc,
-            true,
-        )
-        .expect("init");
+        let mut sys =
+            Atari800xl::new(None, Some(basic), None, Atari800xlRegion::Ntsc, true).expect("init");
         assert_eq!(sys.mem_read(0xA000), 0xAA);
     }
 
     #[test]
     fn basic_rom_hidden_when_disabled() {
         let basic = vec![0xAA_u8; 8192];
-        let mut sys = Atari800xl::new(
-            None,
-            Some(basic),
-            None,
-            Atari800xlRegion::Ntsc,
-            false,
-        )
-        .expect("init");
+        let mut sys =
+            Atari800xl::new(None, Some(basic), None, Atari800xlRegion::Ntsc, false).expect("init");
         assert_eq!(sys.mem_read(0xA000), 0x00);
     }
 
@@ -535,28 +517,16 @@ mod tests {
         let mut cart = vec![0xCC_u8; 8192];
         cart[0x1FFC] = 0x00;
         cart[0x1FFD] = 0xA0;
-        let mut sys = Atari800xl::new(
-            None,
-            Some(basic),
-            Some(cart),
-            Atari800xlRegion::Ntsc,
-            true,
-        )
-        .expect("init");
+        let mut sys = Atari800xl::new(None, Some(basic), Some(cart), Atari800xlRegion::Ntsc, true)
+            .expect("init");
         assert_eq!(sys.mem_read(0xA000), 0xCC);
     }
 
     #[test]
     fn write_under_os_rom_goes_to_ram_but_read_returns_rom() {
         let os = vec![0xBB_u8; 16384];
-        let mut sys = Atari800xl::new(
-            Some(os),
-            None,
-            None,
-            Atari800xlRegion::Ntsc,
-            false,
-        )
-        .expect("init");
+        let mut sys =
+            Atari800xl::new(Some(os), None, None, Atari800xlRegion::Ntsc, false).expect("init");
         sys.mem_write(0xC000, 0x42);
         assert_eq!(sys.ram[0xC000], 0x42);
         assert_eq!(sys.mem_read(0xC000), 0xBB);
@@ -572,14 +542,8 @@ mod tests {
 
     #[test]
     fn joystick_drives_pia_port_a() {
-        let mut sys = Atari800xl::new(
-            None,
-            None,
-            Some(trap_cart()),
-            Atari800xlRegion::Ntsc,
-            false,
-        )
-        .expect("init");
+        let mut sys = Atari800xl::new(None, None, Some(trap_cart()), Atari800xlRegion::Ntsc, false)
+            .expect("init");
         sys.set_joystick(true, false, false, false);
         assert_eq!(sys.pia.input_a & 0x01, 0);
         sys.set_joystick(false, false, false, false);

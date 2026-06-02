@@ -1,5 +1,21 @@
-//! Boot diagnostic — confirms what register state the OS programs
-//! after a long settle. Gated behind a local ROM bundle.
+//! Regression: the OS cold-boots into a programmed display.
+//!
+//! Guards two bugs that together hung the 800XL boot at a JAM opcode
+//! ($C007) around frame 197:
+//!
+//! 1. **PIA register addressing.** The Atari board cross-wires CPU
+//!    A0↔A1 into the PIA's RS pins, so $D300/01/02/03 select
+//!    PORTA/PORTB/CRA/CRB. With the bits un-swapped, the OS's
+//!    `BIT $D302` read PORTB instead of CRA; PORTB bit 7 (self-test
+//!    off) looked like a pending PIA "proceed" interrupt, and the OS
+//!    spun in VPRCED dispatch until the stack walked it into the JAM.
+//!
+//! 2. **ANTIC NMIEN bit assignment.** VBI enable is bit 6 and DLI
+//!    enable is bit 7; they were swapped, so the OS's NMIEN=$40 never
+//!    armed the vertical-blank NMI. Without VBI, RTCLOK never advanced
+//!    and the OS busy-waited forever before reaching display setup.
+//!
+//! Gated behind a local ROM bundle — needs the XL OS + BASIC ROMs.
 
 use std::path::PathBuf;
 
@@ -16,55 +32,39 @@ fn basic_boot_programs_antic_and_gtia() {
     let dir = rom_dir().expect("HOME unset");
     let os = std::fs::read(dir.join("atarixl.rom")).expect("atarixl.rom");
     let basic = std::fs::read(dir.join("ataribas.rom")).expect("ataribas.rom");
-    let mut sys = Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true)
-        .expect("boot");
-    // Frame at which CPU halted (None until it does).
-    let mut halted_at: Option<u32> = None;
-    eprintln!("frame  PC   DMACTL NMIEN DLIST COLBK COLPF2");
-    let mut pc_visits: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
-    let mut prior_pc_ring: std::collections::VecDeque<u16> = std::collections::VecDeque::new();
-    for i in 1..=300 {
+    let mut sys =
+        Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true).expect("boot");
+
+    // ~5 seconds of NTSC frames — well past the OS cold-boot settle.
+    let rtclok_start = sys.ram()[0x14];
+    for _ in 0..300 {
         sys.run_frame();
-        let pc = sys.cpu().regs.pc;
-        if !sys.cpu().halted {
-            prior_pc_ring.push_back(pc);
-            if prior_pc_ring.len() > 30 {
-                prior_pc_ring.pop_front();
-            }
-        }
-        if sys.cpu().halted && halted_at.is_none() {
-            halted_at = Some(i);
-            eprintln!("CPU halted at frame {i}, PC=${:04X}", pc);
-            eprintln!("Last 30 per-frame PC samples before halt:");
-            for p in &prior_pc_ring {
-                eprintln!("  ${p:04X}");
-            }
-        }
-        *pc_visits.entry(pc).or_insert(0) += 1;
-        if i == 1 || i == 5 || i == 10 || i == 30 || i == 60 || i == 120 || i == 300 {
-            let pc = sys.cpu().regs.pc;
-            let a = sys.antic();
-            let g = sys.gtia();
-            eprintln!(
-                "{:5} ${:04X}  ${:02X}    ${:02X}   ${:04X} ${:02X}    ${:02X}",
-                i,
-                pc,
-                a.dmactl_value(),
-                a.nmien_value(),
-                a.dlist_value(),
-                g.colbk_value(),
-                g.colpf_values()[2],
-            );
-        }
+        assert!(
+            !sys.cpu().halted,
+            "CPU executed an illegal opcode during boot (PC=${:04X}) — the \
+             PIA addressing / NMIEN regression has returned",
+            sys.cpu().regs.pc
+        );
     }
-    let mut sorted: Vec<_> = pc_visits.iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(a.1));
-    eprintln!("top 10 PC sample addresses (out of 300 frame samples):");
-    for (pc, count) in sorted.iter().take(10) {
-        eprintln!("  ${pc:04X} × {count}");
-    }
-    eprintln!("framebuffer first 8 px: {:?}", &sys.framebuffer()[..8]);
-    let unique: std::collections::HashSet<u32> = sys.framebuffer().iter().copied().collect();
-    eprintln!("unique framebuffer colours: {}", unique.len());
-    eprintln!("CPU halted: {}", sys.cpu().halted);
+
+    // The vertical-blank interrupt must be advancing the real-time clock.
+    let rtclok_end = sys.ram()[0x14];
+    assert_ne!(
+        rtclok_start, rtclok_end,
+        "RTCLOK ($14) never advanced — VBI NMI is not firing"
+    );
+
+    // The OS must have programmed the display: DMACTL with DL DMA enabled
+    // (bit 5) and a non-zero display-list pointer.
+    let dmactl = sys.antic().dmactl_value();
+    assert_ne!(
+        dmactl & 0x20,
+        0,
+        "ANTIC DMACTL did not enable display-list DMA (${dmactl:02X})"
+    );
+    assert_ne!(
+        sys.antic().dlist_value(),
+        0x0000,
+        "ANTIC display-list pointer was never set"
+    );
 }

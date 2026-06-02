@@ -429,9 +429,10 @@ impl Antic {
         let lines_per_frame = self.region.lines_per_frame();
         let in_vblank = self.scan_line < VISIBLE_START || self.scan_line >= VISIBLE_END;
 
-        // VBI at the start of vertical blank
+        // VBI at the start of vertical blank.
+        // NMIEN bit 6 = VBI enable (bit 7 is DLI). NMIST bit 6 records VBI.
         if self.scan_line == VISIBLE_END {
-            if self.nmien & 0x80 != 0 {
+            if self.nmien & 0x40 != 0 {
                 self.vbi_pending = true;
                 self.nmist |= 0x40;
             }
@@ -476,10 +477,11 @@ impl Antic {
         // Advance mode_line within the current row
         self.mode_line += 1;
         if self.mode_line >= self.scan_lines_per_row {
-            // End of this mode line — check for DLI
-            if self.current_dli && (self.nmien & 0x40 != 0) {
+            // End of this mode line — check for DLI.
+            // NMIEN bit 7 = DLI enable. NMIST bit 7 records DLI.
+            if self.current_dli && (self.nmien & 0x80 != 0) {
                 self.dli_pending = true;
-                self.nmist |= 0x20;
+                self.nmist |= 0x80;
             }
             self.mode_line = 0;
             self.dl_active = false;
@@ -530,11 +532,7 @@ impl Antic {
                     self.current_mode = 0;
                     // Fill remaining visible lines with blank
                     let remaining = VISIBLE_END.saturating_sub(self.scan_line);
-                    self.scan_lines_per_row = if remaining > 0 {
-                        remaining as u8
-                    } else {
-                        1
-                    };
+                    self.scan_lines_per_row = if remaining > 0 { remaining as u8 } else { 1 };
                     self.mode_line = 0;
                     self.dl_active = true;
                 } else {
@@ -814,29 +812,52 @@ impl Antic {
             return Err("ANTIC state truncated".into());
         }
         let mut p = 0;
-        self.dmactl = data[p]; p += 1;
-        self.chactl = data[p]; p += 1;
-        self.dlist = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.hscrol = data[p]; p += 1;
-        self.vscrol = data[p]; p += 1;
-        self.pmbase = data[p]; p += 1;
-        self.chbase = data[p]; p += 1;
-        self.wsync = data[p] != 0; p += 1;
-        self.nmien = data[p]; p += 1;
-        self.nmist = data[p]; p += 1;
-        self.scan_line = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.mode_line = data[p]; p += 1;
-        self.current_mode = data[p]; p += 1;
-        self.current_dli = data[p] != 0; p += 1;
-        self.memory_scan = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.scan_lines_per_row = data[p]; p += 1;
-        self.vscrol_enabled = data[p] != 0; p += 1;
-        self.hscrol_enabled = data[p] != 0; p += 1;
-        self.dl_active = data[p] != 0; p += 1;
-        self.vbi_pending = data[p] != 0; p += 1;
-        self.dli_pending = data[p] != 0; p += 1;
-        self.dma_cycles = data[p]; p += 1;
-        self.frame_complete = data[p] != 0; p += 1;
+        self.dmactl = data[p];
+        p += 1;
+        self.chactl = data[p];
+        p += 1;
+        self.dlist = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.hscrol = data[p];
+        p += 1;
+        self.vscrol = data[p];
+        p += 1;
+        self.pmbase = data[p];
+        p += 1;
+        self.chbase = data[p];
+        p += 1;
+        self.wsync = data[p] != 0;
+        p += 1;
+        self.nmien = data[p];
+        p += 1;
+        self.nmist = data[p];
+        p += 1;
+        self.scan_line = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.mode_line = data[p];
+        p += 1;
+        self.current_mode = data[p];
+        p += 1;
+        self.current_dli = data[p] != 0;
+        p += 1;
+        self.memory_scan = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.scan_lines_per_row = data[p];
+        p += 1;
+        self.vscrol_enabled = data[p] != 0;
+        p += 1;
+        self.hscrol_enabled = data[p] != 0;
+        p += 1;
+        self.dl_active = data[p] != 0;
+        p += 1;
+        self.vbi_pending = data[p] != 0;
+        p += 1;
+        self.dli_pending = data[p] != 0;
+        p += 1;
+        self.dma_cycles = data[p];
+        p += 1;
+        self.frame_complete = data[p] != 0;
+        p += 1;
         Ok(p)
     }
 
