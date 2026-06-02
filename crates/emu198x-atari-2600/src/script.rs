@@ -228,7 +228,7 @@ mod tests {
             "30".into(),
         ];
         let cli = parse_cli(argv);
-        assert_eq!(cli.cart.unwrap(), Path::new("/tmp/cart"));
+        assert_eq!(cli.cart.expect("parsed by CLI"), Path::new("/tmp/cart"));
         assert_eq!(cli.region, Region::Pal);
     }
 }

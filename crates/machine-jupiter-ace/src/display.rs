@@ -49,9 +49,14 @@ const CHAR_ROWS: usize = 24;
 /// Pixels per character (width and height).
 const CHAR_SIZE: usize = 8;
 
-/// Video RAM size: 32x24 = 768 bytes.
+/// Video RAM size: 32x24 = 768 bytes. Public documented constant —
+/// kept so call sites that want to allocate a Jupiter Ace-shaped
+/// video buffer can avoid hard-coding the product.
+#[allow(dead_code)]
 pub const VIDEO_RAM_SIZE: usize = CHARS_PER_ROW * CHAR_ROWS;
-/// Character RAM size: 128 characters x 8 bytes = 1024 bytes.
+/// Character RAM size: 128 characters x 8 bytes = 1024 bytes. Same
+/// rationale as `VIDEO_RAM_SIZE`.
+#[allow(dead_code)]
 pub const CHAR_RAM_SIZE: usize = 1024;
 
 /// T-states per scanline (PAL).

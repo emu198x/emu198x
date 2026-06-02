@@ -15,9 +15,9 @@
 //! designed it before MSX standardisation, and the MSX standard later
 //! crystallised around essentially the same chip stack: Z80 + TMS9918
 //! + AY-3-8910 + Intel 8255. The SVI-328 differs from MSX1 mainly in
-//! its simpler **port-`$97` ROM/RAM banking** rather than MSX's
-//! 4-slot system, and in its tighter I/O port window (`$80-$97` vs
-//! MSX's spread across `$98`, `$A0-$AB`).
+//!   its simpler **port-`$97` ROM/RAM banking** rather than MSX's
+//!   4-slot system, and in its tighter I/O port window (`$80-$97` vs
+//!   MSX's spread across `$98`, `$A0-$AB`).
 //!
 //! - **CPU:** Z80A @ 3.579545 MHz
 //! - **VDP:** TMS9918A (16 KB VRAM)

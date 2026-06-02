@@ -341,13 +341,13 @@ mod tests {
             "/tmp/steps.json".to_owned(),
         ];
         let cli = parse_cli(argv);
-        assert_eq!(cli.bios.unwrap(), Path::new("/tmp/msx.rom"));
-        assert_eq!(cli.cart.unwrap(), Path::new("/tmp/game.rom"));
+        assert_eq!(cli.bios.expect("parsed by CLI"), Path::new("/tmp/msx.rom"));
+        assert_eq!(cli.cart.expect("parsed by CLI"), Path::new("/tmp/game.rom"));
         assert!(matches!(cli.mapper, MapperType::KonamiScc));
         assert_eq!(cli.region, Region::Pal);
         assert_eq!(cli.frames, 120);
-        assert_eq!(cli.screenshot.unwrap(), Path::new("/tmp/shot.png"));
-        assert_eq!(cli.audio_capture.unwrap(), Path::new("/tmp/audio.wav"));
-        assert_eq!(cli.script.unwrap(), Path::new("/tmp/steps.json"));
+        assert_eq!(cli.screenshot.expect("parsed by CLI"), Path::new("/tmp/shot.png"));
+        assert_eq!(cli.audio_capture.expect("parsed by CLI"), Path::new("/tmp/audio.wav"));
+        assert_eq!(cli.script.expect("parsed by CLI"), Path::new("/tmp/steps.json"));
     }
 }

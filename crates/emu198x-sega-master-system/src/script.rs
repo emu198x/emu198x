@@ -233,7 +233,7 @@ mod tests {
             "60".into(),
         ];
         let cli = parse_cli(argv);
-        assert_eq!(cli.cart.unwrap(), Path::new("/tmp/cart"));
+        assert_eq!(cli.cart.expect("parsed by CLI"), Path::new("/tmp/cart"));
         assert_eq!(cli.variant, Variant::GameGear);
     }
 }

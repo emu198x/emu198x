@@ -222,7 +222,7 @@ mod tests {
             "30".into(),
         ];
         let cli = parse_cli(argv);
-        assert_eq!(cli.os.unwrap(), Path::new("/tmp/os"));
-        assert_eq!(cli.basic.unwrap(), Path::new("/tmp/basic"));
+        assert_eq!(cli.os.expect("parsed by CLI"), Path::new("/tmp/os"));
+        assert_eq!(cli.basic.expect("parsed by CLI"), Path::new("/tmp/basic"));
     }
 }

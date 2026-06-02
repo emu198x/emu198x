@@ -723,8 +723,8 @@ impl Tms9918 {
 
         // Composite sprite pixels onto the framebuffer
         let backdrop = self.backdrop_color();
-        for x in 0..256 {
-            let c = sprite_line_buffer[x] as usize;
+        for (x, &raw) in sprite_line_buffer.iter().enumerate() {
+            let c = raw as usize;
             if c != 0 {
                 self.framebuffer[offset + x] = if c == 0 { backdrop } else { PALETTE[c] };
             }

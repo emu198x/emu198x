@@ -39,7 +39,7 @@ impl Cartridge {
             32768 => (BankingScheme::F4, 4096),
             other => return Err(format!("Unsupported ROM size: {other} bytes")),
         };
-        let num_banks = if bank_size > 0 { data.len() / bank_size } else { 1 };
+        let num_banks = data.len().checked_div(bank_size).unwrap_or(1);
         let bank = num_banks.saturating_sub(1);
         Ok(Self {
             rom: data.to_vec(),

@@ -26,9 +26,11 @@ fn first_sms_cart(dir: &PathBuf) -> Option<PathBuf> {
     let mut paths: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| match p.extension().and_then(|e| e.to_str()) {
-            Some("sms") | Some("SMS") | Some("bin") | Some("BIN") => true,
-            _ => false,
+        .filter(|p| {
+            matches!(
+                p.extension().and_then(|e| e.to_str()),
+                Some("sms" | "SMS" | "bin" | "BIN")
+            )
         })
         .collect();
     paths.sort();

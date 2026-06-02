@@ -60,6 +60,11 @@ const BLOCK_INPUT: u8 = 0x80;
 const SNAPSHOT_FLAG_EXTERNAL: u32 = 0x01;
 const SNAPSHOT_FLAG_COMPRESSED: u32 = 0x02;
 
+/// Input-block flag $01: protected (encrypted) frame stream. The
+/// reader does not implement decryption; kept as a documented constant
+/// alongside `INPUT_FLAG_COMPRESSED` so a future implementation lands
+/// as a small additive change.
+#[allow(dead_code)]
 const INPUT_FLAG_PROTECTED: u32 = 0x01;
 const INPUT_FLAG_COMPRESSED: u32 = 0x02;
 
@@ -447,8 +452,8 @@ mod tests {
             flags: 0xCAFEBABE,
             ..Default::default()
         };
-        let bytes = write(&rzx).unwrap();
-        let parsed = parse(&bytes).unwrap();
+        let bytes = write(&rzx).expect("ok in test");
+        let parsed = parse(&bytes).expect("ok in test");
         assert_eq!(parsed.version_major, 0);
         assert_eq!(parsed.version_minor, 13);
         assert_eq!(parsed.flags, 0xCAFEBABE);
@@ -472,20 +477,20 @@ mod tests {
     #[test]
     fn round_trip_uncompressed() {
         let original = sample_rzx(false);
-        let bytes = write(&original).unwrap();
-        let parsed = parse(&bytes).unwrap();
+        let bytes = write(&original).expect("ok in test");
+        let parsed = parse(&bytes).expect("ok in test");
 
         // Creator
-        let c = parsed.creator.as_ref().unwrap();
+        let c = parsed.creator.as_ref().expect("ok in test");
         assert_eq!(c.name, "Emu198x");
         assert_eq!(c.version_major, 0);
         assert_eq!(c.version_minor, 1);
 
         // Snapshot
-        let s = parsed.snapshot.as_ref().unwrap();
+        let s = parsed.snapshot.as_ref().expect("ok in test");
         assert_eq!(s.flags, 0);
         assert_eq!(s.extension, "z80");
-        assert_eq!(s.data, original.snapshot.as_ref().unwrap().data);
+        assert_eq!(s.data, original.snapshot.as_ref().expect("ok in test").data);
 
         // Frames
         let r = &parsed.recordings[0];
@@ -496,14 +501,14 @@ mod tests {
     #[test]
     fn round_trip_compressed() {
         let original = sample_rzx(true);
-        let bytes = write(&original).unwrap();
-        let parsed = parse(&bytes).unwrap();
+        let bytes = write(&original).expect("ok in test");
+        let parsed = parse(&bytes).expect("ok in test");
 
         // Decoded snapshot data should match the original despite the
         // compressed wire format.
-        let s = parsed.snapshot.as_ref().unwrap();
+        let s = parsed.snapshot.as_ref().expect("ok in test");
         assert_eq!(s.flags & SNAPSHOT_FLAG_COMPRESSED, SNAPSHOT_FLAG_COMPRESSED);
-        assert_eq!(s.data, original.snapshot.as_ref().unwrap().data);
+        assert_eq!(s.data, original.snapshot.as_ref().expect("ok in test").data);
 
         let r = &parsed.recordings[0];
         assert_eq!(r.flags & INPUT_FLAG_COMPRESSED, INPUT_FLAG_COMPRESSED);
@@ -513,7 +518,7 @@ mod tests {
     #[test]
     fn same_as_previous_marker_round_trips() {
         let original = sample_rzx(false);
-        let bytes = write(&original).unwrap();
+        let bytes = write(&original).expect("ok in test");
 
         // Locate the input block payload manually and confirm the second
         // frame uses the 0xFFFF marker on disk. The frame stream starts
@@ -534,7 +539,7 @@ mod tests {
         );
 
         // And the parser must expand it back to the full inputs.
-        let parsed = parse(&bytes).unwrap();
+        let parsed = parse(&bytes).expect("ok in test");
         assert_eq!(parsed.recordings[0].frames[1].inputs, vec![0xFF, 0x7E]);
     }
 
@@ -553,14 +558,14 @@ mod tests {
         bytes.extend_from_slice(&9u32.to_le_bytes());
         bytes.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
 
-        let parsed = parse(&bytes).unwrap();
+        let parsed = parse(&bytes).expect("ok in test");
         assert_eq!(parsed.unknown_blocks.len(), 1);
         assert_eq!(parsed.unknown_blocks[0].id, 0x42);
         assert_eq!(parsed.unknown_blocks[0].payload, vec![0xDE, 0xAD, 0xBE, 0xEF]);
 
         // Re-emit and re-parse — the unknown block should still be there.
-        let written = write(&parsed).unwrap();
-        let reparsed = parse(&written).unwrap();
+        let written = write(&parsed).expect("ok in test");
+        let reparsed = parse(&written).expect("ok in test");
         assert_eq!(reparsed.unknown_blocks.len(), 1);
         assert_eq!(reparsed.unknown_blocks[0].id, 0x42);
         assert_eq!(reparsed.unknown_blocks[0].payload, vec![0xDE, 0xAD, 0xBE, 0xEF]);

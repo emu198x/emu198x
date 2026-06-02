@@ -238,7 +238,7 @@ mod tests {
             "60".into(),
         ];
         let cli = parse_cli(argv);
-        assert_eq!(cli.bios.unwrap(), Path::new("/tmp/aq.rom"));
+        assert_eq!(cli.bios.expect("parsed by CLI"), Path::new("/tmp/aq.rom"));
         assert_eq!(cli.expansion_kb, 16);
     }
 }

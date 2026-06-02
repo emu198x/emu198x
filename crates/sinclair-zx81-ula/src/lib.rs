@@ -204,9 +204,9 @@ impl Zx81Ula {
     #[must_use]
     pub fn read_keyboard(addr_high: u8, rows: &[u8; 8]) -> u8 {
         let mut result: u8 = 0;
-        for i in 0..8 {
+        for (i, &row) in rows.iter().enumerate() {
             if addr_high & (1 << i) == 0 {
-                result |= rows[i];
+                result |= row;
             }
         }
         (!result & 0x1F) | 0xE0

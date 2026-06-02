@@ -209,9 +209,9 @@ static VIC_PALETTE: [u32; 16] = [
     0xFFAA_7449, // 8  Orange
     0xFFEA_B489, // 9  Light Orange
     0xFFB8_6962, // 10 Light Red
-    0xFFC7_FF_FF, // 11 Light Cyan
-    0xFFEA_9F_F6, // 12 Light Purple
-    0xFF94_E0_89, // 13 Light Green
-    0xFF87_71_F2, // 14 Light Blue
-    0xFFFF_FF_B2, // 15 Light Yellow
+    0xFFC7_FFFF, // 11 Light Cyan
+    0xFFEA_9FF6, // 12 Light Purple
+    0xFF94_E089, // 13 Light Green
+    0xFF87_71F2, // 14 Light Blue
+    0xFFFF_FFB2, // 15 Light Yellow
 ];

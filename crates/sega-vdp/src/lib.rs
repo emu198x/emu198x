@@ -556,8 +556,7 @@ impl SegaVdp {
         }
 
         // Composite sprites onto framebuffer (behind priority tiles)
-        for px in 0..256 {
-            let c = sprite_buffer[px];
+        for (px, &c) in sprite_buffer.iter().enumerate() {
             if c != 0 {
                 self.framebuffer[offset + px] = self.cram_to_argb(16 + c as usize);
             }

@@ -73,6 +73,10 @@ pub const FB_WIDTH: u32 = 640;
 /// Framebuffer height (256 pixels visible per PAL frame).
 pub const FB_HEIGHT: u32 = 256;
 
+/// BBC Micro CPU clock: 2 MHz. Kept as a documented reference even
+/// though `CYCLES_PER_FRAME` is the only derived constant the engine
+/// reads today.
+#[allow(dead_code)]
 const CPU_CLOCK_HZ: u32 = 2_000_000;
 const CYCLES_PER_FRAME: u64 = 39_936; // 312 lines × 64 µs × 2 MHz
 const SCANLINES_PER_FRAME: u16 = 312;

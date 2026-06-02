@@ -301,9 +301,9 @@ impl Sn76489 {
     fn mix_with_channels(&self) -> (f32, [f32; 4]) {
         let mut channels = [0.0f32; 4];
 
-        for ch in 0..3 {
+        for (ch, slot) in channels.iter_mut().take(3).enumerate() {
             if self.tone_output[ch] {
-                channels[ch] = Self::attenuation_to_volume(self.tone_attenuation[ch]) / 4.0;
+                *slot = Self::attenuation_to_volume(self.tone_attenuation[ch]) / 4.0;
             }
         }
 

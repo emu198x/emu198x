@@ -58,7 +58,12 @@ pub struct Vic20 {
     kernal_rom: Vec<u8>,
     vic: Vic6560,
     keyboard: KeyboardState,
+    // Latched bus state placeholders — kept on the struct so the
+    // future tape / userport / IEC wiring lands as a small additive
+    // change rather than a structural one.
+    #[allow(dead_code)]
     via1_port_a: u8,
+    #[allow(dead_code)]
     via2_port_b: u8,
     model: Vic20Model,
     master_clock: u64,
