@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-tatung-einstein"
-description = "Tatung Einstein TC-01 headless runner — Z80 + TMS9918A + AY-3-8910"
+description = "Tatung Einstein TC-01 headless runner with shell-backed script + MCP parity — Z80 + TMS9929A + AY-3-8910"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-tatung-einstein"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-tatung-einstein = { path = "../machine-tatung-einstein" }
 png = { workspace = true }
+runtime-tatung-einstein = { path = "../runtime-tatung-einstein" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

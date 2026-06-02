@@ -239,10 +239,28 @@ impl Einstein {
         }
     }
 
-    /// Framebuffer (256×192 ARGB32).
+    /// Framebuffer (ARGB32).
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         self.vdp.framebuffer()
+    }
+
+    /// Framebuffer width.
+    #[must_use]
+    pub fn framebuffer_width(&self) -> u32 {
+        self.vdp.framebuffer_width()
+    }
+
+    /// Framebuffer height.
+    #[must_use]
+    pub fn framebuffer_height(&self) -> u32 {
+        self.vdp.framebuffer_height()
+    }
+
+    /// Observe one byte on the Z80 bus without side effects.
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.mem_read(addr)
     }
 
     /// Press a key at the given (row, column).
@@ -280,6 +298,18 @@ impl Einstein {
     #[must_use]
     pub fn region(&self) -> EinsteinRegion {
         self.region
+    }
+
+    /// Drain accumulated PSG audio samples for the most recent frame.
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        let mut out = vec![0.0_f32; AY_SAMPLES_PER_FRAME];
+        self.psg.end_frame(&mut out);
+        if let Some(last) = out.iter().rposition(|s| *s != 0.0) {
+            out.truncate(last + 1);
+        } else {
+            out.clear();
+        }
+        out
     }
 
     /// `true` if the X-TAL MOS ROM is currently visible at

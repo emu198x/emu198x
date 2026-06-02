@@ -176,6 +176,7 @@ members = [
     "crates/runtime-sinclair-zx80",
     "crates/runtime-sinclair-zx81",
     "crates/runtime-sord-m5",
+    "crates/runtime-tatung-einstein",
     "crates/runtime-nintendo-nes",
     "crates/runtime-sinclair-zx-spectrum",
     "crates/sinclair-ula-7k010e",

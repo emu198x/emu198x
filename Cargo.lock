@@ -1220,8 +1220,11 @@ dependencies = [
 name = "emu198x-tatung-einstein"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-tatung-einstein",
  "png",
+ "runtime-tatung-einstein",
+ "serde_json",
 ]
 
 [[package]]
@@ -3728,6 +3731,17 @@ version = "0.1.0"
 dependencies = [
  "emu198x-shell",
  "machine-sord-m5",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-tatung-einstein"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-tatung-einstein",
  "postcard",
  "serde",
  "serde_json",
