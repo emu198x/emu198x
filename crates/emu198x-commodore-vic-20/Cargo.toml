@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-commodore-vic-20"
-description = "Commodore VIC-20 headless runner"
+description = "Commodore VIC-20 headless runner with shell-backed script + MCP parity"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-commodore-vic-20"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-commodore-vic-20 = { path = "../machine-commodore-vic-20" }
 png = { workspace = true }
+runtime-commodore-vic-20 = { path = "../runtime-commodore-vic-20" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

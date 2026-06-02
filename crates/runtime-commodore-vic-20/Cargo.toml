@@ -1,0 +1,17 @@
+[package]
+name = "runtime-commodore-vic-20"
+description = "Commodore VIC-20 family metadata and headless runtime wrapper"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
+machine-commodore-vic-20 = { path = "../machine-commodore-vic-20" }
+postcard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

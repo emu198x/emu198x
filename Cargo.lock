@@ -999,8 +999,11 @@ dependencies = [
 name = "emu198x-commodore-vic-20"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-commodore-vic-20",
  "png",
+ "runtime-commodore-vic-20",
+ "serde_json",
 ]
 
 [[package]]
@@ -3525,6 +3528,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "runtime-commodore-vic-20"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-commodore-vic-20",
+ "postcard",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
