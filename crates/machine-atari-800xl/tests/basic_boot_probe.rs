@@ -67,4 +67,31 @@ fn basic_boot_programs_antic_and_gtia() {
         0x0000,
         "ANTIC display-list pointer was never set"
     );
+
+    // The GR.0 screen must actually render. A correct boot frame holds three
+    // distinct colours: the COLBK border, the COLPF2 playfield background, and
+    // the hi-res cursor block (COLPF2 hue + COLPF1 luminance). Before the
+    // ANTIC LMS/DLI, hi-res-text colour, and CHACTL fixes this collapsed to a
+    // single black frame.
+    let fb = sys.framebuffer();
+    let mut counts: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for &px in fb {
+        *counts.entry(px).or_insert(0) += 1;
+    }
+    assert!(
+        counts.len() >= 3,
+        "framebuffer has only {} distinct colour(s); expected border + \
+         playfield + cursor",
+        counts.len()
+    );
+
+    // The inverse-video cursor renders as a small 8x8 block — the rarest
+    // colour, distinctly smaller than the border or playfield fills. Its
+    // presence proves hi-res character pixels render (the CHACTL fix) in a
+    // third colour (the hi-res-text colour fix).
+    let smallest = counts.values().copied().min().unwrap_or(0);
+    assert!(
+        (32..4096).contains(&smallest),
+        "expected a small cursor block (~64 px); rarest colour covers {smallest} px"
+    );
 }

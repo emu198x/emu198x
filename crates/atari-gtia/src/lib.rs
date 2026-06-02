@@ -294,10 +294,19 @@ impl Gtia {
 
         // -- Build a 320-pixel line of colour register indices --
         let mut line_buf = [0u8; ACTIVE_WIDTH as usize];
+        let mut pf_span = (0usize, 0usize);
 
         if mode != AnticMode::Blank {
-            self.fill_playfield_line(&mut line_buf, playfield, pf_width, mode, gtia_mode);
+            pf_span = self.fill_playfield_line(&mut line_buf, playfield, pf_width, mode, gtia_mode);
         }
+
+        // Hi-res 1.5-colour modes (2, 3, and F with no GTIA override): the
+        // playfield background is COLPF2 and lit pixels take COLPF2's hue
+        // with COLPF1's luminance. Anything outside the playfield is COLBK
+        // border. All other modes keep index 0 == COLBK (background colour 4).
+        let hires_text = gtia_mode == 0
+            && matches!(mode, AnticMode::Mode2 | AnticMode::Mode3 | AnticMode::ModeF);
+        let hires_fg = (self.colpf[2] & 0xF0) | (self.colpf[1] & 0x0F);
 
         // -- Build player/missile overlay --
         let mut pm_colour = [0u8; ACTIVE_WIDTH as usize]; // 0 = no PM pixel
@@ -307,6 +316,7 @@ impl Gtia {
         // -- Compose final pixels with priority and collision detection --
         for x in 0..ACTIVE_WIDTH as usize {
             let pf_col_idx = line_buf[x];
+            let in_pf = x >= pf_span.0 && x < pf_span.1;
 
             // Collision detection: PM vs playfield
             if pm_index[x] != 0 && pf_col_idx != 0 {
@@ -316,6 +326,12 @@ impl Gtia {
             // Priority: default ($00) — PM over PF over background
             let final_colour = if pm_colour[x] != 0 {
                 pm_colour[x]
+            } else if hires_text && in_pf {
+                if pf_col_idx != 0 {
+                    hires_fg
+                } else {
+                    self.colpf[2]
+                }
             } else if pf_col_idx != 0 {
                 self.resolve_colour(pf_col_idx, gtia_mode, playfield, x, pf_width, mode)
             } else {
@@ -327,6 +343,9 @@ impl Gtia {
     }
 
     /// Fill the 320-pixel line buffer with playfield colour register indices.
+    ///
+    /// Returns the `[start, end)` framebuffer-x span that the playfield
+    /// occupies, so the caller can tell in-playfield background from border.
     #[allow(clippy::unused_self)] // will use colour registers for GTIA mode expansion
     fn fill_playfield_line(
         &self,
@@ -334,8 +353,8 @@ impl Gtia {
         playfield: &[u8],
         pf_width: u16,
         mode: AnticMode,
-        gtia_mode: u8,
-    ) {
+        _gtia_mode: u8,
+    ) -> (usize, usize) {
         // Pixels per colour clock depend on mode resolution
         let (pixels_per_cc, hires) = match mode {
             AnticMode::ModeF => (2, true),                     // 320 px / 160 cc
@@ -346,31 +365,31 @@ impl Gtia {
 
         // Centre the playfield in the 320-pixel framebuffer
         let pf_fb_width = u16::min(pf_width * pixels_per_cc, ACTIVE_WIDTH as u16);
-        let fb_start = (ACTIVE_WIDTH as u16 - pf_fb_width) / 2;
+        let fb_start = ((ACTIVE_WIDTH as u16 - pf_fb_width) / 2) as usize;
+        let mut fb_end = fb_start;
 
         if hires {
             // Hires: each playfield byte is one pixel → 1 fb pixel
             for (i, &px) in playfield.iter().enumerate() {
-                let fb_x = fb_start as usize + i;
+                let fb_x = fb_start + i;
                 if fb_x < ACTIVE_WIDTH as usize {
-                    if gtia_mode != 0 {
-                        // GTIA colour modes use the raw pixel value
-                        line_buf[fb_x] = px;
-                    } else {
-                        line_buf[fb_x] = px;
-                    }
+                    line_buf[fb_x] = px;
+                    fb_end = fb_x + 1;
                 }
             }
         } else {
             // Non-hires: each playfield pixel maps to 2 fb pixels
             for (i, &px) in playfield.iter().enumerate() {
-                let fb_x = fb_start as usize + i * 2;
+                let fb_x = fb_start + i * 2;
                 if fb_x + 1 < ACTIVE_WIDTH as usize {
                     line_buf[fb_x] = px;
                     line_buf[fb_x + 1] = px;
+                    fb_end = fb_x + 2;
                 }
             }
         }
+
+        (fb_start, fb_end)
     }
 
     /// Overlay player/missile graphics onto the PM buffers.

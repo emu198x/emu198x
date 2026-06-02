@@ -374,6 +374,11 @@ impl Antic {
     pub const fn dlist_value(&self) -> u16 {
         self.dlist
     }
+    /// Current character-set base (CHBASE); debug accessor.
+    #[must_use]
+    pub const fn chbase_value(&self) -> u8 {
+        self.chbase
+    }
 
     /// VCOUNT register value (`scan_line` / 2).
     #[must_use]
@@ -497,9 +502,13 @@ impl Antic {
         self.dlist = self.dlist.wrapping_add(1);
         self.dma_cycles += 1; // DL fetch costs 1 cycle
 
+        // Display-list instruction option bits (matches ANTIC hardware):
+        //   bit 7 = DLI (display-list interrupt)
+        //   bit 6 = LMS (load memory scan — two-byte operand follows)
+        //   bit 5 = VSCROL, bit 4 = HSCROL
         let mode = instr & 0x0F;
-        let has_lms = instr & 0x80 != 0;
-        let has_dli = instr & 0x40 != 0;
+        let has_dli = instr & 0x80 != 0;
+        let has_lms = instr & 0x40 != 0;
         let has_hscrol = instr & 0x10 != 0;
         let has_vscrol = instr & 0x20 != 0;
 
@@ -616,8 +625,9 @@ impl Antic {
         let chbase_addr = u16::from(self.chbase) << 8;
         let char_height = desc.scan_lines_per_row;
         let row_in_char = self.mode_line;
-        let inverse_mask = self.chactl & 0x01 != 0;
-        let blank_inverted = self.chactl & 0x02 != 0;
+        // CHACTL: bit 1 = inverse-video enable, bit 0 = blank, bit 2 = reflect.
+        let inverse_video = self.chactl & 0x02 != 0;
+        let blank = self.chactl & 0x01 != 0;
         let reflect = self.chactl & 0x04 != 0;
 
         let count = usize::min(self.char_codes.len(), bytes as usize);
@@ -645,13 +655,11 @@ impl Antic {
                 .wrapping_add(u16::from(effective_row));
             let mut bitmap = ram[glyph_addr as usize & (ram.len() - 1)];
 
-            // Handle inverse/blank for character bit 7
+            // Inverse-video (high-bit) characters honour CHACTL. Matches the
+            // hardware: out = inverse ? !(data & !blank) : (data & !blank).
             if inverse_bit {
-                if blank_inverted {
-                    bitmap = 0; // blank the character
-                } else if inverse_mask {
-                    bitmap ^= 0xFF; // invert the bitmap
-                }
+                let blanked = if blank { 0 } else { bitmap };
+                bitmap = if inverse_video { !blanked } else { blanked };
             }
 
             // Decode bitmap into pixels
@@ -983,7 +991,7 @@ mod tests {
         let mut antic = Antic::new(AnticRegion::Ntsc);
 
         // Display list at $4000: Mode D with LMS pointing to $8000
-        ram[0x4000] = 0x8D; // Mode D + LMS
+        ram[0x4000] = 0x4D; // Mode D + LMS
         ram[0x4001] = 0x00; // LMS lo
         ram[0x4002] = 0x80; // LMS hi
 
@@ -1012,7 +1020,7 @@ mod tests {
         let mut antic = Antic::new(AnticRegion::Ntsc);
 
         // Display list: Mode F with LMS
-        ram[0x4000] = 0x8F; // Mode F + LMS
+        ram[0x4000] = 0x4F; // Mode F + LMS
         ram[0x4001] = 0x00;
         ram[0x4002] = 0x80;
 
@@ -1045,7 +1053,7 @@ mod tests {
         let mut antic = Antic::new(AnticRegion::Ntsc);
 
         // Display list: Mode 2 with LMS
-        ram[0x4000] = 0x82; // Mode 2 + LMS
+        ram[0x4000] = 0x42; // Mode 2 + LMS
         ram[0x4001] = 0x00;
         ram[0x4002] = 0x80;
 
@@ -1102,7 +1110,7 @@ mod tests {
         let mut antic = Antic::new(AnticRegion::Ntsc);
 
         // Mode D + LMS: DL fetch(1) + LMS(2) + playfield(40) + refresh(9) = 52
-        ram[0x4000] = 0x8D;
+        ram[0x4000] = 0x4D;
         ram[0x4001] = 0x00;
         ram[0x4002] = 0x80;
 
@@ -1151,7 +1159,7 @@ mod tests {
         let mut antic = Antic::new(AnticRegion::Ntsc);
 
         // Mode D + LMS + player DMA + missile DMA
-        ram[0x4000] = 0x8D;
+        ram[0x4000] = 0x4D;
         ram[0x4001] = 0x00;
         ram[0x4002] = 0x80;
 
