@@ -358,6 +358,23 @@ impl Antic {
         self.scan_line
     }
 
+    /// Current DMACTL value (write-only register; this is a debug
+    /// accessor for tests and MCP-style chip inspection).
+    #[must_use]
+    pub const fn dmactl_value(&self) -> u8 {
+        self.dmactl
+    }
+    /// Current NMIEN value (write-only register; debug accessor).
+    #[must_use]
+    pub const fn nmien_value(&self) -> u8 {
+        self.nmien
+    }
+    /// Current display-list pointer (DLISTL/DLISTH); debug accessor.
+    #[must_use]
+    pub const fn dlist_value(&self) -> u16 {
+        self.dlist
+    }
+
     /// VCOUNT register value (`scan_line` / 2).
     #[must_use]
     pub fn vcount(&self) -> u8 {

@@ -212,6 +212,23 @@ impl Gtia {
         }
     }
 
+    /// Current COLBK value (write-only register; debug accessor for
+    /// tests and MCP-style chip inspection).
+    #[must_use]
+    pub const fn colbk_value(&self) -> u8 {
+        self.colbk
+    }
+    /// Current COLPF[0..4] values (write-only; debug accessor).
+    #[must_use]
+    pub const fn colpf_values(&self) -> [u8; 4] {
+        self.colpf
+    }
+    /// Current PRIOR value (write-only; debug accessor).
+    #[must_use]
+    pub const fn prior_value(&self) -> u8 {
+        self.prior
+    }
+
     // -----------------------------------------------------------------------
     // Trigger inputs
     // -----------------------------------------------------------------------
