@@ -236,8 +236,9 @@ unwrap_used = "deny"
 [profile.dev]
 # Line tables give backtraces without the full-debuginfo link tax — the
 # biggest cargo test cost once a workspace grows many test binaries. This is
-# the shared 198x skeleton lever (see ../decisions/project-skeleton-standard.md);
-# Emu198x had drifted without it, which is why its target/debug bloated.
+# the shared 198x skeleton lever (see ../decisions/project-skeleton-standard.md).
+# Emu198x predates that standard, so it never picked the lever up — which is why
+# its target/debug bloated. Backfilled here to match the siblings.
 debug = "line-tables-only"
 split-debuginfo = "unpacked"
 
