@@ -1,9 +1,11 @@
 //! Shared machine vocabulary used by every mode of `emu198x-spectrum`.
 //!
-//! `MachineKind` enumerates the 8 in-scope SOLID variants. `ui::menu`
-//! drives the Machine submenu off this enum; `script` uses the same
-//! enum for `set_machine` step dispatch. Each variant maps to a stable
-//! snake-case identifier the script JSON uses.
+//! `MachineKind` enumerates all 13 Spectrum-family variants — the SOLID
+//! 8 (16K, 48K, +, 128K, +2, +2A, +2B, +3) plus the five exotics
+//! (Pentagon 128, Scorpion ZS-256, Timex TC2048 / TC2068 / TS2068).
+//! `ui::menu` drives the Machine submenu off this enum; `script` uses
+//! the same enum for `set_machine` step dispatch. Each variant maps to
+//! a stable snake-case identifier the script JSON uses.
 //!
 //! ROM resolution lives here too — both modes reach for the same
 //! `~/.emu198x/roms/<system>/<file>.rom` convention shared with the
@@ -19,7 +21,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// The eight in-scope October-public variants.
+/// Every Spectrum-family variant: the SOLID 8 plus the five exotics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MachineKind {
     Spectrum16K,
@@ -30,6 +32,11 @@ pub enum MachineKind {
     SpectrumPlus2A,
     SpectrumPlus2B,
     SpectrumPlus3,
+    Pentagon128,
+    ScorpionZS256,
+    TimexTC2048,
+    TimexTC2068,
+    TimexTS2068,
 }
 
 impl MachineKind {
@@ -44,6 +51,11 @@ impl MachineKind {
             Self::SpectrumPlus2A => "ZX Spectrum +2A",
             Self::SpectrumPlus2B => "ZX Spectrum +2B",
             Self::SpectrumPlus3 => "ZX Spectrum +3",
+            Self::Pentagon128 => "Pentagon 128",
+            Self::ScorpionZS256 => "Scorpion ZS-256",
+            Self::TimexTC2048 => "Timex TC2048",
+            Self::TimexTC2068 => "Timex TC2068",
+            Self::TimexTS2068 => "Timex TS2068",
         }
     }
 
@@ -59,6 +71,11 @@ impl MachineKind {
             Self::SpectrumPlus2A => "spectrum_plus2a",
             Self::SpectrumPlus2B => "spectrum_plus2b",
             Self::SpectrumPlus3 => "spectrum_plus3",
+            Self::Pentagon128 => "pentagon_128",
+            Self::ScorpionZS256 => "scorpion_zs256",
+            Self::TimexTC2048 => "timex_tc2048",
+            Self::TimexTC2068 => "timex_tc2068",
+            Self::TimexTS2068 => "timex_ts2068",
         }
     }
 
@@ -75,17 +92,24 @@ impl MachineKind {
             "spectrum_plus2a" => Self::SpectrumPlus2A,
             "spectrum_plus2b" => Self::SpectrumPlus2B,
             "spectrum_plus3" => Self::SpectrumPlus3,
+            "pentagon_128" => Self::Pentagon128,
+            "scorpion_zs256" => Self::ScorpionZS256,
+            "timex_tc2048" => Self::TimexTC2048,
+            "timex_tc2068" => Self::TimexTC2068,
+            "timex_ts2068" => Self::TimexTS2068,
             _ => return None,
         })
     }
 
-    /// All eight variants in catalogue order (16K → 48K → Plus → 128K
-    /// → +2 → +2A → +2B → +3). Stable iteration order matters for the
-    /// menu layout and the radio-style "current" indicator. On Linux
-    /// the muda menu is gated out (see ui/menu.rs), so nothing iterates
-    /// this — suppress the dead_code lint there only.
+    /// All variants in catalogue order: SOLID 8 (16K → 48K → Plus →
+    /// 128K → +2 → +2A → +2B → +3) followed by the five exotics
+    /// (Pentagon → Scorpion → TC2048 → TC2068 → TS2068). Stable
+    /// iteration order matters for the menu layout and the radio-style
+    /// "current" indicator. On Linux the muda menu is gated out (see
+    /// ui/menu.rs), so nothing iterates this — suppress the dead_code
+    /// lint there only.
     #[cfg_attr(target_os = "linux", allow(dead_code))]
-    pub const fn all() -> [Self; 8] {
+    pub const fn all() -> [Self; 13] {
         [
             Self::Spectrum16K,
             Self::Spectrum48K,
@@ -95,6 +119,11 @@ impl MachineKind {
             Self::SpectrumPlus2A,
             Self::SpectrumPlus2B,
             Self::SpectrumPlus3,
+            Self::Pentagon128,
+            Self::ScorpionZS256,
+            Self::TimexTC2048,
+            Self::TimexTC2068,
+            Self::TimexTS2068,
         ]
     }
 }
@@ -113,6 +142,8 @@ pub fn rom_root() -> Option<PathBuf> {
 /// and +2B each have their own bundle directory. The +2A and +3 share
 /// `amstrad-zx-spectrum-plus3/plus3-{0..3}.rom` (ROM v4.0); the +2B
 /// uses its own `amstrad-zx-spectrum-plus2b/plus3-{0..3}.rom` (ROM v4.1).
+/// The exotics live under their own `pentagon-128/`, `scorpion-zs256/`,
+/// `timex-tc2048/`, and `timex-ts2068/` directories.
 pub fn variant_rom_bundle(kind: MachineKind, root: &Path) -> Vec<(&'static str, PathBuf)> {
     match kind {
         MachineKind::Spectrum16K | MachineKind::Spectrum48K | MachineKind::SpectrumPlus => vec![(
@@ -167,6 +198,29 @@ pub fn variant_rom_bundle(kind: MachineKind, root: &Path) -> Vec<(&'static str, 
                 )
             })
             .collect(),
+        MachineKind::Pentagon128 => vec![
+            ("pentagon-rom-0", root.join("pentagon-128/pentagon-0.rom")),
+            ("pentagon-rom-1", root.join("pentagon-128/pentagon-1.rom")),
+        ],
+        MachineKind::ScorpionZS256 => (0..4)
+            .map(|i| {
+                let id: &'static str = match i {
+                    0 => "scorpion-rom-0",
+                    1 => "scorpion-rom-1",
+                    2 => "scorpion-rom-2",
+                    _ => "scorpion-rom-3",
+                };
+                (id, root.join(format!("scorpion-zs256/scorpion-{i}.rom")))
+            })
+            .collect(),
+        MachineKind::TimexTC2048 => vec![(
+            "timex-tc2048-rom",
+            root.join("timex-tc2048/tc2048.rom"),
+        )],
+        MachineKind::TimexTC2068 | MachineKind::TimexTS2068 => vec![
+            ("timex-ts2068-rom-0", root.join("timex-ts2068/ts2068.rom")),
+            ("timex-ts2068-rom-1", root.join("timex-ts2068/exrom.rom")),
+        ],
     }
 }
 

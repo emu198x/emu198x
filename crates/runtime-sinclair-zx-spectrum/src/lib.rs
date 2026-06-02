@@ -15,9 +15,11 @@ mod autoload;
 mod basic_loader;
 mod family_runtime;
 mod input;
+mod pentagon_128;
 mod profiles;
 mod queries;
 mod runtime;
+mod scorpion_zs256;
 mod snapshot;
 mod spectrum_128k;
 mod spectrum_16k;
@@ -27,6 +29,8 @@ mod spectrum_plus2;
 mod spectrum_plus2a;
 mod spectrum_plus2b;
 mod spectrum_plus3;
+mod timex_tc2048;
+mod timex_ts2068;
 mod variants;
 
 pub use autoload::{

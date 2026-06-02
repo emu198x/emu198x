@@ -30,9 +30,11 @@ use emu198x_shell::{
     MediaSet, QueryError, QueryResult, ResetKind, RunResult,
 };
 use runtime_sinclair_zx_spectrum::{
-    AudioControls, SpeakerChannel, Spectrum16kRuntime, Spectrum48kRuntime, Spectrum128kRuntime,
-    SpectrumMachine, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
-    SpectrumPlus3Runtime, SpectrumPlusRuntime, SpectrumRuntime, SpectrumSessionQueryProvider,
+    AudioControls, Model, Pentagon128Runtime, ScorpionZS256Runtime, SpeakerChannel,
+    Spectrum16kRuntime, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumMachine,
+    SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime,
+    SpectrumPlusRuntime, SpectrumRuntime, SpectrumSessionQueryProvider, TimexTC2048Runtime,
+    TimexTS2068Runtime,
 };
 
 use crate::machine::MachineKind;
@@ -214,5 +216,16 @@ pub fn build_runtime(
         MachineKind::SpectrumPlus2A => Box::new(SpectrumPlus2ARuntime::from_firmware(firmware)?),
         MachineKind::SpectrumPlus2B => Box::new(SpectrumPlus2BRuntime::from_firmware(firmware)?),
         MachineKind::SpectrumPlus3 => Box::new(SpectrumPlus3Runtime::from_firmware(firmware)?),
+        MachineKind::Pentagon128 => Box::new(Pentagon128Runtime::from_firmware(firmware)?),
+        MachineKind::ScorpionZS256 => Box::new(ScorpionZS256Runtime::from_firmware(firmware)?),
+        MachineKind::TimexTC2048 => Box::new(TimexTC2048Runtime::from_firmware(firmware)?),
+        MachineKind::TimexTC2068 => Box::new(TimexTS2068Runtime::from_firmware(
+            Model::TimexTC2068,
+            firmware,
+        )?),
+        MachineKind::TimexTS2068 => Box::new(TimexTS2068Runtime::from_firmware(
+            Model::TimexTS2068,
+            firmware,
+        )?),
     })
 }

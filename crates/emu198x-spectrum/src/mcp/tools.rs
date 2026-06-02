@@ -814,6 +814,11 @@ fn kind_to_model(kind: MachineKind) -> runtime_sinclair_zx_spectrum::Model {
         MachineKind::SpectrumPlus2A => Model::SpectrumPlus2A,
         MachineKind::SpectrumPlus2B => Model::SpectrumPlus2B,
         MachineKind::SpectrumPlus3 => Model::SpectrumPlus3,
+        MachineKind::Pentagon128 => Model::Pentagon128,
+        MachineKind::ScorpionZS256 => Model::ScorpionZS256,
+        MachineKind::TimexTC2048 => Model::TimexTC2048,
+        MachineKind::TimexTC2068 => Model::TimexTC2068,
+        MachineKind::TimexTS2068 => Model::TimexTS2068,
     }
 }
 

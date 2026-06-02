@@ -65,6 +65,12 @@ impl MemoryTimex {
         Ok(())
     }
 
+    /// Load the 8K EXROM from a byte slice (firmware-bundle path).
+    pub fn load_exrom_data(&mut self, data: &[u8]) {
+        let len = data.len().min(8192);
+        self.exrom[..len].copy_from_slice(&data[..len]);
+    }
+
     /// Set EXROM enable from port $FF bit 7.
     pub fn set_exrom_enabled(&mut self, enabled: bool) {
         self.exrom_enabled = enabled;
