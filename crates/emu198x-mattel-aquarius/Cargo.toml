@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-mattel-aquarius"
-description = "Mattel Aquarius headless runner — Z80 + memory-mapped char display"
+description = "Mattel Aquarius headless runner with shell-backed script + MCP parity — Z80 + memory-mapped char display"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-mattel-aquarius"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-mattel-aquarius = { path = "../machine-mattel-aquarius" }
 png = { workspace = true }
+runtime-mattel-aquarius = { path = "../runtime-mattel-aquarius" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

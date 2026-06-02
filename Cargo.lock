@@ -1047,8 +1047,11 @@ dependencies = [
 name = "emu198x-mattel-aquarius"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-mattel-aquarius",
  "png",
+ "runtime-mattel-aquarius",
+ "serde_json",
 ]
 
 [[package]]
@@ -3522,6 +3525,17 @@ dependencies = [
  "machine-dragon-32",
  "motorola-vdg-6847",
  "png",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-mattel-aquarius"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-mattel-aquarius",
  "postcard",
  "serde",
  "serde_json",

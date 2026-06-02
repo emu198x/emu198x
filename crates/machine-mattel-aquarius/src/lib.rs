@@ -302,6 +302,26 @@ impl Aquarius {
         &self.framebuffer
     }
 
+    /// Framebuffer width.
+    #[must_use]
+    pub fn framebuffer_width(&self) -> u32 {
+        FB_WIDTH
+    }
+
+    /// Framebuffer height.
+    #[must_use]
+    pub fn framebuffer_height(&self) -> u32 {
+        FB_HEIGHT
+    }
+
+    /// Observe one byte on the Z80 bus without side effects.
+    /// Resolves ROM / character RAM / colour RAM / spare RAM /
+    /// expansion RAM / cart ROM via the standard Aquarius memory map.
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.mem_read(addr)
+    }
+
     /// Press / release a key at the given (row, column).
     pub fn set_key(&mut self, row: usize, col: u8, pressed: bool) {
         if row < self.key_matrix.len() && col < 6 {

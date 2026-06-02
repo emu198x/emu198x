@@ -165,6 +165,7 @@ members = [
     "crates/runtime-nintendo-game-boy",
     "crates/runtime-atari-2600",
     "crates/runtime-coleco-colecovision",
+    "crates/runtime-mattel-aquarius",
     "crates/runtime-msx",
     "crates/runtime-sega-master-system",
     "crates/runtime-sega-sg-1000",
