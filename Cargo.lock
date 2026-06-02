@@ -1067,8 +1067,11 @@ dependencies = [
 name = "emu198x-memotech-mtx"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-memotech-mtx",
  "png",
+ "runtime-memotech-mtx",
+ "serde_json",
 ]
 
 [[package]]
@@ -3584,6 +3587,17 @@ version = "0.1.0"
 dependencies = [
  "emu198x-shell",
  "machine-mattel-aquarius",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-memotech-mtx"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-memotech-mtx",
  "postcard",
  "serde",
  "serde_json",

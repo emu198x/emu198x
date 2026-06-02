@@ -169,6 +169,7 @@ members = [
     "crates/runtime-commodore-pet",
     "crates/runtime-commodore-vic-20",
     "crates/runtime-mattel-aquarius",
+    "crates/runtime-memotech-mtx",
     "crates/runtime-msx",
     "crates/runtime-sega-master-system",
     "crates/runtime-sega-sg-1000",
