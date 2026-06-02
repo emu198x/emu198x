@@ -18,11 +18,29 @@ fn basic_boot_programs_antic_and_gtia() {
     let basic = std::fs::read(dir.join("ataribas.rom")).expect("ataribas.rom");
     let mut sys = Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true)
         .expect("boot");
+    // Frame at which CPU halted (None until it does).
+    let mut halted_at: Option<u32> = None;
     eprintln!("frame  PC   DMACTL NMIEN DLIST COLBK COLPF2");
     let mut pc_visits: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
+    let mut prior_pc_ring: std::collections::VecDeque<u16> = std::collections::VecDeque::new();
     for i in 1..=300 {
         sys.run_frame();
-        *pc_visits.entry(sys.cpu().regs.pc).or_insert(0) += 1;
+        let pc = sys.cpu().regs.pc;
+        if !sys.cpu().halted {
+            prior_pc_ring.push_back(pc);
+            if prior_pc_ring.len() > 30 {
+                prior_pc_ring.pop_front();
+            }
+        }
+        if sys.cpu().halted && halted_at.is_none() {
+            halted_at = Some(i);
+            eprintln!("CPU halted at frame {i}, PC=${:04X}", pc);
+            eprintln!("Last 30 per-frame PC samples before halt:");
+            for p in &prior_pc_ring {
+                eprintln!("  ${p:04X}");
+            }
+        }
+        *pc_visits.entry(pc).or_insert(0) += 1;
         if i == 1 || i == 5 || i == 10 || i == 30 || i == 60 || i == 120 || i == 300 {
             let pc = sys.cpu().regs.pc;
             let a = sys.antic();
@@ -48,4 +66,5 @@ fn basic_boot_programs_antic_and_gtia() {
     eprintln!("framebuffer first 8 px: {:?}", &sys.framebuffer()[..8]);
     let unique: std::collections::HashSet<u32> = sys.framebuffer().iter().copied().collect();
     eprintln!("unique framebuffer colours: {}", unique.len());
+    eprintln!("CPU halted: {}", sys.cpu().halted);
 }
