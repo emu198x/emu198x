@@ -1105,8 +1105,11 @@ dependencies = [
 name = "emu198x-sega-master-system"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-sega-master-system",
  "png",
+ "runtime-sega-master-system",
+ "serde_json",
 ]
 
 [[package]]
@@ -3540,6 +3543,17 @@ dependencies = [
  "emu198x-shell",
  "format-nintendo-nes-ines",
  "machine-nintendo-nes",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-sega-master-system"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-sega-master-system",
  "postcard",
  "serde",
  "serde_json",
