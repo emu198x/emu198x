@@ -123,7 +123,12 @@ pub struct Gtia {
     trig: [u8; 4], // TRIG0-TRIG3: 1=released, 0=pressed
 
     // -- Console --
-    consol: u8, // CONSOL: console button state (active low, bits 0-2)
+    // CONSOL is split: writes drive an output latch (bit 3 = speaker), while
+    // reads return the switch inputs. The OS pulses the speaker bit every VBI,
+    // so a single shared byte would corrupt the switch read (and, on the XL,
+    // make the OPTION switch look held — disabling BASIC).
+    consol_out: u8,       // CONSOL write latch (output; bit 3 = speaker)
+    console_switches: u8, // START/SELECT/OPTION inputs (active low, bits 0-2)
 
     // -- Framebuffer --
     framebuffer: Vec<u32>,
@@ -151,7 +156,8 @@ impl Gtia {
             m_pl: [0; 4],
             p_pl: [0; 4],
             trig: [1; 4], // all released
-            consol: 0x07, // all buttons released (active low)
+            consol_out: 0x00,
+            console_switches: 0x07, // all buttons released (active low)
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
         }
     }
@@ -184,8 +190,9 @@ impl Gtia {
                 self.p_pl = [0; 4];
             }
             0x1F => {
-                // CONSOL write — directly stores low 3 bits (active-low buttons)
-                self.consol = (self.consol & 0xF8) | (value & 0x07);
+                // CONSOL write — output latch (bit 3 = speaker). Does not
+                // affect the switch read; the OS pulses this every VBI.
+                self.consol_out = value & 0x0F;
             }
             _ => {}
         }
@@ -205,8 +212,9 @@ impl Gtia {
             0x10..=0x13 => self.trig[(reg - 0x10) as usize],
             // PAL flag (always NTSC = 0 for now)
             0x14 => 0x00,
-            // CONSOL
-            0x1F => self.consol,
+            // CONSOL — switch inputs (bits 0-2, active low); bit 3 reads back
+            // the speaker output latch.
+            0x1F => (self.consol_out & 0x08) | (self.console_switches & 0x07),
             // All other read addresses return $FF (open bus)
             _ => 0xFF,
         }
@@ -238,6 +246,13 @@ impl Gtia {
         if (index as usize) < NUM_PLAYERS {
             self.trig[index as usize] = u8::from(!pressed);
         }
+    }
+
+    /// Set the console-switch inputs read via CONSOL ($D01F), bits 0-2 =
+    /// START / SELECT / OPTION (active low: a clear bit means pressed). This
+    /// is the read path; CPU writes to CONSOL drive the speaker latch only.
+    pub fn set_console_switches(&mut self, switches: u8) {
+        self.console_switches = switches & 0x07;
     }
 
     // -----------------------------------------------------------------------
@@ -587,7 +602,8 @@ impl Gtia {
         data.extend_from_slice(&self.m_pl);
         data.extend_from_slice(&self.p_pl);
         data.extend_from_slice(&self.trig);
-        data.push(self.consol);
+        data.push(self.consol_out);
+        data.push(self.console_switches);
         data
     }
 
@@ -597,7 +613,7 @@ impl Gtia {
     ///
     /// Returns an error if the data is too short.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        if data.len() < 50 {
+        if data.len() < 51 {
             return Err("GTIA state truncated".into());
         }
         let mut p = 0;
@@ -635,7 +651,9 @@ impl Gtia {
         p += 4;
         self.trig.copy_from_slice(&data[p..p + 4]);
         p += 4;
-        self.consol = data[p];
+        self.consol_out = data[p];
+        p += 1;
+        self.console_switches = data[p];
         p += 1;
         Ok(p)
     }
@@ -799,9 +817,17 @@ mod tests {
         // Default: all buttons released (bits 0-2 = 1)
         assert_eq!(gtia.read(0x1F) & 0x07, 0x07);
 
-        // Write CONSOL — simulates pressing START (bit 0 = 0)
-        gtia.write(0x1F, 0x06);
+        // Switch input — simulates pressing START (bit 0 = 0)
+        gtia.set_console_switches(0x06);
         assert_eq!(gtia.read(0x1F) & 0x07, 0x06);
+
+        // A CONSOL write (speaker pulse) must NOT corrupt the switch read.
+        gtia.write(0x1F, 0x00);
+        assert_eq!(
+            gtia.read(0x1F) & 0x07,
+            0x06,
+            "speaker write clobbered the console-switch read"
+        );
     }
 
     #[test]

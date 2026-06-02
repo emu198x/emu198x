@@ -396,7 +396,7 @@ impl Atari800xl {
         if option {
             consol &= !0x04;
         }
-        self.gtia.write(0x1F, consol);
+        self.gtia.set_console_switches(consol);
     }
 
     #[must_use]
