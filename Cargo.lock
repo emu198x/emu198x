@@ -974,8 +974,11 @@ dependencies = [
 name = "emu198x-colecovision"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-coleco-colecovision",
  "png",
+ "runtime-coleco-colecovision",
+ "serde_json",
 ]
 
 [[package]]
@@ -3437,6 +3440,17 @@ checksum = "72f81bee8c8ef9b577d1681a70ebbc962c232461e397b22c208c43c04b67a155"
 dependencies = [
  "rmp",
  "serde",
+]
+
+[[package]]
+name = "runtime-coleco-colecovision"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-coleco-colecovision",
+ "postcard",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

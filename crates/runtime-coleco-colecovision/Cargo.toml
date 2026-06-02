@@ -1,0 +1,17 @@
+[package]
+name = "runtime-coleco-colecovision"
+description = "Coleco ColecoVision family metadata and headless runtime wrapper around machine-coleco-colecovision"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
+machine-coleco-colecovision = { path = "../machine-coleco-colecovision" }
+postcard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

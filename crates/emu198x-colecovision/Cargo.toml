@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-colecovision"
-description = "ColecoVision headless runner — Z80 + TMS9918A + SN76489AN"
+description = "ColecoVision headless runner with shell-backed script + MCP parity — Z80 + TMS9918A + SN76489AN"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-colecovision"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-coleco-colecovision = { path = "../machine-coleco-colecovision" }
 png = { workspace = true }
+runtime-coleco-colecovision = { path = "../runtime-coleco-colecovision" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

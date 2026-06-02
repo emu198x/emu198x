@@ -29,6 +29,10 @@ pub enum Family {
     Dragon,
     /// ASCII / Microsoft MSX-family machines.
     Msx,
+    /// Any other or single-instance machine family without a dedicated
+    /// variant yet. Use sparingly — promote to a named variant once a
+    /// second machine in the same family appears.
+    Other,
 }
 
 /// Region or video-standard family for a machine profile.
