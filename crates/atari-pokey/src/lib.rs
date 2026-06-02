@@ -350,8 +350,8 @@ impl Pokey {
         // Downsample to 48 kHz.
         let (sample, per_channel) = self.mix_with_channels();
         self.accumulator += sample;
-        for i in 0..4 {
-            self.channel_accumulators[i] += per_channel[i];
+        for (i, sample) in per_channel.iter().enumerate() {
+            self.channel_accumulators[i] += *sample;
         }
         self.sample_count += 1;
 

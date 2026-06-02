@@ -278,13 +278,7 @@ impl Maria {
     #[must_use]
     pub fn read(&self, addr: u8) -> u8 {
         match addr {
-            0x08 => {
-                if self.vblank {
-                    0x80
-                } else {
-                    0x00
-                }
-            }
+            0x08 if self.vblank => 0x80,
             _ => 0,
         }
     }
@@ -880,8 +874,8 @@ mod tests {
         // 320A: 1 bit per pixel. Byte $A5 = 10100101 → 8 pixels.
         let byte: u8 = 0xA5;
         let mut pixels = [0u8; 8];
-        for bit in 0..8 {
-            pixels[bit] = (byte >> (7 - bit)) & 1;
+        for (bit, pixel) in pixels.iter_mut().enumerate() {
+            *pixel = (byte >> (7 - bit)) & 1;
         }
         assert_eq!(pixels, [1, 0, 1, 0, 0, 1, 0, 1]);
     }
