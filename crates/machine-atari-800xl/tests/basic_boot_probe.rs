@@ -19,8 +19,10 @@ fn basic_boot_programs_antic_and_gtia() {
     let mut sys = Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true)
         .expect("boot");
     eprintln!("frame  PC   DMACTL NMIEN DLIST COLBK COLPF2");
+    let mut pc_visits: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
     for i in 1..=300 {
         sys.run_frame();
+        *pc_visits.entry(sys.cpu().regs.pc).or_insert(0) += 1;
         if i == 1 || i == 5 || i == 10 || i == 30 || i == 60 || i == 120 || i == 300 {
             let pc = sys.cpu().regs.pc;
             let a = sys.antic();
@@ -36,6 +38,12 @@ fn basic_boot_programs_antic_and_gtia() {
                 g.colpf_values()[2],
             );
         }
+    }
+    let mut sorted: Vec<_> = pc_visits.iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(a.1));
+    eprintln!("top 10 PC sample addresses (out of 300 frame samples):");
+    for (pc, count) in sorted.iter().take(10) {
+        eprintln!("  ${pc:04X} × {count}");
     }
     eprintln!("framebuffer first 8 px: {:?}", &sys.framebuffer()[..8]);
     let unique: std::collections::HashSet<u32> = sys.framebuffer().iter().copied().collect();
