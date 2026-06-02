@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-atari-2600"
-description = "Atari 2600 (VCS) headless runner — 6507 + TIA + RIOT"
+description = "Atari 2600 (VCS) headless runner with shell-backed script + MCP parity — 6507 + TIA + RIOT"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-atari-2600"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-atari-2600 = { path = "../machine-atari-2600" }
 png = { workspace = true }
+runtime-atari-2600 = { path = "../runtime-atari-2600" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
