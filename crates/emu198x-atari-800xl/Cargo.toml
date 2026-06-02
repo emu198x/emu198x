@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-atari-800xl"
-description = "Atari 800XL headless runner — 6502C 'Sally' + ANTIC + GTIA + POKEY + PIA-6520"
+description = "Atari 800XL headless runner with shell-backed script + MCP parity — 6502C Sally + ANTIC + GTIA + POKEY + PIA-6520"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-atari-800xl"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-atari-800xl = { path = "../machine-atari-800xl" }
 png = { workspace = true }
+runtime-atari-800xl = { path = "../runtime-atari-800xl" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

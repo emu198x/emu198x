@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-atari-5200"
-description = "Atari 5200 SuperSystem headless runner — 6502 'Sally' + ANTIC + GTIA + POKEY"
+description = "Atari 5200 SuperSystem headless runner with shell-backed script + MCP parity — 6502 + ANTIC + GTIA + POKEY"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-atari-5200"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-atari-5200 = { path = "../machine-atari-5200" }
 png = { workspace = true }
+runtime-atari-5200 = { path = "../runtime-atari-5200" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

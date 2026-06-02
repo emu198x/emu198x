@@ -919,24 +919,33 @@ dependencies = [
 name = "emu198x-atari-5200"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-atari-5200",
  "png",
+ "runtime-atari-5200",
+ "serde_json",
 ]
 
 [[package]]
 name = "emu198x-atari-7800"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-atari-7800",
  "png",
+ "runtime-atari-7800",
+ "serde_json",
 ]
 
 [[package]]
 name = "emu198x-atari-800xl"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-atari-800xl",
  "png",
+ "runtime-atari-800xl",
+ "serde_json",
 ]
 
 [[package]]
@@ -3509,6 +3518,39 @@ version = "0.1.0"
 dependencies = [
  "emu198x-shell",
  "machine-atari-2600",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-atari-5200"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-atari-5200",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-atari-7800"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-atari-7800",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-atari-800xl"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-atari-800xl",
  "postcard",
  "serde",
  "serde_json",

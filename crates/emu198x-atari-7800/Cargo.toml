@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-atari-7800"
-description = "Atari 7800 ProSystem headless runner — 6502C 'Sally' + MARIA + RIOT"
+description = "Atari 7800 ProSystem headless runner with shell-backed script + MCP parity — 6502C Sally + MARIA + RIOT"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-atari-7800"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-atari-7800 = { path = "../machine-atari-7800" }
 png = { workspace = true }
+runtime-atari-7800 = { path = "../runtime-atari-7800" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
