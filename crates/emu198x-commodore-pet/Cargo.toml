@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-commodore-pet"
-description = "Commodore PET headless runner — 6502 + 6845 CRTC + 6520 + 6522"
+description = "Commodore PET headless runner with shell-backed script + MCP parity — 6502 + 6845 CRTC + 6520 + 6522"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-commodore-pet"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-commodore-pet = { path = "../machine-commodore-pet" }
 png = { workspace = true }
+runtime-commodore-pet = { path = "../runtime-commodore-pet" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

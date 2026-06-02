@@ -991,8 +991,11 @@ dependencies = [
 name = "emu198x-commodore-pet"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-commodore-pet",
  "png",
+ "runtime-commodore-pet",
+ "serde_json",
 ]
 
 [[package]]
@@ -3534,6 +3537,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "runtime-commodore-pet"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-commodore-pet",
+ "postcard",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
