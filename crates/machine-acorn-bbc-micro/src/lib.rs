@@ -352,6 +352,18 @@ impl BbcMicro {
         &self.framebuffer
     }
 
+    /// Framebuffer width.
+    #[must_use]
+    pub fn framebuffer_width(&self) -> u32 {
+        FB_WIDTH
+    }
+
+    /// Framebuffer height.
+    #[must_use]
+    pub fn framebuffer_height(&self) -> u32 {
+        FB_HEIGHT
+    }
+
     /// Take the PSG audio buffer.
     pub fn take_audio_buffer(&mut self) -> Vec<f32> {
         self.psg.take_buffer()

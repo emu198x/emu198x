@@ -163,6 +163,7 @@ members = [
     "crates/ricoh-ppu-2c02",
     "crates/runtime-commodore-c64",
     "crates/runtime-nintendo-game-boy",
+    "crates/runtime-acorn-bbc-micro",
     "crates/runtime-acorn-electron",
     "crates/runtime-atari-2600",
     "crates/runtime-coleco-colecovision",
@@ -231,6 +232,14 @@ unused_must_use = "deny"
 dbg_macro = "deny"
 todo = "deny"
 unwrap_used = "deny"
+
+[profile.dev]
+# Line tables give backtraces without the full-debuginfo link tax — the
+# biggest cargo test cost once a workspace grows many test binaries. This is
+# the shared 198x skeleton lever (see ../decisions/project-skeleton-standard.md);
+# Emu198x had drifted without it, which is why its target/debug bloated.
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
 
 [profile.release]
 lto = "thin"

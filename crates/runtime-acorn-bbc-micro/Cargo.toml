@@ -1,0 +1,17 @@
+[package]
+name = "runtime-acorn-bbc-micro"
+description = "Acorn BBC Micro family metadata and headless runtime wrapper"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
+machine-acorn-bbc-micro = { path = "../machine-acorn-bbc-micro" }
+postcard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

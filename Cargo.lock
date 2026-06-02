@@ -868,8 +868,11 @@ dependencies = [
 name = "emu198x-acorn-bbc-micro"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-acorn-bbc-micro",
  "png",
+ "runtime-acorn-bbc-micro",
+ "serde_json",
 ]
 
 [[package]]
@@ -3476,6 +3479,17 @@ checksum = "72f81bee8c8ef9b577d1681a70ebbc962c232461e397b22c208c43c04b67a155"
 dependencies = [
  "rmp",
  "serde",
+]
+
+[[package]]
+name = "runtime-acorn-bbc-micro"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-acorn-bbc-micro",
+ "postcard",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
