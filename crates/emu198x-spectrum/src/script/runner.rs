@@ -32,6 +32,7 @@ use serde::Serialize;
 
 use crate::AppError;
 use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
+use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
 
@@ -234,21 +235,12 @@ pub(crate) fn execute_step(
     }
 }
 
-/// True for `.sna` / `.z80` / `.zip` (extracted from a `.zip` archive
-/// containing a single matching snapshot). Anything else falls through
-/// to the shell crate's `restore_snapshot`, which decodes the runtime's
-/// own postcard save state.
-fn is_portable_snapshot_path(path: &Path) -> bool {
-    let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
-        return false;
-    };
-    matches!(ext.to_ascii_lowercase().as_str(), "sna" | "z80" | "zip")
-}
-
 /// Parses a portable `.sna` / `.z80` snapshot (or extracts one from a
 /// `.zip` archive carrying a single matching file) and applies it to
 /// the live machine. The UI-side equivalent lives in
-/// `crates/emu198x-spectrum/src/ui/runner.rs::import_portable_snapshot_from_path`.
+/// `crates/emu198x-spectrum/src/ui/runner.rs::import_portable_snapshot_from_path`;
+/// MCP shares the classifier + parser through
+/// [`crate::portable_snapshot`].
 fn execute_load_portable_snapshot(
     session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
     path: &Path,
@@ -263,24 +255,7 @@ fn execute_load_portable_snapshot(
             ),
         });
     }
-    let loaded = read_media_asset(path, MediaKind::Snapshot)?;
-    let inner_name = loaded
-        .archive_member
-        .as_deref()
-        .unwrap_or_else(|| path.file_name().and_then(|n| n.to_str()).unwrap_or(""));
-    let inner_lower = inner_name.to_ascii_lowercase();
-    let snapshot = if inner_lower.ends_with(".sna") {
-        format_sinclair_zx_spectrum_sna::parse_sna(&loaded.bytes)
-            .map_err(|err| AppError::Io(std::io::Error::other(err)))?
-    } else if inner_lower.ends_with(".z80") {
-        format_sinclair_zx_spectrum_z80::parse_z80(&loaded.bytes)
-            .map_err(|err| AppError::Io(std::io::Error::other(err)))?
-    } else {
-        return Err(AppError::Io(std::io::Error::other(format!(
-            "unrecognised snapshot at {} (expected .sna or .z80, got {inner_name})",
-            path.display()
-        ))));
-    };
+    let snapshot = parse_portable_snapshot_at(path)?;
     SpectrumMachine::apply_snapshot(session.machine_mut().machine_mut(), &snapshot);
     Ok(())
 }
@@ -442,21 +417,7 @@ fn detect_first_portable_snapshot(
         if let ScriptStep::LoadSnapshot { path } = step
             && is_portable_snapshot_path(path)
         {
-            let loaded = read_media_asset(path, MediaKind::Snapshot)?;
-            let inner_name = loaded
-                .archive_member
-                .as_deref()
-                .unwrap_or_else(|| path.file_name().and_then(|n| n.to_str()).unwrap_or(""));
-            let inner_lower = inner_name.to_ascii_lowercase();
-            let snapshot = if inner_lower.ends_with(".sna") {
-                format_sinclair_zx_spectrum_sna::parse_sna(&loaded.bytes)
-                    .map_err(|err| AppError::Io(std::io::Error::other(err)))?
-            } else if inner_lower.ends_with(".z80") {
-                format_sinclair_zx_spectrum_z80::parse_z80(&loaded.bytes)
-                    .map_err(|err| AppError::Io(std::io::Error::other(err)))?
-            } else {
-                continue;
-            };
+            let snapshot = parse_portable_snapshot_at(path)?;
             let model = snapshot.model;
             return Ok(Some(PreloadedSnapshot { snapshot, model }));
         }

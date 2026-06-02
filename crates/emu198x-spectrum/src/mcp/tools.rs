@@ -25,6 +25,7 @@ use runtime_sinclair_zx_spectrum::{
 use serde_json::{Value, json};
 
 use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
+use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 /// Live-session context every Spectrum MCP tool dispatches against.
 ///
@@ -152,10 +153,35 @@ fn mcp_execute_step(
         ScriptStep::WatchMemoryLog { limit, unique } => {
             execute_watch_memory_log(session, *limit, *unique).map(Some)
         }
+        ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
+            execute_load_portable_snapshot(session, path).map(|()| None)
+        }
         other => other
             .execute_collect(session)
             .map_err(|err| ToolError::Execution(format!("{err}"))),
     }
+}
+
+/// MCP-side equivalent of
+/// `crate::script::runner::execute_load_portable_snapshot`. Shares the
+/// classifier + parser through [`crate::portable_snapshot`] and applies
+/// the result through [`SpectrumLiveAccess::apply_snapshot`] so every
+/// runtime kind in `SpectrumRuntimeKind` is reachable.
+fn execute_load_portable_snapshot(
+    session: &mut SpectrumSession,
+    path: &std::path::Path,
+) -> Result<(), ToolError> {
+    if session.is_recording() {
+        return Err(ToolError::Execution(format!(
+            "cannot load portable snapshot {} while a video recording is in flight; \
+             stop the recording first",
+            path.display()
+        )));
+    }
+    let snapshot = parse_portable_snapshot_at(path)
+        .map_err(|err| ToolError::Execution(format!("{err}")))?;
+    SpectrumLiveAccess::apply_snapshot(session.machine_mut(), &snapshot);
+    Ok(())
 }
 
 /// Validate that a u32 address fits in the Z80's u16 space.
@@ -1006,7 +1032,7 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
 
     registry.register(Box::new(ScriptStepTool {
         name: "save_audio_capture",
-        description: "Save the captured audio stream as a WAV file.",
+        description: "Legacy. Save the entire session capture buffer as WAV. Prefer start_audio_recording / stop_audio_recording for new scripts — the start/stop pair captures a clean window bounded by script steps. Without `reset_after`, this dumps everything since session start including silence from before the chapter began.",
         schema: json!({
             "type": "object",
             "properties": {
@@ -1014,6 +1040,15 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
                 "reset_after": boolean_field(),
             },
             "required": ["path"],
+        }),
+    }));
+
+    registry.register(Box::new(ScriptStepTool {
+        name: "clear_audio_capture",
+        description: "Drop the session capture buffer without writing it to disk. Pair with save_audio_capture when you want save + buffer-reset in two explicit steps rather than the `reset_after` boolean. No effect on the start_audio_recording / stop_audio_recording path — that uses its own per-recording offset.",
+        schema: json!({
+            "type": "object",
+            "properties": {},
         }),
     }));
 
@@ -1509,6 +1544,7 @@ mod tests {
             "save_snapshot",
             "save_screenshot",
             "save_audio_capture",
+            "clear_audio_capture",
             "set_machine",
             "autoload_tape",
             "load_basic_program",

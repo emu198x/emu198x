@@ -197,14 +197,38 @@ pub enum ScriptStep {
         /// Output path for the PNG file.
         path: PathBuf,
     },
-    /// Save the captured audio stream as WAV.
+    /// **Legacy.** Save the entire session capture buffer as WAV.
+    ///
+    /// Prefer [`Self::StartAudioRecording`] / [`Self::StopAudioRecording`]
+    /// for any new script. The bracketed start/stop pair captures a
+    /// clean window bounded by script steps; this variant dumps every
+    /// sample emitted since session start, including silence from frames
+    /// before the chapter began, and needs the `reset_after` boolean to
+    /// avoid leaking that pre-roll into the next call.
+    ///
+    /// Retained for back-compat with existing scripts. When `reset_after`
+    /// is not enough — e.g. you want to dump the buffer, keep a copy on
+    /// disk, *and* keep the buffer running — pair this with
+    /// [`Self::ClearAudioCapture`] instead and leave `reset_after: false`.
     SaveAudioCapture {
         /// Output path for the WAV file.
         path: PathBuf,
         /// Whether to clear captured audio after writing the file.
+        ///
+        /// Prefer the explicit [`Self::ClearAudioCapture`] step on new
+        /// scripts; this boolean is kept to avoid breaking existing
+        /// JSON payloads.
         #[serde(default = "default_true")]
         reset_after: bool,
     },
+    /// Drop the session capture buffer without writing it to disk.
+    ///
+    /// Pairs with [`Self::SaveAudioCapture`] when you want to dump the
+    /// buffer, preserve the WAV on disk, and reset the buffer in two
+    /// explicit steps rather than the `reset_after` boolean. Has no
+    /// effect on the start/stop recording path — that uses its own
+    /// per-recording offset.
+    ClearAudioCapture,
     /// Switch the live machine to the named variant, loading its
     /// default ROM bundle from the conventional on-disk location.
     ///
@@ -1073,6 +1097,10 @@ impl ScriptStep {
                 if *reset_after {
                     session.clear_audio_capture();
                 }
+                Ok(None)
+            }
+            Self::ClearAudioCapture => {
+                session.clear_audio_capture();
                 Ok(None)
             }
             Self::SetMachine { .. } => Err(ScriptError::SystemSpecificStep {

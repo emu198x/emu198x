@@ -55,10 +55,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn register_all_publishes_thirty_nine_tools() {
+    fn register_all_publishes_the_full_tool_set() {
         let mut server: Server<tools::SpectrumSession> =
             Server::new(ServerInfo::new("emu198x-spectrum", "0.0.0"));
         tools::register_all(server.registry_mut());
-        assert_eq!(server.registry().len(), 39);
+        // 39 prior tools + clear_audio_capture (added when save_audio_capture
+        // was demoted to legacy in favour of start_/stop_audio_recording).
+        assert_eq!(server.registry().len(), 40);
     }
 }

@@ -117,6 +117,11 @@ pub trait SpectrumLiveAccess {
     fn ay_write_watch_records(&self) -> Option<&[common_sinclair_zx_spectrum::AyWriteRecord]>;
     /// Drop captured AY records without removing the watch.
     fn clear_ay_write_watch_records(&mut self);
+    /// Apply a parsed portable snapshot (`.sna` / `.z80`) to the live
+    /// machine. The family-MCP path uses this to share the GUI / script
+    /// portable-snapshot loader without enumerating variants at the
+    /// call site.
+    fn apply_snapshot(&mut self, snap: &common_sinclair_zx_spectrum::snapshot::Snapshot);
 }
 
 impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
@@ -200,6 +205,10 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 
     fn clear_ay_write_watch_records(&mut self) {
         self.machine_mut().clear_ay_write_watch_records();
+    }
+
+    fn apply_snapshot(&mut self, snap: &common_sinclair_zx_spectrum::snapshot::Snapshot) {
+        SpectrumMachine::apply_snapshot(self.machine_mut(), snap);
     }
 }
 
@@ -485,6 +494,10 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
 
     fn clear_ay_write_watch_records(&mut self) {
         match_kind!(self, |rt| rt.clear_ay_write_watch_records())
+    }
+
+    fn apply_snapshot(&mut self, snap: &common_sinclair_zx_spectrum::snapshot::Snapshot) {
+        match_kind!(self, |rt| rt.apply_snapshot(snap))
     }
 }
 

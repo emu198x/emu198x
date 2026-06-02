@@ -22,6 +22,7 @@
 mod live_machine;
 mod machine;
 mod mcp;
+mod portable_snapshot;
 mod script;
 
 #[cfg(feature = "ui")]

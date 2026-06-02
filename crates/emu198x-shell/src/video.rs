@@ -438,6 +438,15 @@ fn intermediate_audio_path(output: &Path) -> PathBuf {
 }
 
 fn video_pass_args(width: u32, height: u32, fps: u32, output: &Path) -> Vec<String> {
+    // Near-lossless H.264 with full 4:4:4 chroma. Retro framebuffers
+    // routinely use INK/PAPER dither — checkerboard patterns at single-
+    // pixel frequency — and the libx264 default (CRF 23 + 4:2:0 chroma
+    // subsampling) smears that into flat colour. CRF 12 keeps every
+    // detail visible; yuv444p stops chroma subsampling blurring
+    // iso-luminant colour dither even where luma contrast is absent.
+    // Playback compatibility tradeoff: yuv444p decodes less universally
+    // than yuv420p — drop back to 4:2:0 if downstream tooling rejects
+    // the master.
     vec![
         "-y".to_owned(),
         "-loglevel".to_owned(),
@@ -455,7 +464,11 @@ fn video_pass_args(width: u32, height: u32, fps: u32, output: &Path) -> Vec<Stri
         "-c:v".to_owned(),
         "libx264".to_owned(),
         "-pix_fmt".to_owned(),
-        "yuv420p".to_owned(),
+        "yuv444p".to_owned(),
+        "-crf".to_owned(),
+        "12".to_owned(),
+        "-preset".to_owned(),
+        "slow".to_owned(),
         "-movflags".to_owned(),
         "+faststart".to_owned(),
         output.to_string_lossy().into_owned(),
@@ -578,7 +591,11 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "rawvideo"));
         assert!(args.iter().any(|arg| arg == "rgba"));
         assert!(args.iter().any(|arg| arg == "libx264"));
-        assert!(args.iter().any(|arg| arg == "yuv420p"));
+        // Full chroma (4:4:4) keeps iso-luminant dither intact.
+        assert!(args.iter().any(|arg| arg == "yuv444p"));
+        // Near-lossless rate control — CRF 12 (default libx264 is 23).
+        assert!(args.iter().any(|arg| arg == "-crf"));
+        assert!(args.iter().any(|arg| arg == "12"));
         assert!(args.iter().any(|arg| arg == "320x240"));
         assert!(args.iter().any(|arg| arg == "50"));
         assert!(args.iter().any(|arg| arg == "/tmp/out.mp4"));
