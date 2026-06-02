@@ -876,8 +876,11 @@ dependencies = [
 name = "emu198x-acorn-electron"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-acorn-electron",
  "png",
+ "runtime-acorn-electron",
+ "serde_json",
 ]
 
 [[package]]
@@ -3452,6 +3455,17 @@ checksum = "72f81bee8c8ef9b577d1681a70ebbc962c232461e397b22c208c43c04b67a155"
 dependencies = [
  "rmp",
  "serde",
+]
+
+[[package]]
+name = "runtime-acorn-electron"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-acorn-electron",
+ "postcard",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

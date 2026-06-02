@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-acorn-electron"
-description = "Acorn Electron headless runner — 6502A + custom ULA"
+description = "Acorn Electron headless runner with shell-backed script + MCP parity — 6502A + custom ULA"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-acorn-electron"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-acorn-electron = { path = "../machine-acorn-electron" }
 png = { workspace = true }
+runtime-acorn-electron = { path = "../runtime-acorn-electron" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

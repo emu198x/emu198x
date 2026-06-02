@@ -438,6 +438,18 @@ impl AcornElectron {
         self.scanline += 1;
     }
 
+    /// Framebuffer width.
+    #[must_use]
+    pub fn framebuffer_width(&self) -> u32 {
+        FB_WIDTH
+    }
+
+    /// Framebuffer height.
+    #[must_use]
+    pub fn framebuffer_height(&self) -> u32 {
+        FB_HEIGHT
+    }
+
     /// Framebuffer (640×256 ARGB32).
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {

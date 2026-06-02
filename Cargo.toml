@@ -163,6 +163,7 @@ members = [
     "crates/ricoh-ppu-2c02",
     "crates/runtime-commodore-c64",
     "crates/runtime-nintendo-game-boy",
+    "crates/runtime-acorn-electron",
     "crates/runtime-atari-2600",
     "crates/runtime-coleco-colecovision",
     "crates/runtime-mattel-aquarius",
