@@ -33,11 +33,10 @@ impl KeyboardState {
         let mut result = 0u8;
         for (row_idx, &row_val) in self.rows.iter().enumerate() {
             for col in 0..8 {
-                if col_select & (1 << col) == 0 {
-                    if row_val & (1 << col) != 0 {
+                if col_select & (1 << col) == 0
+                    && row_val & (1 << col) != 0 {
                         result |= 1 << (row_idx & 7);
                     }
-                }
             }
         }
         !result

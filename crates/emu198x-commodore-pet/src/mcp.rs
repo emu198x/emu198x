@@ -30,8 +30,7 @@ pub fn run() -> Result<(), String> {
     let char_rom = rom_path("CHAR", "chargen.rom");
     if let (Some(kp), Some(bp), Some(ep), Some(cp)) =
         (kernal.as_ref(), basic.as_ref(), editor.as_ref(), char_rom.as_ref())
-    {
-        if let (Ok(k), Ok(b), Ok(e), Ok(c)) = (fs::read(kp), fs::read(bp), fs::read(ep), fs::read(cp))
+        && let (Ok(k), Ok(b), Ok(e), Ok(c)) = (fs::read(kp), fs::read(bp), fs::read(ep), fs::read(cp))
         {
             if k.len() == 4096 && b.len() == 8192 && e.len() == 2048 && c.len() == 4096 {
                 machine
@@ -44,7 +43,6 @@ pub fn run() -> Result<(), String> {
                 );
             }
         }
-    }
 
     let mut session = HeadlessSession::new_with_query_provider(
         machine,
@@ -62,11 +60,10 @@ pub fn run() -> Result<(), String> {
 
 fn rom_path(kind: &str, default_file: &str) -> Option<PathBuf> {
     let env_key = format!("EMU198X_PET_{kind}");
-    if let Ok(p) = env::var(&env_key) {
-        if !p.is_empty() {
+    if let Ok(p) = env::var(&env_key)
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(format!(".emu198x/roms/commodore-pet/{default_file}"));
     if default.exists() { Some(default) } else { None }

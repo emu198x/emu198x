@@ -149,7 +149,7 @@ impl ElectronUla {
     fn bytes_per_line(&self) -> usize {
         match self.mode() {
             0..=3 => 80,
-            4 | 5 | 6 => 40,
+            4..=6 => 40,
             _ => 40,
         }
     }

@@ -246,7 +246,7 @@ impl Sms {
         if cart_banks == 0 {
             return 0xFF;
         }
-        let mask = cart_banks.next_power_of_two().saturating_sub(1).max(0);
+        let mask = cart_banks.next_power_of_two().saturating_sub(1);
         let bank = (bank as usize) & mask;
         let addr = bank * 0x4000 + offset;
         self.cart_rom.get(addr).copied().unwrap_or(0xFF)

@@ -101,11 +101,10 @@ fn die(message: &str) -> ! {
 
 fn default_rom(kind: &str, default_file: &str) -> Option<PathBuf> {
     let env_key = format!("EMU198X_PET_{kind}");
-    if let Ok(p) = env::var(&env_key) {
-        if !p.is_empty() {
+    if let Ok(p) = env::var(&env_key)
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(format!(".emu198x/roms/commodore-pet/{default_file}")))
 }

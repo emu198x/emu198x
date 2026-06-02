@@ -12,15 +12,14 @@ use emu198x_shell::InputEvent;
 use machine_acorn_electron::AcornElectron;
 
 pub(crate) fn apply_input_event(machine: &mut AcornElectron, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event {
-        if let Some((col, row)) = key_to_matrix(name.as_ref()) {
+    if let InputEvent::Key { name, pressed } = event
+        && let Some((col, row)) = key_to_matrix(name.as_ref()) {
             if *pressed {
                 machine.press_key(col, row);
             } else {
                 machine.release_key(col, row);
             }
         }
-    }
 }
 
 #[must_use]

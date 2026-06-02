@@ -146,11 +146,11 @@ impl Atari7800 {
     fn tick_colour_clock(&mut self) {
         self.master_clock += 1;
 
-        if self.master_clock % u64::from(COLOUR_CLOCKS_PER_LINE) == 0 {
+        if self.master_clock.is_multiple_of(u64::from(COLOUR_CLOCKS_PER_LINE)) {
             self.process_scan_line();
         }
 
-        if self.master_clock % 2 == 0 {
+        if self.master_clock.is_multiple_of(2) {
             self.line_cycle += 1;
             if self.line_cycle > u16::from(self.dma_budget) && !self.maria.wsync_halt() {
                 self.cpu.tick();

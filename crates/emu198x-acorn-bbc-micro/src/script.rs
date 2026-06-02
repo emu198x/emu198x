@@ -100,11 +100,10 @@ fn die(message: &str) -> ! {
 }
 
 fn default_mos_path() -> Option<PathBuf> {
-    if let Ok(p) = env::var("EMU198X_BBC_MOS") {
-        if !p.is_empty() {
+    if let Ok(p) = env::var("EMU198X_BBC_MOS")
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".emu198x/roms/acorn-bbc-micro/os.rom"))
 }

@@ -4,15 +4,14 @@ use emu198x_shell::InputEvent;
 use machine_commodore_pet::{Pet, PetKey};
 
 pub(crate) fn apply_input_event(machine: &mut Pet, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event {
-        if let Some(key) = key_from_name(name.as_ref()) {
+    if let InputEvent::Key { name, pressed } = event
+        && let Some(key) = key_from_name(name.as_ref()) {
             if *pressed {
                 machine.press_key(key);
             } else {
                 machine.release_key(key);
             }
         }
-    }
 }
 
 #[must_use]

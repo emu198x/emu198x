@@ -105,11 +105,10 @@ fn die(message: &str) -> ! {
 }
 
 fn default_rom_path() -> Option<PathBuf> {
-    if let Ok(p) = env::var("EMU198X_MTX_ROM") {
-        if !p.is_empty() {
+    if let Ok(p) = env::var("EMU198X_MTX_ROM")
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".emu198x/roms/memotech-mtx/mtx.rom"))
 }

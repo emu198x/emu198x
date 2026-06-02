@@ -124,7 +124,7 @@ impl Atari2600 {
         self.master_clock += 1;
         self.tia.tick();
         // CPU + RIOT tick every 3rd colour clock.
-        if self.master_clock % 3 == 0 {
+        if self.master_clock.is_multiple_of(3) {
             if !self.tia.wsync_halt {
                 self.cpu.tick();
                 if self.cpu.rw {

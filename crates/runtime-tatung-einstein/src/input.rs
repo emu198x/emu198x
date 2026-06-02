@@ -8,15 +8,14 @@ use emu198x_shell::InputEvent;
 use machine_tatung_einstein::Einstein;
 
 pub(crate) fn apply_input_event(machine: &mut Einstein, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event {
-        if let Some((row, col)) = key_to_matrix(name.as_ref()) {
+    if let InputEvent::Key { name, pressed } = event
+        && let Some((row, col)) = key_to_matrix(name.as_ref()) {
             if *pressed {
                 machine.press_key(row, col);
             } else {
                 machine.release_key(row, col);
             }
         }
-    }
 }
 
 #[must_use]

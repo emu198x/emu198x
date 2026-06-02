@@ -115,7 +115,7 @@ impl Zx81Ula {
         // The NMI drives the display generation — each NMI triggers the NMI handler
         // which executes HALT, and the ULA renders one line of characters.
         let in_display = self.line >= FIRST_SCREEN_LINE
-            && self.line < FIRST_SCREEN_LINE + SCREEN_HEIGHT as u32;
+            && self.line < FIRST_SCREEN_LINE + SCREEN_HEIGHT;
         let line_tstate = self.tstate % TSTATES_PER_LINE;
 
         // Assert NMI at the start of each active display line

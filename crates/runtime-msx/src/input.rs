@@ -28,15 +28,14 @@ use machine_msx::Msx;
 
 /// Apply one host input event to the MSX keyboard matrix.
 pub(crate) fn apply_input_event(machine: &mut Msx, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event {
-        if let Some((row, bit)) = key_to_matrix(name.as_ref()) {
+    if let InputEvent::Key { name, pressed } = event
+        && let Some((row, bit)) = key_to_matrix(name.as_ref()) {
             if *pressed {
                 machine.press_key(row, bit);
             } else {
                 machine.release_key(row, bit);
             }
         }
-    }
 }
 
 /// Map a host-level key name to an MSX keyboard matrix (row, bit).

@@ -165,12 +165,12 @@ impl Atari5200 {
         self.master_clock += 1;
 
         // At every scan-line boundary, run ANTIC + render.
-        if self.master_clock % u64::from(COLOUR_CLOCKS_PER_LINE) == 0 {
+        if self.master_clock.is_multiple_of(u64::from(COLOUR_CLOCKS_PER_LINE)) {
             self.process_scan_line();
         }
 
         // CPU + POKEY tick every 2nd colour clock.
-        if self.master_clock % 2 == 0 {
+        if self.master_clock.is_multiple_of(2) {
             self.line_cycle += 1;
             // CPU stalls for the ANTIC DMA budget at the start of the
             // line; freed once line_cycle exceeds the budget.

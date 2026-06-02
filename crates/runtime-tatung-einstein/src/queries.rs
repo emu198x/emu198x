@@ -37,7 +37,7 @@ impl SessionQueryProvider<EinsteinRuntime> for EinsteinSessionQueryProvider {
         let value = match path {
             "einstein.firmware.loaded" => json!(machine.machine().is_some()),
             "einstein.machine.frame_count" => json!(machine.machine().map_or(0, Einstein::frame_count)),
-            "einstein.machine.rom_paged_in" => json!(machine.machine().map_or(false, Einstein::rom_paged_in)),
+            "einstein.machine.rom_paged_in" => json!(machine.machine().is_some_and(Einstein::rom_paged_in)),
             "einstein.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             "einstein.cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
             _ => return Ok(None),

@@ -87,11 +87,10 @@ fn die(message: &str) -> ! {
 
 fn default_rom_path(kind: &str) -> Option<PathBuf> {
     let env_key = format!("EMU198X_ELECTRON_{}", kind.to_ascii_uppercase());
-    if let Ok(p) = env::var(&env_key) {
-        if !p.is_empty() {
+    if let Ok(p) = env::var(&env_key)
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     Some(
         PathBuf::from(home).join(format!(

@@ -122,15 +122,15 @@ impl Vic6560 {
             let char_col = self.pixel_x;
 
             // Screen memory base from registers
-            let screen_base = ((u16::from(self.regs[5]) & 0xF0) as u16) << 6
-                | ((u16::from(self.regs[2]) & 0x80) as u16) << 2;
+            let screen_base = (u16::from(self.regs[5]) & 0xF0) << 6
+                | (u16::from(self.regs[2]) & 0x80) << 2;
 
             let char_addr = screen_base.wrapping_add(char_row as u16 * 22 + char_col as u16);
             let char_code = read_screen(char_addr);
             let colour_nibble = read_colour(char_addr) & 0x0F;
 
             // Character ROM lookup
-            let char_rom_base = ((u16::from(self.regs[5]) & 0x0F) as u16) << 10;
+            let char_rom_base = (u16::from(self.regs[5]) & 0x0F) << 10;
             let char_rom_addr = char_rom_base.wrapping_add(u16::from(char_code) * 8 + pixel_in_char_y as u16);
             let char_data = read_char_rom(char_rom_addr);
 

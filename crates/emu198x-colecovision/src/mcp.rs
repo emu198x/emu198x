@@ -26,8 +26,8 @@ const CV_FRAME_TICKS_NTSC: u64 = 228 * 262;
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
 pub fn run() -> Result<(), String> {
     let mut machine = CvRuntime::blank(Model::CvNtsc);
-    if let Some(path) = bios_path() {
-        if let Ok(bytes) = fs::read(&path) {
+    if let Some(path) = bios_path()
+        && let Ok(bytes) = fs::read(&path) {
             if bytes.len() == 8 * 1024 {
                 machine
                     .set_bios(bytes)
@@ -44,7 +44,6 @@ pub fn run() -> Result<(), String> {
                 );
             }
         }
-    }
 
     let mut session =
         HeadlessSession::new_with_query_provider(machine, CV_FRAME_TICKS_NTSC, CvSessionQueryProvider);
@@ -59,11 +58,10 @@ pub fn run() -> Result<(), String> {
 }
 
 fn bios_path() -> Option<PathBuf> {
-    if let Ok(p) = env::var("EMU198X_COLECO_BIOS") {
-        if !p.is_empty() {
+    if let Ok(p) = env::var("EMU198X_COLECO_BIOS")
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(".emu198x/roms/coleco-colecovision/colecovision.rom");
     if default.exists() { Some(default) } else { None }

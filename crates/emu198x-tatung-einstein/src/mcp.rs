@@ -22,8 +22,8 @@ const FRAME_TICKS_PAL: u64 = 4_000_000 / 50;
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
 pub fn run() -> Result<(), String> {
     let mut machine = EinsteinRuntime::blank(Model::Einstein);
-    if let Some(path) = rom_path() {
-        if let Ok(bytes) = fs::read(&path) {
+    if let Some(path) = rom_path()
+        && let Ok(bytes) = fs::read(&path) {
             if bytes.len() == 8 * 1024 {
                 machine
                     .set_rom(bytes)
@@ -40,7 +40,6 @@ pub fn run() -> Result<(), String> {
                 );
             }
         }
-    }
 
     let mut session = HeadlessSession::new_with_query_provider(
         machine,
@@ -57,11 +56,10 @@ pub fn run() -> Result<(), String> {
 }
 
 fn rom_path() -> Option<PathBuf> {
-    if let Ok(p) = env::var("EMU198X_EINSTEIN_MOS") {
-        if !p.is_empty() {
+    if let Ok(p) = env::var("EMU198X_EINSTEIN_MOS")
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(".emu198x/roms/tatung-einstein/mos.rom");
     if default.exists() { Some(default) } else { None }

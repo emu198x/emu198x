@@ -37,6 +37,7 @@ Shared:
 ";
 
 #[derive(Debug)]
+#[derive(Default)]
 struct Cli {
     bios: Option<PathBuf>,
     cart: Option<PathBuf>,
@@ -47,19 +48,6 @@ struct Cli {
     script: Option<PathBuf>,
 }
 
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            bios: None,
-            cart: None,
-            expansion_kb: 0,
-            frames: 0,
-            screenshot: None,
-            audio_capture: None,
-            script: None,
-        }
-    }
-}
 
 fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
     let mut cli = Cli::default();
@@ -109,11 +97,10 @@ fn die(message: &str) -> ! {
 }
 
 fn default_bios_path() -> Option<PathBuf> {
-    if let Ok(p) = env::var("EMU198X_AQUARIUS_BIOS") {
-        if !p.is_empty() {
+    if let Ok(p) = env::var("EMU198X_AQUARIUS_BIOS")
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".emu198x/roms/mattel-aquarius/aquarius.rom"))
 }

@@ -26,8 +26,8 @@ pub fn run() -> Result<(), String> {
     let kernal = rom_path("KERNAL", "kernal.rom");
     let basic = rom_path("BASIC", "basic.rom");
     let char_rom = rom_path("CHAR", "chargen.rom");
-    if let (Some(kp), Some(bp), Some(cp)) = (kernal.as_ref(), basic.as_ref(), char_rom.as_ref()) {
-        if let (Ok(k), Ok(b), Ok(c)) = (fs::read(kp), fs::read(bp), fs::read(cp)) {
+    if let (Some(kp), Some(bp), Some(cp)) = (kernal.as_ref(), basic.as_ref(), char_rom.as_ref())
+        && let (Ok(k), Ok(b), Ok(c)) = (fs::read(kp), fs::read(bp), fs::read(cp)) {
             if k.len() == 8192 && b.len() == 8192 && c.len() == 4096 {
                 machine
                     .set_roms(k, b, c)
@@ -39,7 +39,6 @@ pub fn run() -> Result<(), String> {
                 );
             }
         }
-    }
 
     let mut session = HeadlessSession::new_with_query_provider(
         machine,
@@ -57,11 +56,10 @@ pub fn run() -> Result<(), String> {
 
 fn rom_path(kind: &str, default_file: &str) -> Option<PathBuf> {
     let env_key = format!("EMU198X_VIC20_{kind}");
-    if let Ok(p) = env::var(&env_key) {
-        if !p.is_empty() {
+    if let Ok(p) = env::var(&env_key)
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     let default =
         PathBuf::from(home).join(format!(".emu198x/roms/commodore-vic-20/{default_file}"));

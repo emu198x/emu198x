@@ -74,11 +74,10 @@ pub fn run() -> Result<(), String> {
 }
 
 fn bios_path() -> Option<PathBuf> {
-    if let Ok(p) = env::var("EMU198X_MSX_BIOS") {
-        if !p.is_empty() {
+    if let Ok(p) = env::var("EMU198X_MSX_BIOS")
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(".emu198x/roms/microsoft-msx/msx.rom");
     if default.exists() { Some(default) } else { None }

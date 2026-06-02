@@ -103,11 +103,10 @@ fn die(message: &str) -> ! {
 }
 
 fn default_rom_path() -> Option<PathBuf> {
-    if let Ok(p) = env::var("EMU198X_ZX81_ROM") {
-        if !p.is_empty() {
+    if let Ok(p) = env::var("EMU198X_ZX81_ROM")
+        && !p.is_empty() {
             return Some(PathBuf::from(p));
         }
-    }
     let home = env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".emu198x/roms/sinclair-zx81/zx81.rom"))
 }

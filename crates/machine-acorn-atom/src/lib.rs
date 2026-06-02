@@ -146,11 +146,10 @@ impl AcornAtom {
 
     fn mem_write(&mut self, addr: u16, value: u8) {
         match addr {
-            0x0000..=0x7FFF => {
-                if (addr as usize) < self.ram_size {
+            0x0000..=0x7FFF
+                if (addr as usize) < self.ram_size => {
                     self.ram[addr as usize] = value;
                 }
-            }
             0x8000..=0x9FFF => {
                 self.video_ram[(addr & 0x03FF) as usize] = value;
             }
@@ -192,13 +191,10 @@ impl AcornAtom {
     #[must_use]
     pub fn peek_memory(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x7FFF => {
-                if (addr as usize) < self.ram_size {
+            0x0000..=0x7FFF
+                if (addr as usize) < self.ram_size => {
                     self.ram[addr as usize]
-                } else {
-                    0xFF
                 }
-            }
             0x8000..=0x9FFF => self.video_ram[(addr & 0x03FF) as usize],
             0xB000 => self.vdg.control,
             0xA000..=0xAFFF => self.rom.get((addr - 0xA000) as usize).copied().unwrap_or(0xFF),

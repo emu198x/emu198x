@@ -4,15 +4,14 @@ use emu198x_shell::InputEvent;
 use machine_sinclair_zx80::{Zx80, Zx80Key};
 
 pub(crate) fn apply_input_event(machine: &mut Zx80, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event {
-        if let Some(key) = key_from_name(name.as_ref()) {
+    if let InputEvent::Key { name, pressed } = event
+        && let Some(key) = key_from_name(name.as_ref()) {
             if *pressed {
                 machine.press_key(key);
             } else {
                 machine.release_key(key);
             }
         }
-    }
 }
 
 #[must_use]
