@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-sega-sg-1000"
-description = "Sega SG-1000 / SC-3000 headless runner — Z80 + TMS9918A + SN76489A"
+description = "Sega SG-1000 / SC-3000 headless runner with shell-backed script + MCP parity — Z80 + TMS9918A + SN76489A"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-sega-sg-1000"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-sega-sg-1000 = { path = "../machine-sega-sg-1000" }
 png = { workspace = true }
+runtime-sega-sg-1000 = { path = "../runtime-sega-sg-1000" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

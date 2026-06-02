@@ -333,6 +333,13 @@ impl Sg1000 {
         self.cpu_tstates
     }
 
+    /// Observe one byte on the Z80 bus without side effects.
+    /// Resolves cartridge / RAM via the standard SG-1000 memory map.
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.mem_read(addr)
+    }
+
     /// Frame count since power-on.
     #[must_use]
     pub fn frame_count(&self) -> u64 {

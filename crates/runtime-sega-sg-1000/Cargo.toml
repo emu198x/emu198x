@@ -1,0 +1,17 @@
+[package]
+name = "runtime-sega-sg-1000"
+description = "Sega SG-1000 / SC-3000 family metadata and headless runtime wrapper"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
+machine-sega-sg-1000 = { path = "../machine-sega-sg-1000" }
+postcard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

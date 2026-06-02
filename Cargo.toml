@@ -165,6 +165,7 @@ members = [
     "crates/runtime-nintendo-game-boy",
     "crates/runtime-coleco-colecovision",
     "crates/runtime-msx",
+    "crates/runtime-sega-sg-1000",
     "crates/runtime-nintendo-nes",
     "crates/runtime-sinclair-zx-spectrum",
     "crates/sinclair-ula-7k010e",
