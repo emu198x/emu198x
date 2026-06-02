@@ -95,3 +95,70 @@ fn basic_boot_programs_antic_and_gtia() {
         "expected a small cursor block (~64 px); rarest colour covers {smallest} px"
     );
 }
+
+/// "READY" screen codes (internal display codes, not ATASCII).
+/// R=$32 E=$25 A=$21 D=$24 Y=$39.
+const READY_SCREEN_CODES: [u8; 5] = [0x32, 0x25, 0x21, 0x24, 0x39];
+
+#[test]
+#[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
+fn boots_to_basic_ready() {
+    let dir = rom_dir().expect("HOME unset");
+    let os = std::fs::read(dir.join("atarixl.rom")).expect("atarixl.rom");
+    let basic = std::fs::read(dir.join("ataribas.rom")).expect("ataribas.rom");
+    let mut sys =
+        Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true).expect("boot");
+
+    // The built-in BASIC cartridge sets the "boot peripherals" flag, so the
+    // OS attempts a disk boot over SIO before running BASIC. With no drive,
+    // POKEY's serial transmit completes, the ACK times out, and the OS falls
+    // through to the cartridge. BASIC cold-starts and prints READY. This needs
+    // ~5 s of emulated time for the SIO retries to exhaust.
+    for _ in 0..600 {
+        sys.run_frame();
+    }
+
+    // BASIC's cold start initialises its zero-page pointers: LOMEM ($80/$81)
+    // and the variable-name table pointer VNTP ($82/$83) become non-zero.
+    let lomem = u16::from(sys.ram()[0x80]) | (u16::from(sys.ram()[0x81]) << 8);
+    let vntp = u16::from(sys.ram()[0x82]) | (u16::from(sys.ram()[0x83]) << 8);
+    assert_ne!(
+        lomem, 0,
+        "BASIC never cold-started (LOMEM still zero) — the OS did not fall \
+         through the SIO disk boot to the cartridge"
+    );
+    assert_ne!(vntp, 0, "BASIC VNTP still zero — cold start incomplete");
+
+    // "READY" must be present in the live screen RAM (located via the display
+    // list's first LMS operand, since BASIC's screen sits below RAMTOP $A0).
+    let ram = sys.ram();
+    let dlist = u16::from(ram[0x0230]) | (u16::from(ram[0x0231]) << 8);
+    let screen = first_lms_target(ram, dlist).expect("display list has an LMS");
+    let found = (0..40 * 24 - READY_SCREEN_CODES.len())
+        .any(|j| ram[screen + j..screen + j + READY_SCREEN_CODES.len()] == READY_SCREEN_CODES);
+    assert!(
+        found,
+        "BASIC's READY prompt was not found in screen RAM at ${screen:04X}"
+    );
+}
+
+/// Walk a display list and return the screen-memory address from its first
+/// LMS (load-memory-scan) instruction — a mode-line byte ($02-$0F) with the
+/// LMS bit (6) set, whose two operand bytes hold the address.
+fn first_lms_target(ram: &[u8], dlist: u16) -> Option<usize> {
+    let mut p = dlist as usize;
+    for _ in 0..64 {
+        let b = ram[p];
+        let mode = b & 0x0F;
+        let lms = b & 0x40 != 0;
+        if lms && mode >= 0x02 {
+            return Some(usize::from(ram[p + 1]) | (usize::from(ram[p + 2]) << 8));
+        }
+        match mode {
+            0x01 => return None, // jump — give up
+            _ if lms => p += 3,  // mode line + LMS operand
+            _ => p += 1,         // blank / plain mode line
+        }
+    }
+    None
+}

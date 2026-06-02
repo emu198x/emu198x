@@ -80,18 +80,37 @@ const POLY17_PERIOD: u32 = 131_071;
 const IRQ_TIMER1: u8 = 0x01;
 const IRQ_TIMER2: u8 = 0x02;
 const IRQ_TIMER4: u8 = 0x04;
-// Serial and other IRQ bits — not yet used by the audio/timer path,
-// but defined here for completeness and future serial I/O support.
+// Serial IRQ bits (POKEY IRQST/IRQEN layout):
+//   bit 3 = serial output transmission finished (shift register empty)
+//   bit 4 = serial output data needed (holding register empty)
+//   bit 5 = serial input data ready
+// Both output IRQs are edge events: each asserts (bit → 0) once when its
+// stage completes, and the CPU clears it by toggling IRQEN (which sets the
+// IRQST bit back to 1 — see the IRQEN write below). They must NOT be held
+// asserted, or the OS IRQ dispatcher — which services bit 4 at a higher
+// priority than bit 3 — would loop on bit 4 forever and never finish a frame.
+const IRQ_SEROUT_DONE: u8 = 0x08;
+const IRQ_SEROUT_NEEDED: u8 = 0x10;
 #[allow(dead_code)]
-const IRQ_SERIN: u8 = 0x08;
-#[allow(dead_code)]
-const IRQ_SEROUT: u8 = 0x10;
-#[allow(dead_code)]
-const IRQ_SERFIN: u8 = 0x20;
+const IRQ_SERIN_READY: u8 = 0x20;
 #[allow(dead_code)]
 const IRQ_OTHER: u8 = 0x40;
 #[allow(dead_code)]
 const IRQ_BREAK: u8 = 0x80;
+
+/// SKCTL bit 5 — serial output clock enabled (the OS sets SKCTL = $23 to
+/// transmit). Used to prime "output data needed" when a frame starts.
+const SKCTL_SEROUT_ENABLE: u8 = 0x20;
+
+/// POKEY ticks for a serial byte to fully shift out (≈ a 10-bit frame at the
+/// ~19.2 kbaud SIO rate; `tick` runs once per machine cycle). Only the
+/// handshake order is software-observable, so this is a round figure.
+const SEROUT_SHIFT_TICKS: u16 = 930;
+
+/// Ticks until the holding register empties into the shift register (≈ one
+/// bit time). Shorter than the full shift so "output data needed" (bit 4)
+/// leads "transmission finished" (bit 3) within each byte.
+const SEROUT_HOLD_TICKS: u16 = 90;
 
 // AUDCTL bit masks.
 const AUDCTL_POLY9: u8 = 0x01;
@@ -215,6 +234,16 @@ pub struct Pokey {
     /// SEROUT — serial output data.
     serout: u8,
 
+    /// Serial-output transmit, modelled as two stages so the OS's SIO send
+    /// sees the right handshake order. `serout_hold_delay` counts down to the
+    /// holding-register-empty edge (asserts IRQST bit 4, "output needed");
+    /// `serout_shift_delay` counts down to the shift-register-empty edge
+    /// (asserts IRQST bit 3, "transmission finished"). Both are edge events:
+    /// asserted once on completion, cleared by the CPU's IRQEN-toggle ack.
+    /// See [`SEROUT_HOLD_TICKS`] / [`SEROUT_SHIFT_TICKS`].
+    serout_hold_delay: u16,
+    serout_shift_delay: u16,
+
     /// KBCODE — keyboard scan code.
     kbcode: u8,
 
@@ -292,6 +321,8 @@ impl Pokey {
             skstat: 0xFF,
             serin: 0,
             serout: 0,
+            serout_hold_delay: 0,
+            serout_shift_delay: 0,
             kbcode: 0,
             pot_target: [0; NUM_POTS],
             pot_value: [0; NUM_POTS],
@@ -326,6 +357,23 @@ impl Pokey {
     pub fn tick(&mut self) {
         // Advance polynomial counters (run at CPU clock rate).
         self.poly_counter = self.poly_counter.wrapping_add(1);
+
+        // Serial-output two-stage handshake (edge-triggered — see the field
+        // docs). Each stage asserts its IRQST bit exactly once on completion;
+        // the CPU clears it by toggling IRQEN. Holding the bits asserted would
+        // make the OS dispatcher loop on bit 4 (higher priority) forever.
+        if self.serout_hold_delay > 0 {
+            self.serout_hold_delay -= 1;
+            if self.serout_hold_delay == 0 {
+                self.irqst &= !IRQ_SEROUT_NEEDED; // holding register empty
+            }
+        }
+        if self.serout_shift_delay > 0 {
+            self.serout_shift_delay -= 1;
+            if self.serout_shift_delay == 0 {
+                self.irqst &= !IRQ_SEROUT_DONE; // transmission finished
+            }
+        }
 
         // Pot scan: one increment per scan line (114 CPU cycles).
         if self.pot_scanning {
@@ -480,9 +528,14 @@ impl Pokey {
             // $0C: unused write address.
             0x0C => {}
 
-            // SEROUT: serial output data.
+            // SEROUT: serial output data. Loading the holding register marks
+            // output busy (bit 4 = 1) and the transmitter active (bit 3 = 1),
+            // and arms both stage timers (see `tick`).
             0x0D => {
                 self.serout = value;
+                self.serout_hold_delay = SEROUT_HOLD_TICKS;
+                self.serout_shift_delay = SEROUT_SHIFT_TICKS;
+                self.irqst |= IRQ_SEROUT_NEEDED | IRQ_SEROUT_DONE;
             }
 
             // IRQEN: interrupt enable mask.
@@ -493,9 +546,15 @@ impl Pokey {
                 self.irqst |= !value;
             }
 
-            // SKCTL: serial port control.
+            // SKCTL: serial port control. Enabling the serial-output clock
+            // (bit 5) while the transmitter is idle primes "output data
+            // needed" — the holding register is empty, so the OS's send loop
+            // (polled at $CF2D, or the first interrupt byte) can start.
             0x0F => {
                 self.skctl = value;
+                if value & SKCTL_SEROUT_ENABLE != 0 && self.serout_hold_delay == 0 {
+                    self.irqst &= !IRQ_SEROUT_NEEDED;
+                }
             }
 
             _ => {}
