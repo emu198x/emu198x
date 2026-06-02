@@ -230,7 +230,7 @@ mod tests {
         let mut char_ram = vec![0u8; CHAR_RAM_SIZE];
         // Define character 1 as a solid block
         for row in 0..8 {
-            char_ram[1 * 8 + row] = 0xFF;
+            char_ram[8 + row] = 0xFF;
         }
         // Place character 1 at position (0,0)
         video_ram[0] = 1;

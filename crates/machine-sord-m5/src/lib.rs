@@ -454,7 +454,7 @@ mod tests {
     fn vdp_io_routes_at_0x00_block() {
         let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
         sys.io_write(0x01, 0x80); // VDP control low byte
-        sys.io_write(0x01, 0xC0 | 0x00); // VDP control high (write to VRAM addr $0000)
+        sys.io_write(0x01, 0xC0); // VDP control high (write to VRAM addr $0000)
         sys.io_write(0x00, 0x42); // VDP data write
         // Reading status doesn't panic.
         let _ = sys.io_read(0x01);

@@ -332,7 +332,7 @@ fn write_block_header(out: &mut Vec<u8>, id: u8, payload_len: usize) -> usize {
 fn write_creator(out: &mut Vec<u8>, c: &Creator) {
     write_block_header(out, BLOCK_CREATOR, 24);
     let mut name_bytes = [0u8; 20];
-    let n = c.name.as_bytes().len().min(20);
+    let n = c.name.len().min(20);
     name_bytes[..n].copy_from_slice(&c.name.as_bytes()[..n]);
     out.extend_from_slice(&name_bytes);
     out.extend_from_slice(&c.version_major.to_le_bytes());
@@ -357,7 +357,7 @@ fn write_snapshot(out: &mut Vec<u8>, s: &Snapshot) -> Result<(), String> {
     write_block_header(out, BLOCK_SNAPSHOT, payload_len);
     out.extend_from_slice(&s.flags.to_le_bytes());
     let mut ext_bytes = [0u8; 4];
-    let n = s.extension.as_bytes().len().min(4);
+    let n = s.extension.len().min(4);
     ext_bytes[..n].copy_from_slice(&s.extension.as_bytes()[..n]);
     out.extend_from_slice(&ext_bytes);
     out.extend_from_slice(&(s.data.len() as u32).to_le_bytes());

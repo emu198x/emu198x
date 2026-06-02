@@ -463,7 +463,7 @@ mod tests {
         assert_eq!(fb.len(), (FB_WIDTH * FB_HEIGHT) as usize);
         let unique: std::collections::HashSet<u32> = fb.iter().copied().collect();
         assert!(
-            unique.len() >= 1,
+            !unique.is_empty(),
             "framebuffer should have rendered at least one colour"
         );
     }
