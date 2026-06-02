@@ -171,6 +171,8 @@ members = [
     "crates/runtime-msx",
     "crates/runtime-sega-master-system",
     "crates/runtime-sega-sg-1000",
+    "crates/runtime-sinclair-zx80",
+    "crates/runtime-sinclair-zx81",
     "crates/runtime-nintendo-nes",
     "crates/runtime-sinclair-zx-spectrum",
     "crates/sinclair-ula-7k010e",

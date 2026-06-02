@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-sinclair-zx81"
-description = "Sinclair ZX81 headless runner"
+description = "Sinclair ZX81 headless runner with shell-backed script + MCP parity"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,11 @@ name = "emu198x-sinclair-zx81"
 path = "src/main.rs"
 
 [dependencies]
+emu198x-shell = { path = "../emu198x-shell" }
 machine-sinclair-zx81 = { path = "../machine-sinclair-zx81" }
 png = { workspace = true }
+runtime-sinclair-zx81 = { path = "../runtime-sinclair-zx81" }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

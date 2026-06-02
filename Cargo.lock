@@ -1153,16 +1153,22 @@ dependencies = [
 name = "emu198x-sinclair-zx80"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-sinclair-zx80",
  "png",
+ "runtime-sinclair-zx80",
+ "serde_json",
 ]
 
 [[package]]
 name = "emu198x-sinclair-zx81"
 version = "0.1.0"
 dependencies = [
+ "emu198x-shell",
  "machine-sinclair-zx81",
  "png",
+ "runtime-sinclair-zx81",
+ "serde_json",
 ]
 
 [[package]]
@@ -3661,6 +3667,28 @@ dependencies = [
  "thiserror 2.0.18",
  "twox-hash",
  "zilog-z80",
+]
+
+[[package]]
+name = "runtime-sinclair-zx80"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-sinclair-zx80",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-sinclair-zx81"
+version = "0.1.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-sinclair-zx81",
+ "postcard",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

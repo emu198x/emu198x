@@ -1,139 +1,34 @@
-//! Sinclair ZX81 headless runner.
+//! `emu198x-sinclair-zx81` — ZX81 native binary.
 
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+mod mcp;
+mod mcp_tools;
+mod script;
 
-use machine_sinclair_zx81::{Zx81, FB_HEIGHT, FB_WIDTH};
+use std::process;
 
-fn usage() {
-    eprintln!(
-        "\
-Usage: emu198x-sinclair-zx81 --rom PATH [OPTIONS]
-
-Required:
-    --rom PATH                8 KB ROM
-
-Options:
-    --ram-kb N                1 or 16 [default: 16]
-    --frames N                native frames to run [default: 200]
-    --screenshot PATH         write the last frame as PNG
-    --help, -h                show this help
-"
-    );
+#[derive(Debug, PartialEq, Eq)]
+enum Mode {
+    Script,
+    Mcp,
 }
 
-struct Cli {
-    rom: Option<PathBuf>,
-    ram_kb: usize,
-    frames: u32,
-    screenshot: Option<PathBuf>,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            rom: None,
-            ram_kb: 16,
-            frames: 200,
-            screenshot: None,
-        }
+fn detect_mode(args: &[String]) -> Mode {
+    if args.iter().any(|a| a == "--mcp" || a == "--mcp-stdio") {
+        Mode::Mcp
+    } else {
+        Mode::Script
     }
 }
 
-fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Result<Cli, String> {
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        let mut next_value = || iter.next().ok_or_else(|| format!("{arg} expects a value"));
-        match arg.as_str() {
-            "--help" | "-h" => {
-                usage();
-                std::process::exit(0);
-            }
-            "--rom" => cli.rom = Some(PathBuf::from(next_value()?)),
-            "--ram-kb" => {
-                cli.ram_kb = next_value()?
-                    .parse()
-                    .map_err(|e| format!("--ram-kb expects 1 or 16: {e}"))?;
-            }
-            "--frames" => {
-                cli.frames = next_value()?
-                    .parse()
-                    .map_err(|e| format!("--frames expects a positive integer: {e}"))?;
-            }
-            "--screenshot" => cli.screenshot = Some(PathBuf::from(next_value()?)),
-            other => return Err(format!("unknown argument: {other}")),
-        }
-    }
-    Ok(cli)
-}
-
-fn write_screenshot(path: &Path, framebuffer: &[u32]) -> Result<(), String> {
-    let mut rgba = Vec::with_capacity(framebuffer.len() * 4);
-    for &px in framebuffer {
-        rgba.push(((px >> 16) & 0xFF) as u8);
-        rgba.push(((px >> 8) & 0xFF) as u8);
-        rgba.push((px & 0xFF) as u8);
-        rgba.push(0xFF);
-    }
-    let file = fs::File::create(path)
-        .map_err(|e| format!("failed to create screenshot {}: {e}", path.display()))?;
-    let mut encoder = png::Encoder::new(file, FB_WIDTH, FB_HEIGHT);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder
-        .write_header()
-        .map_err(|e| format!("PNG header write failed: {e}"))?;
-    writer
-        .write_image_data(&rgba)
-        .map_err(|e| format!("PNG body write failed: {e}"))?;
-    Ok(())
-}
-
-fn run(cli: Cli) -> Result<(), String> {
-    let rom_path = cli.rom.ok_or_else(|| "--rom PATH is required".to_string())?;
-    let rom = fs::read(&rom_path)
-        .map_err(|e| format!("failed to read ROM at {}: {e}", rom_path.display()))?;
-    let ram_size = match cli.ram_kb {
-        1 => 1024,
-        16 => 16384,
-        other => return Err(format!("--ram-kb must be 1 or 16, got {other}")),
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let result = match detect_mode(&args) {
+        Mode::Script => script::run(args),
+        Mode::Mcp => mcp::run(),
     };
-    let mut sys = Zx81::new(rom, ram_size)?;
-    for _ in 0..cli.frames {
-        sys.run_frame();
-    }
-    println!(
-        "ZX81 runtime: master_clock={} frames={} ram_kb={}",
-        sys.master_clock(),
-        sys.frame_count(),
-        cli.ram_kb
-    );
-    if let Some(path) = cli.screenshot.as_deref() {
-        write_screenshot(path, sys.framebuffer())?;
-        println!("Screenshot written: {}", path.display());
-    }
-    Ok(())
-}
-
-fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
-    let cli = match parse_cli(args) {
-        Ok(cli) => cli,
-        Err(e) => {
-            eprintln!("error: {e}");
-            usage();
-            return ExitCode::from(2);
-        }
-    };
-    match run(cli) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::FAILURE
-        }
+    if let Err(err) = result {
+        eprintln!("error: {err}");
+        process::exit(1);
     }
 }
 
@@ -142,8 +37,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_defaults() {
-        let cli = parse_cli(Vec::<String>::new()).expect("ok");
-        assert_eq!(cli.ram_kb, 16);
+    fn detect_mode_defaults_to_script() {
+        assert_eq!(detect_mode(&[]), Mode::Script);
+    }
+
+    #[test]
+    fn detect_mode_recognises_mcp() {
+        assert_eq!(detect_mode(&["--mcp".to_owned()]), Mode::Mcp);
     }
 }
