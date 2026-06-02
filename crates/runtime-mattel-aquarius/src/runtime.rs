@@ -72,11 +72,12 @@ impl AquariusRuntime {
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let bytes = firmware
-            .bytes(BIOS_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: BIOS_FIRMWARE_ID.to_owned(),
-            })?;
+        let bytes =
+            firmware
+                .bytes(BIOS_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: BIOS_FIRMWARE_ID.to_owned(),
+                })?;
         Self::new(model, bytes.to_vec())
     }
 

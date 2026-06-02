@@ -231,7 +231,7 @@ pub struct Tia {
     // --- Collision latches ---
     /// 15 collision flags, packed into CXM0P..CXPPMM registers.
     /// Bit layout matches hardware read registers.
-    cxm0p: u8,  // CXM0P:  M0-P1 (bit 7), M0-P0 (bit 6)
+    cxm0p: u8, // CXM0P:  M0-P1 (bit 7), M0-P0 (bit 6)
     cxm1p: u8,  // CXM1P:  M1-P0 (bit 7), M1-P1 (bit 6)
     cxp0fb: u8, // CXP0FB: P0-PF (bit 7), P0-BL (bit 6)
     cxp1fb: u8, // CXP1FB: P1-PF (bit 7), P1-BL (bit 6)
@@ -389,10 +389,36 @@ impl Tia {
     /// Evaluates playfield, players, missiles, ball, and applies priority.
     fn compose_pixel(&self, x: u16) -> u8 {
         let pf = self.playfield_bit(x);
-        let p0 = self.player_pixel(x, self.pos_p0, self.effective_grp0(), self.refp0, self.nusiz0);
-        let p1 = self.player_pixel(x, self.pos_p1, self.effective_grp1(), self.refp1, self.nusiz1);
-        let m0 = self.missile_pixel(x, self.pos_m0, self.enam0, self.nusiz0, self.resmp0, self.pos_p0);
-        let m1 = self.missile_pixel(x, self.pos_m1, self.enam1, self.nusiz1, self.resmp1, self.pos_p1);
+        let p0 = self.player_pixel(
+            x,
+            self.pos_p0,
+            self.effective_grp0(),
+            self.refp0,
+            self.nusiz0,
+        );
+        let p1 = self.player_pixel(
+            x,
+            self.pos_p1,
+            self.effective_grp1(),
+            self.refp1,
+            self.nusiz1,
+        );
+        let m0 = self.missile_pixel(
+            x,
+            self.pos_m0,
+            self.enam0,
+            self.nusiz0,
+            self.resmp0,
+            self.pos_p0,
+        );
+        let m1 = self.missile_pixel(
+            x,
+            self.pos_m1,
+            self.enam1,
+            self.nusiz1,
+            self.resmp1,
+            self.pos_p1,
+        );
         let bl = self.ball_pixel(x);
 
         // HMOVE blanking: first 8 pixels are black when HMOVE was triggered.
@@ -479,12 +505,20 @@ impl Tia {
 
     /// Effective GRP0 value (accounts for VDELP0).
     fn effective_grp0(&self) -> u8 {
-        if self.vdelp0 { self.grp0_old } else { self.grp0 }
+        if self.vdelp0 {
+            self.grp0_old
+        } else {
+            self.grp0
+        }
     }
 
     /// Effective GRP1 value (accounts for VDELP1).
     fn effective_grp1(&self) -> u8 {
-        if self.vdelp1 { self.grp1_old } else { self.grp1 }
+        if self.vdelp1 {
+            self.grp1_old
+        } else {
+            self.grp1
+        }
     }
 
     /// Check if a player sprite is active at pixel position x.
@@ -504,14 +538,14 @@ impl Tia {
 
         // Check each copy position.
         let copies: &[(u16, bool)] = match size {
-            0x00 => &[(0, true)],                           // One copy
-            0x01 => &[(0, true), (16, true)],               // Two copies close
-            0x02 => &[(0, true), (32, true)],               // Two copies medium
-            0x03 => &[(0, true), (16, true), (32, true)],   // Three copies close
-            0x04 => &[(0, true), (64, true)],               // Two copies wide
-            0x05 => &[(0, true)],                           // Double-size player
-            0x06 => &[(0, true), (32, true), (64, true)],   // Three copies medium
-            0x07 => &[(0, true)],                           // Quad-size player
+            0x00 => &[(0, true)],                         // One copy
+            0x01 => &[(0, true), (16, true)],             // Two copies close
+            0x02 => &[(0, true), (32, true)],             // Two copies medium
+            0x03 => &[(0, true), (16, true), (32, true)], // Three copies close
+            0x04 => &[(0, true), (64, true)],             // Two copies wide
+            0x05 => &[(0, true)],                         // Double-size player
+            0x06 => &[(0, true), (32, true), (64, true)], // Three copies medium
+            0x07 => &[(0, true)],                         // Quad-size player
             _ => &[(0, true)],
         };
 
@@ -543,7 +577,15 @@ impl Tia {
 
     /// Check if a missile is active at pixel position x.
     #[allow(clippy::unused_self)]
-    fn missile_pixel(&self, x: u16, pos: u16, enabled: bool, nusiz: u8, locked: bool, _player_pos: u16) -> bool {
+    fn missile_pixel(
+        &self,
+        x: u16,
+        pos: u16,
+        enabled: bool,
+        nusiz: u8,
+        locked: bool,
+        _player_pos: u16,
+    ) -> bool {
         if !enabled || locked {
             return false;
         }
@@ -562,7 +604,11 @@ impl Tia {
 
     /// Check if the ball is active at pixel position x.
     fn ball_pixel(&self, x: u16) -> bool {
-        let enabled = if self.vdelbl { self.enabl_old } else { self.enabl };
+        let enabled = if self.vdelbl {
+            self.enabl_old
+        } else {
+            self.enabl
+        };
         if !enabled {
             return false;
         }
@@ -582,35 +628,91 @@ impl Tia {
     /// Update collision latches for the current pixel.
     fn update_collisions(&mut self, x: u16) {
         let pf = self.playfield_bit(x);
-        let p0 = self.player_pixel(x, self.pos_p0, self.effective_grp0(), self.refp0, self.nusiz0);
-        let p1 = self.player_pixel(x, self.pos_p1, self.effective_grp1(), self.refp1, self.nusiz1);
-        let m0 = self.missile_pixel(x, self.pos_m0, self.enam0, self.nusiz0, self.resmp0, self.pos_p0);
-        let m1 = self.missile_pixel(x, self.pos_m1, self.enam1, self.nusiz1, self.resmp1, self.pos_p1);
+        let p0 = self.player_pixel(
+            x,
+            self.pos_p0,
+            self.effective_grp0(),
+            self.refp0,
+            self.nusiz0,
+        );
+        let p1 = self.player_pixel(
+            x,
+            self.pos_p1,
+            self.effective_grp1(),
+            self.refp1,
+            self.nusiz1,
+        );
+        let m0 = self.missile_pixel(
+            x,
+            self.pos_m0,
+            self.enam0,
+            self.nusiz0,
+            self.resmp0,
+            self.pos_p0,
+        );
+        let m1 = self.missile_pixel(
+            x,
+            self.pos_m1,
+            self.enam1,
+            self.nusiz1,
+            self.resmp1,
+            self.pos_p1,
+        );
         let bl = self.ball_pixel(x);
 
         // M0-P1, M0-P0
-        if m0 && p1 { self.cxm0p |= 0x80; }
-        if m0 && p0 { self.cxm0p |= 0x40; }
+        if m0 && p1 {
+            self.cxm0p |= 0x80;
+        }
+        if m0 && p0 {
+            self.cxm0p |= 0x40;
+        }
         // M1-P0, M1-P1
-        if m1 && p0 { self.cxm1p |= 0x80; }
-        if m1 && p1 { self.cxm1p |= 0x40; }
+        if m1 && p0 {
+            self.cxm1p |= 0x80;
+        }
+        if m1 && p1 {
+            self.cxm1p |= 0x40;
+        }
         // P0-PF, P0-BL
-        if p0 && pf { self.cxp0fb |= 0x80; }
-        if p0 && bl { self.cxp0fb |= 0x40; }
+        if p0 && pf {
+            self.cxp0fb |= 0x80;
+        }
+        if p0 && bl {
+            self.cxp0fb |= 0x40;
+        }
         // P1-PF, P1-BL
-        if p1 && pf { self.cxp1fb |= 0x80; }
-        if p1 && bl { self.cxp1fb |= 0x40; }
+        if p1 && pf {
+            self.cxp1fb |= 0x80;
+        }
+        if p1 && bl {
+            self.cxp1fb |= 0x40;
+        }
         // M0-PF, M0-BL
-        if m0 && pf { self.cxm0fb |= 0x80; }
-        if m0 && bl { self.cxm0fb |= 0x40; }
+        if m0 && pf {
+            self.cxm0fb |= 0x80;
+        }
+        if m0 && bl {
+            self.cxm0fb |= 0x40;
+        }
         // M1-PF, M1-BL
-        if m1 && pf { self.cxm1fb |= 0x80; }
-        if m1 && bl { self.cxm1fb |= 0x40; }
+        if m1 && pf {
+            self.cxm1fb |= 0x80;
+        }
+        if m1 && bl {
+            self.cxm1fb |= 0x40;
+        }
         // BL-PF
-        if bl && pf { self.cxblpf |= 0x80; }
+        if bl && pf {
+            self.cxblpf |= 0x80;
+        }
         // P0-P1, M0-M1
-        if p0 && p1 { self.cxppmm |= 0x80; }
-        if m0 && m1 { self.cxppmm |= 0x40; }
+        if p0 && p1 {
+            self.cxppmm |= 0x80;
+        }
+        if m0 && m1 {
+            self.cxppmm |= 0x40;
+        }
     }
 
     /// Write a TIA register.
@@ -618,50 +720,56 @@ impl Tia {
     /// Address is masked to 6 bits ($00-$3F).
     pub fn write(&mut self, addr: u8, value: u8) {
         match addr & 0x3F {
-            0x00 => { // VSYNC
+            0x00 => {
+                // VSYNC
                 self.vsync = value & 0x02 != 0;
             }
-            0x01 => { // VBLANK
+            0x01 => {
+                // VBLANK
                 self.vblank = value & 0x02 != 0;
                 // Bit 6: dump paddle ports to ground.
                 // Bit 7: latch input ports. (TODO for input phase)
             }
-            0x02 => { // WSYNC
+            0x02 => {
+                // WSYNC
                 self.wsync_halt = true;
             }
-            0x03 => { // RSYNC
+            0x03 => {
+                // RSYNC
                 self.hpos = 0;
             }
-            0x04 => self.nusiz0 = value, // NUSIZ0
-            0x05 => self.nusiz1 = value, // NUSIZ1
-            0x06 => self.colup0 = value, // COLUP0
-            0x07 => self.colup1 = value, // COLUP1
-            0x08 => self.colupf = value, // COLUPF
-            0x09 => self.colubk = value, // COLUBK
-            0x0A => self.ctrlpf = value, // CTRLPF
+            0x04 => self.nusiz0 = value,            // NUSIZ0
+            0x05 => self.nusiz1 = value,            // NUSIZ1
+            0x06 => self.colup0 = value,            // COLUP0
+            0x07 => self.colup1 = value,            // COLUP1
+            0x08 => self.colupf = value,            // COLUPF
+            0x09 => self.colubk = value,            // COLUBK
+            0x0A => self.ctrlpf = value,            // CTRLPF
             0x0B => self.refp0 = value & 0x08 != 0, // REFP0
             0x0C => self.refp1 = value & 0x08 != 0, // REFP1
-            0x0D => self.pf0 = value, // PF0
-            0x0E => self.pf1 = value, // PF1
-            0x0F => self.pf2 = value, // PF2
+            0x0D => self.pf0 = value,               // PF0
+            0x0E => self.pf1 = value,               // PF1
+            0x0F => self.pf2 = value,               // PF2
             0x10 => self.pos_p0 = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESP0
             0x11 => self.pos_p1 = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESP1
             0x12 => self.pos_m0 = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESM0
             0x13 => self.pos_m1 = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESM1
             0x14 => self.pos_bl = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESBL
-            0x15 => {} // AUDC0 (audio — future phase)
-            0x16 => {} // AUDC1
-            0x17 => {} // AUDF0
-            0x18 => {} // AUDF1
-            0x19 => {} // AUDV0
-            0x1A => {} // AUDV1
-            0x1B => { // GRP0
+            0x15 => {}                              // AUDC0 (audio — future phase)
+            0x16 => {}                              // AUDC1
+            0x17 => {}                              // AUDF0
+            0x18 => {}                              // AUDF1
+            0x19 => {}                              // AUDV0
+            0x1A => {}                              // AUDV1
+            0x1B => {
+                // GRP0
                 self.grp0_old = self.grp0;
                 self.grp0 = value;
                 // Writing GRP0 copies GRP1 to old GRP1.
                 self.grp1_old = self.grp1;
             }
-            0x1C => { // GRP1
+            0x1C => {
+                // GRP1
                 self.grp1_old = self.grp1;
                 self.grp1 = value;
                 // Writing GRP1 copies GRP0 to old GRP0.
@@ -669,7 +777,8 @@ impl Tia {
             }
             0x1D => self.enam0 = value & 0x02 != 0, // ENAM0
             0x1E => self.enam1 = value & 0x02 != 0, // ENAM1
-            0x1F => { // ENABL
+            0x1F => {
+                // ENABL
                 self.enabl_old = self.enabl;
                 self.enabl = value & 0x02 != 0;
             }
@@ -683,18 +792,21 @@ impl Tia {
             0x27 => self.vdelbl = value & 0x01 != 0, // VDELBL
             0x28 => self.resmp0 = value & 0x02 != 0, // RESMP0
             0x29 => self.resmp1 = value & 0x02 != 0, // RESMP1
-            0x2A => { // HMOVE
+            0x2A => {
+                // HMOVE
                 self.apply_hmove();
                 self.hmove_pending = true;
             }
-            0x2B => { // HMCLR
+            0x2B => {
+                // HMCLR
                 self.hmp0 = 0;
                 self.hmp1 = 0;
                 self.hmm0 = 0;
                 self.hmm1 = 0;
                 self.hmbl = 0;
             }
-            0x2C => { // CXCLR
+            0x2C => {
+                // CXCLR
                 self.cxm0p = 0;
                 self.cxm1p = 0;
                 self.cxp0fb = 0;
@@ -714,20 +826,20 @@ impl Tia {
     #[must_use]
     pub fn read(&self, addr: u8) -> u8 {
         match addr & 0x0F {
-            0x00 => self.cxm0p,   // CXM0P
-            0x01 => self.cxm1p,   // CXM1P
-            0x02 => self.cxp0fb,  // CXP0FB
-            0x03 => self.cxp1fb,  // CXP1FB
-            0x04 => self.cxm0fb,  // CXM0FB
-            0x05 => self.cxm1fb,  // CXM1FB
-            0x06 => self.cxblpf,  // CXBLPF
-            0x07 => self.cxppmm,  // CXPPMM
-            0x08 => 0,            // INPT0 (paddle — TODO)
-            0x09 => 0,            // INPT1
-            0x0A => 0,            // INPT2
-            0x0B => 0,            // INPT3
-            0x0C => self.inpt4,   // INPT4 (P0 fire)
-            0x0D => self.inpt5,   // INPT5 (P1 fire)
+            0x00 => self.cxm0p,  // CXM0P
+            0x01 => self.cxm1p,  // CXM1P
+            0x02 => self.cxp0fb, // CXP0FB
+            0x03 => self.cxp1fb, // CXP1FB
+            0x04 => self.cxm0fb, // CXM0FB
+            0x05 => self.cxm1fb, // CXM1FB
+            0x06 => self.cxblpf, // CXBLPF
+            0x07 => self.cxppmm, // CXPPMM
+            0x08 => 0,           // INPT0 (paddle — TODO)
+            0x09 => 0,           // INPT1
+            0x0A => 0,           // INPT2
+            0x0B => 0,           // INPT3
+            0x0C => self.inpt4,  // INPT4 (P0 fire)
+            0x0D => self.inpt5,  // INPT5 (P1 fire)
             _ => 0,
         }
     }
@@ -872,10 +984,28 @@ impl Tia {
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
         let mut p = 0usize;
         let need = |p: usize, n: usize, d: &[u8]| -> Result<(), String> {
-            if p + n > d.len() { Err("TIA state truncated".into()) } else { Ok(()) }
+            if p + n > d.len() {
+                Err("TIA state truncated".into())
+            } else {
+                Ok(())
+            }
         };
-        macro_rules! r8 { () => {{ need(p, 1, data)?; let v = data[p]; p += 1; v }} }
-        macro_rules! r16 { () => {{ need(p, 2, data)?; let v = u16::from_le_bytes([data[p], data[p+1]]); p += 2; v }} }
+        macro_rules! r8 {
+            () => {{
+                need(p, 1, data)?;
+                let v = data[p];
+                p += 1;
+                v
+            }};
+        }
+        macro_rules! r16 {
+            () => {{
+                need(p, 2, data)?;
+                let v = u16::from_le_bytes([data[p], data[p + 1]]);
+                p += 2;
+                v
+            }};
+        }
 
         self.hpos = r16!();
         self.vpos = r16!();
@@ -1016,10 +1146,7 @@ mod tests {
 
         // First visible pixel (after the 68-clock HBLANK) should be
         // black during VBLANK. The HBLANK region carries COLUBK.
-        assert_eq!(
-            tia.framebuffer()[HBLANK_CLOCKS as usize],
-            NTSC_PALETTE[0]
-        );
+        assert_eq!(tia.framebuffer()[HBLANK_CLOCKS as usize], NTSC_PALETTE[0]);
     }
 
     #[test]
@@ -1047,13 +1174,13 @@ mod tests {
 
         // Copy mode (default)
         tia.write(0x0A, 0x00);
-        assert!(tia.playfield_bit(0));   // Left half, bit 0
-        assert!(tia.playfield_bit(80));  // Right half, copy
-        assert!(!tia.playfield_bit(4));  // Left half, bit 1
+        assert!(tia.playfield_bit(0)); // Left half, bit 0
+        assert!(tia.playfield_bit(80)); // Right half, copy
+        assert!(!tia.playfield_bit(4)); // Left half, bit 1
 
         // Reflect mode
         tia.write(0x0A, 0x01);
-        assert!(tia.playfield_bit(0));   // Left half, bit 0
+        assert!(tia.playfield_bit(0)); // Left half, bit 0
         // In reflect mode, right half is mirrored: rightmost column maps to PF0 bit 4
         assert!(tia.playfield_bit(156)); // Reflected position
     }

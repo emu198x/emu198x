@@ -28,27 +28,26 @@ pub fn run() -> Result<(), String> {
     let basic = rom_path("BASIC", "basic.rom");
     let editor = rom_path("EDITOR", "editor.rom");
     let char_rom = rom_path("CHAR", "chargen.rom");
-    if let (Some(kp), Some(bp), Some(ep), Some(cp)) =
-        (kernal.as_ref(), basic.as_ref(), editor.as_ref(), char_rom.as_ref())
-        && let (Ok(k), Ok(b), Ok(e), Ok(c)) = (fs::read(kp), fs::read(bp), fs::read(ep), fs::read(cp))
-        {
-            if k.len() == 4096 && b.len() == 8192 && e.len() == 2048 && c.len() == 4096 {
-                machine
-                    .set_roms(k, b, e, c)
-                    .map_err(|err| format!("ROMs invalid: {err}"))?;
-                eprintln!("emu198x-commodore-pet mcp: loaded all 4 ROMs");
-            } else {
-                eprintln!(
-                    "emu198x-commodore-pet mcp: ROM sizes wrong; starting blank"
-                );
-            }
+    if let (Some(kp), Some(bp), Some(ep), Some(cp)) = (
+        kernal.as_ref(),
+        basic.as_ref(),
+        editor.as_ref(),
+        char_rom.as_ref(),
+    ) && let (Ok(k), Ok(b), Ok(e), Ok(c)) =
+        (fs::read(kp), fs::read(bp), fs::read(ep), fs::read(cp))
+    {
+        if k.len() == 4096 && b.len() == 8192 && e.len() == 2048 && c.len() == 4096 {
+            machine
+                .set_roms(k, b, e, c)
+                .map_err(|err| format!("ROMs invalid: {err}"))?;
+            eprintln!("emu198x-commodore-pet mcp: loaded all 4 ROMs");
+        } else {
+            eprintln!("emu198x-commodore-pet mcp: ROM sizes wrong; starting blank");
         }
+    }
 
-    let mut session = HeadlessSession::new_with_query_provider(
-        machine,
-        FRAME_TICKS,
-        PetSessionQueryProvider,
-    );
+    let mut session =
+        HeadlessSession::new_with_query_provider(machine, FRAME_TICKS, PetSessionQueryProvider);
     let mut server = Server::new(ServerInfo::new(
         "emu198x-commodore-pet",
         env!("CARGO_PKG_VERSION"),
@@ -61,10 +60,15 @@ pub fn run() -> Result<(), String> {
 fn rom_path(kind: &str, default_file: &str) -> Option<PathBuf> {
     let env_key = format!("EMU198X_PET_{kind}");
     if let Ok(p) = env::var(&env_key)
-        && !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(format!(".emu198x/roms/commodore-pet/{default_file}"));
-    if default.exists() { Some(default) } else { None }
+    if default.exists() {
+        Some(default)
+    } else {
+        None
+    }
 }

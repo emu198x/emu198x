@@ -191,34 +191,112 @@ struct ExpectedRow {
 }
 
 const EXPECTED: &[ExpectedRow] = &[
-    ExpectedRow { opcode: 0x2A, name: "ROL A", dword: 0x013A2933 },
-    ExpectedRow { opcode: 0x0A, name: "ASL A", dword: 0xA38733B0 },
-    ExpectedRow { opcode: 0x6A, name: "ROR A", dword: 0x6EC2BCA6 },
-    ExpectedRow { opcode: 0x4A, name: "LSR A", dword: 0x763FEBC5 },
-    ExpectedRow { opcode: 0x8A, name: "TXA",   dword: 0x0FF1C1E6 },
-    ExpectedRow { opcode: 0x98, name: "TYA",   dword: 0x5B2EB5B7 },
-    ExpectedRow { opcode: 0xAA, name: "TAX",   dword: 0x1D8ACEF5 },
-    ExpectedRow { opcode: 0xA8, name: "TAY",   dword: 0x83DC03F9 },
-    ExpectedRow { opcode: 0xE8, name: "INX",   dword: 0x8EBDF63B },
-    ExpectedRow { opcode: 0xC8, name: "INY",   dword: 0xF34CAA18 },
-    ExpectedRow { opcode: 0xCA, name: "DEX",   dword: 0x9123FF08 },
-    ExpectedRow { opcode: 0x88, name: "DEY",   dword: 0x48897445 },
-    ExpectedRow { opcode: 0x38, name: "SEC",   dword: 0x4BE14840 },
-    ExpectedRow { opcode: 0x18, name: "CLC",   dword: 0xE7C7ECC0 },
-    ExpectedRow { opcode: 0xF8, name: "SED",   dword: 0x408EF097 },
-    ExpectedRow { opcode: 0xD8, name: "CLD",   dword: 0xA6AEF749 },
-    ExpectedRow { opcode: 0x78, name: "SEI",   dword: 0x8F06AD7B },
-    ExpectedRow { opcode: 0x58, name: "CLI",   dword: 0xFC96AE14 },
-    ExpectedRow { opcode: 0xB8, name: "CLV",   dword: 0x28F10ADA },
-    ExpectedRow { opcode: 0xEA, name: "NOP",   dword: 0xCA7E6620 },
+    ExpectedRow {
+        opcode: 0x2A,
+        name: "ROL A",
+        dword: 0x013A2933,
+    },
+    ExpectedRow {
+        opcode: 0x0A,
+        name: "ASL A",
+        dword: 0xA38733B0,
+    },
+    ExpectedRow {
+        opcode: 0x6A,
+        name: "ROR A",
+        dword: 0x6EC2BCA6,
+    },
+    ExpectedRow {
+        opcode: 0x4A,
+        name: "LSR A",
+        dword: 0x763FEBC5,
+    },
+    ExpectedRow {
+        opcode: 0x8A,
+        name: "TXA",
+        dword: 0x0FF1C1E6,
+    },
+    ExpectedRow {
+        opcode: 0x98,
+        name: "TYA",
+        dword: 0x5B2EB5B7,
+    },
+    ExpectedRow {
+        opcode: 0xAA,
+        name: "TAX",
+        dword: 0x1D8ACEF5,
+    },
+    ExpectedRow {
+        opcode: 0xA8,
+        name: "TAY",
+        dword: 0x83DC03F9,
+    },
+    ExpectedRow {
+        opcode: 0xE8,
+        name: "INX",
+        dword: 0x8EBDF63B,
+    },
+    ExpectedRow {
+        opcode: 0xC8,
+        name: "INY",
+        dword: 0xF34CAA18,
+    },
+    ExpectedRow {
+        opcode: 0xCA,
+        name: "DEX",
+        dword: 0x9123FF08,
+    },
+    ExpectedRow {
+        opcode: 0x88,
+        name: "DEY",
+        dword: 0x48897445,
+    },
+    ExpectedRow {
+        opcode: 0x38,
+        name: "SEC",
+        dword: 0x4BE14840,
+    },
+    ExpectedRow {
+        opcode: 0x18,
+        name: "CLC",
+        dword: 0xE7C7ECC0,
+    },
+    ExpectedRow {
+        opcode: 0xF8,
+        name: "SED",
+        dword: 0x408EF097,
+    },
+    ExpectedRow {
+        opcode: 0xD8,
+        name: "CLD",
+        dword: 0xA6AEF749,
+    },
+    ExpectedRow {
+        opcode: 0x78,
+        name: "SEI",
+        dword: 0x8F06AD7B,
+    },
+    ExpectedRow {
+        opcode: 0x58,
+        name: "CLI",
+        dword: 0xFC96AE14,
+    },
+    ExpectedRow {
+        opcode: 0xB8,
+        name: "CLV",
+        dword: 0x28F10ADA,
+    },
+    ExpectedRow {
+        opcode: 0xEA,
+        name: "NOP",
+        dword: 0xCA7E6620,
+    },
 ];
 
 #[test]
 #[ignore = "diagnostic; needs the blargg cpu_test5 expected-CRC table baked in"]
 fn print_crc_per_opcode() {
-    println!(
-        "Opcode  Name    Got CRC    Expected (.dword byte-rev)  Match?"
-    );
+    println!("Opcode  Name    Got CRC    Expected (.dword byte-rev)  Match?");
     for row in EXPECTED {
         let got = opcode_crc(row.opcode);
         let expected = row.dword.swap_bytes();
@@ -252,8 +330,15 @@ fn dump_nop_byte_stream() {
                 if count < 8 {
                     println!(
                         "  ${:02X}  {:>4}  {:>4}  | ${:02X}    ${:02X}   ${:02X}    ${:02X}    ${:02X}    ${:02X}      | ${:08X}",
-                        in_p, outer_y, inner_y,
-                        post.a, p_crc, post.x, post.y, post.sp, operand_for_crc,
+                        in_p,
+                        outer_y,
+                        inner_y,
+                        post.a,
+                        p_crc,
+                        post.x,
+                        post.y,
+                        post.sp,
+                        operand_for_crc,
                         crc
                     );
                 }

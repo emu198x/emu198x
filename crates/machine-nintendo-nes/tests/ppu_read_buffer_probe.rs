@@ -359,10 +359,7 @@ fn one_loop_iteration_with_vbl_set() {
         let pre_addr = nes.cpu.addr;
         let pre_rw = nes.cpu.rw;
         nes.tick();
-        if pre_addr == 0x2002 && pre_rw
-            && nes.cpu.data_in & 0x80 != 0
-            && prev_data_in & 0x80 == 0
-        {
+        if pre_addr == 0x2002 && pre_rw && nes.cpu.data_in & 0x80 != 0 && prev_data_in & 0x80 == 0 {
             break;
         }
         prev_data_in = nes.cpu.data_in;
@@ -437,7 +434,10 @@ fn vblank_flag_during_stall() {
         }
     }
     if consecutive_in_loop <= 100_000 {
-        println!("Did not enter stall by 30M ticks; final PC=${:04X}", nes.cpu.regs.pc);
+        println!(
+            "Did not enter stall by 30M ticks; final PC=${:04X}",
+            nes.cpu.regs.pc
+        );
         return;
     }
 

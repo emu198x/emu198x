@@ -213,10 +213,9 @@ pub fn variant_rom_bundle(kind: MachineKind, root: &Path) -> Vec<(&'static str, 
                 (id, root.join(format!("scorpion-zs256/scorpion-{i}.rom")))
             })
             .collect(),
-        MachineKind::TimexTC2048 => vec![(
-            "timex-tc2048-rom",
-            root.join("timex-tc2048/tc2048.rom"),
-        )],
+        MachineKind::TimexTC2048 => {
+            vec![("timex-tc2048-rom", root.join("timex-tc2048/tc2048.rom"))]
+        }
         MachineKind::TimexTC2068 | MachineKind::TimexTS2068 => vec![
             ("timex-ts2068-rom-0", root.join("timex-ts2068/ts2068.rom")),
             ("timex-ts2068-rom-1", root.join("timex-ts2068/exrom.rom")),

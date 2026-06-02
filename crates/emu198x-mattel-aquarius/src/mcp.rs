@@ -24,23 +24,24 @@ const FRAME_TICKS_PAL: u64 = 71_590;
 pub fn run() -> Result<(), String> {
     let mut machine = AquariusRuntime::blank(Model::Aquarius);
     if let Some(path) = bios_path()
-        && let Ok(bytes) = fs::read(&path) {
-            if bytes.len() == 8 * 1024 {
-                machine
-                    .set_bios(bytes)
-                    .map_err(|err| format!("BIOS invalid: {err}"))?;
-                eprintln!(
-                    "emu198x-mattel-aquarius mcp: loaded BIOS from {}",
-                    path.display()
-                );
-            } else {
-                eprintln!(
-                    "emu198x-mattel-aquarius mcp: BIOS at {} is {} bytes; expected 8192 — starting blank",
-                    path.display(),
-                    bytes.len()
-                );
-            }
+        && let Ok(bytes) = fs::read(&path)
+    {
+        if bytes.len() == 8 * 1024 {
+            machine
+                .set_bios(bytes)
+                .map_err(|err| format!("BIOS invalid: {err}"))?;
+            eprintln!(
+                "emu198x-mattel-aquarius mcp: loaded BIOS from {}",
+                path.display()
+            );
+        } else {
+            eprintln!(
+                "emu198x-mattel-aquarius mcp: BIOS at {} is {} bytes; expected 8192 — starting blank",
+                path.display(),
+                bytes.len()
+            );
         }
+    }
 
     let mut session = HeadlessSession::new_with_query_provider(
         machine,
@@ -58,10 +59,15 @@ pub fn run() -> Result<(), String> {
 
 fn bios_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_AQUARIUS_BIOS")
-        && !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(".emu198x/roms/mattel-aquarius/aquarius.rom");
-    if default.exists() { Some(default) } else { None }
+    if default.exists() {
+        Some(default)
+    } else {
+        None
+    }
 }

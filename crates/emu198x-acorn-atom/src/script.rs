@@ -109,7 +109,11 @@ fn default_rom_path() -> Option<PathBuf> {
     }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(".emu198x/roms/acorn-atom/atom.rom");
-    if default.exists() { Some(default) } else { None }
+    if default.exists() {
+        Some(default)
+    } else {
+        None
+    }
 }
 
 fn model_for(ram_kb: usize) -> Model {

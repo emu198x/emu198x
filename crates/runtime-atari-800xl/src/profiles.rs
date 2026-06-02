@@ -44,7 +44,10 @@ pub const BASIC_FIRMWARE_ID: &str = "atari-800xl-basic";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::A800xlNtsc), profile_for(Model::A800xlPal)]
+    vec![
+        profile_for(Model::A800xlNtsc),
+        profile_for(Model::A800xlPal),
+    ]
 }
 
 #[must_use]

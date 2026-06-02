@@ -28,11 +28,7 @@ impl SessionQueryProvider<Zx80Runtime> for Zx80SessionQueryProvider {
         paths
     }
 
-    fn query(
-        &self,
-        machine: &Zx80Runtime,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn query(&self, machine: &Zx80Runtime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
             "zx80.firmware.loaded" => json!(machine.machine().is_some()),
             "zx80.ram.bytes" => json!(machine.ram_bytes()),

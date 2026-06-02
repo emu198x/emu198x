@@ -136,7 +136,12 @@ impl Vic20 {
                 ram_main[(addr & 0x0FFF) as usize]
             },
             |addr| colour_ram[(addr & 0x03FF) as usize],
-            |addr| char_rom.get((addr & 0x0FFF) as usize).copied().unwrap_or(0xFF),
+            |addr| {
+                char_rom
+                    .get((addr & 0x0FFF) as usize)
+                    .copied()
+                    .unwrap_or(0xFF)
+            },
         );
 
         self.cpu.tick();
@@ -195,10 +200,9 @@ impl Vic20 {
     fn mem_write(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..=0x03FF => self.ram_low[addr as usize] = value,
-            0x0400..=0x0FFF
-                if self.has_exp_low => {
-                    self.ram_exp_low[(addr - 0x0400) as usize] = value;
-                }
+            0x0400..=0x0FFF if self.has_exp_low => {
+                self.ram_exp_low[(addr - 0x0400) as usize] = value;
+            }
             0x1000..=0x1FFF => self.ram_main[(addr - 0x1000) as usize] = value,
             0x2000..=0x7FFF => {
                 let offset = (addr - 0x2000) as usize;

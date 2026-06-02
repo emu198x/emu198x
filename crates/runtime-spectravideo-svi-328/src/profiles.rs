@@ -64,7 +64,9 @@ pub fn profile_for(model: Model) -> MachineProfile {
         region: model.region(),
         support_tier: SupportTier::Boots,
         release_year: 1983,
-        summary: "Spectravideo SVI-328 — Z80A + 32 KB BASIC ROM, 64 KB RAM, TMS9918 VDP, AY-3-8910 PSG.".into(),
+        summary:
+            "Spectravideo SVI-328 — Z80A + 32 KB BASIC ROM, 64 KB RAM, TMS9918 VDP, AY-3-8910 PSG."
+                .into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
         firmware: vec![FirmwareRequirement::new(
             BIOS_FIRMWARE_ID,

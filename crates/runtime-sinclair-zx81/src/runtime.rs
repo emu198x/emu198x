@@ -62,11 +62,12 @@ impl Zx81Runtime {
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let bytes = firmware
-            .bytes(ROM_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: ROM_FIRMWARE_ID.to_owned(),
-            })?;
+        let bytes =
+            firmware
+                .bytes(ROM_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: ROM_FIRMWARE_ID.to_owned(),
+                })?;
         Self::new(model, bytes.to_vec())
     }
 
@@ -139,12 +140,11 @@ impl Zx81Runtime {
             self.machine = None;
             return Ok(());
         };
-        let machine = Zx81::new(rom, self.ram_bytes).map_err(|reason| {
-            MachineError::InvalidFirmware {
+        let machine =
+            Zx81::new(rom, self.ram_bytes).map_err(|reason| MachineError::InvalidFirmware {
                 id: ROM_FIRMWARE_ID.to_owned(),
                 reason,
-            }
-        })?;
+            })?;
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;

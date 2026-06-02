@@ -104,9 +104,10 @@ fn die(message: &str) -> ! {
 
 fn default_rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_ZX81_ROM")
-        && !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
     let home = env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".emu198x/roms/sinclair-zx81/zx81.rom"))
 }
@@ -198,8 +199,8 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
 }
 
 fn read_rom(path: &Path) -> Result<Vec<u8>, String> {
-    let bytes = fs::read(path)
-        .map_err(|err| format!("failed to read ROM {}: {err}", path.display()))?;
+    let bytes =
+        fs::read(path).map_err(|err| format!("failed to read ROM {}: {err}", path.display()))?;
     if bytes.len() != ROM_SIZE {
         return Err(format!(
             "ROM at {} is {} bytes; expected {ROM_SIZE}",

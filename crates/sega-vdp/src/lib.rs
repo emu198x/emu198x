@@ -155,9 +155,13 @@ impl SegaVdp {
     }
 
     #[must_use]
-    pub const fn framebuffer_width(&self) -> u32 { FB_WIDTH }
+    pub const fn framebuffer_width(&self) -> u32 {
+        FB_WIDTH
+    }
     #[must_use]
-    pub const fn framebuffer_height(&self) -> u32 { FB_HEIGHT }
+    pub const fn framebuffer_height(&self) -> u32 {
+        FB_HEIGHT
+    }
 
     fn lines_per_frame(&self) -> u16 {
         match self.region {
@@ -312,7 +316,9 @@ impl SegaVdp {
 
     /// Direct VRAM access.
     #[must_use]
-    pub fn vram(&self) -> &[u8; 16384] { &self.vram }
+    pub fn vram(&self) -> &[u8; 16384] {
+        &self.vram
+    }
 
     /// Direct VRAM write.
     pub fn write_vram(&mut self, addr: u16, value: u8) {
@@ -367,12 +373,18 @@ impl SegaVdp {
         // V counter
         self.v_counter = match self.region {
             VdpRegion::Ntsc => {
-                if self.scanline <= 0xDA { self.scanline }
-                else { self.scanline.wrapping_sub(6) }
+                if self.scanline <= 0xDA {
+                    self.scanline
+                } else {
+                    self.scanline.wrapping_sub(6)
+                }
             }
             VdpRegion::Pal => {
-                if self.scanline <= 0xF2 { self.scanline }
-                else { self.scanline.wrapping_sub(57) }
+                if self.scanline <= 0xF2 {
+                    self.scanline
+                } else {
+                    self.scanline.wrapping_sub(57)
+                }
             }
         };
 
@@ -486,7 +498,11 @@ impl SegaVdp {
 
     fn render_mode4_sprites(&mut self, line: usize, offset: usize) {
         let sat_base = (self.regs[5] as usize & 0x7E) * 0x80;
-        let spg_base = if self.regs[6] & 0x04 != 0 { 0x2000 } else { 0x0000 };
+        let spg_base = if self.regs[6] & 0x04 != 0 {
+            0x2000
+        } else {
+            0x0000
+        };
         let tall_sprites = self.regs[1] & 0x02 != 0;
         let sprite_height: usize = if tall_sprites { 16 } else { 8 };
         let shift_left = self.regs[0] & 0x08 != 0;
@@ -519,8 +535,12 @@ impl SegaVdp {
             let mut x = self.vram[x_addr & 0x3FFF] as i16;
             let mut pattern = self.vram[(x_addr + 1) & 0x3FFF] as usize;
 
-            if shift_left { x -= 8; }
-            if tall_sprites { pattern &= 0xFE; }
+            if shift_left {
+                x -= 8;
+            }
+            if tall_sprites {
+                pattern &= 0xFE;
+            }
 
             let sprite_row = line - y;
             let pattern_addr = spg_base + pattern * 32 + sprite_row * 4;
@@ -532,7 +552,9 @@ impl SegaVdp {
 
             for bit in 0..8 {
                 let px = x + bit as i16;
-                if !(0..256).contains(&px) { continue; }
+                if !(0..256).contains(&px) {
+                    continue;
+                }
                 let px = px as usize;
 
                 let col = 7 - bit;
@@ -541,7 +563,9 @@ impl SegaVdp {
                     | (((b2 >> col) & 1) << 2)
                     | (((b3 >> col) & 1) << 3);
 
-                if color_idx == 0 { continue; }
+                if color_idx == 0 {
+                    continue;
+                }
 
                 if sprite_buffer[px] != 0 {
                     collision = true;
@@ -601,25 +625,42 @@ impl SegaVdp {
             return Err("SegaVdp state truncated".into());
         }
         let mut p = 0;
-        self.regs.copy_from_slice(&data[p..p + 11]); p += 11;
-        self.status = data[p]; p += 1;
-        self.read_buffer = data[p]; p += 1;
-        self.address = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.code = data[p]; p += 1;
-        self.latch_first = data[p] != 0; p += 1;
-        self.latch_value = data[p]; p += 1;
-        self.cram_latch = data[p]; p += 1;
-        self.v_counter = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.h_counter = data[p]; p += 1;
-        self.line_counter = data[p]; p += 1;
-        self.line_irq_pending = data[p] != 0; p += 1;
-        self.scanline = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.interrupt = data[p] != 0; p += 1;
+        self.regs.copy_from_slice(&data[p..p + 11]);
+        p += 11;
+        self.status = data[p];
+        p += 1;
+        self.read_buffer = data[p];
+        p += 1;
+        self.address = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.code = data[p];
+        p += 1;
+        self.latch_first = data[p] != 0;
+        p += 1;
+        self.latch_value = data[p];
+        p += 1;
+        self.cram_latch = data[p];
+        p += 1;
+        self.v_counter = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.h_counter = data[p];
+        p += 1;
+        self.line_counter = data[p];
+        p += 1;
+        self.line_irq_pending = data[p] != 0;
+        p += 1;
+        self.scanline = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.interrupt = data[p] != 0;
+        p += 1;
         let mut bytes = [0u8; 8];
-        bytes.copy_from_slice(&data[p..p + 8]); p += 8;
+        bytes.copy_from_slice(&data[p..p + 8]);
+        p += 8;
         self.frame_count = u64::from_le_bytes(bytes);
-        self.vram.copy_from_slice(&data[p..p + 16384]); p += 16384;
-        self.cram.copy_from_slice(&data[p..p + 64]); p += 64;
+        self.vram.copy_from_slice(&data[p..p + 16384]);
+        p += 16384;
+        self.cram.copy_from_slice(&data[p..p + 64]);
+        p += 64;
         Ok(p)
     }
 
@@ -701,7 +742,9 @@ mod tests {
         let mut vdp = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
         let mut frames = 0;
         for _ in 0..262 {
-            if vdp.tick_scanline() { frames += 1; }
+            if vdp.tick_scanline() {
+                frames += 1;
+            }
         }
         assert_eq!(frames, 1);
     }
@@ -711,7 +754,9 @@ mod tests {
         let mut vdp = SegaVdp::new(VdpRegion::Pal, VdpVariant::Sms2);
         let mut frames = 0;
         for _ in 0..313 {
-            if vdp.tick_scanline() { frames += 1; }
+            if vdp.tick_scanline() {
+                frames += 1;
+            }
         }
         assert_eq!(frames, 1);
     }
@@ -753,7 +798,7 @@ mod tests {
         let mut vdp = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
         vdp.regs[1] = 0x40; // Display on
         vdp.regs[0] = 0x14; // Mode 4 + line IRQ enable
-        vdp.regs[10] = 5;   // Fire every 5 lines
+        vdp.regs[10] = 5; // Fire every 5 lines
 
         // Tick 6 scanlines — counter should reach 0 and fire
         for _ in 0..6 {

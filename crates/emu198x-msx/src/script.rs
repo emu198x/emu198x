@@ -11,9 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use emu198x_shell::{
-    HeadlessScript, HeadlessSession, MediaSet, ScriptObservation,
-};
+use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation};
 use machine_msx::MapperType;
 use runtime_msx::{Model, MsxRuntime, MsxSessionQueryProvider};
 use serde_json::json;
@@ -180,9 +178,10 @@ fn die(message: &str) -> ! {
 
 fn default_bios_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_MSX_BIOS")
-        && !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
     let home = env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".emu198x/roms/microsoft-msx/msx.rom"))
 }
@@ -300,8 +299,8 @@ fn load_cart_bytes(path: Option<&Path>, flag: &str) -> Result<Option<Vec<u8>>, S
     let Some(path) = path else {
         return Ok(None);
     };
-    let bytes = fs::read(path)
-        .map_err(|err| format!("failed to read {flag} {}: {err}", path.display()))?;
+    let bytes =
+        fs::read(path).map_err(|err| format!("failed to read {flag} {}: {err}", path.display()))?;
     Ok(Some(bytes))
 }
 
@@ -346,8 +345,17 @@ mod tests {
         assert!(matches!(cli.mapper, MapperType::KonamiScc));
         assert_eq!(cli.region, Region::Pal);
         assert_eq!(cli.frames, 120);
-        assert_eq!(cli.screenshot.expect("parsed by CLI"), Path::new("/tmp/shot.png"));
-        assert_eq!(cli.audio_capture.expect("parsed by CLI"), Path::new("/tmp/audio.wav"));
-        assert_eq!(cli.script.expect("parsed by CLI"), Path::new("/tmp/steps.json"));
+        assert_eq!(
+            cli.screenshot.expect("parsed by CLI"),
+            Path::new("/tmp/shot.png")
+        );
+        assert_eq!(
+            cli.audio_capture.expect("parsed by CLI"),
+            Path::new("/tmp/audio.wav")
+        );
+        assert_eq!(
+            cli.script.expect("parsed by CLI"),
+            Path::new("/tmp/steps.json")
+        );
     }
 }

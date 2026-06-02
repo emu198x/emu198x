@@ -31,8 +31,8 @@
 //! | `$03` | write     | PSG (SN76489)                        |
 //! | `$05` | read/write| Keyboard row select (W) / data (R)   |
 
-mod keyboard;
 pub mod input;
+mod keyboard;
 
 pub use input::MtxKey;
 pub use keyboard::KeyboardState;
@@ -83,10 +83,7 @@ impl Mtx {
     /// Create a new MTX. `rom` must be 16 KB (8 KB OS + 8 KB BASIC).
     pub fn new(rom: Vec<u8>, model: MtxModel) -> Result<Self, String> {
         if rom.len() != 0x4000 {
-            return Err(format!(
-                "MTX ROM must be 16384 bytes, got {}",
-                rom.len()
-            ));
+            return Err(format!("MTX ROM must be 16384 bytes, got {}", rom.len()));
         }
         let ram_size = model.ram_size();
         Ok(Self {

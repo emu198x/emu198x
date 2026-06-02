@@ -23,23 +23,24 @@ const FRAME_TICKS_PAL: u64 = 2_000_000 / 50;
 pub fn run() -> Result<(), String> {
     let mut machine = BbcMicroRuntime::blank(Model::BbcModelB);
     if let Some(path) = rom_path()
-        && let Ok(bytes) = fs::read(&path) {
-            if bytes.len() == 16 * 1024 {
-                machine
-                    .set_mos(bytes)
-                    .map_err(|err| format!("MOS invalid: {err}"))?;
-                eprintln!(
-                    "emu198x-acorn-bbc-micro mcp: loaded MOS from {}",
-                    path.display()
-                );
-            } else {
-                eprintln!(
-                    "emu198x-acorn-bbc-micro mcp: MOS at {} is {} bytes; expected 16384 — starting blank",
-                    path.display(),
-                    bytes.len()
-                );
-            }
+        && let Ok(bytes) = fs::read(&path)
+    {
+        if bytes.len() == 16 * 1024 {
+            machine
+                .set_mos(bytes)
+                .map_err(|err| format!("MOS invalid: {err}"))?;
+            eprintln!(
+                "emu198x-acorn-bbc-micro mcp: loaded MOS from {}",
+                path.display()
+            );
+        } else {
+            eprintln!(
+                "emu198x-acorn-bbc-micro mcp: MOS at {} is {} bytes; expected 16384 — starting blank",
+                path.display(),
+                bytes.len()
+            );
         }
+    }
 
     let mut session = HeadlessSession::new_with_query_provider(
         machine,
@@ -57,10 +58,15 @@ pub fn run() -> Result<(), String> {
 
 fn rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_BBC_MOS")
-        && !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(".emu198x/roms/acorn-bbc-micro/os.rom");
-    if default.exists() { Some(default) } else { None }
+    if default.exists() {
+        Some(default)
+    } else {
+        None
+    }
 }

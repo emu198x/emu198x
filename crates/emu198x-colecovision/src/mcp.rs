@@ -27,26 +27,30 @@ const CV_FRAME_TICKS_NTSC: u64 = 228 * 262;
 pub fn run() -> Result<(), String> {
     let mut machine = CvRuntime::blank(Model::CvNtsc);
     if let Some(path) = bios_path()
-        && let Ok(bytes) = fs::read(&path) {
-            if bytes.len() == 8 * 1024 {
-                machine
-                    .set_bios(bytes)
-                    .map_err(|err| format!("BIOS invalid: {err}"))?;
-                eprintln!(
-                    "emu198x-colecovision mcp: loaded BIOS from {}",
-                    path.display()
-                );
-            } else {
-                eprintln!(
-                    "emu198x-colecovision mcp: BIOS at {} is {} bytes; expected 8192 — starting blank",
-                    path.display(),
-                    bytes.len()
-                );
-            }
+        && let Ok(bytes) = fs::read(&path)
+    {
+        if bytes.len() == 8 * 1024 {
+            machine
+                .set_bios(bytes)
+                .map_err(|err| format!("BIOS invalid: {err}"))?;
+            eprintln!(
+                "emu198x-colecovision mcp: loaded BIOS from {}",
+                path.display()
+            );
+        } else {
+            eprintln!(
+                "emu198x-colecovision mcp: BIOS at {} is {} bytes; expected 8192 — starting blank",
+                path.display(),
+                bytes.len()
+            );
         }
+    }
 
-    let mut session =
-        HeadlessSession::new_with_query_provider(machine, CV_FRAME_TICKS_NTSC, CvSessionQueryProvider);
+    let mut session = HeadlessSession::new_with_query_provider(
+        machine,
+        CV_FRAME_TICKS_NTSC,
+        CvSessionQueryProvider,
+    );
     let mut server = Server::new(ServerInfo::new(
         "emu198x-colecovision",
         env!("CARGO_PKG_VERSION"),
@@ -59,10 +63,15 @@ pub fn run() -> Result<(), String> {
 
 fn bios_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_COLECO_BIOS")
-        && !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(".emu198x/roms/coleco-colecovision/colecovision.rom");
-    if default.exists() { Some(default) } else { None }
+    if default.exists() {
+        Some(default)
+    } else {
+        None
+    }
 }

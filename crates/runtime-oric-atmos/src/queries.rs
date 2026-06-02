@@ -28,11 +28,7 @@ impl SessionQueryProvider<OricRuntime> for OricSessionQueryProvider {
         paths
     }
 
-    fn query(
-        &self,
-        machine: &OricRuntime,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn query(&self, machine: &OricRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
             "oric.bios.loaded" => json!(machine.machine().is_some()),
             "oric.machine.frame_count" => {

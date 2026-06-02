@@ -26,10 +26,12 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use common_sinclair_zx_spectrum::timing::{CPU_HZ_128K, CPU_HZ_48K, TSTATES_PER_FRAME_128K, TSTATES_PER_FRAME_48K};
+use common_sinclair_zx_spectrum::timing::{
+    CPU_HZ_48K, CPU_HZ_128K, TSTATES_PER_FRAME_48K, TSTATES_PER_FRAME_128K,
+};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
+use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 
 /// Frames to run before measurement so the machine is past its boot
 /// settle and into the BASIC editor's quiescent key-poll loop.

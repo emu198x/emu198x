@@ -66,7 +66,6 @@ const LINES_PER_FRAME: u32 = 312;
 /// Total T-states per frame.
 pub const TSTATES_PER_FRAME: u32 = TSTATES_PER_LINE * LINES_PER_FRAME;
 
-
 /// Monochrome colours (ARGB32).
 const WHITE: u32 = 0xFF_CF_CF_CF; // slightly warm white, like the real CRT
 const BLACK: u32 = 0xFF_00_00_00;
@@ -241,8 +240,7 @@ mod tests {
         video_ram[0] = 1;
         display.render_frame(&video_ram, &char_ram);
         // Top-left active 8x8 should be black (offset into the border).
-        let active_start =
-            BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let active_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         for y in 0..8 {
             for x in 0..8 {
                 let idx = active_start + y * FB_WIDTH as usize + x;
@@ -260,8 +258,7 @@ mod tests {
         video_ram[0] = 0x80;
         display.render_frame(&video_ram, &char_ram);
         // Inverse of all-zero pattern = all black in the active region.
-        let active_start =
-            BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let active_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         for y in 0..8 {
             for x in 0..8 {
                 let idx = active_start + y * FB_WIDTH as usize + x;

@@ -5,13 +5,14 @@ use machine_memotech_mtx::{Mtx, MtxKey};
 
 pub(crate) fn apply_input_event(machine: &mut Mtx, event: &InputEvent) {
     if let InputEvent::Key { name, pressed } = event
-        && let Some(key) = key_from_name(name.as_ref()) {
-            if *pressed {
-                machine.press_key(key);
-            } else {
-                machine.release_key(key);
-            }
+        && let Some(key) = key_from_name(name.as_ref())
+    {
+        if *pressed {
+            machine.press_key(key);
+        } else {
+            machine.release_key(key);
         }
+    }
 }
 
 #[must_use]

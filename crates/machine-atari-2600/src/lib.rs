@@ -46,7 +46,7 @@ mod cartridge;
 
 pub use cartridge::{BankingScheme, Cartridge};
 
-use atari_tia::{Tia, TiaRegion, CLOCKS_PER_LINE};
+use atari_tia::{CLOCKS_PER_LINE, Tia, TiaRegion};
 use mos_6502::M6502;
 use mos_riot_6532::Riot6532;
 
@@ -95,8 +95,7 @@ impl Atari2600 {
         cpu.reset();
         let tia = Tia::new(region.tia_region());
         let riot = Riot6532::new();
-        let clocks_per_frame =
-            u64::from(region.lines_per_frame()) * u64::from(CLOCKS_PER_LINE);
+        let clocks_per_frame = u64::from(region.lines_per_frame()) * u64::from(CLOCKS_PER_LINE);
         Ok(Self {
             cpu,
             tia,

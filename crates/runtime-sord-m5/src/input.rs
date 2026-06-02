@@ -10,13 +10,14 @@ use machine_sord_m5::SordM5;
 
 pub(crate) fn apply_input_event(machine: &mut SordM5, event: &InputEvent) {
     if let InputEvent::Key { name, pressed } = event
-        && let Some((row, bit)) = key_to_matrix(name.as_ref()) {
-            if *pressed {
-                machine.press_key(row, bit);
-            } else {
-                machine.release_key(row, bit);
-            }
+        && let Some((row, bit)) = key_to_matrix(name.as_ref())
+    {
+        if *pressed {
+            machine.press_key(row, bit);
+        } else {
+            machine.release_key(row, bit);
         }
+    }
 }
 
 #[must_use]

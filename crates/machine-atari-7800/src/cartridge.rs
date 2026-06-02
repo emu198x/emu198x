@@ -61,7 +61,11 @@ impl Cartridge {
             }
             other => return Err(format!("Unsupported cartridge size: {other} bytes")),
         };
-        Ok(Self { rom, banking, bank: 0 })
+        Ok(Self {
+            rom,
+            banking,
+            bank: 0,
+        })
     }
 
     fn strip_a78_header(data: &[u8]) -> &[u8] {

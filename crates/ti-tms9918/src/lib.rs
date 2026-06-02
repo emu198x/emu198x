@@ -246,12 +246,10 @@ impl Tms9918 {
             }
         } else if value & 0x40 != 0 {
             // VRAM write setup
-            self.address =
-                u16::from(self.latch_value) | (u16::from(value & 0x3F) << 8);
+            self.address = u16::from(self.latch_value) | (u16::from(value & 0x3F) << 8);
         } else {
             // VRAM read setup — pre-fetch into read buffer
-            self.address =
-                u16::from(self.latch_value) | (u16::from(value & 0x3F) << 8);
+            self.address = u16::from(self.latch_value) | (u16::from(value & 0x3F) << 8);
             self.read_buffer = self.vram[self.address as usize & 0x3FFF];
             self.address = (self.address + 1) & 0x3FFF;
         }
@@ -447,8 +445,7 @@ impl Tms9918 {
 
     fn render_scanline(&mut self, line: u16) {
         let line = line as usize;
-        let offset = (BORDER_TOP as usize + line) * FB_WIDTH as usize
-            + BORDER_LEFT as usize;
+        let offset = (BORDER_TOP as usize + line) * FB_WIDTH as usize + BORDER_LEFT as usize;
 
         if !self.display_enabled() {
             let bg = self.backdrop_color();
@@ -484,18 +481,29 @@ impl Tms9918 {
             let name_addr = name_base + tile_row * 32 + tile_col;
             let name = self.vram[name_addr & 0x3FFF] as usize;
 
-            let pattern_byte =
-                self.vram[(pattern_base + name * 8 + row_in_tile) & 0x3FFF];
+            let pattern_byte = self.vram[(pattern_base + name * 8 + row_in_tile) & 0x3FFF];
 
             // Color: one byte per group of 8 tiles
             let color_byte = self.vram[(color_base + name / 8) & 0x3FFF];
             let fg_idx = (color_byte >> 4) as usize;
             let bg_idx = (color_byte & 0x0F) as usize;
-            let fg = if fg_idx == 0 { backdrop } else { PALETTE[fg_idx] };
-            let bg = if bg_idx == 0 { backdrop } else { PALETTE[bg_idx] };
+            let fg = if fg_idx == 0 {
+                backdrop
+            } else {
+                PALETTE[fg_idx]
+            };
+            let bg = if bg_idx == 0 {
+                backdrop
+            } else {
+                PALETTE[bg_idx]
+            };
 
             for bit in 0..8 {
-                let pixel = if pattern_byte & (0x80 >> bit) != 0 { fg } else { bg };
+                let pixel = if pattern_byte & (0x80 >> bit) != 0 {
+                    fg
+                } else {
+                    bg
+                };
                 self.framebuffer[offset + tile_col * 8 + bit] = pixel;
             }
         }
@@ -523,19 +531,30 @@ impl Tms9918 {
 
             let effective = (name + zone * 256) & pattern_mask;
 
-            let pattern_byte =
-                self.vram[(pattern_base + effective * 8 + row_in_tile) & 0x3FFF];
+            let pattern_byte = self.vram[(pattern_base + effective * 8 + row_in_tile) & 0x3FFF];
 
-            let color_byte =
-                self.vram[(color_base + ((effective * 8 + row_in_tile) & (color_mask * 8 + 7))) & 0x3FFF];
+            let color_byte = self.vram
+                [(color_base + ((effective * 8 + row_in_tile) & (color_mask * 8 + 7))) & 0x3FFF];
 
             let fg_idx = (color_byte >> 4) as usize;
             let bg_idx = (color_byte & 0x0F) as usize;
-            let fg = if fg_idx == 0 { backdrop } else { PALETTE[fg_idx] };
-            let bg = if bg_idx == 0 { backdrop } else { PALETTE[bg_idx] };
+            let fg = if fg_idx == 0 {
+                backdrop
+            } else {
+                PALETTE[fg_idx]
+            };
+            let bg = if bg_idx == 0 {
+                backdrop
+            } else {
+                PALETTE[bg_idx]
+            };
 
             for bit in 0..8 {
-                let pixel = if pattern_byte & (0x80 >> bit) != 0 { fg } else { bg };
+                let pixel = if pattern_byte & (0x80 >> bit) != 0 {
+                    fg
+                } else {
+                    bg
+                };
                 self.framebuffer[offset + tile_col * 8 + bit] = pixel;
             }
         }
@@ -549,8 +568,16 @@ impl Tms9918 {
 
         let fg_idx = (self.regs[7] >> 4) as usize;
         let bg_idx = (self.regs[7] & 0x0F) as usize;
-        let fg = if fg_idx == 0 { PALETTE[1] } else { PALETTE[fg_idx] };
-        let bg = if bg_idx == 0 { PALETTE[1] } else { PALETTE[bg_idx] };
+        let fg = if fg_idx == 0 {
+            PALETTE[1]
+        } else {
+            PALETTE[fg_idx]
+        };
+        let bg = if bg_idx == 0 {
+            PALETTE[1]
+        } else {
+            PALETTE[bg_idx]
+        };
         let border = self.backdrop_color();
 
         let char_row = line / 8;
@@ -566,12 +593,15 @@ impl Tms9918 {
             let name_addr = name_base + char_row * 40 + col;
             let name = self.vram[name_addr & 0x3FFF] as usize;
 
-            let pattern_byte =
-                self.vram[(pattern_base + name * 8 + row_in_char) & 0x3FFF];
+            let pattern_byte = self.vram[(pattern_base + name * 8 + row_in_char) & 0x3FFF];
 
             // Only upper 6 bits are displayed
             for bit in 0..6 {
-                let pixel = if pattern_byte & (0x80 >> bit) != 0 { fg } else { bg };
+                let pixel = if pattern_byte & (0x80 >> bit) != 0 {
+                    fg
+                } else {
+                    bg
+                };
                 self.framebuffer[offset + 8 + col * 6 + bit] = pixel;
             }
         }
@@ -593,13 +623,20 @@ impl Tms9918 {
             let name_addr = name_base + tile_row * 32 + tile_col;
             let name = self.vram[name_addr & 0x3FFF] as usize;
 
-            let color_byte =
-                self.vram[(pattern_base + name * 8 + pattern_row) & 0x3FFF];
+            let color_byte = self.vram[(pattern_base + name * 8 + pattern_row) & 0x3FFF];
 
             let left_idx = (color_byte >> 4) as usize;
             let right_idx = (color_byte & 0x0F) as usize;
-            let left = if left_idx == 0 { backdrop } else { PALETTE[left_idx] };
-            let right = if right_idx == 0 { backdrop } else { PALETTE[right_idx] };
+            let left = if left_idx == 0 {
+                backdrop
+            } else {
+                PALETTE[left_idx]
+            };
+            let right = if right_idx == 0 {
+                backdrop
+            } else {
+                PALETTE[right_idx]
+            };
 
             let px = offset + tile_col * 8;
             self.framebuffer[px..px + 4].fill(left);
@@ -704,8 +741,7 @@ impl Tms9918 {
                 );
             } else {
                 // 8x8
-                let pattern_byte =
-                    self.vram[(spg_base + pattern_name * 8 + pattern_line) & 0x3FFF];
+                let pattern_byte = self.vram[(spg_base + pattern_name * 8 + pattern_line) & 0x3FFF];
                 self.draw_sprite_row(
                     &mut sprite_line_buffer,
                     pattern_byte,
@@ -791,18 +827,33 @@ impl Tms9918 {
         let mut p = 0;
         self.regs.copy_from_slice(&data[p..p + 8]);
         p += 8;
-        self.status = data[p]; p += 1;
-        self.read_buffer = data[p]; p += 1;
-        self.address = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.latch_first = data[p] != 0; p += 1;
-        self.latch_value = data[p]; p += 1;
-        self.scanline = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.dot = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.interrupt = data[p] != 0; p += 1;
+        self.status = data[p];
+        p += 1;
+        self.read_buffer = data[p];
+        p += 1;
+        self.address = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.latch_first = data[p] != 0;
+        p += 1;
+        self.latch_value = data[p];
+        p += 1;
+        self.scanline = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.dot = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.interrupt = data[p] != 0;
+        p += 1;
         self.frame_count = u64::from_le_bytes([
-            data[p], data[p+1], data[p+2], data[p+3],
-            data[p+4], data[p+5], data[p+6], data[p+7],
-        ]); p += 8;
+            data[p],
+            data[p + 1],
+            data[p + 2],
+            data[p + 3],
+            data[p + 4],
+            data[p + 5],
+            data[p + 6],
+            data[p + 7],
+        ]);
+        p += 8;
         self.vram.copy_from_slice(&data[p..p + 16384]);
         p += 16384;
         Ok(p)
@@ -997,8 +1048,7 @@ mod tests {
         vdp.render_scanline(0);
 
         // First 8 pixels of the active area should be white.
-        let active_start =
-            BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let active_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         for x in 0..8 {
             assert_eq!(
                 vdp.framebuffer[active_start + x],

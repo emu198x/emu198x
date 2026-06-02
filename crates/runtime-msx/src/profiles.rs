@@ -56,10 +56,7 @@ pub const BIOS_FIRMWARE_ID: &str = "msx1-bios";
 /// Returns the initial MSX1 family catalogue.
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![
-        profile_for(Model::Msx1Ntsc),
-        profile_for(Model::Msx1Pal),
-    ]
+    vec![profile_for(Model::Msx1Ntsc), profile_for(Model::Msx1Pal)]
 }
 
 /// Returns the profile metadata for one MSX1 model.

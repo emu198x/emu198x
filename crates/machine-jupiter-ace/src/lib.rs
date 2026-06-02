@@ -273,10 +273,7 @@ mod tests {
         let sys = JupiterAce::new(trap_rom(), 1024).expect("init");
         assert_eq!(sys.framebuffer_width(), FB_WIDTH);
         assert_eq!(sys.framebuffer_height(), FB_HEIGHT);
-        assert_eq!(
-            sys.framebuffer().len(),
-            (FB_WIDTH * FB_HEIGHT) as usize
-        );
+        assert_eq!(sys.framebuffer().len(), (FB_WIDTH * FB_HEIGHT) as usize);
     }
 
     #[test]

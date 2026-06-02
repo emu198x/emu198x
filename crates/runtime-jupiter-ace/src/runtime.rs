@@ -58,11 +58,12 @@ impl JupiterAceRuntime {
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let bytes = firmware
-            .bytes(BIOS_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: BIOS_FIRMWARE_ID.to_owned(),
-            })?;
+        let bytes =
+            firmware
+                .bytes(BIOS_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: BIOS_FIRMWARE_ID.to_owned(),
+                })?;
         Self::new(model, bytes.to_vec())
     }
 
@@ -117,13 +118,12 @@ impl JupiterAceRuntime {
             self.machine = None;
             return Ok(());
         };
-        let machine =
-            JupiterAce::new(bios, self.model.ram_kb() * 1024).map_err(|reason| {
-                MachineError::InvalidFirmware {
-                    id: BIOS_FIRMWARE_ID.to_owned(),
-                    reason,
-                }
-            })?;
+        let machine = JupiterAce::new(bios, self.model.ram_kb() * 1024).map_err(|reason| {
+            MachineError::InvalidFirmware {
+                id: BIOS_FIRMWARE_ID.to_owned(),
+                reason,
+            }
+        })?;
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;

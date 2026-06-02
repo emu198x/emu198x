@@ -320,7 +320,11 @@ impl BbcMicro {
         for col in 0..chars_per_line {
             let ma = crtc_start + char_row * chars_per_line + col;
             let ram_addr = ((ma & 0x3FFF) << 3) | ra;
-            let byte = if ram_addr < 0x8000 { self.ram[ram_addr] } else { 0 };
+            let byte = if ram_addr < 0x8000 {
+                self.ram[ram_addr]
+            } else {
+                0
+            };
             for px in 0..pixels_per_byte {
                 let colour_idx = match bpp {
                     1 => (byte >> (7 - px)) & 0x01,

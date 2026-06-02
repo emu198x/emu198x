@@ -147,7 +147,11 @@ fn default_rom(env_key: &str, default_file: &str) -> Option<PathBuf> {
     }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(format!(".emu198x/roms/atari-800xl/{default_file}"));
-    if default.exists() { Some(default) } else { None }
+    if default.exists() {
+        Some(default)
+    } else {
+        None
+    }
 }
 
 fn read_optional(path: Option<&PathBuf>, label: &str) -> Result<Option<Vec<u8>>, String> {
@@ -202,14 +206,8 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         );
     }
 
-    let runtime = Atari800xlRuntime::new(
-        cli.region.model(),
-        os,
-        basic,
-        cart,
-        cli.basic_enabled,
-    )
-    .map_err(|err| format!("failed to construct runtime: {err}"))?;
+    let runtime = Atari800xlRuntime::new(cli.region.model(), os, basic, cart, cli.basic_enabled)
+        .map_err(|err| format!("failed to construct runtime: {err}"))?;
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         cli.region.frame_ticks(),

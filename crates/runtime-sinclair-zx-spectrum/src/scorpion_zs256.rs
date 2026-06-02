@@ -60,13 +60,12 @@ impl SpectrumRuntime<ScorpionZS256> {
         for (i, id) in ROM_IDS.iter().enumerate() {
             roms[i] = firmware
                 .bytes(id)
-                .ok_or_else(|| MachineError::MissingFirmware { id: (*id).to_owned() })?;
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: (*id).to_owned(),
+                })?;
         }
         Self::from_rom_bytes(roms).map_err(|reason| {
-            let first_bad = roms
-                .iter()
-                .position(|r| r.len() != ROM_BYTES)
-                .unwrap_or(0);
+            let first_bad = roms.iter().position(|r| r.len() != ROM_BYTES).unwrap_or(0);
             MachineError::InvalidFirmware {
                 id: ROM_IDS[first_bad].to_owned(),
                 reason: reason.to_string(),

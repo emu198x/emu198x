@@ -22,7 +22,10 @@ enum Mode {
 }
 
 fn detect_mode(args: &[String]) -> Mode {
-    if args.iter().any(|arg| arg == "--mcp" || arg == "--mcp-stdio") {
+    if args
+        .iter()
+        .any(|arg| arg == "--mcp" || arg == "--mcp-stdio")
+    {
         Mode::Mcp
     } else {
         Mode::Script

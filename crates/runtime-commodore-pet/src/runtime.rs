@@ -9,8 +9,7 @@ use machine_commodore_pet::Pet;
 
 use crate::input::apply_input_event;
 use crate::profiles::{
-    BASIC_FIRMWARE_ID, CHAR_FIRMWARE_ID, EDITOR_FIRMWARE_ID, KERNAL_FIRMWARE_ID, Model,
-    profile_for,
+    BASIC_FIRMWARE_ID, CHAR_FIRMWARE_ID, EDITOR_FIRMWARE_ID, KERNAL_FIRMWARE_ID, Model, profile_for,
 };
 use crate::snapshot;
 
@@ -77,26 +76,30 @@ impl PetRuntime {
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let kernal = firmware
-            .bytes(KERNAL_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: KERNAL_FIRMWARE_ID.to_owned(),
-            })?;
-        let basic = firmware
-            .bytes(BASIC_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: BASIC_FIRMWARE_ID.to_owned(),
-            })?;
-        let editor = firmware
-            .bytes(EDITOR_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: EDITOR_FIRMWARE_ID.to_owned(),
-            })?;
-        let char_rom = firmware
-            .bytes(CHAR_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: CHAR_FIRMWARE_ID.to_owned(),
-            })?;
+        let kernal =
+            firmware
+                .bytes(KERNAL_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: KERNAL_FIRMWARE_ID.to_owned(),
+                })?;
+        let basic =
+            firmware
+                .bytes(BASIC_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: BASIC_FIRMWARE_ID.to_owned(),
+                })?;
+        let editor =
+            firmware
+                .bytes(EDITOR_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: EDITOR_FIRMWARE_ID.to_owned(),
+                })?;
+        let char_rom =
+            firmware
+                .bytes(CHAR_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: CHAR_FIRMWARE_ID.to_owned(),
+                })?;
         Self::new(
             model,
             kernal.to_vec(),

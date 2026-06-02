@@ -174,8 +174,8 @@ impl Pet {
         let chars_per_row = self.screen_chars;
         let char_col = ma % chars_per_row as u16;
         let char_row = ma / chars_per_row as u16;
-        let active_y = u32::from(char_row) * (u32::from(self.crtc.max_scanline()) + 1)
-            + u32::from(ra);
+        let active_y =
+            u32::from(char_row) * (u32::from(self.crtc.max_scanline()) + 1) + u32::from(ra);
         let active_x_base = u32::from(char_col) * 8;
         if active_y >= ACTIVE_HEIGHT {
             return;
@@ -334,7 +334,13 @@ mod tests {
         for byte in kernal.iter_mut().take(0x0FFC) {
             *byte = 0xEA;
         }
-        Pet::new(kernal, vec![0u8; 0x2000], vec![0u8; 0x0800], vec![0u8; 0x1000], 40)
+        Pet::new(
+            kernal,
+            vec![0u8; 0x2000],
+            vec![0u8; 0x0800],
+            vec![0u8; 0x1000],
+            40,
+        )
     }
 
     #[test]

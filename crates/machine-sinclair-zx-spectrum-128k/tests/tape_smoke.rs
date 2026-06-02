@@ -197,7 +197,10 @@ fn run_and_compare(tap_filename: &str, png_stem: &str) {
     }
     let tap_path = system_tests_dir().join(tap_filename);
     if !tap_path.is_file() {
-        eprintln!("{tap_filename} not found at {} — skipping", tap_path.display());
+        eprintln!(
+            "{tap_filename} not found at {} — skipping",
+            tap_path.display()
+        );
         return;
     }
 

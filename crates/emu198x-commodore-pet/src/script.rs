@@ -102,9 +102,10 @@ fn die(message: &str) -> ! {
 fn default_rom(kind: &str, default_file: &str) -> Option<PathBuf> {
     let env_key = format!("EMU198X_PET_{kind}");
     if let Ok(p) = env::var(&env_key)
-        && !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
     let home = env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(format!(".emu198x/roms/commodore-pet/{default_file}")))
 }
@@ -165,11 +166,8 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
 
     let runtime = PetRuntime::new(model, kernal, basic, editor, char_rom)
         .map_err(|err| format!("failed to construct runtime: {err}"))?;
-    let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        FRAME_TICKS,
-        PetSessionQueryProvider,
-    );
+    let mut session =
+        HeadlessSession::new_with_query_provider(runtime, FRAME_TICKS, PetSessionQueryProvider);
     let media = MediaSet::new();
     session
         .prepare(&media, &[])

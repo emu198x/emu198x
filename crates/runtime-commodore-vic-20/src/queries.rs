@@ -30,11 +30,7 @@ impl SessionQueryProvider<Vic20Runtime> for Vic20SessionQueryProvider {
         paths
     }
 
-    fn query(
-        &self,
-        machine: &Vic20Runtime,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn query(&self, machine: &Vic20Runtime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
             "vic20.firmware.loaded" => json!(machine.machine().is_some()),
             "vic20.ram.expansion_kb" => json!(machine.ram_expansion_kb()),

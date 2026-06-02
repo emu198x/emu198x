@@ -92,38 +92,38 @@ pub enum AnticMode {
 /// Atari GTIA graphics chip.
 pub struct Gtia {
     // -- Colour registers --
-    colpm: [u8; 4],  // COLPM0-3: player/missile colours
-    colpf: [u8; 4],  // COLPF0-3: playfield colours
-    colbk: u8,       // COLBK: background
+    colpm: [u8; 4], // COLPM0-3: player/missile colours
+    colpf: [u8; 4], // COLPF0-3: playfield colours
+    colbk: u8,      // COLBK: background
 
     // -- Player/missile position --
-    hposp: [u8; 4],  // HPOSPx: horizontal position of players
-    hposm: [u8; 4],  // HPOSMx: horizontal position of missiles
+    hposp: [u8; 4], // HPOSPx: horizontal position of players
+    hposm: [u8; 4], // HPOSMx: horizontal position of missiles
 
     // -- Player/missile size --
-    sizep: [u8; 4],  // SIZEPx: player size (bits 0-1)
-    sizem: u8,       // SIZEM: missile sizes (2 bits each)
+    sizep: [u8; 4], // SIZEPx: player size (bits 0-1)
+    sizem: u8,      // SIZEM: missile sizes (2 bits each)
 
     // -- Player/missile graphics --
-    grafp: [u8; 4],  // GRAFPx: 8-bit player graphic patterns
-    grafm: u8,       // GRAFM: 2-bit missile graphic patterns
+    grafp: [u8; 4], // GRAFPx: 8-bit player graphic patterns
+    grafm: u8,      // GRAFM: 2-bit missile graphic patterns
 
     // -- Control --
-    prior: u8,       // PRIOR: priority and GTIA mode select
-    vdelay: u8,      // VDELAY: vertical delay
-    gractl: u8,      // GRACTL: graphics control
+    prior: u8,  // PRIOR: priority and GTIA mode select
+    vdelay: u8, // VDELAY: vertical delay
+    gractl: u8, // GRACTL: graphics control
 
     // -- Collision registers (active-high bit flags) --
-    m_pf: [u8; 4],   // M0PF-M3PF: missile-to-playfield
-    p_pf: [u8; 4],   // P0PF-P3PF: player-to-playfield
-    m_pl: [u8; 4],   // M0PL-M3PL: missile-to-player
-    p_pl: [u8; 4],   // P0PL-P3PL: player-to-player
+    m_pf: [u8; 4], // M0PF-M3PF: missile-to-playfield
+    p_pf: [u8; 4], // P0PF-P3PF: player-to-playfield
+    m_pl: [u8; 4], // M0PL-M3PL: missile-to-player
+    p_pl: [u8; 4], // P0PL-P3PL: player-to-player
 
     // -- Trigger inputs --
-    trig: [u8; 4],   // TRIG0-TRIG3: 1=released, 0=pressed
+    trig: [u8; 4], // TRIG0-TRIG3: 1=released, 0=pressed
 
     // -- Console --
-    consol: u8,      // CONSOL: console button state (active low, bits 0-2)
+    consol: u8, // CONSOL: console button state (active low, bits 0-2)
 
     // -- Framebuffer --
     framebuffer: Vec<u32>,
@@ -283,13 +283,7 @@ impl Gtia {
     /// - `playfield`: pixel index values from ANTIC
     /// - `pf_width`: playfield width in colour clocks (128, 160, or 192)
     /// - `mode`: the ANTIC display mode, controls colour interpretation
-    pub fn render_line(
-        &mut self,
-        line: u16,
-        playfield: &[u8],
-        pf_width: u16,
-        mode: AnticMode,
-    ) {
+    pub fn render_line(&mut self, line: u16, playfield: &[u8], pf_width: u16, mode: AnticMode) {
         if line >= ACTIVE_HEIGHT as u16 {
             return;
         }
@@ -307,7 +301,7 @@ impl Gtia {
 
         // -- Build player/missile overlay --
         let mut pm_colour = [0u8; ACTIVE_WIDTH as usize]; // 0 = no PM pixel
-        let mut pm_index = [0u8; ACTIVE_WIDTH as usize];  // which PM object (for collisions)
+        let mut pm_index = [0u8; ACTIVE_WIDTH as usize]; // which PM object (for collisions)
         self.overlay_players_missiles(&mut pm_colour, &mut pm_index);
 
         // -- Compose final pixels with priority and collision detection --
@@ -344,7 +338,7 @@ impl Gtia {
     ) {
         // Pixels per colour clock depend on mode resolution
         let (pixels_per_cc, hires) = match mode {
-            AnticMode::ModeF => (2, true),         // 320 px / 160 cc
+            AnticMode::ModeF => (2, true),                     // 320 px / 160 cc
             AnticMode::ModeD | AnticMode::ModeE => (2, false), // 160 px → 2 fb px each
             AnticMode::Mode2 | AnticMode::Mode3 => (2, true),  // text hires
             _ => (2, false),
@@ -588,24 +582,42 @@ impl Gtia {
             return Err("GTIA state truncated".into());
         }
         let mut p = 0;
-        self.colpm.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.colpf.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.colbk = data[p]; p += 1;
-        self.hposp.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.hposm.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.sizep.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.sizem = data[p]; p += 1;
-        self.grafp.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.grafm = data[p]; p += 1;
-        self.prior = data[p]; p += 1;
-        self.vdelay = data[p]; p += 1;
-        self.gractl = data[p]; p += 1;
-        self.m_pf.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.p_pf.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.m_pl.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.p_pl.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.trig.copy_from_slice(&data[p..p + 4]); p += 4;
-        self.consol = data[p]; p += 1;
+        self.colpm.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.colpf.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.colbk = data[p];
+        p += 1;
+        self.hposp.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.hposm.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.sizep.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.sizem = data[p];
+        p += 1;
+        self.grafp.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.grafm = data[p];
+        p += 1;
+        self.prior = data[p];
+        p += 1;
+        self.vdelay = data[p];
+        p += 1;
+        self.gractl = data[p];
+        p += 1;
+        self.m_pf.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.p_pf.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.m_pl.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.p_pl.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.trig.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.consol = data[p];
+        p += 1;
         Ok(p)
     }
 }
@@ -778,10 +790,7 @@ mod tests {
         let gtia = Gtia::new();
         assert_eq!(gtia.framebuffer_width(), FB_WIDTH);
         assert_eq!(gtia.framebuffer_height(), FB_HEIGHT);
-        assert_eq!(
-            gtia.framebuffer().len(),
-            (FB_WIDTH * FB_HEIGHT) as usize
-        );
+        assert_eq!(gtia.framebuffer().len(), (FB_WIDTH * FB_HEIGHT) as usize);
     }
 
     #[test]
@@ -803,11 +812,9 @@ mod tests {
         let fb = gtia.framebuffer();
         let player_argb = colour_to_argb32(0x38);
         let active_x = ((60 - PF_LEFT_CC) * 2) as usize;
-        let fb_idx =
-            BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize + active_x;
+        let fb_idx = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize + active_x;
         assert_eq!(
-            fb[fb_idx],
-            player_argb,
+            fb[fb_idx], player_argb,
             "Player should be on top at default priority"
         );
     }

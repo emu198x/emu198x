@@ -279,7 +279,12 @@ impl Pokey {
     pub fn new(cpu_freq: u32) -> Self {
         Self {
             cpu_freq,
-            channels: [Channel::new(), Channel::new(), Channel::new(), Channel::new()],
+            channels: [
+                Channel::new(),
+                Channel::new(),
+                Channel::new(),
+                Channel::new(),
+            ],
             audctl: 0,
             irqen: 0,
             irqst: 0xFF,
@@ -629,25 +634,43 @@ impl Pokey {
         }
         let mut p = 0;
         for ch in &mut self.channels {
-            ch.audf = data[p]; p += 1;
-            ch.audc = data[p]; p += 1;
-            ch.counter = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-            ch.output = data[p] != 0; p += 1;
-            ch.hp_flipflop = data[p] != 0; p += 1;
+            ch.audf = data[p];
+            p += 1;
+            ch.audc = data[p];
+            p += 1;
+            ch.counter = u16::from_le_bytes([data[p], data[p + 1]]);
+            p += 2;
+            ch.output = data[p] != 0;
+            p += 1;
+            ch.hp_flipflop = data[p] != 0;
+            p += 1;
         }
-        self.audctl = data[p]; p += 1;
-        self.irqen = data[p]; p += 1;
-        self.irqst = data[p]; p += 1;
-        self.skctl = data[p]; p += 1;
-        self.skstat = data[p]; p += 1;
-        self.serin = data[p]; p += 1;
-        self.serout = data[p]; p += 1;
-        self.kbcode = data[p]; p += 1;
-        self.poly_counter = u32::from_le_bytes([data[p], data[p + 1], data[p + 2], data[p + 3]]); p += 4;
-        self.base_divider = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.pot_target.copy_from_slice(&data[p..p + 8]); p += 8;
-        self.pot_value.copy_from_slice(&data[p..p + 8]); p += 8;
-        self.pot_scanning = data[p] != 0; p += 1;
+        self.audctl = data[p];
+        p += 1;
+        self.irqen = data[p];
+        p += 1;
+        self.irqst = data[p];
+        p += 1;
+        self.skctl = data[p];
+        p += 1;
+        self.skstat = data[p];
+        p += 1;
+        self.serin = data[p];
+        p += 1;
+        self.serout = data[p];
+        p += 1;
+        self.kbcode = data[p];
+        p += 1;
+        self.poly_counter = u32::from_le_bytes([data[p], data[p + 1], data[p + 2], data[p + 3]]);
+        p += 4;
+        self.base_divider = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.pot_target.copy_from_slice(&data[p..p + 8]);
+        p += 8;
+        self.pot_value.copy_from_slice(&data[p..p + 8]);
+        p += 8;
+        self.pot_scanning = data[p] != 0;
+        p += 1;
         Ok(p)
     }
 

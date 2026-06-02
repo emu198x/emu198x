@@ -44,7 +44,11 @@ pub(crate) fn decode(runtime: &mut Vic20Runtime, bytes: &[u8]) -> Result<(), Mac
         });
     }
     runtime.set_time(MachineTime::new(snapshot.time));
-    runtime.set_rom_bytes(snapshot.kernal_bytes, snapshot.basic_bytes, snapshot.char_bytes);
+    runtime.set_rom_bytes(
+        snapshot.kernal_bytes,
+        snapshot.basic_bytes,
+        snapshot.char_bytes,
+    );
     runtime.set_ram_expansion_internal(snapshot.ram_expansion_kb);
     runtime.rebuild_after_restore();
     Ok(())

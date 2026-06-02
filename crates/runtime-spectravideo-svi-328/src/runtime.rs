@@ -58,11 +58,12 @@ impl Svi328Runtime {
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let bytes = firmware
-            .bytes(BIOS_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: BIOS_FIRMWARE_ID.to_owned(),
-            })?;
+        let bytes =
+            firmware
+                .bytes(BIOS_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: BIOS_FIRMWARE_ID.to_owned(),
+                })?;
         Self::new(model, bytes.to_vec())
     }
 
@@ -92,7 +93,10 @@ impl Svi328Runtime {
         if rom.len() > CART_CEILING {
             return Err(MachineError::InvalidMedia {
                 slot: "cartridge-1".to_owned(),
-                reason: format!("cart is {} bytes; SVI-328 ceiling is {CART_CEILING}", rom.len()),
+                reason: format!(
+                    "cart is {} bytes; SVI-328 ceiling is {CART_CEILING}",
+                    rom.len()
+                ),
             });
         }
         self.cart_bytes = Some(rom.clone());

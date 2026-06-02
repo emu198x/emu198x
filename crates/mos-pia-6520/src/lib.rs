@@ -114,8 +114,7 @@ impl Pia6520 {
             }
             0x01 => {
                 // CRA: flags in bits 7-6, writable bits in 5-0
-                let flags = if self.irq_a1 { 0x80 } else { 0 }
-                    | if self.irq_a2 { 0x40 } else { 0 };
+                let flags = if self.irq_a1 { 0x80 } else { 0 } | if self.irq_a2 { 0x40 } else { 0 };
                 flags | (self.cra & 0x3F)
             }
             0x02 => {
@@ -131,8 +130,7 @@ impl Pia6520 {
             }
             0x03 => {
                 // CRB: flags in bits 7-6, writable bits in 5-0
-                let flags = if self.irq_b1 { 0x80 } else { 0 }
-                    | if self.irq_b2 { 0x40 } else { 0 };
+                let flags = if self.irq_b1 { 0x80 } else { 0 } | if self.irq_b2 { 0x40 } else { 0 };
                 flags | (self.crb & 0x3F)
             }
             _ => unreachable!(),
@@ -265,12 +263,20 @@ impl Pia6520 {
     #[must_use]
     pub fn save_state(&self) -> Vec<u8> {
         vec![
-            self.port_a, self.ddr_a, self.input_a,
-            self.port_b, self.ddr_b, self.input_b,
-            self.cra, self.crb,
-            u8::from(self.irq_a1), u8::from(self.irq_a2),
-            u8::from(self.irq_b1), u8::from(self.irq_b2),
-            u8::from(self.ca1_prev), u8::from(self.cb1_prev),
+            self.port_a,
+            self.ddr_a,
+            self.input_a,
+            self.port_b,
+            self.ddr_b,
+            self.input_b,
+            self.cra,
+            self.crb,
+            u8::from(self.irq_a1),
+            u8::from(self.irq_a2),
+            u8::from(self.irq_b1),
+            u8::from(self.irq_b2),
+            u8::from(self.ca1_prev),
+            u8::from(self.cb1_prev),
         ]
     }
 
@@ -284,20 +290,34 @@ impl Pia6520 {
             return Err("PIA state truncated".into());
         }
         let mut p = 0;
-        self.port_a = data[p]; p += 1;
-        self.ddr_a = data[p]; p += 1;
-        self.input_a = data[p]; p += 1;
-        self.port_b = data[p]; p += 1;
-        self.ddr_b = data[p]; p += 1;
-        self.input_b = data[p]; p += 1;
-        self.cra = data[p]; p += 1;
-        self.crb = data[p]; p += 1;
-        self.irq_a1 = data[p] != 0; p += 1;
-        self.irq_a2 = data[p] != 0; p += 1;
-        self.irq_b1 = data[p] != 0; p += 1;
-        self.irq_b2 = data[p] != 0; p += 1;
-        self.ca1_prev = data[p] != 0; p += 1;
-        self.cb1_prev = data[p] != 0; p += 1;
+        self.port_a = data[p];
+        p += 1;
+        self.ddr_a = data[p];
+        p += 1;
+        self.input_a = data[p];
+        p += 1;
+        self.port_b = data[p];
+        p += 1;
+        self.ddr_b = data[p];
+        p += 1;
+        self.input_b = data[p];
+        p += 1;
+        self.cra = data[p];
+        p += 1;
+        self.crb = data[p];
+        p += 1;
+        self.irq_a1 = data[p] != 0;
+        p += 1;
+        self.irq_a2 = data[p] != 0;
+        p += 1;
+        self.irq_b1 = data[p] != 0;
+        p += 1;
+        self.irq_b2 = data[p] != 0;
+        p += 1;
+        self.ca1_prev = data[p] != 0;
+        p += 1;
+        self.cb1_prev = data[p] != 0;
+        p += 1;
         Ok(p)
     }
 }

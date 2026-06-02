@@ -53,10 +53,7 @@ impl SessionQueryProvider<ElectronRuntime> for ElectronSessionQueryProvider {
     }
 }
 
-fn loaded<'a>(
-    runtime: &'a ElectronRuntime,
-    path: &str,
-) -> Result<&'a AcornElectron, QueryError> {
+fn loaded<'a>(runtime: &'a ElectronRuntime, path: &str) -> Result<&'a AcornElectron, QueryError> {
     runtime
         .machine()
         .ok_or_else(|| QueryError::UnavailablePath {

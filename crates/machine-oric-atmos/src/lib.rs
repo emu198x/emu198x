@@ -182,7 +182,11 @@ impl OricAtmos {
     fn mem_read(&mut self, addr: u16) -> u8 {
         match addr {
             0x0300..=0x03FF => self.via.read((addr & 0x0F) as u8),
-            0xC000..=0xFFFF => self.rom.get((addr - 0xC000) as usize).copied().unwrap_or(0xFF),
+            0xC000..=0xFFFF => self
+                .rom
+                .get((addr - 0xC000) as usize)
+                .copied()
+                .unwrap_or(0xFF),
             _ => {
                 let idx = addr as usize;
                 if idx < self.ram_size {
@@ -365,7 +369,11 @@ impl OricAtmos {
                             continue;
                         }
                         let (fg, bg) = if inverse { (paper, ink) } else { (ink, paper) };
-                        let pixel = if effective & (0x20 >> bit) != 0 { fg } else { bg };
+                        let pixel = if effective & (0x20 >> bit) != 0 {
+                            fg
+                        } else {
+                            bg
+                        };
                         self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = pixel;
                     }
                 }

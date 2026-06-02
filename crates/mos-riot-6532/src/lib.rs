@@ -284,17 +284,28 @@ impl Riot6532 {
         let mut p = 0;
         self.ram.copy_from_slice(&data[p..p + 128]);
         p += 128;
-        self.port_a = data[p]; p += 1;
-        self.ddr_a = data[p]; p += 1;
-        self.input_a = data[p]; p += 1;
-        self.port_b = data[p]; p += 1;
-        self.ddr_b = data[p]; p += 1;
-        self.input_b = data[p]; p += 1;
-        self.timer = data[p]; p += 1;
-        self.divider = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.prescaler = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.underflow = data[p] != 0; p += 1;
-        self.post_underflow = data[p] != 0; p += 1;
+        self.port_a = data[p];
+        p += 1;
+        self.ddr_a = data[p];
+        p += 1;
+        self.input_a = data[p];
+        p += 1;
+        self.port_b = data[p];
+        p += 1;
+        self.ddr_b = data[p];
+        p += 1;
+        self.input_b = data[p];
+        p += 1;
+        self.timer = data[p];
+        p += 1;
+        self.divider = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.prescaler = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.underflow = data[p] != 0;
+        p += 1;
+        self.post_underflow = data[p] != 0;
+        p += 1;
         Ok(p)
     }
 }
@@ -469,7 +480,9 @@ mod tests {
 
     #[test]
     fn all_four_dividers() {
-        for (addr, expected_divider) in [(0x0294u16, 1u16), (0x0295, 8), (0x0296, 64), (0x0297, 1024)] {
+        for (addr, expected_divider) in
+            [(0x0294u16, 1u16), (0x0295, 8), (0x0296, 64), (0x0297, 1024)]
+        {
             let mut riot = Riot6532::new();
             riot.write(addr, 1); // timer = 1
 
@@ -477,13 +490,20 @@ mod tests {
             for _ in 0..expected_divider {
                 riot.tick();
             }
-            assert_eq!(riot.timer_value(), 0, "divider {expected_divider}: expected 0 after {expected_divider} ticks");
+            assert_eq!(
+                riot.timer_value(),
+                0,
+                "divider {expected_divider}: expected 0 after {expected_divider} ticks"
+            );
 
             // Tick (divider) more times → underflow
             for _ in 0..expected_divider {
                 riot.tick();
             }
-            assert!(riot.underflow_flag(), "divider {expected_divider}: expected underflow");
+            assert!(
+                riot.underflow_flag(),
+                "divider {expected_divider}: expected underflow"
+            );
         }
     }
 }

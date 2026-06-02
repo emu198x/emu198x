@@ -13,9 +13,10 @@ use machine_mattel_aquarius::Aquarius;
 
 pub(crate) fn apply_input_event(machine: &mut Aquarius, event: &InputEvent) {
     if let InputEvent::Key { name, pressed } = event
-        && let Some((row, col)) = key_to_matrix(name.as_ref()) {
-            machine.set_key(row, col, *pressed);
-        }
+        && let Some((row, col)) = key_to_matrix(name.as_ref())
+    {
+        machine.set_key(row, col, *pressed);
+    }
 }
 
 /// Map a host-level key name to an Aquarius matrix (row, column).

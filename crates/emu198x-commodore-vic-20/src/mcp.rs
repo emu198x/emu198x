@@ -27,18 +27,17 @@ pub fn run() -> Result<(), String> {
     let basic = rom_path("BASIC", "basic.rom");
     let char_rom = rom_path("CHAR", "chargen.rom");
     if let (Some(kp), Some(bp), Some(cp)) = (kernal.as_ref(), basic.as_ref(), char_rom.as_ref())
-        && let (Ok(k), Ok(b), Ok(c)) = (fs::read(kp), fs::read(bp), fs::read(cp)) {
-            if k.len() == 8192 && b.len() == 8192 && c.len() == 4096 {
-                machine
-                    .set_roms(k, b, c)
-                    .map_err(|err| format!("ROMs invalid: {err}"))?;
-                eprintln!("emu198x-commodore-vic-20 mcp: loaded all 3 ROMs");
-            } else {
-                eprintln!(
-                    "emu198x-commodore-vic-20 mcp: ROM sizes wrong; starting blank"
-                );
-            }
+        && let (Ok(k), Ok(b), Ok(c)) = (fs::read(kp), fs::read(bp), fs::read(cp))
+    {
+        if k.len() == 8192 && b.len() == 8192 && c.len() == 4096 {
+            machine
+                .set_roms(k, b, c)
+                .map_err(|err| format!("ROMs invalid: {err}"))?;
+            eprintln!("emu198x-commodore-vic-20 mcp: loaded all 3 ROMs");
+        } else {
+            eprintln!("emu198x-commodore-vic-20 mcp: ROM sizes wrong; starting blank");
         }
+    }
 
     let mut session = HeadlessSession::new_with_query_provider(
         machine,
@@ -57,11 +56,16 @@ pub fn run() -> Result<(), String> {
 fn rom_path(kind: &str, default_file: &str) -> Option<PathBuf> {
     let env_key = format!("EMU198X_VIC20_{kind}");
     if let Ok(p) = env::var(&env_key)
-        && !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
     let home = env::var("HOME").ok()?;
     let default =
         PathBuf::from(home).join(format!(".emu198x/roms/commodore-vic-20/{default_file}"));
-    if default.exists() { Some(default) } else { None }
+    if default.exists() {
+        Some(default)
+    } else {
+        None
+    }
 }

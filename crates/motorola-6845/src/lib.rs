@@ -291,21 +291,36 @@ impl Crtc6845 {
             return Err("CRTC state truncated".into());
         }
         let mut p = 0;
-        self.selected = data[p]; p += 1;
-        self.regs.copy_from_slice(&data[p..p + 18]); p += 18;
-        self.h_counter = data[p]; p += 1;
-        self.ra = data[p]; p += 1;
-        self.v_counter = data[p]; p += 1;
-        self.v_adjust = data[p]; p += 1;
-        self.in_v_adjust = data[p] != 0; p += 1;
-        self.ma = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.row_start = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.hsync = data[p] != 0; p += 1;
-        self.vsync = data[p] != 0; p += 1;
-        self.display_enable = data[p] != 0; p += 1;
-        self.hsync_counter = data[p]; p += 1;
-        self.vsync_counter = data[p]; p += 1;
-        self.cursor_active = data[p] != 0; p += 1;
+        self.selected = data[p];
+        p += 1;
+        self.regs.copy_from_slice(&data[p..p + 18]);
+        p += 18;
+        self.h_counter = data[p];
+        p += 1;
+        self.ra = data[p];
+        p += 1;
+        self.v_counter = data[p];
+        p += 1;
+        self.v_adjust = data[p];
+        p += 1;
+        self.in_v_adjust = data[p] != 0;
+        p += 1;
+        self.ma = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.row_start = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.hsync = data[p] != 0;
+        p += 1;
+        self.vsync = data[p] != 0;
+        p += 1;
+        self.display_enable = data[p] != 0;
+        p += 1;
+        self.hsync_counter = data[p];
+        p += 1;
+        self.vsync_counter = data[p];
+        p += 1;
+        self.cursor_active = data[p] != 0;
+        p += 1;
         Ok(p)
     }
 }
@@ -323,8 +338,7 @@ mod tests {
     fn setup_mode0(crtc: &mut Crtc6845) {
         // BBC Micro MODE 0: 80-column, 2 MHz CRTC clock
         let vals = [
-            127, 80, 98, 0x28, 38, 0, 32, 34,
-            0, 7, 0, 0, 0x0C, 0x00, 0, 0, 0, 0,
+            127, 80, 98, 0x28, 38, 0, 32, 34, 0, 7, 0, 0, 0x0C, 0x00, 0, 0, 0, 0,
         ];
         for (i, &v) in vals.iter().enumerate() {
             crtc.write_address(i as u8);
@@ -411,7 +425,9 @@ mod tests {
         setup_mode0(&mut crtc);
         // Run one full frame to load start address into MA
         loop {
-            if crtc.tick() { break; }
+            if crtc.tick() {
+                break;
+            }
         }
         let ma_start = crtc.memory_address();
         // Tick a few visible characters

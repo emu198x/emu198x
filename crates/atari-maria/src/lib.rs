@@ -402,28 +402,46 @@ impl Maria {
             return Err("MARIA state truncated".into());
         }
         let mut p = 0;
-        self.backgrnd = data[p]; p += 1;
+        self.backgrnd = data[p];
+        p += 1;
         for pal in &mut self.palettes {
             pal.copy_from_slice(&data[p..p + 3]);
             p += 3;
         }
-        self.ctrl = data[p]; p += 1;
-        self.wsync = data[p] != 0; p += 1;
-        self.dppl = data[p]; p += 1;
-        self.dpph = data[p]; p += 1;
-        self.chbase = data[p]; p += 1;
-        self.scan_line = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.vblank = data[p] != 0; p += 1;
-        self.dli_pending = data[p] != 0; p += 1;
-        self.frame_complete = data[p] != 0; p += 1;
-        self.dll_addr = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.zone_scanline = data[p]; p += 1;
-        self.zone_height = data[p]; p += 1;
-        self.zone_dl_addr = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.zone_offset = data[p]; p += 1;
-        self.zone_dli = data[p] != 0; p += 1;
-        self.dll_active = data[p] != 0; p += 1;
-        self.dma_cycles = data[p]; p += 1;
+        self.ctrl = data[p];
+        p += 1;
+        self.wsync = data[p] != 0;
+        p += 1;
+        self.dppl = data[p];
+        p += 1;
+        self.dpph = data[p];
+        p += 1;
+        self.chbase = data[p];
+        p += 1;
+        self.scan_line = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.vblank = data[p] != 0;
+        p += 1;
+        self.dli_pending = data[p] != 0;
+        p += 1;
+        self.frame_complete = data[p] != 0;
+        p += 1;
+        self.dll_addr = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.zone_scanline = data[p];
+        p += 1;
+        self.zone_height = data[p];
+        p += 1;
+        self.zone_dl_addr = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.zone_offset = data[p];
+        p += 1;
+        self.zone_dli = data[p] != 0;
+        p += 1;
+        self.dll_active = data[p] != 0;
+        p += 1;
+        self.dma_cycles = data[p];
+        p += 1;
         Ok(p)
     }
 
@@ -558,11 +576,7 @@ impl Maria {
     }
 
     /// Render a single DL entry into the line buffer.
-    fn render_dl_entry(
-        &mut self,
-        entry: &DlEntry,
-        read_byte: &mut dyn FnMut(u16) -> u8,
-    ) {
+    fn render_dl_entry(&mut self, entry: &DlEntry, read_byte: &mut dyn FnMut(u16) -> u8) {
         let scanline_in_zone = self.zone_scanline;
 
         // Calculate the graphics data address for this scanline.
@@ -572,9 +586,7 @@ impl Maria {
         let line_addr = entry.gfx_addr.wrapping_add(page_offset << 8);
 
         // Determine which mode to use.
-        let use_320 = entry
-            .write_mode_320
-            .unwrap_or(false); // Default to 160A when not in Kangaroo mode.
+        let use_320 = entry.write_mode_320.unwrap_or(false); // Default to 160A when not in Kangaroo mode.
 
         if entry.indirect {
             self.render_indirect(entry, line_addr, use_320, read_byte);
@@ -615,8 +627,7 @@ impl Maria {
                 for shift in [6, 4, 2, 0] {
                     let pixel = (byte >> shift) & 0x03;
                     if pixel != 0 {
-                        let colour =
-                            self.palettes[entry.palette as usize][(pixel - 1) as usize];
+                        let colour = self.palettes[entry.palette as usize][(pixel - 1) as usize];
                         if x < ACTIVE_WIDTH as usize {
                             self.line_buffer[x] = colour;
                         }
@@ -671,8 +682,7 @@ impl Maria {
                 for shift in [6, 4, 2, 0] {
                     let pixel = (byte >> shift) & 0x03;
                     if pixel != 0 {
-                        let colour =
-                            self.palettes[entry.palette as usize][(pixel - 1) as usize];
+                        let colour = self.palettes[entry.palette as usize][(pixel - 1) as usize];
                         if x < ACTIVE_WIDTH as usize {
                             self.line_buffer[x] = colour;
                         }
@@ -751,10 +761,7 @@ mod tests {
         let maria = Maria::new(MariaRegion::Ntsc);
         assert_eq!(maria.framebuffer_width(), FB_WIDTH);
         assert_eq!(maria.framebuffer_height(), FB_HEIGHT);
-        assert_eq!(
-            maria.framebuffer().len(),
-            (FB_WIDTH * FB_HEIGHT) as usize
-        );
+        assert_eq!(maria.framebuffer().len(), (FB_WIDTH * FB_HEIGHT) as usize);
     }
 
     #[test]
@@ -971,8 +978,7 @@ mod tests {
         // Active region starts at (BORDER_LEFT, BORDER_TOP). First two
         // framebuffer pixels of the active row (one 160A pixel = 2 FB
         // pixels) should be the foreground colour.
-        let active_start =
-            BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let active_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         assert_eq!(maria.framebuffer[active_start], fg_argb);
         assert_eq!(maria.framebuffer[active_start + 1], fg_argb);
         // Next pixels should be background (transparent).

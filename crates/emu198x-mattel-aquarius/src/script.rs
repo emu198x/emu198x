@@ -36,8 +36,7 @@ Shared:
     --help, -h                 show this help
 ";
 
-#[derive(Debug)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Cli {
     bios: Option<PathBuf>,
     cart: Option<PathBuf>,
@@ -47,7 +46,6 @@ struct Cli {
     audio_capture: Option<PathBuf>,
     script: Option<PathBuf>,
 }
-
 
 fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
     let mut cli = Cli::default();
@@ -98,9 +96,10 @@ fn die(message: &str) -> ! {
 
 fn default_bios_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_AQUARIUS_BIOS")
-        && !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
     let home = env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".emu198x/roms/mattel-aquarius/aquarius.rom"))
 }
@@ -208,8 +207,8 @@ fn load_cart_bytes(path: Option<&Path>) -> Result<Option<Vec<u8>>, String> {
     let Some(path) = path else {
         return Ok(None);
     };
-    let bytes = fs::read(path)
-        .map_err(|err| format!("failed to read --cart {}: {err}", path.display()))?;
+    let bytes =
+        fs::read(path).map_err(|err| format!("failed to read --cart {}: {err}", path.display()))?;
     Ok(Some(bytes))
 }
 

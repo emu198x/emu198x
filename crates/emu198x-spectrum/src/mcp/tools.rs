@@ -178,8 +178,8 @@ fn execute_load_portable_snapshot(
             path.display()
         )));
     }
-    let snapshot = parse_portable_snapshot_at(path)
-        .map_err(|err| ToolError::Execution(format!("{err}")))?;
+    let snapshot =
+        parse_portable_snapshot_at(path).map_err(|err| ToolError::Execution(format!("{err}")))?;
     SpectrumLiveAccess::apply_snapshot(session.machine_mut(), &snapshot);
     Ok(())
 }

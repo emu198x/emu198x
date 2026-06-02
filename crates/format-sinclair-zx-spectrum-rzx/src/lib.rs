@@ -161,7 +161,10 @@ pub fn parse(data: &[u8]) -> Result<Rzx, String> {
         ]) as usize;
 
         if block_len < 5 {
-            return Err(format!("block at {} has length {} (minimum 5)", cursor, block_len));
+            return Err(format!(
+                "block at {} has length {} (minimum 5)",
+                cursor, block_len
+            ));
         }
         if cursor + block_len > data.len() {
             return Err(format!(
@@ -191,25 +194,36 @@ pub fn parse(data: &[u8]) -> Result<Rzx, String> {
 
 fn parse_creator(payload: &[u8]) -> Result<Creator, String> {
     if payload.len() < 24 {
-        return Err(format!("creator block payload {} bytes (need 24)", payload.len()));
+        return Err(format!(
+            "creator block payload {} bytes (need 24)",
+            payload.len()
+        ));
     }
     let name_bytes = &payload[..20];
     let name_end = name_bytes.iter().position(|&b| b == 0).unwrap_or(20);
     let name = String::from_utf8_lossy(&name_bytes[..name_end]).into_owned();
     let version_major = u16::from_le_bytes([payload[20], payload[21]]);
     let version_minor = u16::from_le_bytes([payload[22], payload[23]]);
-    Ok(Creator { name, version_major, version_minor })
+    Ok(Creator {
+        name,
+        version_major,
+        version_minor,
+    })
 }
 
 fn parse_snapshot(payload: &[u8]) -> Result<Snapshot, String> {
     if payload.len() < 12 {
-        return Err(format!("snapshot block payload {} bytes (need 12)", payload.len()));
+        return Err(format!(
+            "snapshot block payload {} bytes (need 12)",
+            payload.len()
+        ));
     }
     let flags = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
     let ext_bytes = &payload[4..8];
     let ext_end = ext_bytes.iter().position(|&b| b == 0).unwrap_or(4);
     let extension = String::from_utf8_lossy(&ext_bytes[..ext_end]).into_owned();
-    let uncompressed_len = u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]) as usize;
+    let uncompressed_len =
+        u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]) as usize;
 
     if flags & SNAPSHOT_FLAG_EXTERNAL != 0 {
         return Err("RZX external snapshot references are not supported".into());
@@ -226,12 +240,19 @@ fn parse_snapshot(payload: &[u8]) -> Result<Snapshot, String> {
         raw.to_vec()
     };
 
-    Ok(Snapshot { flags, extension, data })
+    Ok(Snapshot {
+        flags,
+        extension,
+        data,
+    })
 }
 
 fn parse_input(payload: &[u8]) -> Result<InputRecording, String> {
     if payload.len() < 18 {
-        return Err(format!("input block payload {} bytes (need 18)", payload.len()));
+        return Err(format!(
+            "input block payload {} bytes (need 18)",
+            payload.len()
+        ));
     }
     let frame_count = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
     // Reserved byte at offset 4 (should be 0). We ignore.
@@ -253,7 +274,11 @@ fn parse_input(payload: &[u8]) -> Result<InputRecording, String> {
     };
 
     let frames = parse_frames(&stream, frame_count as usize)?;
-    Ok(InputRecording { flags, tstate_counter, frames })
+    Ok(InputRecording {
+        flags,
+        tstate_counter,
+        frames,
+    })
 }
 
 fn parse_frames(stream: &[u8], expected: usize) -> Result<Vec<Frame>, String> {
@@ -288,7 +313,10 @@ fn parse_frames(stream: &[u8], expected: usize) -> Result<Vec<Frame>, String> {
             bytes
         };
 
-        frames.push(Frame { fetch_count, inputs });
+        frames.push(Frame {
+            fetch_count,
+            inputs,
+        });
     }
 
     if frames.len() != expected {
@@ -353,7 +381,9 @@ fn write_snapshot(out: &mut Vec<u8>, s: &Snapshot) -> Result<(), String> {
         encoder
             .write_all(&s.data)
             .map_err(|e| format!("snapshot zlib encode failed: {}", e))?;
-        encoder.finish().map_err(|e| format!("snapshot zlib finish failed: {}", e))?
+        encoder
+            .finish()
+            .map_err(|e| format!("snapshot zlib finish failed: {}", e))?
     } else {
         s.data.clone()
     };
@@ -389,7 +419,9 @@ fn write_input(out: &mut Vec<u8>, r: &InputRecording) -> Result<(), String> {
         encoder
             .write_all(&stream)
             .map_err(|e| format!("input zlib encode failed: {}", e))?;
-        encoder.finish().map_err(|e| format!("input zlib finish failed: {}", e))?
+        encoder
+            .finish()
+            .map_err(|e| format!("input zlib finish failed: {}", e))?
     } else {
         stream
     };
@@ -414,7 +446,11 @@ mod tests {
     use super::*;
 
     fn sample_rzx(compress: bool) -> Rzx {
-        let snap_flags = if compress { SNAPSHOT_FLAG_COMPRESSED } else { 0 };
+        let snap_flags = if compress {
+            SNAPSHOT_FLAG_COMPRESSED
+        } else {
+            0
+        };
         let input_flags = if compress { INPUT_FLAG_COMPRESSED } else { 0 };
         Rzx {
             version_major: 0,
@@ -434,10 +470,22 @@ mod tests {
                 flags: input_flags,
                 tstate_counter: 0,
                 frames: vec![
-                    Frame { fetch_count: 1234, inputs: vec![0xFF, 0x7E] },
-                    Frame { fetch_count: 1234, inputs: vec![0xFF, 0x7E] }, // → SAME_AS_PREVIOUS
-                    Frame { fetch_count: 1235, inputs: vec![0xBF, 0x7E] },
-                    Frame { fetch_count: 1234, inputs: vec![] },
+                    Frame {
+                        fetch_count: 1234,
+                        inputs: vec![0xFF, 0x7E],
+                    },
+                    Frame {
+                        fetch_count: 1234,
+                        inputs: vec![0xFF, 0x7E],
+                    }, // → SAME_AS_PREVIOUS
+                    Frame {
+                        fetch_count: 1235,
+                        inputs: vec![0xBF, 0x7E],
+                    },
+                    Frame {
+                        fetch_count: 1234,
+                        inputs: vec![],
+                    },
                 ],
             }],
             unknown_blocks: vec![],
@@ -561,13 +609,19 @@ mod tests {
         let parsed = parse(&bytes).expect("ok in test");
         assert_eq!(parsed.unknown_blocks.len(), 1);
         assert_eq!(parsed.unknown_blocks[0].id, 0x42);
-        assert_eq!(parsed.unknown_blocks[0].payload, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(
+            parsed.unknown_blocks[0].payload,
+            vec![0xDE, 0xAD, 0xBE, 0xEF]
+        );
 
         // Re-emit and re-parse — the unknown block should still be there.
         let written = write(&parsed).expect("ok in test");
         let reparsed = parse(&written).expect("ok in test");
         assert_eq!(reparsed.unknown_blocks.len(), 1);
         assert_eq!(reparsed.unknown_blocks[0].id, 0x42);
-        assert_eq!(reparsed.unknown_blocks[0].payload, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(
+            reparsed.unknown_blocks[0].payload,
+            vec![0xDE, 0xAD, 0xBE, 0xEF]
+        );
     }
 }

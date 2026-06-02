@@ -52,11 +52,7 @@ impl KeyboardState {
     /// Returns the row state as a bitmap (1 = pressed).
     #[must_use]
     pub fn read_row(&self, row: usize) -> u8 {
-        if row < 10 {
-            self.matrix[row]
-        } else {
-            0
-        }
+        if row < 10 { self.matrix[row] } else { 0 }
     }
 
     /// Release all keys.

@@ -112,18 +112,15 @@ impl Vic6560 {
             self.framebuffer.fill(border_colour);
         }
 
-        if self.scanline >= visible_y_start
-            && self.scanline < visible_y_end
-            && self.pixel_x < 22
-        {
+        if self.scanline >= visible_y_start && self.scanline < visible_y_end && self.pixel_x < 22 {
             let vis_y = self.scanline - visible_y_start;
             let char_row = vis_y / 8;
             let pixel_in_char_y = vis_y % 8;
             let char_col = self.pixel_x;
 
             // Screen memory base from registers
-            let screen_base = (u16::from(self.regs[5]) & 0xF0) << 6
-                | (u16::from(self.regs[2]) & 0x80) << 2;
+            let screen_base =
+                (u16::from(self.regs[5]) & 0xF0) << 6 | (u16::from(self.regs[2]) & 0x80) << 2;
 
             let char_addr = screen_base.wrapping_add(char_row as u16 * 22 + char_col as u16);
             let char_code = read_screen(char_addr);
@@ -131,7 +128,8 @@ impl Vic6560 {
 
             // Character ROM lookup
             let char_rom_base = (u16::from(self.regs[5]) & 0x0F) << 10;
-            let char_rom_addr = char_rom_base.wrapping_add(u16::from(char_code) * 8 + pixel_in_char_y as u16);
+            let char_rom_addr =
+                char_rom_base.wrapping_add(u16::from(char_code) * 8 + pixel_in_char_y as u16);
             let char_data = read_char_rom(char_rom_addr);
 
             // Background colour from register $0F

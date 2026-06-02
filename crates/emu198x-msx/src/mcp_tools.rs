@@ -52,9 +52,9 @@ fn msx_ref(s: &MsxSession) -> Result<&Msx, ToolError> {
 }
 
 fn arg_u16(args: &Value, name: &str) -> Result<u16, ToolError> {
-    let v = args
-        .get(name)
-        .ok_or_else(|| ToolError::InvalidArguments(format!("missing required argument `{name}`")))?;
+    let v = args.get(name).ok_or_else(|| {
+        ToolError::InvalidArguments(format!("missing required argument `{name}`"))
+    })?;
     if let Some(n) = v.as_u64() {
         return u16::try_from(n)
             .map_err(|_| ToolError::InvalidArguments(format!("`{name}` out of u16 range: {n}")));

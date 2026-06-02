@@ -23,17 +23,18 @@ const FRAME_TICKS_NTSC: u64 = 228 * 262;
 pub fn run() -> Result<(), String> {
     let mut machine = M5Runtime::blank(Model::M5Ntsc);
     if let Some(path) = rom_path()
-        && let Ok(bytes) = fs::read(&path) {
-            machine.set_rom(bytes);
-            eprintln!("emu198x-sord-m5 mcp: loaded ROM from {}", path.display());
-        }
+        && let Ok(bytes) = fs::read(&path)
+    {
+        machine.set_rom(bytes);
+        eprintln!("emu198x-sord-m5 mcp: loaded ROM from {}", path.display());
+    }
 
-    let mut session = HeadlessSession::new_with_query_provider(
-        machine,
-        FRAME_TICKS_NTSC,
-        M5SessionQueryProvider,
-    );
-    let mut server = Server::new(ServerInfo::new("emu198x-sord-m5", env!("CARGO_PKG_VERSION")));
+    let mut session =
+        HeadlessSession::new_with_query_provider(machine, FRAME_TICKS_NTSC, M5SessionQueryProvider);
+    let mut server = Server::new(ServerInfo::new(
+        "emu198x-sord-m5",
+        env!("CARGO_PKG_VERSION"),
+    ));
     register_common_tools(server.registry_mut());
     register_m5_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
@@ -41,10 +42,15 @@ pub fn run() -> Result<(), String> {
 
 fn rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_SORD_M5_ROM")
-        && !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(".emu198x/roms/sord-m5/sord-m5.rom");
-    if default.exists() { Some(default) } else { None }
+    if default.exists() {
+        Some(default)
+    } else {
+        None
+    }
 }

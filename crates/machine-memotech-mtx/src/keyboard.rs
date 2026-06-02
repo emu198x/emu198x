@@ -38,11 +38,7 @@ impl KeyboardState {
     /// Returns bits 0-7 (active low: 0 = pressed).
     #[must_use]
     pub fn read(&self, row: usize) -> u8 {
-        if row < 8 {
-            !self.rows[row]
-        } else {
-            0xFF
-        }
+        if row < 8 { !self.rows[row] } else { 0xFF }
     }
 
     /// Release all keys.

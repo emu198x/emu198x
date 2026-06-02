@@ -80,21 +80,24 @@ impl Vic20Runtime {
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let kernal = firmware
-            .bytes(KERNAL_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: KERNAL_FIRMWARE_ID.to_owned(),
-            })?;
-        let basic = firmware
-            .bytes(BASIC_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: BASIC_FIRMWARE_ID.to_owned(),
-            })?;
-        let char_rom = firmware
-            .bytes(CHAR_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: CHAR_FIRMWARE_ID.to_owned(),
-            })?;
+        let kernal =
+            firmware
+                .bytes(KERNAL_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: KERNAL_FIRMWARE_ID.to_owned(),
+                })?;
+        let basic =
+            firmware
+                .bytes(BASIC_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: BASIC_FIRMWARE_ID.to_owned(),
+                })?;
+        let char_rom =
+            firmware
+                .bytes(CHAR_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: CHAR_FIRMWARE_ID.to_owned(),
+                })?;
         Self::new(model, kernal.to_vec(), basic.to_vec(), char_rom.to_vec())
     }
 

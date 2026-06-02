@@ -30,7 +30,10 @@ fn boot_to_basic_renders_screen_content() {
     }
 
     let mut machine = TimexTC2048::new();
-    machine.memory.load_rom(&rom).expect("TC2048 ROM should load");
+    machine
+        .memory
+        .load_rom(&rom)
+        .expect("TC2048 ROM should load");
 
     for _ in 0..200 {
         machine.run_frame();

@@ -8,8 +8,8 @@
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind,
-    RunResult, StopReason,
+    MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind, RunResult,
+    StopReason,
 };
 use machine_acorn_electron::AcornElectron;
 
@@ -72,11 +72,12 @@ impl ElectronRuntime {
             .ok_or_else(|| MachineError::MissingFirmware {
                 id: OS_FIRMWARE_ID.to_owned(),
             })?;
-        let basic = firmware
-            .bytes(BASIC_FIRMWARE_ID)
-            .ok_or_else(|| MachineError::MissingFirmware {
-                id: BASIC_FIRMWARE_ID.to_owned(),
-            })?;
+        let basic =
+            firmware
+                .bytes(BASIC_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: BASIC_FIRMWARE_ID.to_owned(),
+                })?;
         Self::new(model, os.to_vec(), basic.to_vec())
     }
 
@@ -95,7 +96,10 @@ impl ElectronRuntime {
         if basic_rom.len() != ROM_SIZE {
             return Err(MachineError::InvalidFirmware {
                 id: BASIC_FIRMWARE_ID.to_owned(),
-                reason: format!("BASIC ROM is {} bytes; expected {ROM_SIZE}", basic_rom.len()),
+                reason: format!(
+                    "BASIC ROM is {} bytes; expected {ROM_SIZE}",
+                    basic_rom.len()
+                ),
             });
         }
         self.os_bytes = Some(os_rom);

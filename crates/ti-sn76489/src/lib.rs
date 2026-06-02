@@ -358,26 +358,39 @@ impl Sn76489 {
         }
         let mut p = 0;
         for i in 0..3 {
-            self.tone_period[i] = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
+            self.tone_period[i] = u16::from_le_bytes([data[p], data[p + 1]]);
+            p += 2;
         }
         for i in 0..3 {
-            self.tone_counter[i] = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
+            self.tone_counter[i] = u16::from_le_bytes([data[p], data[p + 1]]);
+            p += 2;
         }
         for i in 0..3 {
-            self.tone_output[i] = data[p] != 0; p += 1;
+            self.tone_output[i] = data[p] != 0;
+            p += 1;
         }
         for i in 0..3 {
-            self.tone_attenuation[i] = data[p]; p += 1;
+            self.tone_attenuation[i] = data[p];
+            p += 1;
         }
-        self.noise_mode = data[p]; p += 1;
-        self.noise_period = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.noise_counter = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.noise_shift = u16::from_le_bytes([data[p], data[p + 1]]); p += 2;
-        self.noise_output = data[p] != 0; p += 1;
-        self.noise_attenuation = data[p]; p += 1;
-        self.noise_white = data[p] != 0; p += 1;
-        self.latched_register = data[p]; p += 1;
-        self.stereo_panning = data[p]; p += 1;
+        self.noise_mode = data[p];
+        p += 1;
+        self.noise_period = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.noise_counter = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.noise_shift = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.noise_output = data[p] != 0;
+        p += 1;
+        self.noise_attenuation = data[p];
+        p += 1;
+        self.noise_white = data[p] != 0;
+        p += 1;
+        self.latched_register = data[p];
+        p += 1;
+        self.stereo_panning = data[p];
+        p += 1;
         Ok(p)
     }
 }

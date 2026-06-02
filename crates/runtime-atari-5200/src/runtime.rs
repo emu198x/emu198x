@@ -115,13 +115,12 @@ impl Atari5200Runtime {
             emu198x_shell::Region::Pal => Atari5200Region::Pal,
             _ => Atari5200Region::Ntsc,
         };
-        let machine =
-            Atari5200::new(rom, self.bios_bytes.clone(), region).map_err(|reason| {
-                MachineError::InvalidMedia {
-                    slot: "cartridge-1".to_owned(),
-                    reason,
-                }
-            })?;
+        let machine = Atari5200::new(rom, self.bios_bytes.clone(), region).map_err(|reason| {
+            MachineError::InvalidMedia {
+                slot: "cartridge-1".to_owned(),
+                reason,
+            }
+        })?;
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;

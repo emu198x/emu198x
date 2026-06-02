@@ -111,8 +111,18 @@ fn type_load_command(machine: &mut Spectrum48k, start_frame: usize) -> usize {
     };
 
     tap(machine, &mut frame, SpectrumKey::J);
-    chord(machine, &mut frame, SpectrumKey::SymbolShift, SpectrumKey::P);
-    chord(machine, &mut frame, SpectrumKey::SymbolShift, SpectrumKey::P);
+    chord(
+        machine,
+        &mut frame,
+        SpectrumKey::SymbolShift,
+        SpectrumKey::P,
+    );
+    chord(
+        machine,
+        &mut frame,
+        SpectrumKey::SymbolShift,
+        SpectrumKey::P,
+    );
     tap(machine, &mut frame, SpectrumKey::Enter);
     frame
 }

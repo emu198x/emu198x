@@ -115,11 +115,7 @@ pub struct Atari5200 {
 impl Atari5200 {
     /// Create a new Atari 5200. `bios` may be empty to fall back to
     /// the cartridge's `$FFFC/$FFFD` mirror for the reset vector.
-    pub fn new(
-        rom: Vec<u8>,
-        bios: Vec<u8>,
-        region: Atari5200Region,
-    ) -> Result<Self, String> {
+    pub fn new(rom: Vec<u8>, bios: Vec<u8>, region: Atari5200Region) -> Result<Self, String> {
         let cart = Cartridge::from_rom(&rom)?;
         let mut cpu = M6502::new();
         cpu.reset();
@@ -165,7 +161,10 @@ impl Atari5200 {
         self.master_clock += 1;
 
         // At every scan-line boundary, run ANTIC + render.
-        if self.master_clock.is_multiple_of(u64::from(COLOUR_CLOCKS_PER_LINE)) {
+        if self
+            .master_clock
+            .is_multiple_of(u64::from(COLOUR_CLOCKS_PER_LINE))
+        {
             self.process_scan_line();
         }
 
@@ -386,12 +385,8 @@ mod tests {
 
     #[test]
     fn bios_overlays_top_of_address_space() {
-        let mut sys = Atari5200::new(
-            trap_rom_8k(),
-            vec![0xBB; 2048],
-            Atari5200Region::Ntsc,
-        )
-        .expect("init");
+        let mut sys =
+            Atari5200::new(trap_rom_8k(), vec![0xBB; 2048], Atari5200Region::Ntsc).expect("init");
         assert_eq!(sys.mem_read(0xF800), 0xBB);
         assert_eq!(sys.mem_read(0xFFFF), 0xBB);
     }
@@ -412,8 +407,7 @@ mod tests {
 
     #[test]
     fn joystick_pots_default_to_centre() {
-        let sys =
-            Atari5200::new(trap_rom_8k(), Vec::new(), Atari5200Region::Ntsc).expect("init");
+        let sys = Atari5200::new(trap_rom_8k(), Vec::new(), Atari5200Region::Ntsc).expect("init");
         let _ = sys; // pots set in `new`; this confirms `new` doesn't panic.
     }
 }

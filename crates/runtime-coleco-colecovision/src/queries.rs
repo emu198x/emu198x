@@ -52,10 +52,7 @@ impl SessionQueryProvider<CvRuntime> for CvSessionQueryProvider {
     }
 }
 
-fn loaded_machine<'a>(
-    runtime: &'a CvRuntime,
-    path: &str,
-) -> Result<&'a ColecoVision, QueryError> {
+fn loaded_machine<'a>(runtime: &'a CvRuntime, path: &str) -> Result<&'a ColecoVision, QueryError> {
     runtime
         .machine()
         .ok_or_else(|| QueryError::UnavailablePath {

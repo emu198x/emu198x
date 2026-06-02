@@ -25,12 +25,12 @@
 //! - **Audio:** none
 //! - **Keyboard:** identical 8 × 5 matrix to the Spectrum / ZX81
 
-mod keyboard;
 pub mod input;
+mod keyboard;
 
 pub use input::Zx80Key;
 pub use keyboard::KeyboardState;
-pub use sinclair_zx81_ula::{Zx81Ula, FB_HEIGHT, FB_WIDTH};
+pub use sinclair_zx81_ula::{FB_HEIGHT, FB_WIDTH, Zx81Ula};
 
 use zilog_z80::z80::{BusOp, Z80};
 
@@ -51,10 +51,7 @@ impl Zx80 {
     /// (unexpanded) or 16384 (16 KB RAM pack).
     pub fn new(rom: Vec<u8>, ram_size: usize) -> Result<Self, String> {
         if rom.len() != 0x1000 {
-            return Err(format!(
-                "ZX80 ROM must be 4096 bytes, got {}",
-                rom.len()
-            ));
+            return Err(format!("ZX80 ROM must be 4096 bytes, got {}", rom.len()));
         }
         if !ram_size.is_power_of_two() || ram_size > 0x4000 {
             return Err(format!(

@@ -47,7 +47,10 @@ impl Model {
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::Sg1000Ntsc), profile_for(Model::Sg1000Pal)]
+    vec![
+        profile_for(Model::Sg1000Ntsc),
+        profile_for(Model::Sg1000Pal),
+    ]
 }
 
 #[must_use]
@@ -84,10 +87,7 @@ mod tests {
     #[test]
     fn profile_ids_are_unique() {
         let profiles = profiles();
-        let mut ids: Vec<&str> = profiles
-            .iter()
-            .map(|p| p.profile_id.as_str())
-            .collect();
+        let mut ids: Vec<&str> = profiles.iter().map(|p| p.profile_id.as_str()).collect();
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), profiles.len());

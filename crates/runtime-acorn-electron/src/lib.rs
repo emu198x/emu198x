@@ -6,6 +6,6 @@ mod queries;
 mod runtime;
 mod snapshot;
 
-pub use profiles::{Model, profile_for, profiles, BASIC_FIRMWARE_ID, OS_FIRMWARE_ID};
+pub use profiles::{BASIC_FIRMWARE_ID, Model, OS_FIRMWARE_ID, profile_for, profiles};
 pub use queries::ElectronSessionQueryProvider;
 pub use runtime::ElectronRuntime;

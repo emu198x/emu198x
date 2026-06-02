@@ -41,9 +41,9 @@ impl SpectrumRuntime<TimexTS2068> {
         let rom: [u8; ROM_BYTES] = rom
             .try_into()
             .map_err(|_| RomImageError::WrongSize { actual: rom.len() })?;
-        let exrom: [u8; EXROM_BYTES] = exrom
-            .try_into()
-            .map_err(|_| RomImageError::WrongSize { actual: exrom.len() })?;
+        let exrom: [u8; EXROM_BYTES] = exrom.try_into().map_err(|_| RomImageError::WrongSize {
+            actual: exrom.len(),
+        })?;
         Ok(Self::new_ts2068(model, rom, exrom))
     }
 

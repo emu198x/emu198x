@@ -49,7 +49,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
         region: model.region(),
         support_tier: SupportTier::Boots,
         release_year: 1983,
-        summary: "Acorn Electron — 6502A + ULA + 32 KB RAM, dual 16 KB ROMs (OS + BBC BASIC II).".into(),
+        summary: "Acorn Electron — 6502A + ULA + 32 KB RAM, dual 16 KB ROMs (OS + BBC BASIC II)."
+            .into(),
         clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(2_000_000)),
         firmware: vec![
             FirmwareRequirement::new(OS_FIRMWARE_ID, "Electron OS ROM (16 KB)", false),

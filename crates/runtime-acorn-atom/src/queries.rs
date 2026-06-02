@@ -29,11 +29,7 @@ impl SessionQueryProvider<AtomRuntime> for AtomSessionQueryProvider {
         paths
     }
 
-    fn query(
-        &self,
-        machine: &AtomRuntime,
-        path: &str,
-    ) -> Result<Option<QueryResult>, QueryError> {
+    fn query(&self, machine: &AtomRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
             "atom.bios.loaded" => json!(machine.machine().is_some()),
             "atom.machine.frame_count" => {

@@ -27,11 +27,7 @@ impl Tool<Zx81Session> for InlineTool {
     fn input_schema(&self) -> Value {
         self.schema.clone()
     }
-    fn call(
-        &self,
-        arguments: Value,
-        session: &mut Zx81Session,
-    ) -> Result<ToolResponse, ToolError> {
+    fn call(&self, arguments: Value, session: &mut Zx81Session) -> Result<ToolResponse, ToolError> {
         let body = (self.run)(arguments, session)?;
         let text = serde_json::to_string(&body)
             .map_err(|err| ToolError::Execution(format!("serialize: {err}")))?;

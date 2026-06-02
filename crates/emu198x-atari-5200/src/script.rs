@@ -139,7 +139,11 @@ fn default_bios_path() -> Option<PathBuf> {
     }
     let home = env::var("HOME").ok()?;
     let default = PathBuf::from(home).join(".emu198x/roms/atari-5200/bios.rom");
-    if default.exists() { Some(default) } else { None }
+    if default.exists() {
+        Some(default)
+    } else {
+        None
+    }
 }
 
 /// Headless entry point.

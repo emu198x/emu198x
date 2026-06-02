@@ -343,8 +343,7 @@ impl AcornElectron {
                 self.ula.refresh_master_irq();
             }
             0x02 => {
-                self.ula.screen_start =
-                    (self.ula.screen_start & 0x00FF) | (u16::from(value) << 8);
+                self.ula.screen_start = (self.ula.screen_start & 0x00FF) | (u16::from(value) << 8);
             }
             0x03 => {
                 self.ula.screen_start = (self.ula.screen_start & 0xFF00) | u16::from(value);
@@ -365,8 +364,7 @@ impl AcornElectron {
             }
             0x06 => {
                 self.ula.counter = value;
-                self.ula.sound_period =
-                    (self.ula.sound_period & 0xFF00) | u16::from(value);
+                self.ula.sound_period = (self.ula.sound_period & 0xFF00) | u16::from(value);
                 self.ula.sound_counter = self.ula.sound_period;
                 self.ula.sound_enabled = self.ula.sound_period > 0;
             }
