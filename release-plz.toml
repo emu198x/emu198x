@@ -15,3 +15,10 @@ publish = false
 git_release_enable = false
 git_tag_enable = true
 changelog_update = true
+
+# git_only = true: take the previous version from the git tag, not the
+# crates.io registry. Required whenever publish = false — with no registry
+# baseline, release-plz can't see the last release and never bumps the version
+# (it reports "already up-to-date" and opens no release PR). See the umbrella
+# project-skeleton-standard decision for the full story.
+git_only = true
