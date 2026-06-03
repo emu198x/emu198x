@@ -510,6 +510,48 @@ impl AcornElectron {
     }
 }
 
+impl AcornElectron {
+    /// Read one byte with no side effects (RAM / BASIC / OS ROM;
+    /// `$FF` for the ULA / I/O page).
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x7FFF => self.ram[addr as usize],
+            0x8000..=0xBFFF => self
+                .basic_rom
+                .get((addr - 0x8000) as usize)
+                .copied()
+                .unwrap_or(0xFF),
+            0xFC00..=0xFEFF => 0xFF,
+            0xC000..=0xFFFF => self
+                .os_rom
+                .get((addr - 0xC000) as usize)
+                .copied()
+                .unwrap_or(0xFF),
+        }
+    }
+
+    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole 6502 instruction, returning the clocks it
+    /// consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let mut ticks = 0u64;
+        while self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_cpu_cycle();
+            ticks += 1;
+        }
+        while !self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_cpu_cycle();
+            ticks += 1;
+        }
+        ticks
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -617,47 +659,5 @@ mod tests {
         sys.ula_write(0xFE08, 0b0101_0000); // physical = 5 (magenta)
         assert_eq!(sys.ula.palette[0], 5);
         assert_eq!(sys.ula.palette[1], 5);
-    }
-}
-
-impl AcornElectron {
-    /// Read one byte with no side effects (RAM / BASIC / OS ROM;
-    /// `$FF` for the ULA / I/O page).
-    #[must_use]
-    pub fn peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x0000..=0x7FFF => self.ram[addr as usize],
-            0x8000..=0xBFFF => self
-                .basic_rom
-                .get((addr - 0x8000) as usize)
-                .copied()
-                .unwrap_or(0xFF),
-            0xFC00..=0xFEFF => 0xFF,
-            0xC000..=0xFFFF => self
-                .os_rom
-                .get((addr - 0xC000) as usize)
-                .copied()
-                .unwrap_or(0xFF),
-        }
-    }
-
-    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
-    pub fn poke(&mut self, addr: u16, value: u8) {
-        self.mem_write(addr, value);
-    }
-
-    /// Run exactly one whole 6502 instruction, returning the clocks it
-    /// consumed. A safety cap prevents an unbounded spin.
-    pub fn step_instruction(&mut self) -> u64 {
-        let mut ticks = 0u64;
-        while self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_cpu_cycle();
-            ticks += 1;
-        }
-        while !self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_cpu_cycle();
-            ticks += 1;
-        }
-        ticks
     }
 }

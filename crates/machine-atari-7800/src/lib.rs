@@ -338,6 +338,41 @@ impl Atari7800 {
     }
 }
 
+impl Atari7800 {
+    /// Read one byte with no side effects: zero-page / stack / main RAM
+    /// and cartridge ROM; `$FF` for TIA / MARIA / RIOT (read side effects).
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        match addr {
+            0x0040..=0x00FF => self.ram_zp[(addr - 0x40) as usize],
+            0x0140..=0x01FF => self.ram_stack[(addr - 0x140) as usize],
+            0x1800..=0x3FFF => self.ram_main[((addr - 0x1800) & 0x0FFF) as usize],
+            0x4000..=0xFFFF => self.cart.read(addr),
+            _ => 0xFF,
+        }
+    }
+
+    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole 6502C instruction, returning the colour clocks
+    /// it consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let mut ticks = 0u64;
+        while self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_colour_clock();
+            ticks += 1;
+        }
+        while !self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_colour_clock();
+            ticks += 1;
+        }
+        ticks
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,40 +449,5 @@ mod tests {
     #[test]
     fn rejects_oversized_rom() {
         assert!(Atari7800::new(vec![0u8; 256_000], Atari7800Region::Ntsc).is_err());
-    }
-}
-
-impl Atari7800 {
-    /// Read one byte with no side effects: zero-page / stack / main RAM
-    /// and cartridge ROM; `$FF` for TIA / MARIA / RIOT (read side effects).
-    #[must_use]
-    pub fn peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x0040..=0x00FF => self.ram_zp[(addr - 0x40) as usize],
-            0x0140..=0x01FF => self.ram_stack[(addr - 0x140) as usize],
-            0x1800..=0x3FFF => self.ram_main[((addr - 0x1800) & 0x0FFF) as usize],
-            0x4000..=0xFFFF => self.cart.read(addr),
-            _ => 0xFF,
-        }
-    }
-
-    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
-    pub fn poke(&mut self, addr: u16, value: u8) {
-        self.mem_write(addr, value);
-    }
-
-    /// Run exactly one whole 6502C instruction, returning the colour clocks
-    /// it consumed. A safety cap prevents an unbounded spin.
-    pub fn step_instruction(&mut self) -> u64 {
-        let mut ticks = 0u64;
-        while self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_colour_clock();
-            ticks += 1;
-        }
-        while !self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_colour_clock();
-            ticks += 1;
-        }
-        ticks
     }
 }

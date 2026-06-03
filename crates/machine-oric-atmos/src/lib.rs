@@ -468,6 +468,49 @@ impl OricAtmos {
     }
 }
 
+impl OricAtmos {
+    /// Read one byte with no side effects (RAM / ROM; `$FF` for the VIA).
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        match addr {
+            0xC000..=0xFFFF => self
+                .rom
+                .get((addr - 0xC000) as usize)
+                .copied()
+                .unwrap_or(0xFF),
+            0x0300..=0x03FF => 0xFF,
+            _ => {
+                let idx = addr as usize;
+                if idx < self.ram_size {
+                    self.ram[idx]
+                } else {
+                    0xFF
+                }
+            }
+        }
+    }
+
+    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole 6502 instruction, returning the clocks it
+    /// consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let mut ticks = 0u64;
+        while self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_cpu_cycle();
+            ticks += 1;
+        }
+        while !self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_cpu_cycle();
+            ticks += 1;
+        }
+        ticks
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,48 +611,5 @@ mod tests {
         assert_eq!(sys.keyboard[2] & (1 << 5), 0);
         sys.release_key(2, 5);
         assert_eq!(sys.keyboard[2] & (1 << 5), 1 << 5);
-    }
-}
-
-impl OricAtmos {
-    /// Read one byte with no side effects (RAM / ROM; `$FF` for the VIA).
-    #[must_use]
-    pub fn peek(&self, addr: u16) -> u8 {
-        match addr {
-            0xC000..=0xFFFF => self
-                .rom
-                .get((addr - 0xC000) as usize)
-                .copied()
-                .unwrap_or(0xFF),
-            0x0300..=0x03FF => 0xFF,
-            _ => {
-                let idx = addr as usize;
-                if idx < self.ram_size {
-                    self.ram[idx]
-                } else {
-                    0xFF
-                }
-            }
-        }
-    }
-
-    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
-    pub fn poke(&mut self, addr: u16, value: u8) {
-        self.mem_write(addr, value);
-    }
-
-    /// Run exactly one whole 6502 instruction, returning the clocks it
-    /// consumed. A safety cap prevents an unbounded spin.
-    pub fn step_instruction(&mut self) -> u64 {
-        let mut ticks = 0u64;
-        while self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_cpu_cycle();
-            ticks += 1;
-        }
-        while !self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_cpu_cycle();
-            ticks += 1;
-        }
-        ticks
     }
 }
