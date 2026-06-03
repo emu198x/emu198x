@@ -536,8 +536,8 @@ fn decode_group5(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
     let (mode, reg) = ea_mode_reg(opcode);
     let size_bits = (opcode >> 6) & 3;
 
-    // DBcc
-    if size_bits == 1 && mode == 1 {
+    // DBcc — size field is 0b11 (bits 7-6) with the An mode (mode 1).
+    if size_bits == 3 && mode == 1 {
         let cc = (opcode >> 8) & 0xF;
         let disp = ctx.read_word() as i16;
         let target = (ctx.base.wrapping_add(2) as i32).wrapping_add(disp as i32) as u32;
@@ -547,7 +547,7 @@ fn decode_group5(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
         ));
     }
 
-    // Scc
+    // Scc — size field 0b11, any mode except the An form claimed by DBcc above.
     if size_bits == 3 {
         let cc = (opcode >> 8) & 0xF;
         let ea = format_ea(ctx, mode, reg, Size::Byte);
@@ -932,6 +932,52 @@ mod tests {
         // JMP (A3) = 0100_1110_1101_0011 = $4ED3
         let (s, len) = dis(&[0x4E, 0xD3]);
         assert_eq!(s, "jmp (A3)");
+        assert_eq!(len, 2);
+    }
+
+    // Group-5 (ADDQ/SUBQ/Scc/DBcc) regression cluster. DBcc has the size field
+    // 0b11 (bits 7-6); the decoder tested 0b01, so real DBcc fell through to Scc
+    // (DBF/DBRA — the canonical loop primitive — disassembled as `sf An`) and
+    // ADDQ.W/SUBQ.W #n,An were mis-read as DBcc. Found by the isa-disasm
+    // conformance spike, 2026-06-03.
+
+    #[test]
+    fn test_dbf_d0() {
+        // DBF D0,$+2+$10 = $51C8, disp $0010 -> target $12. (DBRA is DBF.)
+        let (s, len) = dis(&[0x51, 0xC8, 0x00, 0x10]);
+        assert_eq!(s, "dbf D0,$00000012");
+        assert_eq!(len, 4);
+    }
+
+    #[test]
+    fn test_dbt_d7() {
+        // DBT D7,$+2+$10 = $50CF (cc=T), disp $0010 -> target $12.
+        let (s, len) = dis(&[0x50, 0xCF, 0x00, 0x10]);
+        assert_eq!(s, "dbt D7,$00000012");
+        assert_eq!(len, 4);
+    }
+
+    #[test]
+    fn test_addq_w_an() {
+        // ADDQ.W #8,A0 = $5048 (data 000 -> 8, size 0b01, mode 1). Was DBT.
+        let (s, len) = dis(&[0x50, 0x48]);
+        assert_eq!(s, "addq.w #8,A0");
+        assert_eq!(len, 2);
+    }
+
+    #[test]
+    fn test_subq_w_an() {
+        // SUBQ.W #1,A0 = $5348 (data 001, bit8 set -> subq, size 0b01, mode 1).
+        let (s, len) = dis(&[0x53, 0x48]);
+        assert_eq!(s, "subq.w #1,A0");
+        assert_eq!(len, 2);
+    }
+
+    #[test]
+    fn test_sf_d0_still_scc() {
+        // SF D0 = $51C0 (size 0b11, mode 0): a genuine Scc, must stay Scc.
+        let (s, len) = dis(&[0x51, 0xC0]);
+        assert_eq!(s, "sf D0");
         assert_eq!(len, 2);
     }
 
