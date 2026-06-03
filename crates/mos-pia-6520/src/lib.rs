@@ -256,6 +256,28 @@ impl Pia6520 {
     pub fn ddr_b(&self) -> u8 {
         self.ddr_b
     }
+
+    /// Read port A data direction register (1 = output, 0 = input).
+    #[must_use]
+    pub fn ddr_a(&self) -> u8 {
+        self.ddr_a
+    }
+
+    /// Read control register A, with the live CA1/CA2 interrupt flags in bits
+    /// 7-6 (as a CPU read of CRA would see them). Diagnostics only.
+    #[must_use]
+    pub fn cra(&self) -> u8 {
+        let flags = if self.irq_a1 { 0x80 } else { 0 } | if self.irq_a2 { 0x40 } else { 0 };
+        flags | (self.cra & 0x3F)
+    }
+
+    /// Read control register B, with the live CB1/CB2 interrupt flags in bits
+    /// 7-6. Diagnostics only.
+    #[must_use]
+    pub fn crb(&self) -> u8 {
+        let flags = if self.irq_b1 { 0x80 } else { 0 } | if self.irq_b2 { 0x40 } else { 0 };
+        flags | (self.crb & 0x3F)
+    }
 }
 
 impl Pia6520 {

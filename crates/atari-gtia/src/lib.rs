@@ -236,6 +236,22 @@ impl Gtia {
     pub const fn prior_value(&self) -> u8 {
         self.prior
     }
+    /// Current COLPM[0..4] player/missile colours (write-only; debug accessor).
+    #[must_use]
+    pub const fn colpm_values(&self) -> [u8; 4] {
+        self.colpm
+    }
+    /// Current GRACTL value (write-only; debug accessor).
+    #[must_use]
+    pub const fn gractl_value(&self) -> u8 {
+        self.gractl
+    }
+    /// Current console-switch state (CONSOL read: START/SELECT/OPTION in bits
+    /// 0-2, active low). Debug accessor.
+    #[must_use]
+    pub const fn console_switches(&self) -> u8 {
+        self.console_switches
+    }
 
     // -----------------------------------------------------------------------
     // Trigger inputs

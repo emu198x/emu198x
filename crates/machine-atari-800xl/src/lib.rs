@@ -341,6 +341,55 @@ impl Atari800xl {
         }
     }
 
+    /// Read a byte as the CPU would see it through the current PORTB banking,
+    /// without side effects — for debugger / MCP `memory_read`. RAM, OS ROM,
+    /// BASIC ROM, self-test ROM and cartridge windows resolve exactly as the
+    /// bus does. The `$D000-$D7FF` hardware-register page returns `$FF`
+    /// (open bus) rather than reading the chips, since a real register read
+    /// has side effects (clearing collisions, latching status, etc.) — use
+    /// the `query_*` chip tools to inspect those.
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        let portb = self.effective_portb();
+        let os_on = portb & 0x01 != 0;
+        let basic_on = portb & 0x02 == 0;
+        let self_test = portb & 0x80 == 0;
+
+        match addr {
+            0x5000..=0x57FF if self_test && os_on => self
+                .os_rom
+                .as_ref()
+                .and_then(|os| os.get((addr - 0x5000 + 0x1000) as usize).copied())
+                .unwrap_or(0xFF),
+            0x8000..=0xBFFF if self.cart.as_ref().is_some_and(|c| c.covers(addr)) => {
+                self.cart.as_ref().map_or(0xFF, |c| c.read(addr))
+            }
+            0xA000..=0xBFFF if basic_on => self
+                .basic_rom
+                .as_ref()
+                .and_then(|b| b.get((addr - 0xA000) as usize).copied())
+                .unwrap_or(0xFF),
+            0xC000..=0xCFFF | 0xD800..=0xFFFF if os_on => self
+                .os_rom
+                .as_ref()
+                .and_then(|os| os.get((addr - 0xC000) as usize).copied())
+                .unwrap_or(0xFF),
+            0xD000..=0xD7FF => 0xFF,
+            _ => self.ram[addr as usize],
+        }
+    }
+
+    /// Write a byte into the underlying RAM — for debugger / MCP `poke`.
+    /// Mirrors the bus: writes to the `$0000-$CFFF` and `$D800-$FFFF` ranges
+    /// land in RAM even where ROM is banked over them (the ROM is read-only,
+    /// the RAM beneath it still takes the write). Writes to the `$D000-$D7FF`
+    /// register page are ignored here — drive chips through their own tools.
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        if !(0xD000..=0xD7FF).contains(&addr) {
+            self.ram[addr as usize] = value;
+        }
+    }
+
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         self.gtia.framebuffer()

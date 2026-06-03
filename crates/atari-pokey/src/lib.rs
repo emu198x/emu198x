@@ -670,6 +670,46 @@ impl Pokey {
         self.audctl
     }
 
+    /// Per-channel AUDF (frequency) registers, channels 0-3 (diagnostics).
+    #[must_use]
+    pub fn audf(&self) -> [u8; 4] {
+        [
+            self.channels[0].audf,
+            self.channels[1].audf,
+            self.channels[2].audf,
+            self.channels[3].audf,
+        ]
+    }
+
+    /// Per-channel AUDC (control) registers, channels 0-3 (diagnostics).
+    #[must_use]
+    pub fn audc(&self) -> [u8; 4] {
+        [
+            self.channels[0].audc,
+            self.channels[1].audc,
+            self.channels[2].audc,
+            self.channels[3].audc,
+        ]
+    }
+
+    /// Get the SKCTL register value (serial / keyboard control; diagnostics).
+    #[must_use]
+    pub fn skctl(&self) -> u8 {
+        self.skctl
+    }
+
+    /// Get the SKSTAT register value (serial / keyboard status; diagnostics).
+    #[must_use]
+    pub fn skstat(&self) -> u8 {
+        self.skstat
+    }
+
+    /// Get the KBCODE register value (last keyboard scan code; diagnostics).
+    #[must_use]
+    pub fn kbcode(&self) -> u8 {
+        self.kbcode
+    }
+
     /// Serialize POKEY register state for save states.
     ///
     /// Captures channel registers, AUDCTL, IRQ, serial, and pot state.

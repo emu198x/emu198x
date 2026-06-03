@@ -379,6 +379,21 @@ impl Antic {
     pub const fn chbase_value(&self) -> u8 {
         self.chbase
     }
+    /// Current CHACTL (character control: inverse/blank/reflect); debug accessor.
+    #[must_use]
+    pub const fn chactl_value(&self) -> u8 {
+        self.chactl
+    }
+    /// Current HSCROL (horizontal fine scroll); debug accessor.
+    #[must_use]
+    pub const fn hscrol_value(&self) -> u8 {
+        self.hscrol
+    }
+    /// Current VSCROL (vertical fine scroll); debug accessor.
+    #[must_use]
+    pub const fn vscrol_value(&self) -> u8 {
+        self.vscrol
+    }
 
     /// VCOUNT register value (`scan_line` / 2).
     #[must_use]
