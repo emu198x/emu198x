@@ -195,6 +195,42 @@ impl Atari800xl {
         self.master_clock - start
     }
 
+    /// Run until the CPU is about to execute `target_pc`, or until `max_ticks`
+    /// colour clocks elapse — for a debugger / MCP `run_until_pc`. Returns the
+    /// number of colour clocks actually run and whether the target was hit.
+    ///
+    /// Steps a whole CPU instruction at a time and checks PC after each, so
+    /// the starting position never counts as an immediate hit and the target
+    /// is recognised at the instruction boundary where it becomes the next
+    /// instruction to fetch. Frame rendering and the TV-border fill continue
+    /// as in `run_frame`, so a screenshot taken afterwards is current.
+    pub fn run_until_pc(&mut self, target_pc: u16, max_ticks: u64) -> (u64, bool) {
+        let start = self.master_clock;
+        while self.master_clock - start < max_ticks {
+            // Leave the current instruction-complete state (begin the next
+            // instruction's fetch), then run until it completes again.
+            while self.cpu.instruction_complete() && self.master_clock - start < max_ticks {
+                self.tick_render(start);
+            }
+            while !self.cpu.instruction_complete() && self.master_clock - start < max_ticks {
+                self.tick_render(start);
+            }
+            if self.cpu.regs.pc == target_pc {
+                return (self.master_clock - start, true);
+            }
+        }
+        (self.master_clock - start, false)
+    }
+
+    /// One colour clock, repainting the TV border at frame boundaries (as
+    /// `run_frame` does) so stepped runs still render.
+    fn tick_render(&mut self, start_clock: u64) {
+        if (self.master_clock - start_clock).is_multiple_of(self.clocks_per_frame) {
+            self.gtia.fill_border();
+        }
+        self.tick_colour_clock();
+    }
+
     fn tick_colour_clock(&mut self) {
         self.master_clock += 1;
 
@@ -498,6 +534,10 @@ impl Atari800xl {
     #[must_use]
     pub fn master_clock(&self) -> u64 {
         self.master_clock
+    }
+    #[must_use]
+    pub fn clocks_per_frame(&self) -> u64 {
+        self.clocks_per_frame
     }
     #[must_use]
     pub fn frame_count(&self) -> u64 {

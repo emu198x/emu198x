@@ -1,7 +1,7 @@
 //! Atari 800XL-specific MCP tools.
 
 use emu198x_shell::{
-    HeadlessSession,
+    HeadlessSession, InputEvent,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
 };
 use machine_atari_800xl::Atari800xl;
@@ -194,6 +194,93 @@ fn tool_query_pia(_args: Value, session: &mut A800xlSession) -> Result<Value, To
     }))
 }
 
+fn tool_run_until_pc(args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
+    let target = parse_num(&args, "pc")? as u16;
+    let max_frames = opt_num(&args, "max_frames", 60)?.clamp(1, 6000);
+    let m = a800xl_mut(session)?;
+    let max_ticks = max_frames as u64 * m.clocks_per_frame();
+    let (ticks, reached) = m.run_until_pc(target, max_ticks);
+    let pc = m.cpu().regs.pc;
+    Ok(json!({
+        "target":   format!("${target:04X}"),
+        "reached":  reached,
+        "pc":       format!("${pc:04X}"),
+        "cycles":   ticks / 2,        // CPU cycles run (the CPU ticks every 2nd colour clock)
+        "max_frames": max_frames,
+    }))
+}
+
+/// Frames a key is held / settled between presses. Three frames at ~60 Hz is
+/// 50 ms — comfortably more than the OS keyboard scan interval but quick.
+const KEY_HOLD_FRAMES: u32 = 3;
+const KEY_SETTLE_FRAMES: u32 = 6;
+
+fn press_release(
+    session: &mut A800xlSession,
+    name: &str,
+    hold: u32,
+    settle: u32,
+) -> Result<(), ToolError> {
+    session.queue_input(InputEvent::Key {
+        name: name.to_owned().into(),
+        pressed: true,
+    });
+    session
+        .run_frames(hold)
+        .map_err(|e| ToolError::Execution(format!("press hold: {e}")))?;
+    session.queue_input(InputEvent::Key {
+        name: name.to_owned().into(),
+        pressed: false,
+    });
+    session
+        .run_frames(settle)
+        .map_err(|e| ToolError::Execution(format!("release settle: {e}")))?;
+    Ok(())
+}
+
+fn tool_press_key(args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
+    let name = args
+        .get("key")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::InvalidArguments("missing `key` (string)".into()))?
+        .to_owned();
+    let hold = opt_num(&args, "hold_frames", KEY_HOLD_FRAMES)?.clamp(1, 600);
+    press_release(session, &name, hold, KEY_SETTLE_FRAMES)?;
+    Ok(json!({ "key": name, "hold_frames": hold }))
+}
+
+fn tool_type_string(args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
+    let text = args
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::InvalidArguments("missing `text` (string)".into()))?
+        .to_owned();
+    let hold = opt_num(&args, "hold_frames", KEY_HOLD_FRAMES)?.clamp(1, 600);
+
+    let mut typed = 0u32;
+    let mut prev: Option<String> = None;
+    for ch in text.chars() {
+        // Newline → RETURN; everything else maps as a single-character key
+        // name (the runtime resolves case via the machine's caps-lock state).
+        let name = if ch == '\n' || ch == '\r' {
+            "Return".to_owned()
+        } else {
+            ch.to_string()
+        };
+        // Extra settle before a repeat of the same key so the OS keyboard scan
+        // sees the release before the next press.
+        if prev.as_deref() == Some(name.as_str()) {
+            session
+                .run_frames(KEY_SETTLE_FRAMES)
+                .map_err(|e| ToolError::Execution(format!("repeat settle: {e}")))?;
+        }
+        press_release(session, &name, hold, KEY_SETTLE_FRAMES)?;
+        prev = Some(name);
+        typed += 1;
+    }
+    Ok(json!({ "text": text, "chars_typed": typed }))
+}
+
 pub fn register_a800xl_tools(registry: &mut ToolRegistry<A800xlSession>) {
     let empty = || json!({"type": "object", "additionalProperties": false});
     let mut tool = |name, description, schema, run| {
@@ -281,6 +368,54 @@ pub fn register_a800xl_tools(registry: &mut ToolRegistry<A800xlSession>) {
         "PIA 6520 registers (PORTA/PORTB outputs, DDRA/DDRB, CRA/CRB, IRQ).",
         empty(),
         tool_query_pia,
+    );
+    tool(
+        "run_until_pc",
+        "Run the machine until the CPU is about to execute `pc`, or until \
+         `max_frames` (default 60, max 6000) elapse. Reports whether it was \
+         reached and the CPU cycles run.",
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "pc":         {"type": ["integer", "string"]},
+                "max_frames": {"type": "integer", "minimum": 1, "maximum": 6000}
+            },
+            "required": ["pc"]
+        }),
+        tool_run_until_pc,
+    );
+    tool(
+        "press_key",
+        "Press, hold, and release one key. `key` is a single character (case \
+         set by caps lock) or a name (Return, Space, Esc, Tab, Delete). \
+         Optional hold_frames (default 3).",
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "key":         {"type": "string"},
+                "hold_frames": {"type": "integer", "minimum": 1, "maximum": 600}
+            },
+            "required": ["key"]
+        }),
+        tool_press_key,
+    );
+    tool(
+        "type_string",
+        "Type a string by pressing each character in turn (newline → RETURN). \
+         Letters arrive uppercase under the power-on caps lock, as on real \
+         hardware. Optional hold_frames (default 3).",
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "text":        {"type": "string"},
+                "hold_frames": {"type": "integer", "minimum": 1, "maximum": 600}
+            },
+            "required": ["text"]
+        }),
+        tool_type_string,
     );
 }
 
@@ -387,5 +522,72 @@ mod tests {
         );
         assert_eq!(w["bytes"][0], 0xCD);
         assert_eq!(w["bytes"][1], 0xAB);
+    }
+
+    fn screen_addr(ram: &[u8]) -> usize {
+        let dlist = u16::from(ram[0x0230]) | (u16::from(ram[0x0231]) << 8);
+        let mut p = dlist as usize;
+        for _ in 0..64 {
+            let b = ram[p];
+            if b & 0x40 != 0 && (b & 0x0F) >= 2 {
+                return usize::from(ram[p + 1]) | (usize::from(ram[p + 2]) << 8);
+            }
+            if b & 0x0F == 0x01 {
+                break;
+            }
+            p += if b & 0x40 != 0 { 3 } else { 1 };
+        }
+        0
+    }
+
+    #[test]
+    #[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
+    fn run_and_input_tools_drive_basic() {
+        let (Some(os), Some(basic)) = (rom("atarixl.rom"), rom("ataribas.rom")) else {
+            eprintln!("skipping: ROMs not present");
+            return;
+        };
+        let runtime = Atari800xlRuntime::new(Model::A800xlNtsc, Some(os), Some(basic), None, true)
+            .expect("runtime");
+        let mut session: A800xlSession = HeadlessSession::new_with_query_provider(
+            runtime,
+            FRAME_TICKS_NTSC,
+            Atari800xlSessionQueryProvider,
+        );
+        session.prepare(&MediaSet::new(), &[]).expect("prepare");
+        session.run_frames(600).expect("boot");
+
+        let mut reg: ToolRegistry<A800xlSession> = ToolRegistry::new();
+        register_a800xl_tools(&mut reg);
+        let call = |s: &mut A800xlSession, name: &str, args: Value| -> Value {
+            body(&reg.get(name).expect("tool").call(args, s).expect("ok"))
+        };
+
+        // run_until_pc: the idle BASIC prompt loops, so running to the CPU's
+        // current PC is reached within a couple of frames.
+        let pc = call(&mut session, "query_cpu", json!({}))["pc"]
+            .as_str()
+            .expect("pc")
+            .to_owned();
+        let ran = call(
+            &mut session,
+            "run_until_pc",
+            json!({"pc": pc, "max_frames": 30}),
+        );
+        assert_eq!(ran["reached"], true, "run_until_pc revisits idle PC: {ran}");
+
+        // type_string drives BASIC: `PRINT 6*7` then RETURN evaluates to 42.
+        let typed = call(&mut session, "type_string", json!({"text": "PRINT 6*7\n"}));
+        assert_eq!(typed["chars_typed"], 10);
+        session.run_frames(30).expect("evaluate");
+
+        let m = session.machine().machine().expect("machine");
+        let ram = m.ram();
+        let scr = screen_addr(ram);
+        let found = (0..40 * 24 - 1).any(|j| ram[scr + j] == 0x14 && ram[scr + j + 1] == 0x12);
+        assert!(
+            found,
+            "type_string `PRINT 6*7` did not yield `42` on screen"
+        );
     }
 }
