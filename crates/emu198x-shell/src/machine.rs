@@ -277,4 +277,21 @@ pub trait MachineCore {
 
     /// Returns the currently available capability set.
     fn capabilities(&self) -> CapabilitySet;
+
+    /// Returns a debug view of the running machine, if one is available.
+    ///
+    /// The default returns `None` (no debug surface). Runtimes that wrap a
+    /// live machine override this to expose [`crate::debug::DebugTarget`],
+    /// which powers the shared MCP debug tools (`memory_read`, `disasm`,
+    /// `run_until_pc`, `step`, …) registered by
+    /// [`crate::mcp_tools::register_debug_tools`].
+    fn debug_target(&self) -> Option<&dyn crate::debug::DebugTarget> {
+        None
+    }
+
+    /// Mutable counterpart of [`debug_target`](MachineCore::debug_target),
+    /// for the tools that advance or modify the machine.
+    fn debug_target_mut(&mut self) -> Option<&mut dyn crate::debug::DebugTarget> {
+        None
+    }
 }

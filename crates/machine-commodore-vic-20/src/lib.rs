@@ -252,6 +252,26 @@ impl Vic20 {
         self.mem_read(addr)
     }
 
+    /// Write one byte through the bus (RAM accepts it; ROM / unmapped
+    /// addresses ignore it). For host debugging (`poke_*` MCP tools).
+    pub fn poke_memory(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole 6502 instruction, returning the cycles it
+    /// consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let start = self.master_clock;
+        let cap = start + 1024;
+        while self.cpu.instruction_complete() && self.master_clock < cap {
+            self.tick_cycle();
+        }
+        while !self.cpu.instruction_complete() && self.master_clock < cap {
+            self.tick_cycle();
+        }
+        self.master_clock - start
+    }
+
     #[must_use]
     pub fn cpu(&self) -> &M6502 {
         &self.cpu

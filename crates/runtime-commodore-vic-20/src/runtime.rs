@@ -7,9 +7,9 @@
 //! packets per frame.
 
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind, RunResult,
-    StopReason,
+    AudioPacket, CapabilitySet, ControlCommand, DebugTarget, FirmwareSet, FramePacket, HostIo,
+    MachineCore, MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind,
+    RunResult, StopReason,
 };
 use machine_commodore_vic_20::{Vic20, Vic20Model};
 
@@ -317,4 +317,57 @@ impl MachineCore for Vic20Runtime {
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }
+    fn debug_target(&self) -> Option<&dyn DebugTarget> {
+        self.machine.as_ref().map(|_| self as &dyn DebugTarget)
+    }
+    fn debug_target_mut(&mut self) -> Option<&mut dyn DebugTarget> {
+        if self.machine.is_some() {
+            Some(self as &mut dyn DebugTarget)
+        } else {
+            None
+        }
+    }
+}
+
+impl DebugTarget for Vic20Runtime {
+    fn pc(&self) -> u16 {
+        self.machine.as_ref().map_or(0, |m| m.cpu().regs.pc)
+    }
+    fn peek(&self, addr: u16) -> u8 {
+        self.machine.as_ref().map_or(0xFF, |m| m.peek_memory(addr))
+    }
+    fn poke(&mut self, addr: u16, value: u8) {
+        if let Some(m) = self.machine.as_mut() {
+            m.poke_memory(addr, value);
+        }
+        self.update_rgba_framebuffer();
+    }
+    fn cpu_state(&self) -> serde_json::Value {
+        let Some(m) = self.machine.as_ref() else {
+            return serde_json::json!({});
+        };
+        let r = &m.cpu().regs;
+        serde_json::json!({
+            "a":  format!("${:02X}", r.a),
+            "x":  format!("${:02X}", r.x),
+            "y":  format!("${:02X}", r.y),
+            "sp": format!("${:02X}", r.sp),
+            "pc": format!("${:04X}", r.pc),
+            "p":  format!("${:02X}", r.p),
+            "master_clock": m.master_clock(),
+        })
+    }
+    // disassemble: 6502 disassembly is pending the Asm198x crate, so the
+    // default `None` applies — the `disasm` tool reports it cleanly.
+    fn step_instruction(&mut self) -> u64 {
+        let ticks = match self.machine.as_mut() {
+            Some(m) => m.step_instruction(),
+            None => return 0,
+        };
+        self.time = self.time.saturating_add(ticks);
+        self.update_rgba_framebuffer();
+        ticks
+    }
+    // I/O trace: the VIC-20's 6502 is memory-mapped, not port-mapped, so
+    // `supports_io_trace` stays the default `false`.
 }

@@ -212,6 +212,19 @@ impl CartridgeSlot {
 }
 
 /// MSX1 machine.
+/// One captured I/O port access, for the debug trace.
+#[derive(Debug, Clone, Copy)]
+pub struct IoEvent {
+    /// CPU program counter at the time of the access.
+    pub pc: u16,
+    /// I/O port (low 8 bits of the address bus).
+    pub port: u8,
+    /// Byte written, or byte returned on a read.
+    pub value: u8,
+    /// `true` for `OUT`, `false` for `IN`.
+    pub write: bool,
+}
+
 pub struct Msx {
     cpu: Z80,
     vdp: Tms9918,
@@ -230,6 +243,8 @@ pub struct Msx {
     /// Toggles every T-state so the PSG ticks at CPU ÷ 2 (1.789 MHz).
     psg_phase: u8,
     frame_count: u64,
+    /// When `Some`, every I/O port access is appended here (debug trace).
+    io_trace: Option<Vec<IoEvent>>,
 }
 
 impl Msx {
@@ -262,6 +277,7 @@ impl Msx {
             vdp_phase: 0,
             psg_phase: 0,
             frame_count: 0,
+            io_trace: None,
         }
     }
 
@@ -362,7 +378,8 @@ impl Msx {
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
-        match port as u8 {
+        let pc = self.cpu.regs.pc;
+        let value = match port as u8 {
             0x98 => self.vdp.read_data(),
             0x99 => self.vdp.read_status(),
             0xA2 => self.psg.read_data(),
@@ -380,10 +397,27 @@ impl Msx {
             0xAA => self.ppi.read(2),
             0xAB => self.ppi.read(3),
             _ => 0xFF,
+        };
+        if let Some(trace) = &mut self.io_trace {
+            trace.push(IoEvent {
+                pc,
+                port: port as u8,
+                value,
+                write: false,
+            });
         }
+        value
     }
 
     fn io_write(&mut self, port: u16, value: u8) {
+        if let Some(trace) = &mut self.io_trace {
+            trace.push(IoEvent {
+                pc: self.cpu.regs.pc,
+                port: port as u8,
+                value,
+                write: true,
+            });
+        }
         match port as u8 {
             0x98 => self.vdp.write_data(value),
             0x99 => self.vdp.write_control(value),
@@ -494,6 +528,37 @@ impl Msx {
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
         self.mem_read(addr)
+    }
+
+    /// Write one byte through the slot-resolved bus (RAM accepts it; BIOS /
+    /// unmapped slots ignore it). For host debugging (`poke_*` MCP tools).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole Z80 instruction, returning the T-states it
+    /// consumed. Leaves the machine at the next instruction boundary. A
+    /// safety cap prevents an unbounded spin if the CPU stops advancing.
+    pub fn step_instruction(&mut self) -> u64 {
+        let start = self.cpu_tstates;
+        let cap = start + 1024;
+        while self.cpu.instruction_complete() && self.cpu_tstates < cap {
+            self.tick_tstate();
+        }
+        while !self.cpu.instruction_complete() && self.cpu_tstates < cap {
+            self.tick_tstate();
+        }
+        self.cpu_tstates - start
+    }
+
+    /// Start (or restart) the I/O port-access trace.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace = Some(Vec::new());
+    }
+
+    /// Stop tracing and return the captured I/O events.
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take().unwrap_or_default()
     }
 }
 
