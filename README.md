@@ -2,17 +2,20 @@
 
 [![CI](https://github.com/emu198x/emu198x/actions/workflows/ci.yml/badge.svg)](https://github.com/emu198x/emu198x/actions/workflows/ci.yml)
 
-Emu198x is a fresh Rust workspace for building cycle-accurate vintage computer
-and console emulators without shortcutting major hardware behavior.
+Emu198x is a Rust workspace for building cycle-accurate vintage computer and
+console emulators without shortcutting major hardware behavior.
 
-The current implementation focus is:
+It now spans **6 primary systems** — the full desktop-app experience, real
+software, CPU oracles green — and **22 extended systems** extracted from earlier
+codebases, each driveable headlessly while their native windows are built out:
 
-- Sinclair ZX Spectrum 48K
-- Commodore 64
-- Nintendo Entertainment System
-- Commodore Amiga (A500 OCS PAL baseline)
-- Nintendo Game Boy
-- Dragon 32
+- **Primary:** Sinclair ZX Spectrum (11 variants), Commodore 64, Nintendo
+  Entertainment System, Commodore Amiga (OCS/ECS/AGA), Nintendo Game Boy,
+  Dragon 32
+- **Extended:** Atari (800XL, 2600, 5200, 7800), Acorn (BBC Micro, Electron,
+  Atom), Sega (Master System, SG-1000), MSX1, ColecoVision, Commodore (VIC-20,
+  PET), Sinclair (ZX80, ZX81), Sord M5, Memotech MTX, Mattel Aquarius, Tatung
+  Einstein, Jupiter Ace, Spectravideo SVI-328, Oric-1/Atmos
 
 ## What This Project Is Trying To Do
 
@@ -26,89 +29,145 @@ The project aims to build emulators that model the real machines directly:
 If a hardware path is not modeled accurately enough yet, the system is meant to
 stay incomplete rather than faking the missing behavior.
 
-## Current Fresh-Workspace State
+## Capability surfaces — the shared vocabulary
 
-As of April 28, 2026, the fresh Rust workspace currently provides:
+Every system is described against the same five surfaces. "Parity" claims mean a
+specific subset of these — name the surface, not a vague level.
 
-- **Spectrum 48K**
-  - real Z80 + ULA-driven machine loop
-  - TAP/TZX loading
-  - tape autoload helper and cycle-faithful tape turbo
-  - live beeper and tape audio in the native verifier shell
-  - headless runner, native verifier UI, screenshots, snapshots, and queryable
-    boot detection
-  - real-software regressions including Manic Miner and Jet Set Willy
-  - native shell input is usable for verification, but still feels softer than
-    target and should not yet be treated as a polished frontend
+- **Window** — native `wgpu` interactive window (`raw`/`lcd`/`crt` presets),
+  real-time keyboard/gamepad input, live audio. The full desktop-app experience.
+- **Capture** — headless PNG screenshot, WAV audio capture, video record at any
+  frame boundary.
+- **Script** — `--script PATH` programmatic control: run-frames / run-until-pc /
+  run-until-mem-change, key/joystick input, memory read/write, snapshot.
+- **MCP** — `--mcp` stdio server exposing the script surface plus per-chip
+  `query()` paths as tools, so an agent can drive and inspect the machine.
+- **Boot** — how far real firmware/software actually gets today.
 
-- **Commodore 64**
-  - live 6502/CIA/VIC-II/SID board loop
-  - KERNAL boots to `READY.`
-  - headless runner, native verifier UI, screenshots, snapshots, boot
-    detection, decoded screen-text queries, and mono audio output
-  - TAP-backed datasette media insertion plus real tape transport control on
-    the C64 board path
-  - host-side `SHIFT+RUN/STOP` tape autoload helper over the real KERNAL path
-  - host-side `.prg` import
-  - host-side plain-text `.bas` import via Commodore BASIC tokenisation
-  - host-side `.d64` import by extracting the first PRG directory entry
-  - host-side `.t64` import by extracting the first loadable archive entry
-  - optional live `1541` drive-8 execution with real `D64` media insertion and
-    real `LOAD"*",8,1` progress on plain disk titles
-  - native shell input is usable for verification, but still feels softer than
-    target and should not yet be treated as a polished frontend
+Two tiers follow from these surfaces:
 
-- **Nintendo NES**
-  - live 2A03/2C02/APU machine loop
-  - iNES cartridge loading with NROM, MMC1, UxROM, CNROM, MMC3, MMC5, AxROM,
-    Color Dreams, VRC2a, Action 53, BxROM, NINA-001, Sunsoft-4, and Camerica
-    mapper support
-  - native verifier UI, headless runner, screenshots, live audio/audio capture,
-    scripts, snapshots, keyboard/gamepad controller input, and local smoke
-    matrix reporting
-  - `nestest.nes`, Blargg-style `$6000` assertions, and local real-ROM smoke
-    coverage are used to steer mapper and timing work
+- **Primary systems (6)** — Window + Capture + Script + MCP, real software, CPU
+  oracles green. The launch and engineering-bar machines.
+- **Extended systems (22, donor extractions)** — Capture + Script + MCP
+  ("operational parity", landed 2026-06-02) but **headless — no native Window
+  yet**. Boot status varies from full-software to awaiting-ROM.
 
-- **Commodore Amiga**
-  - live A500 OCS PAL board loop over `motorola-68000`, Agnus, Denise, Paula,
-    Gary, dual `8520` CIAs, keyboard, and DF0 floppy
-  - native verifier UI with shared `wgpu` video, keyboard/mouse input,
-    port-1 joystick/gamepad input, and live Paula audio
-  - headless runner, screenshots, audio capture, shared scripted keyboard
-    input, A1000 and A500-family profiles, queryable boot/disk state, and DF0
-    `ADF` media insertion
-  - postcard-encoded snapshot envelope across the full chip stack (CPU, Agnus,
-    Copper, Denise, Paula, both CIAs, Gary, autoconfig, Memory, Floppy,
-    Keyboard, RTC) with version + model validation; disk media is referenced
-    by inserted ADF bytes rather than embedded MFM
-  - Kickstart and Workbench paths now have local headless smoke coverage
+The authoritative, continuously-updated state lives in
+[`docs/status/current-system-usability.md`](docs/status/current-system-usability.md);
+the cross-system rollup of remaining work is in
+[`docs/status/outstanding-work.md`](docs/status/outstanding-work.md). The summary
+below tracks them.
 
-- **Nintendo Game Boy**
-  - live DMG-family CPU/PPU/APU machine loop
-  - native verifier UI using the shared `wgpu` video presenter with
-    `raw`/`lcd`/`crt` modes
-  - headless cartridge runner with screenshots, live audio/audio capture,
-    scripts, snapshots, keyboard/gamepad joypad input, and `.sav`
-    battery-RAM sidecars
-  - Blargg and mooneye-style verification gates are used for CPU/timing work
+## Primary systems
 
-- **Dragon 32**
-  - real Dragon 32 BASIC ROM boot over `motorola-6809`, dual MC6821 PIAs,
-    MC6883 SAM, and MC6847 VDG
-  - native verifier UI using the shared `wgpu` presenter, semantic keyboard
-    input, gamepad-to-keyboard controls, CAS media, ROM/DGN cartridge
-    mounting, DragonDOS VDK disk mounting, PC-Dragon PAK snapshot mounting, native
-    `--autoload`, and beam-updated MC6847 framebuffer
-  - headless CAS smoke harness that loads BASIC and machine-code tapes through
-    the real ROM `CLOAD`/`CLOADM` paths and can compare screenshots against a
-    patched XRoar reference
+The **ZX Spectrum SOLID engineering bar was met on 2026-06-03**, ahead of the
+October public launch. The donor / extended systems are now the active
+engineering frontier rather than post-launch side-work.
 
-Notably not claimed yet:
+### Sinclair ZX Spectrum — `emu198x-spectrum`
 
-- no claim that DragonDOS disk support is complete beyond the initial VDK
-  sector-read controller path
-- no claim that disk/tape/cartridge support exists unless the corresponding
-  hardware path is actually modeled
+11 variants boot: 16K, 48K, 48K+, 128K, +2, +2A, +2B, +3, Pentagon 128, Timex
+TC2048, Timex TS2068. (Scorpion ZS-256 reaches CPU-liveness but not screen
+output yet.) Shared `wgpu` native window with `raw`/`lcd`/`crt` modes, keyboard,
+audio, TAP/TZX loading and autoload, and snapshots through the shared runtime.
+
+CPU oracles green: Tom Harte 100%, ZEXDOC/ZEXALL pass, FUSE 1,351/1,356, Patrik
+Rak `z80test` 6/6 zero-allowlist. 262/262 runtime tests pass; all 8 boot goldens
+green; 6 ULA/contention TAPs wired as smokes across 48K and 128K. Residual
+debt is accuracy/scope only (strict Spectron PNG comparison for 5 ULA smokes;
+Scorpion ZS-256 screen rendering) and does not gate the launch.
+
+### Commodore 64 — `emu198x-c64`
+
+Interactive verifier window (shared `wgpu`, `raw`/`lcd`/`crt`), keyboard, audio,
+PRG/BAS/T64 import, TAP autoload, an optional live 1541/`D64` path, physical
+gamepad input, and a host-key joystick mode for port 2. Headless boot to
+`READY.` is verified; disk autoload walks an Impossible Mission `D64`
+end-to-end (`LOAD"*",8,1` → `SEARCHING` → `LOADING`) through the IEC bus and the
+1541 drive.
+
+CPU oracles: Tom Harte 100% (2.56M), Dormann functional pass, Lorenz 250/265 (15
+hardware-dependent skips). 71/71 active runtime tests pass; 13 software-autoload
+tests sit `ignored` pending external D64/TAP archive paths.
+
+### Nintendo NES — `emu198x-nes`
+
+Native verifier window (shared `wgpu`, `raw`/`lcd`/`crt`) plus a headless
+cartridge runner with screenshots, live audio / audio capture, keyboard/gamepad
+input, scripts, snapshots, and local smoke-matrix reporting. Mapper support:
+NROM, MMC1, UxROM, CNROM, MMC3, MMC5, AxROM, Color Dreams, VRC2a, Action 53,
+BxROM, NINA-001, Sunsoft-4, Camerica.
+
+155-ROM test sweep: **135 PASS / 5 FAIL / 0 TIMEOUT / 15 VISUAL**; nestest
+8991/8991; Super Mario Bros. renders. Remaining hard items: `blargg_nes_cpu_test5`
+01-implied, OAMDMA + DMC DMA cycle interleave, `cpu_timing_test6`.
+
+### Commodore Amiga — `emu198x-amiga`
+
+Native verifier window (shared `wgpu`, keyboard/mouse, port-1 joystick/gamepad,
+live Paula audio) plus a headless Kickstart/Workbench runner with the full
+A1000 / A500-family / A600 / A1200 (AGA) / A2000 model matrix reachable via
+`--model`. A1200 + Kickstart 3.1 boots to the Insert-Workbench prompt, and
+**Workbench 3.1 mounts to a clean desktop** with no palette or geometry
+artefacts. DF0 `ADF`, screenshots, audio capture, and scripted input all work.
+
+CPU oracles green: 68000 100% Tom Harte (1M tests); 68010/68020 100% against
+Musashi (via `m68k-test-gen`).
+
+### Nintendo Game Boy — `emu198x-game-boy`
+
+Native DMG-family verifier window (shared `wgpu`, `raw`/`lcd`/`crt`) plus a
+headless cartridge runner with screenshots, live audio / audio capture,
+keyboard/gamepad joypad input, scripts, snapshots, and `.sav` battery-RAM
+sidecars. CPU oracle: 49,600 Adam Tennant SM83 single-step tests pass + 92 lib
+unit tests.
+
+### Dragon 32 — `emu198x-dragon`
+
+Early native verifier window (shared `wgpu`) with live PIA-derived mono audio
+pinned to XRoar's DAC/tape/cartridge-SND model, real Dragon 32 BASIC ROM boot,
+semantic keyboard input, gamepad-to-analogue-joystick input, CAS media,
+DragonDOS `.BIN` loading, ROM/DGN cartridge mounting with GMC banking, initial
+DragonDOS VDK sector reads via the P2 controller path, PC-Dragon PAK snapshot
+mounting, native `--autoload` over the ROM `CLOAD`/`CLOADM` paths, a beam-updated
+MC6847 framebuffer, and optional patched-XRoar screenshot comparison.
+
+## Extended systems (donor extractions)
+
+All have **Capture + Script + MCP** parity and are **headless — no native Window
+yet** (the shared `wgpu` verifier window is the remaining surface for every row).
+Boot status is the differentiator. Per-machine open items live in
+[`docs/status/outstanding-work.md`](docs/status/outstanding-work.md).
+
+| System | Binary | Boot status |
+|--------|--------|-------------|
+| **Atari 800XL** | `emu198x-atari-800xl` | **Boots to BASIC `READY`** — full GR.0 render, keyboard typing, MCP debug surface (memory + ANTIC/GTIA/POKEY/PIA queries + `run_until_pc`). Furthest-advanced extraction. |
+| Sega Master System | `emu198x-sega-master-system` | Alex Kidd in Miracle World → title screen (Mode 4) |
+| MSX1 | `emu198x-msx` | Microsoft MSX BASIC prompt, clean |
+| ColecoVision | `emu198x-colecovision` | BIOS rainbow logo + "TURN GAME OFF" |
+| Sega SG-1000 | `emu198x-sega-sg-1000` | Othello Multivision cart → title |
+| Mattel Aquarius | `emu198x-mattel-aquarius` | Microsoft BASIC title (magenta/black) |
+| Atari 2600 | `emu198x-atari-2600` | Combat two-tank playfield |
+| Atari 5200 | `emu198x-atari-5200` | Pac-Man title (partial render — shared 8-bit Atari pipeline) |
+| Commodore PET | `emu198x-commodore-pet` | Char grid renders; full BASIC banner pending |
+| Sinclair ZX81 | `emu198x-sinclair-zx81` | Boot screen renders |
+| Sinclair ZX80 | `emu198x-sinclair-zx80` | Boot screen (FAST); SLOW-mode render pending |
+| Acorn BBC Micro | `emu198x-acorn-bbc-micro` | OS bank-scan reaches BASIC slot; needs SAA5050 + BASIC II |
+| Acorn Electron | `emu198x-acorn-electron` | "Language?" red error (needs Acorn BASIC II) |
+| Commodore VIC-20 | `emu198x-commodore-vic-20` | ROM boots; display black until KERNAL screen-init |
+| **Sord M5** | `emu198x-sord-m5` | **Boots through CTC** — BASIC-I `Ready`, Dig Dug renders |
+| Memotech MTX | `emu198x-memotech-mtx` | ROM boots; display blank (needs CTC wiring) |
+| Atari 7800 | `emu198x-atari-7800` | Cart accepts; BIOS-driven boot pending |
+| Tatung Einstein | `emu198x-tatung-einstein` | VDP-init only — needs `western-digital-wd1770` |
+| Jupiter Ace | `emu198x-jupiter-ace` | Awaiting ROM (8 KB Forth) |
+| Acorn Atom | `emu198x-acorn-atom` | Awaiting ROM (24 KB combined) |
+| Spectravideo SVI-328 | `emu198x-spectravideo-svi-328` | Awaiting BIOS (32 KB) |
+| Oric-1 / Atmos | `emu198x-oric-atmos` | Awaiting BIOS (16 KB Tangerine) |
+
+The shared next step for the whole tier is the native `wgpu` verifier window.
+`zilog-z80-ctc` (landed 2026-06-03) unblocked the Sord M5 and is available to
+wire into Memotech MTX and Einstein; the remaining missing chip crate is
+`western-digital-wd1770` (Tatung Einstein disk boot).
 
 ## Principles
 
@@ -120,36 +179,13 @@ Examples:
 
 - `--autoload-tape` for Spectrum is a host workflow over the real ROM editor and
   real tape transport, not an instant-load trap.
-- `--load demo.bas` for the current C64 runner is a host-side program import
-  path, not fake disk or tape emulation.
-- `--load demo.d64` for the current C64 runner is a host-side container import
-  path that extracts the first PRG directory entry; it is not full 1541
-  emulation.
-- `--disk game.d64` for the current C64 runners mounts a `D64` into the live
-  drive-8 path when a 1541 ROM is present; this is real drive-owned media
-  insertion on the shared IEC bus.
-- `--autoload-disk` for the current C64 runners is a host workflow over the
-  real BASIC editor: it types `LOAD"*",8,1` and waits for the live 1541 path
-  to perform the real DOS/IEC disk load.
-- an optional 1541 ROM in the current C64 runtime means a live drive board now
-  executes on the shared IEC bus and now loads plain disk titles such as
-  `Bruce Lee`, `Aztec Challenge`, and `Bomb Jack`; write/save paths and broader
-  compatibility are still incomplete.
-- `--tape game.tap` for the current C64 runner is real datasette media on the
-  board path.
-- `--load demo.t64` for the current C64 runner is a host-side container import
-  path that extracts the first loadable entry; it is not pulse-timed datasette
-  playback.
-- `--tape game.cas` for the current Dragon runner mounts real CAS cassette
-  media; the ROM still performs the `CLOAD`/`CLOADM` load over the emulated
-  cassette input path.
-- `--cart cartridge.dgn` for the current Dragon runner mounts ROM/DGN
-  cartridge media through the emulated cartridge ROM/GMC banking path.
-- `--disk game.vdk` for the current Dragon script runner mounts a DragonDOS VDK
-  image through the emulated P2 disk-controller register path; this is not yet a
-  complete WD2797 timing or write implementation.
-- `--snapshot game.pak` for the current Dragon runner restores a PC-Dragon
-  PAK snapshot as machine state; it is not treated as cartridge media.
+- `--disk game.d64` + `--autoload-disk` for the C64 mounts a `D64` into the live
+  drive-8 path (when a 1541 ROM is present) and types `LOAD"*",8,1`, letting the
+  real DOS/IEC path perform the load — real drive-owned media, not a fake trap.
+- `--tape game.cas` for the Dragon runner mounts real CAS media; the ROM still
+  performs the `CLOAD`/`CLOADM` load over the emulated cassette input.
+- `--snapshot game.pak` for the Dragon runner restores a PC-Dragon PAK snapshot
+  as machine state; it is not treated as cartridge media.
 
 ## Building
 
@@ -164,303 +200,183 @@ cargo test --workspace
 ./scripts/coverage.sh
 ```
 
+The shared verification gate for the primary systems is:
+
+```bash
+scripts/verify-current-systems.sh
+```
+
+It runs in-repository unit/integration checks, then conditionally runs local
+ROM/media smoke checks when the configured assets exist. Missing local assets
+are recorded as `skip`, not `fail`, so the same command is useful on a fresh
+machine and on a full reference workstation.
+
 ## Getting ROMs
 
-Emu198x does not ship ROMs. You provide them yourself, and the legal
-position varies a lot by platform.
-
-The per-system "Running" sections below name the exact filenames each
-runner looks for. This section covers where to obtain them.
+Emu198x does not ship ROMs. You provide them yourself, and the legal position
+varies a lot by platform. The extended systems each need their own
+firmware/BIOS where the boot-status table says "awaiting ROM"; sourcing for the
+primary systems is below.
 
 ### Sinclair ZX Spectrum
 
 Amstrad granted permission in 1999 for the Sinclair ROMs to be freely
-redistributed for non-commercial use. The canonical distribution lives
-in **World of Spectrum's Sinclair ROM set**, which covers `48.rom`,
-`128.rom`, `plus2.rom`, and `plus3.rom`.
+redistributed for non-commercial use. The canonical distribution lives in
+**World of Spectrum's Sinclair ROM set** (`48.rom`, `128.rom`, `plus2.rom`,
+`plus3.rom`).
 
 ### Commodore 64
 
 The C64 KERNAL, BASIC, and CHARGEN ROMs are held by **Cloanto** through
-Commodore IP succession; no free legal redistribution exists. The
-licensed source is **Cloanto's C64 Forever**, which also includes the
-1541 drive ROM used by the optional live-drive path. Community
-archives exist; this README does not link them.
+Commodore IP succession; no free legal redistribution exists. The licensed
+source is **Cloanto's C64 Forever**, which also includes the 1541 drive ROM used
+by the optional live-drive path.
 
 ### Commodore Amiga
 
-Kickstart and Workbench are held by **Cloanto**; the licensed source
-is **Cloanto's Amiga Forever**. The OCS PAL A500 baseline currently
-targets Kickstart 1.3 (`kick13.rom`) and 1.2 (`kick12.rom`); the A1200
-work-in-progress uses Kickstart 3.1 (`kick31.rom`).
+Kickstart and Workbench are held by **Cloanto**; the licensed source is
+**Cloanto's Amiga Forever**. The OCS/ECS A500-family path targets Kickstart 1.3
+(`kick13.rom`) and 1.2 (`kick12.rom`); the AGA A1200 path uses Kickstart 3.1.
 
 ### Nintendo NES
 
-The NES has no system ROM — boot logic lives in the cartridge, so
-nothing platform-level needs acquiring.
-
-For verification, **Blargg's NES test ROMs** and **`nestest.nes` by
-kevtris** are freely redistributable. For commercial cartridges, dump
-your own.
+The NES has no system ROM — boot logic lives in the cartridge. For verification,
+**Blargg's NES test ROMs** and **`nestest.nes` by kevtris** are freely
+redistributable. For commercial cartridges, dump your own.
 
 ### Nintendo Game Boy
 
-The DMG boot ROM is optional; the Game Boy runner boots cartridges
-without it. If you do want one, Nintendo never released it
-officially — community-disassembled versions exist.
-
-For commercial cartridges, dump your own.
+The DMG boot ROM is optional; the runner boots cartridges without it. For
+commercial cartridges, dump your own.
 
 ### Dragon 32
 
-Dragon Data dissolved in 1984; no current rights-holder sells
-licensed copies of the BASIC ROM (`dragon32.rom`). Community archives
-host it under the abandonware umbrella; this README does not link them.
+Dragon Data dissolved in 1984; no current rights-holder sells licensed copies of
+the BASIC ROM (`dragon32.rom`). Community archives host it under the abandonware
+umbrella; this README does not link them.
 
 ## Running
 
-### Spectrum 48K native verifier shell
+These commands are intentionally minimal — they boot or load representative
+software. Use `--help` on each binary and the system status pages for deeper
+accuracy notes and the full flag set. Add `--no-default-features` to drop the
+native window and run a binary purely headless (for screenshots, scripts, CI).
 
-If `--rom` is omitted, the runner looks for:
-
-- `~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom`
-
-Example:
+### Sinclair ZX Spectrum
 
 ```bash
-cargo run -p emu198x-spectrum -- \
-  --tape ~/.emu198x/media/sinclair-zx-spectrum-48k/'Manic Miner (1983)(Bug-Byte).zip' \
-  --autoload-tape \
-  --turbo-tape
+cargo run --release -p emu198x-spectrum -- --rom 48.rom --tape game.tzx --autoload-tape
 ```
 
-### C64 native verifier shell
-
-The C64 native verifier resolves ROMs from:
-
-1. `--rom-dir DIR`
-2. `EMU198X_C64_ROM_DIR`
-3. `~/.emu198x/roms/commodore-c64`
-4. `~/.emu198x/roms/c64`
-
-Example:
+### Commodore 64
 
 ```bash
-cargo run -p emu198x-c64 -- \
-  --rom-dir ~/.emu198x/roms/commodore-c64 \
-  --tape game.tap \
-  --autoload-tape \
-  --turbo-tape
-
-cargo run -p emu198x-c64 -- \
-  --rom-dir ~/.emu198x/roms/commodore-c64 \
-  --disk game.d64 \
-  --autoload-disk
+cargo run --release -p emu198x-c64 -- --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk
 ```
 
-Live controls:
-
-- `Esc` quit
-- `F9` start tape
-- `F10` stop tape
-- `F11` toggle cycle-faithful tape turbo
-- `F12` hard reset
-
-### Spectrum 48K headless runner
+### Nintendo NES
 
 ```bash
-cargo run -p emu198x-spectrum --no-default-features -- \
-  --rom ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom \
-  --tape ~/.emu198x/media/sinclair-zx-spectrum-48k/'Manic Miner (1983)(Bug-Byte).zip' \
-  --autoload-tape \
-  --wait-for-tape-stop 12000
+# windowed
+cargo run --release -p emu198x-nes -- game.nes
+
+# headless screenshot
+cargo run --release -p emu198x-nes --no-default-features -- --rom game.nes --frames 300 --screenshot nes.png
+
+# Blargg $6000 assertion run
+cargo run --release -p emu198x-nes --no-default-features -- --rom apu_test.nes --frames 3000 --assert-blargg
 ```
 
-### C64 headless runner
-
-The C64 runner resolves ROMs from:
-
-1. `--rom-dir DIR`
-2. `EMU198X_C64_ROM_DIR`
-3. `~/.emu198x/roms/commodore-c64`
-4. `~/.emu198x/roms/c64`
-
-Expected ROM names:
-
-- `kernal.rom` or `c64-kernal.rom`
-- `basic.rom` or `c64-basic.rom`
-- `chargen.rom` or `c64-chargen.rom`
-
-Examples:
+### Commodore Amiga
 
 ```bash
-cargo run -p emu198x-c64 --no-default-features -- \
-  --rom-dir ~/.emu198x/roms/commodore-c64 \
-  --wait-for-boot 200 \
-  --screenshot ready.png
+# OCS/ECS A500 + Kickstart 1.3 + Workbench 1.3
+cargo run --release -p emu198x-amiga -- --model a500-a501 --kickstart kick13.rom --disk workbench13.adf
+
+# AGA A1200 + Kickstart 3.1 + Workbench 3.1
+cargo run --release -p emu198x-amiga -- --model a1200 --kickstart kick31a1200.rom --disk workbench31.adf
+
+# headless screenshot
+cargo run --release -p emu198x-amiga --no-default-features -- --model a500-a501 --kickstart kick13.rom --disk workbench13.adf --frames 2500 --screenshot amiga.png
 ```
 
+### Nintendo Game Boy
+
 ```bash
-cargo run -p emu198x-c64 --no-default-features -- \
-  --rom-dir ~/.emu198x/roms/commodore-c64 \
-  --load demo.bas \
-  --save-snapshot demo.c64.pst
+# windowed
+cargo run --release -p emu198x-game-boy -- game.gb
+
+# headless screenshot
+cargo run --release -p emu198x-game-boy --no-default-features -- --rom game.gb --frames 300 --screenshot gameboy.png
 ```
 
+### Dragon 32
+
 ```bash
-cargo run -p emu198x-c64 --no-default-features -- \
-  --rom-dir ~/.emu198x/roms/commodore-c64 \
-  --tape game.tap \
-  --autoload-tape \
-  --wait-for-tape-stop 12000
+cargo run --release -p emu198x-dragon -- --rom ~/.emu198x/roms/dragon/dragon32.rom --tape game.cas --autoload --video crt
 ```
 
-### NES headless runner
+### Extended systems
+
+Extended binaries are headless by default (no native window yet); add `--mcp`
+for the agent surface, or `--frames`/`--screenshot` for a capture. Flags vary by
+machine — check each binary's `--help`. For example:
 
 ```bash
-cargo run -p emu198x-nes --no-default-features -- \
-  --rom ~/.emu198x/media/nintendo-nes/nestest.nes \
-  --frames 60 \
-  --screenshot nestest.png
-```
+# MSX1 headless capture
+cargo run --release -p emu198x-msx -- --bios ~/.emu198x/roms/microsoft-msx/msx.rom --frames 200 --screenshot msx-boot.png
 
-### Amiga headless runner
-
-The Amiga runner resolves Kickstart ROMs from:
-
-1. `--rom-dir DIR`
-2. `EMU198X_AMIGA_ROM_DIR`
-3. `~/.emu198x/roms/commodore-amiga`
-4. `~/.emu198x/roms/amiga`
-
-Expected Kickstart names:
-
-- `kick13.rom`
-- `kick12.rom`
-- `kick31.rom`
-- `kickstart.rom`
-- `kick.rom`
-
-Examples:
-
-```bash
-cargo run -p emu198x-amiga --no-default-features -- \
-  --rom-dir ~/.emu198x/roms/commodore-amiga \
-  --wait-for-boot 300 \
-  --screenshot amiga-kick13.png
-```
-
-```bash
-cargo run -p emu198x-amiga --no-default-features -- \
-  --rom-dir ~/.emu198x/roms/commodore-amiga \
-  --disk ~/.emu198x/media/commodore-amiga/'Workbench v1.3.3 rev 34.34 (1990)(Commodore)(Disk 1 of 2)(Workbench)[Cloanto Amiga Forever Edition].zip' \
-  --wait-for-boot 300 \
-  --screenshot amiga-workbench.png
-```
-
-### Dragon 32 native verifier shell
-
-```bash
-cargo run -p emu198x-dragon -- \
-  --rom ~/.emu198x/roms/dragon/dragon32.rom \
-  --tape game.cas \
-  --autoload \
-  --video crt
-```
-
-### Dragon 32 headless smoke runner
-
-```bash
-cargo run -q -p emu198x-dragon --no-default-features -- \
-  --rom ~/.emu198x/roms/dragon/dragon32.rom \
-  --smoke-root '/path/to/Dragon/Applications/[CAS]' \
-  --smoke-run-limit 12 \
-  --smoke-report dragon-smoke.json
-```
-
-```bash
-cargo run -q -p emu198x-dragon --no-default-features -- \
-  --rom ~/.emu198x/roms/dragon/dragon32.rom \
-  --snapshot-smoke-root '/path/to/Dragon/Games/[PAK]' \
-  --smoke-run-limit 32 \
-  --smoke-report dragon-pak-smoke.json \
-  --smoke-screenshot-dir dragon-pak-screens \
-  --smoke-screenshot-format xroar-zoomed \
-  --xroar-bin ../Emu198x-Unclean/xroar/src/xroar \
-  --xroar-reference-dir dragon-pak-xroar-reference
+# Atari 800XL agent/MCP surface
+cargo run --release -p emu198x-atari-800xl -- --mcp
 ```
 
 ## Verification Strategy
 
-This repo does not treat “boots one thing” as sufficient proof.
-
-The current verification approach is:
+This repo does not treat "boots one thing" as sufficient proof. The verification
+approach is layered:
 
 - chip- and format-level unit tests first
 - machine wiring tests second
 - ROM/software regressions above that
 - external reference suites where appropriate
 
-Current examples include:
+Current high-water marks:
 
-- Z80 verified against Tom Harte, `zexdoc`, `zexall`, and a tracked FUSE
-  compatibility harness
-- Spectrum machine and software regressions over real ROM and tape paths
-- C64 ROM-backed `READY.` boot detection plus snapshot round-trip checks
-- NES machine regressions over real `nestest.nes`, plus a fresh headless
-  cartridge path that now runs `nestest.nes` and `Super Mario Bros.` through
-  the headless `emu198x-nes` runner and emits screenshots
-- Amiga machine/runtime tests over the imported A500 OCS PAL chip stack, plus
-  fresh headless smokes that boot Kickstart 1.3 to the insert-disk screen and
-  accept DF0 `ADF` insertion through `emu198x-amiga`
-- C64 datasette board/runtime tests for TAP pulse parsing, 6510 port sense,
-  CIA1 FLAG delivery, plus ROM-backed `Thinker` and `Thomas` TAP paths that
-  reach observable loader-banner states over the real datasette flow, and a
-  `Ghostbusters` TAP regression that now reaches a later graphics/loader state
-  after the first-stage `FOUND MAIN` banner, plus a `Thing on a Spring` TAP
-  regression that reaches a stable post-load menu with readable controls and
-  then enters a stable started state after `SPACE`
-- C64 disk groundwork at two levels: host-side `D64` parsing/import for quick
-  software triage, plus a new drive-side `mos-via-6522` / `machine-commodore-1541`
-  substrate that now boots a real 1541 reset vector, mirrors RAM correctly,
-  decodes both VIA windows, and now shares first-pass IEC line state with the
-  C64 board through `common-commodore-iec`; the runtime can now optionally
-  attach that live 1541 with queryable drive CPU/VIA state, snapshot coverage,
-  real `D64` media insertion into `drive-8`, plus ROM-backed disk proofs:
-  `Bruce Lee` now reaches `LOADING`, advances to a title after `RUN`, then
-  responds to joystick input beyond that title; `Aztec Challenge` now returns
-  to BASIC after load and reaches a readable instruction screen after `RUN`
-  and `F1`; `Bomb Jack` now completes a multi-stage loader, reaches a readable
-  title screen, and responds to joystick port-1 fire on the same live 1541
-  path
-- Dragon ROM/runtime tests boot to BASIC, verify keyboard echo, mount real CAS
-  tapes, load Textstar with `CLOAD`/`RUN`, start machine-code CAS titles with
-  `CLOADM`/`EXEC`, and compare a 12-title application smoke set against patched
-  XRoar screenshots with 11/12 exact matches
+- **Z80** — Tom Harte 100%, `zexdoc`/`zexall` pass, FUSE 1,351/1,356, Patrik Rak
+  `z80test` 6/6; Spectrum machine/software regressions over real ROM and tape.
+- **6502** — Tom Harte 100% on the C64 path (2.56M), Dormann functional pass,
+  Lorenz 250/265; NES nestest 8991/8991 and a 155-ROM sweep (135 PASS).
+- **68000/010/020** — 68000 Tom Harte 100% (1M), 68010/68020 100% vs Musashi via
+  `m68k-test-gen`; Amiga boots Kickstart and mounts Workbench 3.1 cleanly.
+- **SM83** — 49,600 Adam Tennant single-step tests on the Game Boy core.
+- **Shared MCP debug surface** (`io_trace` / `disasm` / `run_until_pc`) now drives
+  the donor frontier — it cracked the Sord M5 port-map bug and is the tool for
+  the "boots but black screen" extended systems.
 
 Coverage exists as an audit signal, not as the primary correctness gate.
 
 ## Repository Map
 
-- [`crates/`](crates) — fresh Rust workspace
-- [`docs/plans/2026-04-12-emulator-suite-coherent-development-plan.md`](docs/plans/2026-04-12-emulator-suite-coherent-development-plan.md) — current high-level plan
+- [`crates/`](crates) — the Rust workspace (chip cores, format parsers, machine
+  models, and the `emu198x-*` system binaries)
+- [`docs/status/current-system-usability.md`](docs/status/current-system-usability.md) — the authoritative current-state matrix
+- [`docs/status/outstanding-work.md`](docs/status/outstanding-work.md) — cross-system remaining work
 - [`docs/testing-policy.md`](docs/testing-policy.md) — verification standard
 - [`knowledge/decisions/`](knowledge/decisions) — binding architectural decisions
 - [`docs/archive/`](docs/archive) — superseded/historical material
 
 Source comments occasionally reference `knowledge/chips/`, `knowledge/systems/`,
-`knowledge/concepts/`, `knowledge/log.md`, and similar paths. Those are
-LLM-curated working notes kept locally; only `knowledge/decisions/` ships
-publicly. Treat the other paths as project-internal context that hasn't
-been polished for outside readers.
+`knowledge/concepts/`, and similar paths. Those are LLM-curated working notes
+kept locally; only `knowledge/decisions/` ships publicly. Treat the other paths
+as project-internal context.
 
 ## Notes On Documentation
 
 Some older documents in this repository describe earlier workspaces, abandoned
 implementation branches, or overstated completion claims. The active path is:
 
-1. the fresh Rust workspace in `crates/`
-2. the dated coherent plan
+1. the Rust workspace in `crates/`
+2. `docs/status/` (current state) and the dated plans under `docs/plans/`
 3. `knowledge/decisions/`
 4. `docs/testing-policy.md`
 
@@ -471,12 +387,12 @@ is historical.
 
 The binary releases (`emu198x-spectrum`, `emu198x-c64`, …) stay at 0.x by
 design. There is no planned "Emu198x 1.0" milestone — production-readiness per
-system is signalled by the catalogue passing for that system, not by the
-version label. See [`knowledge/decisions/versioning-milestones.md`](knowledge/decisions/versioning-milestones.md).
+system is signalled by the catalogue passing for that system, not by the version
+label. See [`knowledge/decisions/versioning-milestones.md`](knowledge/decisions/versioning-milestones.md).
 
-When individual library crates from this workspace start publishing to
-crates.io (chip cores like `mos-6502` and `zilog-z80`, format parsers, …),
-each one carves out to independent versioning at publish time and may hit its
-own 1.0 milestone when its public API is judged stable. See
+When individual library crates from this workspace start publishing to crates.io
+(chip cores like `mos-6502` and `zilog-z80`, format parsers, …), each one carves
+out to independent versioning at publish time and may hit its own 1.0 milestone
+when its public API is judged stable. See
 [`knowledge/decisions/versioning-strategy.md`](knowledge/decisions/versioning-strategy.md)
 for the carve-out mechanics.
