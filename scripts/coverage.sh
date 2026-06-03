@@ -40,10 +40,12 @@ mkdir -p target/llvm-cov
 #      the test-running invocation through `tee`, which writes its
 #      progress messages to stderr, so the summary file came out
 #      empty.
-#   3. `--no-fail-fast` + soft test-failure handling: a single failing
+#   3. `--no-fail-fast` + deferred failure gating: a single failing
 #      test in any crate (often Codex iterating on Dragon code) used
-#      to kill the entire run before any reports were generated.
-#      Failures are now noted but don't suppress the report.
+#      to kill the entire run before any reports were generated. Now
+#      the run completes (so the reports are always produced), the
+#      failure is recorded, and the script exits non-zero at the very
+#      end — so failing tests still gate CI without costing the report.
 #
 # `--include-ignored` opts in to the CPU-corpus regressions
 # (Tom Harte 6502/Z80/68000, Wolfgang Lorenz, Dormann, ZEX, Adam
@@ -85,8 +87,9 @@ if [ "${test_status}" -ne 0 ]; then
     echo
     echo "WARNING: cargo llvm-cov exited with status ${test_status} —" \
          "one or more tests failed. Coverage data is still complete" \
-         "(tests run to completion under --no-fail-fast); review the" \
-         "test output above before trusting the report."
+         "(tests run to completion under --no-fail-fast); the reports" \
+         "below are generated regardless, then the script exits" \
+         "non-zero at the end so the failure gates CI."
     echo
 fi
 
@@ -106,3 +109,13 @@ echo "  target/llvm-cov/coverage-summary.txt"
 echo "  target/llvm-cov/coverage-summary.json"
 echo "  target/llvm-cov/lcov.info"
 echo "  target/llvm-cov/html/index.html"
+
+# Gate the build on test results. The reports above are always produced
+# first — a failing test never costs us the coverage data — but a non-zero
+# test status now fails the script, so failing tests gate CI as intended.
+if [ "${test_status}" -ne 0 ]; then
+    echo
+    echo "FAILED: test run exited with status ${test_status} —" \
+         "one or more tests failed (see the output above)." >&2
+    exit "${test_status}"
+fi
