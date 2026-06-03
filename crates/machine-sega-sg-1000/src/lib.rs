@@ -114,6 +114,19 @@ impl ControllerState {
     }
 }
 
+/// One captured I/O port access, for the debug trace.
+#[derive(Debug, Clone, Copy)]
+pub struct IoEvent {
+    /// CPU program counter at the time of the access.
+    pub pc: u16,
+    /// I/O port (low 8 bits of the address bus).
+    pub port: u8,
+    /// Byte written, or byte returned on a read.
+    pub value: u8,
+    /// `true` for `OUT`, `false` for `IN`.
+    pub write: bool,
+}
+
 /// SG-1000 / SC-3000 machine.
 pub struct Sg1000 {
     cpu: Z80,
@@ -133,6 +146,8 @@ pub struct Sg1000 {
     vdp_phase: u32,
     /// Frame counter.
     frame_count: u64,
+    /// When `Some`, every I/O port access is appended here (debug trace).
+    io_trace: Option<Vec<IoEvent>>,
 }
 
 impl Sg1000 {
@@ -165,6 +180,7 @@ impl Sg1000 {
             tstates_per_frame,
             vdp_phase: 0,
             frame_count: 0,
+            io_trace: None,
         }
     }
 
@@ -247,18 +263,36 @@ impl Sg1000 {
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
+        let pc = self.cpu.regs.pc;
         let p = port as u8;
-        match p {
+        let value = match p {
             0x80..=0xBF if p & 1 == 0 => self.vdp.read_data(),
             0x80..=0xBF => self.vdp.read_status(),
             0xC0..=0xFF if p & 1 == 0 => self.controller1.read_port(),
             0xC0..=0xFF => self.controller2.read_port(),
             _ => 0xFF,
+        };
+        if let Some(trace) = &mut self.io_trace {
+            trace.push(IoEvent {
+                pc,
+                port: p,
+                value,
+                write: false,
+            });
         }
+        value
     }
 
     fn io_write(&mut self, port: u16, data: u8) {
         let p = port as u8;
+        if let Some(trace) = &mut self.io_trace {
+            trace.push(IoEvent {
+                pc: self.cpu.regs.pc,
+                port: p,
+                value: data,
+                write: true,
+            });
+        }
         match p {
             0x40..=0x7F => self.psg.write(data),
             0x80..=0xBF if p & 1 == 0 => self.vdp.write_data(data),
@@ -338,6 +372,35 @@ impl Sg1000 {
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
         self.mem_read(addr)
+    }
+
+    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole Z80 instruction, returning the T-states it
+    /// consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let start = self.cpu_tstates;
+        let cap = start + 1024;
+        while self.cpu.instruction_complete() && self.cpu_tstates < cap {
+            self.tick_tstate();
+        }
+        while !self.cpu.instruction_complete() && self.cpu_tstates < cap {
+            self.tick_tstate();
+        }
+        self.cpu_tstates - start
+    }
+
+    /// Start (or restart) the I/O port-access trace.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace = Some(Vec::new());
+    }
+
+    /// Stop tracing and return the captured I/O events.
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take().unwrap_or_default()
     }
 
     /// Frame count since power-on.

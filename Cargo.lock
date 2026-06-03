@@ -3768,6 +3768,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "zilog-z80",
 ]
 
 [[package]]
