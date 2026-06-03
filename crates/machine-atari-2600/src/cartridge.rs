@@ -173,3 +173,18 @@ mod tests {
         assert_eq!(cart.read(0x1800), 0x42);
     }
 }
+
+impl Cartridge {
+    /// Read ROM at the current bank with no bank-switch side effect (the
+    /// debugger's view; `read` checks hotspots and may switch banks).
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        let offset = (addr & 0x0FFF) as usize;
+        if self.bank_size <= 2048 {
+            self.rom[offset % self.rom.len()]
+        } else {
+            let idx = self.bank * self.bank_size + offset;
+            self.rom.get(idx).copied().unwrap_or(0)
+        }
+    }
+}

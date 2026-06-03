@@ -1,4 +1,10 @@
 //! Atari 800XL-specific MCP tools.
+//!
+//! CPU / memory / poke / disasm / stepping come from the shared
+//! [`emu198x_shell::mcp_tools::register_debug_tools`] set (6502 `disasm` is
+//! pending the Asm198x crate). This adds the ANTIC / GTIA / POKEY / PIA
+//! chip snapshots and the keyboard input tools (`press_key`, `type_string`)
+//! on top.
 
 use emu198x_shell::{
     HeadlessSession, InputEvent,
@@ -45,14 +51,8 @@ fn a800xl_ref(s: &A800xlSession) -> Result<&Atari800xl, ToolError> {
         .ok_or_else(|| ToolError::Execution("no OS / cart loaded".into()))
 }
 
-fn a800xl_mut(s: &mut A800xlSession) -> Result<&mut Atari800xl, ToolError> {
-    s.machine_mut()
-        .machine_mut()
-        .ok_or_else(|| ToolError::Execution("no OS / cart loaded".into()))
-}
-
-/// Parse a numeric JSON argument that may be a number or a `$xx` / `0x` / plain
-/// hex/decimal string. Addresses and bytes in this binary accept both forms.
+/// Parse a numeric JSON argument that may be a number or a `$xx` / `0x` /
+/// plain hex/decimal string.
 fn parse_num(args: &Value, key: &str) -> Result<u32, ToolError> {
     let v = args
         .get(key)
@@ -81,56 +81,6 @@ fn opt_num(args: &Value, key: &str, default: u32) -> Result<u32, ToolError> {
     } else {
         Ok(default)
     }
-}
-
-fn tool_query_cpu(_args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let m = a800xl_ref(session)?;
-    let r = &m.cpu().regs;
-    Ok(json!({
-        "a":  format!("${:02X}", r.a),
-        "x":  format!("${:02X}", r.x),
-        "y":  format!("${:02X}", r.y),
-        "sp": format!("${:02X}", r.sp),
-        "pc": format!("${:04X}", r.pc),
-        "p":  format!("${:02X}", r.p),
-        "halted": m.cpu().halted,
-    }))
-}
-
-fn tool_memory_read(args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "address")? as u16;
-    let len = opt_num(&args, "length", 16)?.clamp(1, 256) as usize;
-    let m = a800xl_ref(session)?;
-    let bytes: Vec<u8> = (0..len)
-        .map(|i| m.peek(addr.wrapping_add(i as u16)))
-        .collect();
-    let hex = bytes
-        .iter()
-        .map(|b| format!("{b:02X}"))
-        .collect::<Vec<_>>()
-        .join(" ");
-    Ok(json!({
-        "address": format!("${addr:04X}"),
-        "length":  len,
-        "bytes":   bytes,
-        "hex":     hex,
-    }))
-}
-
-fn tool_poke_byte(args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "address")? as u16;
-    let value = parse_num(&args, "value")? as u8;
-    a800xl_mut(session)?.poke(addr, value);
-    Ok(json!({ "address": format!("${addr:04X}"), "value": format!("${value:02X}") }))
-}
-
-fn tool_poke_word(args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "address")? as u16;
-    let value = parse_num(&args, "value")? as u16;
-    let m = a800xl_mut(session)?;
-    m.poke(addr, (value & 0xFF) as u8);
-    m.poke(addr.wrapping_add(1), (value >> 8) as u8);
-    Ok(json!({ "address": format!("${addr:04X}"), "value": format!("${value:04X}") }))
 }
 
 fn hex8(v: u8) -> String {
@@ -194,24 +144,7 @@ fn tool_query_pia(_args: Value, session: &mut A800xlSession) -> Result<Value, To
     }))
 }
 
-fn tool_run_until_pc(args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let target = parse_num(&args, "pc")? as u16;
-    let max_frames = opt_num(&args, "max_frames", 60)?.clamp(1, 6000);
-    let m = a800xl_mut(session)?;
-    let max_ticks = max_frames as u64 * m.clocks_per_frame();
-    let (ticks, reached) = m.run_until_pc(target, max_ticks);
-    let pc = m.cpu().regs.pc;
-    Ok(json!({
-        "target":   format!("${target:04X}"),
-        "reached":  reached,
-        "pc":       format!("${pc:04X}"),
-        "cycles":   ticks / 2,        // CPU cycles run (the CPU ticks every 2nd colour clock)
-        "max_frames": max_frames,
-    }))
-}
-
-/// Frames a key is held / settled between presses. Three frames at ~60 Hz is
-/// 50 ms — comfortably more than the OS keyboard scan interval but quick.
+/// Frames a key is held / settled between presses.
 const KEY_HOLD_FRAMES: u32 = 3;
 const KEY_SETTLE_FRAMES: u32 = 6;
 
@@ -260,15 +193,11 @@ fn tool_type_string(args: Value, session: &mut A800xlSession) -> Result<Value, T
     let mut typed = 0u32;
     let mut prev: Option<String> = None;
     for ch in text.chars() {
-        // Newline → RETURN; everything else maps as a single-character key
-        // name (the runtime resolves case via the machine's caps-lock state).
         let name = if ch == '\n' || ch == '\r' {
             "Return".to_owned()
         } else {
             ch.to_string()
         };
-        // Extra settle before a repeat of the same key so the OS keyboard scan
-        // sees the release before the next press.
         if prev.as_deref() == Some(name.as_str()) {
             session
                 .run_frames(KEY_SETTLE_FRAMES)
@@ -281,7 +210,11 @@ fn tool_type_string(args: Value, session: &mut A800xlSession) -> Result<Value, T
     Ok(json!({ "text": text, "chars_typed": typed }))
 }
 
+/// Register the 800XL MCP tools: the shared debug surface plus the ANTIC /
+/// GTIA / POKEY / PIA chip snapshots and the keyboard input tools.
 pub fn register_a800xl_tools(registry: &mut ToolRegistry<A800xlSession>) {
+    emu198x_shell::mcp_tools::register_debug_tools(registry);
+
     let empty = || json!({"type": "object", "additionalProperties": false});
     let mut tool = |name, description, schema, run| {
         registry.register(Box::new(InlineTool {
@@ -292,56 +225,6 @@ pub fn register_a800xl_tools(registry: &mut ToolRegistry<A800xlSession>) {
         }));
     };
 
-    tool(
-        "query_cpu",
-        "6502C Sally register snapshot (A/X/Y/SP/PC/P, halted).",
-        empty(),
-        tool_query_cpu,
-    );
-    tool(
-        "memory_read",
-        "Read bytes as the CPU sees them through PORTB banking (RAM/ROM/cart; \
-         the $D000-$D7FF register page reads as open bus). Args: address \
-         (number or $hex), optional length (1-256, default 16).",
-        json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "address": {"type": ["integer", "string"]},
-                "length":  {"type": "integer", "minimum": 1, "maximum": 256}
-            },
-            "required": ["address"]
-        }),
-        tool_memory_read,
-    );
-    tool(
-        "poke_byte",
-        "Write one byte into RAM (beneath any banked ROM). Args: address, value.",
-        json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "address": {"type": ["integer", "string"]},
-                "value":   {"type": ["integer", "string"]}
-            },
-            "required": ["address", "value"]
-        }),
-        tool_poke_byte,
-    );
-    tool(
-        "poke_word",
-        "Write a little-endian 16-bit word into RAM. Args: address, value.",
-        json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "address": {"type": ["integer", "string"]},
-                "value":   {"type": ["integer", "string"]}
-            },
-            "required": ["address", "value"]
-        }),
-        tool_poke_word,
-    );
     tool(
         "query_antic",
         "ANTIC display-list processor registers (DMACTL, NMIEN, DLIST, CHBASE, \
@@ -368,22 +251,6 @@ pub fn register_a800xl_tools(registry: &mut ToolRegistry<A800xlSession>) {
         "PIA 6520 registers (PORTA/PORTB outputs, DDRA/DDRB, CRA/CRB, IRQ).",
         empty(),
         tool_query_pia,
-    );
-    tool(
-        "run_until_pc",
-        "Run the machine until the CPU is about to execute `pc`, or until \
-         `max_frames` (default 60, max 6000) elapse. Reports whether it was \
-         reached and the CPU cycles run.",
-        json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "pc":         {"type": ["integer", "string"]},
-                "max_frames": {"type": "integer", "minimum": 1, "maximum": 6000}
-            },
-            "required": ["pc"]
-        }),
-        tool_run_until_pc,
     );
     tool(
         "press_key",
@@ -492,36 +359,36 @@ mod tests {
         assert!(call(&mut session, "query_pokey", json!({}))["irqen"].is_string());
         assert!(call(&mut session, "query_pia", json!({}))["portb"].is_string());
 
-        // memory_read default length.
-        let mem = call(&mut session, "memory_read", json!({"address": "$0200"}));
-        assert_eq!(mem["bytes"].as_array().expect("bytes array").len(), 16);
+        // Shared memory_read: 16 space-separated hex bytes by default.
+        let mem = call(&mut session, "memory_read", json!({"addr": "$0200"}));
+        let hex = mem["hex"].as_str().expect("hex string");
+        assert_eq!(hex.split_whitespace().count(), 16);
 
-        // poke/read round-trip.
+        // poke/read round-trip via the shared tools.
         call(
             &mut session,
             "poke_byte",
-            json!({"address": "$0600", "value": "$5A"}),
+            json!({"addr": "$0600", "value": "$5A"}),
         );
         let back = call(
             &mut session,
             "memory_read",
-            json!({"address": 0x0600, "length": 1}),
+            json!({"addr": 0x0600, "len": 1}),
         );
-        assert_eq!(back["bytes"][0], 0x5A);
+        assert_eq!(back["hex"].as_str().expect("hex"), "5A");
 
         // poke_word is little-endian.
         call(
             &mut session,
             "poke_word",
-            json!({"address": "$0610", "value": "$ABCD"}),
+            json!({"addr": "$0610", "value": "$ABCD"}),
         );
         let w = call(
             &mut session,
             "memory_read",
-            json!({"address": "$0610", "length": 2}),
+            json!({"addr": "$0610", "len": 2}),
         );
-        assert_eq!(w["bytes"][0], 0xCD);
-        assert_eq!(w["bytes"][1], 0xAB);
+        assert_eq!(w["hex"].as_str().expect("hex"), "CD AB");
     }
 
     fn screen_addr(ram: &[u8]) -> usize {
@@ -563,17 +430,13 @@ mod tests {
             body(&reg.get(name).expect("tool").call(args, s).expect("ok"))
         };
 
-        // run_until_pc: the idle BASIC prompt loops, so running to the CPU's
-        // current PC is reached within a couple of frames.
+        // Shared run_until_pc: the idle BASIC prompt sits at its current PC,
+        // so running to that PC is reached immediately.
         let pc = call(&mut session, "query_cpu", json!({}))["pc"]
             .as_str()
             .expect("pc")
             .to_owned();
-        let ran = call(
-            &mut session,
-            "run_until_pc",
-            json!({"pc": pc, "max_frames": 30}),
-        );
+        let ran = call(&mut session, "run_until_pc", json!({"pc": pc}));
         assert_eq!(ran["reached"], true, "run_until_pc revisits idle PC: {ran}");
 
         // type_string drives BASIC: `PRINT 6*7` then RETURN evaluates to 42.

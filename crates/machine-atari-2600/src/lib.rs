@@ -300,3 +300,39 @@ mod tests {
         assert!(Atari2600::new(bad, Atari2600Region::Ntsc).is_err());
     }
 }
+
+impl Atari2600 {
+    /// Read one byte with no side effects: cartridge ROM and the 128 bytes
+    /// of RIOT RAM; `$FF` for TIA / RIOT-I/O (read side effects).
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        let a = addr & 0x1FFF;
+        if a & 0x1000 != 0 {
+            self.cart.peek(a)
+        } else if a & 0x0200 == 0 && a & 0x0080 != 0 {
+            self.riot.ram()[(a & 0x7F) as usize]
+        } else {
+            0xFF
+        }
+    }
+
+    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole 6507 instruction, returning the colour clocks
+    /// it consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let mut ticks = 0u64;
+        while self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_colour_clock();
+            ticks += 1;
+        }
+        while !self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_colour_clock();
+            ticks += 1;
+        }
+        ticks
+    }
+}

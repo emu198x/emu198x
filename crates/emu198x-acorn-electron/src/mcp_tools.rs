@@ -1,8 +1,10 @@
 //! Electron-specific MCP tools.
 //!
-//! `memory_read` is omitted because the Electron's bus decode is
-//! `&mut self` (ULA reads can latch state). Add once
-//! machine-acorn-electron grows a side-effect-free peek path.
+//! CPU / memory / stepping come from the shared
+//! [`emu198x_shell::mcp_tools::register_debug_tools`] set — `memory_read`
+//! now works via the machine's side-effect-free `peek` (the ULA-latch
+//! concern that previously blocked it is handled by reading RAM/ROM
+//! directly). This adds the Electron ULA snapshot on top.
 
 use emu198x_shell::{
     HeadlessSession,
@@ -49,20 +51,6 @@ fn el_ref(s: &ElectronSession) -> Result<&AcornElectron, ToolError> {
         .ok_or_else(|| ToolError::Execution("OS / BASIC ROMs not loaded".into()))
 }
 
-fn tool_query_cpu(_args: Value, session: &mut ElectronSession) -> Result<Value, ToolError> {
-    let el = el_ref(session)?;
-    let r = &el.cpu().regs;
-    Ok(json!({
-        "a":  format!("${:02X}", r.a),
-        "x":  format!("${:02X}", r.x),
-        "y":  format!("${:02X}", r.y),
-        "sp": format!("${:02X}", r.sp),
-        "pc": format!("${:04X}", r.pc),
-        "p":  format!("${:02X}", r.p),
-        "cycles": el.cpu_cycles(),
-    }))
-}
-
 fn tool_query_ula(_args: Value, session: &mut ElectronSession) -> Result<Value, ToolError> {
     let el = el_ref(session)?;
     Ok(json!({
@@ -74,36 +62,14 @@ fn tool_query_ula(_args: Value, session: &mut ElectronSession) -> Result<Value, 
     }))
 }
 
+/// Register Electron MCP tools: the shared debug surface plus the ULA query.
 pub fn register_electron_tools(registry: &mut ToolRegistry<ElectronSession>) {
-    fn add(
-        registry: &mut ToolRegistry<ElectronSession>,
-        name: &'static str,
-        description: &'static str,
-        schema: Value,
-        run: fn(Value, &mut ElectronSession) -> Result<Value, ToolError>,
-    ) {
-        registry.register(Box::new(InlineTool {
-            name,
-            description,
-            schema,
-            run,
-        }));
-    }
+    emu198x_shell::mcp_tools::register_debug_tools(registry);
 
-    let empty = || json!({"type": "object", "additionalProperties": false});
-
-    add(
-        registry,
-        "query_cpu",
-        "6502 register snapshot (A/X/Y/SP/PC/P, cycles).",
-        empty(),
-        tool_query_cpu,
-    );
-    add(
-        registry,
-        "query_ula",
-        "Electron ULA snapshot — display mode, IRQ line, frame count, framebuffer dimensions.",
-        empty(),
-        tool_query_ula,
-    );
+    registry.register(Box::new(InlineTool {
+        name: "query_ula",
+        description: "Electron ULA snapshot — display mode, IRQ line, frame count, framebuffer dimensions.",
+        schema: json!({"type": "object", "additionalProperties": false}),
+        run: tool_query_ula,
+    }));
 }

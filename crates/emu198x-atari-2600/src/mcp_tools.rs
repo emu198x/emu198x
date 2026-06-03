@@ -1,9 +1,10 @@
-//! Atari 2600-specific MCP tools — 6507 CPU + TIA + RIOT snapshots.
+//! Atari 2600-specific MCP tools.
 //!
-//! `memory_read` is intentionally omitted on the 2600 because the chip
-//! decode is `&mut self` (reading TIA registers can latch internal
-//! state). Add it once machine-atari-2600 grows a side-effect-free
-//! peek path.
+//! CPU / memory / stepping come from the shared
+//! [`emu198x_shell::mcp_tools::register_debug_tools`] set — `memory_read`
+//! now works via the machine's side-effect-free `peek` (cartridge ROM +
+//! RIOT RAM; the TIA-latch concern that previously blocked it is handled
+//! by not reading the chip registers). This adds the TIA snapshot on top.
 
 use emu198x_shell::{
     HeadlessSession,
@@ -46,20 +47,6 @@ fn vcs_ref(s: &VcsSession) -> Result<&Atari2600, ToolError> {
         .ok_or_else(|| ToolError::Execution("no cartridge loaded".into()))
 }
 
-fn tool_query_cpu(_args: Value, session: &mut VcsSession) -> Result<Value, ToolError> {
-    let vcs = vcs_ref(session)?;
-    let r = &vcs.cpu().regs;
-    Ok(json!({
-        "a":  format!("${:02X}", r.a),
-        "x":  format!("${:02X}", r.x),
-        "y":  format!("${:02X}", r.y),
-        "sp": format!("${:02X}", r.sp),
-        "pc": format!("${:04X}", r.pc),
-        "p":  format!("${:02X}", r.p),
-        "master_clock": vcs.master_clock(),
-    }))
-}
-
 fn tool_query_tia(_args: Value, session: &mut VcsSession) -> Result<Value, ToolError> {
     let vcs = vcs_ref(session)?;
     let tia = vcs.tia();
@@ -72,36 +59,14 @@ fn tool_query_tia(_args: Value, session: &mut VcsSession) -> Result<Value, ToolE
     }))
 }
 
+/// Register Atari 2600 MCP tools: the shared debug surface plus the TIA query.
 pub fn register_vcs_tools(registry: &mut ToolRegistry<VcsSession>) {
-    fn add(
-        registry: &mut ToolRegistry<VcsSession>,
-        name: &'static str,
-        description: &'static str,
-        schema: Value,
-        run: fn(Value, &mut VcsSession) -> Result<Value, ToolError>,
-    ) {
-        registry.register(Box::new(InlineTool {
-            name,
-            description,
-            schema,
-            run,
-        }));
-    }
+    emu198x_shell::mcp_tools::register_debug_tools(registry);
 
-    let empty = || json!({"type": "object", "additionalProperties": false});
-
-    add(
-        registry,
-        "query_cpu",
-        "6507 register snapshot (A/X/Y/SP/PC/P, master clock).",
-        empty(),
-        tool_query_cpu,
-    );
-    add(
-        registry,
-        "query_tia",
-        "TIA snapshot — beam position (hpos/vpos), frame count, framebuffer dimensions.",
-        empty(),
-        tool_query_tia,
-    );
+    registry.register(Box::new(InlineTool {
+        name: "query_tia",
+        description: "TIA snapshot — beam position (hpos/vpos), frame count, framebuffer dimensions.",
+        schema: json!({"type": "object", "additionalProperties": false}),
+        run: tool_query_tia,
+    }));
 }

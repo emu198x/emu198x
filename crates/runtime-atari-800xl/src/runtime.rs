@@ -266,4 +266,7 @@ impl MachineCore for Atari800xlRuntime {
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }
+    emu198x_shell::debug_target_hooks!();
 }
+
+emu198x_shell::impl_6502_debug_target!(Atari800xlRuntime);

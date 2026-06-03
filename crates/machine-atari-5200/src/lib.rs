@@ -411,3 +411,46 @@ mod tests {
         let _ = sys; // pots set in `new`; this confirms `new` doesn't panic.
     }
 }
+
+impl Atari5200 {
+    /// Read one byte with no side effects: RAM, cartridge ROM, and BIOS;
+    /// `$FF` for GTIA / ANTIC / POKEY (read side effects).
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x3FFF => self.ram[(addr & 0x3FFF) as usize],
+            0x4000..=0xBFFF => self.cart.read(addr),
+            0xF800..=0xFFFF => {
+                if self.bios.is_empty() {
+                    self.cart.read(addr)
+                } else {
+                    self.bios
+                        .get((addr - 0xF800) as usize)
+                        .copied()
+                        .unwrap_or(0xFF)
+                }
+            }
+            _ => 0xFF,
+        }
+    }
+
+    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole 6502 instruction, returning the colour clocks
+    /// it consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let mut ticks = 0u64;
+        while self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_colour_clock();
+            ticks += 1;
+        }
+        while !self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_colour_clock();
+            ticks += 1;
+        }
+        ticks
+    }
+}
