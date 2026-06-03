@@ -248,10 +248,17 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     fn z80_halted(&self) -> bool;
 
     /// `true` when the Z80 is at an instruction boundary (the walker
-    /// reports `instruction_complete`). Used by the `step` /
-    /// `run_until_pc` helpers to know when one instruction has
-    /// finished and the next is about to fetch.
+    /// reports `instruction_complete`). Exposed for the `query_cpu`
+    /// surface; **not** used for stepping — see
+    /// [`Self::z80_instructions_retired`].
     fn z80_instruction_complete(&self) -> bool;
+
+    /// Monotonic count of instructions the Z80 has retired. The reliable
+    /// single-step signal: tick until it advances by one. The level
+    /// `instruction_complete` flag is unusable here — it stays true through
+    /// the next opcode fetch and flips false→true within one tick for a
+    /// one-M-cycle op, so a between-tick check over-runs short instructions.
+    fn z80_instructions_retired(&self) -> u64;
 
     /// Bus-level Z80 I/O port read. Takes `&mut self` because
     /// some ports (notably the floating bus) and routed peripherals
@@ -301,15 +308,17 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// instruction (chip bug, not user input) can't hang the binary.
     fn step_instruction(&mut self) -> u32 {
         const STEP_HALFCYCLE_BUDGET: u32 = 512;
+        // Tick until exactly one instruction retires. The retirement counter
+        // is the only reliable boundary signal (see the trait method docs):
+        // the old `instruction_complete`-edge loop silently over-ran
+        // one-M-cycle instructions because their false→true transition
+        // happens within a single tick.
+        let target = self.z80_instructions_retired().wrapping_add(1);
         let mut hc = 0u32;
-        let mut in_progress = false;
         while hc < STEP_HALFCYCLE_BUDGET {
             self.tick_one_halfcycle();
             hc += 1;
-            let complete = self.z80_instruction_complete();
-            if !complete {
-                in_progress = true;
-            } else if in_progress {
+            if self.z80_instructions_retired() == target {
                 return hc;
             }
         }
