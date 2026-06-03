@@ -1,6 +1,6 @@
 # Outstanding Work — Cross-System Rollup
 
-Status as of 2026-06-01. Companion to
+Status as of 2026-06-03. Companion to
 [`current-system-usability.md`](current-system-usability.md). Each section is
 the live list of open items per machine, ordered roughly by user impact
 within that machine. Items are tagged:
@@ -12,6 +12,22 @@ within that machine. Items are tagged:
 
 Resolved items are kept here briefly only when they unblock something else
 listed below.
+
+**Family-wide as of 2026-06-03** (see
+[`current-system-usability.md`](current-system-usability.md) § Capability
+surfaces for the vocabulary):
+
+- **Operational parity (Capture + Script + MCP) is landed across the whole
+  family** — the 6 primary systems plus every donor extraction (rollout
+  `31b49271`→`5cf1a0e2`, 2026-06-02). "Full shell parity" items below have been
+  recast as the one surface that actually remains: the **native `wgpu`
+  window**, which only the 6 primary systems have.
+- **Borders** — the TV-visible CRT frame is now rendered across the affected
+  chips (TMS9918, Sega VDP, the Atari chips, the inline VIC/VDG/Ace renderers;
+  Phase 1.1–1.4). No longer active-area-only.
+- **Highest-leverage unblocks:** `zilog-z80-ctc` (Sord M5 + Memotech MTX boot,
+  Einstein channel 0) and `western-digital-wd1770` (Einstein disk). Each lifts
+  more than one machine.
 
 ## ZX Spectrum — `emu198x-spectrum`
 
@@ -185,7 +201,7 @@ Atmos a de-facto French home computer in the mid-1980s.
   changes via serial attributes work within a line but not across
   scanlines mid-render.
 - **A — Snapshot deferred** (shared family pattern).
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Atari 2600 — `emu198x-atari-2600` (new, 2026-06-01)
 
@@ -237,7 +253,7 @@ free-running.
   (byte)` but the binary doesn't have a runtime interactive
   surface yet.
 - **A — Snapshot deferred** (shared family pattern).
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Atari 5200 SuperSystem — `emu198x-atari-5200` (new, 2026-06-01)
 
@@ -285,7 +301,7 @@ captured screenshot shows partial title-screen pixels
 - **A — Audio output unwired.** POKEY buffer drained via
   `take_audio_buffer()` but the binary doesn't write a WAV.
 - **A — Snapshot deferred** (shared family pattern).
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 - **S — Atari 800XL.** Reuses ANTIC + GTIA + POKEY (now
   unblocked); adds MOS PIA-6520.
 
@@ -329,7 +345,7 @@ Asteroids (1987)(Atari)(NTSC).a78 — cart loads, machine ticks
 - **A — TIA audio synthesis.** The 7800 uses TIA only for sound;
   six registers are stored but no synthesis path is wired.
 - **A — Snapshot deferred** (shared family pattern).
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Atari 800XL — `emu198x-atari-800xl` (new, 2026-06-01)
 
@@ -361,33 +377,59 @@ Scope of this slice is the **800XL model**: 64 KB RAM with
 XL-style PORTB banking. The 400 / 800 (no XL banking) and 130XE
 (extended bank-switched RAM) variants are deliberately deferred.
 
-Gated OS-boot smoke at `crates/machine-atari-800xl/tests/os_boot.rs`
-passes with the TOSEC `Atari OS Rev 2 (1983)(Atari)[800XL]`
-ROM — machine ticks 200 frames without panic, framebuffer is
-correctly sized.
+**Boots to BASIC `READY` — the furthest-advanced donor extraction
+(2026-06-02 → 2026-06-03).** The full OS → SIO-timeout → BASIC
+cartridge chain runs, the GR.0 text screen renders correctly, and
+keys typed through POKEY reach the BASIC line editor. Seven boot
+bugs were resolved end-to-end (PIA A0/A1 address cross-wire, ANTIC
+NMIEN VBI/DLI bit swap, DL LMS/DLI decode, CHACTL cursor inversion,
+GTIA hi-res text colour, GTIA CONSOL read/write split, POKEY
+edge-latched serial transmit). Solution record:
+[`docs/solutions/atari-800xl-sio-disk-boot-to-basic.md`](../solutions/atari-800xl-sio-disk-boot-to-basic.md).
 
-- ~~**A — BASIC ROM not bundled.**~~ **Closed 2026-06-02.** The
-  Atari800 MiSTer core ships an 8 KB `ataribas.rom` as
-  `releases/boot1.rom` (see
-  `emulators/atari/Atari800_MiSTer/instructions.txt`). Copied to
-  `~/.emu198x/roms/atari-800xl/ataribas.rom` (8192 bytes, SHA-256
-  `4988cb41121921f997ab17a59dd1909fece9273699eba0c6fbaafae104aa27b0`).
-  The binary's default-path resolver
-  (`$EMU198X_A800XL_BASIC` ➜ `~/.emu198x/roms/atari-800xl/ataribas.rom`)
-  picks it up automatically; the runtime constructs with
-  `basic_enabled: true` and the OS boot sequence completes without
-  error. Visual confirmation of the `READY` prompt is still gated
-  by the 8-bit Atari render pipeline (shared with the 5200 — see
-  task #76).
+Gated regression tests (all green, ROM-bundle-gated):
+`os_boot.rs` (frame budget), `basic_boot_probe.rs`
+(`basic_boot_programs_antic_and_gtia`, `boots_to_basic_ready` —
+asserts LOMEM/VNTP set + `READY` screen codes, `keyboard_types_into_basic`
+— types `PRINT 6*7` → `42`), and the binary-level
+`keyboard_into_basic.rs` (end-to-end by key name through
+`HeadlessSession`). Verified against the MiSTer Atari800 OS+BASIC
+bundle at `~/.emu198x/roms/atari-800xl/`.
+
+**MCP debug surface** (2026-06-02): `query_cpu` (+ halted),
+`memory_read` (banked), `poke_byte`/`poke_word`,
+`query_antic`/`query_gtia`/`query_pokey`/`query_pia`, `run_until_pc`,
+`press_key`/`type_string`. Matches the Spectrum/Amiga "an agent can
+drive the machine" bar. The one gap is `disasm`, parked on the
+Asm198x session promoting its spec-driven 6502 disassembler into a
+shared dependency-free crate (per
+[`asm198x-and-shared-isa-spec.md`](../../../decisions/asm198x-and-shared-isa-spec.md)).
+
+- ~~**A — BASIC ROM not bundled.**~~ **Closed 2026-06-02.** 8 KB
+  `ataribas.rom` from the Atari800 MiSTer core (SHA-256
+  `4988cb41121921f997ab17a59dd1909fece9273699eba0c6fbaafae104aa27b0`)
+  at `~/.emu198x/roms/atari-800xl/ataribas.rom`; default-path
+  resolver picks it up and the runtime boots through to `READY`.
+- ~~**A — `READY` visual confirmation gated on render pipeline.**~~
+  **Closed 2026-06-03.** The 800XL GR.0 text path renders correctly
+  (DL LMS/DLI, hi-res text colour, CHACTL cursor). Note this is the
+  GR.0 text mode; the **Atari 5200's partial-render gap is a
+  different ANTIC mode path** (task #76) and is not closed by this.
 - **A — POKEY audio synthesis unwired** in the binary.
 - **A — XEX / disk loading not implemented.** Cart-only and
-  cart-with-OS for now.
+  cart-with-OS for now. SIO + ATR disk loading is the next Tier-1
+  feature (the MCP `memory_read`/`run_until_pc`/chip queries now make
+  the SIO protocol far more tractable to debug).
 - **A — Snapshot deferred** (shared family pattern).
 - **S — 130XE 128 KB extended-RAM banking.** PORTB bits 2-5
   drive the 4 × 16 KB extended banks; not modelled in this slice.
 - **S — Atari 400 / 800 variants.** Same chip family, different
   RAM size, no XL banking; would only need a model-selector flag.
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity
+  landed (2026-06-02); the native `wgpu` interactive window is the
+  remaining surface. With boot + keyboard + render working, the
+  800XL is the strongest donor candidate for the first native
+  window outside the primary six.
 
 ## Jupiter Ace — `emu198x-jupiter-ace` (new, 2026-06-01)
 
@@ -423,7 +465,7 @@ first 32 T-states.
 - **A — Snapshot deferred** (shared family pattern).
 - **A — `.ace` snapshot load** — donor handled this; not yet
   ported (RAM dump at `$2000`).
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Commodore PET — `emu198x-commodore-pet` (new, 2026-06-01)
 
@@ -463,7 +505,7 @@ here.
 - **A — Speaker unwired** (VIA CB2 piezo).
 - **A — Snapshot deferred** (shared family pattern).
 - **A — `.prg` / `.tap` load not implemented.**
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Commodore VIC-20 — `emu198x-commodore-vic-20` (new, 2026-06-01)
 
@@ -473,12 +515,10 @@ million units, designed to a $300 price point with Robert
 Yannes' MOS 6560/6561 VIC handling video AND audio on a single
 chip.
 
-The donor ships a VIC 6560/6561 chip implementation inline
-(187 LoC, text-mode-only rendering with 16-colour ARGB palette
-and PAL/NTSC timing); we deliberately **don't promote** it to a
-shared `commodore-vic-i` crate — promotion is tracked as a
-follow-up once a second consumer surfaces. It stays as
-`machine_commodore_vic_20::vic::Vic6560`.
+The donor shipped a VIC 6560/6561 inline (187 LoC, text-mode-only
+rendering with 16-colour ARGB palette and PAL/NTSC timing).
+**Promoted 2026-06-02** to the shared `mos-vic-i` crate (commit
+`82685f5d`); the machine now imports `mos_vic_i::Vic6560`.
 
 Fresh-write machine layer (`machine-commodore-vic-20`, 9/9 tests
 + inline VIC + keyboard + input modules) wiring the 6502 through
@@ -502,9 +542,9 @@ Live boot verified 2026-06-01 with PAL-B ROM set (Kernal
 - **A — Cassette / IEEE-488 unwired.**
 - **A — Snapshot deferred** (shared family pattern).
 - **A — `.prg` / `.tap` load not implemented.**
-- **S — Full shell parity**.
-- **S — Promote inline VIC to `commodore-vic-i` crate** when a
-  second consumer surfaces.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
+- ~~**S — Promote inline VIC to a chip crate.**~~ **Done
+  2026-06-02** — `mos-vic-i` (`82685f5d`).
 
 ## Acorn Atom — `emu198x-acorn-atom` (new, 2026-06-01)
 
@@ -512,13 +552,11 @@ Twenty-first donor-codebase extraction. Acorn's £120 self-build
 (1980) designed by Sophie Wilson and Steve Furber — the team
 that would design the BBC Micro the following year.
 
-The donor ships an Atom-specific MC6847 VDG (265 LoC, embedded
-64-glyph character set, text mode only) inline; we deliberately
-**don't promote** it to the shared `motorola-vdg-6847` crate
-(which has its own Dragon/CoCo-targeted model). It stays as
-`machine_acorn_atom::vdg::Mc6847` — a stub-y text renderer
-named for the silicon it pretends to be. Graphics modes 1-5 are
-a known follow-up.
+The donor shipped an Atom-specific MC6847 VDG (265 LoC, embedded
+64-glyph character set, text mode only) inline. **Migrated
+2026-06-02** to the shared `motorola-vdg-6847` crate (commit
+`a82fe9d7`), which now carries the Atom text model alongside its
+Dragon/CoCo model. Graphics modes 1-5 are a known follow-up.
 
 Fresh-write machine layer (`machine-acorn-atom`, 8/8 tests +
 inline VDG/keyboard) wiring the 6502 through public pin fields
@@ -538,7 +576,7 @@ column-select; port B row data.
   mode only; graphics modes show solid green (donor stub).
 - **A — Cassette / printer unwired.**
 - **A — Snapshot deferred** (shared family pattern).
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Memotech MTX500 / MTX512 — `emu198x-memotech-mtx` (new, 2026-06-01)
 
@@ -576,7 +614,7 @@ to 16 KB.
 - **A — Centronics printer not implemented.**
 - **A — Snapshot deferred** (shared family pattern).
 - **A — `.mtx` / `.run` snapshot load not implemented.**
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Sinclair ZX80 + ZX81 — `emu198x-sinclair-zx80` / `emu198x-sinclair-zx81` (new, 2026-06-01)
 
@@ -620,7 +658,7 @@ character output from D_FILE through the ULA pipeline.
   ZX81 (donor didn't have it either).
 - **A — Cassette in/out unwired.**
 - **A — Snapshot deferred** (shared family pattern).
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Acorn BBC Micro Model B — `emu198x-acorn-bbc-micro` (new, 2026-06-01)
 
@@ -671,7 +709,7 @@ absent** from this port.
   alternating per-cycle scheme.
 - **A — Snapshot deferred** (shared family pattern).
 - **S — Floppy disk** (Intel 8271 or WD 1770 — different variants).
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Acorn Electron — `emu198x-acorn-electron` (new, 2026-06-01)
 
@@ -717,7 +755,7 @@ register at `$FE05`.
   ULA encoding is more elaborate per the BBC-Micro-compatible
   spec.
 - **A — Snapshot deferred** (shared family pattern).
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 - **S — BBC Micro** is the natural next 6502-family extraction
   from this base. It reuses 6502 ✓ and SN76489 ✓, adds VIA-6522
   (new) and Motorola 6845 CRTC (new).
@@ -752,7 +790,7 @@ stub at `$28`.
 - **A — TMS9918A scanline-batched render** (shared family debt).
 - **A — Cassette / printer ports** unwired.
 - **A — Snapshot deferred**.
-- **S — Full shell parity**.
+- **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Mattel Aquarius — `emu198x-mattel-aquarius` (new, 2026-06-01)
 
@@ -815,8 +853,9 @@ window tightened to `$80-$97` with 11×8 keyboard matrix via the
   through PPI port C bits 4-7; not yet wired (port C bits 0-3 do
   drive the keyboard row select correctly).
 - **A — Snapshot deferred** (shared family pattern).
-- **S — Full shell parity** for `emu198x-spectravideo-svi-328`
-  follows once boot completes.
+- **S — Native verifier window.** Capture + script + MCP parity
+  landed (2026-06-02); the native `wgpu` window is the remaining
+  surface (and is the more useful target once a BIOS lands).
 - **S — SVI-318 sibling.** Same chip stack, 16 KB RAM instead of
   32 KB, slightly different keyboard matrix. Mostly the same
   binary with a variant flag.
@@ -866,8 +905,9 @@ passes (1/1).
   smaller 160×144 visible region inside the same VDP framebuffer.
   Stereo PSG via `$06` is wired; runtime exposes
   `SmsVariant::GameGear`. Lacks a `.gg` cart smoke test.
-- **S — Full shell parity** for `emu198x-sega-master-system`
-  (native verifier window).
+- **S — Native verifier window.** Capture + script + MCP parity
+  landed (2026-06-02); the native `wgpu` window is the remaining
+  surface.
 
 ## Sord M5 — `emu198x-sord-m5` (new, 2026-06-01)
 
@@ -899,8 +939,9 @@ correct 3:2 VDP-phase clock as SG-1000 / MSX.
   machines on this list.
 - **A — TMS9918A scanline-batched render** (shared family debt).
 - **A — Snapshot deferred** (shared family pattern).
-- **S — Full shell parity** for `emu198x-sord-m5` follows once
-  boot completes.
+- **S — Native verifier window.** Capture + script + MCP parity
+  landed (2026-06-02); the native `wgpu` window is the remaining
+  surface (more useful once the CTC unblocks boot).
 
 ## MSX1 — `emu198x-msx` (new, 2026-06-01)
 
@@ -940,8 +981,9 @@ TOSEC) or `cbios_main_msx1.rom` (free GPL C-BIOS replacement).
   yet (host can poke registers via `psg_mut()` if needed). Cassette
   and printer through PPI port C bits 4-7 unwired.
 - **A — Snapshot deferred** (shared pattern with Coleco + SG-1000).
-- **S — Full shell parity** for `emu198x-msx` (native verifier
-  window).
+- **S — Native verifier window.** Capture + script + MCP parity
+  landed (2026-06-02); the native `wgpu` window is the remaining
+  surface.
 - **S — MSX2 / MSX2+ / TurboR.** V9938 / V9958 VDP, mapped RAM,
   YM2413 FM-PAC, subslots. Out of scope; current `machine-msx`
   is MSX1-only.
@@ -970,8 +1012,9 @@ file from `~/.emu198x/media/sega-sg-1000/` or `~/Downloads/`).
 - **A — SC-3000 keyboard.** `set_pause_pressed` already drives the
   Z80 NMI line; full SC-3000 8255 keyboard matrix not yet modelled.
 - **A — Snapshot deferred** (shared pattern with ColecoVision).
-- **S — Full shell parity** for `emu198x-sega-sg-1000` (native
-  verifier window).
+- **S — Native verifier window.** Capture + script + MCP parity
+  landed (2026-06-02); the native `wgpu` window is the remaining
+  surface.
 - **S — Cart-mapper support.** SG-1000 ceiling is 48 KB; some Sega
   Mark III / late SG-1000 carts have bank-switching mappers (Sega,
   Codemasters, Korean variants). Out of scope for initial port; SMS
@@ -1007,9 +1050,10 @@ frames, asserts a non-trivial framebuffer).
 - **A — IM 1 IntAck.** Returns `$FF` (floating bus) — matches BIOS
   expectation of `RST 38h` fetch. Real-hardware behaviour with a
   cartridge that drives the data bus during IntAck is unverified.
-- **S — Full shell parity.** Headless-only `emu198x-colecovision`
-  for now; native verifier window with `wgpu`/keyboard/audio/scripts
-  matching `emu198x-nes`/`emu198x-c64` is a future commit.
+- **S — Native verifier window.** Capture + script + MCP parity
+  landed (2026-06-02 — `--screenshot`/`--audio-capture`/`--script`/
+  `--mcp`); the native `wgpu` window with keyboard/audio matching
+  `emu198x-nes`/`emu198x-c64` is the remaining surface.
 - **S — TMS9918 family expansion.** Same chip crate is the
   foundation for SG-1000, MSX-1, Sord M5, Memotech MTX, Spectravideo
   SV-328. Same SN76489 also feeds SG-1000, SMS (with Sega VDP),
@@ -1049,7 +1093,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 12 | Atari 2600 | Combat playfield (live) |
 | 13 | Atari 5200 SuperSystem | Pac-Man title (live, partial render) |
 | 14 | Atari 7800 ProSystem | Cart accepts (live); BIOS-driven boot pending |
-| 15 | Atari 800XL | OS + BASIC boot (live); display gated on the Atari 8-bit render pipeline (task #76) |
+| 15 | Atari 800XL | **Boots to BASIC `READY`** (live) — GR.0 renders, keyboard types, MCP debug surface |
 | 16 | Jupiter Ace | **Awaiting ROM** (8 KB Forth interpreter) |
 | 17 | Commodore PET | Char grid renders (live) — full boot pending |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |

@@ -1,15 +1,42 @@
 # Current System Usability Matrix
 
-Status as of 2026-06-01. This page is deliberately practical: it records how a
-developer can launch each current system today, what a user can reasonably do
-with it, and the shortest path to making it comfortable to use. October launch
-target is **ZX Spectrum**; the rest are engineering-bar systems with their own
-honest status below.
+Status as of 2026-06-03. This page is deliberately practical: it records how a
+developer can launch each system today, what a user can reasonably do with it,
+and the shortest path to making it comfortable to use. October launch target is
+**ZX Spectrum**; the rest are engineering-bar systems with their own honest
+status below.
 
 For the cross-system rollup of remaining work see
 [`outstanding-work.md`](outstanding-work.md).
 
-## Summary
+## Capability surfaces — the shared vocabulary
+
+Every system is described against the same five surfaces. "Parity" claims
+elsewhere in the docs mean a specific subset of these — name the surface, not a
+vague level.
+
+- **Window** — native `wgpu` interactive window (`raw`/`lcd`/`crt` presets),
+  real-time keyboard/gamepad input, live audio. The full desktop-app
+  experience.
+- **Capture** — headless PNG screenshot, WAV audio capture, video record at any
+  frame boundary.
+- **Script** — `--script PATH` programmatic control: run-frames / run-until-pc /
+  run-until-mem-change, key/joystick input, memory read/write, snapshot.
+- **MCP** — `--mcp` stdio server exposing the script surface plus per-chip
+  `query()` paths as tools, so an agent can drive and inspect the machine.
+- **Boot** — how far real firmware/software actually gets today.
+
+Two tiers follow from these surfaces:
+
+- **Primary systems** (6) — **Window + Capture + Script + MCP**, real software,
+  CPU oracles green. These are the launch and engineering-bar machines.
+- **Extended systems** (donor extractions) — **Capture + Script + MCP**
+  ("operational parity", landed 2026-06-02 across the family) but **headless —
+  no native Window yet**. Boot status varies from full-software to
+  awaiting-ROM; the per-machine detail lives in
+  [`outstanding-work.md`](outstanding-work.md).
+
+## Primary systems
 
 | System | Current launch path | Current usable state | Next usability step |
 |--------|---------------------|----------------------|---------------------|
@@ -19,6 +46,45 @@ For the cross-system rollup of remaining work see
 | Commodore Amiga | `emu198x-amiga` | Native verifier window with shared `wgpu` video, keyboard/mouse input, port-1 joystick/gamepad input, and live Paula audio, plus headless Kickstart/Workbench runner with the full A1000 / A500-family / A600 / A1200 (AGA) / A2000 model matrix reachable from `--model` in script mode (commit `bc23bc8`, 2026-06-01). A1200 + Kickstart 3.1 boots to the Insert-Workbench prompt and Workbench 3.1 mounts to a clean desktop with no palette or geometry artefacts. AGA fixes landed last week: 64-bit FMODE bitplane wide-fetch (`d31e46a`), 68020 full-format EA decode for the WB palette path (`369d50b`), DENISEID `$00F8` for AGA Lisa (`bc0e8ec`). DF0 `ADF`, screenshots, audio capture, scripted input all working. CPU oracles green: 68000 100% Tom Harte (1M tests); 68010/68020 100% against Musashi (via `m68k-test-gen`). | Broaden game/application software validation across OCS/ECS/AGA; flesh out Gayle for A600/A1200 IDE/PCMCIA paths; promote Workbench 3.1 boot to an automated screenshot smoke. |
 | Nintendo Game Boy | `emu198x-game-boy` | Native DMG-family verifier window using the shared `wgpu` video presenter with `raw`/`lcd`/`crt` modes, plus headless cartridge runner with screenshots, live audio/audio capture, keyboard/gamepad joypad input, scripts, snapshots, and `.sav` battery-RAM sidecars. CPU oracle: 49,600 Adam Tennant SM83 single-step tests pass + 92 lib unit tests. | Tune LCD presentation against hardware references and broaden real-game smoke coverage. |
 | Dragon 32 | `emu198x-dragon` | Early native verifier window with shared `wgpu` video, live PIA-derived mono audio pinned to XRoar's DAC/tape/cartridge-SND/single-bit level model, real Dragon 32 BASIC ROM boot, semantic keyboard input, gamepad-to-analogue-joystick input, CAS media mounting, direct DragonDOS `.BIN` program loading, ROM/DGN cartridge mounting with GMC banking, initial DragonDOS VDK disk-sector reads through the P2 controller register path, PC-Dragon PAK snapshot mounting and snapshot smoke screenshots, native `--autoload` over ROM-level `CLOAD`/`CLOADM`, beam-updated MC6847 framebuffer, repeatable fetch/write trace watches, deterministic PAK trace-signature smoke, and optional patched-XRoar screenshot comparisons for CAS and PAK snapshot smokes. **Not in October launch scope.** | Run real DragonDOS ROM + VDK software smokes, then fill in exact controller timing/status/write behavior from observed failures. |
+
+## Extended systems (donor extractions)
+
+All have **Capture + Script + MCP** parity (operational-parity rollout,
+commits `31b49271`→`5cf1a0e2`, 2026-06-02) and are **headless — no native
+Window yet**; the native `wgpu` verifier window is the shared remaining surface
+for every row. Boot status is the differentiator, grouped below. Per-machine
+open items: [`outstanding-work.md`](outstanding-work.md).
+
+| System | Binary | Boot status |
+|--------|--------|-------------|
+| **Atari 800XL** | `emu198x-atari-800xl` | **Boots to BASIC `READY`** — full GR.0 render, keyboard typing into BASIC, MCP debug surface (memory + ANTIC/GTIA/POKEY/PIA queries + `run_until_pc` + key input). Furthest-advanced donor extraction. |
+| Sega Master System | `emu198x-sega-master-system` | Alex Kidd in Miracle World → title screen (Mode 4) |
+| MSX1 | `emu198x-msx` | Microsoft MSX BASIC prompt, clean |
+| ColecoVision | `emu198x-colecovision` | BIOS rainbow logo + "TURN GAME OFF" |
+| Sega SG-1000 | `emu198x-sega-sg-1000` | Othello Multivision cart → title |
+| Mattel Aquarius | `emu198x-mattel-aquarius` | Microsoft BASIC title (magenta/black) |
+| Atari 2600 | `emu198x-atari-2600` | Combat two-tank playfield |
+| Atari 5200 | `emu198x-atari-5200` | Pac-Man title (partial render — shared 8-bit Atari pipeline) |
+| Commodore PET | `emu198x-commodore-pet` | Char grid renders; full BASIC banner pending |
+| Sinclair ZX81 | `emu198x-sinclair-zx81` | Boot screen renders |
+| Sinclair ZX80 | `emu198x-sinclair-zx80` | Boot screen (FAST); SLOW-mode render pending |
+| Acorn BBC Micro | `emu198x-acorn-bbc-micro` | OS bank-scan reaches BASIC slot; needs SAA5050 + BASIC II |
+| Acorn Electron | `emu198x-acorn-electron` | "Language?" red error (needs Acorn BASIC II) |
+| Commodore VIC-20 | `emu198x-commodore-vic-20` | ROM boots; display black until KERNAL screen-init |
+| Memotech MTX | `emu198x-memotech-mtx` | ROM boots; display blank (needs `zilog-z80-ctc`) |
+| Atari 7800 | `emu198x-atari-7800` | Cart accepts; BIOS-driven boot pending |
+| Sord M5 | `emu198x-sord-m5` | VDP-init only — needs `zilog-z80-ctc` |
+| Tatung Einstein | `emu198x-tatung-einstein` | VDP-init only — needs `western-digital-wd1770` |
+| Jupiter Ace | `emu198x-jupiter-ace` | Awaiting ROM (8 KB Forth) |
+| Acorn Atom | `emu198x-acorn-atom` | Awaiting ROM (24 KB combined) |
+| Spectravideo SVI-328 | `emu198x-spectravideo-svi-328` | Awaiting BIOS (32 KB) |
+| Oric-1 / Atmos | `emu198x-oric-atmos` | Awaiting BIOS (16 KB Tangerine) |
+
+The shared next step for the whole tier is the native `wgpu` verifier window
+(the one surface that separates them from the primary six). The two missing
+chip crates — `zilog-z80-ctc` (Sord M5, Memotech MTX, Einstein channel 0) and
+`western-digital-wd1770` (Einstein disk) — are the highest-leverage unblocks,
+each lifting more than one machine.
 
 ## Launch Commands
 
