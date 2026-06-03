@@ -13,9 +13,11 @@ pub mod disasm;
 mod execute;
 pub mod mcycle;
 pub mod registers;
+pub mod stepper;
 pub mod walker;
 pub mod z80;
 
 pub use disasm::disassemble;
 pub use registers::Registers;
+pub use stepper::Z80Stepper;
 pub use z80::{BusOp, Z80};

@@ -536,23 +536,6 @@ impl Msx {
         self.mem_write(addr, value);
     }
 
-    /// Run exactly one whole Z80 instruction, returning the T-states it
-    /// consumed. Leaves the machine at the next instruction boundary. A
-    /// safety cap prevents an unbounded spin if the CPU stops advancing.
-    pub fn step_instruction(&mut self) -> u64 {
-        let start = self.cpu_tstates;
-        let cap = start + 1024;
-        // Tick until exactly one instruction retires. The monotonic
-        // retirement counter is the only reliable boundary signal —
-        // `instruction_complete` flips false→true within a single tick
-        // for one-M-cycle ops, so a between-tick level check over-runs.
-        let target = self.cpu.instructions_retired() + 1;
-        while self.cpu.instructions_retired() < target && self.cpu_tstates < cap {
-            self.tick_tstate();
-        }
-        self.cpu_tstates - start
-    }
-
     /// Start (or restart) the I/O port-access trace.
     pub fn start_io_trace(&mut self) {
         self.io_trace = Some(Vec::new());
@@ -561,6 +544,16 @@ impl Msx {
     /// Stop tracing and return the captured I/O events.
     pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
         self.io_trace.take().unwrap_or_default()
+    }
+}
+
+impl zilog_z80::Z80Stepper for Msx {
+    fn z80_instructions_retired(&self) -> u64 {
+        self.cpu.instructions_retired()
+    }
+
+    fn step_tick(&mut self) {
+        self.tick_tstate();
     }
 }
 

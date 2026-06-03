@@ -160,6 +160,7 @@ macro_rules! impl_z80_debug_target {
                 Some(::zilog_z80::disassemble(addr, |a| m.peek(a)))
             }
             fn step_instruction(&mut self) -> u64 {
+                use ::zilog_z80::Z80Stepper as _;
                 let ticks = match self.machine.as_mut() {
                     Some(m) => m.step_instruction(),
                     None => return 0,
