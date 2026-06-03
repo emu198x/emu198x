@@ -620,15 +620,38 @@ Live boot verified 2026-06-01 with TOSEC's "OS ROM
 (1984)(Memotech)" + "BASIC ROM (1984)(Memotech)" concatenated
 to 16 KB.
 
-- **A — Display still blank** after 300 frames — the OS may
-  not have enabled the VDP display through the early boot
-  path yet, or the donor's keyboard wait loop is stuck. CPU
-  pipeline + page register + VDP wiring verified by tests;
-  this is correctness, not structure.
-- **A — Cassette in/out unwired** (port `$06`).
-- **A — Centronics printer not implemented.**
-- **A — Snapshot deferred** (shared family pattern).
-- **A — `.mtx` / `.run` snapshot load not implemented.**
+**Boot progress 2026-06-03 (port map + paging rewritten against MEMU).** The
+donor's I/O map was wrong on the count that mattered: port `$00` bit 0 was read
+as "page 0 → RAM", which swapped the executing OS ROM out the instant the
+power-on RAM-sizing loop wrote `1` — derailing the boot into zeroed RAM
+(PC ≈ `$1A65`). Both the paging model (`Mtx::resolve`, after MEMU `mem.c`) and
+the full I/O port map (`memu.c` `OutZ80`/`InZ80`) are now correct: SN76489 moved
+from `$03` to `$06`; the keyboard reads from **both** `$05` (sense low) and `$06`
+(sense high + country code) on the drive/sense model (`kbd2.c`). The boot now
+completes all power-on hardware init — RAM sizing, ROM-subpage enumeration,
+country-code read — staying in ROM throughout (gated test
+`tests/boot_trace.rs`). Full map in
+[`knowledge/systems/memotech-mtx.md`](../../knowledge/systems/memotech-mtx.md).
+
+- **L — Cold-start reset loop before `Ready`.** After init the OS issues a
+  `RST $28` ROM-routine system call (`#$50` at `$020B`) whose dispatch pages in
+  ROM **subpage 1** (`SET 4,A; OUT $00` at `$00D6`) and restarts at `$0199`. Our
+  16 KB OS+BASIC image has no subpage-1 ROM, so the call lands on `$FF`. Happens
+  with interrupts still disabled (`IFF1=0`), so it is **not** the CTC path.
+  Either a remaining gap in the system-call ROM-paging model or an incomplete
+  ROM image (MEMU boots a stock MTX on OS+BASIC alone, so the paging is the
+  likelier cause). Next MTX task.
+- **A — VDP interrupt via the Z80 CTC, not wired yet.** Like the Sord M5, the
+  TMS9918A `/INT` drives **CTC channel 0** (counter mode, count 1 → IM 2
+  vector); `memu.c` `LoopZ80` calls `ctc_trigger(0)`. The `zilog-z80-ctc` crate
+  is ready; wire it at `$08-$0B` + route VDP→ch0 once the cold-start loop is
+  fixed and the OS enables interrupts.
+- **A — Keyboard matrix not aligned to MEMU's grid.** The drive/sense *model* is
+  correct (no-key + country read verified); the physical key→(column, sense-bit)
+  mapping still needs aligning to `kbd2.c` for accurate typing.
+- **A — Cassette in/out unwired** (`$03` out / `$03` in returns `0x03`).
+- **A — Centronics printer not implemented** (`$00` in / `$04`).
+- **A — Snapshot deferred** (shared family pattern); `.mtx` / `.run` load not done.
 - **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Sinclair ZX80 + ZX81 — `emu198x-sinclair-zx80` / `emu198x-sinclair-zx81` (new, 2026-06-01)
@@ -1111,7 +1134,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 17 | Commodore PET | Char grid renders (live) — full boot pending |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
-| 20 | Memotech MTX500 | ROM boots (live); display still blank |
+| 20 | Memotech MTX500 | Completes power-on init (paging+I/O fixed); cold-start RST $28 reset loop before `Ready` |
 | 21 | Acorn Atom | **Awaiting ROM** (24 KB combined) |
 | 22 | Commodore VIC-20 | ROM boots (live); display still black |
 

@@ -17,15 +17,24 @@
 //! - **VDP:** TI TMS9918A (PAL), interrupt drives Z80 INT
 //! - **PSG:** TI SN76489 at 4 MHz (internal ÷16 to 250 kHz)
 //! - **RAM:** 32 KB (MTX500) or 64 KB (MTX512)
-//! - **ROM:** 16 KB total — 8 KB OS at page 0, 8 KB BASIC at page 1
-//!   (both switchable to RAM via port `$00`)
+//! - **ROM:** 16 KB total — 8 KB OS, 8 KB BASIC
+//!
+//! # Memory paging (port `$00`)
+//!
+//! The paging byte is `RELCPMH(b7) | ROM-subpage(b4-6) | RAM-page P(b0-3)`.
+//! In **normal mode** (`RELCPMH=0`) the OS ROM is fixed at `$0000-$1FFF` and
+//! BASIC at `$2000-$3FFF` (ROM subpage 0); 16 KB RAM blocks page through
+//! `$4000-$7FFF` (block `2P+2`) and `$8000-$BFFF` (block `2P+1`), with
+//! `$C000-$FFFF` fixed to block 0. In **CP/M mode** (`RELCPMH=1`) the whole
+//! space is RAM. Modelled on MEMU's `mem_set_iobyte` (`src/memu/mem.c`);
+//! see [`Mtx::resolve`]. The donor emulator's "bit 0 = page 0 RAM" reading
+//! was wrong — it paged the executing OS ROM out during the boot RAM test.
 //!
 //! # I/O ports
 //!
 //! | Port  | Direction | Function                             |
 //! |-------|-----------|--------------------------------------|
-//! | `$00` | write     | Page register (bit 0 = page 0 RAM,   |
-//! |       |           | bit 1 = page 1 RAM)                  |
+//! | `$00` | write     | Paging byte (see above)              |
 //! | `$01` | read/write| VDP data                             |
 //! | `$02` | read/write| VDP status (R) / register (W)        |
 //! | `$03` | write     | PSG (SN76489)                        |
@@ -55,11 +64,17 @@ pub enum MtxModel {
 }
 
 impl MtxModel {
-    fn ram_size(self) -> usize {
+    /// Number of 16 KB RAM blocks. MEMU calls these "blocks"; the MTX512's
+    /// four are the RAM pages α–δ. MTX500 has two.
+    fn blocks(self) -> usize {
         match self {
-            Self::Mtx500 => 32768,
-            Self::Mtx512 => 65536,
+            Self::Mtx500 => 2,
+            Self::Mtx512 => 4,
         }
+    }
+
+    fn ram_size(self) -> usize {
+        self.blocks() * 0x4000
     }
 }
 
@@ -68,17 +83,30 @@ pub struct Mtx {
     cpu: Z80,
     rom: Vec<u8>,
     ram: Vec<u8>,
-    ram_size: usize,
+    blocks: usize,
     page_reg: u8,
     vdp: Tms9918,
     psg: Sn76489,
     keyboard: KeyboardState,
-    keyboard_row: u8,
+    kbd_drive: u8,
     vdp_accum: i64,
     master_clock: u64,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
     io_trace: Option<Vec<IoEvent>>,
+}
+
+/// Where a Z80 address resolves under the current paging byte.
+#[derive(Debug, Clone, Copy)]
+enum Cell {
+    /// OS ROM byte (`rom[i]`, `i` in `$0000-$1FFF`).
+    RomOs(u16),
+    /// Paged ROM byte (`rom[i]`, `i` in `$2000-$3FFF` = BASIC).
+    RomPaged(u16),
+    /// RAM byte at this flat index into the block array.
+    Ram(usize),
+    /// No chip selected — reads float high (`$FF`), writes drop.
+    Unmapped,
 }
 
 impl Mtx {
@@ -87,17 +115,16 @@ impl Mtx {
         if rom.len() != 0x4000 {
             return Err(format!("MTX ROM must be 16384 bytes, got {}", rom.len()));
         }
-        let ram_size = model.ram_size();
         Ok(Self {
             cpu: Z80::new(),
             rom,
-            ram: vec![0; ram_size],
-            ram_size,
+            ram: vec![0; model.ram_size()],
+            blocks: model.blocks(),
             page_reg: 0,
             vdp: Tms9918::new(VdpRegion::Pal),
             psg: Sn76489::new(4_000_000),
             keyboard: KeyboardState::new(),
-            keyboard_row: 0,
+            kbd_drive: 0,
             vdp_accum: 0,
             master_clock: 0,
             frame_count: 0,
@@ -173,75 +200,85 @@ impl Mtx {
         }
     }
 
-    fn mem_read(&self, addr: u16) -> u8 {
+    /// Resolve a Z80 address through the paging byte (port `$00`) into a
+    /// concrete storage cell. Models MEMU's `mem_set_iobyte` decode
+    /// (`src/memu/mem.c`): the paging byte is `RELCPMH(b7) | ROM(b4-6) |
+    /// RAM-page P(b0-3)`, and 16 KB RAM blocks page through three windows.
+    fn resolve(&self, addr: u16) -> Cell {
+        let p = (self.page_reg & 0x0F) as usize;
+
+        // Common page: $C000-$FFFF is always RAM block 0 in both modes.
+        if (0xC000..=0xFFFF).contains(&addr) {
+            return self.ram_cell(0, addr);
+        }
+
+        if self.page_reg & 0x80 != 0 {
+            // RELCPMH=1 — all-RAM (CP/M) mode. ipage 0/1/2 cover
+            // $0000-$3FFF / $4000-$7FFF / $8000-$BFFF.
+            let ipage = (addr >> 14) as usize; // 0,1,2 for the three windows
+            let block = if p != 0 {
+                3 * p + 1 + ipage
+            } else {
+                // P=0 fills the windows in descending order: ipage0←3,1←2,2←1.
+                [3, 2, 1][ipage]
+            };
+            return self.ram_cell(block, addr);
+        }
+
+        // RELCPMH=0 — normal / ROM mode.
         match addr {
-            0x0000..=0x1FFF => {
-                if self.page_reg & 0x01 != 0 {
-                    self.ram[addr as usize]
-                } else {
-                    self.rom[addr as usize]
-                }
-            }
+            0x0000..=0x1FFF => Cell::RomOs(addr),
             0x2000..=0x3FFF => {
-                if self.page_reg & 0x02 != 0 {
-                    self.ram[addr as usize]
+                if (self.page_reg >> 4) & 0x07 == 0 {
+                    Cell::RomPaged(addr) // ROM subpage 0 = BASIC
                 } else {
-                    self.rom[addr as usize]
+                    Cell::Unmapped // other ROM subpages not fitted
                 }
             }
-            0x4000..=0x7FFF => self.ram[addr as usize],
-            0x8000..=0xBFFF => {
-                if self.ram_size >= 65536 {
-                    self.ram[addr as usize]
-                } else {
-                    0xFF
-                }
-            }
-            0xC000..=0xFFFF => {
-                if self.ram_size >= 65536 {
-                    self.ram[addr as usize]
-                } else {
-                    self.ram[(addr as usize) & 0x7FFF]
-                }
-            }
+            // P=$0F with RELCPMH=0 unmaps this window (MEMU's $8F mask quirk).
+            0x4000..=0x7FFF if self.page_reg & 0x8F == 0x0F => Cell::Unmapped,
+            0x4000..=0x7FFF => self.ram_cell(2 * p + 2, addr),
+            0x8000..=0xBFFF => self.ram_cell(2 * p + 1, addr),
+            _ => unreachable!("$C000+ handled above"),
+        }
+    }
+
+    /// A 16 KB RAM block at the window containing `addr`, or `Unmapped` when
+    /// the block is past the fitted RAM (reads float high, writes drop).
+    fn ram_cell(&self, block: usize, addr: u16) -> Cell {
+        if block < self.blocks {
+            Cell::Ram(block * 0x4000 + (addr as usize & 0x3FFF))
+        } else {
+            Cell::Unmapped
+        }
+    }
+
+    fn mem_read(&self, addr: u16) -> u8 {
+        match self.resolve(addr) {
+            Cell::RomOs(i) | Cell::RomPaged(i) => self.rom[i as usize],
+            Cell::Ram(idx) => self.ram[idx],
+            Cell::Unmapped => 0xFF,
         }
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
-        match addr {
-            0x0000..=0x1FFF => {
-                if self.page_reg & 0x01 != 0 {
-                    self.ram[addr as usize] = value;
-                }
-            }
-            0x2000..=0x3FFF => {
-                if self.page_reg & 0x02 != 0 {
-                    self.ram[addr as usize] = value;
-                }
-            }
-            0x4000..=0x7FFF => self.ram[addr as usize] = value,
-            0x8000..=0xBFFF => {
-                if self.ram_size >= 65536 {
-                    self.ram[addr as usize] = value;
-                }
-            }
-            0xC000..=0xFFFF => {
-                if self.ram_size >= 65536 {
-                    self.ram[addr as usize] = value;
-                } else {
-                    self.ram[(addr as usize) & 0x7FFF] = value;
-                }
-            }
+        // ROM and unmapped writes drop. (In normal mode a write to
+        // $0000-$1FFF selects a ROM subpage on real hardware; we fit only
+        // subpage 0, so there is nothing to switch.)
+        if let Cell::Ram(idx) = self.resolve(addr) {
+            self.ram[idx] = value;
         }
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
         match (port & 0xFF) as u8 {
+            0x00 => 0xFF, // Centronics status (no printer)
             0x01 => self.vdp.read_data(),
             0x02 => self.vdp.read_status(),
-            0x05 => self.keyboard.read(self.keyboard_row as usize),
-            0x06 | 0x08 => 0xFF,
-            _ => 0xFF,
+            0x03 => 0x03,                              // snd_in3 — constant
+            0x05 => self.keyboard.in5(self.kbd_drive), // keyboard sense low
+            0x06 => self.keyboard.in6(self.kbd_drive), // keyboard sense high + country
+            _ => 0xFF,                                 // PIO/DART/CTC reads: open bus for now
         }
     }
 
@@ -250,9 +287,10 @@ impl Mtx {
             0x00 => self.page_reg = value,
             0x01 => self.vdp.write_data(value),
             0x02 => self.vdp.write_control(value),
-            0x03 => self.psg.write(value),
-            0x05 => self.keyboard_row = value & 0x07,
-            _ => {}
+            0x03 => {}                      // cassette out — not fitted
+            0x05 => self.kbd_drive = value, // keyboard column drive
+            0x06 => self.psg.write(value),  // SN76489 sound
+            _ => {}                         // PIO/DART/CTC writes: ignore for now
         }
     }
 
@@ -343,39 +381,72 @@ mod tests {
     }
 
     #[test]
-    fn page_reg_drives_paging() {
+    fn normal_mode_keeps_os_rom_under_paging() {
+        // The boot RAM test writes RAM-page numbers to port $00. In normal
+        // mode (RELCPMH=0) that must never page the OS ROM out of $0000 —
+        // the donor's bug, which derailed the boot.
         let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx512).expect("init");
         assert_eq!(sys.mem_read(0x0000), 0xF3);
+        for page in 0u8..=7 {
+            sys.page_reg = page; // RELCPMH=0, RAM page = `page`
+            assert_eq!(sys.mem_read(0x0000), 0xF3, "OS ROM at page {page}");
+            sys.mem_write(0x0000, 0x99); // write to ROM drops
+            assert_eq!(sys.mem_read(0x0000), 0xF3, "ROM unwritable at page {page}");
+        }
+    }
+
+    #[test]
+    fn relcpmh_maps_ram_over_low_memory() {
+        // CP/M mode (bit 7) replaces the low ROM with RAM.
+        let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx512).expect("init");
+        sys.page_reg = 0x80; // RELCPMH=1, P=0
+        sys.mem_write(0x0000, 0x42);
+        assert_eq!(sys.mem_read(0x0000), 0x42);
+    }
+
+    #[test]
+    fn ram_page_selects_distinct_blocks_at_4000() {
+        // $4000-$7FFF pages block 2P+2: page 0 → block 2, and on an MTX512
+        // page 1 → block 4 which is absent, so it floats high. That absence
+        // is exactly how the boot ROM sizes RAM.
+        let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx512).expect("init");
+        sys.page_reg = 0x00;
+        sys.mem_write(0x4000, 0x11); // block 2
         sys.page_reg = 0x01;
-        sys.mem_write(0x0000, 0x99);
-        assert_eq!(sys.mem_read(0x0000), 0x99);
-        sys.page_reg = 0;
-        assert_eq!(sys.mem_read(0x0000), 0xF3);
+        assert_eq!(sys.mem_read(0x4000), 0xFF, "block 4 absent on MTX512");
+        sys.page_reg = 0x00;
+        assert_eq!(sys.mem_read(0x4000), 0x11, "block 2 retained");
     }
 
     #[test]
-    fn mtx500_mirrors_high_ram() {
-        let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx500).expect("init");
-        sys.mem_write(0xC000, 0x77);
-        assert_eq!(sys.mem_read(0x4000), 0x77);
-    }
-
-    #[test]
-    fn mtx512_has_full_ram() {
+    fn common_page_is_block_zero() {
+        // $C000-$FFFF is fixed to RAM block 0 regardless of page register —
+        // the OS workspace lives here.
         let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx512).expect("init");
-        sys.mem_write(0x8000, 0x88);
-        sys.mem_write(0xC000, 0x99);
-        assert_eq!(sys.mem_read(0x8000), 0x88);
-        assert_eq!(sys.mem_read(0xC000), 0x99);
+        sys.page_reg = 0x00;
+        sys.mem_write(0xC000, 0x55);
+        sys.page_reg = 0x03;
+        assert_eq!(sys.mem_read(0xC000), 0x55);
     }
 
     #[test]
     fn keyboard_via_io() {
         let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx500).expect("init");
-        sys.io_write(0x05, 3);
-        assert_eq!(sys.io_read(0x05), 0xFF);
+        // Drive only column 3 (active low) and read sense low.
+        sys.io_write(0x05, !(1 << 3));
+        assert_eq!(sys.io_read(0x05), 0xFF); // nothing held
         sys.keyboard.set_key(3, 1, true);
-        assert_eq!(sys.io_read(0x05) & 0x02, 0x00);
+        assert_eq!(sys.io_read(0x05) & 0x02, 0x00); // key on column 3 sensed
+        // Port $06 reports the country code (English = 0) with no keys.
+        assert_eq!(sys.io_read(0x06) & 0x0C, 0x00);
+    }
+
+    #[test]
+    fn sound_writes_go_to_port_6() {
+        // Regression: the donor wired the SN76489 to $03; it is $06.
+        let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx500).expect("init");
+        sys.io_write(0x06, 0x9F); // SN76489 latch/volume — must not touch paging
+        assert_eq!(sys.page_reg, 0x00);
     }
 }
 

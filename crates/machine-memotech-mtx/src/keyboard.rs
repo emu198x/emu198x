@@ -1,60 +1,82 @@
-//! Memotech MTX keyboard.
+//! Memotech MTX keyboard — drive/sense model.
 //!
-//! The MTX keyboard is an 8x8 matrix. The active row is selected by writing
-//! the row number to port $05 (bits 0-2), then reading from the same port
-//! returns the column state for that row.
-//!
-//! A pressed key reads as 0 (active low).
+//! Modelled on MEMU's `kbd2.c`. The CPU writes a **drive** byte to port `$05`
+//! (`kbd_out5`); each zero bit drives one of eight matrix columns (active
+//! low). Reading port `$05` (`kbd_in5`, "Sense1") returns the AND of the
+//! sense lines of every driven column, low 8 bits. Reading port `$06`
+//! (`kbd_in6`, "Sense2") returns the two extra sense rows (bits 8-9, shifted
+//! down to bits 0-1) OR'd with the **country code** in bits 2-3 (00 =
+//! English). A pressed key pulls its sense bit low.
 
-/// Keyboard state: 8 rows of 8 keys each.
-///
-/// Each row byte uses bits 0-7 for keys (1 = pressed, for internal
-/// storage). The `read()` method inverts for the active-low protocol.
+/// Country code reported in `kbd_in6` bits 2-3. English = 0.
+const COUNTRY_ENGLISH: u8 = 0x00;
+
+/// Keyboard matrix: eight drive columns, each with ten sense lines
+/// (bits 0-9). A clear bit means the key is held (active low).
 pub struct KeyboardState {
-    /// Row state. Index 0 = row 0, etc.
-    /// Bits 0-7: 1 = key pressed (inverted on read).
-    rows: [u8; 8],
+    sense: [u16; 8],
 }
 
 impl KeyboardState {
     #[must_use]
     pub fn new() -> Self {
-        Self { rows: [0; 8] }
+        Self { sense: [0x03FF; 8] }
     }
 
-    /// Set or clear a key. `row` is 0-7, `bit` is 0-7.
-    pub fn set_key(&mut self, row: usize, bit: u8, pressed: bool) {
-        if row < 8 && bit < 8 {
+    /// Set or clear a key. `col` is the drive column 0-7, `bit` the sense
+    /// line 0-9 (8-9 are read back through port `$06`).
+    pub fn set_key(&mut self, col: usize, bit: u8, pressed: bool) {
+        if col < 8 && bit < 10 {
             if pressed {
-                self.rows[row] |= 1 << bit;
+                self.sense[col] &= !(1 << bit);
             } else {
-                self.rows[row] &= !(1 << bit);
+                self.sense[col] |= 1 << bit;
             }
         }
     }
 
-    /// Read the keyboard for the given row.
-    ///
-    /// Returns bits 0-7 (active low: 0 = pressed).
+    /// Port `$05` read ("Sense1"): low 8 sense bits, ANDed over every column
+    /// the `drive` byte is currently driving (a zero bit drives the column).
+    /// `$FF` when nothing is held.
     #[must_use]
-    pub fn read(&self, row: usize) -> u8 {
-        if row < 8 { !self.rows[row] } else { 0xFF }
+    pub fn in5(&self, drive: u8) -> u8 {
+        let mut result: u16 = 0x00FF;
+        for i in 0..8 {
+            if drive & (1 << i) == 0 {
+                result &= self.sense[i];
+            }
+        }
+        (result & 0xFF) as u8
+    }
+
+    /// Port `$06` read ("Sense2"): the two high sense rows (bits 8-9 shifted
+    /// to bits 0-1) OR'd with the country code in bits 2-3. `0x03` when
+    /// nothing is held on an English machine.
+    #[must_use]
+    pub fn in6(&self, drive: u8) -> u8 {
+        let mut result: u16 = 0x03FF;
+        for i in 0..8 {
+            if drive & (1 << i) == 0 {
+                result &= self.sense[i];
+            }
+        }
+        ((result >> 8) & 0x03) as u8 | COUNTRY_ENGLISH
     }
 
     /// Release all keys.
     pub fn release_all(&mut self) {
-        self.rows = [0; 8];
+        self.sense = [0x03FF; 8];
     }
 
-    /// Raw row state (8 bytes, bits 0-7 per row, 1 = pressed).
+    /// Raw sense state (for snapshots).
     #[must_use]
-    pub fn rows(&self) -> &[u8; 8] {
-        &self.rows
+    pub fn sense(&self) -> &[u16; 8] {
+        &self.sense
     }
 
-    /// Restore raw row state from a saved snapshot.
-    pub fn set_rows(&mut self, rows: [u8; 8]) {
-        self.rows = rows;
+    /// Restore raw sense state from a saved snapshot.
+    pub fn set_sense(&mut self, sense: [u16; 8]) {
+        self.sense = sense;
     }
 }
 
@@ -71,25 +93,35 @@ mod tests {
     #[test]
     fn no_keys_pressed() {
         let kbd = KeyboardState::new();
-        for row in 0..8 {
-            assert_eq!(kbd.read(row), 0xFF);
-        }
+        // Drive every column (drive = 0): nothing held reads all-high.
+        assert_eq!(kbd.in5(0x00), 0xFF);
+        assert_eq!(kbd.in6(0x00), 0x03); // bits 0-1 high, country English
     }
 
     #[test]
-    fn single_key_pressed() {
+    fn single_key_pulls_sense_low() {
         let mut kbd = KeyboardState::new();
-        kbd.set_key(3, 1, true); // Z
-        assert_eq!(kbd.read(3) & 0x02, 0x00); // Active low
-        assert_eq!(kbd.read(0), 0xFF); // Other row unaffected
+        kbd.set_key(3, 1, true); // column 3, sense line 1
+        // Driving only column 3 (drive bit 3 = 0, rest high) senses it.
+        assert_eq!(kbd.in5(!(1 << 3)) & 0x02, 0x00);
+        // Driving a different column does not.
+        assert_eq!(kbd.in5(!(1 << 0)) & 0x02, 0x02);
     }
 
     #[test]
-    fn release_key() {
+    fn extra_rows_read_through_port6() {
+        let mut kbd = KeyboardState::new();
+        kbd.set_key(2, 8, true); // sense line 8 → port $06 bit 0
+        assert_eq!(kbd.in6(!(1 << 2)) & 0x01, 0x00);
+        assert_eq!(kbd.in6(0x00) & 0x0C, COUNTRY_ENGLISH); // country preserved
+    }
+
+    #[test]
+    fn release_restores_high() {
         let mut kbd = KeyboardState::new();
         kbd.set_key(3, 1, true);
-        assert_eq!(kbd.read(3) & 0x02, 0x00);
+        assert_eq!(kbd.in5(!(1 << 3)) & 0x02, 0x00);
         kbd.set_key(3, 1, false);
-        assert_eq!(kbd.read(3) & 0x02, 0x02);
+        assert_eq!(kbd.in5(!(1 << 3)) & 0x02, 0x02);
     }
 }
