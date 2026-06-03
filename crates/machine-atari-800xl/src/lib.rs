@@ -545,6 +545,23 @@ impl Atari800xl {
     }
 }
 
+impl Atari800xl {
+    /// Run exactly one whole 6502C instruction, returning the colour clocks
+    /// it consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let mut ticks = 0u64;
+        while self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_colour_clock();
+            ticks += 1;
+        }
+        while !self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick_colour_clock();
+            ticks += 1;
+        }
+        ticks
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -650,22 +667,5 @@ mod tests {
         assert_eq!(sys.pia.input_a & 0x01, 0);
         sys.set_joystick(false, false, false, false);
         assert_eq!(sys.pia.input_a & 0x0F, 0x0F);
-    }
-}
-
-impl Atari800xl {
-    /// Run exactly one whole 6502C instruction, returning the colour clocks
-    /// it consumed. A safety cap prevents an unbounded spin.
-    pub fn step_instruction(&mut self) -> u64 {
-        let mut ticks = 0u64;
-        while self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_colour_clock();
-            ticks += 1;
-        }
-        while !self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_colour_clock();
-            ticks += 1;
-        }
-        ticks
     }
 }

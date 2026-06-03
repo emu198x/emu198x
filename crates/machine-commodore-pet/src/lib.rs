@@ -322,6 +322,34 @@ impl Pet {
     }
 }
 
+impl Pet {
+    /// Read one byte with no side effects (alias of `peek_memory`).
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.peek_memory(addr)
+    }
+
+    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole 6502 instruction, returning the clocks it
+    /// consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let mut ticks = 0u64;
+        while self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick();
+            ticks += 1;
+        }
+        while !self.cpu.instruction_complete() && ticks < 4096 {
+            self.tick();
+            ticks += 1;
+        }
+        ticks
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,33 +421,5 @@ mod tests {
         let before = pet.mem_read(0xF000);
         pet.mem_write(0xF000, 0xFF);
         assert_eq!(pet.mem_read(0xF000), before);
-    }
-}
-
-impl Pet {
-    /// Read one byte with no side effects (alias of `peek_memory`).
-    #[must_use]
-    pub fn peek(&self, addr: u16) -> u8 {
-        self.peek_memory(addr)
-    }
-
-    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
-    pub fn poke(&mut self, addr: u16, value: u8) {
-        self.mem_write(addr, value);
-    }
-
-    /// Run exactly one whole 6502 instruction, returning the clocks it
-    /// consumed. A safety cap prevents an unbounded spin.
-    pub fn step_instruction(&mut self) -> u64 {
-        let mut ticks = 0u64;
-        while self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick();
-            ticks += 1;
-        }
-        while !self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick();
-            ticks += 1;
-        }
-        ticks
     }
 }
