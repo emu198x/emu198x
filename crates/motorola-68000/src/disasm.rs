@@ -719,40 +719,39 @@ fn decode_groupc(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
     let (mode, reg) = ea_mode_reg(opcode);
     let size_bits = (opcode >> 6) & 7;
 
-    // ABCD
-    if size_bits == 4 {
-        return if mode == 0 {
+    // ABCD — opmode 0b100 with bits 7-4 == 0; bit 3 is the R/M flag (0 = data
+    // registers, 1 = address-register predecrement). Every *other* opmode-0b100
+    // word is AND.B Dn,<ea>, reached by the AND fall-through below — so this must
+    // match the fixed ABCD bits, not the opmode alone.
+    if opcode & 0x01F0 == 0x0100 {
+        return if opcode & 0x0008 == 0 {
             Some(format!("abcd D{},D{}", reg, dn))
         } else {
             Some(format!("abcd -(A{}),-(A{})", reg, dn))
         };
     }
 
-    // MULU
+    // EXG — three fixed sub-encodings spanning opmodes 0b101 (Dn,Dn / An,An) and
+    // 0b110 (Dn,An). Everything else in those opmodes is AND Dn,<ea> (below); the
+    // old code claimed all of opmode 0b101 for EXG, losing AND.W Dn,<ea>.
+    match opcode & 0x01F8 {
+        0x0140 => return Some(format!("exg D{},D{}", dn, reg)),
+        0x0148 => return Some(format!("exg A{},A{}", dn, reg)),
+        0x0188 => return Some(format!("exg D{},A{}", dn, reg)),
+        _ => {}
+    }
+
+    // MULU.W / MULS.W — <ea>,Dn
     if size_bits == 3 {
         let ea = format_ea(ctx, mode, reg, Size::Word);
         return Some(format!("mulu.w {},D{}", ea, dn));
     }
-
-    // MULS
     if size_bits == 7 {
         let ea = format_ea(ctx, mode, reg, Size::Word);
         return Some(format!("muls.w {},D{}", ea, dn));
     }
 
-    // EXG
-    if size_bits == 5 {
-        // Dn,Dn or An,An or Dn,An
-        let op_mode = (opcode >> 3) & 0x1F;
-        return match op_mode {
-            0x08 => Some(format!("exg D{},D{}", dn, reg)),
-            0x09 => Some(format!("exg A{},A{}", dn, reg)),
-            0x11 => Some(format!("exg D{},A{}", dn, reg)),
-            _ => None,
-        };
-    }
-
-    // AND
+    // AND — opmode 0b000/001/010 = <ea>,Dn; 0b100/101/110 = Dn,<ea>.
     let size = Size::from_bits(size_bits & 3)?;
     let ea = format_ea(ctx, mode, reg, size);
     if size_bits & 4 != 0 {
@@ -979,6 +978,50 @@ mod tests {
         let (s, len) = dis(&[0x51, 0xC0]);
         assert_eq!(s, "sf D0");
         assert_eq!(len, 2);
+    }
+
+    // Group-C (AND/MULU/MULS/ABCD/EXG) regression cluster. The opmode field
+    // overlaps three instruction families; the decoder claimed all of opmode
+    // 0b100 for ABCD (losing AND.B Dn,<ea>) and all of opmode 0b101 for EXG
+    // (losing AND.W Dn,<ea>), and mis-decoded EXG Dn,An as AND.L. Encodings
+    // confirmed against vasm. Found by the isa-disasm conformance spike,
+    // 2026-06-03.
+
+    #[test]
+    fn test_abcd() {
+        // ABCD D1,D0 = $C101; ABCD -(A1),-(A0) = $C109.
+        assert_eq!(dis(&[0xC1, 0x01]), ("abcd D1,D0".to_string(), 2));
+        assert_eq!(dis(&[0xC1, 0x09]), ("abcd -(A1),-(A0)".to_string(), 2));
+    }
+
+    #[test]
+    fn test_exg() {
+        // EXG D0,D1 = $C141; EXG A0,A1 = $C149; EXG D0,A1 = $C189 (was and.l).
+        assert_eq!(dis(&[0xC1, 0x41]), ("exg D0,D1".to_string(), 2));
+        assert_eq!(dis(&[0xC1, 0x49]), ("exg A0,A1".to_string(), 2));
+        assert_eq!(dis(&[0xC1, 0x89]), ("exg D0,A1".to_string(), 2));
+    }
+
+    #[test]
+    fn test_and_dn_to_ea() {
+        // AND Dn,<ea> (register-to-memory). and.b/and.l worked; and.w ($C150)
+        // fell through to dc.w, and and.b ($C110) was mis-read as abcd.
+        assert_eq!(dis(&[0xC1, 0x10]), ("and.b D0,(A0)".to_string(), 2));
+        assert_eq!(dis(&[0xC1, 0x50]), ("and.w D0,(A0)".to_string(), 2));
+        assert_eq!(dis(&[0xC1, 0x90]), ("and.l D0,(A0)".to_string(), 2));
+    }
+
+    #[test]
+    fn test_and_ea_to_dn() {
+        // AND <ea>,Dn — the other direction must still decode. $C240 = and.w d0,d1.
+        assert_eq!(dis(&[0xC2, 0x40]), ("and.w D0,D1".to_string(), 2));
+    }
+
+    #[test]
+    fn test_mul() {
+        // MULU.W D1,D0 = $C0C1; MULS.W D1,D0 = $C1C1.
+        assert_eq!(dis(&[0xC0, 0xC1]), ("mulu.w D1,D0".to_string(), 2));
+        assert_eq!(dis(&[0xC1, 0xC1]), ("muls.w D1,D0".to_string(), 2));
     }
 
     #[test]
