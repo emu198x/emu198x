@@ -13,6 +13,10 @@ serde = { workspace = true }
 [dev-dependencies]
 serde_json = { workspace = true }
 flate2 = "1"
+# Asm198x ISA-spec disassembler, used only by the isa_conformance cross-check
+# test (rung-1 phase 2, see 198x/decisions/rung1-wiring.md). Pinned to the same
+# reproducible rev emu198x-shell consumes; isa-disasm is untagged.
+isa-disasm = { git = "https://github.com/asm198x/asm198x", rev = "f6569eeddcd63163a52a8a822e0537cee24f895f" }
 
 [lints]
 workspace = true
