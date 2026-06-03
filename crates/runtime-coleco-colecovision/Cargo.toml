@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { path = "../emu198x-shell" }
 machine-coleco-colecovision = { path = "../machine-coleco-colecovision" }
+zilog-z80 = { path = "../zilog-z80" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -216,4 +216,7 @@ impl MachineCore for EinsteinRuntime {
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }
+    emu198x_shell::debug_target_hooks!();
 }
+
+emu198x_shell::impl_z80_debug_target!(EinsteinRuntime);

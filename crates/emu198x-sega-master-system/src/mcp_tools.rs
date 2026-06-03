@@ -1,4 +1,8 @@
 //! SMS / Game Gear-specific MCP tools.
+//!
+//! CPU / memory / disasm / stepping / I/O trace come from the shared
+//! [`emu198x_shell::mcp_tools::register_debug_tools`] set; this adds the
+//! SMS VDP and cartridge-mapper snapshots on top.
 
 use emu198x_shell::{
     HeadlessSession,
@@ -41,72 +45,6 @@ fn sms_ref(s: &SmsSession) -> Result<&Sms, ToolError> {
         .ok_or_else(|| ToolError::Execution("no cartridge loaded".into()))
 }
 
-fn arg_u16(args: &Value, name: &str) -> Result<u16, ToolError> {
-    let v = args
-        .get(name)
-        .ok_or_else(|| ToolError::InvalidArguments(format!("missing argument `{name}`")))?;
-    if let Some(n) = v.as_u64() {
-        return u16::try_from(n)
-            .map_err(|_| ToolError::InvalidArguments(format!("`{name}` out of u16 range: {n}")));
-    }
-    if let Some(s) = v.as_str() {
-        let s = s.trim();
-        let (radix, body) = if let Some(rest) = s.strip_prefix('$') {
-            (16, rest)
-        } else if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-            (16, rest)
-        } else {
-            (10, s)
-        };
-        return u16::from_str_radix(body, radix)
-            .map_err(|err| ToolError::InvalidArguments(format!("`{name}` parse: {err}")));
-    }
-    Err(ToolError::InvalidArguments(format!(
-        "`{name}` must be int or hex string"
-    )))
-}
-
-fn arg_u32_or(args: &Value, name: &str, default: u32) -> Result<u32, ToolError> {
-    match args.get(name) {
-        None => Ok(default),
-        Some(v) => v
-            .as_u64()
-            .ok_or_else(|| ToolError::InvalidArguments(format!("`{name}` must be int")))
-            .and_then(|n| {
-                u32::try_from(n)
-                    .map_err(|_| ToolError::InvalidArguments(format!("`{name}` out of u32 range")))
-            }),
-    }
-}
-
-fn tool_query_cpu(_args: Value, session: &mut SmsSession) -> Result<Value, ToolError> {
-    let sms = sms_ref(session)?;
-    let cpu = sms.cpu();
-    let r = &cpu.regs;
-    Ok(json!({
-        "a":  format!("${:02X}", r.a()),
-        "b":  format!("${:02X}", r.b()),
-        "c":  format!("${:02X}", r.c()),
-        "d":  format!("${:02X}", r.d()),
-        "e":  format!("${:02X}", r.e()),
-        "h":  format!("${:02X}", r.h()),
-        "l":  format!("${:02X}", r.l()),
-        "af": format!("${:04X}", r.af),
-        "bc": format!("${:04X}", r.bc),
-        "de": format!("${:04X}", r.de),
-        "hl": format!("${:04X}", r.hl),
-        "ix": format!("${:04X}", r.ix),
-        "iy": format!("${:04X}", r.iy),
-        "sp": format!("${:04X}", r.sp),
-        "pc": format!("${:04X}", r.pc),
-        "iff1": r.iff1,
-        "iff2": r.iff2,
-        "im":   r.im,
-        "halt": cpu.halt,
-        "tstates": sms.cpu_tstates(),
-    }))
-}
-
 fn tool_query_vdp(_args: Value, session: &mut SmsSession) -> Result<Value, ToolError> {
     let sms = sms_ref(session)?;
     let vdp = sms.vdp();
@@ -129,84 +67,20 @@ fn tool_query_mapper(_args: Value, session: &mut SmsSession) -> Result<Value, To
     }))
 }
 
-fn tool_memory_read(args: Value, session: &mut SmsSession) -> Result<Value, ToolError> {
-    let addr = arg_u16(&args, "addr")?;
-    let len = arg_u32_or(&args, "len", 16)?.min(4096);
-    let sms = sms_ref(session)?;
-    let mut hex = String::new();
-    let mut ascii = String::new();
-    for offset in 0..len {
-        let byte = sms.peek(addr.wrapping_add(offset as u16));
-        if offset > 0 {
-            hex.push(' ');
-        }
-        hex.push_str(&format!("{:02X}", byte));
-        ascii.push(if (0x20..=0x7E).contains(&byte) {
-            char::from(byte)
-        } else {
-            '.'
-        });
-    }
-    Ok(json!({
-        "addr":  format!("${:04X}", addr),
-        "len":   len,
-        "hex":   hex,
-        "ascii": ascii,
-    }))
-}
-
+/// Register SMS MCP tools: the shared debug surface plus VDP / mapper queries.
 pub fn register_sms_tools(registry: &mut ToolRegistry<SmsSession>) {
-    fn add(
-        registry: &mut ToolRegistry<SmsSession>,
-        name: &'static str,
-        description: &'static str,
-        schema: Value,
-        run: fn(Value, &mut SmsSession) -> Result<Value, ToolError>,
-    ) {
-        registry.register(Box::new(InlineTool {
-            name,
-            description,
-            schema,
-            run,
-        }));
-    }
+    emu198x_shell::mcp_tools::register_debug_tools(registry);
 
-    let empty = || json!({"type": "object", "additionalProperties": false});
-    let memory_schema = json!({
-        "type": "object",
-        "required": ["addr"],
-        "properties": {
-            "addr": {"description": "Z80 bus start address (integer or $XXXX / 0xXXXX)."},
-            "len":  {"type": "integer", "minimum": 1, "maximum": 4096, "default": 16}
-        }
-    });
-
-    add(
-        registry,
-        "query_cpu",
-        "Z80 register snapshot.",
-        empty(),
-        tool_query_cpu,
-    );
-    add(
-        registry,
-        "query_vdp",
-        "Sega VDP snapshot — V counter, frame count, framebuffer dimensions.",
-        empty(),
-        tool_query_vdp,
-    );
-    add(
-        registry,
-        "query_mapper",
-        "Sega mapper register snapshot (control + 3 page registers from $FFFC-$FFFF).",
-        empty(),
-        tool_query_mapper,
-    );
-    add(
-        registry,
-        "memory_read",
-        "Read `len` bytes from the Z80 bus starting at `addr` (no side effects).",
-        memory_schema,
-        tool_memory_read,
-    );
+    registry.register(Box::new(InlineTool {
+        name: "query_vdp",
+        description: "Sega VDP snapshot — V counter, frame count, framebuffer dimensions.",
+        schema: json!({"type": "object", "additionalProperties": false}),
+        run: tool_query_vdp,
+    }));
+    registry.register(Box::new(InlineTool {
+        name: "query_mapper",
+        description: "Sega mapper registers — control + the three bank-page selects.",
+        schema: json!({"type": "object", "additionalProperties": false}),
+        run: tool_query_mapper,
+    }));
 }

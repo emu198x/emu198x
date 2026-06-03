@@ -394,6 +394,25 @@ impl SordM5 {
         self.mem_read(addr)
     }
 
+    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole Z80 instruction, returning the T-states it
+    /// consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let start = self.cpu_tstates;
+        let cap = start + 1024;
+        while self.cpu.instruction_complete() && self.cpu_tstates < cap {
+            self.tick_tstate();
+        }
+        while !self.cpu.instruction_complete() && self.cpu_tstates < cap {
+            self.tick_tstate();
+        }
+        self.cpu_tstates - start
+    }
+
     /// Start (or restart) the I/O port-access trace. Every subsequent
     /// `IN`/`OUT` is recorded until [`SordM5::take_io_trace`].
     pub fn start_io_trace(&mut self) {

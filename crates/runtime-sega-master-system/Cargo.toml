@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { path = "../emu198x-shell" }
 machine-sega-master-system = { path = "../machine-sega-master-system" }
+zilog-z80 = { path = "../zilog-z80" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

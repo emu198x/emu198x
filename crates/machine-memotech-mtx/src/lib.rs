@@ -77,6 +77,8 @@ pub struct Mtx {
     vdp_accum: i64,
     master_clock: u64,
     frame_count: u64,
+    /// When `Some`, every I/O port access is appended here (debug trace).
+    io_trace: Option<Vec<IoEvent>>,
 }
 
 impl Mtx {
@@ -99,6 +101,7 @@ impl Mtx {
             vdp_accum: 0,
             master_clock: 0,
             frame_count: 0,
+            io_trace: None,
         })
     }
 
@@ -139,9 +142,28 @@ impl Mtx {
                 self.mem_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IoRead) => {
-                self.cpu.data_in = self.io_read(self.cpu.addr);
+                let io_port = (self.cpu.addr & 0xFF) as u8;
+                let io_pc = self.cpu.regs.pc;
+                let io_val = self.io_read(self.cpu.addr);
+                self.cpu.data_in = io_val;
+                if let Some(trace) = &mut self.io_trace {
+                    trace.push(IoEvent {
+                        pc: io_pc,
+                        port: io_port,
+                        value: io_val,
+                        write: false,
+                    });
+                }
             }
             Some(BusOp::IoWrite) => {
+                if let Some(trace) = &mut self.io_trace {
+                    trace.push(IoEvent {
+                        pc: self.cpu.regs.pc,
+                        port: (self.cpu.addr & 0xFF) as u8,
+                        value: self.cpu.data,
+                        write: true,
+                    });
+                }
                 self.io_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IntAck) => {
@@ -354,5 +376,55 @@ mod tests {
         assert_eq!(sys.io_read(0x05), 0xFF);
         sys.keyboard.set_key(3, 1, true);
         assert_eq!(sys.io_read(0x05) & 0x02, 0x00);
+    }
+}
+
+/// One captured I/O port access, for the debug trace.
+#[derive(Debug, Clone, Copy)]
+pub struct IoEvent {
+    /// CPU program counter at the time of the access.
+    pub pc: u16,
+    /// I/O port (low 8 bits of the address bus).
+    pub port: u8,
+    /// Byte written, or byte returned on a read.
+    pub value: u8,
+    /// `true` for `OUT`, `false` for `IN`.
+    pub write: bool,
+}
+
+impl Mtx {
+    /// Observe one byte on the bus without side effects.
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.mem_read(addr)
+    }
+
+    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole Z80 instruction, returning the clocks it
+    /// consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let start = self.master_clock;
+        let cap = start + 1024;
+        while self.cpu.instruction_complete() && self.master_clock < cap {
+            self.tick_cpu();
+        }
+        while !self.cpu.instruction_complete() && self.master_clock < cap {
+            self.tick_cpu();
+        }
+        self.master_clock - start
+    }
+
+    /// Start (or restart) the I/O port-access trace.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace = Some(Vec::new());
+    }
+
+    /// Stop tracing and return the captured I/O events.
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take().unwrap_or_default()
     }
 }

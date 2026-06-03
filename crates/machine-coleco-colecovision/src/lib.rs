@@ -177,6 +177,8 @@ pub struct ColecoVision {
     cpu_cycles_per_frame: u64,
     /// Frame counter.
     frame_count: u64,
+    /// When `Some`, every I/O port access is appended here (debug trace).
+    io_trace: Option<Vec<IoEvent>>,
 }
 
 impl ColecoVision {
@@ -205,6 +207,7 @@ impl ColecoVision {
             cpu_cycles: 0,
             cpu_cycles_per_frame,
             frame_count: 0,
+            io_trace: None,
         }
     }
 
@@ -252,9 +255,28 @@ impl ColecoVision {
                 self.mem_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IoRead) => {
-                self.cpu.data_in = self.io_read(self.cpu.addr);
+                let io_port = (self.cpu.addr & 0xFF) as u8;
+                let io_pc = self.cpu.regs.pc;
+                let io_val = self.io_read(self.cpu.addr);
+                self.cpu.data_in = io_val;
+                if let Some(trace) = &mut self.io_trace {
+                    trace.push(IoEvent {
+                        pc: io_pc,
+                        port: io_port,
+                        value: io_val,
+                        write: false,
+                    });
+                }
             }
             Some(BusOp::IoWrite) => {
+                if let Some(trace) = &mut self.io_trace {
+                    trace.push(IoEvent {
+                        pc: self.cpu.regs.pc,
+                        port: (self.cpu.addr & 0xFF) as u8,
+                        value: self.cpu.data,
+                        write: true,
+                    });
+                }
                 self.io_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IntAck) => {
@@ -486,5 +508,49 @@ mod tests {
         let c2 = cv.io_read(0xE2);
         assert_eq!(c1 & 0x0F, KeypadKey::K5.encode());
         assert_eq!(c2 & 0x0F, KeypadKey::K7.encode());
+    }
+}
+
+/// One captured I/O port access, for the debug trace.
+#[derive(Debug, Clone, Copy)]
+pub struct IoEvent {
+    /// CPU program counter at the time of the access.
+    pub pc: u16,
+    /// I/O port (low 8 bits of the address bus).
+    pub port: u8,
+    /// Byte written, or byte returned on a read.
+    pub value: u8,
+    /// `true` for `OUT`, `false` for `IN`.
+    pub write: bool,
+}
+
+impl ColecoVision {
+    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Run exactly one whole Z80 instruction, returning the clocks it
+    /// consumed. A safety cap prevents an unbounded spin.
+    pub fn step_instruction(&mut self) -> u64 {
+        let start = self.cpu_cycles;
+        let cap = start + 1024;
+        while self.cpu.instruction_complete() && self.cpu_cycles < cap {
+            self.tick_cpu_cycle();
+        }
+        while !self.cpu.instruction_complete() && self.cpu_cycles < cap {
+            self.tick_cpu_cycle();
+        }
+        self.cpu_cycles - start
+    }
+
+    /// Start (or restart) the I/O port-access trace.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace = Some(Vec::new());
+    }
+
+    /// Stop tracing and return the captured I/O events.
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take().unwrap_or_default()
     }
 }
