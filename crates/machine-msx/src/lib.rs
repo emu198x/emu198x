@@ -542,10 +542,12 @@ impl Msx {
     pub fn step_instruction(&mut self) -> u64 {
         let start = self.cpu_tstates;
         let cap = start + 1024;
-        while self.cpu.instruction_complete() && self.cpu_tstates < cap {
-            self.tick_tstate();
-        }
-        while !self.cpu.instruction_complete() && self.cpu_tstates < cap {
+        // Tick until exactly one instruction retires. The monotonic
+        // retirement counter is the only reliable boundary signal —
+        // `instruction_complete` flips false→true within a single tick
+        // for one-M-cycle ops, so a between-tick level check over-runs.
+        let target = self.cpu.instructions_retired() + 1;
+        while self.cpu.instructions_retired() < target && self.cpu_tstates < cap {
             self.tick_tstate();
         }
         self.cpu_tstates - start

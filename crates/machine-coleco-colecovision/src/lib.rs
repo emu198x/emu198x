@@ -535,10 +535,12 @@ impl ColecoVision {
     pub fn step_instruction(&mut self) -> u64 {
         let start = self.cpu_cycles;
         let cap = start + 1024;
-        while self.cpu.instruction_complete() && self.cpu_cycles < cap {
-            self.tick_cpu_cycle();
-        }
-        while !self.cpu.instruction_complete() && self.cpu_cycles < cap {
+        // Tick until exactly one instruction retires. The monotonic
+        // retirement counter is the only reliable boundary signal —
+        // `instruction_complete` flips false→true within a single tick
+        // for one-M-cycle ops, so a between-tick level check over-runs.
+        let target = self.cpu.instructions_retired() + 1;
+        while self.cpu.instructions_retired() < target && self.cpu_cycles < cap {
             self.tick_cpu_cycle();
         }
         self.cpu_cycles - start

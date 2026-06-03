@@ -121,6 +121,15 @@ pub struct Z80 {
     prev_mw: bool,
     #[serde(default)]
     prev_iorq: bool,
+
+    /// Count of instructions retired (completed). Incremented once each time
+    /// an instruction — or an accepted interrupt sequence — finishes. A
+    /// monotonic counter is the only reliable single-step signal: the level
+    /// `instruction_complete` flag is true throughout the next opcode fetch
+    /// *and* flips false→true within a single tick for one-M-cycle ops, so
+    /// a host that samples it between ticks cannot count boundaries.
+    #[serde(default)]
+    instructions_retired: u64,
 }
 
 /// One bus transaction the Z80 is asking the host to perform. Returned
@@ -276,6 +285,7 @@ impl Default for Z80 {
             prev_mr: false,
             prev_mw: false,
             prev_iorq: false,
+            instructions_retired: 0,
         }
     }
 }
@@ -289,6 +299,15 @@ impl Z80 {
     /// Is the current instruction complete? True at instruction boundaries.
     pub fn instruction_complete(&self) -> bool {
         self.walker.instruction_complete
+    }
+
+    /// Monotonic count of instructions retired (each completed instruction or
+    /// accepted interrupt sequence). The reliable single-step primitive: tick
+    /// until this advances by one. Unlike [`Self::instruction_complete`], it
+    /// is unaffected by the flag being transiently re-asserted within the
+    /// completing tick of a one-M-cycle instruction.
+    pub fn instructions_retired(&self) -> u64 {
+        self.instructions_retired
     }
 
     /// Re-derives `walker.sequence` from the preserved `(prefix, opcode)`
@@ -923,6 +942,10 @@ impl Z80 {
 
         self.walker.instruction_complete = true;
         self.walker.prefix = crate::walker::Prefix::None;
+        // One instruction (or accepted interrupt sequence) has retired. This
+        // is the single canonical completion point — the DDCB/FDCB fetch-phase
+        // transition above returns before reaching here.
+        self.instructions_retired = self.instructions_retired.wrapping_add(1);
 
         // Q register: instructions that modify flags set Q = F (in execute).
         // Instructions that don't modify flags: Q was already set to 0 at
@@ -1342,6 +1365,77 @@ mod tests {
         // T4 fall: decode
         z80.tick();
         // After 8 half-cycles, we should be back at M1 T1 rise (NOP loops)
+    }
+
+    /// Tick until exactly one instruction retires, serving `mem` on every
+    /// read. This is the correct single-step primitive — see
+    /// [`Z80::instructions_retired`].
+    fn step_one(z80: &mut Z80, mem: &mut [u8; 65536]) {
+        let target = z80.instructions_retired() + 1;
+        let mut guard = 0;
+        while z80.instructions_retired() < target && guard < 1024 {
+            if z80.mreq && z80.rd {
+                z80.data_in = mem[z80.addr as usize];
+            }
+            if z80.mreq && z80.wr {
+                mem[z80.addr as usize] = z80.data;
+            }
+            z80.tick();
+            guard += 1;
+        }
+    }
+
+    #[test]
+    fn retirement_counter_steps_one_instruction_at_a_time() {
+        // All single-M-cycle ops — the case the level `instruction_complete`
+        // flag cannot single-step (it flips false→true within one tick).
+        let mut mem = [0u8; 65536];
+        mem[0x0000] = 0xAF; // XOR A
+        mem[0x0001] = 0x3C; // INC A
+        mem[0x0002] = 0x0C; // INC C
+        mem[0x0003] = 0x00; // NOP
+
+        let mut z80 = Z80::new();
+        assert_eq!(z80.instructions_retired(), 0);
+
+        for expected_pc in 1..=4u16 {
+            step_one(&mut z80, &mut mem);
+            assert_eq!(
+                z80.regs.pc, expected_pc,
+                "each step must advance exactly one instruction"
+            );
+            assert_eq!(z80.instructions_retired(), u64::from(expected_pc));
+        }
+        assert_eq!(z80.regs.a(), 1, "XOR A then INC A");
+        assert_eq!(z80.regs.c(), 1, "INC C");
+    }
+
+    #[test]
+    fn level_complete_flag_overruns_single_cycle_ops() {
+        // Demonstrates *why* the counter exists: the old "tick while complete,
+        // then tick while not complete" pattern over-runs a 1-M-cycle op.
+        let mut mem = [0u8; 65536];
+        mem[0x0000] = 0xAF; // XOR A
+        mem[0x0001] = 0x3C; // INC A
+
+        let mut z80 = Z80::new();
+        // Old buggy step: loop A consumes XOR A *and* rolls into INC A's fetch.
+        let mut guard = 0;
+        while z80.instruction_complete() && guard < 1024 {
+            if z80.mreq && z80.rd {
+                z80.data_in = mem[z80.addr as usize];
+            }
+            z80.tick();
+            guard += 1;
+        }
+        // After "loop A" alone, more than one instruction has already retired —
+        // the over-run the retirement counter avoids.
+        assert!(
+            z80.instructions_retired() >= 1 && z80.regs.pc >= 1,
+            "level-flag loop A over-ran (retired {}, pc {:04X})",
+            z80.instructions_retired(),
+            z80.regs.pc
+        );
     }
 
     #[test]

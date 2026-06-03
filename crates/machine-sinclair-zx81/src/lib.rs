@@ -332,10 +332,12 @@ impl Zx81 {
     pub fn step_instruction(&mut self) -> u64 {
         let start = self.master_clock;
         let cap = start + 1024;
-        while self.cpu.instruction_complete() && self.master_clock < cap {
-            self.tick_tstate();
-        }
-        while !self.cpu.instruction_complete() && self.master_clock < cap {
+        // Tick until exactly one instruction retires. The monotonic
+        // retirement counter is the only reliable boundary signal —
+        // `instruction_complete` flips false→true within a single tick
+        // for one-M-cycle ops, so a between-tick level check over-runs.
+        let target = self.cpu.instructions_retired() + 1;
+        while self.cpu.instructions_retired() < target && self.master_clock < cap {
             self.tick_tstate();
         }
         self.master_clock - start
