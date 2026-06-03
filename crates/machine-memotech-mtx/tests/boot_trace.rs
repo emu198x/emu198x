@@ -1,17 +1,11 @@
-//! MTX boot I/O trace — regression marker for the paging + I/O-map fix.
+//! MTX boot smoke — OS + BASIC + ASSEM to the BASIC `Ready` prompt.
 //!
-//! Before the fix the boot derailed the instant the power-on RAM-sizing loop
-//! wrote a page number to port `$00`: the donor paging model swapped the
-//! executing OS ROM out for RAM and the CPU ran off into zeroed memory
-//! (PC ≈ `$1A65`), touching nothing else. With MEMU's paging and I/O port map
-//! ([`machine_memotech_mtx`] docs), the boot now completes all power-on
-//! hardware init — RAM sizing, the country-code read on port `$06`, and ROM
-//! subpage enumeration — staying in the ROM the whole time.
-//!
-//! It does **not** yet reach BASIC `Ready`: a `RST $28` ROM-routine system
-//! call then paths into an absent ROM subpage and restarts. This test asserts
-//! the progress that *is* solid; the reset loop is tracked in
-//! `knowledge/systems/memotech-mtx.md`.
+//! The full power-on path: RAM sizing, country-code read on `$06`, ROM-subpage
+//! enumeration, then a `RST $28` ROM-routine system call into the **ASSEM**
+//! ROM (paged subpage 1) that brings up the VDP display and the BASIC main
+//! loop. It needs the complete firmware — 8 KB OS + BASIC + ASSEM (24 KB). An
+//! OS+BASIC-only (16 KB) image stops at that first ASSEM call and never
+//! renders.
 //!
 //! Gated `#[ignore]` because the ROM is copyrighted and not shipped in-tree.
 //!
@@ -23,7 +17,7 @@
 //!
 //! ROM source (first match wins):
 //!   1. `EMU198X_MTX_ROM` env var (full file path)
-//!   2. `~/.emu198x/roms/memotech-mtx/mtx.rom`
+//!   2. `~/.emu198x/roms/memotech-mtx/mtx.rom` (OS + BASIC + ASSEM)
 
 use std::env;
 use std::fs;
@@ -44,16 +38,21 @@ fn rom_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs MTX ROM — run with --ignored --nocapture"]
-fn boot_completes_power_on_init() {
+#[ignore = "needs MTX OS+BASIC+ASSEM ROM — run with --ignored"]
+fn boots_to_basic_ready() {
     let Some(path) = rom_path() else {
         panic!(
             "MTX ROM not found — set EMU198X_MTX_ROM or place mtx.rom \
-             at ~/.emu198x/roms/memotech-mtx/"
+             (OS + BASIC + ASSEM) at ~/.emu198x/roms/memotech-mtx/"
         );
     };
     let rom = fs::read(&path).expect("read ROM");
-    assert_eq!(rom.len(), 0x4000, "ROM must be 16 KB");
+    assert!(
+        rom.len() >= 0x6000,
+        "boot to Ready needs OS + BASIC + ASSEM (24 KB); got {} bytes — an \
+         OS+BASIC-only image stops at the first ASSEM call",
+        rom.len()
+    );
 
     let mut sys = Mtx::new(rom, MtxModel::Mtx512).expect("init");
     sys.start_io_trace();
@@ -62,27 +61,42 @@ fn boot_completes_power_on_init() {
     }
     let events = sys.take_io_trace();
 
-    // The boot must never derail into RAM: the OS ROM stays mapped, so every
-    // instruction-fetch site (and thus every I/O site) sits inside the ROM.
+    // The boot programs the VDP heavily (display + screen RAM) — proof it got
+    // through the ASSEM cold-start, not just the early hardware probe.
+    let vdp_writes = events
+        .iter()
+        .filter(|e| e.write && (e.port == 0x01 || e.port == 0x02))
+        .count();
     assert!(
-        events.iter().all(|e| e.pc < 0x4000),
-        "boot left the ROM — paging derailed it (max PC {:04X})",
-        events.iter().map(|e| e.pc).max().unwrap_or(0)
+        vdp_writes > 1000,
+        "VDP barely programmed ({vdp_writes} writes) — boot did not complete"
     );
 
-    // It reaches ROM-subpage enumeration: it writes the ROM-page nibble
-    // ($10..$70) to port $00 from the $01F2 loop.
-    let enumerates_rom = events
-        .iter()
-        .any(|e| e.write && e.port == 0x00 && (0x10..=0x70).contains(&e.value));
-    assert!(enumerates_rom, "boot never reached ROM enumeration");
-
-    // It reads the country code on port $06 and (English machine, no key)
-    // gets 0x03 — proving the keyboard sense-high port is correct.
-    let country_read = events.iter().find(|e| !e.write && e.port == 0x06);
-    let country = country_read.expect("boot never read the country port $06");
-    assert_eq!(
-        country.value, 0x03,
+    // It runs the BASIC main loop: the keyboard is scanned on $05 and the
+    // country/sense-high read on $06 is 0x03 (English, no key).
+    assert!(
+        events.iter().any(|e| !e.write && e.port == 0x05),
+        "keyboard never scanned — no BASIC main loop"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| !e.write && e.port == 0x06 && e.value == 0x03),
         "country/sense-high read should be 0x03"
+    );
+
+    // The screen is painted: a real text frame, not the all-backdrop blank of
+    // the pre-fix stall.
+    let fb = sys.framebuffer();
+    assert_eq!(
+        fb.len() as u32,
+        sys.framebuffer_width() * sys.framebuffer_height()
+    );
+    let non_zero = fb.iter().filter(|&&px| px & 0x00FF_FFFF != 0).count();
+    let distinct: std::collections::HashSet<u32> = fb.iter().copied().collect();
+    assert!(
+        non_zero >= 1000 && distinct.len() >= 2,
+        "screen not rendered: {non_zero} non-backdrop px, {} colours",
+        distinct.len()
     );
 }

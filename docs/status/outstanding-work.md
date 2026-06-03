@@ -602,50 +602,41 @@ respected; commercially overshadowed. **No new chip crate
 needed** — uses `zilog-z80`, `ti-tms9918`, `ti-sn76489` (all
 already in the workspace).
 
-Fresh-write machine layer (`machine-memotech-mtx`, 10/10 tests)
-wiring CPU + VDP + PSG through the MTX I/O ports: `$00` page
-register (bit 0 = page 0 RAM, bit 1 = page 1 RAM), `$01` VDP
-data, `$02` VDP status / register, `$03` PSG, `$05` keyboard
-row select + read. Memory map: 8 KB OS at `$0000-$1FFF` and
-8 KB BASIC at `$2000-$3FFF` (both switchable to RAM via port
-`$00`); page 2 `$4000-$7FFF` always RAM; pages 3-4
-`$8000-$FFFF` full RAM on MTX512 or wrapping to page 2 on
-MTX500.
-
-Clock model: CPU at 4 MHz; VDP at 5.37 MHz via Bresenham
-counter against the CPU clock; PSG at 4 MHz with internal ÷16.
-VDP interrupt drives Z80 IRQ.
-
-Live boot verified 2026-06-01 with TOSEC's "OS ROM
-(1984)(Memotech)" + "BASIC ROM (1984)(Memotech)" concatenated
-to 16 KB.
-
-**Boot progress 2026-06-03 (port map + paging rewritten against MEMU).** The
-donor's I/O map was wrong on the count that mattered: port `$00` bit 0 was read
-as "page 0 → RAM", which swapped the executing OS ROM out the instant the
-power-on RAM-sizing loop wrote `1` — derailing the boot into zeroed RAM
-(PC ≈ `$1A65`). Both the paging model (`Mtx::resolve`, after MEMU `mem.c`) and
-the full I/O port map (`memu.c` `OutZ80`/`InZ80`) are now correct: SN76489 moved
-from `$03` to `$06`; the keyboard reads from **both** `$05` (sense low) and `$06`
-(sense high + country code) on the drive/sense model (`kbd2.c`). The boot now
-completes all power-on hardware init — RAM sizing, ROM-subpage enumeration,
-country-code read — staying in ROM throughout (gated test
-`tests/boot_trace.rs`). Full map in
+Fresh-write machine layer (`machine-memotech-mtx`) wiring CPU + VDP + PSG
+through the MTX I/O ports and paging — the authoritative port map and `$00`
+paging byte are recorded in
 [`knowledge/systems/memotech-mtx.md`](../../knowledge/systems/memotech-mtx.md).
 
-- **L — Cold-start reset loop before `Ready`.** After init the OS issues a
-  `RST $28` ROM-routine system call (`#$50` at `$020B`) whose dispatch pages in
-  ROM **subpage 1** (`SET 4,A; OUT $00` at `$00D6`) and restarts at `$0199`. Our
-  16 KB OS+BASIC image has no subpage-1 ROM, so the call lands on `$FF`. Happens
-  with interrupts still disabled (`IFF1=0`), so it is **not** the CTC path.
-  Either a remaining gap in the system-call ROM-paging model or an incomplete
-  ROM image (MEMU boots a stock MTX on OS+BASIC alone, so the paging is the
-  likelier cause). Next MTX task.
-- **A — VDP interrupt via the Z80 CTC, not wired yet.** Like the Sord M5, the
-  TMS9918A `/INT` drives **CTC channel 0** (counter mode, count 1 → IM 2
-  vector); `memu.c` `LoopZ80` calls `ctc_trigger(0)`. The `zilog-z80-ctc` crate
-  is ready; wire it at `$08-$0B` + route VDP→ch0 once the cold-start loop is
-  fixed and the OS enables interrupts.
+Clock model: CPU at 4 MHz; VDP at 5.37 MHz via Bresenham counter against the
+CPU clock; PSG at 4 MHz with internal ÷16.
+
+**Boots to BASIC `Ready` (2026-06-03).** Three findings, all from MEMU
+(`github.com/Memotech-Bill/MEMU`), took the MTX from blank screen to the BASIC
+prompt:
+
+1. **Paging was wrong.** The donor read port `$00` bit 0 as "page 0 → RAM",
+   swapping the executing OS ROM out the instant the power-on RAM-sizing loop
+   wrote `1` — derailing into zeroed RAM (PC ≈ `$1A65`). Rewrote `Mtx::resolve`
+   after MEMU `mem.c`: OS fixed at `$0000`, 16 KB RAM blocks paging the upper
+   windows, `RELCPMH` CP/M mode.
+2. **I/O map was wrong.** After `memu.c` `OutZ80`/`InZ80`: SN76489 is `$06`
+   (donor had `$03`); the keyboard reads from **both** `$05` (sense low) and
+   `$06` (sense high + country code) on the drive/sense model (`kbd2.c`).
+3. **The ROM image was incomplete.** A stock MTX motherboard carries OS +
+   BASIC + **ASSEM**; the cold-start `RST $28 #$50` system call runs from the
+   ASSEM ROM (paged subpage 1). With OS+BASIC only it landed on `$FF` and
+   reset-looped. The machine now takes an OS + paged-ROM image (8 KB OS + N×8 KB
+   subpages); with OS+BASIC+ASSEM (24 KB) the boot completes, programs the VDP
+   and CTC, and renders `Ready`. Gated smoke `tests/boot_trace.rs`
+   (`boots_to_basic_ready`). Full map in
+   [`knowledge/systems/memotech-mtx.md`](../../knowledge/systems/memotech-mtx.md).
+
+- **A — VDP interrupt via the Z80 CTC, not yet wired.** The boot runs on the
+  direct VDP `/INT` → Z80 line (IM 1) and renders correctly, but the real MTX
+  routes the VDP `/INT` through **CTC channel 0** (`memu.c` `LoopZ80` →
+  `ctc_trigger(0)`), and the OS programs the CTC at `$08-$0B` (those writes are
+  currently dropped). Wire `zilog-z80-ctc` at `$08-$0B` + route VDP→ch0 for
+  interrupt-timing/sound/cassette accuracy.
 - **A — Keyboard matrix not aligned to MEMU's grid.** The drive/sense *model* is
   correct (no-key + country read verified); the physical key→(column, sense-bit)
   mapping still needs aligning to `kbd2.c` for accurate typing.
@@ -1134,7 +1125,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 17 | Commodore PET | Char grid renders (live) — full boot pending |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
-| 20 | Memotech MTX500 | Completes power-on init (paging+I/O fixed); cold-start RST $28 reset loop before `Ready` |
+| 20 | Memotech MTX500/512 | **Boots to BASIC `Ready`** (OS+BASIC+ASSEM); CTC interrupt path not yet wired |
 | 21 | Acorn Atom | **Awaiting ROM** (24 KB combined) |
 | 22 | Commodore VIC-20 | ROM boots (live); display still black |
 

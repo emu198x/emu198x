@@ -40,11 +40,13 @@ impl MtxRuntime {
         }
     }
 
-    /// Build directly from a 16 KB OS+BASIC ROM.
+    /// Build directly from an OS + paged-ROM image (8 KB OS followed by 8 KB
+    /// BASIC, ASSEM, …).
     ///
     /// # Errors
     ///
-    /// Returns `MachineError::InvalidFirmware` if the ROM is not 16 KB.
+    /// Returns `MachineError::InvalidFirmware` if the size is not the 8 KB OS
+    /// plus a whole number of 8 KB paged ROMs.
     pub fn new(model: Model, rom: Vec<u8>) -> Result<Self, MachineError> {
         let mut runtime = Self::blank(model);
         runtime.set_rom(rom)?;
@@ -74,10 +76,15 @@ impl MtxRuntime {
     ///
     /// Returns `MachineError::InvalidFirmware` if the size is wrong.
     pub fn set_rom(&mut self, rom: Vec<u8>) -> Result<(), MachineError> {
-        if rom.len() != ROM_SIZE {
+        // 8 KB OS plus one or more 8 KB paged ROMs (BASIC, ASSEM, …).
+        if rom.len() < ROM_SIZE || !rom.len().is_multiple_of(0x2000) {
             return Err(MachineError::InvalidFirmware {
                 id: ROM_FIRMWARE_ID.to_owned(),
-                reason: format!("ROM is {} bytes; expected {ROM_SIZE}", rom.len()),
+                reason: format!(
+                    "ROM is {} bytes; expected the 8 KB OS plus 8 KB paged ROMs \
+                     (a multiple of 8192, ≥ {ROM_SIZE})",
+                    rom.len()
+                ),
             });
         }
         self.rom_bytes = Some(rom);

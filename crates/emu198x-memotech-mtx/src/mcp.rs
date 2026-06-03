@@ -25,7 +25,7 @@ pub fn run() -> Result<(), String> {
     if let Some(path) = rom_path()
         && let Ok(bytes) = fs::read(&path)
     {
-        if bytes.len() == 16 * 1024 {
+        if bytes.len() >= 16 * 1024 && bytes.len().is_multiple_of(0x2000) {
             machine
                 .set_rom(bytes)
                 .map_err(|err| format!("ROM invalid: {err}"))?;
@@ -35,7 +35,8 @@ pub fn run() -> Result<(), String> {
             );
         } else {
             eprintln!(
-                "emu198x-memotech-mtx mcp: ROM at {} is {} bytes; expected 16384 — starting blank",
+                "emu198x-memotech-mtx mcp: ROM at {} is {} bytes; expected the 8 KB OS \
+                 plus 8 KB paged ROMs (a multiple of 8192) — starting blank",
                 path.display(),
                 bytes.len()
             );

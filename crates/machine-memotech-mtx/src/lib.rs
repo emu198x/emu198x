@@ -17,7 +17,9 @@
 //! - **VDP:** TI TMS9918A (PAL), interrupt drives Z80 INT
 //! - **PSG:** TI SN76489 at 4 MHz (internal ÷16 to 250 kHz)
 //! - **RAM:** 32 KB (MTX500) or 64 KB (MTX512)
-//! - **ROM:** 16 KB total — 8 KB OS, 8 KB BASIC
+//! - **ROM:** 8 KB OS plus paged 8 KB ROMs at `$2000-$3FFF` — a stock
+//!   machine has BASIC (subpage 0) and ASSEM (subpage 1); the cold-start
+//!   path calls into ASSEM, so OS+BASIC alone stops at the first such call.
 //!
 //! # Memory paging (port `$00`)
 //!
@@ -82,6 +84,9 @@ impl MtxModel {
 pub struct Mtx {
     cpu: Z80,
     rom: Vec<u8>,
+    /// Number of 8 KB paged-ROM subpages at `$2000-$3FFF` after the OS:
+    /// 1 = BASIC only, 2 = BASIC + ASSEM, …
+    rom_subpages: usize,
     ram: Vec<u8>,
     blocks: usize,
     page_reg: u8,
@@ -101,8 +106,9 @@ pub struct Mtx {
 enum Cell {
     /// OS ROM byte (`rom[i]`, `i` in `$0000-$1FFF`).
     RomOs(u16),
-    /// Paged ROM byte (`rom[i]`, `i` in `$2000-$3FFF` = BASIC).
-    RomPaged(u16),
+    /// Paged ROM byte at this flat index into the ROM (an `$2000-$3FFF`
+    /// subpage — BASIC, ASSEM, …).
+    RomPaged(usize),
     /// RAM byte at this flat index into the block array.
     Ram(usize),
     /// No chip selected — reads float high (`$FF`), writes drop.
@@ -110,14 +116,23 @@ enum Cell {
 }
 
 impl Mtx {
-    /// Create a new MTX. `rom` must be 16 KB (8 KB OS + 8 KB BASIC).
+    /// Create a new MTX. `rom` is the 8 KB OS followed by one or more 8 KB
+    /// paged ROMs for `$2000-$3FFF` (subpage 0 = BASIC, 1 = ASSEM, …). A
+    /// stock machine is OS + BASIC + ASSEM (24 KB); OS + BASIC (16 KB) boots
+    /// only as far as the first ASSEM system call.
     pub fn new(rom: Vec<u8>, model: MtxModel) -> Result<Self, String> {
-        if rom.len() != 0x4000 {
-            return Err(format!("MTX ROM must be 16384 bytes, got {}", rom.len()));
+        if rom.len() < 0x4000 || !rom.len().is_multiple_of(0x2000) {
+            return Err(format!(
+                "MTX ROM must be the 8 KB OS plus at least one 8 KB paged ROM \
+                 (a multiple of 8192, ≥ 16384 bytes); got {}",
+                rom.len()
+            ));
         }
+        let rom_subpages = rom.len() / 0x2000 - 1;
         Ok(Self {
             cpu: Z80::new(),
             rom,
+            rom_subpages,
             ram: vec![0; model.ram_size()],
             blocks: model.blocks(),
             page_reg: 0,
@@ -229,10 +244,12 @@ impl Mtx {
         match addr {
             0x0000..=0x1FFF => Cell::RomOs(addr),
             0x2000..=0x3FFF => {
-                if (self.page_reg >> 4) & 0x07 == 0 {
-                    Cell::RomPaged(addr) // ROM subpage 0 = BASIC
+                let irom = ((self.page_reg >> 4) & 0x07) as usize;
+                if irom < self.rom_subpages {
+                    // OS occupies the first 8 KB; subpage `irom` follows.
+                    Cell::RomPaged((1 + irom) * 0x2000 + (addr as usize & 0x1FFF))
                 } else {
-                    Cell::Unmapped // other ROM subpages not fitted
+                    Cell::Unmapped // that paged ROM is not fitted
                 }
             }
             // P=$0F with RELCPMH=0 unmaps this window (MEMU's $8F mask quirk).
@@ -255,7 +272,8 @@ impl Mtx {
 
     fn mem_read(&self, addr: u16) -> u8 {
         match self.resolve(addr) {
-            Cell::RomOs(i) | Cell::RomPaged(i) => self.rom[i as usize],
+            Cell::RomOs(i) => self.rom[i as usize],
+            Cell::RomPaged(idx) => self.rom[idx],
             Cell::Ram(idx) => self.ram[idx],
             Cell::Unmapped => 0xFF,
         }

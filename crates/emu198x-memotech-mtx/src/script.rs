@@ -16,7 +16,7 @@ const USAGE: &str = "\
 Usage: emu198x-memotech-mtx [OPTIONS]
 
 ROM:
-    --rom PATH                 MTX OS + BASIC ROM (16 KB)
+    --rom PATH                 MTX ROM: 8 KB OS + paged ROMs (BASIC, ASSEM…)
                                default: $EMU198X_MTX_ROM, then
                                ~/.emu198x/roms/memotech-mtx/mtx.rom
 
@@ -195,9 +195,10 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
 fn read_rom(path: &Path) -> Result<Vec<u8>, String> {
     let bytes =
         fs::read(path).map_err(|err| format!("failed to read ROM {}: {err}", path.display()))?;
-    if bytes.len() != ROM_SIZE {
+    if bytes.len() < ROM_SIZE || !bytes.len().is_multiple_of(0x2000) {
         return Err(format!(
-            "ROM at {} is {} bytes; expected {ROM_SIZE}",
+            "ROM at {} is {} bytes; expected the 8 KB OS plus 8 KB paged ROMs \
+             (a multiple of 8192, ≥ {ROM_SIZE})",
             path.display(),
             bytes.len()
         ));
