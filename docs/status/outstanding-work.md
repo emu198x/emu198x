@@ -5,10 +5,19 @@ Status as of 2026-06-03. Companion to
 the live list of open items per machine, ordered roughly by user impact
 within that machine. Items are tagged:
 
-- **L** — relevant to the October Spectrum launch
+- **L** — hard blocker: the system can't reach its basic boot/usability goal
+  until this lands (awaiting ROM/firmware, or boot incomplete)
 - **A** — accuracy / correctness debt that doesn't block usability
 - **S** — scope expansion (broader software / new machines / new hardware
   paths)
+
+The **Spectrum SOLID engineering bar was met (2026-06-03)**, ahead of the
+October public launch. `L` previously meant "October Spectrum launch blocker";
+with that gate cleared it now carries its plainer meaning above (a hard
+per-system blocker), and the Spectrum's own former-`L` items are recast as
+`A`/`S` below.
+The donor / extended systems are no longer "deferred behind the launch" — they
+are the active engineering frontier.
 
 Resolved items are kept here briefly only when they unblock something else
 listed below.
@@ -35,19 +44,21 @@ surfaces for the vocabulary):
 
 ## ZX Spectrum — `emu198x-spectrum`
 
-CPU surface in genuinely good shape: Tom Harte 100%, ZEXDOC/ZEXALL all
-checkpoints, FUSE 1,351/1,356 with 5 documented disagreements, Patrik Rak
-`z80test` 6/6 with zero allowlist. 262/262 runtime tests pass. 11 variants
-boot to a working screen.
+**Spectrum SOLID — engineering bar met (2026-06-03), ahead of the October
+launch.** CPU surface in genuinely
+good shape: Tom Harte 100%, ZEXDOC/ZEXALL all checkpoints, FUSE 1,351/1,356
+with 5 documented disagreements, Patrik Rak `z80test` 6/6 with zero allowlist.
+262/262 runtime tests pass. 11 variants boot to a working screen. The items
+below are residual accuracy/scope debt, not blockers.
 
-- **L — Strict PNG comparison for the 5 ULA / contention smokes against
+- **A — Strict PNG comparison for the 5 ULA / contention smokes against
   Spectron references.** The smokes currently compare against self-locked
   goldens; spec'd target is byte-equal against Spectron's
   `tests/Results/<name>_{48,128}.png`. Spectron renders 1224×968 with
   border + scaling, so the comparator needs a downscale-and-crop step
-  before equality. See
-  [`knowledge/tests/spectrum.md`](../../knowledge/tests/spectrum.md)
-  § Outstanding launch-blockers.
+  before equality. The smokes are green against self-locked goldens today;
+  this tightens the oracle, it does not gate the launch. See
+  [`knowledge/tests/spectrum.md`](../../knowledge/tests/spectrum.md).
 - **A — 4 residual FUSE block-I/O AF disagreements** on `INIR`, `OTIR`,
   `CPDR`, `OTDR` (X/Y undocumented flag bits at the final repeat
   iteration). WZ matches, T-states match, memory effects match; just the
@@ -156,7 +167,7 @@ keyboard/gamepad joypad, scripts, snapshots, `.sav` battery-RAM sidecars.
 - **S — Broader real-game smoke coverage.** Boot through known-good
   titles and lock screenshots so regressions get caught.
 
-## Dragon 32 — `emu198x-dragon` (not in October launch)
+## Dragon 32 — `emu198x-dragon`
 
 Native verifier window, real Dragon 32 BASIC ROM boot, mono audio pinned
 to XRoar's level model, CAS / DragonDOS `.BIN` / PAK / VDK media paths,

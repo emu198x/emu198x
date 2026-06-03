@@ -12,21 +12,41 @@ Full layered model, citation direction, and drift triggers at [`../decisions/sha
 
 ## Session start
 
-Before writing any code, state in the conversation which October artefact this session serves.
+Before writing any code, state in the conversation what this session serves —
+Spectrum launch-hardening, or engineering-frontier work (see below).
 
-**Public October launch (Crash! Live):** Spectrum only. **Spectrum SOLID** is the October-public goal — full criteria locked at [`knowledge/decisions/october-catalogue.md`](knowledge/decisions/october-catalogue.md#october-bar-definition). Headline: 8 in-scope variants (16K, 48K, Spectrum+, 128K, +2, +2A, +2B, +3); 10 catalogue entries per variant; single `emu198x-spectrum` binary with `--ui`/`--script`/`--mcp` modes; MCP server functional; pipeline tied to every Code198x curriculum unit's screenshot/video.
+**Spectrum SOLID — engineering bar MET (2026-06-03).** The October-public goal's
+criteria (full list at [`october-catalogue.md`](knowledge/decisions/october-catalogue.md#october-bar-definition)
+— 8 in-scope variants (16K, 48K, Spectrum+, 128K, +2, +2A, +2B, +3); 10 catalogue
+entries per variant; single `emu198x-spectrum` binary with `--ui`/`--script`/`--mcp`;
+MCP server functional; pipeline tied to every Code198x curriculum unit's
+screenshot/video) are met. The *Crash! Live* public launch is still October; the
+Spectrum is ready ahead of it.
 
-**Engineering quality bar:** All four systems (Spectrum, C64, NES, Amiga) have catalogue manifests. Non-Spectrum systems progress as engineering bar in priority order (C64 → NES → Amiga), with no October deadline. The amended public-vs-bar split is documented at the top of [`october-catalogue.md`](knowledge/decisions/october-catalogue.md).
+**The Spectrum sequencing gate is therefore cleared.** Non-Spectrum / donor /
+engineering-bar work is no longer "deferred behind Spectrum" or held to "only
+after Spectrum SOLID is closer to done" — it is the active engineering frontier.
+The four headline systems (Spectrum, C64, NES, Amiga) all have catalogue
+manifests; the broader donor extractions progress on the engineering bar without
+an October deadline.
 
 Anchor every session against one of:
 
-- **Spectrum SOLID work** — Spectrum catalogue entry, runtime/chip/format gate, variant stability, real-hardware validation, Code198x pipeline reliability. October-public path.
-- **Spectrum-supporting infrastructure** — capture pipeline, CRT filter, serialisation, native UI for Spectrum demo. Spectrum SOLID depends on it.
-- **Non-Spectrum catalogue progress** (C64, NES, Amiga in that priority order) — engineering bar, no October deadline. Only after Spectrum SOLID is closer to done.
+- **Spectrum launch-hardening** — keeping the met bar met: regression gates,
+  real-hardware validation, capture/Code198x-curriculum pipeline reliability,
+  the residual accuracy/scope debt in
+  [`docs/status/outstanding-work.md`](docs/status/outstanding-work.md). Still
+  highest-value because it protects the shipped launch.
+- **Engineering-frontier work** — donor systems (CTC reuse into MTX/Einstein,
+  awaiting-ROM boots, the "boots but black" sweep), C64/NES/Amiga catalogue
+  progress, shared-infrastructure gaps (e.g. video-recording capture parity).
+  No October deadline; priority is impact, not a fixed order.
 
-If the requested work doesn't fit one of these — Game Boy, Dragon 32, accuracy work past what manifests assert, jumping to non-Spectrum catalogue work before Spectrum SOLID is closer to done — **name it as deferred**, and ask whether to proceed. Don't silently expand the October-public pile or jump ahead of Spectrum sequencing. Once the user confirms, proceed; the rule is to flag, not refuse.
-
-The October-public system is Spectrum. Everything else is engineering bar (C64/NES/Amiga) or post-launch (Game Boy, Dragon 32, Wave 2+) per [`knowledge/decisions/product-roadmap.md`](knowledge/decisions/product-roadmap.md).
+The old "name non-Spectrum work as deferred / don't jump ahead of Spectrum
+sequencing" rule is retired — its precondition (Spectrum SOLID) is satisfied.
+Still flag genuinely out-of-roadmap work (Wave 2+ systems, accuracy work past
+what manifests assert) and ask before expanding scope; the rule is to flag, not
+refuse. Roadmap tiers at [`product-roadmap.md`](knowledge/decisions/product-roadmap.md).
 
 ## Clock
 

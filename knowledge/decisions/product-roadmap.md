@@ -10,6 +10,8 @@ Rebuild all 35+ systems from the old codebase at the new accuracy standard. Ever
 
 **Public launch (Crash! Live):** Spectrum only. The system Code198x ships and Crash! Live's audience cares about. **Spectrum SOLID** — variants stable across all 11 supported variants, all 10 [October catalogue](october-catalogue.md) entries pass, real-hardware validated against Spectrum Next + Fuse, Code198x screenshot/video pipeline reliable — is the October-public goal.
 
+> **Status (2026-06-03): Spectrum SOLID engineering bar MET**, ahead of the October launch. The "gate that opens attention to non-Spectrum catalogue completion" (below) is open — C64/NES/Amiga and the donor systems are now the active engineering frontier, not deferred. See [October catalogue Log](october-catalogue.md#log) and RULES.md § Session start.
+
 **Engineering bar (priority order, no October deadline):**
 
 1. **Spectrum** — 13 variants in the codebase (12 listed in the wiki overview plus Spectrum+ added 2026-05-06). **8 in October SOLID scope:** 16K, 48K, Spectrum+, 128K, +2, +2A, +2B, +3. **Deferred to post-October:** Pentagon, Scorpion, TC2048, TC2068, TS2068. 100% Tom Harte, Signal Part 3 working. Full SOLID criteria locked in [October catalogue](october-catalogue.md#october-bar-definition).
