@@ -51,9 +51,10 @@ pub trait DebugTarget {
 
     /// Disassemble one instruction at `addr`, returning `(text, length)`.
     ///
-    /// Returns `None` when no in-tree disassembler exists for this CPU yet
-    /// — currently the 6502 family, pending the Asm198x spec crate. Z80
-    /// machines return `Some` via `zilog_z80::disassemble`.
+    /// Returns `None` when no disassembler is wired for this CPU yet — currently
+    /// the 6809 family (its debug target has no disassemble hook). Z80 machines
+    /// return `Some` via `zilog_z80::disassemble`; the 6502 family via the
+    /// Asm198x `isa_disasm::decode_one_6502` spec disassembler.
     fn disassemble(&self, _addr: u16) -> Option<(String, u8)> {
         None
     }
@@ -197,8 +198,9 @@ macro_rules! impl_z80_debug_target {
 /// Implement [`DebugTarget`] for a 6502-family runtime by delegating to its
 /// `machine: Option<M>` field. The machine `M` must expose `cpu() -> &M6502`
 /// (with `.regs` `a`/`x`/`y`/`sp`/`pc`/`p`), `peek`, `poke`, and
-/// `step_instruction`. `disasm` stays `None` (pending the Asm198x 6502
-/// disassembler) and I/O tracing is unsupported (memory-mapped CPU).
+/// `step_instruction`. `disasm` decodes via the Asm198x `isa_disasm` spec
+/// disassembler (`$crate::isa_disasm::decode_one_6502`); I/O tracing is
+/// unsupported (memory-mapped CPU).
 #[macro_export]
 macro_rules! impl_6502_debug_target {
     ($runtime:ty) => {
@@ -237,6 +239,10 @@ macro_rules! impl_6502_debug_target {
                 self.time = self.time.saturating_add(ticks);
                 self.update_rgba_framebuffer();
                 ticks
+            }
+            fn disassemble(&self, addr: u16) -> Option<(String, u8)> {
+                let m = self.machine.as_ref()?;
+                $crate::isa_disasm::decode_one_6502(addr, |a| m.peek(a))
             }
         }
     };

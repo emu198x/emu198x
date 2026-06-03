@@ -1168,6 +1168,7 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "gilrs",
+ "isa-disasm",
  "png",
  "postcard",
  "serde",
@@ -1734,6 +1735,19 @@ dependencies = [
  "hermit-abi",
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "isa"
+version = "0.0.4"
+source = "git+https://github.com/asm198x/asm198x?rev=f6569eeddcd63163a52a8a822e0537cee24f895f#f6569eeddcd63163a52a8a822e0537cee24f895f"
+
+[[package]]
+name = "isa-disasm"
+version = "0.0.4"
+source = "git+https://github.com/asm198x/asm198x?rev=f6569eeddcd63163a52a8a822e0537cee24f895f#f6569eeddcd63163a52a8a822e0537cee24f895f"
+dependencies = [
+ "isa",
 ]
 
 [[package]]

@@ -415,7 +415,7 @@ fn run_disasm<M: MachineCore, Q>(
     for _ in 0..count {
         let Some((text, len)) = target.disassemble(a) else {
             return Err(ToolError::Execution(
-                "no disassembler available for this CPU (6502 disasm pending the Asm198x crate)"
+                "no disassembler wired for this CPU (e.g. the 6809 family has no disassemble hook yet)"
                     .into(),
             ));
         };

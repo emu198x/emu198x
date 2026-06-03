@@ -357,8 +357,12 @@ impl DebugTarget for Vic20Runtime {
             "master_clock": m.master_clock(),
         })
     }
-    // disassemble: 6502 disassembly is pending the Asm198x crate, so the
-    // default `None` applies — the `disasm` tool reports it cleanly.
+    fn disassemble(&self, addr: u16) -> Option<(String, u8)> {
+        // 6502 disassembly via the shared Asm198x spec crate, re-exported by
+        // emu198x-shell. See 198x/decisions/rung1-wiring.md.
+        let m = self.machine.as_ref()?;
+        emu198x_shell::isa_disasm::decode_one_6502(addr, |a| m.peek_memory(a))
+    }
     fn step_instruction(&mut self) -> u64 {
         let ticks = match self.machine.as_mut() {
             Some(m) => m.step_instruction(),

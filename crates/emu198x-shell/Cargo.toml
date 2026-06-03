@@ -9,6 +9,11 @@ repository.workspace = true
 [dependencies]
 cpal = { workspace = true }
 gilrs = { workspace = true }
+# Shared 6502/6809 disassembler from Asm198x (the isa spec crate). Pinned to a
+# reproducible rev — isa-disasm is untagged. Re-exported below so the
+# `impl_6502_debug_target!` macro can reach it via `$crate::isa_disasm` without
+# every 6502 runtime taking the dependency. See 198x/decisions/rung1-wiring.md.
+isa-disasm = { git = "https://github.com/asm198x/asm198x", rev = "f6569eeddcd63163a52a8a822e0537cee24f895f" }
 png = { workspace = true }
 postcard = { workspace = true }
 serde = { workspace = true }

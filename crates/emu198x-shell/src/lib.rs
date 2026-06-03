@@ -25,6 +25,11 @@ pub mod session;
 pub mod time;
 pub mod video;
 
+// Re-exported so the `impl_6502_debug_target!` macro can reach the shared
+// disassembler as `$crate::isa_disasm` — keeping the dependency on this crate
+// rather than every 6502 runtime. See 198x/decisions/rung1-wiring.md.
+pub use isa_disasm;
+
 pub use asset::{
     AssetLoadError, LoadedAsset, read_firmware_asset, read_media_asset, read_program_asset,
 };

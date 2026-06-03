@@ -1,5 +1,5 @@
 //! Exercises the shared `DebugTarget` surface on the VIC-20 runtime
-//! (a 6502 machine: no `disasm` yet, no `io_trace`).
+//! (a 6502 machine: `disasm` via the Asm198x spec crate, no `io_trace`).
 //!
 //! Gated `#[ignore]`: needs the VIC-20 ROM set at
 //! `~/.emu198x/roms/commodore-vic-20/{kernal,basic,char}.rom`.
@@ -37,11 +37,14 @@ fn debug_surface_works_on_6502() {
         let cpu = dbg.cpu_state();
         assert!(cpu.get("pc").is_some(), "cpu_state should expose pc");
         assert!(cpu.get("a").is_some(), "6502 cpu_state exposes A");
-        // 6502 disassembly is pending the Asm198x crate.
-        assert!(
-            dbg.disassemble(0xE000).is_none(),
-            "6502 has no in-tree disassembler yet"
-        );
+        // 6502 now disassembles via the Asm198x isa_disasm spec crate.
+        match dbg.disassemble(0xE000) {
+            Some((text, len)) => {
+                assert!(!text.is_empty(), "disassembly should render text");
+                assert!((1..=3).contains(&len), "6502 instructions are 1-3 bytes");
+            }
+            None => panic!("6502 should disassemble via isa_disasm"),
+        }
         assert!(
             !dbg.supports_io_trace(),
             "6502 is memory-mapped, not port-mapped"
