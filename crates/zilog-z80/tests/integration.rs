@@ -154,10 +154,11 @@ fn jp_unconditional() {
     assert!(z80.halt);
     // While halted, PC oscillates between the HALT byte (0x0010) and
     // the one after as the CPU re-fetches phantom NOPs. `run` exits as
-    // soon as halt latches — at that moment PC is at the HALT byte
-    // because `begin_next_instruction` has decremented it ready for
-    // the next phantom M1 fetch.
-    assert_eq!(z80.regs.pc, 0x0010);
+    // soon as halt latches — at that moment PC rests at HALT+1 (0x0011):
+    // executing HALT advances PC past the opcode, matching real hardware
+    // and the Tom Harte oracle. The phantom M1 only momentarily rewinds PC
+    // to the HALT byte during each re-fetch.
+    assert_eq!(z80.regs.pc, 0x0011);
 }
 
 #[test]
@@ -231,9 +232,9 @@ fn jp_indirect_hl() {
 
     run(&mut z80, &mut mem, 2000);
     assert!(z80.halt);
-    // HALT sits at 0x0010; PC is at the HALT byte when halt latches
+    // HALT sits at 0x0010; PC rests at HALT+1 (0x0011) when halt latches
     // (see comment in `jp_unconditional`).
-    assert_eq!(z80.regs.pc, 0x0010);
+    assert_eq!(z80.regs.pc, 0x0011);
 }
 
 #[test]
@@ -620,8 +621,8 @@ fn djnz_taken_and_not_taken_paths() {
 
     run(&mut z80, &mut mem, 2000);
     assert_eq!(z80.regs.b(), 0x01);
-    // HALT sits at 0x0006; PC is at the HALT byte when halt latches.
-    assert_eq!(z80.regs.pc, 0x0006);
+    // HALT sits at 0x0006; PC rests at HALT+1 (0x0007) when halt latches.
+    assert_eq!(z80.regs.pc, 0x0007);
     assert!(z80.halt);
 }
 
@@ -688,9 +689,9 @@ fn rst_38_pushes_return_address() {
     assert_eq!(z80.regs.sp, 0xFFFC);
     assert_eq!(mem[0xFFFC], 0x01);
     assert_eq!(mem[0xFFFD], 0x00);
-    // HALT sits at the RST 38 vector (0x0038); PC is at that byte when
-    // halt latches.
-    assert_eq!(z80.regs.pc, 0x0038);
+    // HALT sits at the RST 38 vector (0x0038); PC rests at HALT+1 (0x0039)
+    // when halt latches.
+    assert_eq!(z80.regs.pc, 0x0039);
     assert!(z80.halt);
 }
 
@@ -958,9 +959,9 @@ fn ed_retn_restores_pc_sp_and_iff1_from_iff2() {
 
     run(&mut z80, &mut mem, 4000);
     assert_eq!(z80.regs.sp, 0x9002);
-    // HALT sits at the return target (0x1234); PC is at that byte when
-    // halt latches.
-    assert_eq!(z80.regs.pc, 0x1234);
+    // HALT sits at the return target (0x1234); PC rests at HALT+1 (0x1235)
+    // when halt latches.
+    assert_eq!(z80.regs.pc, 0x1235);
     assert_eq!(z80.regs.wz, 0x1234);
     assert!(z80.regs.iff1);
     assert!(z80.halt);
