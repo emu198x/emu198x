@@ -71,9 +71,9 @@ open items: [`outstanding-work.md`](outstanding-work.md).
 | Acorn BBC Micro | `emu198x-acorn-bbc-micro` | OS bank-scan reaches BASIC slot; needs SAA5050 + BASIC II |
 | Acorn Electron | `emu198x-acorn-electron` | "Language?" red error (needs Acorn BASIC II) |
 | Commodore VIC-20 | `emu198x-commodore-vic-20` | ROM boots; display black until KERNAL screen-init |
-| Memotech MTX | `emu198x-memotech-mtx` | ROM boots; display blank (needs `zilog-z80-ctc`) |
+| Sord M5 | `emu198x-sord-m5` | **Boots through CTC** — BASIC-I `Ready`, Dig Dug renders |
+| Memotech MTX | `emu198x-memotech-mtx` | ROM boots; display blank (needs CTC wiring) |
 | Atari 7800 | `emu198x-atari-7800` | Cart accepts; BIOS-driven boot pending |
-| Sord M5 | `emu198x-sord-m5` | VDP-init only — needs `zilog-z80-ctc` |
 | Tatung Einstein | `emu198x-tatung-einstein` | VDP-init only — needs `western-digital-wd1770` |
 | Jupiter Ace | `emu198x-jupiter-ace` | Awaiting ROM (8 KB Forth) |
 | Acorn Atom | `emu198x-acorn-atom` | Awaiting ROM (24 KB combined) |
@@ -81,10 +81,11 @@ open items: [`outstanding-work.md`](outstanding-work.md).
 | Oric-1 / Atmos | `emu198x-oric-atmos` | Awaiting BIOS (16 KB Tangerine) |
 
 The shared next step for the whole tier is the native `wgpu` verifier window
-(the one surface that separates them from the primary six). The two missing
-chip crates — `zilog-z80-ctc` (Sord M5, Memotech MTX, Einstein channel 0) and
-`western-digital-wd1770` (Einstein disk) — are the highest-leverage unblocks,
-each lifting more than one machine.
+(the one surface that separates them from the primary six). `zilog-z80-ctc`
+landed 2026-06-03 and unblocked the Sord M5 (which also needed an I/O port-map
+fix found by tracing the Monitor ROM); the crate is available to wire into
+Memotech MTX and Einstein. The remaining missing chip crate is
+`western-digital-wd1770` (Tatung Einstein disk boot).
 
 ## Launch Commands
 

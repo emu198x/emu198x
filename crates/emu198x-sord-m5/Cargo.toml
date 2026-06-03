@@ -16,6 +16,7 @@ machine-sord-m5 = { path = "../machine-sord-m5" }
 png = { workspace = true }
 runtime-sord-m5 = { path = "../runtime-sord-m5" }
 serde_json = { workspace = true }
+zilog-z80 = { path = "../zilog-z80" }
 
 [lints]
 workspace = true

@@ -25,9 +25,13 @@ surfaces for the vocabulary):
 - **Borders** — the TV-visible CRT frame is now rendered across the affected
   chips (TMS9918, Sega VDP, the Atari chips, the inline VIC/VDG/Ace renderers;
   Phase 1.1–1.4). No longer active-area-only.
-- **Highest-leverage unblocks:** `zilog-z80-ctc` (Sord M5 + Memotech MTX boot,
-  Einstein channel 0) and `western-digital-wd1770` (Einstein disk). Each lifts
-  more than one machine.
+- **`zilog-z80-ctc` landed 2026-06-03** and is wired into the **Sord M5**,
+  which now boots through the CTC (BASIC-I `Ready`, Dig Dug). The crate is
+  general (4-channel, daisy-chain, both modes); wiring it into Memotech MTX
+  and Tatung Einstein is the remaining reuse (each is separate port work, not
+  automatic — and Einstein is also blocked on `western-digital-wd1770`).
+- **Highest-leverage unblock now:** `western-digital-wd1770` (Tatung Einstein
+  disk boot).
 
 ## ZX Spectrum — `emu198x-spectrum`
 
@@ -912,36 +916,34 @@ passes (1/1).
 ## Sord M5 — `emu198x-sord-m5` (new, 2026-06-01)
 
 Fourth donor-codebase extraction. Reuses TMS9918A + SN76489 from
-ColecoVision / SG-1000; no new chips at the chip-crate level.
+ColecoVision / SG-1000; adds the `zilog-z80-ctc` chip crate.
 Fresh-write machine layer with Sord-specific memory map (cart at
 `$2000-$6FFF`, 4 KB RAM at `$7000-$7FFF`, optional cart RAM at
-`$8000-$BFFF`), 10×8 keyboard matrix on PPI port C → port B-style
-row strobe + column read at `$30-$37` / `$20-$27`, and the same
-correct 3:2 VDP-phase clock as SG-1000 / MSX.
+`$8000-$BFFF`) and the same correct 3:2 VDP-phase clock as
+SG-1000 / MSX.
 
-- **L — BIOS boot does not complete.** The Monitor ROM uses IM 2
-  with `I = $70` and expects the Z80 CTC channel that receives
-  VDP `/INT` to deliver its programmed vector byte. We model VDP
-  `/INT` as driving the Z80 `/IRQ` line directly, with IntAck
-  returning `$FF` (the documented stub). The BIOS init loop
-  reaches roughly `$0BFE` / `$14AC` but never crosses past VDP
-  register init — the framebuffer stays all-backdrop and the
-  CPU never reaches cart code at `$2000+`. The IM 2 vector
-  table at `$7000-$7007` is correctly populated (`$186C` no-op,
-  `$1861` VBlank, `$01DF` cassette / keyboard) but the CTC's
-  channel-VDP wiring + vector-base programming aren't modelled.
-  **Prereq: `zilog-z80-ctc` chip crate.**
-- **A — Z80 CTC is the natural next chip-crate addition.** Four
-  channels, counter / timer modes, control-register decode,
-  channel-specific vector generation off clock pulses. The CTC
-  is also used by Memotech MTX (keyboard timing) and Tatung
-  Einstein (system timing), so the cost amortises across three
-  machines on this list.
+- ~~**L — BIOS boot does not complete.**~~ **Closed 2026-06-03.**
+  The M5 now **boots through the CTC to a rendered screen** —
+  BASIC-I reaches its `Ready` prompt and Dig Dug renders its title /
+  play screen. Two faults were fixed together: (1) the `zilog-z80-ctc`
+  chip crate now models the IM 2 vector path (the Monitor ROM arms
+  CTC channel 3 as a counter off the TMS9918A `/INT` line and the CTC
+  supplies the `$7006 -> $01DF` per-frame vector); (2) an **I/O port
+  map error** — an I/O trace of the Monitor ROM showed the real
+  assignments are CTC `$00-$03`, VDP `$10/$11`, PSG `$20`, where the
+  donor map had VDP `$00`, PSG `$10`, CTC `$50`. Every CTC write had
+  been landing on the VDP and every VDP write on the PSG, so the VDP
+  never configured and the CTC never armed.
+- **A — Keyboard ports provisional.** The keyboard strobe (`$30`) /
+  column read (`$40`) are not yet trace-confirmed; the BIOS does no
+  keyboard I/O on the boot path, so this didn't block boot. Confirm
+  against the BIOS keyboard scan.
 - **A — TMS9918A scanline-batched render** (shared family debt).
 - **A — Snapshot deferred** (shared family pattern).
 - **S — Native verifier window.** Capture + script + MCP parity
-  landed (2026-06-02); the native `wgpu` window is the remaining
-  surface (more useful once the CTC unblocks boot).
+  landed (2026-06-02), now with `disasm` / `query_ctc` / `query_vdp` /
+  `run_until_pc` / `io_trace` debug tools; the native `wgpu` window is
+  the remaining surface.
 
 ## MSX1 — `emu198x-msx` (new, 2026-06-01)
 
@@ -1082,7 +1084,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 1 | ColecoVision | BIOS to title (live) |
 | 2 | Sega SG-1000 / SC-3000 | Othello Multivision cart (live) |
 | 3 | MSX1 | Microsoft BASIC (live) |
-| 4 | Sord M5 | **Incomplete** — needs `zilog-z80-ctc` |
+| 4 | Sord M5 | **Boots through CTC** (live) — BASIC-I `Ready`, Dig Dug renders |
 | 5 | Sega Master System | Alex Kidd in Miracle World (live) |
 | 6 | Spectravideo SVI-328 | **Awaiting BIOS** (32 KB MSX-style system ROM) |
 | 7 | Mattel Aquarius | Microsoft BASIC (live) |
@@ -1119,9 +1121,10 @@ snapshot only — see [decisions/aga-donor-reference-only.md].
 Nothing else substantive remains.
 
 External-blocker holds:
-- Sord M5 boot completion needs a `zilog-z80-ctc` chip crate (also
-  unlocks Memotech MTX boot, plus Tatung Einstein's CTC channel 0
-  stub).
+- ~~Sord M5 boot needs a `zilog-z80-ctc` chip crate.~~ **Closed
+  2026-06-03** — crate landed and wired; the M5 boots through the CTC.
+  The crate is available to wire into Memotech MTX and Tatung Einstein
+  (separate port work).
 - Tatung Einstein full boot needs a `western-digital-wd1770` floppy
   controller for the X-TAL MOS disk wait.
 

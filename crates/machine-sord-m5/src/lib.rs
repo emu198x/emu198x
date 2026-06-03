@@ -20,9 +20,12 @@
 //! - **CPU:** Z80A @ 3.579545 MHz
 //! - **VDP:** TMS9918A (16 KB VRAM)
 //! - **PSG:** SN76489A
-//! - **CTC:** Z80 CTC (channel 3 wired to VDP INT on real hardware;
-//!   modelled as a write-stub on this initial port — most early M5
-//!   software doesn't use it heavily)
+//! - **CTC:** Z80 CTC ([`zilog_z80_ctc::Ctc`]) at port `$00-$03`. The
+//!   TMS9918A `/INT` line feeds one CTC channel's `CLK/TRG` input; the
+//!   channel counts those edges (time constant 1) and the CTC supplies
+//!   the matching IM 2 vector. The BIOS programs the channel during early
+//!   init; this is what carries the M5 from VDP setup into its VBlank
+//!   handler.
 //! - **RAM:** 4 KB at `$7000-$7FFF`; optional cart RAM at
 //!   `$8000-$BFFF` (up to 16 KB, FALC etc.)
 //! - **Monitor ROM:** 8 KB at `$0000-$1FFF`
@@ -44,17 +47,23 @@
 //!
 //! | Port block | R/W   | Function                                |
 //! |------------|-------|-----------------------------------------|
-//! | `$00-$07`  | r/w   | TMS9918A (even=data, odd=control)       |
-//! | `$10-$17`  | write | SN76489 PSG                             |
-//! | `$20-$27`  | read  | Keyboard column for the selected row    |
-//! | `$30-$37`  | write | Keyboard row strobe (bits 0-3 select)   |
-//! | `$50`      | write | Z80 CTC stub                            |
+//! | `$00-$03`  | r/w   | Z80 CTC (channel = port & 3)            |
+//! | `$10-$11`  | r/w   | TMS9918A ($10 data, $11 control/status) |
+//! | `$20-$27`  | write | SN76489 PSG                             |
+//! | `$30-$37`  | write | Keyboard row strobe (provisional)       |
+//! | `$40-$47`  | read  | Keyboard column read (provisional)      |
+//!
+//! The CTC / VDP / PSG ports were corrected from a wrong donor map
+//! (which had VDP at `$00`, PSG at `$10`, CTC at `$50`) after an I/O
+//! trace of the Monitor ROM showed the real assignments above. The
+//! keyboard ports are not yet trace-confirmed.
 //!
 //! # Keyboard
 //!
 //! 10 rows × 8 columns matrix, active-low. The CPU writes the row
 //! index to port `$30-$37` then reads the column data from
-//! `$20-$27`. Standard M5 layout (function keys + alpha rows +
+//! `$40-$47` (both port assignments provisional — not yet
+//! trace-confirmed). Standard M5 layout (function keys + alpha rows +
 //! shift/ctrl).
 //!
 //! # Clock model
@@ -67,6 +76,7 @@
 use ti_sn76489::Sn76489;
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
+use zilog_z80_ctc::Ctc;
 
 const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
 const VDP_DOT_PHASE_DENOMINATOR: u32 = 2;
@@ -82,11 +92,36 @@ const PAL_PSG_CLOCK_HZ: u32 = 3_546_893;
 /// Number of keyboard matrix rows on the M5.
 pub const NUM_KEY_ROWS: usize = 10;
 
+/// CTC channel whose `CLK/TRG` input is wired to the TMS9918A `/INT`
+/// line on the Sord M5. The BIOS arms this channel in counter mode with
+/// time constant 1, so every VDP frame interrupt produces one vectored
+/// Z80 interrupt.
+///
+/// Confirmed by I/O trace of the Monitor ROM: it programs CTC channel 3
+/// as `counter, int-enable, TC=1` (control `$C7`, TC `$01` on port `$03`),
+/// vectoring to `$7006 -> $01DF` — the per-frame VDP service routine.
+/// Channels 1/2 are `÷256` timers (system jiffy); channel 0 is a spare
+/// counter pointing at the `$186C` no-op handler.
+pub const VDP_INT_CTC_CHANNEL: u8 = 3;
+
 /// Sord M5 region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum M5Region {
     Ntsc,
     Pal,
+}
+
+/// One captured I/O port access, for the debug trace.
+#[derive(Debug, Clone, Copy)]
+pub struct IoEvent {
+    /// CPU program counter at the time of the access.
+    pub pc: u16,
+    /// I/O port (low 8 bits of the address bus).
+    pub port: u8,
+    /// Byte written, or byte returned on a read.
+    pub value: u8,
+    /// `true` for `OUT`, `false` for `IN`.
+    pub write: bool,
 }
 
 /// Sord M5 machine.
@@ -101,10 +136,18 @@ pub struct SordM5 {
     /// 10×8 keyboard matrix, active-low (1 = released).
     key_matrix: [u8; NUM_KEY_ROWS],
     /// Last value written to `$30-$37`; bits 0-3 select the matrix
-    /// row that the next `$20-$27` read returns.
+    /// row that the next `$40-$47` read returns.
     key_row: u8,
-    /// CTC stub register (initial port — channel 3 not wired).
-    ctc_reg: u8,
+    /// Z80 CTC at port `$00-$03`. The VDP `/INT` line drives one
+    /// channel's `CLK/TRG`; see [`VDP_INT_CTC_CHANNEL`].
+    ctc: Ctc,
+    /// RETI (`ED 4D`) detector: set when the previous M1 opcode fetch was
+    /// the `ED` prefix, so a following `4D` fetch releases the CTC daisy
+    /// chain. The Z80 exports no RETI signal, so the machine watches the
+    /// opcode stream.
+    prev_opcode_ed: bool,
+    /// When `Some`, every I/O port access is appended here (debug trace).
+    io_trace: Option<Vec<IoEvent>>,
     region: M5Region,
     cpu_tstates: u64,
     tstates_per_frame: u64,
@@ -140,7 +183,9 @@ impl SordM5 {
             ram: [0; 4096],
             key_matrix: [0xFF; NUM_KEY_ROWS],
             key_row: 0,
-            ctc_reg: 0,
+            ctc: Ctc::new(),
+            prev_opcode_ed: false,
+            io_trace: None,
             region,
             cpu_tstates: 0,
             tstates_per_frame,
@@ -178,10 +223,13 @@ impl SordM5 {
 
         self.psg.tick();
 
-        // VDP INT → Z80 IRQ (on real hardware via Z80 CTC channel 3,
-        // but the visible effect at this initial-port level is the
-        // same level-driven IRQ pin).
-        self.cpu.irq = self.vdp.interrupt;
+        // VDP /INT feeds the CTC channel's CLK/TRG input; the CTC ticks
+        // on the CPU clock and edge-counts those frame interrupts. The
+        // CTC's INT output (not the raw VDP line) drives the Z80 IRQ pin,
+        // so the interrupt is vectored through IM 2.
+        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, self.vdp.interrupt);
+        self.ctc.tick();
+        self.cpu.irq = self.ctc.interrupt();
 
         self.cpu_tstates += 1;
     }
@@ -189,7 +237,18 @@ impl SordM5 {
     fn handle_bus(&mut self) {
         match self.cpu.bus_request() {
             Some(BusOp::MemRead) => {
-                self.cpu.data_in = self.mem_read(self.cpu.addr);
+                let byte = self.mem_read(self.cpu.addr);
+                self.cpu.data_in = byte;
+                // Watch the opcode stream for RETI (ED 4D) so the CTC
+                // daisy chain can release its in-service channel. M1 marks
+                // an opcode fetch; the ED prefix and its 4D second byte are
+                // consecutive M1 fetches.
+                if self.cpu.m1 {
+                    if self.prev_opcode_ed && byte == 0x4D {
+                        self.ctc.reti();
+                    }
+                    self.prev_opcode_ed = byte == 0xED;
+                }
             }
             Some(BusOp::MemWrite) => {
                 self.mem_write(self.cpu.addr, self.cpu.data);
@@ -201,29 +260,13 @@ impl SordM5 {
                 self.io_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IntAck) => {
-                // **Known incomplete.** The Monitor ROM sets IM 2 with
-                // `I = $70` and expects the Z80 CTC channel that
-                // receives VDP /INT to deliver its programmed vector
-                // byte. The CTC's vector base and channel-VDP wiring
-                // are configured by the BIOS during early init.
-                //
-                // The IM 2 vector table at `$7000-$7007` (copied by
-                // the BIOS from ROM `$0165`) holds:
-                //   `$7000 -> $186C` (no-op `EI; RETI`)
-                //   `$7002 -> $1861` (VBlank: dec jiffy counter)
-                //   `$7004 -> $186C`
-                //   `$7006 -> $01DF` (cassette / keyboard handler)
-                //
-                // Without a proper Z80 CTC chip emulation (counters,
-                // control-register decode, channel-specific vector
-                // generation off VDP /INT clock pulses), this initial
-                // port returns `$FF` and the BIOS init loop never
-                // advances past VDP setup — Dig Dug and other carts
-                // stay on a black screen.
-                //
-                // Tracked in docs/status/outstanding-work.md
-                // § Sord M5 as a `zilog-z80-ctc` chip-crate prereq.
-                self.cpu.data_in = 0xFF;
+                // The Monitor ROM runs IM 2 with `I = $70`. The CTC
+                // supplies the low vector byte for the requesting channel;
+                // the Z80 forms the table address `(I << 8) | vector` and
+                // fetches the handler. With the VDP-driven channel this
+                // lands on `$7002 -> $1861` (the VBlank jiffy handler),
+                // carrying the BIOS past VDP init.
+                self.cpu.data_in = self.ctc.acknowledge();
             }
             None => {}
         }
@@ -261,16 +304,22 @@ impl SordM5 {
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
+        let pc = self.cpu.regs.pc;
         let p = port as u8;
-        match p & 0xF8 {
-            0x00 => {
+        let value = match p & 0xF8 {
+            // CTC at $00-$03 (channel = CS1,CS0 = A1,A0); read = live counter.
+            0x00 => self.ctc.read(p & 0x03),
+            // TMS9918A at $10 (data) / $11 (status).
+            0x10 => {
                 if p & 1 == 0 {
                     self.vdp.read_data()
                 } else {
                     self.vdp.read_status()
                 }
             }
-            0x20 => {
+            // Keyboard column read for the strobed row. Provisional port —
+            // confirm against the BIOS keyboard scan once boot reaches it.
+            0x40 => {
                 let row = (self.key_row & 0x0F) as usize;
                 if row < NUM_KEY_ROWS {
                     self.key_matrix[row]
@@ -279,22 +328,44 @@ impl SordM5 {
                 }
             }
             _ => 0xFF,
+        };
+        if let Some(trace) = &mut self.io_trace {
+            trace.push(IoEvent {
+                pc,
+                port: p,
+                value,
+                write: false,
+            });
         }
+        value
     }
 
     fn io_write(&mut self, port: u16, value: u8) {
+        let pc = self.cpu.regs.pc;
         let p = port as u8;
+        if let Some(trace) = &mut self.io_trace {
+            trace.push(IoEvent {
+                pc,
+                port: p,
+                value,
+                write: true,
+            });
+        }
         match p & 0xF8 {
-            0x00 => {
+            // CTC at $00-$03 (channel = CS1,CS0 = A1,A0).
+            0x00 => self.ctc.write(p & 0x03, value),
+            // TMS9918A at $10 (data) / $11 (control).
+            0x10 => {
                 if p & 1 == 0 {
                     self.vdp.write_data(value);
                 } else {
                     self.vdp.write_control(value);
                 }
             }
-            0x10 => self.psg.write(value),
+            // SN76489A PSG at $20.
+            0x20 => self.psg.write(value),
+            // Keyboard row strobe (provisional port).
             0x30 => self.key_row = value & 0x0F,
-            0x50 => self.ctc_reg = value,
             _ => {}
         }
     }
@@ -321,6 +392,30 @@ impl SordM5 {
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
         self.mem_read(addr)
+    }
+
+    /// Start (or restart) the I/O port-access trace. Every subsequent
+    /// `IN`/`OUT` is recorded until [`SordM5::take_io_trace`].
+    pub fn start_io_trace(&mut self) {
+        self.io_trace = Some(Vec::new());
+    }
+
+    /// Stop tracing and return the captured I/O events.
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take().unwrap_or_default()
+    }
+
+    /// Run whole instructions until the CPU reaches `target_pc` or
+    /// `max_tstates` elapse. Returns `(tstates_consumed, reached)`.
+    pub fn run_until_pc(&mut self, target_pc: u16, max_tstates: u64) -> (u64, bool) {
+        let start = self.cpu_tstates;
+        while self.cpu_tstates - start < max_tstates {
+            self.tick_tstate();
+            if self.cpu.instruction_complete() && self.cpu.regs.pc == target_pc {
+                return (self.cpu_tstates - start, true);
+            }
+        }
+        (self.cpu_tstates - start, false)
     }
 
     /// Take the accumulated PSG audio buffer.
@@ -364,6 +459,12 @@ impl SordM5 {
         &self.vdp
     }
 
+    /// CTC reference (for observation / debug).
+    #[must_use]
+    pub fn ctc(&self) -> &Ctc {
+        &self.ctc
+    }
+
     /// Region.
     #[must_use]
     pub fn region(&self) -> M5Region {
@@ -380,6 +481,12 @@ impl SordM5 {
     #[must_use]
     pub fn frame_count(&self) -> u64 {
         self.frame_count
+    }
+
+    /// CPU T-states in one frame for the current region.
+    #[must_use]
+    pub fn tstates_per_frame(&self) -> u64 {
+        self.tstates_per_frame
     }
 }
 
@@ -441,23 +548,35 @@ mod tests {
     fn keyboard_row_strobe_and_column_read() {
         let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
         sys.key_matrix[3] = 0x77;
-        // Strobe row 3 then read.
+        // Strobe row 3 ($30 block) then read the column ($40 block).
         sys.io_write(0x30, 3);
-        assert_eq!(sys.io_read(0x20), 0x77);
+        assert_eq!(sys.io_read(0x40), 0x77);
         // Different row, different value.
         sys.key_matrix[7] = 0xAA;
         sys.io_write(0x30, 7);
-        assert_eq!(sys.io_read(0x20), 0xAA);
+        assert_eq!(sys.io_read(0x40), 0xAA);
     }
 
     #[test]
-    fn vdp_io_routes_at_0x00_block() {
+    fn vdp_io_routes_at_0x10_block() {
         let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
-        sys.io_write(0x01, 0x80); // VDP control low byte
-        sys.io_write(0x01, 0xC0); // VDP control high (write to VRAM addr $0000)
-        sys.io_write(0x00, 0x42); // VDP data write
-        // Reading status doesn't panic.
-        let _ = sys.io_read(0x01);
+        sys.io_write(0x11, 0x00); // VDP control low byte
+        sys.io_write(0x11, 0x40); // VDP control high (set VRAM write addr $0000)
+        sys.io_write(0x10, 0x42); // VDP data write
+        // Reading status ($11) doesn't panic.
+        let _ = sys.io_read(0x11);
+    }
+
+    #[test]
+    fn ctc_routes_at_0x00_block() {
+        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
+        // Channel 0: vector base, then a ÷16 timer with time constant 5.
+        sys.io_write(0x00, 0x40); // vector base $40 (D0=0 → vector)
+        sys.io_write(0x00, 0x05); // control: TC follows + control word
+        sys.io_write(0x00, 5); // time constant
+        assert!(sys.ctc().running(0));
+        assert_eq!(sys.io_read(0x00), 5, "read returns the live counter");
+        assert_eq!(sys.ctc().vector_base(), 0x40);
     }
 
     #[test]

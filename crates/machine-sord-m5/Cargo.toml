@@ -10,6 +10,7 @@ repository.workspace = true
 ti-sn76489 = { path = "../ti-sn76489" }
 ti-tms9918 = { path = "../ti-tms9918" }
 zilog-z80 = { path = "../zilog-z80" }
+zilog-z80-ctc = { path = "../zilog-z80-ctc" }
 
 [lints]
 workspace = true
