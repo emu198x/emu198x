@@ -610,9 +610,12 @@ fn decode_group8(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
     let (mode, reg) = ea_mode_reg(opcode);
     let size_bits = (opcode >> 6) & 7;
 
-    // SBCD
-    if size_bits == 4 {
-        return if mode == 0 {
+    // SBCD — opmode 0b100 with bits 7-4 == 0; bit 3 is the R/M flag (0 = data
+    // registers, 1 = address-register predecrement). Every *other* opmode-0b100
+    // word is OR.B Dn,<ea>, reached by the OR fall-through below — so match the
+    // fixed SBCD bits, not the opmode alone (the twin of the group-C ABCD fix).
+    if opcode & 0x01F0 == 0x0100 {
+        return if opcode & 0x0008 == 0 {
             Some(format!("sbcd D{},D{}", reg, dn))
         } else {
             Some(format!("sbcd -(A{}),-(A{})", reg, dn))
@@ -1022,6 +1025,38 @@ mod tests {
         // MULU.W D1,D0 = $C0C1; MULS.W D1,D0 = $C1C1.
         assert_eq!(dis(&[0xC0, 0xC1]), ("mulu.w D1,D0".to_string(), 2));
         assert_eq!(dis(&[0xC1, 0xC1]), ("muls.w D1,D0".to_string(), 2));
+    }
+
+    // Group-8 (OR/DIVU/DIVS/SBCD) regression cluster — the twin of group C. SBCD
+    // claimed all of opmode 0b100, so OR.B Dn,<ea> ($8110) was mis-decoded as
+    // `sbcd`. Encodings confirmed against vasm.
+
+    #[test]
+    fn test_sbcd() {
+        // SBCD D1,D0 = $8101; SBCD -(A1),-(A0) = $8109.
+        assert_eq!(dis(&[0x81, 0x01]), ("sbcd D1,D0".to_string(), 2));
+        assert_eq!(dis(&[0x81, 0x09]), ("sbcd -(A1),-(A0)".to_string(), 2));
+    }
+
+    #[test]
+    fn test_or_dn_to_ea() {
+        // OR Dn,<ea> (register-to-memory). or.b ($8110) was mis-read as sbcd.
+        assert_eq!(dis(&[0x81, 0x10]), ("or.b D0,(A0)".to_string(), 2));
+        assert_eq!(dis(&[0x81, 0x50]), ("or.w D0,(A0)".to_string(), 2));
+        assert_eq!(dis(&[0x81, 0x90]), ("or.l D0,(A0)".to_string(), 2));
+    }
+
+    #[test]
+    fn test_or_ea_to_dn() {
+        // OR <ea>,Dn — the other direction must still decode. $8240 = or.w d0,d1.
+        assert_eq!(dis(&[0x82, 0x40]), ("or.w D0,D1".to_string(), 2));
+    }
+
+    #[test]
+    fn test_div() {
+        // DIVU.W D1,D0 = $80C1; DIVS.W D1,D0 = $81C1.
+        assert_eq!(dis(&[0x80, 0xC1]), ("divu.w D1,D0".to_string(), 2));
+        assert_eq!(dis(&[0x81, 0xC1]), ("divs.w D1,D0".to_string(), 2));
     }
 
     #[test]
