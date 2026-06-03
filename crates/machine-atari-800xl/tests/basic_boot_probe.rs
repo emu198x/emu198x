@@ -142,6 +142,63 @@ fn boots_to_basic_ready() {
     );
 }
 
+#[test]
+#[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
+fn keyboard_types_into_basic() {
+    let dir = rom_dir().expect("HOME unset");
+    let os = std::fs::read(dir.join("atarixl.rom")).expect("atarixl.rom");
+    let basic = std::fs::read(dir.join("ataribas.rom")).expect("ataribas.rom");
+    let mut sys =
+        Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true).expect("boot");
+    for _ in 0..600 {
+        sys.run_frame();
+    }
+
+    // Type `PRINT 6*7` then RETURN. Scan codes are the XL keyboard codes; with
+    // the power-on caps lock the bare letter codes type as uppercase, exactly
+    // as on a real machine. Each key is pressed, held a few frames, released,
+    // then a short settle so the OS keyboard scan sees the release before the
+    // next press.
+    const KEYS: &[u8] = &[
+        0x0A, // P
+        0x28, // R
+        0x0D, // I
+        0x23, // N
+        0x2D, // T
+        0x21, // space
+        0x1B, // 6
+        0x07, // *
+        0x33, // 7
+        0x0C, // RETURN
+    ];
+    for &code in KEYS {
+        sys.press_key(code);
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        sys.release_key();
+        for _ in 0..6 {
+            sys.run_frame();
+        }
+    }
+    // Let BASIC evaluate and print the result.
+    for _ in 0..30 {
+        sys.run_frame();
+    }
+
+    // The answer "42" must appear in screen RAM (display codes: '4'=$14,
+    // '2'=$12). Its presence proves the whole keyboard path: POKEY KBCODE +
+    // keyboard IRQ, the OS conversion to ATASCII, and BASIC executing the line.
+    let ram = sys.ram();
+    let dlist = u16::from(ram[0x0230]) | (u16::from(ram[0x0231]) << 8);
+    let screen = first_lms_target(ram, dlist).expect("display list has an LMS");
+    let found = (0..40 * 24 - 1).any(|j| ram[screen + j] == 0x14 && ram[screen + j + 1] == 0x12);
+    assert!(
+        found,
+        "typed `PRINT 6*7` did not yield `42` on screen — keyboard path broken"
+    );
+}
+
 /// Walk a display list and return the screen-memory address from its first
 /// LMS (load-memory-scan) instruction — a mode-line byte ($02-$0F) with the
 /// LMS bit (6) set, whose two operand bytes hold the address.

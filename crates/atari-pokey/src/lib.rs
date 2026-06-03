@@ -93,10 +93,13 @@ const IRQ_SEROUT_DONE: u8 = 0x08;
 const IRQ_SEROUT_NEEDED: u8 = 0x10;
 #[allow(dead_code)]
 const IRQ_SERIN_READY: u8 = 0x20;
-#[allow(dead_code)]
-const IRQ_OTHER: u8 = 0x40;
+// bit 6 = keyboard key pressed.
+const IRQ_KEY: u8 = 0x40;
 #[allow(dead_code)]
 const IRQ_BREAK: u8 = 0x80;
+
+/// SKSTAT bit 2 — "last key still pressed" (active low: 0 = a key is held).
+const SKSTAT_KEY_DOWN: u8 = 0x04;
 
 /// SKCTL bit 5 — serial output clock enabled (the OS sets SKCTL = $23 to
 /// transmit). Used to prime "output data needed" when a frame starts.
@@ -617,6 +620,25 @@ impl Pokey {
     /// Set the keyboard code register (written by external keyboard controller).
     pub fn set_kbcode(&mut self, code: u8) {
         self.kbcode = code;
+    }
+
+    /// Press a key. `code` is the POKEY keyboard scan code in bits 0-5, with
+    /// bit 6 = Ctrl and bit 7 = Shift. Latches KBCODE, raises the keyboard
+    /// interrupt (IRQST bit 6) — which the OS handler reads and converts to
+    /// ATASCII — and marks "key down" in SKSTAT (bit 2 low). The interrupt is
+    /// edge-triggered: it asserts once here and the CPU clears it by toggling
+    /// IRQEN, exactly like the serial-output IRQs.
+    pub fn press_key(&mut self, code: u8) {
+        self.kbcode = code;
+        self.irqst &= !IRQ_KEY; // keyboard IRQ pending
+        self.skstat &= !SKSTAT_KEY_DOWN; // a key is held
+    }
+
+    /// Release the currently held key — clears the "last key still pressed"
+    /// status (SKSTAT bit 2 high). KBCODE retains its last value, as on
+    /// hardware.
+    pub fn release_key(&mut self) {
+        self.skstat |= SKSTAT_KEY_DOWN;
     }
 
     /// Set the serial input data register.
@@ -1269,5 +1291,35 @@ mod tests {
     fn default_creates_ntsc_pokey() {
         let pokey = Pokey::default();
         assert_eq!(pokey.cpu_freq, 1_789_772);
+    }
+
+    #[test]
+    fn press_key_latches_code_and_raises_interrupt() {
+        let mut pokey = ntsc_pokey();
+        // Idle: no key pending (IRQST bit 6 high), no key down (SKSTAT bit 2 high).
+        assert_eq!(pokey.read(0x0E) & IRQ_KEY, IRQ_KEY);
+        assert_eq!(pokey.read(0x0F) & SKSTAT_KEY_DOWN, SKSTAT_KEY_DOWN);
+
+        pokey.press_key(0x2F); // 'q'
+        assert_eq!(pokey.read(0x09), 0x2F, "KBCODE latches the scan code");
+        assert_eq!(pokey.read(0x0E) & IRQ_KEY, 0, "keyboard IRQ pending");
+        assert_eq!(pokey.read(0x0F) & SKSTAT_KEY_DOWN, 0, "key is down");
+
+        // The CPU acks the keyboard IRQ by toggling IRQEN (writing it with the
+        // bit clear), exactly as the OS dispatcher does.
+        pokey.write(0x0E, !IRQ_KEY);
+        assert_eq!(pokey.read(0x0E) & IRQ_KEY, IRQ_KEY, "ack clears the IRQ");
+
+        pokey.release_key();
+        assert_eq!(
+            pokey.read(0x0F) & SKSTAT_KEY_DOWN,
+            SKSTAT_KEY_DOWN,
+            "release clears key-down"
+        );
+        assert_eq!(
+            pokey.read(0x09),
+            0x2F,
+            "KBCODE retains its value after release"
+        );
     }
 }

@@ -399,6 +399,19 @@ impl Atari800xl {
         self.gtia.set_console_switches(consol);
     }
 
+    /// Press a keyboard key. `scancode` is the POKEY keyboard code (bits 0-5),
+    /// with bit 6 = Ctrl and bit 7 = Shift. Raises the keyboard interrupt; the
+    /// OS handler reads KBCODE and converts it to ATASCII in `CH` ($02FC).
+    pub fn press_key(&mut self, scancode: u8) {
+        self.pokey.press_key(scancode);
+    }
+
+    /// Release the currently held keyboard key (clears the POKEY "key down"
+    /// status so the OS stops auto-repeating and accepts the next key).
+    pub fn release_key(&mut self) {
+        self.pokey.release_key();
+    }
+
     #[must_use]
     pub fn cpu(&self) -> &M6502 {
         &self.cpu

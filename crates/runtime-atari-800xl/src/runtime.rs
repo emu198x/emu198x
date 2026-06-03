@@ -214,6 +214,14 @@ impl MachineCore for Atari800xlRuntime {
         if self.machine.is_none() {
             return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
         }
+        // Apply queued host input (keyboard) before running the frame batch.
+        // A key press latches in POKEY and persists across these frames; a
+        // later call delivers the matching release event.
+        if let Some(machine) = self.machine.as_mut() {
+            for event in host.input_events {
+                crate::input::apply_input_event(machine, event);
+            }
+        }
         while self.time < target {
             let ticks = self
                 .machine
