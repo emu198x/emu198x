@@ -191,6 +191,7 @@ members = [
     "crates/ti-sn76489",
     "crates/ti-tms9918",
     "crates/zilog-z80",
+    "crates/zilog-z80-ctc",
 ]
 
 [workspace.package]
