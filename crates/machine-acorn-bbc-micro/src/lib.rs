@@ -240,6 +240,12 @@ impl BbcMicro {
     }
 
     fn tick_cpu_cycle(&mut self) {
+        // The keyboard hangs off the System VIA's port A: the CPU drives a key
+        // code onto PA0-6 (PA0-3 column, PA4-6 row) and reads PA7, which is
+        // high when that key is down. Without this the MOS reads PA7 as a stuck
+        // "key held" during its power-on scan and never reaches the CLI that
+        // enables interrupts and prints the banner.
+        self.update_keyboard_pa7();
         self.cpu.tick();
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
@@ -252,6 +258,21 @@ impl BbcMicro {
         self.psg.tick();
         self.cpu.irq = self.system_via.irq || self.user_via.irq;
         self.cpu_cycles += 1;
+    }
+
+    /// Drive System VIA PA7 from the key selected by the code on PA0-6.
+    fn update_keyboard_pa7(&mut self) {
+        let code = self.system_via.ora();
+        let col = (code & 0x0F) as usize;
+        let row = ((code >> 4) & 0x07) as usize;
+        let pressed = self
+            .keyboard
+            .get(col)
+            .and_then(|c| c.get(row))
+            .copied()
+            .unwrap_or(false);
+        let bit = if pressed { 0x80 } else { 0x00 };
+        self.system_via.pa_in = (self.system_via.pa_in & 0x7F) | bit;
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
