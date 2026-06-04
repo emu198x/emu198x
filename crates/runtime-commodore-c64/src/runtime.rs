@@ -325,6 +325,12 @@ impl C64Runtime {
         Ok(())
     }
 
+    /// Resync the RGBA framebuffer from the machine's native buffer. Named for
+    /// the debug-target macros, which call it after a poke/step.
+    fn update_rgba_framebuffer(&mut self) {
+        repack_rgba8888(self.machine.framebuffer(), &mut self.rgba_framebuffer);
+    }
+
     fn emit_frame(&mut self, host: &mut HostIo<'_>) -> Result<(), MachineError> {
         repack_rgba8888(self.machine.framebuffer(), &mut self.rgba_framebuffer);
         host.frame_sink.push_frame(FramePacket {
@@ -628,61 +634,14 @@ impl MachineCore for C64Runtime {
         }
     }
 
-    // The C64's machine is always present (firmware-backed at construction), so
-    // unlike the donor runtimes — whose `machine: Option<M>` is fed by the
-    // `debug_target_hooks!` macro — these return the target unconditionally.
-    fn debug_target(&self) -> Option<&dyn emu198x_shell::DebugTarget> {
-        Some(self)
-    }
-
-    fn debug_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::DebugTarget> {
-        Some(self)
-    }
+    // Eager machine (firmware-backed at construction) — the `direct` arm.
+    emu198x_shell::debug_target_hooks!(direct);
 }
 
-/// Hand-rolled 6502 debug target. The `impl_6502_debug_target!` macro assumes a
-/// `machine: Option<M>` field; the C64 runtime holds `machine: C64` directly, so
-/// the methods are spelled out here. Disassembly goes through the shared Asm198x
-/// spec crate (`isa_disasm::decode_one_6502`), per 198x/decisions/rung1-wiring.md.
-impl emu198x_shell::DebugTarget for C64Runtime {
-    fn pc(&self) -> u16 {
-        self.machine.cpu().regs.pc
-    }
-
-    fn peek(&self, addr: u16) -> u8 {
-        self.machine.peek(addr)
-    }
-
-    fn poke(&mut self, addr: u16, value: u8) {
-        self.machine.poke(addr, value);
-        repack_rgba8888(self.machine.framebuffer(), &mut self.rgba_framebuffer);
-    }
-
-    fn cpu_state(&self) -> serde_json::Value {
-        let r = &self.machine.cpu().regs;
-        json!({
-            "a":  format!("${:02X}", r.a),
-            "x":  format!("${:02X}", r.x),
-            "y":  format!("${:02X}", r.y),
-            "sp": format!("${:02X}", r.sp),
-            "pc": format!("${:04X}", r.pc),
-            "p":  format!("${:02X}", r.p),
-            "phi2_cycles": self.machine.phi2_cycles(),
-        })
-    }
-
-    fn disassemble(&self, addr: u16) -> Option<(String, u8)> {
-        emu198x_shell::isa_disasm::decode_one_6502(addr, |a| self.machine.peek(a))
-    }
-
-    fn step_instruction(&mut self) -> u64 {
-        let ticks = self.machine.step_instruction();
-        self.time = MachineTime::new(self.machine.phi2_cycles());
-        repack_rgba8888(self.machine.framebuffer(), &mut self.rgba_framebuffer);
-        ticks
-    }
-    // I/O trace stays the default `false`: the C64's 6502 is memory-mapped.
-}
+// 6502 debug target via the shared macro (`direct`: `machine: C64` is eager, not
+// `Option`). Disassembles through the Asm198x spec crate. See
+// 198x/decisions/rung1-wiring.md.
+emu198x_shell::impl_6502_debug_target!(C64Runtime, direct);
 
 fn build_machine(
     model: Model,

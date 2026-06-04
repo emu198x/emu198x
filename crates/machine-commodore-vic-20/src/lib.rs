@@ -248,13 +248,13 @@ impl Vic20 {
     }
 
     #[must_use]
-    pub fn peek_memory(&self, addr: u16) -> u8 {
+    pub fn peek(&self, addr: u16) -> u8 {
         self.mem_read(addr)
     }
 
     /// Write one byte through the bus (RAM accepts it; ROM / unmapped
     /// addresses ignore it). For host debugging (`poke_*` MCP tools).
-    pub fn poke_memory(&mut self, addr: u16, value: u8) {
+    pub fn poke(&mut self, addr: u16, value: u8) {
         self.mem_write(addr, value);
     }
 

@@ -364,7 +364,7 @@ impl DragonRuntime {
         self.disk = self.machine.disk_image(0).cloned().or(snapshot.disk);
         self.program = snapshot.program;
         self.snapshot = snapshot.snapshot;
-        self.update_framebuffer();
+        self.update_rgba_framebuffer();
         self.audio_buffer.clear();
         Ok(())
     }
@@ -438,7 +438,7 @@ impl DragonRuntime {
         })
     }
 
-    fn update_framebuffer(&mut self) {
+    fn update_rgba_framebuffer(&mut self) {
         let argb = self.machine.beam_pal_overscan_argb();
         self.rgba_framebuffer.clear();
         self.rgba_framebuffer.reserve(argb.len() * 4);
@@ -972,7 +972,7 @@ impl MachineCore for DragonRuntime {
                 payload: &payload,
             })?;
         }
-        self.update_framebuffer();
+        self.update_rgba_framebuffer();
         self.audio_buffer.clear();
         self.machine.drain_audio_samples(&mut self.audio_buffer);
         host.frame_sink.push_frame(FramePacket {
@@ -1010,64 +1010,14 @@ impl MachineCore for DragonRuntime {
         self.profile.capabilities.clone()
     }
 
-    // The Dragon's machine is always present (firmware-backed at construction),
-    // so — like the C64 and unlike the donor runtimes whose `machine: Option<M>`
-    // feeds the `debug_target_hooks!` macro — these return the target directly.
-    fn debug_target(&self) -> Option<&dyn emu198x_shell::DebugTarget> {
-        Some(self)
-    }
-
-    fn debug_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::DebugTarget> {
-        Some(self)
-    }
+    // Eager machine (firmware-backed at construction) — the `direct` arm.
+    emu198x_shell::debug_target_hooks!(direct);
 }
 
-/// Hand-rolled 6809 debug target. There is no `impl_6809_debug_target!` macro
-/// (the donor 6502/Z80 macros assume a `machine: Option<M>` field the Dragon
-/// runtime doesn't have), so the methods are spelled out. Disassembly goes
-/// through the shared Asm198x spec crate (`isa_disasm::decode_one_6809`), per
-/// 198x/decisions/rung1-wiring.md — the first 6809 consumer of the spec.
-impl emu198x_shell::DebugTarget for DragonRuntime {
-    fn pc(&self) -> u16 {
-        self.machine.cpu().regs.pc
-    }
-
-    fn peek(&self, addr: u16) -> u8 {
-        self.machine.peek(addr)
-    }
-
-    fn poke(&mut self, addr: u16, value: u8) {
-        self.machine.poke(addr, value);
-        self.update_framebuffer();
-    }
-
-    fn cpu_state(&self) -> serde_json::Value {
-        let r = &self.machine.cpu().regs;
-        json!({
-            "a":  format!("${:02X}", r.a),
-            "b":  format!("${:02X}", r.b),
-            "dp": format!("${:02X}", r.dp),
-            "cc": format!("${:02X}", r.cc),
-            "x":  format!("${:04X}", r.x),
-            "y":  format!("${:04X}", r.y),
-            "u":  format!("${:04X}", r.u),
-            "s":  format!("${:04X}", r.s),
-            "pc": format!("${:04X}", r.pc),
-        })
-    }
-
-    fn disassemble(&self, addr: u16) -> Option<(String, u8)> {
-        emu198x_shell::isa_disasm::decode_one_6809(addr, |a| self.machine.peek(a))
-    }
-
-    fn step_instruction(&mut self) -> u64 {
-        let ticks = self.machine.step_instruction();
-        self.time = self.time.saturating_add(ticks);
-        self.update_framebuffer();
-        ticks
-    }
-    // I/O trace stays the default `false`: the 6809 is memory-mapped.
-}
+// 6809 debug target via the shared macro (`direct`: `machine: Dragon32` is
+// eager, not `Option`) — the first 6809 consumer of the Asm198x spec
+// disassembler. See 198x/decisions/rung1-wiring.md.
+emu198x_shell::impl_6809_debug_target!(DragonRuntime, direct);
 
 impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
     fn query_paths(&self, _machine: &DragonRuntime, prefix: Option<&str>) -> Vec<String> {

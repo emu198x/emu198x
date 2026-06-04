@@ -1,9 +1,9 @@
 //! Runtime wrapper for the fresh-workspace MSX1 baseline.
 
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, ControlCommand, DebugTarget, FirmwareSet, FramePacket, HostIo,
-    IoEvent, MachineCore, MachineError, MachineProfile, MachineTime, MediaKind, MediaSet,
-    PixelFormat, ResetKind, RunResult, StopReason,
+    AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
+    RunResult, StopReason,
 };
 use machine_msx::{MapperType, Msx, MsxRegion};
 
@@ -355,88 +355,10 @@ impl MachineCore for MsxRuntime {
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }
-    fn debug_target(&self) -> Option<&dyn DebugTarget> {
-        self.machine.as_ref().map(|_| self as &dyn DebugTarget)
-    }
-    fn debug_target_mut(&mut self) -> Option<&mut dyn DebugTarget> {
-        if self.machine.is_some() {
-            Some(self as &mut dyn DebugTarget)
-        } else {
-            None
-        }
-    }
+    emu198x_shell::debug_target_hooks!();
 }
 
-impl DebugTarget for MsxRuntime {
-    fn pc(&self) -> u16 {
-        self.machine.as_ref().map_or(0, |m| m.cpu().regs.pc)
-    }
-    fn peek(&self, addr: u16) -> u8 {
-        self.machine.as_ref().map_or(0xFF, |m| m.peek(addr))
-    }
-    fn poke(&mut self, addr: u16, value: u8) {
-        if let Some(m) = self.machine.as_mut() {
-            m.poke(addr, value);
-        }
-        self.update_rgba_framebuffer();
-    }
-    fn cpu_state(&self) -> serde_json::Value {
-        let Some(m) = self.machine.as_ref() else {
-            return serde_json::json!({});
-        };
-        let cpu = m.cpu();
-        let r = &cpu.regs;
-        serde_json::json!({
-            "af": format!("${:04X}", r.af),
-            "bc": format!("${:04X}", r.bc),
-            "de": format!("${:04X}", r.de),
-            "hl": format!("${:04X}", r.hl),
-            "ix": format!("${:04X}", r.ix),
-            "iy": format!("${:04X}", r.iy),
-            "sp": format!("${:04X}", r.sp),
-            "pc": format!("${:04X}", r.pc),
-            "i":  format!("${:02X}", r.i),
-            "r":  format!("${:02X}", r.r),
-            "iff1": r.iff1,
-            "iff2": r.iff2,
-            "im":   r.im,
-            "halt": cpu.halt,
-            "tstates": m.cpu_tstates(),
-        })
-    }
-    fn disassemble(&self, addr: u16) -> Option<(String, u8)> {
-        let m = self.machine.as_ref()?;
-        Some(zilog_z80::disassemble(addr, |a| m.peek(a)))
-    }
-    fn step_instruction(&mut self) -> u64 {
-        use zilog_z80::Z80Stepper as _;
-        let ticks = match self.machine.as_mut() {
-            Some(m) => m.step_instruction(),
-            None => return 0,
-        };
-        self.time = self.time.saturating_add(ticks);
-        self.update_rgba_framebuffer();
-        ticks
-    }
-    fn supports_io_trace(&self) -> bool {
-        true
-    }
-    fn start_io_trace(&mut self) {
-        if let Some(m) = self.machine.as_mut() {
-            m.start_io_trace();
-        }
-    }
-    fn take_io_trace(&mut self) -> Vec<IoEvent> {
-        self.machine.as_mut().map_or_else(Vec::new, |m| {
-            m.take_io_trace()
-                .into_iter()
-                .map(|e| IoEvent {
-                    pc: e.pc,
-                    port: e.port,
-                    value: e.value,
-                    write: e.write,
-                })
-                .collect()
-        })
-    }
-}
+// Z80 debug target via the shared macro (lazy `machine: Option<Msx>`). The
+// previous hand-rolled impl differed only by an extra `tstates` field in
+// cpu_state, which is available via the `msx.cpu.tstates` query.
+emu198x_shell::impl_z80_debug_target!(MsxRuntime);
