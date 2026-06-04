@@ -13,9 +13,15 @@
 //! `$DC01`) shares wiring with the keyboard column lines and
 //! produces phantom key presses when used.
 //!
-//! Runtime input convention (mirrors Spectrum's port-0-is-default):
-//! - `InputEvent::Button { port: 0, … }` → C64 gameport 2 (CIA1 PA,
-//!   main gameport — what `LDA $DC00` reads).
+//! Runtime input convention — the C64's two control ports are
+//! silkscreened "1" and "2" on the case, so those hardware numbers map
+//! straight through; port 0 is the cross-system "primary stick" alias
+//! (mirrors the Spectrum's port-0-is-default):
+//! - `InputEvent::Button { port: 2, … }` → C64 gameport 2 (CIA1 PA,
+//!   main gameport — what `LDA $DC00` reads, and the port nearly all
+//!   software polls). This is the hardware-faithful number.
+//! - `InputEvent::Button { port: 0, … }` → the same main gameport 2,
+//!   as the cross-system default-stick alias.
 //! - `InputEvent::Button { port: 1, … }` → C64 gameport 1 (CIA1 PB,
 //!   keyboard-shared — `LDA $DC01`). The keyboard conflict is
 //!   unavoidable in hardware; software polling the keyboard while a
@@ -32,15 +38,20 @@
 use emu198x_shell::InputEvent;
 use machine_commodore_c64::C64;
 
-/// Map a Seam-2 input port (0 = main, 1 = secondary) onto the C64's
-/// 1-indexed gameport numbering (CIA1 PA = port 2, CIA1 PB = port 1).
+/// Map a Seam-2 input port onto the C64's case-labelled control port.
+/// The two ports are silkscreened "1" and "2" (CIA1 PA = "Control Port
+/// 2" at `$DC00`; CIA1 PB = "Control Port 1" at `$DC01`), so those
+/// hardware numbers are honoured directly. Port 0 is the cross-system
+/// "primary stick" alias (mirrors the Spectrum's port-0-is-default),
+/// which on the C64 is the main gameport — port 2.
 ///
 /// Returning `None` drops events on ports we don't model (paddle,
 /// mouse 1351, light pen — all post-October).
 fn machine_port(input_port: u8) -> Option<u8> {
     match input_port {
-        0 => Some(2), // input 0 → C64 port 2 (CIA1 PA, main gameport)
-        1 => Some(1), // input 1 → C64 port 1 (CIA1 PB, keyboard-shared)
+        2 => Some(2), // Control Port 2 (CIA1 PA, $DC00) — the main gameport
+        1 => Some(1), // Control Port 1 (CIA1 PB, $DC01) — keyboard-shared
+        0 => Some(2), // cross-system alias: primary stick → main gameport 2
         _ => None,
     }
 }
@@ -204,8 +215,23 @@ mod tests {
     }
 
     #[test]
+    fn input_port_two_maps_to_main_gameport() {
+        // Hardware-faithful: the case is silkscreened "Control Port 2".
+        assert_eq!(machine_port(2), Some(2));
+    }
+
+    #[test]
+    fn input_port_zero_aliases_the_main_gameport() {
+        // Cross-system "primary stick" alias resolves to the main gameport.
+        assert_eq!(machine_port(0), Some(2));
+        assert_eq!(machine_port(0), machine_port(2));
+    }
+
+    #[test]
     fn unmapped_input_ports_are_dropped() {
-        assert_eq!(machine_port(2), None);
+        // Only the two real control ports (1, 2) and the 0 alias map; the
+        // C64 has no third gameport.
+        assert_eq!(machine_port(3), None);
         assert_eq!(machine_port(255), None);
     }
 
@@ -271,14 +297,20 @@ mod tests {
         assert_eq!(pb & 0x10, 0, "port 1 fire should pull PB bit 4 low");
     }
 
+    /// Port-2 events are the hardware-faithful main gameport (CIA1 PA),
+    /// the same destination as the port-0 alias. Fire must therefore
+    /// land on PA, not PB — so PB bit 4 stays high, exactly as for port 0.
     #[test]
-    fn port_two_button_is_dropped() {
+    fn port_two_fire_lands_on_cia1_pa_like_port_zero() {
         let mut m = make_machine();
         apply_input_event(&mut m, &button_event(2, "fire", true));
         m.tick();
-        // Both PA and PB should be unaffected.
         let pb = m.cia1_port_b_input();
-        assert_eq!(pb & 0x10, 0x10, "port 2 fire should be dropped");
+        assert_eq!(
+            pb & 0x10,
+            0x10,
+            "port 2 fire should land on PA (main gameport), leaving PB untouched"
+        );
     }
 }
 

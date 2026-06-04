@@ -39,15 +39,18 @@ const INPUT_SLICES_PER_FRAME: u32 = 4;
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
 const WINDOW_TITLE: &str = "Emu198x Amiga";
+// The joystick lives in Amiga control port 2 (JOY1DAT) per *Mapping the
+// Amiga* p.460 — the runtime maps input port 2 onto the machine's
+// joystick. (Mouse is port 1 / JOY0DAT, routed via pointer events.)
 const AMIGA_JOYSTICK_MAP: ButtonInputMap = ButtonInputMap::new(&[
-    (HostControl::Up, ButtonTarget::new(1, "up")),
-    (HostControl::Down, ButtonTarget::new(1, "down")),
-    (HostControl::Left, ButtonTarget::new(1, "left")),
-    (HostControl::Right, ButtonTarget::new(1, "right")),
-    (HostControl::South, ButtonTarget::new(1, "fire")),
-    (HostControl::East, ButtonTarget::new(1, "fire")),
-    (HostControl::West, ButtonTarget::new(1, "fire")),
-    (HostControl::North, ButtonTarget::new(1, "fire")),
+    (HostControl::Up, ButtonTarget::new(2, "up")),
+    (HostControl::Down, ButtonTarget::new(2, "down")),
+    (HostControl::Left, ButtonTarget::new(2, "left")),
+    (HostControl::Right, ButtonTarget::new(2, "right")),
+    (HostControl::South, ButtonTarget::new(2, "fire")),
+    (HostControl::East, ButtonTarget::new(2, "fire")),
+    (HostControl::West, ButtonTarget::new(2, "fire")),
+    (HostControl::North, ButtonTarget::new(2, "fire")),
 ]);
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -471,7 +474,7 @@ impl AmigaApp {
                 eprintln!(
                     "input: keyboard joystick {}",
                     if self.keyboard_joystick {
-                        "enabled on port 1"
+                        "enabled on port 2"
                     } else {
                         "disabled"
                     }
@@ -592,7 +595,7 @@ impl ApplicationHandler for AmigaApp {
 
 pub fn run(cli: Cli) -> Result<(), AppError> {
     println!(
-        "Controls: Esc quit, F12 reset, mouse port 0, gamepad joystick port 1, Page Up toggles joy1 arrows/space, A-Z/0-9/Space/Enter/Tab/Backspace keyboard, numpad 1-4 toggle Paula channels, numpad 5-8 cycle channel gain, numpad 0 reset audio."
+        "Controls: Esc quit, F12 reset, mouse port 1, gamepad joystick port 2, Page Up toggles joystick arrows/space, A-Z/0-9/Space/Enter/Tab/Backspace keyboard, numpad 1-4 toggle Paula channels, numpad 5-8 cycle channel gain, numpad 0 reset audio."
     );
 
     let runner = AmigaRunner::from_cli(&cli)?;

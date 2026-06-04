@@ -64,9 +64,9 @@ Controls:
     Numpad 1-4           toggle Paula channels 0-3
     Numpad 5-8           cycle Paula channel 0-3 gain
     Numpad 0             reset Paula channel controls
-    Mouse                port-0 Amiga mouse
-    Gamepad              port-1 Amiga joystick
-    Page Up              toggle arrow/space joystick mode for port 1
+    Mouse                port-1 Amiga mouse (JOY0DAT)
+    Gamepad              port-2 Amiga joystick (JOY1DAT)
+    Page Up              toggle arrow/space joystick mode for port 2
     A-Z, 0-9             Amiga keyboard
     Space, Enter, Tab    Amiga keyboard
     Backspace            Amiga keyboard

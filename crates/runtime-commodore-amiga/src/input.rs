@@ -2,9 +2,19 @@
 //!
 //! Splits the host-input → machine routing out of `runtime.rs`. Three
 //! input kinds land here: `Key` events route through the keyboard's
-//! raw matrix code lookup, `PointerMotion` / `PointerButton` events
-//! drive controller port 0 (mouse-1), and `Button` events drive
-//! controller port 1 (joystick).
+//! raw matrix code lookup; `PointerMotion` / `PointerButton` events
+//! drive the mouse on `JOY0DAT`; and `Button` events drive the joystick
+//! on `JOY1DAT`.
+//!
+//! Control-port numbering follows the documented Amiga ports, not the
+//! `JOYxDAT` register index. Per *Mapping the Amiga* (Thomson &
+//! Anderson, 1993, p.460): "Register JOY0DAT handles port 1 and register
+//! JOY1DAT handles port 2" — the mouse lives in **port 1**, the joystick
+//! in **port 2**. So a `Button` event on **port 2** drives the joystick
+//! (the hardware-faithful number); **port 0** is the cross-system
+//! primary-stick alias (matches the C64); and other ports — including
+//! the mouse's port 1 — are dropped, since a joystick on `JOY0DAT` isn't
+//! modelled. See [`joystick_machine_port`].
 //!
 //! Generic over `M: AmigaMachine` — the four input methods on the
 //! trait (`key_event`, `move_mouse_port0`, `set_mouse_button_port0`,
@@ -39,9 +49,27 @@ pub(crate) fn apply_input_event<M: AmigaMachine>(machine: &mut M, event: &InputE
             name,
             pressed,
         } => {
-            machine.set_joystick_control(*port, name.as_ref(), *pressed);
+            if let Some(machine_port) = joystick_machine_port(*port) {
+                machine.set_joystick_control(machine_port, name.as_ref(), *pressed);
+            }
         }
         _ => {}
+    }
+}
+
+/// Map a Seam-2 input port onto the machine's `JOY1DAT` joystick, which
+/// [`AmigaMachine::set_joystick_control`] addresses as its own port 1.
+///
+/// The joystick lives in Amiga control **port 2** (`JOY1DAT`) per
+/// *Mapping the Amiga* p.460, so input port 2 is the hardware-faithful
+/// number and port 0 is the cross-system primary-stick alias. Port 1
+/// (the mouse's `JOY0DAT`) and higher ports are dropped — a joystick on
+/// `JOY0DAT` isn't modelled.
+fn joystick_machine_port(input_port: u8) -> Option<u8> {
+    match input_port {
+        2 => Some(1), // control port 2 = JOY1DAT = the joystick
+        0 => Some(1), // cross-system primary-stick alias → the joystick
+        _ => None,    // port 1 = mouse (JOY0DAT); no joystick destination
     }
 }
 
@@ -101,7 +129,25 @@ fn key_name_to_raw_code(name: &str) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::key_name_to_raw_code;
+    use super::{joystick_machine_port, key_name_to_raw_code};
+
+    /// Port 2 is the documented joystick port (JOY1DAT) per *Mapping the
+    /// Amiga*; port 0 is the cross-system primary-stick alias. Both reach
+    /// the machine's joystick, which is addressed as its own port 1.
+    #[test]
+    fn joystick_ports_follow_documented_amiga_numbering() {
+        assert_eq!(joystick_machine_port(2), Some(1)); // control port 2 = JOY1DAT
+        assert_eq!(joystick_machine_port(0), Some(1)); // primary-stick alias
+    }
+
+    /// Port 1 is the mouse's JOY0DAT, not a joystick destination, and
+    /// higher ports aren't modelled — both drop silently.
+    #[test]
+    fn non_joystick_ports_are_dropped() {
+        assert_eq!(joystick_machine_port(1), None); // mouse port (JOY0DAT)
+        assert_eq!(joystick_machine_port(3), None);
+        assert_eq!(joystick_machine_port(255), None);
+    }
 
     /// Spec invariant: every named key in the lookup table maps to a
     /// stable raw matrix code. One assert per arm catches a regression
