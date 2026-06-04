@@ -39,6 +39,12 @@ pub struct Crtc6845 {
     // Memory address
     /// Memory address counter (14-bit, MA0-MA13).
     ma: u16,
+    /// Address output for the character currently being displayed. The
+    /// counter `ma` runs one ahead (it is advanced ready for the next
+    /// character); `ma_output` latches the value valid for *this* one so a
+    /// consumer that samples after `tick()` reads the right cell rather than
+    /// the next.
+    ma_output: u16,
     /// Row start address (latched at the beginning of each character row).
     row_start: u16,
 
@@ -71,6 +77,7 @@ impl Crtc6845 {
             v_adjust: 0,
             in_v_adjust: false,
             ma: 0,
+            ma_output: 0,
             row_start: 0,
             hsync: false,
             vsync: false,
@@ -105,10 +112,12 @@ impl Crtc6845 {
         }
     }
 
-    /// Current memory address output (MA0-MA13, 14-bit).
+    /// Current memory address output (MA0-MA13, 14-bit). This is the address
+    /// valid for the character being displayed *now*, not the counter's
+    /// look-ahead value.
     #[must_use]
     pub fn memory_address(&self) -> u16 {
-        self.ma & 0x3FFF
+        self.ma_output & 0x3FFF
     }
 
     /// Current raster address (RA0-RA4, 5-bit).
@@ -141,6 +150,16 @@ impl Crtc6845 {
         self.regs[9] & 0x1F
     }
 
+    /// Whether the vertical raster is past the displayed rows (R6) — i.e. in
+    /// the bottom border / vertical retrace. Consumers that route the CRTC's
+    /// off-screen state to a status line (e.g. the PET's VIA PB5 "vertical
+    /// retrace" bit) read this; it mirrors the `v_counter < R6` display-enable
+    /// test used in `tick`.
+    #[must_use]
+    pub fn in_vertical_retrace(&self) -> bool {
+        self.v_counter >= self.regs[6]
+    }
+
     /// Tick one character clock. Call at the CRTC clock rate (1 or 2 MHz
     /// depending on mode). Returns true at the start of a new frame.
     pub fn tick(&mut self) -> bool {
@@ -157,13 +176,15 @@ impl Crtc6845 {
         let v_visible = self.v_counter < self.regs[6];
         self.display_enable = h_visible && v_visible && !self.in_v_adjust;
 
-        // Update memory address during visible area
+        // Latch the address for the character displayed this clock, then
+        // advance the counter ready for the next one.
         if self.display_enable {
+            self.ma_output = self.ma;
             self.ma = self.ma.wrapping_add(1) & 0x3FFF;
         }
 
-        // Cursor detection
-        self.cursor_active = self.display_enable && self.ma == self.cursor_address();
+        // Cursor detection — compare against the address being displayed now.
+        self.cursor_active = self.display_enable && self.ma_output == self.cursor_address();
 
         // HSYNC generation
         if self.h_counter == h_sync_pos {
@@ -271,6 +292,7 @@ impl Crtc6845 {
         data.push(self.v_adjust);
         data.push(u8::from(self.in_v_adjust));
         data.extend_from_slice(&self.ma.to_le_bytes());
+        data.extend_from_slice(&self.ma_output.to_le_bytes());
         data.extend_from_slice(&self.row_start.to_le_bytes());
         data.push(u8::from(self.hsync));
         data.push(u8::from(self.vsync));
@@ -287,7 +309,7 @@ impl Crtc6845 {
     ///
     /// Returns an error if the data is too short.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        if data.len() < 33 {
+        if data.len() < 35 {
             return Err("CRTC state truncated".into());
         }
         let mut p = 0;
@@ -306,6 +328,8 @@ impl Crtc6845 {
         self.in_v_adjust = data[p] != 0;
         p += 1;
         self.ma = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.ma_output = u16::from_le_bytes([data[p], data[p + 1]]);
         p += 2;
         self.row_start = u16::from_le_bytes([data[p], data[p + 1]]);
         p += 2;
@@ -429,6 +453,9 @@ mod tests {
                 break;
             }
         }
+        // Tick once into the first visible character so the latched output
+        // holds this frame's start, not the previous frame's last cell.
+        crtc.tick();
         let ma_start = crtc.memory_address();
         // Tick a few visible characters
         for _ in 0..10 {

@@ -565,18 +565,31 @@ tick = one 6502 cycle, CRTC ticks at the same rate (donor v1
 simplification — real 80-column hardware clocks the CRTC at
 2 MHz).
 
-Live boot verified 2026-06-01 with VICE 901465-* ROM set (BASIC
-2 + Kernal 2 + Editor 2N) duplicated 2 × 2 KB character ROM
-into 4 KB. Renders the canonical zeroed-video-RAM "@" grid in
-green — chars decode correctly from the character ROM through
-the CRTC pipeline. Full "*** COMMODORE BASIC ***" boot needs
-more frames + the BASIC ROM's screen-clear path; not chased
-here.
+**Boots to BASIC `READY` (live, 2026-06-04).** The screen shows
+the canonical `### COMMODORE BASIC ###` / `31743 BYTES FREE` /
+`READY.` banner with the VICE 901465-* ROM set (BASIC 2 +
+Kernal 2 + Editor 2N) and the 4 KB character ROM. Three bugs
+stood between the "@" grid and a real boot, all fixed here:
 
-- **A — Full boot to READY** — the canonical BASIC banner
-  hasn't been observed yet. Frame budget per `run_frame()` is
-  capped defensively; CRTC may need more cycles to drive the
-  boot path.
+1. **CPU never reset** — `Pet::new()` left the 6502 powered on
+   at PC=`$0000`, so it ran the BRK there instead of cold-starting
+   from the `$FFFC` reset vector. Added `cpu.reset()` at
+   construction (the C64 / Atari 5200 do the same).
+2. **Character ROM addressed with a 16-byte stride** — the PET
+   glyph ROM is 8 bytes per character; `code * 16` made every
+   glyph read its neighbour's bitmap and "spaces" fetch a
+   non-blank glyph (the screen filled with horizontal-line
+   noise). Now `code * 8 + scanline`, matching the VIC-II.
+3. **CRTC pre-incremented its address counter** — `motorola-6845`
+   advanced `ma` before the machine sampled it, dropping the
+   first cell of every row (the banner lost its leading `*`). The
+   CRTC now latches a separate `ma_output` for the character it
+   is displaying and advances the counter behind it.
+
+The editor's vertical-retrace spin-wait (`LDA $E840; AND #$20`)
+is also wired now: VIA PB5 reflects the CRTC's `in_vertical_retrace`
+state so the screen-write loop releases each frame.
+
 - **A — Cassette / IEEE-488 unwired.** VIA exists but the
   external lines aren't connected.
 - **A — Speaker unwired** (VIA CB2 piezo).
@@ -1201,7 +1214,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 14 | Atari 7800 ProSystem | **Renders** (live, 2026-06-04) — MARIA CTRL-bit fix lets the DLI→NMI fire; Asteroids draws |
 | 15 | Atari 800XL | **Boots to BASIC `READY`** (live) — GR.0 renders, keyboard types, MCP debug surface |
 | 16 | Jupiter Ace | **Awaiting ROM** (8 KB Forth interpreter) |
-| 17 | Commodore PET | Char grid renders (live) — full boot pending |
+| 17 | Commodore PET | **Boots to BASIC `READY`** (live, 2026-06-04) — CPU reset + 8-byte char-ROM stride + CRTC address-latch fix |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
 | 20 | Memotech MTX500/512 | **Boots to BASIC `Ready`** (OS+BASIC+ASSEM); Z80 CTC wired at $08-$0B with VDP /INT → ch0 (2026-06-04) |

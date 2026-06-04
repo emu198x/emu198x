@@ -45,4 +45,22 @@ fn rom_set_boots_without_panic() {
         sys.framebuffer().len(),
         (sys.framebuffer_width() * sys.framebuffer_height()) as usize
     );
+
+    // The boot must reach the BASIC banner, not merely run without panicking.
+    // Three bugs used to stop it short: the CPU was never reset (so it powered
+    // on at PC=$0000 and stuck on the uninitialised "@" grid); the character
+    // ROM was addressed with a 16-byte stride instead of 8 (every glyph read
+    // its neighbour and "spaces" rendered as line noise); and the CRTC
+    // pre-incremented its address counter, dropping the first cell of each row.
+    //
+    // Screen RAM sits at $8000. The `### COMMODORE BASIC ###` / `BYTES FREE` /
+    // `READY.` banner fills the first few rows with non-space screen codes;
+    // a screen stuck before init is all spaces ($20) or nulls.
+    let printed = (0x8000u16..0x8078)
+        .filter(|&a| !matches!(sys.peek(a), 0x20 | 0x00))
+        .count();
+    assert!(
+        printed >= 20,
+        "expected the BASIC banner in screen RAM; got {printed} printed cells"
+    );
 }

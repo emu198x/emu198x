@@ -108,8 +108,14 @@ impl Pet {
             crtc.write_data(v);
         }
 
+        // Run the 6502 reset sequence so the first fetch comes from the KERNAL
+        // reset vector ($FFFC); without it the CPU powers on at PC=$0000,
+        // executes the BRK there, and never cold-starts (the screen sticks on
+        // the uninitialised "@" grid).
+        let mut cpu = M6502::new();
+        cpu.reset();
         Self {
-            cpu: M6502::new(),
+            cpu,
             ram: [0; 0x8000],
             video_ram: [0; 0x0800],
             basic_rom,
@@ -165,15 +171,24 @@ impl Pet {
         if !self.crtc.display_enable {
             return;
         }
-        let ma = self.crtc.memory_address();
         let ra = self.crtc.raster_address();
-        let char_code = self.video_ram[(ma & 0x07FF) as usize];
-        let char_rom_addr = (u16::from(char_code) * 16 + u16::from(ra)) as usize;
+        // The CRTC address carries the display start (R12/R13, $1000 here). The
+        // screen cell and the video-RAM byte must come from the *same* relative
+        // address, so mask both into the 2 KB video RAM — otherwise the cell
+        // position lands off-screen while an unwritten cell is fetched.
+        let disp_addr = self.crtc.memory_address() & 0x07FF;
+        let char_code = self.video_ram[disp_addr as usize];
+        // The PET character ROM stores 8 bytes per glyph (one byte per
+        // scanline of the 8×8 cell), so the glyph base is `code * 8`, not
+        // `* 16`. Using 16 doubled the stride: every glyph read its
+        // neighbour's data and "spaces" fetched a non-blank glyph (the
+        // screen filled with horizontal-line noise).
+        let char_rom_addr = (u16::from(char_code) * 8 + u16::from(ra)) as usize;
         let char_data = self.char_rom.get(char_rom_addr).copied().unwrap_or(0);
         let on_cursor = self.crtc.cursor_active;
         let chars_per_row = self.screen_chars;
-        let char_col = ma % chars_per_row as u16;
-        let char_row = ma / chars_per_row as u16;
+        let char_col = disp_addr % chars_per_row as u16;
+        let char_row = disp_addr / chars_per_row as u16;
         let active_y =
             u32::from(char_row) * (u32::from(self.crtc.max_scanline()) + 1) + u32::from(ra);
         let active_x_base = u32::from(char_col) * 8;
@@ -227,7 +242,21 @@ impl Pet {
                 self.update_keyboard();
                 self.pia.read((addr & 0x03) as u8)
             }
-            0xE840..=0xE84F => self.via.read((addr & 0x0F) as u8),
+            // VIA port B ($E840) carries the CRTC vertical-retrace state on
+            // PB5 (0 = off-screen). The editor spin-waits on it before writing
+            // the screen to avoid snow, so it must toggle each frame; the other
+            // input bits (IEEE handshake) idle high with no device attached.
+            0xE840 => {
+                // PB5 low signals vertical retrace; every other input bit
+                // idles high with no IEEE device attached.
+                let pb = if self.crtc.in_vertical_retrace() {
+                    !0x20u8
+                } else {
+                    0xFF
+                };
+                self.via.read_port_b_with_value(pb)
+            }
+            0xE841..=0xE84F => self.via.read((addr & 0x0F) as u8),
             0xE880 => self.crtc.read_data(),
             0xE800..=0xEFFF => 0xFF,
             0xF000..=0xFFFF => {
