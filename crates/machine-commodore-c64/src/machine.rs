@@ -153,6 +153,42 @@ impl C64 {
         &self.cpu
     }
 
+    /// Side-effect-free debugger read of CPU-visible memory.
+    ///
+    /// Honors PLA banking via the memory subsystem but — unlike
+    /// [`cpu_read`](Self::cpu_read) — never touches live I/O registers (whose
+    /// reads can clear latches and so on). The byte returned for the
+    /// `$D000`–`$DFFF` window is the banked RAM / character ROM underneath.
+    /// Adequate for the disassembler and memory inspector, whose addresses
+    /// point into RAM or ROM, not live I/O.
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.memory.cpu_read(addr)
+    }
+
+    /// Debugger write to CPU-visible RAM, honoring banking. The byte lands in
+    /// the RAM beneath any ROM or I/O without triggering I/O side effects.
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.memory.cpu_write(addr, value);
+    }
+
+    /// Runs exactly one whole CPU instruction, returning the `phi2` cycles
+    /// consumed. Ticks off the current instruction boundary, then on to the
+    /// next — the two-phase shape the other 6502 cores use, so a one-cycle
+    /// boundary flag never over- or under-runs the step. Bounded against a
+    /// wedged CPU.
+    pub fn step_instruction(&mut self) -> u64 {
+        let start = self.phi2_cycles;
+        let cap = start + 1024;
+        while self.cpu.instruction_complete() && self.phi2_cycles < cap {
+            self.tick();
+        }
+        while !self.cpu.instruction_complete() && self.phi2_cycles < cap {
+            self.tick();
+        }
+        self.phi2_cycles - start
+    }
+
     /// VIC-II state.
     #[must_use]
     pub const fn vic(&self) -> &Vic {
