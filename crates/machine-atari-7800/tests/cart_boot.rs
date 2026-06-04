@@ -58,4 +58,20 @@ fn cart_boots_without_panic() {
         (sys.framebuffer_width() * sys.framebuffer_height()) as usize
     );
     assert!(sys.frame_count() >= 200);
+
+    // The cart must get *past* its boot wait: native 7800 games spin on a
+    // zero-page counter that only their NMI handler advances, and that NMI comes
+    // from MARIA's DLI — which only fires once DMA is enabled (CTRL `DM` bits).
+    // A rendered frame (several colours, many non-background pixels) is the
+    // proof the display list is being walked and the interrupt path is live;
+    // before the CTRL-bit fix this was a uniform black frame.
+    let fb = sys.framebuffer();
+    let colours: std::collections::HashSet<u32> = fb.iter().copied().collect();
+    let non_bg = fb.iter().filter(|&&px| px & 0x00FF_FFFF != 0).count();
+    assert!(
+        colours.len() >= 2 && non_bg >= 500,
+        "screen never rendered ({} colours, {non_bg} non-background px) — \
+         MARIA DMA/DLI likely not running",
+        colours.len()
+    );
 }

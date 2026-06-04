@@ -351,21 +351,31 @@ Gated cart-boot smoke at
 Asteroids (1987)(Atari)(NTSC).a78 — cart loads, machine ticks
 300 frames without panic, framebuffer correctly sized.
 
-- **A — Black screen is a MARIA DLI/NMI bug, not a missing BIOS
-  (diagnosed 2026-06-04).** Earlier framing blamed the absent 7800
-  BIOS; tracing Asteroids disproved that. The cart runs its own
-  reset code at `$D000` (`SEI; CLD; LDA #$97…`), sets up via its
-  high-ROM subroutines, then spins at `$D06F-$D076` waiting for the
-  zero-page frame counter `$76` to advance — and `$76` is bumped by
-  the cart's own NMI handler (`$D2FC`). MARIA's DLI never fires
-  (`$76` unchanged over 20 frames; NMI handler never entered), so
-  the wait never ends and the screen stays black. The cart boots
-  straight from its own reset vector — the BIOS is not in the path.
-  **Real fix:** MARIA must walk the display list and raise the DLI
-  → NMI the game depends on (check DMA-enable via the MARIA CTRL
-  write and the DLL/DL traversal). BIOS-overlay support is a
-  separate, lower-priority authenticity feature, not the boot
-  blocker.
+- **✅ Black screen fixed (2026-06-04) — it was a MARIA CTRL bit
+  bug, not a missing BIOS.** Tracing Asteroids disproved the BIOS
+  theory: the cart runs its own reset code at `$D000`, then spins at
+  `$D06F-$D076` waiting for zero-page `$76`, which only its NMI
+  handler (`$D2FC`) advances — and that NMI is MARIA's DLI. Root
+  cause: the MARIA CTRL (`$3C`) bit map was wrong on three bits —
+  DMA-enable read as bit 7 instead of `DM` bits 6:5, colour-kill as
+  bit 6 instead of 7, Kangaroo as bit 1 instead of 2. So a game
+  enabling DMA (`DM=10`, bit 6) read to us as "DMA off + colour-kill
+  on", and MARIA never walked the display list → no DLI → no NMI →
+  `$76` frozen → black. Corrected the bit positions against the
+  MiSTer RTL; `$76` now advances and the frame renders (Asteroids:
+  ~18 colours, ~5k non-background px, was a uniform black frame).
+  The `cart_boot` smoke now asserts a rendered frame.
+- **A — MARIA display-list fidelity.** Enabling DMA exposed that the
+  renderer had never run on real content: the DL walk could run away
+  (now bounded by a per-line DMA cap; `dma_cycles`/`dma_budget`
+  widened to `u16`). The DL-entry parser (`gfx_addr`/`width`/`hpos`
+  byte roles) needs validation against the hardware DL formats before
+  the output is pixel-accurate — the cap is a safety bound, not a
+  correctness fix. Sibling of the Atari 5200 ANTIC/GTIA fidelity work.
+- **A — BIOS overlay (authenticity, not a blocker).** The 7800 BIOS
+  (`$8000-$FFFF` overlay, INPTCTRL bit 2 disables it) is a separate,
+  lower-priority feature — games boot straight from their own reset
+  vector without it.
 - **A — TIA audio synthesis.** The 7800 uses TIA only for sound;
   six registers are stored but no synthesis path is wired.
 - **A — Snapshot deferred** (shared family pattern).

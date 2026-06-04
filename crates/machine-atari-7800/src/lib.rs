@@ -99,7 +99,7 @@ pub struct Atari7800 {
     master_clock: u64,
     clocks_per_frame: u64,
     frame_count: u64,
-    dma_budget: u8,
+    dma_budget: u16,
     line_cycle: u16,
 }
 
@@ -155,7 +155,7 @@ impl Atari7800 {
 
         if self.master_clock.is_multiple_of(2) {
             self.line_cycle += 1;
-            if self.line_cycle > u16::from(self.dma_budget) && !self.maria.wsync_halt() {
+            if self.line_cycle > self.dma_budget && !self.maria.wsync_halt() {
                 self.cpu.tick();
                 if self.cpu.rw {
                     self.cpu.data_in = self.mem_read(self.cpu.addr);

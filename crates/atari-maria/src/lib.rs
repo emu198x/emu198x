@@ -50,10 +50,17 @@
 //!
 //! # CTRL register ($3C)
 //!
-//! - Bit 7: DMA enabled (1 = MARIA renders, 0 = blank)
-//! - Bit 6: Colour kill (force monochrome)
+//! - Bits 6:5: DM -- DMA mode (`10`/`11` = MARIA renders, `00`/`01` = blank)
+//! - Bit 7: CK -- colour kill (force monochrome)
 //! - Bit 4: CW -- character width for indirect mode (0 = 2 bytes, 1 = 1 byte)
-//! - Bit 1: Kangaroo mode (5-byte DL headers)
+//! - Bit 3: BC -- border control
+//! - Bit 2: Kangaroo mode (transparency off)
+//! - Bits 1:0: RM -- read mode
+//!
+//! The donor reading had bit 7 = DMA / bit 6 = colour-kill / bit 1 = Kangaroo,
+//! which is wrong on all three: a game enabling DMA (`DM=10`, bit 6) read as
+//! "DMA off + colour-kill on", so MARIA never walked the display list, never
+//! raised the DLI, and 7800 games hung waiting on the NMI counter (black screen).
 //!
 //! # Graphics modes
 //!
@@ -97,11 +104,19 @@ const PAL_LINES: u16 = 313;
 /// First visible scanline (approximate; games vary).
 const VISIBLE_TOP: u16 = 16;
 
-/// CTRL bit masks.
-const CTRL_DMA_ENABLED: u8 = 0x80;
-const CTRL_COLOUR_KILL: u8 = 0x40;
+/// CTRL bit masks (MARIA `$3C`), bit positions per the hardware: read mode
+/// `RM` = bits 1:0, Kangaroo = bit 2, border control = bit 3, character width
+/// `CW` = bit 4, DMA mode `DM` = bits 6:5, colour kill `CK` = bit 7. DMA is
+/// active when `DM` is `10`/`11` — i.e. bit 6 is set.
+const CTRL_DMA_ENABLED: u8 = 0x40;
+const CTRL_COLOUR_KILL: u8 = 0x80;
 const CTRL_CW: u8 = 0x10;
-const CTRL_KANGAROO: u8 = 0x02;
+const CTRL_KANGAROO: u8 = 0x04;
+
+/// Upper bound on the DMA cycles a single scanline can steal. A 7800 line is
+/// 454 MARIA colour clocks; this caps the display-list walk so a malformed list
+/// can't loop unbounded (real MARIA's DMA simply aborts at end of line).
+const MAX_DMA_CYCLES_PER_LINE: u16 = 512;
 
 // ---------------------------------------------------------------------------
 // Region
@@ -211,7 +226,7 @@ pub struct Maria {
     dll_active: bool,
 
     // -- DMA ----------------------------------------------------------------
-    dma_cycles: u8,
+    dma_cycles: u16,
 
     // -- Framebuffer --------------------------------------------------------
     framebuffer: Vec<u32>,
@@ -358,9 +373,10 @@ impl Maria {
         FB_HEIGHT
     }
 
-    /// DMA cycles stolen during the last `render_line` call.
+    /// DMA cycles stolen during the last `render_line` call. A populated zone's
+    /// display list can steal more than 255 cycles, so this is a `u16`.
     #[must_use]
-    pub fn dma_cycles(&self) -> u8 {
+    pub fn dma_cycles(&self) -> u16 {
         self.dma_cycles
     }
 
@@ -388,7 +404,7 @@ impl Maria {
         data.push(self.zone_offset);
         data.push(u8::from(self.zone_dli));
         data.push(u8::from(self.dll_active));
-        data.push(self.dma_cycles);
+        data.extend_from_slice(&self.dma_cycles.to_le_bytes());
         data
     }
 
@@ -440,8 +456,8 @@ impl Maria {
         p += 1;
         self.dll_active = data[p] != 0;
         p += 1;
-        self.dma_cycles = data[p];
-        p += 1;
+        self.dma_cycles = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
         Ok(p)
     }
 
@@ -451,7 +467,7 @@ impl Maria {
     /// can access any address in the 64 KB address space (RAM, ROM, etc.).
     ///
     /// Returns the number of DMA cycles stolen from the CPU for this line.
-    pub fn render_line(&mut self, read_byte: &mut dyn FnMut(u16) -> u8) -> u8 {
+    pub fn render_line(&mut self, read_byte: &mut dyn FnMut(u16) -> u8) -> u16 {
         self.dma_cycles = 0;
 
         let visible_bottom = VISIBLE_TOP + ACTIVE_HEIGHT as u16;
@@ -538,6 +554,14 @@ impl Maria {
         let mut dl_addr = self.zone_dl_addr;
 
         loop {
+            // A scanline can't sustain more DMA than its colour-clock budget;
+            // on real hardware MARIA's DMA aborts at the end of the line. Cap
+            // the walk at that bound so a malformed display list (no end-of-list
+            // marker) terminates instead of running away.
+            if self.dma_cycles >= MAX_DMA_CYCLES_PER_LINE {
+                break;
+            }
+
             // Read the first two bytes to check for end-of-list.
             let b0 = read_byte(dl_addr);
             let b1 = read_byte(dl_addr.wrapping_add(1));
