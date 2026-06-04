@@ -351,12 +351,21 @@ Gated cart-boot smoke at
 Asteroids (1987)(Atari)(NTSC).a78 — cart loads, machine ticks
 300 frames without panic, framebuffer correctly sized.
 
-- **A — BIOS-driven boot not yet wired.** Native 7800 games
-  depend on the 4 KB 7800 BIOS at `$F000-$FFFF` for region +
-  encryption checks before transferring control. Without it both
-  Asteroids and Dig Dug boot to black. Adding `--bios` and the
-  BIOS-overlay toggle (via MARIA CTRL) is the next concrete
-  follow-up on this thread.
+- **A — Black screen is a MARIA DLI/NMI bug, not a missing BIOS
+  (diagnosed 2026-06-04).** Earlier framing blamed the absent 7800
+  BIOS; tracing Asteroids disproved that. The cart runs its own
+  reset code at `$D000` (`SEI; CLD; LDA #$97…`), sets up via its
+  high-ROM subroutines, then spins at `$D06F-$D076` waiting for the
+  zero-page frame counter `$76` to advance — and `$76` is bumped by
+  the cart's own NMI handler (`$D2FC`). MARIA's DLI never fires
+  (`$76` unchanged over 20 frames; NMI handler never entered), so
+  the wait never ends and the screen stays black. The cart boots
+  straight from its own reset vector — the BIOS is not in the path.
+  **Real fix:** MARIA must walk the display list and raise the DLI
+  → NMI the game depends on (check DMA-enable via the MARIA CTRL
+  write and the DLL/DL traversal). BIOS-overlay support is a
+  separate, lower-priority authenticity feature, not the boot
+  blocker.
 - **A — TIA audio synthesis.** The 7800 uses TIA only for sound;
   six registers are stored but no synthesis path is wired.
 - **A — Snapshot deferred** (shared family pattern).
