@@ -111,7 +111,8 @@ const VISIBLE_TOP: u16 = 16;
 const CTRL_DMA_ENABLED: u8 = 0x40;
 const CTRL_COLOUR_KILL: u8 = 0x80;
 const CTRL_CW: u8 = 0x10;
-const CTRL_KANGAROO: u8 = 0x04;
+// Kangaroo mode (bit 2) is a transparency option, not yet implemented — see the
+// module CTRL table. The 4-vs-5-byte DL header choice is per-entry, not CTRL.
 
 /// Upper bound on the DMA cycles a single scanline can steal. A 7800 line is
 /// 454 MARIA colour clocks; this caps the display-list walk so a malformed list
@@ -183,7 +184,7 @@ struct DlEntry {
     palette: u8,
     /// Horizontal position (0-319).
     hpos: u16,
-    /// Width in bytes (1-8).
+    /// Width in graphics bytes (1-32).
     width: u8,
     /// Indirect (character/tile) mode.
     indirect: bool,
@@ -548,9 +549,21 @@ impl Maria {
     }
 
     /// Walk the display list for the current zone and render each entry.
+    ///
+    /// Each entry is a 4- or 5-byte header, chosen *per entry* by its second
+    /// byte (`b1`): `b1 & 0x5F == 0` ends the line's list; otherwise
+    /// `b1 & 0x1F != 0` is a 4-byte (direct) header and `== 0` is a 5-byte
+    /// (extended) header. Byte roles per the MARIA spec (cross-checked against
+    /// the MiSTer `DMA.sv`):
+    ///
+    /// - **4-byte:** `b0` = addr low, `b1` = `PPPWWWWW` (palette 7:5, width 4:0),
+    ///   `b2` = addr high, `b3` = HPOS. Always direct, default write mode.
+    /// - **5-byte:** `b0` = addr low, `b1` = `WM·1·IND·00000` (write-mode bit 7,
+    ///   indirect bit 5), `b2` = addr high, `b3` = `PPPWWWWW`, `b4` = HPOS.
+    ///
+    /// Width is a 5-bit two's-complement byte count: `((!W) & 0x1F) + 1`, i.e.
+    /// 1–32 (`W = 0` → 32).
     fn process_display_list(&mut self, read_byte: &mut dyn FnMut(u16) -> u8) {
-        let kangaroo = self.ctrl & CTRL_KANGAROO != 0;
-        let entry_size: u16 = if kangaroo { 5 } else { 4 };
         let mut dl_addr = self.zone_dl_addr;
 
         loop {
@@ -562,13 +575,12 @@ impl Maria {
                 break;
             }
 
-            // Read the first two bytes to check for end-of-list.
             let b0 = read_byte(dl_addr);
             let b1 = read_byte(dl_addr.wrapping_add(1));
             self.dma_cycles += 2;
 
-            // End-of-list: byte0 == 0 and (byte1 & 0x5F) == 0.
-            if b0 == 0 && (b1 & 0x5F) == 0 {
+            // End of the line's display list.
+            if b1 & 0x5F == 0 {
                 break;
             }
 
@@ -576,20 +588,30 @@ impl Maria {
             let b3 = read_byte(dl_addr.wrapping_add(3));
             self.dma_cycles += 2;
 
-            let write_mode_320 = if kangaroo {
-                let b4 = read_byte(dl_addr.wrapping_add(4));
-                self.dma_cycles += 1;
-                Some(b4 & 0x80 != 0)
-            } else {
-                None
-            };
+            let (palette, width_field, hpos, indirect, write_mode_320, entry_size) =
+                if b1 & 0x1F != 0 {
+                    // 4-byte direct header.
+                    ((b1 >> 5) & 0x07, b1 & 0x1F, b3, false, None, 4u16)
+                } else {
+                    // 5-byte extended header: width/palette move to b3, HPOS to b4.
+                    let b4 = read_byte(dl_addr.wrapping_add(4));
+                    self.dma_cycles += 1;
+                    (
+                        (b3 >> 5) & 0x07,
+                        b3 & 0x1F,
+                        b4,
+                        b1 & 0x20 != 0,
+                        Some(b1 & 0x80 != 0),
+                        5u16,
+                    )
+                };
 
             let entry = DlEntry {
-                gfx_addr: u16::from(b1 & 0x1F) << 8 | u16::from(b0),
-                palette: (b1 >> 5) & 0x07,
-                hpos: u16::from(b2),
-                width: ((b3 >> 5) & 0x07) + 1,
-                indirect: b3 & 0x10 != 0,
+                gfx_addr: u16::from(b2) << 8 | u16::from(b0),
+                palette,
+                hpos: u16::from(hpos),
+                width: ((!width_field) & 0x1F) + 1,
+                indirect,
                 write_mode_320,
             };
 
@@ -968,22 +990,15 @@ mod tests {
         mem[0x2000] = 0x00;
         mem[0x2001] = 0x30;
         mem[0x2002] = 0x00;
-        // DL entry: 1 byte of graphics at $4000, palette 0, hpos 0, width 1.
-        mem[0x3000] = 0x00; // gfx addr low
-        mem[0x3001] = 0x40; // palette 0 (000), addr high = $40 → but only low 5 bits → $00
-        // Actually: gfx_addr = (byte1 & 0x1F) << 8 | byte0 = 0x00<<8 | 0x00 = $0000.
-        // Let me fix: put gfx data address at $4000.
-        mem[0x3000] = 0x00; // gfx addr low = $00
-        mem[0x3001] = 0x40; // pal=010 (palette 2), addr hi bits = $00... Hmm.
-        // byte1 bits 4-0 = addr bits 12-8. To get $4000 we need bits 12-8 = $40>>8=doesn't work.
-        // $4000 = 0100_0000_0000_0000. bits 12-8 = 0_0000 = $00. So addr high = $40 only if
-        // we use the OFFSET mechanism.
-        // Simpler: put graphics at $0500. addr = $0500, byte1_low5 = $05, byte0 = $00.
-        mem[0x3000] = 0x00; // gfx addr low = $00
-        mem[0x3001] = 0x05; // palette 0 (000), addr hi = $05 → gfx at $0500
-        mem[0x3002] = 0x00; // hpos = 0
-        mem[0x3003] = 0x00; // width = 1, no indirect
-        // End marker.
+        // 4-byte DL entry: 1 byte of graphics at $0500, palette 0, hpos 0.
+        //   b0 = addr low ($00); b1 = PPPWWWWW = palette 0 | width-field $1F
+        //   (two's-complement count of 1 byte); b2 = addr high ($05);
+        //   b3 = HPOS (0).
+        mem[0x3000] = 0x00;
+        mem[0x3001] = 0x1F;
+        mem[0x3002] = 0x05;
+        mem[0x3003] = 0x00;
+        // End marker: next header's b1 (`$3005`) has `& 0x5F == 0`.
         mem[0x3004] = 0x00;
         mem[0x3005] = 0x00;
 

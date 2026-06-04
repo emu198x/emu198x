@@ -366,12 +366,18 @@ Asteroids (1987)(Atari)(NTSC).a78 — cart loads, machine ticks
   ~18 colours, ~5k non-background px, was a uniform black frame).
   The `cart_boot` smoke now asserts a rendered frame.
 - **A — MARIA display-list fidelity.** Enabling DMA exposed that the
-  renderer had never run on real content: the DL walk could run away
-  (now bounded by a per-line DMA cap; `dma_cycles`/`dma_budget`
-  widened to `u16`). The DL-entry parser (`gfx_addr`/`width`/`hpos`
-  byte roles) needs validation against the hardware DL formats before
-  the output is pixel-accurate — the cap is a safety bound, not a
-  correctness fix. Sibling of the Atari 5200 ANTIC/GTIA fidelity work.
+  renderer had never run on real content. The DL-entry parser was
+  rewritten to the hardware format (2026-06-04), cross-checked against
+  the MiSTer `DMA.sv`: 4- vs 5-byte header chosen *per entry* by `b1`
+  (`& 0x5F == 0` ends the list, `& 0x1F != 0` is 4-byte else 5-byte),
+  correct byte roles (`b0`/`b2` = addr low/high, palette + width in
+  `b1` or `b3`, HPOS in `b3`/`b4`), and two's-complement width
+  (`((!W) & 0x1F) + 1`, 1–32). The list now terminates naturally
+  (`dma_cycles` returns to 0 on idle lines — the runaway is gone, not
+  just capped) and the transparency unit test validates exact pixels.
+  Remaining fidelity is graphics-mode coverage (160B / 320B/C/D,
+  Kangaroo transparency) and a visual diff against a reference —
+  sibling of the Atari 5200 ANTIC/GTIA work.
 - **A — BIOS overlay (authenticity, not a blocker).** The 7800 BIOS
   (`$8000-$FFFF` overlay, INPTCTRL bit 2 disables it) is a separate,
   lower-priority feature — games boot straight from their own reset
