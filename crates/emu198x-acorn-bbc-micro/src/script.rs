@@ -109,6 +109,17 @@ fn default_mos_path() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".emu198x/roms/acorn-bbc-micro/os.rom"))
 }
 
+fn default_font_path() -> Option<PathBuf> {
+    if let Ok(p) = env::var("EMU198X_BBC_SAA5050")
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
+    let home = env::var("HOME").ok()?;
+    let p = PathBuf::from(home).join(".emu198x/roms/acorn-bbc-micro/saa5050.rom");
+    p.exists().then_some(p)
+}
+
 /// Headless entry point.
 ///
 /// # Errors
@@ -150,6 +161,13 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
             )
         })?;
         runtime.insert_sideways_rom(*bank, rom);
+    }
+
+    // Load the SAA5050 teletext character ROM (MODE 7) if one is available.
+    if let Some(font_path) = default_font_path()
+        && let Ok(font) = fs::read(&font_path)
+    {
+        runtime.set_teletext_font(font);
     }
 
     let mut session = HeadlessSession::new_with_query_provider(

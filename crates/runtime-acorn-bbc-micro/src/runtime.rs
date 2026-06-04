@@ -20,6 +20,7 @@ pub struct BbcMicroRuntime {
     machine: Option<BbcMicro>,
     mos_bytes: Option<Vec<u8>>,
     sideways_roms: Vec<(usize, Vec<u8>)>,
+    teletext_font: Vec<u8>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
@@ -35,6 +36,7 @@ impl BbcMicroRuntime {
             machine: None,
             mos_bytes: None,
             sideways_roms: Vec::new(),
+            teletext_font: Vec::new(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
@@ -88,6 +90,12 @@ impl BbcMicroRuntime {
     }
 
     /// Install a sideways ROM into a slot (0..=15).
+    /// Supply the SAA5050 teletext character ROM used to render MODE 7.
+    pub fn set_teletext_font(&mut self, font: Vec<u8>) {
+        self.teletext_font = font;
+        self.rebuild_machine();
+    }
+
     pub fn insert_sideways_rom(&mut self, bank: usize, rom: Vec<u8>) {
         self.sideways_roms.retain(|(b, _)| *b != bank);
         self.sideways_roms.push((bank, rom));
@@ -138,6 +146,9 @@ impl BbcMicroRuntime {
             return;
         };
         let mut machine = BbcMicro::new(mos);
+        if !self.teletext_font.is_empty() {
+            machine.set_teletext_font(self.teletext_font.clone());
+        }
         for (bank, rom) in &self.sideways_roms {
             machine.insert_rom(*bank, rom.clone());
         }

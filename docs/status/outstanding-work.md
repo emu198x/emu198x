@@ -831,28 +831,38 @@ CRTC VSYNC drives System VIA CA1 (sets the line so the VIA edge
 detector latches the interrupt). System VIA + User VIA IRQs OR
 into the CPU `irq` pin.
 
-**Live-tested with Acorn OS v1.2** (16 KB, SHA-256
-`b0ad5c0b2e7d5776cc65d643989c02c66f7823df1f5c1c528833588c5a3e7a07`,
-from TOSEC `Acorn/BBC/Operating Systems/`). The MOS executes
-through to its sideways-ROM scan and ends up selecting bank 15
-(the conventional BASIC slot — same scan logic as the Electron).
-Framebuffer stays at MODE 7 backdrop (black) because the OS
-defaults to MODE 7 teletext and the **SAA5050 teletext chip is
-absent** from this port.
+**Boots to BASIC in MODE 7 (live, 2026-06-04).** The Beeb shows its
+canonical teletext screen:
 
-- **L — Acorn BASIC II ROM still missing.** Same blocker as the
-  Electron — TOSEC has neither under Acorn/BBC nor anywhere
-  searchable. Without BASIC the OS shows the canonical "Language?"
-  error in MODE 7. Source from Stairway to Hell.
-- **A — SAA5050 teletext chip not modelled.** MODE 7 stays blank.
-  The OS uses MODE 7 by default (BASIC then usually moves to
-  MODE 0/1 etc); without SAA5050 we can't see the boot screen
-  text even with BASIC loaded.
-- **A — Keyboard scan via System VIA + IC32 latch + addressable
-  output not wired.** Keyboard matrix is allocated; scan path
-  through the OS reads the column data which the System VIA
-  pulls from IC32-controlled lines. Not yet implemented; affects
-  any key-driven boot path.
+```
+BBC Computer 32K
+BASIC
+```
+
+Two things landed it. First, the keyboard. The BBC hangs its keyboard
+off System VIA port A — the CPU drives a key code onto PA0-6 and reads
+PA7, high when that key is down. PA7 was unwired, so the MOS read a
+stuck "key held" during its power-on scan and never reached the `CLI`
+that enables interrupts (the 6502 I-flag never cleared across a whole
+boot). Driving PA7 from the key matrix lets the scan complete; the MOS
+then selects BASIC in bank 15 and prints the banner into the MODE 7
+screen RAM at `$7C00`.
+
+Second, the **SAA5050 teletext generator**, previously a black-backdrop
+placeholder. MODE 7 now renders each 40×25 cell as a 12×10 block:
+alphanumeric glyphs come from the 960-byte SAA5050 character ROM,
+2×3 mosaic blocks are generated for graphics codes, and the control
+codes (`$00-$1F`) act "set-after" for colour, graphics/alpha,
+separated/contiguous, hold-graphics and background. Colours are the
+fixed 3-bit teletext set. The font ROM is `saa5050` from MAME's device
+romset (md5 `8b3c10a2317808ed94d6c6073b5b3327`), installed at
+`~/.emu198x/roms/acorn-bbc-micro/saa5050.rom`; the BASIC II ROM is the
+in-tree `basic2.rom` (the same image the Electron uses).
+
+- **A — SAA5050 niceties.** Diagonal smoothing (character rounding),
+  double-height, and flash are not yet modelled; the glyphs render
+  crisp rather than anti-aliased, and double-height rows show at single
+  height. Mosaic graphics and the main control codes are in.
 - **A — CRTC bus contention timing.** Donor and this port both
   run CPU at flat 2 MHz; real BBC has the famous 1 MHz / 2 MHz
   alternating per-cycle scheme.
@@ -1264,7 +1274,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 8 | Tatung Einstein TC-01 | **VDP-init only** — needs WD1770 floppy |
 | 9 | Acorn Electron | **Boots to BASIC `>`** (live, 2026-06-04) — MAME-accurate ULA palette + screen-start + character-block display |
 | 10 | Oric-1 / Atmos | **Boots to BASIC** (live, 2026-06-04) — clean first-boot with BASIC 1.1; `Ready` prompt |
-| 11 | Acorn BBC Micro Model B | OS bank-scan reaches BASIC slot (live) — needs SAA5050 + BASIC for full |
+| 11 | Acorn BBC Micro Model B | **Boots to BASIC in MODE 7** (live, 2026-06-04) — keyboard→VIA PA7 fix + SAA5050 teletext renderer; `BBC Computer 32K` |
 | 12 | Atari 2600 | Combat playfield (live) |
 | 13 | Atari 5200 SuperSystem | **Boots Pac-Man to its menu** (live, 2026-06-04) — two-chip 16K cart decode + ANTIC full-bus DMA + text-mode colour fix |
 | 14 | Atari 7800 ProSystem | **Renders** (live, 2026-06-04) — MARIA CTRL-bit fix lets the DLI→NMI fire; Asteroids draws |

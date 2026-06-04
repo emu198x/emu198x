@@ -30,6 +30,12 @@ fn basic_path() -> Option<PathBuf> {
     p.exists().then_some(p)
 }
 
+fn font_path() -> Option<PathBuf> {
+    let home = env::var("HOME").ok()?;
+    let p = PathBuf::from(home).join(".emu198x/roms/acorn-bbc-micro/saa5050.rom");
+    p.exists().then_some(p)
+}
+
 #[test]
 #[ignore = "needs BBC Micro MOS + BASIC ROMs — run with --ignored"]
 fn os_boots_to_basic_banner() {
@@ -82,5 +88,38 @@ fn os_boots_to_basic_banner() {
         sys.rom_bank() > 0,
         "OS should have selected a language ROM; got bank {}",
         sys.rom_bank()
+    );
+}
+
+#[test]
+#[ignore = "needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored"]
+fn mode7_renders_the_banner() {
+    let (Some(os), Some(basic), Some(font)) = (os_path(), basic_path(), font_path()) else {
+        panic!(
+            "needs os.rom + basic.rom + saa5050.rom at ~/.emu198x/roms/acorn-bbc-micro/ \
+             (saa5050.rom is the 960-byte SAA5050 character ROM)"
+        );
+    };
+    let mut sys = BbcMicro::new(fs::read(&os).expect("read OS"));
+    sys.insert_rom(15, fs::read(&basic).expect("read BASIC"));
+    sys.set_teletext_font(fs::read(&font).expect("read font"));
+    for _ in 0..200 {
+        sys.run_frame();
+    }
+
+    // With the SAA5050 font in place, MODE 7 draws the banner as white text on
+    // black. The screen is mostly black with a few thousand white pixels of
+    // "BBC Computer 32K" / "BASIC"; before the SAA5050 model it was entirely
+    // black.
+    let fb = sys.framebuffer();
+    let white = fb.iter().filter(|&&px| px == 0xFFFF_FFFF).count();
+    let black = fb.iter().filter(|&&px| px == 0xFF00_0000).count();
+    assert!(
+        black > fb.len() * 3 / 4,
+        "MODE 7 background should be predominantly black; got {black}"
+    );
+    assert!(
+        (200..40_000).contains(&white),
+        "expected the banner as white teletext pixels; got {white}"
     );
 }

@@ -164,6 +164,42 @@ impl AddressableLatch {
     }
 }
 
+/// Teletext logical colour (0-7) to ARGB. The three bits are red, green, blue.
+fn teletext_colour(c: u8) -> u32 {
+    let r = u32::from(c & 0x01 != 0) * 0xFF;
+    let g = u32::from(c & 0x02 != 0) * 0xFF;
+    let b = u32::from(c & 0x04 != 0) * 0xFF;
+    0xFF00_0000 | (r << 16) | (g << 8) | b
+}
+
+/// One row of a 2×3 mosaic graphics block as a 12-bit pattern. The block bits
+/// in the code are: 0 top-left, 1 top-right, 2 mid-left, 3 mid-right,
+/// 4 bottom-left, 6 bottom-right. The cell splits into a left and right half
+/// (six pixels each); separated graphics blank the cell's right and bottom
+/// edges.
+fn mosaic_pattern(code: u8, font_row: usize, separated: bool) -> u16 {
+    let (left, right, last) = match font_row {
+        0..=2 => (0x01u8, 0x02u8, 2),
+        3..=6 => (0x04, 0x08, 6),
+        _ => (0x10, 0x40, 9),
+    };
+    let mut c = 0u16;
+    if code & left != 0 {
+        c |= 0xFC0;
+    }
+    if code & right != 0 {
+        c |= 0x03F;
+    }
+    if separated {
+        // Blank the right column of each half and the block's bottom row.
+        c &= 0x3CF;
+        if font_row == last {
+            c = 0;
+        }
+    }
+    c
+}
+
 /// BBC Micro Model B machine.
 pub struct BbcMicro {
     cpu: M6502,
@@ -179,6 +215,9 @@ pub struct BbcMicro {
     latch: AddressableLatch,
     /// Keyboard matrix (10 columns × 8 rows), active-high.
     keyboard: [[bool; 8]; 10],
+    /// SAA5050 teletext character ROM (96 glyphs × 10 rows). Empty until a
+    /// font is supplied; MODE 7 then renders blank.
+    teletext_font: Vec<u8>,
     framebuffer: Vec<u32>,
     cpu_cycles: u64,
     frame_count: u64,
@@ -205,10 +244,17 @@ impl BbcMicro {
             rom_bank: 0,
             latch: AddressableLatch::new(),
             keyboard: [[false; 8]; 10],
+            teletext_font: Vec::new(),
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
             cpu_cycles: 0,
             frame_count: 0,
         }
+    }
+
+    /// Supply the SAA5050 teletext character ROM (960 bytes: 96 glyphs of
+    /// 10 rows). Required for MODE 7 to render anything but a blank screen.
+    pub fn set_teletext_font(&mut self, font: Vec<u8>) {
+        self.teletext_font = font;
     }
 
     /// Install a sideways ROM into the given bank slot (0-15).
@@ -326,9 +372,7 @@ impl BbcMicro {
     fn render_scanline(&mut self, line: usize) {
         let offset = line * FB_WIDTH as usize;
         if self.video_ula.teletext() {
-            // MODE 7 / teletext placeholder — backdrop fill. SAA5050
-            // is a separate chip and isn't modelled here yet.
-            self.framebuffer[offset..offset + FB_WIDTH as usize].fill(0xFF00_0000);
+            self.render_teletext_scanline(line, offset);
             return;
         }
         let bpp = self.video_ula.bpp() as usize;
@@ -373,6 +417,102 @@ impl BbcMicro {
                 }
             }
         }
+    }
+
+    /// Render one MODE 7 (teletext) scanline through a model of the SAA5050.
+    ///
+    /// Each of the 40 columns is a 12×10 cell. Control codes (`$00-$1F`) act
+    /// "set-after" — they show as a space (or the held mosaic) and change the
+    /// state used by the *following* cells. Displayable codes are either
+    /// alphanumeric glyphs from the character ROM or 2×3 mosaic blocks while in
+    /// graphics mode. Colours are the fixed 3-bit teletext set, not the Video
+    /// ULA palette.
+    fn render_teletext_scanline(&mut self, line: usize, offset: usize) {
+        const COLS: usize = 40;
+        const CELL_W: usize = 12;
+        const CELL_H: usize = 10;
+        const X_BASE: usize = (FB_WIDTH as usize - COLS * CELL_W) / 2;
+
+        self.framebuffer[offset..offset + FB_WIDTH as usize].fill(teletext_colour(0));
+
+        let char_row = line / CELL_H;
+        let font_row = line % CELL_H;
+        if char_row >= 25 {
+            return;
+        }
+        let row_base = 0x7C00usize + char_row * COLS;
+
+        // State resets at the start of each character row.
+        let mut fg: u8 = 7;
+        let mut bg: u8 = 0;
+        let mut graphics = false;
+        let mut separated = false;
+        let mut hold = false;
+        let mut held_pattern: u16 = 0;
+
+        for col in 0..COLS {
+            let code = self.peek((row_base + col) as u16);
+            let mut pattern: u16 = 0;
+
+            if code < 0x20 {
+                if hold && graphics {
+                    pattern = held_pattern;
+                }
+                match code {
+                    0x01..=0x07 => {
+                        graphics = false;
+                        fg = code;
+                    }
+                    0x11..=0x17 => {
+                        graphics = true;
+                        fg = code & 0x07;
+                    }
+                    0x19 => separated = false,
+                    0x1A => separated = true,
+                    0x1C => bg = 0,
+                    0x1D => bg = fg,
+                    0x1E => hold = true,
+                    0x1F => hold = false,
+                    _ => {}
+                }
+            } else if graphics && (code & 0x20) == 0 {
+                // $40-$5F stay alphanumeric even in graphics mode.
+                pattern = self.teletext_alpha(code, font_row);
+            } else if graphics {
+                pattern = mosaic_pattern(code, font_row, separated);
+                held_pattern = pattern;
+            } else {
+                pattern = self.teletext_alpha(code, font_row);
+            }
+
+            let fg_argb = teletext_colour(fg);
+            let bg_argb = teletext_colour(bg);
+            let x0 = X_BASE + col * CELL_W;
+            for px in 0..CELL_W {
+                let on = (pattern >> (CELL_W - 1 - px)) & 1 != 0;
+                let fb_x = x0 + px;
+                if fb_x < FB_WIDTH as usize {
+                    self.framebuffer[offset + fb_x] = if on { fg_argb } else { bg_argb };
+                }
+            }
+        }
+    }
+
+    /// One row of an alphanumeric glyph as a 12-bit pattern (the six source
+    /// columns each doubled). Font bit 0 is the rightmost pixel.
+    fn teletext_alpha(&self, code: u8, font_row: usize) -> u16 {
+        if !(0x20..0x80).contains(&code) {
+            return 0;
+        }
+        let idx = (code as usize - 0x20) * 10 + font_row;
+        let byte = self.teletext_font.get(idx).copied().unwrap_or(0);
+        let mut pattern = 0u16;
+        for c in 0..6u16 {
+            if byte & (1 << c) != 0 {
+                pattern |= 0b11 << (c * 2);
+            }
+        }
+        pattern
     }
 
     /// Framebuffer (640×256 ARGB32).
