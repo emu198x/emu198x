@@ -993,24 +993,39 @@ Corrected with a note pointing at the donor's misleading comment.
 ## Spectravideo SVI-328 — `emu198x-spectravideo-svi-328` (new, 2026-06-01)
 
 Sixth donor-codebase extraction. **Zero new chips** — reuses
-TMS9918A, AY-3-8910 (via `gi-ay-3-8912`), and Intel 8255 PPI exactly
-as MSX1 does. Fresh-write machine layer with Spectravideo-specific
-simpler memory map: 32 KB system ROM at `$0000-$7FFF` overlaid with
-RAM via port `$97` bit 0, 16 KB RAM at `$8000-$BFFF` overlaid with
-cart via port `$97` bit 1, 16 KB RAM at `$C000-$FFFF` always. I/O
-window tightened to `$80-$97` with 11×8 keyboard matrix via the
-8255 (row select on port C, column read on port B).
+TMS9918A, AY-3-8910 (via `gi-ay-3-8912`), and Intel 8255 PPI.
 
-- **L — BIOS not yet available.** The 32 KB SVI-318/328 system ROM
-  (BASIC + OS) is not in the TOSEC dump and not in any standard
-  emulator-bundle path on this machine. Gated smoke at
-  `crates/machine-spectravideo-svi-328/tests/bios_boot.rs` waits
-  for one to land at
-  `~/.emu198x/roms/spectravideo-svi-328/svi-328.rom`. Real BIOS
-  ships with openMSX/blueMSX firmware bundles; can also be
-  extracted from a real SVI-328.
+**Boots to SV-BASIC (live, 2026-06-04).** The SVI shows its
+`SPECTRAVIDEO` logo and then SV extended BASIC 1.1 with the
+function-key strip:
+
+```
+SV extended BASIC version 1.1
+Copyright 1983 (C) by Microsoft corp.
+Ok
+```
+
+The 32 KB system ROM is `svi111.rom` from MAME's `svi328` romset
+(md5 `352f054ab09605070bdff49d73f335cc`), installed at
+`~/.emu198x/roms/spectravideo-svi-328/svi-328.rom`.
+
+The blocker was an entirely wrong I/O port map — corrected here
+against MAME's `svi318` driver. The VDP is *written* at `$80`/`$81`
+but **read at `$84`/`$85`**, and the vblank ISR reads the status at
+`$85` to acknowledge the interrupt; the old map pointed `$85` at the
+keyboard, so the interrupt never cleared, the ISR never advanced the
+boot, and the BIOS stalled with the display blanked (a flat cyan
+screen). The corrected map:
+
+- VDP write `$80`/`$81`, read `$84`/`$85`
+- PSG address `$88`, data write `$8C`, data read `$90`
+- PPI write `$94-$97`, read `$98-$9A`; keyboard row via port C
+  (`$96`), column via port B (`$99`)
+- **Memory banking via the AY-3-8910 port B (R15)**, not a dedicated
+  port: bit 1 (`bk21`) low banks the lower 32 KB RAM in over the
+  BASIC ROM. ROM is visible at reset.
+
 - **A — TMS9918A scanline-batched render** (shared family debt).
-- **A — Centronics printer is a write-stub** (`$90-$91`).
 - **A — Cassette I/O.** Real SVI-328 software loads from cassette
   through PPI port C bits 4-7; not yet wired (port C bits 0-3 do
   drive the keyboard row select correctly).
@@ -1244,7 +1259,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 3 | MSX1 | Microsoft BASIC (live) |
 | 4 | Sord M5 | **Boots through CTC** (live) — BASIC-I `Ready`, Dig Dug renders |
 | 5 | Sega Master System | Alex Kidd in Miracle World (live) |
-| 6 | Spectravideo SVI-328 | **Awaiting BIOS** (32 KB MSX-style system ROM) |
+| 6 | Spectravideo SVI-328 | **Boots to SV-BASIC** (live, 2026-06-04) — fixed I/O map (VDP read $84/$85, PSG $88/$8C/$90, PPI $94-$9A, AY-port-B banking) |
 | 7 | Mattel Aquarius | Microsoft BASIC (live) |
 | 8 | Tatung Einstein TC-01 | **VDP-init only** — needs WD1770 floppy |
 | 9 | Acorn Electron | **Boots to BASIC `>`** (live, 2026-06-04) — MAME-accurate ULA palette + screen-start + character-block display |

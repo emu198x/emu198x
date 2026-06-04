@@ -46,28 +46,43 @@ fn bios_boots_to_initial_screen() {
     assert_eq!(bios.len(), 0x8000, "BIOS must be exactly 32 KB");
 
     let mut sys = Svi328::new(bios, SviRegion::Ntsc);
-    for _ in 0..300 {
+    for _ in 0..900 {
         sys.run_frame();
     }
 
-    let fb = sys.framebuffer();
-    assert_eq!(fb.len(), 256 * 192);
-    let mut colours = std::collections::HashSet::new();
-    for &px in fb {
-        colours.insert(px);
-        if colours.len() >= 16 {
-            break;
-        }
-    }
-    assert!(
-        colours.len() >= 2,
-        "framebuffer should have >= 2 distinct colours; got {} (bios: {})",
-        colours.len(),
+    // The boot must reach SV-BASIC, not merely render something. The original
+    // bug left the VDP display blanked forever: the vblank ISR reads the VDP
+    // status at $85 to acknowledge the interrupt, but the I/O map pointed $85
+    // at the keyboard, so the interrupt never cleared and the BIOS stalled
+    // before turning the display on. A booted machine has the display enabled
+    // (R1 bit 6 set) and the BASIC banner plus function-key strip on screen.
+    let r1 = sys.vdp().registers()[1];
+    assert_ne!(
+        r1 & 0x40,
+        0,
+        "VDP display-enable (R1 bit 6) should be set after boot; R1={r1:#04x} (bios: {})",
         path.display()
     );
-    let non_zero = fb.iter().filter(|&&px| px & 0x00FF_FFFF != 0).count();
+
+    let fb = sys.framebuffer();
+    assert!(!fb.is_empty(), "framebuffer should be allocated");
+    let mut counts = std::collections::HashMap::new();
+    for &px in fb {
+        *counts.entry(px).or_insert(0usize) += 1;
+    }
+    // SV-BASIC runs in the TMS9918 40-column TEXT mode, which is two colours
+    // (ink and paper). The blue paper dominates; the banner and the
+    // function-key strip across the bottom contribute a few thousand ink
+    // pixels.
     assert!(
-        non_zero >= 1024,
-        "boot screen should have >= 1024 non-backdrop pixels; got {non_zero}"
+        counts.len() >= 2,
+        "expected ink and paper; got {} colours",
+        counts.len()
+    );
+    let paper = *counts.values().max().expect("non-empty framebuffer");
+    let foreground = fb.len() - paper;
+    assert!(
+        foreground >= 1000,
+        "expected the banner and key strip; got {foreground} ink pixels"
     );
 }

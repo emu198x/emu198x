@@ -99,19 +99,20 @@ pub struct Svi328 {
     psg: Ay3_8912,
     ppi: Ppi8255,
     rom: Vec<u8>,
-    /// 64 KB RAM; lower 32 KB only accessible when port `$97` bit 0
-    /// flips the lower window to RAM.
+    /// 64 KB RAM; the lower 32 KB is exposed in place of the BASIC ROM when
+    /// the PSG port B bank register selects it.
     ram: Vec<u8>,
     cart_rom: Vec<u8>,
-    /// Port `$97` bit 0: 1 → RAM replaces ROM at `$0000-$7FFF`.
+    /// `true` → RAM replaces ROM at `$0000-$7FFF`. Driven by AY-3-8910 port B
+    /// (R15) bit 1 (`bk21`): low banks RAM in. ROM is visible at reset.
     bank_ram_low: bool,
-    /// Port `$97` bit 1: 1 → cart ROM replaces RAM at `$8000-$BFFF`.
+    /// `true` → cart ROM replaces RAM at `$8000-$BFFF`.
     bank_cart: bool,
+    /// The PSG register last selected via the address port ($88); used to spot
+    /// writes to R15, the memory-bank register.
+    psg_reg_select: u8,
     /// 11×8 keyboard matrix, active-low.
     keyboard: [u8; NUM_KEY_ROWS],
-    /// Printer stub state.
-    printer_data: u8,
-    printer_strobe: bool,
     region: SviRegion,
     cpu_tstates: u64,
     tstates_per_frame: u64,
@@ -144,9 +145,8 @@ impl Svi328 {
             cart_rom: Vec::new(),
             bank_ram_low: false,
             bank_cart: false,
+            psg_reg_select: 0,
             keyboard: [0xFF; NUM_KEY_ROWS],
-            printer_data: 0,
-            printer_strobe: false,
             region,
             cpu_tstates: 0,
             tstates_per_frame,
@@ -275,55 +275,55 @@ impl Svi328 {
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
-        let p = port as u8;
-        match p {
-            0x80 => self.vdp.read_data(),
-            0x81 => self.vdp.read_status(),
-            0x84 => self.ppi.read(0),
-            0x85 => {
-                // PPI port B overlay: keyboard column for the row
-                // selected via PPI port C bits 0-3.
+        match port as u8 {
+            // The VDP is written at $80/$81 but *read* at $84/$85. This split
+            // matters: the vblank ISR reads the status at $85 to acknowledge
+            // and clear the interrupt. (MAME `svi318` io map.)
+            0x84 => self.vdp.read_data(),
+            0x85 => self.vdp.read_status(),
+            // PSG data read at $90.
+            0x90 => self.psg.read_data(),
+            // PPI port A read ($98): joysticks / cassette. With nothing
+            // attached the button lines float high, the "no cassette" bit
+            // reads high, and the cassette input reads low.
+            0x98 => 0x7F,
+            // PPI port B read ($99): keyboard column data for the row selected
+            // via port C.
+            0x99 => {
                 let row = self.ppi.keyboard_row() as usize;
-                if row < self.keyboard.len() {
-                    self.keyboard[row]
-                } else {
-                    0xFF
-                }
+                self.keyboard.get(row).copied().unwrap_or(0xFF)
             }
-            0x86 => self.ppi.read(2),
-            0x87 => self.ppi.read(3),
-            0x88..=0x8B => self.psg.read_data(),
-            0x91 => 0x00, // Printer always ready.
-            0x96 | 0x97 => {
-                let mut val = 0u8;
-                if self.bank_ram_low {
-                    val |= 0x01;
-                }
-                if self.bank_cart {
-                    val |= 0x02;
-                }
-                val
-            }
+            // PPI port C read ($9A).
+            0x9A => self.ppi.read(2),
             _ => 0xFF,
         }
     }
 
     fn io_write(&mut self, port: u16, value: u8) {
-        let p = port as u8;
-        match p {
+        match port as u8 {
             0x80 => self.vdp.write_data(value),
             0x81 => self.vdp.write_control(value),
-            0x84 => self.ppi.write(0, value),
-            0x86 => self.ppi.write(2, value),
-            0x87 => self.ppi.write(3, value),
-            0x88 => self.psg.select_register(value),
-            0x89 => self.psg.write_data(value),
-            0x90 => self.printer_data = value,
-            0x91 => self.printer_strobe = value & 0x01 != 0,
-            0x96 | 0x97 => {
-                self.bank_ram_low = value & 0x01 != 0;
-                self.bank_cart = value & 0x02 != 0;
+            // PSG: address latch at $88, data at $8C.
+            0x88 => {
+                self.psg_reg_select = value & 0x0F;
+                self.psg.select_register(value);
             }
+            0x8C => {
+                self.psg.write_data(value);
+                // The AY-3-8910's port B (R15) is the memory-bank register.
+                // Bit 1 (`bk21`) low banks the lower 32 KB of RAM in over the
+                // BASIC ROM; otherwise the ROM stays visible. (The cart and
+                // expansion-ROM bits are not modelled on the base machine.)
+                if self.psg_reg_select == 0x0F {
+                    self.bank_ram_low = value & 0x02 == 0;
+                }
+            }
+            // PPI ports: A $94, B $95, C $96, control $97. Port C's low nibble
+            // selects the keyboard row.
+            0x94 => self.ppi.write(0, value),
+            0x95 => self.ppi.write(1, value),
+            0x96 => self.ppi.write(2, value),
+            0x97 => self.ppi.write(3, value),
             _ => {}
         }
     }
@@ -448,8 +448,9 @@ mod tests {
     #[test]
     fn ram_overlay_replaces_rom_at_low_window() {
         let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
-        // Flip to 64 KB RAM mode.
-        sys.io_write(0x97, 0x01);
+        // Bank the lower RAM in via PSG R15 (port B), bit 1 low.
+        sys.io_write(0x88, 0x0F); // select R15
+        sys.io_write(0x8C, 0x00); // bk21 = 0 → RAM low
         assert_eq!(sys.memory_control(), (true, false));
         sys.mem_write(0x0100, 0x42);
         assert_eq!(sys.mem_read(0x0100), 0x42);
@@ -468,20 +469,23 @@ mod tests {
     }
 
     #[test]
-    fn memory_control_reads_back_bank_bits() {
+    fn psg_port_b_drives_lower_ram_bank() {
         let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
-        sys.io_write(0x97, 0x03);
-        assert_eq!(sys.io_read(0x96), 0x03);
-        assert_eq!(sys.io_read(0x97), 0x03);
+        sys.io_write(0x88, 0x0F); // select R15
+        sys.io_write(0x8C, 0x00); // bk21 = 0 → RAM low
+        assert!(sys.memory_control().0, "bk21 low should bank RAM in");
+        sys.io_write(0x88, 0x0F);
+        sys.io_write(0x8C, 0x02); // bk21 = 1 → ROM low
+        assert!(!sys.memory_control().0, "bk21 high should restore the ROM");
     }
 
     #[test]
     fn keyboard_io_returns_selected_row() {
         let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
         sys.keyboard[5] = 0xCD;
-        // Select row 5 via PPI port C bits 0-3.
-        sys.io_write(0x86, 0x05);
-        assert_eq!(sys.io_read(0x85), 0xCD);
+        // Select row 5 via PPI port C ($96), read the column data at port B ($99).
+        sys.io_write(0x96, 0x05);
+        assert_eq!(sys.io_read(0x99), 0xCD);
     }
 
     #[test]
