@@ -1151,7 +1151,7 @@ mod tests {
         // Colour bits must NOT leak into the glyph index: $C1 looks up glyph
         // $01, not $41. The old `& 0x7F` decode picked the wrong (blank)
         // glyph and rendered coloured text as garbage / lowercase.
-        assert!(result.playfield[0..8].iter().any(|&p| p == 4));
+        assert!(result.playfield[0..8].contains(&4));
     }
 
     #[test]
