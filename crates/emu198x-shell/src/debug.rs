@@ -35,6 +35,14 @@ pub struct IoEvent {
 /// ([`step_instruction`](DebugTarget::step_instruction)) must keep the
 /// runtime's derived state current so a screenshot taken afterwards is
 /// accurate.
+///
+/// This is the **shared** debug tier — the 24 donor extractions plus C64 and
+/// Dragon implement it (via the `impl_*_debug_target!` macros below) and so get
+/// `register_common_tools` for free. Spectrum and Amiga are deliberately on a
+/// **bespoke** tier: they implement no `DebugTarget` and hand-build a richer MCP
+/// surface instead. That asymmetry is intentional, not cruft — see
+/// `knowledge/decisions/debug-surface-tiers.md` before "tidying" them onto these
+/// macros. (Amiga can't: it's 68000, and the macro family is 6502/Z80/6809.)
 pub trait DebugTarget {
     /// Current CPU program counter.
     fn pc(&self) -> u16;
