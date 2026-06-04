@@ -52,8 +52,17 @@ Part historical, part structural. All four reasons hold; any one is sufficient.
 
 ## Verdict (the part that's binding)
 
-- **Amiga stays bespoke.** No 68000 macro, richer surface; folding in is
-  downgrade-plus-work. Do not attempt without a separate, deliberate decision.
+- **Amiga stays bespoke *for now* — but the blocker is temporary.** The hard
+  reason is the missing 68000 member of the macro family, and **more 68000
+  systems are coming** (cpu-family `68000` in the catalogue: **Atari ST**, **Sega
+  Mega Drive / Genesis**, **SNK Neo Geo**, **Sharp X68000**). The *first* of those
+  to land is the trigger to build `impl_68000_debug_target!` once — and that
+  retroactively lets Amiga opt into the shared tier (it would still keep its
+  bespoke copper/blitter/chipset tools on top). So this is not "Amiga is special
+  forever"; it is "Amiga waits for the 68000 debug path the next 68000 system will
+  pay for." Don't fold Amiga in *before* that path exists; don't *re-derive* the
+  gap when it does — build the macro member with the first new 68000 system and
+  wire Amiga in the same pass.
 - **Spectrum *could* fold in** (it is Z80) via a generic macro arm + a
   `SpectrumDriver`→macro adapter, which would let it call
   `register_common_tools` and delete its hand-rolled *common* verbs (keeping the
@@ -73,9 +82,11 @@ If about to suggest any of these, stop and re-read this record.
 - **"Add a `direct` arm so the macro covers the generic runtimes."** The blocker
   for Spectrum/Amiga is generics + (for Amiga) the missing 68000 path, not
   storage shape. A `direct` arm alone doesn't reach them.
-- **"Give Amiga a `DebugTarget` for uniformity."** It needs a 68000 member of
-  the macro family first, and even then duplicates its richer bespoke tools.
-  Separate decision required.
+- **"Give Amiga a `DebugTarget` for uniformity."** Not standalone, and not yet:
+  it needs a 68000 member of the macro family first. Build that member *with the
+  first new 68000 system* (Atari ST / Mega Drive / Neo Geo / X68000) and wire
+  Amiga in the same pass — see the Verdict. Doing it before that path exists is
+  premature; re-deriving the gap when it does is wasted motion.
 
 ## Log
 
@@ -86,6 +97,7 @@ storage-agnostic (Emu198x `2cbd04fc`) and the C64/Dragon/VIC-20/MSX hand-rolled
 impls were collapsed onto them. The question "why are Spectrum and Amiga still
 special?" turned out to have a real answer worth writing down: they are a
 distinct bespoke-MCP tier, blocked from the shared tier by generics, the missing
-68000 macro, and the `SpectrumDriver` shape — not leftover cruft. Chose to
-document the tier rather than refactor; Amiga is out, Spectrum is a deliberate
-future spike.
+68000 macro, and the `SpectrumDriver` shape — not leftover cruft. Documented the
+tier instead of refactoring. Amiga waits for the 68000 debug path the incoming
+68000 systems (Atari ST, Mega Drive, Neo Geo, X68000) will pay for; Spectrum is a
+deliberate future spike.

@@ -42,7 +42,8 @@ pub struct IoEvent {
 /// **bespoke** tier: they implement no `DebugTarget` and hand-build a richer MCP
 /// surface instead. That asymmetry is intentional, not cruft — see
 /// `knowledge/decisions/debug-surface-tiers.md` before "tidying" them onto these
-/// macros. (Amiga can't: it's 68000, and the macro family is 6502/Z80/6809.)
+/// macros. (Amiga waits on a 68000 member of this family, to be built with the
+/// first new 68000 system — Atari ST / Mega Drive / … — then wired in that pass.)
 pub trait DebugTarget {
     /// Current CPU program counter.
     fn pc(&self) -> u16;
