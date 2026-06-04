@@ -935,30 +935,39 @@ MAME's `electron_ula` device:
 ## Tatung Einstein TC-01 — `emu198x-tatung-einstein` (new, 2026-06-01)
 
 Eighth donor-codebase extraction. **Zero new chips** — reuses
-TMS9918A and AY-3-8910 (via `gi-ay-3-8912`). Fresh-write machine
-layer with Einstein-specific port-`$21` ROM page-out (any write
-flips the 8 KB X-TAL MOS ROM out of `$0000-$1FFF` and exposes the
-full 64 KB RAM), AY-driven keyboard (8×8 matrix, row select on
-AY R14 / port A, column read on port `$20`), and Z80 CTC channel 0
-stub at `$28`.
+TMS9918A and AY-3-8910 (via `gi-ay-3-8912`); the WD1770 floppy
+controller is modelled inline. AY-driven keyboard (8×8 matrix, row
+select on AY R14 / port A, column read on port `$20`), Z80 CTC
+channel 0 stub at `$28`.
 
-- **L — BIOS boot reaches VDP init but no text output.** With the
-  1983 X-TAL MOS v1.2 ROM (8 KB, SHA-256
-  `401d0e0bf6f64ba82e68137525749171fbcf9bd9055a49e5ac9a47941a6a0ae1`)
-  the BIOS sets the TMS9918A backdrop to blue and then hangs
-  waiting for the **WD1770 floppy controller** that we don't
-  model. Real Einstein hardware shows a "DISK FAIL" message or
-  loads CP/M from disk; without the WD1770 the boot can't proceed
-  to text. Gated smoke at
-  `crates/machine-tatung-einstein/tests/bios_boot.rs` asserts the
-  VDP-init stage (1024+ non-black pixels = display enabled with
-  backdrop) so we know the chips are reachable.
-- **A — Z80 CTC may also be required.** Channel 0 is stubbed at
-  port `$28`; like Sord M5, the Einstein wires VDP /INT through
-  the CTC for IM-2 vectoring. The X-TAL MOS does set IM 1 early
-  (visible in the disassembly), so the immediate boot path is
-  unlikely to need CTC vectors, but later software almost
-  certainly will.
+**Boots to the MOS prompt (live, 2026-06-04).** The X-TAL MOS v1.2
+ROM (8 KB, SHA-256
+`401d0e0bf6f64ba82e68137525749171fbcf9bd9055a49e5ac9a47941a6a0ae1`)
+boots all the way to its `Ready` prompt and the "insert disc in
+drive 0" banner — a fully usable built-in monitor, no disk required.
+Three fixes, all against MAME's `tatung/einstein.cpp`:
+
+1. **ROM bank toggle.** The ROM pages in/out via *any* access to
+   port `$24` (read or write toggles it) — not a one-shot page-out
+   at `$21`. The MOS copies its ROM into RAM by toggling the bank
+   between every byte, and our missing `$24` handler left it
+   spinning ~32,000 times in the copy loop.
+2. **WD1770 floppy controller** at `$18-$1B` with drive/side select
+   at `$23`. Models the register interface, Type I seek/restore,
+   sector reads (streamed via DRQ from an inserted image), and
+   record-not-found when no disk is present. A flat sector-dump disk
+   can be inserted through `Einstein::insert_disk`; with none the MOS
+   stays at its prompt.
+3. **INDEX pulse.** After Restore the MOS polls the Type I status
+   for the once-per-revolution INDEX bit to confirm the drive spins;
+   synthesising it lets the boot continue past the FDC.
+
+- **A — Loading an OS from disk** needs an Einstein disk image
+  (CP/M / Xtal DOS). None is on hand; the FDC read path and
+  `insert_disk` API are in place for when one is supplied.
+- **A — Z80 CTC may also be required** for later software. Channel 0
+  is stubbed at `$28`; the MOS sets IM 1 early, so the boot path
+  doesn't need CTC vectors, but disk-loaded software likely will.
 - **A — TMS9918A scanline-batched render** (shared family debt).
 - **A — Cassette / printer ports** unwired.
 - **A — Snapshot deferred**.
@@ -1271,7 +1280,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 5 | Sega Master System | Alex Kidd in Miracle World (live) |
 | 6 | Spectravideo SVI-328 | **Boots to SV-BASIC** (live, 2026-06-04) — fixed I/O map (VDP read $84/$85, PSG $88/$8C/$90, PPI $94-$9A, AY-port-B banking) |
 | 7 | Mattel Aquarius | Microsoft BASIC (live) |
-| 8 | Tatung Einstein TC-01 | **VDP-init only** — needs WD1770 floppy |
+| 8 | Tatung Einstein TC-01 | **Boots to MOS prompt** (live, 2026-06-04) — $24 ROM-toggle + WD1770 FDC + INDEX pulse; `Ready` (disk-load pending an image) |
 | 9 | Acorn Electron | **Boots to BASIC `>`** (live, 2026-06-04) — MAME-accurate ULA palette + screen-start + character-block display |
 | 10 | Oric-1 / Atmos | **Boots to BASIC** (live, 2026-06-04) — clean first-boot with BASIC 1.1; `Ready` prompt |
 | 11 | Acorn BBC Micro Model B | **Boots to BASIC in MODE 7** (live, 2026-06-04) — keyboard→VIA PA7 fix + SAA5050 teletext renderer; `BBC Computer 32K` |

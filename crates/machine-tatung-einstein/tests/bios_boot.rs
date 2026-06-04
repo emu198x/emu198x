@@ -20,7 +20,7 @@ fn bios_path() -> Option<PathBuf> {
 
 #[test]
 #[ignore = "needs Tatung Einstein X-TAL MOS ROM (8 KB) — run with --ignored"]
-fn bios_boots_to_initial_screen() {
+fn bios_boots_to_mos_prompt() {
     let Some(path) = bios_path() else {
         panic!(
             "Einstein BIOS not found — set EMU198X_EINSTEIN_BIOS or place einstein.rom \
@@ -35,28 +35,28 @@ fn bios_boots_to_initial_screen() {
         sys.run_frame();
     }
 
+    // The MOS now boots all the way to its prompt — banner and `Ready`
+    // text on the backdrop — instead of hanging at VDP init. That path
+    // needed the $24 ROM-toggle, the WD1770 (so disk commands complete),
+    // and a synthesised INDEX pulse. The booted screen is a dominant
+    // backdrop colour with a few thousand pixels of text; the old hung
+    // state was a single uniform colour.
     let fb = sys.framebuffer();
-    assert_eq!(fb.len(), 256 * 192);
-    let mut colours = std::collections::HashSet::new();
+    assert!(!fb.is_empty(), "framebuffer should be allocated");
+    let mut counts = std::collections::HashMap::new();
     for &px in fb {
-        colours.insert(px);
-        if colours.len() >= 16 {
-            break;
-        }
+        *counts.entry(px).or_insert(0usize) += 1;
     }
-    // Honest check for the current state: the X-TAL MOS BIOS sets a
-    // non-black VDP backdrop colour (typically blue) then hangs
-    // waiting for the WD1770 floppy controller, which is not modelled
-    // in this initial port. Text output never appears — the
-    // framebuffer is uniformly the backdrop colour. Asserting
-    // `non_zero >= 1024` confirms the VDP-init stage was reached
-    // (display enabled, backdrop set to a non-black colour).
-    let non_zero = fb.iter().filter(|&&px| px & 0x00FF_FFFF != 0).count();
     assert!(
-        non_zero >= 1024,
-        "BIOS should have reached VDP-init (>= 1024 non-black pixels); \
-         got {non_zero} (bios: {}, colours: {})",
-        path.display(),
-        colours.len()
+        counts.len() >= 2,
+        "expected text over the backdrop; got {} colour(s) (bios: {})",
+        counts.len(),
+        path.display()
+    );
+    let backdrop = *counts.values().max().expect("non-empty framebuffer");
+    let text = fb.len() - backdrop;
+    assert!(
+        text >= 500,
+        "expected the MOS banner / prompt text; got {text} foreground pixels"
     );
 }
