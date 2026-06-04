@@ -2,7 +2,7 @@
 name = "format-sinclair-zx-spectrum-sna"
 description = ".sna snapshot format parser for the ZX Spectrum"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

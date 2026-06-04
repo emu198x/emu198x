@@ -2,7 +2,7 @@
 name = "runtime-coleco-colecovision"
 description = "Coleco ColecoVision family metadata and headless runtime wrapper around machine-coleco-colecovision"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

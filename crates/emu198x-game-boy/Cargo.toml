@@ -2,7 +2,7 @@
 name = "emu198x-game-boy"
 description = "Native Game Boy verifier with interactive UI, headless script, and MCP modes"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

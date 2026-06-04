@@ -2,7 +2,7 @@
 name = "common-commodore-amiga"
 description = "Shared board-level substrate for Commodore Amiga machine crates — CIA pair, copper, RTC, memory map, Denise-side shared rendering. Per-chipset wrappers (machine-commodore-amiga-ocs / -ecs / -aga) plug their specific Agnus + Denise chips into this substrate."
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

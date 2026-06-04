@@ -2,7 +2,7 @@
 name = "emu198x-catalogue"
 description = "Cross-system curated catalogue: 10-title regression bench per October-launch system"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

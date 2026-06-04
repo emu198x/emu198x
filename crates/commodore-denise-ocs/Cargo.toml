@@ -2,7 +2,7 @@
 name = "commodore-denise-ocs"
 description = "Commodore Denise OCS — pixel shifter and sprite engine. Bitplane-to-pixel conversion, playfield composition, 8 sprites, palette lookup."
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

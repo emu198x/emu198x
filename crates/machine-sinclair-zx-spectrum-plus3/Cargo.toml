@@ -2,7 +2,7 @@
 name = "machine-sinclair-zx-spectrum-plus3"
 description = "ZX Spectrum +3 — thin wrapper over the Amstrad-class core, with built-in 3\" floppy drive"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

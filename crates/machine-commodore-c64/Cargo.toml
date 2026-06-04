@@ -2,7 +2,7 @@
 name = "machine-commodore-c64"
 description = "Commodore 64 machine substrate: memory banking, keyboard matrix, and timing"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

@@ -2,7 +2,7 @@
 name = "gi-ay-3-8912"
 description = "General Instrument AY-3-8912 programmable sound generator"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

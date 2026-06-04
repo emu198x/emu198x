@@ -2,7 +2,7 @@
 name = "beta-disk-interface"
 description = "Beta 128 disk interface — TR-DOS ROM paging and WD1793 stub used by Russian Spectrum clones"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

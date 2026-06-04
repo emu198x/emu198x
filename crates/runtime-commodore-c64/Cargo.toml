@@ -2,7 +2,7 @@
 name = "runtime-commodore-c64"
 description = "Commodore 64 profile metadata and future runtime layer"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

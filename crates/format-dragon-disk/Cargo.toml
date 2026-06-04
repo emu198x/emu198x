@@ -2,7 +2,7 @@
 name = "format-dragon-disk"
 description = "DragonDOS VDK disk image parsing"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

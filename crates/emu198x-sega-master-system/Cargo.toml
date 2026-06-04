@@ -1,7 +1,7 @@
 [package]
 name = "emu198x-sega-master-system"
 description = "Sega Master System / Game Gear headless runner with shell-backed script + MCP parity"
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

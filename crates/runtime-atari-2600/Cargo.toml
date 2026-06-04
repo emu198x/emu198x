@@ -2,7 +2,7 @@
 name = "runtime-atari-2600"
 description = "Atari 2600 family metadata and headless runtime wrapper around machine-atari-2600"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

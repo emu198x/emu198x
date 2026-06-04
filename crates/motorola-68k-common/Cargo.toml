@@ -2,7 +2,7 @@
 name = "motorola-68k-common"
 description = "Shared infrastructure for the Motorola 680x0 family — addressing modes, ALU, bus pin types, register file, flags, micro-ops, and CPU model/capability metadata. No CPU implementation lives here."
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

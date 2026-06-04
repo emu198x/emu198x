@@ -2,7 +2,7 @@
 name = "format-sinclair-zx-spectrum-bas"
 description = "ZX Spectrum BASIC tokeniser — converts text .bas files to tokenised program bytes"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

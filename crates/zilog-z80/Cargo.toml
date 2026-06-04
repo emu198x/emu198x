@@ -2,7 +2,7 @@
 name = "zilog-z80"
 description = "Z80 CPU — half-cycle signal-level state machine"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

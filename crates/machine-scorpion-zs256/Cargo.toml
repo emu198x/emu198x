@@ -2,7 +2,7 @@
 name = "machine-scorpion-zs256"
 description = "Scorpion ZS-256 machine — Z80, Scorpion ULA (no contention), 256K paged RAM, 4 ROMs, AY chip, Beta disk"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

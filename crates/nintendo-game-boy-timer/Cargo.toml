@@ -2,7 +2,7 @@
 name = "nintendo-game-boy-timer"
 description = "Game Boy DIV / TIMA / TMA / TAC timer block (part of the SM83 SoC)"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

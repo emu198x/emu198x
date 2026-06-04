@@ -2,7 +2,7 @@
 name = "emu198x-native-video"
 description = "Shared native GPU video presentation for Emu198x frontends"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 
