@@ -13,7 +13,7 @@ gilrs = { workspace = true }
 # reproducible rev — isa-disasm is untagged. Re-exported below so the
 # `impl_6502_debug_target!` macro can reach it via `$crate::isa_disasm` without
 # every 6502 runtime taking the dependency. See 198x/decisions/rung1-wiring.md.
-isa-disasm = { git = "https://github.com/asm198x/asm198x", rev = "f6569eeddcd63163a52a8a822e0537cee24f895f" }
+isa-disasm = { git = "https://github.com/asm198x/asm198x", rev = "30a0e5238ee2935521c480de018ee60e645624ed" }
 png = { workspace = true }
 postcard = { workspace = true }
 serde = { workspace = true }

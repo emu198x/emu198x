@@ -7,36 +7,44 @@
 //! (DBcc decoded as Scc/ADDQ; the group-C and group-8 overlaps). Emu keeps its
 //! own decoder; this test makes the spec crate watch it.
 //!
-//! ## What it compares, and what it deliberately doesn't
+//! ## Full conformance over the whole opcode space
 //!
-//! The two render in different dialects (Emu: `MOVEQ #42,D3`; isa-disasm:
-//! `moveq.l #0,d0`), and their *operand* syntax diverges wholesale — hex vs
-//! decimal immediates (`#$00000000` vs `#0`), effective-address style
-//! (`(0,A0,D0.w)` vs `0(a0,d0.w)`). Normalising operand text to identity across
-//! two dialects this different is brittle and beside the point. This cross-check
-//! targets the *decode table* — the mnemonic and the instruction length — and
-//! ignores operand rendering. Operand *semantics* are already pinned by the Tom
-//! Harte single-step suite (1,000,058 tests at 100%); this is the complementary
-//! decode-shape net. A [`mnemonic`] normaliser folds the documented dialect
-//! diffs (implicit sizes like `lea`/`moveq`; address-register variants like
+//! The spec's 68000 table is complete as of the pinned rev (it covers the full
+//! base-68000 ISA, validated byte-identical against vasm). So this test is now
+//! **strict in both directions** over all 65,536 opcode words:
+//!
+//!   - if the spec names an instruction Emu renders `dc.w` → Emu under-decodes
+//!     (a missing instruction);
+//!   - if Emu names an instruction the spec rejects → Emu over-decodes (an
+//!     illegal effective address it should refuse — the old "phase 2.1"
+//!     strictness gap);
+//!   - if both name an instruction but disagree on mnemonic or length → a real
+//!     opcode-table divergence (the original bug class).
+//!
+//! All three are failures. Operand *rendering* is deliberately not compared:
+//! the two dialects diverge wholesale (Emu `MOVEQ #42,D3`; isa `moveq.l #0,d0`;
+//! hex vs decimal immediates; `(0,A0,D0.w)` vs `0(a0,d0.w)`), and operand
+//! semantics are already pinned by the Tom Harte single-step suite (1,000,058
+//! tests at 100%). A [`mnemonic`] normaliser folds the documented dialect diffs
+//! (implicit sizes like `lea`/`moveq`/`abcd`; address-register variants like
 //! `suba`↔`sub`) so a surviving mismatch is a genuine opcode-table disagreement.
 //!
-//! ## Scoped to the surface isa-disasm implements
+//! ## Documented model differences (excluded)
 //!
-//! As of the pinned rev (`f6569ee`), isa-disasm's 68000 spec (`isa/src/m68k.rs`)
-//! is a *partial* table — it omits whole families (`muls`/`divs`, every shift
-//! and rotate bar `lsl`/`lsr`, `bchg`/`bclr`, most `Scc`, `movep`, `addx`/`subx`,
-//! `jmp`/`jsr`, `link`/`unlk`, …), rendering them as `dc.w`. So when isa rejects
-//! an encoding we *cannot* tell "isa hasn't implemented it yet" from "Emu is
-//! over-decoding an illegal EA" without per-opcode hardware truth — and the
-//! former dominates. This test therefore asserts only over the **shared surface**
-//! (encodings both decoders name an instruction for), and reports how many
-//! opcodes it skipped for that reason so the coverage gap is never silent. As
-//! isa-disasm's table fills in, the checked surface grows automatically.
+//! Three small sets are legitimately not shared and are excluded by
+//! [`documented_model_diff`], not silently skipped:
+//!   - **68020 extensions** Emu decodes but the base-68000 spec does not: the
+//!     `Bcc.l` `$FF`-displacement escape and `EXTB.L`. This crate hosts the
+//!     68020 decode arms (for the A1200's 68020); isa targets the 68000.
+//!   - **dynamic `BTST Dn,#imm`** — the immediate addressing mode is legal for
+//!     the dynamic `BTST` form on the 68000 (Musashi's `btst_r` EA mask `0xbff`
+//!     includes the immediate bit; the MC68000 PRM agrees). Emu follows the
+//!     hardware; the spec renders `dc.w`. A spec-side note. The *static*
+//!     `BTST #bit,#imm` form is genuinely illegal (`btst_s` mask `0xbfb`) and
+//!     Emu rejects it — so it is not excluded.
 //!
-//! Two backlogs fall out of this and are tracked separately, not here:
-//!   - isa-disasm 68000 completeness (Asm198x repo);
-//!   - Emu's group-0 / `lea` / byte-`move` illegal-EA strictness (phase 2.1).
+//! The effective-address legality tables were cross-validated against Musashi's
+//! `m68kdasm.c` per-instruction EA masks, not just the spec.
 
 use motorola_68000::disasm::disassemble;
 
@@ -62,11 +70,11 @@ fn is_data(text: &str) -> bool {
 
 /// Mnemonics whose operand size is fixed by the opcode, so the size suffix is
 /// pure dialect: one side spells it, the other omits it (`lea`↔`lea.l`,
-/// `mulu.w`↔`mulu`, `seq`↔`seq.b`). Folded to the bare base for comparison.
+/// `mulu.w`↔`mulu`, `abcd`↔`abcd.b`). Folded to the bare base for comparison.
 const IMPLICIT_SIZE: &[&str] = &[
     "moveq", "lea", "pea", "mulu", "muls", "divu", "divs", "nbcd", "tas", "swap", "st", "sf",
     "shi", "sls", "scc", "scs", "sne", "seq", "svc", "svs", "spl", "smi", "sge", "slt", "sgt",
-    "sle",
+    "sle", "abcd", "sbcd", "chk",
 ];
 
 /// The instruction's normalised mnemonic: lower-cased, dialect diffs muted,
@@ -98,14 +106,29 @@ fn mnemonic(text: &str) -> String {
     }
 }
 
-/// A Bcc/BRA/BSR encoding whose 8-bit displacement field is `$FF`. On the
-/// 68020+ that is the escape to a 32-bit displacement (`Bcc.l`); on the base
-/// 68000 it is just a short branch of −1 (`Bcc.s`). isa-disasm targets the
-/// 68000; this crate hosts the 68020 decode arms, so the two legitimately
-/// disagree here. Documented model difference, not a bug — excluded from the
-/// shared-surface comparison.
-fn is_68020_long_branch_escape(op: u16) -> bool {
-    (0x6000..=0x6FFF).contains(&op) && (op & 0x00FF) == 0x00FF
+/// Opcodes where Emu and the base-68000 spec legitimately differ — 68020
+/// extensions Emu decodes, plus the `BTST #imm` case where the spec is stricter
+/// than the 68000 hardware. Excluded from the strict comparison; see the module
+/// comment. Returns a short reason for the coverage report.
+fn documented_model_diff(op: u16) -> Option<&'static str> {
+    // Bcc/BRA/BSR with an $FF 8-bit displacement: the 68020 32-bit-displacement
+    // escape, just a −1 short branch on the 68000.
+    if (0x6000..=0x6FFF).contains(&op) && (op & 0x00FF) == 0xFF {
+        return Some("68020 long-branch escape");
+    }
+    // EXTB.L Dn — 68020 byte→long sign extension; no base-68000 encoding.
+    if (op & 0xFFF8) == 0x49C0 {
+        return Some("68020 EXTB.L");
+    }
+    // BTST Dn,#imm — the *dynamic* form's EA may be immediate on the 68000
+    // (Musashi's `btst_r` EA mask 0xbff includes the immediate bit; the 68000
+    // PRM agrees), but the spec renders it dc.w. The *static* form (`#bit,#imm`,
+    // $083C) is genuinely illegal — Musashi's `btst_s` mask 0xbfb clears that
+    // bit — and Emu now rejects it too, so it is *not* excluded here.
+    if (op & 0xF1FF) == 0x013C {
+        return Some("dynamic BTST Dn,#imm (68000-legal, spec-strict)");
+    }
+    None
 }
 
 #[test]
@@ -115,11 +138,12 @@ fn emu_68000_disasm_matches_isa_spec() {
     const FILLER: usize = 12;
 
     let mut compared = 0usize;
-    let mut skipped_isa_unimpl = 0usize;
+    let mut excluded = 0usize;
     let mut mismatches: Vec<(u16, String, usize, String, usize)> = Vec::new();
 
     for op in 0u16..=0xFFFF {
-        if is_68020_long_branch_escape(op) {
+        if documented_model_diff(op).is_some() {
+            excluded += 1;
             continue;
         }
 
@@ -132,17 +156,17 @@ fn emu_68000_disasm_matches_isa_spec() {
             continue;
         };
 
-        // Both reject -> agreement. isa alone rejects -> outside the shared
-        // surface (isa hasn't implemented it, or Emu is over-decoding an illegal
-        // EA — indistinguishable here); count it and move on.
-        if is_data(&isa_text) {
-            if !is_data(&emu_text) {
-                skipped_isa_unimpl += 1;
-            }
+        let emu_data = is_data(&emu_text);
+        let isa_data = is_data(&isa_text);
+
+        // Both reject -> agreement.
+        if emu_data && isa_data {
+            compared += 1;
             continue;
         }
-        if is_data(&emu_text) {
-            // isa names an instruction Emu rejects: a real Emu decode gap.
+        // Exactly one rejects -> under- or over-decode, both failures now that
+        // the spec table is complete.
+        if emu_data != isa_data {
             mismatches.push((op, emu_text, emu_len, isa_text, isa_len));
             continue;
         }
@@ -154,23 +178,20 @@ fn emu_68000_disasm_matches_isa_spec() {
     }
 
     eprintln!(
-        "68000 isa-disasm conformance: {compared} opcodes compared on the shared surface, \
-         {skipped_isa_unimpl} skipped (isa-disasm renders dc.w — unimplemented or illegal-EA)"
+        "68000 isa-disasm conformance: {compared} opcodes agree, \
+         {excluded} excluded as documented model differences"
     );
 
     if !mismatches.is_empty() {
-        eprintln!("=== {} genuine divergences ===", mismatches.len());
+        eprintln!("=== {} divergences ===", mismatches.len());
         for (op, et, el, it, il) in mismatches.iter().take(100) {
             eprintln!("  {op:04X}  emu={et:?} (len {el})   isa={it:?} (len {il})");
         }
         panic!(
-            "Emu's 68000 decoder diverges from isa-disasm on {} shared-surface opcodes",
+            "Emu's 68000 decoder diverges from isa-disasm on {} opcodes",
             mismatches.len()
         );
     }
 
-    assert!(
-        compared > 0,
-        "shared surface was empty — isa_one always rejected?"
-    );
+    assert!(compared > 60_000, "comparison surface unexpectedly small");
 }

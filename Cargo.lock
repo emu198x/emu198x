@@ -1740,12 +1740,12 @@ dependencies = [
 [[package]]
 name = "isa"
 version = "0.0.4"
-source = "git+https://github.com/asm198x/asm198x?rev=f6569eeddcd63163a52a8a822e0537cee24f895f#f6569eeddcd63163a52a8a822e0537cee24f895f"
+source = "git+https://github.com/asm198x/asm198x?rev=30a0e5238ee2935521c480de018ee60e645624ed#30a0e5238ee2935521c480de018ee60e645624ed"
 
 [[package]]
 name = "isa-disasm"
 version = "0.0.4"
-source = "git+https://github.com/asm198x/asm198x?rev=f6569eeddcd63163a52a8a822e0537cee24f895f#f6569eeddcd63163a52a8a822e0537cee24f895f"
+source = "git+https://github.com/asm198x/asm198x?rev=30a0e5238ee2935521c480de018ee60e645624ed#30a0e5238ee2935521c480de018ee60e645624ed"
 dependencies = [
  "isa",
 ]

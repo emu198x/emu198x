@@ -155,6 +155,57 @@ fn format_ea(ctx: &mut DisCtx, mode: u16, reg: u16, size: Size) -> String {
     }
 }
 
+/// Addressing-mode categories from the 68000 PRM (Table 2-4). Each
+/// instruction restricts its effective address to one of these sets; an
+/// encoding that names a mode outside the set is illegal and disassembles as
+/// `dc.w`, not the instruction.
+#[derive(Clone, Copy, PartialEq)]
+enum Ea {
+    /// Any mode.
+    All,
+    /// Data: any mode except An-direct.
+    Data,
+    /// Control: `(An)`, `(d16,An)`, `(d8,An,Xn)`, absolute, PC-relative.
+    Control,
+    /// Alterable: any writable mode (excludes PC-relative and immediate).
+    Alterable,
+    /// Data alterable: Data ∩ Alterable.
+    DataAlt,
+    /// Memory alterable: Memory ∩ Alterable.
+    MemAlt,
+    /// Control alterable: Control ∩ Alterable.
+    ControlAlt,
+}
+
+/// Whether `(mode, reg)` is a legal effective address for category `cat`.
+fn ea_legal(mode: u16, reg: u16, cat: Ea) -> bool {
+    if mode > 7 || (mode == 7 && reg > 4) {
+        return false; // invalid mode-7 sub-register
+    }
+    let dn = mode == 0;
+    let an = mode == 1;
+    let postinc = mode == 3;
+    let predec = mode == 4;
+    let pcrel = mode == 7 && (reg == 2 || reg == 3);
+    let imm = mode == 7 && reg == 4;
+    match cat {
+        Ea::All => true,
+        Ea::Data => !an,
+        Ea::Control => !dn && !an && !postinc && !predec && !imm,
+        Ea::Alterable => !pcrel && !imm,
+        Ea::DataAlt => !an && !pcrel && !imm,
+        Ea::MemAlt => !dn && !an && !pcrel && !imm,
+        Ea::ControlAlt => !dn && !an && !postinc && !predec && !pcrel && !imm,
+    }
+}
+
+/// Format an effective address, but only if it is legal for `cat`; otherwise
+/// `None`, so the caller falls through to `dc.w`. Validation happens before any
+/// extension words are read.
+fn format_ea_checked(ctx: &mut DisCtx, mode: u16, reg: u16, size: Size, cat: Ea) -> Option<String> {
+    ea_legal(mode, reg, cat).then(|| format_ea(ctx, mode, reg, size))
+}
+
 /// Format an indexed addressing mode — both the brief extension word
 /// (`(d8,An,Xn)`) and the 68020+ full format (base/outer displacement,
 /// memory indirection, scaled index). Bit 8 selects the format. The
@@ -299,7 +350,14 @@ fn decode_group0(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
             };
         }
         let size = if mode == 0 { Size::Long } else { Size::Byte };
-        let ea = format_ea(ctx, mode, ea_reg, size);
+        // BTST may read any data location (including immediate/PC-relative);
+        // BCHG/BCLR/BSET must write, so they need a data-alterable EA.
+        let cat = if op_name == "btst" {
+            Ea::Data
+        } else {
+            Ea::DataAlt
+        };
+        let ea = format_ea_checked(ctx, mode, ea_reg, size, cat)?;
         return Some(format!("{} D{},{}", op_name, reg, ea));
     }
 
@@ -318,7 +376,17 @@ fn decode_group0(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
             _ => unreachable!(),
         };
         let size = if mode == 0 { Size::Long } else { Size::Byte };
-        let ea = format_ea(ctx, mode, reg, size);
+        let cat = if op_name == "btst" {
+            Ea::Data
+        } else {
+            Ea::DataAlt
+        };
+        // Static BTST is the one bit op whose EA may not be immediate — unlike
+        // the dynamic (`Dn,<ea>`) form, which the 68000 does allow there.
+        if op_name == "btst" && mode == 7 && reg == 4 {
+            return None;
+        }
+        let ea = format_ea_checked(ctx, mode, reg, size, cat)?;
         return Some(format!("{} #{},$ea", op_name, bit_num).replace("$ea", &ea));
     }
 
@@ -335,16 +403,17 @@ fn decode_group0(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
         _ => return None,
     };
 
-    // ORI/ANDI/EORI to CCR/SR
+    // ORI/ANDI/EORI to CCR/SR (only those three; the immediate-EA bit pattern
+    // is illegal as a destination for SUBI/ADDI/CMPI).
     if mode == 7 && reg == 4 {
-        if size == Size::Byte {
-            return Some(format!("{} #${},CCR", op_name, imm));
-        } else if size == Size::Word {
-            return Some(format!("{} #${},SR", op_name, imm));
-        }
+        return match (op, size) {
+            (0 | 1 | 5, Size::Byte) => Some(format!("{} #${},CCR", op_name, imm)),
+            (0 | 1 | 5, Size::Word) => Some(format!("{} #${},SR", op_name, imm)),
+            _ => None,
+        };
     }
 
-    let ea = format_ea(ctx, mode, reg, size);
+    let ea = format_ea_checked(ctx, mode, reg, size, Ea::DataAlt)?;
     Some(format!("{}{} #${},{}", op_name, size.suffix(), imm, ea))
 }
 
@@ -372,14 +441,29 @@ fn decode_move(ctx: &mut DisCtx, opcode: u16, size: Size) -> Option<String> {
     // but the mode encoding for dest uses a different mapping for modes >= 2
     // Actually the dest mode bits 8-6 map directly to normal EA modes
 
-    // MOVEA
+    // A byte source cannot be An-direct; word/long sources may be.
+    let src_cat = if size == Size::Byte {
+        Ea::Data
+    } else {
+        Ea::All
+    };
+
+    // MOVEA — destination An; word/long only (there is no MOVE.B to An).
     if dst_mode_raw == 1 {
-        let ea = format_ea(ctx, src_mode, src_reg, size);
+        if size == Size::Byte {
+            return None;
+        }
+        let ea = format_ea_checked(ctx, src_mode, src_reg, size, src_cat)?;
         let move_size = if size == Size::Long { ".l" } else { ".w" };
         return Some(format!("movea{} {},A{}", move_size, ea, dst_reg));
     }
 
-    let src = format_ea(ctx, src_mode, src_reg, size);
+    // MOVE — destination must be data-alterable. Validate it before reading the
+    // source's extension words so an illegal destination yields a clean dc.w.
+    if !ea_legal(dst_mode_raw, dst_reg, Ea::DataAlt) {
+        return None;
+    }
+    let src = format_ea_checked(ctx, src_mode, src_reg, size, src_cat)?;
     let dst = format_ea(ctx, dst_mode_raw, dst_reg, size);
     Some(format!("move{} {},{}", size.suffix(), src, dst))
 }
@@ -409,8 +493,51 @@ fn decode_group4(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
     if opcode == 0x4AFC {
         return Some("illegal".to_string());
     }
+    // STOP #imm
+    if opcode == 0x4E72 {
+        let imm = ctx.read_word();
+        return Some(format!("stop #${:04X}", imm));
+    }
+    // TRAPV
+    if opcode == 0x4E76 {
+        return Some("trapv".to_string());
+    }
 
     let (mode, reg) = ea_mode_reg(opcode);
+
+    // MOVE from SR / MOVE to CCR / MOVE to SR (all single-EA forms; MOVE from
+    // CCR is 68010+ and intentionally absent).
+    if opcode & 0xFFC0 == 0x40C0 {
+        let ea = format_ea_checked(ctx, mode, reg, Size::Word, Ea::DataAlt)?;
+        return Some(format!("move SR,{}", ea));
+    }
+    if opcode & 0xFFC0 == 0x44C0 {
+        let ea = format_ea_checked(ctx, mode, reg, Size::Word, Ea::Data)?;
+        return Some(format!("move {},CCR", ea));
+    }
+    if opcode & 0xFFC0 == 0x46C0 {
+        let ea = format_ea_checked(ctx, mode, reg, Size::Word, Ea::Data)?;
+        return Some(format!("move {},SR", ea));
+    }
+
+    // NBCD
+    if opcode & 0xFFC0 == 0x4800 {
+        let ea = format_ea_checked(ctx, mode, reg, Size::Byte, Ea::DataAlt)?;
+        return Some(format!("nbcd {}", ea));
+    }
+
+    // TAS ($4AFC ILLEGAL already handled above)
+    if opcode & 0xFFC0 == 0x4AC0 {
+        let ea = format_ea_checked(ctx, mode, reg, Size::Byte, Ea::DataAlt)?;
+        return Some(format!("tas {}", ea));
+    }
+
+    // CHK (word; long CHK is 68020+)
+    if opcode & 0xF1C0 == 0x4180 {
+        let dn = (opcode >> 9) & 7;
+        let ea = format_ea_checked(ctx, mode, reg, Size::Word, Ea::Data)?;
+        return Some(format!("chk {},D{}", ea, dn));
+    }
 
     // TRAP
     if opcode & 0xFFF0 == 0x4E40 {
@@ -458,31 +585,41 @@ fn decode_group4(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
         let an = (opcode >> 9) & 7;
         // LEA only: bits 15-12 = 0100, bits 8-6 = 111
         if opcode & 0xF1C0 == 0x41C0 {
-            let ea = format_ea(ctx, mode, reg, Size::Long);
+            let ea = format_ea_checked(ctx, mode, reg, Size::Long, Ea::Control)?;
             return Some(format!("lea {},A{}", ea, an));
         }
     }
 
     // PEA
-    if opcode & 0xFFC0 == 0x4840 && mode != 0 {
-        let ea = format_ea(ctx, mode, reg, Size::Long);
+    if opcode & 0xFFC0 == 0x4840 {
+        let ea = format_ea_checked(ctx, mode, reg, Size::Long, Ea::Control)?;
         return Some(format!("pea {}", ea));
     }
 
     // JSR
     if opcode & 0xFFC0 == 0x4E80 {
-        let ea = format_ea(ctx, mode, reg, Size::Long);
+        let ea = format_ea_checked(ctx, mode, reg, Size::Long, Ea::Control)?;
         return Some(format!("jsr {}", ea));
     }
 
     // JMP
     if opcode & 0xFFC0 == 0x4EC0 {
-        let ea = format_ea(ctx, mode, reg, Size::Long);
+        let ea = format_ea_checked(ctx, mode, reg, Size::Long, Ea::Control)?;
         return Some(format!("jmp {}", ea));
     }
 
-    // MOVEM
+    // MOVEM. Register→memory allows control-alterable plus predecrement
+    // `-(An)`; memory→register allows control plus postincrement `(An)+`.
     if opcode & 0xFB80 == 0x4880 {
+        let to_mem = opcode & 0x0400 == 0;
+        let ea_ok = if to_mem {
+            ea_legal(mode, reg, Ea::ControlAlt) || mode == 4
+        } else {
+            ea_legal(mode, reg, Ea::Control) || mode == 3
+        };
+        if !ea_ok {
+            return None;
+        }
         let sz = if opcode & 0x0040 != 0 {
             Size::Long
         } else {
@@ -524,7 +661,7 @@ fn decode_group4(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
                 0xA => "tst",
                 _ => unreachable!(),
             };
-            let ea = format_ea(ctx, mode, reg, sz);
+            let ea = format_ea_checked(ctx, mode, reg, sz, Ea::DataAlt)?;
             return Some(format!("{}{} {}", name, sz.suffix(), ea));
         }
     }
@@ -550,18 +687,21 @@ fn decode_group5(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
     // Scc — size field 0b11, any mode except the An form claimed by DBcc above.
     if size_bits == 3 {
         let cc = (opcode >> 8) & 0xF;
-        let ea = format_ea(ctx, mode, reg, Size::Byte);
+        let ea = format_ea_checked(ctx, mode, reg, Size::Byte, Ea::DataAlt)?;
         return Some(format!("s{} {}", CC_NAMES[cc as usize], ea));
     }
 
-    // ADDQ / SUBQ
+    // ADDQ / SUBQ — any alterable EA; the byte size cannot target An.
     let size = Size::from_bits(size_bits)?;
+    if size == Size::Byte && mode == 1 {
+        return None;
+    }
     let mut data = ((opcode >> 9) & 7) as u8;
     if data == 0 {
         data = 8;
     }
     let name = if opcode & 0x0100 != 0 { "subq" } else { "addq" };
-    let ea = format_ea(ctx, mode, reg, size);
+    let ea = format_ea_checked(ctx, mode, reg, size, Ea::Alterable)?;
     Some(format!("{}{} #{},{}", name, size.suffix(), data, ea))
 }
 
@@ -624,24 +764,24 @@ fn decode_group8(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
 
     // DIVU
     if size_bits == 3 {
-        let ea = format_ea(ctx, mode, reg, Size::Word);
+        let ea = format_ea_checked(ctx, mode, reg, Size::Word, Ea::Data)?;
         return Some(format!("divu.w {},D{}", ea, dn));
     }
 
     // DIVS
     if size_bits == 7 {
-        let ea = format_ea(ctx, mode, reg, Size::Word);
+        let ea = format_ea_checked(ctx, mode, reg, Size::Word, Ea::Data)?;
         return Some(format!("divs.w {},D{}", ea, dn));
     }
 
-    // OR
+    // OR — logical, so the source `<ea>,Dn` is data (never An); the
+    // destination `Dn,<ea>` is memory-alterable.
     let size = Size::from_bits(size_bits & 3)?;
-    let ea = format_ea(ctx, mode, reg, size);
     if size_bits & 4 != 0 {
-        // OR Dn,<ea>
+        let ea = format_ea_checked(ctx, mode, reg, size, Ea::MemAlt)?;
         Some(format!("or{} D{},{}", size.suffix(), dn, ea))
     } else {
-        // OR <ea>,Dn
+        let ea = format_ea_checked(ctx, mode, reg, size, Ea::Data)?;
         Some(format!("or{} {},D{}", size.suffix(), ea, dn))
     }
 }
@@ -651,14 +791,14 @@ fn decode_addsub(ctx: &mut DisCtx, opcode: u16, base: &str) -> Option<String> {
     let (mode, reg) = ea_mode_reg(opcode);
     let size_bits = (opcode >> 6) & 7;
 
-    // ADDA / SUBA
+    // ADDA / SUBA — any addressing mode as source.
     if size_bits == 3 || size_bits == 7 {
         let size = if size_bits == 3 {
             Size::Word
         } else {
             Size::Long
         };
-        let ea = format_ea(ctx, mode, reg, size);
+        let ea = format_ea_checked(ctx, mode, reg, size, Ea::All)?;
         return Some(format!("{}a{} {},A{}", base, size.suffix(), ea, dn));
     }
 
@@ -674,10 +814,18 @@ fn decode_addsub(ctx: &mut DisCtx, opcode: u16, base: &str) -> Option<String> {
     }
 
     let size = Size::from_bits(size_bits & 3)?;
-    let ea = format_ea(ctx, mode, reg, size);
     if size_bits & 4 != 0 {
+        // ADD/SUB Dn,<ea> — memory-alterable destination.
+        let ea = format_ea_checked(ctx, mode, reg, size, Ea::MemAlt)?;
         Some(format!("{}{} D{},{}", base, size.suffix(), dn, ea))
     } else {
+        // ADD/SUB <ea>,Dn — arithmetic source allows An for word/long.
+        let cat = if size == Size::Byte {
+            Ea::Data
+        } else {
+            Ea::All
+        };
+        let ea = format_ea_checked(ctx, mode, reg, size, cat)?;
         Some(format!("{}{} {},D{}", base, size.suffix(), ea, dn))
     }
 }
@@ -687,14 +835,14 @@ fn decode_groupb(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
     let (mode, reg) = ea_mode_reg(opcode);
     let size_bits = (opcode >> 6) & 7;
 
-    // CMPA
+    // CMPA — any addressing mode as source.
     if size_bits == 3 || size_bits == 7 {
         let size = if size_bits == 3 {
             Size::Word
         } else {
             Size::Long
         };
-        let ea = format_ea(ctx, mode, reg, size);
+        let ea = format_ea_checked(ctx, mode, reg, size, Ea::All)?;
         return Some(format!("cmpa{} {},A{}", size.suffix(), ea, dn));
     }
 
@@ -704,16 +852,21 @@ fn decode_groupb(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
         return Some(format!("cmpm{} (A{})+,(A{})+", size.suffix(), reg, dn));
     }
 
-    // EOR
+    // EOR — data-alterable destination.
     if size_bits & 4 != 0 {
         let size = Size::from_bits(size_bits & 3)?;
-        let ea = format_ea(ctx, mode, reg, size);
+        let ea = format_ea_checked(ctx, mode, reg, size, Ea::DataAlt)?;
         return Some(format!("eor{} D{},{}", size.suffix(), dn, ea));
     }
 
-    // CMP
+    // CMP — arithmetic source allows An for word/long.
     let size = Size::from_bits(size_bits & 3)?;
-    let ea = format_ea(ctx, mode, reg, size);
+    let cat = if size == Size::Byte {
+        Ea::Data
+    } else {
+        Ea::All
+    };
+    let ea = format_ea_checked(ctx, mode, reg, size, cat)?;
     Some(format!("cmp{} {},D{}", size.suffix(), ea, dn))
 }
 
@@ -744,22 +897,24 @@ fn decode_groupc(ctx: &mut DisCtx, opcode: u16) -> Option<String> {
         _ => {}
     }
 
-    // MULU.W / MULS.W — <ea>,Dn
+    // MULU.W / MULS.W — <ea>,Dn (data source).
     if size_bits == 3 {
-        let ea = format_ea(ctx, mode, reg, Size::Word);
+        let ea = format_ea_checked(ctx, mode, reg, Size::Word, Ea::Data)?;
         return Some(format!("mulu.w {},D{}", ea, dn));
     }
     if size_bits == 7 {
-        let ea = format_ea(ctx, mode, reg, Size::Word);
+        let ea = format_ea_checked(ctx, mode, reg, Size::Word, Ea::Data)?;
         return Some(format!("muls.w {},D{}", ea, dn));
     }
 
-    // AND — opmode 0b000/001/010 = <ea>,Dn; 0b100/101/110 = Dn,<ea>.
+    // AND — logical: source `<ea>,Dn` is data (never An); destination
+    // `Dn,<ea>` is memory-alterable.
     let size = Size::from_bits(size_bits & 3)?;
-    let ea = format_ea(ctx, mode, reg, size);
     if size_bits & 4 != 0 {
+        let ea = format_ea_checked(ctx, mode, reg, size, Ea::MemAlt)?;
         Some(format!("and{} D{},{}", size.suffix(), dn, ea))
     } else {
+        let ea = format_ea_checked(ctx, mode, reg, size, Ea::Data)?;
         Some(format!("and{} {},D{}", size.suffix(), ea, dn))
     }
 }
@@ -803,7 +958,12 @@ fn decode_groupe(_ctx: &mut DisCtx, opcode: u16) -> Option<String> {
         }
     }
 
-    // Memory shifts/rotates (size field == 3, word only)
+    // Memory shifts/rotates (size field == 3, word only). The operation lives
+    // in bits 11-9, but only 000..011 (AS/LS/ROX/RO) are defined — bit 11 set
+    // is an illegal encoding, not a shift.
+    if opcode & 0x0800 != 0 {
+        return None;
+    }
     let dir = if opcode & 0x0100 != 0 { "l" } else { "r" };
     let base = match (opcode >> 9) & 3 {
         0 => "as",
@@ -812,8 +972,11 @@ fn decode_groupe(_ctx: &mut DisCtx, opcode: u16) -> Option<String> {
         3 => "ro",
         _ => unreachable!(),
     };
-    let ea = format_ea(_ctx, mode, reg, Size::Word);
-    Some(format!("{}{}.w {}", base, dir, ea))
+    // The memory shift/rotate form is always word-sized, so the size suffix is
+    // implicit — render it bare (matching the spec) and over a memory-alterable
+    // EA.
+    let ea = format_ea_checked(_ctx, mode, reg, Size::Word, Ea::MemAlt)?;
+    Some(format!("{}{} {}", base, dir, ea))
 }
 
 fn format_regmask(mask: u16, reversed: bool) -> String {
@@ -1067,6 +1230,28 @@ mod tests {
         assert_eq!(len, 2, "unknown opcode should be 2 bytes");
         // Just verify it doesn't panic
         assert!(!s.is_empty());
+    }
+
+    #[test]
+    fn test_btst_dynamic_immediate_is_legal() {
+        // BTST D0,#$42 — $013C + immediate word. The dynamic form is the one
+        // bit op the 68000 lets target an immediate EA (Musashi `btst_r` mask
+        // 0xbff). Emu follows the hardware.
+        let (s, len) = dis(&[0x01, 0x3C, 0x00, 0x42]);
+        assert_eq!(s, "btst D0,#$42");
+        assert_eq!(len, 4);
+    }
+
+    #[test]
+    fn test_btst_static_immediate_is_illegal() {
+        // BTST #bit,#imm — $083C. The static form may not target an immediate
+        // EA (Musashi `btst_s` mask 0xbfb clears the immediate bit), so this
+        // disassembles as data, not an instruction.
+        let (s, _len) = dis(&[0x08, 0x3C, 0x00, 0x01, 0x00, 0x42]);
+        assert!(
+            s.starts_with("dc.w"),
+            "static BTST #bit,#imm is illegal; got {s:?}"
+        );
     }
 
     #[test]
