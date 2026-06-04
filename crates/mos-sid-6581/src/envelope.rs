@@ -4,15 +4,23 @@
 
 use serde::{Deserialize, Serialize};
 
-// SID envelope rate-counter periods (in phi2 clocks per step).
-// Attack reaches $FF after one period; decay/release is 3× slower per
-// 6581 datasheet (rate 15 attack = 8 s, decay/release = 24 s).
-const ATTACK_RATES: [u32; 16] = [
+// SID envelope rate-counter periods (phi2 clocks per rate-counter step).
+// A single table serves attack, decay, AND release — the 6581 uses one rate
+// counter for all three phases (reSID `rate_counter_period[]`, VICE 3.10
+// src/resid/envelope.cc). These are reSID's periods +1 to absorb our
+// increment-then-compare structure.
+//
+// Decay/release run ~3× slower than attack per the datasheet (rate 0: 2 ms
+// attack vs 6 ms decay/release; rate 15: 8 s vs 24 s) — but that slowdown
+// comes from the exponential counter (`exp_period` below), NOT from inflating
+// the period table. Averaging the exponential divisors (1,2,4,8,16,30 at the
+// level thresholds 0x5D/0x36/0x1A/0x0E/0x06) over a full 0xFF→0 sweep gives
+// ~757/256 ≈ 2.96×, matching the datasheet ratio. A second, inflated table
+// would double-count that slowdown (~9× too slow) and — because it pushes the
+// free-running counter far past the attack period — turn the ADSR-delay-bug
+// missed-match (see `clock`) into multi-thousand-second silence.
+const RATE_COUNTER_PERIODS: [u32; 16] = [
     9, 32, 63, 95, 149, 220, 267, 313, 392, 977, 1954, 3126, 3907, 11_720, 19_532, 31_251,
-];
-
-const DECAY_RELEASE_RATES: [u32; 16] = [
-    27, 96, 189, 285, 447, 660, 801, 939, 1176, 2931, 5862, 9378, 11_721, 35_160, 58_596, 93_753,
 ];
 
 const SUSTAIN_LEVELS: [u8; 16] = [
@@ -74,16 +82,22 @@ impl Envelope {
         self.prev_gate = gate;
 
         let rate_period = match self.phase {
-            Phase::Attack => ATTACK_RATES[self.attack as usize],
-            Phase::Decay => DECAY_RELEASE_RATES[self.decay as usize],
+            Phase::Attack => RATE_COUNTER_PERIODS[self.attack as usize],
+            Phase::Decay => RATE_COUNTER_PERIODS[self.decay as usize],
             Phase::Sustain => return,
-            Phase::Release => DECAY_RELEASE_RATES[self.release as usize],
+            Phase::Release => RATE_COUNTER_PERIODS[self.release as usize],
         };
 
-        self.rate_counter = self.rate_counter.wrapping_add(1);
-        // Equality check (not <) so the counter must match the period
-        // exactly — if it's already past the period it will wrap all
-        // the way around before triggering again (this is the bug).
+        // The rate counter is 15-bit on real hardware, so it wraps at 0x8000.
+        // Equality check (not `<`): the counter must match the period exactly,
+        // so if a gate edge switches to a phase whose period sits below the
+        // counter's current value, the match is missed and the counter must
+        // wrap before triggering again (the 6581 "ADSR delay bug" — the
+        // counter is never reset on the edge). Bounding the wrap to 15 bits
+        // caps that delay at ~0x8000 cycles (~33 ms), exactly as reSID does
+        // (`++rate_counter & 0x8000`, VICE 3.10 src/resid/envelope.h) — a u32
+        // wrap would stretch the same miss to ~4000 s of silence.
+        self.rate_counter = self.rate_counter.wrapping_add(1) & 0x7FFF;
         if self.rate_counter != rate_period {
             return;
         }

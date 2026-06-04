@@ -540,6 +540,36 @@ mod tests {
         assert_eq!(sid.envelopes[0].phase, Phase::Sustain);
     }
 
+    // Regression: a voice gated on *after* the SID has been clocking for a
+    // while (the real case — boot + program startup all clock the SID before
+    // a note ever fires) must still attack. The earlier tests all wrote the
+    // gate on a fresh SID with `rate_counter == 0`, so they only ever hit the
+    // lucky path and never caught the ADSR-delay-bug counter wrapping the full
+    // u32 range into multi-thousand-second silence. With the rate counter
+    // bounded to 15 bits, any missed match recovers within ~0x8000 cycles.
+    #[test]
+    fn adsr_attack_reaches_max_level_when_gated_after_warm_up() {
+        let mut sid = Sid6581::new(985_248, 48_000);
+        // Clock the SID with the voice ungated so the free-running rate
+        // counter lands at an arbitrary, non-zero phase — like a real machine
+        // by the time a program fires its first note.
+        for _ in 0..5_000 {
+            sid.tick();
+        }
+
+        sid.write(0x05, 0x00);
+        sid.write(0x06, 0xF0);
+        sid.write(0x04, 0x01);
+
+        // Attack rate 0 reaches peak in ~2 ms; allow a 15-bit wrap of slack.
+        for _ in 0..40_000 {
+            sid.tick();
+        }
+
+        assert_eq!(sid.envelopes[0].level, 0xFF);
+        assert_eq!(sid.envelopes[0].phase, Phase::Sustain);
+    }
+
     #[test]
     fn adsr_release_decays_to_zero() {
         let mut sid = Sid6581::new(985_248, 48_000);
