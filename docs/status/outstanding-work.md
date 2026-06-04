@@ -304,11 +304,25 @@ passes (1/1). Cart drives real ANTIC scan-line output —
 captured screenshot shows partial title-screen pixels
 (scoreboard fragments, dot field).
 
-- **A — Partial render fidelity.** Pac-Man title boots but
-  most of the title-screen sprites are missing. ANTIC scan-line
-  indexing into GTIA's framebuffer and/or DMA budget are off;
-  pin further once more carts are exercised. The pipeline is
-  wired end-to-end — this is correctness, not structure.
+- **A — Cart crashes ~3 frames after BIOS handoff (was
+  mis-filed as "render fidelity").** Full boot traced 2026-06-04:
+  BIOS init runs, builds the ATARI-logo display list, enables
+  NMIs (`NMIEN=$C0`), and spins at `$FE8E` (`CPX $02 / BNE`)
+  until the VBI-incremented frame counter `$02` reaches `$FF`
+  (255 frames ≈ 4.3 s) — VBIs fire and `$02` climbs `00→FF`
+  correctly. At frame 258 the BIOS does `JMP ($BFFE)` and Pac-Man
+  *does* start at `$8386`. ~3 frames later the cart executes an
+  `RTS` at `$70F1` against an empty, zeroed stack (`SP=FF` → pops
+  `$00,$00` → `PC=$0001`), then derails into the `$FCA2` NMI
+  storm that previously masked the whole sequence. An unbalanced
+  `RTS` means a conditional branch went the wrong way — almost
+  always a wrong I/O read value on the 5200 (trigger / POT /
+  RANDOM / IRQ-status) or a 6502 corner case. GTIA triggers and
+  POKEY POT/RANDOM/KBCODE are not obvious stubs, so it needs an
+  I/O-read trace of the 3-frame startup window or a 6502
+  edge-case cross-check. **This is the real blocker, not sprite
+  count** — the screenshots showing "partial title" were the
+  ATARI logo mid-fade, not Pac-Man.
 - **A — Cycle-accurate WSYNC + DMA stealing.** Current model
   treats the DMA budget as a fixed CPU-cycle stall at the start
   of the line; real ANTIC interleaves DMA cycles through the
