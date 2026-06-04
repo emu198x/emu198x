@@ -1,0 +1,20 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-gary-v0.2.0) - 2026-06-04
+
+### Other
+
+- *(release)* independent per-machine versioning, baseline 0.2.0
+- Open Emu198x for public release
+- Add Amiga postcard snapshots across the chip stack
+- land wb13 boot investigation and fixes
+- Retire commodore-gary-archive: the archive is now the live crate
+- Amiga restart: archive old chipsets, ship M0 (CPU + ROM + OVL)
+- Add fresh Amiga headless baseline

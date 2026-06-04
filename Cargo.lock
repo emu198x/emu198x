@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "amstrad-ula-40077"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
@@ -157,26 +157,26 @@ dependencies = [
 
 [[package]]
 name = "atari-antic"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "atari-gtia",
 ]
 
 [[package]]
 name = "atari-gtia"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "atari-maria"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "atari-pokey"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "atari-tia"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "atomic-waker"
@@ -192,7 +192,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "beta-disk-interface"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "commodore-agnus-aga"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "commodore-agnus-ecs",
  "commodore-agnus-ocs",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "commodore-agnus-ecs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "commodore-agnus-ocs",
  "serde",
@@ -483,21 +483,21 @@ dependencies = [
 
 [[package]]
 name = "commodore-agnus-ocs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "commodore-amiga-autoconfig"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "commodore-denise-aga"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "commodore-denise-ecs",
  "commodore-denise-ocs",
@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "commodore-denise-ecs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "commodore-denise-ocs",
  "serde",
@@ -515,7 +515,7 @@ dependencies = [
 
 [[package]]
 name = "commodore-denise-ocs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde-big-array",
@@ -523,28 +523,28 @@ dependencies = [
 
 [[package]]
 name = "commodore-gary"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "commodore-gayle"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "commodore-paula-8364"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "common-commodore-amiga"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "commodore-agnus-ocs",
  "commodore-denise-ecs",
@@ -556,25 +556,25 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-c64"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "common-commodore-iec"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "common-nintendo-game-boy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "common-sinclair-zx-spectrum"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "format-sinclair-zx-spectrum-snapshot",
  "gi-ay-3-8912",
@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "common-sinclair-zx-spectrum-128k-class"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "gi-ay-3-8912",
@@ -598,7 +598,7 @@ dependencies = [
 
 [[package]]
 name = "common-sinclair-zx-spectrum-48k-class"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "ferranti-ula-6c001e",
@@ -609,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "common-sinclair-zx-spectrum-amstrad-class"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "amstrad-ula-40077",
  "common-sinclair-zx-spectrum",
@@ -858,7 +858,7 @@ checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "emu198x-acorn-atom"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-acorn-atom",
@@ -869,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-acorn-bbc-micro"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-acorn-bbc-micro",
@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-acorn-electron"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-acorn-electron",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-amiga"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
@@ -909,7 +909,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-2600"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-atari-2600",
@@ -920,7 +920,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-5200"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-atari-5200",
@@ -931,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-7800"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-atari-7800",
@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-800xl"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-atari-800xl",
@@ -953,7 +953,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-c64"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-commodore-c64",
  "emu198x-native-video",
@@ -967,7 +967,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-catalogue"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-commodore-c64",
  "common-sinclair-zx-spectrum",
@@ -993,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-colecovision"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-coleco-colecovision",
@@ -1004,7 +1004,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-commodore-pet"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-commodore-pet",
@@ -1015,7 +1015,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-commodore-vic-20"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-commodore-vic-20",
@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-dragon"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-game-boy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-nintendo-game-boy",
  "emu198x-native-video",
@@ -1061,7 +1061,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-jupiter-ace"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-jupiter-ace",
@@ -1072,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-mattel-aquarius"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-mattel-aquarius",
@@ -1083,7 +1083,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-memotech-mtx"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-memotech-mtx",
@@ -1094,7 +1094,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-msx"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-msx",
@@ -1105,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-native-video"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytemuck",
  "emu198x-shell",
@@ -1117,7 +1117,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-nes"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
@@ -1131,7 +1131,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-oric-atmos"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-oric-atmos",
@@ -1142,7 +1142,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sega-master-system"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-sega-master-system",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sega-sg-1000"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-sega-sg-1000",
@@ -1164,7 +1164,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-shell"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "gilrs",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sinclair-zx80"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-sinclair-zx80",
@@ -1190,7 +1190,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sinclair-zx81"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-sinclair-zx81",
@@ -1201,7 +1201,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sord-m5"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-sord-m5",
@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-spectravideo-svi-328"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-spectravideo-svi-328",
@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-spectrum"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-native-video",
@@ -1244,7 +1244,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-tatung-einstein"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-tatung-einstein",
@@ -1280,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "ferranti-ula-6c001e"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
@@ -1338,40 +1338,40 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "format-amstrad-dsk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nec-upd765a",
 ]
 
 [[package]]
 name = "format-commodore-amiga-adf"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "format-commodore-c64-bas"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "format-commodore-c64-d64"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "format-commodore-c64-prg"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "format-commodore-c64-t64"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "format-commodore-c64-tap"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -1379,7 +1379,7 @@ dependencies = [
 
 [[package]]
 name = "format-dragon-bin"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -1387,7 +1387,7 @@ dependencies = [
 
 [[package]]
 name = "format-dragon-cas"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -1395,7 +1395,7 @@ dependencies = [
 
 [[package]]
 name = "format-dragon-disk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -1403,7 +1403,7 @@ dependencies = [
 
 [[package]]
 name = "format-dragon-pak"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -1411,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "format-nintendo-game-boy-cartridge"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nintendo-game-boy-mbc",
  "serde",
@@ -1420,7 +1420,7 @@ dependencies = [
 
 [[package]]
 name = "format-nintendo-nes-ines"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde-big-array",
@@ -1428,11 +1428,11 @@ dependencies = [
 
 [[package]]
 name = "format-sinclair-zx-spectrum-bas"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "format-sinclair-zx-spectrum-rzx"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "flate2",
  "serde",
@@ -1440,29 +1440,29 @@ dependencies = [
 
 [[package]]
 name = "format-sinclair-zx-spectrum-sna"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "format-sinclair-zx-spectrum-snapshot",
 ]
 
 [[package]]
 name = "format-sinclair-zx-spectrum-snapshot"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "format-sinclair-zx-spectrum-tap"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "format-sinclair-zx-spectrum-tzx"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
 ]
 
 [[package]]
 name = "format-sinclair-zx-spectrum-z80"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "format-sinclair-zx-spectrum-snapshot",
 ]
@@ -1515,7 +1515,7 @@ dependencies = [
 
 [[package]]
 name = "gi-ay-3-8912"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
@@ -1724,7 +1724,7 @@ dependencies = [
 
 [[package]]
 name = "intel-8255"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "is-terminal"
@@ -1975,7 +1975,7 @@ dependencies = [
 
 [[package]]
 name = "machine-acorn-atom"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mos-6502",
  "mos-pia-6520",
@@ -1984,7 +1984,7 @@ dependencies = [
 
 [[package]]
 name = "machine-acorn-bbc-micro"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mos-6502",
  "mos-via-6522",
@@ -1994,14 +1994,14 @@ dependencies = [
 
 [[package]]
 name = "machine-acorn-electron"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mos-6502",
 ]
 
 [[package]]
 name = "machine-atari-2600"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "atari-tia",
  "mos-6502",
@@ -2010,7 +2010,7 @@ dependencies = [
 
 [[package]]
 name = "machine-atari-5200"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "atari-antic",
  "atari-gtia",
@@ -2020,7 +2020,7 @@ dependencies = [
 
 [[package]]
 name = "machine-atari-7800"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "atari-maria",
  "mos-6502",
@@ -2029,7 +2029,7 @@ dependencies = [
 
 [[package]]
 name = "machine-atari-800xl"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "atari-antic",
  "atari-gtia",
@@ -2040,7 +2040,7 @@ dependencies = [
 
 [[package]]
 name = "machine-coleco-colecovision"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ti-sn76489",
  "ti-tms9918",
@@ -2049,7 +2049,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-1541"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-commodore-iec",
  "format-commodore-c64-d64",
@@ -2061,7 +2061,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-amiga-a1200"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "commodore-agnus-aga",
  "commodore-agnus-ecs",
@@ -2089,7 +2089,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-amiga-ecs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "commodore-agnus-ecs",
  "commodore-agnus-ocs",
@@ -2112,7 +2112,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-amiga-ocs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "commodore-agnus-ocs",
  "commodore-amiga-autoconfig",
@@ -2132,7 +2132,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-c64"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-commodore-c64",
  "common-commodore-iec",
@@ -2149,7 +2149,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-pet"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mos-6502",
  "mos-pia-6520",
@@ -2159,7 +2159,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-vic-20"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mos-6502",
  "mos-vic-i",
@@ -2167,7 +2167,7 @@ dependencies = [
 
 [[package]]
 name = "machine-dragon-32"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "format-dragon-disk",
  "motorola-6809",
@@ -2179,21 +2179,21 @@ dependencies = [
 
 [[package]]
 name = "machine-jupiter-ace"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "zilog-z80",
 ]
 
 [[package]]
 name = "machine-mattel-aquarius"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "zilog-z80",
 ]
 
 [[package]]
 name = "machine-memotech-mtx"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ti-sn76489",
  "ti-tms9918",
@@ -2203,7 +2203,7 @@ dependencies = [
 
 [[package]]
 name = "machine-msx"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "gi-ay-3-8912",
  "intel-8255",
@@ -2213,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "machine-nintendo-game-boy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-nintendo-game-boy",
  "format-nintendo-game-boy-cartridge",
@@ -2228,7 +2228,7 @@ dependencies = [
 
 [[package]]
 name = "machine-nintendo-nes"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "format-nintendo-nes-ines",
  "mos-6502",
@@ -2240,7 +2240,7 @@ dependencies = [
 
 [[package]]
 name = "machine-oric-atmos"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "gi-ay-3-8912",
  "mos-6502",
@@ -2249,7 +2249,7 @@ dependencies = [
 
 [[package]]
 name = "machine-pentagon-128"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "beta-disk-interface",
  "common-sinclair-zx-spectrum",
@@ -2264,7 +2264,7 @@ dependencies = [
 
 [[package]]
 name = "machine-scorpion-zs256"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "beta-disk-interface",
  "common-sinclair-zx-spectrum",
@@ -2278,7 +2278,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sega-master-system"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "sega-vdp",
  "ti-sn76489",
@@ -2287,7 +2287,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sega-sg-1000"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ti-sn76489",
  "ti-tms9918",
@@ -2296,7 +2296,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-128k"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-128k-class",
@@ -2306,7 +2306,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-16k"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
@@ -2315,7 +2315,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-48k"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
@@ -2330,7 +2330,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-plus"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
@@ -2339,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-plus2"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-128k-class",
@@ -2347,7 +2347,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-plus2a"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
@@ -2355,7 +2355,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-plus2b"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
@@ -2363,7 +2363,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-plus3"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
@@ -2372,7 +2372,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx80"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "sinclair-zx81-ula",
  "zilog-z80",
@@ -2380,7 +2380,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx81"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "sinclair-zx81-ula",
  "zilog-z80",
@@ -2388,7 +2388,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sord-m5"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ti-sn76489",
  "ti-tms9918",
@@ -2398,7 +2398,7 @@ dependencies = [
 
 [[package]]
 name = "machine-spectravideo-svi-328"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "gi-ay-3-8912",
  "intel-8255",
@@ -2408,7 +2408,7 @@ dependencies = [
 
 [[package]]
 name = "machine-tatung-einstein"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "gi-ay-3-8912",
  "ti-tms9918",
@@ -2417,7 +2417,7 @@ dependencies = [
 
 [[package]]
 name = "machine-timex-tc2048"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "format-sinclair-zx-spectrum-snapshot",
@@ -2431,7 +2431,7 @@ dependencies = [
 
 [[package]]
 name = "machine-timex-ts2068"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "format-sinclair-zx-spectrum-snapshot",
@@ -2495,7 +2495,7 @@ dependencies = [
 
 [[package]]
 name = "mos-6502"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2503,47 +2503,47 @@ dependencies = [
 
 [[package]]
 name = "mos-cia-6526"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "mos-cia-8520"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "mos-pia-6520"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "mos-riot-6532"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "mos-sid-6581"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "mos-via-6522"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "mos-vic-i"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "mos-vic-ii"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde-big-array",
@@ -2551,7 +2551,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68000"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "flate2",
  "isa-disasm",
@@ -2562,7 +2562,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68010"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "flate2",
  "motorola-68000",
@@ -2574,7 +2574,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68020"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "flate2",
  "motorola-68000",
@@ -2588,7 +2588,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68030"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "motorola-68000",
  "motorola-68010",
@@ -2600,7 +2600,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68040"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "motorola-68000",
  "motorola-68010",
@@ -2613,39 +2613,39 @@ dependencies = [
 
 [[package]]
 name = "motorola-6809"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "motorola-6845"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "motorola-68k-common"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "motorola-pia-6821"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "motorola-sam-6883"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "motorola-vdg-6847"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
@@ -2730,7 +2730,7 @@ dependencies = [
 
 [[package]]
 name = "nec-upd765a"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
@@ -2738,21 +2738,21 @@ dependencies = [
 
 [[package]]
 name = "nintendo-game-boy-apu"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "nintendo-game-boy-mbc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "nintendo-game-boy-ppu"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-nintendo-game-boy",
  "serde",
@@ -2761,7 +2761,7 @@ dependencies = [
 
 [[package]]
 name = "nintendo-game-boy-timer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
@@ -3211,7 +3211,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pentagon-ula"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
@@ -3225,7 +3225,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "peripheral-commodore-amiga-floppy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "format-commodore-amiga-adf",
  "serde",
@@ -3233,14 +3233,14 @@ dependencies = [
 
 [[package]]
 name = "peripheral-commodore-amiga-keyboard"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "peripheral-kempston-joystick"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
@@ -3486,7 +3486,7 @@ dependencies = [
 
 [[package]]
 name = "ricoh-apu-2a03"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "postcard",
  "serde",
@@ -3494,7 +3494,7 @@ dependencies = [
 
 [[package]]
 name = "ricoh-ppu-2c02"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "format-nintendo-nes-ines",
  "serde",
@@ -3522,7 +3522,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-acorn-atom"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-acorn-atom",
@@ -3533,7 +3533,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-acorn-bbc-micro"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-acorn-bbc-micro",
@@ -3544,7 +3544,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-acorn-electron"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-acorn-electron",
@@ -3555,7 +3555,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-atari-2600"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-atari-2600",
@@ -3566,7 +3566,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-atari-5200"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-atari-5200",
@@ -3577,7 +3577,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-atari-7800"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-atari-7800",
@@ -3588,7 +3588,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-atari-800xl"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-atari-800xl",
@@ -3599,7 +3599,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-coleco-colecovision"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-coleco-colecovision",
@@ -3611,7 +3611,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-commodore-amiga"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "commodore-agnus-ocs",
  "emu198x-shell",
@@ -3630,7 +3630,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-commodore-c64"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-commodore-c64",
  "common-commodore-iec",
@@ -3648,7 +3648,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-commodore-pet"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-commodore-pet",
@@ -3659,7 +3659,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-commodore-vic-20"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-commodore-vic-20",
@@ -3670,7 +3670,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-dragon"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "format-dragon-bin",
@@ -3687,7 +3687,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-jupiter-ace"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-jupiter-ace",
@@ -3699,7 +3699,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-mattel-aquarius"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-mattel-aquarius",
@@ -3711,7 +3711,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-memotech-mtx"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-memotech-mtx",
@@ -3723,7 +3723,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-msx"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-msx",
@@ -3735,7 +3735,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-nintendo-game-boy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-nintendo-game-boy",
  "emu198x-shell",
@@ -3747,7 +3747,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-nintendo-nes"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "format-nintendo-nes-ines",
@@ -3759,7 +3759,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-oric-atmos"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-oric-atmos",
@@ -3770,7 +3770,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-sega-master-system"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-sega-master-system",
@@ -3782,7 +3782,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-sega-sg-1000"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-sega-sg-1000",
@@ -3794,7 +3794,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-sinclair-zx-spectrum"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
@@ -3831,7 +3831,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-sinclair-zx80"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-sinclair-zx80",
@@ -3843,7 +3843,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-sinclair-zx81"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-sinclair-zx81",
@@ -3855,7 +3855,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-sord-m5"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-sord-m5",
@@ -3867,7 +3867,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-spectravideo-svi-328"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-spectravideo-svi-328",
@@ -3880,7 +3880,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-tatung-einstein"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "emu198x-shell",
  "machine-tatung-einstein",
@@ -3960,7 +3960,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "scorpion-ula"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
@@ -3981,7 +3981,7 @@ dependencies = [
 
 [[package]]
 name = "sega-vdp"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "semver"
@@ -4052,7 +4052,7 @@ dependencies = [
 
 [[package]]
 name = "sharp-lr35902"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4088,7 +4088,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "sinclair-ula-7k010e"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
@@ -4096,7 +4096,7 @@ dependencies = [
 
 [[package]]
 name = "sinclair-zx81-ula"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "slab"
@@ -4247,21 +4247,21 @@ dependencies = [
 
 [[package]]
 name = "ti-sn76489"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ti-tms9918"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "timex-scld"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
@@ -5218,7 +5218,7 @@ dependencies = [
 
 [[package]]
 name = "zilog-z80"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "isa-disasm",
  "serde",
@@ -5227,7 +5227,7 @@ dependencies = [
 
 [[package]]
 name = "zilog-z80-ctc"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "zip"
