@@ -48,8 +48,21 @@ fn bios_path() -> Option<PathBuf> {
         }
     }
     let home = env::var("HOME").ok()?;
-    let p = PathBuf::from(home).join(".emu198x/roms/atari-5200/5200.rom");
-    p.exists().then_some(p)
+    let dir = PathBuf::from(home).join(".emu198x/roms/atari-5200");
+    // The 5200 BIOS is a 2 KB ROM; accept any name (5200.rom, bios.rom,
+    // "Atari 5200 BIOS (1982)(Atari).bin", …).
+    let direct = dir.join("5200.rom");
+    if direct.exists() {
+        return Some(direct);
+    }
+    let mut hits: Vec<PathBuf> = fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| fs::metadata(p).map(|m| m.len()).ok() == Some(2048))
+        .collect();
+    hits.sort();
+    hits.into_iter().next()
 }
 
 #[test]
@@ -66,23 +79,43 @@ fn cart_boots_to_playfield() {
         .and_then(|p| fs::read(&p).ok())
         .unwrap_or_default();
 
+    let has_bios = !bios.is_empty();
     let mut sys = Atari5200::new(rom, bios, Atari5200Region::Ntsc).expect("init");
-    for _ in 0..200 {
+    // With a BIOS, the ATARI logo runs for ~255 frames before the BIOS
+    // hands off to the cart (JMP ($BFFE)); run well past that so the cart
+    // itself is driving the display.
+    for _ in 0..320 {
         sys.run_frame();
     }
 
     let fb = sys.framebuffer();
-    let mut colours = std::collections::HashSet::new();
-    for &px in fb {
-        colours.insert(px);
-        if colours.len() >= 8 {
-            break;
-        }
+    let colours: std::collections::HashSet<u32> = fb.iter().copied().collect();
+    let non_bg = fb.iter().filter(|&&px| px & 0x00FF_FFFF != 0).count();
+
+    if has_bios {
+        // The cart has booted past the BIOS handoff and is rendering its
+        // own screen. This exercises the whole chain end-to-end: the
+        // two-chip 16 KB cart decode (so the entry vector lands on real
+        // code) and ANTIC's DMA view of cart ROM + the BIOS character set
+        // (so the display list, which lives in cart ROM, actually renders).
+        // Before either fix this frame was uniform black.
+        assert!(
+            colours.len() >= 4 && non_bg >= 1000,
+            "Atari 5200 cart should render a real frame after the BIOS \
+             handoff; got {} colours / {non_bg} non-background px (cart: {})",
+            colours.len(),
+            path.display()
+        );
+    } else {
+        // Cart-only boot (no BIOS): the reset vector is taken from the
+        // `$BFFC` mirror; not every cart self-starts without the BIOS, so
+        // only require that the pipeline produced some output.
+        assert!(
+            colours.len() >= 2,
+            "Atari 5200 cart-only boot should produce >= 2 distinct \
+             colours; got {} (cart: {})",
+            colours.len(),
+            path.display()
+        );
     }
-    assert!(
-        colours.len() >= 2,
-        "Atari 5200 boot should produce >= 2 distinct colours; got {} (cart: {})",
-        colours.len(),
-        path.display()
-    );
 }

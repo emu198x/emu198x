@@ -296,33 +296,44 @@ Joystick wired through POKEY pots (0-228 each, 114 = centre)
 via `set_joystick(x, y)`; fire button wired through GTIA TRIG0
 via `set_fire(pressed)`.
 
-**Live boot verified 2026-06-01** with the 1982 Atari Pac-Man
-cart (16 KB, NTSC) + 5200 BIOS. Gated smoke at
-`crates/machine-atari-5200/tests/cart_boot.rs` (picks first
-`.a52` / `.bin` / `.car` from `~/.emu198x/media/atari-5200/`)
-passes (1/1). Cart drives real ANTIC scan-line output —
-captured screenshot shows partial title-screen pixels
-(scoreboard fragments, dot field).
+**Boots end-to-end to the Pac-Man menu (2026-06-04)** with the
+1982 Atari Pac-Man cart (16 KB, NTSC) + 5200 BIOS: ATARI logo →
+`JMP ($BFFE)` handoff → the cart's title/menu screen ("1UP /
+HIGH SCORE", the maze row, "PRESS START TO PLAY GAME") in the
+correct colours. Gated smoke at
+`crates/machine-atari-5200/tests/cart_boot.rs` runs 320 frames
+(past the ~255-frame logo) and, when a BIOS is present, asserts
+a real rendered frame (≥ 4 colours, ≥ 1000 non-background px);
+without a BIOS it falls back to the looser cart-only check.
 
-- **A — Cart crashes ~3 frames after BIOS handoff (was
-  mis-filed as "render fidelity").** Full boot traced 2026-06-04:
-  BIOS init runs, builds the ATARI-logo display list, enables
-  NMIs (`NMIEN=$C0`), and spins at `$FE8E` (`CPX $02 / BNE`)
-  until the VBI-incremented frame counter `$02` reaches `$FF`
-  (255 frames ≈ 4.3 s) — VBIs fire and `$02` climbs `00→FF`
-  correctly. At frame 258 the BIOS does `JMP ($BFFE)` and Pac-Man
-  *does* start at `$8386`. ~3 frames later the cart executes an
-  `RTS` at `$70F1` against an empty, zeroed stack (`SP=FF` → pops
-  `$00,$00` → `PC=$0001`), then derails into the `$FCA2` NMI
-  storm that previously masked the whole sequence. An unbalanced
-  `RTS` means a conditional branch went the wrong way — almost
-  always a wrong I/O read value on the 5200 (trigger / POT /
-  RANDOM / IRQ-status) or a 6502 corner case. GTIA triggers and
-  POKEY POT/RANDOM/KBCODE are not obvious stubs, so it needs an
-  I/O-read trace of the 3-frame startup window or a 6502
-  edge-case cross-check. **This is the real blocker, not sprite
-  count** — the screenshots showing "partial title" were the
-  ATARI logo mid-fade, not Pac-Man.
+Two bugs fixed to get there:
+
+- **16 KB carts now use the "two chip" (EE_16) decode.** The
+  fresh-write (and the donor) mapped 16 KB carts linearly to
+  `$8000-$BFFF`, so Pac-Man's entry vector (`$BFFE` → `$8386`)
+  landed in the lower chip's `$FF` padding and the CPU executed
+  garbage until it hit an unbalanced `RTS` (empty stack → `$0001`
+  → `$FCA2` NMI storm). Real 16 KB 5200 carts are two 8 KB chips
+  selected by CPU A15 (A13/A14 don't-care): lower 8 KB →
+  `$4000-$7FFF`, upper 8 KB → `$8000-$BFFF`. Entry now lands on
+  the upper chip's `SEI`. Guarded by `cartridge::sixteen_kb_two_chip_decode`.
+- **ANTIC now DMAs from the full bus, not just RAM.** ANTIC was
+  handed only the 16 KB RAM (`process_line(&self.ram)`, masked to
+  `& $3FFF`), so a display list in cart ROM (`$9EDF`) or glyphs
+  from the BIOS character set (`$F800`) were unreachable —
+  uniform black. The machine now keeps a 64 KB `dma_mem` image
+  (RAM mirrored live + cart + BIOS baked) and passes that, so
+  ANTIC reads the DL, screen data, and char sets from wherever
+  they live. ANTIC itself is unchanged (the 800XL already passes
+  a 64 KB view).
+
+Remaining polish (display works; these are fidelity, not blockers):
+
+- **A — Minor glyph + sprite quirks on the Pac-Man menu.** A
+  couple of menu characters render as the wrong glyph (e.g. the
+  "1" in "1 PLAYER") and a small stray player/missile artifact
+  sits on the right edge. Likely a char-set region or P/M-DMA
+  detail; the menu is fully readable.
 - **A — Cycle-accurate WSYNC + DMA stealing.** Current model
   treats the DMA budget as a fixed CPU-cycle stall at the start
   of the line; real ANTIC interleaves DMA cycles through the

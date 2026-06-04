@@ -100,6 +100,14 @@ pub struct Atari5200 {
     pokey: Pokey,
     cart: Cartridge,
     ram: [u8; 16384],
+    /// ANTIC's DMA view of the whole `$0000-$FFFF` map. Real ANTIC fetches
+    /// its display list, screen data, character sets, and player/missile
+    /// data straight off the system bus, so it can read RAM
+    /// (`$0000-$3FFF`), cart ROM (`$4000-$BFFF`), and the BIOS character
+    /// set (`$F800-$FFFF`) — not just RAM. We mirror RAM writes into here
+    /// and bake the (immutable) cart + BIOS once at construction. The I/O
+    /// gaps read `$FF` (open bus); ANTIC never DMAs from register space.
+    dma_mem: Box<[u8; 65536]>,
     bios: Vec<u8>,
     region: Atari5200Region,
     master_clock: u64,
@@ -117,6 +125,19 @@ impl Atari5200 {
     /// the cartridge's `$FFFC/$FFFD` mirror for the reset vector.
     pub fn new(rom: Vec<u8>, bios: Vec<u8>, region: Atari5200Region) -> Result<Self, String> {
         let cart = Cartridge::from_rom(&rom)?;
+        // Bake ANTIC's DMA image: cart at $4000-$BFFF, BIOS character set
+        // at $F800-$FFFF, everything else open bus. RAM ($0000-$3FFF)
+        // starts zeroed and tracks live writes via mem_write.
+        let mut dma_mem = Box::new([0xFFu8; 65536]);
+        for byte in &mut dma_mem[0..0x4000] {
+            *byte = 0;
+        }
+        for (addr, slot) in dma_mem[0x4000..0xC000].iter_mut().enumerate() {
+            *slot = cart.read(0x4000 + addr as u16);
+        }
+        for (i, &b) in bios.iter().take(0x800).enumerate() {
+            dma_mem[0xF800 + i] = b;
+        }
         let mut cpu = M6502::new();
         cpu.reset();
         let mut pokey = Pokey::new(region.cpu_hz());
@@ -131,6 +152,7 @@ impl Atari5200 {
             pokey,
             cart,
             ram: [0; 16384],
+            dma_mem,
             bios,
             region,
             master_clock: 0,
@@ -187,7 +209,7 @@ impl Atari5200 {
     }
 
     fn process_scan_line(&mut self) {
-        let result = self.antic.process_line(&self.ram);
+        let result = self.antic.process_line(&self.dma_mem[..]);
         if result.pm_dma {
             for i in 0..4 {
                 self.gtia.write(0x0D + i as u8, result.player_data[i]);
@@ -236,7 +258,11 @@ impl Atari5200 {
 
     fn mem_write(&mut self, addr: u16, value: u8) {
         match addr {
-            0x0000..=0x3FFF => self.ram[(addr & 0x3FFF) as usize] = value,
+            0x0000..=0x3FFF => {
+                let i = (addr & 0x3FFF) as usize;
+                self.ram[i] = value;
+                self.dma_mem[i] = value;
+            }
             0xC000..=0xCFFF => self.gtia.write(addr as u8, value),
             0xD400..=0xD5FF => self.antic.write(addr as u8, value),
             0xE800..=0xE9FF => self.pokey.write(addr as u8, value),
