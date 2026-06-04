@@ -603,15 +603,30 @@ public pin fields to the standard VIC-20 memory map: 1 KB low
 RAM `$0000-$03FF`, 3 KB low expansion `$0400-$0FFF`, 4 KB main
 RAM `$1000-$1FFF`, 24 KB high expansion `$2000-$7FFF`, 4 KB
 character ROM `$8000-$8FFF`, VIC registers `$9000-$93FF`, 1 KB
-colour RAM `$9400-$97FF`, 8 KB BASIC `$A000-$BFFF`, 8 KB Kernal
-`$E000-$FFFF` (also mirrored at `$C000-$DFFF`).
+colour RAM `$9400-$97FF`, cartridge block 5 `$A000-$BFFF`, 8 KB
+BASIC `$C000-$DFFF`, 8 KB Kernal `$E000-$FFFF`.
 
-Live boot verified 2026-06-01 with PAL-B ROM set (Kernal
-901486-07, BASIC 901486-01, Characters 901460-03).
+**Boots to BASIC `READY` (2026-06-04).** The `**** CBM BASIC V2
+****` / `3583 BYTES FREE` / `READY.` screen renders in the
+canonical cyan-border / white-screen / blue-text colours. Gated
+smoke at `tests/rom_boot.rs` (run with `--ignored`) asserts the
+screen-colour register and the banner text in screen RAM.
 
-- **A — Display black** until KERNAL clears screen RAM + sets
-  VIC background colour — boot path through to first character
-  render not yet verified.
+Two bugs fixed to get there:
+
+- **The CPU was never reset.** `Vic20::new` built the 6502 but
+  never ran `cpu.reset()`, so it powered on at PC=`$0000`,
+  executed the `BRK` there, and stormed in the KERNAL IRQ/BRK
+  handler — the "display black" symptom. (The C64/5200 always
+  reset their CPU in `new`.)
+- **The memory map mirrored the C64's, not the VIC-20's.** BASIC
+  was at `$A000-$BFFF` and the KERNAL was mirrored into
+  `$C000-$DFFF`. The VIC-20 puts BASIC at `$C000-$DFFF` and the
+  KERNAL at `$E000-$FFFF`, with `$A000-$BFFF` as cartridge space.
+  So `JMP ($C000)` (start BASIC) read the wrong cold-start vector
+  and derailed into an IRQ-return with an empty stack. Corrected
+  the map; the earlier "live boot verified" was only
+  runs-without-panic, never an actual boot.
 - **A — Audio unwired** (VIC's 3 tone generators + noise).
 - **A — Keyboard scan unwired.** VIA 6522 × 2 not implemented;
   donor stubbed too.
@@ -1191,7 +1206,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
 | 20 | Memotech MTX500/512 | **Boots to BASIC `Ready`** (OS+BASIC+ASSEM); Z80 CTC wired at $08-$0B with VDP /INT → ch0 (2026-06-04) |
 | 21 | Acorn Atom | **Awaiting ROM** (24 KB combined) |
-| 22 | Commodore VIC-20 | ROM boots (live); display still black |
+| 22 | Commodore VIC-20 | **Boots to BASIC `READY`** (live, 2026-06-04) — CPU reset + correct VIC-20 ROM map ($C000 BASIC / $E000 KERNAL) |
 
 **Fourteen chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,

@@ -89,8 +89,14 @@ impl Vic20 {
             0
         };
         let exp_high_size = exp_high_size.min(0x6000);
+        // Run the 6502 reset sequence so the first fetch comes from the KERNAL
+        // reset vector ($FFFC). Without this the CPU powers on at PC=$0000,
+        // executes the BRK there, and storms in the IRQ/BRK handler instead of
+        // cold-starting the KERNAL.
+        let mut cpu = M6502::new();
+        cpu.reset();
         Self {
-            cpu: M6502::new(),
+            cpu,
             ram_low: [0; 0x0400],
             ram_exp_low: [0; 0x0C00],
             ram_main: [0; 0x1000],
@@ -179,13 +185,12 @@ impl Vic20 {
             0x9000..=0x93FF => self.vic.read((addr & 0x0F) as u8),
             0x9400..=0x97FF => self.colour_ram[(addr - 0x9400) as usize] & 0x0F,
             0x9800..=0x9FFF => 0xFF,
-            0xA000..=0xBFFF => self
-                .basic_rom
-                .get((addr - 0xA000) as usize)
-                .copied()
-                .unwrap_or(0xFF),
+            // $A000-$BFFF is cartridge block 5 (autostart carts); open bus
+            // when empty. The VIC-20 — unlike the C64 — puts BASIC at
+            // $C000-$DFFF and KERNAL at $E000-$FFFF.
+            0xA000..=0xBFFF => 0xFF,
             0xC000..=0xDFFF => self
-                .kernal_rom
+                .basic_rom
                 .get((addr - 0xC000) as usize)
                 .copied()
                 .unwrap_or(0xFF),
