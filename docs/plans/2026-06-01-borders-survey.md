@@ -89,7 +89,11 @@ and **complexity** (low first to build confidence in the pattern):
 2. ✅ **`sega-vdp`** — unlocks SMS; pattern mirrors TMS9918; medium
    complexity. *Done in 2121c5c (288 × 240).*
 3. ✅ **`atari-tia`** — Atari 2600 only; low complexity; just extend
-   FB to include HBLANK as black. *Done in fcfaff3 (160 → 228 wide).*
+   FB to include HBLANK as black. *Done in fcfaff3 (160 → 228 wide);
+   that commit actually filled HBLANK with COLUBK (the olive backdrop),
+   contradicting this "as black" plan — corrected to black 2026-06-04
+   so HBLANK matches the VBLANK=black treatment and real TIA horizontal
+   blanking.*
 4. ✅ **Jupiter Ace inline display** — pattern after `sinclair-zx81-ula`
    directly; low complexity. *Done in 6473efd (256 × 192 → 320 × 240).*
 5. ✅ **`atari-antic` + `atari-gtia`** — Atari 5200 + 800XL; medium;

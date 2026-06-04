@@ -86,10 +86,10 @@ pub use palette::{NTSC_PALETTE, PAL_PALETTE};
 /// playfield + ball pixels into here).
 pub const ACTIVE_WIDTH: u32 = 160;
 
-/// Full colour-clocks per line including HBLANK. The HBLANK region is
-/// the canonical horizontal border — the beam is off-screen during
-/// HBLANK and real TVs displayed COLUBK there. Reference emulators
-/// like Stella expose this as part of the "TV-visible" framebuffer.
+/// Full colour-clocks per line including HBLANK. The framebuffer keeps
+/// the canonical 228-clock line width; the 68-clock HBLANK region is
+/// rendered black, because the TIA holds its output in blanking during
+/// horizontal retrace (COLUBK only appears in the 160 visible clocks).
 pub const FB_WIDTH: u32 = 228;
 
 /// Number of colour clocks per scanline (68 hblank + 160 visible).
@@ -356,11 +356,13 @@ impl Tia {
                     self.framebuffer[fb_idx] = argb;
                 }
             } else {
-                // HBLANK region — backdrop (COLUBK) as the horizontal
-                // "border" the TV would display while the beam returns
-                // to the left edge. Drives the canonical wide-TV view
-                // (228 colour clocks per line, not just the 160 visible).
-                let argb = palette[(self.colubk >> 1) as usize];
+                // HBLANK region — black. During the 68-clock horizontal
+                // retrace the TIA holds its output in blanking, so a real
+                // TV shows black here, not COLUBK (which only appears in the
+                // 160 visible clocks). The full 228-wide framebuffer keeps
+                // the canonical line width while matching the VBLANK=black
+                // treatment above. (Borders survey, 2026-06-01.)
+                let argb = palette[0];
                 if fb_idx < self.framebuffer.len() {
                     self.framebuffer[fb_idx] = argb;
                 }
@@ -1128,10 +1130,16 @@ mod tests {
             tia.tick();
         }
 
-        // Check that visible pixels got the background colour.
+        // Visible pixels (indices 68..=227) get COLUBK; the HBLANK
+        // region (0..68) is black, matching real TIA horizontal blanking.
         let expected = NTSC_PALETTE[0x9A >> 1];
-        assert_eq!(tia.framebuffer()[0], expected);
-        assert_eq!(tia.framebuffer()[159], expected);
+        assert_eq!(tia.framebuffer()[HBLANK_CLOCKS as usize], expected);
+        assert_eq!(tia.framebuffer()[(FB_WIDTH - 1) as usize], expected);
+        assert_eq!(tia.framebuffer()[0], NTSC_PALETTE[0]);
+        assert_eq!(
+            tia.framebuffer()[(HBLANK_CLOCKS - 1) as usize],
+            NTSC_PALETTE[0]
+        );
     }
 
     #[test]
