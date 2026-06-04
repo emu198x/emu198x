@@ -17,16 +17,23 @@
 //! - **VDG:** Motorola MC6847 text mode (32 × 16 chars, 8 × 12 cell)
 //!   — Atom-specific variant with an embedded 64-glyph character
 //!   ROM (see [`vdg`])
-//! - **PIA:** MOS 6520 at `$B001-$B003`
+//! - **PPI:** Intel INS8255 at `$B000-$B003` (keyboard + cassette)
 //! - **RAM:** 2.5 KB base, expandable to 12 KB
 //! - **Video RAM:** 1 KB at `$8000-$83FF` (mirrored to `$9FFF`)
 //! - **ROM:** 24 KB combined — BASIC (split `$A000` + `$C000`),
 //!   FP at `$B004-$BFFF`, OS at `$D000-$FFFF`
 //!
-//! # I/O
+//! # I/O — the INS8255 PPI at `$B000-$B003`
 //!
-//! - `$B000`: VDG control register (mode select + display flags)
-//! - `$B001-$B003`: PIA 6520 (port A column-select / port B row-data)
+//! Per the Atom Technical Manual (Issue 2), the 8255 drives the keyboard
+//! through a 4-to-10 line decoder and reads the columns back:
+//!
+//! - **Port A** (`$B000`): low nibble = the binary keyboard row index
+//!   (0-9) into the decoder; high nibble = the MC6847 mode bits.
+//! - **Port B** (`$B001`): the six keyboard column lines, active low.
+//! - **Port C** (`$B002`): bits 0-3 output (cassette / speaker / colour
+//!   set); bits 4-7 input — PC4 = 2.4 kHz cassette tone, PC7 = the VDG
+//!   vertical-blanking (field-sync) the MOS times its keyboard scan off.
 //!
 //! Clock model: one master tick = one 6502 cycle (1 MHz). VDG ticks
 //! at the same rate. One PAL frame ≈ 71,136 ticks (228 × 312).
@@ -43,8 +50,8 @@ pub use input::AtomKey;
 pub use keyboard::KeyboardState;
 pub use vdg::{FB_HEIGHT, FB_WIDTH, Mc6847};
 
+use intel_8255::Ppi8255;
 use mos_6502::M6502;
-use mos_pia_6520::Pia6520;
 
 /// Acorn Atom machine.
 pub struct AcornAtom {
@@ -53,7 +60,10 @@ pub struct AcornAtom {
     ram_size: usize,
     video_ram: [u8; 1024],
     rom: Vec<u8>,
-    pia: Pia6520,
+    /// Intel 8255 PPI: port A drives the keyboard column (PA0-3) and the
+    /// MC6847 mode bits (PA4-7); port B reads the six keyboard row lines;
+    /// port C handles cassette / speaker / 2.4 kHz.
+    ppi: Ppi8255,
     vdg: Mc6847,
     keyboard: KeyboardState,
     master_clock: u64,
@@ -76,7 +86,7 @@ impl AcornAtom {
             ram_size,
             video_ram: [0; 1024],
             rom,
-            pia: Pia6520::new(),
+            ppi: Ppi8255::new(),
             vdg: Mc6847::new(),
             keyboard: KeyboardState::new(),
             master_clock: 0,
@@ -96,23 +106,26 @@ impl AcornAtom {
         self.master_clock - start
     }
 
+    /// Present the keyboard rows for the column the MOS has driven on 8255
+    /// port A (PA0-3, a binary 0-9 column index) on port B, active low.
+    fn update_keyboard(&mut self) {
+        let column = (self.ppi.port_a & 0x0F) as usize;
+        self.ppi.port_b = !self.keyboard.read_row(column);
+    }
+
     fn tick(&mut self) {
         self.master_clock += 1;
         let video_ram = &self.video_ram;
         self.vdg.tick(|addr| video_ram[(addr & 0x03FF) as usize]);
-        self.cpu.irq = self.pia.irq_pending();
+        // The Atom keyboard is polled, not interrupt-driven; the 8255 has no
+        // interrupt line in Mode 0 and the donor models no other IRQ source.
+        self.cpu.irq = false;
         self.cpu.tick();
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
         }
-    }
-
-    fn update_keyboard(&mut self) {
-        let col_select = self.pia.port_a_output();
-        let row_data = self.keyboard.read(col_select);
-        self.pia.set_port_b_input(row_data);
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
@@ -129,10 +142,17 @@ impl AcornAtom {
                 let offset = (addr - 0xA000) as usize;
                 self.rom.get(offset).copied().unwrap_or(0xFF)
             }
-            0xB000 => self.vdg.control,
-            0xB001..=0xB003 => {
+            0xB000..=0xB003 => {
                 self.update_keyboard();
-                self.pia.read((addr - 0xB000) as u8)
+                // Port C inputs: PC4 = 2.4 kHz cassette tone, PC7 = the 6847
+                // field-sync (~50 Hz). The field sync is a brief vertical-
+                // blanking pulse once per ~20 ms field, not a square wave, so
+                // the MOS scans the matrix once per field rather than twice.
+                let field_sync = (self.master_clock % 20_000) < 1_000;
+                let tone = (self.master_clock % 416) < 208;
+                let inputs = (u8::from(field_sync) << 7) | (u8::from(tone) << 4);
+                self.ppi.port_c = (self.ppi.port_c & 0x0F) | inputs;
+                self.ppi.read((addr - 0xB000) as u8)
             }
             0xB004..=0xBFFF => {
                 let offset = 0x1000 + (addr - 0xB000) as usize;
@@ -157,8 +177,13 @@ impl AcornAtom {
             0x8000..=0x9FFF => {
                 self.video_ram[(addr & 0x03FF) as usize] = value;
             }
-            0xB000 => self.vdg.control = value,
-            0xB001..=0xB003 => self.pia.write((addr - 0xB000) as u8, value),
+            0xB000 => {
+                // Port A: low nibble selects the keyboard column, high nibble
+                // carries the MC6847 mode bits — latch both.
+                self.ppi.write(0, value);
+                self.vdg.control = value;
+            }
+            0xB001..=0xB003 => self.ppi.write((addr - 0xB000) as u8, value),
             _ => {}
         }
     }

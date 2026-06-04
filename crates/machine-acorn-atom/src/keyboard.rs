@@ -1,7 +1,9 @@
 //! Acorn Atom keyboard matrix.
 //!
-//! The Atom keyboard is scanned through the PIA. Port A low nibble selects
-//! the column (active low), port B reads the row state.
+//! The Atom keyboard is scanned through the 8255 PPI: port A low nibble
+//! drives a binary column index (0-9), port B reads that column's six row
+//! lines. [`KeyboardState::read_row`] returns the pressed bits for one
+//! column; the machine inverts them to the active-low port B value.
 
 /// Keyboard state: 10 rows x 6 columns.
 pub struct KeyboardState {
@@ -26,33 +28,12 @@ impl KeyboardState {
         }
     }
 
-    /// Read keyboard for the given column selection from PIA port A.
-    ///
-    /// `col_select` is the PIA port A low nibble, active low. Each cleared
-    /// bit selects a column. Returns the OR of all selected columns across
-    /// all rows as a row mask. Bit set = key pressed.
+    /// Read the row lines for one keyboard column (the binary index the
+    /// MOS drives on 8255 port A). Returns the pressed bits (1 = pressed);
+    /// the caller inverts for the active-low port B read.
     #[must_use]
-    pub fn read(&self, col_select: u8) -> u8 {
-        let mut result = 0u8;
-        for row in 0..10 {
-            for col in 0..6 {
-                if col_select & (1 << col) == 0 {
-                    // Column selected (active low)
-                    if self.matrix[row] & (1 << col) != 0 {
-                        result |= 1 << (row & 7);
-                    }
-                }
-            }
-        }
-        !result // Active low output
-    }
-
-    /// Read a specific row.
-    ///
-    /// Returns the row state as a bitmap (1 = pressed).
-    #[must_use]
-    pub fn read_row(&self, row: usize) -> u8 {
-        if row < 10 { self.matrix[row] } else { 0 }
+    pub fn read_row(&self, column: usize) -> u8 {
+        if column < 10 { self.matrix[column] } else { 0 }
     }
 
     /// Release all keys.

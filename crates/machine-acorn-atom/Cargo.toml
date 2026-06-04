@@ -1,6 +1,6 @@
 [package]
 name = "machine-acorn-atom"
-description = "Acorn Atom (1980) — 6502 + MC6847 text-mode VDG + 6520 PIA"
+description = "Acorn Atom (1980) — 6502 + MC6847 text-mode VDG + 8255 PPI"
 version = "0.2.0"
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 mos-6502 = { path = "../mos-6502" }
-mos-pia-6520 = { path = "../mos-pia-6520" }
+intel-8255 = { path = "../intel-8255" }
 motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
 
 [lints]

@@ -1,17 +1,19 @@
 //! Input handling for the Acorn Atom.
 //!
-//! The Atom has a 10x6 keyboard matrix scanned via the PIA. Port A drives
-//! the columns (active low), port B reads the rows.
+//! The Atom keyboard is an 8255-scanned matrix: port A drives a binary
+//! 0-9 index into a 4-to-10 line decoder (the manual's "rows"), and the
+//! six column lines come back on port B. [`AtomKey::matrix`] returns
+//! `(row, col)` where `row` is that decoder index and `col` the port B
+//! bit. Every printable cell was probed against the real MOS ROM and
+//! transcribed below.
+//!
+//! Punctuation that the Atom places on a shifted key (`+ - * ( )` …) and
+//! the modifier / editing keys are not yet mapped; the unshifted keys
+//! cover typing and running BASIC.
 
 /// Logical key on the Acorn Atom keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AtomKey {
-    // Row 0
-    Shift,
-    Ctrl,
-    Space,
-    // Row 1
-    Escape,
     A,
     B,
     C,
@@ -19,7 +21,6 @@ pub enum AtomKey {
     E,
     F,
     G,
-    // Row 2
     H,
     I,
     J,
@@ -28,7 +29,6 @@ pub enum AtomKey {
     M,
     N,
     O,
-    // Row 3
     P,
     Q,
     R,
@@ -37,107 +37,85 @@ pub enum AtomKey {
     U,
     V,
     W,
-    // Row 4
     X,
     Y,
     Z,
-    Return,
-    Delete,
-    Copy,
-    // Row 5
-    N0,
-    N1,
-    N2,
-    N3,
-    N4,
-    N5,
-    N6,
-    N7,
-    // Row 6
-    N8,
-    N9,
-    Colon,
-    SemiColon,
+    Num0,
+    Num1,
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    Num6,
+    Num7,
+    Num8,
+    Num9,
     Comma,
-    Minus,
+    Semicolon,
+    Colon,
     Period,
     Slash,
-    // Row 7
-    Up,
-    Down,
-    Left,
-    Right,
-    Lock,
+    At,
+    Return,
+    Space,
 }
 
 impl AtomKey {
-    /// Return the (row, column) pair for this key in the keyboard matrix.
+    /// Return the `(row, col)` matrix position — `row` is the binary
+    /// decoder index driven on 8255 port A, `col` the port B column bit.
     #[must_use]
     pub const fn matrix(self) -> (usize, usize) {
         match self {
-            // Simplified 8x6 matrix mapping
-            Self::N0 => (0, 0),
-            Self::N1 => (0, 1),
-            Self::N2 => (0, 2),
-            Self::N3 => (0, 3),
-            Self::N4 => (0, 4),
-            Self::N5 => (0, 5),
-
-            Self::N6 => (1, 0),
-            Self::N7 => (1, 1),
-            Self::N8 => (1, 2),
-            Self::N9 => (1, 3),
-            Self::Colon => (1, 4),
-            Self::SemiColon => (1, 5),
-
-            Self::Comma => (2, 0),
-            Self::Minus => (2, 1),
-            Self::Period => (2, 2),
-            Self::Slash => (2, 3),
-            Self::Copy => (2, 4),
-            Self::Delete => (2, 5),
-
-            Self::A => (3, 0),
-            Self::B => (3, 1),
-            Self::C => (3, 2),
+            // col 1 — digits 3 2 1 0
+            Self::Num3 => (0, 1),
+            Self::Num2 => (1, 1),
+            Self::Num1 => (2, 1),
+            Self::Num0 => (3, 1),
+            // col 2 — punctuation then digits 9..4
+            Self::Comma => (1, 2),
+            Self::Semicolon => (2, 2),
+            Self::Colon => (3, 2),
+            Self::Num9 => (4, 2),
+            Self::Num8 => (5, 2),
+            Self::Num7 => (6, 2),
+            Self::Num6 => (7, 2),
+            Self::Num5 => (8, 2),
+            Self::Num4 => (9, 2),
+            // col 3 — G F E D C B A @ / .
+            Self::G => (0, 3),
+            Self::F => (1, 3),
+            Self::E => (2, 3),
             Self::D => (3, 3),
-            Self::E => (3, 4),
-            Self::F => (3, 5),
-
-            Self::G => (4, 0),
-            Self::H => (4, 1),
-            Self::I => (4, 2),
-            Self::J => (4, 3),
-            Self::K => (4, 4),
-            Self::L => (4, 5),
-
-            Self::M => (5, 0),
-            Self::N => (5, 1),
-            Self::O => (5, 2),
-            Self::P => (5, 3),
-            Self::Q => (5, 4),
-            Self::R => (5, 5),
-
-            Self::S => (6, 0),
-            Self::T => (6, 1),
-            Self::U => (6, 2),
-            Self::V => (6, 3),
-            Self::W => (6, 4),
-            Self::X => (6, 5),
-
-            Self::Y => (7, 0),
-            Self::Z => (7, 1),
-            Self::Escape => (7, 2),
-            Self::Return => (7, 3),
-            Self::Space => (7, 4),
-            Self::Lock => (7, 5),
-
-            Self::Shift => (8, 0),
-            Self::Ctrl => (8, 1),
-            Self::Up => (8, 2),
-            Self::Down => (8, 3),
-            Self::Left => (8, 4),
-            Self::Right => (8, 5),
+            Self::C => (4, 3),
+            Self::B => (5, 3),
+            Self::A => (6, 3),
+            Self::At => (7, 3),
+            Self::Slash => (8, 3),
+            Self::Period => (9, 3),
+            // col 4 — Q P O N M L K J I H
+            Self::Q => (0, 4),
+            Self::P => (1, 4),
+            Self::O => (2, 4),
+            Self::N => (3, 4),
+            Self::M => (4, 4),
+            Self::L => (5, 4),
+            Self::K => (6, 4),
+            Self::J => (7, 4),
+            Self::I => (8, 4),
+            Self::H => (9, 4),
+            // col 5 — Z Y X W V U T S R
+            Self::Z => (1, 5),
+            Self::Y => (2, 5),
+            Self::X => (3, 5),
+            Self::W => (4, 5),
+            Self::V => (5, 5),
+            Self::U => (6, 5),
+            Self::T => (7, 5),
+            Self::S => (8, 5),
+            Self::R => (9, 5),
+            // control / editing
+            Self::Return => (6, 1),
+            Self::Space => (0, 0),
         }
     }
 }
@@ -148,8 +126,7 @@ mod tests {
 
     #[test]
     fn key_matrix_valid() {
-        let (r, c) = AtomKey::A.matrix();
-        assert!(r < 10);
-        assert!(c < 6);
+        assert_eq!(AtomKey::A.matrix(), (6, 3));
+        assert_eq!(AtomKey::Return.matrix(), (6, 1));
     }
 }
