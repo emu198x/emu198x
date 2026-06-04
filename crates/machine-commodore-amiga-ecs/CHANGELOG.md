@@ -1,0 +1,28 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-commodore-amiga-ecs-v0.2.0) - 2026-06-04
+
+### Other
+
+- *(release)* independent per-machine versioning, baseline 0.2.0
+- cargo fmt + clippy clean across the workspace
+- A1200 Stage AE-k: ECS blitter extension registers — WB content draws on ECS
+- A1200 Stage AE-j: correct chipset identification across OCS / ECS / AGA
+- A1200 Stage AE-h + AE-i: investigation tooling — chipset write log + CPU instruction trace
+- A1200 Stage AE-e: mirror BPLCON0 / palette / chipset-read tracers onto OCS + ECS
+- cargo fmt --all across the workspace
+- Open Emu198x for public release
+- Amiga Seam 1.7: move copper.rs to common-commodore-amiga
+- Amiga Seam 1.6: Denise wrapper goes generic over DeniseChip
+- Amiga Seam 1.4: move memory.rs into common-commodore-amiga
+- Amiga Seam 1.3: move cia.rs into common-commodore-amiga
+- Amiga Seam 1.2: move rtc.rs into common-commodore-amiga
+- Apply horizontal DIW gate to Denise output — fixes KS 2.04 wraparound
+- Wire AmigaEcs machine + AmigaEcsRuntime; reclassify A500+ as ECS

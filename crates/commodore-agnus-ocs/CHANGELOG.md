@@ -1,0 +1,32 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-agnus-ocs-v0.2.0) - 2026-06-04
+
+### Added
+
+- AGA 64-bit bitplane wide fetch (FMODE) + fix display corruption
+
+### Other
+
+- *(release)* independent per-machine versioning, baseline 0.2.0
+- cargo fmt + clippy clean across the workspace
+- A1200 Stage AE-j: correct chipset identification across OCS / ECS / AGA
+- Open Emu198x for public release
+- Amiga NTSC: chip-layer line alternation + 5 NTSC OCS variants
+- Add Amiga postcard snapshots across the chip stack
+- fix workspace clippy and test hygiene
+- land wb13 boot investigation and fixes
+- WB 1.3 diag: pinpoint the silent failure — chained QBlits never run
+- Port Blitter into the machine (tasks #134–#147)
+- Retire commodore-agnus-ocs-archive: the archive is now the live crate
+- Amiga restart: archive old chipsets, ship M0 (CPU + ROM + OVL)
+- VIC-II unused-bit read mask; Agnus NTSC short/long line constants
+- Paula DSKLEN arming flip-flop + Copper HP full resolution
+- Add fresh Amiga headless baseline

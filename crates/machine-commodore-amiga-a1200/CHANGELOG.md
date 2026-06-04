@@ -1,0 +1,58 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-commodore-amiga-a1200-v0.2.0) - 2026-06-04
+
+### Added
+
+- AGA 64-bit bitplane wide fetch (FMODE) + fix display corruption
+
+### Fixed
+
+- DENISEID $FFF8 → $00F8 for AGA Lisa
+- clear clippy warnings hidden behind the muda compile failure
+
+### Other
+
+- *(release)* independent per-machine versioning, baseline 0.2.0
+- cargo fmt + clippy clean across the workspace
+- A1200 Stage AE-l: restore real AGA Alice agnus_id ($2300 PAL / $3300 NTSC)
+- A1200 Stage AE-k: ECS blitter extension registers — WB content draws on ECS
+- A1200 Stage AE-j: correct chipset identification across OCS / ECS / AGA
+- A1200 Stage AE-h + AE-i: investigation tooling — chipset write log + CPU instruction trace
+- A1200 Stage AE-e: mirror BPLCON0 / palette / chipset-read tracers onto OCS + ECS
+- A1200 Stage AE-b: revert agnus_id to OCS — restore working WB render
+- A1200 Stage AD: agnus_id PAL/NTSC swap fix + AGA rendering punch list
+- A1200 Stage AC: chipset reads + AGA Alice agnus_id — KS now goes full AGA
+- A1200 Stage AB: watchpoint + poke tools — render path proven correct
+- A1200 Stages Y + Z: palette trace + MCP restart tool
+- A1200 Stage V: BPLCON0 write trace — the boot brings up a screen
+- A1200 Stage U: AGA palette + BPLCON3 routing — and what's left
+- A1200 Stage T: wire AGA registers to the chipset bus
+- A1200 Stage O: blitter activity diagnostic
+- A1200 Stage O: copper-list dump — STRAP is mid-render, BPU=0
+- A1200 Stage O: CIA / display diagnostics — boot stuck in STRAP
+- A1200 Stage N: CPU interrupts_taken counter — IRQs ARE firing (89K/10s)
+- A1200 Stage N: track mask raises — the IRQ loop is self-blocking
+- A1200 Stage N: CPU mask vs Paula IPL — the IRQ-acceptance gap
+- A1200 Stage N diagnostics: surface the IRQ gap
+- A1200 Stage M: BF on (An)/(An)+/-(An) — +6.8K unique PCs to FC1xxx
+- A1200 Stage L: 68010+ interrupt frames push F/V word; +17K unique PCs
+- A1200 Stage J+K: 68010+ RTE pops F/V word; 68020+ Format-$A group-0
+- cargo fmt --all across the workspace
+- Open Emu198x for public release
+- A1200 Stage I: failing validation is TST.L D7; BMI — guru-alert loop
+- A1200 Stage H: decoded the reboot trampoline; KS perpetually resets
+- A1200 Stage G: revert Stage E — it was triggering Wack entry
+- A1200 Stage F: KS 3.1 wedge confirmed as Wack-style debugger
+- A1200 Stage E: Paula idle-mark fix unblocks KS 3.1 DiagAlive
+- A1200 Stage D: KS 3.1 boot diagnostics + root-cause hypothesis
+- A1200 Stage C: load KS 3.1, observe first failure
+- A1200 Stage B: Cpu68020 swapped into the A1200 machine
+- A1200 Stage A: AGA chipset + Gayle + machine scaffold
