@@ -2,7 +2,7 @@
 name = "runtime-mattel-aquarius"
 description = "Mattel Aquarius family metadata and headless runtime wrapper"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

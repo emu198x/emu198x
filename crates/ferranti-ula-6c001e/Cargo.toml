@@ -2,7 +2,7 @@
 name = "ferranti-ula-6c001e"
 description = "Ferranti 6C001E ULA for the ZX Spectrum 48K"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

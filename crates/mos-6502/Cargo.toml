@@ -2,7 +2,7 @@
 name = "mos-6502"
 description = "MOS 6502 CPU with a cycle-accurate pin-level bus interface"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

@@ -2,7 +2,7 @@
 name = "motorola-68010"
 description = "Motorola 68010 CPU — adds VBR, MOVEC, loop-mode, and a 6-word frame to the 68000. Skeleton crate: re-exports the shared 68k core with a 68010-specific type alias. The 68010 isn't exercised by any active machine in this workspace today; this crate is the architectural seam for when it is."
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

@@ -2,7 +2,7 @@
 name = "nec-upd765a"
 description = "NEC µPD765A floppy disk controller — used in the ZX Spectrum +3"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

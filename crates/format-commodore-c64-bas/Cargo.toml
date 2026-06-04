@@ -2,7 +2,7 @@
 name = "format-commodore-c64-bas"
 description = "Commodore 64 BASIC V2 tokeniser for plain-text .bas files"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

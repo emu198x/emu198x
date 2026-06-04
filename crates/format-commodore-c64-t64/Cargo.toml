@@ -2,7 +2,7 @@
 name = "format-commodore-c64-t64"
 description = "Commodore 64 T64 container parser"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

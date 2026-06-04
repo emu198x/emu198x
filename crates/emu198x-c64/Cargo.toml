@@ -1,7 +1,7 @@
 [package]
 name = "emu198x-c64"
 description = "Native Commodore 64 verifier with interactive UI, headless script, and MCP modes"
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

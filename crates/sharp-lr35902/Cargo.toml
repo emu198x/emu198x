@@ -2,7 +2,7 @@
 name = "sharp-lr35902"
 description = "Sharp LR35902 (SM83) CPU — Game Boy SoC core, m-cycle pin-level bus"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

@@ -2,7 +2,7 @@
 name = "emu198x-shell"
 description = "Cross-system shared control surface, machine registry types, and host I/O contracts"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

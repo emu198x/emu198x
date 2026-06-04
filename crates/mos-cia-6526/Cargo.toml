@@ -2,7 +2,7 @@
 name = "mos-cia-6526"
 description = "MOS 6526 CIA with timer, port, TOD, and IRQ behaviour"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

@@ -2,7 +2,7 @@
 name = "format-nintendo-nes-ines"
 description = "iNES / NES 2.0 cartridge header parser + NES mapper trait and current wave-1 mapper implementations."
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

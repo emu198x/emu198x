@@ -2,7 +2,7 @@
 name = "machine-pentagon-128"
 description = "Pentagon 128 machine — Z80, Pentagon ULA (no contention), 128K paged RAM, AY chip, Beta disk"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

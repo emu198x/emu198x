@@ -2,7 +2,7 @@
 name = "runtime-atari-5200"
 description = "Atari 5200 family metadata and headless runtime wrapper"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

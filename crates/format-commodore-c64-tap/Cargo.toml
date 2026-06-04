@@ -2,7 +2,7 @@
 name = "format-commodore-c64-tap"
 description = "Commodore TAP image parsing for pulse-accurate datasette playback"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

@@ -2,7 +2,7 @@
 name = "common-sinclair-zx-spectrum-48k-class"
 description = "Shared composition for 48K-class Spectrum variants (16K, 48K, Spectrum+)"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

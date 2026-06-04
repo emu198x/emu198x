@@ -1,7 +1,7 @@
 [package]
 name = "mos-vic-i"
 description = "MOS Technology 6560 (NTSC) / 6561 (PAL) — VIC chip used by the VIC-20, handling video and audio. Extracted from machine-commodore-vic-20."
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

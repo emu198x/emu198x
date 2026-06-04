@@ -2,7 +2,7 @@
 name = "format-commodore-c64-prg"
 description = "Commodore 64 PRG parser and direct RAM loader"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

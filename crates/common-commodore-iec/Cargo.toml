@@ -2,7 +2,7 @@
 name = "common-commodore-iec"
 description = "Shared IEC serial bus line state for Commodore machines and drives"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

@@ -2,7 +2,7 @@
 name = "machine-sinclair-zx-spectrum-16k"
 description = "ZX Spectrum 16K machine — thin wrapper over the 48K-class core with a 16 KiB RAM map"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

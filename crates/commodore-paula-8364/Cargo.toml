@@ -2,7 +2,7 @@
 name = "commodore-paula-8364"
 description = "Commodore Paula 8364 — 4-channel DMA audio with return-latency modelling, interrupt priority controller (14 sources to 6 IPL levels)."
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 

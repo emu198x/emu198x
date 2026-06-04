@@ -2,7 +2,7 @@
 name = "common-nintendo-game-boy"
 description = "Shared Game Boy-family hardware building blocks"
 edition.workspace = true
-version.workspace = true
+version = "0.2.0"
 license.workspace = true
 repository.workspace = true
 
