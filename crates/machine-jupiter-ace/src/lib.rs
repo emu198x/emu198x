@@ -18,9 +18,11 @@
 //!
 //! - **CPU:** Zilog Z80A at 3.25 MHz
 //! - **ROM:** 8 KB Forth interpreter at `$0000-$1FFF`
-//! - **Video RAM:** 1 KB at `$2000-$23FF` (768 character codes used)
-//! - **Character RAM:** 1 KB at `$2400-$27FF` (128 × 8-byte glyphs)
-//! - **Base RAM:** at `$2800` onwards (1 KB or expanded)
+//! - **Video RAM:** 1 KB at `$2000-$23FF` (768 codes used), mirrored at
+//!   `$2400-$27FF`
+//! - **Character RAM:** 1 KB at `$2800-$2BFF` (128 × 8-byte glyphs),
+//!   mirrored at `$2C00-$2FFF`
+//! - **Base RAM:** 1 KB mirrored across `$3000-$3FFF`; expansion at `$4000+`
 //! - **Display:** 256 × 192 monochrome, 32 × 24 characters
 //! - **Audio:** 1-bit beeper on port `$FE` bit 4
 //! - **Keyboard:** identical 8 × 5 matrix to the ZX Spectrum, scanned
@@ -41,8 +43,6 @@ pub use input::JupiterAceKey;
 pub use keyboard::KeyboardState;
 
 use zilog_z80::z80::{BusOp, Z80};
-
-const RAM_START: u16 = 0x2800;
 
 /// Jupiter Ace machine.
 pub struct JupiterAce {
@@ -65,7 +65,8 @@ pub struct JupiterAce {
 impl JupiterAce {
     /// Create a new Jupiter Ace. `rom` must be exactly 8192 bytes
     /// (the Forth interpreter). `ram_size` is the bytes of general
-    /// RAM available from `$2800` upwards.
+    /// RAM: the first 1 KB is the base user RAM mirrored across
+    /// `$3000-$3FFF`, and any remainder backs the `$4000+` expansion.
     pub fn new(rom: Vec<u8>, ram_size: usize) -> Result<Self, String> {
         if rom.len() != 0x2000 {
             return Err(format!(
@@ -173,22 +174,30 @@ impl JupiterAce {
     fn mem_read(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => self.rom[addr as usize],
-            0x2000..=0x23FF => self.video_ram[(addr - 0x2000) as usize],
-            0x2400..=0x27FF => self.char_ram[(addr - 0x2400) as usize],
-            _ => {
-                let offset = addr.wrapping_sub(RAM_START) as usize;
-                self.ram.get(offset).copied().unwrap_or(0xFF)
-            }
+            // Video RAM ($2000) and character RAM ($2800) are each 1 KB and
+            // each mirror once into the following 1 KB ($2400 / $2C00) — the
+            // address decode ignores A10. (MAME `ace_mem`.)
+            0x2000..=0x27FF => self.video_ram[(addr & 0x03FF) as usize],
+            0x2800..=0x2FFF => self.char_ram[(addr & 0x03FF) as usize],
+            // Base 1 KB user RAM, mirrored across $3000-$3FFF.
+            0x3000..=0x3FFF => self.ram[(addr & 0x03FF) as usize],
+            // Expansion RAM at $4000+ (open bus on the unexpanded machine).
+            _ => self
+                .ram
+                .get(0x0400 + (addr as usize - 0x4000))
+                .copied()
+                .unwrap_or(0xFF),
         }
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..=0x1FFF => {}
-            0x2000..=0x23FF => self.video_ram[(addr - 0x2000) as usize] = value,
-            0x2400..=0x27FF => self.char_ram[(addr - 0x2400) as usize] = value,
+            0x2000..=0x27FF => self.video_ram[(addr & 0x03FF) as usize] = value,
+            0x2800..=0x2FFF => self.char_ram[(addr & 0x03FF) as usize] = value,
+            0x3000..=0x3FFF => self.ram[(addr & 0x03FF) as usize] = value,
             _ => {
-                let offset = addr.wrapping_sub(RAM_START) as usize;
+                let offset = 0x0400 + (addr as usize - 0x4000);
                 if offset < self.ram.len() {
                     self.ram[offset] = value;
                 }
@@ -330,10 +339,22 @@ mod tests {
     #[test]
     fn video_and_char_ram_independent() {
         let mut sys = JupiterAce::new(trap_rom(), 1024).expect("init");
+        // Video RAM ($2000) and character RAM ($2800) are separate banks.
         sys.mem_write(0x2000, 0xAA);
-        sys.mem_write(0x2400, 0xBB);
+        sys.mem_write(0x2800, 0xBB);
         assert_eq!(sys.mem_read(0x2000), 0xAA);
-        assert_eq!(sys.mem_read(0x2400), 0xBB);
+        assert_eq!(sys.mem_read(0x2800), 0xBB);
+    }
+
+    #[test]
+    fn video_and_char_ram_mirror_at_high_kilobyte() {
+        let mut sys = JupiterAce::new(trap_rom(), 1024).expect("init");
+        // The decode ignores A10, so each 1 KB bank reappears in the next:
+        // video RAM at $2400, character RAM at $2C00.
+        sys.mem_write(0x2000, 0x11);
+        sys.mem_write(0x2800, 0x22);
+        assert_eq!(sys.mem_read(0x2400), 0x11, "video RAM mirrors at $2400");
+        assert_eq!(sys.mem_read(0x2C00), 0x22, "char RAM mirrors at $2C00");
     }
 
     #[test]

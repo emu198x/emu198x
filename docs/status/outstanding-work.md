@@ -517,25 +517,37 @@ the Ace is a Z80A + 8 KB ROM + simple character display, with
 the keyboard scanned by the same 8 × 5 matrix protocol as the
 Spectrum.
 
-Fresh-write machine layer (`machine-jupiter-ace`, 18/18 tests
+**Boots to its cursor (live, 2026-06-04).** The Ace cold-starts to
+the canonical blank screen with the cursor block at the bottom left,
+and typing renders characters from the copied font — verified by
+pressing a key and seeing a non-space cell appear.
+
+Fresh-write machine layer (`machine-jupiter-ace`, 19/19 tests
 including ported display + keyboard + input modules) wiring
-[`zilog_z80::Z80`] through `bus_request()` to: ROM at
-`$0000-$1FFF`, video RAM at `$2000-$23FF` (768 character codes
-used out of 1 KB), character RAM at `$2400-$27FF` (128 × 8-byte
-user-redefinable glyphs), general RAM from `$2800` onwards. Port
-`$FE` bit 0 clear drives keyboard read (row selector in high
-address byte) on read and 1-bit beeper on bit 4 on write.
+[`zilog_z80::Z80`] through `bus_request()` to: ROM at `$0000-$1FFF`,
+video RAM at `$2000-$23FF`, character RAM at `$2800-$2BFF` (128 ×
+8-byte user-redefinable glyphs), and 1 KB user RAM mirrored across
+`$3000-$3FFF`. Each of video and character RAM mirrors once into the
+next 1 KB (`$2400` / `$2C00`) because the decode ignores A10. Port
+`$FE` bit 0 clear drives keyboard read (row selector in high address
+byte) on read and 1-bit beeper on bit 4 on write.
 
 PAL display: 312 lines × 207 T-states/line = 64,584 T-states at
 3.25 MHz, ~50.3 Hz. INT pulsed at the top of each frame for the
 first 32 T-states.
 
-- **A — Awaiting ROM** (8 KB Forth interpreter). Not in TOSEC's
-  Jupiter Cantab firmware area; typically sourced from Jupiter
-  preservation sites or the Forth Inc archive. Gated boot smoke
-  at `crates/machine-jupiter-ace/tests/rom_boot.rs` skips until
-  `EMU198X_JUPITER_ACE_ROM` or
-  `~/.emu198x/roms/jupiter-ace/jupiter-ace.rom` exists.
+The boot was unblocked by correcting the memory map. The crate had
+video and character RAM both in the wrong place: it treated the
+`$2400` video mirror as character RAM and routed real character RAM
+(`$2800`) into general RAM. So the ROM's screen-clear (spaces) landed
+in what the renderer read as the font — every cell showed glyph 0 as
+a vertical line — and the font the ROM copies to `$2800` went into
+dead RAM. The map now matches MAME's `cantab/jupace.cpp`, and the
+font copy reaches the character generator. The 8 KB ROM (the standard
+image, md5 `db6efdfd82cebdfbb493d85b1a5efc3c`) comes from the in-tree
+`emulators/zx-spectrum/.../jupiter.rom`, installed at
+`~/.emu198x/roms/jupiter-ace/ace.rom`.
+
 - **A — Audio output unwired** in the binary (mono beeper
   buffer is taken via `take_audio_buffer()` but no WAV is
   written).
@@ -1226,7 +1238,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 13 | Atari 5200 SuperSystem | **Boots Pac-Man to its menu** (live, 2026-06-04) — two-chip 16K cart decode + ANTIC full-bus DMA + text-mode colour fix |
 | 14 | Atari 7800 ProSystem | **Renders** (live, 2026-06-04) — MARIA CTRL-bit fix lets the DLI→NMI fire; Asteroids draws |
 | 15 | Atari 800XL | **Boots to BASIC `READY`** (live) — GR.0 renders, keyboard types, MCP debug surface |
-| 16 | Jupiter Ace | **Awaiting ROM** (8 KB Forth interpreter) |
+| 16 | Jupiter Ace | **Boots to cursor** (live, 2026-06-04) — MAME-accurate video/char RAM map ($2000 video, $2800 char, A10 mirrors); typing renders |
 | 17 | Commodore PET | **Boots to BASIC `READY`** (live, 2026-06-04) — CPU reset + 8-byte char-ROM stride + CRTC address-latch fix |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
