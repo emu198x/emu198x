@@ -197,13 +197,21 @@ BBC-Micro-compatible 8-colour 3-bit RGB palette.
 Strong cultural anchor in **France** — Loriciels and ESAT made the
 Atmos a de-facto French home computer in the mid-1980s.
 
-- **L — BIOS not yet available.** The 16 KB BASIC + OS ROM is not
-  in the TOSEC dump (Tangerine/Oric-1 & Oric Atmos/ exists as
-  empty directories pending copy). Gated smoke at
-  `crates/machine-oric-atmos/tests/bios_boot.rs` waits for
-  `atmos.rom` (or `oric1.rom`) at
-  `~/.emu198x/roms/oric-atmos/`. Defence-Force preservation
-  archive (`defence-force.org`) is the canonical source.
+**Boots to BASIC (live, 2026-06-04).** With the ROM in place the
+Atmos cold-starts cleanly — first try, no code changes — to its
+canonical screen:
+
+```
+ORIC EXTENDED BASIC V1.1uk
+1983 TANGERINE
+  37631 BYTES FREE
+Ready
+```
+
+The 16 KB BASIC 1.1 ROM is `orica/bas11_uk.rom` from MAME's `oric1`
+romset (md5 `32026ca4edccecfd91f88b923a5ab629`), installed at
+`~/.emu198x/roms/oric/oric.rom`. The boot test now asserts the banner
+in TEXT screen RAM (`$BB80`).
 - **A — Atmos RAM-under-ROM not fully wired.** 64 KB is allocated
   and writes go to RAM even at ROM addresses, but ROM still wins
   on reads (matching standard reset state). Bank-switching to
@@ -1232,7 +1240,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 7 | Mattel Aquarius | Microsoft BASIC (live) |
 | 8 | Tatung Einstein TC-01 | **VDP-init only** — needs WD1770 floppy |
 | 9 | Acorn Electron | **Boots to BASIC `>`** (live, 2026-06-04) — MAME-accurate ULA palette + screen-start + character-block display |
-| 10 | Oric-1 / Atmos | **Awaiting BIOS** (16 KB Tangerine ROM) |
+| 10 | Oric-1 / Atmos | **Boots to BASIC** (live, 2026-06-04) — clean first-boot with BASIC 1.1; `Ready` prompt |
 | 11 | Acorn BBC Micro Model B | OS bank-scan reaches BASIC slot (live) — needs SAA5050 + BASIC for full |
 | 12 | Atari 2600 | Combat playfield (live) |
 | 13 | Atari 5200 SuperSystem | **Boots Pac-Man to its menu** (live, 2026-06-04) — two-chip 16K cart decode + ANTIC full-bus DMA + text-mode colour fix |

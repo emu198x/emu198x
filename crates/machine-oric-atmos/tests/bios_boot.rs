@@ -14,14 +14,14 @@ fn rom_path() -> Option<PathBuf> {
         }
     }
     let home = env::var("HOME").ok()?;
-    let dir = PathBuf::from(home).join(".emu198x/roms/oric-atmos");
-    for name in ["atmos.rom", "oric1.rom"] {
-        let p = dir.join(name);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
+    let home = PathBuf::from(home);
+    // The binary's default location, then the older oric-atmos names.
+    let candidates = [
+        home.join(".emu198x/roms/oric/oric.rom"),
+        home.join(".emu198x/roms/oric-atmos/atmos.rom"),
+        home.join(".emu198x/roms/oric-atmos/oric1.rom"),
+    ];
+    candidates.into_iter().find(|p| p.exists())
 }
 
 #[test]
@@ -41,24 +41,23 @@ fn rom_boots_to_initial_screen() {
         sys.run_frame();
     }
 
-    let fb = sys.framebuffer();
-    assert_eq!(fb.len(), 240 * 224);
-    let mut colours = std::collections::HashSet::new();
-    for &px in fb {
-        colours.insert(px);
-        if colours.len() >= 8 {
-            break;
-        }
-    }
+    // The Atmos cold-starts to `ORIC EXTENDED BASIC V1.1` / `1983 TANGERINE`
+    // / `Ready`. That text lands in the TEXT screen RAM at $BB80 as ASCII;
+    // count printable letters/digits (codes $21-$7F, excluding the space and
+    // the low serial-attribute control codes) to prove the banner rendered,
+    // not merely that the machine ran.
+    let printed = (0xBB80u16..0xBE00)
+        .filter(|&a| {
+            let c = sys.peek(a);
+            (0x21..0x80).contains(&c)
+        })
+        .count();
     assert!(
-        colours.len() >= 2,
-        "framebuffer should have >= 2 distinct colours; got {} (rom: {})",
-        colours.len(),
+        printed >= 30,
+        "expected the BASIC banner in TEXT RAM; got {printed} printable cells (rom: {})",
         path.display()
     );
-    let non_zero = fb.iter().filter(|&&px| px & 0x00FF_FFFF != 0).count();
-    assert!(
-        non_zero >= 1024,
-        "boot screen should have >= 1024 non-backdrop pixels; got {non_zero}"
-    );
+
+    let fb = sys.framebuffer();
+    assert_eq!(fb.len(), 240 * 224);
 }
