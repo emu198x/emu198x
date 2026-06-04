@@ -175,17 +175,17 @@ fn run_until_applies_mouse_input_to_controller_port_zero() {
 }
 
 #[test]
-fn run_until_applies_joystick_input_to_controller_port_one() {
+fn run_until_applies_joystick_input_to_controller_port_two() {
     let mut runtime =
         AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let input_events = [
         InputEvent::Button {
-            port: 1,
+            port: 2,
             name: "right".into(),
             pressed: true,
         },
         InputEvent::Button {
-            port: 1,
+            port: 2,
             name: "fire".into(),
             pressed: true,
         },
