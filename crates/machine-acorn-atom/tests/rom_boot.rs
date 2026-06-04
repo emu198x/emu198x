@@ -20,7 +20,7 @@ fn rom_path() -> Option<PathBuf> {
 
 #[test]
 #[ignore = "needs a 24 KB Acorn Atom combined ROM — run with --ignored"]
-fn rom_boots_without_panic() {
+fn rom_boots_to_prompt() {
     let Some(path) = rom_path() else {
         panic!(
             "Atom ROM not found — set EMU198X_ATOM_ROM or place atom.rom (24 KB) \
@@ -35,4 +35,35 @@ fn rom_boots_without_panic() {
         sys.run_frame();
     }
     assert!(sys.frame_count() >= 200);
+
+    // The MOS cold start clears the screen and prints `ACORN ATOM` with a
+    // `>` prompt. Without the CPU reset the screen stayed on the uninitialised
+    // character grid (every cell the same code). Count distinct codes in the
+    // text RAM at $8000: a real boot has the banner letters plus the cleared
+    // background — several distinct codes, not one.
+    use std::collections::HashSet;
+    let codes: HashSet<u8> = (0x8000u16..0x8200).map(|a| sys.peek(a)).collect();
+    assert!(
+        codes.len() >= 4,
+        "expected banner text in screen RAM (>= 4 distinct codes); got {} (rom: {})",
+        codes.len(),
+        path.display()
+    );
+
+    // And the framebuffer is the right size, mostly background with a little
+    // foreground text.
+    let fb = sys.framebuffer();
+    assert_eq!(
+        fb.len(),
+        (sys.framebuffer_width() * sys.framebuffer_height()) as usize
+    );
+    let mut counts = std::collections::HashMap::new();
+    for &px in fb {
+        *counts.entry(px).or_insert(0usize) += 1;
+    }
+    let paper = *counts.values().max().expect("non-empty framebuffer");
+    assert!(
+        paper < fb.len(),
+        "boot screen should not be a single flat colour"
+    );
 }

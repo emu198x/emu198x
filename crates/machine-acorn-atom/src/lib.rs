@@ -65,8 +65,13 @@ impl AcornAtom {
     /// blob (BASIC1 at offset 0, FP at $1000, BASIC2 at $2000, OS at
     /// $3000). `ram_size` is 2560-12288 bytes.
     pub fn new(rom: Vec<u8>, ram_size: usize) -> Self {
+        // Run the 6502 reset sequence so the first fetch comes from the MOS
+        // reset vector ($FFFC); without it the CPU powers on at PC=$0000 and
+        // never cold-starts, leaving the uninitialised character grid on screen.
+        let mut cpu = M6502::new();
+        cpu.reset();
         Self {
-            cpu: M6502::new(),
+            cpu,
             ram: vec![0; ram_size],
             ram_size,
             video_ram: [0; 1024],

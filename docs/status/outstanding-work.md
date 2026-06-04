@@ -691,12 +691,20 @@ to: 2.5 KB base RAM (expandable to 12 KB), 1 KB video RAM at
 register at `$B000`, PIA 6520 at `$B001-$B003`. PIA port A
 column-select; port B row data.
 
-- **A — Awaiting ROM.** TOSEC's Acorn/Atom subtree has no
-  firmware folder. Atom ROMs (akernel + abasic + afloat) are
-  typically distributed with Atomulator or sourced from
-  Acorn-preservation sites. Gated boot smoke skips until
-  `EMU198X_ATOM_ROM` is set or `~/.emu198x/roms/acorn-atom/atom.rom`
-  exists (24 KB combined).
+**Boots to its prompt (live, 2026-06-04).** The Atom cold-starts to
+the `ACORN ATOM` banner with the `>` prompt and cursor. Two things
+were needed:
+
+1. **CPU reset.** Like the VIC-20 and PET, `AcornAtom::new()` never
+   ran the 6502 reset sequence, so the CPU powered on at PC=$0000
+   and never cold-started — the screen stuck on the uninitialised
+   character grid. Added `cpu.reset()`.
+2. **The combined ROM.** Assembled the crate's 24 KB blob from MAME's
+   `atom` romset: `abasic.ic20`'s low 4 KB → BASIC (`$C000`), its
+   high 4 KB → MOS (`$F000`), and `afloat.ic21` → floating point
+   (`$D000`); the `$A000` utility slot is left empty. Installed at
+   `~/.emu198x/roms/acorn-atom/atom.rom`. Verified the reset vector
+   resolves into the MOS ($FF3F).
 - **A — Graphics modes 1-5 not implemented.** VDG renders text
   mode only; graphics modes show solid green (donor stub).
 - **A — Cassette / printer unwired.**
@@ -1251,7 +1259,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
 | 20 | Memotech MTX500/512 | **Boots to BASIC `Ready`** (OS+BASIC+ASSEM); Z80 CTC wired at $08-$0B with VDP /INT → ch0 (2026-06-04) |
-| 21 | Acorn Atom | **Awaiting ROM** (24 KB combined) |
+| 21 | Acorn Atom | **Boots to prompt** (live, 2026-06-04) — CPU reset + 24 KB combined ROM assembled from MAME `atom`; `ACORN ATOM >` |
 | 22 | Commodore VIC-20 | **Boots to BASIC `READY`** (live, 2026-06-04) — CPU reset + correct VIC-20 ROM map ($C000 BASIC / $E000 KERNAL) |
 
 **Fourteen chip crates ported** as foundation:
