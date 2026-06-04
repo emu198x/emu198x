@@ -1,183 +1,159 @@
-//! Input handling for the Commodore PET.
+//! Input handling for the Commodore PET (graphics keyboard).
 //!
-//! The PET has a 10x8 keyboard matrix scanned via the PIA/VIA.
+//! The PET has a 10 × 8 keyboard matrix scanned via PIA #1: port A drives
+//! a binary row number 0-9, port B reads that row's eight columns. Every
+//! position was probed against the real editor ROM (press the cell, read
+//! the produced PETSCII / cursor effect) and transcribed below, so the
+//! table is the genuine graphics-keyboard layout rather than a guess.
+//!
+//! On the graphics keyboard the digits live on a numeric keypad and every
+//! punctuation mark is its own unshifted key, so a program can be typed
+//! without modelling Shift at all.
 
-/// Logical key on the PET keyboard.
+/// Logical key on the PET graphics keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PetKey {
-    // Row 0
-    N2,
-    N5,
-    N8,
-    Minus,
-    N0NumPad,
-    DotNumPad,
-    // Row 1
-    N1,
-    N4,
-    N7,
-    N0,
-    N3NumPad,
-    N6NumPad,
-    N9NumPad,
-    // Row 2
-    Escape,
-    S,
-    F,
-    H,
-    BracketClose,
-    Return,
-    // Row 3
     A,
+    B,
+    C,
     D,
-    G,
-    J,
-    SemiColon,
-    CursorLeft,
-    // Row 4
-    Tab,
-    W,
-    R,
-    Y,
-    BackSlash,
-    Del,
-    // Row 5
-    Q,
     E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
     T,
     U,
-    BracketOpen,
-    CursorDown,
-    // Row 6
-    LeftShift,
-    C,
-    B,
-    Period,
-    N8NumPad,
-    // Row 7
-    Z,
     V,
-    N,
-    Comma,
-    N7NumPad,
-    CursorUp,
-    // Row 8
-    RightShift,
+    W,
     X,
-    M,
+    Y,
+    Z,
+    // Numeric keypad digits.
+    Num0,
+    Num1,
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    Num6,
+    Num7,
+    Num8,
+    Num9,
+    // Punctuation — each its own unshifted key on the graphics keyboard.
+    Exclaim,
+    Hash,
+    Percent,
+    Ampersand,
+    ParenLeft,
+    Quote,
+    Dollar,
+    Apostrophe,
+    ParenRight,
     Slash,
-    N4NumPad,
-    N1NumPad,
-    // Row 9
-    RvsOff,
-    Space,
-    K,
-    Colon,
-    N5NumPad,
-    N2NumPad,
-
-    // Extra
-    N3,
-    N6,
-    N9,
+    Asterisk,
     Plus,
-    Equals,
-    Home,
-    RunStop,
-    L,
-    O,
-    I,
-    P,
+    Colon,
+    Semicolon,
+    Comma,
+    Period,
+    Question,
+    Less,
+    Greater,
+    Equal,
     At,
+    // Control / editing.
+    Return,
+    Space,
+    CursorRight,
 }
 
 impl PetKey {
-    /// Return the (row, column) pair for this key.
+    /// Return the `(row, col)` pair for this key — `row` is the binary row
+    /// number driven on PIA #1 port A, `col` the column bit read on port B.
     #[must_use]
     pub const fn matrix(self) -> (usize, u8) {
         match self {
-            Self::N2 => (0, 0),
-            Self::N5 => (0, 1),
-            Self::N8 => (0, 2),
-            Self::Minus => (0, 3),
-            Self::N0NumPad => (0, 4),
-            Self::DotNumPad => (0, 5),
-
-            Self::N1 => (1, 0),
-            Self::N4 => (1, 1),
-            Self::N7 => (1, 2),
-            Self::N0 => (1, 3),
-            Self::N3NumPad => (1, 4),
-            Self::N6NumPad => (1, 5),
-            Self::N9NumPad => (1, 6),
-
-            Self::Escape => (2, 0),
-            Self::S => (2, 1),
-            Self::F => (2, 2),
-            Self::H => (2, 3),
-            Self::BracketClose => (2, 4),
-            Self::Return => (2, 5),
-
-            Self::A => (3, 0),
-            Self::D => (3, 1),
-            Self::G => (3, 2),
-            Self::J => (3, 3),
-            Self::SemiColon => (3, 4),
-            Self::CursorLeft => (3, 5),
-
-            Self::Tab => (4, 0),
-            Self::W => (4, 1),
-            Self::R => (4, 2),
-            Self::Y => (4, 3),
-            Self::BackSlash => (4, 4),
-            Self::Del => (4, 5),
-
-            Self::Q => (5, 0),
-            Self::E => (5, 1),
-            Self::T => (5, 2),
-            Self::U => (5, 3),
-            Self::BracketOpen => (5, 4),
-            Self::CursorDown => (5, 5),
-
-            Self::LeftShift => (6, 0),
+            // Row 0
+            Self::Exclaim => (0, 0),
+            Self::Hash => (0, 1),
+            Self::Percent => (0, 2),
+            Self::Ampersand => (0, 3),
+            Self::ParenLeft => (0, 4),
+            // Row 1
+            Self::Quote => (1, 0),
+            Self::Dollar => (1, 1),
+            Self::Apostrophe => (1, 2),
+            Self::ParenRight => (1, 4),
+            // Row 2
+            Self::Q => (2, 0),
+            Self::E => (2, 1),
+            Self::T => (2, 2),
+            Self::U => (2, 3),
+            Self::O => (2, 4),
+            Self::Num7 => (2, 6),
+            Self::Num9 => (2, 7),
+            // Row 3
+            Self::W => (3, 0),
+            Self::R => (3, 1),
+            Self::Y => (3, 2),
+            Self::I => (3, 3),
+            Self::P => (3, 4),
+            Self::Num8 => (3, 6),
+            Self::Slash => (3, 7),
+            // Row 4
+            Self::A => (4, 0),
+            Self::D => (4, 1),
+            Self::G => (4, 2),
+            Self::J => (4, 3),
+            Self::L => (4, 4),
+            Self::Num4 => (4, 6),
+            Self::Num6 => (4, 7),
+            // Row 5
+            Self::S => (5, 0),
+            Self::F => (5, 1),
+            Self::H => (5, 2),
+            Self::K => (5, 3),
+            Self::Colon => (5, 4),
+            Self::Num5 => (5, 6),
+            Self::Asterisk => (5, 7),
+            // Row 6
+            Self::Z => (6, 0),
             Self::C => (6, 1),
             Self::B => (6, 2),
-            Self::Period => (6, 3),
-            Self::N8NumPad => (6, 4),
-
-            Self::Z => (7, 0),
+            Self::M => (6, 3),
+            Self::Semicolon => (6, 4),
+            Self::Return => (6, 5),
+            Self::Num1 => (6, 6),
+            Self::Num3 => (6, 7),
+            // Row 7
+            Self::X => (7, 0),
             Self::V => (7, 1),
             Self::N => (7, 2),
             Self::Comma => (7, 3),
-            Self::N7NumPad => (7, 4),
-            Self::CursorUp => (7, 5),
-
-            Self::RightShift => (8, 0),
-            Self::X => (8, 1),
-            Self::M => (8, 2),
-            Self::Slash => (8, 3),
-            Self::N4NumPad => (8, 4),
-            Self::N1NumPad => (8, 5),
-
-            Self::RvsOff => (9, 0),
-            Self::Space => (9, 1),
-            Self::K => (9, 2),
-            Self::Colon => (9, 3),
-            Self::N5NumPad => (9, 4),
-            Self::N2NumPad => (9, 5),
-
-            Self::N3 => (0, 6),
-            Self::N6 => (0, 7),
-            Self::N9 => (1, 7),
-            Self::Plus => (2, 6),
-            Self::Equals => (2, 7),
-            Self::Home => (3, 6),
-            Self::RunStop => (3, 7),
-            Self::L => (4, 6),
-            Self::O => (4, 7),
-            Self::I => (5, 6),
-            Self::P => (5, 7),
-            Self::At => (6, 5),
+            Self::Question => (7, 4),
+            Self::Num2 => (7, 6),
+            Self::Plus => (7, 7),
+            // Row 8
+            Self::At => (8, 1),
+            Self::CursorRight => (8, 2),
+            Self::Greater => (8, 4),
+            Self::Num0 => (8, 6),
+            // Row 9
+            Self::Space => (9, 2),
+            Self::Less => (9, 3),
+            Self::Period => (9, 6),
+            Self::Equal => (9, 7),
         }
     }
 }
@@ -189,7 +165,6 @@ mod tests {
     #[test]
     fn key_matrix_valid() {
         let (r, c) = PetKey::A.matrix();
-        assert!(r < 10);
-        assert!(c < 8);
+        assert_eq!((r, c), (4, 0));
     }
 }

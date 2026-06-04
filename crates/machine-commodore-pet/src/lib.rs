@@ -154,6 +154,14 @@ impl Pet {
         self.master_clock += 1;
         self.tick_display();
         self.via.tick();
+        // PIA #1 CA1 is wired to the CRTC vertical retrace: its edge is the
+        // 60 Hz system IRQ that runs the editor's keyboard scan and jiffy
+        // clock. Without it the machine boots to READY but never sees a key.
+        // PIA #1 CB1 is wired to the CRTC vertical retrace: its edge is the
+        // 60 Hz system IRQ that runs the editor's keyboard scan and jiffy
+        // clock (the editor enables CB1, not CA1 — CA1 is cassette sense).
+        // Without it the machine boots to READY but never sees a key.
+        self.pia.set_cb1(self.crtc.in_vertical_retrace());
         self.cpu.irq = self.pia.irq_pending() || self.via.irq;
         self.cpu.tick();
         if self.cpu.rw {
@@ -219,9 +227,11 @@ impl Pet {
     }
 
     fn update_keyboard(&mut self) {
-        let col_select = self.pia.port_a_output();
-        let row_data = self.keyboard.read(col_select);
-        self.pia.set_port_b_input(row_data);
+        // PIA #1 port A drives the binary row number (0-9); port B reads
+        // that row's column lines.
+        let row = self.pia.port_a_output() & 0x0F;
+        let columns = self.keyboard.read_row(row);
+        self.pia.set_port_b_input(columns);
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {

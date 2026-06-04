@@ -1,7 +1,9 @@
 //! PET keyboard matrix.
 //!
-//! 10x8 matrix, scanned through PIA/VIA. Column select on port A,
-//! row read on port B.
+//! 10×8 matrix scanned through PIA #1. Port A drives a *binary* row
+//! number 0-9 (the ten rows need four bits, so the select is encoded,
+//! not one-hot); port B reads that row's eight column lines, active low
+//! (a low bit means the key is pressed).
 
 /// Keyboard state: 10 rows x 8 columns.
 pub struct KeyboardState {
@@ -25,20 +27,13 @@ impl KeyboardState {
         }
     }
 
-    /// Scan the keyboard for the given column selection.
+    /// Read the eight column lines for one binary-selected keyboard row.
     ///
-    /// Returns the OR of all selected columns, active low.
+    /// `row` is the value the PIA drives on port A (0-9); the return is
+    /// the port B column read, active low (a low bit = key pressed).
     #[must_use]
-    pub fn read(&self, col_select: u8) -> u8 {
-        let mut result = 0u8;
-        for (row_idx, &row_val) in self.rows.iter().enumerate() {
-            for col in 0..8 {
-                if col_select & (1 << col) == 0 && row_val & (1 << col) != 0 {
-                    result |= 1 << (row_idx & 7);
-                }
-            }
-        }
-        !result
+    pub fn read_row(&self, row: u8) -> u8 {
+        !self.rows.get(row as usize).copied().unwrap_or(0)
     }
 
     /// Release all keys.
