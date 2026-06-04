@@ -932,6 +932,14 @@ impl Vic {
                 val
             }
             r @ 0x20..=0x2E => self.regs[r as usize] | 0xF0,
+            // Sprite coordinates ($00-$10), control/pointer registers
+            // ($13-$18) and the sprite priority/multicolour/expand-X
+            // registers ($1B-$1D) are all readable and return the last
+            // written value — exactly what the hardware does, and what
+            // read-modify-write movement code (`inc $d000`, `dec $d001`)
+            // depends on. Only the special-cased registers above diverge.
+            r @ (0x00..=0x10 | 0x13..=0x18 | 0x1B..=0x1D) => self.regs[r as usize],
+            // $2F-$3F are unused; modelled as open bus.
             _ => self.last_bus_data,
         }
     }
@@ -1328,6 +1336,25 @@ mod tests {
         assert_eq!(vic.read(0x20), 0xF6);
         vic.write(0x21, 0x01);
         assert_eq!(vic.read(0x21), 0xF1);
+    }
+
+    #[test]
+    fn sprite_position_registers_read_back_written_value() {
+        // Sprite coordinate registers are readable and must return the
+        // last written value — read-modify-write movement code
+        // (`inc $d000` / `dec $d001`) relies on it. Regression for the
+        // bug where these fell through to open-bus data, so every RMW
+        // computed from stale data: the sprite jumped once then froze.
+        let mut vic = Vic::new(VicModel::Pal6569);
+        for reg in 0x00u8..=0x10 {
+            vic.write(reg, 0xAB);
+            assert_eq!(vic.read(reg), 0xAB, "register ${reg:02X} should read back");
+        }
+        // Read-modify-write semantics: write 172, decrement twice, expect 170.
+        vic.write(0x01, 172);
+        let after_two_dec = vic.read(0x01).wrapping_sub(1).wrapping_sub(1);
+        vic.write(0x01, after_two_dec);
+        assert_eq!(vic.read(0x01), 170);
     }
 
     #[test]
