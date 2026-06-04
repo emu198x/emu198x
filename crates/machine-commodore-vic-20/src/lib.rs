@@ -22,10 +22,13 @@
 //! - **ROMs:** 8 KB Kernal at `$E000`, 8 KB BASIC at `$A000`, 4 KB
 //!   character ROM at `$8000`
 //!
-//! Scope of this initial port — VIC chip lives in the dedicated
-//! [`mos_vic_i`] chip crate (text-mode video only; audio is stubbed).
-//! The donor also stubbed VIA 6522 ×2 wiring (keyboard + joystick);
-//! the same stubs land here.
+//! The VIC chip lives in the dedicated [`mos_vic_i`] chip crate
+//! (text-mode video only; audio is stubbed). Two MOS 6522 VIAs handle
+//! I/O: VIA #1 at `$9110-$911F` (RESTORE key → NMI, user port) and
+//! VIA #2 at `$9120-$912F` (keyboard scan + Timer 1 → the 60 Hz system
+//! IRQ that drives the KERNAL keyboard/jiffy handler). The keyboard
+//! matrix hangs off VIA #2: port B drives the columns, port A reads the
+//! rows.
 
 pub mod input;
 mod keyboard;
@@ -35,6 +38,7 @@ pub use keyboard::KeyboardState;
 pub use mos_vic_i::{FB_HEIGHT, FB_WIDTH, Vic6560};
 
 use mos_6502::M6502;
+use mos_via_6522::Via6522;
 
 /// VIC-20 model selector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,13 +62,12 @@ pub struct Vic20 {
     kernal_rom: Vec<u8>,
     vic: Vic6560,
     keyboard: KeyboardState,
-    // Latched bus state placeholders — kept on the struct so the
-    // future tape / userport / IEC wiring lands as a small additive
-    // change rather than a structural one.
-    #[allow(dead_code)]
-    via1_port_a: u8,
-    #[allow(dead_code)]
-    via2_port_b: u8,
+    /// VIA #1 ($9110-$911F): RESTORE key (CA1 → NMI), user port. Its IRQ
+    /// output is wired to the 6502 NMI pin.
+    via1: Via6522,
+    /// VIA #2 ($9120-$912F): keyboard scan (PB columns, PA rows) and the
+    /// Timer 1 free-run that generates the 60 Hz system IRQ.
+    via2: Via6522,
     model: Vic20Model,
     master_clock: u64,
     frame_count: u64,
@@ -109,8 +112,8 @@ impl Vic20 {
             kernal_rom,
             vic: Vic6560::new(pal),
             keyboard: KeyboardState::new(),
-            via1_port_a: 0xFF,
-            via2_port_b: 0xFF,
+            via1: Via6522::new(),
+            via2: Via6522::new(),
             model,
             master_clock: 0,
             frame_count: 0,
@@ -150,9 +153,30 @@ impl Vic20 {
             },
         );
 
+        // Refresh the keyboard row input: VIA #2 port B drives the
+        // column-select pattern (active low); the matrix returns the row
+        // lines for the selected columns, which the KERNAL reads on PA.
+        self.via2.pa_in = self.keyboard.read(self.via2.port_b_drive_state());
+
+        self.via1.tick();
+        self.via2.tick();
+        // VIA #2 generates the system IRQ (Timer 1 jiffy / keyboard scan);
+        // VIA #1 generates the NMI (RESTORE key / RS-232).
+        self.cpu.irq = self.via2.irq;
+        self.cpu.nmi = self.via1.irq;
+
         self.cpu.tick();
         if self.cpu.rw {
-            self.cpu.data_in = self.mem_read(self.cpu.addr);
+            let addr = self.cpu.addr;
+            // VIA register reads have side effects (reading Timer 1 clears
+            // its interrupt flag — how the KERNAL acks the jiffy IRQ), so
+            // the live CPU path uses the mutating `read`; `mem_read`/`peek`
+            // stay non-mutating for host debugging.
+            self.cpu.data_in = match addr {
+                0x9110..=0x911F => self.via1.read((addr & 0x0F) as u8),
+                0x9120..=0x912F => self.via2.read((addr & 0x0F) as u8),
+                _ => self.mem_read(addr),
+            };
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
         }
@@ -182,7 +206,10 @@ impl Vic20 {
                 .get((addr - 0x8000) as usize)
                 .copied()
                 .unwrap_or(0xFF),
-            0x9000..=0x93FF => self.vic.read((addr & 0x0F) as u8),
+            0x9000..=0x90FF => self.vic.read((addr & 0x0F) as u8),
+            0x9110..=0x911F => self.via1.peek((addr & 0x0F) as u8),
+            0x9120..=0x912F => self.via2.peek((addr & 0x0F) as u8),
+            0x9100..=0x910F | 0x9130..=0x93FF => 0xFF,
             0x9400..=0x97FF => self.colour_ram[(addr - 0x9400) as usize] & 0x0F,
             0x9800..=0x9FFF => 0xFF,
             // $A000-$BFFF is cartridge block 5 (autostart carts); open bus
@@ -215,7 +242,10 @@ impl Vic20 {
                     self.ram_exp_high[offset] = value;
                 }
             }
-            0x9000..=0x93FF => self.vic.write((addr & 0x0F) as u8, value),
+            0x9000..=0x90FF => self.vic.write((addr & 0x0F) as u8, value),
+            0x9110..=0x911F => self.via1.write((addr & 0x0F) as u8, value),
+            0x9120..=0x912F => self.via2.write((addr & 0x0F) as u8, value),
+            0x9100..=0x910F | 0x9130..=0x93FF => {}
             0x9400..=0x97FF => {
                 self.colour_ram[(addr - 0x9400) as usize] = value & 0x0F;
             }
@@ -375,6 +405,38 @@ mod tests {
         let _ = sys.run_frame();
         assert_eq!(sys.frame_count(), 1);
         assert_eq!(sys.model(), Vic20Model::Ntsc);
+    }
+
+    #[test]
+    fn keyboard_scan_reads_through_via2() {
+        // ROM-free guard for the VIA #2 keyboard path: configure port B as
+        // the column-drive output and port A as the row-read input (as the
+        // KERNAL does), press a key, drive its column low, and confirm the
+        // key's row line reads low on port A.
+        let mut sys = make_vic20();
+        sys.mem_write(0x9122, 0xFF); // VIA2 DDRB: port B all outputs (columns)
+        sys.mem_write(0x9123, 0x00); // VIA2 DDRA: port A all inputs (rows)
+
+        // 'A' is matrix (row 1, col 2): pressing it shorts PA1 to PB2.
+        sys.press_key(Vic20Key::A);
+        sys.mem_write(0x9120, !(1 << 2)); // drive column 2 low, others high
+        let _ = sys.step_instruction(); // let tick refresh the row input
+
+        let port_a = sys.mem_read(0x9121);
+        assert_eq!(
+            port_a & (1 << 1),
+            0,
+            "PA1 should read low for 'A'; got {port_a:#04X}"
+        );
+
+        // A column that no pressed key occupies leaves every row line high.
+        sys.mem_write(0x9120, !(1 << 5)); // drive an unrelated column low
+        let _ = sys.step_instruction();
+        assert_eq!(
+            sys.mem_read(0x9121),
+            0xFF,
+            "no key on column 5 → all rows high"
+        );
     }
 
     #[test]
