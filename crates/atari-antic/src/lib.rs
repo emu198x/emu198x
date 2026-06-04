@@ -638,60 +638,82 @@ impl Antic {
     /// Render a character mode scan line.
     fn render_char_line(&mut self, ram: &[u8], desc: &ModeDesc, bytes: u8) -> Vec<u8> {
         let chbase_addr = u16::from(self.chbase) << 8;
-        let char_height = desc.scan_lines_per_row;
-        let row_in_char = self.mode_line;
         // CHACTL: bit 1 = inverse-video enable, bit 0 = blank, bit 2 = reflect.
         let inverse_video = self.chactl & 0x02 != 0;
         let blank = self.chactl & 0x01 != 0;
         let reflect = self.chactl & 0x04 != 0;
 
-        let count = usize::min(self.char_codes.len(), bytes as usize);
+        // Every ANTIC text mode uses an 8-byte-per-glyph font. The
+        // double-height modes (5, 7) show each font line on two scan lines,
+        // so the font row is the mode-line row halved.
+        let double_height = matches!(desc.antic_mode, AnticMode::Mode5 | AnticMode::Mode7);
+        let raw_row = if double_height {
+            self.mode_line / 2
+        } else {
+            self.mode_line
+        };
+        let font_row = if reflect {
+            7u8.saturating_sub(raw_row)
+        } else {
+            raw_row
+        };
 
-        // Each character produces pixels based on bits_per_pixel
+        let count = usize::min(self.char_codes.len(), bytes as usize);
         let mut pixels = Vec::new();
 
         // DMA for character bitmap fetch: 1 byte per character per scan line
         self.dma_cycles += bytes;
 
+        let glyph_byte = |glyph: u16| -> u8 {
+            let addr = chbase_addr
+                .wrapping_add(glyph.wrapping_mul(8))
+                .wrapping_add(u16::from(font_row));
+            ram[addr as usize & (ram.len() - 1)]
+        };
+
         for i in 0..count {
             let raw_code = self.char_codes[i];
-            let char_index = raw_code & 0x7F;
-            let inverse_bit = raw_code & 0x80 != 0;
 
-            // Character row within the glyph
-            let effective_row = if reflect {
-                char_height.saturating_sub(1) - row_in_char
-            } else {
-                row_in_char
-            };
-
-            let glyph_addr = chbase_addr
-                .wrapping_add(u16::from(char_index) * u16::from(char_height))
-                .wrapping_add(u16::from(effective_row));
-            let mut bitmap = ram[glyph_addr as usize & (ram.len() - 1)];
-
-            // Inverse-video (high-bit) characters honour CHACTL. Matches the
-            // hardware: out = inverse ? !(data & !blank) : (data & !blank).
-            if inverse_bit {
-                let blanked = if blank { 0 } else { bitmap };
-                bitmap = if inverse_video { !blanked } else { blanked };
-            }
-
-            // Decode bitmap into pixels
-            if desc.bits_per_pixel == 1 {
-                // 1 bit per pixel — 8 pixels per byte
-                for bit in (0..8).rev() {
-                    let px = (bitmap >> bit) & 1;
-                    // 0 = background (register 0), 1 = foreground (register 1)
-                    pixels.push(u8::from(px != 0));
+            match desc.antic_mode {
+                // 5-colour text (modes 6, 7): the low 6 bits are the glyph and
+                // the top 2 bits select the playfield colour register. The
+                // 8-pixel font is 1 bit per pixel — a set pixel takes the
+                // chosen colour (COLPF0..COLPF3 → playfield index 1..=4), a
+                // clear pixel is background.
+                AnticMode::Mode6 | AnticMode::Mode7 => {
+                    let colour = ((raw_code >> 6) & 0x03) + 1;
+                    let bitmap = glyph_byte(u16::from(raw_code & 0x3F));
+                    for bit in (0..8).rev() {
+                        pixels.push(if (bitmap >> bit) & 1 != 0 { colour } else { 0 });
+                    }
                 }
-            } else {
-                // 2 bits per pixel — 4 pixels per byte (modes 6, 7)
-                // Shifts: 6, 4, 2, 0 (high pair is leftmost pixel)
-                for pair in 0..4u8 {
-                    let shift = 6 - pair * 2;
-                    let px = (bitmap >> shift) & 0x03;
-                    pixels.push(px);
+                // 4-colour text (modes 4, 5): 7-bit glyph; the 8-pixel font is
+                // read 2 bits per pixel → 4 wide pixels. Pair value 3 selects
+                // COLPF2, or COLPF3 when the code's high bit is set.
+                AnticMode::Mode4 | AnticMode::Mode5 => {
+                    let hi = raw_code & 0x80 != 0;
+                    let bitmap = glyph_byte(u16::from(raw_code & 0x7F));
+                    for pair in 0..4u8 {
+                        let value = (bitmap >> (6 - pair * 2)) & 0x03;
+                        pixels.push(match value {
+                            3 if hi => 4,   // COLPF3
+                            other => other, // 0 bg, 1 PF0, 2 PF1, 3 PF2
+                        });
+                    }
+                }
+                // Hi-res 2-colour text (modes 2, 3): 7-bit glyph, the high bit
+                // is the inverse-video attribute (subject to CHACTL); 8 px,
+                // 1 bit per pixel.
+                _ => {
+                    let inverse_bit = raw_code & 0x80 != 0;
+                    let mut bitmap = glyph_byte(u16::from(raw_code & 0x7F));
+                    if inverse_bit {
+                        let blanked = if blank { 0 } else { bitmap };
+                        bitmap = if inverse_video { !blanked } else { blanked };
+                    }
+                    for bit in (0..8).rev() {
+                        pixels.push(u8::from((bitmap >> bit) & 1 != 0));
+                    }
                 }
             }
         }
@@ -1095,6 +1117,72 @@ mod tests {
 
         // Character 0 (rest) with bitmap $00 → all clear
         assert_eq!(result.playfield[8], 0);
+    }
+
+    #[test]
+    fn mode_6_five_colour_text_uses_colour_bits() {
+        let mut ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+
+        // Display list: Mode 6 + LMS → screen $8000.
+        ram[0x4000] = 0x46;
+        ram[0x4001] = 0x00;
+        ram[0x4002] = 0x80;
+
+        // Screen byte $C1: low 6 bits = glyph 1, top 2 bits = 11 → COLPF3.
+        ram[0x8000] = 0xC1;
+        // Char 1, row 0 = $80: only the leftmost pixel is set.
+        ram[0xE008] = 0x80;
+
+        antic.write(0x00, 0x22);
+        antic.write(0x02, 0x00);
+        antic.write(0x03, 0x40);
+        antic.write(0x09, 0xE0); // CHBASE
+        antic.scan_line = VISIBLE_START;
+
+        let result = antic.process_line(&ram);
+        assert_eq!(result.mode, AnticMode::Mode6);
+
+        // Mode 6 is 8 px/char (1bpp font), not 4: the lit pixel takes the
+        // colour the code's top two bits chose (COLPF3 → playfield index 4),
+        // the rest are background.
+        assert_eq!(result.playfield[0], 4);
+        assert_eq!(result.playfield[1], 0);
+        // Colour bits must NOT leak into the glyph index: $C1 looks up glyph
+        // $01, not $41. The old `& 0x7F` decode picked the wrong (blank)
+        // glyph and rendered coloured text as garbage / lowercase.
+        assert!(result.playfield[0..8].iter().any(|&p| p == 4));
+    }
+
+    #[test]
+    fn mode_4_four_colour_text_high_bit_selects_pf3() {
+        let mut ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+
+        // Display list: Mode 4 + LMS → screen $8000.
+        ram[0x4000] = 0x44;
+        ram[0x4001] = 0x00;
+        ram[0x4002] = 0x80;
+
+        // Two chars: glyph 1 plain ($01) and glyph 1 with the high bit ($81).
+        ram[0x8000] = 0x01;
+        ram[0x8001] = 0x81;
+        // Char 1, row 0 = $C0: top pixel-pair = 11.
+        ram[0xE008] = 0xC0;
+
+        antic.write(0x00, 0x22);
+        antic.write(0x02, 0x00);
+        antic.write(0x03, 0x40);
+        antic.write(0x09, 0xE0);
+        antic.scan_line = VISIBLE_START;
+
+        let result = antic.process_line(&ram);
+        assert_eq!(result.mode, AnticMode::Mode4);
+
+        // 4 px/char (2bpp font). Pair value 3 → COLPF2 (index 3) for the
+        // plain char, COLPF3 (index 4) when the code's high bit is set.
+        assert_eq!(result.playfield[0], 3); // char $01, leftmost pair = 11
+        assert_eq!(result.playfield[4], 4); // char $81, leftmost pair = 11 + hi
     }
 
     #[test]

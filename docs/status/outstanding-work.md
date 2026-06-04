@@ -306,7 +306,7 @@ correct colours. Gated smoke at
 a real rendered frame (≥ 4 colours, ≥ 1000 non-background px);
 without a BIOS it falls back to the looser cart-only check.
 
-Two bugs fixed to get there:
+Three bugs fixed to get there:
 
 - **16 KB carts now use the "two chip" (EE_16) decode.** The
   fresh-write (and the donor) mapped 16 KB carts linearly to
@@ -326,14 +326,26 @@ Two bugs fixed to get there:
   ANTIC reads the DL, screen data, and char sets from wherever
   they live. ANTIC itself is unchanged (the 800XL already passes
   a 64 KB view).
+- **ANTIC text modes 4–7 decode per the hardware.** The char
+  renderer applied the mode-2 convention to every text mode, so
+  the 5-colour modes (6/7) lost their glyphs and colour: the
+  code's top two bits — which are the *colour* in modes 6/7 —
+  leaked into the glyph index, turning coloured uppercase into
+  lowercase ("PLAYER" → "player") and digits into wrong glyphs
+  ("1" → garbage), while the 1bpp font was wrongly read as 2bpp.
+  Now each text family decodes correctly: modes 2/3 hi-res 2-colour
+  (high bit = inverse video), modes 4/5 4-colour (2bpp font, high
+  bit picks COLPF3), modes 6/7 5-colour (6-bit glyph, top two bits
+  pick COLPF0–3 for an 8-pixel 1bpp font). Double-height modes
+  (5/7) now address the 8-byte font with the row halved. The
+  Pac-Man menu — "PAC-MAN", "1 PLAYER GAME", "PRESS START TO PLAY
+  GAME" — reads correctly, and the right-edge artifact (mis-placed
+  narrow mode-6 text) is gone. Guarded by
+  `mode_6_five_colour_text_uses_colour_bits` and
+  `mode_4_four_colour_text_high_bit_selects_pf3` in `atari-antic`.
 
 Remaining polish (display works; these are fidelity, not blockers):
 
-- **A — Minor glyph + sprite quirks on the Pac-Man menu.** A
-  couple of menu characters render as the wrong glyph (e.g. the
-  "1" in "1 PLAYER") and a small stray player/missile artifact
-  sits on the right edge. Likely a char-set region or P/M-DMA
-  detail; the menu is fully readable.
 - **A — Cycle-accurate WSYNC + DMA stealing.** Current model
   treats the DMA budget as a fixed CPU-cycle stall at the start
   of the line; real ANTIC interleaves DMA cycles through the
