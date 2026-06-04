@@ -466,9 +466,15 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
                 let z = opcode & 7;
                 match x {
                     1 => {
-                        // LD r,r' with IX/IY substitution
-                        let dst = self.ix_r8(reg, y);
-                        let src = self.ix_r8(reg, z);
+                        // LD r,r'. The DD/FD prefix renames H/L to IXH/IXL only
+                        // when the register is a *direct* operand. If either
+                        // operand is the (IX+d) memory form (field 6), the other
+                        // register keeps its plain H/L name — IXH/IXL and (IX+d)
+                        // cannot coexist in one instruction (e.g. DD 66 is
+                        // `LD H,(IX+d)`, not `LD IXH,(IX+d)`).
+                        let has_disp = y == 6 || z == 6;
+                        let dst = self.ix_r8_in_ld(reg, y, has_disp);
+                        let src = self.ix_r8_in_ld(reg, z, has_disp);
                         format!("LD {dst},{src}")
                     }
                     2 => {
@@ -501,6 +507,22 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
                 }
             }
         }
+    }
+
+    /// Register operand for an indexed `LD r,r'`. When the instruction already
+    /// carries an `(IX+d)` operand (`has_disp`), the H/L register fields (4/5)
+    /// name the plain H/L registers, not IXH/IXL — the prefix's register rename
+    /// is suppressed in the presence of the displacement. All other fields,
+    /// including the `(IX+d)` form itself, defer to [`ix_r8`].
+    fn ix_r8_in_ld(&mut self, reg: &str, n: u8, has_disp: bool) -> String {
+        if has_disp {
+            match n & 7 {
+                4 => return "H".into(),
+                5 => return "L".into(),
+                _ => {}
+            }
+        }
+        self.ix_r8(reg, n)
     }
 
     /// Get register name with IX/IY substitution. Consumes displacement byte for (IX+d).
@@ -557,6 +579,33 @@ mod tests {
         let (s, len) = disassemble(0, read_from(&[0xC3, 0x00, 0x80]));
         assert_eq!(s, "JP $8000");
         assert_eq!(len, 3);
+    }
+
+    #[test]
+    fn ld_indexed_does_not_rename_paired_h_l() {
+        // The DD/FD prefix renames H/L to IXH/IXL only for a *direct* register
+        // operand. When the other operand is (IX+d), the register field is the
+        // plain H/L — IXH/IXL and (IX+d) cannot coexist. (Caught by the
+        // isa-disasm cross-check.)
+        assert_eq!(
+            disassemble(0, read_from(&[0xDD, 0x66, 0x00])).0,
+            "LD H,(IX+$00)"
+        );
+        assert_eq!(
+            disassemble(0, read_from(&[0xDD, 0x6E, 0x00])).0,
+            "LD L,(IX+$00)"
+        );
+        assert_eq!(
+            disassemble(0, read_from(&[0xDD, 0x74, 0x00])).0,
+            "LD (IX+$00),H"
+        );
+        assert_eq!(
+            disassemble(0, read_from(&[0xFD, 0x75, 0x00])).0,
+            "LD (IY+$00),L"
+        );
+        // The pure-register undocumented form still renames (no displacement):
+        // DD 65 = LD IXH,IXL.
+        assert_eq!(disassemble(0, read_from(&[0xDD, 0x65])).0, "LD IXH,IXL");
     }
 
     #[test]
