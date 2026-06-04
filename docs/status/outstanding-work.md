@@ -1182,14 +1182,14 @@ codebase is now fully harvested. See dedicated sections above:
 | 10 | Oric-1 / Atmos | **Awaiting BIOS** (16 KB Tangerine ROM) |
 | 11 | Acorn BBC Micro Model B | OS bank-scan reaches BASIC slot (live) — needs SAA5050 + BASIC for full |
 | 12 | Atari 2600 | Combat playfield (live) |
-| 13 | Atari 5200 SuperSystem | Pac-Man title (live, partial render) |
-| 14 | Atari 7800 ProSystem | Cart accepts (live); BIOS-driven boot pending |
+| 13 | Atari 5200 SuperSystem | **Boots Pac-Man to its menu** (live, 2026-06-04) — two-chip 16K cart decode + ANTIC full-bus DMA + text-mode colour fix |
+| 14 | Atari 7800 ProSystem | **Renders** (live, 2026-06-04) — MARIA CTRL-bit fix lets the DLI→NMI fire; Asteroids draws |
 | 15 | Atari 800XL | **Boots to BASIC `READY`** (live) — GR.0 renders, keyboard types, MCP debug surface |
 | 16 | Jupiter Ace | **Awaiting ROM** (8 KB Forth interpreter) |
 | 17 | Commodore PET | Char grid renders (live) — full boot pending |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
-| 20 | Memotech MTX500/512 | **Boots to BASIC `Ready`** (OS+BASIC+ASSEM); CTC interrupt path not yet wired |
+| 20 | Memotech MTX500/512 | **Boots to BASIC `Ready`** (OS+BASIC+ASSEM); Z80 CTC wired at $08-$0B with VDP /INT → ch0 (2026-06-04) |
 | 21 | Acorn Atom | **Awaiting ROM** (24 KB combined) |
 | 22 | Commodore VIC-20 | ROM boots (live); display still black |
 
