@@ -2198,6 +2198,7 @@ dependencies = [
  "ti-sn76489",
  "ti-tms9918",
  "zilog-z80",
+ "zilog-z80-ctc",
 ]
 
 [[package]]

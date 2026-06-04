@@ -85,6 +85,21 @@ fn boots_to_basic_ready() {
         "country/sense-high read should be 0x03"
     );
 
+    // The interrupt path now runs through the Z80 CTC: the OS programs it at
+    // $08-$0B, and channel 0 (fed by the VDP /INT) is the live timebase driving
+    // the IRQ. Positive proof the CTC is in the loop, not inert — the boot
+    // reaches Ready only because these interrupts arrive.
+    assert!(
+        events
+            .iter()
+            .any(|e| e.write && (0x08..=0x0B).contains(&e.port)),
+        "CTC never programmed — the OS should write $08-$0B"
+    );
+    assert!(
+        sys.ctc().running(0) && sys.ctc().int_enabled(0),
+        "CTC channel 0 should be running with interrupts enabled after boot"
+    );
+
     // The screen is painted: a real text frame, not the all-backdrop blank of
     // the pre-fix stall.
     let fb = sys.framebuffer();

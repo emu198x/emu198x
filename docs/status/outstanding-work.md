@@ -631,12 +631,14 @@ prompt:
    (`boots_to_basic_ready`). Full map in
    [`knowledge/systems/memotech-mtx.md`](../../knowledge/systems/memotech-mtx.md).
 
-- **A — VDP interrupt via the Z80 CTC, not yet wired.** The boot runs on the
-  direct VDP `/INT` → Z80 line (IM 1) and renders correctly, but the real MTX
-  routes the VDP `/INT` through **CTC channel 0** (`memu.c` `LoopZ80` →
-  `ctc_trigger(0)`), and the OS programs the CTC at `$08-$0B` (those writes are
-  currently dropped). Wire `zilog-z80-ctc` at `$08-$0B` + route VDP→ch0 for
-  interrupt-timing/sound/cassette accuracy.
+- **✅ VDP interrupt via the Z80 CTC (2026-06-04).** `zilog-z80-ctc` (the crate
+  proven on the Sord M5) is wired at ports `$08-$0B`, and the VDP `/INT` now
+  feeds **CTC channel 0**'s `CLK/TRG`; the CTC's own INT output drives the Z80
+  IRQ, replacing the direct VDP→IRQ line (`memu.c` `LoopZ80` → `ctc_trigger(0)`).
+  IntAck vectors via `ctc.acknowledge()` (IM 2) and RETI (`ED 4D`) releases the
+  daisy chain. The boot still reaches `Ready`, and the gated `boots_to_basic_ready`
+  test now asserts the OS programs `$08-$0B` and channel 0 is running with
+  interrupts enabled — positive proof the CTC is the live timebase, not inert.
 - **A — Keyboard matrix not aligned to MEMU's grid.** The drive/sense *model* is
   correct (no-key + country read verified); the physical key→(column, sense-bit)
   mapping still needs aligning to `kbd2.c` for accurate typing.

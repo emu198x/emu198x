@@ -34,13 +34,15 @@
 //!
 //! # I/O ports
 //!
-//! | Port  | Direction | Function                             |
-//! |-------|-----------|--------------------------------------|
-//! | `$00` | write     | Paging byte (see above)              |
-//! | `$01` | read/write| VDP data                             |
-//! | `$02` | read/write| VDP status (R) / register (W)        |
-//! | `$03` | write     | PSG (SN76489)                        |
-//! | `$05` | read/write| Keyboard row select (W) / data (R)   |
+//! | Port      | Direction  | Function                                     |
+//! |-----------|------------|----------------------------------------------|
+//! | `$00`     | read/write | Paging byte (W) / Centronics status, no printer (R) |
+//! | `$01`     | read/write | VDP data                                     |
+//! | `$02`     | read/write | VDP status (R) / register (W)                |
+//! | `$03`     | read/write | `snd_in3` = `0x03` (R) / cassette out, not fitted (W) |
+//! | `$05`     | read/write | Keyboard column drive (W) / sense low (R)    |
+//! | `$06`     | read/write | SN76489 PSG (W) / keyboard sense high + country code (R) |
+//! | `$08-$0B` | read/write | Z80 CTC (VDP `/INT` → channel 0)             |
 
 pub mod input;
 mod keyboard;
@@ -52,9 +54,15 @@ pub use ti_tms9918::Tms9918;
 use ti_sn76489::Sn76489;
 use ti_tms9918::VdpRegion;
 use zilog_z80::z80::{BusOp, Z80};
+use zilog_z80_ctc::Ctc;
 
 const VDP_CLOCK_HZ: u64 = 5_369_318;
 const CPU_CLOCK_HZ: u64 = 4_000_000;
+
+/// CTC channel whose `CLK/TRG` input the TMS9918A `/INT` line feeds. MEMU's
+/// `memu.c` routes the VDP frame interrupt through `ctc_trigger(0)` — channel 0 —
+/// and the OS programs that channel (and the rest) at ports `$08-$0B`.
+const VDP_INT_CTC_CHANNEL: u8 = 0;
 
 /// MTX model selector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,11 +100,18 @@ pub struct Mtx {
     page_reg: u8,
     vdp: Tms9918,
     psg: Sn76489,
+    /// Z80 CTC at ports `$08-$0B`. The VDP `/INT` line drives channel
+    /// [`VDP_INT_CTC_CHANNEL`]'s `CLK/TRG`; the CTC's own INT output (not the raw
+    /// VDP line) is what reaches the Z80 IRQ pin.
+    ctc: Ctc,
     keyboard: KeyboardState,
     kbd_drive: u8,
     vdp_accum: i64,
     master_clock: u64,
     frame_count: u64,
+    /// Tracks whether the previous opcode-fetch byte was the `$ED` prefix, so a
+    /// following `$4D` (RETI) can release the CTC daisy chain's in-service channel.
+    prev_opcode_ed: bool,
     /// When `Some`, every I/O port access is appended here (debug trace).
     io_trace: Option<Vec<IoEvent>>,
 }
@@ -138,11 +153,13 @@ impl Mtx {
             page_reg: 0,
             vdp: Tms9918::new(VdpRegion::Pal),
             psg: Sn76489::new(4_000_000),
+            ctc: Ctc::new(),
             keyboard: KeyboardState::new(),
             kbd_drive: 0,
             vdp_accum: 0,
             master_clock: 0,
             frame_count: 0,
+            prev_opcode_ed: false,
             io_trace: None,
         })
     }
@@ -170,7 +187,13 @@ impl Mtx {
             self.vdp.tick();
         }
 
-        self.cpu.irq = self.vdp.interrupt;
+        // VDP /INT feeds CTC channel 0's CLK/TRG input; the CTC edge-counts
+        // those frame interrupts and its own INT output — vectored through the
+        // OS's interrupt mode — is what drives the Z80 IRQ pin, not the raw VDP
+        // line. (MEMU `memu.c` `LoopZ80` → `ctc_trigger(0)`.)
+        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, self.vdp.interrupt);
+        self.ctc.tick();
+        self.cpu.irq = self.ctc.interrupt();
         self.cpu.tick();
         self.handle_bus();
     }
@@ -178,7 +201,18 @@ impl Mtx {
     fn handle_bus(&mut self) {
         match self.cpu.bus_request() {
             Some(BusOp::MemRead) => {
-                self.cpu.data_in = self.mem_read(self.cpu.addr);
+                let byte = self.mem_read(self.cpu.addr);
+                self.cpu.data_in = byte;
+                // Watch the opcode stream for RETI (`ED 4D`) so the CTC daisy
+                // chain releases its in-service channel. M1 marks an opcode
+                // fetch; the `ED` prefix and its `4D` second byte are
+                // consecutive M1 fetches.
+                if self.cpu.m1 {
+                    if self.prev_opcode_ed && byte == 0x4D {
+                        self.ctc.reti();
+                    }
+                    self.prev_opcode_ed = byte == 0xED;
+                }
             }
             Some(BusOp::MemWrite) => {
                 self.mem_write(self.cpu.addr, self.cpu.data);
@@ -209,7 +243,11 @@ impl Mtx {
                 self.io_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IntAck) => {
-                self.cpu.data_in = 0xFF;
+                // Acknowledge to the CTC: it supplies the low vector byte for
+                // the requesting channel (used in IM 2; ignored by the Z80 in
+                // IM 1, where it RST-38s) and clears its pending INT / marks the
+                // channel in-service for the daisy chain.
+                self.cpu.data_in = self.ctc.acknowledge();
             }
             None => {}
         }
@@ -293,10 +331,11 @@ impl Mtx {
             0x00 => 0xFF, // Centronics status (no printer)
             0x01 => self.vdp.read_data(),
             0x02 => self.vdp.read_status(),
-            0x03 => 0x03,                              // snd_in3 — constant
-            0x05 => self.keyboard.in5(self.kbd_drive), // keyboard sense low
-            0x06 => self.keyboard.in6(self.kbd_drive), // keyboard sense high + country
-            _ => 0xFF,                                 // PIO/DART/CTC reads: open bus for now
+            0x03 => 0x03,                                      // snd_in3 — constant
+            0x05 => self.keyboard.in5(self.kbd_drive),         // keyboard sense low
+            0x06 => self.keyboard.in6(self.kbd_drive),         // keyboard sense high + country
+            0x08..=0x0B => self.ctc.read((port & 0x03) as u8), // Z80 CTC
+            _ => 0xFF,                                         // PIO/DART reads: open bus for now
         }
     }
 
@@ -308,7 +347,8 @@ impl Mtx {
             0x03 => {}                      // cassette out — not fitted
             0x05 => self.kbd_drive = value, // keyboard column drive
             0x06 => self.psg.write(value),  // SN76489 sound
-            _ => {}                         // PIO/DART/CTC writes: ignore for now
+            0x08..=0x0B => self.ctc.write((port & 0x03) as u8, value), // Z80 CTC
+            _ => {}                         // PIO/DART writes: ignore for now
         }
     }
 
@@ -362,6 +402,12 @@ impl Mtx {
     #[must_use]
     pub fn vdp(&self) -> &Tms9918 {
         &self.vdp
+    }
+
+    /// The Z80 CTC at ports `$08-$0B`.
+    #[must_use]
+    pub fn ctc(&self) -> &Ctc {
+        &self.ctc
     }
 
     #[must_use]
