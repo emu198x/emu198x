@@ -55,22 +55,25 @@ fn os_basic_roms_boot_to_initial_screen() {
 
     let fb = sys.framebuffer();
     assert_eq!(fb.len(), 640 * 256);
-    let mut colours = std::collections::HashSet::new();
-    for &px in fb {
-        colours.insert(px);
-        if colours.len() >= 8 {
-            break;
-        }
-    }
+
+    // The boot screen is `Acorn Electron` / `BASIC` / `>` — white text on a
+    // black background. This is a precise fingerprint: mostly black, a few
+    // thousand white pixels of text, and crucially *no* red. A red field was
+    // the signature of the scrambled palette decode, and a garbage screen-start
+    // left raster noise rather than clean text.
+    let count = |target: u32| fb.iter().filter(|&&px| px == target).count();
+    let black = count(0xFF00_0000);
+    let white = count(0xFFFF_FFFF);
+    let red = count(0xFFFF_0000);
+
     assert!(
-        colours.len() >= 2,
-        "framebuffer should have >= 2 distinct colours; got {} (os: {})",
-        colours.len(),
+        black > fb.len() * 3 / 4,
+        "background should be predominantly black; got {black} black pixels (os: {})",
         os_path.display()
     );
-    let non_zero = fb.iter().filter(|&&px| px & 0x00FF_FFFF != 0).count();
     assert!(
-        non_zero >= 1024,
-        "boot screen should have >= 1024 non-backdrop pixels; got {non_zero}"
+        (500..40_000).contains(&white),
+        "expected the banner as white text; got {white} white pixels"
     );
+    assert_eq!(red, 0, "no red pixels — the palette must decode correctly");
 }

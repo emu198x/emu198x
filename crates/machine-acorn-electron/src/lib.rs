@@ -83,6 +83,34 @@ const PALETTE: [u32; 8] = [
     0xFFFF_FFFF, // 7: white
 ];
 
+/// Decode the eight palette registers into the 16 logical colours.
+///
+/// The Electron ULA scrambles the logical→physical mapping: each of the four
+/// register *pairs* `(0,1) (2,3) (4,5) (6,7)` feeds four logical colours, and
+/// every colour's red/green/blue components are drawn from individual,
+/// non-contiguous bits of the pair. `pal_regs` already holds the inverted
+/// bytes the ULA stores (`written ^ 0xFF`), so a set bit means the component
+/// is on. Algorithm and bit positions match MAME's `electron_ula` device.
+fn decode_palette(pal_regs: &[u8; 8]) -> [u32; 16] {
+    // Pen base for each register pair — the pairs do not map to contiguous
+    // logical-colour ranges.
+    const PEN_BASE: [usize; 4] = [0, 4, 5, 1];
+    let bit = |x: u8, n: u8| u32::from((x >> n) & 1);
+    let argb =
+        |r: u32, g: u32, b: u32| 0xFF00_0000 | ((r * 0xFF) << 16) | ((g * 0xFF) << 8) | (b * 0xFF);
+    let mut out = [0xFF00_0000u32; 16];
+    for pair in 0..4 {
+        let p0 = pal_regs[pair * 2];
+        let p1 = pal_regs[pair * 2 + 1];
+        let pb = PEN_BASE[pair];
+        out[pb] = argb(bit(p1, 0), bit(p1, 4), bit(p0, 4));
+        out[pb + 2] = argb(bit(p1, 1), bit(p1, 5), bit(p0, 5));
+        out[pb + 8] = argb(bit(p1, 2), bit(p0, 2), bit(p0, 6));
+        out[pb + 10] = argb(bit(p1, 3), bit(p0, 3), bit(p0, 7));
+    }
+    out
+}
+
 struct ElectronUla {
     /// `$FE00` interrupt status: bit 0 master IRQ, 1 power-on reset,
     /// 2 display end (VBlank), 3 RTC, 4-6 cassette.
@@ -92,8 +120,14 @@ struct ElectronUla {
     screen_start: u16,
     /// `$FE07` bits: 3-5 display mode, 6 cassette motor, 7 caps lock.
     misc_control: u8,
-    /// 16-entry logical→physical (3-bit) palette mapping.
-    palette: [u8; 16],
+    /// The eight palette registers (`$FE08-$FE0F`) as stored by the ULA. The
+    /// hardware inverts on write, so each holds `written ^ 0xFF`. Decoded in
+    /// pairs into `logical_argb`.
+    pal_regs: [u8; 8],
+    /// The 16 logical colours as ARGB32, recomputed from `pal_regs` on each
+    /// palette write. The Electron's logical→physical mapping is scrambled and
+    /// per-component (see `decode_palette`).
+    logical_argb: [u32; 16],
     /// `$FE06` counter / sound period low byte.
     counter: u8,
     rom_page: u8,
@@ -111,16 +145,15 @@ struct ElectronUla {
 
 impl ElectronUla {
     fn new() -> Self {
-        let mut palette = [0u8; 16];
-        for (i, slot) in palette.iter_mut().enumerate() {
-            *slot = (i & 0x07) as u8;
-        }
+        let pal_regs = [0xFFu8; 8];
+        let logical_argb = decode_palette(&pal_regs);
         Self {
             interrupt_status: 0x02, // Power-on reset bit set
             interrupt_enable: 0,
             screen_start: 0x3000, // MODE 6 default
             misc_control: 0,
-            palette,
+            pal_regs,
+            logical_argb,
             counter: 0,
             rom_page: 0,
             sound_period: 0,
@@ -163,9 +196,31 @@ impl ElectronUla {
         }
     }
 
+    /// Scanlines per character row. Text modes (3, 6, 7) space rows 10 lines
+    /// apart — eight glyph lines plus a two-line gap — giving a 250-line
+    /// display; graphics modes pack rows eight lines tall. (MAME `mode_max_ra`.)
+    fn char_pitch(&self) -> usize {
+        const T: [usize; 8] = [8, 8, 8, 10, 8, 8, 10, 10];
+        T[self.mode() as usize & 7]
+    }
+
+    /// Number of displayed scanlines for the current mode (MAME `mode_dispend`).
+    fn display_lines(&self) -> usize {
+        const T: [usize; 8] = [256, 256, 256, 250, 256, 256, 250, 250];
+        T[self.mode() as usize & 7]
+    }
+
+    /// Screen-buffer size for the current mode. Video addresses that run past
+    /// the top of RAM (`$8000`) wrap by subtracting this (MAME `mode_size`).
+    fn screen_size(&self) -> usize {
+        const T: [usize; 8] = [
+            0x5000, 0x5000, 0x5000, 0x4000, 0x2800, 0x2800, 0x2000, 0x2000,
+        ];
+        T[self.mode() as usize & 7]
+    }
+
     fn colour(&self, logical_index: u8) -> u32 {
-        let physical = self.palette[logical_index as usize & 0x0F] as usize;
-        PALETTE[physical & 0x07]
+        self.logical_argb[logical_index as usize & 0x0F]
     }
 
     fn read_keyboard(&self, addr: u16) -> u8 {
@@ -342,11 +397,17 @@ impl AcornElectron {
                 self.ula.interrupt_status &= !value;
                 self.ula.refresh_master_irq();
             }
+            // Screen start address. The ULA packs address bits A6-A14 across
+            // the two registers (the low six bits are always zero, so the
+            // start is on a 64-byte boundary): $FE02 carries A8-A6 in its top
+            // three bits, $FE03 carries A14-A9 in its low six. (MAME decode.)
             0x02 => {
-                self.ula.screen_start = (self.ula.screen_start & 0x00FF) | (u16::from(value) << 8);
+                self.ula.screen_start =
+                    (self.ula.screen_start & 0x7E00) | ((u16::from(value) & 0xE0) << 1);
             }
             0x03 => {
-                self.ula.screen_start = (self.ula.screen_start & 0xFF00) | u16::from(value);
+                self.ula.screen_start =
+                    (self.ula.screen_start & 0x01FF) | ((u16::from(value) & 0x3F) << 9);
             }
             0x04 => {} // Cassette data shift (stub)
             0x05 => {
@@ -372,15 +433,11 @@ impl AcornElectron {
                 self.ula.misc_control = value;
             }
             0x08..=0x0F => {
+                // The ULA inverts the written byte, then decodes the register
+                // pair this write belongs to into four logical colours.
                 let reg = (addr & 0x07) as usize;
-                let physical = (value >> 4) & 0x07;
-                let logical_base = reg * 2;
-                if logical_base < 16 {
-                    self.ula.palette[logical_base] = physical;
-                }
-                if logical_base + 1 < 16 {
-                    self.ula.palette[logical_base + 1] = physical;
-                }
+                self.ula.pal_regs[reg] = value ^ 0xFF;
+                self.ula.logical_argb = decode_palette(&self.ula.pal_regs);
             }
             _ => {}
         }
@@ -392,20 +449,37 @@ impl AcornElectron {
         }
         let line = self.scanline as usize;
         let offset = line * FB_WIDTH as usize;
+        let background = self.ula.colour(0);
+
+        // Lines past the displayed area, and the two-line gap between text
+        // rows, show the background colour rather than glyph data.
+        let pitch = self.ula.char_pitch();
+        let char_line = line % pitch;
+        if line >= self.ula.display_lines() || char_line >= 8 {
+            for x in 0..FB_WIDTH as usize {
+                self.framebuffer[offset + x] = background;
+            }
+            self.scanline += 1;
+            return;
+        }
+
         let bpp = self.ula.bpp() as usize;
-        let bytes_per_line = self.ula.bytes_per_line();
+        let cols = self.ula.bytes_per_line();
         let pixel_width = self.ula.pixel_width();
         let pixels_per_byte = 8 / bpp;
-        let char_row = line / 8;
-        let char_line = line % 8;
+        let char_row = line / pitch;
         let screen_base = self.ula.screen_start as usize;
-        for col in 0..bytes_per_line {
-            let addr = screen_base
-                .wrapping_add(char_row * bytes_per_line * 8)
-                .wrapping_add(char_line * bytes_per_line)
-                .wrapping_add(col)
-                & 0x7FFF;
-            let byte = self.ram[addr];
+        let screen_size = self.ula.screen_size();
+        for col in 0..cols {
+            // The Electron stores each 8×8 cell as eight consecutive bytes
+            // (one per glyph line), so columns step by 8 and the scanline
+            // within the cell is the low offset. Addresses that overflow the
+            // top of RAM wrap by the mode's screen-buffer size.
+            let mut addr = screen_base + char_row * cols * 8 + col * 8 + char_line;
+            if addr & 0x8000 != 0 {
+                addr -= screen_size;
+            }
+            let byte = self.ram[addr & 0x7FFF];
             for px in 0..pixels_per_byte {
                 let colour_idx = match bpp {
                     1 => (byte >> (7 - px)) & 0x01,
@@ -612,11 +686,14 @@ mod tests {
     }
 
     #[test]
-    fn ula_screen_start_register_round_trip() {
+    fn ula_screen_start_decodes_mode6_base() {
         let (os, basic) = trap_roms();
         let mut sys = AcornElectron::new(os, basic);
-        sys.ula_write(0xFE02, 0x60);
-        sys.ula_write(0xFE03, 0x00);
+        // The OS programs MODE 6's $6000 screen base as $FE03=$30, $FE02=$00.
+        // The ULA packs address bits A14-A9 into $FE03 and A8-A6 into $FE02;
+        // a naive high/low-byte reading would land at $0030 instead.
+        sys.ula_write(0xFE03, 0x30);
+        sys.ula_write(0xFE02, 0x00);
         assert_eq!(sys.ula.screen_start, 0x6000);
     }
 
@@ -651,13 +728,26 @@ mod tests {
     }
 
     #[test]
-    fn palette_register_sets_two_logical_entries() {
+    fn palette_decodes_mode6_black_on_white() {
         let (os, basic) = trap_roms();
         let mut sys = AcornElectron::new(os, basic);
-        // Register $FE08 = logical group 0 (entries 0 + 1), physical
-        // colour from bits 4-6.
-        sys.ula_write(0xFE08, 0b0101_0000); // physical = 5 (magenta)
-        assert_eq!(sys.ula.palette[0], 5);
-        assert_eq!(sys.ula.palette[1], 5);
+        // The OS's MODE 6 (2-colour) steady state: register pair 0 = $11,
+        // pair 3 = $00. This must resolve to logical 0 = black, logical 1 =
+        // white — the canonical boot screen. (Captured from the real ROM.)
+        sys.ula_write(0xFE08, 0x11);
+        sys.ula_write(0xFE09, 0x11);
+        sys.ula_write(0xFE0E, 0x00);
+        sys.ula_write(0xFE0F, 0x00);
+        assert_eq!(sys.ula.colour(0), 0xFF00_0000, "logical 0 should be black");
+        assert_eq!(sys.ula.colour(1), 0xFFFF_FFFF, "logical 1 should be white");
+    }
+
+    #[test]
+    fn palette_register_write_inverts_and_stores() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        sys.ula_write(0xFE08, 0x11);
+        // The ULA inverts on write.
+        assert_eq!(sys.ula.pal_regs[0], 0xEE);
     }
 }

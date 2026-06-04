@@ -847,21 +847,38 @@ the address bus on `$FE00` reads, VBlank + 100 Hz RTC IRQ sources,
 sound generation through the ULA's tone counter, and ROM-page
 register at `$FE05`.
 
-- **L — Acorn BASIC II ROM missing from TOSEC.** The Electron OS
-  ROM (16 KB, SHA-256
-  `b63f851d79498f598999d923b7c9f62e2525c34f0b9cd2d4b328b89d622dcda4`)
-  is in TOSEC at
-  `Acorn/Electron/Operating Systems/Acorn Electron OS (1983)(Acorn).zip`
-  and now installed at `~/.emu198x/roms/acorn-electron/os.rom`.
-  The 16 KB **Acorn BASIC II ROM is not in TOSEC's Acorn tree**
-  (neither under Acorn/BBC nor Acorn/Electron — `Acorn BASIC` only
-  appears as cassette/disk programs). Confirmed live: with a stub
-  16 KB `$FF`-filled BASIC, the OS reaches MODE 6 display init
-  and paints the canonical **all-red "Language?" error screen**
-  (real-hardware behaviour when no valid language ROM sits in the
-  sideways slot). Sourcing options: Stairway to Hell preservation
-  archive, openMSX/B-em firmware bundles, or extraction from a
-  real Electron / BBC.
+**Boots to BASIC (live, 2026-06-04).** The screen shows the
+canonical `Acorn Electron` / `BASIC` / `>` cold-start — white text
+on black. The OS ROM (16 KB, SHA-256
+`b63f851d79498f598999d923b7c9f62e2525c34f0b9cd2d4b328b89d622dcda4`)
+comes from TOSEC; the language slot uses **Acorn BASIC II**, which
+is byte-identical to the BBC Model B BASIC II ROM (md5
+`2cc67be4624df4dc66617742571a8e3d`) — sourced from the in-tree
+`emulators/bbc-micro/BBCMicro_MiSTer/roms/bbcb/basic2.rom` and
+installed at `~/.emu198x/roms/acorn-electron/basic.rom`.
+
+Reaching that screen took three ULA fixes, all validated against
+MAME's `electron_ula` device:
+
+1. **Palette decode.** The register format is scrambled and
+   inverted, not a simple nibble. Each register *pair* feeds four
+   logical colours, with red/green/blue drawn from non-contiguous
+   bits; the ULA stores `written ^ 0xFF`. The old `(value >> 4) & 7`
+   stub painted the whole screen red.
+2. **Screen-start address.** `$FE02`/`$FE03` pack address bits
+   A14-A6 (64-byte granularity), not a raw high/low byte pair. The
+   naive decode put the MODE 6 base at `$0030` instead of `$6000`,
+   so the renderer scanned out RAM garbage.
+3. **Display layout.** The Electron stores each 8×8 cell as eight
+   consecutive bytes; columns step by 8, the scanline is the low
+   offset. Text modes (3, 6, 7) also space character rows 10 lines
+   apart (eight glyph + two blank), giving 250 displayed lines. The
+   old renderer used a raster stride and an 8-line pitch.
+
+- **A — Keyboard read path.** The matrix is currently scanned at
+  `$FE00`; the real Electron reads it through the paged region
+  (`$8000-$BFFF` with ROM slot 8/9 selected). Boot doesn't need it,
+  but typing into BASIC will until the paged-keyboard read lands.
 - **A — ULA bus contention not modelled.** Real Electron CPU
   halves to 1 MHz during ULA RAM-fetch windows; this initial port
   runs CPU at a flat 2 MHz. Significant cycle-accuracy gap on a
@@ -871,10 +888,6 @@ register at `$FE05`.
   but doesn't yet swap a paged-ROM array into the
   `$8000-$BFFF` window — only the default BASIC ROM is visible.
 - **A — Cassette I/O via `$FE04`** is a write-stub.
-- **A — Palette encoding** uses a simplified
-  "physical = (value >> 4) & 0x07" decode for each register; real
-  ULA encoding is more elaborate per the BBC-Micro-compatible
-  spec.
 - **A — Snapshot deferred** (shared family pattern).
 - **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 - **S — BBC Micro** is the natural next 6502-family extraction
@@ -1206,7 +1219,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 6 | Spectravideo SVI-328 | **Awaiting BIOS** (32 KB MSX-style system ROM) |
 | 7 | Mattel Aquarius | Microsoft BASIC (live) |
 | 8 | Tatung Einstein TC-01 | **VDP-init only** — needs WD1770 floppy |
-| 9 | Acorn Electron | "Language?" red error (live) — needs Acorn BASIC II |
+| 9 | Acorn Electron | **Boots to BASIC `>`** (live, 2026-06-04) — MAME-accurate ULA palette + screen-start + character-block display |
 | 10 | Oric-1 / Atmos | **Awaiting BIOS** (16 KB Tangerine ROM) |
 | 11 | Acorn BBC Micro Model B | OS bank-scan reaches BASIC slot (live) — needs SAA5050 + BASIC for full |
 | 12 | Atari 2600 | Combat playfield (live) |
