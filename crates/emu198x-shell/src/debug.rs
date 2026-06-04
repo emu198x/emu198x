@@ -51,10 +51,10 @@ pub trait DebugTarget {
 
     /// Disassemble one instruction at `addr`, returning `(text, length)`.
     ///
-    /// Returns `None` when no disassembler is wired for this CPU yet — currently
-    /// the 6809 family (its debug target has no disassemble hook). Z80 machines
-    /// return `Some` via `zilog_z80::disassemble`; the 6502 family via the
-    /// Asm198x `isa_disasm::decode_one_6502` spec disassembler.
+    /// Returns `None` only for a target that has not overridden this method.
+    /// Every wired CPU returns `Some`: Z80 via `zilog_z80::disassemble`; the 6502
+    /// family and the 6809 via the Asm198x `isa_disasm` spec disassembler
+    /// (`decode_one_6502` / `decode_one_6809`).
     fn disassemble(&self, _addr: u16) -> Option<(String, u8)> {
         None
     }

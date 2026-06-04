@@ -3397,6 +3397,48 @@ impl Dragon32 {
             .expect("lower Dragon RAM page has fixed size")
     }
 
+    /// CPU state, for the debugger.
+    #[must_use]
+    pub fn cpu(&self) -> &Mc6809 {
+        &self.cpu
+    }
+
+    /// Side-effect-free debugger read of CPU-visible memory. Honors the SAM RAM
+    /// map and ROM/cartridge banking through the fetch path but never touches
+    /// live I/O (whose reads can have side effects). Adequate for the
+    /// disassembler and memory inspector, whose addresses point into RAM or ROM.
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.memory.read_fetch(addr)
+    }
+
+    /// Debugger write to CPU-visible RAM, honoring the SAM map. Addresses that
+    /// resolve to ROM or I/O are ignored (you cannot poke ROM), matching the
+    /// `DebugTarget` contract.
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        if let Some(index) = self.memory.mpu_ram_index(addr) {
+            self.memory.ram[index] = value;
+        }
+    }
+
+    /// Runs exactly one whole CPU instruction, returning the bus cycles
+    /// consumed. Ticks off the current instruction boundary, then on to the
+    /// next — the two-phase shape the 6502 cores use, so the boundary flag
+    /// can't over- or under-run the step. Bounded against a wedged CPU.
+    pub fn step_instruction(&mut self) -> u64 {
+        let mut cycles = 0u64;
+        let cap = 1024u64;
+        while self.cpu.instruction_boundary() && cycles < cap {
+            self.step_cycle();
+            cycles += 1;
+        }
+        while !self.cpu.instruction_boundary() && cycles < cap {
+            self.step_cycle();
+            cycles += 1;
+        }
+        cycles
+    }
+
     /// Remove the emulated cassette input.
     pub fn clear_cassette(&mut self) {
         self.memory.cassette.clear();
