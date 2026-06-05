@@ -112,7 +112,7 @@ clean script/MCP parity break.
 | Device | Variant | Consumes it | Notable gaps |
 |--------|---------|-------------|--------------|
 | Keyboard | `Key` | ~26 machines | atari-5200/7800 keypad/console partial (joystick wired 2026-06-05) |
-| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20** (~15) | oric, svi-328, einstein, aquarius, mtx, sord-m5, bbc — capable, **unwired** |
+| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20** (~15) | svi-328, einstein, aquarius, mtx, sord-m5 — blocked on primary source (boot-ROM trace); bbc — analogue (`Axis`); oric — no native port (Telestrat only) |
 | Paddle / analogue | `Axis` | dragon, spectrum, **atari-5200** (POKEY pots, 2026-06-05) | atari-2600 (signature paddles), **c64 (SID POTX/POTY)**, atari-800xl, coleco — **absent** |
 | Mouse | `Pointer*` | amiga **only** (correct machine) | MCP-undrivable; c64 1351 minor |
 
@@ -190,11 +190,28 @@ wire the missing consumers** — not new architecture.
    *and* mouse-drivable over MCP. Keep their bespoke extras on top.
 3. **Wire input consumption for the dead/partial machines:** ✅ Atari
    5200 + 7800 (were input-dead) wired 2026-06-05 — 7800 digital joystick +
-   console, 5200 analogue `Axis` + digital + fire. Remaining: joystick
-   `Button` on the ~10 capable-but-unwired machines (vic-20, atari-800xl,
-   msx, oric, svi-328, einstein, aquarius, mtx, sord-m5, bbc); then `Axis`
-   for paddle machines (Atari 2600 paddles, C64 SID paddles) where the chip
-   seam already exists.
+   console, 5200 analogue `Axis` + digital + fire. ✅ atari-800xl, **msx**
+   (PSG port A), **vic-20** (both VIAs — right on VIA #2 PB7) wired 2026-06-05.
+   Remaining digital `Button` machines, re-scoped after a reference pass:
+   - **oric-atmos** — *reclassified, not natively capable.* The Atmos has **no
+     joystick port**; the Atari-pinout twin ports belong to the **Telestrat**
+     (second VIA). Wiring the Atmos would mean modelling one of several
+     incompatible third-party interfaces (IJK, etc.) — a product decision, not
+     a pin-exposure. Deferred pending a chosen interface.
+   - **svi-328, einstein, aquarius, mtx, sord-m5** — *blocked on a primary
+     source.* No joystick pin map in `reference/by-system/`, and these are
+     donor-sourced machines whose I/O maps the standing note flags as
+     possibly-wrong. Each needs a boot-ROM `IN`/`OUT` trace (and the BIOS ROM)
+     to confirm the port bits before wiring — heavier than the MSX/VIC-20
+     "expose existing pins" shape.
+   - **bbc-micro** — *groundable but `Axis`-shaped.* Fully documented: fire on
+     System VIA PB4/PB5 (active low), analogue X/Y via the μPD7002 ADC
+     (channels 0+1 = stick 1, 2+3 = stick 2, 12-bit). Needs the ADC chip
+     modelled, so it belongs with the paddle/`Axis` work below, not the digital
+     pass.
+
+   Then `Axis` for paddle machines (Atari 2600 paddles, C64 SID paddles) where
+   the chip seam already exists.
 4. **Debug surface — mostly already done.** 24 machines share `DebugTarget`. The
    only open items are (a) Game Boy: add `impl_sm83_debug_target!` (a new macro
    family member for a shipped single-CPU machine), and (b) Amiga: deferred by
