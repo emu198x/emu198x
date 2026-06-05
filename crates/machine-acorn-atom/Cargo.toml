@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-mos-6502 = { path = "../mos-6502" }
-intel-8255 = { path = "../intel-8255" }
-motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
+mos-6502 = { path = "../mos-6502", version = "0.2.0" }
+intel-8255 = { path = "../intel-8255", version = "0.2.0" }
+motorola-vdg-6847 = { path = "../motorola-vdg-6847", version = "0.2.0" }
 
 [lints]
 workspace = true

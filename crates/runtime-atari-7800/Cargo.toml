@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-atari-7800 = { path = "../machine-atari-7800" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-atari-7800 = { path = "../machine-atari-7800", version = "0.2.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -11,10 +11,10 @@ name = "emu198x-memotech-mtx"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-memotech-mtx = { path = "../machine-memotech-mtx" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-memotech-mtx = { path = "../machine-memotech-mtx", version = "0.2.0" }
 png = { workspace = true }
-runtime-memotech-mtx = { path = "../runtime-memotech-mtx" }
+runtime-memotech-mtx = { path = "../runtime-memotech-mtx", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

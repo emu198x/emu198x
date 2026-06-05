@@ -7,11 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-beta-disk-interface = { path = "../beta-disk-interface" }
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
-format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" }
-gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
-peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick" }
-scorpion-ula = { path = "../scorpion-ula" }
+beta-disk-interface = { path = "../beta-disk-interface", version = "0.2.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.2.0" }
+format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.2.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.2.0" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.2.0" }
+scorpion-ula = { path = "../scorpion-ula", version = "0.2.0" }
 serde = { workspace = true }
-zilog-z80 = { path = "../zilog-z80" }
+zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }

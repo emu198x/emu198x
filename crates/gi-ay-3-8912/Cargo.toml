@@ -7,5 +7,5 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gi-ay-3-8910 = { path = "../gi-ay-3-8910" }
+gi-ay-3-8910 = { path = "../gi-ay-3-8910", version = "0.2.0" }
 serde = { workspace = true }

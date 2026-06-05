@@ -11,10 +11,10 @@ name = "emu198x-commodore-pet"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-commodore-pet = { path = "../machine-commodore-pet" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-commodore-pet = { path = "../machine-commodore-pet", version = "0.2.0" }
 png = { workspace = true }
-runtime-commodore-pet = { path = "../runtime-commodore-pet" }
+runtime-commodore-pet = { path = "../runtime-commodore-pet", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

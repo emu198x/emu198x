@@ -11,10 +11,10 @@ name = "emu198x-oric-atmos"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-oric-atmos = { path = "../machine-oric-atmos" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-oric-atmos = { path = "../machine-oric-atmos", version = "0.2.0" }
 png = { workspace = true }
-runtime-oric-atmos = { path = "../runtime-oric-atmos" }
+runtime-oric-atmos = { path = "../runtime-oric-atmos", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

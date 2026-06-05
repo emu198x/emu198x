@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-atari-tia = { path = "../atari-tia" }
-mos-6502 = { path = "../mos-6502" }
-mos-riot-6532 = { path = "../mos-riot-6532" }
+atari-tia = { path = "../atari-tia", version = "0.2.0" }
+mos-6502 = { path = "../mos-6502", version = "0.2.0" }
+mos-riot-6532 = { path = "../mos-riot-6532", version = "0.2.0" }
 
 [lints]
 workspace = true

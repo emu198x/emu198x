@@ -22,19 +22,19 @@ default = ["ui"]
 ui = ["dep:emu198x-native-video", "dep:rfd", "dep:winit"]
 
 [dependencies]
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
-emu198x-native-video = { path = "../emu198x-native-video", optional = true }
-emu198x-shell = { path = "../emu198x-shell" }
-format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas" }
-format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna" }
-format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.2.0" }
+emu198x-native-video = { path = "../emu198x-native-video", optional = true , version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas", version = "0.2.0" }
+format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.2.0" }
+format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.2.0" }
 rfd = { workspace = true, optional = true }
-runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
+runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.2.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror.workspace = true
 winit = { workspace = true, optional = true }
-zilog-z80 = { path = "../zilog-z80" }
+zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 muda = { workspace = true }

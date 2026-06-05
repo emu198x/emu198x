@@ -7,12 +7,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot" }
-gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
+format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.2.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.2.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 thiserror = { workspace = true }
-zilog-z80 = { path = "../zilog-z80" }
+zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 
 [lints]
 workspace = true

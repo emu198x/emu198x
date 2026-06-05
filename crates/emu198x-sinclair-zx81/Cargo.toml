@@ -11,10 +11,10 @@ name = "emu198x-sinclair-zx81"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-sinclair-zx81 = { path = "../machine-sinclair-zx81" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-sinclair-zx81 = { path = "../machine-sinclair-zx81", version = "0.2.0" }
 png = { workspace = true }
-runtime-sinclair-zx81 = { path = "../runtime-sinclair-zx81" }
+runtime-sinclair-zx81 = { path = "../runtime-sinclair-zx81", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

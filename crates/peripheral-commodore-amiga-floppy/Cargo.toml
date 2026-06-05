@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
+format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf", version = "0.2.0" }
 serde = { workspace = true }
 
 [lints]

@@ -16,10 +16,10 @@ default = ["ui"]
 ui = ["dep:emu198x-native-video", "dep:winit"]
 
 [dependencies]
-common-commodore-c64 = { path = "../common-commodore-c64" }
-emu198x-native-video = { path = "../emu198x-native-video", optional = true }
-emu198x-shell = { path = "../emu198x-shell" }
-runtime-commodore-c64 = { path = "../runtime-commodore-c64" }
+common-commodore-c64 = { path = "../common-commodore-c64", version = "0.2.0" }
+emu198x-native-video = { path = "../emu198x-native-video", optional = true , version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+runtime-commodore-c64 = { path = "../runtime-commodore-c64", version = "0.2.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror.workspace = true

@@ -11,10 +11,10 @@ name = "emu198x-sega-master-system"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-sega-master-system = { path = "../machine-sega-master-system" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-sega-master-system = { path = "../machine-sega-master-system", version = "0.2.0" }
 png = { workspace = true }
-runtime-sega-master-system = { path = "../runtime-sega-master-system" }
+runtime-sega-master-system = { path = "../runtime-sega-master-system", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

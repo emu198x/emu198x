@@ -11,10 +11,10 @@ name = "emu198x-acorn-bbc-micro"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-acorn-bbc-micro = { path = "../machine-acorn-bbc-micro" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-acorn-bbc-micro = { path = "../machine-acorn-bbc-micro", version = "0.2.0" }
 png = { workspace = true }
-runtime-acorn-bbc-micro = { path = "../runtime-acorn-bbc-micro" }
+runtime-acorn-bbc-micro = { path = "../runtime-acorn-bbc-micro", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

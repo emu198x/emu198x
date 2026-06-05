@@ -11,12 +11,12 @@ name = "emu198x-sord-m5"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-sord-m5 = { path = "../machine-sord-m5" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-sord-m5 = { path = "../machine-sord-m5", version = "0.2.0" }
 png = { workspace = true }
-runtime-sord-m5 = { path = "../runtime-sord-m5" }
+runtime-sord-m5 = { path = "../runtime-sord-m5", version = "0.2.0" }
 serde_json = { workspace = true }
-zilog-z80 = { path = "../zilog-z80" }
+zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 
 [lints]
 workspace = true

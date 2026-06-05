@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-commodore-denise-ocs = { path = "../commodore-denise-ocs" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.2.0" }
 serde = { workspace = true }
 
 [lints]

@@ -16,12 +16,12 @@ default = ["ui"]
 ui = ["dep:emu198x-native-video", "dep:winit"]
 
 [dependencies]
-emu198x-native-video = { path = "../emu198x-native-video", optional = true }
-emu198x-shell = { path = "../emu198x-shell" }
-machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200" }
-mos-cia-8520 = { path = "../mos-cia-8520" }
-motorola-68000 = { path = "../motorola-68000" }
-runtime-commodore-amiga = { path = "../runtime-commodore-amiga" }
+emu198x-native-video = { path = "../emu198x-native-video", optional = true , version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200", version = "0.2.0" }
+mos-cia-8520 = { path = "../mos-cia-8520", version = "0.2.0" }
+motorola-68000 = { path = "../motorola-68000", version = "0.2.0" }
+runtime-commodore-amiga = { path = "../runtime-commodore-amiga", version = "0.2.0" }
 serde = { workspace = true }
 serde_json.workspace = true
 thiserror.workspace = true

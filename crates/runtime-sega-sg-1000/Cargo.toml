@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-sega-sg-1000 = { path = "../machine-sega-sg-1000" }
-zilog-z80 = { path = "../zilog-z80" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-sega-sg-1000 = { path = "../machine-sega-sg-1000", version = "0.2.0" }
+zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

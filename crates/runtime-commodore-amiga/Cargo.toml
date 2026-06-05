@@ -7,20 +7,20 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
-emu198x-shell = { path = "../emu198x-shell" }
-format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
-machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200" }
-machine-commodore-amiga-ecs = { path = "../machine-commodore-amiga-ecs" }
-machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs" }
-motorola-68k-common = { path = "../motorola-68k-common" }
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf", version = "0.2.0" }
+machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200", version = "0.2.0" }
+machine-commodore-amiga-ecs = { path = "../machine-commodore-amiga-ecs", version = "0.2.0" }
+machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.2.0" }
+motorola-68k-common = { path = "../motorola-68k-common", version = "0.2.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-motorola-68000 = { path = "../motorola-68000" }
-peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy" }
+motorola-68000 = { path = "../motorola-68000", version = "0.2.0" }
+peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy", version = "0.2.0" }
 png = { workspace = true }
 
 [lints]

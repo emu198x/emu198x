@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gi-ay-3-8910 = { path = "../gi-ay-3-8910" }
-ti-tms9918 = { path = "../ti-tms9918" }
-zilog-z80 = { path = "../zilog-z80" }
+gi-ay-3-8910 = { path = "../gi-ay-3-8910", version = "0.2.0" }
+ti-tms9918 = { path = "../ti-tms9918", version = "0.2.0" }
+zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 
 [lints]
 workspace = true

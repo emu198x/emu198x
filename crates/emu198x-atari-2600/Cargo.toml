@@ -11,10 +11,10 @@ name = "emu198x-atari-2600"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-atari-2600 = { path = "../machine-atari-2600" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-atari-2600 = { path = "../machine-atari-2600", version = "0.2.0" }
 png = { workspace = true }
-runtime-atari-2600 = { path = "../runtime-atari-2600" }
+runtime-atari-2600 = { path = "../runtime-atari-2600", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

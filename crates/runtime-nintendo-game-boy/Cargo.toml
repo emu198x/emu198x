@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-nintendo-game-boy = { path = "../common-nintendo-game-boy" }
-emu198x-shell = { path = "../emu198x-shell" }
-machine-nintendo-game-boy = { path = "../machine-nintendo-game-boy" }
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-nintendo-game-boy = { path = "../machine-nintendo-game-boy", version = "0.2.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

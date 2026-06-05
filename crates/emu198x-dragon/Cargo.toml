@@ -16,16 +16,16 @@ default = ["ui"]
 ui = ["dep:emu198x-native-video", "dep:winit"]
 
 [dependencies]
-emu198x-native-video = { path = "../emu198x-native-video", optional = true }
-emu198x-shell = { path = "../emu198x-shell" }
-format-dragon-bin = { path = "../format-dragon-bin" }
-format-dragon-cas = { path = "../format-dragon-cas" }
-format-dragon-disk = { path = "../format-dragon-disk" }
-format-dragon-pak = { path = "../format-dragon-pak" }
-machine-dragon-32 = { path = "../machine-dragon-32" }
-motorola-vdg-6847 = { path = "../motorola-vdg-6847" }
+emu198x-native-video = { path = "../emu198x-native-video", optional = true , version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+format-dragon-bin = { path = "../format-dragon-bin", version = "0.2.0" }
+format-dragon-cas = { path = "../format-dragon-cas", version = "0.2.0" }
+format-dragon-disk = { path = "../format-dragon-disk", version = "0.2.0" }
+format-dragon-pak = { path = "../format-dragon-pak", version = "0.2.0" }
+machine-dragon-32 = { path = "../machine-dragon-32", version = "0.2.0" }
+motorola-vdg-6847 = { path = "../motorola-vdg-6847", version = "0.2.0" }
 png = { workspace = true }
-runtime-dragon = { path = "../runtime-dragon" }
+runtime-dragon = { path = "../runtime-dragon", version = "0.2.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror.workspace = true

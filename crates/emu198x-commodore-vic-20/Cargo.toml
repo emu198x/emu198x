@@ -11,10 +11,10 @@ name = "emu198x-commodore-vic-20"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-commodore-vic-20 = { path = "../machine-commodore-vic-20" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-commodore-vic-20 = { path = "../machine-commodore-vic-20", version = "0.2.0" }
 png = { workspace = true }
-runtime-commodore-vic-20 = { path = "../runtime-commodore-vic-20" }
+runtime-commodore-vic-20 = { path = "../runtime-commodore-vic-20", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

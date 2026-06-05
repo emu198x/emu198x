@@ -7,37 +7,37 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum" }
-common-sinclair-zx-spectrum-amstrad-class = { path = "../common-sinclair-zx-spectrum-amstrad-class" }
-emu198x-shell = { path = "../emu198x-shell" }
-format-amstrad-dsk = { path = "../format-amstrad-dsk" }
-format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas" }
-format-sinclair-zx-spectrum-tap = { path = "../format-sinclair-zx-spectrum-tap" }
-format-sinclair-zx-spectrum-tzx = { path = "../format-sinclair-zx-spectrum-tzx" }
-gi-ay-3-8912 = { path = "../gi-ay-3-8912" }
-machine-pentagon-128 = { path = "../machine-pentagon-128" }
-machine-scorpion-zs256 = { path = "../machine-scorpion-zs256" }
-machine-sinclair-zx-spectrum-16k = { path = "../machine-sinclair-zx-spectrum-16k" }
-machine-sinclair-zx-spectrum-48k = { path = "../machine-sinclair-zx-spectrum-48k" }
-machine-sinclair-zx-spectrum-128k = { path = "../machine-sinclair-zx-spectrum-128k" }
-machine-sinclair-zx-spectrum-plus = { path = "../machine-sinclair-zx-spectrum-plus" }
-machine-sinclair-zx-spectrum-plus2 = { path = "../machine-sinclair-zx-spectrum-plus2" }
-machine-sinclair-zx-spectrum-plus2a = { path = "../machine-sinclair-zx-spectrum-plus2a" }
-machine-sinclair-zx-spectrum-plus2b = { path = "../machine-sinclair-zx-spectrum-plus2b" }
-machine-sinclair-zx-spectrum-plus3 = { path = "../machine-sinclair-zx-spectrum-plus3" }
-machine-timex-tc2048 = { path = "../machine-timex-tc2048" }
-machine-timex-ts2068 = { path = "../machine-timex-ts2068" }
-peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.2.0" }
+common-sinclair-zx-spectrum-amstrad-class = { path = "../common-sinclair-zx-spectrum-amstrad-class", version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+format-amstrad-dsk = { path = "../format-amstrad-dsk", version = "0.2.0" }
+format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas", version = "0.2.0" }
+format-sinclair-zx-spectrum-tap = { path = "../format-sinclair-zx-spectrum-tap", version = "0.2.0" }
+format-sinclair-zx-spectrum-tzx = { path = "../format-sinclair-zx-spectrum-tzx", version = "0.2.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.2.0" }
+machine-pentagon-128 = { path = "../machine-pentagon-128", version = "0.2.0" }
+machine-scorpion-zs256 = { path = "../machine-scorpion-zs256", version = "0.2.0" }
+machine-sinclair-zx-spectrum-16k = { path = "../machine-sinclair-zx-spectrum-16k", version = "0.2.0" }
+machine-sinclair-zx-spectrum-48k = { path = "../machine-sinclair-zx-spectrum-48k", version = "0.2.0" }
+machine-sinclair-zx-spectrum-128k = { path = "../machine-sinclair-zx-spectrum-128k", version = "0.2.0" }
+machine-sinclair-zx-spectrum-plus = { path = "../machine-sinclair-zx-spectrum-plus", version = "0.2.0" }
+machine-sinclair-zx-spectrum-plus2 = { path = "../machine-sinclair-zx-spectrum-plus2", version = "0.2.0" }
+machine-sinclair-zx-spectrum-plus2a = { path = "../machine-sinclair-zx-spectrum-plus2a", version = "0.2.0" }
+machine-sinclair-zx-spectrum-plus2b = { path = "../machine-sinclair-zx-spectrum-plus2b", version = "0.2.0" }
+machine-sinclair-zx-spectrum-plus3 = { path = "../machine-sinclair-zx-spectrum-plus3", version = "0.2.0" }
+machine-timex-tc2048 = { path = "../machine-timex-tc2048", version = "0.2.0" }
+machine-timex-ts2068 = { path = "../machine-timex-ts2068", version = "0.2.0" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.2.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-zilog-z80 = { path = "../zilog-z80" }
+zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 
 [dev-dependencies]
 criterion = { workspace = true }
-format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna" }
-format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80" }
+format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.2.0" }
+format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.2.0" }
 png = { workspace = true }
 twox-hash = { workspace = true }
 

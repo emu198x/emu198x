@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-mos-6502 = { path = "../mos-6502" }
+mos-6502 = { path = "../mos-6502", version = "0.2.0" }
 
 [lints]
 workspace = true

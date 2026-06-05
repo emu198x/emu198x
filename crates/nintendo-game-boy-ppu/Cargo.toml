@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-nintendo-game-boy = { path = "../common-nintendo-game-boy" }
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.2.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 

@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-atari-gtia = { path = "../atari-gtia" }
+atari-gtia = { path = "../atari-gtia", version = "0.2.0" }
 
 [lints]
 workspace = true

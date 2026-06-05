@@ -17,10 +17,10 @@ default = ["ui"]
 ui = ["dep:emu198x-native-video", "dep:winit"]
 
 [dependencies]
-emu198x-native-video = { path = "../emu198x-native-video", optional = true }
-emu198x-shell = { path = "../emu198x-shell" }
-machine-nintendo-nes = { path = "../machine-nintendo-nes" }
-runtime-nintendo-nes = { path = "../runtime-nintendo-nes" }
+emu198x-native-video = { path = "../emu198x-native-video", optional = true , version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-nintendo-nes = { path = "../machine-nintendo-nes", version = "0.2.0" }
+runtime-nintendo-nes = { path = "../runtime-nintendo-nes", version = "0.2.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror.workspace = true

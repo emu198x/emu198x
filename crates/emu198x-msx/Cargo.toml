@@ -11,10 +11,10 @@ name = "emu198x-msx"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-msx = { path = "../machine-msx" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-msx = { path = "../machine-msx", version = "0.2.0" }
 png = { workspace = true }
-runtime-msx = { path = "../runtime-msx" }
+runtime-msx = { path = "../runtime-msx", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

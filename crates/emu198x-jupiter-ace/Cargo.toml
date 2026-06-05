@@ -11,10 +11,10 @@ name = "emu198x-jupiter-ace"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-jupiter-ace = { path = "../machine-jupiter-ace" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-jupiter-ace = { path = "../machine-jupiter-ace", version = "0.2.0" }
 png = { workspace = true }
-runtime-jupiter-ace = { path = "../runtime-jupiter-ace" }
+runtime-jupiter-ace = { path = "../runtime-jupiter-ace", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

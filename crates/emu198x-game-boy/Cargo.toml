@@ -16,10 +16,10 @@ default = ["ui"]
 ui = ["dep:emu198x-native-video", "dep:winit"]
 
 [dependencies]
-common-nintendo-game-boy = { path = "../common-nintendo-game-boy" }
-emu198x-native-video = { path = "../emu198x-native-video", optional = true }
-emu198x-shell = { path = "../emu198x-shell" }
-runtime-nintendo-game-boy = { path = "../runtime-nintendo-game-boy" }
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.2.0" }
+emu198x-native-video = { path = "../emu198x-native-video", optional = true , version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+runtime-nintendo-game-boy = { path = "../runtime-nintendo-game-boy", version = "0.2.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror.workspace = true

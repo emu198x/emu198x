@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-mos-6502 = { path = "../mos-6502" }
-mos-vic-i = { path = "../mos-vic-i" }
-mos-via-6522 = { path = "../mos-via-6522" }
+mos-6502 = { path = "../mos-6502", version = "0.2.0" }
+mos-vic-i = { path = "../mos-vic-i", version = "0.2.0" }
+mos-via-6522 = { path = "../mos-via-6522", version = "0.2.0" }
 
 [lints]
 workspace = true

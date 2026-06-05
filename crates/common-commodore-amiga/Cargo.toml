@@ -7,11 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-mos-cia-8520 = { path = "../mos-cia-8520" }
-commodore-paula-8364 = { path = "../commodore-paula-8364" }
-commodore-denise-ocs = { path = "../commodore-denise-ocs" }
-commodore-denise-ecs = { path = "../commodore-denise-ecs" }
-commodore-agnus-ocs = { path = "../commodore-agnus-ocs" }
+mos-cia-8520 = { path = "../mos-cia-8520", version = "0.2.0" }
+commodore-paula-8364 = { path = "../commodore-paula-8364", version = "0.2.0" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.2.0" }
+commodore-denise-ecs = { path = "../commodore-denise-ecs", version = "0.2.0" }
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.2.0" }
 serde = { workspace = true }
 
 [lints]

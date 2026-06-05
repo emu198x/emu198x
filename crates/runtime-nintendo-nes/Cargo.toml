@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines" }
-machine-nintendo-nes = { path = "../machine-nintendo-nes" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines", version = "0.2.0" }
+machine-nintendo-nes = { path = "../machine-nintendo-nes", version = "0.2.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

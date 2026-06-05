@@ -11,10 +11,10 @@ name = "emu198x-tatung-einstein"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-tatung-einstein = { path = "../machine-tatung-einstein" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-tatung-einstein = { path = "../machine-tatung-einstein", version = "0.2.0" }
 png = { workspace = true }
-runtime-tatung-einstein = { path = "../runtime-tatung-einstein" }
+runtime-tatung-einstein = { path = "../runtime-tatung-einstein", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-sega-vdp = { path = "../sega-vdp" }
-ti-sn76489 = { path = "../ti-sn76489" }
-zilog-z80 = { path = "../zilog-z80" }
+sega-vdp = { path = "../sega-vdp", version = "0.2.0" }
+ti-sn76489 = { path = "../ti-sn76489", version = "0.2.0" }
+zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 
 [lints]
 workspace = true

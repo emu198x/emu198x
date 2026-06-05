@@ -11,10 +11,10 @@ name = "emu198x-spectravideo-svi-328"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-spectravideo-svi-328 = { path = "../machine-spectravideo-svi-328" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-spectravideo-svi-328 = { path = "../machine-spectravideo-svi-328", version = "0.2.0" }
 png = { workspace = true }
-runtime-spectravideo-svi-328 = { path = "../runtime-spectravideo-svi-328" }
+runtime-spectravideo-svi-328 = { path = "../runtime-spectravideo-svi-328", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

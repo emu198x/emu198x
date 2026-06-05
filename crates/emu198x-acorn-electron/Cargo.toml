@@ -11,10 +11,10 @@ name = "emu198x-acorn-electron"
 path = "src/main.rs"
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell" }
-machine-acorn-electron = { path = "../machine-acorn-electron" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+machine-acorn-electron = { path = "../machine-acorn-electron", version = "0.2.0" }
 png = { workspace = true }
-runtime-acorn-electron = { path = "../runtime-acorn-electron" }
+runtime-acorn-electron = { path = "../runtime-acorn-electron", version = "0.2.0" }
 serde_json = { workspace = true }
 
 [lints]

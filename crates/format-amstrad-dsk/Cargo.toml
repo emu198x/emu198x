@@ -7,4 +7,4 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-nec-upd765a = { path = "../nec-upd765a" }
+nec-upd765a = { path = "../nec-upd765a", version = "0.2.0" }
