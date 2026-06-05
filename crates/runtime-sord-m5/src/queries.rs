@@ -11,6 +11,7 @@ pub(crate) const M5_QUERY_PATHS: &[&str] = &[
     "m5.cpu.pc",
     "m5.cpu.tstates",
     "m5.firmware.loaded",
+    "m5.input.joystick",
     "m5.machine.frame_count",
     "m5.machine.region",
 ];
@@ -38,6 +39,10 @@ impl SessionQueryProvider<M5Runtime> for M5SessionQueryProvider {
             "m5.machine.frame_count" => json!(machine.machine().map_or(0, SordM5::frame_count)),
             "m5.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             "m5.cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
+            // Effective JOY byte ($37, active-high): P1 directions in the low
+            // nibble (right=bit0, up=1, left=2, down=3), P2 in the high nibble.
+            // Verifies host joystick input reached the chip.
+            "m5.input.joystick" => json!(loaded(machine, path)?.joystick_byte()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

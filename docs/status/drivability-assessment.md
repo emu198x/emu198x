@@ -260,6 +260,51 @@ memory/CPU/disassembly. Debug inspection is met by the shared `DebugTarget` tier
 both satisfy the floor. Per-machine *extras* (Amiga copper list, Spectrum AY
 watch) remain legitimate additions on top.
 
+## ROM validation pass (2026-06-05, in progress)
+
+Parity-on-paper is necessary but not sufficient: a machine can declare uniform
+input verbs and still drop them on the floor before they reach the chip. This
+pass boots **real commercial ROMs** from `/Volumes/Data/TOSEC` on the
+freshly-wired machines, drives input through `--script`, screenshots, and
+confirms a visible response. It is the integration test the per-crate unit tests
+can't be — and it has already paid for itself.
+
+| Machine | ROM | Result |
+|---------|-----|--------|
+| Atari 2600 | Combat (1977) | **Bug found + fixed.** Joystick players were swapped between SWCHA nibbles — port 1 drove player 2 and vice-versa (`fb44ad3a`). Caught only because input *looked* wired but the tanks didn't move; the fix is grounded in MAME's `switch_A_r`. |
+| MSX1 | Gradius/Nemesis (Konami, 1986) | **Pass.** Boots the MSX BIOS to BASIC, loads the 128 KB Konami MegaROM, renders the title via TMS9918, and the PSG-port-A joystick drives the splash→menu trigger and the 1P/2P cursor (down moved the selection). No code change. |
+| Sord M5 | Dig Dug (Namco, 1982) | **Joystick pass (probe); keyboard bug found.** Boots the 8 KB monitor ROM, runs the cartridge, renders Dig Dug via TMS9918. The new `m5.input.joystick` query proves the JOY byte (`$37`) is bit-exact vs MAME — P1 right→`0x01`, P1 down→`0x08`, +P2 up→`0x28`. The game won't *start* because M5 cartridges need a keyboard key, and our keyboard I/O map is donor fiction (see below). |
+
+**M5 keyboard I/O-map bug (separate from the joystick, pre-existing).** MAME's
+`sord/m5.cpp` reads the keyboard as seven direct row ports `$30`–`$36`
+(`portr("Y0")`…`"Y6"`), **active-high**, with no strobe. Our
+`machine-sord-m5` instead writes `$30` to latch a row index and reads the column
+at `$40`, **active-low** — none of which appears in MAME's M5 I/O map. So
+`$30`–`$36` reads fall through to `0xFF` and the BIOS keyboard scan can't see a
+keypress, blocking game-start on cartridges that need one. The in-code comment
+already flags it ("Provisional port — confirm against the BIOS keyboard scan").
+Per `project_donor_io_map_unverified.md`, the fix must be confirmed by tracing
+the monitor ROM's actual `IN`/`OUT`, not by trusting either map blind. Flagged
+for a deliberate keyboard-subsystem fix; not bundled with the joystick pass.
+
+Method notes for reproducers:
+- TOSEC ROMs are TorrentZipped; unzip first. Pick the mapper from the dump, not
+  the filename — Nemesis's `[SCC]` tag is misleading; it is a plain Konami
+  mapper (`--mapper konami`), and `konami-scc` rendered a blank screen.
+- Per-game documentation (correct mapper, controls) is in
+  `/Volumes/Data/TOSEC-PIX`.
+- Two diagnostic query paths were added to make 2600 input observable from a
+  script/MCP session — `vcs.input.swcha/swchb/inpt4/inpt5` — exposing the
+  joystick, console-switch, and fire-button registers. That turned an invisible
+  "nothing moves" into a one-line, bit-exact diagnosis. The same lesson
+  generalises: where a machine's input can't be *observed* from the drivable
+  surface, add the observation rather than guessing from screenshots.
+
+Still to validate (media loading confirmed hooked up): SVI-328, Sord M5,
+Aquarius, Atari 5200/7800. Media loading **not yet** hooked up (validate via the
+debug/query surface, or wire loading first): VIC-20, BBC Micro, Memotech MTX,
+Tatung Einstein, Oric.
+
 ## Appendix — method
 
 Per-binary source survey under `crates/`. Capture/media/input dispatch read from
