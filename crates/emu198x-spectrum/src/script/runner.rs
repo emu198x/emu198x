@@ -33,6 +33,7 @@ use serde::Serialize;
 
 use crate::AppError;
 use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
+use crate::mcp::tools::dispatch_live_step;
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
@@ -240,7 +241,16 @@ pub(crate) fn execute_step(
         ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
             execute_load_portable_snapshot(session, path).map(|_| None)
         }
-        other => other.execute_collect(session).map_err(map_script_error),
+        // Inspection / debug / live-memory steps (memory, poke, ports, CPU/AY
+        // queries, single-step, disassembly, watches) share one implementation
+        // with MCP mode via `dispatch_live_step`, so the two can't drift. Only
+        // steps it doesn't own fall through to the shell's generic executor.
+        other => match dispatch_live_step(other, session) {
+            Some(result) => {
+                result.map_err(|err| AppError::Io(std::io::Error::other(err.to_string())))
+            }
+            None => other.execute_collect(session).map_err(map_script_error),
+        },
     }
 }
 

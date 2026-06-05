@@ -13,7 +13,7 @@
 
 use emu198x_shell::{
     AyWriteEntry, DisasmInstruction, FirmwareImage, FirmwareSet, HeadlessSession, MachineCore,
-    MemoryWriteEntry, ScriptObservation, ScriptStep,
+    MemoryWriteEntry, ScriptObservation, ScriptStep, SessionQueryProvider,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
     read_firmware_asset,
 };
@@ -93,28 +93,14 @@ fn mcp_execute_step(
     step: &ScriptStep,
     session: &mut SpectrumSession,
 ) -> Result<Option<ScriptObservation>, ToolError> {
+    // Inspection / debug / live-memory steps are shared verbatim with the
+    // `--script` runner through `dispatch_live_step`, so the two dispatch
+    // tables can't drift apart (the gap that left these MCP-only).
+    if let Some(result) = dispatch_live_step(step, session) {
+        return result;
+    }
     match step {
         ScriptStep::SetMachine { machine } => execute_set_machine(machine, session).map(Some),
-        ScriptStep::QueryAy => execute_query_ay(session).map(Some),
-        ScriptStep::QueryCpu => Ok(Some(execute_query_cpu(session))),
-        ScriptStep::Step { instructions } => Ok(Some(execute_step(session, *instructions))),
-        ScriptStep::RunUntilPc {
-            addr,
-            max_halfcycles,
-        } => Ok(Some(execute_run_until_pc(session, *addr, *max_halfcycles))),
-        ScriptStep::Disasm { addr, instructions } => {
-            Ok(Some(execute_disasm(session, *addr, *instructions)))
-        }
-        ScriptStep::PortRead { port } => Ok(Some(execute_port_read(session, *port))),
-        ScriptStep::PortWrite { port, value } => {
-            execute_port_write(session, *port, *value);
-            Ok(None)
-        }
-        ScriptStep::WatchAyStart => execute_watch_ay_start(session).map(Some),
-        ScriptStep::WatchAyClear => Ok(Some(execute_watch_ay_clear(session))),
-        ScriptStep::WatchAyLog { limit, unique } => {
-            Ok(Some(execute_watch_ay_log(session, *limit, *unique)))
-        }
         ScriptStep::PressKey { key, hold_frames } => {
             execute_press_key(session, key, *hold_frames).map(Some)
         }
@@ -137,14 +123,55 @@ fn mcp_execute_step(
         ScriptStep::LoadBasicProgram { path, run } => {
             execute_load_basic_program(session, path, *run).map(Some)
         }
-        ScriptStep::MemoryRead { addr, len } => execute_memory_read(session, *addr, *len).map(Some),
-        ScriptStep::PokeByte { addr, value } => {
-            execute_poke_byte(session, *addr, *value)?;
+        ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
+            execute_load_portable_snapshot(session, path).map(|()| None)
+        }
+        other => other
+            .execute_collect(session)
+            .map_err(|err| ToolError::Execution(format!("{err}"))),
+    }
+}
+
+/// Execute the steps that only need [`SpectrumLiveAccess`] — memory reads and
+/// pokes, CPU/AY queries, ports, single-stepping, disassembly, and the watch
+/// buffers — plus the query provider for AY. Generic over the runtime, so both
+/// MCP mode (`SpectrumRuntimeKind`) and the `--script` runner
+/// (`Spectrum48kRuntime`) dispatch the *same* implementation; that's what keeps
+/// the two from drifting. Returns `None` for steps it doesn't own.
+pub(crate) fn dispatch_live_step<
+    M: SpectrumLiveAccess + MachineCore,
+    Q: SessionQueryProvider<M>,
+>(
+    step: &ScriptStep,
+    session: &mut HeadlessSession<M, Q>,
+) -> Option<Result<Option<ScriptObservation>, ToolError>> {
+    Some(match step {
+        ScriptStep::QueryAy => execute_query_ay(session).map(Some),
+        ScriptStep::QueryCpu => Ok(Some(execute_query_cpu(session))),
+        ScriptStep::Step { instructions } => Ok(Some(execute_step(session, *instructions))),
+        ScriptStep::RunUntilPc {
+            addr,
+            max_halfcycles,
+        } => Ok(Some(execute_run_until_pc(session, *addr, *max_halfcycles))),
+        ScriptStep::Disasm { addr, instructions } => {
+            Ok(Some(execute_disasm(session, *addr, *instructions)))
+        }
+        ScriptStep::PortRead { port } => Ok(Some(execute_port_read(session, *port))),
+        ScriptStep::PortWrite { port, value } => {
+            execute_port_write(session, *port, *value);
             Ok(None)
         }
+        ScriptStep::WatchAyStart => execute_watch_ay_start(session).map(Some),
+        ScriptStep::WatchAyClear => Ok(Some(execute_watch_ay_clear(session))),
+        ScriptStep::WatchAyLog { limit, unique } => {
+            Ok(Some(execute_watch_ay_log(session, *limit, *unique)))
+        }
+        ScriptStep::MemoryRead { addr, len } => execute_memory_read(session, *addr, *len).map(Some),
+        ScriptStep::PokeByte { addr, value } => {
+            execute_poke_byte(session, *addr, *value).map(|()| None)
+        }
         ScriptStep::PokeWord { addr, value } => {
-            execute_poke_word(session, *addr, *value)?;
-            Ok(None)
+            execute_poke_word(session, *addr, *value).map(|()| None)
         }
         ScriptStep::WatchMemoryStart { addr, len } => {
             execute_watch_memory_start(session, *addr, *len).map(Some)
@@ -153,13 +180,8 @@ fn mcp_execute_step(
         ScriptStep::WatchMemoryLog { limit, unique } => {
             execute_watch_memory_log(session, *limit, *unique).map(Some)
         }
-        ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
-            execute_load_portable_snapshot(session, path).map(|()| None)
-        }
-        other => other
-            .execute_collect(session)
-            .map_err(|err| ToolError::Execution(format!("{err}"))),
-    }
+        _ => return None,
+    })
 }
 
 /// MCP-side equivalent of
@@ -196,8 +218,11 @@ fn addr_to_u16(addr: u32, label: &str) -> Result<u16, ToolError> {
 /// Cap a requested read length so the response stays bounded.
 const MEMORY_READ_MAX: u32 = 256;
 
-fn execute_memory_read(
-    session: &mut SpectrumSession,
+pub(crate) fn execute_memory_read<
+    M: SpectrumLiveAccess + MachineCore,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &mut HeadlessSession<M, Q>,
     addr: u32,
     len: u32,
 ) -> Result<ScriptObservation, ToolError> {
@@ -221,14 +246,18 @@ fn execute_memory_read(
     })
 }
 
-fn execute_poke_byte(session: &mut SpectrumSession, addr: u32, value: u8) -> Result<(), ToolError> {
+pub(crate) fn execute_poke_byte<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
+    session: &mut HeadlessSession<M, Q>,
+    addr: u32,
+    value: u8,
+) -> Result<(), ToolError> {
     let a = addr_to_u16(addr, "poke_byte")?;
     session.machine_mut().write_byte(a, value);
     Ok(())
 }
 
-fn execute_poke_word(
-    session: &mut SpectrumSession,
+pub(crate) fn execute_poke_word<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
+    session: &mut HeadlessSession<M, Q>,
     addr: u32,
     value: u16,
 ) -> Result<(), ToolError> {
@@ -243,8 +272,11 @@ fn execute_poke_word(
     Ok(())
 }
 
-fn execute_watch_memory_start(
-    session: &mut SpectrumSession,
+pub(crate) fn execute_watch_memory_start<
+    M: SpectrumLiveAccess + MachineCore,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &mut HeadlessSession<M, Q>,
     addr: u32,
     len: u32,
 ) -> Result<ScriptObservation, ToolError> {
@@ -270,8 +302,11 @@ fn execute_watch_memory_start(
     })
 }
 
-fn execute_watch_memory_clear(
-    session: &mut SpectrumSession,
+pub(crate) fn execute_watch_memory_clear<
+    M: SpectrumLiveAccess + MachineCore,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &mut HeadlessSession<M, Q>,
 ) -> Result<ScriptObservation, ToolError> {
     let captured = session
         .machine()
@@ -286,8 +321,11 @@ fn execute_watch_memory_clear(
     })
 }
 
-fn execute_watch_memory_log(
-    session: &mut SpectrumSession,
+pub(crate) fn execute_watch_memory_log<
+    M: SpectrumLiveAccess + MachineCore,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &mut HeadlessSession<M, Q>,
     limit: Option<u32>,
     unique: bool,
 ) -> Result<ScriptObservation, ToolError> {
@@ -396,7 +434,9 @@ fn execute_set_machine(
     })
 }
 
-fn execute_query_ay(session: &mut SpectrumSession) -> Result<ScriptObservation, ToolError> {
+pub(crate) fn execute_query_ay<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
+    session: &mut HeadlessSession<M, Q>,
+) -> Result<ScriptObservation, ToolError> {
     // Look up the two low-level AY paths through the existing
     // session query provider; on AY-bearing variants both resolve,
     // on 48K-class variants `spectrum.ay.registers` is not in
@@ -447,7 +487,9 @@ fn execute_query_ay(session: &mut SpectrumSession) -> Result<ScriptObservation, 
     })
 }
 
-fn execute_query_cpu(session: &SpectrumSession) -> ScriptObservation {
+pub(crate) fn execute_query_cpu<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
+    session: &HeadlessSession<M, Q>,
+) -> ScriptObservation {
     let regs = session.machine().z80_registers();
     let halt = session.machine().z80_halted();
     let f = regs.f();
@@ -499,7 +541,10 @@ const DEFAULT_DISASM_COUNT: u32 = 16;
 const MAX_DISASM_COUNT: u32 = 64;
 const MAX_STEP_INSTRUCTIONS: u32 = 16_384;
 
-fn execute_step(session: &mut SpectrumSession, instructions: Option<u32>) -> ScriptObservation {
+pub(crate) fn execute_step<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
+    session: &mut HeadlessSession<M, Q>,
+    instructions: Option<u32>,
+) -> ScriptObservation {
     let n = instructions.unwrap_or(1).min(MAX_STEP_INSTRUCTIONS);
     let halfcycles = session.machine_mut().step_instructions(n);
     let regs = session.machine().z80_registers();
@@ -512,8 +557,11 @@ fn execute_step(session: &mut SpectrumSession, instructions: Option<u32>) -> Scr
     }
 }
 
-fn execute_run_until_pc(
-    session: &mut SpectrumSession,
+pub(crate) fn execute_run_until_pc<
+    M: SpectrumLiveAccess + MachineCore,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &mut HeadlessSession<M, Q>,
     addr: u16,
     max_halfcycles: Option<u32>,
 ) -> ScriptObservation {
@@ -530,8 +578,8 @@ fn execute_run_until_pc(
     }
 }
 
-fn execute_disasm(
-    session: &SpectrumSession,
+pub(crate) fn execute_disasm<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
+    session: &HeadlessSession<M, Q>,
     addr: u16,
     instructions: Option<u32>,
 ) -> ScriptObservation {
@@ -565,16 +613,31 @@ fn execute_disasm(
     }
 }
 
-fn execute_port_read(session: &mut SpectrumSession, port: u16) -> ScriptObservation {
+pub(crate) fn execute_port_read<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
+    session: &mut HeadlessSession<M, Q>,
+    port: u16,
+) -> ScriptObservation {
     let value = session.machine_mut().port_read(port);
     ScriptObservation::PortRead { port, value }
 }
 
-fn execute_port_write(session: &mut SpectrumSession, port: u16, value: u8) {
+pub(crate) fn execute_port_write<
+    M: SpectrumLiveAccess + MachineCore,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &mut HeadlessSession<M, Q>,
+    port: u16,
+    value: u8,
+) {
     session.machine_mut().port_write(port, value);
 }
 
-fn execute_watch_ay_start(session: &mut SpectrumSession) -> Result<ScriptObservation, ToolError> {
+pub(crate) fn execute_watch_ay_start<
+    M: SpectrumLiveAccess + MachineCore,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &mut HeadlessSession<M, Q>,
+) -> Result<ScriptObservation, ToolError> {
     session
         .machine_mut()
         .start_ay_write_watch()
@@ -584,7 +647,12 @@ fn execute_watch_ay_start(session: &mut SpectrumSession) -> Result<ScriptObserva
     })
 }
 
-fn execute_watch_ay_clear(session: &mut SpectrumSession) -> ScriptObservation {
+pub(crate) fn execute_watch_ay_clear<
+    M: SpectrumLiveAccess + MachineCore,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &mut HeadlessSession<M, Q>,
+) -> ScriptObservation {
     let machine = session.machine();
     let captured = machine
         .ay_write_watch_records()
@@ -740,8 +808,11 @@ fn execute_type_string(
     })
 }
 
-fn execute_watch_ay_log(
-    session: &SpectrumSession,
+pub(crate) fn execute_watch_ay_log<
+    M: SpectrumLiveAccess + MachineCore,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &HeadlessSession<M, Q>,
     limit: Option<u32>,
     unique: bool,
 ) -> ScriptObservation {

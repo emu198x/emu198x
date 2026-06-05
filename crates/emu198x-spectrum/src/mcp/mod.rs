@@ -10,7 +10,7 @@
 //! See `docs/brainstorms/2026-05-08-mcp-server-brainstorm.md` for the
 //! design and the SOLID criterion 5 acceptance bar.
 
-mod tools;
+pub(crate) mod tools;
 
 use emu198x_shell::{
     HeadlessSession,
