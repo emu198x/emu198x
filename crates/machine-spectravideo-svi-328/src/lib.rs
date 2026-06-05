@@ -348,6 +348,14 @@ impl Svi328 {
         }
     }
 
+    /// Observe the column bits for a keyboard matrix row (active-low:
+    /// a `0` bit is a pressed key). Returns `0xFF` for an out-of-range
+    /// row.
+    #[must_use]
+    pub fn key_row(&self, row: usize) -> u8 {
+        self.keyboard.get(row).copied().unwrap_or(0xFF)
+    }
+
     /// CPU reference.
     #[must_use]
     pub fn cpu(&self) -> &Z80 {
