@@ -112,7 +112,7 @@ clean script/MCP parity break.
 | Device | Variant | Consumes it | Notable gaps |
 |--------|---------|-------------|--------------|
 | Keyboard | `Key` | ~26 machines | atari-5200/7800 keypad/console partial (joystick wired 2026-06-05) |
-| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20**, **bbc** (fire), **svi-328**, **sord-m5**, **mtx**, **aquarius** (~20) | einstein — pending MAME trace; oric — no native port (Telestrat only) |
+| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20**, **bbc**, **svi-328**, **sord-m5**, **mtx**, **aquarius**, **einstein** (~21) | oric — no native port (Telestrat only) |
 | Paddle / analogue | `Axis` | dragon, spectrum, **atari-5200** (POKEY pots), **bbc** (μPD7002 ADC), **c64** (SID POTX/POTY + CIA mux), **atari-2600** (TIA INPT0-3 charge timing) — all 2026-06-05 | atari-800xl, coleco — **absent** |
 | Mouse | `Pointer*` | amiga **only** (correct machine) | MCP-undrivable; c64 1351 minor |
 
@@ -213,9 +213,15 @@ wire the missing consumers** — not new architecture.
      Mini Expander's AY-3-8910 (previously a stub) is brought up at `$F7`/`$F6`;
      each Intellivision-style 16-position disc + 6 buttons composes a code read
      on AY port A (P2) / port B (P1).
-   - **einstein** — *blocked on a primary source.* The last donor machine with no
-     pin map in `reference/by-system/`; needs a MAME cross-check (as the others
-     just had) to confirm the port bits before wiring.
+   - **einstein** — ✅ *wired 2026-06-05 from MAME `tatung/einstein.cpp`.* Like
+     the BBC, it's **analogue**: X/Y through a newly-modelled ADC0844 at `$38`
+     (single-ended channels 1-4 = joy1/joy2 X/Y), fire buttons on port `$20`
+     bits 0-1 (active low). `Axis` for the true pots, `Button` directions snap
+     to extremes.
+
+   Every donor-sourced joystick machine is now wired. The only remaining
+   joystick gap is **oric-atmos** — no native port (needs a chosen third-party
+   interface; the Atari-pinout ports are the Telestrat's).
    - **bbc-micro** — ✅ *wired 2026-06-05.* Fire on System VIA PB4/PB5 (active
      low, `Button`); analogue X/Y via a newly-modelled μPD7002 ADC at
      `$FEC0-$FEDF` (channels 0+1 = stick 1, 2+3 = stick 2, 12-bit, `Axis`), with

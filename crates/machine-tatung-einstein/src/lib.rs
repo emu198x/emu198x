@@ -299,6 +299,55 @@ impl Wd1770 {
     }
 }
 
+/// ADC0844 4-channel 8-bit ADC — the Einstein's analogue-joystick port at I/O
+/// `$38`. A write selects the channel/mode (`data & 0x0f`); a read returns the
+/// conversion. Channels 1-4 carry joystick 1 X/Y and joystick 2 X/Y. The
+/// single-ended modes (`$04`-`$07`) read one channel; the differential and
+/// pseudo-differential modes combine a pair. Decode adapted from MAME's
+/// `adc0844` device; the 40 µs conversion is treated as instantaneous.
+#[derive(Clone)]
+struct Adc0844 {
+    /// Channel inputs `[joy1 X, joy1 Y, joy2 X, joy2 Y]`, 8-bit, centre `0x80`.
+    channels: [u8; 4],
+    /// Selected channel / mode — the low nibble of the last `$38` write.
+    channel: u8,
+}
+
+impl Adc0844 {
+    fn new() -> Self {
+        Self {
+            channels: [0x80; 4],
+            channel: 0x0F,
+        }
+    }
+
+    fn write(&mut self, data: u8) {
+        self.channel = data & 0x0F;
+    }
+
+    fn read(&self) -> u8 {
+        let ch = |i: usize| i32::from(self.channels[i]);
+        let clamp = |v: i32| u8::try_from(v.clamp(0, 0xFF)).unwrap_or(0xFF);
+        match self.channel {
+            // Differential pairs.
+            0x00 | 0x08 => clamp(0xFF - (ch(1) - ch(0))),
+            0x01 | 0x09 => clamp(0xFF - (ch(0) - ch(1))),
+            0x02 | 0x0A => clamp(0xFF - (ch(3) - ch(2))),
+            0x03 | 0x0B => clamp(0xFF - (ch(2) - ch(3))),
+            // Single-ended channels 1-4.
+            0x04 => self.channels[0],
+            0x05 => self.channels[1],
+            0x06 => self.channels[2],
+            0x07 => self.channels[3],
+            // Pseudo-differential (against channel 4).
+            0x0C => clamp(0xFF - (ch(3) - ch(0))),
+            0x0D => clamp(0xFF - (ch(3) - ch(1))),
+            0x0E => clamp(0xFF - (ch(3) - ch(2))),
+            _ => 0x00,
+        }
+    }
+}
+
 /// Tatung Einstein TC-01 machine.
 pub struct Einstein {
     cpu: Z80,
@@ -324,6 +373,11 @@ pub struct Einstein {
     ctc_reg: u8,
     /// WD1770 floppy controller at ports $18-$1B (drive select at $23).
     fdc: Wd1770,
+    /// ADC0844 analogue joystick port at `$38` (joystick X/Y axes).
+    adc: Adc0844,
+    /// Joystick fire buttons `[joy1, joy2]`, read on port `$20` bits 0-1
+    /// (active low).
+    fire: [bool; 2],
     region: EinsteinRegion,
     cpu_tstates: u64,
     tstates_per_frame: u64,
@@ -359,6 +413,8 @@ impl Einstein {
             kbd_int_pending: false,
             ctc_reg: 0,
             fdc: Wd1770::default(),
+            adc: Adc0844::new(),
+            fire: [false; 2],
             region,
             cpu_tstates: 0,
             tstates_per_frame,
@@ -499,9 +555,21 @@ impl Einstein {
             // high.
             0x20 => {
                 self.kbd_int_pending = false;
-                0x1F | (self.extra_keys & 0xE0)
+                let mut data = 0x1F | (self.extra_keys & 0xE0);
+                // Fire buttons are active low: joystick 1 on bit 0, joystick 2
+                // on bit 1.
+                if self.fire[0] {
+                    data &= !0x01;
+                }
+                if self.fire[1] {
+                    data &= !0x02;
+                }
+                data
             }
             0x23 => 0x00,
+            // ADC0844 analogue joystick read ($38) — the selected channel's
+            // conversion.
+            0x38 => self.adc.read(),
             // Reading $24 toggles the ROM in/out of $0000-$1FFF, exactly like
             // writing it — the MOS uses this to read RAM beneath the ROM.
             0x24 => {
@@ -534,6 +602,8 @@ impl Einstein {
             0x24 => self.rom_paged_in = !self.rom_paged_in,
             0x23 => self.fdc.select(value),
             0x28 => self.ctc_reg = value,
+            // ADC0844 channel/mode select ($38 write).
+            0x38 => self.adc.write(value),
             _ => {}
         }
     }
@@ -596,6 +666,34 @@ impl Einstein {
         if row < self.keyboard.len() && col < 8 {
             self.keyboard[row] |= 1 << col;
         }
+    }
+
+    /// Set an analogue-joystick axis. `channel` 0-3 is joystick 1 X, joystick 1
+    /// Y, joystick 2 X, joystick 2 Y; `value` is the 8-bit pot position
+    /// (`0x80` = centre). Read back through the ADC0844 at `$38`. Out-of-range
+    /// channels are ignored.
+    pub fn set_adc_channel(&mut self, channel: u8, value: u8) {
+        if let Some(slot) = self.adc.channels.get_mut(channel as usize) {
+            *slot = value;
+        }
+    }
+
+    /// Set a joystick fire button (`port` 1 or 2, `true` = pressed). Read on
+    /// port `$20` bit 0 (joystick 1) / bit 1 (joystick 2), active low.
+    /// Out-of-range ports clamp to the valid pair.
+    pub fn set_fire_button(&mut self, port: u8, pressed: bool) {
+        self.fire[usize::from(port.clamp(1, 2) - 1)] = pressed;
+    }
+
+    /// The 8-bit pot value latched on an ADC channel (0-3), or 0 for an
+    /// out-of-range channel. For inspection and host-side input wiring.
+    #[must_use]
+    pub fn adc_channel(&self, channel: u8) -> u8 {
+        self.adc
+            .channels
+            .get(channel as usize)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// CPU reference.
@@ -762,6 +860,35 @@ mod tests {
         assert_eq!(sys.keyboard[2] & (1 << 5), 0);
         sys.release_key(2, 5);
         assert_eq!(sys.keyboard[2] & (1 << 5), 1 << 5);
+    }
+
+    #[test]
+    fn analogue_joystick_reads_through_the_adc0844() {
+        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        sys.set_adc_channel(0, 0xC0); // joy1 X
+        sys.set_adc_channel(1, 0x30); // joy1 Y
+
+        // Single-ended channel 1 ($04) reads joy1 X back directly.
+        sys.io_write(0x38, 0x04);
+        assert_eq!(sys.io_read(0x38), 0xC0, "channel 1 = joy1 X");
+        // Channel 2 ($05) reads joy1 Y.
+        sys.io_write(0x38, 0x05);
+        assert_eq!(sys.io_read(0x38), 0x30, "channel 2 = joy1 Y");
+        // Idle joy2 X (channel 3) reads centre.
+        sys.io_write(0x38, 0x06);
+        assert_eq!(sys.io_read(0x38), 0x80, "channel 3 idle = centre");
+    }
+
+    #[test]
+    fn joystick_fire_buttons_read_on_port_20_active_low() {
+        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        // Idle: bits 0-1 high (no fire).
+        assert_eq!(sys.io_read(0x20) & 0x03, 0x03);
+        sys.set_fire_button(1, true);
+        assert_eq!(sys.io_read(0x20) & 0x01, 0, "joy1 fire → bit 0 low");
+        assert_eq!(sys.io_read(0x20) & 0x02, 0x02, "joy2 idle → bit 1 high");
+        sys.set_fire_button(2, true);
+        assert_eq!(sys.io_read(0x20) & 0x03, 0, "both fire → bits 0-1 low");
     }
 
     #[test]
