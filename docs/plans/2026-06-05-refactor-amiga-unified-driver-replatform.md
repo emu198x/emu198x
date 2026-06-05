@@ -16,9 +16,15 @@ last machine on a parallel path; this folds it in.
 | 1 — Widen `DebugTarget` to `u32` | ✅ done (`refactor(shell): widen DebugTarget addresses to u32`) |
 | 2 — Amiga `DebugTarget` | ✅ done — **via `DebugPrimitives`, not the planned `impl_68000_debug_target!` macro** (see below) |
 | 2b — Fleet onto `DebugPrimitives` | ✅ done (`refactor(shell): one debug pattern`) — emergent from the Phase-2 spike |
-| 3 — Amiga MCP onto `HeadlessSession` | ✅ foundation done (`test(amiga): prove the shared HeadlessSession MCP path`); production cutover of `mcp/mod.rs` pending Phase 4 |
-| 4 — Port bespoke Amiga tools | 🔄 nearly done — **every Amiga tool is now generic over `AmigaCtx`.** Pure-access tools ported; `CpuTraceState` relocated into the runtime (`feat(amiga-runtime): own the CPU instruction trace`) so `cpu_trace_*` / `step` / `run_until_*` ported (`MCP tools read the trace off the runtime`); `query_aga` ported via a new `AmigaLiveAccess::aga_lisa()` accessor and the panicky AGA downcast deleted (`query_aga via an AmigaLiveAccess accessor`). **Remaining = the cutover only:** write `register_amiga_tools` over `HeadlessSession` (skip the shared-provided run/record tools), swap `mcp/mod.rs::run` to build the `HeadlessSession` (mirror `script.rs`), add `reset`/`restart` to `register_common_tools`, and a boot-Workbench-over-MCP test |
-| 5 — Retire `AmigaSession` | pending |
+| 3 — Amiga MCP onto `HeadlessSession` | ✅ done — foundation (`test(amiga): prove the shared HeadlessSession MCP path`) then production cutover (`cut the MCP server over to HeadlessSession`). `mcp/mod.rs::run` builds the shared session and registers `register_common_tools` + `register_debug_tools` + `register_amiga_tools`. |
+| 4 — Port bespoke Amiga tools | ✅ done — every tool generic over `AmigaCtx`; `CpuTraceState` relocated into the runtime (`own the CPU instruction trace`); `query_aga` via a new `AmigaLiveAccess::aga_lisa()` accessor with the AGA downcast deleted; `register_amiga_tools<C: AmigaCtx>` (`generic register_amiga_tools`). |
+| 5 — Retire `AmigaSession` | ✅ done — deleted with the cutover. `mcp/session.rs`, `register_all`, the five session-local tools + recorder plumbing all gone; recording/run/reset come from the shared shell. Verified by `mcp_smoke.rs` against a real KS 3.1 A1200 ROM. |
+
+**Replatform complete (2026-06-05).** The Amiga is driven through the
+identical door as every other machine: `--script` and `--mcp` both run the
+shared `HeadlessSession` over `AmigaRuntimeKind`, with `input`
+(keyboard/mouse over MCP) now present. The only remaining sibling is the
+Spectrum (Phase 6, out of scope here).
 
 **What changed from the original plan:** Phase 2 was written as "build
 `impl_68000_debug_target!`". The spike for it found a better shape: a
