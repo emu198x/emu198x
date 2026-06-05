@@ -91,6 +91,76 @@ pub trait DebugTarget {
     }
 }
 
+/// Machine-sourced debug primitives behind the shared [`DebugTarget`].
+///
+/// A runtime implements this — however it sources the values — and the blanket
+/// impl below gives it [`DebugTarget`] for free. This is the seam that lets the
+/// runtimes that don't fit the `impl_{6502,z80,6809}_debug_target!` macros (the
+/// Amiga family *enum* behind `AmigaLiveAccess`, the generic `SpectrumRuntime<M>`)
+/// join the **same** `DebugTarget` surface as the macro-shaped 8-bit machines,
+/// instead of a separate bespoke tier.
+///
+/// It coexists with the legacy `impl_*_debug_target!` macros during migration: a
+/// type routes through exactly one of the two (it implements `DebugPrimitives`
+/// *or* it has a macro-generated concrete `DebugTarget` impl, never both). The
+/// orphan rule keeps the blanket impl and those concrete impls from overlapping,
+/// because only a type's owning crate can implement `DebugPrimitives` for it —
+/// so the compiler knows the macro machines, which don't, cannot collide.
+pub trait DebugPrimitives {
+    /// See [`DebugTarget::pc`].
+    fn dbg_pc(&self) -> u32;
+    /// See [`DebugTarget::peek`].
+    fn dbg_peek(&self, addr: u32) -> u8;
+    /// See [`DebugTarget::poke`].
+    fn dbg_poke(&mut self, addr: u32, value: u8);
+    /// See [`DebugTarget::cpu_state`].
+    fn dbg_cpu_state(&self) -> Value;
+    /// See [`DebugTarget::disassemble`].
+    fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)>;
+    /// See [`DebugTarget::step_instruction`].
+    fn dbg_step(&mut self) -> u64;
+    /// See [`DebugTarget::supports_io_trace`].
+    fn dbg_supports_io_trace(&self) -> bool {
+        false
+    }
+    /// See [`DebugTarget::start_io_trace`].
+    fn dbg_start_io_trace(&mut self) {}
+    /// See [`DebugTarget::take_io_trace`].
+    fn dbg_take_io_trace(&mut self) -> Vec<IoEvent> {
+        Vec::new()
+    }
+}
+
+impl<T: DebugPrimitives> DebugTarget for T {
+    fn pc(&self) -> u32 {
+        self.dbg_pc()
+    }
+    fn peek(&self, addr: u32) -> u8 {
+        self.dbg_peek(addr)
+    }
+    fn poke(&mut self, addr: u32, value: u8) {
+        self.dbg_poke(addr, value);
+    }
+    fn cpu_state(&self) -> Value {
+        self.dbg_cpu_state()
+    }
+    fn disassemble(&self, addr: u32) -> Option<(String, u8)> {
+        self.dbg_disassemble(addr)
+    }
+    fn step_instruction(&mut self) -> u64 {
+        self.dbg_step()
+    }
+    fn supports_io_trace(&self) -> bool {
+        self.dbg_supports_io_trace()
+    }
+    fn start_io_trace(&mut self) {
+        self.dbg_start_io_trace();
+    }
+    fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.dbg_take_io_trace()
+    }
+}
+
 // Storage normalisers used by the debug-target macros. They let one macro body
 // serve both a lazily-built `machine: Option<M>` and an eagerly-built
 // `machine: M`, by reducing both to `Option<&M>` / `Option<&mut M>`. Passed to

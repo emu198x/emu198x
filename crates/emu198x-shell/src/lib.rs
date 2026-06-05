@@ -37,7 +37,7 @@ pub use audio::{NativeAudioError, NativeAudioOutput, convert_audio_packet};
 pub use capability::{CapabilityId, CapabilitySet, known_capability};
 pub use capture::{AudioCapture, CaptureError, CapturedAudio, CapturedFrame, LatestFrameCapture};
 pub use control::{ControlCommand, MediaTransportAction, MediaTransportCommand};
-pub use debug::{DebugTarget, IoEvent};
+pub use debug::{DebugPrimitives, DebugTarget, IoEvent};
 pub use error::MachineError;
 pub use firmware::{FirmwareImage, FirmwareSet};
 pub use headless::{BootArtifacts, boot_machine, prepare_machine};

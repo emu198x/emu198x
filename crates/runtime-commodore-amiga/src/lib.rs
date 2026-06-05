@@ -1,6 +1,7 @@
 //! Commodore Amiga family metadata and runtime surface.
 
 pub mod amiga_model;
+mod debug;
 mod input;
 mod live_access;
 mod profiles;

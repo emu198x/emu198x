@@ -795,6 +795,16 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
             Self::Aga(rt) => rt.capabilities(),
         }
     }
+
+    // The Amiga joins the shared debug tier via `impl DebugPrimitives` (see
+    // `debug.rs`), which the shell's blanket impl turns into `DebugTarget`.
+    // Always present: the family enum is always backed by a live machine.
+    fn debug_target(&self) -> Option<&dyn emu198x_shell::DebugTarget> {
+        Some(self)
+    }
+    fn debug_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::DebugTarget> {
+        Some(self)
+    }
 }
 
 // Audio-control surface. AudioControls and PaulaChannel are the same
