@@ -245,6 +245,15 @@ pub struct Msx {
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
     io_trace: Option<Vec<IoEvent>>,
+    /// Active-low PSG port-A byte for each of the two joystick ports
+    /// (`[0]` = port 1, `[1]` = port 2). The MSX reads the joystick through
+    /// the AY-3-891x sound chip: register 14 (port A) presents the directions
+    /// and triggers of the port that register 15 bit 6 selects. The standard
+    /// per-bit layout is bit 0 up, 1 down, 2 left, 3 right, 4 trigger A,
+    /// 5 trigger B, active low (`0` = pressed). Host input only, so it is
+    /// not part of the snapshot. Source: MSX PSG joystick standard (no entry
+    /// in the in-tree reference library at time of writing).
+    joystick: [u8; 2],
 }
 
 impl Msx {
@@ -278,7 +287,47 @@ impl Msx {
             psg_phase: 0,
             frame_count: 0,
             io_trace: None,
+            joystick: [0xFF; 2],
         }
+    }
+
+    /// Set the digital joystick state for `port` (1 or 2). Composes the
+    /// active-low PSG port-A byte the BIOS reads through register 14; the
+    /// `fire` button drives trigger A. See the `joystick` field for the
+    /// bit layout. Out-of-range ports are clamped to the valid pair.
+    #[allow(clippy::fn_params_excessive_bools)]
+    pub fn set_joystick(
+        &mut self,
+        port: u8,
+        up: bool,
+        down: bool,
+        left: bool,
+        right: bool,
+        fire: bool,
+    ) {
+        let idx = usize::from(port.clamp(1, 2) - 1);
+        let mut byte = 0xFFu8;
+        for (pressed, bit) in [
+            (up, 0x01),
+            (down, 0x02),
+            (left, 0x04),
+            (right, 0x08),
+            (fire, 0x10),
+        ] {
+            if pressed {
+                byte &= !bit;
+            }
+        }
+        self.joystick[idx] = byte;
+    }
+
+    /// The active-low PSG port-A byte currently latched for `port` (1 or 2):
+    /// the value the BIOS would read through register 14 with that port
+    /// selected. Out-of-range ports clamp to the valid pair. For inspection
+    /// and host-side input wiring.
+    #[must_use]
+    pub fn joystick_byte(&self, port: u8) -> u8 {
+        self.joystick[usize::from(port.clamp(1, 2) - 1)]
     }
 
     /// Insert a cartridge into slot 1 with the given mapper.
@@ -382,7 +431,16 @@ impl Msx {
         let value = match port as u8 {
             0x98 => self.vdp.read_data(),
             0x99 => self.vdp.read_status(),
-            0xA2 => self.psg.read_data(),
+            0xA2 => {
+                // Reading PSG register 14 is the joystick read. Present the
+                // selected port's active-low byte through the chip's port-A
+                // input mask; register 15 bit 6 selects port 1 (0) or 2 (1).
+                if self.psg.selected_register() == 14 {
+                    let selected = usize::from((self.psg.registers()[15] >> 6) & 1);
+                    self.psg.set_port_a_input_mask(self.joystick[selected]);
+                }
+                self.psg.read_data()
+            }
             0xA8 => self.ppi.read(0),
             0xA9 => {
                 // Port B = keyboard column for the row selected by
@@ -618,6 +676,33 @@ mod tests {
         assert_eq!(sys.mem_read(0xC001), 0xCD);
         // Page 0 still reads BIOS (slot 0).
         assert_eq!(sys.mem_read(0x0008), 0x18);
+    }
+
+    #[test]
+    fn joystick_reads_through_psg_port_a() {
+        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+
+        // Port 1 is selected by default (R15 bit 6 = 0). Press up + fire.
+        sys.set_joystick(1, true, false, false, false, true);
+        sys.io_write(0xA0, 14); // select PSG register 14 (port A)
+        let p1 = sys.io_read(0xA2);
+        assert_eq!(p1 & 0x01, 0, "up pressed → bit 0 low");
+        assert_eq!(p1 & 0x10, 0, "fire pressed → bit 4 (trigger A) low");
+        assert_eq!(p1 & 0x0E, 0x0E, "down/left/right idle high");
+
+        // Release → idle high across the board.
+        sys.set_joystick(1, false, false, false, false, false);
+        sys.io_write(0xA0, 14);
+        assert_eq!(sys.io_read(0xA2), 0xFF, "released joystick reads idle 0xFF");
+
+        // Selecting port 2 (R15 bit 6 = 1) reads the other stick independently.
+        sys.set_joystick(2, false, true, false, false, false);
+        sys.io_write(0xA0, 15); // select R15 (port B)
+        sys.io_write(0xA1, 0x40); // bit 6 = 1 → joystick port 2
+        sys.io_write(0xA0, 14);
+        let p2 = sys.io_read(0xA2);
+        assert_eq!(p2 & 0x02, 0, "port 2 down → bit 1 low");
+        assert_eq!(p2 & 0x01, 0x01, "port 2 up idle high");
     }
 
     #[test]

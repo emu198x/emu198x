@@ -34,6 +34,7 @@ pub struct MsxRuntime {
     rgba_width: u32,
     rgba_height: u32,
     audio_scratch: Vec<f32>,
+    controller_cache: crate::input::ControllerCache,
 }
 
 impl MsxRuntime {
@@ -56,6 +57,7 @@ impl MsxRuntime {
             rgba_width: 0,
             rgba_height: 0,
             audio_scratch: vec![0.0; AUDIO_SAMPLES_PER_FRAME],
+            controller_cache: crate::input::ControllerCache::default(),
         }
     }
 
@@ -304,7 +306,7 @@ impl MachineCore for MsxRuntime {
 
         for event in host.input_events {
             if let Some(machine) = self.machine.as_mut() {
-                apply_input_event(machine, event);
+                apply_input_event(machine, &mut self.controller_cache, event);
             }
         }
 
