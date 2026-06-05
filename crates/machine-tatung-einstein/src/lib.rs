@@ -20,7 +20,7 @@
 //!   standard)
 //! - **VDP:** TMS9918A (16 KB VRAM)
 //! - **PSG:** AY-3-8910 @ 2 MHz (CPU ÷ 2) — consumed via our
-//!   `gi-ay-3-8912` crate (same silicon)
+//!   `gi-ay-3-8910` crate (same silicon)
 //! - **RAM:** 64 KB
 //! - **ROM:** 8 KB X-TAL MOS at `$0000-$1FFF` (pageable)
 //! - **CTC:** Z80 CTC (channel 0 stubbed at port `$28`)
@@ -35,25 +35,33 @@
 //!
 //! # I/O map
 //!
+//! Verified against MAME's `tatung/einstein.cpp`; the donor's map was
+//! wrong (it had the AY on `$00-$02` and the keyboard on `$20`).
+//!
 //! | Port  | R/W   | Function                                       |
 //! |-------|-------|------------------------------------------------|
-//! | `$00` | write | AY register select                             |
-//! | `$01` | write | AY data write                                  |
 //! | `$02` | read  | AY data read                                   |
+//! | `$02` | write | AY register select (address latch)             |
+//! | `$03` | write | AY data write                                  |
 //! | `$08` | r/w   | VDP data                                       |
 //! | `$09` | r/w   | VDP control / status                           |
 //! | `$18-$1B` | r/w | WD1770 floppy controller                     |
-//! | `$20` | read  | Keyboard column for the row in AY port A (R14) |
+//! | `$20` | read  | Modifier keys + clears the keyboard interrupt  |
+//! | `$20` | write | Keyboard interrupt mask (bit 0: 0 = enabled)   |
 //! | `$23` | write | Floppy drive / side select                     |
 //! | `$24` | r/w   | ROM-bank toggle (read or write flips it)       |
 //! | `$28` | r/w   | Z80 CTC channel 0 (stub)                       |
 //!
 //! # Keyboard
 //!
-//! 8 rows × 8 columns matrix, active-low. The CPU writes the row
-//! index (bits 0-2) to AY-3-8910 register 14 (port A output mode);
-//! port `$20` reads the column data for the selected row from the
-//! keyboard matrix.
+//! 8 × 8 matrix, active-low, hung off the AY-3-8910's I/O ports: the MOS
+//! drives the row-select lines on **port A** (R14, output) and reads the
+//! column data back on **port B** (R15, input). The scan runs from a
+//! ~50 Hz keyboard interrupt — a dedicated Z80-mode-2 vectored interrupt
+//! (vector `$F7`), enabled/masked by `$20` bit 0 and cleared by reading
+//! `$20`; that read also returns the GRAPH/CTRL/SHIFT modifier keys on
+//! bits 5-7. Without the interrupt the MOS detects a key but never scans
+//! the matrix to identify it.
 //!
 //! # Clock model
 //!
@@ -64,7 +72,7 @@
 //! crystals and we approximate using the ratio. PSG ticks every other
 //! T-state for the CPU ÷ 2 = 2 MHz AY clock.
 
-use gi_ay_3_8912::Ay3_8912;
+use gi_ay_3_8910::Ay3_8910;
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
 
@@ -295,14 +303,23 @@ impl Wd1770 {
 pub struct Einstein {
     cpu: Z80,
     vdp: Tms9918,
-    psg: Ay3_8912,
+    psg: Ay3_8910,
     rom: Vec<u8>,
     ram: [u8; 65536],
     /// `$0000-$1FFF` returns ROM at reset; any write to `$21` flips
     /// this `false` and exposes the 64 KB RAM across the full space.
     rom_paged_in: bool,
-    /// 8×8 keyboard matrix, active-low.
+    /// 8×8 keyboard matrix, active-low (a pressed key clears its bit).
     keyboard: [u8; NUM_KEY_ROWS],
+    /// Modifier keys read on port `$20` bits 5-7 (GRAPH/CTRL/SHIFT),
+    /// active low. These sit outside the scanned matrix.
+    extra_keys: u8,
+    /// Whether the keyboard interrupt is enabled ($20 bit 0 = 0 enables).
+    /// The MOS scans the matrix from this interrupt's IM 2 handler.
+    kbd_int_enabled: bool,
+    /// Keyboard interrupt request, raised by the per-frame scan when a key
+    /// is down and cleared when the MOS reads $20 in its handler.
+    kbd_int_pending: bool,
     /// CTC channel 0 stub.
     ctc_reg: u8,
     /// WD1770 floppy controller at ports $18-$1B (drive select at $23).
@@ -332,11 +349,14 @@ impl Einstein {
         Self {
             cpu: Z80::new(),
             vdp: Tms9918::new(vdp_region),
-            psg: Ay3_8912::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, AY_SAMPLES_PER_FRAME),
+            psg: Ay3_8910::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, AY_SAMPLES_PER_FRAME),
             rom,
             ram: [0; 65536],
             rom_paged_in: true,
             keyboard: [0xFF; NUM_KEY_ROWS],
+            extra_keys: 0xFF,
+            kbd_int_enabled: false,
+            kbd_int_pending: false,
             ctc_reg: 0,
             fdc: Wd1770::default(),
             region,
@@ -351,6 +371,13 @@ impl Einstein {
 
     /// Run one frame and return T-states consumed.
     pub fn run_frame(&mut self) -> u64 {
+        // The keyboard is serviced from a ~50 Hz interrupt: once per frame,
+        // if the interrupt is enabled and any matrix key is down, raise it.
+        // The MOS's IM 2 handler (vector $F7) then scans the matrix through
+        // the AY ports and clears the request by reading $20.
+        if self.kbd_int_enabled && self.keyboard.iter().any(|&row| row != 0xFF) {
+            self.kbd_int_pending = true;
+        }
         let target = self.cpu_tstates + self.tstates_per_frame;
         while self.cpu_tstates < target {
             self.tick_tstate();
@@ -376,7 +403,7 @@ impl Einstein {
         }
 
         // VDP /INT → Z80 /IRQ; CTC stub doesn't generate interrupts.
-        self.cpu.irq = self.vdp.interrupt;
+        self.cpu.irq = self.kbd_int_pending;
 
         self.cpu_tstates += 1;
     }
@@ -415,9 +442,10 @@ impl Einstein {
                 self.io_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IntAck) => {
-                // X-TAL MOS sets IM 1 — INT fetches RST 38h via the
-                // floating bus.
-                self.cpu.data_in = 0xFF;
+                // IM 2: the keyboard is the only interrupt source wired, so
+                // its Z80-daisy device supplies low vector byte $F7. The
+                // Z80 forms the handler address `(I << 8) | $F7`.
+                self.cpu.data_in = 0xF7;
             }
             None => {}
         }
@@ -437,17 +465,41 @@ impl Einstein {
         self.ram[addr as usize] = value;
     }
 
+    /// Refresh the AY port B input from the keyboard matrix. The MOS
+    /// drives the row-select lines on AY port A (R14, active low) and
+    /// reads the column data on port B (R15); the column byte is the AND
+    /// of every selected row's bits (a pressed key reads 0).
+    fn refresh_keyboard(&mut self) {
+        let line = self.psg.port_a_output();
+        let mut columns = 0xFFu8;
+        for row in 0..NUM_KEY_ROWS {
+            if line & (1 << row) == 0 {
+                columns &= self.keyboard[row];
+            }
+        }
+        self.psg.set_port_b_input(columns);
+    }
+
     fn io_read(&mut self, port: u16) -> u8 {
         match port as u8 {
-            0x02 => self.psg.read_data(),
+            0x02 => {
+                // AY data read. The keyboard hangs off the AY's I/O ports
+                // (port A = row select, port B = column data), so refresh
+                // port B from the matrix before the read resolves R15.
+                self.refresh_keyboard();
+                self.psg.read_data()
+            }
             0x08 => self.vdp.read_data(),
             0x09 => self.vdp.read_status(),
             0x18..=0x1B => self.fdc.read((port & 0x03) as u8),
+            // $20: reading clears the keyboard interrupt and returns the
+            // joystick fire buttons (bits 0-1), printer status (bits 2-4)
+            // and the GRAPH/CTRL/SHIFT modifier keys (bits 5-7, active
+            // low). No joystick/printer here, so the low five bits read
+            // high.
             0x20 => {
-                // AY port A (register 14) low 3 bits select the
-                // keyboard row.
-                let row = (self.psg.registers()[14] & 0x07) as usize;
-                self.keyboard[row]
+                self.kbd_int_pending = false;
+                0x1F | (self.extra_keys & 0xE0)
             }
             0x23 => 0x00,
             // Reading $24 toggles the ROM in/out of $0000-$1FFF, exactly like
@@ -463,11 +515,20 @@ impl Einstein {
 
     fn io_write(&mut self, port: u16, value: u8) {
         match port as u8 {
-            0x00 => self.psg.select_register(value),
-            0x01 => self.psg.write_data(value),
+            // AY register select on $02 write, data write on $03 (the AY
+            // data *read* is on $02). $00-$01 are the system reset latch.
+            0x02 => self.psg.select_register(value),
+            0x03 => self.psg.write_data(value),
             0x08 => self.vdp.write_data(value),
             0x09 => self.vdp.write_control(value),
             0x18..=0x1B => self.fdc.write((port & 0x03) as u8, value),
+            // $20 bit 0 masks the keyboard interrupt (0 = enabled).
+            0x20 => {
+                self.kbd_int_enabled = value & 0x01 == 0;
+                if !self.kbd_int_enabled {
+                    self.kbd_int_pending = false;
+                }
+            }
             // $24 toggles the ROM bank at $0000-$1FFF between ROM and RAM.
             // (Port $21 is the ADC interrupt mask, not ROM paging.)
             0x24 => self.rom_paged_in = !self.rom_paged_in,
@@ -674,10 +735,13 @@ mod tests {
     fn keyboard_row_selected_via_ay_port_a() {
         let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
         sys.keyboard[5] = 0xAB;
-        // Select AY R14 then write row index 5.
-        sys.io_write(0x00, 14);
-        sys.io_write(0x01, 5);
-        assert_eq!(sys.io_read(0x20), 0xAB);
+        // The MOS drives the row-select lines on AY port A (R14) and reads
+        // the columns back on port B (R15). Select R14, drive row 5 low
+        // (active low), then read R15 — it returns that row's columns.
+        sys.io_write(0x02, 14); // select R14 (port A)
+        sys.io_write(0x03, !(1 << 5)); // 0xDF: row 5 selected
+        sys.io_write(0x02, 15); // select R15 (port B)
+        assert_eq!(sys.io_read(0x02), 0xAB);
     }
 
     #[test]

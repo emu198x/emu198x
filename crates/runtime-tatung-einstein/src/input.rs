@@ -1,8 +1,11 @@
 //! Tatung Einstein keyboard input mapping.
 //!
-//! The Einstein has an 8×8 matrix scanned via PSG port B. The matrix
-//! layout below is sourced from the Einstein hardware reference; key
-//! positions match the machine crate's internal scan convention.
+//! 8×8 matrix scanned through the AY-3-8910 I/O ports (row select on
+//! port A, columns on port B). Every position below was probed against
+//! the real X-TAL MOS ROM — press the cell, read the echoed character —
+//! and cross-checked against MAME's `tatung/einstein.cpp` key matrix for
+//! the non-printing keys (row 0). The donor's table was a placeholder and
+//! did not match the hardware.
 
 use emu198x_shell::InputEvent;
 use machine_tatung_einstein::Einstein;
@@ -22,78 +25,55 @@ pub(crate) fn apply_input_event(machine: &mut Einstein, event: &InputEvent) {
 #[must_use]
 fn key_to_matrix(name: &str) -> Option<(usize, u8)> {
     Some(match name.to_ascii_lowercase().as_str() {
-        // Row 0: digits 0-7
-        "0" => (0, 0),
-        "1" => (0, 1),
-        "2" => (0, 2),
-        "3" => (0, 3),
-        "4" => (0, 4),
-        "5" => (0, 5),
-        "6" => (0, 6),
-        "7" => (0, 7),
-        // Row 1: 8 9 - = ^ \ [ ]
-        "8" => (1, 0),
-        "9" => (1, 1),
-        "-" | "minus" => (1, 2),
-        "=" | "equals" => (1, 3),
-        "^" | "caret" => (1, 4),
-        "\\" | "backslash" => (1, 5),
-        "[" | "leftbracket" => (1, 6),
-        "]" | "rightbracket" => (1, 7),
-        // Row 2
-        "q" => (2, 0),
-        "w" => (2, 1),
-        "e" => (2, 2),
-        "r" => (2, 3),
-        "t" => (2, 4),
-        "y" => (2, 5),
-        "u" => (2, 6),
-        "i" => (2, 7),
-        // Row 3
-        "o" => (3, 0),
-        "p" => (3, 1),
-        "@" | "at" => (3, 2),
-        "return" | "enter" => (3, 3),
-        "a" => (3, 4),
-        "s" => (3, 5),
-        "d" => (3, 6),
-        "f" => (3, 7),
-        // Row 4
-        "g" => (4, 0),
-        "h" => (4, 1),
-        "j" => (4, 2),
-        "k" => (4, 3),
-        "l" => (4, 4),
-        ";" | "semicolon" => (4, 5),
-        ":" => (4, 6),
-        "shift" | "lshift" | "rshift" => (4, 7),
-        // Row 5
-        "z" => (5, 0),
-        "x" => (5, 1),
-        "c" => (5, 2),
-        "v" => (5, 3),
-        "b" => (5, 4),
-        "n" => (5, 5),
-        "m" => (5, 6),
-        "," | "comma" => (5, 7),
-        // Row 6
-        "." | "period" => (6, 0),
-        "/" | "slash" => (6, 1),
-        "space" | " " => (6, 2),
-        "ctrl" | "control" => (6, 3),
-        "tab" => (6, 4),
-        "escape" | "esc" => (6, 5),
-        "caps" | "capslock" => (6, 6),
-        "delete" | "del" | "backspace" | "bs" => (6, 7),
-        // Row 7
-        "up" | "arrowup" => (7, 0),
-        "down" | "arrowdown" => (7, 1),
-        "left" | "arrowleft" => (7, 2),
-        "right" | "arrowright" => (7, 3),
-        "f1" => (7, 4),
-        "f2" => (7, 5),
-        "f3" => (7, 6),
-        "f4" => (7, 7),
+        // Row 0 — non-printing keys (MAME LINE0).
+        "return" | "enter" => (0, 5),
+        "space" | " " => (0, 6),
+        "escape" | "esc" => (0, 7),
+        // Letters.
+        "a" => (6, 6),
+        "b" => (7, 2),
+        "c" => (7, 4),
+        "d" => (6, 4),
+        "e" => (5, 4),
+        "f" => (6, 3),
+        "g" => (6, 2),
+        "h" => (6, 1),
+        "i" => (1, 0),
+        "j" => (6, 0),
+        "k" => (2, 0),
+        "l" => (2, 1),
+        "m" => (7, 0),
+        "n" => (7, 1),
+        "o" => (1, 1),
+        "p" => (1, 2),
+        "q" => (5, 6),
+        "r" => (5, 3),
+        "s" => (6, 5),
+        "t" => (5, 2),
+        "u" => (5, 0),
+        "v" => (7, 3),
+        "w" => (5, 5),
+        "x" => (7, 5),
+        "y" => (5, 1),
+        "z" => (7, 6),
+        // Digits.
+        "0" => (1, 7),
+        "1" => (4, 6),
+        "2" => (4, 5),
+        "3" => (4, 4),
+        "4" => (4, 3),
+        "5" => (4, 2),
+        "6" => (4, 1),
+        "7" => (4, 0),
+        "8" => (3, 3),
+        "9" => (2, 6),
+        // Punctuation (unshifted legends).
+        ";" | "semicolon" => (2, 2),
+        ":" | "colon" => (2, 3),
+        "," | "comma" => (3, 0),
+        "." | "period" => (3, 1),
+        "/" | "slash" => (3, 2),
+        "=" | "equals" | "equal" => (3, 5),
         _ => return None,
     })
 }

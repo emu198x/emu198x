@@ -2419,7 +2419,7 @@ dependencies = [
 name = "machine-tatung-einstein"
 version = "0.2.0"
 dependencies = [
- "gi-ay-3-8912",
+ "gi-ay-3-8910",
  "ti-tms9918",
  "zilog-z80",
 ]
