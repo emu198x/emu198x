@@ -16,8 +16,8 @@ last machine on a parallel path; this folds it in.
 | 1 — Widen `DebugTarget` to `u32` | ✅ done (`refactor(shell): widen DebugTarget addresses to u32`) |
 | 2 — Amiga `DebugTarget` | ✅ done — **via `DebugPrimitives`, not the planned `impl_68000_debug_target!` macro** (see below) |
 | 2b — Fleet onto `DebugPrimitives` | ✅ done (`refactor(shell): one debug pattern`) — emergent from the Phase-2 spike |
-| 3 — Amiga MCP onto `HeadlessSession` | **next** |
-| 4 — Port bespoke Amiga tools | pending |
+| 3 — Amiga MCP onto `HeadlessSession` | ✅ foundation done (`test(amiga): prove the shared HeadlessSession MCP path`); production cutover of `mcp/mod.rs` pending Phase 4 |
+| 4 — Port bespoke Amiga tools | 🔄 in progress — **32 pure-access tools now on `AmigaCtx`** (`refactor(amiga): AmigaCtx so tool bodies serve both sessions` + `port 27 pure-access MCP tools onto AmigaCtx`). Remaining: `CpuTraceState` relocation (unblocks `cpu_trace_*` + `run_until_*` + `step`), DROP-vs-keep on shared-redundant tools, `register_amiga_tools` over `HeadlessSession`, `query_aga` trait accessor, `mcp/mod.rs` cutover |
 | 5 — Retire `AmigaSession` | pending |
 
 **What changed from the original plan:** Phase 2 was written as "build
