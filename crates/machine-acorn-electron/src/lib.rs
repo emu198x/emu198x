@@ -44,8 +44,9 @@
 //!
 //! # ULA registers
 //!
-//! - `$FE00` r/w: interrupt status (read) + keyboard column data
-//!   (read low 4 bits) / interrupt clear by writing 1s (write)
+//! - `$FE00` r: interrupt status (bit 7 high, bit 0 master IRQ) /
+//!   w: interrupt control (bits 2-6 enable each source). The keyboard
+//!   is read through paged ROM slots 8/9 ($8000-$BFFF), not here.
 //! - `$FE02-$FE03` w: screen start address high/low (display fetch)
 //! - `$FE04` w: cassette data shift register (stub)
 //! - `$FE05` w: ROM page select + interrupt clears + NMI enable
@@ -138,8 +139,8 @@ struct ElectronUla {
     /// Bresenham accumulator for 2 MHz → 48 kHz downsample.
     audio_accum: u64,
     audio_buffer: Vec<f32>,
-    /// 14 columns × 4 rows, active-HIGH internally (1 = pressed); the
-    /// `read_keyboard` path inverts for the active-low return.
+    /// 14 columns × 4 rows, indexed `[column][row]`. `true` = pressed;
+    /// `read_keyboard` returns the rows active-high, as the hardware does.
     keyboard: [[bool; 4]; 14],
 }
 
@@ -224,20 +225,20 @@ impl ElectronUla {
     }
 
     fn read_keyboard(&self, addr: u16) -> u8 {
-        // A0-A13 select columns to read. Result is OR of selected
-        // columns' row bits. Internal active-high; return active-low.
-        let col_select = addr & 0x3FFF;
-        let mut result = 0u8;
+        // A0-A13 select columns: a column contributes when its address
+        // bit is LOW. The four rows return on D0-D3, active high — a
+        // pressed key sets its bit. (MAME `electron_state::keyboard_r`.)
+        let mut data = 0u8;
         for col in 0..14 {
-            if col_select & (1 << col) != 0 {
+            if (addr >> col) & 1 == 0 {
                 for row in 0..4 {
                     if self.keyboard[col][row] {
-                        result |= 1 << row;
+                        data |= 1 << row;
                     }
                 }
             }
         }
-        !result & 0x0F
+        data & 0x0F
     }
 
     fn tick_sound(&mut self) {
@@ -262,7 +263,9 @@ impl ElectronUla {
     }
 
     fn irq_active(&self) -> bool {
-        (self.interrupt_status & self.interrupt_enable & 0x7E) != 0
+        // MAME masks with ~0x83: bit 0 (master) and bit 1 (power-on
+        // reset) never raise the line; sources are bits 2-6.
+        (self.interrupt_status & self.interrupt_enable & 0x7C) != 0
     }
 
     fn refresh_master_irq(&mut self) {
@@ -355,11 +358,20 @@ impl AcornElectron {
     fn mem_read(&mut self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize],
-            0x8000..=0xBFFF => self
-                .basic_rom
-                .get((addr - 0x8000) as usize)
-                .copied()
-                .unwrap_or(0xFF),
+            0x8000..=0xBFFF => {
+                // Sideways-ROM slot. Slots 8 and 9 are the keyboard: reading
+                // the paged area with those selected returns the matrix
+                // (A0-A13 select columns, D0-D3 the rows). Other slots hold
+                // BASIC / expansion ROMs.
+                match self.ula.rom_page {
+                    8 | 9 => self.ula.read_keyboard(addr),
+                    _ => self
+                        .basic_rom
+                        .get((addr - 0x8000) as usize)
+                        .copied()
+                        .unwrap_or(0xFF),
+                }
+            }
             0xFE00..=0xFE0F => self.ula_read(addr),
             0xFC00..=0xFDFF | 0xFE10..=0xFEFF => 0xFF,
             0xC000..=0xFFFF => self
@@ -381,10 +393,11 @@ impl AcornElectron {
     fn ula_read(&mut self, addr: u16) -> u8 {
         match addr & 0x0F {
             0x00 => {
-                let irq_bits = self.ula.interrupt_status & 0xFE;
-                let kbd = self.ula.read_keyboard(addr);
-                let master = u8::from(self.ula.irq_active());
-                irq_bits | master | (kbd & 0x0F)
+                // Interrupt status. Bit 7 always reads high; bit 0 is the
+                // master IRQ; bits 1-6 the individual sources. The keyboard
+                // is NOT read here — it pages into $8000-$BFFF via ROM
+                // slots 8/9. (MAME `electron_ula` SHEILA $00 read.)
+                0x80 | self.ula.interrupt_status
             }
             _ => 0xFF,
         }
@@ -392,9 +405,12 @@ impl AcornElectron {
 
     fn ula_write(&mut self, addr: u16, value: u8) {
         match addr & 0x0F {
-            // $FE00: interrupt clear by writing 1s.
+            // $FE00: interrupt control. Bits 2-6 enable the matching
+            // status sources; the master IRQ asserts when an enabled
+            // source is pending. Interrupt *clears* are on $FE05, not
+            // here. (MAME `electron_ula` SHEILA $00 write.)
             0x00 => {
-                self.ula.interrupt_status &= !value;
+                self.ula.interrupt_enable = value;
                 self.ula.refresh_master_irq();
             }
             // Screen start address. The ULA packs address bits A6-A14 across
@@ -740,6 +756,40 @@ mod tests {
         sys.ula_write(0xFE0F, 0x00);
         assert_eq!(sys.ula.colour(0), 0xFF00_0000, "logical 0 should be black");
         assert_eq!(sys.ula.colour(1), 0xFFFF_FFFF, "logical 1 should be white");
+    }
+
+    #[test]
+    fn keyboard_reads_active_high_through_paged_rom() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        // Page the keyboard in — ROM slot 8 maps the matrix into
+        // $8000-$BFFF.
+        sys.ula_write(0xFE05, 0x08);
+        // Press H = column 7, row 2.
+        sys.press_key(7, 2);
+        // Selecting column 7 means driving address bit 7 low; the row
+        // returns active-high on D2.
+        let sel7 = 0x8000 | (0x3FFF & !(1u16 << 7));
+        assert_eq!(sys.mem_read(sel7) & 0x0F, 0x04, "row 2 should read high");
+        // Leaving bit 7 high does not select column 7.
+        let not7 = 0x8000 | (1u16 << 7);
+        assert_eq!(sys.mem_read(not7) & 0x0F, 0x00, "column 7 not selected");
+        sys.release_key(7, 2);
+        assert_eq!(sys.mem_read(sel7) & 0x0F, 0x00, "released key reads low");
+    }
+
+    #[test]
+    fn interrupt_control_write_gates_master_irq() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        // A pending RTC with no source enabled must not raise the line.
+        sys.ula.signal_rtc();
+        assert!(!sys.irq_asserted());
+        // Writing $FE00 enables the RTC source, raising the master IRQ.
+        sys.ula_write(0xFE00, 0x08);
+        assert!(sys.irq_asserted());
+        // The status read sets bit 7 high (MAME `0x80 | m_int_status`).
+        assert_eq!(sys.mem_read(0xFE00) & 0x80, 0x80);
     }
 
     #[test]
