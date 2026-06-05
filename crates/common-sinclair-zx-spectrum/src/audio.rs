@@ -24,9 +24,17 @@
 /// and Amstrad-class via `mix_ay_into_audio` end-of-frame. Beeper + EAR
 /// blend ratios fixed at 0.8 / 0.2 in `SpeakerMixer::level`.
 ///
+/// **Version 2** (2026-06-05): beeper output is now AC-coupled like the real
+/// speaker. `BeeperAudio::end_frame` maps the per-sample level unipolar
+/// (silence → 0, full → `volume`) and passes it through a first-order
+/// DC-blocking high-pass, mirroring the NES APU. Silence sits at 0 instead of
+/// the old −full-scale rail, a held level decays to silence, and a tone is a
+/// clean AC swing centred on zero. `volume` default raised 0.5 → 1.0 to keep
+/// the perceived loudness of a toggling tone unchanged across the remap.
+///
 /// See `knowledge/decisions/spectrum-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 1;
+pub const AUDIO_ROUTING_VERSION: u32 = 2;
 
 /// Combined beeper + tape-EAR speaker line state with the canonical blend
 /// ratios (0.8 for the beeper output, 0.2 for the tape EAR input).
@@ -201,7 +209,20 @@ pub struct BeeperAudio {
     volume: f32,
     #[serde(default = "default_audio_controls")]
     audio_controls: AudioControls,
+    /// DC-blocking high-pass state: previous input and output samples.
+    /// Transient DSP state — defaults to 0.0 on deserialize, which is the
+    /// correct rest state for the filter.
+    #[serde(default)]
+    hp_prev_in: f32,
+    #[serde(default)]
+    hp_prev_out: f32,
 }
+
+/// First-order DC-blocking high-pass coefficient: `y[n] = α(y[n-1] + x[n] − x[n-1])`.
+/// `α ≈ 0.9952` gives a ~34 Hz cutoff at the Spectrum's 44.1 kHz output — well
+/// below the audible band, so it removes the speaker's DC offset without
+/// touching the tone. Same form and value as the NES APU's blocker.
+const DC_BLOCK_ALPHA: f32 = 0.9952;
 
 impl BeeperAudio {
     /// Creates a beeper mixer for one machine clock domain.
@@ -216,8 +237,10 @@ impl BeeperAudio {
             current_level: 0.0,
             last_tstate: 0,
             accum: vec![0.0; samples_per_frame],
-            volume: 0.5,
+            volume: 1.0,
             audio_controls: AudioControls::default(),
+            hp_prev_in: 0.0,
+            hp_prev_out: 0.0,
         }
     }
 
@@ -247,11 +270,19 @@ impl BeeperAudio {
 
         for (index, sample) in out.iter_mut().take(len).enumerate() {
             let fraction = (f64::from(self.accum[index]) / tstates_per_sample).clamp(0.0, 1.0);
-            let base = ((fraction * 2.0 - 1.0) * f64::from(self.volume)) as f32;
+            // Unipolar level: silence → 0, full speaker → `volume`. The real
+            // speaker is AC-coupled, so a DC-blocking high-pass removes the
+            // offset — silence rests at 0, a held level decays away, and a
+            // tone becomes a clean swing centred on zero. Advance the filter
+            // even when the channel is muted so unmuting doesn't glitch.
+            let raw = (fraction * f64::from(self.volume)) as f32;
+            let filtered = DC_BLOCK_ALPHA * (self.hp_prev_out + raw - self.hp_prev_in);
+            self.hp_prev_in = raw;
+            self.hp_prev_out = filtered;
             *sample = self
                 .audio_controls
                 .channel(SpeakerChannel::Speaker)
-                .apply(base)
+                .apply(filtered)
                 * self.audio_controls.master_gain();
         }
 
@@ -318,28 +349,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn silence_maps_to_negative_full_scale() {
+    fn silence_maps_to_zero() {
+        // AC-coupled output: with no speaker activity, every sample rests at 0,
+        // not the old −full-scale rail.
         let mut audio = BeeperAudio::new(44_100, 69_888, 3_500_000);
         audio.set_volume(1.0);
         let mut out = vec![0.0; audio.samples_per_frame()];
         audio.end_frame(&mut out);
 
         for &sample in &out {
-            assert!((sample - (-1.0)).abs() < 0.01);
+            assert!(sample.abs() < 0.01, "silence sample {sample} not near zero");
         }
     }
 
     #[test]
-    fn constant_high_maps_to_positive_full_scale() {
+    fn held_level_is_dc_blocked_toward_zero() {
+        // A speaker held high is DC: the high-pass passes the onset transient,
+        // then decays toward silence over the frame.
         let mut audio = BeeperAudio::new(44_100, 69_888, 3_500_000);
         audio.set_volume(1.0);
         audio.set_level(0, 1.0);
         let mut out = vec![0.0; audio.samples_per_frame()];
         audio.end_frame(&mut out);
 
-        for &sample in &out {
-            assert!((sample - 1.0).abs() < 0.01);
-        }
+        assert!(
+            out[0] > 0.9,
+            "onset sample {} should be near full scale",
+            out[0]
+        );
+        let last = *out.last().unwrap();
+        assert!(
+            last < 0.05,
+            "held level should decay; last sample was {last}"
+        );
     }
 
     #[test]
@@ -356,7 +398,9 @@ mod tests {
     }
 
     #[test]
-    fn level_carries_across_frames() {
+    fn held_level_decays_to_silence_across_frames() {
+        // The filter state carries across frames, so a level held since the
+        // first frame has fully decayed away by the second — no DC remains.
         let mut audio = BeeperAudio::new(44_100, 69_888, 3_500_000);
         audio.set_volume(1.0);
         audio.set_level(0, 1.0);
@@ -367,7 +411,10 @@ mod tests {
         audio.end_frame(&mut second);
 
         for &sample in &second {
-            assert!((sample - 1.0).abs() < 0.01);
+            assert!(
+                sample.abs() < 0.02,
+                "held level should be silent by frame 2, got {sample}"
+            );
         }
     }
 
