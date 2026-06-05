@@ -112,7 +112,7 @@ clean script/MCP parity break.
 | Device | Variant | Consumes it | Notable gaps |
 |--------|---------|-------------|--------------|
 | Keyboard | `Key` | ~26 machines | atari-5200/7800 keypad/console partial (joystick wired 2026-06-05) |
-| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20**, **bbc**, **svi-328**, **sord-m5**, **mtx**, **aquarius**, **einstein** (~21) | oric — no native port (Telestrat only) |
+| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20**, **bbc**, **svi-328**, **sord-m5**, **mtx**, **aquarius**, **einstein**, **oric** (IJK) (~22) | — every machine wired |
 | Paddle / analogue | `Axis` | dragon, spectrum, **atari-5200** (POKEY pots), **bbc** (μPD7002 ADC), **c64** (SID POTX/POTY + CIA mux), **atari-2600** (TIA INPT0-3 charge timing) — all 2026-06-05 | atari-800xl, coleco — **absent** |
 | Mouse | `Pointer*` | amiga **only** (correct machine) | MCP-undrivable; c64 1351 minor |
 
@@ -193,11 +193,14 @@ wire the missing consumers** — not new architecture.
    console, 5200 analogue `Axis` + digital + fire. ✅ atari-800xl, **msx**
    (PSG port A), **vic-20** (both VIAs — right on VIA #2 PB7) wired 2026-06-05.
    Remaining digital `Button` machines, re-scoped after a reference pass:
-   - **oric-atmos** — *reclassified, not natively capable.* The Atmos has **no
-     joystick port**; the Atari-pinout twin ports belong to the **Telestrat**
-     (second VIA). Wiring the Atmos would mean modelling one of several
-     incompatible third-party interfaces (IJK, etc.) — a product decision, not
-     a pin-exposure. Deferred pending a chosen interface.
+   - **oric-atmos** — ✅ *wired 2026-06-05 from Oricutron `joystick.c`.* The
+     Atmos has no built-in port, so this models the **IJK interface** — the
+     de-facto Oric joystick. Both sticks read on VIA port A (bit 0 right, 1
+     left, 2 fire, 3 down, 4 up, bit 5 = IJK-present marker, all active low),
+     gated by PB4 (output + low) and selected by port A bits 6/7. The reference
+     library had no IJK pin map and MAME models only the Telestrat's ports, so
+     Oricutron — the canonical Oric emulator, downloaded into `emulators/oric/`
+     — was the primary source.
    - **svi-328** — ✅ *wired 2026-06-05 from MAME `svi318.cpp`.* Both sticks read
      at once: directions on PSG port A (P1 low nibble, P2 high nibble) and fire
      buttons on PPI port A bits 4-5, all active low. MAME is the primary source

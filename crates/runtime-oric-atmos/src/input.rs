@@ -8,19 +8,92 @@
 //! Every position was probed against the real Oric BASIC ROM (press the
 //! cell, read the echoed glyph from screen RAM) and cross-checked against
 //! MAME's `tangerine/oric.cpp` `ROW0`-`ROW7` ports.
+//!
+//! Joystick input arrives as [`InputEvent::Button`] on a numbered port and
+//! drives the IJK interface — the de-facto Oric joystick — through
+//! [`OricAtmos::set_joystick`]. Port 1 is the left stick, port 2 the right.
+//! One [`ControllerCache`] mirror per port re-applies the whole state on each
+//! event.
 
 use emu198x_shell::InputEvent;
 use machine_oric_atmos::OricAtmos;
 
-pub(crate) fn apply_input_event(machine: &mut OricAtmos, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event
-        && let Some((col, row)) = key_to_matrix(name.as_ref())
-    {
-        if *pressed {
-            machine.press_key(col, row);
-        } else {
-            machine.release_key(col, row);
+/// Host-side mirror of one IJK stick: four directions plus the fire button,
+/// re-applied via [`OricAtmos::set_joystick`] on every event.
+#[derive(Clone, Copy, Debug, Default)]
+struct JoystickCache {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    fire: bool,
+}
+
+impl JoystickCache {
+    /// Record a digital control by name. Returns `true` when the name maps to
+    /// a joystick direction or the fire button.
+    fn set_control(&mut self, name: &str, pressed: bool) -> bool {
+        match name {
+            "up" | "arrowup" => self.up = pressed,
+            "down" | "arrowdown" => self.down = pressed,
+            "left" | "arrowleft" => self.left = pressed,
+            "right" | "arrowright" => self.right = pressed,
+            "fire" | "fire1" | "trigger" | "button" => self.fire = pressed,
+            _ => return false,
         }
+        true
+    }
+}
+
+/// Host-side mirror of both IJK joystick ports (1 = left, 2 = right).
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ControllerCache {
+    ports: [JoystickCache; 2],
+}
+
+impl ControllerCache {
+    /// Apply a `Button` event for `port` (1 or 2): record the control and push
+    /// the whole port state to the machine. Out-of-range ports clamp to the
+    /// valid pair, matching [`OricAtmos::set_joystick`].
+    fn apply_button(&mut self, machine: &mut OricAtmos, port: u8, name: &str, pressed: bool) {
+        let port = port.clamp(1, 2);
+        let cache = &mut self.ports[usize::from(port - 1)];
+        if cache.set_control(name, pressed) {
+            machine.set_joystick(
+                port,
+                cache.up,
+                cache.down,
+                cache.left,
+                cache.right,
+                cache.fire,
+            );
+        }
+    }
+}
+
+pub(crate) fn apply_input_event(
+    machine: &mut OricAtmos,
+    cache: &mut ControllerCache,
+    event: &InputEvent,
+) {
+    match event {
+        InputEvent::Key { name, pressed } => {
+            if let Some((col, row)) = key_to_matrix(name.as_ref()) {
+                if *pressed {
+                    machine.press_key(col, row);
+                } else {
+                    machine.release_key(col, row);
+                }
+            }
+        }
+        InputEvent::Button {
+            port,
+            name,
+            pressed,
+        } => {
+            cache.apply_button(machine, *port, &name.to_ascii_lowercase(), *pressed);
+        }
+        _ => {}
     }
 }
 
@@ -109,5 +182,43 @@ mod tests {
     #[test]
     fn unmapped_key_returns_none() {
         assert_eq!(key_to_matrix("f1"), None);
+    }
+
+    fn button(port: u8, name: &str, pressed: bool) -> InputEvent {
+        InputEvent::Button {
+            port,
+            name: std::borrow::Cow::Owned(name.to_owned()),
+            pressed,
+        }
+    }
+
+    #[test]
+    fn button_events_drive_the_ijk_sticks() {
+        use machine_oric_atmos::OricModel;
+        let mut m = OricAtmos::new(vec![0u8; 0x4000], OricModel::Atmos);
+        let mut cache = ControllerCache::default();
+
+        // Left stick (port 1) up + fire: bit 4 (up) and bit 2 (fire) low.
+        apply_input_event(&mut m, &mut cache, &button(1, "up", true));
+        apply_input_event(&mut m, &mut cache, &button(1, "fire", true));
+        let mask = m.joystick_port_mask(1);
+        assert_eq!(mask & 0x10, 0, "left up → bit 4 low");
+        assert_eq!(mask & 0x04, 0, "left fire → bit 2 low");
+        assert_eq!(mask & 0x01, 0x01, "left right idle high");
+
+        // Right stick (port 2) is independent.
+        apply_input_event(&mut m, &mut cache, &button(2, "right", true));
+        assert_eq!(
+            m.joystick_port_mask(2) & 0x01,
+            0,
+            "right stick right → bit 0 low"
+        );
+        assert_eq!(m.joystick_port_mask(1) & 0x10, 0, "left stick still held");
+
+        // Releasing left up restores its bit; fire stays held.
+        apply_input_event(&mut m, &mut cache, &button(1, "up", false));
+        let mask = m.joystick_port_mask(1);
+        assert_eq!(mask & 0x10, 0x10, "left up released → bit 4 high");
+        assert_eq!(mask & 0x04, 0, "left fire still held");
     }
 }

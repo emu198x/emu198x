@@ -115,6 +115,17 @@ pub enum OricModel {
     Atmos,
 }
 
+/// One IJK joystick's switch state (active-high here; inverted into the
+/// active-low port-A mask when read).
+#[derive(Clone, Copy, Debug, Default)]
+struct JoyState {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    fire: bool,
+}
+
 /// Oric machine.
 pub struct OricAtmos {
     cpu: M6502,
@@ -124,6 +135,10 @@ pub struct OricAtmos {
     rom: Vec<u8>,
     /// 8×8 keyboard matrix, active-low.
     keyboard: [u8; 8],
+    /// IJK joystick interface state, `[left port, right port]`. The IJK is the
+    /// de-facto Oric joystick: both sticks are read on VIA port A, selected by
+    /// port A bits 6-7 and gated by PB4. See [`OricAtmos::update_ijk_joystick`].
+    joystick: [JoyState; 2],
     framebuffer: Vec<u32>,
     ram_size: usize,
     model: OricModel,
@@ -149,6 +164,7 @@ impl OricAtmos {
             ram: [0; 65536],
             rom,
             keyboard: [0xFF; 8],
+            joystick: [JoyState::default(); 2],
             framebuffer: vec![ORIC_PALETTE[0]; (FB_WIDTH * FB_HEIGHT) as usize],
             ram_size,
             model,
@@ -183,7 +199,12 @@ impl OricAtmos {
 
     fn mem_read(&mut self, addr: u16) -> u8 {
         match addr {
-            0x0300..=0x03FF => self.via.read((addr & 0x0F) as u8),
+            0x0300..=0x03FF => {
+                // The IJK joystick drives the VIA port-A input lines; refresh
+                // them before the register read resolves.
+                self.update_ijk_joystick();
+                self.via.read((addr & 0x0F) as u8)
+            }
             0xC000..=0xFFFF => self
                 .rom
                 .get((addr - 0xC000) as usize)
@@ -265,6 +286,88 @@ impl OricAtmos {
         } else {
             self.via.pb_in &= !0x08;
         }
+    }
+
+    /// Drive the IJK joystick interface onto the VIA port-A input lines.
+    ///
+    /// The IJK — the de-facto Oric Atmos joystick interface — hangs off the
+    /// printer port and presents the sticks on VIA port A. Modelled from
+    /// Oricutron (`joystick.c`):
+    ///
+    /// * **Enable.** The interface only drives port A while PB4 is configured
+    ///   as an output and held **low** (so `port_b_drive_state` bit 4 is 0).
+    ///   Otherwise port A is left to the AY bus / keyboard.
+    /// * **Select.** Port A bits 6-7 (CPU outputs) pick the stick: bit 6 reads
+    ///   the left port, bit 7 the right; both high selects neither.
+    /// * **Layout.** Directions and fire come back active low on bits 0-4
+    ///   (bit 0 right, 1 left, 2 fire, 3 down, 4 up); bit 5 is always low — the
+    ///   IJK-present marker the detection routines look for.
+    fn update_ijk_joystick(&mut self) {
+        // PB4 must be a driven-low output for the interface to be active.
+        if self.via.port_b_drive_state() & 0x10 != 0 {
+            return;
+        }
+        let select = self.via.ora();
+        if select & 0xC0 == 0xC0 {
+            return; // neither stick selected
+        }
+        let mut mask = !0x20u8; // bit 5: IJK-present marker (always low)
+        if select & 0x40 != 0 {
+            mask &= Self::joystick_mask(self.joystick[0]); // left port
+        }
+        if select & 0x80 != 0 {
+            mask &= Self::joystick_mask(self.joystick[1]); // right port
+        }
+        self.via.pa_in = mask;
+    }
+
+    /// The active-low port-A mask one IJK stick would present (`port` 1 = left,
+    /// 2 = right): bit 0 right, 1 left, 2 fire, 3 down, 4 up, a pressed control
+    /// clearing its bit. For inspection and host-side input wiring.
+    #[must_use]
+    pub fn joystick_port_mask(&self, port: u8) -> u8 {
+        Self::joystick_mask(self.joystick[usize::from(port.clamp(1, 2) - 1)])
+    }
+
+    /// The active-low port-A contribution for one stick: a pressed control
+    /// clears its bit (bit 0 right, 1 left, 2 fire, 3 down, 4 up).
+    fn joystick_mask(state: JoyState) -> u8 {
+        let mut m = 0xFFu8;
+        for (pressed, bit) in [
+            (state.right, 0x01),
+            (state.left, 0x02),
+            (state.fire, 0x04),
+            (state.down, 0x08),
+            (state.up, 0x10),
+        ] {
+            if pressed {
+                m &= !bit;
+            }
+        }
+        m
+    }
+
+    /// Set the IJK joystick state for `port` (1 = left, 2 = right). Read back on
+    /// VIA port A once the program enables the interface (PB4 low) and selects
+    /// the stick (port A bit 6 / 7). Out-of-range ports clamp to the pair.
+    #[allow(clippy::fn_params_excessive_bools)]
+    pub fn set_joystick(
+        &mut self,
+        port: u8,
+        up: bool,
+        down: bool,
+        left: bool,
+        right: bool,
+        fire: bool,
+    ) {
+        let idx = usize::from(port.clamp(1, 2) - 1);
+        self.joystick[idx] = JoyState {
+            up,
+            down,
+            left,
+            right,
+            fire,
+        };
     }
 
     fn render_display(&mut self) {
@@ -635,5 +738,56 @@ mod tests {
         assert_eq!(sys.keyboard[2] & (1 << 5), 0);
         sys.release_key(2, 5);
         assert_eq!(sys.keyboard[2] & (1 << 5), 1 << 5);
+    }
+
+    /// Configure the VIA the way an IJK read routine does: PB4 a driven-low
+    /// output (interface enable), port A bits 0-5 inputs and 6-7 outputs.
+    fn enable_ijk(sys: &mut OricAtmos) {
+        sys.mem_write(0x0302, 0x10); // DDRB: PB4 output
+        sys.mem_write(0x0300, 0x00); // ORB: PB4 low
+        sys.mem_write(0x0303, 0xC0); // DDRA: bits 6-7 output, 0-5 input
+    }
+
+    #[test]
+    fn ijk_joystick_reads_on_port_a_when_enabled_and_selected() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        enable_ijk(&mut sys);
+
+        // Select the left port (port A bit 6) and read it idle.
+        sys.mem_write(0x0301, 0x40);
+        let pa = sys.mem_read(0x0301);
+        assert_eq!(pa & 0x20, 0, "bit 5 low = IJK present");
+        assert_eq!(pa & 0x1F, 0x1F, "no directions held");
+
+        // Press left-port up + fire: bit 4 (up) and bit 2 (fire) go low.
+        sys.set_joystick(1, true, false, false, false, true);
+        let pa = sys.mem_read(0x0301);
+        assert_eq!(pa & 0x10, 0, "up → bit 4 low");
+        assert_eq!(pa & 0x04, 0, "fire → bit 2 low");
+        assert_eq!(pa & 0x01, 0x01, "right idle high");
+
+        // The right-port stick is independent — selecting bit 7 reads it.
+        sys.set_joystick(2, false, false, true, false, false); // left
+        sys.mem_write(0x0301, 0x80);
+        let pa = sys.mem_read(0x0301);
+        assert_eq!(pa & 0x02, 0, "right-port left → bit 1 low");
+        assert_eq!(
+            pa & 0x10,
+            0x10,
+            "right-port up idle (left stick not selected)"
+        );
+    }
+
+    #[test]
+    fn ijk_inactive_unless_pb4_is_a_driven_low_output() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        // DDRA set for the read, but PB4 left as an input (interface disabled).
+        sys.mem_write(0x0303, 0xC0);
+        sys.mem_write(0x0301, 0x40); // select left port
+        sys.set_joystick(1, true, false, false, false, false);
+        // With the interface disabled, the joystick must not drive port A: the
+        // marker bit 5 stays high (open lines read high).
+        let pa = sys.mem_read(0x0301);
+        assert_ne!(pa & 0x20, 0, "no IJK drive while PB4 is not a low output");
     }
 }
