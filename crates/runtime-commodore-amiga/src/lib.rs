@@ -17,8 +17,8 @@ pub use amiga_model::{
 };
 pub use cpu_trace::CpuTraceEntry;
 pub use live_access::{
-    AmigaLiveAccess, Bplcon0LogEntry, CpuSnapshot, CustomWriteEntry, DskLogEntry, PaletteLogEntry,
-    RegReadLogEntry, WatchLogEntry,
+    AgaLisaSnapshot, AmigaLiveAccess, Bplcon0LogEntry, CpuSnapshot, CustomWriteEntry, DskLogEntry,
+    PaletteLogEntry, RegReadLogEntry, WatchLogEntry,
 };
 pub use machine_commodore_amiga_ocs::{AudioControls, PaulaChannel, RamConfig};
 pub use profiles::{

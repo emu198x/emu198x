@@ -1709,18 +1709,16 @@ fn tool_bplcon0_log(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolErr
     }))
 }
 
-// NB: still `&mut AmigaSession` — `query_aga` reaches AGA-only Lisa/Denise
-// state via `aga_machine_mut().denise_aga()`, which is not on the
-// `AmigaLiveAccess` trait. Porting it onto `AmigaCtx` needs a trait accessor
-// for the AGA palette/BPLCON3 first (tracked Phase-4 follow-up).
-fn tool_query_aga(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    // Pull the OCS 12-bit palette first via the trait so we don't
-    // hold the A1200 borrow while later code needs it for AGA-only
-    // `denise_aga()` access.
+fn tool_query_aga(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let ocs_palette: Vec<String> = (0..32)
         .map(|i| format!("${:03X}", s.live().color(i)))
         .collect();
-    let aga = s.aga_machine_mut().denise_aga();
+    // AGA Lisa state via the trait — `None` on OCS / ECS sessions.
+    let Some(aga) = s.live().aga_lisa() else {
+        return Err(ToolError::Execution(
+            "query_aga: active session is not AGA (no Lisa state)".into(),
+        ));
+    };
     let bplcon3 = aga.bplcon3;
     let bank = (bplcon3 >> 13) & 7;
     let loct = (bplcon3 & 0x0200) != 0;
@@ -1750,7 +1748,7 @@ fn tool_query_aga(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError>
         );
     }
     Ok(json!({
-        "deniseid": format!("${:04X}", aga.deniseid()),
+        "deniseid": format!("${:04X}", aga.deniseid),
         "bplcon3": format!("${:04X}", bplcon3),
         "bplcon3_bank": bank,
         "bplcon3_loct": loct,

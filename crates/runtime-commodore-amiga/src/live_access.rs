@@ -57,6 +57,22 @@ pub struct CpuSnapshot {
     pub instruction_starts: u64,
 }
 
+/// AGA Lisa (AGA Denise) state snapshot for the `query_aga` tool.
+/// Returned by [`AmigaLiveAccess::aga_lisa`] as `Some` only on an AGA
+/// session; OCS / ECS return `None`. Copies the AGA-only register state
+/// out so the tool body stays chipset-agnostic instead of downcasting to
+/// the concrete A1200.
+#[derive(Debug, Clone)]
+pub struct AgaLisaSnapshot {
+    pub deniseid: u16,
+    pub bplcon3: u16,
+    pub bplcon4: u16,
+    pub spr_width: u8,
+    pub ham_prev_rgb24: u32,
+    /// 256-entry 24-bit palette (8 banks × 32), stored `0x00RRGGBB`.
+    pub palette_24: [u32; 256],
+}
+
 /// Watch-log entry shape: `(tick, pc, addr, value, is_word)`.
 ///
 /// Re-aliased here so MCP tool bodies can name the type without
@@ -249,6 +265,15 @@ pub trait AmigaLiveAccess {
     /// Captured entries, oldest first.
     fn cpu_trace_entries(&self) -> &[crate::CpuTraceEntry] {
         &[]
+    }
+
+    // ---------- AGA-only state ----------
+
+    /// AGA Lisa register + palette snapshot, or `None` on OCS / ECS.
+    /// Lets the `query_aga` tool reach Lisa state without downcasting to
+    /// the concrete A1200.
+    fn aga_lisa(&self) -> Option<AgaLisaSnapshot> {
+        None
     }
 }
 
@@ -787,6 +812,19 @@ impl AmigaLiveAccess for AmigaA1200 {
         Some(AmigaA1200::copper(self))
     }
 
+    fn aga_lisa(&self) -> Option<AgaLisaSnapshot> {
+        let aga = self.denise_aga();
+        Some(AgaLisaSnapshot {
+            deniseid: aga.deniseid(),
+            // bplcon3 lives on the inner ECS Denise; reachable via Deref.
+            bplcon3: aga.bplcon3,
+            bplcon4: aga.bplcon4,
+            spr_width: aga.spr_width,
+            ham_prev_rgb24: aga.ham_prev_rgb24,
+            palette_24: aga.palette_24,
+        })
+    }
+
     fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
         if change_pending {
             self.insert_adf_with_change_pending(adf);
@@ -1105,6 +1143,13 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
         match self {
             Self::Ocs(_) | Self::Ecs(_) => None,
             Self::Aga(rt) => rt.machine().aga_copper(),
+        }
+    }
+
+    fn aga_lisa(&self) -> Option<AgaLisaSnapshot> {
+        match self {
+            Self::Ocs(_) | Self::Ecs(_) => None,
+            Self::Aga(rt) => rt.machine().aga_lisa(),
         }
     }
 
