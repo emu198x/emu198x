@@ -1,20 +1,43 @@
-//! BBC Micro keyboard input mapping.
+//! BBC Micro keyboard and joystick input mapping.
 //!
 //! BBC keyboard matrix is 10×8 (col × row), read via the System VIA at
 //! `$FE40`. The mapping here covers the standard Model B layout.
+//!
+//! The BBC's two analogue joysticks split across two chips: the **fire
+//! buttons** are switches on System VIA PB4 (joy 1) / PB5 (joy 2), wired here
+//! from [`InputEvent::Button`] on the matching port; the **X/Y axes** are read
+//! through the μPD7002 ADC (`InputEvent::Axis`, a separate path).
 
 use emu198x_shell::InputEvent;
 use machine_acorn_bbc_micro::BbcMicro;
 
 pub(crate) fn apply_input_event(machine: &mut BbcMicro, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event
-        && let Some((col, row)) = key_to_matrix(name.as_ref())
-    {
-        if *pressed {
-            machine.press_key(col, row);
-        } else {
-            machine.release_key(col, row);
+    match event {
+        InputEvent::Key { name, pressed } => {
+            if let Some((col, row)) = key_to_matrix(name.as_ref()) {
+                if *pressed {
+                    machine.press_key(col, row);
+                } else {
+                    machine.release_key(col, row);
+                }
+            }
         }
+        InputEvent::Button {
+            port,
+            name,
+            pressed,
+        } => {
+            apply_button(machine, *port, &name.to_ascii_lowercase(), *pressed);
+        }
+        _ => {}
+    }
+}
+
+/// Apply a `Button` event: a fire / trigger name drives the fire switch on the
+/// joystick's port; other names are ignored.
+fn apply_button(machine: &mut BbcMicro, port: u8, name: &str, pressed: bool) {
+    if matches!(name, "fire" | "fire1" | "trigger" | "button") {
+        machine.set_fire_button(port, pressed);
     }
 }
 

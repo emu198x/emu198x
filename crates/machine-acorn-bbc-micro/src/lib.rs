@@ -221,6 +221,11 @@ pub struct BbcMicro {
     framebuffer: Vec<u32>,
     cpu_cycles: u64,
     frame_count: u64,
+    /// Joystick fire buttons, `[joy1, joy2]`. The two analogue joysticks each
+    /// have a switch wired to System VIA port B: PB4 (joy 1) and PB5 (joy 2),
+    /// both active low. Merged into the VIA input latch each tick. (The X/Y
+    /// axes are read through the μPD7002 ADC — a separate path.)
+    fire: [bool; 2],
 }
 
 impl BbcMicro {
@@ -248,7 +253,16 @@ impl BbcMicro {
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
             cpu_cycles: 0,
             frame_count: 0,
+            fire: [false; 2],
         }
+    }
+
+    /// Set a joystick fire button (`port` 1 or 2, `true` = pressed). The switch
+    /// is read on System VIA PB4 (joy 1) / PB5 (joy 2), active low; the value is
+    /// merged into the VIA input latch on the next tick. Out-of-range ports
+    /// clamp to the valid pair.
+    pub fn set_fire_button(&mut self, port: u8, pressed: bool) {
+        self.fire[usize::from(port.clamp(1, 2) - 1)] = pressed;
     }
 
     /// Supply the SAA5050 teletext character ROM (960 bytes: 96 glyphs of
@@ -292,6 +306,7 @@ impl BbcMicro {
         // "key held" during its power-on scan and never reaches the CLI that
         // enables interrupts and prints the banner.
         self.update_keyboard_pa7();
+        self.update_joystick_fire();
         self.cpu.tick();
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
@@ -319,6 +334,21 @@ impl BbcMicro {
             .unwrap_or(false);
         let bit = if pressed { 0x80 } else { 0x00 };
         self.system_via.pa_in = (self.system_via.pa_in & 0x7F) | bit;
+    }
+
+    /// Merge the joystick fire buttons into System VIA port B: PB4 (joy 1) and
+    /// PB5 (joy 2), active low (pressed pulls the line low). Read-modify-write
+    /// leaves the addressable-latch outputs (PB0-3) and the speech lines
+    /// (PB6-7) untouched.
+    fn update_joystick_fire(&mut self) {
+        let mut bits = 0x30u8; // both fire lines idle high
+        if self.fire[0] {
+            bits &= !0x10;
+        }
+        if self.fire[1] {
+            bits &= !0x20;
+        }
+        self.system_via.pb_in = (self.system_via.pb_in & !0x30) | bits;
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
@@ -720,6 +750,39 @@ mod tests {
         sys.mem_write(0xFE43, 0xFF); // DDRA
         sys.mem_write(0xFE41, 0x77); // ORA
         assert_eq!(sys.system_via.ora(), 0x77);
+    }
+
+    #[test]
+    fn joystick_fire_buttons_pull_system_via_pb4_pb5_low() {
+        let mut sys = BbcMicro::new(trap_rom());
+        // Idle: both fire lines read high.
+        sys.update_joystick_fire();
+        assert_eq!(sys.system_via.pb_in & 0x30, 0x30);
+
+        // Joy 1 fire → PB4 low, PB5 still high.
+        sys.set_fire_button(1, true);
+        sys.update_joystick_fire();
+        assert_eq!(sys.system_via.pb_in & 0x10, 0, "joy1 fire → PB4 low");
+        assert_eq!(sys.system_via.pb_in & 0x20, 0x20, "joy2 idle → PB5 high");
+
+        // Joy 2 fire as well → both low.
+        sys.set_fire_button(2, true);
+        sys.update_joystick_fire();
+        assert_eq!(sys.system_via.pb_in & 0x30, 0, "both fire → PB4+PB5 low");
+
+        // Release joy 1 → PB4 high again, PB5 held low.
+        sys.set_fire_button(1, false);
+        sys.update_joystick_fire();
+        assert_eq!(
+            sys.system_via.pb_in & 0x10,
+            0x10,
+            "joy1 released → PB4 high"
+        );
+        assert_eq!(sys.system_via.pb_in & 0x20, 0, "joy2 still held → PB5 low");
+
+        // It must reach the CPU through the IRB read with port B as input.
+        let pb = sys.mem_read(0xFE40);
+        assert_eq!(pb & 0x20, 0, "PB5 low visible at $FE40");
     }
 
     #[test]
