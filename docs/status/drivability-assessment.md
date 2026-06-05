@@ -111,9 +111,9 @@ clean script/MCP parity break.
 
 | Device | Variant | Consumes it | Notable gaps |
 |--------|---------|-------------|--------------|
-| Keyboard | `Key` | ~26 machines | **atari-5200, atari-7800: none** |
-| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum (~10) | vic-20, atari-800xl/5200/7800, msx, oric, svi-328, einstein, aquarius, mtx, sord-m5, bbc — capable, **unwired** |
-| Paddle / analogue | `Axis` | dragon, spectrum **only** | atari-2600 (signature paddles), **c64 (SID POTX/POTY)**, atari-800xl/5200, coleco — **absent** |
+| Keyboard | `Key` | ~26 machines | atari-5200/7800 keypad/console partial (joystick wired 2026-06-05) |
+| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800** (~12) | vic-20, atari-800xl, msx, oric, svi-328, einstein, aquarius, mtx, sord-m5, bbc — capable, **unwired** |
+| Paddle / analogue | `Axis` | dragon, spectrum, **atari-5200** (POKEY pots, 2026-06-05) | atari-2600 (signature paddles), **c64 (SID POTX/POTY)**, atari-800xl, coleco — **absent** |
 | Mouse | `Pointer*` | amiga **only** (correct machine) | MCP-undrivable; c64 1351 minor |
 
 **Atari 5200 and 7800 consume no input at all** — they boot, run cartridges, and
@@ -188,10 +188,13 @@ wire the missing consumers** — not new architecture.
 2. **Bring Amiga (and Spectrum) onto `register_common_tools`.** End the
    snowflake surfaces; Amiga gains the shared `input` tool so it is keyboard-
    *and* mouse-drivable over MCP. Keep their bespoke extras on top.
-3. **Wire input consumption for the dead/partial machines:** Atari 5200/7800
-   (no input at all) first; then joystick `Button` on the ~12 capable-but-
-   unwired machines; then `Axis` for paddle machines (Atari 2600 paddles, C64
-   SID paddles) where the chip seam already exists.
+3. **Wire input consumption for the dead/partial machines:** ✅ Atari
+   5200 + 7800 (were input-dead) wired 2026-06-05 — 7800 digital joystick +
+   console, 5200 analogue `Axis` + digital + fire. Remaining: joystick
+   `Button` on the ~10 capable-but-unwired machines (vic-20, atari-800xl,
+   msx, oric, svi-328, einstein, aquarius, mtx, sord-m5, bbc); then `Axis`
+   for paddle machines (Atari 2600 paddles, C64 SID paddles) where the chip
+   seam already exists.
 4. **Debug surface — mostly already done.** 24 machines share `DebugTarget`. The
    only open items are (a) Game Boy: add `impl_sm83_debug_target!` (a new macro
    family member for a shipped single-CPU machine), and (b) Amiga: deferred by
