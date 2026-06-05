@@ -8,9 +8,10 @@
 //! `disasm`, `run_until_pc`, `step`, `io_trace`, …) work on any machine
 //! without per-binary duplication.
 //!
-//! The surface is sized for the 8-bit machines (16-bit address bus). CPU
-//! register layout and disassembly are machine-specific, so they are
-//! returned as JSON / an optional decoded line rather than a fixed shape.
+//! Addresses are `u32` so the surface spans the 8/16-bit machines (which use the
+//! low 16 bits) and the 68000 family (24-bit bus, 32-bit PC) uniformly. CPU
+//! register layout and disassembly are machine-specific, so they are returned as
+//! JSON / an optional decoded line rather than a fixed shape.
 
 use serde_json::Value;
 
@@ -19,7 +20,7 @@ use serde_json::Value;
 #[derive(Debug, Clone, Copy)]
 pub struct IoEvent {
     /// CPU program counter at the time of the access.
-    pub pc: u16,
+    pub pc: u32,
     /// I/O port (low 8 bits of the address bus).
     pub port: u8,
     /// Byte written, or byte returned on a read.
@@ -46,13 +47,13 @@ pub struct IoEvent {
 /// first new 68000 system — Atari ST / Mega Drive / … — then wired in that pass.)
 pub trait DebugTarget {
     /// Current CPU program counter.
-    fn pc(&self) -> u16;
+    fn pc(&self) -> u32;
 
     /// Read one byte with no side effects (the debugger's view of the bus).
-    fn peek(&self, addr: u16) -> u8;
+    fn peek(&self, addr: u32) -> u8;
 
     /// Write one byte to writable memory (ignored for ROM / I/O).
-    fn poke(&mut self, addr: u16, value: u8);
+    fn poke(&mut self, addr: u32, value: u8);
 
     /// CPU register snapshot as JSON. The layout is CPU-specific (Z80 vs
     /// 6502 vs …), so each machine returns its own object.
@@ -64,7 +65,7 @@ pub trait DebugTarget {
     /// Every wired CPU returns `Some`: Z80 via `zilog_z80::disassemble`; the 6502
     /// family and the 6809 via the Asm198x `isa_disasm` spec disassembler
     /// (`decode_one_6502` / `decode_one_6809`).
-    fn disassemble(&self, _addr: u16) -> Option<(String, u8)> {
+    fn disassemble(&self, _addr: u32) -> Option<(String, u8)> {
         None
     }
 
@@ -187,15 +188,15 @@ macro_rules! impl_z80_debug_target {
     };
     (@impl $runtime:ty, $get:path, $get_mut:path) => {
         impl $crate::DebugTarget for $runtime {
-            fn pc(&self) -> u16 {
-                $get(&self.machine).map_or(0, |m| m.cpu().regs.pc)
+            fn pc(&self) -> u32 {
+                $get(&self.machine).map_or(0, |m| u32::from(m.cpu().regs.pc))
             }
-            fn peek(&self, addr: u16) -> u8 {
-                $get(&self.machine).map_or(0xFF, |m| m.peek(addr))
+            fn peek(&self, addr: u32) -> u8 {
+                $get(&self.machine).map_or(0xFF, |m| m.peek(addr as u16))
             }
-            fn poke(&mut self, addr: u16, value: u8) {
+            fn poke(&mut self, addr: u32, value: u8) {
                 if let ::core::option::Option::Some(m) = $get_mut(&mut self.machine) {
-                    m.poke(addr, value);
+                    m.poke(addr as u16, value);
                 }
                 self.update_rgba_framebuffer();
             }
@@ -222,9 +223,9 @@ macro_rules! impl_z80_debug_target {
                     "halt": c.halt,
                 })
             }
-            fn disassemble(&self, addr: u16) -> Option<(String, u8)> {
+            fn disassemble(&self, addr: u32) -> Option<(String, u8)> {
                 let m = $get(&self.machine)?;
-                Some(::zilog_z80::disassemble(addr, |a| m.peek(a)))
+                Some(::zilog_z80::disassemble(addr as u16, |a| m.peek(a)))
             }
             fn step_instruction(&mut self) -> u64 {
                 use ::zilog_z80::Z80Stepper as _;
@@ -249,7 +250,7 @@ macro_rules! impl_z80_debug_target {
                     m.take_io_trace()
                         .into_iter()
                         .map(|e| $crate::IoEvent {
-                            pc: e.pc,
+                            pc: u32::from(e.pc),
                             port: e.port,
                             value: e.value,
                             write: e.write,
@@ -286,15 +287,15 @@ macro_rules! impl_6502_debug_target {
     };
     (@impl $runtime:ty, $get:path, $get_mut:path) => {
         impl $crate::DebugTarget for $runtime {
-            fn pc(&self) -> u16 {
-                $get(&self.machine).map_or(0, |m| m.cpu().regs.pc)
+            fn pc(&self) -> u32 {
+                $get(&self.machine).map_or(0, |m| u32::from(m.cpu().regs.pc))
             }
-            fn peek(&self, addr: u16) -> u8 {
-                $get(&self.machine).map_or(0xFF, |m| m.peek(addr))
+            fn peek(&self, addr: u32) -> u8 {
+                $get(&self.machine).map_or(0xFF, |m| m.peek(addr as u16))
             }
-            fn poke(&mut self, addr: u16, value: u8) {
+            fn poke(&mut self, addr: u32, value: u8) {
                 if let ::core::option::Option::Some(m) = $get_mut(&mut self.machine) {
-                    m.poke(addr, value);
+                    m.poke(addr as u16, value);
                 }
                 self.update_rgba_framebuffer();
             }
@@ -321,9 +322,9 @@ macro_rules! impl_6502_debug_target {
                 self.update_rgba_framebuffer();
                 ticks
             }
-            fn disassemble(&self, addr: u16) -> Option<(String, u8)> {
+            fn disassemble(&self, addr: u32) -> Option<(String, u8)> {
                 let m = $get(&self.machine)?;
-                $crate::isa_disasm::decode_one_6502(addr, |a| m.peek(a))
+                $crate::isa_disasm::decode_one_6502(addr as u16, |a| m.peek(a))
             }
         }
     };
@@ -347,15 +348,15 @@ macro_rules! impl_6809_debug_target {
     };
     (@impl $runtime:ty, $get:path, $get_mut:path) => {
         impl $crate::DebugTarget for $runtime {
-            fn pc(&self) -> u16 {
-                $get(&self.machine).map_or(0, |m| m.cpu().regs.pc)
+            fn pc(&self) -> u32 {
+                $get(&self.machine).map_or(0, |m| u32::from(m.cpu().regs.pc))
             }
-            fn peek(&self, addr: u16) -> u8 {
-                $get(&self.machine).map_or(0xFF, |m| m.peek(addr))
+            fn peek(&self, addr: u32) -> u8 {
+                $get(&self.machine).map_or(0xFF, |m| m.peek(addr as u16))
             }
-            fn poke(&mut self, addr: u16, value: u8) {
+            fn poke(&mut self, addr: u32, value: u8) {
                 if let ::core::option::Option::Some(m) = $get_mut(&mut self.machine) {
-                    m.poke(addr, value);
+                    m.poke(addr as u16, value);
                 }
                 self.update_rgba_framebuffer();
             }
@@ -385,9 +386,9 @@ macro_rules! impl_6809_debug_target {
                 self.update_rgba_framebuffer();
                 ticks
             }
-            fn disassemble(&self, addr: u16) -> Option<(String, u8)> {
+            fn disassemble(&self, addr: u32) -> Option<(String, u8)> {
                 let m = $get(&self.machine)?;
-                $crate::isa_disasm::decode_one_6809(addr, |a| m.peek(a))
+                $crate::isa_disasm::decode_one_6809(addr as u16, |a| m.peek(a))
             }
         }
     };

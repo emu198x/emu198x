@@ -244,6 +244,37 @@ where
             "required": ["path"]
         }),
     }));
+    registry.register(Box::new(ScriptStepTool {
+        name: "start_audio_recording",
+        description: "Begin recording emitted audio to a 16-bit PCM WAV file. \
+                      Subsequent run_frames tee audio into the session buffer; \
+                      the WAV is written when stop_audio_recording is called.",
+        schema: json!({
+            "type": "object",
+            "properties": { "path": { "type": "string" } },
+            "required": ["path"]
+        }),
+    }));
+    registry.register(Box::new(ScriptStepTool {
+        name: "stop_audio_recording",
+        description: "Finalise the in-flight audio recording and return the summary.",
+        schema: json!({ "type": "object" }),
+    }));
+    registry.register(Box::new(ScriptStepTool {
+        name: "start_video_recording",
+        description: "Begin recording the live framebuffer + audio to one MP4 file. \
+                      The file is written when stop_video_recording is called.",
+        schema: json!({
+            "type": "object",
+            "properties": { "path": { "type": "string" } },
+            "required": ["path"]
+        }),
+    }));
+    registry.register(Box::new(ScriptStepTool {
+        name: "stop_video_recording",
+        description: "Finalise the in-flight video recording and return the summary.",
+        schema: json!({ "type": "object" }),
+    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -360,13 +391,13 @@ fn run_memory_read<M: MachineCore, Q>(
     args: Value,
     session: &mut HeadlessSession<M, Q>,
 ) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "addr")? as u16;
+    let addr = parse_num(&args, "addr")?;
     let len = parse_opt(&args, "len", 16)?.min(4096);
     let target = debug_ref(session)?;
     let mut hex = String::new();
     let mut ascii = String::new();
     for offset in 0..len {
-        let byte = target.peek(addr.wrapping_add(offset as u16));
+        let byte = target.peek(addr.wrapping_add(offset));
         if offset > 0 {
             hex.push(' ');
         }
@@ -384,7 +415,7 @@ fn run_poke_byte<M: MachineCore, Q>(
     args: Value,
     session: &mut HeadlessSession<M, Q>,
 ) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "addr")? as u16;
+    let addr = parse_num(&args, "addr")?;
     let value = parse_num(&args, "value")? as u8;
     debug_mut(session)?.poke(addr, value);
     Ok(json!({ "addr": format!("${addr:04X}"), "value": format!("${value:02X}") }))
@@ -394,7 +425,7 @@ fn run_poke_word<M: MachineCore, Q>(
     args: Value,
     session: &mut HeadlessSession<M, Q>,
 ) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "addr")? as u16;
+    let addr = parse_num(&args, "addr")?;
     let value = parse_num(&args, "value")? as u16;
     let target = debug_mut(session)?;
     let [lo, hi] = value.to_le_bytes();
@@ -407,7 +438,7 @@ fn run_disasm<M: MachineCore, Q>(
     args: Value,
     session: &mut HeadlessSession<M, Q>,
 ) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "addr")? as u16;
+    let addr = parse_num(&args, "addr")?;
     let count = parse_opt(&args, "count", 16)?.min(256);
     let target = debug_ref(session)?;
     let mut lines = Vec::new();
@@ -420,7 +451,7 @@ fn run_disasm<M: MachineCore, Q>(
             ));
         };
         lines.push(json!({ "addr": format!("${a:04X}"), "text": text }));
-        a = a.wrapping_add(u16::from(len.max(1)));
+        a = a.wrapping_add(u32::from(len.max(1)));
     }
     Ok(json!({ "lines": lines }))
 }
@@ -429,7 +460,7 @@ fn run_run_until_pc<M: MachineCore, Q>(
     args: Value,
     session: &mut HeadlessSession<M, Q>,
 ) -> Result<Value, ToolError> {
-    let target_pc = parse_num(&args, "pc")? as u16;
+    let target_pc = parse_num(&args, "pc")?;
     let max_steps = u64::from(parse_opt(&args, "max_steps", 2_000_000)?);
     let target = debug_mut(session)?;
     let mut ticks = 0u64;
