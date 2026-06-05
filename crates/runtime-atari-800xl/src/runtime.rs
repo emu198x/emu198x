@@ -24,6 +24,7 @@ pub struct Atari800xlRuntime {
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
     rgba_height: u32,
+    controller_cache: crate::input::ControllerCache,
 }
 
 impl Atari800xlRuntime {
@@ -41,6 +42,7 @@ impl Atari800xlRuntime {
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
             rgba_height: 0,
+            controller_cache: crate::input::ControllerCache::default(),
         }
     }
 
@@ -214,12 +216,12 @@ impl MachineCore for Atari800xlRuntime {
         if self.machine.is_none() {
             return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
         }
-        // Apply queued host input (keyboard) before running the frame batch.
-        // A key press latches in POKEY and persists across these frames; a
-        // later call delivers the matching release event.
+        // Apply queued host input (keyboard + joystick) before running the
+        // frame batch. A key press latches in POKEY and persists across these
+        // frames; a later call delivers the matching release event.
         if let Some(machine) = self.machine.as_mut() {
             for event in host.input_events {
-                crate::input::apply_input_event(machine, event);
+                crate::input::apply_input_event(machine, &mut self.controller_cache, event);
             }
         }
         while self.time < target {

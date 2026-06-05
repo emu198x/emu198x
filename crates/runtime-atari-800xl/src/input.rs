@@ -20,19 +20,82 @@ use machine_atari_800xl::Atari800xl;
 /// Shift modifier bit in a POKEY scan code.
 const SHIFT: u8 = 0x80;
 
-/// Apply one host input event. Key presses latch a POKEY scan code and raise
-/// the keyboard interrupt; releases clear the "key down" status. Joystick and
-/// other event kinds are handled elsewhere / ignored here.
-pub(crate) fn apply_input_event(machine: &mut Atari800xl, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event {
-        let Some(code) = key_scancode(name.as_ref()) else {
-            return;
-        };
-        if *pressed {
-            machine.press_key(code);
-        } else {
-            machine.release_key();
+/// Host-side mirror of the P0 joystick directions, fire trigger, and the
+/// three console keys (Start / Select / Option), re-applied via the
+/// machine's full-state setters on every event.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ControllerCache {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    fire: bool,
+    start: bool,
+    select: bool,
+    option: bool,
+}
+
+impl ControllerCache {
+    fn apply(self, machine: &mut Atari800xl) {
+        machine.set_joystick(self.up, self.down, self.left, self.right);
+        machine.set_fire(self.fire);
+        machine.set_console_keys(self.start, self.select, self.option);
+    }
+
+    /// Records a digital control by name. Returns `true` when the name
+    /// mapped to a joystick / fire / console control.
+    fn set_control(&mut self, name: &str, pressed: bool) -> bool {
+        match name {
+            "up" | "arrowup" => self.up = pressed,
+            "down" | "arrowdown" => self.down = pressed,
+            "left" | "arrowleft" => self.left = pressed,
+            "right" | "arrowright" => self.right = pressed,
+            "fire" | "fire1" | "button" => self.fire = pressed,
+            "start" => self.start = pressed,
+            "select" => self.select = pressed,
+            "option" => self.option = pressed,
+            _ => return false,
         }
+        true
+    }
+}
+
+/// Apply one host input event. `Key` presses latch a POKEY scan code and
+/// raise the keyboard interrupt; releases clear the "key down" status.
+/// `Button` (and arrow / fire / console names arriving as `Key`) drive the
+/// P0 joystick, fire trigger, and console keys. The second joystick port
+/// and the POKEY paddle pots are not yet exposed by `machine-atari-800xl`;
+/// wiring them is deferred.
+pub(crate) fn apply_input_event(
+    machine: &mut Atari800xl,
+    cache: &mut ControllerCache,
+    event: &InputEvent,
+) {
+    match event {
+        InputEvent::Key { name, pressed } => {
+            if let Some(code) = key_scancode(name.as_ref()) {
+                if *pressed {
+                    machine.press_key(code);
+                } else {
+                    machine.release_key();
+                }
+            } else {
+                // Not a keyboard key — try it as a joystick / console name.
+                apply_digital(machine, cache, &name.to_ascii_lowercase(), *pressed);
+            }
+        }
+        InputEvent::Button { name, pressed, .. } => {
+            apply_digital(machine, cache, &name.to_ascii_lowercase(), *pressed);
+        }
+        _ => {}
+    }
+}
+
+/// Record a digital control by name and, if it mapped, push the whole
+/// controller state to the machine.
+fn apply_digital(machine: &mut Atari800xl, cache: &mut ControllerCache, name: &str, pressed: bool) {
+    if cache.set_control(name, pressed) {
+        cache.apply(machine);
     }
 }
 
@@ -152,7 +215,26 @@ fn letter_scancode(c: char) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SHIFT, char_scancode, key_scancode};
+    use super::{ControllerCache, SHIFT, char_scancode, key_scancode};
+
+    #[test]
+    fn controller_maps_joystick_fire_and_console() {
+        let mut cache = ControllerCache::default();
+        assert!(cache.set_control("up", true));
+        assert!(cache.up);
+        assert!(cache.set_control("arrowright", true));
+        assert!(cache.right);
+        assert!(cache.set_control("fire", true));
+        assert!(cache.fire);
+        assert!(cache.set_control("select", true));
+        assert!(cache.select);
+        assert!(cache.set_control("up", false));
+        assert!(!cache.up);
+        // Names that aren't controls are rejected (so `Key` falls back to the
+        // keyboard table instead).
+        assert!(!cache.set_control("a", true));
+        assert!(!cache.set_control("return", true));
+    }
 
     #[test]
     fn letters_use_bare_code_regardless_of_case() {
