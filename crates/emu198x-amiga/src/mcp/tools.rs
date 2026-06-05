@@ -213,17 +213,18 @@ fn push_recorder_frame(s: &mut AmigaSession) -> Result<(), ToolError> {
 /// ticks crossed — so a 1000-frame run records 1000 frames regardless
 /// of whether the caller used `run_frames` or `run_ticks`.
 fn tick_for(s: &mut AmigaSession, ticks: u64) -> Result<(), ToolError> {
-    // Drives ticks through `tick_with_trace` so the cpu_trace tool
-    // sees every instruction boundary when armed. Overhead when
+    // Ticks route through the runtime's `tick_traced` (via the live
+    // surface), so an armed `cpu_trace` captures every instruction
+    // boundary regardless of which run tool drove it. Overhead when
     // disarmed is one bool check per tick.
     if s.recorder.is_none() {
         for _ in 0..ticks {
-            s.tick_with_trace();
+            s.access_mut().tick();
         }
         return Ok(());
     }
     for _ in 0..ticks {
-        s.tick_with_trace();
+        s.access_mut().tick();
         let now = s.live().tick_count();
         if now.saturating_sub(s.last_recorded_tick) >= PAL_FRAME_TICKS {
             push_recorder_frame(s)?;
@@ -252,13 +253,13 @@ fn tool_run_ticks(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError>
     }))
 }
 
-fn tool_run_until_pc(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+fn tool_run_until_pc(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let target = arg_u32(&args, "target")?;
     let max_ticks = arg_u64_or(&args, "max_ticks", 100_000_000)?;
     let mut ticks_taken: u64 = 0;
     let mut hit = false;
     while ticks_taken < max_ticks {
-        s.tick_with_trace();
+        s.live_mut().tick();
         ticks_taken += 1;
         if s.live().cpu_pc() == target {
             hit = true;
@@ -2240,7 +2241,7 @@ fn tool_query_stack(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolErr
     }))
 }
 
-fn tool_cpu_trace_arm(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+fn tool_cpu_trace_arm(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     // Enable the instruction-boundary trace. Clears any previously
     // captured entries so the new run starts fresh; the PC filter
     // and max_entries from the previous arm are replaced if the
@@ -2280,11 +2281,7 @@ fn tool_cpu_trace_arm(args: Value, s: &mut AmigaSession) -> Result<Value, ToolEr
             "max_entries must be 1..=10_000_000".into(),
         ));
     }
-    s.cpu_trace.armed = true;
-    s.cpu_trace.pc_filter = pc_filter;
-    s.cpu_trace.max_entries = max_entries;
-    s.cpu_trace.entries.clear();
-    s.cpu_trace.last_seen_instr_starts = s.live().cpu_instruction_starts();
+    s.live_mut().cpu_trace_arm(pc_filter, max_entries);
     Ok(json!({
         "armed": true,
         "pc_filter": pc_filter.map(|(lo, hi)| json!({
@@ -2295,26 +2292,23 @@ fn tool_cpu_trace_arm(args: Value, s: &mut AmigaSession) -> Result<Value, ToolEr
     }))
 }
 
-fn tool_cpu_trace_disarm(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    let captured = s.cpu_trace.entries.len();
-    s.cpu_trace.armed = false;
+fn tool_cpu_trace_disarm(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
+    let captured = s.live_mut().cpu_trace_disarm();
     Ok(json!({
         "armed": false,
         "captured": captured,
     }))
 }
 
-fn tool_cpu_trace_clear(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    let dropped = s.cpu_trace.entries.len();
-    s.cpu_trace.entries.clear();
-    s.cpu_trace.last_seen_instr_starts = s.live().cpu_instruction_starts();
+fn tool_cpu_trace_clear(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
+    let dropped = s.live_mut().cpu_trace_clear();
     Ok(json!({
         "dropped": dropped,
-        "armed": s.cpu_trace.armed,
+        "armed": s.live().cpu_trace_armed(),
     }))
 }
 
-fn tool_cpu_trace_log(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+fn tool_cpu_trace_log(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     // Dump captured trace entries. Default returns the most-recent
     // 256 entries (tail) so the response stays compact even when
     // running long; callers wanting the full trace pass a higher
@@ -2328,9 +2322,12 @@ fn tool_cpu_trace_log(args: Value, s: &mut AmigaSession) -> Result<Value, ToolEr
     let cck_lo = args.get("cck_min").and_then(Value::as_u64);
     let cck_hi = args.get("cck_max").and_then(Value::as_u64);
 
+    let armed = s.live().cpu_trace_armed();
+    let captured = s.live().cpu_trace_entries().len();
+    let max_entries = s.live().cpu_trace_max_entries();
     let mut filtered: Vec<&(u64, u32, u16, u16)> = s
-        .cpu_trace
-        .entries
+        .live()
+        .cpu_trace_entries()
         .iter()
         .filter(|(cck, _, _, _)| cck_lo.is_none_or(|lo| *cck >= lo))
         .filter(|(cck, _, _, _)| cck_hi.is_none_or(|hi| *cck <= hi))
@@ -2357,17 +2354,17 @@ fn tool_cpu_trace_log(args: Value, s: &mut AmigaSession) -> Result<Value, ToolEr
         })
         .collect();
     Ok(json!({
-        "armed": s.cpu_trace.armed,
-        "captured": s.cpu_trace.entries.len(),
+        "armed": armed,
+        "captured": captured,
         "filtered_total": total,
         "returned": entries.len(),
-        "at_limit": s.cpu_trace.entries.len() >= s.cpu_trace.max_entries,
-        "max_entries": s.cpu_trace.max_entries,
+        "at_limit": captured >= max_entries,
+        "max_entries": max_entries,
         "entries": entries,
     }))
 }
 
-fn tool_step(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+fn tool_step(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let n = arg_u64_or(&args, "count", 1)?;
     let max_ticks = arg_u64_or(&args, "max_ticks", 1_000_000)?;
     let start = s.live().cpu_instruction_starts();
@@ -2376,7 +2373,7 @@ fn tool_step(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     let mut trace: Vec<Value> = Vec::new();
     let mut last_seen = start;
     while s.live().cpu_instruction_starts() != target && ticks_taken < max_ticks {
-        s.tick_with_trace();
+        s.live_mut().tick();
         ticks_taken += 1;
         let now = s.live().cpu_instruction_starts();
         if now != last_seen && !s.live().cpu_in_followup() {
@@ -2399,7 +2396,7 @@ fn tool_step(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
     }))
 }
 
-fn tool_run_until_any_pc(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+fn tool_run_until_any_pc(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let targets = args
         .get("targets")
         .and_then(Value::as_array)
@@ -2418,7 +2415,7 @@ fn tool_run_until_any_pc(args: Value, s: &mut AmigaSession) -> Result<Value, Too
     let mut ticks_taken: u64 = 0;
     let mut hit: Option<u32> = None;
     while ticks_taken < max_ticks {
-        s.tick_with_trace();
+        s.live_mut().tick();
         ticks_taken += 1;
         let pc = s.live().cpu_pc();
         if wanted.contains(&pc) {
@@ -2572,7 +2569,7 @@ fn tool_query_disk(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolErr
     }))
 }
 
-fn tool_run_until_mem_change(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+fn tool_run_until_mem_change(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let addrs = args
         .get("addrs")
         .and_then(Value::as_array)
@@ -2595,7 +2592,7 @@ fn tool_run_until_mem_change(args: Value, s: &mut AmigaSession) -> Result<Value,
     let mut ticks_taken: u64 = 0;
     let mut hit: Option<(u32, u32, u32)> = None;
     while ticks_taken < max_ticks {
-        s.tick_with_trace();
+        s.live_mut().tick();
         ticks_taken += 1;
         for (addr, old) in &watch {
             let now = s.live().read_long(*addr);
