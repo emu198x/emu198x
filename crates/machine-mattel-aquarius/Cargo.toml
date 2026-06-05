@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
+gi-ay-3-8910 = { path = "../gi-ay-3-8910", version = "0.2.0" }
 
 [lints]
 workspace = true

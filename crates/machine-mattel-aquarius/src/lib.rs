@@ -43,7 +43,9 @@
 //!
 //! | Port  | R/W   | Function                                            |
 //! |-------|-------|-----------------------------------------------------|
-//! | `$FC` | write | PSG data (Mini Expander AY-3-8910 — stub)           |
+//! | `$F6` | r/w   | Mini Expander AY-3-8910 data (controllers on R14/R15)|
+//! | `$F7` | write | Mini Expander AY-3-8910 register select              |
+//! | `$FC` | r/w   | Cassette (stub)                                     |
 //! | `$FE` | r/w   | Printer status (read) / data (write) — stub         |
 //! | `$FF` | read  | Keyboard column read; rows selected by addr A8-A15  |
 //! | `$FF` | write | Scrambler latch + 1-bit speaker on bit 0            |
@@ -54,8 +56,73 @@
 //! the high address byte (A8-A15) selecting which rows to scan
 //! (active-low; a bit set to 0 enables that row), and the resulting
 //! AND of all selected rows' column bytes appears on the read.
+//!
+//! # Controllers (Mini Expander)
+//!
+//! The hand controllers are part of the Mini Expander peripheral, which
+//! carries an AY-3-8910 reached at `$F7` (register select) / `$F6` (data).
+//! Each controller is an Intellivision-style 16-position rotary disc plus
+//! six side buttons; a press ANDs a position/button code into the player's
+//! 8-bit byte, which the game reads through the AY's I/O ports: port A
+//! (register 14) is player 2, port B (register 15) is player 1. Codes are
+//! transcribed from MAME `bus/aquarius/mini.cpp`.
 
+use gi_ay_3_8910::Ay3_8910;
 use zilog_z80::{BusOp, Z80};
+
+/// Mini Expander AY-3-8910 clock: the Z80 clock divided by two
+/// (MAME `DERIVED_CLOCK(1, 2)`).
+const AY_CLOCK_HZ: u32 = (CPU_CLOCK_HZ / 2) as u32;
+/// AY audio configuration. The controllers only use the chip's I/O ports, so
+/// these feed the (unconsumed) tone generator and are not load-bearing.
+const AY_SAMPLE_RATE: u32 = 44_100;
+const AY_SAMPLES_PER_FRAME: usize = 882;
+
+/// The 16 rotary-disc position codes, in clock order from 12:00 — each value
+/// is ANDed into the controller byte when the disc rests at that position.
+/// (MAME `mini.cpp` `input_changed` masks.)
+const DISC_CODES: [u8; 16] = [
+    0xFB, // 12:00 (up)
+    0xEB, // 01:00
+    0xE9, // 01:30 (up+right)
+    0xF9, // 02:00
+    0xFD, // 03:00 (right)
+    0xED, // 04:00
+    0xEC, // 04:30 (down+right)
+    0xFC, // 05:00
+    0xFE, // 06:00 (down)
+    0xEE, // 06:30
+    0xE6, // 07:00 (down+left)
+    0xF6, // 08:00
+    0xF7, // 09:00 (left)
+    0xE7, // 09:30
+    0xE3, // 10:00 (up+left)
+    0xF3, // 11:00
+];
+
+/// The six side-button codes, ANDed into the controller byte when held.
+const BUTTON_CODES: [u8; 6] = [0xBF, 0x7B, 0x5F, 0xDF, 0x7D, 0x7E];
+
+/// Map the eight host directions onto a disc-position index (into
+/// [`DISC_CODES`]). Opposing presses cancel; a pure diagonal picks the disc's
+/// half-hour position, and the two diagonals with no exact 16-way slot snap to
+/// the nearest (07:00 for down-left, 10:00 for up-left). Returns `None` when
+/// the stick is centred.
+fn disc_position(up: bool, down: bool, left: bool, right: bool) -> Option<usize> {
+    let vertical = i8::from(down) - i8::from(up); // -1 up, +1 down
+    let horizontal = i8::from(right) - i8::from(left); // -1 left, +1 right
+    Some(match (vertical, horizontal) {
+        (-1, 0) => 0,   // 12:00 up
+        (-1, 1) => 2,   // 01:30 up+right
+        (0, 1) => 4,    // 03:00 right
+        (1, 1) => 6,    // 04:30 down+right
+        (1, 0) => 8,    // 06:00 down
+        (1, -1) => 10,  // 07:00 down+left
+        (0, -1) => 12,  // 09:00 left
+        (-1, -1) => 14, // 10:00 up+left
+        _ => return None,
+    })
+}
 
 const CHAR_COLS: u32 = 40;
 const CHAR_ROWS: u32 = 24;
@@ -113,6 +180,12 @@ pub struct Aquarius {
     io_trace: Option<Vec<IoEvent>>,
     /// Set true the cycle a VBlank NMI is being delivered.
     nmi_pulse: bool,
+    /// Mini Expander AY-3-8910. The controllers are read through its I/O
+    /// ports; the tone generators are present but unconsumed.
+    psg: Ay3_8910,
+    /// Controller bytes presented on the AY I/O ports, active low. Index 0 is
+    /// AY port A (player 2), index 1 is AY port B (player 1). Idle is `0xFF`.
+    ctrl_input: [u8; 2],
 }
 
 impl Aquarius {
@@ -142,6 +215,8 @@ impl Aquarius {
             frame_count: 0,
             io_trace: None,
             nmi_pulse: false,
+            psg: Ay3_8910::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, AY_SAMPLES_PER_FRAME),
+            ctrl_input: [0xFF; 2],
         }
     }
 
@@ -273,13 +348,24 @@ impl Aquarius {
         if low == 0xFE {
             return 0xFF;
         }
+        // Mini Expander AY-3-8910 data read ($F6). When the program selects
+        // register 14/15 (the I/O ports) in input mode, the controllers read
+        // back here: port A = player 2, port B = player 1.
+        if low == 0xF6 {
+            self.psg.set_port_a_input_mask(self.ctrl_input[0]);
+            self.psg.set_port_b_input(self.ctrl_input[1]);
+            return self.psg.read_data();
+        }
         0xFF
     }
 
     fn io_write(&mut self, port: u16, value: u8) {
         let low = port as u8;
         match low {
-            0xFC => {} // Mini-Expander PSG stub.
+            // Mini Expander AY-3-8910: $F7 selects the register, $F6 writes data.
+            0xF6 => self.psg.write_data(value),
+            0xF7 => self.psg.select_register(value),
+            0xFC => {} // Cassette (stub).
             0xFE => {} // Printer data stub.
             0xFF => {
                 self.scrambler = value;
@@ -353,6 +439,41 @@ impl Aquarius {
                 self.key_matrix[row] |= 1 << col;
             }
         }
+    }
+
+    /// Set the hand-controller state for `port` (1 or 2). The directions choose
+    /// one of the disc's 16 positions (the eight host directions map to the
+    /// nearest position); `fire` is the first side button. The composed code is
+    /// presented on the AY I/O port the game reads — port B for player 1, port
+    /// A for player 2. Out-of-range ports clamp to the valid pair.
+    #[allow(clippy::fn_params_excessive_bools)]
+    pub fn set_joystick(
+        &mut self,
+        port: u8,
+        up: bool,
+        down: bool,
+        left: bool,
+        right: bool,
+        fire: bool,
+    ) {
+        // Player 1 reads on AY port B (`ctrl_input[1]`), player 2 on port A
+        // (`ctrl_input[0]`).
+        let idx = if port.clamp(1, 2) == 1 { 1 } else { 0 };
+        let mut code = 0xFFu8;
+        if let Some(pos) = disc_position(up, down, left, right) {
+            code &= DISC_CODES[pos];
+        }
+        if fire {
+            code &= BUTTON_CODES[0];
+        }
+        self.ctrl_input[idx] = code;
+    }
+
+    /// The controller byte currently presented on AY port A (player 2) and
+    /// port B (player 1). For inspection and host-side input wiring.
+    #[must_use]
+    pub fn controller_bytes(&self) -> [u8; 2] {
+        self.ctrl_input
     }
 
     /// CPU reference.
@@ -507,6 +628,46 @@ mod tests {
         assert_eq!(sys.key_matrix[2] & (1 << 4), 0);
         sys.set_key(2, 4, false);
         assert_eq!(sys.key_matrix[2] & (1 << 4), 1 << 4);
+    }
+
+    /// Select an AY register through the expander and read its data back.
+    fn read_ay(sys: &mut Aquarius, reg: u8) -> u8 {
+        sys.io_write(0xF7, reg); // register select at $F7
+        sys.io_read(0xF6) // data read at $F6
+    }
+
+    #[test]
+    fn controllers_read_through_the_expander_ay_ports() {
+        let mut sys = Aquarius::new(trap_rom(), 0);
+        // Idle: both ports read all-high (input mode on reset).
+        assert_eq!(read_ay(&mut sys, 14), 0xFF);
+        assert_eq!(read_ay(&mut sys, 15), 0xFF);
+
+        // Player 1 reads on port B (register 15). Up = disc 12:00 (0xFB),
+        // with fire = side button 1 (0xBF): the byte is the AND of both.
+        sys.set_joystick(1, true, false, false, false, true);
+        assert_eq!(read_ay(&mut sys, 15), 0xFB & 0xBF, "P1 up + fire on port B");
+        // Port A (player 2) is untouched.
+        assert_eq!(read_ay(&mut sys, 14), 0xFF);
+
+        // Player 2 reads on port A (register 14). Down+right = disc 04:30.
+        sys.set_joystick(2, false, true, false, true, false);
+        assert_eq!(
+            read_ay(&mut sys, 14),
+            0xEC,
+            "P2 down+right (04:30) on port A"
+        );
+
+        // Centre (no direction, no fire) returns to all-high.
+        sys.set_joystick(1, false, false, false, false, false);
+        assert_eq!(read_ay(&mut sys, 15), 0xFF, "P1 centred");
+    }
+
+    #[test]
+    fn opposing_directions_cancel_to_centre() {
+        assert_eq!(super::disc_position(true, true, false, false), None);
+        assert_eq!(super::disc_position(false, false, true, true), None);
+        assert_eq!(super::disc_position(true, false, true, false), Some(14)); // up+left
     }
 }
 
