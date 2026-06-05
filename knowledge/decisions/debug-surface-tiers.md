@@ -1,9 +1,15 @@
 # Decision: Debug-surface tiers — shared `DebugTarget` vs bespoke per-flagship MCP
 
 **Date:** 2026-06-04
-**Status:** Descriptive-binding. Records an existing two-tier shape so the
-asymmetry reads as deliberate, not as an artifact to "tidy away". Sits beside
-[`runtime-internal-shape.md`](runtime-internal-shape.md) and
+**Status:** **REVISED 2026-06-05.** The original two-tier deferral stands as the
+*record of why* Amiga was bespoke, but the verdict is now overridden by an
+explicit owner decision (Steve) to fold Amiga onto the shared tier *now* —
+building the 68000 debug path early rather than waiting for the first 68000
+sibling. See the **2026-06-05 override** in the Log and the migration plan at
+[`../../docs/plans/2026-06-05-refactor-amiga-unified-driver-replatform.md`](../../docs/plans/2026-06-05-refactor-amiga-unified-driver-replatform.md).
+The drift-trigger guidance below is **suspended for the Amiga 68000 work** (it
+remains live for any *other* "tidy the flagships onto the macros" impulse).
+Sits beside [`runtime-internal-shape.md`](runtime-internal-shape.md) and
 [`debugger-architecture.md`](debugger-architecture.md) (the latter is the future
 debugger *UI*; this is about the *runtime* debug surface the UI will consume).
 
@@ -101,3 +107,42 @@ distinct bespoke-MCP tier, blocked from the shared tier by generics, the missing
 tier instead of refactoring. Amiga waits for the 68000 debug path the incoming
 68000 systems (Atari ST, Mega Drive, Neo Geo, X68000) will pay for; Spectrum is a
 deliberate future spike.
+
+### 2026-06-05 — Override: fold Amiga onto the shared tier now
+
+Owner decision (Steve), made after a fleet-wide drivability assessment
+(`docs/status/drivability-assessment.md`). The assessment found the Amiga MCP is
+a **parallel** implementation (`AmigaSession` + `InlineTool`) of infrastructure
+the Amiga **script** path already runs on the shared `HeadlessSession`
+(`AmigaRuntimeKind: MachineCore`, `AmigaSessionQueryProvider`). Consequences of
+the divergence: the Amiga cannot be driven by keyboard or mouse over MCP at all,
+and recording/common verbs differ from the rest of the fleet.
+
+**Decision:** prioritise a single common driver surface across all machines over
+the cost-deferral this record originally weighed. Build the 68000 debug path
+*now* rather than waiting for the first 68000 sibling, and fold Amiga onto the
+shared session + `register_common_tools` + `register_debug_tools`.
+
+**Why override the 2026-06-04 deferral:** the deferral optimised for *not paying*
+for `impl_68000_debug_target!` ahead of the sibling that would share its cost.
+The owner judges fleet-wide uniformity (drive every machine identically through
+either door) worth paying early — and the 68000 work is not wasted: the incoming
+68000 systems (Atari ST / Mega Drive / Neo Geo / X68000) will reuse the same
+macro + the `u32`-widened `DebugTarget` this pass builds.
+
+**Real cost discovered (all four original obstacles bite):**
+1. `DebugTarget` is `u16`-addressed; the 68000 needs `u32`. Widen the trait,
+   the three `impl_*_debug_target!` macros, the shared tool arg-parsing, and
+   `IoEvent.pc` — rippling through all 24 existing shared-tier machines
+   (mechanically, via the three macros).
+2. No `impl_68000_debug_target!` — build it, wrapping
+   `motorola_68000::disasm::disassemble` and `motorola-68k-common::Registers`
+   (`d[u32;8]`, `a[u32;7]`, `pc:u32`, `sr:u16`).
+3. `AmigaRuntime<M>` is generic; the macros emit non-generic impls. Implement on
+   the non-generic `AmigaRuntimeKind` enum (which already impls `MachineCore`).
+4. The 68k variant family (68000 for OCS/ECS, 68020 for AGA) must be spanned by
+   one impl through the `AmigaMachine` CPU accessor.
+
+Sequenced in `docs/plans/2026-06-05-refactor-amiga-unified-driver-replatform.md`. Spectrum's
+fold-in remains a *separate, unscheduled* spike — this override covers Amiga
+only.
