@@ -34,15 +34,21 @@
 //! [`AmigaLiveAccess`]: runtime_commodore_amiga::AmigaLiveAccess
 
 mod lvo;
-mod session;
 mod tools;
 
 use std::path::PathBuf;
 
 use emu198x_shell::mcp::{Server, ServerInfo, serve_stdio};
+use emu198x_shell::mcp_tools::{register_common_tools, register_debug_tools};
+use emu198x_shell::{HeadlessSession, MediaSet};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider};
 
 use crate::{AppError, ModelArg, find_rom_path};
-use session::AmigaSession;
+use tools::register_amiga_tools;
+
+/// The MCP session type — the shared headless session over the Amiga
+/// family runtime, identical to the one the `--script` path drives.
+type AmigaMcpSession = HeadlessSession<AmigaRuntimeKind, AmigaSessionQueryProvider>;
 
 /// MCP-mode CLI arguments. A trimmed subset of the windowed UI's
 /// `Cli` — only flags relevant to a headless JSON-RPC session.
@@ -64,12 +70,32 @@ pub fn run(cli: McpCli) -> Result<(), AppError> {
     let rom_path = find_rom_path(cli.model, cli.rom_dir.as_deref(), cli.kickstart.as_deref())
         .map_err(|reason| AppError::MissingRom { path: reason })?;
     let rom_bytes = std::fs::read(&rom_path).map_err(AppError::Io)?;
-    let mut session =
-        AmigaSession::new(cli.model.to_model(), rom_bytes, rom_path).map_err(AppError::Machine)?;
+    let machine =
+        AmigaRuntimeKind::new(cli.model.to_model(), rom_bytes).map_err(AppError::Machine)?;
 
-    let mut server: Server<AmigaSession> =
+    // Same shared session the `--script` path builds. Frame length is
+    // the PAL constant (matching `script.rs`); media is injected at
+    // runtime via the `insert_media` / `load_media` tools.
+    let mut session: AmigaMcpSession = HeadlessSession::new_with_query_provider(
+        machine,
+        A500_PAL_FRAME_TICKS,
+        AmigaSessionQueryProvider,
+    );
+    session
+        .prepare(&MediaSet::new(), &[])
+        .map_err(|err| AppError::Setup {
+            reason: format!("session preparation failed: {err}"),
+        })?;
+
+    let mut server: Server<AmigaMcpSession> =
         Server::new(ServerInfo::new("emu198x-amiga", env!("CARGO_PKG_VERSION")));
-    tools::register_all(server.registry_mut());
+    // Shared uniform surface (run/input/capture/query/recording/reset) +
+    // shared debug verbs (CPU/memory/disasm/step via DebugTarget) + the
+    // bespoke Amiga chip/exec/copper tools — the richer Amiga overrides
+    // win on name collisions (last write).
+    register_common_tools(server.registry_mut());
+    register_debug_tools(server.registry_mut());
+    register_amiga_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(AppError::from)?;
     Ok(())

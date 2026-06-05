@@ -17,17 +17,42 @@
 use std::path::PathBuf;
 
 use emu198x_shell::mcp::{JsonRpcId, JsonRpcRequest, Server, ServerInfo};
+use emu198x_shell::mcp_tools::{register_common_tools, register_debug_tools};
+use emu198x_shell::{HeadlessSession, MediaSet};
 use serde_json::{Value, json};
 
 #[path = "../src/mcp/lvo.rs"]
 mod lvo;
-#[path = "../src/mcp/session.rs"]
-mod session;
 #[path = "../src/mcp/tools.rs"]
 mod tools;
 
-use runtime_commodore_amiga::Model;
-use session::AmigaSession;
+use runtime_commodore_amiga::{
+    A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider, Model,
+};
+use tools::register_amiga_tools;
+
+/// The MCP session type — the shared headless session over the Amiga
+/// family runtime, exactly what `mcp/mod.rs::run` builds.
+type AmigaMcpSession = HeadlessSession<AmigaRuntimeKind, AmigaSessionQueryProvider>;
+
+/// Build the same session + tool registry the `--mcp` server uses.
+fn boot_server(rom_bytes: Vec<u8>) -> (Server<AmigaMcpSession>, AmigaMcpSession) {
+    let machine = AmigaRuntimeKind::new(Model::A1200AgaPal, rom_bytes)
+        .expect("runtime accepts Kickstart-sized ROM");
+    let mut session = HeadlessSession::new_with_query_provider(
+        machine,
+        A500_PAL_FRAME_TICKS,
+        AmigaSessionQueryProvider,
+    );
+    session
+        .prepare(&MediaSet::new(), &[])
+        .expect("session preparation");
+    let mut server = Server::new(ServerInfo::new("emu198x-amiga", "test"));
+    register_common_tools(server.registry_mut());
+    register_debug_tools(server.registry_mut());
+    register_amiga_tools(server.registry_mut());
+    (server, session)
+}
 
 fn load_rom() -> Option<(Vec<u8>, PathBuf)> {
     let path = match std::env::var("EMU198X_KS31_A1200_ROM") {
@@ -51,8 +76,8 @@ fn load_rom() -> Option<(Vec<u8>, PathBuf)> {
 /// Build a request, dispatch it, return the result Value (or panic
 /// loudly with the JSON-RPC error).
 fn call(
-    server: &mut Server<AmigaSession>,
-    session: &mut AmigaSession,
+    server: &mut Server<AmigaMcpSession>,
+    session: &mut AmigaMcpSession,
     id: i64,
     method: &str,
     params: Value,
@@ -87,13 +112,10 @@ fn unwrap_tool_text(result: &Value) -> Value {
 
 #[test]
 fn mcp_server_boots_and_lists_tools() {
-    let Some((rom_bytes, rom_path)) = load_rom() else {
+    let Some((rom_bytes, _rom_path)) = load_rom() else {
         return;
     };
-    let mut session = AmigaSession::new(Model::A1200AgaPal, rom_bytes, rom_path)
-        .expect("session constructor accepts Kickstart-sized ROM");
-    let mut server: Server<AmigaSession> = Server::new(ServerInfo::new("emu198x-amiga", "test"));
-    tools::register_all(server.registry_mut());
+    let (mut server, mut session) = boot_server(rom_bytes);
 
     let init = call(&mut server, &mut session, 1, "initialize", json!({}));
     assert_eq!(
@@ -158,13 +180,10 @@ fn mcp_server_boots_and_lists_tools() {
 
 #[test]
 fn mcp_tools_drive_a_real_boot() {
-    let Some((rom_bytes, rom_path)) = load_rom() else {
+    let Some((rom_bytes, _rom_path)) = load_rom() else {
         return;
     };
-    let mut session = AmigaSession::new(Model::A1200AgaPal, rom_bytes, rom_path)
-        .expect("session constructor accepts Kickstart-sized ROM");
-    let mut server: Server<AmigaSession> = Server::new(ServerInfo::new("emu198x-amiga", "test"));
-    tools::register_all(server.registry_mut());
+    let (mut server, mut session) = boot_server(rom_bytes);
 
     // Post-reset CPU state: PC in ROM window, SR with supervisor + IRQ mask.
     let cpu0 = unwrap_tool_text(&call(

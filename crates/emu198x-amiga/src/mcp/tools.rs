@@ -17,41 +17,26 @@
 
 use std::path::PathBuf;
 
+use emu198x_shell::HeadlessSession;
+use emu198x_shell::SessionQueryProvider;
 use emu198x_shell::mcp::{Tool, ToolError, ToolRegistry, ToolResponse};
-use emu198x_shell::{
-    CapturedFrame, HeadlessSession, MachineTime, PixelFormat, SessionQueryProvider, VideoRecorder,
-};
-use machine_commodore_amiga_a1200::{Adf, FB_HEIGHT, FB_WIDTH, PAL_FRAME_TICKS};
+use machine_commodore_amiga_a1200::Adf;
 use motorola_68000::disasm::disassemble;
 use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind};
 use serde_json::{Value, json};
 
 use super::lvo;
-use super::session::AmigaSession;
 
-/// Tool execution context — the live Amiga chip surface, behind a trait so the
-/// tool bodies serve both the legacy [`AmigaSession`] and the shared
-/// `HeadlessSession<AmigaRuntimeKind, _>` during the Phase-4 replatform. Each
-/// ported tool takes `&mut impl AmigaCtx` and reads through `live()` /
-/// `live_mut()`, so the *same* body works for both sessions and the eventual
-/// `mcp/mod.rs` cutover is a session-type swap, not a tool rewrite. See the
-/// Phase-4 port spec in `docs/plans/2026-06-05-refactor-amiga-unified-driver-replatform.md`.
+/// Tool execution context — the live Amiga chip surface behind a trait so the
+/// tool bodies are generic over the session type. Today every tool runs on the
+/// shared `HeadlessSession<AmigaRuntimeKind, _>`; the trait stays so a tool
+/// body never names a concrete session and `live()` / `live_mut()` give it the
+/// active chipset variant under [`AmigaLiveAccess`].
 pub(crate) trait AmigaCtx {
     /// Shared read view of the active chipset variant.
     fn live(&self) -> &dyn AmigaLiveAccess;
     /// Shared mutable view (memory pokes, tracer arming).
     fn live_mut(&mut self) -> &mut dyn AmigaLiveAccess;
-}
-
-impl AmigaCtx for AmigaSession {
-    fn live(&self) -> &dyn AmigaLiveAccess {
-        // Fully-qualified inherent call: `self.live()` would recurse, and the
-        // file-wide `.live()` → `.live()` rewrite must not touch this line.
-        AmigaSession::access(self)
-    }
-    fn live_mut(&mut self) -> &mut dyn AmigaLiveAccess {
-        AmigaSession::access_mut(self)
-    }
 }
 
 impl<Q> AmigaCtx for HeadlessSession<AmigaRuntimeKind, Q>
@@ -163,95 +148,6 @@ fn read_byte(session: &impl AmigaCtx, addr: u32) -> u8 {
 
 // ─── Tool implementations ─────────────────────────────────────────────
 
-/// Convert the Denise ARGB framebuffer into an Rgba8888 `CapturedFrame`
-/// for the active recorder. Returns `Err` only if the ffmpeg write
-/// pipe fails; that's surfaced to the calling tool so the JSON-RPC
-/// client sees the recording fault.
-fn push_recorder_frame(s: &mut AmigaSession) -> Result<(), ToolError> {
-    // Eagerly extract everything we need from the machine before we
-    // take the recorder borrow, so the borrow checker sees the two
-    // mutable accesses to `s` as disjoint. Pre-migration the
-    // `machine` field allowed simultaneous field-level borrows
-    // (`s.machine.X` and `s.recorder` were independent); the
-    // `machine_mut()` downcast helper now reborrows all of `s`, so
-    // the order matters.
-    if s.recorder.is_none() {
-        return Ok(());
-    }
-    let (rgba, tick_count) = {
-        let access = s.live();
-        let tick_count = access.tick_count();
-        let fb = access.framebuffer();
-        let mut rgba: Vec<u8> = Vec::with_capacity(fb.len() * 4);
-        for &p in fb {
-            rgba.push(((p >> 16) & 0xFF) as u8);
-            rgba.push(((p >> 8) & 0xFF) as u8);
-            rgba.push((p & 0xFF) as u8);
-            rgba.push(((p >> 24) & 0xFF) as u8);
-        }
-        (rgba, tick_count)
-    };
-    let frame = CapturedFrame {
-        timestamp: MachineTime::new(tick_count),
-        format: PixelFormat::Rgba8888,
-        width: FB_WIDTH,
-        height: FB_HEIGHT,
-        palette: None,
-        pixels: rgba,
-    };
-    let recorder = s.recorder.as_mut().expect("checked above");
-    recorder
-        .push_frame(&frame)
-        .map_err(|err| ToolError::Execution(format!("record frame: {err}")))?;
-    s.last_recorded_tick = tick_count;
-    Ok(())
-}
-
-/// Advance the machine by `tick_count` ticks. While a recording is
-/// active, pushes one frame to the recorder every `PAL_FRAME_TICKS`
-/// ticks crossed — so a 1000-frame run records 1000 frames regardless
-/// of whether the caller used `run_frames` or `run_ticks`.
-fn tick_for(s: &mut AmigaSession, ticks: u64) -> Result<(), ToolError> {
-    // Ticks route through the runtime's `tick_traced` (via the live
-    // surface), so an armed `cpu_trace` captures every instruction
-    // boundary regardless of which run tool drove it. Overhead when
-    // disarmed is one bool check per tick.
-    if s.recorder.is_none() {
-        for _ in 0..ticks {
-            s.access_mut().tick();
-        }
-        return Ok(());
-    }
-    for _ in 0..ticks {
-        s.access_mut().tick();
-        let now = s.live().tick_count();
-        if now.saturating_sub(s.last_recorded_tick) >= PAL_FRAME_TICKS {
-            push_recorder_frame(s)?;
-        }
-    }
-    Ok(())
-}
-
-fn tool_run_frames(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    let n = arg_u64_or(&args, "frames", 1)?;
-    tick_for(s, n.saturating_mul(PAL_FRAME_TICKS))?;
-    Ok(json!({
-        "frames_run": n,
-        "pc": format!("${:08X}", s.live().cpu_pc()),
-        "recording_frames": s.recorder.as_ref().map(|r| r.frames_written()),
-    }))
-}
-
-fn tool_run_ticks(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    let n = arg_u64_or(&args, "ticks", 1)?;
-    tick_for(s, n)?;
-    Ok(json!({
-        "ticks_run": n,
-        "pc": format!("${:08X}", s.live().cpu_pc()),
-        "recording_frames": s.recorder.as_ref().map(|r| r.frames_written()),
-    }))
-}
-
 fn tool_run_until_pc(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let target = arg_u32(&args, "target")?;
     let max_ticks = arg_u64_or(&args, "max_ticks", 100_000_000)?;
@@ -270,44 +166,6 @@ fn tool_run_until_pc(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolEr
         "ticks_taken": ticks_taken,
         "pc": format!("${:08X}", s.live().cpu_pc()),
         "target": format!("${:08X}", target),
-    }))
-}
-
-fn tool_reset(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    // Default to "hard" since that's what `reset` did before the
-    // `kind` argument existed.
-    let kind = args
-        .get("kind")
-        .and_then(Value::as_str)
-        .unwrap_or("hard")
-        .to_ascii_lowercase();
-    let kind = match kind.as_str() {
-        "hard" => "hard",
-        "soft" => "soft",
-        other => {
-            return Err(ToolError::InvalidArguments(format!(
-                "reset: unknown kind `{other}`; expected \"hard\" or \"soft\""
-            )));
-        }
-    };
-
-    // Today both kinds rebuild the A1200 from the ROM image (hard
-    // reset). The A1200's `MachineCore::reset(ResetKind)` impl
-    // currently ignores the kind, so plumbing soft / hard through
-    // would not change the observable result. We accept the
-    // argument so the wire format matches the shared shell layer's
-    // ScriptStep::Reset { kind } and so scripts written against
-    // either system look the same; differentiating soft vs hard on
-    // the A1200 is a separate per-chip job (CIA reset behaviour,
-    // ResetHandlers preservation, etc.).
-    s.reset()
-        .map_err(|err| ToolError::Execution(format!("reset: {err}")))?;
-    Ok(json!({
-        "reset": true,
-        "kind": kind,
-        "kind_differentiated": false,
-        "rom_path": s.rom_path.display().to_string(),
-        "pc": format!("${:08X}", s.live().cpu_pc()),
     }))
 }
 
@@ -1515,55 +1373,6 @@ fn tool_read_task_stack(args: Value, s: &mut impl AmigaCtx) -> Result<Value, Too
         "rom_hit_count":      hit_count,
         "libraries_searched": extents.len(),
         "layout_note":        "ROM-hit scan is layout-independent — every 2-byte boundary checked. The KS 3.x Switch frame format varies between AmigaOS versions (some save SR + MOVEM + PC, others save the full m68k exception frame), so we don't pretend to decode a canonical layout. Use the rom_hits list, ordered by `offset_from_sp`, to walk the call chain from most-recent (lowest offset) to oldest (highest offset).",
-    }))
-}
-
-fn tool_start_video_recording(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    if s.recorder.is_some() {
-        return Err(ToolError::Execution(
-            "a recording is already in flight — stop it before starting another".into(),
-        ));
-    }
-    let path = args
-        .get("path")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ToolError::InvalidArguments("missing string `path`".into()))?;
-    // PAL Amiga = 50 fps. (NTSC would be 60, but the A1200 machine
-    // currently boots PAL by default; an explicit `fps` override is
-    // accepted for completeness.)
-    let fps = args.get("fps").and_then(Value::as_u64).unwrap_or(50) as u32;
-    let started_at = MachineTime::new(s.live().tick_count());
-    let recorder = VideoRecorder::start(PathBuf::from(path), FB_WIDTH, FB_HEIGHT, fps, started_at)
-        .map_err(|err| ToolError::Execution(format!("start recording: {err}")))?;
-    s.recorder = Some(recorder);
-    s.last_recorded_tick = s.live().tick_count();
-    // Push one frame immediately so the recording begins with the
-    // current screen state, not a missing first frame.
-    push_recorder_frame(s)?;
-    Ok(json!({
-        "started": true,
-        "path": path,
-        "width": FB_WIDTH,
-        "height": FB_HEIGHT,
-        "fps": fps,
-        "started_at_tick": s.live().tick_count(),
-    }))
-}
-
-fn tool_stop_video_recording(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    let recorder = s
-        .recorder
-        .take()
-        .ok_or_else(|| ToolError::Execution("no recording is in flight".into()))?;
-    let summary = recorder
-        .finish(None)
-        .map_err(|err| ToolError::Execution(format!("finish recording: {err}")))?;
-    Ok(json!({
-        "stopped": true,
-        "path": summary.path.display().to_string(),
-        "frames": summary.frames,
-        "duration_ms": summary.duration_ms,
-        "has_audio": summary.has_audio,
     }))
 }
 
@@ -3617,97 +3426,57 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
     );
 }
 
-/// Registers the full legacy tool set on an [`AmigaSession`]: every
-/// chipset-agnostic tool from [`register_amiga_tools`] plus the five
-/// session-local ones (the recorder run tools + `reset`) that hold
-/// `AmigaSession`-private state. The shared `HeadlessSession` path skips
-/// these — `register_common_tools` provides equivalents.
-///
-/// Retired in Phase 5 once the MCP server cuts over to `HeadlessSession`.
-pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
-    fn add(
-        registry: &mut ToolRegistry<AmigaSession>,
-        name: &'static str,
-        description: &'static str,
-        schema: Value,
-        run: fn(Value, &mut AmigaSession) -> Result<Value, ToolError>,
-    ) {
-        registry.register(Box::new(InlineTool {
-            name,
-            description,
-            schema,
-            run,
-        }));
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use emu198x_shell::mcp::ToolRegistry;
+    use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaSessionQueryProvider, Model};
+
+    type Sess = HeadlessSession<AmigaRuntimeKind, AmigaSessionQueryProvider>;
+
+    fn boot() -> Sess {
+        HeadlessSession::new_with_query_provider(
+            AmigaRuntimeKind::blank(Model::A1200AgaPal),
+            A500_PAL_FRAME_TICKS,
+            AmigaSessionQueryProvider,
+        )
     }
 
-    register_amiga_tools(registry);
+    /// The bespoke Amiga tool surface registers on, and drives, the shared
+    /// `HeadlessSession` — the production cutover target. Also pins the
+    /// boundary: the recorder run tools + `reset` are NOT here (the shared
+    /// `register_common_tools` provides those).
+    #[test]
+    fn amiga_tools_register_and_drive_a_headless_session() {
+        let mut registry: ToolRegistry<Sess> = ToolRegistry::new();
+        register_amiga_tools(&mut registry);
+        let mut s = boot();
 
-    let empty = || json!({"type": "object", "additionalProperties": false});
-    let frames_schema = json!({
-        "type": "object",
-        "properties": {
-            "frames": {"type": "integer", "minimum": 1, "default": 1}
-        }
-    });
-    let ticks_schema = json!({
-        "type": "object",
-        "properties": {
-            "ticks": {"type": "integer", "minimum": 1, "default": 1}
-        }
-    });
-    let reset_schema = json!({
-        "type": "object",
-        "properties": {
-            "kind": {
-                "type": "string",
-                "enum": ["hard", "soft"],
-                "default": "hard",
-                "description": "Hard = power-cycle (reload ROM, rebuild machine). Soft = machine-local soft reset (intended to preserve RAM). Today both rebuild from the ROM; the kind is accepted so MCP scripts can use the same wire format as the shared shell layer."
-            }
-        }
-    });
-    let start_rec_schema = json!({
-        "type": "object",
-        "required": ["path"],
-        "properties": {
-            "path": {"type": "string", "description": "Output MP4 path. Parent directories are created."},
-            "fps": {"type": "integer", "minimum": 1, "default": 50,
-                    "description": "Frame rate written to the MP4. Default is PAL (50)."}
-        }
-    });
-    add(
-        registry,
-        "run_frames",
-        "Advance the machine by N PAL frames.",
-        frames_schema,
-        tool_run_frames,
-    );
-    add(
-        registry,
-        "run_ticks",
-        "Advance the machine by N master/4 ticks.",
-        ticks_schema,
-        tool_run_ticks,
-    );
-    add(
-        registry,
-        "reset",
-        "Reload the ROM and re-create the A1200 (fresh boot). Accepts an optional `kind` (\"hard\" / \"soft\"; both currently behave as hard).",
-        reset_schema,
-        tool_reset,
-    );
-    add(
-        registry,
-        "start_video_recording",
-        "Begin recording the live framebuffer to one MP4 file (uses ffmpeg from PATH).",
-        start_rec_schema,
-        tool_start_video_recording,
-    );
-    add(
-        registry,
-        "stop_video_recording",
-        "Finalise the in-flight recording and return the MP4 summary.",
-        empty(),
-        tool_stop_video_recording,
-    );
+        let call = |reg: &ToolRegistry<Sess>, s: &mut Sess, name: &str, args: Value| {
+            reg.get(name)
+                .unwrap_or_else(|| panic!("tool `{name}` registered"))
+                .call(args, s)
+                .unwrap_or_else(|err| panic!("tool `{name}` ran: {err:?}"))
+        };
+
+        // Bespoke chip query reaches the live AGA chipset.
+        call(&registry, &mut s, "query_chipset", json!({}));
+        // AGA Lisa state via the trait accessor (Some on an AGA session).
+        call(&registry, &mut s, "query_aga", json!({}));
+        // Instruction trace: arm → step → log, all on the runtime-owned trace.
+        call(
+            &registry,
+            &mut s,
+            "cpu_trace_arm",
+            json!({ "max_entries": 100 }),
+        );
+        call(&registry, &mut s, "step", json!({ "count": 1 }));
+        call(&registry, &mut s, "cpu_trace_log", json!({}));
+
+        // Session-only tools are deliberately absent — shared shell owns them.
+        assert!(registry.get("run_frames").is_none());
+        assert!(registry.get("run_ticks").is_none());
+        assert!(registry.get("reset").is_none());
+        assert!(registry.get("start_video_recording").is_none());
+    }
 }
