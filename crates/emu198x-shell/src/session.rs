@@ -165,16 +165,14 @@ struct BootQueryState {
     row: Option<u64>,
 }
 
-/// Active standalone-audio recording state.
-///
-/// Mirrors the video recorder's "begin/end with a path" shape but
-/// without an external process — audio is teed into
-/// In-flight standalone audio recording. Streams to disk incrementally:
-/// each run flushes the newly-captured samples to `writer` and advances
-/// `flushed`, so the recording's audio never has to live entirely in RAM.
-/// `writer` is lazily created on the first flush that has samples (the
-/// stream format isn't known until then). `flushed` is the index into the
-/// session capture buffer up to which samples are already on disk.
+/// In-flight standalone audio recording. Mirrors the video recorder's
+/// "begin/end with a path" shape but without an external process, and
+/// streams to disk incrementally: each run flushes the newly-captured
+/// samples to `writer` and advances `flushed`, so the recording's audio
+/// never has to live entirely in RAM. `writer` is lazily created on the
+/// first flush that has samples (the stream format isn't known until
+/// then). `flushed` is the index into the session capture buffer up to
+/// which samples are already on disk.
 struct AudioRecording {
     path: PathBuf,
     writer: Option<WavStreamWriter>,
