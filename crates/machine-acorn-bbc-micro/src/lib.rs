@@ -164,6 +164,107 @@ impl AddressableLatch {
     }
 }
 
+/// 12-bit conversion: 10 ms at the 2 MHz CPU clock.
+const ADC_CONVERT_12BIT: u32 = 20_000;
+/// 8-bit conversion: 4 ms at the 2 MHz CPU clock.
+const ADC_CONVERT_8BIT: u32 = 8_000;
+
+/// μPD7002 4-channel 12-bit ADC — the BBC's analogue port at SHEILA
+/// `$FEC0-$FEC3` (mirrored to `$FEDF`). Each channel holds a 12-bit pot value
+/// (host-set: ch0/ch1 = joystick 1 X/Y, ch2/ch3 = joystick 2 X/Y). A conversion
+/// is a countdown; when it finishes the chip latches the result, asserts
+/// end-of-conversion (EOC, wired to System VIA CB1 to raise the analogue
+/// interrupt), and holds the "completed" status until the next conversion
+/// starts.
+///
+/// Register model and timing adapted from the `BBCMicro_MiSTer` `upd7002.vhd`
+/// reference core: status byte = `completed_n | busy_n | value[11:10] | mode |
+/// flag | mux`; result high = `value[11:4]`, result low = `value[3:0] << 4`;
+/// conversion takes 10 ms (12-bit) or 4 ms (8-bit).
+struct Upd7002 {
+    /// 12-bit pot values for the four channels.
+    channels: [u16; 4],
+    /// Currently selected channel (0-3).
+    mux: u8,
+    /// Conversion resolution: `false` = 8-bit, `true` = 12-bit.
+    mode_12bit: bool,
+    /// The spare "flag" bit, latched on write and echoed in the status byte.
+    flag: bool,
+    /// A conversion is in progress.
+    busy: bool,
+    /// A conversion has finished and not yet been superseded by a new one.
+    completed: bool,
+    /// CPU cycles left in the current conversion (decremented at 2 MHz).
+    counter: u32,
+}
+
+impl Upd7002 {
+    fn new() -> Self {
+        Self {
+            channels: [0x0800; 4], // mid-scale = stick centred
+            mux: 0,
+            mode_12bit: true,
+            flag: false,
+            busy: false,
+            completed: false,
+            counter: 0,
+        }
+    }
+
+    /// The selected channel's 12-bit value.
+    fn value(&self) -> u16 {
+        self.channels[(self.mux & 0x03) as usize]
+    }
+
+    /// Start a conversion from a write to `$FEC0`: bits 0-1 select the channel,
+    /// bit 2 is the spare flag, bit 3 picks 12-bit (`1`) vs 8-bit (`0`).
+    fn write_control(&mut self, di: u8) {
+        self.mux = di & 0x03;
+        self.flag = di & 0x04 != 0;
+        self.mode_12bit = di & 0x08 != 0;
+        self.busy = true;
+        self.completed = false;
+        self.counter = if self.mode_12bit {
+            ADC_CONVERT_12BIT
+        } else {
+            ADC_CONVERT_8BIT
+        };
+    }
+
+    /// Read one of the four ADC registers (`reg` = low 2 bits of the address).
+    fn read(&self, reg: u8) -> u8 {
+        match reg & 0x03 {
+            // Status: completed_n(7) busy_n(6) value[11:10](5:4) mode(3)
+            // flag(2) mux(1:0). completed_n / busy_n are active low.
+            0x00 => {
+                let completed_n = u8::from(!self.completed) << 7;
+                let busy_n = u8::from(!self.busy) << 6;
+                let top2 = (((self.value() >> 10) & 0x03) as u8) << 4;
+                let mode = u8::from(self.mode_12bit) << 3;
+                let flag = u8::from(self.flag) << 2;
+                completed_n | busy_n | top2 | mode | flag | (self.mux & 0x03)
+            }
+            0x01 => (self.value() >> 4) as u8, // high 8 bits
+            0x02 => ((self.value() & 0x0F) as u8) << 4, // low 4 bits, left-justified
+            _ => 0,
+        }
+    }
+
+    /// Advance the conversion by one CPU cycle. Returns `true` on the cycle
+    /// that completes a conversion — the EOC falling edge.
+    fn tick(&mut self) -> bool {
+        if self.busy && self.counter > 0 {
+            self.counter -= 1;
+            if self.counter == 0 {
+                self.busy = false;
+                self.completed = true;
+                return true;
+            }
+        }
+        false
+    }
+}
+
 /// Teletext logical colour (0-7) to ARGB. The three bits are red, green, blue.
 fn teletext_colour(c: u8) -> u32 {
     let r = u32::from(c & 0x01 != 0) * 0xFF;
@@ -226,6 +327,8 @@ pub struct BbcMicro {
     /// both active low. Merged into the VIA input latch each tick. (The X/Y
     /// axes are read through the μPD7002 ADC — a separate path.)
     fire: [bool; 2],
+    /// μPD7002 ADC — the analogue joystick X/Y axes (`$FEC0-$FEDF`).
+    adc: Upd7002,
 }
 
 impl BbcMicro {
@@ -254,6 +357,7 @@ impl BbcMicro {
             cpu_cycles: 0,
             frame_count: 0,
             fire: [false; 2],
+            adc: Upd7002::new(),
         }
     }
 
@@ -263,6 +367,27 @@ impl BbcMicro {
     /// clamp to the valid pair.
     pub fn set_fire_button(&mut self, port: u8, pressed: bool) {
         self.fire[usize::from(port.clamp(1, 2) - 1)] = pressed;
+    }
+
+    /// Set an ADC channel's 12-bit pot value (`0..=0x0FFF`, clamped). The four
+    /// channels are the analogue joystick axes: channel 0/1 = joystick 1 X/Y,
+    /// channel 2/3 = joystick 2 X/Y. `0x0800` is centre. Out-of-range channels
+    /// are ignored. The OS reads these through the μPD7002 at `$FEC0-$FEC3`.
+    pub fn set_adc_channel(&mut self, channel: u8, value: u16) {
+        if let Some(slot) = self.adc.channels.get_mut(channel as usize) {
+            *slot = value.min(0x0FFF);
+        }
+    }
+
+    /// The 12-bit pot value currently latched on an ADC channel (0-3), or 0 for
+    /// an out-of-range channel. For inspection and host-side input wiring.
+    #[must_use]
+    pub fn adc_channel(&self, channel: u8) -> u16 {
+        self.adc
+            .channels
+            .get(channel as usize)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Supply the SAA5050 teletext character ROM (960 bytes: 96 glyphs of
@@ -317,6 +442,12 @@ impl BbcMicro {
         self.system_via.tick();
         self.user_via.tick();
         self.psg.tick();
+        // μPD7002 end-of-conversion is wired to System VIA CB1. Drive the line
+        // low on the completion edge (the OS's CB1 is set for a negative edge),
+        // which latches the analogue interrupt.
+        if self.adc.tick() {
+            self.system_via.set_cb1_level(false);
+        }
         self.cpu.irq = self.system_via.irq || self.user_via.irq;
         self.cpu_cycles += 1;
     }
@@ -362,6 +493,7 @@ impl BbcMicro {
             0xFE00..=0xFE07 if addr & 1 == 1 => self.crtc.read_data(),
             0xFE40..=0xFE4F => self.system_via.read((addr & 0x0F) as u8),
             0xFE60..=0xFE6F => self.user_via.read((addr & 0x0F) as u8),
+            0xFEC0..=0xFEDF => self.adc.read((addr & 0x03) as u8),
             0xFC00..=0xFEFF => 0xFF,
             0xC000..=0xFFFF => self
                 .mos_rom
@@ -395,6 +527,14 @@ impl BbcMicro {
                 }
             }
             0xFE60..=0xFE6F => self.user_via.write((addr & 0x0F) as u8, value),
+            // Only a write to the control register ($FEC0, reg 0) starts a
+            // conversion. Beginning one releases EOC (CB1 high) until the
+            // countdown completes and pulls it low again. Writes to the result
+            // registers are no-ops (they fall through to the catch-all).
+            0xFEC0..=0xFEDF if addr & 0x03 == 0 => {
+                self.adc.write_control(value);
+                self.system_via.set_cb1_level(true);
+            }
             _ => {}
         }
     }
@@ -783,6 +923,59 @@ mod tests {
         // It must reach the CPU through the IRB read with port B as input.
         let pb = sys.mem_read(0xFE40);
         assert_eq!(pb & 0x20, 0, "PB5 low visible at $FE40");
+    }
+
+    #[test]
+    fn adc_converts_a_channel_and_reports_completion() {
+        let mut sys = BbcMicro::new(trap_rom());
+        // Park a known value on channel 1 (joystick 1 Y): 0x0ABC.
+        sys.set_adc_channel(1, 0x0ABC);
+
+        // Start a 12-bit conversion on channel 1 (bit 3 = 12-bit, mux = 01).
+        sys.mem_write(0xFEC0, 0b0000_1001);
+        // Immediately busy: status bit 6 (busy_n) low, bit 7 (completed_n) high.
+        let status = sys.mem_read(0xFEC0);
+        assert_eq!(status & 0x40, 0, "busy_n low while converting");
+        assert_eq!(status & 0x80, 0x80, "completed_n high while converting");
+
+        // Run the conversion to completion (12-bit = 20000 cycles).
+        for _ in 0..ADC_CONVERT_12BIT {
+            sys.adc.tick();
+        }
+        let status = sys.mem_read(0xFEC0);
+        assert_eq!(status & 0x80, 0, "completed_n low once finished");
+        assert_eq!(status & 0x40, 0x40, "busy_n high once finished");
+        assert_eq!(status & 0x03, 0x01, "mux echoes channel 1");
+        // Top two value bits (0x0ABC >> 10 = 0b10) appear in status bits 5-4.
+        assert_eq!((status >> 4) & 0x03, 0b10, "value[11:10] in status");
+
+        // Result registers: high = value[11:4], low = value[3:0] << 4.
+        assert_eq!(sys.mem_read(0xFEC1), 0xAB, "high byte = value[11:4]");
+        assert_eq!(sys.mem_read(0xFEC2), 0xC0, "low byte = value[3:0] << 4");
+    }
+
+    #[test]
+    fn adc_completion_raises_the_system_via_cb1_interrupt() {
+        let mut sys = BbcMicro::new(trap_rom());
+        // Configure System VIA CB1 for a negative-edge interrupt and enable it:
+        // PCR bit 4 = 0 (CB1 negative edge); IER bit 4 + bit 7 (set-enable).
+        sys.mem_write(0xFE4C, 0x00); // PCR: CB1 negative edge
+        sys.mem_write(0xFE4E, 0x90); // IER: enable CB1 (bit 4) with set bit (7)
+
+        // A conversion in flight presents CB1 high (no edge yet).
+        sys.mem_write(0xFEC0, 0b0000_1000); // 12-bit, channel 0
+        assert_eq!(sys.mem_read(0xFE4D) & 0x10, 0, "no CB1 flag mid-conversion");
+
+        // Drive it to completion through the real per-cycle tick so the
+        // EOC→CB1 falling edge is delivered the same way the engine does it.
+        for _ in 0..ADC_CONVERT_12BIT {
+            sys.tick_cpu_cycle();
+        }
+        assert_ne!(
+            sys.mem_read(0xFE4D) & 0x10,
+            0,
+            "CB1 (ADC end-of-conversion) interrupt flag set"
+        );
     }
 
     #[test]
