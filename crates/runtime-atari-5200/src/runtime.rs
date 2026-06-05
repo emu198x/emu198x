@@ -22,6 +22,7 @@ pub struct Atari5200Runtime {
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
     rgba_height: u32,
+    controller_cache: crate::input::ControllerCache,
 }
 
 impl Atari5200Runtime {
@@ -37,6 +38,7 @@ impl Atari5200Runtime {
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
             rgba_height: 0,
+            controller_cache: crate::input::ControllerCache::default(),
         }
     }
 
@@ -182,6 +184,12 @@ impl MachineCore for Atari5200Runtime {
     ) -> Result<RunResult, MachineError> {
         if self.machine.is_none() {
             return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
+        }
+        // Apply queued analogue-stick / fire input at the top of the window.
+        if let Some(machine) = self.machine.as_mut() {
+            for event in host.input_events {
+                crate::input::apply_input_event(machine, &mut self.controller_cache, event);
+            }
         }
         while self.time < target {
             let ticks = self
