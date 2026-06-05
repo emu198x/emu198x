@@ -112,7 +112,7 @@ clean script/MCP parity break.
 | Device | Variant | Consumes it | Notable gaps |
 |--------|---------|-------------|--------------|
 | Keyboard | `Key` | ~26 machines | atari-5200/7800 keypad/console partial (joystick wired 2026-06-05) |
-| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20**, **bbc** (fire), **svi-328** (~17) | einstein, aquarius, mtx, sord-m5 — blocked on primary source (MAME trace); oric — no native port (Telestrat only) |
+| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20**, **bbc** (fire), **svi-328**, **sord-m5** (~18) | einstein, aquarius, mtx — pending MAME trace; oric — no native port (Telestrat only) |
 | Paddle / analogue | `Axis` | dragon, spectrum, **atari-5200** (POKEY pots), **bbc** (μPD7002 ADC), **c64** (SID POTX/POTY + CIA mux), **atari-2600** (TIA INPT0-3 charge timing) — all 2026-06-05 | atari-800xl, coleco — **absent** |
 | Mouse | `Pointer*` | amiga **only** (correct machine) | MCP-undrivable; c64 1351 minor |
 

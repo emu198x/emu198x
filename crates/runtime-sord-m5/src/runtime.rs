@@ -23,6 +23,7 @@ pub struct M5Runtime {
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
     rgba_height: u32,
+    controller_cache: crate::input::ControllerCache,
 }
 
 impl M5Runtime {
@@ -38,6 +39,7 @@ impl M5Runtime {
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
             rgba_height: 0,
+            controller_cache: crate::input::ControllerCache::default(),
         }
     }
 
@@ -191,7 +193,7 @@ impl MachineCore for M5Runtime {
         }
         for event in host.input_events {
             if let Some(machine) = self.machine.as_mut() {
-                apply_input_event(machine, event);
+                apply_input_event(machine, &mut self.controller_cache, event);
             }
         }
         while self.time < target {

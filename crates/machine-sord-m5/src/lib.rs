@@ -138,6 +138,10 @@ pub struct SordM5 {
     /// Last value written to `$30-$37`; bits 0-3 select the matrix
     /// row that the next `$40-$47` read returns.
     key_row: u8,
+    /// Joystick directions read at `$37`. Both sticks pack into one byte,
+    /// **active high** (pressed = 1): player 1 = bit 0 right, 1 up, 2 left,
+    /// 3 down; player 2 = bits 4-7 in the same order. Idle is `0x00`.
+    joystick: u8,
     /// Z80 CTC at port `$00-$03`. The VDP `/INT` line drives one
     /// channel's `CLK/TRG`; see [`VDP_INT_CTC_CHANNEL`].
     ctc: Ctc,
@@ -183,6 +187,7 @@ impl SordM5 {
             ram: [0; 4096],
             key_matrix: [0xFF; NUM_KEY_ROWS],
             key_row: 0,
+            joystick: 0x00,
             ctc: Ctc::new(),
             prev_opcode_ed: false,
             io_trace: None,
@@ -327,6 +332,9 @@ impl SordM5 {
                     0xFF
                 }
             }
+            // Joystick at $37 (A3 mirrored, so $3F too): both sticks' four
+            // directions, active high. (MAME `m5` `portr("JOY")`.)
+            _ if p & 0xF7 == 0x37 => self.joystick,
             _ => 0xFF,
         };
         if let Some(trace) = &mut self.io_trace {
@@ -440,6 +448,29 @@ impl SordM5 {
         if row < self.key_matrix.len() && bit < 8 {
             self.key_matrix[row] |= 1 << bit;
         }
+    }
+
+    /// Set the digital joystick directions for `port` (1 or 2). Read at `$37`,
+    /// active high (pressed = 1), bit order right/up/left/down per player
+    /// (player 1 in bits 0-3, player 2 in bits 4-7). The M5 control port has no
+    /// separate fire line — action buttons are on the keyboard. Out-of-range
+    /// ports clamp to the valid pair.
+    pub fn set_joystick(&mut self, port: u8, up: bool, down: bool, left: bool, right: bool) {
+        let mut nibble = 0u8;
+        for (pressed, bit) in [(right, 0x01), (up, 0x02), (left, 0x04), (down, 0x08)] {
+            if pressed {
+                nibble |= bit;
+            }
+        }
+        let shift = (port.clamp(1, 2) - 1) * 4;
+        self.joystick = (self.joystick & !(0x0F << shift)) | (nibble << shift);
+    }
+
+    /// The joystick directions byte read at `$37`. For inspection and
+    /// host-side input wiring.
+    #[must_use]
+    pub fn joystick_byte(&self) -> u8 {
+        self.joystick
     }
 
     /// Mutable keyboard matrix (active-low; 0 = pressed).
@@ -570,6 +601,29 @@ mod tests {
         sys.key_matrix[7] = 0xAA;
         sys.io_write(0x30, 7);
         assert_eq!(sys.io_read(0x40), 0xAA);
+    }
+
+    #[test]
+    fn joystick_reads_active_high_at_0x37() {
+        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
+        // Idle: nothing pressed → all lines low (active high).
+        assert_eq!(sys.io_read(0x37), 0x00);
+
+        // Player 1 right + up → bits 0 and 1 high. (up, down, left, right)
+        sys.set_joystick(1, true, false, false, true);
+        let v = sys.io_read(0x37);
+        assert_eq!(v & 0x01, 0x01, "P1 right → bit 0 high");
+        assert_eq!(v & 0x02, 0x02, "P1 up → bit 1 high");
+        assert_eq!(v & 0xF0, 0x00, "P2 nibble idle low");
+
+        // Player 2 down → bit 7; independent of P1.
+        sys.set_joystick(2, false, true, false, false);
+        let v = sys.io_read(0x37);
+        assert_eq!(v & 0x80, 0x80, "P2 down → bit 7 high");
+        assert_eq!(v & 0x03, 0x03, "P1 right+up still held");
+
+        // Mirror: $3F (A3 set) reads the same byte.
+        assert_eq!(sys.io_read(0x3F), sys.io_read(0x37));
     }
 
     #[test]
