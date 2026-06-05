@@ -189,6 +189,14 @@ impl Atari2600 {
         self.riot.set_port_b_input(value);
     }
 
+    /// Set a paddle position on INPT line `index` (0-3): INPT0/1 are the two
+    /// paddles on the left jack, INPT2/3 the right. `value` is the 8-bit pot
+    /// position (0 charges fastest, 255 slowest). The TIA reads it as the
+    /// capacitor-charge timing on INPT0-3.
+    pub fn set_paddle(&mut self, index: u8, value: u8) {
+        self.tia.set_paddle(index, value);
+    }
+
     /// CPU reference.
     #[must_use]
     pub fn cpu(&self) -> &M6502 {

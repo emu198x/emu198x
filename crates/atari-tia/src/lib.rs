@@ -98,6 +98,26 @@ pub const CLOCKS_PER_LINE: u16 = 228;
 /// Horizontal blank duration in colour clocks.
 pub const HBLANK_CLOCKS: u16 = 68;
 
+/// Paddle capacitor base charge time at zero pot resistance, in nanoseconds
+/// ×100. From the Atari7800 MiSTer paddle-LUT generator (`paddle_lut.c`).
+const PADDLE_BASE_TIME_NS100: u64 = 6_034_284;
+/// Extra paddle charge time per kΩ of pot resistance, in nanoseconds ×100.
+const PADDLE_TIME_PER_KOHM_NS100: u64 = 4_532_214;
+/// NTSC colour-clock frequency (Hz): one TIA `tick`.
+const TIA_COLOUR_CLOCK_HZ: u64 = 3_579_545;
+
+/// Colour clocks the paddle capacitor takes to charge past the INPT trigger at
+/// position `pos`. The 8-bit position maps to the CX-30's ≈0..1 MΩ pot
+/// (`pos × 4` kΩ); the charge time follows the MiSTer LUT model
+/// (`BASE + resistance × T_PER_KO`), converted from nanoseconds to NTSC colour
+/// clocks (`ns ×100 × freq / 1e11`).
+fn paddle_threshold(pos: u8) -> u32 {
+    let resistance_kohm = u64::from(pos) * 4;
+    let time_ns100 = PADDLE_BASE_TIME_NS100 + resistance_kohm * PADDLE_TIME_PER_KOHM_NS100;
+    let clocks = time_ns100 * TIA_COLOUR_CLOCK_HZ / 100_000_000_000;
+    u32::try_from(clocks).unwrap_or(u32::MAX)
+}
+
 /// Video region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TiaRegion {
@@ -246,6 +266,18 @@ pub struct Tia {
     /// INPT5: Player 1 fire button (bit 7, active low).
     inpt5: u8,
 
+    // --- Paddle pots (INPT0-3) ---
+    /// Paddle positions, one per INPT0-3 line (`0..=255`). Higher = more
+    /// resistance = slower capacitor charge. Set by the host; INPT0/1 are the
+    /// two paddles on the left jack, INPT2/3 the right.
+    paddle_pos: [u8; 4],
+    /// Colour clocks each paddle capacitor has charged since the dump (VBLANK
+    /// bit 7) was last released. Saturating; reset to 0 while the dump is held.
+    paddle_charge: [u32; 4],
+    /// VBLANK bit 7 — when set, the INPT0-3 capacitors are grounded (dumped),
+    /// so they read 0 and stop charging.
+    paddle_dump: bool,
+
     // --- Framebuffer ---
     /// ARGB32 framebuffer.
     framebuffer: Vec<u32>,
@@ -317,6 +349,9 @@ impl Tia {
             cxppmm: 0,
             inpt4: 0x80,
             inpt5: 0x80,
+            paddle_pos: [0x80; 4],
+            paddle_charge: [0; 4],
+            paddle_dump: false,
             framebuffer: vec![0; fb_size],
             max_lines,
             frame_complete: false,
@@ -367,6 +402,17 @@ impl Tia {
                     self.framebuffer[fb_idx] = argb;
                 }
             }
+        }
+
+        // Advance the paddle capacitors. A held dump keeps them grounded
+        // (charge 0); otherwise each charges one colour clock toward its
+        // position-dependent threshold.
+        for charge in &mut self.paddle_charge {
+            *charge = if self.paddle_dump {
+                0
+            } else {
+                charge.saturating_add(1)
+            };
         }
 
         // Advance horizontal counter.
@@ -729,8 +775,10 @@ impl Tia {
             0x01 => {
                 // VBLANK
                 self.vblank = value & 0x02 != 0;
-                // Bit 6: dump paddle ports to ground.
-                // Bit 7: latch input ports. (TODO for input phase)
+                // Bit 7 dumps the INPT0-3 paddle capacitors to ground; bit 6
+                // enables the INPT4/5 fire-button latches (latch handling is
+                // elsewhere). Releasing the dump starts the caps charging.
+                self.paddle_dump = value & 0x80 != 0;
             }
             0x02 => {
                 // WSYNC
@@ -828,21 +876,41 @@ impl Tia {
     #[must_use]
     pub fn read(&self, addr: u8) -> u8 {
         match addr & 0x0F {
-            0x00 => self.cxm0p,  // CXM0P
-            0x01 => self.cxm1p,  // CXM1P
-            0x02 => self.cxp0fb, // CXP0FB
-            0x03 => self.cxp1fb, // CXP1FB
-            0x04 => self.cxm0fb, // CXM0FB
-            0x05 => self.cxm1fb, // CXM1FB
-            0x06 => self.cxblpf, // CXBLPF
-            0x07 => self.cxppmm, // CXPPMM
-            0x08 => 0,           // INPT0 (paddle — TODO)
-            0x09 => 0,           // INPT1
-            0x0A => 0,           // INPT2
-            0x0B => 0,           // INPT3
-            0x0C => self.inpt4,  // INPT4 (P0 fire)
-            0x0D => self.inpt5,  // INPT5 (P1 fire)
+            0x00 => self.cxm0p,          // CXM0P
+            0x01 => self.cxm1p,          // CXM1P
+            0x02 => self.cxp0fb,         // CXP0FB
+            0x03 => self.cxp1fb,         // CXP1FB
+            0x04 => self.cxm0fb,         // CXM0FB
+            0x05 => self.cxm1fb,         // CXM1FB
+            0x06 => self.cxblpf,         // CXBLPF
+            0x07 => self.cxppmm,         // CXPPMM
+            0x08 => self.paddle_inpt(0), // INPT0 (left jack, paddle A)
+            0x09 => self.paddle_inpt(1), // INPT1 (left jack, paddle B)
+            0x0A => self.paddle_inpt(2), // INPT2 (right jack, paddle A)
+            0x0B => self.paddle_inpt(3), // INPT3 (right jack, paddle B)
+            0x0C => self.inpt4,          // INPT4 (P0 fire)
+            0x0D => self.inpt5,          // INPT5 (P1 fire)
             _ => 0,
+        }
+    }
+
+    /// The INPT0-3 read value for paddle `index`: bit 7 is set once the
+    /// capacitor has charged past its position-dependent threshold, and clear
+    /// while it is still charging or the dump is held.
+    fn paddle_inpt(&self, index: usize) -> u8 {
+        if self.paddle_charge[index] >= paddle_threshold(self.paddle_pos[index]) {
+            0x80
+        } else {
+            0x00
+        }
+    }
+
+    /// Set a paddle position for INPT line `index` (0-3). `value` is the 8-bit
+    /// host position: 0 charges fastest (minimum resistance), 255 slowest.
+    /// Out-of-range indices are ignored.
+    pub fn set_paddle(&mut self, index: u8, value: u8) {
+        if let Some(slot) = self.paddle_pos.get_mut(index as usize) {
+            *slot = value;
         }
     }
 
@@ -1235,6 +1303,48 @@ mod tests {
         // Release fire
         tia.set_inpt4(false);
         assert_eq!(tia.read(0x0C), 0x80);
+    }
+
+    #[test]
+    fn paddle_capacitor_charges_after_the_dump_is_released() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.set_paddle(0, 0x00); // fastest charge (minimum resistance)
+        let threshold = super::paddle_threshold(0x00);
+
+        // Hold the dump (VBLANK bit 7): INPT0 reads 0 and never charges.
+        tia.write(0x01, 0x80);
+        for _ in 0..(threshold + 50) {
+            tia.tick();
+        }
+        assert_eq!(tia.read(0x08), 0x00, "dumped paddle stays discharged");
+
+        // Release the dump: INPT0 reads 0 until the cap charges past threshold.
+        tia.write(0x01, 0x00);
+        for _ in 0..(threshold - 1) {
+            tia.tick();
+        }
+        assert_eq!(tia.read(0x08), 0x00, "still charging before threshold");
+        tia.tick();
+        tia.tick();
+        assert_eq!(tia.read(0x08), 0x80, "charged past threshold → bit 7 set");
+    }
+
+    #[test]
+    fn higher_paddle_position_takes_longer_to_charge() {
+        // More resistance = later trigger. INPT1 (far) should still be low
+        // when INPT0 (near) has already fired.
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.set_paddle(0, 0x10);
+        tia.set_paddle(1, 0xF0);
+        assert!(super::paddle_threshold(0x10) < super::paddle_threshold(0xF0));
+
+        tia.write(0x01, 0x00); // release dump
+        let near = super::paddle_threshold(0x10);
+        for _ in 0..(near + 5) {
+            tia.tick();
+        }
+        assert_eq!(tia.read(0x08), 0x80, "near paddle charged");
+        assert_eq!(tia.read(0x09), 0x00, "far paddle still charging");
     }
 
     #[test]

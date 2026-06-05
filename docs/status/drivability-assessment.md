@@ -113,7 +113,7 @@ clean script/MCP parity break.
 |--------|---------|-------------|--------------|
 | Keyboard | `Key` | ~26 machines | atari-5200/7800 keypad/console partial (joystick wired 2026-06-05) |
 | Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20**, **bbc** (fire) (~16) | svi-328, einstein, aquarius, mtx, sord-m5 — blocked on primary source (boot-ROM trace); oric — no native port (Telestrat only) |
-| Paddle / analogue | `Axis` | dragon, spectrum, **atari-5200** (POKEY pots, 2026-06-05), **bbc** (μPD7002 ADC, 2026-06-05), **c64** (SID POTX/POTY + CIA mux, 2026-06-05) | **atari-2600** (signature paddles — TIA INPT timing), atari-800xl, coleco — **absent** |
+| Paddle / analogue | `Axis` | dragon, spectrum, **atari-5200** (POKEY pots), **bbc** (μPD7002 ADC), **c64** (SID POTX/POTY + CIA mux), **atari-2600** (TIA INPT0-3 charge timing) — all 2026-06-05 | atari-800xl, coleco — **absent** |
 | Mouse | `Pointer*` | amiga **only** (correct machine) | MCP-undrivable; c64 1351 minor |
 
 **Atari 5200 and 7800 consume no input at all** — they boot, run cartridges, and
@@ -210,8 +210,11 @@ wire the missing consumers** — not new architecture.
      end-of-conversion wired to System VIA CB1. ADC modelled inline from the
      `BBCMicro_MiSTer` `upd7002.vhd` reference core.
 
-   Then `Axis` for paddle machines (Atari 2600 paddles, C64 SID paddles) where
-   the chip seam already exists.
+   ✅ *`Axis` paddle machines wired 2026-06-05.* **c64** — SID POTX/POTY driven
+   through the CIA #1 port-A 4066 mux (model from VICE). **atari-2600** — the
+   TIA INPT0-3 capacitor-charge timing model (VBLANK bit-7 dump + a
+   position-dependent threshold from the Atari7800 MiSTer paddle LUT). Remaining
+   paddle gaps are atari-800xl and coleco (no pot seam modelled yet).
 4. **Debug surface — mostly already done.** 24 machines share `DebugTarget`. The
    only open items are (a) Game Boy: add `impl_sm83_debug_target!` (a new macro
    family member for a shipped single-CPU machine), and (b) Amiga: deferred by
