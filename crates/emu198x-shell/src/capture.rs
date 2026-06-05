@@ -275,6 +275,18 @@ impl AudioCapture {
             .ok_or(CaptureError::MissingAudio)?
             .wav_bytes())
     }
+
+    /// Drops the first `n` interleaved samples from the front of the
+    /// buffer. Used by the session to bound RAM during a streaming audio
+    /// recording: once a prefix has been flushed to disk (and no other
+    /// consumer still needs it), it is drained here. Caller is responsible
+    /// for shifting any retained sample offsets by `n`.
+    pub fn drain_prefix(&mut self, n: usize) {
+        if let Some(audio) = &mut self.audio {
+            let n = n.min(audio.samples.len());
+            audio.samples.drain(0..n);
+        }
+    }
 }
 
 impl AudioSink for AudioCapture {
@@ -384,6 +396,18 @@ impl WavStreamWriter {
     #[must_use]
     pub fn samples_written(&self) -> u64 {
         self.samples_written
+    }
+
+    /// Sample rate the stream was opened with, in Hz.
+    #[must_use]
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    /// Channel count the stream was opened with.
+    #[must_use]
+    pub fn channels(&self) -> u8 {
+        self.channels
     }
 
     /// Flushes, seeks back to patch the RIFF / `data` length fields, and

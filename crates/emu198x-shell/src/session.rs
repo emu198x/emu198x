@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::capture::{AudioCapture, CaptureError, CapturedFrame, LatestFrameCapture};
+use crate::capture::{
+    AudioCapture, CaptureError, CapturedFrame, LatestFrameCapture, WavStreamWriter,
+};
 use crate::control::ControlCommand;
 use crate::error::MachineError;
 use crate::headless::prepare_machine;
@@ -167,13 +169,16 @@ struct BootQueryState {
 ///
 /// Mirrors the video recorder's "begin/end with a path" shape but
 /// without an external process — audio is teed into
-/// [`HeadlessSession::audio_capture`] continuously, and the recording
-/// slices that buffer at finish time. `start_offset` is the sample
-/// count already in the capture when recording began.
-#[derive(Debug)]
+/// In-flight standalone audio recording. Streams to disk incrementally:
+/// each run flushes the newly-captured samples to `writer` and advances
+/// `flushed`, so the recording's audio never has to live entirely in RAM.
+/// `writer` is lazily created on the first flush that has samples (the
+/// stream format isn't known until then). `flushed` is the index into the
+/// session capture buffer up to which samples are already on disk.
 struct AudioRecording {
     path: PathBuf,
-    start_offset: usize,
+    writer: Option<WavStreamWriter>,
+    flushed: usize,
 }
 
 /// Summary returned by [`HeadlessSession::stop_audio_recording`].
@@ -677,7 +682,70 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         };
         let result = self.machine.run_until(target, &mut host)?;
         self.last_run_result = Some(result);
+        self.flush_audio_recording()?;
         Ok(result)
+    }
+
+    /// Streams the audio captured since the last flush to the in-flight
+    /// audio recording's WAV file, then trims the front of the capture
+    /// buffer that no active consumer still needs — bounding RAM during a
+    /// long recording. No-op (one bool check) when no audio recording is
+    /// active.
+    ///
+    /// Trim policy: the streamed audio recording pins nothing (it's on
+    /// disk); an active *video* recording pins its window
+    /// (`audio_offset_at_recording_start`) because it muxes that audio at
+    /// stop. With no audio recording active, nothing is trimmed and the
+    /// session buffer retains the whole session (legacy `save_audio_capture`
+    /// behaviour). With an audio recording active, `save_audio_capture`
+    /// reflects only the un-trimmed tail.
+    fn flush_audio_recording(&mut self) -> Result<(), SessionError> {
+        if self.audio_recording.is_none() {
+            return Ok(());
+        }
+
+        // Step 1 — stream newly-captured samples to the recording's WAV.
+        {
+            let Self {
+                audio_recording,
+                audio_capture,
+                ..
+            } = self;
+            if let (Some(rec), Some(cap)) = (audio_recording.as_mut(), audio_capture.audio()) {
+                let len = cap.samples.len();
+                if len > rec.flushed {
+                    let writer = match rec.writer.as_mut() {
+                        Some(writer) => writer,
+                        None => rec.writer.insert(WavStreamWriter::create(
+                            &rec.path,
+                            cap.sample_rate,
+                            cap.channels,
+                        )?),
+                    };
+                    writer.append(&cap.samples[rec.flushed..len])?;
+                    rec.flushed = len;
+                }
+            }
+        }
+
+        // Step 2 — drop the prefix no active consumer still needs. The
+        // streamed recording is on disk; only a concurrent video recording
+        // pins a window.
+        let end = self.audio_capture.audio().map_or(0, |a| a.samples.len());
+        let mut retain_from = end;
+        if self.recorder.is_some() {
+            retain_from = retain_from.min(self.audio_offset_at_recording_start);
+        }
+        if retain_from > 0 {
+            self.audio_capture.drain_prefix(retain_from);
+            if let Some(rec) = self.audio_recording.as_mut() {
+                rec.flushed = rec.flushed.saturating_sub(retain_from);
+            }
+            self.audio_offset_at_recording_start = self
+                .audio_offset_at_recording_start
+                .saturating_sub(retain_from);
+        }
+        Ok(())
     }
 
     fn run_until_recording(&mut self, target: MachineTime) -> Result<RunResult, SessionError> {
@@ -728,6 +796,7 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         };
         let result = self.machine.run_until(target, &mut host)?;
         self.last_run_result = Some(result);
+        self.flush_audio_recording()?;
         Ok(result)
     }
 
@@ -762,6 +831,7 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         };
         let result = self.machine.run_ticks(ticks, &mut host)?;
         self.last_run_result = Some(result);
+        self.flush_audio_recording()?;
         Ok(result)
     }
 
@@ -802,6 +872,12 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
 
     /// Encodes the accumulated audio stream as WAV.
     ///
+    /// Reflects the whole session when no standalone audio recording is
+    /// active. While a `start_audio_recording` recording is in flight the
+    /// capture buffer is trimmed as it streams to disk, so this returns
+    /// only the un-trimmed tail — use the streamed recording file for the
+    /// full recorded window.
+    ///
     /// # Errors
     ///
     /// Returns an error if no audio has been emitted yet.
@@ -809,7 +885,8 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         Ok(self.audio_capture.wav_bytes()?)
     }
 
-    /// Writes the accumulated audio stream as WAV.
+    /// Writes the accumulated audio stream as WAV. See [`Self::audio_wav_bytes`]
+    /// for the trim-during-recording caveat.
     ///
     /// # Errors
     ///
@@ -863,16 +940,20 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         let start_offset = self.audio_capture.audio().map_or(0, |a| a.samples.len());
         self.audio_recording = Some(AudioRecording {
             path: output_path,
-            start_offset,
+            // Lazily created on the first flush that has samples — the
+            // stream format isn't known until the machine emits audio.
+            writer: None,
+            flushed: start_offset,
         });
         Ok(())
     }
 
     /// Finalises the in-flight standalone audio recording.
     ///
-    /// Slices the audio buffer from the offset captured at
-    /// `start_audio_recording` to the current end, encodes it as a
-    /// 16-bit PCM WAV, and writes it to disk.
+    /// Flushes any audio captured since the last run to the streaming WAV,
+    /// then patches the file header with the final lengths. The samples
+    /// were written to disk incrementally as the recording ran, so nothing
+    /// is re-encoded here.
     ///
     /// # Errors
     ///
@@ -881,36 +962,35 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     /// is in flight, or [`AudioRecordingError::NoAudio`] when the
     /// recording window captured zero samples.
     pub fn stop_audio_recording(&mut self) -> Result<AudioRecordingSummary, SessionError> {
-        let recording = self
-            .audio_recording
-            .take()
-            .ok_or(SessionError::Audio(AudioRecordingError::NotRecording))?;
-        let Some(captured) = self.audio_capture.audio() else {
-            return Err(SessionError::Audio(AudioRecordingError::NoAudio));
-        };
-        let total = captured.samples.len();
-        if total <= recording.start_offset {
-            return Err(SessionError::Audio(AudioRecordingError::NoAudio));
+        if self.audio_recording.is_none() {
+            return Err(SessionError::Audio(AudioRecordingError::NotRecording));
         }
-        let slice = &captured.samples[recording.start_offset..total];
-        let per_channel_samples = slice.len() / usize::from(captured.channels.max(1));
-        let sliced = crate::CapturedAudio {
-            sample_rate: captured.sample_rate,
-            channels: captured.channels,
-            samples: slice.to_vec(),
+        // Stream the final tail captured since the last run, then take the
+        // recording so its writer can be finalised.
+        self.flush_audio_recording()?;
+        let Some(recording) = self.audio_recording.take() else {
+            return Err(SessionError::Audio(AudioRecordingError::NotRecording));
         };
-        let bytes = sliced.wav_bytes();
-        std::fs::write(&recording.path, &bytes)?;
-        let duration_ms = if captured.sample_rate > 0 {
-            (per_channel_samples as u64 * 1000) / u64::from(captured.sample_rate)
+        // No writer means the window captured zero samples (writer is only
+        // created on the first flush that has audio).
+        let Some(writer) = recording.writer else {
+            return Err(SessionError::Audio(AudioRecordingError::NoAudio));
+        };
+        let sample_rate = writer.sample_rate();
+        let channels = writer.channels();
+        let interleaved = writer.finish()?;
+        let per_channel_samples =
+            usize::try_from(interleaved).unwrap_or(usize::MAX) / usize::from(channels.max(1));
+        let duration_ms = if sample_rate > 0 {
+            (per_channel_samples as u64 * 1000) / u64::from(sample_rate)
         } else {
             0
         };
         Ok(AudioRecordingSummary {
             path: recording.path,
             samples: per_channel_samples,
-            sample_rate: captured.sample_rate,
-            channels: captured.channels,
+            sample_rate,
+            channels,
             duration_ms,
         })
     }
@@ -1698,6 +1778,81 @@ mod tests {
                 expected: true,
                 max_frames: 1
             } if path == "dummy.flag"
+        ));
+    }
+
+    /// A standalone audio recording streams to disk incrementally and
+    /// bounds the in-RAM capture buffer: the on-disk WAV equals the
+    /// buffered encoding of exactly the recorded window, and the session
+    /// buffer does not grow with recording length.
+    #[test]
+    fn audio_recording_streams_to_disk_and_bounds_the_buffer() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
+        // Pre-roll one frame: two samples sit in the buffer before recording.
+        session.run_frames(1).expect("pre-roll frame");
+        assert_eq!(
+            session.audio_capture.audio().map_or(0, |a| a.samples.len()),
+            2
+        );
+
+        let path =
+            std::env::temp_dir().join(format!("emu198x_audiorec_{}.wav", std::process::id()));
+        session
+            .start_audio_recording(path.clone())
+            .expect("start audio recording");
+
+        // Each frame emits two mono samples; the recording streams + trims.
+        for _ in 0..5 {
+            session.run_frames(1).expect("recording frame");
+            // RAM stays bounded — with only an audio recording active, the
+            // buffer drains after every flush instead of growing.
+            assert!(
+                session.audio_capture.audio().map_or(0, |a| a.samples.len()) <= 2,
+                "capture buffer must stay bounded during a streaming recording"
+            );
+        }
+
+        let summary = session
+            .stop_audio_recording()
+            .expect("stop audio recording");
+        assert_eq!(summary.samples, 10, "5 frames x 2 mono samples");
+        assert_eq!(summary.sample_rate, 44_100);
+        assert_eq!(summary.channels, 1);
+        assert!(!session.is_audio_recording());
+
+        // The streamed file equals the buffered encoding of just the
+        // recorded window (the pre-roll sample pair is excluded).
+        let streamed = std::fs::read(&path).expect("read recorded wav");
+        let _ = std::fs::remove_file(&path);
+        let expected = crate::CapturedAudio {
+            sample_rate: 44_100,
+            channels: 1,
+            samples: [0.0, 0.5].repeat(5),
+        }
+        .wav_bytes();
+        assert_eq!(
+            streamed, expected,
+            "streamed recording must match buffered encode"
+        );
+    }
+
+    /// Stopping an audio recording that captured no samples reports
+    /// `NoAudio`, and a stop with nothing in flight reports `NotRecording`.
+    #[test]
+    fn audio_recording_stop_edge_cases() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
+        assert!(matches!(
+            session.stop_audio_recording(),
+            Err(SessionError::Audio(AudioRecordingError::NotRecording))
+        ));
+
+        let path =
+            std::env::temp_dir().join(format!("emu198x_audiorec_empty_{}.wav", std::process::id()));
+        session.start_audio_recording(path).expect("start");
+        // No run between start and stop — zero samples captured.
+        assert!(matches!(
+            session.stop_audio_recording(),
+            Err(SessionError::Audio(AudioRecordingError::NoAudio))
         ));
     }
 }
