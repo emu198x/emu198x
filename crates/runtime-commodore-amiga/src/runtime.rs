@@ -29,6 +29,7 @@ use machine_commodore_amiga_ocs::{
 };
 
 use crate::input::apply_input_event;
+use crate::live_access::AmigaLiveAccess;
 use crate::snapshot;
 use crate::variants::AmigaMachine;
 use crate::{Model, profile_for};
@@ -59,7 +60,11 @@ pub struct AmigaRuntime<M: AmigaMachine> {
     /// (the chip / slow / fast RAM sizes the chip stack was built
     /// around). Held here so `reset` rebuilds with the same layout.
     metadata: M::SnapshotMetadata,
-    machine: M,
+    // pub(crate) so the `cpu_trace` sibling module's `tick_traced` can
+    // take disjoint field borrows of `machine` (read) and `cpu_trace`
+    // (write) in one method — accessor methods would borrow all of
+    // `self` and block the split.
+    pub(crate) machine: M,
     time: MachineTime,
     firmware_rom: Vec<u8>,
     floppy0_bytes: Option<Vec<u8>>,
@@ -79,6 +84,10 @@ pub struct AmigaRuntime<M: AmigaMachine> {
     /// Tick rate in Hz (= 2 × cck_hz). Cached at construction so the
     /// audio resampler doesn't query the machine every tick.
     tick_hz: u64,
+    /// Instruction-boundary CPU trace, armed via the MCP `cpu_trace_*`
+    /// tools and captured by `tick_traced`. See [`crate::cpu_trace`].
+    /// `pub(crate)` for the same disjoint-borrow reason as `machine`.
+    pub(crate) cpu_trace: crate::cpu_trace::CpuTrace,
 }
 
 // =====================================================================
@@ -146,20 +155,6 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.non_black_pixels = non_black;
         self.non_white_pixels = non_white;
         self.first_active_row = first_active_row;
-    }
-
-    fn tick_and_sample_audio(&mut self) {
-        self.machine.tick();
-        self.audio_sample_accumulator = self
-            .audio_sample_accumulator
-            .saturating_add(u64::from(AUDIO_SAMPLE_RATE_HZ));
-
-        while self.audio_sample_accumulator >= self.tick_hz {
-            self.audio_sample_accumulator -= self.tick_hz;
-            let (left, right) = self.machine.mix_audio_stereo();
-            self.audio_buffer.push(left);
-            self.audio_buffer.push(right);
-        }
     }
 
     // -----------------------------------------------------------------
@@ -265,7 +260,30 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
     }
 }
 
-impl<M: AmigaMachine> MachineCore for AmigaRuntime<M> {
+// The tick funnel reads CPU state for the trace, so it needs the
+// `AmigaLiveAccess` bound (every concrete Amiga machine satisfies it).
+// Kept off the bulk `impl<M: AmigaMachine>` block so the bound doesn't
+// cascade onto the query / snapshot siblings.
+impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
+    fn tick_and_sample_audio(&mut self) {
+        // Route through the trace funnel so an armed CPU trace captures
+        // every instruction boundary the run loop crosses — same path
+        // the per-tick `step` / `run_until_*` tools use.
+        self.tick_traced();
+        self.audio_sample_accumulator = self
+            .audio_sample_accumulator
+            .saturating_add(u64::from(AUDIO_SAMPLE_RATE_HZ));
+
+        while self.audio_sample_accumulator >= self.tick_hz {
+            self.audio_sample_accumulator -= self.tick_hz;
+            let (left, right) = self.machine.mix_audio_stereo();
+            self.audio_buffer.push(left);
+            self.audio_buffer.push(right);
+        }
+    }
+}
+
+impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }
@@ -289,6 +307,9 @@ impl<M: AmigaMachine> MachineCore for AmigaRuntime<M> {
         self.frame_count = 0;
         self.audio_sample_accumulator = 0;
         self.audio_buffer.clear();
+        // Drop pre-reset trace entries so they don't bleed into
+        // post-reset analysis (arm-state + filter are kept).
+        self.cpu_trace.clear_on_reset();
         self.update_rgba_framebuffer();
     }
 
@@ -463,6 +484,7 @@ impl AmigaRuntime<AmigaOcs> {
             audio_sample_accumulator: 0,
             audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
             tick_hz,
+            cpu_trace: crate::cpu_trace::CpuTrace::default(),
         };
         runtime.update_rgba_framebuffer();
         Ok(runtime)
@@ -565,6 +587,7 @@ impl AmigaRuntime<AmigaEcs> {
             audio_sample_accumulator: 0,
             audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
             tick_hz,
+            cpu_trace: crate::cpu_trace::CpuTrace::default(),
         };
         runtime.update_rgba_framebuffer();
         Ok(runtime)
@@ -671,6 +694,7 @@ impl AmigaRuntime<AmigaA1200> {
             audio_sample_accumulator: 0,
             audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
             tick_hz,
+            cpu_trace: crate::cpu_trace::CpuTrace::default(),
         };
         runtime.update_rgba_framebuffer();
         Ok(runtime)

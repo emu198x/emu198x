@@ -212,6 +212,44 @@ pub trait AmigaLiveAccess {
 
     fn insert_floppy0(&mut self, adf: Adf, change_pending: bool);
     fn eject_floppy0(&mut self);
+
+    // ---------- instruction-boundary CPU trace ----------
+    //
+    // The trace lives on `AmigaRuntime` and is captured by its tick
+    // funnel (see `cpu_trace.rs`). Only the `AmigaRuntimeKind` impl
+    // overrides these; the bare-machine impls (`AmigaOcs` etc.) use the
+    // inert defaults — the trace is a runtime-level concern and tools
+    // only ever hold the runtime kind.
+
+    /// Arm the instruction trace with an optional inclusive PC filter
+    /// and an entry cap. Clears any prior trace.
+    fn cpu_trace_arm(&mut self, _pc_filter: Option<(u32, u32)>, _max_entries: usize) {}
+
+    /// Stop recording, keeping captured entries. Returns the count held.
+    fn cpu_trace_disarm(&mut self) -> usize {
+        0
+    }
+
+    /// Discard captured entries without disarming. Returns the count
+    /// dropped.
+    fn cpu_trace_clear(&mut self) -> usize {
+        0
+    }
+
+    /// Whether the trace is recording.
+    fn cpu_trace_armed(&self) -> bool {
+        false
+    }
+
+    /// Current entry cap.
+    fn cpu_trace_max_entries(&self) -> usize {
+        0
+    }
+
+    /// Captured entries, oldest first.
+    fn cpu_trace_entries(&self) -> &[crate::CpuTraceEntry] {
+        &[]
+    }
 }
 
 // ===================================================================
@@ -805,10 +843,13 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
     }
 
     fn tick(&mut self) {
+        // Route through the runtime's trace funnel (not the bare
+        // machine tick) so the per-tick `step` / `run_until_*` tools
+        // feed an armed CPU trace, exactly as the run loop does.
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::tick(rt.machine_mut()),
-            Self::Ecs(rt) => AmigaLiveAccess::tick(rt.machine_mut()),
-            Self::Aga(rt) => AmigaLiveAccess::tick(rt.machine_mut()),
+            Self::Ocs(rt) => rt.tick_traced(),
+            Self::Ecs(rt) => rt.tick_traced(),
+            Self::Aga(rt) => rt.tick_traced(),
         }
     }
 
@@ -1080,6 +1121,58 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => rt.machine_mut().eject_floppy0(),
             Self::Ecs(rt) => rt.machine_mut().eject_floppy0(),
             Self::Aga(rt) => rt.machine_mut().eject_floppy0(),
+        }
+    }
+
+    // ---------- instruction-boundary CPU trace ----------
+    // Delegate to the inner runtime's trace (the only impl that carries
+    // real state; the bare-machine impls keep the trait defaults).
+
+    fn cpu_trace_arm(&mut self, pc_filter: Option<(u32, u32)>, max_entries: usize) {
+        match self {
+            Self::Ocs(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+            Self::Ecs(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+            Self::Aga(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+        }
+    }
+
+    fn cpu_trace_disarm(&mut self) -> usize {
+        match self {
+            Self::Ocs(rt) => rt.cpu_trace_disarm(),
+            Self::Ecs(rt) => rt.cpu_trace_disarm(),
+            Self::Aga(rt) => rt.cpu_trace_disarm(),
+        }
+    }
+
+    fn cpu_trace_clear(&mut self) -> usize {
+        match self {
+            Self::Ocs(rt) => rt.cpu_trace_clear(),
+            Self::Ecs(rt) => rt.cpu_trace_clear(),
+            Self::Aga(rt) => rt.cpu_trace_clear(),
+        }
+    }
+
+    fn cpu_trace_armed(&self) -> bool {
+        match self {
+            Self::Ocs(rt) => rt.cpu_trace_armed(),
+            Self::Ecs(rt) => rt.cpu_trace_armed(),
+            Self::Aga(rt) => rt.cpu_trace_armed(),
+        }
+    }
+
+    fn cpu_trace_max_entries(&self) -> usize {
+        match self {
+            Self::Ocs(rt) => rt.cpu_trace_max_entries(),
+            Self::Ecs(rt) => rt.cpu_trace_max_entries(),
+            Self::Aga(rt) => rt.cpu_trace_max_entries(),
+        }
+    }
+
+    fn cpu_trace_entries(&self) -> &[crate::CpuTraceEntry] {
+        match self {
+            Self::Ocs(rt) => rt.cpu_trace_entries(),
+            Self::Ecs(rt) => rt.cpu_trace_entries(),
+            Self::Aga(rt) => rt.cpu_trace_entries(),
         }
     }
 }

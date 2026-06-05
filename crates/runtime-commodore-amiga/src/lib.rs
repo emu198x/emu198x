@@ -1,6 +1,7 @@
 //! Commodore Amiga family metadata and runtime surface.
 
 pub mod amiga_model;
+mod cpu_trace;
 mod debug;
 mod input;
 mod live_access;
@@ -14,6 +15,7 @@ pub use amiga_model::{
     Accelerator, ChipsetKind, CpuKind, ECS_AGA_CHIP_RAM_BYTES, FAT_AGNUS_CHIP_RAM_BYTES,
     FATTER_AGNUS_CHIP_RAM_BYTES, KIB, MIB, OCS_AGNUS_CHIP_RAM_BYTES,
 };
+pub use cpu_trace::CpuTraceEntry;
 pub use live_access::{
     AmigaLiveAccess, Bplcon0LogEntry, CpuSnapshot, CustomWriteEntry, DskLogEntry, PaletteLogEntry,
     RegReadLogEntry, WatchLogEntry,
