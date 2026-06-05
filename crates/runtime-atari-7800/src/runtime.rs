@@ -21,6 +21,7 @@ pub struct Atari7800Runtime {
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
     rgba_height: u32,
+    controller_cache: crate::input::ControllerCache,
 }
 
 impl Atari7800Runtime {
@@ -35,6 +36,7 @@ impl Atari7800Runtime {
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
             rgba_height: 0,
+            controller_cache: crate::input::ControllerCache::default(),
         }
     }
 
@@ -153,6 +155,12 @@ impl MachineCore for Atari7800Runtime {
     ) -> Result<RunResult, MachineError> {
         if self.machine.is_none() {
             return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
+        }
+        // Apply queued joystick / console input at the top of the window.
+        if let Some(machine) = self.machine.as_mut() {
+            for event in host.input_events {
+                crate::input::apply_input_event(machine, &mut self.controller_cache, event);
+            }
         }
         while self.time < target {
             let ticks = self
