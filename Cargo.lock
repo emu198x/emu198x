@@ -1514,9 +1514,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gi-ay-3-8910"
+version = "0.2.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "gi-ay-3-8912"
 version = "0.2.0"
 dependencies = [
+ "gi-ay-3-8910",
  "serde",
 ]
 
