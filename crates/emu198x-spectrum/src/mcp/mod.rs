@@ -15,6 +15,7 @@ pub(crate) mod tools;
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
+    mcp_tools::{register_common_tools, register_debug_tools},
 };
 use runtime_sinclair_zx_spectrum::{SpectrumRuntimeKind, SpectrumSessionQueryProvider};
 
@@ -44,7 +45,13 @@ pub fn run() -> Result<(), AppError> {
         "emu198x-spectrum",
         env!("CARGO_PKG_VERSION"),
     ));
-    tools::register_all(server.registry_mut());
+    // Same uniform layering as the Amiga: shared common + debug tools,
+    // then the Spectrum-specific surface. The bespoke debug tools are
+    // registered last, so they override the generic `register_debug_tools`
+    // versions by name and keep the rich Z80 curriculum output.
+    register_common_tools(server.registry_mut());
+    register_debug_tools(server.registry_mut());
+    tools::register_spectrum_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(AppError::from)?;
     Ok(())
@@ -104,15 +111,22 @@ mod tests {
         "watch_memory_start",
     ];
 
+    /// Register the full MCP surface exactly as `run()` does.
+    fn register_full_surface(server: &mut Server<tools::SpectrumSession>) {
+        register_common_tools(server.registry_mut());
+        register_debug_tools(server.registry_mut());
+        tools::register_spectrum_tools(server.registry_mut());
+    }
+
     #[test]
-    fn register_all_publishes_the_full_tool_set() {
+    fn full_surface_publishes_every_curriculum_tool() {
         let mut server: Server<tools::SpectrumSession> =
             Server::new(ServerInfo::new("emu198x-spectrum", "0.0.0"));
-        tools::register_all(server.registry_mut());
+        register_full_surface(&mut server);
         for name in REQUIRED_TOOLS {
             assert!(
                 server.registry().get(name).is_some(),
-                "register_all dropped the curriculum tool `{name}`"
+                "the fold dropped the curriculum tool `{name}`"
             );
         }
     }
@@ -172,7 +186,7 @@ mod tests {
         );
         let mut server: Server<tools::SpectrumSession> =
             Server::new(ServerInfo::new("emu198x-spectrum", "test"));
-        tools::register_all(server.registry_mut());
+        register_full_surface(&mut server);
 
         // tools/list exposes every required tool.
         let list = call(&mut server, &mut session, 1, "tools/list", json!({}));

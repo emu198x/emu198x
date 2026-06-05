@@ -939,180 +939,23 @@ fn parse_step(action: &str, arguments: Value) -> Result<ScriptStep, ToolError> {
     })
 }
 
-/// Registers every Spectrum tool on the supplied registry. Order is the
-/// order shown by `tools/list`.
-pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
-    let object = || json!({"type": "object"});
+/// Registers the Spectrum-specific MCP tools on the supplied registry:
+/// the bespoke surface (`set_machine`, `autoload_tape`,
+/// `load_basic_program`, `query_ay`, `port_read`/`write`, `type_string`,
+/// `press_key`, `watch_ay_*`, `watch_memory_*`, `clear_audio_capture`)
+/// plus the rich Z80 debug tools (`query_cpu` reporting the full register
+/// file with decoded flags, `memory_read`, `disasm`, `step`,
+/// `run_until_pc`, `poke_byte`/`poke_word`).
+///
+/// The generic tools (`run_frames`, `input`, `query`, media, capture,
+/// `reset`, …) come from the shared `register_common_tools`; the debug
+/// tools here are registered AFTER `register_debug_tools` so they override
+/// its generic versions by name, preserving the curriculum output shape.
+/// Order is the order shown by `tools/list`.
+pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     let string_field = || json!({"type": "string"});
     let integer_field = || json!({"type": "integer", "minimum": 0});
     let boolean_field = || json!({"type": "boolean"});
-
-    let media_kind = json!({
-        "type": "string",
-        "enum": ["tape", "disk", "cartridge", "optical", "snapshot", "program"],
-    });
-    let media_transport = json!({
-        "type": "string",
-        "enum": ["start", "stop"],
-    });
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "load_media",
-        description: "Load one media image into a named slot (tape, disk, cartridge, etc.).",
-        schema: json!({
-            "type": "object",
-            "properties": {
-                "slot": string_field(),
-                "kind": media_kind,
-                "path": string_field(),
-            },
-            "required": ["slot", "kind", "path"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "media_transport",
-        description: "Start or stop media transport on the named slot.",
-        schema: json!({
-            "type": "object",
-            "properties": {
-                "slot": string_field(),
-                "transport": media_transport,
-            },
-            "required": ["slot", "transport"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "input",
-        description: "Queue host input events (key presses / releases) for the next run step.",
-        schema: json!({
-            "type": "object",
-            "properties": {
-                "events": {
-                    "type": "array",
-                    "items": object(),
-                },
-            },
-            "required": ["events"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "run_frames",
-        description: "Run the machine for one number of native video frames.",
-        schema: json!({
-            "type": "object",
-            "properties": {"frames": integer_field()},
-            "required": ["frames"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "wait_for_boot",
-        description: "Run frames until the machine reports `boot.detected = true`.",
-        schema: json!({
-            "type": "object",
-            "properties": {"max_frames": integer_field()},
-            "required": ["max_frames"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "wait_for_query_contains",
-        description: "Run frames until one text-bearing query contains the requested substring.",
-        schema: json!({
-            "type": "object",
-            "properties": {
-                "path": string_field(),
-                "needle": string_field(),
-                "max_frames": integer_field(),
-            },
-            "required": ["path", "needle", "max_frames"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "wait_for_query_bool",
-        description: "Run frames until one boolean query path reaches the requested value.",
-        schema: json!({
-            "type": "object",
-            "properties": {
-                "path": string_field(),
-                "value": boolean_field(),
-                "max_frames": integer_field(),
-            },
-            "required": ["path", "value", "max_frames"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "query",
-        description: "Resolve one shared query path against the live session.",
-        schema: json!({
-            "type": "object",
-            "properties": {"path": string_field()},
-            "required": ["path"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "query_paths",
-        description: "List supported query paths, optionally filtered by prefix.",
-        schema: json!({
-            "type": "object",
-            "properties": {
-                "prefix": {"type": ["string", "null"]},
-            },
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "load_snapshot",
-        description: "Restore a snapshot file into the live machine. \
-            Accepts the runtime's own postcard save state, plus portable \
-            .sna / .z80 snapshots (the format is picked from the file \
-            extension). .zip archives wrapping a single .sna or .z80 \
-            are auto-extracted.",
-        schema: json!({
-            "type": "object",
-            "properties": {"path": string_field()},
-            "required": ["path"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "save_snapshot",
-        description: "Save the current machine snapshot to disk.",
-        schema: json!({
-            "type": "object",
-            "properties": {"path": string_field()},
-            "required": ["path"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "save_screenshot",
-        description: "Save the latest emitted frame as a PNG file.",
-        schema: json!({
-            "type": "object",
-            "properties": {"path": string_field()},
-            "required": ["path"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "save_audio_capture",
-        description: "Legacy. Save the entire session capture buffer as WAV. Prefer start_audio_recording / stop_audio_recording for new scripts — the start/stop pair captures a clean window bounded by script steps. Without `reset_after`, this dumps everything since session start including silence from before the chapter began.",
-        schema: json!({
-            "type": "object",
-            "properties": {
-                "path": string_field(),
-                "reset_after": boolean_field(),
-            },
-            "required": ["path"],
-        }),
-    }));
 
     registry.register(Box::new(ScriptStepTool {
         name: "clear_audio_capture",
@@ -1157,53 +1000,6 @@ pub fn register_all(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["path"],
         }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "start_video_recording",
-        description: "Begin recording the live framebuffer + audio to one MP4 file.",
-        schema: json!({
-            "type": "object",
-            "properties": {"path": string_field()},
-            "required": ["path"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "stop_video_recording",
-        description: "Finalise the in-flight video recording and return the summary.",
-        schema: json!({"type": "object"}),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "reset",
-        description: "Reset the running machine. `kind: hard` is a power-cycle equivalent; `kind: soft` is a machine-local soft reset (today both behave identically on Spectrum). Clears queued input, captured frame, captured audio. Rejected while a video recording is active.",
-        schema: json!({
-            "type": "object",
-            "properties": {
-                "kind": {
-                    "type": "string",
-                    "enum": ["hard", "soft"],
-                },
-            },
-            "required": ["kind"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "start_audio_recording",
-        description: "Begin recording emitted audio to a 16-bit PCM WAV file. Mirrors start_video_recording for audio-only capture: subsequent run_frames tee audio into the session's buffer; the WAV is written when stop_audio_recording is called. Prefer this over save_audio_capture when the recording window is bounded by script steps.",
-        schema: json!({
-            "type": "object",
-            "properties": {"path": string_field()},
-            "required": ["path"],
-        }),
-    }));
-
-    registry.register(Box::new(ScriptStepTool {
-        name: "stop_audio_recording",
-        description: "Finalise the in-flight audio recording. Slices the audio buffer from the start_audio_recording offset to the current end, encodes 16-bit PCM WAV, and writes it to disk.",
-        schema: json!({"type": "object"}),
     }));
 
     registry.register(Box::new(ScriptStepTool {
@@ -1597,40 +1393,18 @@ mod tests {
     }
 
     #[test]
-    fn register_all_publishes_every_script_step_variant() {
+    fn register_spectrum_tools_holds_the_bespoke_surface_only() {
         let mut registry: ToolRegistry<SpectrumSession> = ToolRegistry::new();
-        register_all(&mut registry);
+        register_spectrum_tools(&mut registry);
         let names: Vec<_> = registry.iter().map(|tool| tool.name().to_owned()).collect();
+
+        // The Spectrum-specific tools (bespoke + rich Z80 debug) live here.
         let expected = [
-            "load_media",
-            "media_transport",
-            "input",
-            "run_frames",
-            "wait_for_boot",
-            "wait_for_query_contains",
-            "wait_for_query_bool",
-            "query",
-            "query_paths",
-            "load_snapshot",
-            "save_snapshot",
-            "save_screenshot",
-            "save_audio_capture",
             "clear_audio_capture",
             "set_machine",
             "autoload_tape",
             "load_basic_program",
-            "start_video_recording",
-            "stop_video_recording",
-            "reset",
-            "start_audio_recording",
-            "stop_audio_recording",
             "query_ay",
-            "memory_read",
-            "poke_byte",
-            "poke_word",
-            "watch_memory_start",
-            "watch_memory_clear",
-            "watch_memory_log",
             "query_cpu",
             "step",
             "run_until_pc",
@@ -1641,9 +1415,26 @@ mod tests {
             "watch_ay_clear",
             "watch_ay_log",
             "press_key",
+            "type_string",
+            "memory_read",
+            "poke_byte",
+            "poke_word",
+            "watch_memory_start",
+            "watch_memory_clear",
+            "watch_memory_log",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");
+        }
+        assert_eq!(names.len(), expected.len(), "unexpected extra tool");
+
+        // The generic tools come from the shared `register_common_tools`,
+        // NOT from here — they must be absent so the fold doesn't double up.
+        for shared in ["run_frames", "load_media", "input", "query", "reset"] {
+            assert!(
+                !names.contains(&shared.to_owned()),
+                "`{shared}` should come from register_common_tools, not register_spectrum_tools"
+            );
         }
     }
 }
