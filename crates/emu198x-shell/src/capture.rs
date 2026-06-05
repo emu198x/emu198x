@@ -52,6 +52,10 @@ pub enum CaptureError {
     /// The PNG encoder rejected the generated RGBA frame.
     #[error("png encoding failed: {0}")]
     PngEncoding(#[from] png::EncodingError),
+
+    /// A streaming WAV write or header fix-up hit an I/O error.
+    #[error("wav stream io failed: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// Owned copy of one emitted frame.
@@ -301,6 +305,108 @@ impl AudioSink for AudioCapture {
     }
 }
 
+/// Streams a 16-bit PCM WAV to disk incrementally, so a long audio
+/// recording doesn't have to hold every sample in RAM until the end.
+///
+/// Writes a 44-byte header with placeholder (zero) lengths up front,
+/// appends PCM frames as they arrive via [`Self::append`], and patches
+/// the RIFF / `data` chunk sizes in the header on [`Self::finish`] (which
+/// seeks back to the two length fields). The on-disk result is a normal
+/// canonical WAV — identical bytes to [`CapturedAudio::wav_bytes`] for the
+/// same samples — produced without buffering the whole stream.
+pub struct WavStreamWriter {
+    file: std::io::BufWriter<std::fs::File>,
+    sample_rate: u32,
+    channels: u8,
+    /// Interleaved samples appended so far.
+    samples_written: u64,
+}
+
+impl WavStreamWriter {
+    /// Creates `path` and writes the placeholder header (lengths zeroed;
+    /// patched by [`Self::finish`]).
+    ///
+    /// # Errors
+    /// Returns [`CaptureError::Io`] if the file can't be created or the
+    /// header can't be written.
+    pub fn create(
+        path: &std::path::Path,
+        sample_rate: u32,
+        channels: u8,
+    ) -> Result<Self, CaptureError> {
+        let file = std::fs::File::create(path)?;
+        let mut writer = Self {
+            file: std::io::BufWriter::new(file),
+            sample_rate,
+            channels,
+            samples_written: 0,
+        };
+        writer.write_header(0)?;
+        Ok(writer)
+    }
+
+    fn write_header(&mut self, data_len: u32) -> Result<(), CaptureError> {
+        use std::io::Write;
+        let block_align = u16::from(self.channels) * 2;
+        let byte_rate = self.sample_rate * u32::from(block_align);
+        let riff_len = 36u32.saturating_add(data_len);
+        let f = &mut self.file;
+        f.write_all(b"RIFF")?;
+        f.write_all(&riff_len.to_le_bytes())?;
+        f.write_all(b"WAVE")?;
+        f.write_all(b"fmt ")?;
+        f.write_all(&16u32.to_le_bytes())?;
+        f.write_all(&1u16.to_le_bytes())?;
+        f.write_all(&u16::from(self.channels).to_le_bytes())?;
+        f.write_all(&self.sample_rate.to_le_bytes())?;
+        f.write_all(&byte_rate.to_le_bytes())?;
+        f.write_all(&block_align.to_le_bytes())?;
+        f.write_all(&16u16.to_le_bytes())?;
+        f.write_all(b"data")?;
+        f.write_all(&data_len.to_le_bytes())?;
+        Ok(())
+    }
+
+    /// Appends interleaved samples, each encoded little-endian PCM16.
+    ///
+    /// # Errors
+    /// Returns [`CaptureError::Io`] on a write failure.
+    pub fn append(&mut self, samples: &[f32]) -> Result<(), CaptureError> {
+        use std::io::Write;
+        for &sample in samples {
+            self.file.write_all(&f32_to_pcm16(sample).to_le_bytes())?;
+        }
+        self.samples_written = self.samples_written.saturating_add(samples.len() as u64);
+        Ok(())
+    }
+
+    /// Interleaved samples appended so far.
+    #[must_use]
+    pub fn samples_written(&self) -> u64 {
+        self.samples_written
+    }
+
+    /// Flushes, seeks back to patch the RIFF / `data` length fields, and
+    /// returns the interleaved sample count written.
+    ///
+    /// # Errors
+    /// Returns [`CaptureError::Io`] on a flush, seek, or write failure.
+    pub fn finish(mut self) -> Result<u64, CaptureError> {
+        use std::io::{Seek, SeekFrom, Write};
+        let data_len = u32::try_from(self.samples_written.saturating_mul(2)).unwrap_or(u32::MAX);
+        let riff_len = 36u32.saturating_add(data_len);
+        self.file.flush()?;
+        // RIFF chunk size lives at byte offset 4.
+        self.file.seek(SeekFrom::Start(4))?;
+        self.file.write_all(&riff_len.to_le_bytes())?;
+        // `data` chunk size lives at byte offset 40.
+        self.file.seek(SeekFrom::Start(40))?;
+        self.file.write_all(&data_len.to_le_bytes())?;
+        self.file.flush()?;
+        Ok(self.samples_written)
+    }
+}
+
 fn rgba_u32_to_bytes(value: u32) -> [u8; 4] {
     [
         (value >> 24) as u8,
@@ -418,5 +524,64 @@ mod tests {
         });
 
         assert!(matches!(result, Err(MachineError::Host { .. })));
+    }
+
+    /// The incrementally-streamed WAV is byte-for-byte identical to the
+    /// one the in-memory encoder produces for the same samples — so the
+    /// bounded-RAM path is a drop-in for the buffered one.
+    #[test]
+    fn wav_stream_writer_matches_buffered_encoder() {
+        let samples: Vec<f32> = (0..1000).map(|i| ((i as f32) / 500.0 - 1.0)).collect();
+        let sample_rate = 44_100;
+        let channels = 2u8;
+
+        let path = std::env::temp_dir().join(format!(
+            "emu198x_wavstream_{}_{}.wav",
+            std::process::id(),
+            samples.len()
+        ));
+
+        let mut writer =
+            WavStreamWriter::create(&path, sample_rate, channels).expect("create stream writer");
+        // Append in several chunks — the streaming path must not depend on
+        // seeing the whole stream at once.
+        for chunk in samples.chunks(64) {
+            writer.append(chunk).expect("append chunk");
+        }
+        let written = writer.finish().expect("finish patches the header");
+        assert_eq!(written, samples.len() as u64);
+
+        let streamed = std::fs::read(&path).expect("read streamed wav");
+        let _ = std::fs::remove_file(&path);
+
+        let buffered = CapturedAudio {
+            sample_rate,
+            channels,
+            samples,
+        }
+        .wav_bytes();
+
+        assert_eq!(
+            streamed, buffered,
+            "streamed WAV must equal the buffered encoder output"
+        );
+    }
+
+    /// An empty recording still produces a valid (zero-data) WAV header.
+    #[test]
+    fn wav_stream_writer_finishes_empty() {
+        let path = std::env::temp_dir().join(format!(
+            "emu198x_wavstream_empty_{}.wav",
+            std::process::id()
+        ));
+        let writer = WavStreamWriter::create(&path, 48_000, 1).expect("create");
+        let written = writer.finish().expect("finish");
+        let bytes = std::fs::read(&path).expect("read");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(written, 0);
+        assert_eq!(bytes.len(), 44, "header-only WAV is 44 bytes");
+        assert_eq!(&bytes[..4], b"RIFF");
+        assert_eq!(&bytes[36..40], b"data");
+        assert_eq!(&bytes[40..44], &0u32.to_le_bytes(), "zero data length");
     }
 }
