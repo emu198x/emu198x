@@ -1,17 +1,70 @@
-//! VIC-20 keyboard input mapping.
+//! VIC-20 keyboard and control-port input mapping.
+//!
+//! The VIC-20 has a single DE-9 control port wired across both VIAs:
+//! up/down/left/fire on VIA #1 PA2-PA5 and right on VIA #2 PB7 (the awkward
+//! one), all active low. Joystick input arrives as [`InputEvent::Button`] and
+//! drives [`Vic20::set_joystick`] through a host-side [`ControllerCache`] that
+//! re-applies the whole switch state on each event. The arrow *keys* (host
+//! `Key` events) stay mapped to the VIC-20's cursor keys — a separate input
+//! path from the joystick directions.
 
 use emu198x_shell::InputEvent;
 use machine_commodore_vic_20::{Vic20, Vic20Key};
 
-pub(crate) fn apply_input_event(machine: &mut Vic20, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event
-        && let Some(key) = key_from_name(name.as_ref())
-    {
-        if *pressed {
-            machine.press_key(key);
-        } else {
-            machine.release_key(key);
+/// Host-side mirror of the single control-port joystick: four directions plus
+/// the fire button, re-applied via [`Vic20::set_joystick`] on every event.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ControllerCache {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    fire: bool,
+}
+
+impl ControllerCache {
+    /// Record a digital control by name. Returns `true` when the name maps to
+    /// a joystick direction or the fire button.
+    fn set_control(&mut self, name: &str, pressed: bool) -> bool {
+        match name {
+            "up" | "arrowup" => self.up = pressed,
+            "down" | "arrowdown" => self.down = pressed,
+            "left" | "arrowleft" => self.left = pressed,
+            "right" | "arrowright" => self.right = pressed,
+            "fire" | "fire1" | "trigger" | "button" => self.fire = pressed,
+            _ => return false,
         }
+        true
+    }
+
+    /// Record a control and, if it mapped, push the whole switch state to the
+    /// machine's single control port.
+    fn apply(&mut self, machine: &mut Vic20, name: &str, pressed: bool) {
+        if self.set_control(name, pressed) {
+            machine.set_joystick(self.up, self.down, self.left, self.right, self.fire);
+        }
+    }
+}
+
+pub(crate) fn apply_input_event(
+    machine: &mut Vic20,
+    cache: &mut ControllerCache,
+    event: &InputEvent,
+) {
+    match event {
+        InputEvent::Key { name, pressed } => {
+            if let Some(key) = key_from_name(name.as_ref()) {
+                if *pressed {
+                    machine.press_key(key);
+                } else {
+                    machine.release_key(key);
+                }
+            }
+        }
+        InputEvent::Button { name, pressed, .. } => {
+            cache.apply(machine, &name.to_ascii_lowercase(), *pressed);
+        }
+        _ => {}
     }
 }
 
@@ -84,4 +137,78 @@ fn key_from_name(name: &str) -> Option<Vic20Key> {
         "z" => Vic20Key::Z,
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use machine_commodore_vic_20::Vic20Model;
+    use std::borrow::Cow;
+
+    fn make_vic20() -> Vic20 {
+        // ROM-free guard: a NOP-filled KERNAL is enough to tick the VIAs.
+        Vic20::new(
+            vec![0xEA; 0x2000],
+            vec![0u8; 0x2000],
+            vec![0u8; 0x1000],
+            Vic20Model::Ntsc,
+            0,
+        )
+    }
+
+    fn button(name: &str, pressed: bool) -> InputEvent {
+        InputEvent::Button {
+            port: 1,
+            name: Cow::Owned(name.to_owned()),
+            pressed,
+        }
+    }
+
+    #[test]
+    fn button_events_drive_the_control_port() {
+        let mut sys = make_vic20();
+        let mut cache = ControllerCache::default();
+
+        // Up + fire land on VIA #1 PA2 / PA5 (active low, read at $9111).
+        apply_input_event(&mut sys, &mut cache, &button("up", true));
+        apply_input_event(&mut sys, &mut cache, &button("fire", true));
+        let _ = sys.step_instruction();
+        let pa = sys.peek(0x9111);
+        assert_eq!(pa & (1 << 2), 0, "up → PA2 low");
+        assert_eq!(pa & (1 << 5), 0, "fire → PA5 low");
+        assert_eq!(pa & (1 << 3), 1 << 3, "down idle → PA3 high");
+
+        // Right is the awkward VIA #2 PB7 line (read at $9120), not PA.
+        apply_input_event(&mut sys, &mut cache, &button("right", true));
+        let _ = sys.step_instruction();
+        assert_eq!(sys.peek(0x9120) & (1 << 7), 0, "right → PB7 low");
+
+        // Releasing up leaves fire + right held.
+        apply_input_event(&mut sys, &mut cache, &button("up", false));
+        let _ = sys.step_instruction();
+        assert_eq!(
+            sys.peek(0x9111) & (1 << 2),
+            1 << 2,
+            "up released → PA2 high"
+        );
+        assert_eq!(sys.peek(0x9111) & (1 << 5), 0, "fire still held → PA5 low");
+    }
+
+    #[test]
+    fn arrow_keys_stay_on_the_keyboard_not_the_joystick() {
+        // `Key` arrow names map to cursor keys, never the joystick — so a key
+        // press must leave the control-port lines idle high.
+        let mut sys = make_vic20();
+        let mut cache = ControllerCache::default();
+        apply_input_event(
+            &mut sys,
+            &mut cache,
+            &InputEvent::Key {
+                name: Cow::Borrowed("up"),
+                pressed: true,
+            },
+        );
+        let _ = sys.step_instruction();
+        assert_eq!(sys.peek(0x9111) & 0x3C, 0x3C, "joystick PA lines untouched");
+    }
 }

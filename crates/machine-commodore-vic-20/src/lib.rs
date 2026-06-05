@@ -71,6 +71,14 @@ pub struct Vic20 {
     model: Vic20Model,
     master_clock: u64,
     frame_count: u64,
+    /// DE-9 control-port switch state, active low. Up/down/left/fire sit on
+    /// VIA #1 PA2-PA5 (`$9111`); right is the awkward one, on VIA #2 PB7
+    /// (`$9120`). `joy_via1_pa` carries the active-low PA2-PA5 pattern (other
+    /// bits held high so it merges cleanly); `joy_right_low` is the PB7 line.
+    /// Both default to idle and are merged into the VIA input latches each
+    /// tick. See the VIC-20 Programmer's Reference Guide control-port table.
+    joy_via1_pa: u8,
+    joy_right_low: bool,
 }
 
 impl Vic20 {
@@ -117,7 +125,26 @@ impl Vic20 {
             model,
             master_clock: 0,
             frame_count: 0,
+            joy_via1_pa: 0xFF,
+            joy_right_low: false,
         }
+    }
+
+    /// Set the DE-9 control-port joystick switches (`true` = pressed). The VIC-20
+    /// has a single control port: up/down/left/fire land on VIA #1 PA2-PA5 and
+    /// right lands on VIA #2 PB7, all active low. The values are merged into the
+    /// VIA input latches on the next tick, leaving the IEC, cassette, and
+    /// keyboard-column bits untouched.
+    #[allow(clippy::fn_params_excessive_bools)]
+    pub fn set_joystick(&mut self, up: bool, down: bool, left: bool, right: bool, fire: bool) {
+        let mut pa = 0xFFu8;
+        for (pressed, bit) in [(up, 0x04), (down, 0x08), (left, 0x10), (fire, 0x20)] {
+            if pressed {
+                pa &= !bit;
+            }
+        }
+        self.joy_via1_pa = pa;
+        self.joy_right_low = right;
     }
 
     pub fn run_frame(&mut self) -> u64 {
@@ -157,6 +184,17 @@ impl Vic20 {
         // column-select pattern (active low); the matrix returns the row
         // lines for the selected columns, which the KERNAL reads on PA.
         self.via2.pa_in = self.keyboard.read(self.via2.port_b_drive_state());
+
+        // Merge the control-port joystick into the VIA input latches:
+        // up/down/left/fire on VIA #1 PA2-PA5, right on VIA #2 PB7 (all active
+        // low). Read-modify-write leaves the IEC / cassette bits on PA and the
+        // keyboard-column bits on PB untouched.
+        self.via1.pa_in = (self.via1.pa_in & !0x3C) | (self.joy_via1_pa & 0x3C);
+        if self.joy_right_low {
+            self.via2.pb_in &= !0x80;
+        } else {
+            self.via2.pb_in |= 0x80;
+        }
 
         self.via1.tick();
         self.via2.tick();
@@ -437,6 +475,35 @@ mod tests {
             0xFF,
             "no key on column 5 → all rows high"
         );
+    }
+
+    #[test]
+    fn joystick_reads_through_the_vias() {
+        // Up/down/left/fire are VIA #1 PA2-PA5 (read at $9111, port A is input
+        // by default); right is VIA #2 PB7 (read at $9120). All active low.
+        let mut sys = make_vic20();
+
+        sys.set_joystick(true, false, true, false, true); // up + left + fire
+        let _ = sys.step_instruction(); // let tick merge the switches
+
+        let pa = sys.mem_read(0x9111);
+        assert_eq!(pa & (1 << 2), 0, "up → PA2 low");
+        assert_eq!(pa & (1 << 4), 0, "left → PA4 low");
+        assert_eq!(pa & (1 << 5), 0, "fire → PA5 low");
+        assert_eq!(pa & (1 << 3), 1 << 3, "down idle → PA3 high");
+
+        // Right lives on the awkward VIA #2 PB7 line, not PA.
+        sys.set_joystick(false, false, false, true, false);
+        let _ = sys.step_instruction();
+        assert_eq!(sys.mem_read(0x9120) & (1 << 7), 0, "right → PB7 low");
+        // PA directions all idle again.
+        assert_eq!(sys.mem_read(0x9111) & 0x3C, 0x3C, "no PA directions held");
+
+        // Release everything → all control lines idle high.
+        sys.set_joystick(false, false, false, false, false);
+        let _ = sys.step_instruction();
+        assert_eq!(sys.mem_read(0x9111) & 0x3C, 0x3C, "PA2-PA5 idle high");
+        assert_eq!(sys.mem_read(0x9120) & (1 << 7), 1 << 7, "PB7 idle high");
     }
 
     #[test]
