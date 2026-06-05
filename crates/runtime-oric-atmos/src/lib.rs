@@ -1,5 +1,6 @@
 //! Oric-1 / Atmos family metadata and runtime surface.
 
+mod input;
 mod profiles;
 mod queries;
 mod runtime;

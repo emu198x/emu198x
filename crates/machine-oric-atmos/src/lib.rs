@@ -63,9 +63,11 @@
 //! # Keyboard
 //!
 //! 8×8 matrix, active-low. VIA port B bits 0-2 select the column
-//! (0-7), port A reads the row data for the selected column. The
-//! machine pushes the column-selected row byte onto VIA's
-//! `external_a` whenever port B is written.
+//! (0-7); the scan routine drives one row low on VIA port A; the sense
+//! returns on VIA PB3, which reads high when the pressed key sits at the
+//! selected column and the driven-low row (`(keyboard[col] | row_mask)
+//! != 0xFF`). Port A is shared with the AY data bus but carries the row
+//! mask when the AY is not being addressed.
 //!
 //! # Display rendering
 //!
@@ -208,10 +210,10 @@ impl OricAtmos {
                 if reg == 0x0C || reg == 0x01 || reg == 0x0F {
                     self.process_ay_bus();
                 }
-                // Port B writes (reg $00) select the keyboard column.
-                if reg == 0x00 {
-                    self.scan_keyboard();
-                }
+                // Re-sense the keyboard onto PB3: a port B write ($00)
+                // changes the column, and an AY-bus write changes the
+                // port-A row mask — either alters which key is sensed.
+                self.scan_keyboard();
             }
             _ => {
                 let idx = addr as usize;
@@ -245,11 +247,24 @@ impl OricAtmos {
         }
     }
 
-    /// Push the column-selected keyboard row onto VIA `external_a`.
+    /// Sense the keyboard onto VIA PB3.
+    ///
+    /// The column is selected by VIA port B bits 0-2; the AY-3-8910 port
+    /// A drives the row mask (the scanning routine pulls one row low).
+    /// PB3 reads high when a pressed key (active-low in `keyboard[col]`)
+    /// sits at the selected column and a driven-low row — i.e. when
+    /// `keyboard[col] | row_mask` has any zero bit. (MAME oric `write_pb3`.)
     fn scan_keyboard(&mut self) {
-        let port_b = self.via.orb();
-        let col = (port_b & 0x07) as usize;
-        self.via.pa_in = self.keyboard[col];
+        let col = (self.via.orb() & 0x07) as usize;
+        // The scan routine drives the row mask on VIA port A directly
+        // (one row pulled low at a time); port A is shared with the AY
+        // bus but carries the row mask when the AY is not being addressed.
+        let row_mask = self.via.ora();
+        if (self.keyboard[col] | row_mask) != 0xFF {
+            self.via.pb_in |= 0x08;
+        } else {
+            self.via.pb_in &= !0x08;
+        }
     }
 
     fn render_display(&mut self) {
@@ -594,14 +609,23 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_column_select_via_port_b() {
+    fn keyboard_senses_on_pb3() {
         let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
-        sys.keyboard[3] = 0xAA;
-        // DDRB = $07 (low 3 bits output).
-        sys.mem_write(0x0302, 0x07);
-        // Port B = 3 selects column 3.
+        // Press the key at column 3, row 5.
+        sys.press_key(3, 5);
+        // Select column 3 on port B (PB0-2).
         sys.mem_write(0x0300, 0x03);
-        assert_eq!(sys.via.pa_in, 0xAA);
+        // Drive row 5 low on port A: the pressed key grounds the sense,
+        // so PB3 reads high. (Writing ORA also re-runs the scan.)
+        sys.mem_write(0x0301, !(1u8 << 5));
+        assert_ne!(sys.via.pb_in & 0x08, 0, "PB3 should sense the pressed key");
+        // Driving a different row leaves the sense clear.
+        sys.mem_write(0x0301, !(1u8 << 2));
+        assert_eq!(
+            sys.via.pb_in & 0x08,
+            0,
+            "PB3 clear when the row is not driven"
+        );
     }
 
     #[test]
