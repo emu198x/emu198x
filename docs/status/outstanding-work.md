@@ -880,10 +880,12 @@ from NES).
 
 Fresh-write machine layer with the BBC-Micro-compatible 8-colour
 palette, eight display modes (0-7 except MODE 7 teletext which the
-Electron's ULA doesn't implement), 14×4 keyboard matrix scanned via
-the address bus on `$FE00` reads, VBlank + 100 Hz RTC IRQ sources,
-sound generation through the ULA's tone counter, and ROM-page
-register at `$FE05`.
+Electron's ULA doesn't implement), a 14×4 keyboard matrix paged into
+`$8000-$BFFF` via ROM slots 8/9 (address bits A0-A13 select columns,
+rows return active-high on D0-D3), `$FE00` interrupt control (write =
+enable mask, read = status), VBlank + RTC IRQ sources, sound
+generation through the ULA's tone counter, and the ROM-page /
+interrupt-clear register at `$FE05`.
 
 **Boots to BASIC (live, 2026-06-04).** The screen shows the
 canonical `Acorn Electron` / `BASIC` / `>` cold-start — white text
@@ -1043,6 +1045,13 @@ screen). The corrected map:
 - **Memory banking via the AY-3-8910 port B (R15)**, not a dedicated
   port: bit 1 (`bk21`) low banks the lower 32 KB RAM in over the
   BASIC ROM. ROM is visible at reset.
+
+**Keyboard input wired (2026-06-05).** The machine core always had the
+`press_key`/`release_key` matrix and the PPI read path, but the runtime
+never dispatched `host.input_events`, so the prompt could not be typed
+on. The runtime now maps host keys to the 11×8 matrix (transcribed from
+MAME `svi318.cpp`, ground-truthed against the ROM) and feeds them in;
+typing `HELLO` lands on screen.
 
 - **A — TMS9918A scanline-batched render** (shared family debt).
 - **A — Cassette I/O.** Real SVI-328 software loads from cassette
@@ -1278,10 +1287,10 @@ codebase is now fully harvested. See dedicated sections above:
 | 3 | MSX1 | Microsoft BASIC (live) |
 | 4 | Sord M5 | **Boots through CTC** (live) — BASIC-I `Ready`, Dig Dug renders |
 | 5 | Sega Master System | Alex Kidd in Miracle World (live) |
-| 6 | Spectravideo SVI-328 | **Boots to SV-BASIC** (live, 2026-06-04) — fixed I/O map (VDP read $84/$85, PSG $88/$8C/$90, PPI $94-$9A, AY-port-B banking) |
+| 6 | Spectravideo SVI-328 | **Boots to SV-BASIC; keyboard types** — fixed I/O map (VDP read $84/$85, PSG $88/$8C/$90, PPI $94-$9A, AY-port-B banking); wired the 8255 PPI keyboard matrix into the runtime (2026-06-05) |
 | 7 | Mattel Aquarius | Microsoft BASIC (live) |
-| 8 | Tatung Einstein TC-01 | **Boots to MOS prompt** (live, 2026-06-04) — $24 ROM-toggle + WD1770 FDC + INDEX pulse; `Ready` (disk-load pending an image) |
-| 9 | Acorn Electron | **Boots to BASIC `>`** (live, 2026-06-04) — MAME-accurate ULA palette + screen-start + character-block display |
+| 8 | Tatung Einstein TC-01 | **Boots to MOS prompt; keyboard types** (HELLO) — $24 ROM-toggle + WD1770 FDC + INDEX pulse; keyboard on AY port B with a 50 Hz IM2 scan interrupt (2026-06-05); disk-load still pending an image |
+| 9 | Acorn Electron | **Boots to BASIC `>`; keyboard types** (`PRINT 123` executes) — MAME-accurate ULA palette + screen-start + character-block display; fixed the frozen interrupt model ($FE00 is the IRQ *enable*, not a clear), active-high paged-ROM keyboard read, and the matrix (2026-06-05) |
 | 10 | Oric-1 / Atmos | **Boots to BASIC** (live, 2026-06-04) — clean first-boot with BASIC 1.1; `Ready` prompt |
 | 11 | Acorn BBC Micro Model B | **Boots to BASIC in MODE 7** (live, 2026-06-04) — keyboard→VIA PA7 fix + SAA5050 teletext renderer; `BBC Computer 32K` |
 | 12 | Atari 2600 | Combat playfield (live) |
@@ -1289,12 +1298,12 @@ codebase is now fully harvested. See dedicated sections above:
 | 14 | Atari 7800 ProSystem | **Renders** (live, 2026-06-04) — MARIA CTRL-bit fix lets the DLI→NMI fire; Asteroids draws |
 | 15 | Atari 800XL | **Boots to BASIC `READY`** (live) — GR.0 renders, keyboard types, MCP debug surface |
 | 16 | Jupiter Ace | **Boots to cursor** (live, 2026-06-04) — MAME-accurate video/char RAM map ($2000 video, $2800 char, A10 mirrors); typing renders |
-| 17 | Commodore PET | **Boots to BASIC `READY`** (live, 2026-06-04) — CPU reset + 8-byte char-ROM stride + CRTC address-latch fix |
+| 17 | Commodore PET | **Boots to BASIC `READY`; keyboard wired** — CPU reset + 8-byte char-ROM stride + CRTC address-latch fix; CB1 retrace IRQ + ground-truthed matrix (2026-06-05) |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
 | 20 | Memotech MTX500/512 | **Boots to BASIC `Ready`** (OS+BASIC+ASSEM); Z80 CTC wired at $08-$0B with VDP /INT → ch0 (2026-06-04) |
-| 21 | Acorn Atom | **Boots to prompt** (live, 2026-06-04) — CPU reset + 24 KB combined ROM assembled from MAME `atom`; `ACORN ATOM >` |
-| 22 | Commodore VIC-20 | **Boots to BASIC `READY`** (live, 2026-06-04) — CPU reset + correct VIC-20 ROM map ($C000 BASIC / $E000 KERNAL) |
+| 21 | Acorn Atom | **Boots to prompt; keyboard types** — CPU reset + 24 KB combined ROM assembled from MAME `atom`; `ACORN ATOM >`; modelled on the correct INS8255 PPI with VDG field-sync on port C (2026-06-05) |
+| 22 | Commodore VIC-20 | **Boots to BASIC `READY`; keyboard types** — CPU reset + correct VIC-20 ROM map ($C000 BASIC / $E000 KERNAL); wired both 6522 VIAs + ground-truthed matrix (2026-06-05) |
 
 **Fourteen chip crates ported** as foundation:
 `ti-tms9918`, `ti-sn76489`, `intel-8255`, `sega-vdp`, `motorola-6845`,

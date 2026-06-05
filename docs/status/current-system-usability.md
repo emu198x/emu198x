@@ -1,8 +1,10 @@
 # Current System Usability Matrix
 
-Status as of 2026-06-03. This page is deliberately practical: it records how a
-developer can launch each system today, what a user can reasonably do with it,
-and the shortest path to making it comfortable to use. The **ZX Spectrum SOLID
+Status as of 2026-06-05 (extended-systems boot/keyboard rows refreshed and
+re-verified by screenshot; primary-system rows last reviewed 2026-06-03). This
+page is deliberately practical: it records how a developer can launch each
+system today, what a user can reasonably do with it, and the shortest path to
+making it comfortable to use. The **ZX Spectrum SOLID
 engineering bar is met (2026-06-03)**, ahead of the October public launch; the
 donor / extended systems below are now the active engineering frontier rather
 than post-launch side-work.
@@ -66,14 +68,14 @@ open items: [`outstanding-work.md`](outstanding-work.md).
 | Mattel Aquarius | `emu198x-mattel-aquarius` | Microsoft BASIC title (magenta/black) |
 | Atari 2600 | `emu198x-atari-2600` | Combat two-tank playfield |
 | Atari 5200 | `emu198x-atari-5200` | Pac-Man title (partial render — shared 8-bit Atari pipeline) |
-| Commodore PET | `emu198x-commodore-pet` | Char grid renders; full BASIC banner pending |
+| Commodore PET | `emu198x-commodore-pet` | **Boots to BASIC `READY.`** (`### COMMODORE BASIC ###`, 31743 bytes free); keyboard wired — CB1 retrace IRQ + scan + ground-truthed matrix (2026-06-05) |
 | Sinclair ZX81 | `emu198x-sinclair-zx81` | Boot screen renders |
 | Sinclair ZX80 | `emu198x-sinclair-zx80` | Boot screen (FAST); SLOW-mode render pending |
 | Acorn BBC Micro | `emu198x-acorn-bbc-micro` | OS bank-scan reaches BASIC slot; needs SAA5050 + BASIC II |
 | Acorn Electron | `emu198x-acorn-electron` | **Boots to BASIC `>`; keyboard types** (`PRINT 123` executes) — fixed frozen interrupt model + keyboard read + matrix (2026-06-05) |
-| Commodore VIC-20 | `emu198x-commodore-vic-20` | ROM boots; display black until KERNAL screen-init |
+| Commodore VIC-20 | `emu198x-commodore-vic-20` | **Boots to BASIC `READY.`** (`**** CBM BASIC V2 ****`, 3583 bytes free); keyboard wired — 6522 VIAs + ground-truthed matrix (2026-06-05) |
 | Sord M5 | `emu198x-sord-m5` | **Boots through CTC** — BASIC-I `Ready`, Dig Dug renders |
-| Memotech MTX | `emu198x-memotech-mtx` | ROM boots; display blank (needs CTC wiring) |
+| Memotech MTX | `emu198x-memotech-mtx` | **Boots to BASIC `Ready`** — fixed paging + I/O map + completed ROM image (OS+BASIC+ASSEM) via MEMU (commit `93d17fe7`) |
 | Atari 7800 | `emu198x-atari-7800` | Cart accepts; BIOS-driven boot pending |
 | Tatung Einstein | `emu198x-tatung-einstein` | **Boots to MOS; keyboard types** (HELLO) — fixed I/O map + AY-port-B keyboard + IM2 interrupt (2026-06-05) |
 | Jupiter Ace | `emu198x-jupiter-ace` | Awaiting ROM (8 KB Forth) |
@@ -84,9 +86,10 @@ open items: [`outstanding-work.md`](outstanding-work.md).
 The shared next step for the whole tier is the native `wgpu` verifier window
 (the one surface that separates them from the primary six). `zilog-z80-ctc`
 landed 2026-06-03 and unblocked the Sord M5 (which also needed an I/O port-map
-fix found by tracing the Monitor ROM); the crate is available to wire into
-Memotech MTX and Einstein. The remaining missing chip crate is
-`western-digital-wd1770` (Tatung Einstein disk boot).
+fix found by tracing the Monitor ROM). The Memotech MTX now boots to BASIC
+`Ready` and the Tatung Einstein to its MOS prompt with a working keyboard; the
+remaining missing chip crate is `western-digital-wd1770` (Tatung Einstein disk
+boot only — not needed for the keyboard).
 
 ## Launch Commands
 
