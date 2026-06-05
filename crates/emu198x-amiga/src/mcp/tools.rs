@@ -18,13 +18,51 @@
 use std::path::PathBuf;
 
 use emu198x_shell::mcp::{Tool, ToolError, ToolRegistry, ToolResponse};
-use emu198x_shell::{CapturedFrame, MachineTime, PixelFormat, VideoRecorder};
+use emu198x_shell::{
+    CapturedFrame, HeadlessSession, MachineTime, PixelFormat, SessionQueryProvider, VideoRecorder,
+};
 use machine_commodore_amiga_a1200::{Adf, FB_HEIGHT, FB_WIDTH, PAL_FRAME_TICKS};
 use motorola_68000::disasm::disassemble;
+use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind};
 use serde_json::{Value, json};
 
 use super::lvo;
 use super::session::AmigaSession;
+
+/// Tool execution context — the live Amiga chip surface, behind a trait so the
+/// tool bodies serve both the legacy [`AmigaSession`] and the shared
+/// `HeadlessSession<AmigaRuntimeKind, _>` during the Phase-4 replatform. Each
+/// ported tool takes `&mut impl AmigaCtx` and reads through `live()` /
+/// `live_mut()`, so the *same* body works for both sessions and the eventual
+/// `mcp/mod.rs` cutover is a session-type swap, not a tool rewrite. See the
+/// Phase-4 port spec in `docs/plans/2026-06-05-refactor-amiga-unified-driver-replatform.md`.
+pub(crate) trait AmigaCtx {
+    /// Shared read view of the active chipset variant.
+    fn live(&self) -> &dyn AmigaLiveAccess;
+    /// Shared mutable view (memory pokes, tracer arming).
+    fn live_mut(&mut self) -> &mut dyn AmigaLiveAccess;
+}
+
+impl AmigaCtx for AmigaSession {
+    fn live(&self) -> &dyn AmigaLiveAccess {
+        self.access()
+    }
+    fn live_mut(&mut self) -> &mut dyn AmigaLiveAccess {
+        self.access_mut()
+    }
+}
+
+impl<Q> AmigaCtx for HeadlessSession<AmigaRuntimeKind, Q>
+where
+    Q: SessionQueryProvider<AmigaRuntimeKind>,
+{
+    fn live(&self) -> &dyn AmigaLiveAccess {
+        self.machine()
+    }
+    fn live_mut(&mut self) -> &mut dyn AmigaLiveAccess {
+        self.machine_mut()
+    }
+}
 
 /// Wrap a closure as a `Tool` impl. The closure receives parsed
 /// arguments and a mutable session reference and returns the JSON
@@ -294,8 +332,8 @@ fn tool_query_cpu(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError
     }))
 }
 
-fn tool_query_chipset(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    let m = s.access();
+fn tool_query_chipset(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
+    let m = s.live();
     Ok(json!({
         "bplcon0": format!("${:04X}", m.bplcon0()),
         "dmacon":  format!("${:04X}", m.dmacon()),
@@ -308,8 +346,8 @@ fn tool_query_chipset(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolE
     }))
 }
 
-fn tool_query_paula(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    let access = s.access();
+fn tool_query_paula(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
+    let access = s.live();
     let intena = access.intena();
     let intreq = access.intreq();
     let master = (intena & 0x4000) != 0;
@@ -366,8 +404,8 @@ fn tool_query_cia(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError
     }))
 }
 
-fn tool_query_agnus(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    let a = s.access().agnus();
+fn tool_query_agnus(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
+    let a = s.live().agnus();
     Ok(json!({
         "vpos": a.vpos,
         "hpos_cck": a.hpos,
@@ -2500,17 +2538,17 @@ fn load_media_bytes(
     Ok((buf, format!("{}#{}", path.display(), entry_name)))
 }
 
-fn tool_eject_media(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    let had_disk = s.access().drive().has_disk();
-    s.access_mut().eject_floppy0();
+fn tool_eject_media(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
+    let had_disk = s.live().drive().has_disk();
+    s.live_mut().eject_floppy0();
     Ok(json!({
         "ejected": had_disk,
-        "has_disk": s.access().drive().has_disk(),
+        "has_disk": s.live().drive().has_disk(),
     }))
 }
 
-fn tool_query_disk(_args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
-    let drive = s.access().drive();
+fn tool_query_disk(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
+    let drive = s.live().drive();
     let status = drive.status();
     Ok(json!({
         "has_disk": drive.has_disk(),
