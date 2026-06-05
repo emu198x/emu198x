@@ -478,7 +478,8 @@ pub enum ScriptStep {
     /// recording is in flight, same rule as [`Self::LoadSnapshot`] —
     /// reset would jump-cut the clip.
     Reset {
-        /// The kind of reset to perform.
+        /// The kind of reset to perform. Defaults to `hard` when omitted.
+        #[serde(default)]
         kind: ResetKind,
     },
     /// Read a contiguous span of CPU-visible memory.

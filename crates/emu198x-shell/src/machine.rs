@@ -152,11 +152,13 @@ impl MachineProfile {
 /// Serialised in lower-case on the wire (`"hard"`, `"soft"`) so it
 /// can sit beside the snake-case [`ScriptStep`](crate::ScriptStep)
 /// tag without surprising the script author.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 #[serde(rename_all = "lowercase")]
 pub enum ResetKind {
-    /// A power-cycle equivalent reset.
+    /// A power-cycle equivalent reset. The default when a `reset` omits
+    /// its `kind` (matches the historical per-binary behaviour).
+    #[default]
     Hard,
     /// A machine-local soft reset.
     Soft,

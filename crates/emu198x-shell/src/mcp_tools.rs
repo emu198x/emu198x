@@ -275,6 +275,19 @@ where
         description: "Finalise the in-flight video recording and return the summary.",
         schema: json!({ "type": "object" }),
     }));
+    registry.register(Box::new(ScriptStepTool {
+        name: "reset",
+        description: "Reset the machine. `kind` is \"hard\" (power-cycle, the \
+                      default) or \"soft\" (machine-local). Clears queued input, \
+                      the latest frame, captured audio, and the last run result; \
+                      rejected while a video recording is in flight.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "kind": { "type": "string", "enum": ["hard", "soft"], "default": "hard" }
+            }
+        }),
+    }));
 }
 
 // ---------------------------------------------------------------------------
