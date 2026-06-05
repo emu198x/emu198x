@@ -89,8 +89,10 @@ const PAL_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * PAL_SCANLINES_PER_
 const NTSC_PSG_CLOCK_HZ: u32 = 3_579_545;
 const PAL_PSG_CLOCK_HZ: u32 = 3_546_893;
 
-/// Number of keyboard matrix rows on the M5.
-pub const NUM_KEY_ROWS: usize = 10;
+/// Number of keyboard matrix rows on the M5. The keyboard is seven rows
+/// (Y0-Y6) read directly at I/O ports `$30`-`$36`, active-high — MAME
+/// `sord/m5.cpp` `portr("Y0")`..`"Y6"`.
+pub const NUM_KEY_ROWS: usize = 7;
 
 /// CTC channel whose `CLK/TRG` input is wired to the TMS9918A `/INT`
 /// line on the Sord M5. The BIOS arms this channel in counter mode with
@@ -133,11 +135,9 @@ pub struct SordM5 {
     cart_rom: Vec<u8>,
     cart_ram: Vec<u8>,
     ram: [u8; 4096],
-    /// 10×8 keyboard matrix, active-low (1 = released).
+    /// 7×8 keyboard matrix, active-high (1 = pressed). Each row Y0-Y6 is read
+    /// directly at `$30`-`$36`; there is no row strobe (MAME `sord/m5.cpp`).
     key_matrix: [u8; NUM_KEY_ROWS],
-    /// Last value written to `$30-$37`; bits 0-3 select the matrix
-    /// row that the next `$40-$47` read returns.
-    key_row: u8,
     /// Joystick directions read at `$37`. Both sticks pack into one byte,
     /// **active high** (pressed = 1): player 1 = bit 0 right, 1 up, 2 left,
     /// 3 down; player 2 = bits 4-7 in the same order. Idle is `0x00`.
@@ -185,8 +185,7 @@ impl SordM5 {
             cart_rom,
             cart_ram: Vec::new(),
             ram: [0; 4096],
-            key_matrix: [0xFF; NUM_KEY_ROWS],
-            key_row: 0,
+            key_matrix: [0x00; NUM_KEY_ROWS],
             joystick: 0x00,
             ctc: Ctc::new(),
             prev_opcode_ed: false,
@@ -322,19 +321,19 @@ impl SordM5 {
                     self.vdp.read_status()
                 }
             }
-            // Keyboard column read for the strobed row. Provisional port —
-            // confirm against the BIOS keyboard scan once boot reaches it.
-            0x40 => {
-                let row = (self.key_row & 0x0F) as usize;
-                if row < NUM_KEY_ROWS {
-                    self.key_matrix[row]
+            // Keyboard rows Y0-Y6 at $30-$36 and the joystick at $37, each read
+            // directly (active-high), with the A3 mirror folding $38-$3F onto
+            // $30-$37. MAME `sord/m5.cpp`: `portr("Y0")`..`"Y6"` + `portr("JOY")`.
+            // There is no row strobe — the donor's $30-write / $40-read scheme
+            // was fiction ($40 is the Centronics data latch, write-only).
+            0x30 | 0x38 => {
+                let sel = (p & 0x07) as usize;
+                if sel < NUM_KEY_ROWS {
+                    self.key_matrix[sel]
                 } else {
-                    0xFF
+                    self.joystick
                 }
             }
-            // Joystick at $37 (A3 mirrored, so $3F too): both sticks' four
-            // directions, active high. (MAME `m5` `portr("JOY")`.)
-            _ if p & 0xF7 == 0x37 => self.joystick,
             _ => 0xFF,
         };
         if let Some(trace) = &mut self.io_trace {
@@ -372,8 +371,9 @@ impl SordM5 {
             }
             // SN76489A PSG at $20.
             0x20 => self.psg.write(value),
-            // Keyboard row strobe (provisional port).
-            0x30 => self.key_row = value & 0x0F,
+            // $30 write is the 64KBF memory-paging latch (expansion RAM, not
+            // modelled); $40 is the Centronics data latch. Neither touches the
+            // keyboard, which is read-only at $30-$36.
             _ => {}
         }
     }
@@ -436,17 +436,19 @@ impl SordM5 {
         self.psg.take_buffer()
     }
 
-    /// Press a key at the given matrix (row, bit) cell.
+    /// Press a key at the given matrix (row, bit) cell. Active-high: a pressed
+    /// key sets its bit (the BIOS reads `$30`-`$36` and sees the 1).
     pub fn press_key(&mut self, row: usize, bit: u8) {
         if row < self.key_matrix.len() && bit < 8 {
-            self.key_matrix[row] &= !(1 << bit);
+            self.key_matrix[row] |= 1 << bit;
         }
     }
 
-    /// Release a key at the given matrix (row, bit) cell.
+    /// Release a key at the given matrix (row, bit) cell. Active-high: clearing
+    /// the bit returns the cell to its idle (released) state.
     pub fn release_key(&mut self, row: usize, bit: u8) {
         if row < self.key_matrix.len() && bit < 8 {
-            self.key_matrix[row] |= 1 << bit;
+            self.key_matrix[row] &= !(1 << bit);
         }
     }
 
@@ -473,7 +475,7 @@ impl SordM5 {
         self.joystick
     }
 
-    /// Mutable keyboard matrix (active-low; 0 = pressed).
+    /// Mutable keyboard matrix (active-high; 1 = pressed).
     pub fn key_matrix_mut(&mut self) -> &mut [u8; NUM_KEY_ROWS] {
         &mut self.key_matrix
     }
@@ -591,16 +593,20 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_row_strobe_and_column_read() {
+    fn keyboard_rows_read_directly_at_0x30_block() {
         let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
+        // Each row Y0-Y6 is read directly at its own port $30+row — no strobe.
         sys.key_matrix[3] = 0x77;
-        // Strobe row 3 ($30 block) then read the column ($40 block).
-        sys.io_write(0x30, 3);
-        assert_eq!(sys.io_read(0x40), 0x77);
-        // Different row, different value.
-        sys.key_matrix[7] = 0xAA;
-        sys.io_write(0x30, 7);
-        assert_eq!(sys.io_read(0x40), 0xAA);
+        assert_eq!(sys.io_read(0x33), 0x77, "row 3 reads at $33");
+        sys.key_matrix[6] = 0xAA;
+        assert_eq!(sys.io_read(0x36), 0xAA, "row 6 reads at $36");
+        // A3 mirror: $38-$3E fold onto $30-$36.
+        assert_eq!(sys.io_read(0x3B), 0x77, "$3B mirrors $33");
+        // $37 in the same block is the joystick, not a keyboard row.
+        sys.set_joystick(1, true, false, false, false);
+        assert_eq!(sys.io_read(0x37) & 0x02, 0x02, "$37 is JOY (P1 up)");
+        // $40 read is unmapped open bus (Centronics is write-only there).
+        assert_eq!(sys.io_read(0x40), 0xFF);
     }
 
     #[test]
@@ -662,9 +668,12 @@ mod tests {
     #[test]
     fn key_press_and_release_round_trip() {
         let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
+        // Active-high: pressing sets the cell, releasing clears it. Reading the
+        // row's port shows the BIOS-visible bit.
         sys.press_key(2, 5);
-        assert_eq!(sys.key_matrix[2] & 0b0010_0000, 0);
-        sys.release_key(2, 5);
         assert_eq!(sys.key_matrix[2] & 0b0010_0000, 0b0010_0000);
+        assert_eq!(sys.io_read(0x32) & 0b0010_0000, 0b0010_0000);
+        sys.release_key(2, 5);
+        assert_eq!(sys.key_matrix[2] & 0b0010_0000, 0);
     }
 }

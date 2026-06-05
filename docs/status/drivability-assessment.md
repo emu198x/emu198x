@@ -273,19 +273,27 @@ can't be — and it has already paid for itself.
 |---------|-----|--------|
 | Atari 2600 | Combat (1977) | **Bug found + fixed.** Joystick players were swapped between SWCHA nibbles — port 1 drove player 2 and vice-versa (`fb44ad3a`). Caught only because input *looked* wired but the tanks didn't move; the fix is grounded in MAME's `switch_A_r`. |
 | MSX1 | Gradius/Nemesis (Konami, 1986) | **Pass.** Boots the MSX BIOS to BASIC, loads the 128 KB Konami MegaROM, renders the title via TMS9918, and the PSG-port-A joystick drives the splash→menu trigger and the 1P/2P cursor (down moved the selection). No code change. |
-| Sord M5 | Dig Dug (Namco, 1982) | **Joystick pass (probe); keyboard bug found.** Boots the 8 KB monitor ROM, runs the cartridge, renders Dig Dug via TMS9918. The new `m5.input.joystick` query proves the JOY byte (`$37`) is bit-exact vs MAME — P1 right→`0x01`, P1 down→`0x08`, +P2 up→`0x28`. The game won't *start* because M5 cartridges need a keyboard key, and our keyboard I/O map is donor fiction (see below). |
+| Sord M5 | Dig Dug (Namco, 1982) | **Joystick pass; keyboard bug found + fixed.** Boots the 8 KB monitor ROM, runs the cartridge, renders Dig Dug via TMS9918. The `m5.input.joystick` query proves the JOY byte (`$37`) is bit-exact vs MAME (P1 right→`0x01`, down→`0x08`, +P2 up→`0x28`; `0x04` for left in-game). The keyboard I/O map was donor fiction; after the fix (below) the `"1"` key advances the title → ROUND 01 — it could not before. |
 
-**M5 keyboard I/O-map bug (separate from the joystick, pre-existing).** MAME's
-`sord/m5.cpp` reads the keyboard as seven direct row ports `$30`–`$36`
-(`portr("Y0")`…`"Y6"`), **active-high**, with no strobe. Our
-`machine-sord-m5` instead writes `$30` to latch a row index and reads the column
-at `$40`, **active-low** — none of which appears in MAME's M5 I/O map. So
-`$30`–`$36` reads fall through to `0xFF` and the BIOS keyboard scan can't see a
-keypress, blocking game-start on cartridges that need one. The in-code comment
-already flags it ("Provisional port — confirm against the BIOS keyboard scan").
-Per `project_donor_io_map_unverified.md`, the fix must be confirmed by tracing
-the monitor ROM's actual `IN`/`OUT`, not by trusting either map blind. Flagged
-for a deliberate keyboard-subsystem fix; not bundled with the joystick pass.
+**M5 keyboard I/O-map bug — fixed.** MAME's `sord/m5.cpp` reads the keyboard as
+seven direct row ports `$30`–`$36` (`portr("Y0")`…`"Y6"`), **active-high**, no
+strobe. Our `machine-sord-m5` instead wrote `$30` to latch a row and read the
+column at `$40`, **active-low** — none of which is in MAME's M5 I/O map, so
+`$30`–`$36` reads fell through to `0xFF` (every key "jammed") and cartridges
+couldn't see a keypress. An `io_trace` of the monitor ROM confirmed the donor
+map was wrong the way `project_donor_io_map_unverified.md` warns: the ROM drives
+`$20` (PSG), `$40` (Centronics data, write-only) and `$50` (cassette/printer
+status) — exactly MAME's map — and never the donor's `$40` keyboard read. Fixed
+by reading rows directly at `$30`–`$36` (with the `$37`/JOY sibling and the A3
+mirror to `$38`–`$3F`), flipping the matrix to active-high, dropping the bogus
+`$30`-write strobe, and rebuilding the full key table from MAME's Y0–Y6. A
+gated `keyboard_io_trace` test records the tracing method.
+
+*New finding, separate:* with the keyboard fixed, Dig Dug starts but its round
+does not visibly animate (enemies static, score stays `00`) even though the CPU
+executes cart code and the in-game joystick byte is correct. A game-loop / VDP
+-sprite / timing issue to investigate on its own — not the keyboard or joystick,
+both proven correct here.
 
 Method notes for reproducers:
 - TOSEC ROMs are TorrentZipped; unzip first. Pick the mapper from the dump, not

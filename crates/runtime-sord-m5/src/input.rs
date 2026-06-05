@@ -1,9 +1,8 @@
 //! Sord M5 keyboard input mapping.
 //!
-//! The M5 has a 7-row × 7-bit matrix scanned through I/O port `$30`.
-//! Host-level key names map to (row, bit) via this table. The matrix
-//! layout is sourced from the M5 service manual; key positions match
-//! the machine crate's internal scan convention.
+//! The M5 has a 7-row × 8-bit keyboard (Y0-Y6) read directly at I/O ports
+//! `$30`-`$36`, active-high. Host-level key names map to (row, bit) via this
+//! table, sourced from MAME `sord/m5.cpp` (`PORT_START("Y0")`..`"Y6"`).
 //!
 //! Joystick input arrives as [`InputEvent::Button`] on a numbered port. The
 //! M5 reads both control ports' directions at `$37` (active high, no separate
@@ -85,26 +84,30 @@ pub(crate) fn apply_input_event(
     }
 }
 
+/// Maps a host key name to its `(row, bit)` cell in the M5 matrix, where `bit`
+/// is the bit index (`0`-`7`) within row `Y{row}`. Layout per MAME
+/// `sord/m5.cpp`. The M5 keyboard has no cursor keys — direction is the
+/// joystick — so arrow names deliberately do not appear here.
 #[must_use]
 fn key_to_matrix(name: &str) -> Option<(usize, u8)> {
     Some(match name.to_ascii_lowercase().as_str() {
-        // Row 0: digits
-        "1" => (0, 0),
-        "2" => (0, 1),
-        "3" => (0, 2),
-        "4" => (0, 3),
-        "5" => (0, 4),
-        "6" => (0, 5),
-        "7" => (0, 6),
-        // Row 1
-        "8" => (1, 0),
-        "9" => (1, 1),
-        "0" => (1, 2),
-        "-" | "minus" => (1, 3),
-        "^" | "caret" => (1, 4),
-        "\\" | "yen" | "backslash" => (1, 5),
-        "delete" | "del" | "backspace" | "bs" => (1, 6),
-        // Row 2
+        // Y0: modifiers, space, enter.
+        "ctrl" | "control" | "lcontrol" => (0, 0),
+        "func" | "function" | "tab" => (0, 1),
+        "shift" | "lshift" => (0, 2),
+        "rshift" => (0, 3),
+        "space" | " " => (0, 6),
+        "enter" | "return" => (0, 7),
+        // Y1: digits 1-8.
+        "1" => (1, 0),
+        "2" => (1, 1),
+        "3" => (1, 2),
+        "4" => (1, 3),
+        "5" => (1, 4),
+        "6" => (1, 5),
+        "7" => (1, 6),
+        "8" => (1, 7),
+        // Y2: Q W E R T Y U I.
         "q" => (2, 0),
         "w" => (2, 1),
         "e" => (2, 2),
@@ -112,38 +115,43 @@ fn key_to_matrix(name: &str) -> Option<(usize, u8)> {
         "t" => (2, 4),
         "y" => (2, 5),
         "u" => (2, 6),
-        // Row 3
-        "i" => (3, 0),
-        "o" => (3, 1),
-        "p" => (3, 2),
-        "@" | "at" => (3, 3),
-        "[" | "leftbracket" => (3, 4),
-        "return" | "enter" => (3, 5),
-        "a" => (3, 6),
-        // Row 4
-        "s" => (4, 0),
-        "d" => (4, 1),
-        "f" => (4, 2),
-        "g" => (4, 3),
-        "h" => (4, 4),
-        "j" => (4, 5),
-        "k" => (4, 6),
-        // Row 5
-        "l" => (5, 0),
-        ";" | "semicolon" => (5, 1),
-        ":" => (5, 2),
-        "]" | "rightbracket" => (5, 3),
-        "shift" | "lshift" | "rshift" => (5, 4),
-        "z" => (5, 5),
-        "x" => (5, 6),
-        // Row 6
-        "c" => (6, 0),
-        "v" => (6, 1),
-        "b" => (6, 2),
-        "n" => (6, 3),
-        "m" => (6, 4),
-        "," | "comma" => (6, 5),
-        "." | "period" => (6, 6),
+        "i" => (2, 7),
+        // Y3: A S D F G H J K.
+        "a" => (3, 0),
+        "s" => (3, 1),
+        "d" => (3, 2),
+        "f" => (3, 3),
+        "g" => (3, 4),
+        "h" => (3, 5),
+        "j" => (3, 6),
+        "k" => (3, 7),
+        // Y4: Z X C V B N M ,.
+        "z" => (4, 0),
+        "x" => (4, 1),
+        "c" => (4, 2),
+        "v" => (4, 3),
+        "b" => (4, 4),
+        "n" => (4, 5),
+        "m" => (4, 6),
+        "," | "comma" => (4, 7),
+        // Y5: 9 0 - = . / _triangle backspace.
+        "9" => (5, 0),
+        "0" => (5, 1),
+        "-" | "minus" => (5, 2),
+        "=" | "equals" => (5, 3),
+        "." | "period" | "stop" => (5, 4),
+        "/" | "slash" => (5, 5),
+        "_" | "underscore" | "triangle" => (5, 6),
+        "backspace" | "bs" | "delete" | "del" => (5, 7),
+        // Y6: O P [ ] L : ' \.
+        "o" => (6, 0),
+        "p" => (6, 1),
+        "[" | "leftbracket" | "openbrace" => (6, 2),
+        "]" | "rightbracket" | "closebrace" => (6, 3),
+        "l" => (6, 4),
+        ":" | "colon" => (6, 5),
+        "'" | "quote" | "apostrophe" => (6, 6),
+        "\\" | "backslash" | "yen" => (6, 7),
         _ => return None,
     })
 }
