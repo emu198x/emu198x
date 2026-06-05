@@ -127,18 +127,48 @@ Replace the `AmigaSession`-typed registry with the shared session.
 
 ### Phase 4 — Port bespoke Amiga tools onto the shared session
 
-Move the ~40 Amiga-specific tools (copper list, blitter, chipset, CIA, Agnus,
-Paula, Denise/AGA, exec tasks/ports, library resolution, LVO, `address_to_library`,
-cpu-trace, msgport dump, stack read, video recording state) from
-`Tool<AmigaSession>`/`InlineTool` onto `Tool<HeadlessSession<…>>`.
+`mcp/tools.rs` (3639 lines, 48 `tool_*` fns over `&mut AmigaSession`). The
+session-state usage was inventoried 2026-06-05:
+`s.access()/access_mut()` (68 sites → `session.machine()/machine_mut()`, which is
+`&[mut] AmigaRuntimeKind: AmigaLiveAccess`), `s.cpu_trace` (16), `s.recorder` +
+`s.last_recorded` (11), `s.tick_with_trace` (6), `s.rom_path` (1).
 
-- Most are reads → re-express as `SessionQueryProvider` paths where natural, or
-  keep as thin tools reading through the session's `machine()`.
-- The `cpu_trace` + `recorder` state that lived on `AmigaSession` moves to a
-  session-side extension or query provider field (decide during the phase; keep
-  it minimal).
-- Port in clusters (chipset, exec, library, trace) — one cluster per commit,
-  each verified against the pre-migration tool output.
+**Two state-home decisions (made):**
+
+- **`recorder` → drop.** `HeadlessSession` owns video recording, and
+  `register_common_tools` now exposes `start/stop_video_recording`. The bespoke
+  `recorder`/`last_recorded`/`push_recorder_frame` and the bespoke
+  `start/stop_video_recording`/`run_frames`/`run_ticks` tools are redundant.
+- **`cpu_trace` → move `CpuTraceState` into `AmigaRuntimeKind`.** Give the runtime
+  the trace buffer + arm/disarm/clear/log accessors, and capture into it when
+  armed as the runtime ticks (incl. through `DebugTarget::step_instruction`).
+  Then the shared `step`/`run_until_pc` feed the trace for free; the bespoke
+  `step`/`run_until_pc` drop, and `cpu_trace_*` become thin tools over
+  `session.machine_mut()`.
+
+**DROP (covered by `register_common_tools` + `register_debug_tools`):**
+`run_frames`, `run_ticks`, `step`, `run_until_pc`, `query_cpu`, `memory_read`,
+`poke_word`, `disasm`, `start_video_recording`, `stop_video_recording`.
+
+**PORT (Amiga-specific → `Tool<HeadlessSession<…>>`, via `session.machine()`):**
+chip queries — `query_chipset`, `query_copper_list`, `query_blitter`,
+`query_agnus`, `query_cia`, `query_paula`, `query_aga`, `query_disk`,
+`query_exec_tasks`, `query_exec_ports`, `query_library`, `query_stack`; Exec —
+`address_to_library`, `resolve_lvo`, `resolve_libraries`, `read_task_stack`,
+`dump_msgport_messages`, `signal_task`, `wake_task`; tracers — `palette_log`,
+`bplcon0_log`, `chipset_read_log`, `chipset_write_log`; trace —
+`cpu_trace_arm/clear/disarm/log`; run variants — `run_until_any_pc`,
+`run_until_mem_change`; misc — `memory_read_long`, `disasm_around`, `memory_scan`,
+`dump_framebuffer`, `watch_memory`/`_clear`/`_log`, `insert_media`, `eject_media`,
+`reset`, `restart`. (`reset`/`restart` could instead be added to
+`register_common_tools` — a small shell change; decide during the port.)
+
+**Approach (keeps the crate compiling):** build a new
+`register_amiga_tools(registry: &mut ToolRegistry<HeadlessSession<…>>)` alongside
+the existing `register_all`, porting in clusters (chip queries → exec → tracers →
+trace → run-variants/misc), each cluster a commit verified against pre-migration
+output. The production `mcp/mod.rs` stays on `AmigaSession` until the new module
+is complete, then Phase 3 flips it. `headless_mcp_replatform.rs` is the guardrail.
 - **Gate:** every previously-registered Amiga tool present and equivalent.
 
 ### Phase 5 — Retire `AmigaSession`
