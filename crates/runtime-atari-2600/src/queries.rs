@@ -9,6 +9,10 @@ use crate::runtime::Atari2600Runtime;
 pub(crate) const VCS_QUERY_PATHS: &[&str] = &[
     "vcs.cartridge.loaded",
     "vcs.cpu.pc",
+    "vcs.input.inpt4",
+    "vcs.input.inpt5",
+    "vcs.input.swcha",
+    "vcs.input.swchb",
     "vcs.machine.frame_count",
     "vcs.machine.master_clock",
     "vcs.machine.region",
@@ -44,6 +48,14 @@ impl SessionQueryProvider<Atari2600Runtime> for Atari2600SessionQueryProvider {
                 json!(machine.machine().map_or(0, Atari2600::master_clock))
             }
             "vcs.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            // Effective input registers — verify host input reached the chips.
+            // SWCHA/SWCHB are active-low (a 0 bit means a pressed direction or
+            // switch); INPT4/5 bit 7 clear means the corresponding fire button
+            // is held.
+            "vcs.input.swcha" => json!(loaded(machine, path)?.riot().swcha()),
+            "vcs.input.swchb" => json!(loaded(machine, path)?.riot().swchb()),
+            "vcs.input.inpt4" => json!(loaded(machine, path)?.tia().read(0x0C)),
+            "vcs.input.inpt5" => json!(loaded(machine, path)?.tia().read(0x0D)),
             "vcs.tia.hpos" => json!(loaded(machine, path)?.tia().hpos()),
             "vcs.tia.vpos" => json!(loaded(machine, path)?.tia().vpos()),
             _ => return Ok(None),

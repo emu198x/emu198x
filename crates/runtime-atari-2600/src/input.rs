@@ -5,9 +5,11 @@
 //! mirrors both bytes so individual key events can be combined into the
 //! single byte machine API.
 //!
-//! Layout (active-low joystick byte; routes via the RIOT):
-//!   bit 0 = up (P0), 1 = down (P0), 2 = left (P0), 3 = right (P0),
-//!   bit 4 = up (P1), 5 = down (P1), 6 = left (P1), 7 = right (P1).
+//! Layout (active-low SWCHA byte; routes via the RIOT). Player 1 (the left
+//! jack) sits in the HIGH nibble, player 2 (the right jack) in the LOW nibble —
+//! per MAME's `a2600.cpp` `switch_A_r` (`joyport1 << 4`, `joyport2 & 0x0f`):
+//!   bit 4 = up (P1/port 1), 5 = down, 6 = left, 7 = right,
+//!   bit 0 = up (P2/port 2), 1 = down, 2 = left, 3 = right.
 //! Fire buttons live elsewhere (INPT4 / INPT5 on the TIA) and use the
 //! `fire` / `fire2` host names.
 //!
@@ -97,7 +99,9 @@ fn axis_to_pot8(value: i16) -> u8 {
 }
 
 fn joystick_bit(name: &str, port: u8) -> Option<u8> {
-    let base = if port == 2 { 4 } else { 0 };
+    // SWCHA carries player 1 (port 1, left jack) in the high nibble and
+    // player 2 (port 2, right jack) in the low nibble (MAME a2600 switch_A_r).
+    let base = if port == 2 { 0 } else { 4 };
     Some(match name.to_ascii_lowercase().as_str() {
         "up" | "arrowup" => base,
         "down" | "arrowdown" => base + 1,
@@ -130,7 +134,23 @@ fn toggle(current: u8, bit: u8, pressed: bool) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{axis_to_pot8, paddle_index};
+    use super::{axis_to_pot8, joystick_bit, paddle_index};
+
+    #[test]
+    fn joystick_nibbles_follow_swcha_player_assignment() {
+        // Player 1 (port 1, left jack) occupies the high nibble; player 2
+        // (port 2) the low nibble. Within each nibble: up,down,left,right.
+        // Matches MAME a2600 switch_A_r + vcs_ctrl/joystick.cpp.
+        assert_eq!(joystick_bit("up", 1), Some(4));
+        assert_eq!(joystick_bit("down", 1), Some(5));
+        assert_eq!(joystick_bit("left", 1), Some(6));
+        assert_eq!(joystick_bit("right", 1), Some(7));
+        assert_eq!(joystick_bit("up", 2), Some(0));
+        assert_eq!(joystick_bit("down", 2), Some(1));
+        assert_eq!(joystick_bit("left", 2), Some(2));
+        assert_eq!(joystick_bit("right", 2), Some(3));
+        assert_eq!(joystick_bit("throttle", 1), None);
+    }
 
     #[test]
     fn paddles_route_to_the_right_inpt_lines() {

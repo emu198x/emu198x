@@ -220,6 +220,22 @@ impl Riot6532 {
         (self.port_b & self.ddr_b) | (self.input_b & !self.ddr_b)
     }
 
+    /// Effective SWCHA value (port A data) with no side effects — the byte the
+    /// CPU would see at `$280`. Distinct from [`Self::read`], which decodes a
+    /// full address and is `&mut self`; this is the inspection accessor used by
+    /// the runtime's query surface to verify joystick input reached the chip.
+    #[must_use]
+    pub fn swcha(&self) -> u8 {
+        self.read_port_a()
+    }
+
+    /// Effective SWCHB value (port B data, console switches) with no side
+    /// effects — the byte the CPU would see at `$282`.
+    #[must_use]
+    pub fn swchb(&self) -> u8 {
+        self.read_port_b()
+    }
+
     /// Set external input for port A.
     pub fn set_port_a_input(&mut self, value: u8) {
         self.input_a = value;
