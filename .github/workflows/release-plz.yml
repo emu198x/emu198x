@@ -1,9 +1,23 @@
 name: Release-plz
 
+# PAUSED — manual-dispatch only.
+#
+# release-plz's git_only flow currently fails here: `cargo package`
+# cannot resolve the unpublished external git dependency `isa-disasm`
+# (asm198x), so "determine next versions" errors out. The fix is
+# release-plz/release-plz#2789 (source-dir fallback), not yet merged.
+# Until it ships, the per-machine tags are created by tag-releases.yml
+# from the versions in each Cargo.toml.
+#
+# To re-enable: once #2789 is released, bump the release-plz/action
+# version below, restore the `push` trigger (replace `workflow_dispatch`
+# with the commented block), and delete tag-releases.yml. Tracking issue:
+# release-plz/release-plz#2595.
 on:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
+  workflow_dispatch:
 
 concurrency:
   group: release-plz-${{ github.ref }}

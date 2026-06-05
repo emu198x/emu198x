@@ -1,0 +1,82 @@
+name: Tag releases
+
+# Interim per-machine tagging.
+#
+# release-plz's git_only flow is currently blocked upstream: it runs
+# `cargo package`, which cannot resolve the unpublished external git
+# dependency `isa-disasm` (from the sibling asm198x repo). The proper
+# fix is release-plz/release-plz#2789 ("fall back to source-dir
+# comparison when cargo package fails"), which is not yet merged.
+#
+# Until it ships, this workflow does the one thing release-plz can't:
+# it reads each machine binary's version from its Cargo.toml and creates
+# the `<package>-v<version>` tag that cargo-dist (release.yml) builds
+# from. Versions are bumped by hand in the meantime.
+#
+# To release a machine: bump its `version` in `crates/<machine>/Cargo.toml`,
+# merge to main, and this workflow tags it. Existing tags are left alone,
+# so it is safe to run on every push.
+#
+# When release-plz#2789 lands: bump release-plz/action in release-plz.yml,
+# re-enable that workflow's `push` trigger, and delete this file. See
+# release-plz/release-plz#2595 for the full history.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tag-releases
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag machine releases from Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          # A PAT (not GITHUB_TOKEN) is required so that pushing a tag
+          # fires release.yml — tag pushes made with GITHUB_TOKEN do not
+          # trigger other workflows.
+          token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Create per-machine tags
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # The machine binaries that get tagged are exactly the
+          # [[package]] entries in release-plz.toml (the same list
+          # release-plz would tag). Read their names from there.
+          created=0
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            manifest="crates/${name}/Cargo.toml"
+            if [ ! -f "$manifest" ]; then
+              echo "::warning::no manifest for ${name} at ${manifest}; skipping"
+              continue
+            fi
+            version=$(grep -m1 -E '^version = ' "$manifest" | sed -E 's/^version = "(.*)"$/\1/')
+            if [ -z "$version" ]; then
+              echo "::warning::no version found in ${manifest}; skipping"
+              continue
+            fi
+            tag="${name}-v${version}"
+            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+              echo "exists: ${tag}"
+            else
+              echo "creating: ${tag}"
+              git tag "${tag}"
+              git push origin "${tag}"
+              created=$((created + 1))
+            fi
+          done < <(grep -E '^name = ' release-plz.toml | sed -E 's/^name = "(.*)"$/\1/')
+          echo "Created ${created} new tag(s)."
