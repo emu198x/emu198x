@@ -411,6 +411,17 @@ impl MachineCore for SpectrumRuntimeKind {
     fn capabilities(&self) -> emu198x_shell::CapabilitySet {
         match_kind!(self, |rt| rt.capabilities())
     }
+
+    // The Spectrum joins the shared debug tier via `impl DebugPrimitives`
+    // (see `debug.rs`), which the shell's blanket impl turns into
+    // `DebugTarget`. Always present: the family enum is always backed by a
+    // live Z80 machine.
+    fn debug_target(&self) -> Option<&dyn emu198x_shell::DebugTarget> {
+        Some(self)
+    }
+    fn debug_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::DebugTarget> {
+        Some(self)
+    }
 }
 
 impl SpectrumLiveAccess for SpectrumRuntimeKind {

@@ -13,6 +13,7 @@
 
 mod autoload;
 mod basic_loader;
+mod debug;
 mod family_runtime;
 mod input;
 mod pentagon_128;
