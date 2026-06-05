@@ -1,4 +1,4 @@
-//! C64 keyboard / joystick input mapping.
+//! C64 keyboard / joystick / paddle input mapping.
 //!
 //! Splits the keyboard-matrix lookup table out of `runtime.rs` so the
 //! 70+ key entries don't dominate the file. The matrix is the
@@ -45,8 +45,8 @@ use machine_commodore_c64::C64;
 /// "primary stick" alias (mirrors the Spectrum's port-0-is-default),
 /// which on the C64 is the main gameport — port 2.
 ///
-/// Returning `None` drops events on ports we don't model (paddle,
-/// mouse 1351, light pen — all post-October).
+/// Returning `None` drops events on ports we don't model (mouse 1351,
+/// light pen — both post-October). Paddles share this port mapping.
 fn machine_port(input_port: u8) -> Option<u8> {
     match input_port {
         2 => Some(2), // Control Port 2 (CIA1 PA, $DC00) — the main gameport
@@ -98,8 +98,36 @@ pub(crate) fn apply_input_event(machine: &mut C64, event: &InputEvent) {
             };
             let _ = machine.set_joystick_control(machine_port, control, *pressed);
         }
+        InputEvent::Axis { port, name, value } => {
+            let Some(machine_port) = machine_port(*port) else {
+                return;
+            };
+            let Some(axis) = paddle_axis(&name.to_ascii_lowercase()) else {
+                return;
+            };
+            // The paddle pot is an 8-bit reading on the selected control port;
+            // the SID surfaces it at POTX/POTY once the CIA #1 mux selects that
+            // port. Flip at the source if a title reads inverted.
+            let _ = machine.set_paddle(machine_port, axis, axis_to_pot8(*value));
+        }
         _ => {}
     }
+}
+
+/// Map an axis name to a paddle pot index: 0 = X (POTX), 1 = Y (POTY).
+fn paddle_axis(name: &str) -> Option<u8> {
+    match name {
+        "x" | "horizontal" | "potx" | "pot0" => Some(0),
+        "y" | "vertical" | "poty" | "pot1" => Some(1),
+        _ => None,
+    }
+}
+
+/// Scale a normalized signed axis (`i16::MIN..=i16::MAX`) onto the 8-bit paddle
+/// pot range (`0..=255`); `0` lands near centre (`128`).
+fn axis_to_pot8(value: i16) -> u8 {
+    let shifted = i32::from(value) - i32::from(i16::MIN); // 0..=65535
+    u8::try_from((shifted * 255) / 65535).unwrap_or(255)
 }
 
 /// Look up `(row, col)` in the C64 keyboard matrix for a host-level
@@ -178,7 +206,7 @@ fn c64_key_position(name: &str) -> Option<(u8, u8)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_input_event, canonical_control, machine_port};
+    use super::{apply_input_event, axis_to_pot8, canonical_control, machine_port, paddle_axis};
     use emu198x_shell::InputEvent;
     use machine_commodore_c64::{C64, C64Config, C64Model};
     use std::borrow::Cow;
@@ -202,6 +230,57 @@ mod tests {
             name: Cow::Owned(name.to_string()),
             pressed,
         }
+    }
+
+    fn axis_event(port: u8, name: &str, value: i16) -> InputEvent {
+        InputEvent::Axis {
+            port,
+            name: Cow::Owned(name.to_string()),
+            value,
+        }
+    }
+
+    #[test]
+    fn axis_scales_to_the_8bit_pot_range() {
+        assert_eq!(axis_to_pot8(i16::MIN), 0);
+        assert_eq!(axis_to_pot8(i16::MAX), 255);
+        assert!((120..=136).contains(&axis_to_pot8(0)));
+    }
+
+    #[test]
+    fn paddle_axis_names_map_to_pot_indices() {
+        assert_eq!(paddle_axis("x"), Some(0));
+        assert_eq!(paddle_axis("vertical"), Some(1));
+        assert_eq!(paddle_axis("throttle"), None);
+    }
+
+    #[test]
+    fn axis_events_drive_the_sid_pots_on_the_selected_port() {
+        let mut m = make_machine();
+        m.cpu_write(0xDC02, 0xFF); // CIA1 DDRA: PA6/PA7 outputs
+
+        // Port 2 X/Y to the extremes.
+        apply_input_event(&mut m, &axis_event(2, "x", i16::MAX));
+        apply_input_event(&mut m, &axis_event(2, "y", i16::MIN));
+
+        // Select control port 2 (PA7 = 1 → mux mask 2).
+        m.cpu_write(0xDC00, 0x80);
+        assert_eq!(m.cpu_read(0xD419), 255, "port 2 X → POTX max");
+        assert_eq!(m.cpu_read(0xD41A), 0, "port 2 Y → POTY min");
+
+        // The port-0 alias lands on the same main gameport (2).
+        apply_input_event(&mut m, &axis_event(0, "x", i16::MIN));
+        assert_eq!(m.cpu_read(0xD419), 0, "port 0 aliases gameport 2 X");
+    }
+
+    #[test]
+    fn unknown_axis_name_is_dropped() {
+        let mut m = make_machine();
+        m.cpu_write(0xDC02, 0xFF);
+        m.cpu_write(0xDC00, 0x80);
+        // A centred pot reads ~128 by default; an unknown axis leaves it.
+        apply_input_event(&mut m, &axis_event(2, "throttle", i16::MAX));
+        assert_eq!(m.cpu_read(0xD419), 0xFF, "open line unchanged");
     }
 
     #[test]

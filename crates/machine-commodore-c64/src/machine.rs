@@ -29,6 +29,11 @@ pub struct C64 {
     memory: C64Memory,
     keyboard: KeyboardMatrix,
     joysticks: [JoystickState; 2],
+    /// Paddle pot positions, `[port][axis]` (port 0/1, axis 0 = X, 1 = Y).
+    /// Lines default open (`0xFF`) until a host axis arrives; the CIA #1 mux
+    /// then routes the selected port to the SID POTX/POTY. See
+    /// [`Self::refresh_paddle_pots`].
+    paddles: [[u8; 2]; 2],
     phi2_cycles: u64,
     frame_count: u64,
 }
@@ -45,6 +50,7 @@ pub struct C64Snapshot {
     memory: C64MemorySnapshot,
     keyboard: KeyboardMatrix,
     joysticks: [JoystickState; 2],
+    paddles: [[u8; 2]; 2],
     phi2_cycles: u64,
     frame_count: u64,
 }
@@ -92,6 +98,36 @@ impl JoystickState {
     }
 }
 
+/// Selects the paddle pot value reaching the SID for a CIA #1 mux mask
+/// (`(PRA >> 6) & 3`): 1 = control port 1, 2 = control port 2, 3 = both pots in
+/// parallel, 0 = open line (`0xFF`). Adapted from VICE's `read_joyport_potx`.
+fn select_paddle_pot(mask: u8, port1: u8, port2: u8) -> u8 {
+    match mask {
+        1 => port1,
+        2 => port2,
+        3 => parallel_paddle(port1, port2),
+        _ => 0xFF,
+    }
+}
+
+/// Combines two paddle pots wired in parallel. Following VICE's resistor model
+/// (`calc_parallel_paddle_value`): a pot at `0` (tied to VCC) forces `0`; an
+/// open pot (`255`) yields the other; otherwise the parallel resistance, which
+/// reduces to `t1·t2 / (t1+t2)` once the common scale cancels.
+fn parallel_paddle(t1: u8, t2: u8) -> u8 {
+    if t1 == 0 || t2 == 0 {
+        return 0;
+    }
+    if t1 == 255 {
+        return t2;
+    }
+    if t2 == 255 {
+        return t1;
+    }
+    let r = (u16::from(t1) * u16::from(t2)) / (u16::from(t1) + u16::from(t2));
+    u8::try_from(r.min(255)).unwrap_or(255)
+}
+
 impl C64 {
     /// Constructs a new C64 machine substrate from ROM bytes.
     ///
@@ -132,6 +168,7 @@ impl C64 {
             memory,
             keyboard: KeyboardMatrix::new(),
             joysticks: [JoystickState::default(); 2],
+            paddles: [[0xFF; 2]; 2],
             phi2_cycles: 0,
             frame_count: 0,
         };
@@ -236,6 +273,23 @@ impl C64 {
             return false;
         }
         self.refresh_keyboard_scan();
+        true
+    }
+
+    /// Sets a paddle pot position on controller port 1 or 2. `axis` 0 = X
+    /// (POTX), 1 = Y (POTY); `value` is the 8-bit pot reading (`0..=255`).
+    /// The value surfaces at the SID POTX/POTY once CIA #1 selects the port.
+    /// Returns `false` for an unknown port or axis.
+    pub fn set_paddle(&mut self, port: u8, axis: u8, value: u8) -> bool {
+        let Some(slot) = self
+            .paddles
+            .get_mut(usize::from(port.wrapping_sub(1)))
+            .and_then(|p| p.get_mut(usize::from(axis)))
+        else {
+            return false;
+        };
+        *slot = value;
+        self.refresh_paddle_pots();
         true
     }
 
@@ -409,6 +463,7 @@ impl C64 {
         self.refresh_keyboard_scan();
         self.cia1.tick();
         self.cia2.tick();
+        self.refresh_paddle_pots();
         self.refresh_vic_bank();
         self.cpu.irq = self.vic.irq || self.cia1.irq;
         self.cpu.nmi = self.cia2.irq;
@@ -443,6 +498,7 @@ impl C64 {
         self.sync_iec_bus(bus);
         self.cia1.tick();
         self.cia2.tick();
+        self.refresh_paddle_pots();
         self.refresh_vic_bank();
         self.cpu.irq = self.vic.irq || self.cia1.irq;
         self.cpu.nmi = self.cia2.irq;
@@ -506,6 +562,7 @@ impl C64 {
             memory: self.memory.snapshot_state(),
             keyboard: self.keyboard.clone(),
             joysticks: self.joysticks,
+            paddles: self.paddles,
             phi2_cycles: self.phi2_cycles,
             frame_count: self.frame_count,
         }
@@ -534,6 +591,7 @@ impl C64 {
         self.memory = C64Memory::from_snapshot(snapshot.memory)?;
         self.keyboard = snapshot.keyboard;
         self.joysticks = snapshot.joysticks;
+        self.paddles = snapshot.paddles;
         self.phi2_cycles = snapshot.phi2_cycles;
         self.frame_count = snapshot.frame_count;
         self.refresh_keyboard_scan();
@@ -602,7 +660,15 @@ impl C64 {
     fn io_read(&mut self, addr: u16) -> u8 {
         match addr {
             0xD000..=0xD3FF => self.vic.read((addr & 0x3F) as u8),
-            0xD400..=0xD7FF => self.sid.read((addr & 0x1F) as u8),
+            0xD400..=0xD7FF => {
+                let reg = (addr & 0x1F) as u8;
+                // The paddle pots reflect the live CIA #1 mux selection at read
+                // time, so refresh them before returning POTX/POTY.
+                if reg == 0x19 || reg == 0x1A {
+                    self.refresh_paddle_pots();
+                }
+                self.sid.read(reg)
+            }
             0xD800..=0xDBFF => self.memory.colour_ram_read(addr - 0xD800),
             0xDC00..=0xDCFF => {
                 self.refresh_keyboard_scan();
@@ -639,6 +705,16 @@ impl C64 {
     fn refresh_keyboard_scan(&mut self) {
         self.cia1.pa_in = self.joystick_input(2);
         self.cia1.pb_in = self.keyboard.scan(self.cia1.pa) & self.joystick_input(1);
+    }
+
+    /// Drives the SID pot inputs from the paddle multiplexer. The C64 wires both
+    /// control ports' paddle pots to the SID's single POTX/POTY pair through a
+    /// 4066 analogue switch selected by CIA #1 port A bits 6-7. See
+    /// [`select_paddle_pot`].
+    fn refresh_paddle_pots(&mut self) {
+        let mask = (self.cia1.port_a_drive_state() >> 6) & 0x03;
+        self.sid.potx = select_paddle_pot(mask, self.paddles[0][0], self.paddles[1][0]);
+        self.sid.poty = select_paddle_pot(mask, self.paddles[0][1], self.paddles[1][1]);
     }
 
     fn refresh_vic_bank(&mut self) {
@@ -871,6 +947,36 @@ mod tests {
         assert!(machine.set_joystick_control(1, "fire", true));
 
         assert_eq!(machine.cpu_read(0xDC01) & 0x10, 0x00);
+    }
+
+    #[test]
+    fn paddles_read_through_the_sid_pots_with_cia_port_select() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDC02, 0xFF); // CIA1 DDRA: PA6/PA7 are outputs
+
+        machine.set_paddle(1, 0, 0xC8); // port 1 X
+        machine.set_paddle(1, 1, 0x20); // port 1 Y
+        machine.set_paddle(2, 0, 0x90); // port 2 X
+        machine.set_paddle(2, 1, 0x44); // port 2 Y
+
+        // Select control port 1 (PA6 = 1 → mask 1): SID pots read port 1.
+        machine.cpu_write(0xDC00, 0x40);
+        assert_eq!(machine.cpu_read(0xD419), 0xC8, "POTX = port 1 X");
+        assert_eq!(machine.cpu_read(0xD41A), 0x20, "POTY = port 1 Y");
+
+        // Select control port 2 (PA7 = 1 → mask 2): SID pots read port 2.
+        machine.cpu_write(0xDC00, 0x80);
+        assert_eq!(machine.cpu_read(0xD419), 0x90, "POTX = port 2 X");
+        assert_eq!(machine.cpu_read(0xD41A), 0x44, "POTY = port 2 Y");
+
+        // Neither selected (mask 0) → lines float open (0xFF).
+        machine.cpu_write(0xDC00, 0x00);
+        machine.set_paddle(1, 0, 0xC8); // re-trigger a pot refresh
+        assert_eq!(machine.cpu_read(0xD419), 0xFF, "no port selected → open");
+
+        // An unknown port / axis is rejected.
+        assert!(!machine.set_paddle(0, 0, 0x10));
+        assert!(!machine.set_paddle(1, 2, 0x10));
     }
 
     #[test]

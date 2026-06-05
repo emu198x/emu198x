@@ -113,7 +113,7 @@ clean script/MCP parity break.
 |--------|---------|-------------|--------------|
 | Keyboard | `Key` | ~26 machines | atari-5200/7800 keypad/console partial (joystick wired 2026-06-05) |
 | Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20**, **bbc** (fire) (~16) | svi-328, einstein, aquarius, mtx, sord-m5 — blocked on primary source (boot-ROM trace); oric — no native port (Telestrat only) |
-| Paddle / analogue | `Axis` | dragon, spectrum, **atari-5200** (POKEY pots, 2026-06-05), **bbc** (μPD7002 ADC, 2026-06-05) | atari-2600 (signature paddles), **c64 (SID POTX/POTY)**, atari-800xl, coleco — **absent** |
+| Paddle / analogue | `Axis` | dragon, spectrum, **atari-5200** (POKEY pots, 2026-06-05), **bbc** (μPD7002 ADC, 2026-06-05), **c64** (SID POTX/POTY + CIA mux, 2026-06-05) | **atari-2600** (signature paddles — TIA INPT timing), atari-800xl, coleco — **absent** |
 | Mouse | `Pointer*` | amiga **only** (correct machine) | MCP-undrivable; c64 1351 minor |
 
 **Atari 5200 and 7800 consume no input at all** — they boot, run cartridges, and
