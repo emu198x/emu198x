@@ -1297,7 +1297,7 @@ codebase is now fully harvested. See dedicated sections above:
 | 13 | Atari 5200 SuperSystem | **Boots Pac-Man to its menu** (live, 2026-06-04) — two-chip 16K cart decode + ANTIC full-bus DMA + text-mode colour fix |
 | 14 | Atari 7800 ProSystem | **Renders** (live, 2026-06-04) — MARIA CTRL-bit fix lets the DLI→NMI fire; Asteroids draws |
 | 15 | Atari 800XL | **Boots to BASIC `READY`** (live) — GR.0 renders, keyboard types, MCP debug surface |
-| 16 | Jupiter Ace | **Boots to cursor but non-interactive** (2026-06-05) — MAME-accurate video/char RAM map ($2000 video, $2800 char, A10 mirrors). The 50 Hz interrupt is never serviced: the half-cycle `zilog-z80` is driven once-per-T-state (not like the Spectrum), so the Forth loop spins at `$059B` waiting for the ISR's frame flag, never scanning the keyboard. Keyboard wiring ready; machine-level CPU-clocking fix pending |
+| 16 | Jupiter Ace | **Boots to Forth; keyboard types** (2026-06-05) — MAME-accurate video/char RAM map ($2000 video, $2800 char, A10 mirrors). Fixed the 50 Hz interrupt servicing: the half-cycle `zilog-z80` is now driven 2×/T-state with a held (acknowledge-cleared) INT instead of a fixed window. Typed chars echo on the bottom Forth input line. Minor follow-up: cursor doesn't visually flash |
 | 17 | Commodore PET | **Boots to BASIC `READY`; keyboard wired** — CPU reset + 8-byte char-ROM stride + CRTC address-latch fix; CB1 retrace IRQ + ground-truthed matrix (2026-06-05) |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |
