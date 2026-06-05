@@ -1291,13 +1291,13 @@ codebase is now fully harvested. See dedicated sections above:
 | 7 | Mattel Aquarius | Microsoft BASIC (live) |
 | 8 | Tatung Einstein TC-01 | **Boots to MOS prompt; keyboard types** (HELLO) — $24 ROM-toggle + WD1770 FDC + INDEX pulse; keyboard on AY port B with a 50 Hz IM2 scan interrupt (2026-06-05); disk-load still pending an image |
 | 9 | Acorn Electron | **Boots to BASIC `>`; keyboard types** (`PRINT 123` executes) — MAME-accurate ULA palette + screen-start + character-block display; fixed the frozen interrupt model ($FE00 is the IRQ *enable*, not a clear), active-high paged-ROM keyboard read, and the matrix (2026-06-05) |
-| 10 | Oric-1 / Atmos | **Boots to BASIC** (live, 2026-06-04) — clean first-boot with BASIC 1.1; `Ready` prompt |
+| 10 | Oric-1 / Atmos | **Boots to BASIC; keyboard types** — clean first-boot with BASIC 1.1; fixed the keyboard model to sense on VIA PB3 (column on PB0-2, row mask on port A) and wired the 8×8 matrix input (2026-06-05) |
 | 11 | Acorn BBC Micro Model B | **Boots to BASIC in MODE 7** (live, 2026-06-04) — keyboard→VIA PA7 fix + SAA5050 teletext renderer; `BBC Computer 32K` |
 | 12 | Atari 2600 | Combat playfield (live) |
 | 13 | Atari 5200 SuperSystem | **Boots Pac-Man to its menu** (live, 2026-06-04) — two-chip 16K cart decode + ANTIC full-bus DMA + text-mode colour fix |
 | 14 | Atari 7800 ProSystem | **Renders** (live, 2026-06-04) — MARIA CTRL-bit fix lets the DLI→NMI fire; Asteroids draws |
 | 15 | Atari 800XL | **Boots to BASIC `READY`** (live) — GR.0 renders, keyboard types, MCP debug surface |
-| 16 | Jupiter Ace | **Boots to cursor** (live, 2026-06-04) — MAME-accurate video/char RAM map ($2000 video, $2800 char, A10 mirrors); typing renders |
+| 16 | Jupiter Ace | **Boots to cursor but non-interactive** (2026-06-05) — MAME-accurate video/char RAM map ($2000 video, $2800 char, A10 mirrors). The 50 Hz interrupt is never serviced: the half-cycle `zilog-z80` is driven once-per-T-state (not like the Spectrum), so the Forth loop spins at `$059B` waiting for the ISR's frame flag, never scanning the keyboard. Keyboard wiring ready; machine-level CPU-clocking fix pending |
 | 17 | Commodore PET | **Boots to BASIC `READY`; keyboard wired** — CPU reset + 8-byte char-ROM stride + CRTC address-latch fix; CB1 retrace IRQ + ground-truthed matrix (2026-06-05) |
 | 18 | Sinclair ZX80 | Boot screen renders (live) — SLOW mode pending |
 | 19 | Sinclair ZX81 | Boot screen renders (live) |

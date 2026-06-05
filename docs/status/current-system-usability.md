@@ -78,10 +78,10 @@ open items: [`outstanding-work.md`](outstanding-work.md).
 | Memotech MTX | `emu198x-memotech-mtx` | **Boots to BASIC `Ready`** — fixed paging + I/O map + completed ROM image (OS+BASIC+ASSEM) via MEMU (commit `93d17fe7`) |
 | Atari 7800 | `emu198x-atari-7800` | Cart accepts; BIOS-driven boot pending |
 | Tatung Einstein | `emu198x-tatung-einstein` | **Boots to MOS; keyboard types** (HELLO) — fixed I/O map + AY-port-B keyboard + IM2 interrupt (2026-06-05) |
-| Jupiter Ace | `emu198x-jupiter-ace` | Awaiting ROM (8 KB Forth) |
-| Acorn Atom | `emu198x-acorn-atom` | **Boots; keyboard types** — modelled on the correct INS8255 PPI + VDG field-sync (2026-06-05) |
+| Jupiter Ace | `emu198x-jupiter-ace` | Boots to the Forth prompt but **non-interactive** — the 50 Hz interrupt is never serviced (the half-cycle Z80 is driven once-per-T-state, unlike the Spectrum), so it spins without scanning the keyboard. Keyboard wiring is ready; machine-level CPU-clocking fix pending (2026-06-05) |
+| Acorn Atom | `emu198x-acorn-atom` | **Boots; keyboard types end-to-end** (`>PRINT3 → 3`) — correct INS8255 PPI + VDG field-sync, runtime input now wired (2026-06-05) |
 | Spectravideo SVI-328 | `emu198x-spectravideo-svi-328` | **Boots to SV-BASIC `Ok`; keyboard types** (HELLO) — wired 8255 PPI matrix input (2026-06-05) |
-| Oric-1 / Atmos | `emu198x-oric-atmos` | Awaiting BIOS (16 KB Tangerine) |
+| Oric-1 / Atmos | `emu198x-oric-atmos` | **Boots to BASIC `Ready`; keyboard types** (`HELLO`, `RETURN` executes) — fixed the PB3-sense keyboard model + wired the 8×8 matrix input (2026-06-05) |
 
 The shared next step for the whole tier is the native `wgpu` verifier window
 (the one surface that separates them from the primary six). `zilog-z80-ctc`
