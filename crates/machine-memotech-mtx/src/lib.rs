@@ -385,6 +385,45 @@ impl Mtx {
         self.keyboard.release_all();
     }
 
+    /// Read the keyboard/joystick sense lines for a `drive` byte (a zero bit
+    /// drives that column): returns `(port $05 low byte, port $06 high byte)`.
+    /// For inspection and host-side input wiring.
+    #[must_use]
+    pub fn sense(&self, drive: u8) -> (u8, u8) {
+        (self.keyboard.in5(drive), self.keyboard.in6(drive))
+    }
+
+    /// Set the digital joystick state for `port` (1 or 2). The MTX joysticks
+    /// share the keyboard matrix sense lines, so each control maps to a fixed
+    /// `(column, sense bit)` position read back through `$05`/`$06`:
+    /// player 1 (the "Right" port) on columns 2-6 sense bit 7, player 2 (the
+    /// "Left" port) on column 7. Active low. Out-of-range ports clamp to the
+    /// pair. (MAME `mtx` `JOY2`-`JOY7` matrix positions.)
+    #[allow(clippy::fn_params_excessive_bools)]
+    pub fn set_joystick(
+        &mut self,
+        port: u8,
+        up: bool,
+        down: bool,
+        left: bool,
+        right: bool,
+        fire: bool,
+    ) {
+        if port.clamp(1, 2) == 1 {
+            self.keyboard.set_joystick_bit(2, 7, up);
+            self.keyboard.set_joystick_bit(3, 7, left);
+            self.keyboard.set_joystick_bit(4, 7, right);
+            self.keyboard.set_joystick_bit(5, 7, fire);
+            self.keyboard.set_joystick_bit(6, 7, down);
+        } else {
+            self.keyboard.set_joystick_bit(7, 0, left);
+            self.keyboard.set_joystick_bit(7, 1, right);
+            self.keyboard.set_joystick_bit(7, 2, up);
+            self.keyboard.set_joystick_bit(7, 3, down);
+            self.keyboard.set_joystick_bit(7, 8, fire);
+        }
+    }
+
     #[must_use]
     pub fn peek_memory(&self, addr: u16) -> u8 {
         self.mem_read(addr)
@@ -521,6 +560,31 @@ mod tests {
         let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx500).expect("init");
         sys.io_write(0x06, 0x9F); // SN76489 latch/volume — must not touch paging
         assert_eq!(sys.page_reg, 0x00);
+    }
+
+    #[test]
+    fn joystick_reads_through_the_keyboard_matrix() {
+        let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx500).expect("init");
+
+        // Player 1 up sits at column 2, sense bit 7. Drive column 2, read $05.
+        sys.set_joystick(1, true, false, false, false, false);
+        sys.io_write(0x05, !(1 << 2));
+        assert_eq!(sys.io_read(0x05) & 0x80, 0x00, "P1 up → col 2 bit 7 low");
+
+        // Player 1 fire is column 5, bit 7.
+        sys.set_joystick(1, false, false, false, false, true);
+        sys.io_write(0x05, !(1 << 5));
+        assert_eq!(sys.io_read(0x05) & 0x80, 0x00, "P1 fire → col 5 bit 7 low");
+
+        // Player 2 right is column 7, sense bit 1 (low byte via $05).
+        sys.set_joystick(2, false, false, false, true, false);
+        sys.io_write(0x05, !(1 << 7));
+        assert_eq!(sys.io_read(0x05) & 0x02, 0x00, "P2 right → col 7 bit 1 low");
+
+        // Player 2 fire is column 7, sense bit 8 (high byte via $06).
+        sys.set_joystick(2, false, false, false, false, true);
+        sys.io_write(0x05, !(1 << 7));
+        assert_eq!(sys.io_read(0x06) & 0x01, 0x00, "P2 fire → col 7 bit 8 low");
     }
 }
 
