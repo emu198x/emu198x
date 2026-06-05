@@ -66,18 +66,21 @@ where
     }
 }
 
-/// Wrap a closure as a `Tool` impl. The closure receives parsed
-/// arguments and a mutable session reference and returns the JSON
-/// response body. Lets us define tools inline without a struct per
-/// tool.
-struct InlineTool {
+/// Wrap a free function as a `Tool` impl over any session context `C`.
+/// The function receives parsed arguments and a mutable session
+/// reference and returns the JSON response body. Generic over `C` so the
+/// same inline tools register on both the legacy [`AmigaSession`] and the
+/// shared `HeadlessSession` (the run fns are generic over `AmigaCtx`).
+struct InlineTool<C> {
     name: &'static str,
     description: &'static str,
     schema: Value,
-    run: fn(Value, &mut AmigaSession) -> Result<Value, ToolError>,
+    run: fn(Value, &mut C) -> Result<Value, ToolError>,
 }
 
-impl Tool<AmigaSession> for InlineTool {
+// `InlineTool<C>` holds only a fn pointer + owned data, so it is
+// unconditionally `Send + Sync` regardless of `C` — no bound needed.
+impl<C> Tool<C> for InlineTool<C> {
     fn name(&self) -> &str {
         self.name
     }
@@ -87,11 +90,7 @@ impl Tool<AmigaSession> for InlineTool {
     fn input_schema(&self) -> Value {
         self.schema.clone()
     }
-    fn call(
-        &self,
-        arguments: Value,
-        session: &mut AmigaSession,
-    ) -> Result<ToolResponse, ToolError> {
+    fn call(&self, arguments: Value, session: &mut C) -> Result<ToolResponse, ToolError> {
         let body = (self.run)(arguments, session)?;
         let text = serde_json::to_string(&body)
             .map_err(|err| ToolError::Execution(format!("serialize: {err}")))?;
@@ -151,11 +150,11 @@ fn arg_u32(args: &Value, key: &str) -> Result<u32, ToolError> {
 /// back to assembling from bytes for non-chip-RAM addresses so we
 /// can dump ROM too. Routes through [`AmigaLiveAccess`] so it works
 /// against any chipset variant the session may be hosting.
-fn read_long(session: &AmigaSession, addr: u32) -> u32 {
+fn read_long(session: &impl AmigaCtx, addr: u32) -> u32 {
     session.live().read_long(addr)
 }
 
-fn read_byte(session: &AmigaSession, addr: u32) -> u8 {
+fn read_byte(session: &impl AmigaCtx, addr: u32) -> u8 {
     let aligned = addr & !1;
     let long = session.live().read_long(aligned & !2);
     let shift = (3 - (addr & 3)) * 8;
@@ -2617,7 +2616,7 @@ fn tool_run_until_mem_change(args: Value, s: &mut impl AmigaCtx) -> Result<Value
     }))
 }
 
-fn tool_memory_read(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+fn tool_memory_read(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let addr = arg_u32(&args, "addr")?;
     let len = arg_u64_or(&args, "len", 16)?;
     let len =
@@ -2635,7 +2634,7 @@ fn tool_memory_read(args: Value, s: &mut AmigaSession) -> Result<Value, ToolErro
     }))
 }
 
-fn tool_memory_read_long(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+fn tool_memory_read_long(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let addr = arg_u32(&args, "addr")?;
     Ok(json!({
         "addr": format!("${:08X}", addr),
@@ -2851,7 +2850,7 @@ fn tool_disasm(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
 /// target is itself mid-instruction, e.g. a stale pointer), we fall
 /// back to the closest-overshoot alignment so the caller still sees
 /// something coherent + an `aligned: false` flag.
-fn tool_disasm_around(args: Value, s: &mut AmigaSession) -> Result<Value, ToolError> {
+fn tool_disasm_around(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let target = arg_u32(&args, "addr")?;
     let before = arg_u64_or(&args, "before", 4)? as u32;
     let after = arg_u64_or(&args, "after", 4)? as u32;
@@ -2995,15 +2994,23 @@ fn tool_disasm_around(args: Value, s: &mut AmigaSession) -> Result<Value, ToolEr
 
 // ─── Registration ─────────────────────────────────────────────────────
 
-/// Registers every Amiga MCP tool on the supplied registry. The order
-/// is the order shown by `tools/list`.
-pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
-    fn add(
-        registry: &mut ToolRegistry<AmigaSession>,
+/// Registers every chipset-agnostic Amiga MCP tool on the supplied
+/// registry. Generic over the session context `C: AmigaCtx`, so the same
+/// table serves both the legacy [`AmigaSession`] and the shared
+/// `HeadlessSession`. Order is the order shown by `tools/list`.
+///
+/// Does NOT register the recorder run tools (`run_frames` / `run_ticks` /
+/// `start_video_recording` / `stop_video_recording`) or `reset` — those
+/// are session-local on `AmigaSession` (added by [`register_all`]) and
+/// are provided by the shared `register_common_tools` on the
+/// `HeadlessSession` path.
+pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C>) {
+    fn add<C: AmigaCtx + 'static>(
+        registry: &mut ToolRegistry<C>,
         name: &'static str,
         description: &'static str,
         schema: Value,
-        run: fn(Value, &mut AmigaSession) -> Result<Value, ToolError>,
+        run: fn(Value, &mut C) -> Result<Value, ToolError>,
     ) {
         registry.register(Box::new(InlineTool {
             name,
@@ -3014,18 +3021,6 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
     }
 
     let empty = || json!({"type": "object", "additionalProperties": false});
-    let frames_schema = json!({
-        "type": "object",
-        "properties": {
-            "frames": {"type": "integer", "minimum": 1, "default": 1}
-        }
-    });
-    let ticks_schema = json!({
-        "type": "object",
-        "properties": {
-            "ticks": {"type": "integer", "minimum": 1, "default": 1}
-        }
-    });
     let until_pc_schema = json!({
         "type": "object",
         "required": ["target"],
@@ -3110,20 +3105,6 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
 
     add(
         registry,
-        "run_frames",
-        "Advance the machine by N PAL frames.",
-        frames_schema,
-        tool_run_frames,
-    );
-    add(
-        registry,
-        "run_ticks",
-        "Advance the machine by N master/4 ticks.",
-        ticks_schema,
-        tool_run_ticks,
-    );
-    add(
-        registry,
         "run_until_pc",
         "Run until PC == target or max_ticks reached.",
         until_pc_schema,
@@ -3197,24 +3178,6 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
         "Dump captured CPU trace entries. Tail-window by default (most recent `limit`); pass `from_start:true` for the leading window. Filter by cck range for a specific time slice.",
         cpu_trace_log_schema,
         tool_cpu_trace_log,
-    );
-    let reset_schema = json!({
-        "type": "object",
-        "properties": {
-            "kind": {
-                "type": "string",
-                "enum": ["hard", "soft"],
-                "default": "hard",
-                "description": "Hard = power-cycle (reload ROM, rebuild machine). Soft = machine-local soft reset (intended to preserve RAM). Today both rebuild from the ROM; the kind is accepted so MCP scripts can use the same wire format as the shared shell layer."
-            }
-        }
-    });
-    add(
-        registry,
-        "reset",
-        "Reload the ROM and re-create the A1200 (fresh boot). Accepts an optional `kind` (\"hard\" / \"soft\"; both currently behave as hard).",
-        reset_schema,
-        tool_reset,
     );
     add(
         registry,
@@ -3441,29 +3404,6 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
         dump_fb_schema,
         tool_dump_framebuffer,
     );
-    let start_rec_schema = json!({
-        "type": "object",
-        "required": ["path"],
-        "properties": {
-            "path": {"type": "string", "description": "Output MP4 path. Parent directories are created."},
-            "fps": {"type": "integer", "minimum": 1, "default": 50,
-                    "description": "Frame rate written to the MP4. Default is PAL (50)."}
-        }
-    });
-    add(
-        registry,
-        "start_video_recording",
-        "Begin recording the live framebuffer to one MP4 file (uses ffmpeg from PATH).",
-        start_rec_schema,
-        tool_start_video_recording,
-    );
-    add(
-        registry,
-        "stop_video_recording",
-        "Finalise the in-flight recording and return the MP4 summary.",
-        empty(),
-        tool_stop_video_recording,
-    );
     add(
         registry,
         "query_copper_list",
@@ -3674,5 +3614,100 @@ pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
         "DF0 drive status (cylinder, head, motor, status bits, has_disk).",
         empty(),
         tool_query_disk,
+    );
+}
+
+/// Registers the full legacy tool set on an [`AmigaSession`]: every
+/// chipset-agnostic tool from [`register_amiga_tools`] plus the five
+/// session-local ones (the recorder run tools + `reset`) that hold
+/// `AmigaSession`-private state. The shared `HeadlessSession` path skips
+/// these — `register_common_tools` provides equivalents.
+///
+/// Retired in Phase 5 once the MCP server cuts over to `HeadlessSession`.
+pub fn register_all(registry: &mut ToolRegistry<AmigaSession>) {
+    fn add(
+        registry: &mut ToolRegistry<AmigaSession>,
+        name: &'static str,
+        description: &'static str,
+        schema: Value,
+        run: fn(Value, &mut AmigaSession) -> Result<Value, ToolError>,
+    ) {
+        registry.register(Box::new(InlineTool {
+            name,
+            description,
+            schema,
+            run,
+        }));
+    }
+
+    register_amiga_tools(registry);
+
+    let empty = || json!({"type": "object", "additionalProperties": false});
+    let frames_schema = json!({
+        "type": "object",
+        "properties": {
+            "frames": {"type": "integer", "minimum": 1, "default": 1}
+        }
+    });
+    let ticks_schema = json!({
+        "type": "object",
+        "properties": {
+            "ticks": {"type": "integer", "minimum": 1, "default": 1}
+        }
+    });
+    let reset_schema = json!({
+        "type": "object",
+        "properties": {
+            "kind": {
+                "type": "string",
+                "enum": ["hard", "soft"],
+                "default": "hard",
+                "description": "Hard = power-cycle (reload ROM, rebuild machine). Soft = machine-local soft reset (intended to preserve RAM). Today both rebuild from the ROM; the kind is accepted so MCP scripts can use the same wire format as the shared shell layer."
+            }
+        }
+    });
+    let start_rec_schema = json!({
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+            "path": {"type": "string", "description": "Output MP4 path. Parent directories are created."},
+            "fps": {"type": "integer", "minimum": 1, "default": 50,
+                    "description": "Frame rate written to the MP4. Default is PAL (50)."}
+        }
+    });
+    add(
+        registry,
+        "run_frames",
+        "Advance the machine by N PAL frames.",
+        frames_schema,
+        tool_run_frames,
+    );
+    add(
+        registry,
+        "run_ticks",
+        "Advance the machine by N master/4 ticks.",
+        ticks_schema,
+        tool_run_ticks,
+    );
+    add(
+        registry,
+        "reset",
+        "Reload the ROM and re-create the A1200 (fresh boot). Accepts an optional `kind` (\"hard\" / \"soft\"; both currently behave as hard).",
+        reset_schema,
+        tool_reset,
+    );
+    add(
+        registry,
+        "start_video_recording",
+        "Begin recording the live framebuffer to one MP4 file (uses ffmpeg from PATH).",
+        start_rec_schema,
+        tool_start_video_recording,
+    );
+    add(
+        registry,
+        "stop_video_recording",
+        "Finalise the in-flight recording and return the MP4 summary.",
+        empty(),
+        tool_stop_video_recording,
     );
 }
