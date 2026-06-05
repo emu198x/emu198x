@@ -81,6 +81,11 @@ pub struct Display {
     tstate_in_frame: u32,
     /// Whether the current frame is complete.
     frame_complete: bool,
+    /// Maskable interrupt pending. Asserted at the top of each frame and
+    /// held until the CPU acknowledges it, mirroring the real INT line —
+    /// a fixed T-state window can be missed if no instruction retires
+    /// inside it, which left the Forth ROM spinning for its 50 Hz tick.
+    int_pending: bool,
     /// Speaker output state (bit 4 of port $FE).
     pub speaker_state: bool,
 }
@@ -92,6 +97,7 @@ impl Display {
             framebuffer: vec![WHITE; (FB_WIDTH * FB_HEIGHT) as usize],
             tstate_in_frame: 0,
             frame_complete: false,
+            int_pending: false,
             speaker_state: false,
         }
     }
@@ -102,6 +108,7 @@ impl Display {
         if self.tstate_in_frame >= TSTATES_PER_FRAME {
             self.tstate_in_frame = 0;
             self.frame_complete = true;
+            self.int_pending = true;
         }
     }
 
@@ -179,9 +186,14 @@ impl Display {
     /// (VSYNC period). This drives the keyboard scan and cursor flash.
     #[must_use]
     pub fn interrupt_active(&self) -> bool {
-        // INT active during the first few T-states of the frame
-        // (VSYNC period). The real hardware holds INT for ~32 T-states.
-        self.tstate_in_frame < 32
+        // Held from the top of the frame until the CPU acknowledges the
+        // interrupt (see `ack_interrupt`), so it cannot be missed.
+        self.int_pending
+    }
+
+    /// Clear the pending interrupt once the CPU has acknowledged it.
+    pub fn ack_interrupt(&mut self) {
+        self.int_pending = false;
     }
 
     /// T-state counter within the frame.

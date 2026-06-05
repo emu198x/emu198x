@@ -7,6 +7,7 @@ use emu198x_shell::{
 };
 use machine_jupiter_ace::JupiterAce;
 
+use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
 use crate::snapshot;
 
@@ -175,6 +176,11 @@ impl MachineCore for JupiterAceRuntime {
     ) -> Result<RunResult, MachineError> {
         if self.machine.is_none() {
             return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
+        }
+        for event in host.input_events {
+            if let Some(machine) = self.machine.as_mut() {
+                apply_input_event(machine, event);
+            }
         }
         while self.time < target {
             let ticks = self

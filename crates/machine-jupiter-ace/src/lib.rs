@@ -112,9 +112,17 @@ impl JupiterAce {
         self.master_clock += 1;
         self.display.tick();
         self.tick_audio();
-        self.cpu.irq = self.display.interrupt_active();
-        self.cpu.tick();
-        self.handle_bus();
+        // The `zilog-z80` core is a half-cycle state machine: it needs two
+        // ticks per T-state (the Spectrum drives it the same way — see
+        // `common-sinclair-zx-spectrum` `tick_one_halfcycle`). Driving it
+        // once per T-state under-clocked the CPU 2× and meant the IRQ was
+        // never sampled at an instruction boundary, so the Forth ROM spun
+        // forever waiting for its 50 Hz frame interrupt.
+        for _ in 0..2 {
+            self.cpu.irq = self.display.interrupt_active();
+            self.cpu.tick();
+            self.handle_bus();
+        }
     }
 
     fn tick_audio(&mut self) {
@@ -164,8 +172,10 @@ impl JupiterAce {
                 self.io_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IntAck) => {
-                // Ace ROM uses IM 1; vector ignored.
+                // Ace ROM uses IM 1; vector ignored. Acknowledging the
+                // interrupt releases the held INT line.
                 self.cpu.data_in = 0xFF;
+                self.display.ack_interrupt();
             }
             None => {}
         }
