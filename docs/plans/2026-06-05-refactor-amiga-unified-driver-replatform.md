@@ -184,10 +184,30 @@ Delete `mcp/session.rs` (`AmigaSession`), the local `InlineTool`, and dead glue.
 - **Gate:** full Amiga MCP tool list matches or supersets the pre-migration set;
   all verification anchors green; no dead code (clippy).
 
-### Phase 6 (out of scope here) — Spectrum fold-in
+### Phase 6 — Spectrum fold-in ✅ DONE (2026-06-05)
 
-Tracked separately per `debug-surface-tiers.md`; needs a generic-macro arm + a
-`SpectrumDriver`→macro adapter. Not part of this plan.
+Folded the launch-critical Spectrum MCP onto the shared driver, with a
+parity-test-first safety net since none existed. Three commits:
+
+1. `test(spectrum): MCP parity safety net` — a `REQUIRED_TOOLS` regression
+   gate + a real-48K-ROM `mcp_tools_drive_a_real_boot` smoke, asserting
+   the fold may ADD tools but not drop/rename any curriculum tool.
+2. `feat(spectrum-runtime): join the shared debug tier via DebugPrimitives`
+   — a hand-written `impl DebugPrimitives for SpectrumRuntimeKind`
+   (enum-level delegation to `SpectrumLiveAccess`, like the Amiga's
+   `debug.rs`), not the `impl_z80_debug_primitives!` macro (which targets a
+   `machine`-field struct). The last fleet debug holdout is closed.
+3. `refactor(spectrum): fold the MCP server onto the shared tool sets` —
+   `register_common_tools` + `register_debug_tools` + `register_spectrum_tools`
+   (the 22 bespoke + rich-debug tools). **The rich Z80 debug tools register
+   last, overriding the generic shared ones by name, so curriculum
+   `query_cpu`/`disasm`/`step` output is byte-for-byte unchanged.** Found
+   and surfaced the genuine risk (the Spectrum debug tools are far richer
+   than the shared ones) before touching the launch system.
+
+**Whole replatform complete.** Every sibling (Amiga + Spectrum) now runs on
+the shared `HeadlessSession` + `register_common_tools` + `register_debug_tools`
++ `register_<system>_tools` pattern.
 
 ## Parallel, non-blocking wins (independent of the Amiga campaign)
 
