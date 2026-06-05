@@ -641,7 +641,7 @@ impl MachineCore for C64Runtime {
 // 6502 debug target via the shared macro (`direct`: `machine: C64` is eager, not
 // `Option`). Disassembles through the Asm198x spec crate. See
 // 198x/decisions/rung1-wiring.md.
-emu198x_shell::impl_6502_debug_target!(C64Runtime, direct);
+emu198x_shell::impl_6502_debug_primitives!(C64Runtime, direct);
 
 fn build_machine(
     model: Model,

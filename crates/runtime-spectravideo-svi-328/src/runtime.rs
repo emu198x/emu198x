@@ -262,4 +262,4 @@ impl MachineCore for Svi328Runtime {
     emu198x_shell::debug_target_hooks!();
 }
 
-emu198x_shell::impl_z80_debug_target!(Svi328Runtime);
+emu198x_shell::impl_z80_debug_primitives!(Svi328Runtime);

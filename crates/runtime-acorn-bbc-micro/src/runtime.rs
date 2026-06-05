@@ -250,4 +250,4 @@ impl MachineCore for BbcMicroRuntime {
     emu198x_shell::debug_target_hooks!();
 }
 
-emu198x_shell::impl_6502_debug_target!(BbcMicroRuntime);
+emu198x_shell::impl_6502_debug_primitives!(BbcMicroRuntime);

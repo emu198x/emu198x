@@ -219,4 +219,4 @@ impl MachineCore for OricRuntime {
     emu198x_shell::debug_target_hooks!();
 }
 
-emu198x_shell::impl_6502_debug_target!(OricRuntime);
+emu198x_shell::impl_6502_debug_primitives!(OricRuntime);

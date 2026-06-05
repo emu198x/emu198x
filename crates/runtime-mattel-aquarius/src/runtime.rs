@@ -289,4 +289,4 @@ impl MachineCore for AquariusRuntime {
     emu198x_shell::debug_target_hooks!();
 }
 
-emu198x_shell::impl_z80_debug_target!(AquariusRuntime);
+emu198x_shell::impl_z80_debug_primitives!(AquariusRuntime);

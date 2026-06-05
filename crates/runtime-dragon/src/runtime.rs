@@ -1017,7 +1017,7 @@ impl MachineCore for DragonRuntime {
 // 6809 debug target via the shared macro (`direct`: `machine: Dragon32` is
 // eager, not `Option`) — the first 6809 consumer of the Asm198x spec
 // disassembler. See 198x/decisions/rung1-wiring.md.
-emu198x_shell::impl_6809_debug_target!(DragonRuntime, direct);
+emu198x_shell::impl_6809_debug_primitives!(DragonRuntime, direct);
 
 impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
     fn query_paths(&self, _machine: &DragonRuntime, prefix: Option<&str>) -> Vec<String> {

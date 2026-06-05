@@ -234,4 +234,4 @@ impl MachineCore for Atari2600Runtime {
     emu198x_shell::debug_target_hooks!();
 }
 
-emu198x_shell::impl_6502_debug_target!(Atari2600Runtime);
+emu198x_shell::impl_6502_debug_primitives!(Atari2600Runtime);

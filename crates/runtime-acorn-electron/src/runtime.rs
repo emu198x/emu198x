@@ -262,4 +262,4 @@ impl MachineCore for ElectronRuntime {
     emu198x_shell::debug_target_hooks!();
 }
 
-emu198x_shell::impl_6502_debug_target!(ElectronRuntime);
+emu198x_shell::impl_6502_debug_primitives!(ElectronRuntime);

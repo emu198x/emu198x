@@ -220,4 +220,4 @@ impl MachineCore for AtomRuntime {
     emu198x_shell::debug_target_hooks!();
 }
 
-emu198x_shell::impl_6502_debug_target!(AtomRuntime);
+emu198x_shell::impl_6502_debug_primitives!(AtomRuntime);

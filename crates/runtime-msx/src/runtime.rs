@@ -361,4 +361,4 @@ impl MachineCore for MsxRuntime {
 // Z80 debug target via the shared macro (lazy `machine: Option<Msx>`). The
 // previous hand-rolled impl differed only by an extra `tstates` field in
 // cpu_state, which is available via the `msx.cpu.tstates` query.
-emu198x_shell::impl_z80_debug_target!(MsxRuntime);
+emu198x_shell::impl_z80_debug_primitives!(MsxRuntime);

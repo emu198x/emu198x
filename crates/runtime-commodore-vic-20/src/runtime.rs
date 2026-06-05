@@ -322,4 +322,4 @@ impl MachineCore for Vic20Runtime {
 }
 
 // 6502 debug target via the shared macro (lazy `machine: Option<Vic20>`).
-emu198x_shell::impl_6502_debug_target!(Vic20Runtime);
+emu198x_shell::impl_6502_debug_primitives!(Vic20Runtime);

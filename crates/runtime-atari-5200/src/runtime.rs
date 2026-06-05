@@ -230,4 +230,4 @@ impl MachineCore for Atari5200Runtime {
     emu198x_shell::debug_target_hooks!();
 }
 
-emu198x_shell::impl_6502_debug_target!(Atari5200Runtime);
+emu198x_shell::impl_6502_debug_primitives!(Atari5200Runtime);

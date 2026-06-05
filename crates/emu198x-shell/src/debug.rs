@@ -37,14 +37,13 @@ pub struct IoEvent {
 /// runtime's derived state current so a screenshot taken afterwards is
 /// accurate.
 ///
-/// This is the **shared** debug tier — the 24 donor extractions plus C64 and
-/// Dragon implement it (via the `impl_*_debug_target!` macros below) and so get
-/// `register_common_tools` for free. Spectrum and Amiga are deliberately on a
-/// **bespoke** tier: they implement no `DebugTarget` and hand-build a richer MCP
-/// surface instead. That asymmetry is intentional, not cruft — see
-/// `knowledge/decisions/debug-surface-tiers.md` before "tidying" them onto these
-/// macros. (Amiga waits on a 68000 member of this family, to be built with the
-/// first new 68000 system — Atari ST / Mega Drive / … — then wired in that pass.)
+/// Runtimes do not implement this directly — they implement [`DebugPrimitives`]
+/// (the 8-bit machines via the `impl_*_debug_primitives!` macros below; the
+/// Amiga family enum by hand) and a blanket impl turns that into `DebugTarget`.
+/// Every such machine gets `register_common_tools`' debug verbs for free and
+/// identically. Spectrum is the one remaining holdout on a hand-built MCP
+/// surface — see `knowledge/decisions/debug-surface-tiers.md` (whose Amiga
+/// deferral was overridden 2026-06-05 once the blanket-impl path proved out).
 pub trait DebugTarget {
     /// Current CPU program counter.
     fn pc(&self) -> u32;
@@ -94,18 +93,20 @@ pub trait DebugTarget {
 /// Machine-sourced debug primitives behind the shared [`DebugTarget`].
 ///
 /// A runtime implements this — however it sources the values — and the blanket
-/// impl below gives it [`DebugTarget`] for free. This is the seam that lets the
-/// runtimes that don't fit the `impl_{6502,z80,6809}_debug_target!` macros (the
-/// Amiga family *enum* behind `AmigaLiveAccess`, the generic `SpectrumRuntime<M>`)
-/// join the **same** `DebugTarget` surface as the macro-shaped 8-bit machines,
-/// instead of a separate bespoke tier.
+/// impl below gives it [`DebugTarget`] for free. The 8-bit machines implement it
+/// through the `impl_{6502,z80,6809}_debug_primitives!` macros (which key off a
+/// `machine` field); runtimes that don't fit that shape — the Amiga family *enum*
+/// behind `AmigaLiveAccess`, and eventually the generic `SpectrumRuntime<M>` —
+/// implement it by hand. Either way they all land on the **same** `DebugTarget`
+/// surface, which is the point: one debug tier, not a macro tier plus a bespoke
+/// tier.
 ///
-/// It coexists with the legacy `impl_*_debug_target!` macros during migration: a
-/// type routes through exactly one of the two (it implements `DebugPrimitives`
-/// *or* it has a macro-generated concrete `DebugTarget` impl, never both). The
-/// orphan rule keeps the blanket impl and those concrete impls from overlapping,
-/// because only a type's owning crate can implement `DebugPrimitives` for it —
-/// so the compiler knows the macro machines, which don't, cannot collide.
+/// One blanket impl is the only `DebugTarget` impl in the workspace; every
+/// machine reaches it through `DebugPrimitives`. (The orphan rule is what makes a
+/// single blanket impl legal here: only a type's owning crate can implement
+/// `DebugPrimitives` for it, so the compiler can rule out overlap with any
+/// hand-written `DebugTarget` impl a flagship might still carry during a
+/// migration.)
 pub trait DebugPrimitives {
     /// See [`DebugTarget::pc`].
     fn dbg_pc(&self) -> u32;
@@ -236,8 +237,9 @@ macro_rules! debug_target_hooks {
     };
 }
 
-/// Implement [`DebugTarget`] for a Z80-family runtime. The machine `M` must
-/// expose `cpu() -> &Z80`, `peek(u16) -> u8`, `poke(u16, u8)`,
+/// Implement [`DebugPrimitives`] for a Z80-family runtime; the shell's blanket
+/// impl then provides [`DebugTarget`]. The machine `M` must expose
+/// `cpu() -> &Z80`, `peek(u16) -> u8`, `poke(u16, u8)`,
 /// `step_instruction() -> u64`, `start_io_trace()`, and `take_io_trace() ->
 /// Vec<_>` (with public `pc`/`port`/`value`/`write` fields). The runtime must
 /// have `time: MachineTime` and `update_rgba_framebuffer(&mut self)`. Requires
@@ -247,30 +249,30 @@ macro_rules! debug_target_hooks {
 /// lazily-built `machine: Option<M>`, the `direct` form an eager `machine: M`.
 /// (No eager Z80 consumer today — present for parity.)
 #[macro_export]
-macro_rules! impl_z80_debug_target {
+macro_rules! impl_z80_debug_primitives {
     ($runtime:ty) => {
-        $crate::impl_z80_debug_target!(@impl $runtime,
+        $crate::impl_z80_debug_primitives!(@impl $runtime,
             $crate::debug::opt_ref, $crate::debug::opt_mut);
     };
     ($runtime:ty, direct) => {
-        $crate::impl_z80_debug_target!(@impl $runtime,
+        $crate::impl_z80_debug_primitives!(@impl $runtime,
             $crate::debug::direct_ref, $crate::debug::direct_mut);
     };
     (@impl $runtime:ty, $get:path, $get_mut:path) => {
-        impl $crate::DebugTarget for $runtime {
-            fn pc(&self) -> u32 {
+        impl $crate::DebugPrimitives for $runtime {
+            fn dbg_pc(&self) -> u32 {
                 $get(&self.machine).map_or(0, |m| u32::from(m.cpu().regs.pc))
             }
-            fn peek(&self, addr: u32) -> u8 {
+            fn dbg_peek(&self, addr: u32) -> u8 {
                 $get(&self.machine).map_or(0xFF, |m| m.peek(addr as u16))
             }
-            fn poke(&mut self, addr: u32, value: u8) {
+            fn dbg_poke(&mut self, addr: u32, value: u8) {
                 if let ::core::option::Option::Some(m) = $get_mut(&mut self.machine) {
                     m.poke(addr as u16, value);
                 }
                 self.update_rgba_framebuffer();
             }
-            fn cpu_state(&self) -> ::serde_json::Value {
+            fn dbg_cpu_state(&self) -> ::serde_json::Value {
                 let ::core::option::Option::Some(m) = $get(&self.machine) else {
                     return ::serde_json::json!({});
                 };
@@ -293,11 +295,11 @@ macro_rules! impl_z80_debug_target {
                     "halt": c.halt,
                 })
             }
-            fn disassemble(&self, addr: u32) -> Option<(String, u8)> {
+            fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
                 let m = $get(&self.machine)?;
                 Some(::zilog_z80::disassemble(addr as u16, |a| m.peek(a)))
             }
-            fn step_instruction(&mut self) -> u64 {
+            fn dbg_step(&mut self) -> u64 {
                 use ::zilog_z80::Z80Stepper as _;
                 let ticks = match $get_mut(&mut self.machine) {
                     ::core::option::Option::Some(m) => m.step_instruction(),
@@ -307,15 +309,15 @@ macro_rules! impl_z80_debug_target {
                 self.update_rgba_framebuffer();
                 ticks
             }
-            fn supports_io_trace(&self) -> bool {
+            fn dbg_supports_io_trace(&self) -> bool {
                 true
             }
-            fn start_io_trace(&mut self) {
+            fn dbg_start_io_trace(&mut self) {
                 if let ::core::option::Option::Some(m) = $get_mut(&mut self.machine) {
                     m.start_io_trace();
                 }
             }
-            fn take_io_trace(&mut self) -> Vec<$crate::IoEvent> {
+            fn dbg_take_io_trace(&mut self) -> Vec<$crate::IoEvent> {
                 $get_mut(&mut self.machine).map_or_else(Vec::new, |m| {
                     m.take_io_trace()
                         .into_iter()
@@ -332,8 +334,9 @@ macro_rules! impl_z80_debug_target {
     };
 }
 
-/// Implement [`DebugTarget`] for a 6502-family runtime. The machine `M` must
-/// expose `cpu() -> &M6502` (with `.regs` `a`/`x`/`y`/`sp`/`pc`/`p`), `peek`,
+/// Implement [`DebugPrimitives`] for a 6502-family runtime; the shell's blanket
+/// impl then provides [`DebugTarget`]. The machine `M` must expose
+/// `cpu() -> &M6502` (with `.regs` `a`/`x`/`y`/`sp`/`pc`/`p`), `peek`,
 /// `poke`, and `step_instruction`; the runtime must have `time: MachineTime` and
 /// `update_rgba_framebuffer(&mut self)`. `disasm` decodes via the Asm198x
 /// `isa_disasm` spec disassembler; I/O tracing is unsupported (memory-mapped).
@@ -342,34 +345,34 @@ macro_rules! impl_z80_debug_target {
 /// the `direct` form serves an eagerly-built `machine: M`.
 ///
 /// ```ignore
-/// emu198x_shell::impl_6502_debug_target!(PetRuntime);          // machine: Option<Pet>
-/// emu198x_shell::impl_6502_debug_target!(C64Runtime, direct);  // machine: C64
+/// emu198x_shell::impl_6502_debug_primitives!(PetRuntime);          // machine: Option<Pet>
+/// emu198x_shell::impl_6502_debug_primitives!(C64Runtime, direct);  // machine: C64
 /// ```
 #[macro_export]
-macro_rules! impl_6502_debug_target {
+macro_rules! impl_6502_debug_primitives {
     ($runtime:ty) => {
-        $crate::impl_6502_debug_target!(@impl $runtime,
+        $crate::impl_6502_debug_primitives!(@impl $runtime,
             $crate::debug::opt_ref, $crate::debug::opt_mut);
     };
     ($runtime:ty, direct) => {
-        $crate::impl_6502_debug_target!(@impl $runtime,
+        $crate::impl_6502_debug_primitives!(@impl $runtime,
             $crate::debug::direct_ref, $crate::debug::direct_mut);
     };
     (@impl $runtime:ty, $get:path, $get_mut:path) => {
-        impl $crate::DebugTarget for $runtime {
-            fn pc(&self) -> u32 {
+        impl $crate::DebugPrimitives for $runtime {
+            fn dbg_pc(&self) -> u32 {
                 $get(&self.machine).map_or(0, |m| u32::from(m.cpu().regs.pc))
             }
-            fn peek(&self, addr: u32) -> u8 {
+            fn dbg_peek(&self, addr: u32) -> u8 {
                 $get(&self.machine).map_or(0xFF, |m| m.peek(addr as u16))
             }
-            fn poke(&mut self, addr: u32, value: u8) {
+            fn dbg_poke(&mut self, addr: u32, value: u8) {
                 if let ::core::option::Option::Some(m) = $get_mut(&mut self.machine) {
                     m.poke(addr as u16, value);
                 }
                 self.update_rgba_framebuffer();
             }
-            fn cpu_state(&self) -> ::serde_json::Value {
+            fn dbg_cpu_state(&self) -> ::serde_json::Value {
                 let ::core::option::Option::Some(m) = $get(&self.machine) else {
                     return ::serde_json::json!({});
                 };
@@ -383,7 +386,7 @@ macro_rules! impl_6502_debug_target {
                     "p":  format!("${:02X}", r.p),
                 })
             }
-            fn step_instruction(&mut self) -> u64 {
+            fn dbg_step(&mut self) -> u64 {
                 let ticks = match $get_mut(&mut self.machine) {
                     ::core::option::Option::Some(m) => m.step_instruction(),
                     ::core::option::Option::None => return 0,
@@ -392,7 +395,7 @@ macro_rules! impl_6502_debug_target {
                 self.update_rgba_framebuffer();
                 ticks
             }
-            fn disassemble(&self, addr: u32) -> Option<(String, u8)> {
+            fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
                 let m = $get(&self.machine)?;
                 $crate::isa_disasm::decode_one_6502(addr as u16, |a| m.peek(a))
             }
@@ -400,37 +403,38 @@ macro_rules! impl_6502_debug_target {
     };
 }
 
-/// Implement [`DebugTarget`] for a 6809 runtime (Dragon/CoCo). The machine `M`
-/// must expose `cpu() -> &Mc6809` (with `.regs` `a`/`b`/`dp`/`cc`/`x`/`y`/`u`/
+/// Implement [`DebugPrimitives`] for a 6809 runtime (Dragon/CoCo); the shell's
+/// blanket impl then provides [`DebugTarget`]. The machine `M` must expose
+/// `cpu() -> &Mc6809` (with `.regs` `a`/`b`/`dp`/`cc`/`x`/`y`/`u`/
 /// `s`/`pc`), `peek`, `poke`, and `step_instruction`; the runtime must have
 /// `time: MachineTime` and `update_rgba_framebuffer(&mut self)`. `disasm`
 /// decodes via the Asm198x `isa_disasm` spec disassembler; I/O tracing is
 /// unsupported (memory-mapped). Storage-agnostic, like the 6502 macro.
 #[macro_export]
-macro_rules! impl_6809_debug_target {
+macro_rules! impl_6809_debug_primitives {
     ($runtime:ty) => {
-        $crate::impl_6809_debug_target!(@impl $runtime,
+        $crate::impl_6809_debug_primitives!(@impl $runtime,
             $crate::debug::opt_ref, $crate::debug::opt_mut);
     };
     ($runtime:ty, direct) => {
-        $crate::impl_6809_debug_target!(@impl $runtime,
+        $crate::impl_6809_debug_primitives!(@impl $runtime,
             $crate::debug::direct_ref, $crate::debug::direct_mut);
     };
     (@impl $runtime:ty, $get:path, $get_mut:path) => {
-        impl $crate::DebugTarget for $runtime {
-            fn pc(&self) -> u32 {
+        impl $crate::DebugPrimitives for $runtime {
+            fn dbg_pc(&self) -> u32 {
                 $get(&self.machine).map_or(0, |m| u32::from(m.cpu().regs.pc))
             }
-            fn peek(&self, addr: u32) -> u8 {
+            fn dbg_peek(&self, addr: u32) -> u8 {
                 $get(&self.machine).map_or(0xFF, |m| m.peek(addr as u16))
             }
-            fn poke(&mut self, addr: u32, value: u8) {
+            fn dbg_poke(&mut self, addr: u32, value: u8) {
                 if let ::core::option::Option::Some(m) = $get_mut(&mut self.machine) {
                     m.poke(addr as u16, value);
                 }
                 self.update_rgba_framebuffer();
             }
-            fn cpu_state(&self) -> ::serde_json::Value {
+            fn dbg_cpu_state(&self) -> ::serde_json::Value {
                 let ::core::option::Option::Some(m) = $get(&self.machine) else {
                     return ::serde_json::json!({});
                 };
@@ -447,7 +451,7 @@ macro_rules! impl_6809_debug_target {
                     "pc": format!("${:04X}", r.pc),
                 })
             }
-            fn step_instruction(&mut self) -> u64 {
+            fn dbg_step(&mut self) -> u64 {
                 let ticks = match $get_mut(&mut self.machine) {
                     ::core::option::Option::Some(m) => m.step_instruction(),
                     ::core::option::Option::None => return 0,
@@ -456,7 +460,7 @@ macro_rules! impl_6809_debug_target {
                 self.update_rgba_framebuffer();
                 ticks
             }
-            fn disassemble(&self, addr: u32) -> Option<(String, u8)> {
+            fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
                 let m = $get(&self.machine)?;
                 $crate::isa_disasm::decode_one_6809(addr as u16, |a| m.peek(a))
             }
