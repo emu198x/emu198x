@@ -142,27 +142,30 @@ via `debug_target_hooks!` + an `impl_{6502,z80,6809}_debug_target!` invocation
 `step`, `run_until_pc`, `cpu_state`, `io_trace` on Z80) works **uniformly and
 identically** on all of them. Three groups:
 
-- **Shared tier — working, uniform (24):** acorn-atom, bbc-micro, electron,
+- **Shared tier — working, uniform (25):** acorn-atom, bbc-micro, electron,
   atari-2600/5200/7800/800xl, colecovision, **c64**, commodore-pet, vic-20,
   **dragon**, jupiter-ace, mattel-aquarius, memotech-mtx, msx, oric-atmos,
-  sega-master-system, sega-sg-1000, zx80, zx81, sord-m5, svi-328, einstein.
-  (C64 and Dragon are on this tier — an earlier draft wrongly called them
-  "absent".)
+  sega-master-system, sega-sg-1000, zx80, zx81, sord-m5, svi-328, einstein,
+  **game-boy** (SM83 wired 2026-06-05). (C64 and Dragon are on this tier — an
+  earlier draft wrongly called them "absent".)
 - **Bespoke tier — richer superset, deliberate (2):** Spectrum, Amiga. They
   hand-build a broader MCP debug surface (Spectrum: AY/tape/snapshots; Amiga:
   copper/blitter/chipset/exec/libraries). This asymmetry is a **binding
   decision** — `knowledge/decisions/debug-surface-tiers.md` — not cruft. Amiga's
   shared-tier opt-in is explicitly deferred until the first 68000 sibling system
   (Atari ST / Mega Drive / Neo Geo / X68000) pays for `impl_68000_debug_target!`.
-- **Genuine gap (1):** Game Boy. SM83 has no `impl_sm83_debug_target!` macro yet,
-  so it has no debug verbs. The only real debug hole in the fleet.
+- **Genuine gap (0):** ✅ *closed 2026-06-05.* The Game Boy now has the shared
+  debug surface via a new `impl_sm83_debug_primitives!` macro (the fourth CPU,
+  joining z80/6502/6809) plus a from-scratch SM83 disassembler. Every shipped
+  machine now has debug verbs; only the Amiga 68000 surface is deferred by
+  decision.
 
 ## Combined parity matrix
 
 | | Capture (shot) | Capture (record) | Media | Keyboard | Joystick | Paddle | Mouse | Debug |
 |---|---|---|---|---|---|---|---|---|
-| **Script** | ✅ all | ✅ all | ✅ all | ✅ ~26 | ⚠️ ~10 | ❌ 2 | ⚠️ amiga | ✅ 24 shared + 2 bespoke; GB gap |
-| **MCP** | ✅ 27 | ❌ flagships only | ✅ all | ⚠️ 25 + Spectrum, **not Amiga** | ⚠️ ~10 | ❌ 2 | ❌ **not Amiga** | ✅ 24 shared + 2 bespoke; GB gap |
+| **Script** | ✅ all | ✅ all | ✅ all | ✅ ~26 | ✅ 22 | ✅ 5 | ⚠️ amiga | ✅ 25 shared + 2 bespoke |
+| **MCP** | ✅ 27 | ✅ all (shared) | ✅ all | ✅ all | ✅ 22 | ✅ 5 | ✅ amiga | ✅ 25 shared + 2 bespoke |
 
 ## Root causes (all the same shape)
 

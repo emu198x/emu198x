@@ -11,7 +11,7 @@ use common_nintendo_game_boy::MCYCLES_PER_FRAME;
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::{register_common_tools, register_debug_tools},
 };
 use runtime_nintendo_game_boy::{GameBoyRuntime, GameBoySessionQueryProvider, Model};
 
@@ -34,6 +34,9 @@ pub fn run() -> Result<(), String> {
         env!("CARGO_PKG_VERSION"),
     ));
     register_common_tools(server.registry_mut());
+    // SM83 debug verbs (query_cpu, memory_read, poke, disasm, step,
+    // run_until_pc) via the runtime's `DebugTarget`.
+    register_debug_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

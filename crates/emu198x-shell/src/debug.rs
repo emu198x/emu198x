@@ -467,3 +467,82 @@ macro_rules! impl_6809_debug_primitives {
         }
     };
 }
+
+/// Implement [`DebugPrimitives`] for a Sharp LR35902 (Game Boy "SM83") runtime;
+/// the shell's blanket impl then provides [`DebugTarget`]. The machine `M` must
+/// expose `cpu() -> &Sm83` (with public `a`/`f`/`b`/`c`/`d`/`e`/`h`/`l`/`sp`/`pc`
+/// and `ime`/`halt_mode`), `peek`, `poke`, and `step_instruction`; the runtime
+/// must have `time: MachineTime` and `update_rgba_framebuffer(&mut self)`.
+/// `disasm` decodes via `sharp_lr35902::disassemble`; I/O tracing is unsupported
+/// (the Game Boy is memory-mapped). Requires `serde_json` and `sharp-lr35902` in
+/// the runtime's dependencies.
+///
+/// Storage-agnostic: the bare form serves a lazily-built `machine: Option<M>`;
+/// the `direct` form an eagerly-built `machine: M`.
+///
+/// ```ignore
+/// emu198x_shell::impl_sm83_debug_primitives!(GameBoyRuntime); // machine: Option<GameBoy>
+/// ```
+#[macro_export]
+macro_rules! impl_sm83_debug_primitives {
+    ($runtime:ty) => {
+        $crate::impl_sm83_debug_primitives!(@impl $runtime,
+            $crate::debug::opt_ref, $crate::debug::opt_mut);
+    };
+    ($runtime:ty, direct) => {
+        $crate::impl_sm83_debug_primitives!(@impl $runtime,
+            $crate::debug::direct_ref, $crate::debug::direct_mut);
+    };
+    (@impl $runtime:ty, $get:path, $get_mut:path) => {
+        impl $crate::DebugPrimitives for $runtime {
+            fn dbg_pc(&self) -> u32 {
+                $get(&self.machine).map_or(0, |m| u32::from(m.cpu().pc))
+            }
+            fn dbg_peek(&self, addr: u32) -> u8 {
+                $get(&self.machine).map_or(0xFF, |m| m.peek(addr as u16))
+            }
+            fn dbg_poke(&mut self, addr: u32, value: u8) {
+                if let ::core::option::Option::Some(m) = $get_mut(&mut self.machine) {
+                    m.poke(addr as u16, value);
+                }
+                self.update_rgba_framebuffer();
+            }
+            fn dbg_cpu_state(&self) -> ::serde_json::Value {
+                let ::core::option::Option::Some(m) = $get(&self.machine) else {
+                    return ::serde_json::json!({});
+                };
+                let c = m.cpu();
+                ::serde_json::json!({
+                    "af": format!("${:04X}", (u16::from(c.a) << 8) | u16::from(c.f)),
+                    "bc": format!("${:04X}", (u16::from(c.b) << 8) | u16::from(c.c)),
+                    "de": format!("${:04X}", (u16::from(c.d) << 8) | u16::from(c.e)),
+                    "hl": format!("${:04X}", (u16::from(c.h) << 8) | u16::from(c.l)),
+                    "sp": format!("${:04X}", c.sp),
+                    "pc": format!("${:04X}", c.pc),
+                    "flags": {
+                        "z": c.f & 0x80 != 0,
+                        "n": c.f & 0x40 != 0,
+                        "h": c.f & 0x20 != 0,
+                        "c": c.f & 0x10 != 0,
+                    },
+                    "ime":  c.ime,
+                    "halt": c.halt_mode,
+                })
+            }
+            fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
+                let m = $get(&self.machine)?;
+                Some(::sharp_lr35902::disassemble(addr as u16, |a| m.peek(a)))
+            }
+            fn dbg_step(&mut self) -> u64 {
+                let ticks = match $get_mut(&mut self.machine) {
+                    ::core::option::Option::Some(m) => m.step_instruction(),
+                    ::core::option::Option::None => return 0,
+                };
+                self.time = self.time.saturating_add(ticks);
+                self.update_rgba_framebuffer();
+                ticks
+            }
+            // I/O tracing is unsupported — the Game Boy is memory-mapped.
+        }
+    };
+}

@@ -3753,6 +3753,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "sharp-lr35902",
 ]
 
 [[package]]

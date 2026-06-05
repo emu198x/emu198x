@@ -216,6 +216,12 @@ impl GameBoyRuntime {
             }
         }
     }
+
+    /// Refresh the host-visible framebuffer after a debug poke/step. The Game
+    /// Boy runtime pulls the framebuffer live from the machine on each frame
+    /// (no cached RGBA buffer), so there is nothing to rebuild eagerly — the
+    /// debug macros call this, so it must exist.
+    fn update_rgba_framebuffer(&mut self) {}
 }
 
 impl MachineCore for GameBoyRuntime {
@@ -323,7 +329,13 @@ impl MachineCore for GameBoyRuntime {
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }
+
+    emu198x_shell::debug_target_hooks!();
 }
+
+// SM83 debug surface: the shared `DebugTarget` verbs (cpu_state, memory_read,
+// poke, disasm, step, run_until_pc) via the per-CPU macro and the blanket impl.
+emu198x_shell::impl_sm83_debug_primitives!(GameBoyRuntime);
 
 #[cfg(test)]
 mod tests {

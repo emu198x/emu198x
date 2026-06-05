@@ -12,10 +12,12 @@
 
 mod alu;
 mod cb;
+mod disasm;
 mod flags;
 mod opcodes;
 mod reg;
 
+pub use disasm::disassemble;
 pub use flags::{FLAG_C, FLAG_H, FLAG_N, FLAG_Z};
 
 use serde::{Deserialize, Serialize};

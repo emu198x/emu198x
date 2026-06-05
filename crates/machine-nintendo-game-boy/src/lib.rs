@@ -303,6 +303,38 @@ impl GameBoy {
         &mut self.cartridge
     }
 
+    /// The CPU register state, for the debug surface.
+    #[must_use]
+    pub fn cpu(&self) -> &Sm83 {
+        &self.cpu
+    }
+
+    /// Read a byte with no side effects (debug peek).
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.bus_read(addr)
+    }
+
+    /// Write a byte directly into the address space (debug poke).
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.bus_write(addr, value);
+    }
+
+    /// Run the CPU forward by one full instruction, returning the number of
+    /// T-cycles it took. Steps whole m-cycles until the CPU is back at an
+    /// instruction boundary (`m_cycle == 0`).
+    pub fn step_instruction(&mut self) -> u64 {
+        let mut t_cycles = 0u64;
+        loop {
+            self.step_m_cycle();
+            t_cycles += 4;
+            if self.cpu.instruction_complete() {
+                break;
+            }
+        }
+        t_cycles
+    }
+
     /// One CPU m-cycle (4 T-cycles): tick the per-T-cycle components,
     /// collect IRQ sources, service the CPU's bus pins, then tick
     /// the CPU.
