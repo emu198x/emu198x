@@ -9,6 +9,32 @@ and `--mcp` expose the same verb vocabulary, built on the shared
 `HeadlessSession` + `register_common_tools` + `register_debug_tools`. Amiga is the
 last machine on a parallel path; this folds it in.
 
+## Progress (live)
+
+| Phase | State |
+|---|---|
+| 1 — Widen `DebugTarget` to `u32` | ✅ done (`refactor(shell): widen DebugTarget addresses to u32`) |
+| 2 — Amiga `DebugTarget` | ✅ done — **via `DebugPrimitives`, not the planned `impl_68000_debug_target!` macro** (see below) |
+| 2b — Fleet onto `DebugPrimitives` | ✅ done (`refactor(shell): one debug pattern`) — emergent from the Phase-2 spike |
+| 3 — Amiga MCP onto `HeadlessSession` | **next** |
+| 4 — Port bespoke Amiga tools | pending |
+| 5 — Retire `AmigaSession` | pending |
+
+**What changed from the original plan:** Phase 2 was written as "build
+`impl_68000_debug_target!`". The spike for it found a better shape: a
+`DebugPrimitives` adapter trait + a single blanket
+`impl<T: DebugPrimitives> DebugTarget for T` in the shell. The Amiga hand-
+implements `DebugPrimitives` (delegating to its existing `AmigaLiveAccess`
+adapter) and gets `DebugTarget` for free — no 68000 *macro* needed. The blanket
+impl turned out to coexist with the legacy per-CPU macro impls (the orphan rule
+makes it legal), so the win generalised: the three `impl_*_debug_target!` macros
+were converted to emit `DebugPrimitives` and renamed `impl_*_debug_primitives!`,
+putting the **whole fleet** on one `DebugTarget`-via-blanket pattern. Spectrum is
+now the only bespoke holdout. Net: the debug half of the unification is *done and
+better than planned*; what remains (Phases 3–5) is wiring the Amiga's MCP server
+onto the shared session so it actually *uses* that `DebugTarget` plus the shared
+input/capture/common tools.
+
 ## Why
 
 `docs/status/drivability-assessment.md` found the Amiga MCP server is a parallel
@@ -44,33 +70,46 @@ the shared debug suite.
 
 ## Phases
 
-### Phase 1 — Widen `DebugTarget` to `u32` addresses (shared, foundational)
+### Phase 1 — Widen `DebugTarget` to `u32` addresses (shared, foundational) ✅ DONE
 
-The 68000 has a 24-bit bus / 32-bit PC; the trait is `u16`. Widen it so one trait
+The 68000 has a 24-bit bus / 32-bit PC; the trait was `u16`. Widened so one trait
 serves every CPU.
 
 - `emu198x-shell/src/debug.rs`: `pc() -> u32`, `peek(addr: u32)`, `poke(addr:
-  u32, …)`, `disassemble(addr: u32)`, `IoEvent.pc: u32`.
-- The three `impl_{6502,z80,6809}_debug_target!` macros: widen signatures;
-  8/16-bit cores read the low 16 bits (`addr as u16` at the machine boundary).
-- `mcp_tools.rs` `register_debug_tools`: widen address arg parsing/formatting to
-  `u32` (hex `$XXXXXX`).
-- **Gate:** all 24 shared-tier machines compile + a smoke debug call works.
-  Pure widening, no behaviour change for existing machines.
+  u32, …)`, `disassemble(addr: u32)`, `IoEvent.pc: u32`. ✅
+- The three per-CPU macros: widened signatures; 8/16-bit cores read the low 16
+  bits (`addr as u16` at the machine boundary). ✅
+- `mcp_tools.rs` `register_debug_tools`: address arg parsing widened to `u32`
+  (`format!("${:04X}", …)` already grows past 4 digits, so 8-bit output is
+  unchanged). ✅
+- **Gate met:** whole workspace compiles, clippy clean, 133 shell tests + the
+  6502/6809 debug-surface integration tests pass.
 
-### Phase 2 — Build `impl_68000_debug_target!`
+### Phase 2 — Amiga `DebugTarget` ✅ DONE (via `DebugPrimitives`, not a 68000 macro)
 
-New macro member in `debug.rs`, mirroring the others but for the 68k.
+The planned `impl_68000_debug_target!` macro was **superseded** by a better shape
+found during the spike — a `DebugPrimitives` adapter trait + a single blanket
+`impl<T: DebugPrimitives> DebugTarget for T`:
 
-- `cpu_state` from `motorola-68k-common::Registers` (`d[0..8]`, `a[0..7]`, `usp`,
-  `ssp`, `pc`, `sr`).
-- `disassemble` via `motorola_68000::disasm::disassemble(pc, read)`.
-- `step_instruction` via the runtime's existing single-instruction advance.
-- Spans 68000 (OCS/ECS) and 68020 (AGA) through the `AmigaMachine` CPU accessor.
-- Applies to the non-generic `AmigaRuntimeKind` enum (the macros emit non-generic
-  impls; `AmigaRuntimeKind` already `impl MachineCore`).
-- **Gate:** macro compiles against `AmigaRuntimeKind`; `cpu_state`/`disasm`/`step`
-  return correct values vs the current bespoke Amiga tools (cross-check).
+- `emu198x-shell/src/debug.rs`: added `DebugPrimitives` (the `dbg_*` method set)
+  and the blanket impl. ✅
+- `runtime-commodore-amiga/src/debug.rs`: `impl DebugPrimitives for
+  AmigaRuntimeKind`, delegating to the existing `AmigaLiveAccess` adapter —
+  `cpu_state` from `motorola-68k-common::Registers`, `disasm` via
+  `motorola_68000::disasm`, single-step by ticking until the instruction-start
+  counter advances, big-endian byte fold over `read_word`. Spans 68000 (OCS/ECS)
+  and 68020 (AGA) through the enum. `MachineCore::debug_target[_mut]` return
+  `Some(self)`. (`motorola-68000` promoted dev-dep → dep for the disassembler.) ✅
+- **Gate met:** `debug_surface_works_on_68000` passes; coexisted cleanly with the
+  legacy macro impls during the spike.
+
+### Phase 2b — Fleet onto `DebugPrimitives` ✅ DONE (emergent)
+
+Because the blanket impl coexists with the legacy concrete impls (orphan rule),
+the three `impl_*_debug_target!` macros were converted to emit `DebugPrimitives`
+and renamed `impl_*_debug_primitives!`. All 24 macro machines + the Amiga now
+land on one `DebugTarget` (the single blanket impl); Spectrum is the last bespoke
+holdout. **Gate met:** workspace + clippy clean; 6502/6809/68000 debug tests pass.
 
 ### Phase 3 — Stand up Amiga MCP on `HeadlessSession`
 
@@ -79,7 +118,9 @@ Replace the `AmigaSession`-typed registry with the shared session.
 - `emu198x-amiga/src/mcp/mod.rs`: build `HeadlessSession<AmigaRuntimeKind,
   AmigaSessionQueryProvider>` (mirror `script.rs`), call `register_common_tools`
   + `register_debug_tools`, then the Amiga-specific registrations (Phase 4).
-- `AmigaRuntimeKind`: add `debug_target_hooks!` + the Phase-2 macro invocation.
+- `AmigaRuntimeKind` already implements `DebugPrimitives` and returns
+  `Some(self)` from `debug_target[_mut]` (Phase 2), so `register_debug_tools`
+  lights up the moment the registry is `HeadlessSession`-typed — no extra wiring.
 - **Gate:** input (keyboard + mouse), capture (screenshot/audio/video +
   recording), media, run/reset/snapshot, and the shared debug verbs all work
   over MCP; Workbench boots; mouse moves the pointer.
