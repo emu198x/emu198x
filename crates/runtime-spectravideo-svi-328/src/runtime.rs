@@ -24,6 +24,7 @@ pub struct Svi328Runtime {
     cart_bytes: Option<Vec<u8>>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
+    controller_cache: crate::input::ControllerCache,
 }
 
 impl Svi328Runtime {
@@ -37,6 +38,7 @@ impl Svi328Runtime {
             cart_bytes: None,
             time: MachineTime::default(),
             rgba_framebuffer: vec![0; (VDP_FB_WIDTH * VDP_FB_HEIGHT * 4) as usize],
+            controller_cache: crate::input::ControllerCache::default(),
         }
     }
 
@@ -216,7 +218,7 @@ impl MachineCore for Svi328Runtime {
         }
         for event in host.input_events {
             if let Some(machine) = self.machine.as_mut() {
-                apply_input_event(machine, event);
+                apply_input_event(machine, &mut self.controller_cache, event);
             }
         }
         while self.time < target {

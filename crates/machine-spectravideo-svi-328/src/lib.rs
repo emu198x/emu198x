@@ -113,6 +113,13 @@ pub struct Svi328 {
     psg_reg_select: u8,
     /// 11×8 keyboard matrix, active-low.
     keyboard: [u8; NUM_KEY_ROWS],
+    /// Joystick direction lines, presented on PSG port A (register 14):
+    /// player 1 in the low nibble, player 2 in the high nibble, active low
+    /// (bit 0/4 up, 1/5 down, 2/6 left, 3/7 right). Idle is `0xFF`.
+    joy_dirs: u8,
+    /// Joystick fire buttons `[player1, player2]`, read on PPI port A bits
+    /// 4-5 (active low). See [`Self::io_read`] `$98`.
+    joy_fire: [bool; 2],
     region: SviRegion,
     cpu_tstates: u64,
     tstates_per_frame: u64,
@@ -147,6 +154,8 @@ impl Svi328 {
             bank_cart: false,
             psg_reg_select: 0,
             keyboard: [0xFF; NUM_KEY_ROWS],
+            joy_dirs: 0xFF,
+            joy_fire: [false; 2],
             region,
             cpu_tstates: 0,
             tstates_per_frame,
@@ -281,12 +290,31 @@ impl Svi328 {
             // and clear the interrupt. (MAME `svi318` io map.)
             0x84 => self.vdp.read_data(),
             0x85 => self.vdp.read_status(),
-            // PSG data read at $90.
-            0x90 => self.psg.read_data(),
-            // PPI port A read ($98): joysticks / cassette. With nothing
-            // attached the button lines float high, the "no cassette" bit
-            // reads high, and the cassette input reads low.
-            0x98 => 0x7F,
+            // PSG data read at $90. Register 14 (port A) carries the two
+            // joysticks' directions, so present them before the read: P1 in
+            // the low nibble, P2 in the high nibble (active low). Unlike the
+            // MSX, the SVI reads both sticks at once — no port select.
+            0x90 => {
+                if self.psg.selected_register() == 14 {
+                    self.psg.set_port_a_input_mask(self.joy_dirs);
+                }
+                self.psg.read_data()
+            }
+            // PPI port A read ($98): paddle (0-3), joystick fire buttons (4-5,
+            // active low), cassette (6-7). With no cassette attached the
+            // no-cassette bit reads high and the cassette input low, so the
+            // idle byte is 0x7F; a held fire button pulls its bit (PB1 = bit 4,
+            // PB2 = bit 5) low. (MAME `svi318` `ppi_port_a_r`.)
+            0x98 => {
+                let mut data = 0x7F;
+                if self.joy_fire[0] {
+                    data &= !0x10;
+                }
+                if self.joy_fire[1] {
+                    data &= !0x20;
+                }
+                data
+            }
             // PPI port B read ($99): keyboard column data for the row selected
             // via port C.
             0x99 => {
@@ -346,6 +374,40 @@ impl Svi328 {
         if row < self.keyboard.len() && bit < 8 {
             self.keyboard[row] |= 1 << bit;
         }
+    }
+
+    /// Set the digital joystick state for `port` (1 or 2). The directions are
+    /// read on PSG port A — player 1 in the low nibble, player 2 in the high
+    /// nibble (active low: bit 0/4 up, 1/5 down, 2/6 left, 3/7 right) — and the
+    /// fire button on PPI port A bit 4 (player 1) / bit 5 (player 2). Both
+    /// joysticks are read independently. Out-of-range ports clamp to the pair.
+    #[allow(clippy::fn_params_excessive_bools)]
+    pub fn set_joystick(
+        &mut self,
+        port: u8,
+        up: bool,
+        down: bool,
+        left: bool,
+        right: bool,
+        fire: bool,
+    ) {
+        let idx = usize::from(port.clamp(1, 2) - 1);
+        let mut nibble = 0x0Fu8;
+        for (pressed, bit) in [(up, 0x01), (down, 0x02), (left, 0x04), (right, 0x08)] {
+            if pressed {
+                nibble &= !bit;
+            }
+        }
+        let shift = idx * 4;
+        self.joy_dirs = (self.joy_dirs & !(0x0F << shift)) | (nibble << shift);
+        self.joy_fire[idx] = fire;
+    }
+
+    /// The active-low PSG port-A byte the joysticks present (both players'
+    /// directions). For inspection and host-side input wiring.
+    #[must_use]
+    pub fn joystick_dirs(&self) -> u8 {
+        self.joy_dirs
     }
 
     /// Observe the column bits for a keyboard matrix row (active-low:
@@ -442,6 +504,43 @@ mod tests {
             sys.run_frame();
         }
         assert_eq!(sys.frame_count(), 60);
+    }
+
+    #[test]
+    fn joystick_directions_read_through_psg_port_a() {
+        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        sys.io_write(0x88, 14); // select PSG register 14 (port A)
+
+        // Idle: both sticks read all-high.
+        assert_eq!(sys.io_read(0x90), 0xFF);
+
+        // Player 1 up+left → low-nibble bits 0 and 2 low; P2 nibble idle high.
+        sys.set_joystick(1, true, false, true, false, false);
+        let v = sys.io_read(0x90);
+        assert_eq!(v & 0x01, 0, "P1 up → bit 0 low");
+        assert_eq!(v & 0x04, 0, "P1 left → bit 2 low");
+        assert_eq!(v & 0x0A, 0x0A, "P1 down/right idle high");
+        assert_eq!(v & 0xF0, 0xF0, "P2 nibble untouched");
+
+        // Player 2 down → high-nibble bit 5 low, independent of P1.
+        sys.set_joystick(2, false, true, false, false, false);
+        let v = sys.io_read(0x90);
+        assert_eq!(v & 0x20, 0, "P2 down → bit 5 low");
+        assert_eq!(v & 0x01, 0, "P1 up still held");
+    }
+
+    #[test]
+    fn joystick_fire_buttons_read_on_ppi_port_a() {
+        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        // Idle PPI port A: buttons high, no-cassette bit set → 0x7F.
+        assert_eq!(sys.io_read(0x98), 0x7F);
+
+        sys.set_joystick(1, false, false, false, false, true); // P1 fire
+        assert_eq!(sys.io_read(0x98) & 0x10, 0, "P1 fire → PPI PA4 low");
+        assert_eq!(sys.io_read(0x98) & 0x20, 0x20, "P2 fire idle high");
+
+        sys.set_joystick(2, false, false, false, false, true); // P2 fire
+        assert_eq!(sys.io_read(0x98) & 0x30, 0, "both fire → PA4+PA5 low");
     }
 
     #[test]

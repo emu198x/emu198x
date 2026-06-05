@@ -112,7 +112,7 @@ clean script/MCP parity break.
 | Device | Variant | Consumes it | Notable gaps |
 |--------|---------|-------------|--------------|
 | Keyboard | `Key` | ~26 machines | atari-5200/7800 keypad/console partial (joystick wired 2026-06-05) |
-| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20**, **bbc** (fire) (~16) | svi-328, einstein, aquarius, mtx, sord-m5 — blocked on primary source (boot-ROM trace); oric — no native port (Telestrat only) |
+| Joystick | `Button` | 2600, coleco, amiga, c64, dragon, game-boy, nes, sms, sg-1000, spectrum, **atari-5200**, **atari-7800**, **atari-800xl**, **msx**, **vic-20**, **bbc** (fire), **svi-328** (~17) | einstein, aquarius, mtx, sord-m5 — blocked on primary source (MAME trace); oric — no native port (Telestrat only) |
 | Paddle / analogue | `Axis` | dragon, spectrum, **atari-5200** (POKEY pots), **bbc** (μPD7002 ADC), **c64** (SID POTX/POTY + CIA mux), **atari-2600** (TIA INPT0-3 charge timing) — all 2026-06-05 | atari-800xl, coleco — **absent** |
 | Mouse | `Pointer*` | amiga **only** (correct machine) | MCP-undrivable; c64 1351 minor |
 
@@ -198,12 +198,16 @@ wire the missing consumers** — not new architecture.
      (second VIA). Wiring the Atmos would mean modelling one of several
      incompatible third-party interfaces (IJK, etc.) — a product decision, not
      a pin-exposure. Deferred pending a chosen interface.
-   - **svi-328, einstein, aquarius, mtx, sord-m5** — *blocked on a primary
-     source.* No joystick pin map in `reference/by-system/`, and these are
-     donor-sourced machines whose I/O maps the standing note flags as
-     possibly-wrong. Each needs a boot-ROM `IN`/`OUT` trace (and the BIOS ROM)
-     to confirm the port bits before wiring — heavier than the MSX/VIC-20
-     "expose existing pins" shape.
+   - **svi-328** — ✅ *wired 2026-06-05 from MAME `svi318.cpp`.* Both sticks read
+     at once: directions on PSG port A (P1 low nibble, P2 high nibble) and fire
+     buttons on PPI port A bits 4-5, all active low. MAME is the primary source
+     where `reference/by-system/` has no pin map — the proven pattern for the
+     rest of this group.
+   - **einstein, aquarius, mtx, sord-m5** — *blocked on a primary source.* No
+     joystick pin map in `reference/by-system/`, and these are donor-sourced
+     machines whose I/O maps the standing note flags as possibly-wrong. Each
+     needs a MAME cross-check (as svi-328 just had) to confirm the port bits
+     before wiring.
    - **bbc-micro** — ✅ *wired 2026-06-05.* Fire on System VIA PB4/PB5 (active
      low, `Button`); analogue X/Y via a newly-modelled μPD7002 ADC at
      `$FEC0-$FEDF` (channels 0+1 = stick 1, 2+3 = stick 2, 12-bit, `Axis`), with

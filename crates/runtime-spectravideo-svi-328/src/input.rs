@@ -9,19 +9,95 @@
 //! The table is transcribed from MAME's `svi/svi318.cpp` `KEY.0`-`KEY.8`
 //! port definitions and ground-truthed against the real SV-BASIC ROM
 //! (pressing each cell and reading the echoed character from VRAM).
+//!
+//! Joystick input arrives as [`InputEvent::Button`] on a numbered port. The
+//! SVI reads both control ports at once: the directions sit on PSG port A
+//! (player 1 low nibble, player 2 high nibble) and the fire buttons on PPI
+//! port A bits 4-5, all active low (MAME `svi318` `port_a_read` / `ppi_port_a_r`).
+//! One [`ControllerCache`] mirror per port re-applies the whole state via
+//! [`Svi328::set_joystick`] on each event.
 
 use emu198x_shell::InputEvent;
 use machine_spectravideo_svi_328::Svi328;
 
-pub(crate) fn apply_input_event(machine: &mut Svi328, event: &InputEvent) {
-    if let InputEvent::Key { name, pressed } = event
-        && let Some((row, bit)) = key_to_matrix(name.as_ref())
-    {
-        if *pressed {
-            machine.press_key(row, bit);
-        } else {
-            machine.release_key(row, bit);
+/// Host-side mirror of one SVI control port: four directions plus the fire
+/// button, re-applied via [`Svi328::set_joystick`] on every event.
+#[derive(Clone, Copy, Debug, Default)]
+struct JoystickCache {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    fire: bool,
+}
+
+impl JoystickCache {
+    /// Record a digital control by name. Returns `true` when the name maps to
+    /// a joystick direction or the fire button.
+    fn set_control(&mut self, name: &str, pressed: bool) -> bool {
+        match name {
+            "up" | "arrowup" => self.up = pressed,
+            "down" | "arrowdown" => self.down = pressed,
+            "left" | "arrowleft" => self.left = pressed,
+            "right" | "arrowright" => self.right = pressed,
+            "fire" | "fire1" | "trigger" | "button" => self.fire = pressed,
+            _ => return false,
         }
+        true
+    }
+}
+
+/// Host-side mirror of both SVI control ports (1 and 2), indexed `port - 1`.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ControllerCache {
+    ports: [JoystickCache; 2],
+}
+
+impl ControllerCache {
+    /// Apply a `Button` event for `port` (1 or 2): record the control and push
+    /// the whole port state to the machine. Out-of-range ports clamp to the
+    /// valid pair, matching [`Svi328::set_joystick`].
+    fn apply_button(&mut self, machine: &mut Svi328, port: u8, name: &str, pressed: bool) {
+        let port = port.clamp(1, 2);
+        let cache = &mut self.ports[usize::from(port - 1)];
+        if cache.set_control(name, pressed) {
+            machine.set_joystick(
+                port,
+                cache.up,
+                cache.down,
+                cache.left,
+                cache.right,
+                cache.fire,
+            );
+        }
+    }
+}
+
+/// Apply one host input event. `Key` events drive the keyboard matrix;
+/// `Button` events drive the joystick on their numbered port.
+pub(crate) fn apply_input_event(
+    machine: &mut Svi328,
+    cache: &mut ControllerCache,
+    event: &InputEvent,
+) {
+    match event {
+        InputEvent::Key { name, pressed } => {
+            if let Some((row, bit)) = key_to_matrix(name.as_ref()) {
+                if *pressed {
+                    machine.press_key(row, bit);
+                } else {
+                    machine.release_key(row, bit);
+                }
+            }
+        }
+        InputEvent::Button {
+            port,
+            name,
+            pressed,
+        } => {
+            cache.apply_button(machine, *port, &name.to_ascii_lowercase(), *pressed);
+        }
+        _ => {}
     }
 }
 
@@ -145,8 +221,10 @@ mod tests {
     fn event_presses_and_releases_matrix() {
         let rom = vec![0u8; 32 * 1024];
         let mut machine = Svi328::new(rom, machine_spectravideo_svi_328::SviRegion::Pal);
+        let mut cache = ControllerCache::default();
         apply_input_event(
             &mut machine,
+            &mut cache,
             &InputEvent::Key {
                 name: "a".into(),
                 pressed: true,
@@ -156,11 +234,42 @@ mod tests {
         assert_eq!(machine.key_row(2) & 0b0000_0010, 0);
         apply_input_event(
             &mut machine,
+            &mut cache,
             &InputEvent::Key {
                 name: "a".into(),
                 pressed: false,
             },
         );
         assert_eq!(machine.key_row(2) & 0b0000_0010, 0b0000_0010);
+    }
+
+    fn button(port: u8, name: &str, pressed: bool) -> InputEvent {
+        InputEvent::Button {
+            port,
+            name: std::borrow::Cow::Owned(name.to_owned()),
+            pressed,
+        }
+    }
+
+    #[test]
+    fn button_events_drive_both_joystick_ports() {
+        let rom = vec![0u8; 32 * 1024];
+        let mut machine = Svi328::new(rom, machine_spectravideo_svi_328::SviRegion::Pal);
+        let mut cache = ControllerCache::default();
+
+        // Player 1 left → PSG port A low-nibble bit 2; player 2 right →
+        // high-nibble bit 7. The two ports are independent.
+        apply_input_event(&mut machine, &mut cache, &button(1, "left", true));
+        apply_input_event(&mut machine, &mut cache, &button(2, "right", true));
+        let dirs = machine.joystick_dirs();
+        assert_eq!(dirs & 0x04, 0, "P1 left → bit 2 low");
+        assert_eq!(dirs & 0x80, 0, "P2 right → bit 7 low");
+        assert_eq!(dirs & 0x08, 0x08, "P1 right idle high");
+
+        // Releasing P1 left restores its bit; P2 stays held.
+        apply_input_event(&mut machine, &mut cache, &button(1, "left", false));
+        let dirs = machine.joystick_dirs();
+        assert_eq!(dirs & 0x04, 0x04, "P1 left released → bit 2 high");
+        assert_eq!(dirs & 0x80, 0, "P2 right still held");
     }
 }
