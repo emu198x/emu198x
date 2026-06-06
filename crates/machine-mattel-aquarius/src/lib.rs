@@ -184,8 +184,6 @@ pub struct Aquarius {
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
     io_trace: Option<Vec<IoEvent>>,
-    /// Set true the cycle a VBlank NMI is being delivered.
-    nmi_pulse: bool,
     /// Mini Expander AY-3-8910. The controllers are read through its I/O
     /// ports; the tone generators are present but unconsumed.
     psg: Ay3_8910,
@@ -221,7 +219,6 @@ impl Aquarius {
             cpu_tstates: 0,
             frame_count: 0,
             io_trace: None,
-            nmi_pulse: false,
             psg: Ay3_8910::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, AY_SAMPLES_PER_FRAME),
             ctrl_input: [0xFF; 2],
         }
@@ -243,18 +240,16 @@ impl Aquarius {
     /// Run one frame and return T-states consumed.
     pub fn run_frame(&mut self) -> u64 {
         let target = self.cpu_tstates + CPU_TSTATES_PER_FRAME;
-        // Hold NMI low during the frame.
-        self.nmi_pulse = false;
-        self.cpu.nmi = false;
+        // The base Aquarius wires no periodic CPU interrupt. Per MAME
+        // `aquarius.cpp`, IRQ0 and NMI are driven only by the expansion port
+        // (a disk interface, etc.) — video/VBlank asserts neither. An earlier
+        // per-frame NMI pulse here was fictitious and actively harmful: the
+        // BIOS cart-detect loop ($0062-$006A) overlaps the Z80 NMI vector
+        // ($0066), so a stray NMI mid-detect corrupted it and inserted carts
+        // fell through to BASIC instead of auto-starting.
         while self.cpu_tstates < target {
             self.tick_tstate();
         }
-        // Pulse NMI for one T-state at VBlank.
-        self.nmi_pulse = true;
-        self.cpu.nmi = true;
-        self.tick_tstate();
-        self.cpu.nmi = false;
-        self.nmi_pulse = false;
 
         self.render_display();
         self.frame_count += 1;
@@ -265,6 +260,34 @@ impl Aquarius {
         self.cpu.tick();
         self.handle_bus();
         self.cpu_tstates += 1;
+    }
+
+    /// Run T-states until the CPU's `PC` equals `target` (returning `true`) or
+    /// `max_tstates` elapse (returning `false`). A debug aid for tracing boot
+    /// paths such as the cartridge-detect routine.
+    pub fn run_until_pc(&mut self, target: u16, max_tstates: u64) -> bool {
+        let deadline = self.cpu_tstates + max_tstates;
+        // Check at instruction-retirement boundaries, not every raw tick. After
+        // an instruction retires, PC holds the address of the next instruction
+        // to fetch. A per-tick `pc == target` compare misses the target because
+        // PC is set to the fetch address and incremented within the same tick at
+        // the M1 cycle — the same between-tick hazard that makes
+        // `instruction_complete` unreliable (see `Z80Stepper`).
+        if self.cpu.regs.pc == target {
+            return true;
+        }
+        let mut retired = self.cpu.instructions_retired();
+        while self.cpu_tstates < deadline {
+            self.tick_tstate();
+            let now = self.cpu.instructions_retired();
+            if now != retired {
+                retired = now;
+                if self.cpu.regs.pc == target {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn handle_bus(&mut self) {
@@ -310,7 +333,7 @@ impl Aquarius {
     }
 
     fn mem_read(&self, addr: u16) -> u8 {
-        match addr {
+        let raw = match addr {
             0x0000..=0x1FFF => self.rom.get(addr as usize).copied().unwrap_or(0xFF),
             0x2000..=0x2FFF => 0xFF,
             0x3000..=0x33FF => self.char_ram[(addr & 0x03FF) as usize],
@@ -333,10 +356,12 @@ impl Aquarius {
                     0xFF
                 }
             }
-        }
+        };
+        self.descramble(addr, raw)
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
+        let value = self.descramble(addr, value);
         match addr {
             0x3000..=0x33FF => self.char_ram[(addr & 0x03FF) as usize] = value,
             0x3400..=0x37FF => self.colour_ram[(addr & 0x03FF) as usize] = value,
@@ -348,6 +373,22 @@ impl Aquarius {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Apply the Aquarius "software lock" XOR. Every byte crossing the external
+    /// bus ($4000-$FFFF — expansion RAM and the cartridge) is XORed with the
+    /// scrambler pattern set via port $FF; internal RAM/ROM and I/O are
+    /// untouched. The BIOS derives the pattern from the cartridge's own checksum
+    /// just before `JP $E010`, so a game cart's ROM only descrambles into real
+    /// code once the lock is set. For expansion RAM the XOR is transparent
+    /// (write-scramble and read-descramble cancel while the pattern is fixed).
+    /// Per MAME `aquarius.cpp` `scrambler_w` and the $4000-$FFFF bus handlers.
+    fn descramble(&self, addr: u16, value: u8) -> u8 {
+        if addr >= 0x4000 {
+            value ^ self.scrambler
+        } else {
+            value
         }
     }
 
