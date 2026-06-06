@@ -14,11 +14,12 @@
 //! Radofin for Mattel Electronics. Famous (mostly notorious) for its
 //! tiny chiclet keyboard. Character-only display — 40×24 cells with a
 //! TEA1002 colour encoder producing a 16-colour palette. The character
-//! generator lives in the upper 2 KB of the 8 KB BASIC ROM.
+//! generator is a separate 2 KB ROM (supplied via `set_char_rom`), not part
+//! of the BASIC ROM.
 //!
 //! - **CPU:** Z80A @ 3.5 MHz
-//! - **ROM:** 8 KB Microsoft BASIC at `$0000-$1FFF` (character set at
-//!   `$1800-$1FFF`)
+//! - **ROM:** 8 KB Microsoft BASIC at `$0000-$1FFF`; separate 2 KB
+//!   character-generator ROM
 //! - **RAM:** 1 KB char + 1 KB colour + 2 KB spare at `$3000-$3FFF`
 //! - **Expansion RAM:** up to 16 KB at `$4000-$7FFF`
 //! - **Cart ROM:** up to 8 KB at `$E000-$FFFF`
@@ -30,14 +31,14 @@
 //!
 //! | Range         | Contents                                  |
 //! |---------------|-------------------------------------------|
-//! | `$0000-$1FFF` | 8 KB Microsoft BASIC ROM + character set  |
+//! | `$0000-$1FFF` | 8 KB Microsoft BASIC ROM                   |
 //! | `$2000-$2FFF` | Unmapped (`$FF`)                          |
 //! | `$3000-$33FF` | 1 KB character RAM                        |
 //! | `$3400-$37FF` | 1 KB colour RAM                           |
 //! | `$3800-$3FFF` | 2 KB spare RAM                            |
 //! | `$4000-$7FFF` | Up to 16 KB expansion RAM                 |
 //! | `$8000-$DFFF` | Unmapped                                  |
-//! | `$E000-$FFFF` | Up to 8 KB cart ROM                       |
+//! | `$C000-$FFFF` | Cart ROM (8 KB at $E000, or 16 KB at $C000) |
 //!
 //! # I/O map
 //!
@@ -164,6 +165,11 @@ const PALETTE: [u32; 16] = [
 pub struct Aquarius {
     cpu: Z80,
     rom: Vec<u8>,
+    /// 2 KB character-generator ROM (256 glyphs × 8 rows). Empty until supplied
+    /// via [`Aquarius::set_char_rom`]; the renderer falls back to the system
+    /// ROM's upper 2 KB when absent (wrong, but keeps headless tests building
+    /// without the separate char ROM).
+    char_rom: Vec<u8>,
     char_ram: [u8; 1024],
     colour_ram: [u8; 1024],
     spare_ram: [u8; 2048],
@@ -201,6 +207,7 @@ impl Aquarius {
         Self {
             cpu: Z80::new(),
             rom,
+            char_rom: Vec::new(),
             char_ram: [0x20; 1024],   // Spaces
             colour_ram: [0x70; 1024], // White-on-black default
             // (high nibble = fg = 7, low nibble = bg = 0).
@@ -220,9 +227,17 @@ impl Aquarius {
         }
     }
 
-    /// Insert a cart ROM (mapped at `$E000-$FFFF`, up to 8 KB).
+    /// Insert a cart ROM. It sits at the top of memory by size: an 8 KB
+    /// cart at `$E000-$FFFF`, a 16 KB game cart at `$C000-$FFFF`.
     pub fn insert_cart(&mut self, rom: Vec<u8>) {
         self.cart_rom = rom;
+    }
+
+    /// Supply the 2 KB character-generator ROM (256 glyphs × 8 rows). Without
+    /// it the display renders garbage, since the Aquarius font lives in a
+    /// separate chip — not in the BASIC ROM.
+    pub fn set_char_rom(&mut self, char_rom: Vec<u8>) {
+        self.char_rom = char_rom;
     }
 
     /// Run one frame and return T-states consumed.
@@ -306,12 +321,18 @@ impl Aquarius {
                 .get((addr - 0x4000) as usize)
                 .copied()
                 .unwrap_or(0xFF),
-            0x8000..=0xDFFF => 0xFF,
-            0xE000..=0xFFFF => self
-                .cart_rom
-                .get((addr - 0xE000) as usize)
-                .copied()
-                .unwrap_or(0xFF),
+            // Cartridge sits at the top of memory, sized by the image: an 8 KB
+            // cart at $E000-$FFFF, a 16 KB game cart at $C000-$FFFF. Everything
+            // below it in $8000-$BFFF reads as open bus.
+            0x8000..=0xFFFF => {
+                let base = 0x1_0000usize.saturating_sub(self.cart_rom.len());
+                let idx = addr as usize;
+                if !self.cart_rom.is_empty() && idx >= base {
+                    self.cart_rom[idx - base]
+                } else {
+                    0xFF
+                }
+            }
         }
     }
 
@@ -389,9 +410,17 @@ impl Aquarius {
                 // the high nibble.)
                 let fg = PALETTE[((colour_byte >> 4) & 0x0F) as usize];
                 let bg = PALETTE[(colour_byte & 0x0F) as usize];
-                let char_base = CHAR_ROM_OFFSET + char_code * 8;
+                // Glyphs come from the dedicated 2 KB character ROM (one 8-byte
+                // bitmap per code). When it hasn't been supplied, fall back to
+                // the system ROM's upper 2 KB — wrong (that region is code), but
+                // it keeps headless tests rendering *something* without the ROM.
+                let (glyph, base) = if self.char_rom.len() >= 2048 {
+                    (self.char_rom.as_slice(), char_code * 8)
+                } else {
+                    (self.rom.as_slice(), CHAR_ROM_OFFSET + char_code * 8)
+                };
                 for py in 0..CHAR_HEIGHT {
-                    let pattern = self.rom.get(char_base + py as usize).copied().unwrap_or(0);
+                    let pattern = glyph.get(base + py as usize).copied().unwrap_or(0);
                     let fb_y = row * CHAR_HEIGHT + py;
                     let fb_row_start = (fb_y * FB_WIDTH) as usize;
                     for px in 0..CHAR_WIDTH {

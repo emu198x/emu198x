@@ -17,7 +17,7 @@ use emu198x_shell::{
 use machine_mattel_aquarius::Aquarius;
 
 use crate::input::apply_input_event;
-use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
+use crate::profiles::{BIOS_FIRMWARE_ID, CHAR_FIRMWARE_ID, Model, profile_for};
 use crate::snapshot;
 
 const BIOS_SIZE: usize = 8 * 1024;
@@ -28,6 +28,7 @@ pub struct AquariusRuntime {
     model: Model,
     machine: Option<Aquarius>,
     bios_bytes: Option<Vec<u8>>,
+    char_rom_bytes: Option<Vec<u8>>,
     cart_bytes: Option<Vec<u8>>,
     expansion_kb: usize,
     time: MachineTime,
@@ -45,6 +46,7 @@ impl AquariusRuntime {
             model,
             machine: None,
             bios_bytes: None,
+            char_rom_bytes: None,
             cart_bytes: None,
             expansion_kb: 0,
             time: MachineTime::default(),
@@ -96,6 +98,25 @@ impl AquariusRuntime {
             });
         }
         self.bios_bytes = Some(bios);
+        self.rebuild_machine();
+        Ok(())
+    }
+
+    /// Supply the 2 KB character-generator ROM and rebuild so glyphs render
+    /// from it. Without it the display is garbage (the font is a separate chip,
+    /// not part of the BASIC ROM).
+    ///
+    /// # Errors
+    ///
+    /// Returns `MachineError::InvalidFirmware` if the ROM is not 2 KB.
+    pub fn set_char_rom(&mut self, char_rom: Vec<u8>) -> Result<(), MachineError> {
+        if char_rom.len() != 2048 {
+            return Err(MachineError::InvalidFirmware {
+                id: CHAR_FIRMWARE_ID.to_owned(),
+                reason: format!("character ROM is {} bytes; expected 2048", char_rom.len()),
+            });
+        }
+        self.char_rom_bytes = Some(char_rom);
         self.rebuild_machine();
         Ok(())
     }
@@ -166,6 +187,9 @@ impl AquariusRuntime {
             return;
         };
         let mut machine = Aquarius::new(bios, self.expansion_kb);
+        if let Some(char_rom) = self.char_rom_bytes.clone() {
+            machine.set_char_rom(char_rom);
+        }
         if let Some(rom) = self.cart_bytes.clone() {
             machine.insert_cart(rom);
         }

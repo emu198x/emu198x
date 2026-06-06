@@ -36,6 +36,8 @@ impl Model {
 }
 
 pub const BIOS_FIRMWARE_ID: &str = "mattel-aquarius-rom";
+/// Firmware id for the separate 2 KB character-generator ROM.
+pub const CHAR_FIRMWARE_ID: &str = "mattel-aquarius-char-rom";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {

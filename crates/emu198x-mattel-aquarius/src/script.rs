@@ -17,6 +17,7 @@ Usage: emu198x-mattel-aquarius [OPTIONS]
 
 BIOS:
     --bios PATH                Aquarius BASIC ROM (8 KB)
+    --char PATH                Aquarius character ROM (2 KB)
                                default: $EMU198X_AQUARIUS_BIOS, then
                                ~/.emu198x/roms/mattel-aquarius/aquarius.rom
 
@@ -39,6 +40,7 @@ Shared:
 #[derive(Debug, Default)]
 struct Cli {
     bios: Option<PathBuf>,
+    char_rom: Option<PathBuf>,
     cart: Option<PathBuf>,
     expansion_kb: usize,
     frames: u32,
@@ -53,6 +55,7 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--bios" => cli.bios = Some(PathBuf::from(next_arg(&mut iter, "--bios"))),
+            "--char" => cli.char_rom = Some(PathBuf::from(next_arg(&mut iter, "--char"))),
             "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
             "--expansion-kb" => {
                 cli.expansion_kb = next_arg(&mut iter, "--expansion-kb")
@@ -104,6 +107,16 @@ fn default_bios_path() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".emu198x/roms/mattel-aquarius/aquarius.rom"))
 }
 
+fn default_char_path() -> Option<PathBuf> {
+    if let Ok(p) = env::var("EMU198X_AQUARIUS_CHAR")
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
+    }
+    let home = env::var("HOME").ok()?;
+    Some(PathBuf::from(home).join(".emu198x/roms/mattel-aquarius/aquarius-char.rom"))
+}
+
 /// Headless entry point.
 ///
 /// # Errors
@@ -147,6 +160,22 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
 
     let mut runtime = AquariusRuntime::new(Model::Aquarius, bios)
         .map_err(|err| format!("failed to construct runtime: {err}"))?;
+    // The 2 KB character-generator ROM is separate from the BASIC ROM; without
+    // it the display is garbage. Default to the standard install path.
+    let char_path = cli
+        .char_rom
+        .clone()
+        .or_else(default_char_path)
+        .ok_or_else(|| "--char PATH is required (the 2 KB character ROM)".to_string())?;
+    let char_rom = fs::read(&char_path).map_err(|err| {
+        format!(
+            "failed to read character ROM {}: {err}",
+            char_path.display()
+        )
+    })?;
+    runtime
+        .set_char_rom(char_rom)
+        .map_err(|err| format!("character ROM rejected: {err}"))?;
     runtime.set_expansion_kb(cli.expansion_kb);
     if let Some(rom) = &cart_bytes {
         runtime.insert_cartridge(rom.clone());
