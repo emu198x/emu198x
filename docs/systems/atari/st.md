@@ -40,3 +40,17 @@ Depends on the 68000 CPU core (built for Amiga). The Atari ST has simpler custom
 | `tos102.rom` | 192KB | TOS 1.02 (most compatible) |
 | `tos104.rom` | 192KB | TOS 1.04 (Rainbow TOS) |
 | `tos206.rom` | 256KB | TOS 2.06 (STE) |
+
+## Known unknowns / disproven hypotheses
+
+- **Open: "simpler than the Amiga" is the plan, not a result.** The 68000 core
+  is shared and validated; nothing ST-specific runs yet.
+- **Verification targets** — the Shifter video modes/timing, MFP 68901 interrupt
+  + timer behaviour (essential for ST software), GLUE bus arbitration, and the
+  YM2149-vs-AY-3-8912 deltas are from secondary knowledge. Confirm against the
+  Atari ST Internals (Abacus) / primary docs and `emulators/` references before
+  implementing.
+
+## Validated against
+
+- 68000 core — Tom Harte 100% (shared with Amiga). Nothing ST-specific yet.

@@ -30,6 +30,33 @@ cargo run --release -p emu198x-nes --no-default-features -- --rom apu_test.nes -
 cargo run --release -p emu198x-nes --no-default-features -- --smoke-root path/to/blargg/rom_singles --frames 1200 --assert-blargg --smoke-report tmp/nes-apu-blargg-report.json
 ```
 
+## Not implemented / accuracy gaps
+
+- **Mapper long tail** — the common mappers are in; the rest are
+  compatibility-driven. 155-ROM sweep (2026-06-05): 135 PASS / 5 FAIL / 15 VISUAL.
+- **CPU edge timing** — `blargg_nes_cpu_test5` test 01-implied fails (CRC probe
+  foundation at 2/20); `cpu_timing_test6` protocol not modelled.
+- **DMA interleave** — OAMDMA odd-cycle penalty + DMC sample-DMA cycle interleave
+  not modelled.
+
+## Known unknowns / disproven hypotheses
+
+- **DISPROVEN: `test_ppu_read_buffer.nes` is failing.** Reclassified VISUAL after
+  confirming our CPU+PPU drive it correctly — it reports via screen + audio, not
+  `$6000` (2026-06-01).
+- **Open: the 01-implied culprit** — CRC probe at 2/20; not yet isolated.
+- **Open: the 5 FAIL ROMs** in the 155-sweep — individual causes not catalogued
+  on this page.
+- **Verification targets** — exact PPU/APU timing claims are from secondary
+  knowledge; confirm against the NESdev wiki + Visual2C02/Visual2A03, not just
+  passing test ROMs.
+
+## Validated against
+
+- `nestest` 8991/8991; Blargg-style `$6000` test ROMs; the 155-ROM smoke sweep.
+  Super Mario Bros. renders.
+- Reference: Mesen2, fceux, nestopia (`emulators/nes/`).
+
 ## Crates
 
 | Crate | Role | Status |

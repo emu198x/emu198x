@@ -34,3 +34,24 @@ Depends on both the 68000 CPU (built for Amiga) and Z80 CPU (done). The Mega Dri
 | `yamaha-ym2612` | FM synthesis |
 | `machine-sega-megadrive` | Machine wiring |
 | `emu198x-sega-megadrive` | GUI shell |
+
+## ROMs
+
+Cartridge ROMs (with header parsing); no system BIOS required for most carts
+(TMSS BIOS optional on later models).
+
+## Known unknowns / disproven hypotheses
+
+- **Open: not started.** Both CPUs are shared and validated; no Mega Drive
+  hardware runs yet.
+- **Verification targets** — the Sega VDP (two scroll planes + window + 80
+  sprites + DMA, "derived from the Master System VDP" — confirm how much
+  actually carries over), the YM2612 FM path, and the 68000/Z80 bus-arbitration
+  + bank-switch window are from secondary knowledge. Confirm against the Genesis
+  Software/Hardware Manuals and `emulators/multi-system/` (ares) before
+  implementing.
+
+## Validated against
+
+- 68000 (Tom Harte) + Z80 (Tom Harte/ZEXALL) cores — shared, validated
+  elsewhere. Nothing Mega-Drive-specific yet.

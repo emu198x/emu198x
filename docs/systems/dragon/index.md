@@ -412,7 +412,7 @@ cargo run --release -q -p emu198x-dragon --no-default-features -- \
   --trace-limit 80
 ```
 
-## Current Gaps
+## Not implemented / accuracy gaps
 
 1. Audio now follows the Dragon PIA DAC/mux/single-bit/cassette/cartridge-SND
    signal path and uses XRoar's measured level model. The local Backgammon audio
@@ -438,7 +438,31 @@ cargo run --release -q -p emu198x-dragon --no-default-features -- \
    the P2 controller register path, while raw address-mark/gap parsing remains.
 
 For the source-backed accuracy audit and implementation sequence, see
-[`dragon-accuracy-audit.md`](dragon-accuracy-audit.md).
+[`accuracy-audit.md`](accuracy-audit.md).
+
+## Known unknowns / disproven hypotheses
+
+- **Open: disk timing.** DragonDOS support is deliberately sector-backed; raw
+  WD2797 address-mark/gap encoding and full write-track timing are not modelled,
+  so copy-protected or timing-sensitive disk software is unverified.
+- **Open: display calibration.** The beam framebuffer is calibrated to a
+  372×243 diagnostic visible area + a zoomed XRoar comparison bridge, not a full
+  PAL timing/overscan model.
+- **Advisory, not hard reference:** PAK-vs-XRoar screenshots compare internal
+  trace signatures, because the synthetic XRoar snapshot import isn't a hard
+  state reference after resume.
+- **Verification targets** — the source-backed audit in
+  [`accuracy-audit.md`](accuracy-audit.md) is the worklist; the audio path is
+  pinned to XRoar's measured DAC/level model (a reputable secondary source, not
+  primary silicon).
+
+## Validated against
+
+- XRoar (canonical Dragon/CoCo emulator, `emulators/dragon-coco/`) — DAC/tape/
+  cartridge-SND level model, patched-XRoar screenshot comparison for CAS/PAK
+  smokes, deterministic trace signatures.
+- Real Dragon 32 BASIC ROM boot; DragonDOS `DIR`/`SAVE` real-ROM smokes.
+- See [`accuracy-audit.md`](accuracy-audit.md) for the source-backed sequence.
 
 ## Near-Term Plan
 

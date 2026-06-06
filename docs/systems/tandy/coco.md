@@ -44,3 +44,18 @@ The CoCo 1/2 share almost all hardware with the Dragon 32. The CoCo 3 adds signi
 | `extbas11.rom` | 8KB | Extended Color BASIC 1.1 |
 | `disk11.rom` | 8KB | Disk BASIC 1.1 (optional) |
 | `coco3.rom` | 32KB | CoCo 3 Super Extended BASIC (for CoCo 3) |
+
+## Known unknowns / disproven hypotheses
+
+- **Open: the "mostly configuration over Dragon" claim.** Plausible for CoCo
+  1/2 (shared 6809 + PIA/SAM/VDG) but unverified — the address-map, keyboard, and
+  CAS-format differences haven't been pinned to a source.
+- **Verification targets** — CoCo 1/2 vs Dragon address-map deltas, the CoCo
+  keyboard matrix, and the GIME chip (CoCo 3) are from secondary knowledge.
+  Confirm against the CoCo service manual / `emulators/dragon-coco/` (XRoar) and
+  the GIME datasheet before implementing.
+
+## Validated against
+
+- (Nothing yet — not started. The shared 6809 + Dragon chips are validated under
+  the Dragon page.)

@@ -31,10 +31,10 @@ The Spectrum boots, loads tapes, plays games, and has full audio. The 128K model
 | +2A | 40078 | 4 | $7FFD + $1FFD | Tape |
 | +3 | 40078 | 4 | $7FFD + $1FFD | Tape + 3" FDC |
 
-## Remaining
+## Not implemented / accuracy gaps
 
 ### Important
-- **128K tape loading** — auto-LOAD needs `USR 0` sequence for 128K mode entry
+- **128K tape loading** — auto-LOAD needs the `USR 0` sequence for 128K mode entry
 - **SZX snapshot format** — third-party snapshots often use this
 - **CRT shader** — WGSL fragment shader implementing `CrtParameters`
 
@@ -42,7 +42,30 @@ The Spectrum boots, loads tapes, plays games, and has full audio. The 128K model
 - **PZX/CSW tape formats** — niche but some titles only available in these
 - **Multiface/Interface 1** — peripheral emulation
 - **True +3 disk operations** — WRITE DATA, FORMAT TRACK commands for FDC
-- **+3 specific contention** — the 40078 gate array has slightly different timing from the 7K010E
+- **+3-specific contention** — the 40078 gate array has slightly different timing
+  from the 7K010E; not separately modelled.
+- **Scorpion ZS-256** — reaches CPU-liveness but not screen output (research
+  recorded, fix scoped).
+
+## Known unknowns / disproven hypotheses
+
+- **Open: ULA smoke strictness.** The 5 ULA/contention TAP smokes aren't yet
+  tightened to strict Spectron PNG comparison — they pass at a looser bar, so a
+  subtle contention regression could slip through. (Noted in
+  `docs/status/current-system-usability.md` as residual debt, not a launch gate.)
+- **Open: +3 contention model.** Assumed close to the 7K010E; the 40078's actual
+  timing is a verification target against primary ULA timing docs.
+- **Verification targets** — the contention patterns (6C001E / 7K010E phase
+  offset) are validated by TAP smokes and CPU oracles; the underlying timing
+  numbers should be confirmed against the primary ULA references in
+  `../../reference/` rather than treated as settled.
+
+## Validated against
+
+- CPU: Tom Harte 100%, ZEXDOC/ZEXALL pass, FUSE 1,351/1,356, Patrik Rak
+  `z80test` 6/6 (zero allowlist).
+- 262/262 runtime tests; 8/8 boot goldens; 6 ULA/contention TAP smokes.
+- Reference: fuse, zesarux, SpecIde, Spectrum MiSTer core (`emulators/zx-spectrum/`).
 
 ## Test coverage
 

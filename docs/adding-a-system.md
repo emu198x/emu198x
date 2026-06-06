@@ -10,6 +10,9 @@ Use instead:
 - [coherent development plan](plans/2026-04-12-emulator-suite-coherent-development-plan.md)
 - [testing policy](testing-policy.md)
 - `knowledge/decisions/crate-naming.md`
+- [per-system status docs](systems/README.md) — every system gets a
+  `docs/systems/<manufacturer>/<system>.md` status + gaps page; add it as part of
+  bringing the machine up (decision: `knowledge/decisions/per-system-status-docs.md`)
 
 Archived copy:
 
