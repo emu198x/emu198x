@@ -1,0 +1,61 @@
+# Acorn Electron
+
+## Status: Boots to BASIC `>`; keyboard types
+
+Boots to `Acorn Electron` / `BASIC` / `>` and types (`PRINT 123` executes).
+Headless extended system. 6502 + the Electron's custom ULA (inline) — no new chip
+crate.
+
+## What works
+
+- **Boot to BASIC** (2026-06-04) with the OS ROM (16K, SHA-256 `b63f…cda4`, TOSEC)
+  + Acorn BASIC II (byte-identical to BBC Model B BASIC II, md5 `2cc6…8e3d`).
+- **ULA** — BBC-compatible 8-colour palette, 8 display modes (0-6; no MODE 7
+  teletext), `$FE00` interrupt control, VBlank + RTC IRQ sources, ULA tone sound.
+- **Keyboard** — types into BASIC (paged-region read; see gaps).
+
+## Not implemented / accuracy gaps
+
+- **Keyboard read path** — currently scanned at `$FE00`; the real Electron reads
+  it through the paged region (`$8000-$BFFF`, ROM slot 8/9). Boot works; the paged
+  read is the accurate path.
+- **ULA bus contention** — CPU halves to 1 MHz during ULA RAM-fetch windows; this
+  port runs a flat 2 MHz. A significant gap on contention-sensitive software
+  (Elite, scrollers).
+- **Sideways ROM paging (`$FE05`)** — register stored but doesn't swap a paged-ROM
+  array in; only BASIC visible.
+- **Cassette (`$FE04`)** write-stub. **Snapshot** deferred. **No native window.**
+
+## Known unknowns / disproven hypotheses
+
+- **DISPROVEN: "the interrupt model is fine."** `$FE00` is the IRQ *enable*, not a
+  clear — the frozen-interrupt model was wrong (fixed 2026-06-05).
+- **DISPROVEN (donor ULA), three fixes vs MAME `electron_ula`:** (1) palette
+  register format is scrambled + inverted (`written ^ 0xFF`), not a nibble — the
+  stub painted the screen red; (2) `$FE02/$FE03` pack address bits A14-A6, not raw
+  high/low — naive decode scanned RAM garbage; (3) each 8×8 cell is 8 consecutive
+  bytes, text rows 10 lines apart (250 displayed) — the old raster stride was
+  wrong.
+- **Verification target** — ULA contention timing (the big accuracy gap).
+
+## Validated against
+
+- MAME `electron_ula` — palette, screen-start, display layout.
+- OS ROM (TOSEC) + BASIC II → `>`; `PRINT 123` executes.
+
+## Crates
+
+| Crate | Role |
+|-------|------|
+| `mos-6502` | CPU |
+| `machine-acorn-electron` (ULA inline) / `runtime-…` / `emu198x-acorn-electron` | wiring + runner |
+
+## ROMs
+
+OS + BASIC II at `~/.emu198x/roms/acorn-electron/` (`basic.rom`).
+
+## Launch
+
+```sh
+cargo run --release -p emu198x-acorn-electron -- --frames 300 --screenshot elk.png
+```

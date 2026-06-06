@@ -13,7 +13,7 @@ The NES path now has a usable NTSC machine/runtime/native baseline. It runs thro
 - **Input:** Two controller ports (D-pad + A/B/Select/Start)
 - **Storage:** Cartridge with mapper hardware (many variants)
 
-## Work needed
+## Implementation status
 
 - **6502 CPU / 2A03 variant** — done and validated by `nestest`
 - **PPU** — dot-driven 2C02 path with nametable mirroring and frame output
