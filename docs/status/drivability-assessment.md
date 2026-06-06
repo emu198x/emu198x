@@ -273,6 +273,7 @@ can't be — and it has already paid for itself.
 |---------|-----|--------|
 | Atari 2600 | Combat (1977) | **Bug found + fixed.** Joystick players were swapped between SWCHA nibbles — port 1 drove player 2 and vice-versa (`fb44ad3a`). Caught only because input *looked* wired but the tanks didn't move; the fix is grounded in MAME's `switch_A_r`. |
 | MSX1 | Gradius/Nemesis (Konami, 1986) | **Pass.** Boots the MSX BIOS to BASIC, loads the 128 KB Konami MegaROM, renders the title via TMS9918, and the PSG-port-A joystick drives the splash→menu trigger and the 1P/2P cursor (down moved the selection). No code change. |
+| Atari 5200 | Centipede (Atari, 1982) | **Renders clean; analog stick + keypad wired.** ANTIC/GTIA render the game-select and play screens correctly. The controller keypad (`start`/`pause`/`reset`/`0`-`9`/`*`/`#`) was unwired, so games couldn't be started; now wired through POKEY's keyboard scan (codes per MAME `a5200_keypads`). Validated end-to-end: **START** begins Centipede, the **analog stick** moves the shooter, and **fire** shoots. **Fully drivable.** |
 | Atari 7800 | Centipede, Dig Dug (Atari, 1987) | **MARIA rendering bug found + fixed; fire button wired.** Every game rendered garbage; four coupled MARIA DLL/zone decode bugs (below). After the fix both games render and play: Centipede boots into gameplay on fire, the joystick moves the shooter, and fire shoots (bullet visible). Joystick directions and the TIA `INPT` fire reads are bit-exact vs MAME. **Fully drivable.** |
 | Sord M5 | Dig Dug (Namco, 1982) | **Joystick pass; keyboard bug found + fixed.** Boots the 8 KB monitor ROM, runs the cartridge, renders Dig Dug via TMS9918. The `m5.input.joystick` query proves the JOY byte (`$37`) is bit-exact vs MAME (P1 right→`0x01`, down→`0x08`, +P2 up→`0x28`; `0x04` for left in-game). The keyboard I/O map was donor fiction; after the fix (below) the `"1"` key advances the title → ROUND 01 — it could not before. |
 
@@ -339,6 +340,24 @@ So the freeze is inside the cart's round-init state machine, stalled before it
 spawns. The hottest cart code gates on RAM `$754A`. Next step is reverse
 -engineering that wait, ideally against a MAME execution trace of the same ROM.
 A permanent `irq_acks()` diagnostic was added to the machine in the process.
+
+### Machines blocked on ROMs / media (not yet validatable)
+
+System BIOS images for these live in `~/.emu198x/roms/<machine>/`, but the pass
+can't drive them yet for the reasons below — none is a confirmed emulator bug:
+
+- **Mattel Aquarius** — boots (BIOS runs, the screen-clear works: char RAM is all
+  spaces, colour RAM uniform), but the display is garbage. Root cause pinned: the
+  8 KB `aquarius.rom` is pure system code, with **no character generator** — the
+  bytes at `CHAR_ROM_OFFSET` (`$1800`) are Z80 opcodes (`CD5E12`…), so every glyph,
+  including space, renders from code. The Aquarius char-gen is a separate 2 KB ROM
+  that isn't present in `~/.emu198x/roms/` or TOSEC. Fix once sourced: add it as a
+  second firmware and point `CHAR_ROM_OFFSET` at it. Blocked on the ROM.
+- **VIC-20** — boots to BASIC, but the binary has no `--cart` option (cartridge
+  media isn't wired), so there's no joystick-driving game. Validate the
+  freshly-wired joystick by register probe, or wire cart loading first.
+- **SVI-328** — BIOS present, but TOSEC has no SVI cartridge dumps (cassette
+  only); same register-probe-or-wire-media choice as VIC-20.
 
 Method notes for reproducers:
 - TOSEC ROMs are TorrentZipped; unzip first. Pick the mapper from the dump, not

@@ -304,6 +304,19 @@ impl Atari5200 {
         self.gtia.set_trigger(0, pressed);
     }
 
+    /// Press a controller-keypad key by its POKEY scan code, or release the
+    /// held key when `pressed` is false. The 5200 keypad is a 4×4 matrix POKEY
+    /// scans; the scan code is `((row << 2) | col) << 1` (MAME `a5200_keypads`),
+    /// e.g. Start (row 3, col 0) = `0x18`. POKEY latches the code, marks
+    /// "key down", and raises the keyboard interrupt the OS polls.
+    pub fn set_keypad(&mut self, code: u8, pressed: bool) {
+        if pressed {
+            self.pokey.press_key(code);
+        } else {
+            self.pokey.release_key();
+        }
+    }
+
     /// CPU reference.
     #[must_use]
     pub fn cpu(&self) -> &M6502 {

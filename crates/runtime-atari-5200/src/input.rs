@@ -14,8 +14,11 @@
 //! Direction convention: `left` / `up` → pot minimum, `right` / `down` →
 //! pot maximum, neither (or both) on an axis → centre. If a title reads
 //! inverted, flip the two constants below — the wiring is otherwise
-//! orientation-agnostic. The keypad (0-9, `*`, `#`, start/pause/reset) is
-//! not yet exposed by `machine-atari-5200`; wiring it is deferred.
+//! orientation-agnostic.
+//!
+//! The controller keypad (`start`, `pause`, `reset`, `0`-`9`, `*`, `#`) is
+//! momentary, not a held state, so it bypasses the analog/fire cache: a press
+//! latches the key's POKEY scan code, a release frees it.
 
 use emu198x_shell::InputEvent;
 use machine_atari_5200::Atari5200;
@@ -107,11 +110,46 @@ fn axis_to_pot(value: i16) -> u8 {
     u8::try_from((shifted * i32::from(POT_MAX)) / 65535).unwrap_or(POT_MAX)
 }
 
+/// The POKEY keyboard scan code for a keypad key name, per MAME
+/// `a5200_keypads`: the 4×4 matrix position encoded as `((row << 2) | col) << 1`.
+fn keypad_code(name: &str) -> Option<u8> {
+    Some(match name {
+        // row 3
+        "start" => 0x18,
+        "3" => 0x1A,
+        "2" => 0x1C,
+        "1" => 0x1E,
+        // row 2
+        "pause" => 0x10,
+        "6" => 0x12,
+        "5" => 0x14,
+        "4" => 0x16,
+        // row 1
+        "reset" => 0x08,
+        "9" => 0x0A,
+        "8" => 0x0C,
+        "7" => 0x0E,
+        // row 0
+        "#" | "hash" | "pound" => 0x02,
+        "0" => 0x04,
+        "*" | "star" | "asterisk" => 0x06,
+        _ => return None,
+    })
+}
+
 pub(crate) fn apply_input_event(
     machine: &mut Atari5200,
     cache: &mut ControllerCache,
     event: &InputEvent,
 ) {
+    // Keypad keys are momentary and POKEY-latched, not part of the held cache.
+    if let InputEvent::Button { name, pressed, .. } | InputEvent::Key { name, pressed } = event
+        && let Some(code) = keypad_code(&name.to_ascii_lowercase())
+    {
+        machine.set_keypad(code, *pressed);
+        return;
+    }
+
     let changed = match event {
         InputEvent::Axis { name, value, .. } => cache.set_axis(&name.to_ascii_lowercase(), *value),
         InputEvent::Button { name, pressed, .. } => {
@@ -150,6 +188,18 @@ mod tests {
         assert!(cache.set_digital("fire", true));
         assert!(cache.fire);
         assert!(!cache.set_digital("keypad5", true));
+    }
+
+    #[test]
+    fn keypad_codes_match_the_mame_matrix() {
+        // ((row << 2) | col) << 1. Start = row 3, col 0 = 0x18.
+        assert_eq!(keypad_code("start"), Some(0x18));
+        assert_eq!(keypad_code("reset"), Some(0x08));
+        assert_eq!(keypad_code("pause"), Some(0x10));
+        assert_eq!(keypad_code("0"), Some(0x04));
+        assert_eq!(keypad_code("1"), Some(0x1E));
+        assert_eq!(keypad_code("*"), Some(0x06));
+        assert_eq!(keypad_code("up"), None);
     }
 
     #[test]
