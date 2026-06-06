@@ -8,6 +8,8 @@ stand?", so a future session (or a new contributor, or the Code198x curriculum)
 starts from current truth instead of re-deriving it from code, commits, and
 scattered memory.
 
+For the at-a-glance roll-up across all systems, see [`index.md`](index.md).
+
 ## Where a page lives
 
 Derive the path mechanically from the machine crate name:
