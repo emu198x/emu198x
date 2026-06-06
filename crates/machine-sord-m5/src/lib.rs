@@ -157,6 +157,9 @@ pub struct SordM5 {
     tstates_per_frame: u64,
     vdp_phase: u32,
     frame_count: u64,
+    /// Count of IM 2 interrupt acknowledgements taken — a diagnostic for
+    /// whether the VDP/CTC frame interrupt is being delivered.
+    irq_acks: u64,
 }
 
 impl SordM5 {
@@ -195,7 +198,15 @@ impl SordM5 {
             tstates_per_frame,
             vdp_phase: 0,
             frame_count: 0,
+            irq_acks: 0,
         }
+    }
+
+    /// Number of IM 2 interrupt acknowledgements taken since power-on.
+    /// Diagnostic for VDP/CTC frame-interrupt delivery.
+    #[must_use]
+    pub fn irq_acks(&self) -> u64 {
+        self.irq_acks
     }
 
     /// Allocate (or resize) cart RAM at `$8000-$BFFF`. Some carts
@@ -271,6 +282,7 @@ impl SordM5 {
                 // lands on `$7002 -> $1861` (the VBlank jiffy handler),
                 // carrying the BIOS past VDP init.
                 self.cpu.data_in = self.ctc.acknowledge();
+                self.irq_acks += 1;
             }
             None => {}
         }
