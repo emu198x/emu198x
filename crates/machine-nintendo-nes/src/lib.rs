@@ -67,10 +67,24 @@ pub struct NesSnapshot {
     #[serde(default)]
     internal_master_clock: u64,
     frame_count: u64,
-    dma_cycles_remaining: u16,
+    #[serde(default)]
+    cpu_cycle_count: u64,
     dma_page: u8,
     dma_offset: u8,
-    dma_alignment_done: bool,
+    #[serde(default)]
+    sprite_dma_active: bool,
+    #[serde(default)]
+    sprite_dma_counter: u16,
+    #[serde(default)]
+    dma_read_value: u8,
+    #[serde(default)]
+    dmc_dma_active: bool,
+    #[serde(default)]
+    dma_need_halt: bool,
+    #[serde(default)]
+    dma_need_dummy: bool,
+    #[serde(default)]
+    dma_halt_done: bool,
     controller1_shift: u8,
     controller1_state: u8,
     #[serde(default)]
@@ -120,17 +134,36 @@ pub struct Nes {
     /// Completed frame counter.
     frame_count: u64,
 
-    // ── OAMDMA state ────────────────────────────────────────────
-    /// Remaining DMA stall cycles. When > 0, the CPU is frozen and
-    /// the DMA engine copies one byte per CPU cycle.
-    dma_cycles_remaining: u16,
-    /// Source page for the current OAMDMA transfer (`$XX00`).
+    /// CPU-cycle counter (advances every CPU cycle, *including* DMA
+    /// cycles — unlike `cpu.total_cycles`, which freezes while the CPU
+    /// is halted). Its parity drives the get/put alignment of DMA, the
+    /// 2A03's continuous read(get)/write(put) cycle phase.
+    cpu_cycle_count: u64,
+
+    // ── DMA state (OAM sprite DMA + DMC sample DMA) ─────────────
+    // Modelled on Mesen2's `NesCpu::ProcessPendingDma` (see
+    // `emulators/nes/Mesen2/Core/NES/NesCpu.cpp`): a get/put-parity
+    // state machine in which a DMC fetch interleaves with an in-flight
+    // OAM transfer, stealing an aligned get cycle.
+    /// Source page for the current OAM (sprite) DMA transfer (`$XX00`).
     dma_page: u8,
-    /// Current byte offset within the 256-byte DMA transfer.
+    /// Read offset within the 256-byte OAM DMA source page.
     dma_offset: u8,
-    /// Whether the DMA alignment cycle (odd CPU cycle penalty) has
-    /// been consumed.
-    dma_alignment_done: bool,
+    /// OAM (sprite) DMA in progress (`$4014` write → 256 read/write pairs).
+    sprite_dma_active: bool,
+    /// Cycle counter within the OAM transfer (0..=0x200); even = read
+    /// (get), odd = write (put).
+    sprite_dma_counter: u16,
+    /// Byte latched by the last OAM read, to be written on the next put.
+    dma_read_value: u8,
+    /// DMC sample DMA in progress (the DMC channel needs a byte).
+    dmc_dma_active: bool,
+    /// A halt cycle is pending (the cycle that stalls the CPU).
+    dma_need_halt: bool,
+    /// A dummy cycle is pending (DMC requires a dummy before its fetch).
+    dma_need_dummy: bool,
+    /// The initial halt cycle has run and the DMA loop is in progress.
+    dma_halt_done: bool,
 
     // ── Controller I/O ──────────────────────────────────────────
     /// Controller 1 shift register (active bits to be read out
@@ -181,10 +214,16 @@ impl Nes {
             master_clock: 0,
             internal_master_clock: 0,
             frame_count: 0,
-            dma_cycles_remaining: 0,
+            cpu_cycle_count: 0,
             dma_page: 0,
             dma_offset: 0,
-            dma_alignment_done: false,
+            sprite_dma_active: false,
+            sprite_dma_counter: 0,
+            dma_read_value: 0,
+            dmc_dma_active: false,
+            dma_need_halt: false,
+            dma_need_dummy: false,
+            dma_halt_done: false,
             controller1_shift: 0,
             controller1_state: 0,
             controller2_shift: 0,
@@ -208,8 +247,12 @@ impl Nes {
         self.cpu.reset();
         self.apu.soft_reset();
         // DMA / DMC state is dropped on reset.
-        self.dma_cycles_remaining = 0;
-        self.dma_alignment_done = false;
+        self.sprite_dma_active = false;
+        self.sprite_dma_counter = 0;
+        self.dmc_dma_active = false;
+        self.dma_need_halt = false;
+        self.dma_need_dummy = false;
+        self.dma_halt_done = false;
     }
 
     // ════════════════════════════════════════════════════════════
@@ -242,15 +285,27 @@ impl Nes {
         //    `nmi_occurred` BEFORE the PPU processes this CPU
         //    cycle's final PPU dot — the suppression window for
         //    blargg 06/07/08.
-        let do_cpu_tick = if self.dma_cycles_remaining > 0 {
-            self.tick_dma();
-            false
-        } else if self.apu.dmc.dma_pending {
-            // DMC sample DMA steals a CPU cycle. The APU keeps
-            // ticking, but the CPU does not advance this cycle.
-            let addr = self.apu.dmc.current_address;
-            let byte = self.cpu_read(addr);
-            self.apu.dmc.receive_dma_byte(byte);
+        // This is a CPU cycle (one of every three master ticks). Advance
+        // the get/put parity counter — it ticks during DMA cycles too,
+        // where `cpu.total_cycles` would freeze.
+        self.cpu_cycle_count += 1;
+
+        // Take a newly-pending DMC sample DMA under machine control; the
+        // machine then owns its halt → dummy → fetch sequence and can
+        // interleave it with an in-flight OAM transfer.
+        if self.apu.dmc.dma_pending && !self.dmc_dma_active {
+            self.apu.dmc.dma_pending = false;
+            self.dmc_dma_active = true;
+            self.dma_need_halt = true;
+            self.dma_need_dummy = true;
+        }
+
+        let dma_pending = self.sprite_dma_active || self.dmc_dma_active;
+        // DMA halts the CPU only on a read cycle (RDY gates reads, not
+        // writes); once the halt cycle has run the transfer runs to
+        // completion regardless of the (now frozen) CPU bus direction.
+        let do_cpu_tick = if dma_pending && (self.dma_halt_done || self.cpu.rw) {
+            self.dma_cycle();
             false
         } else {
             if self.cpu.rw {
@@ -323,36 +378,82 @@ impl Nes {
     //  OAMDMA
     // ════════════════════════════════════════════════════════════
 
-    /// One CPU-cycle's worth of OAMDMA work.
-    fn tick_dma(&mut self) {
-        if !self.dma_alignment_done {
-            // Alignment cycle: if the CPU was on an odd cycle when
-            // $4014 was written, an extra dummy read cycle is
-            // inserted. We approximate this by always inserting one
-            // alignment cycle (514 total) — the odd/even distinction
-            // is a refinement that matters for sub-cycle-accurate
-            // DMC DMA interaction.
-            self.dma_alignment_done = true;
-            self.dma_cycles_remaining -= 1;
+    /// One CPU cycle of DMA work — OAM (sprite) DMA and/or DMC sample
+    /// DMA. The CPU is halted; this performs the cycle's bus op.
+    ///
+    /// Modelled on Mesen2's `NesCpu::ProcessPendingDma`. Get/put
+    /// alignment is keyed off [`Self::cpu_cycle_count`] (a get cycle is
+    /// even), since the 2A03 alternates read(get)/write(put) cycles
+    /// continuously. The first cycle is always a halt (a dummy read that
+    /// stalls the CPU); thereafter, on a get cycle the DMC fetches if
+    /// ready (stealing the cycle), else OAM reads a byte, else a dummy
+    /// read; on a put cycle OAM writes the latched byte, else an
+    /// alignment dummy. A DMC request raised mid-OAM has its halt/dummy
+    /// absorbed by the OAM cycles, then steals the next aligned get.
+    fn dma_cycle(&mut self) {
+        // Halt cycle: the first DMA cycle stalls the CPU with a dummy
+        // read at its pending address (side effects intended — this is
+        // the source of the DMC/controller read glitch).
+        if !self.dma_halt_done {
+            self.dma_halt_done = true;
+            self.dma_need_halt = false;
+            let _ = self.cpu_read(self.cpu.addr);
             return;
         }
 
-        // Alternating read/write cycles: even = read from CPU
-        // memory, odd = write to PPU OAM.
-        let cycle_in_transfer = 256u16 * 2 - (self.dma_cycles_remaining - 1);
-        if cycle_in_transfer & 1 == 0 {
-            // Read cycle.
-            let addr = u16::from(self.dma_page) << 8 | u16::from(self.dma_offset);
-            self.cpu.data_in = self.cpu_read(addr);
+        let get_cycle = self.cpu_cycle_count & 1 == 0;
+        if get_cycle {
+            if self.dmc_dma_active && !self.dma_need_halt && !self.dma_need_dummy {
+                // DMC ready — fetch the sample byte, stealing this get
+                // cycle from any in-flight OAM transfer.
+                self.dma_consume_flag();
+                let addr = self.apu.dmc.current_address;
+                let byte = self.cpu_read(addr);
+                self.apu.dmc.receive_dma_byte(byte);
+                self.dmc_dma_active = false;
+            } else if self.sprite_dma_active {
+                // OAM read.
+                self.dma_consume_flag();
+                let addr = u16::from(self.dma_page) << 8 | u16::from(self.dma_offset);
+                self.dma_read_value = self.cpu_read(addr);
+                self.dma_offset = self.dma_offset.wrapping_add(1);
+                self.sprite_dma_counter += 1;
+            } else {
+                // DMC running but not yet ready (halt/dummy pending),
+                // no OAM transfer: a dummy read.
+                self.dma_consume_flag();
+                let _ = self.cpu_read(self.cpu.addr);
+            }
+        } else if self.sprite_dma_active && self.sprite_dma_counter & 1 == 1 {
+            // OAM write — route through OAMADDR ($2003), which the PPU
+            // post-increments, so the copy starts at OAMADDR and wraps.
+            self.dma_consume_flag();
+            self.ppu.oam_dma_write(self.dma_read_value);
+            self.sprite_dma_counter += 1;
+            if self.sprite_dma_counter == 0x200 {
+                self.sprite_dma_active = false;
+            }
         } else {
-            // Write cycle: route through OAMADDR ($2003), which the
-            // copy post-increments — so the transfer starts at OAMADDR
-            // and wraps. `dma_offset` advances the read source only.
-            self.ppu.oam_dma_write(self.cpu.data_in);
-            self.dma_offset = self.dma_offset.wrapping_add(1);
+            // Put cycle with no OAM write due: alignment dummy read.
+            self.dma_consume_flag();
+            let _ = self.cpu_read(self.cpu.addr);
         }
 
-        self.dma_cycles_remaining -= 1;
+        if !self.sprite_dma_active && !self.dmc_dma_active {
+            self.dma_halt_done = false;
+        }
+    }
+
+    /// Clear one pending DMA halt/dummy flag per cycle (Mesen2's
+    /// `processCycle`): OAM cycles double as the DMC's halt/dummy when
+    /// both DMAs run together, so the DMC adds no extra cycles beyond the
+    /// one get cycle it steals.
+    fn dma_consume_flag(&mut self) {
+        if self.dma_need_halt {
+            self.dma_need_halt = false;
+        } else if self.dma_need_dummy {
+            self.dma_need_dummy = false;
+        }
     }
 
     // ════════════════════════════════════════════════════════════
@@ -438,15 +539,15 @@ impl Nes {
             // $2000-$3FFF: PPU registers.
             0x2000..=0x3FFF => self.ppu.cpu_write(addr, value, self.mapper.as_mut()),
 
-            // $4014: OAMDMA — triggers a 513/514-cycle CPU stall.
+            // $4014: OAMDMA — halts the CPU and copies 256 bytes from
+            // page $XX00 to OAM. A halt cycle + 256 read/write pairs =
+            // 513 or 514 cycles by get/put alignment; see `dma_cycle`.
             0x4014 => {
                 self.dma_page = value;
                 self.dma_offset = 0;
-                self.dma_alignment_done = false;
-                // 1 alignment + 256 read + 256 write = 513 cycles.
-                // (514 on odd CPU cycles — we always do 513 + 1
-                // alignment = 514 for simplicity.)
-                self.dma_cycles_remaining = 514;
+                self.sprite_dma_counter = 0;
+                self.sprite_dma_active = true;
+                self.dma_need_halt = true;
             }
 
             // $4016: Controller strobe. Bit 0 controls both
@@ -582,10 +683,16 @@ impl Nes {
             master_clock: self.master_clock,
             internal_master_clock: self.internal_master_clock,
             frame_count: self.frame_count,
-            dma_cycles_remaining: self.dma_cycles_remaining,
+            cpu_cycle_count: self.cpu_cycle_count,
             dma_page: self.dma_page,
             dma_offset: self.dma_offset,
-            dma_alignment_done: self.dma_alignment_done,
+            sprite_dma_active: self.sprite_dma_active,
+            sprite_dma_counter: self.sprite_dma_counter,
+            dma_read_value: self.dma_read_value,
+            dmc_dma_active: self.dmc_dma_active,
+            dma_need_halt: self.dma_need_halt,
+            dma_need_dummy: self.dma_need_dummy,
+            dma_halt_done: self.dma_halt_done,
             controller1_shift: self.controller1_shift,
             controller1_state: self.controller1_state,
             controller2_shift: self.controller2_shift,
@@ -610,10 +717,16 @@ impl Nes {
         self.master_clock = snapshot.master_clock;
         self.internal_master_clock = snapshot.internal_master_clock;
         self.frame_count = snapshot.frame_count;
-        self.dma_cycles_remaining = snapshot.dma_cycles_remaining;
+        self.cpu_cycle_count = snapshot.cpu_cycle_count;
         self.dma_page = snapshot.dma_page;
         self.dma_offset = snapshot.dma_offset;
-        self.dma_alignment_done = snapshot.dma_alignment_done;
+        self.sprite_dma_active = snapshot.sprite_dma_active;
+        self.sprite_dma_counter = snapshot.sprite_dma_counter;
+        self.dma_read_value = snapshot.dma_read_value;
+        self.dmc_dma_active = snapshot.dmc_dma_active;
+        self.dma_need_halt = snapshot.dma_need_halt;
+        self.dma_need_dummy = snapshot.dma_need_dummy;
+        self.dma_halt_done = snapshot.dma_halt_done;
         self.controller1_shift = snapshot.controller1_shift;
         self.controller1_state = snapshot.controller1_state;
         self.controller2_shift = snapshot.controller2_shift;
@@ -637,10 +750,16 @@ impl Nes {
             master_clock: snapshot.master_clock,
             internal_master_clock: snapshot.internal_master_clock,
             frame_count: snapshot.frame_count,
-            dma_cycles_remaining: snapshot.dma_cycles_remaining,
+            cpu_cycle_count: snapshot.cpu_cycle_count,
             dma_page: snapshot.dma_page,
             dma_offset: snapshot.dma_offset,
-            dma_alignment_done: snapshot.dma_alignment_done,
+            sprite_dma_active: snapshot.sprite_dma_active,
+            sprite_dma_counter: snapshot.sprite_dma_counter,
+            dma_read_value: snapshot.dma_read_value,
+            dmc_dma_active: snapshot.dmc_dma_active,
+            dma_need_halt: snapshot.dma_need_halt,
+            dma_need_dummy: snapshot.dma_need_dummy,
+            dma_halt_done: snapshot.dma_halt_done,
             controller1_shift: snapshot.controller1_shift,
             controller1_state: snapshot.controller1_state,
             controller2_shift: snapshot.controller2_shift,
@@ -749,11 +868,30 @@ mod tests {
     }
 
     #[test]
-    fn oamdma_write_triggers_stall() {
+    fn oamdma_write_arms_sprite_dma() {
         let mut nes = nop_nes();
         nes.cpu_write(0x4014, 0x02); // DMA from page $0200
-        assert_eq!(nes.dma_cycles_remaining, 514);
+        assert!(nes.sprite_dma_active, "OAM DMA armed");
+        assert!(nes.dma_need_halt, "halt cycle pending");
         assert_eq!(nes.dma_page, 0x02);
+    }
+
+    #[test]
+    fn oamdma_copies_256_bytes() {
+        let mut nes = nop_nes();
+        // Run past the reset bootstrap so the CPU is executing NOPs.
+        for _ in 0..30 {
+            nes.tick();
+        }
+        nes.cpu_write(0x4014, 0x02);
+        // Tick until the OAM DMA completes (halt + 256 read/write pairs).
+        let mut guard = 0;
+        while nes.sprite_dma_active && guard < 4000 {
+            nes.tick();
+            guard += 1;
+        }
+        assert!(!nes.sprite_dma_active, "OAM DMA completes");
+        assert_eq!(nes.sprite_dma_counter, 0x200, "256 bytes copied");
     }
 
     #[test]
@@ -820,28 +958,43 @@ mod tests {
     }
 
     #[test]
-    fn dmc_dma_request_steals_cpu_cycle_and_fetches_sample_byte() {
+    fn dmc_dma_request_stalls_cpu_and_fetches_sample_byte() {
         let mut prg = vec![0xEA; 16384];
         prg[0] = 0xAB;
         prg[0x3FFC] = 0x00;
         prg[0x3FFD] = 0x80;
         let mapper = Box::new(Nrom::new(prg, Vec::new(), Mirroring::Horizontal));
         let mut nes = Nes::new(mapper);
+        // Run past the reset bootstrap so the CPU is fetching opcodes.
+        for _ in 0..30 {
+            nes.tick();
+        }
         nes.apu.dmc.current_address = 0xC000;
         nes.apu.dmc.bytes_remaining = 1;
         nes.apu.dmc.dma_pending = true;
-        let cpu_cycles = nes.cpu.total_cycles;
+        let cpu_cycles_before = nes.cpu.total_cycles;
 
-        nes.tick();
-        nes.tick();
-        nes.tick();
+        // DMC DMA now takes several CPU cycles (halt + dummy + possible
+        // alignment + fetch); tick until it completes.
+        let mut ticks = 0u32;
+        while (nes.apu.dmc.dma_pending || nes.dmc_dma_active) && ticks < 60 {
+            nes.tick();
+            ticks += 1;
+        }
 
-        assert_eq!(
-            nes.cpu.total_cycles, cpu_cycles,
-            "DMC DMA should stall CPU for this CPU cycle"
-        );
+        assert!(!nes.dmc_dma_active, "DMC DMA completes");
         assert!(!nes.apu.dmc.dma_pending);
-        assert_eq!(nes.apu.dmc.current_address, 0xC001);
+        assert_eq!(
+            nes.apu.dmc.current_address, 0xC001,
+            "sample byte fetched and address advanced"
+        );
+        // The CPU was halted through the DMA, so it advanced by fewer
+        // cycles than the CPU cycles that elapsed.
+        let cpu_advanced = nes.cpu.total_cycles - cpu_cycles_before;
+        assert!(
+            cpu_advanced < u64::from(ticks),
+            "CPU stalled during DMC DMA (advanced {cpu_advanced} of {ticks} ticks)"
+        );
     }
 
     #[test]
