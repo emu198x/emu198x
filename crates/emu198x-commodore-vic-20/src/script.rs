@@ -25,6 +25,10 @@ ROMs (all required):
 Hardware:
     --region MODE              ntsc | pal [default: pal]
     --ram-expansion-kb N       0 (unexpanded) / 3 (low) / 3+N (high) [default: 0]
+    --prg PATH                 inject a .PRG after boot and auto-RUN it (match
+                               RAM to the load address, e.g. +8K for $1201)
+    --prg-sys                  launch the --prg with SYS <load-addr> (machine
+                               code) instead of RUN (BASIC)
     --frames N                 frames to run [default: 0]
 
 Capture:
@@ -43,6 +47,8 @@ struct Cli {
     char_rom: Option<PathBuf>,
     region: Region,
     ram_expansion_kb: usize,
+    prg: Option<PathBuf>,
+    prg_sys: bool,
     frames: u32,
     screenshot: Option<PathBuf>,
     audio_capture: Option<PathBuf>,
@@ -55,6 +61,8 @@ impl Default for Cli {
             kernal: None,
             basic: None,
             char_rom: None,
+            prg: None,
+            prg_sys: false,
             region: Region::Pal,
             ram_expansion_kb: 0,
             frames: 0,
@@ -117,6 +125,8 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
             "--audio-capture" => {
                 cli.audio_capture = Some(PathBuf::from(next_arg(&mut iter, "--audio-capture")));
             }
+            "--prg" => cli.prg = Some(PathBuf::from(next_arg(&mut iter, "--prg"))),
+            "--prg-sys" => cli.prg_sys = true,
             "--script" => cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script"))),
             "--headless" => {}
             "--help" | "-h" => {
@@ -208,6 +218,20 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
     session
         .prepare(&media, &[])
         .map_err(|err| format!("machine preparation failed: {err}"))?;
+
+    // A `.PRG` is injected after a short boot so the KERNAL has reached READY
+    // (and set TXTTAB), then auto-RUN through the keyboard buffer.
+    if let Some(path) = &cli.prg {
+        let bytes = fs::read(path)
+            .map_err(|err| format!("failed to read --prg {}: {err}", path.display()))?;
+        session
+            .run_frames(150)
+            .map_err(|err| format!("boot-to-READY run failed: {err}"))?;
+        session
+            .machine_mut()
+            .autoload_prg(&bytes, cli.prg_sys)
+            .map_err(|err| format!("PRG autoload failed: {err}"))?;
+    }
 
     let mut observations: Vec<ScriptObservation> = Vec::new();
     if let Some(path) = &cli.script {

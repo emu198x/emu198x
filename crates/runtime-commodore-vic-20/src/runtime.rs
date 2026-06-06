@@ -158,6 +158,55 @@ impl Vic20Runtime {
         self.machine.as_mut()
     }
 
+    /// Inject a `.PRG` image into RAM and queue a launch command so it runs
+    /// itself. The first two bytes are the little-endian load address; the rest
+    /// is copied there. BASIC's end-of-program / start-of-variables pointers
+    /// (`$2D`-`$32`) are set just past the program, then the launch command is
+    /// placed in the KERNAL keyboard buffer (`$0277`, count at `$C6`) so the
+    /// editor runs it once the machine is at READY: `RUN` for a BASIC program,
+    /// or `SYS <load-address>` (`sys = true`) for a machine-code program (whose
+    /// first byte is its entry point).
+    ///
+    /// The machine must already be booted to READY and configured with RAM that
+    /// puts the BASIC start (`TXTTAB`) at the PRG's load address — e.g. a `$1201`
+    /// program needs the `+8K` block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no machine is loaded or the image is too short.
+    pub fn autoload_prg(&mut self, bytes: &[u8], sys: bool) -> Result<(), String> {
+        let machine = self.machine.as_mut().ok_or("VIC-20 not initialised")?;
+        if bytes.len() < 3 {
+            return Err("PRG image too short".into());
+        }
+        let load = u16::from(bytes[0]) | (u16::from(bytes[1]) << 8);
+        for (i, &byte) in bytes[2..].iter().enumerate() {
+            let offset = u16::try_from(i).map_err(|_| "PRG larger than 64 KB")?;
+            machine.poke(load.wrapping_add(offset), byte);
+        }
+        let body = u16::try_from(bytes.len() - 2).map_err(|_| "PRG larger than 64 KB")?;
+        let end = load.wrapping_add(body);
+        let [lo, hi] = end.to_le_bytes();
+        // VARTAB / ARYTAB / STREND all point just past the program.
+        for base in [0x2Du16, 0x2F, 0x31] {
+            machine.poke(base, lo);
+            machine.poke(base + 1, hi);
+        }
+        // Queue the launch command + RETURN (PETSCII == ASCII for these chars).
+        let command = if sys {
+            format!("SYS{load}\r")
+        } else {
+            "RUN\r".to_owned()
+        };
+        for (i, &byte) in command.as_bytes().iter().enumerate() {
+            let offset = u16::try_from(i).map_err(|_| "launch command too long")?;
+            machine.poke(0x0277 + offset, byte);
+        }
+        let count = u8::try_from(command.len()).map_err(|_| "launch command too long")?;
+        machine.poke(0x00C6, count); // NDX: characters queued
+        Ok(())
+    }
+
     #[must_use]
     pub fn model(&self) -> Model {
         self.model
