@@ -29,20 +29,20 @@ Rachel client (offline/AI — a **separate axis** from Net; see
 |--------|-----------|--------|-------|-----|--------|
 | [Atari 800XL](atari/800xl.md) | BASIC READY; types | fixed-DMA (relaxed) | mcp | Yes | ✅ |
 | [Commodore VIC-20](commodore/vic-20.md) | READY; PRG autoload | relaxed | mcp | Yes | ✅ |
-| [MSX1](msx/index.md) | MSX BASIC | scanline-batched (3:2) | mcp | Yes | ✅ |
+| [MSX1](msx/index.md) | MSX BASIC | per-dot VDP (3:2 CPU phase relaxed) | mcp | Yes | ✅ |
 | [Acorn Electron](acorn/electron.md) | BASIC `>`; types | flat-clock (relaxed) | mcp | Marginal | ✅ |
 | [Acorn BBC Micro](acorn/bbc-micro.md) | OS reaches BASIC slot | flat-clock (relaxed) | mcp | Yes | ✅ |
 | [Oric Atmos](oric/atmos.md) | BASIC; types | end-of-frame | mcp | Marginal | ✅ |
-| [Sord M5](sord/m5.md) | Carts play; Dig Dug | scanline-batched VDP | mcp | Marginal | — |
-| [Memotech MTX](memotech/mtx.md) | BASIC `Ready` | scanline-batched | mcp | Marginal | — |
-| [Tatung Einstein](tatung/einstein.md) | MOS prompt; types | scanline-batched | mcp | Marginal | — |
-| [Spectravideo SVI-328](spectravideo/svi-328.md) | SV-BASIC; types | scanline-batched | mcp | Marginal | — |
+| [Sord M5](sord/m5.md) | Carts play; Dig Dug | per-dot VDP | mcp | Marginal | — |
+| [Memotech MTX](memotech/mtx.md) | BASIC `Ready` | per-dot VDP | mcp | Marginal | — |
+| [Tatung Einstein](tatung/einstein.md) | MOS prompt; types | per-dot VDP | mcp | Marginal | — |
+| [Spectravideo SVI-328](spectravideo/svi-328.md) | SV-BASIC; types | per-dot VDP | mcp | Marginal | — |
 | [Commodore PET](commodore/pet.md) | BASIC `READY.` | relaxed (1× CRTC) | mcp | Marginal | — |
 | [Jupiter Ace](jupiter/ace.md) | Forth; interactive | hc-ish; e-o-f display | mcp | No | target (planned) |
 | [Mattel Aquarius](mattel/aquarius.md) | BASIC + carts play | end-of-frame | mcp | No | — |
 | [Sega Master System](sega/master-system.md) | Cart title (Mode 4) | scanline-tick (loosest) | mcp | Marginal | ✅ |
-| [Sega SG-1000](sega/sg-1000.md) | Cart title | scanline-batched (3:2) | mcp | No | — |
-| [ColecoVision](coleco/colecovision.md) | BIOS title | scanline-batched (3:1!) | mcp | Marginal | ✅ |
+| [Sega SG-1000](sega/sg-1000.md) | Cart title | per-dot VDP (3:2 phase relaxed) | mcp | No | — |
+| [ColecoVision](coleco/colecovision.md) | BIOS title | per-dot VDP (3:1 phase relaxed!) | mcp | Marginal | ✅ |
 | [Atari 2600](atari/2600.md) | Combat playable | pixel-level TIA | mcp | Yes | ✅ |
 | [Atari 5200](atari/5200.md) | Pac-Man menu | fixed-DMA (relaxed) | mcp | No | ✅ (offline) |
 | [Atari 7800](atari/7800.md) | Asteroids renders | zone-DMA | mcp | No | — |

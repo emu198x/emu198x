@@ -18,7 +18,6 @@ the MSX family home; MSX2/2+/TurboR would be siblings.)
 
 ## Not implemented / accuracy gaps
 
-- **TMS9918A scanline-batched render** (shared with Coleco/SG-1000).
 - **Subslot expansion** — MSX1 doesn't need it; MSX2+ uses `$FFFF` writes.
   Recognised in the spec, disabled.
 - **Joystick / cassette / printer** — PSG R14/R15 joystick hookup exists chip-side
@@ -41,10 +40,11 @@ the MSX family home; MSX2/2+/TurboR would be siblings.)
 ## Timing & cycle-accuracy
 
 - **Master clock & dividers** — 10.738635 MHz. CPU = ÷3 ≈ 3.58 MHz; VDP dot ÷2.
-- **Timing model realised** — the **correct 3:2 VDP-dot phase clock**; VDP render
-  is **scanline-batched** (shared TMS9918 family debt).
+- **Timing model realised** — the **correct 3:2 VDP-dot phase clock** **and** the
+  shared **per-dot** VDP render (each pixel drawn at its dot; `ti-tms9918::tick`).
 - **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
-- **Distance to full cycle-accuracy** — per-dot VDP rendering.
+- **Distance to full cycle-accuracy** — VDP render and phase are both in place;
+  remaining gaps are CPU bus-cycle timing.
 
 ## Tooling & drivability
 

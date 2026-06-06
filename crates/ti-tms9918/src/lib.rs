@@ -2,12 +2,13 @@
 //!
 //! Adapted from `Emu198x-Oldest/crates/ti-tms9918` (port 2026-06-01) as the
 //! starting point for ColecoVision and the rest of the TMS9918 family
-//! (SG-1000, MSX, Sord M5, Memotech MTX, Spectravideo SV-328). Donor
-//! tick model is **dot-clocked but renders one scanline as a batch at
-//! line-wrap**, not pixel-incremental — this is a known accuracy
-//! compromise to land before refinement against real-software smokes.
-//! See `docs/status/outstanding-work.md` § ColecoVision for the
-//! accuracy backlog.
+//! (SG-1000, MSX, Sord M5, Memotech MTX, Spectravideo SV-328). The donor
+//! tick model was dot-clocked but rendered each scanline as a batch at
+//! line-wrap; [`tick`](Tms9918::tick) now draws **one pixel per dot** at the
+//! moment it is scanned out, so a mid-line register write affects only the
+//! pixels drawn after it (beam-follows-the-registers). For a static frame
+//! the output is byte-identical to the old batch model — every pixel routes
+//! through the same `bg_pixel`/sprite logic.
 //!
 //! The TMS9918 family is a tile-and-sprite video chip with 16 KB of dedicated
 //! VRAM, accessed through two I/O ports (data and control). It supports four
@@ -146,6 +147,12 @@ pub struct Tms9918 {
     /// Framebuffer: 256×192 ARGB32 pixels.
     framebuffer: Vec<u32>,
 
+    /// Per-line sprite colour-index buffer (0 = no sprite pixel). Evaluated
+    /// once at the start of each active line (dot 0) and overlaid per pixel
+    /// as the line is drawn. Transient — recomputed every line, so it is not
+    /// part of the saved state.
+    sprite_buf: [u8; 256],
+
     /// Whether an interrupt is being asserted (active-low INT pin).
     pub interrupt: bool,
 
@@ -169,6 +176,7 @@ impl Tms9918 {
             dot: 0,
             region,
             framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT) as usize],
+            sprite_buf: [0; 256],
             interrupt: false,
             frame_count: 0,
         }
@@ -308,22 +316,38 @@ impl Tms9918 {
 
     /// Tick one dot (pixel clock). Call at the VDP dot clock rate
     /// (~5.37 MHz). Returns true when a frame is complete.
+    ///
+    /// Rendering is **per dot**: each active pixel is drawn at the dot it is
+    /// scanned out, using the register/VRAM state live at that moment. A
+    /// register write part-way through a line therefore affects only the
+    /// pixels drawn after it — the same beam-follows-the-registers behaviour
+    /// as the real chip. For a static frame (no writes during active display)
+    /// this is byte-identical to the previous scanline-batched model, because
+    /// every pixel shares the same `bg_pixel`/sprite logic.
     pub fn tick(&mut self) -> bool {
+        // Frame start: paint the whole framebuffer with the current backdrop
+        // so the border regions (and the left/right columns of each active
+        // row) carry the backdrop colour; active pixels overwrite the
+        // 256 x 192 interior as they are drawn.
+        if self.scanline == 0 && self.dot == 0 {
+            self.fill_border();
+        }
+
+        // Start of an active line: evaluate this line's sprites once (sets the
+        // 5th-sprite and collision status flags and fills `sprite_buf`).
+        if self.scanline < 192 && self.dot == 0 {
+            self.prepare_line_sprites(self.scanline as usize);
+        }
+
+        // Draw the active pixel scanned out at this dot.
+        if self.scanline < 192 && self.dot < ACTIVE_WIDTH as u16 {
+            self.render_pixel(self.scanline as usize, self.dot as usize);
+        }
+
+        // Advance the dot / scanline.
         self.dot += 1;
         if self.dot >= 342 {
             self.dot = 0;
-
-            // Paint the entire framebuffer with the current backdrop
-            // colour at frame start; active rendering then overwrites
-            // the 256 x 192 interior, leaving the border around it.
-            if self.scanline == 0 {
-                self.fill_border();
-            }
-
-            // Render this scanline if it's in the active display area.
-            if self.scanline < 192 {
-                self.render_scanline(self.scanline);
-            }
 
             // VBlank interrupt at the end of active display.
             if self.scanline == 192 {
@@ -443,32 +467,53 @@ impl Tms9918 {
         self.framebuffer.fill(backdrop);
     }
 
+    /// Render one full active scanline by drawing every pixel through the same
+    /// per-dot path used by [`tick`](Self::tick). Kept for direct/batched use
+    /// (tests, `tick_scanline`); produces identical output to the per-dot loop
+    /// because both share `bg_pixel` and the sprite buffer.
     fn render_scanline(&mut self, line: u16) {
         let line = line as usize;
-        let offset = (BORDER_TOP as usize + line) * FB_WIDTH as usize + BORDER_LEFT as usize;
+        self.prepare_line_sprites(line);
+        for x in 0..ACTIVE_WIDTH as usize {
+            self.render_pixel(line, x);
+        }
+    }
 
+    // -----------------------------------------------------------------------
+    // Per-pixel rendering
+    // -----------------------------------------------------------------------
+
+    /// Draw the active pixel at column `x` of `line`: the background pixel for
+    /// the current mode, overlaid by this line's sprite pixel if present.
+    fn render_pixel(&mut self, line: usize, x: usize) {
+        let bg = self.bg_pixel(line, x);
+        let sprite = self.sprite_buf[x];
+        let pixel = if sprite != 0 {
+            PALETTE[sprite as usize]
+        } else {
+            bg
+        };
+        let idx = (BORDER_TOP as usize + line) * FB_WIDTH as usize + BORDER_LEFT as usize + x;
+        self.framebuffer[idx] = pixel;
+    }
+
+    /// The background colour at column `x` of `line`, before sprites. Returns
+    /// the backdrop when the display is blanked.
+    fn bg_pixel(&self, line: usize, x: usize) -> u32 {
         if !self.display_enabled() {
-            let bg = self.backdrop_color();
-            self.framebuffer[offset..offset + ACTIVE_WIDTH as usize].fill(bg);
-            return;
+            return self.backdrop_color();
         }
-
         match self.mode() {
-            Mode::GraphicsI => self.render_graphics_i(line, offset),
-            Mode::GraphicsII => self.render_graphics_ii(line, offset),
-            Mode::Text => self.render_text(line, offset),
-            Mode::Multicolor => self.render_multicolor(line, offset),
-        }
-
-        // Sprites (disabled in Text mode).
-        if self.mode() != Mode::Text {
-            self.render_sprites(line, offset);
+            Mode::GraphicsI => self.graphics_i_pixel(line, x),
+            Mode::GraphicsII => self.graphics_ii_pixel(line, x),
+            Mode::Text => self.text_pixel(line, x),
+            Mode::Multicolor => self.multicolor_pixel(line, x),
         }
     }
 
     // -- Graphics I --
 
-    fn render_graphics_i(&mut self, line: usize, offset: usize) {
+    fn graphics_i_pixel(&self, line: usize, x: usize) -> u32 {
         let name_base = self.name_table_addr();
         let pattern_base = self.pattern_table_addr();
         let color_base = self.color_table_addr();
@@ -476,42 +521,33 @@ impl Tms9918 {
 
         let tile_row = line / 8;
         let row_in_tile = line & 7;
+        let tile_col = x / 8;
+        let bit = x & 7;
 
-        for tile_col in 0..32 {
-            let name_addr = name_base + tile_row * 32 + tile_col;
-            let name = self.vram[name_addr & 0x3FFF] as usize;
+        let name = self.vram[(name_base + tile_row * 32 + tile_col) & 0x3FFF] as usize;
+        let pattern_byte = self.vram[(pattern_base + name * 8 + row_in_tile) & 0x3FFF];
 
-            let pattern_byte = self.vram[(pattern_base + name * 8 + row_in_tile) & 0x3FFF];
+        // Color: one byte per group of 8 tiles
+        let color_byte = self.vram[(color_base + name / 8) & 0x3FFF];
+        let fg_idx = (color_byte >> 4) as usize;
+        let bg_idx = (color_byte & 0x0F) as usize;
 
-            // Color: one byte per group of 8 tiles
-            let color_byte = self.vram[(color_base + name / 8) & 0x3FFF];
-            let fg_idx = (color_byte >> 4) as usize;
-            let bg_idx = (color_byte & 0x0F) as usize;
-            let fg = if fg_idx == 0 {
+        if pattern_byte & (0x80 >> bit) != 0 {
+            if fg_idx == 0 {
                 backdrop
             } else {
                 PALETTE[fg_idx]
-            };
-            let bg = if bg_idx == 0 {
-                backdrop
-            } else {
-                PALETTE[bg_idx]
-            };
-
-            for bit in 0..8 {
-                let pixel = if pattern_byte & (0x80 >> bit) != 0 {
-                    fg
-                } else {
-                    bg
-                };
-                self.framebuffer[offset + tile_col * 8 + bit] = pixel;
             }
+        } else if bg_idx == 0 {
+            backdrop
+        } else {
+            PALETTE[bg_idx]
         }
     }
 
     // -- Graphics II --
 
-    fn render_graphics_ii(&mut self, line: usize, offset: usize) {
+    fn graphics_ii_pixel(&self, line: usize, x: usize) -> u32 {
         let name_base = self.name_table_addr();
         let backdrop = self.backdrop_color();
 
@@ -524,45 +560,40 @@ impl Tms9918 {
         let tile_row = line / 8;
         let row_in_tile = line & 7;
         let zone = tile_row / 8; // 0, 1, or 2
+        let tile_col = x / 8;
+        let bit = x & 7;
 
-        for tile_col in 0..32 {
-            let name_addr = name_base + tile_row * 32 + tile_col;
-            let name = self.vram[name_addr & 0x3FFF] as usize;
+        let name = self.vram[(name_base + tile_row * 32 + tile_col) & 0x3FFF] as usize;
+        let effective = (name + zone * 256) & pattern_mask;
 
-            let effective = (name + zone * 256) & pattern_mask;
+        let pattern_byte = self.vram[(pattern_base + effective * 8 + row_in_tile) & 0x3FFF];
+        let color_byte = self.vram
+            [(color_base + ((effective * 8 + row_in_tile) & (color_mask * 8 + 7))) & 0x3FFF];
 
-            let pattern_byte = self.vram[(pattern_base + effective * 8 + row_in_tile) & 0x3FFF];
+        let fg_idx = (color_byte >> 4) as usize;
+        let bg_idx = (color_byte & 0x0F) as usize;
 
-            let color_byte = self.vram
-                [(color_base + ((effective * 8 + row_in_tile) & (color_mask * 8 + 7))) & 0x3FFF];
-
-            let fg_idx = (color_byte >> 4) as usize;
-            let bg_idx = (color_byte & 0x0F) as usize;
-            let fg = if fg_idx == 0 {
+        if pattern_byte & (0x80 >> bit) != 0 {
+            if fg_idx == 0 {
                 backdrop
             } else {
                 PALETTE[fg_idx]
-            };
-            let bg = if bg_idx == 0 {
-                backdrop
-            } else {
-                PALETTE[bg_idx]
-            };
-
-            for bit in 0..8 {
-                let pixel = if pattern_byte & (0x80 >> bit) != 0 {
-                    fg
-                } else {
-                    bg
-                };
-                self.framebuffer[offset + tile_col * 8 + bit] = pixel;
             }
+        } else if bg_idx == 0 {
+            backdrop
+        } else {
+            PALETTE[bg_idx]
         }
     }
 
     // -- Text --
 
-    fn render_text(&mut self, line: usize, offset: usize) {
+    fn text_pixel(&self, line: usize, x: usize) -> u32 {
+        // 8-pixel border on each side of the 240-pixel (40 x 6) text field.
+        if !(8..248).contains(&x) {
+            return self.backdrop_color();
+        }
+
         let name_base = self.name_table_addr();
         let pattern_base = self.pattern_table_addr();
 
@@ -578,38 +609,26 @@ impl Tms9918 {
         } else {
             PALETTE[bg_idx]
         };
-        let border = self.backdrop_color();
 
         let char_row = line / 8;
         let row_in_char = line & 7;
+        let cx = x - 8;
+        let col = cx / 6;
+        let bit = cx % 6; // only the upper 6 bits of each pattern byte show
 
-        // 8-pixel border on each side
-        for x in 0..8 {
-            self.framebuffer[offset + x] = border;
-            self.framebuffer[offset + 248 + x] = border;
-        }
+        let name = self.vram[(name_base + char_row * 40 + col) & 0x3FFF] as usize;
+        let pattern_byte = self.vram[(pattern_base + name * 8 + row_in_char) & 0x3FFF];
 
-        for col in 0..40 {
-            let name_addr = name_base + char_row * 40 + col;
-            let name = self.vram[name_addr & 0x3FFF] as usize;
-
-            let pattern_byte = self.vram[(pattern_base + name * 8 + row_in_char) & 0x3FFF];
-
-            // Only upper 6 bits are displayed
-            for bit in 0..6 {
-                let pixel = if pattern_byte & (0x80 >> bit) != 0 {
-                    fg
-                } else {
-                    bg
-                };
-                self.framebuffer[offset + 8 + col * 6 + bit] = pixel;
-            }
+        if pattern_byte & (0x80 >> bit) != 0 {
+            fg
+        } else {
+            bg
         }
     }
 
     // -- Multicolor --
 
-    fn render_multicolor(&mut self, line: usize, offset: usize) {
+    fn multicolor_pixel(&self, line: usize, x: usize) -> u32 {
         let name_base = self.name_table_addr();
         let pattern_base = self.pattern_table_addr();
         let backdrop = self.backdrop_color();
@@ -618,37 +637,35 @@ impl Tms9918 {
         let row_in_tile = line & 7;
         // Which 2-byte pair to use: depends on tile row mod 4
         let pattern_row = (tile_row % 4) * 2 + row_in_tile / 4;
+        let tile_col = x / 8;
 
-        for tile_col in 0..32 {
-            let name_addr = name_base + tile_row * 32 + tile_col;
-            let name = self.vram[name_addr & 0x3FFF] as usize;
+        let name = self.vram[(name_base + tile_row * 32 + tile_col) & 0x3FFF] as usize;
+        let color_byte = self.vram[(pattern_base + name * 8 + pattern_row) & 0x3FFF];
 
-            let color_byte = self.vram[(pattern_base + name * 8 + pattern_row) & 0x3FFF];
-
-            let left_idx = (color_byte >> 4) as usize;
-            let right_idx = (color_byte & 0x0F) as usize;
-            let left = if left_idx == 0 {
-                backdrop
-            } else {
-                PALETTE[left_idx]
-            };
-            let right = if right_idx == 0 {
-                backdrop
-            } else {
-                PALETTE[right_idx]
-            };
-
-            let px = offset + tile_col * 8;
-            self.framebuffer[px..px + 4].fill(left);
-            self.framebuffer[px + 4..px + 8].fill(right);
-        }
+        // Left 4 pixels use the high nibble, right 4 the low nibble.
+        let idx = if x & 7 < 4 {
+            (color_byte >> 4) as usize
+        } else {
+            (color_byte & 0x0F) as usize
+        };
+        if idx == 0 { backdrop } else { PALETTE[idx] }
     }
 
     // -----------------------------------------------------------------------
     // Sprite rendering
     // -----------------------------------------------------------------------
 
-    fn render_sprites(&mut self, line: usize, offset: usize) {
+    /// Prepare this line's sprite overlay: clear `sprite_buf`, then (unless the
+    /// display is blanked or in Text mode, which has no sprites) evaluate the
+    /// 32-entry sprite table into it and update the status flags.
+    fn prepare_line_sprites(&mut self, line: usize) {
+        self.sprite_buf = [0u8; 256];
+        if self.display_enabled() && self.mode() != Mode::Text {
+            self.evaluate_sprites(line);
+        }
+    }
+
+    fn evaluate_sprites(&mut self, line: usize) {
         let sat_base = self.sprite_attr_addr();
         let spg_base = self.sprite_pattern_addr();
         let size_16 = self.regs[1] & 0x02 != 0;
@@ -757,14 +774,9 @@ impl Tms9918 {
             self.status |= 0x20;
         }
 
-        // Composite sprite pixels onto the framebuffer
-        let backdrop = self.backdrop_color();
-        for (x, &raw) in sprite_line_buffer.iter().enumerate() {
-            let c = raw as usize;
-            if c != 0 {
-                self.framebuffer[offset + x] = if c == 0 { backdrop } else { PALETTE[c] };
-            }
-        }
+        // Publish the line's sprite pixels; `render_pixel` overlays them onto
+        // the background as each pixel is drawn.
+        self.sprite_buf = sprite_line_buffer;
     }
 
     fn draw_sprite_row(

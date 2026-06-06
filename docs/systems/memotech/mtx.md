@@ -46,11 +46,12 @@ ROM image. Headless extended system. Z80 + TMS9918A + SN76489 + Z80 CTC.
 
 - **Master clock & dividers** — CPU at 4 MHz; VDP at 5.37 MHz via a Bresenham
   counter against the CPU clock; PSG at 4 MHz with internal ÷16.
-- **Timing model realised** — relaxed: TMS9918 **scanline-batched** render; the
-  VDP `/INT` feeds **CTC channel 0** (the CTC drives the Z80 IRQ via IM 2). The
-  CTC-as-timebase path is wired and asserted live.
+- **Timing model realised** — TMS9918 now renders **per-dot** (each pixel drawn at
+  its dot; `ti-tms9918::tick`); the VDP `/INT` feeds **CTC channel 0** (the CTC
+  drives the Z80 IRQ via IM 2). The CTC-as-timebase path is wired and asserted
+  live. The VDP-dot-to-CPU phase uses a Bresenham counter (relaxed).
 - **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
-- **Distance to full cycle-accuracy** — per-dot VDP; exact CTC/VDP phase.
+- **Distance to full cycle-accuracy** — exact CTC/VDP-dot phase.
 
 ## Tooling & drivability
 

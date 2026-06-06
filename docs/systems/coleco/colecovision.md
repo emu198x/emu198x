@@ -16,8 +16,10 @@ The first donor extraction. The 1982 BIOS reaches "COLECOVISION™ / TURN GAME O
 - **Clock ratios (initial-port)** — VDP runs 3 dots/CPU cycle; the real ratio is
   1.5 (master 10.738635 MHz, CPU ÷3, VDP dot ÷2). Frame structure completes but
   wall-clock speed is off. SG-1000 already has the correct 3:2 counter — port it.
-- **TMS9918A scanline-batched render** — full scanline on dot-wrap, misses
-  mid-scanline register writes (shared family debt).
+- **TMS9918A VDP-dot/CPU phase** — the VDP now renders **per-dot** (mid-scanline
+  register writes land on the correct pixels), but the VDP-dot-to-CPU-cycle phase
+  is still the relaxed 3:1 ratio (see clock-ratios above), so the *moment* a write
+  takes effect can still be off by a few dots.
 - **IM 1 IntAck** returns `$FF` (matches BIOS `RST 38h`); cart-driven IntAck
   unverified.
 - **Snapshot** — deferred. **No native window.**
@@ -38,13 +40,14 @@ The first donor extraction. The 1982 BIOS reaches "COLECOVISION™ / TURN GAME O
 
 - **Master clock & dividers** — 10.738635 MHz. CPU = ÷3 ≈ 3.579545 MHz; VDP dot =
   ÷2 ≈ 5.369 MHz (real ratio 1.5 dots/CPU cycle).
-- **Timing model realised** — relaxed: the initial port runs the VDP at **3:1**
-  (3× too fast) with NTSC/PAL frame budgets in CPU cycles, and renders
-  **scanline-batched** (line painted at dot-wrap). SG-1000 already carries the
+- **Timing model realised** — VDP render is now **per-dot** (each pixel drawn at
+  the dot it is scanned out; see `ti-tms9918::tick`). The remaining debt is the
+  VDP-dot-to-CPU-cycle *phase*: the initial port runs the VDP at **3:1** (3× too
+  fast) with NTSC/PAL frame budgets in CPU cycles. SG-1000 already carries the
   correct 3:2 counter — porting it is the fix.
 - **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
-- **Distance to full cycle-accuracy** — correct the 3:2 dot ratio; per-dot VDP
-  render; verify IM 1 cart-bus IntAck.
+- **Distance to full cycle-accuracy** — correct the 3:2 dot ratio (per-dot VDP
+  render landed); verify IM 1 cart-bus IntAck.
 
 ## Tooling & drivability
 

@@ -19,7 +19,6 @@ AY-3-8910 + WD1770 floppy (inline).
 - **OS-from-disk** — needs an Einstein disk image (CP/M / Xtal DOS); none on hand.
 - **Z80 CTC** — channel 0 stubbed at `$28`; MOS uses IM 1 so boot doesn't need it,
   but disk-loaded software likely will (CTC crate exists, wiring is port work).
-- **TMS9918A scanline-batched render** (shared family debt).
 - **Cassette / printer** unwired. **Snapshot** deferred. **No native window.**
 
 ## Known unknowns / disproven hypotheses
@@ -42,12 +41,13 @@ AY-3-8910 + WD1770 floppy (inline).
 
 - **Master clock & dividers** — Z80A at ~4 MHz. (Exact crystal/divider tree —
   verify against MAME `tatung/einstein.cpp`.)
-- **Timing model realised** — relaxed: TMS9918 **scanline-batched** render; the
-  keyboard interrupt is a synthesised 50 Hz IM2 device; WD1770 modelled at the
-  register level (Type I + sector reads), not raw MFM bit timing.
+- **Timing model realised** — TMS9918 now renders **per-dot** (each pixel drawn at
+  its dot; `ti-tms9918::tick`); the keyboard interrupt is a synthesised 50 Hz IM2
+  device; WD1770 modelled at the register level (Type I + sector reads), not raw
+  MFM bit timing.
 - **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
-- **Distance to full cycle-accuracy** — per-dot VDP; raw-MFM/exact FDC timing;
-  CTC channel timing for disk-loaded software.
+- **Distance to full cycle-accuracy** — exact VDP-dot/CPU phase; raw-MFM/exact FDC
+  timing; CTC channel timing for disk-loaded software.
 
 ## Tooling & drivability
 
