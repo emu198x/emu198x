@@ -380,6 +380,12 @@ impl Ctc {
         self.channels[(channel & 0x03) as usize].counter_mode
     }
 
+    /// A channel's active `CLK/TRG` edge: rising (`true`) or falling (`false`).
+    #[must_use]
+    pub fn rising_edge(&self, channel: u8) -> bool {
+        self.channels[(channel & 0x03) as usize].rising_edge
+    }
+
     /// A channel's `ZC/TO` output pulse for the current cycle. Channel 3
     /// has no output pin and always reads `false`.
     #[must_use]

@@ -160,6 +160,10 @@ pub struct SordM5 {
     /// Count of IM 2 interrupt acknowledgements taken — a diagnostic for
     /// whether the VDP/CTC frame interrupt is being delivered.
     irq_acks: u64,
+    /// Per-CTC-channel acknowledgement counts, decoded from the IM 2 vector.
+    /// Diagnostic for *which* channel is driving interrupts — the VDP-fed
+    /// channel ([`VDP_INT_CTC_CHANNEL`]) should run at the frame rate.
+    irq_acks_by_channel: [u64; 4],
 }
 
 impl SordM5 {
@@ -199,7 +203,15 @@ impl SordM5 {
             vdp_phase: 0,
             frame_count: 0,
             irq_acks: 0,
+            irq_acks_by_channel: [0; 4],
         }
+    }
+
+    /// Per-CTC-channel IM 2 acknowledgement counts (index = channel 0..3).
+    /// Diagnostic for which channel drives the Z80 interrupt.
+    #[must_use]
+    pub fn irq_acks_by_channel(&self) -> [u64; 4] {
+        self.irq_acks_by_channel
     }
 
     /// Number of IM 2 interrupt acknowledgements taken since power-on.
@@ -242,7 +254,15 @@ impl SordM5 {
         // on the CPU clock and edge-counts those frame interrupts. The
         // CTC's INT output (not the raw VDP line) drives the Z80 IRQ pin,
         // so the interrupt is vectored through IM 2.
-        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, self.vdp.interrupt);
+        //
+        // The line is *inverted* into the trigger, matching MAME
+        // (`vdp.int_callback().set(m_ctc, trg3).invert()`). The BIOS arms this
+        // channel for the falling edge; with inversion that falling edge lands
+        // at VBlank (when the active-low /INT asserts), which is the frame sync
+        // the game waits on. Feeding the raw line instead put the falling edge
+        // at status-read time — inside the very handler the interrupt is meant
+        // to trigger — so the channel deadlocked and round logic never advanced.
+        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, !self.vdp.interrupt);
         self.ctc.tick();
         self.cpu.irq = self.ctc.interrupt();
 
@@ -281,8 +301,12 @@ impl SordM5 {
                 // fetches the handler. With the VDP-driven channel this
                 // lands on `$7002 -> $1861` (the VBlank jiffy handler),
                 // carrying the BIOS past VDP init.
-                self.cpu.data_in = self.ctc.acknowledge();
+                let vector = self.ctc.acknowledge();
+                self.cpu.data_in = vector;
                 self.irq_acks += 1;
+                // The CTC encodes the requesting channel in vector bits 2:1.
+                let channel = usize::from((vector >> 1) & 0x03);
+                self.irq_acks_by_channel[channel] += 1;
             }
             None => {}
         }
