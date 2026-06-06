@@ -52,7 +52,8 @@
 //!
 //! - Bits 6:5: DM -- DMA mode (`10`/`11` = MARIA renders, `00`/`01` = blank)
 //! - Bit 7: CK -- colour kill (force monochrome)
-//! - Bit 4: CW -- character width for indirect mode (0 = 2 bytes, 1 = 1 byte)
+//! - Bit 4: CW -- character width for indirect mode (1 = 2 bytes, 0 = 1 byte;
+//!   MAME `m_cwidth = BIT(ctrl, 4)`, "two data bytes per map byte" when set)
 //! - Bit 3: BC -- border control
 //! - Bit 2: Kangaroo mode (transparency off)
 //! - Bits 1:0: RM -- read mode
@@ -152,20 +153,33 @@ impl MariaRegion {
 struct DllEntry {
     /// Trigger NMI at end of zone.
     dli: bool,
-    /// Zone height in scanlines (1-8).
+    /// Zone height in scanlines (1-16).
     zone_height: u8,
-    /// OFFSET added to graphics address high byte.
+    /// OFFSET (bits 0-3 of the header byte): the high-byte address offset for
+    /// the zone's top line. It also sets the zone height (`offset + 1`) and
+    /// decrements one per scanline down the zone.
     offset: u8,
+    /// Holey-DMA mask (header bits 6:5 → `H16` in bit 1, `H8` in bit 0). When
+    /// set, graphics reads from the matching address window return 0.
+    holey: u8,
     /// Display List address for this zone.
     dl_addr: u16,
 }
 
 impl DllEntry {
     fn parse(b0: u8, b1: u8, b2: u8) -> Self {
+        // The header byte is `DLI(7) H16(6) H8(5) - OFFSET(3:0)`. There is a
+        // single 4-bit OFFSET field — it is both the per-line address offset
+        // and (offset + 1) the zone height. MAME `maria.cpp`: `m_offset =
+        // header & 0x0f`, `m_holey = (header & 0x60) >> 5`. (An earlier version
+        // misread a 3-bit height from bits 4-6, which garbled multi-line zones,
+        // and dropped holey DMA entirely, which left holes filled with garbage.)
+        let offset = b0 & 0x0F;
         Self {
             dli: b0 & 0x80 != 0,
-            zone_height: ((b0 >> 4) & 0x07) + 1,
-            offset: b0 & 0x0F,
+            zone_height: offset + 1,
+            offset,
+            holey: (b0 & 0x60) >> 5,
             dl_addr: u16::from(b1) << 8 | u16::from(b2),
         }
     }
@@ -222,6 +236,7 @@ pub struct Maria {
     zone_height: u8,
     zone_dl_addr: u16,
     zone_offset: u8,
+    zone_holey: u8,
     zone_dli: bool,
     /// `true` once the DLL has been loaded for the current frame.
     dll_active: bool,
@@ -258,6 +273,7 @@ impl Maria {
             zone_height: 1,
             zone_dl_addr: 0,
             zone_offset: 0,
+            zone_holey: 0,
             zone_dli: false,
             dll_active: false,
 
@@ -403,6 +419,7 @@ impl Maria {
         data.push(self.zone_height);
         data.extend_from_slice(&self.zone_dl_addr.to_le_bytes());
         data.push(self.zone_offset);
+        data.push(self.zone_holey);
         data.push(u8::from(self.zone_dli));
         data.push(u8::from(self.dll_active));
         data.extend_from_slice(&self.dma_cycles.to_le_bytes());
@@ -452,6 +469,8 @@ impl Maria {
         self.zone_dl_addr = u16::from_le_bytes([data[p], data[p + 1]]);
         p += 2;
         self.zone_offset = data[p];
+        p += 1;
+        self.zone_holey = data[p];
         p += 1;
         self.zone_dli = data[p] != 0;
         p += 1;
@@ -545,6 +564,7 @@ impl Maria {
         self.zone_height = entry.zone_height;
         self.zone_dl_addr = entry.dl_addr;
         self.zone_offset = entry.offset;
+        self.zone_holey = entry.holey;
         self.zone_dli = entry.dli;
     }
 
@@ -621,123 +641,126 @@ impl Maria {
         }
     }
 
+    /// Holey DMA: when the zone's `H8`/`H16` bits are set, graphics reads from
+    /// the matching high-address windows return 0 (a "hole") instead of memory.
+    /// MAME `maria.cpp` `is_holey`: `H16` blanks `addr & 0x9000 == 0x9000`,
+    /// `H8` blanks `addr & 0x8800 == 0x8800`.
+    fn is_holey(&self, addr: u16) -> bool {
+        (self.zone_holey & 0x02 != 0 && addr & 0x9000 == 0x9000)
+            || (self.zone_holey & 0x01 != 0 && addr & 0x8800 == 0x8800)
+    }
+
     /// Render a single DL entry into the line buffer.
     fn render_dl_entry(&mut self, entry: &DlEntry, read_byte: &mut dyn FnMut(u16) -> u8) {
         let scanline_in_zone = self.zone_scanline;
 
-        // Calculate the graphics data address for this scanline.
-        // Each scanline's data lives on a different 256-byte page, offset by
-        // the DLL OFFSET field plus the scanline index within the zone.
-        let page_offset = u16::from(self.zone_offset).wrapping_add(u16::from(scanline_in_zone));
-        let line_addr = entry.gfx_addr.wrapping_add(page_offset << 8);
+        // Calculate the graphics data address for this scanline. MARIA loads
+        // the high-byte page offset with the DLL OFFSET at the zone's top line
+        // and decrements it one per scanline (MAME `maria.cpp`:
+        // `data_addr = graph_adr + x + (m_offset << 8)`, `m_offset` counting
+        // down to 0 on the zone's last line).
+        let page_offset = u16::from(self.zone_offset).wrapping_sub(u16::from(scanline_in_zone));
 
         // Determine which mode to use.
         let use_320 = entry.write_mode_320.unwrap_or(false); // Default to 160A when not in Kangaroo mode.
 
         if entry.indirect {
-            self.render_indirect(entry, line_addr, use_320, read_byte);
+            self.render_indirect(entry, page_offset, use_320, read_byte);
         } else {
-            self.render_direct(entry, line_addr, use_320, read_byte);
+            self.render_direct(entry, page_offset, use_320, read_byte);
         }
     }
 
-    /// Direct mode: graphics bytes are read sequentially from `line_addr`.
-    fn render_direct(
-        &mut self,
-        entry: &DlEntry,
-        line_addr: u16,
-        use_320: bool,
-        read_byte: &mut dyn FnMut(u16) -> u8,
-    ) {
-        let mut x = entry.hpos as usize;
-
-        for i in 0..u16::from(entry.width) {
-            let byte = read_byte(line_addr.wrapping_add(i));
-            self.dma_cycles += 1;
-
-            if use_320 {
-                // 320A: 1 bit per pixel, 8 pixels per byte.
-                for bit in (0..8).rev() {
-                    if x < ACTIVE_WIDTH as usize {
-                        let pixel = (byte >> bit) & 1;
-                        if pixel != 0 {
-                            // Colour 1 from the selected palette.
-                            self.line_buffer[x] = self.palettes[entry.palette as usize][0];
-                        }
-                    }
-                    x += 1;
+    /// Blit one graphics byte into the line buffer at column `*x`, advancing
+    /// `*x` by 8 framebuffer columns. 320 mode is 1 bit/pixel; 160 mode is
+    /// 2 bits/pixel with each pixel doubled to two columns. Pixel value 0 is
+    /// transparent.
+    fn blit_byte(&mut self, byte: u8, x: &mut usize, use_320: bool, palette: u8) {
+        let pal = palette as usize;
+        if use_320 {
+            // 320A: 1 bit per pixel, 8 pixels per byte.
+            for bit in (0..8).rev() {
+                if *x < ACTIVE_WIDTH as usize && (byte >> bit) & 1 != 0 {
+                    self.line_buffer[*x] = self.palettes[pal][0];
                 }
-            } else {
-                // 160A: 2 bits per pixel, 4 pixels per byte.
-                // Each pixel spans 2 framebuffer columns (320 / 160 = 2).
-                for shift in [6, 4, 2, 0] {
-                    let pixel = (byte >> shift) & 0x03;
-                    if pixel != 0 {
-                        let colour = self.palettes[entry.palette as usize][(pixel - 1) as usize];
-                        if x < ACTIVE_WIDTH as usize {
-                            self.line_buffer[x] = colour;
-                        }
-                        if x + 1 < ACTIVE_WIDTH as usize {
-                            self.line_buffer[x + 1] = colour;
-                        }
+                *x += 1;
+            }
+        } else {
+            // 160A: 2 bits per pixel, 4 pixels per byte, each doubled.
+            for shift in [6, 4, 2, 0] {
+                let pixel = (byte >> shift) & 0x03;
+                if pixel != 0 {
+                    let colour = self.palettes[pal][(pixel - 1) as usize];
+                    if *x < ACTIVE_WIDTH as usize {
+                        self.line_buffer[*x] = colour;
                     }
-                    x += 2;
+                    if *x + 1 < ACTIVE_WIDTH as usize {
+                        self.line_buffer[*x + 1] = colour;
+                    }
                 }
+                *x += 2;
             }
         }
     }
 
-    /// Indirect (character/tile) mode: the DL entry points to a character
-    /// map.  Each character index is looked up via CHBASE.
-    fn render_indirect(
+    /// Direct mode: graphics bytes are read sequentially from the DL entry's
+    /// address plus the zone's page offset (`gfx_addr + i + offset << 8`).
+    fn render_direct(
         &mut self,
         entry: &DlEntry,
-        line_addr: u16,
+        page_offset: u16,
         use_320: bool,
         read_byte: &mut dyn FnMut(u16) -> u8,
     ) {
-        let cw_single = self.ctrl & CTRL_CW != 0;
-        let char_height: u16 = if cw_single { 1 } else { 2 };
-        let scanline_in_zone = self.zone_scanline;
+        let base = entry.gfx_addr.wrapping_add(page_offset << 8);
+        let mut x = entry.hpos as usize;
+        for i in 0..u16::from(entry.width) {
+            let addr = base.wrapping_add(i);
+            let byte = if self.is_holey(addr) {
+                0
+            } else {
+                read_byte(addr)
+            };
+            self.dma_cycles += 1;
+            self.blit_byte(byte, &mut x, use_320, entry.palette);
+        }
+    }
+
+    /// Indirect (character/tile) mode: the DL entry points to a character map.
+    /// Each map byte `c` selects a character whose graphics live at
+    /// `(CHBASE << 8 | c) + (offset << 8)` (MAME `maria.cpp`:
+    /// `data_addr = (m_charbase | c) + (m_offset << 8)`). The map is read at
+    /// `gfx_addr` with *no* page offset. When the CWIDTH bit is set, each map
+    /// byte yields two consecutive graphics bytes (wide characters).
+    fn render_indirect(
+        &mut self,
+        entry: &DlEntry,
+        page_offset: u16,
+        use_320: bool,
+        read_byte: &mut dyn FnMut(u16) -> u8,
+    ) {
+        let two_byte = self.ctrl & CTRL_CW != 0;
+        let charbase = u16::from(self.chbase) << 8;
         let mut x = entry.hpos as usize;
 
         for i in 0..u16::from(entry.width) {
-            let char_index = read_byte(line_addr.wrapping_add(i));
+            let c = read_byte(entry.gfx_addr.wrapping_add(i));
             self.dma_cycles += 1;
+            let data_addr = (charbase | u16::from(c)).wrapping_add(page_offset << 8);
 
-            // Character graphics address:
-            //   (CHBASE << 8) + (char_index * char_height) + scanline_in_zone
-            let char_addr = (u16::from(self.chbase) << 8)
-                .wrapping_add(u16::from(char_index) * char_height)
-                .wrapping_add(u16::from(scanline_in_zone));
-
-            let byte = read_byte(char_addr);
-            self.dma_cycles += 1;
-
-            if use_320 {
-                for bit in (0..8).rev() {
-                    if x < ACTIVE_WIDTH as usize {
-                        let pixel = (byte >> bit) & 1;
-                        if pixel != 0 {
-                            self.line_buffer[x] = self.palettes[entry.palette as usize][0];
-                        }
-                    }
-                    x += 1;
-                }
+            let b0 = if self.is_holey(data_addr) {
+                0
             } else {
-                for shift in [6, 4, 2, 0] {
-                    let pixel = (byte >> shift) & 0x03;
-                    if pixel != 0 {
-                        let colour = self.palettes[entry.palette as usize][(pixel - 1) as usize];
-                        if x < ACTIVE_WIDTH as usize {
-                            self.line_buffer[x] = colour;
-                        }
-                        if x + 1 < ACTIVE_WIDTH as usize {
-                            self.line_buffer[x + 1] = colour;
-                        }
-                    }
-                    x += 2;
-                }
+                read_byte(data_addr)
+            };
+            self.dma_cycles += 1;
+            self.blit_byte(b0, &mut x, use_320, entry.palette);
+
+            if two_byte {
+                let a1 = data_addr.wrapping_add(1);
+                let b1 = if self.is_holey(a1) { 0 } else { read_byte(a1) };
+                self.dma_cycles += 1;
+                self.blit_byte(b1, &mut x, use_320, entry.palette);
             }
         }
     }
@@ -861,26 +884,27 @@ mod tests {
 
     #[test]
     fn dll_entry_parsing() {
-        // DLI=1, height=4 (raw 3), offset=5, DL addr=$1234.
+        // DLI=1, OFFSET=5 → zone height 6, DL addr=$1234. (The single 4-bit
+        // OFFSET in bits 0-3 sets both the address offset and `offset + 1` rows.)
         let entry = DllEntry::parse(0b1011_0101, 0x12, 0x34);
         assert!(entry.dli);
-        assert_eq!(entry.zone_height, 4);
+        assert_eq!(entry.zone_height, 6);
         assert_eq!(entry.offset, 5);
         assert_eq!(entry.dl_addr, 0x1234);
     }
 
     #[test]
     fn dll_entry_min_max() {
-        // Minimum: no DLI, height=1 (raw 0), offset=0.
+        // Minimum: no DLI, OFFSET=0 → height 1.
         let min = DllEntry::parse(0x00, 0x00, 0x00);
         assert!(!min.dli);
         assert_eq!(min.zone_height, 1);
         assert_eq!(min.offset, 0);
 
-        // Maximum: DLI, height=8 (raw 7), offset=15.
+        // Maximum: DLI, OFFSET=15 → height 16.
         let max = DllEntry::parse(0xFF, 0xFF, 0xFF);
         assert!(max.dli);
-        assert_eq!(max.zone_height, 8);
+        assert_eq!(max.zone_height, 16);
         assert_eq!(max.offset, 15);
         assert_eq!(max.dl_addr, 0xFFFF);
     }

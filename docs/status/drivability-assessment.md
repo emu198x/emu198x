@@ -273,7 +273,29 @@ can't be — and it has already paid for itself.
 |---------|-----|--------|
 | Atari 2600 | Combat (1977) | **Bug found + fixed.** Joystick players were swapped between SWCHA nibbles — port 1 drove player 2 and vice-versa (`fb44ad3a`). Caught only because input *looked* wired but the tanks didn't move; the fix is grounded in MAME's `switch_A_r`. |
 | MSX1 | Gradius/Nemesis (Konami, 1986) | **Pass.** Boots the MSX BIOS to BASIC, loads the 128 KB Konami MegaROM, renders the title via TMS9918, and the PSG-port-A joystick drives the splash→menu trigger and the 1P/2P cursor (down moved the selection). No code change. |
+| Atari 7800 | Centipede, Dig Dug (Atari, 1987) | **MARIA rendering bug found + fixed.** Every game rendered garbage; four coupled MARIA DLL/zone decode bugs (below). After the fix Centipede's title and Dig Dug's playfield render correctly. Joystick directions are bit-exact vs MAME (P0 high nibble, active-low); the fire button is not yet wired (games can't be *started* from a script — a separate input gap). |
 | Sord M5 | Dig Dug (Namco, 1982) | **Joystick pass; keyboard bug found + fixed.** Boots the 8 KB monitor ROM, runs the cartridge, renders Dig Dug via TMS9918. The `m5.input.joystick` query proves the JOY byte (`$37`) is bit-exact vs MAME (P1 right→`0x01`, down→`0x08`, +P2 up→`0x28`; `0x04` for left in-game). The keyboard I/O map was donor fiction; after the fix (below) the `"1"` key advances the title → ROUND 01 — it could not before. |
+
+**Atari 7800 MARIA rendering — fixed (systemic, all games).** Every 7800 game
+rendered garbage because MARIA's DLL/zone decode was wrong four ways, all
+confirmed against MAME `maria.cpp`:
+1. **Zone height** read a bogus 3-bit field from header bits 4–6. MARIA has one
+   4-bit OFFSET (bits 0–3); the zone is `OFFSET+1` lines (`m_offset = header &
+   0x0f`). Every multi-line zone was the wrong height.
+2. **Page-offset direction** *added* the scanline to OFFSET; MARIA loads OFFSET
+   at the zone top and *decrements* it per line (`data_addr = … + (m_offset <<
+   8)`), so rows were addressed backwards.
+3. **Holey DMA** (header bits 5–6) was dropped entirely; reads from the H8/H16
+   windows must return 0.
+4. **Indirect (character) mode** addressed the char map *with* the page offset
+   and the char graphics as `char_index * height + scanline`. MARIA reads the
+   map at `gfx_addr` (no offset) and the graphics at `(CHBASE<<8 | c) + (offset
+   <<8)`, and the CWIDTH bit (set → 2 bytes/char) was inverted and misused.
+
+Fixed in `atari-maria`, validated visually (Centipede title, Dig Dug playfield)
+with the maria unit tests updated to the correct DLL decode. Not yet addressed:
+the 7800 controller **fire button** is unwired, so script/MCP sessions can drive
+directions but can't start most games — a follow-up input task.
 
 **M5 keyboard I/O-map bug — fixed.** MAME's `sord/m5.cpp` reads the keyboard as
 seven direct row ports `$30`–`$36` (`portr("Y0")`…`"Y6"`), **active-high**, no
@@ -289,11 +311,26 @@ mirror to `$38`–`$3F`), flipping the matrix to active-high, dropping the bogus
 `$30`-write strobe, and rebuilding the full key table from MAME's Y0–Y6. A
 gated `keyboard_io_trace` test records the tracing method.
 
-*New finding, separate:* with the keyboard fixed, Dig Dug starts but its round
-does not visibly animate (enemies static, score stays `00`) even though the CPU
-executes cart code and the in-game joystick byte is correct. A game-loop / VDP
--sprite / timing issue to investigate on its own — not the keyboard or joystick,
-both proven correct here.
+*New finding, separate — Dig Dug round-freeze (open).* With the keyboard fixed,
+Dig Dug starts (title → ROUND 01) but the round never progresses: the player and
+enemies never spawn, the score stays `00`. Diagnosed via the gated
+`digdug_freeze_probe` test and ruled out, in order:
+- **Not the CPU** — work RAM keeps mutating; it executes BIOS + cart code, not a
+  halt or tight spin.
+- **Not sprite rendering** — display and 16×16 sprites are enabled and the VDP's
+  sprite-attribute-table base matches reg5, but the game leaves every sprite
+  parked at `(194,0,0)` forever; it never writes sprite positions.
+- **Not input** — in the round the game reads *no* I/O at all (only VRAM `$10`/
+  `$11` writes); a live Dig Dug must poll the joystick, so it never reaches its
+  input/spawn code.
+- **Not interrupt delivery** — IM2 acks run ~16/frame identically at boot, on the
+  working title screen, and in the stuck round (the rate itself is consistent;
+  likely the BIOS jiffy timer alongside the VDP frame interrupt).
+
+So the freeze is inside the cart's round-init state machine, stalled before it
+spawns. The hottest cart code gates on RAM `$754A`. Next step is reverse
+-engineering that wait, ideally against a MAME execution trace of the same ROM.
+A permanent `irq_acks()` diagnostic was added to the machine in the process.
 
 Method notes for reproducers:
 - TOSEC ROMs are TorrentZipped; unzip first. Pick the mapper from the dump, not
