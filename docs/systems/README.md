@@ -76,6 +76,23 @@ test ROM. Prefer a short honest page over a long vague one.
 - MAME `<path/file.cpp>` — <what we cross-checked>
 - <datasheet / test ROM / reference emulator> — <what it confirmed>
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — <crystal; how each chip derives (CPU /n, dot /m)>
+- **Timing model realised** — <hc-driven (the goal) / per-dot / scanline-batched /
+  per-frame>. <which chips are at which level>
+- **CPU timing** — cycle-accurate per RULES §62? <oracle that proves the
+  *instruction set* — note it does NOT prove bus-cycle timing>
+- **Distance to full cycle-accuracy** — <the concrete sub-cycle gaps and what
+  closing them needs>
+
+## Tooling & drivability
+
+- **Script / MCP** — <`--script` + `--mcp` present? which chip `query()` paths /
+  debug tools: run_until_pc, memory_read, poke, io_trace, disasm>
+- **Native window** — <yes (primary tier) / headless only>
+- **Disassembler** — <available, or pending the Asm198x shared spec-driven crate>
+
 ## Crates
 
 | Crate | Role |
@@ -90,12 +107,22 @@ test ROM. Prefer a short honest page over a long vague one.
 <Headless run + screenshot commands.>
 ```
 
-The two sections that distinguish these pages from a plain feature list —
-**accuracy gaps** and **known unknowns / disproven hypotheses** — are the point.
-They are the institutional memory that stops a fixed-but-undocumented dead end
-(the M5 "interrupts are fine" mis-conclusion that cost three sessions) from
-being re-walked. Record disproven hypotheses with the same care as working
-features.
+Two pairs of sections carry the weight:
+
+- **Accuracy gaps** + **known unknowns / disproven hypotheses** — the
+  institutional memory that stops a fixed-but-undocumented dead end (the M5
+  "interrupts are fine" mis-conclusion that cost three sessions) from being
+  re-walked. Record disproven hypotheses with the same care as working features.
+- **Timing & cycle-accuracy** + **tooling & drivability** — the project's two
+  through-lines. Master-clock cycle-accuracy is the central architectural
+  commitment (RULES.md §51-64: *"the master oscillator drives the loop… one
+  clock, everything derives"*; §91: foundational, not retrofitted), so each page
+  must say where the implementation sits relative to it — and must **not conflate
+  a green CPU oracle (instruction-accurate, RULES §62) with system cycle-accuracy
+  against the master clock (bus timing)**. Drivability is the other: every core
+  exposes `--script` + `--mcp` so an agent can drive and debug it, and the
+  shared disassembler is a live Asm198x dependency — so each page records its
+  debug surface and what's still pending.
 
 See `../../knowledge/decisions/per-system-status-docs.md` for the binding
 decision behind this layer.

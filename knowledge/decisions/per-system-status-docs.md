@@ -40,6 +40,23 @@ across commit messages, code comments, and memory.
 - **Validated against** — provenance: the MAME file, datasheet, or test ROM
   behind each non-obvious claim. The same discipline that cracked the Aquarius
   scrambler and the M5 interrupt polarity.
+- **Timing & cycle-accuracy** — where the implementation sits relative to the
+  master clock. This is mandatory, because master-clock cycle-accuracy is the
+  project's central commitment (RULES.md §51-64, §91), and the donor/extended
+  systems mostly boot via *relaxed* timing (scanline-batched VDPs, flat clock
+  ratios, fixed DMA stalls). A page must state the master clock + divider tree,
+  which timing model is realised (`hc`-driven / per-dot / scanline-batched /
+  per-frame), and the concrete distance to full cycle-accuracy. It must **not
+  conflate a green CPU oracle with system cycle-accuracy**: RULES §62 separates
+  instruction-accuracy (what Tom Harte / ZEXALL / SM83 prove) from cycle-accuracy
+  (bus timing against the chipset on the shared master clock). "CPU oracle green"
+  says nothing about the latter.
+- **Tooling & drivability** — the `--script` / `--mcp` surface, chip `query()`
+  paths and debug tools (run_until_pc, memory_read, io_trace, disasm), native
+  window vs headless, and what's pending (notably the shared disassembler, a live
+  Asm198x dependency). Drivability — an agent being able to drive and inspect
+  every core — is the project's other through-line and the reason these tools
+  exist; the per-system page is where its state is recorded.
 
 ## Relationship to other layers
 
