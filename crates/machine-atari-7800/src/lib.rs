@@ -313,6 +313,18 @@ impl Atari7800 {
         self.riot.input_b = val;
     }
 
+    /// Set player 1's primary fire button (proline button 1), read through the
+    /// TIA's `INPT1`/`INPT4` registers.
+    pub fn set_fire(&mut self, pressed: bool) {
+        self.tia_audio.set_button(1, 1, pressed);
+    }
+
+    /// Set player 1's second fire button (proline button 2), read through the
+    /// TIA's `INPT0`/`INPT4` registers.
+    pub fn set_fire2(&mut self, pressed: bool) {
+        self.tia_audio.set_button(1, 2, pressed);
+    }
+
     #[must_use]
     pub fn cpu(&self) -> &M6502 {
         &self.cpu

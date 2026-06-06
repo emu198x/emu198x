@@ -6,20 +6,23 @@
 //! current control state and re-applies the whole vector on every event.
 //!
 //! Both [`InputEvent::Button`] (the canonical joystick door) and
-//! [`InputEvent::Key`] (keyboard-as-pad convenience) are accepted. The two
-//! fire buttons per 7800 controller and the P1 port are not yet exposed by
-//! `machine-atari-7800`; wiring them is deferred until setters exist.
+//! [`InputEvent::Key`] (keyboard-as-pad convenience) are accepted. Player 1's
+//! two fire buttons map via `fire`/`fire1` and `fire2`; the P1 port (second
+//! controller) is not yet exposed by `machine-atari-7800`.
 
 use emu198x_shell::InputEvent;
 use machine_atari_7800::Atari7800;
 
-/// Host-side mirror of the P0 joystick directions + console switches.
+/// Host-side mirror of the P0 joystick directions, fire buttons + console
+/// switches.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct ControllerCache {
     up: bool,
     down: bool,
     left: bool,
     right: bool,
+    fire: bool,
+    fire2: bool,
     reset: bool,
     select: bool,
     pause: bool,
@@ -28,6 +31,8 @@ pub(crate) struct ControllerCache {
 impl ControllerCache {
     fn apply(self, machine: &mut Atari7800) {
         machine.set_joystick(self.up, self.down, self.left, self.right);
+        machine.set_fire(self.fire);
+        machine.set_fire2(self.fire2);
         machine.set_console(self.reset, self.select, self.pause);
     }
 
@@ -39,6 +44,8 @@ impl ControllerCache {
             "down" | "arrowdown" => self.down = pressed,
             "left" | "arrowleft" => self.left = pressed,
             "right" | "arrowright" => self.right = pressed,
+            "fire" | "fire1" | "button" | "trigger" => self.fire = pressed,
+            "fire2" | "button2" => self.fire2 = pressed,
             "reset" => self.reset = pressed,
             "select" => self.select = pressed,
             "pause" => self.pause = pressed,
@@ -79,8 +86,12 @@ mod tests {
         assert!(cache.select);
         assert!(cache.set_control("up", false));
         assert!(!cache.up);
+        // Fire buttons map to player 1's two proline buttons.
+        assert!(cache.set_control("fire", true));
+        assert!(cache.fire);
+        assert!(cache.set_control("fire2", true));
+        assert!(cache.fire2);
         // Unknown names are ignored (no re-apply).
-        assert!(!cache.set_control("fire", true));
         assert!(!cache.set_control("hyperspace", true));
     }
 }

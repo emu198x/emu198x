@@ -273,7 +273,7 @@ can't be — and it has already paid for itself.
 |---------|-----|--------|
 | Atari 2600 | Combat (1977) | **Bug found + fixed.** Joystick players were swapped between SWCHA nibbles — port 1 drove player 2 and vice-versa (`fb44ad3a`). Caught only because input *looked* wired but the tanks didn't move; the fix is grounded in MAME's `switch_A_r`. |
 | MSX1 | Gradius/Nemesis (Konami, 1986) | **Pass.** Boots the MSX BIOS to BASIC, loads the 128 KB Konami MegaROM, renders the title via TMS9918, and the PSG-port-A joystick drives the splash→menu trigger and the 1P/2P cursor (down moved the selection). No code change. |
-| Atari 7800 | Centipede, Dig Dug (Atari, 1987) | **MARIA rendering bug found + fixed.** Every game rendered garbage; four coupled MARIA DLL/zone decode bugs (below). After the fix Centipede's title and Dig Dug's playfield render correctly. Joystick directions are bit-exact vs MAME (P0 high nibble, active-low); the fire button is not yet wired (games can't be *started* from a script — a separate input gap). |
+| Atari 7800 | Centipede, Dig Dug (Atari, 1987) | **MARIA rendering bug found + fixed; fire button wired.** Every game rendered garbage; four coupled MARIA DLL/zone decode bugs (below). After the fix both games render and play: Centipede boots into gameplay on fire, the joystick moves the shooter, and fire shoots (bullet visible). Joystick directions and the TIA `INPT` fire reads are bit-exact vs MAME. **Fully drivable.** |
 | Sord M5 | Dig Dug (Namco, 1982) | **Joystick pass; keyboard bug found + fixed.** Boots the 8 KB monitor ROM, runs the cartridge, renders Dig Dug via TMS9918. The `m5.input.joystick` query proves the JOY byte (`$37`) is bit-exact vs MAME (P1 right→`0x01`, down→`0x08`, +P2 up→`0x28`; `0x04` for left in-game). The keyboard I/O map was donor fiction; after the fix (below) the `"1"` key advances the title → ROUND 01 — it could not before. |
 
 **Atari 7800 MARIA rendering — fixed (systemic, all games).** Every 7800 game
@@ -293,9 +293,17 @@ confirmed against MAME `maria.cpp`:
    <<8)`, and the CWIDTH bit (set → 2 bytes/char) was inverted and misused.
 
 Fixed in `atari-maria`, validated visually (Centipede title, Dig Dug playfield)
-with the maria unit tests updated to the correct DLL decode. Not yet addressed:
-the 7800 controller **fire button** is unwired, so script/MCP sessions can drive
-directions but can't start most games — a follow-up input task.
+with the maria unit tests updated to the correct DLL decode.
+
+**7800 fire button — wired.** The controller buttons were unread (the TIA
+register file returned 0 for everything), so games couldn't be started. The
+TIA's `INPT0`-`INPT5` reads are now implemented per MAME `a7800` `tia_r`:
+`INPT4`/`INPT5` give the one-button reading (active-low — `0x00` pressed,
+`0x80` released) and `INPT0`-`INPT3` the two proline buttons (active-high
+bit 7). `set_fire`/`set_fire2` on the machine feed player 1's two buttons,
+mapped from `fire`/`fire1`/`fire2` in the runtime. Validated end-to-end:
+Centipede starts on fire and the shooter moves and fires under joystick +
+button control.
 
 **M5 keyboard I/O-map bug — fixed.** MAME's `sord/m5.cpp` reads the keyboard as
 seven direct row ports `$30`–`$36` (`portr("Y0")`…`"Y6"`), **active-high**, no
