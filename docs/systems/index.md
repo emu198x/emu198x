@@ -58,6 +58,41 @@ Rachel client (offline/AI — a **separate axis** from Net; see
 | [Sega Mega Drive](sega/mega-drive.md) | `rachel-sega-genesis` | — | Yes | target (core WIP) |
 | [TRS-80 CoCo](tandy/coco.md) | `rachel-coco` | — (6809 shared) | Yes | target (core WIP) |
 
+## Code198x curriculum
+
+How far the teaching mission ([Code198x](https://code198x.stevehill.xyz)) reaches
+each machine. Three tiers (from the Code198x repo):
+
+- **Curriculum** (deep: code-samples + build skills + dev repo) — the four launch
+  platforms: **ZX Spectrum, Commodore 64, NES, Amiga**.
+- **Platform doc** (`docs/platforms/`, pedagogical framing) — additionally:
+  Game Boy, MSX, BBC Micro, Atari 8-bit (800XL), Atari ST, Master System,
+  Mega Drive.
+- **Vault entry** (encyclopaedia only) — additionally: Dragon 32, VIC-20, PET,
+  Acorn Electron, Atari 2600/5200/7800, ColecoVision, Oric, ZX81.
+- **Not in Code198x yet** — Sord M5, Memotech MTX, Tatung Einstein, SVI-328,
+  Jupiter Ace, ZX80, SG-1000, Aquarius, Acorn Atom.
+
+## ROM availability & shipping (survey — verify before relying)
+
+Whether a learner can run a system without sourcing a copyrighted ROM, and Steve's
+leaning to **embed redistributable ROMs in the binary** (see
+`project_rom_shipping_strategy.md`). **First pass — confirm each licence before it
+drives a shipping decision:**
+
+- **No system BIOS needed** → NES, Atari 2600/7800, Master System, SG-1000, Game
+  Boy (boot ROM optional). Embeddable trivially / N/A.
+- **Free open replacement** → MSX (C-BIOS), Atari 800XL + 5200 (AltirraOS),
+  Atari ST (EmuTOS), C64 / VIC-20 / PET (Open ROMs), Amiga (AROS vs proprietary
+  Kickstart). Candidate to embed.
+- **Vendor-permitted** → ZX Spectrum (Amstrad permits ROM redistribution for
+  emulation); ZX80/81 likely same lineage — verify.
+- **Proprietary, user-supplied** → Dragon/CoCo, BBC Micro, Electron, Atom, Oric,
+  Sord M5, MTX, Einstein, SVI-328, Jupiter Ace, Aquarius, ColecoVision.
+
+The embed-vs-supply call is per-ROM and needs the actual licence checked; this
+table is the starting point, not the verdict.
+
 ---
 
 Cross-cutting views: [`rachel-readiness.md`](rachel-readiness.md) (Rachel client/
