@@ -74,6 +74,7 @@
 
 use gi_ay_3_8910::Ay3_8910;
 use ti_tms9918::{Tms9918, VdpRegion};
+use western_digital_wd1770::{Disk, Wd1770};
 use zilog_z80::{BusOp, Z80};
 
 const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
@@ -96,207 +97,6 @@ pub const NUM_KEY_ROWS: usize = 8;
 pub enum EinsteinRegion {
     Ntsc,
     Pal,
-}
-
-/// A 5.25"/3" disk image as a flat sector dump, with its geometry.
-#[derive(Clone)]
-struct Disk {
-    data: Vec<u8>,
-    sectors_per_track: usize,
-    sector_size: usize,
-    sides: usize,
-}
-
-impl Disk {
-    /// Byte offset of (track, side, sector) in a linear, side-interleaved
-    /// dump. Sector numbering is 1-based on the WD1770.
-    fn offset(&self, track: usize, side: usize, sector: usize) -> Option<usize> {
-        if sector == 0 || sector > self.sectors_per_track || side >= self.sides {
-            return None;
-        }
-        let track_index = track * self.sides + side;
-        let off = (track_index * self.sectors_per_track + (sector - 1)) * self.sector_size;
-        (off + self.sector_size <= self.data.len()).then_some(off)
-    }
-}
-
-/// Western Digital WD1770 floppy controller as used by the Einstein. Models
-/// enough of the register interface and command set for the MOS to seek and
-/// read sectors (or fail cleanly when no disk is present).
-#[derive(Default)]
-struct Wd1770 {
-    status: u8,
-    track: u8,
-    sector: u8,
-    data: u8,
-    /// Physical head position (may differ from the track register mid-seek).
-    head_track: u8,
-    side: u8,
-    drive: usize,
-    disks: [Option<Disk>; 4],
-    /// Pending command completion, counted down in CPU cycles.
-    busy_cycles: u32,
-    /// Sector bytes still to hand over on a read, and the cursor into them.
-    read_buf: Vec<u8>,
-    read_pos: usize,
-    /// When the running command should finish by reporting record-not-found.
-    pending_rnf: bool,
-    /// Free-running counter that synthesises the once-per-revolution INDEX
-    /// pulse the MOS polls for in the idle Type I status.
-    index_counter: u32,
-}
-
-// WD1770 status bits. Bit 1 is DRQ during a data command but the INDEX pulse
-// in the idle Type I status.
-const ST_BUSY: u8 = 0x01;
-const ST_DRQ: u8 = 0x02;
-const ST_INDEX: u8 = 0x02;
-const ST_TRACK0: u8 = 0x04;
-const ST_RNF: u8 = 0x10;
-const ST_MOTOR: u8 = 0x80;
-
-impl Wd1770 {
-    fn insert_disk(&mut self, drive: usize, disk: Disk) {
-        if drive < self.disks.len() {
-            self.disks[drive] = Some(disk);
-        }
-    }
-
-    /// Drive-select latch ($23): bits 0-3 pick a drive, bit 4 the side.
-    fn select(&mut self, value: u8) {
-        for d in 0..4 {
-            if value & (1 << d) != 0 {
-                self.drive = d;
-            }
-        }
-        self.side = u8::from(value & 0x10 != 0);
-    }
-
-    fn read(&mut self, reg: u8) -> u8 {
-        match reg & 0x03 {
-            0 => self.status,
-            1 => self.track,
-            2 => self.sector,
-            3 => {
-                // Hand over the next sector byte and re-assert DRQ until the
-                // buffer is exhausted, then drop BUSY.
-                if self.read_pos < self.read_buf.len() {
-                    self.data = self.read_buf[self.read_pos];
-                    self.read_pos += 1;
-                    if self.read_pos >= self.read_buf.len() {
-                        self.status &= !(ST_BUSY | ST_DRQ);
-                    }
-                }
-                self.data
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    fn write(&mut self, reg: u8, value: u8) {
-        match reg & 0x03 {
-            0 => self.command(value),
-            1 => self.track = value,
-            2 => self.sector = value,
-            3 => self.data = value,
-            _ => unreachable!(),
-        }
-    }
-
-    fn command(&mut self, cmd: u8) {
-        let kind = cmd >> 4;
-        match kind {
-            // Force interrupt: abort whatever is running.
-            0xD => {
-                self.status &= !(ST_BUSY | ST_DRQ);
-                self.busy_cycles = 0;
-                self.read_buf.clear();
-                self.read_pos = 0;
-            }
-            // Type I — restore/seek/step. These always "succeed" against the
-            // modelled geometry; the head simply lands on the target track.
-            0x0..=0x7 => {
-                match kind {
-                    0x0 => {
-                        self.head_track = 0;
-                        self.track = 0;
-                    }
-                    0x1 => self.head_track = self.data,
-                    _ => {} // step variants: head already where we need it
-                }
-                self.track = self.head_track;
-                self.busy_cycles = 64;
-                self.status = ST_MOTOR | ST_BUSY;
-            }
-            // Type II — read sector.
-            0x8 | 0x9 => self.start_read(),
-            // Write sector / read address / read-write track: accepted but
-            // not modelled — complete with no data.
-            _ => {
-                self.busy_cycles = 64;
-                self.status = ST_MOTOR | ST_BUSY;
-            }
-        }
-    }
-
-    fn start_read(&mut self) {
-        let found = self.disks[self.drive].as_ref().and_then(|disk| {
-            disk.offset(
-                self.head_track as usize,
-                self.side as usize,
-                self.sector as usize,
-            )
-            .map(|off| disk.data[off..off + disk.sector_size].to_vec())
-        });
-        match found {
-            Some(bytes) => {
-                self.read_buf = bytes;
-                self.read_pos = 0;
-                self.busy_cycles = 64;
-                self.status = ST_MOTOR | ST_BUSY; // DRQ raised when busy expires
-            }
-            None => {
-                // No disk or no such sector: report record-not-found.
-                self.busy_cycles = 64;
-                self.status = ST_MOTOR | ST_BUSY;
-                self.pending_rnf = true;
-            }
-        }
-    }
-
-    fn tick(&mut self) {
-        if self.busy_cycles > 0 {
-            self.busy_cycles -= 1;
-            if self.busy_cycles == 0 {
-                if self.pending_rnf {
-                    self.status = ST_MOTOR | ST_RNF;
-                    self.pending_rnf = false;
-                } else if !self.read_buf.is_empty() {
-                    // Data ready: keep BUSY and raise DRQ for the transfer.
-                    self.status = ST_MOTOR | ST_BUSY | ST_DRQ;
-                } else {
-                    // Type I / accepted commands: settle, flag track 0.
-                    self.status = ST_MOTOR;
-                    if self.head_track == 0 {
-                        self.status |= ST_TRACK0;
-                    }
-                }
-            }
-            return;
-        }
-
-        // Idle: synthesise the rotating INDEX pulse (Type I status bit 1).
-        // The MOS polls it to confirm the drive is spinning. Pulse it for a
-        // short window each ~6000-cycle "revolution".
-        self.index_counter = self.index_counter.wrapping_add(1);
-        if self.status & ST_DRQ == 0 {
-            if self.index_counter % 6000 < 400 {
-                self.status |= ST_INDEX;
-            } else {
-                self.status &= !ST_INDEX;
-            }
-        }
-    }
 }
 
 /// ADC0844 4-channel 8-bit ADC — the Einstein's analogue-joystick port at I/O
@@ -600,7 +400,16 @@ impl Einstein {
             // $24 toggles the ROM bank at $0000-$1FFF between ROM and RAM.
             // (Port $21 is the ADC interrupt mask, not ROM paging.)
             0x24 => self.rom_paged_in = !self.rom_paged_in,
-            0x23 => self.fdc.select(value),
+            // Drive/side select latch: bits 0-3 pick a drive, bit 4 the side.
+            // (MAME `einstein_state::drsel_w`.)
+            0x23 => {
+                for d in 0..4 {
+                    if value & (1 << d) != 0 {
+                        self.fdc.set_drive(d);
+                    }
+                }
+                self.fdc.set_side(value & 0x10);
+            }
             0x28 => self.ctc_reg = value,
             // ADC0844 channel/mode select ($38 write).
             0x38 => self.adc.write(value),
@@ -643,14 +452,17 @@ impl Einstein {
         sector_size: usize,
         sides: usize,
     ) {
+        // Derive the track count from the image size and the rest of the
+        // geometry (the flat dump is track-major, side-interleaved).
+        let bytes_per_track = sectors_per_track * sector_size;
+        let tracks = if bytes_per_track == 0 || sides == 0 {
+            0
+        } else {
+            data.len() / (bytes_per_track * sides)
+        };
         self.fdc.insert_disk(
             drive,
-            Disk {
-                data,
-                sectors_per_track,
-                sector_size,
-                sides,
-            },
+            Disk::new(data, tracks, sides, sectors_per_track, sector_size),
         );
     }
 
@@ -893,50 +705,52 @@ mod tests {
 
     #[test]
     fn fdc_reads_a_sector_from_an_inserted_disk() {
-        let mut fdc = Wd1770::default();
+        // The WD1770 command engine is unit-tested in `western-digital-wd1770`;
+        // here we only check the machine-level wiring: a disk inserted through
+        // the public API reads back through ports $18-$1B after a $23 select.
+        let bios = vec![0u8; 0x2000];
+        let mut sys = Einstein::new(bios, EinsteinRegion::Pal);
         let mut data = vec![0u8; 10 * 512];
         data[0] = 0xAA; // track 0, sector 1, first byte
         data[511] = 0xBB; // last byte of that sector
-        fdc.insert_disk(
-            0,
-            Disk {
-                data,
-                sectors_per_track: 10,
-                sector_size: 512,
-                sides: 1,
-            },
-        );
-        fdc.select(0x01); // drive 0, side 0
-        fdc.write(0, 0x00); // restore
+        sys.insert_disk(0, data, 10, 512, 1);
+
+        sys.io_write(0x23, 0x01); // drive 0, side 0
+        sys.io_write(0x18, 0x00); // restore
         for _ in 0..128 {
-            fdc.tick();
+            sys.fdc.tick();
         }
-        fdc.write(2, 1); // sector register = 1
-        fdc.write(0, 0x80); // read sector
+        sys.io_write(0x1A, 1); // sector register = 1
+        sys.io_write(0x18, 0x80); // read sector
         for _ in 0..128 {
-            fdc.tick();
+            sys.fdc.tick();
         }
-        assert_ne!(fdc.read(0) & ST_DRQ, 0, "DRQ should be raised");
-        assert_eq!(fdc.read(3), 0xAA, "first sector byte");
+        assert_ne!(sys.io_read(0x18) & 0x02, 0, "DRQ should be raised");
+        assert_eq!(sys.io_read(0x1B), 0xAA, "first sector byte");
         let mut last = 0;
         for _ in 1..512 {
-            last = fdc.read(3);
+            last = sys.io_read(0x1B);
         }
         assert_eq!(last, 0xBB, "last sector byte");
-        assert_eq!(fdc.read(0) & ST_BUSY, 0, "BUSY clears after the transfer");
+        assert_eq!(
+            sys.io_read(0x18) & 0x01,
+            0,
+            "BUSY clears after the transfer"
+        );
     }
 
     #[test]
     fn fdc_read_with_no_disk_reports_record_not_found() {
-        let mut fdc = Wd1770::default();
-        fdc.write(2, 1);
-        fdc.write(0, 0x80); // read sector, no disk inserted
+        let bios = vec![0u8; 0x2000];
+        let mut sys = Einstein::new(bios, EinsteinRegion::Pal);
+        sys.io_write(0x1A, 1);
+        sys.io_write(0x18, 0x80); // read sector, no disk inserted
         for _ in 0..128 {
-            fdc.tick();
+            sys.fdc.tick();
         }
-        let status = fdc.read(0);
-        assert_ne!(status & ST_RNF, 0, "record-not-found should be set");
-        assert_eq!(status & ST_BUSY, 0, "command should have finished");
+        let status = sys.io_read(0x18);
+        assert_ne!(status & 0x10, 0, "record-not-found should be set");
+        assert_eq!(status & 0x01, 0, "command should have finished");
     }
 }
 

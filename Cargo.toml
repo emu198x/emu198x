@@ -191,6 +191,7 @@ members = [
     "crates/sinclair-ula-7k010e",
     "crates/ti-sn76489",
     "crates/ti-tms9918",
+    "crates/western-digital-wd1770",
     "crates/zilog-z80",
     "crates/zilog-z80-ctc",
 ]

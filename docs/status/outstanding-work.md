@@ -39,8 +39,17 @@ surfaces for the vocabulary):
   general (4-channel, daisy-chain, both modes); wiring it into Memotech MTX
   and Tatung Einstein is the remaining reuse (each is separate port work, not
   automatic — and Einstein is also blocked on `western-digital-wd1770`).
-- **Highest-leverage unblock now:** `western-digital-wd1770` (Tatung Einstein
-  disk boot).
+- **`western-digital-wd1770` landed 2026-06-06** — a standalone, MAME-faithful
+  WD1770 crate (full Type I-IV command set, read/write/multi-sector, read-address
+  with real CRC, `INTRQ`/`DRQ`, 12 unit tests), promoted from the Einstein's
+  inline stub and wired back in with the no-disk MOS boot byte-for-byte
+  unchanged. **Tatung Einstein disk boot is now blocked only on a disk image** —
+  no Einstein `.dsk` exists in the asset tree; the integration test is written
+  and `#[ignore]`d pending one. (The crate could later subsume the inline
+  WD-family controllers in `beta-disk-interface` and `machine-dragon-32`, but
+  those launch-critical systems are left untouched.)
+- **Highest-leverage unblock now:** source an Einstein disk image (CP/M / Xtal
+  DOS) to verify the end-to-end Ctrl-BREAK disk boot.
 
 ## ZX Spectrum — `emu198x-spectrum`
 
@@ -955,24 +964,23 @@ Three fixes, all against MAME's `tatung/einstein.cpp`:
    between every byte, and our missing `$24` handler left it
    spinning ~32,000 times in the copy loop.
 2. **WD1770 floppy controller** at `$18-$1B` with drive/side select
-   at `$23`. Models the register interface, Type I seek/restore,
-   sector reads (streamed via DRQ from an inserted image), and
-   record-not-found when no disk is present. A flat sector-dump disk
-   can be inserted through `Einstein::insert_disk`; with none the MOS
-   stays at its prompt.
+   at `$23` — now the standalone `western-digital-wd1770` crate (full
+   Type I-IV command set, read/write/multi-sector, read-address). A
+   flat sector-dump disk can be inserted through
+   `Einstein::insert_disk`; with none the MOS stays at its prompt.
 3. **INDEX pulse.** After Restore the MOS polls the Type I status
    for the once-per-revolution INDEX bit to confirm the drive spins;
    synthesising it lets the boot continue past the FDC.
 
-- **A — Loading an OS from disk** needs an Einstein disk image
-  (CP/M / Xtal DOS). None is on hand; the FDC read path and
-  `insert_disk` API are in place for when one is supplied.
+- **L — Loading an OS from disk** is blocked only on a disk image
+  (CP/M / Xtal DOS). The WD1770 controller is complete; no Einstein
+  `.dsk` exists in the asset tree, so the Ctrl-BREAK disk boot is
+  unverified end-to-end. Source an image to close this.
 - **A — Z80 CTC may also be required** for later software. Channel 0
   is stubbed at `$28`; the MOS sets IM 1 early, so the boot path
   doesn't need CTC vectors, but disk-loaded software likely will.
-- **A — TMS9918A scanline-batched render** (shared family debt).
 - **A — Cassette / printer ports** unwired.
-- **A — Snapshot deferred**.
+- **A — Snapshot deferred** (the WD1770 crate has no serde state yet).
 - **S — Native verifier window.** Capture + script + MCP parity landed (operational-parity rollout, 2026-06-02); the native `wgpu` interactive window is the remaining surface.
 
 ## Mattel Aquarius — `emu198x-mattel-aquarius` (new, 2026-06-01)
@@ -1326,7 +1334,9 @@ External-blocker holds:
   2026-06-03** — crate landed and wired; the M5 boots through the CTC.
   The crate is available to wire into Memotech MTX and Tatung Einstein
   (separate port work).
-- Tatung Einstein full boot needs a `western-digital-wd1770` floppy
-  controller for the X-TAL MOS disk wait.
+- ~~Tatung Einstein full boot needs a `western-digital-wd1770` floppy
+  controller for the X-TAL MOS disk wait.~~ **Closed 2026-06-06** — crate
+  landed and wired; disk boot now blocked only on sourcing an Einstein
+  `.dsk` image.
 
 Extract on demand when expanding scope; do not rewrite from scratch.
