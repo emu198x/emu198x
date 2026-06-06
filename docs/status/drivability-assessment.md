@@ -341,23 +341,36 @@ spawns. The hottest cart code gates on RAM `$754A`. Next step is reverse
 -engineering that wait, ideally against a MAME execution trace of the same ROM.
 A permanent `irq_acks()` diagnostic was added to the machine in the process.
 
-### Machines blocked on ROMs / media (not yet validatable)
+### Machines whose joystick is validated but whose games are ROM/media-blocked
 
-System BIOS images for these live in `~/.emu198x/roms/<machine>/`, but the pass
-can't drive them yet for the reasons below — none is a confirmed emulator bug:
+System BIOS images live in `~/.emu198x/roms/<machine>/`. For these the
+freshly-wired **joystick is validated at the register level** (the same kind of
+check that caught the 2600 swap), but a full game can't be driven yet — each a
+ROM/media-availability gap, not a confirmed emulator bug:
 
-- **Mattel Aquarius** — boots (BIOS runs, the screen-clear works: char RAM is all
-  spaces, colour RAM uniform), but the display is garbage. Root cause pinned: the
-  8 KB `aquarius.rom` is pure system code, with **no character generator** — the
-  bytes at `CHAR_ROM_OFFSET` (`$1800`) are Z80 opcodes (`CD5E12`…), so every glyph,
-  including space, renders from code. The Aquarius char-gen is a separate 2 KB ROM
-  that isn't present in `~/.emu198x/roms/` or TOSEC. Fix once sourced: add it as a
-  second firmware and point `CHAR_ROM_OFFSET` at it. Blocked on the ROM.
-- **VIC-20** — boots to BASIC, but the binary has no `--cart` option (cartridge
-  media isn't wired), so there's no joystick-driving game. Validate the
-  freshly-wired joystick by register probe, or wire cart loading first.
+- **VIC-20** — renders to READY correctly. Joystick **validated** by the gated
+  `joystick_probe`: up=PA2, down=PA3, left=PA4, fire=PA5 on VIA #1 port A and
+  right=PB7 on VIA #2 port B all pull their line low (active-low), matching the
+  standard layout. (PB7 is a keyboard-column output at READY, so the probe sets
+  DDRB bit 7 to input before reading.) No game to drive: the binary has no
+  `--cart`/`--prg` path and TOSEC has no VIC-20 software here; the user's
+  `rachel.prg` (BASIC, loads `$1201`/+8K) could run once PRG-autoload is wired.
+- **Mattel Aquarius** — joystick **validated** (`controllers_read_through_the_
+  expander_ay_ports`: the AY-3-8910 Mini-Expander disc/button codes match MAME,
+  P1 on port B / P2 on port A). But the display is garbage: the 8 KB
+  `aquarius.rom` is pure system code with **no character generator** — the bytes
+  at `CHAR_ROM_OFFSET` (`$1800`) are Z80 opcodes, so glyphs render from code. The
+  char-gen is a separate 2 KB ROM not present in `~/.emu198x/roms/` or TOSEC.
+  Fix once sourced: add it as a second firmware and point `CHAR_ROM_OFFSET` at
+  it. **Blocked on the ROM file** (it cannot be fabricated).
 - **SVI-328** — BIOS present, but TOSEC has no SVI cartridge dumps (cassette
-  only); same register-probe-or-wire-media choice as VIC-20.
+  only); joystick validatable by register probe, game needs media.
+
+The **Sord M5 Dig Dug round-freeze** stays open: three diagnostic passes
+narrowed it to the cart's round-init state machine (game-phase RAM `$754A` stuck
+at `0`, no input read, player sprite never spawned) but didn't crack it; it
+needs a known-good (MAME) execution trace to compare against, not more blind
+probing. Stopped per the anti-thrash rule.
 
 Method notes for reproducers:
 - TOSEC ROMs are TorrentZipped; unzip first. Pick the mapper from the dump, not
