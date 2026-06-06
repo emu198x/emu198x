@@ -56,6 +56,41 @@ Deep per-chip and per-Kickstart notes live in [`chipset/`](chipset/) and
 - `../../syntheses/` — 24 Amiga deep-dive docs (Paula, Kickstart, MFM, …).
 - Reference emulators: vAmiga, WinUAE, fs-uae, Minimig-AGA (`emulators/amiga/`).
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 28.37516 MHz PAL. 68000 = ÷4 (7.09 MHz); chipset
+  at the colour clock (÷2) and low-res pixel clock (÷4).
+- **Timing model realised** — architecturally the **strongest cycle-accuracy
+  story**: the design is DMA-driven, with Agnus arbitrating CPU/copper/blitter/
+  sprite/audio/disk/bitplane access cycle-by-cycle and the copper synced to the
+  beam. The model *is* the master clock; per-chip timing notes live in
+  [`chipset/inter-chip-timing.md`](chipset/inter-chip-timing.md).
+- **CPU timing** — 68000/010/020 cycle-accurate (§62; Tom Harte 1M + Musashi
+  prove the ISAs).
+- **Distance to full cycle-accuracy** — broad software validation across OCS/ECS/
+  AGA will surface the residual blitter/copper/DMA-priority edge cases; the
+  framework is cycle-exact by design.
+
+## Tooling & drivability
+
+- **Script / MCP** — deep: `--script` + `--mcp` with Exec/library introspection
+  (`query_exec_tasks`, `resolve_lvo`, `address_to_library`), chipset queries,
+  copper-list/blitter/CIA queries, `run_until_pc`, watch-memory. One of the
+  richest debug surfaces in the fleet.
+- **Native window** — yes (primary tier): `wgpu` video, keyboard/mouse, joystick,
+  Paula audio.
+- **Disassembler** — `disasm`/`disasm_around` present (68k); the Asm198x shared
+  68000 disassembler is the convergence target.
+
+## Peripherals & connectivity
+
+- **Emulated now** — DF0 floppy (`ADF`), mouse, port-1 joystick/gamepad, Paula audio.
+- **Period peripherals (emulatable)** — extra floppies, hard disk (via Gayle —
+  stub-level), serial, parallel, Zorro cards, RTG framebuffers, PCMCIA (A600/A1200).
+- **Internet-capable** — **Yes** (strongly): period serial TCP/IP stacks (AmiTCP,
+  Miami), A2065 Zorro Ethernet, PCMCIA Ethernet on A600/A1200 (via Gayle), and the
+  modern PiStorm. The Amiga was a real internet machine — a first-class net target.
+
 ## Crates
 
 | Crate | Role |

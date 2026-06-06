@@ -34,6 +34,33 @@ The first donor extraction. The 1982 BIOS reaches "COLECOVISION™ / TURN GAME O
 - 1982 ColecoVision BIOS → title; `tests/bios_boot.rs`.
 - `ti-tms9918` + `ti-sn76489` chip crates (shared, tested).
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 10.738635 MHz. CPU = ÷3 ≈ 3.579545 MHz; VDP dot =
+  ÷2 ≈ 5.369 MHz (real ratio 1.5 dots/CPU cycle).
+- **Timing model realised** — relaxed: the initial port runs the VDP at **3:1**
+  (3× too fast) with NTSC/PAL frame budgets in CPU cycles, and renders
+  **scanline-batched** (line painted at dot-wrap). SG-1000 already carries the
+  correct 3:2 counter — porting it is the fix.
+- **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
+- **Distance to full cycle-accuracy** — correct the 3:2 dot ratio; per-dot VDP
+  render; verify IM 1 cart-bus IntAck.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp` (operational-parity rollout).
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared Z80 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — cartridge, controllers.
+- **Period peripherals (emulatable)** — Expansion Module #1 (Atari 2600 carts),
+  #2 (driving), Super Action controllers, roller controller; the ADAM expansion
+  (#3) turns it into a computer with tape/disk/printer.
+- **Internet-capable** — **Marginal**: only via the ADAM expansion's ADAMlink
+  modem (period). Bare ColecoVision has no net path.
+
 ## Crates
 
 | Crate | Role |

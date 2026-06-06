@@ -45,6 +45,34 @@ character display — no new chip crate (Spectrum-style keyboard).
 - Standard 8K ROM (md5 `db6e…fc3c`, from `emulators/zx-spectrum/.../jupiter.rom`);
   types + executes verified.
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — Z80A at 3.25 MHz. PAL: 312 lines × 207
+  T-states/line = 64,584 T-states/frame ≈ 50.3 Hz; INT pulsed for the first 32
+  T-states of each frame.
+- **Timing model realised** — closer to `hc`-driven than most donors: the
+  half-cycle `zilog-z80` is driven **2× per T-state** with a held
+  (acknowledge-cleared) INT — the fix that made it interactive. The character
+  display still renders **end-of-frame** (mid-frame char/charset writes not shown
+  until the next frame).
+- **CPU timing** — Z80 cycle-accurate (§62).
+- **Distance to full cycle-accuracy** — beam-accurate display (the ULA-equivalent
+  bus-stealing during refresh), mid-frame character changes.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp` (operational-parity rollout).
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared Z80 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — ROM, keyboard, character display (user-redefinable glyphs).
+- **Period peripherals (emulatable)** — cassette, RAM packs, the Ace's minimal
+  expansion connector.
+- **Internet-capable** — **No**: a minimal 1982 Forth machine with no period or
+  practical modern net path.
+
 ## Crates
 
 | Crate | Role |

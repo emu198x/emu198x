@@ -52,6 +52,32 @@ level, and can auto-load a PRG program from the headless runner. 6502 + VIC
   right=PB7) — gated `joystick_probe`.
 - BASIC READY boot via the KERNAL/BASIC ROMs.
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — the VIC (6560/6561) generates the system clock:
+  CPU ≈ 1.108 MHz PAL / 1.0227 MHz NTSC (from the 4.43/14.31 MHz colour crystal).
+- **Timing model realised** — relaxed vs the C64: `mos-vic-i` renders the
+  character display, but not the cycle-exact, bus-visible per-pixel VIC-II model.
+- **CPU timing** — 6502 cycle-accurate (§62).
+- **Distance to full cycle-accuracy** — per-cycle VIC rendering + bus visibility;
+  VIC audio (3 tone + noise).
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp`; `--prg`/`--prg-sys` autoload; gated
+  `joystick_probe` register validation.
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared 6502 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — joystick (validated), PRG autoload.
+- **Period peripherals (emulatable)** — 1540/1541 drive, datasette, printers, RAM
+  expansion cartridges, paddles.
+- **Internet-capable** — **Yes**: the **VICMODEM** (1982) was the first modem
+  under $100 — the VIC-20 put a generation online via the RS-232 user port. Modern
+  emulatable kit: WiModem232 and user-port Ethernet. A flagship net story.
+
 ## Crates
 
 | Crate | Role |

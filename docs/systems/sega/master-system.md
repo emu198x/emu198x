@@ -38,6 +38,34 @@ SN76489.
 
 - Alex Kidd in Miracle World (1986, US) → title; `tests/cart_boot.rs`.
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 10.738635 MHz NTSC (CPU ÷3 ≈ 3.58) / 10.640 MHz
+  PAL (≈3.55). VDP dot ÷2.
+- **Timing model realised** — loosest of the TMS9918 lineage: `sega-vdp` exposes
+  only **`tick_scanline()`** (228 T-states batched per line, no per-dot tick),
+  more relaxed than `ti-tms9918`. Line-interrupt counter wired but
+  programmer-side behaviour unvalidated.
+- **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
+- **Distance to full cycle-accuracy** — per-dot VDP model; line-IRQ reload/status
+  validation against split-screen scrollers.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp` (operational-parity rollout).
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared Z80 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — cartridge, controllers; Game Gear variant scaffolding.
+- **Period peripherals (emulatable)** — light phaser, 3-D glasses, the card slot,
+  the FM sound unit (YM2413), Game Gear gear-to-gear link.
+- **Internet-capable** — **Marginal**: the Sega Modem / "Tele-Genesis"-style
+  services were Mega Drive era; the SMS had a Japanese modem peripheral but no
+  documented device we'd prioritise emulating. A modern flash-cart WiFi path is
+  conceivable.
+
 ## Crates
 
 | Crate | Role |

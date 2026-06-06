@@ -464,6 +464,36 @@ For the source-backed accuracy audit and implementation sequence, see
 - Real Dragon 32 BASIC ROM boot; DragonDOS `DIR`/`SAVE` real-ROM smokes.
 - See [`accuracy-audit.md`](accuracy-audit.md) for the source-backed sequence.
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 6809E at ≈0.89 MHz (14.21818 MHz PAL crystal,
+  SAM-derived). The SAM generates the CPU + VDG clocks.
+- **Timing model realised** — beam-updated MC6847 framebuffer, but calibrated to a
+  372×243 diagnostic visible area + an XRoar zoomed-comparison bridge, not a full
+  PAL timing/overscan model. Audio pinned to XRoar's measured DAC/level model.
+- **CPU timing** — 6809 cycle-accurate (§62).
+- **Distance to full cycle-accuracy** — full PAL timing/overscan; exact WD2797
+  disk bit timing (DragonDOS is sector-backed); see
+  [`accuracy-audit.md`](accuracy-audit.md).
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp`; deterministic fetch/write trace watches,
+  PAK trace-signature smokes, patched-XRoar screenshot comparison.
+- **Native window** — yes (primary tier): `wgpu` video, PIA-derived audio, gamepad
+  → analogue joystick.
+- **Disassembler** — pending the Asm198x shared 6809 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — CAS cassette, DragonDOS `.BIN`, VDK disk (sector-backed),
+  ROM/DGN carts, PAK snapshots, analogue joystick.
+- **Period peripherals (emulatable)** — DragonDOS drives, printer, the Deluxe
+  RS-232 cartridge, the cartridge/expansion bus.
+- **Internet-capable** — **Yes**: period RS-232 → modem/BBS, and the modern
+  **DriveWire** protocol (serial-to-host virtual drive + networking) — a popular,
+  documented, very emulatable path shared with the CoCo. Plus CoCoNet-style stacks.
+
 ## Near-Term Plan
 
 1. Extend the deterministic PAK trace-alignment set only when a new fixture

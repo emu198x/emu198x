@@ -41,6 +41,31 @@ chip crate.
 - MAME `oric1` BASIC 1.1 ROM → `Ready` (banner asserted in `$BB80`).
 - Reference: Oricutron (`emulators/oric/oricutron/`) — IJK joystick + AY-via-VIA.
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 6502 at ~1 MHz; the custom video ULA generates the
+  display from screen RAM.
+- **Timing model realised** — relaxed: the display renders **end-of-frame** (serial
+  attributes work within a line, not across scanlines mid-render).
+- **CPU timing** — 6502 cycle-accurate (§62).
+- **Distance to full cycle-accuracy** — cross-scanline serial attributes;
+  RAM-under-ROM banking; beam-accurate ULA timing.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp`.
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared 6502 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — keyboard, AY sound, TEXT/HIRES display.
+- **Period peripherals (emulatable)** — the Microdisc/Jasmin disk units, printer,
+  the IJK joystick interface, cassette.
+- **Internet-capable** — **Marginal**: a strong French scene with period modems
+  and Minitel/telematics access via the serial path; no prioritised modern device,
+  but a serial-modem bridge fits the platform's history.
+
 ## Crates
 
 | Crate | Role |

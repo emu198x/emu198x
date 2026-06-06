@@ -43,6 +43,32 @@ crate.
 - MAME `electron_ula` — palette, screen-start, display layout.
 - OS ROM (TOSEC) + BASIC II → `>`; `PRINT 123` executes.
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 16 MHz master; 6502 nominally 2 MHz, but real
+  hardware **halves to 1 MHz during ULA RAM-fetch windows**.
+- **Timing model realised** — relaxed: runs a **flat 2 MHz** with no ULA
+  contention — a significant gap on a machine whose software (Elite, scrollers)
+  is heavily timing-sensitive. Display layout/screen-start now MAME-accurate.
+- **CPU timing** — 6502 cycle-accurate (§62) at the instruction level; the bus
+  contention slowdown is the missing piece.
+- **Distance to full cycle-accuracy** — ULA 1 MHz/2 MHz contention; paged-ROM
+  keyboard read path.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp`.
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared 6502 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — keyboard, ULA display + sound.
+- **Period peripherals (emulatable)** — the **Plus 1** (printer + serial + cart
+  slots), Plus 3 disk, cassette, joysticks.
+- **Internet-capable** — **Marginal**: no native Econet (unlike the BBC); Plus 1
+  serial + third-party comms add-ons existed. A modern serial bridge is possible.
+
 ## Crates
 
 | Crate | Role |

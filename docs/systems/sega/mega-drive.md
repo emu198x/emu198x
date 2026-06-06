@@ -55,3 +55,29 @@ Cartridge ROMs (with header parsing); no system BIOS required for most carts
 
 - 68000 (Tom Harte) + Z80 (Tom Harte/ZEXALL) cores — shared, validated
   elsewhere. Nothing Mega-Drive-specific yet.
+
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 53.693175 MHz NTSC. 68000 ≈ 7.67 MHz; Z80 ≈ 3.58
+  MHz; VDP dot from the master.
+- **Timing model realised** — **not started**; the dual-CPU shared bus +
+  bank-switch window is the defining timing challenge (68000/Z80 arbitration,
+  H/V interrupts).
+- **CPU timing** — both cores cycle-accurate (§62) at the instruction level; no
+  Mega-Drive bus/VDP timing yet.
+- **Distance to full cycle-accuracy** — everything: VDP dot timing, 68000/Z80 bus
+  arbitration, YM2612 FM timing, DMA.
+
+## Tooling & drivability
+
+- **Script / MCP** — not started (no binary yet).
+- **Native window** — not started.
+- **Disassembler** — will use the Asm198x shared 68000 / Z80 disassemblers.
+
+## Peripherals & connectivity
+
+- **Period peripherals (emulatable)** — 3/6-button pads, the Mega-CD + 32X
+  expansions, light gun (Menacer), mouse, the cartridge SRAM/EEPROM mappers.
+- **Internet-capable** — **Yes**: the Mega Drive had real online services — Sega
+  **Meganet / Tele-Genesis** (modem, Japan/Brazil) and **XBAND** (US) — both
+  documented, emulatable modem peripherals. A genuine 16-bit net target.

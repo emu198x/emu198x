@@ -59,3 +59,28 @@ The CoCo 1/2 share almost all hardware with the Dragon 32. The CoCo 3 adds signi
 
 - (Nothing yet — not started. The shared 6809 + Dragon chips are validated under
   the Dragon page.)
+
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 6809 at ≈0.89 MHz (NTSC), SAM-derived — same
+  family as the Dragon. (CoCo 3 GIME replaces SAM+VDG+PIA.)
+- **Timing model realised** — **not started**; CoCo 1/2 would inherit the Dragon's
+  beam-updated VDG model.
+- **CPU timing** — 6809 cycle-accurate (§62) via the shared core.
+- **Distance to full cycle-accuracy** — everything CoCo-specific; the CoCo 3 GIME
+  (MMU, timers, enhanced video) is a substantial new timing surface.
+
+## Tooling & drivability
+
+- **Script / MCP** — not started (no binary yet); would inherit the Dragon shell.
+- **Native window** — not started.
+- **Disassembler** — will use the Asm198x shared 6809 disassembler.
+
+## Peripherals & connectivity
+
+- **Period peripherals (emulatable)** — disk (the FD-501/RS-DOS controllers),
+  cassette, the RS-232 program pak, joysticks, printer; CoCo 3 adds the higher-res
+  display + 512 KB/2 MB RAM.
+- **Internet-capable** — **Yes**: the CoCo is the heartland of **DriveWire**
+  (serial-to-host virtual drive + networking) and CoCoNet — a thriving, documented,
+  emulatable net path. Period RS-232 modems too.

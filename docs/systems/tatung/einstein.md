@@ -38,6 +38,32 @@ AY-3-8910 + WD1770 floppy (inline).
 - MAME `tatung/einstein.cpp` — `$24` ROM toggle, WD1770 at `$18-$1B`, INDEX pulse,
   AY-port keyboard. MOS v1.2 → `Ready`.
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — Z80A at ~4 MHz. (Exact crystal/divider tree —
+  verify against MAME `tatung/einstein.cpp`.)
+- **Timing model realised** — relaxed: TMS9918 **scanline-batched** render; the
+  keyboard interrupt is a synthesised 50 Hz IM2 device; WD1770 modelled at the
+  register level (Type I + sector reads), not raw MFM bit timing.
+- **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
+- **Distance to full cycle-accuracy** — per-dot VDP; raw-MFM/exact FDC timing;
+  CTC channel timing for disk-loaded software.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp` (operational-parity rollout).
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared Z80 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — built-in WD1770 floppy (sector-dump images via
+  `insert_disk`), AY sound, keyboard.
+- **Period peripherals (emulatable)** — second floppy, the Tatung "Tatung Pipe"
+  expansion bus, printer, cassette, CP/M software stack.
+- **Internet-capable** — **Marginal**: RS-232 + CP/M-era networking add-ons
+  existed; no documented modern device we'd prioritise emulating.
+
 ## Crates
 
 | Crate | Role |

@@ -61,6 +61,34 @@ RAM, optional 16 KB expansion.
 - MAME `aquarius.zip` `aq2.u5` — the standard character generator.
 - Six TOSEC cart games (`.../Mattel/Aquarius/Games/[BIN]`) to title screens.
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — Z80A at 3.579545 MHz. **No periodic CPU
+  interrupt** — the base machine wires neither IRQ nor NMI (per MAME; only the
+  expansion port can assert them). This is load-bearing: a fictitious per-frame
+  NMI corrupted cart-detect (fixed this session).
+- **Timing model realised** — relaxed: the 40×24 character display renders
+  **end-of-frame** (mid-frame char/colour writes show next frame).
+- **CPU timing** — Z80 cycle-accurate (§62).
+- **Distance to full cycle-accuracy** — per-scanline display; correct external-bus
+  (scrambler) timing is already modelled and validated.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp`; `run_until_pc` + the gated cart-boot
+  probes used to crack the scrambler this session.
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared Z80 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — cartridge (with the software-lock scrambler), keyboard,
+  Mini-Expander AY controllers.
+- **Period peripherals (emulatable)** — the Mini Expander (AY + 2 controller
+  ports), 4K/16K RAM cartridges, cassette, the Aquarius printer.
+- **Internet-capable** — **No**: a low-end 1983 machine with cassette I/O and no
+  period or practical modern net path.
+
 ## Crates
 
 | Crate | Role |

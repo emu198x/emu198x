@@ -67,6 +67,42 @@ The Spectrum boots, loads tapes, plays games, and has full audio. The 128K model
 - 262/262 runtime tests; 8/8 boot goldens; 6 ULA/contention TAP smokes.
 - Reference: fuse, zesarux, SpecIde, Spectrum MiSTer core (`emulators/zx-spectrum/`).
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 14 MHz master; Z80 at 3.5 MHz; the ULA ticks every
+  **half-cycle** (7 MHz). `hc` is the only time counter.
+- **Timing model realised** — the **reference implementation of the project's
+  model** (RULES §53-56 is written around it): the master oscillator drives the
+  loop, the ULA ticks every half-cycle, the CPU ticks only when the ULA allows,
+  contention = a skipped CPU slot. Per-variant contention (48K 6C001E / 128K
+  7K010E phase offset) is baked into a `contention_phase` field with no runtime
+  conditional. Floating bus + snow effect modelled.
+- **CPU timing** — Z80 cycle-accurate (§62): Tom Harte 100%, ZEXDOC/ZEXALL, FUSE
+  1,351/1,356, Patrik Rak `z80test` 6/6.
+- **Distance to full cycle-accuracy** — the +3 (40078 gate array) has slightly
+  different contention timing, not separately modelled; the 5 ULA smokes aren't
+  yet byte-equal against Spectron references.
+
+## Tooling & drivability
+
+- **Script / MCP** — strong: `--script` + a full JSON-RPC `--mcp` (cpu_state,
+  memory_peek/poke, port r/w, step, run_until_pc, press_key/type_string,
+  query_ay, watch_memory/watch_ay, snapshots, screenshots).
+- **Native window** — yes (primary tier): `wgpu` `raw`/`lcd`/`crt`, keyboard,
+  audio, tape autoload.
+- **Disassembler** — `disasm` present; converges on the Asm198x shared Z80
+  disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — tape (TAP/TZX/WAV), +3 disk (DSK via uPD765A FDC), Kempston
+  joystick, snapshots (SNA/Z80).
+- **Period peripherals (emulatable)** — Interface 1 (microdrive + RS-232 + ZX Net),
+  Interface 2 (carts + joystick), ZX Printer, Multiface, Beta Disk.
+- **Internet-capable** — **Yes**: Interface 1 carried **ZX Net** (a period local
+  network) and RS-232; modern emulatable kit — **Spectranet** (Ethernet, fully
+  documented) and ESP-based WiFi modems. A strong, active net scene.
+
 ## Test coverage
 
 | Component | Tests |

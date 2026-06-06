@@ -40,6 +40,32 @@ SAA5050 + SN76489 + two 6522 VIAs.
 - 6502 core — Tom Harte (shared crate).
 - (No BBC-specific reference cross-check recorded yet — a verification target.)
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 16 MHz master; 6502A nominally 2 MHz, but real
+  hardware runs the famous **alternating 1 MHz / 2 MHz per-cycle** scheme during
+  video access.
+- **Timing model realised** — relaxed: a **flat 2 MHz** (no 1/2 MHz contention);
+  MODE 7 SAA5050 teletext renders, other modes via the inline video ULA.
+- **CPU timing** — 6502 cycle-accurate (§62).
+- **Distance to full cycle-accuracy** — the alternating 1/2 MHz contention;
+  SAA5050 niceties (rounding, double-height, flash).
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp`.
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared 6502 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — keyboard (System VIA PA7), MODE 7 teletext display, sound.
+- **Period peripherals (emulatable)** — floppy (8271 / WD1770), the **Tube**
+  co-processor, printer, analogue port (joysticks/ADC), user port, speech.
+- **Internet-capable** — **Yes** (a standout): the BBC shipped with **Econet**, a
+  genuine native LAN — plus RS-423 serial. A real period network in the silicon,
+  and the most natural "always was networked" machine in the fleet.
+
 ## Crates
 
 | Crate | Role |

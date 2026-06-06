@@ -38,6 +38,29 @@ the MSX family home; MSX2/2+/TurboR would be siblings.)
   `tests/bios_boot.rs`. MSX Nemesis validated clean (PSG-port-A joystick drives
   the menu).
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 10.738635 MHz. CPU = ÷3 ≈ 3.58 MHz; VDP dot ÷2.
+- **Timing model realised** — the **correct 3:2 VDP-dot phase clock**; VDP render
+  is **scanline-batched** (shared TMS9918 family debt).
+- **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
+- **Distance to full cycle-accuracy** — per-dot VDP rendering.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp` (operational-parity rollout).
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared Z80 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — cartridge, keyboard (joystick chip-side).
+- **Period peripherals (emulatable)** — disk drives (FDC), cassette, printer,
+  joysticks, mouse, the MSX-Audio / Music (FM) cartridges, RS-232 cartridges.
+- **Internet-capable** — **Yes**: period RS-232 cartridges + modems; strong modern
+  emulatable options — **ObsoNET** / **GR8NET** (Ethernet/WiFi cartridges with
+  documented TCP stacks). One of the better-supported retro net scenes.
+
 ## Crates
 
 | Crate | Role |

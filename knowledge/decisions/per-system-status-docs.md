@@ -57,6 +57,14 @@ across commit messages, code comments, and memory.
   Asm198x dependency). Drivability — an agent being able to drive and inspect
   every core — is the project's other through-line and the reason these tools
   exist; the per-system page is where its state is recorded.
+- **Peripherals & connectivity** — the realistic peripheral surface (disk,
+  printer, mouse, light gun, expansions) and, deliberately, **whether the system
+  could ever reach the internet** — natively (rare), via a period modem / network
+  device, or via a modern third-party device we could emulate (FujiNet, WiModem,
+  Spectranet, RR-Net, Mobile Adapter GB, DriveWire, the BBC's native Econet, …).
+  Tracked as a forward-looking capability axis with a `Yes / Marginal / No`
+  verdict so it can be scanned across the fleet; the path matters as much as the
+  verdict, because "what device would we emulate" is the actual work item.
 
 ## Relationship to other layers
 

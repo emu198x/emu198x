@@ -32,6 +32,34 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
 - Adam Tennant SM83 corpus (49,600 tests, `~/Projects/Emu198x-Unclean/GameboyCPUTests/v2/`).
 - Reference: SameBoy (`emulators/gameboy/`).
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 4.194304 MHz (DMG). CPU machine-cycle = ÷4
+  (1.048576 MHz); PPU + timers run off the master.
+- **Timing model realised** — the SM83 is cycle-stepped and the PPU is driven from
+  it, but PPU/APU sub-cycle accuracy isn't ledgered beyond "games run" (no
+  mooneye/Blargg GB timing suite wired yet).
+- **CPU timing** — SM83 cycle-accurate (§62); 49,600 single-step tests prove the
+  *instruction set*, not PPU/timer interaction.
+- **Distance to full cycle-accuracy** — run mooneye-gb + Blargg GB timing ROMs;
+  PPU mode-timing (OAM scan / drawing / hblank) edge cases.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp`.
+- **Native window** — yes (primary tier): shared `wgpu` `raw`/`lcd`/`crt`,
+  keyboard/gamepad joypad.
+- **Disassembler** — pending the Asm198x shared SM83 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — cartridge (MBC), `.sav` battery RAM, joypad.
+- **Period peripherals (emulatable)** — link cable, Game Boy Printer, Game Boy
+  Camera, MBC5 rumble.
+- **Internet-capable** — **Yes**: the **Mobile Adapter GB** was a real Game Boy
+  online service (Japan, 2001) — a documented, emulatable modem peripheral (BGB
+  supports it). Link cable covers local multiplayer.
+
 ## Crates
 
 | Crate | Role |

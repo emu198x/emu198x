@@ -25,6 +25,31 @@ Depends on the 68000 CPU core (built for Amiga). The Atari ST has simpler custom
 - **TOS ROM** — system firmware, GEM desktop
 - **Floppy** — standard PC-compatible format (unlike Amiga's custom MFM)
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 32 MHz master; 68000 = ÷4 (8 MHz); the Shifter
+  drives video from the same clock tree.
+- **Timing model realised** — **not started** beyond the shared 68000. The target
+  is a master-clock model (Shifter video + MFP timers off the 32 MHz tree).
+- **CPU timing** — 68000 cycle-accurate (§62; Tom Harte 1M) — instruction level
+  only; no ST bus/Shifter timing yet.
+- **Distance to full cycle-accuracy** — everything ST-specific: Shifter
+  bus-cycle timing, MFP 68901 timer/interrupt timing, GLUE arbitration.
+
+## Tooling & drivability
+
+- **Script / MCP** — not started (the binary doesn't exist yet).
+- **Native window** — not started.
+- **Disassembler** — will use the Asm198x shared 68000 disassembler.
+
+## Peripherals & connectivity
+
+- **Period peripherals (emulatable)** — floppy (PC-compatible), ACSI hard disk,
+  **MIDI** (a defining ST port), serial, parallel, the cartridge port, mouse.
+- **Internet-capable** — **Yes**: period serial modems + Ethernet adapters, the
+  MiNT/MiNTnet TCP stack, and modern kit (EtherNAT, Lightning). A capable net
+  machine once the core lands.
+
 ## Crates
 
 | Crate | Role | Status |

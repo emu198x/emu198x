@@ -43,6 +43,33 @@ PIA-6520 + VIA-6522 + 6845 CRTC — all reused, no new chip crate.
 - VICE 901465-* ROM set → `READY.`; keyboard matrix ground-truthed (CB1 retrace
   IRQ + scan, 2026-06-05). Reference: VICE.
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 6502 at ~1 MHz (8 MHz crystal ÷ 8); CRTC ticks at
+  the same 1× rate (donor-v1 simplification — real 80-column hardware clocks the
+  CRTC at 2 MHz).
+- **Timing model realised** — relaxed: one master tick = one 6502 cycle = one CRTC
+  tick; vertical-retrace is reflected via VIA PB5 so the editor's spin-wait
+  releases, but the 80-column 2 MHz CRTC clock isn't modelled.
+- **CPU timing** — 6502 cycle-accurate (§62).
+- **Distance to full cycle-accuracy** — 80-column CRTC at 2 MHz; exact CRTC
+  character timing.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp`.
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared 6502 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — keyboard; CRTC display.
+- **Period peripherals (emulatable)** — IEEE-488 drives (2040/4040/8050), datasette,
+  printers, the PET's expansion/userport.
+- **Internet-capable** — **Marginal-to-Yes**: RS-232 + IEEE-488-attached modems
+  gave period BBS access; no prioritised modern device, but a serial-modem bridge
+  is realistic.
+
 ## Crates
 
 | Crate | Role |

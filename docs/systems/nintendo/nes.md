@@ -57,6 +57,34 @@ cargo run --release -p emu198x-nes --no-default-features -- --smoke-root path/to
   Super Mario Bros. renders.
 - Reference: Mesen2, fceux, nestopia (`emulators/nes/`).
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 21.477272 MHz NTSC. CPU = ÷12 (1.789773 MHz);
+  PPU = ÷4 (5.369318 MHz) — the 3:1 PPU:CPU relationship.
+- **Timing model realised** — strong: a **dot-driven 2C02 PPU** interleaved with
+  the CPU at the 3:1 ratio. The remaining timing gaps are specific DMA/edge cases,
+  not the core model.
+- **CPU timing** — 2A03 cycle-accurate (§62; nestest 8991/8991 + Tom Harte prove
+  the ISA).
+- **Distance to full cycle-accuracy** — OAMDMA odd-cycle penalty + DMC sample-DMA
+  interleave; `cpu_timing_test6`; the `blargg_nes_cpu_test5` 01-implied case.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp`; Blargg `$6000` assertion + smoke-matrix.
+- **Native window** — yes (primary tier): shared `wgpu` `raw`/`lcd`/`crt`,
+  keyboard/gamepad.
+- **Disassembler** — pending the Asm198x shared 6502 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — cartridge (many mappers), controllers.
+- **Period peripherals (emulatable)** — Zapper light gun, R.O.B., Power Pad, Four
+  Score, the Famicom Disk System.
+- **Internet-capable** — **Yes (Japan)**: the **Famicom Modem / Famicom Network
+  System** (1988) ran stock-trading and betting services — a real, documented,
+  emulatable modem. Modern flash-cart WiFi is also feasible. Marginal in the West.
+
 ## Crates
 
 | Crate | Role | Status |

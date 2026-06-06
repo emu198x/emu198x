@@ -42,6 +42,32 @@ ROM image. Headless extended system. Z80 + TMS9918A + SN76489 + Z80 CTC.
   keyboard model. Full map: `knowledge/systems/memotech-mtx.md`.
 - `boots_to_basic_ready` (asserts CTC ch0 live).
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — CPU at 4 MHz; VDP at 5.37 MHz via a Bresenham
+  counter against the CPU clock; PSG at 4 MHz with internal ÷16.
+- **Timing model realised** — relaxed: TMS9918 **scanline-batched** render; the
+  VDP `/INT` feeds **CTC channel 0** (the CTC drives the Z80 IRQ via IM 2). The
+  CTC-as-timebase path is wired and asserted live.
+- **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
+- **Distance to full cycle-accuracy** — per-dot VDP; exact CTC/VDP phase.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp` (operational-parity rollout).
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared Z80 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — OS+BASIC+ASSEM ROM, VDP, PSG, CTC.
+- **Period peripherals (emulatable)** — cassette, Centronics printer, the
+  Memotech **FDX / HDX** disk systems, and the **node ring network** (Memotech
+  shipped a real local network for the MTX).
+- **Internet-capable** — **Marginal-to-Yes**: the MTX had a genuine period LAN
+  (node network) and RS-232; a modern serial-bridge net path is realistic. One of
+  the few 8-bits with native networking heritage.
+
 ## Crates
 
 | Crate | Role |

@@ -34,6 +34,31 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 
 - MAME `atom` romset; INS8255 PPI + VDG field-sync; boot + typing verified.
 
+## Timing & cycle-accuracy
+
+- **Master clock & dividers** — 6502 at ~1 MHz; MC6847 VDG field-sync drives the
+  display.
+- **Timing model realised** — relaxed: text-mode VDG render; graphics modes 1-5
+  unimplemented (solid green).
+- **CPU timing** — 6502 cycle-accurate (§62).
+- **Distance to full cycle-accuracy** — VDG graphics modes; beam-accurate VDG
+  timing.
+
+## Tooling & drivability
+
+- **Script / MCP** — `--script` + `--mcp`.
+- **Native window** — headless only (extended tier).
+- **Disassembler** — pending the Asm198x shared 6502 disassembler.
+
+## Peripherals & connectivity
+
+- **Emulated now** — keyboard (8255 PPI), VDG text display.
+- **Period peripherals (emulatable)** — cassette, printer, disk add-on, the Atom's
+  expansion bus.
+- **Internet-capable** — **Marginal**: Acorn's **Econet** was available for the
+  Atom via add-on (its networking lineage predates the BBC); a real period LAN
+  path, though niche.
+
 ## Crates
 
 | Crate | Role |

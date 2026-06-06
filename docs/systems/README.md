@@ -93,6 +93,16 @@ test ROM. Prefer a short honest page over a long vague one.
 - **Native window** — <yes (primary tier) / headless only>
 - **Disassembler** — <available, or pending the Asm198x shared spec-driven crate>
 
+## Peripherals & connectivity
+
+- **Emulated now** — <disk / tape / cart, joystick, mouse, …>
+- **Period peripherals (emulatable)** — <disk drives, printers, mice, light guns,
+  expansions, modems, network hardware — the realistic add-on surface>
+- **Internet-capable** — **Yes / Marginal / No**: <the path — native (rare for
+  the era); a period modem / network device; or a modern third-party device we
+  could emulate (FujiNet, WiModem, Spectranet, RR-Net, Mobile Adapter GB,
+  DriveWire, Econet, …)>
+
 ## Crates
 
 | Crate | Role |
