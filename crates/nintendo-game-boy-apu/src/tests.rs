@@ -299,19 +299,37 @@ fn channel_frequency_timers_run_at_2mhz() {
     // The channel frequency timers advance once per *two* T-cycles, not
     // once per T-cycle — the reload values are calibrated for that
     // 2 MHz cadence. Ticking every T-cycle ran every channel an octave
-    // too high. CH3 at frequency 0x7FE (2046) reloads its period to
-    // (2048 - 2046) * 2 = 4 T-cycles per sample step, so 80 T-cycles is
-    // 20 steps — not the 40 a per-T-cycle tick would produce.
+    // too high. CH3 at frequency 0x7FE (2046) steps every
+    // (2048 - 2046) * 2 = 4 T-cycles, so eight steps take 32 T-cycles —
+    // not the 16 a per-T-cycle (4 MHz) tick would give.
     let mut apu = Apu::new();
     apu.write(REG_NR52, 0x80); // power on
     apu.write(0xFF1A, 0x80); // NR30: DAC on
     apu.write(0xFF1D, 0xFE); // NR33: frequency low byte
     apu.write(0xFF1E, 0x87); // NR34: trigger + frequency high bits → 0x7FE
-    let start = apu.ch3.sample_position;
-    let _ = run_t(&mut apu, 0, 80);
-    let advanced = apu.ch3.sample_position.wrapping_sub(start) & 0x1F;
-    assert!(
-        (19..=21).contains(&advanced),
-        "expected ~20 wave steps over 80 T-cycles (2 MHz cadence), got {advanced}"
+
+    let mut div: u16 = 0;
+    // Skip the one-time wave-trigger delay: run to the first step.
+    let mut pos = apu.ch3.sample_position;
+    while apu.ch3.sample_position == pos {
+        div = div.wrapping_add(1);
+        apu.tick(div);
+    }
+    pos = apu.ch3.sample_position;
+    // Measure the T-cycles the next eight steady-state steps take.
+    let mut steps = 0;
+    let mut t = 0;
+    while steps < 8 {
+        div = div.wrapping_add(1);
+        apu.tick(div);
+        t += 1;
+        if apu.ch3.sample_position != pos {
+            steps += 1;
+            pos = apu.ch3.sample_position;
+        }
+    }
+    assert_eq!(
+        t, 32,
+        "8 wave steps should take 32 T-cycles at 2 MHz, got {t}"
     );
 }

@@ -101,7 +101,14 @@ impl Wave {
         if self.length_timer == 0 {
             self.length_timer = 256;
         }
-        self.period_timer = 2047 - self.frequency;
+        // DMG wave-trigger delay: the first sample fetch after a trigger
+        // takes three extra channel cycles (6 T-cycles) beyond the
+        // normal `2047 - frequency` period. SameBoy: `sample_countdown =
+        // (sample_length ^ 0x7FF) + 3` (apu.c, NR34 trigger). Without it
+        // the fetches — and so the wave-RAM-read-while-on window — sit
+        // 6 T-cycles early, shifting blargg `09`'s output by three sweep
+        // iterations.
+        self.period_timer = (2047 - self.frequency) + 3;
         self.sample_position = 0;
     }
 
@@ -370,7 +377,9 @@ mod tests {
         assert!(w.enabled);
         assert_eq!(w.length_timer, 256);
         assert_eq!(w.frequency, 1000);
-        assert_eq!(w.period_timer, 2047 - 1000);
+        // The DMG wave-trigger delay adds 3 channel cycles to the first
+        // period: (2047 - 1000) + 3.
+        assert_eq!(w.period_timer, (2047 - 1000) + 3);
         assert_eq!(w.sample_position, 0);
     }
 

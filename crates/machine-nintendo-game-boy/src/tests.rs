@@ -1248,24 +1248,17 @@ fn run_blargg_a000(rom: Vec<u8>, budget: u32) -> Option<u8> {
     None
 }
 
-/// blargg `dmg_sound` (APU) — 9 of the 12 sub-tests pass (as of 2026-06-07).
-/// The three exceptions all probe the DMG "wave RAM access while channel 3 is
-/// on" sub-cycle window (`09-wave read while on`, `10-wave trigger while on`,
-/// `12-wave write while on`) — a known-hard quirk needing T-cycle-exact
-/// alignment of the CPU access against the APU sample fetch. They are
-/// allow-listed here so this guards the 9 from regressing without blocking on
-/// the quirk; drop one from the list when it starts to pass.
+/// blargg `dmg_sound` (APU) — all 12 sub-tests pass (as of 2026-06-07).
+/// The last three to land were the DMG "wave RAM access while channel 3 is on"
+/// window (`09-wave read`, `10-wave trigger`, `12-wave write` while on), fixed
+/// by the wave-trigger delay (`(2047 - frequency) + 3`) that aligns the APU
+/// sample fetch with the CPU access cycle.
 ///
 /// Gated on the ROMs: set `EMU198X_GB_BLARGG_DMG_SOUND` to the `dmg_sound/
 /// rom_singles` directory and run with `--ignored`.
 #[test]
 #[ignore = "needs EMU198X_GB_BLARGG_DMG_SOUND (blargg dmg_sound/rom_singles) — run with --ignored"]
-fn blargg_dmg_sound_known_good() {
-    const KNOWN_HARD: &[&str] = &[
-        "09-wave read while on",
-        "10-wave trigger while on",
-        "12-wave write while on",
-    ];
+fn blargg_dmg_sound_suite_passes() {
     let dir = std::env::var("EMU198X_GB_BLARGG_DMG_SOUND")
         .expect("set EMU198X_GB_BLARGG_DMG_SOUND to dmg_sound/rom_singles");
     let mut roms: Vec<_> = std::fs::read_dir(&dir)
@@ -1275,25 +1268,15 @@ fn blargg_dmg_sound_known_good() {
         .filter(|p| p.extension().is_some_and(|x| x == "gb"))
         .collect();
     roms.sort();
+    assert!(!roms.is_empty(), "no .gb ROMs found in {dir}");
 
-    let mut regressions = Vec::new();
-    let mut newly_passing = Vec::new();
-    for rom_path in &roms {
-        let name = rom_path.file_stem().unwrap().to_string_lossy().to_string();
-        let allow = KNOWN_HARD.iter().any(|h| name.contains(h));
-        let passed = run_blargg_a000(std::fs::read(rom_path).unwrap(), 50_000_000) == Some(0);
-        match (passed, allow) {
-            (false, false) => regressions.push(name),
-            (true, true) => newly_passing.push(name),
-            _ => {}
-        }
-    }
+    let failures: Vec<_> = roms
+        .iter()
+        .filter(|rom_path| run_blargg_a000(std::fs::read(rom_path).unwrap(), 50_000_000) != Some(0))
+        .map(|p| p.file_stem().unwrap().to_string_lossy().to_string())
+        .collect();
     assert!(
-        regressions.is_empty(),
-        "blargg dmg_sound regressions (were passing): {regressions:?}"
-    );
-    assert!(
-        newly_passing.is_empty(),
-        "allow-listed wave-while-on tests now PASS — remove them from KNOWN_HARD: {newly_passing:?}"
+        failures.is_empty(),
+        "blargg dmg_sound failures: {failures:?}"
     );
 }

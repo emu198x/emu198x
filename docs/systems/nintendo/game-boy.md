@@ -17,6 +17,14 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
   suite passes (75/75)**, run under the matching boot profile per ROM
   (dmg0 / dmgABC / mgb / sgb / sgb2). This includes the hard mode-timing edges
   (`intr_2_mode0_timing_sprites`, `hblank_ly_scx_timing`, STAT write timing).
+- **APU — blargg `dmg_sound` 12/12** (2026-06-07). All sub-tests pass, including
+  the three DMG **wave-RAM-access-while-CH3-on** window tests (`09-wave read`,
+  `10-wave trigger`, `12-wave write` while on). Two fixes landed it: the channel
+  frequency timers now run at the correct 2 MHz (they were an octave high), and
+  the wave channel models the DMG **trigger delay** — the first sample fetch
+  after a trigger takes 3 extra channel cycles (`(2047 - frequency) + 3`),
+  aligning the APU fetch with the CPU access cycle. Test
+  `blargg_dmg_sound_suite_passes`.
 - **DMG-family** — native window with keyboard/gamepad joypad, screenshots, live
   audio + capture, scripts, snapshots, `.sav` battery RAM.
 
@@ -24,20 +32,6 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
 
 - **LCD preset not calibrated** — the `lcd` filter is wired but not tuned against
   side-by-side hardware photos (Game Boy is the obvious case to take seriously).
-- **APU — blargg `dmg_sound` 9/12** (ledgered 2026-06-07). The three failures are
-  all the DMG **wave-RAM-access-while-CH3-on** sub-cycle window (`09-wave read`,
-  `10-wave trigger`, `12-wave write` while on): the read/write paths already gate
-  on the sample-fetch window, but it needs T-cycle-exact alignment of the CPU
-  access against the APU fetch (the access must sync the APU to the exact
-  T-cycle, the way SameBoy's event-driven `GB_apu_run` does — a `step_m_cycle`
-  ordering change, not a wave-path tweak). Allow-listed in
-  `blargg_dmg_sound_known_good`.
-  - **Fixed 2026-06-07: channel pitch was an octave too high.** The four channel
-    frequency timers were ticked once per T-cycle (4 MHz) while their reload
-    values are calibrated for a 2 MHz channel clock (square `(2048-f)*2`, wave
-    `2047-f`, noise `divisor<<shift` with a halved table — SameBoy's 2-T-cycle
-    APU unit). They now advance on one DIV-counter parity, halving the rate to
-    the correct 2 MHz. Locked by `channel_frequency_timers_run_at_2mhz`.
 - **DMG `oam_bug` fails** — the DMG OAM-corruption quirk (sprite-table glitch on
   certain `inc/dec rr` over `$FE00`) isn't modelled. Rare in real software; most
   emulators skip it.
@@ -49,7 +43,7 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
 - **Closed (2026-06-07): "PPU accuracy isn't ledgered."** It now is — dmg-acid2
   pixel-perfect + mooneye DMG acceptance 75/75. The open frontier narrowed to the
   APU and the mealybug mid-scanline tests.
-- **Verification targets** — run same-suite / blargg `dmg_sound` (APU) and
+- **Verification targets** — run same-suite (APU) and
   mealybug-tearoom (mid-scanline PPU); calibrate `lcd` against
   `emulators/gameboy/` (SameBoy).
 
@@ -61,8 +55,8 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
   `mooneye_dmg_acceptance_suite_passes`.
 - **dmg-acid2** (`assets/test-suites/gameboy/dmg-acid2/`) — pixel-perfect vs
   `reference-dmg.png`, golden-hash test `dmg_acid2_renders_reference`.
-- **blargg `dmg_sound`** (`assets/test-suites/gameboy/blargg/`) — 9/12, the 3
-  wave-while-on quirks allow-listed; test `blargg_dmg_sound_known_good`.
+- **blargg `dmg_sound`** (`assets/test-suites/gameboy/blargg/`) — 12/12; test
+  `blargg_dmg_sound_suite_passes`.
 - Reference: SameBoy (`emulators/gameboy/`).
 
 ## Timing & cycle-accuracy
@@ -75,8 +69,8 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
   one of the most thoroughly ledgered cores in the fleet.
 - **CPU timing** — SM83 cycle-accurate (§62); 49,600 single-step tests prove the
   *instruction set*; mooneye proves the PPU/timer/interrupt interaction.
-- **Distance to full cycle-accuracy** — APU sub-cycle ledger (same-suite /
-  blargg `dmg_sound`); mealybug mid-scanline PPU edge cases.
+- **Distance to full cycle-accuracy** — APU sub-cycle ledger (same-suite);
+  mealybug mid-scanline PPU edge cases.
 
 ## Tooling & drivability
 
