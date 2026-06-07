@@ -20,14 +20,13 @@ the MSX family home; MSX2/2+/TurboR would be siblings.)
 
 - **Subslot expansion** — MSX1 doesn't need it; MSX2+ uses `$FFFF` writes.
   Recognised in the spec, disabled.
-- **Joystick / cassette / printer** — PSG R14/R15 joystick hookup exists chip-side
-  but no machine input surface; cassette/printer via PPI port C unwired.
+- **Cassette / printer** — via PPI port C, unwired. (Joystick is wired — see
+  "What works".)
 - **Snapshot** — deferred. **No native window.**
 - **MSX2 / 2+ / TurboR** — out of scope (V9938/V9958, mapped RAM, FM-PAC).
 
 ## Known unknowns / disproven hypotheses
 
-- **Open: joystick surface** — chip side ready, machine side not wired.
 - **Verification targets** — VDP per-dot timing; mapper edge behaviour against
   openMSX / blueMSX.
 
@@ -54,7 +53,8 @@ the MSX family home; MSX2/2+/TurboR would be siblings.)
 
 ## Peripherals & connectivity
 
-- **Emulated now** — cartridge, keyboard (joystick chip-side).
+- **Emulated now** — cartridge, keyboard, joystick (PSG port A; Nemesis
+  validated, `bca5802f`).
 - **Period peripherals (emulatable)** — disk drives (FDC), cassette, printer,
   joysticks, mouse, the MSX-Audio / Music (FM) cartridges, RS-232 cartridges.
 - **Internet-capable** — **Yes**: period RS-232 cartridges + modems; strong modern

@@ -4,7 +4,7 @@
 
 Acorn's £120 self-build (1980), by the team that designed the BBC Micro. Boots to
 the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system.
-6502 + MC6847 VDG (shared crate) + PIA-6520.
+6502 + MC6847 VDG (shared crate) + 8255 PPI.
 
 ## What works
 
@@ -64,7 +64,7 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 | Crate | Role |
 |-------|------|
 | `mos-6502` | CPU |
-| `motorola-vdg-6847` / `mos-pia-6520` | VDG · PIA |
+| `motorola-vdg-6847` / `intel-8255` | VDG · PPI |
 | `machine-acorn-atom` / `runtime-…` / `emu198x-acorn-atom` | wiring + runner |
 
 ## ROMs

@@ -6,8 +6,8 @@ The CoCo 1/2 share almost all hardware with the Dragon 32. The CoCo 3 adds signi
 
 ## What can be reused from Dragon
 
-- `cpu-6809` — identical CPU
-- `machine-dragon` PIA, SAM, VDG — same chips with minor address map differences
+- `motorola-6809` — identical CPU
+- `machine-dragon-32` PIA, SAM, VDG — same chips with minor address map differences
 - Shell infrastructure — audio, keyboard, save states, rewind
 
 ## What's different

@@ -12,13 +12,12 @@ crate.
   + Acorn BASIC II (byte-identical to BBC Model B BASIC II, md5 `2cc6…8e3d`).
 - **ULA** — BBC-compatible 8-colour palette, 8 display modes (0-6; no MODE 7
   teletext), `$FE00` interrupt control, VBlank + RTC IRQ sources, ULA tone sound.
-- **Keyboard** — types into BASIC (paged-region read; see gaps).
+- **Keyboard** — types into BASIC, read the accurate way: through the paged
+  region (`$8000-$BFFF`, ROM slot 8/9), not `$FE00` (fix `5d4b1d87`; test
+  `keyboard_reads_active_high_through_paged_rom`).
 
 ## Not implemented / accuracy gaps
 
-- **Keyboard read path** — currently scanned at `$FE00`; the real Electron reads
-  it through the paged region (`$8000-$BFFF`, ROM slot 8/9). Boot works; the paged
-  read is the accurate path.
 - **ULA bus contention** — CPU halves to 1 MHz during ULA RAM-fetch windows; this
   port runs a flat 2 MHz. A significant gap on contention-sensitive software
   (Elite, scrollers).
@@ -52,8 +51,7 @@ crate.
   is heavily timing-sensitive. Display layout/screen-start now MAME-accurate.
 - **CPU timing** — 6502 cycle-accurate (§62) at the instruction level; the bus
   contention slowdown is the missing piece.
-- **Distance to full cycle-accuracy** — ULA 1 MHz/2 MHz contention; paged-ROM
-  keyboard read path.
+- **Distance to full cycle-accuracy** — ULA 1 MHz/2 MHz contention.
 
 ## Tooling & drivability
 

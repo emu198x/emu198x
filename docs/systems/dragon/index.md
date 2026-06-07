@@ -466,7 +466,7 @@ For the source-backed accuracy audit and implementation sequence, see
 
 ## Timing & cycle-accuracy
 
-- **Master clock & dividers** — 6809E at ≈0.89 MHz (14.21818 MHz PAL crystal,
+- **Master clock & dividers** — 6809E at ≈0.89 MHz (14.31818 MHz crystal,
   SAM-derived). The SAM generates the CPU + VDG clocks.
 - **Timing model realised** — beam-updated MC6847 framebuffer, but calibrated to a
   372×243 diagnostic visible area + an XRoar zoomed-comparison bridge, not a full

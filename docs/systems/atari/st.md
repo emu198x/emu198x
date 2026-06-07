@@ -16,7 +16,7 @@ Depends on the 68000 CPU core (built for Amiga). The Atari ST has simpler custom
 
 ## Work needed
 
-- **68000 CPU** — **Done** (shared with Amiga, `cpu-m68k`)
+- **68000 CPU** — **Done** (shared with Amiga, `motorola-68000`)
 - **Shifter** — bitplane-to-pixel conversion (simpler than Amiga Denise, no copper/blitter)
 - **GLUE** — address decoding, bus arbitration, DMA
 - **YM2149** — largely reusable from AY-3-8912 (Spectrum 128K) with minor differences
@@ -54,7 +54,7 @@ Depends on the 68000 CPU core (built for Amiga). The Atari ST has simpler custom
 
 | Crate | Role | Status |
 |-------|------|--------|
-| `cpu-m68k` | Shared with Amiga | Done |
+| `motorola-68000` | Shared with Amiga | Done |
 | `machine-atari-st` | ST machine wiring |
 | `emu198x-atari-st` | GUI shell |
 

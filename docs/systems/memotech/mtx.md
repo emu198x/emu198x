@@ -14,6 +14,8 @@ ROM image. Headless extended system. Z80 + TMS9918A + SN76489 + Z80 CTC.
   The test asserts the OS programs `$08-$0B` and ch0 runs interrupt-enabled.
 - **Paging** — OS fixed at `$0000`, 16K RAM blocks page the upper windows
   (`RELCPMH` CP/M mode), per MEMU `mem.c`.
+- **Joystick** (2026-06-05, `7d4b09c1`) — directions/fire merged into the
+  keyboard sense matrix (ANDed in, per MAME `mtx_key_lo_r`).
 
 ## Not implemented / accuracy gaps
 
@@ -61,7 +63,7 @@ ROM image. Headless extended system. Z80 + TMS9918A + SN76489 + Z80 CTC.
 
 ## Peripherals & connectivity
 
-- **Emulated now** — OS+BASIC+ASSEM ROM, VDP, PSG, CTC.
+- **Emulated now** — OS+BASIC+ASSEM ROM, VDP, PSG, CTC, joystick.
 - **Period peripherals (emulatable)** — cassette, Centronics printer, the
   Memotech **FDX / HDX** disk systems, and the **node ring network** (Memotech
   shipped a real local network for the MTX).

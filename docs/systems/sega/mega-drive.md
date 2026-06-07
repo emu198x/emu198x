@@ -16,8 +16,8 @@ Depends on both the 68000 CPU (built for Amiga) and Z80 CPU (done). The Mega Dri
 
 ## Work needed
 
-- **68000 CPU** — **Done** (shared with Amiga, `cpu-m68k`)
-- **Z80 CPU** — **Done** (from Spectrum, `cpu-z80`)
+- **68000 CPU** — **Done** (shared with Amiga, `motorola-68000`)
+- **Z80 CPU** — **Done** (from Spectrum, `zilog-z80`)
 - **VDP** — tile-based with two scroll planes, window, sprites, DMA. Derived from Master System VDP. H-blank and V-blank interrupts essential.
 - **YM2612** — 6-channel FM synthesis. Complex but well-documented.
 - **SN76489** — simple PSG (same as BBC Micro, Master System)
@@ -28,8 +28,8 @@ Depends on both the 68000 CPU (built for Amiga) and Z80 CPU (done). The Mega Dri
 
 | Crate | Role | Status |
 |-------|------|--------|
-| `cpu-m68k` | Shared with Amiga | Done |
-| `cpu-z80` | Shared with Spectrum | Done |
+| `motorola-68000` | Shared with Amiga | Done |
+| `zilog-z80` | Shared with Spectrum | Done |
 | `sega-vdp` | Mega Drive VDP |
 | `yamaha-ym2612` | FM synthesis |
 | `machine-sega-megadrive` | Machine wiring |
