@@ -111,19 +111,28 @@ instrumented diagnosis (2026-06-07):
   (`head=36`) — it **never seeks to a data track to write the file's bytes**.
   The directory sector (18,1) stays the blank `00 FF 00…`.
 
-Conclusion: the 1541 accepts the SAVE over IEC and goes through motions on track
-18, but the file's data is never written to a data track and the directory entry
-is never laid down. The gap is in the **1541's SAVE/job-write sequencing or the
-C64↔1541 IEC data transfer** — *not* in the GCR-surface write or flush decode
-built here. (LOAD works; only the write/job path is incomplete.)
+**Root cause, pinpointed: the SAVE data never reaches the drive.** Peeking the
+1541's RAM right after the SAVE is decisive:
+- `$0500` holds the directory entry under construction — the PETSCII bytes
+  `47 52 45 45 54 49 4E 47` = **"GREETING"** — and `$0700` holds the BAM. So the
+  **OPEN/filename path works** (command channel + directory/BAM handling).
+- But the program's data bytes are **absent from all drive RAM** — neither `"HI"`
+  (`48 49`) nor the `PRINT` token (`$99`) appears anywhere in `$0300–$07FF`.
 
-**Next step (where to look):** trace the 1541 ROM's job loop during a SAVE —
-does it receive the program bytes over IEC into its buffer, queue a WRITE job,
-seek to the allocated data track, and execute the head-write? The 18/19-on-track-18
-signature suggests the drive is re-writing the directory/BAM track it already had
-but never advancing to the data-write job. This is a focused 1541/IEC effort of
-its own, separate from (and unblocked-by) the surface write-back. The integration
-test is the repro — fast, deterministic, real ROMs.
+So the drive gets the filename, allocates, builds a directory entry — then waits
+for file data that never arrives. No data sector is written, the directory entry
+is never finalised, and the C64 still prints `READY.`. The failure is the **IEC
+serial C64→drive bulk data transfer**: the C64-talker → drive-listener path for
+non-ATN data bytes during the SAVE data phase. (LOAD — drive talks, C64 listens —
+works; the command/filename listen path works; only the drive's *bulk data
+receive* is missing/broken.)
+
+This is **not** the 1541 job loop and **not** the GCR write-back built here — both
+are downstream of data that never lands. It is a focused IEC-serial effort: the
+bit-level CLK/DATA handshake for the drive receiving a stream of data bytes
+(including the EOI/turnaround), at `common-commodore-iec` + the C64 CIA2 serial
+lines + the 1541 ROM's listen loop. The integration test is the repro — fast,
+deterministic, real ROMs; add a drive-RAM peek to watch for the data landing.
 
 ## Drift triggers
 
