@@ -24,8 +24,14 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
 
 - **LCD preset not calibrated** — the `lcd` filter is wired but not tuned against
   side-by-side hardware photos (Game Boy is the obvious case to take seriously).
-- **APU not yet ledgered** — the SM83 + PPU/timing are test-verified, but the APU
-  has no equivalent suite run (same-suite / blargg `dmg_sound`) yet.
+- **APU — blargg `dmg_sound` 9/12** (ledgered 2026-06-07). The three failures are
+  all the DMG **wave-RAM-access-while-CH3-on** sub-cycle window (`09-wave read`,
+  `10-wave trigger`, `12-wave write` while on): the read/write paths already gate
+  on the sample-fetch window, but it needs T-cycle-exact alignment of the CPU
+  access against the APU fetch. Allow-listed in `blargg_dmg_sound_known_good`.
+- **DMG `oam_bug` fails** — the DMG OAM-corruption quirk (sprite-table glitch on
+  certain `inc/dec rr` over `$FE00`) isn't modelled. Rare in real software; most
+  emulators skip it.
 - **Mealybug-tearoom (mid-scanline PPU)** — the hardest LCDC/scroll-mid-line
   tests aren't run yet (framebuffer-vs-reference; the next PPU frontier).
 
@@ -46,6 +52,8 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
   `mooneye_dmg_acceptance_suite_passes`.
 - **dmg-acid2** (`assets/test-suites/gameboy/dmg-acid2/`) — pixel-perfect vs
   `reference-dmg.png`, golden-hash test `dmg_acid2_renders_reference`.
+- **blargg `dmg_sound`** (`assets/test-suites/gameboy/blargg/`) — 9/12, the 3
+  wave-while-on quirks allow-listed; test `blargg_dmg_sound_known_good`.
 - Reference: SameBoy (`emulators/gameboy/`).
 
 ## Timing & cycle-accuracy
