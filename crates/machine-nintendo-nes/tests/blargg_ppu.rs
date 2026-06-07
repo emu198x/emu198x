@@ -218,23 +218,14 @@ fn oam_stress() {
 }
 
 // ────────────────────────────────────────────────────────────────
-//  sprite_hit_tests / sprite_overflow_tests — NOT WIRED
+//  sprite_hit_tests / sprite_overflow_tests — WIRED in ppu_onscreen.rs
 //
-//  These test-rom suites use a DIFFERENT result-reporting protocol
-//  than the standard blargg `$6000`/`$6004` shell. They write a
-//  `result` byte at zero-page `$f8` and render pass/fail text to
-//  the PPU framebuffer via a console subsystem (validation.a +
-//  debug.a in the source tree). There is no PRG-RAM `$6000` status
-//  byte or `DE B0 61` signature.
-//
-//  Detecting their results requires either: (a) framebuffer OCR, or
-//  (b) reading the result byte at `$f8` and verifying the CPU has
-//  entered the `forever` loop (the PC settles at a known address).
-//  Both are doable but neither is plug-compatible with the existing
-//  harness, so they're deferred. The 16 tests across sprite_hit_*
-//  and sprite_overflow_* will land under a separate harness when
-//  per-test PPU fidelity (sprite-0 hit pipeline, sprite overflow
-//  scan) is being driven from CI.
+//  These 2005 suites use a different result protocol than the `$6000`
+//  shell: a `result` byte at zero-page `$f8` (1 = pass), printed to
+//  the screen and beeped, with no `DE B0 61` signature. They are
+//  graded by the `tests/ppu_onscreen.rs` harness, which runs each ROM
+//  until `$f8` settles into its report/forever loop and asserts the
+//  value is 1. All 11 sprite_hit and all 5 sprite_overflow ROMs pass.
 //
 //  See `knowledge/decisions/nes-architecture-review.md` Seam 1 for
 //  the broader plan.

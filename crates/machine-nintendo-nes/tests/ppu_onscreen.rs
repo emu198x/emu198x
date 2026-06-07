@@ -230,9 +230,9 @@ onscreen_test!(
     RESULT_F0
 );
 
-// ── sprite_overflow_tests (result @ $F8) — currently all fail; the
-//    sprite-overflow flag's set/clear timing is not yet emulated. These
-//    are targets, not regressions (cf. blargg_ppu 05/10). ──
+// ── sprite_overflow_tests (result @ $F8) — all pass; regression guards
+//    for the sprite-overflow flag's set/clear timing (basics, details,
+//    timing, obscure, emulator). ──
 const OVERFLOW_DIR: &str = "sprite_overflow_tests";
 onscreen_test!(
     sprite_overflow_1_basics,
