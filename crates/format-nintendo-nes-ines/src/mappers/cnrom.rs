@@ -1,6 +1,7 @@
 //! CNROM (Mapper 3): fixed PRG ROM with switchable 8 KiB CHR ROM.
 
 use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 use crate::mapper::{Mapper, Mirroring};
 use crate::snapshot::MapperSnapshot;
@@ -11,12 +12,24 @@ use crate::snapshot::MapperSnapshot;
 /// `$8000-$FFFF` to select the 8 KiB CHR bank visible to the PPU at
 /// `$0000-$1FFF`. Most boards have bus conflicts, so the latched bank
 /// value is the CPU value AND the ROM byte driving the bus.
+///
+/// `$6000-$7FFF` carries 8 KiB of work RAM. Production CNROM boards
+/// have none, but blargg/Bisqwit test ROMs assembled to mapper 3
+/// (e.g. `ppu_read_buffer`) write their shell result block there, so
+/// the port carries the RAM for the same reason [`Nrom`](crate::Nrom)
+/// does — games that don't use it never touch it.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CnRom {
     prg_rom: Vec<u8>,
     chr_rom: Vec<u8>,
     mirroring: Mirroring,
     chr_bank: u8,
+    #[serde(with = "BigArray", default = "zeroed_prg_ram")]
+    prg_ram: [u8; 8192],
+}
+
+fn zeroed_prg_ram() -> [u8; 8192] {
+    [0; 8192]
 }
 
 impl CnRom {
@@ -37,6 +50,7 @@ impl CnRom {
             chr_rom,
             mirroring,
             chr_bank: 0,
+            prg_ram: [0; 8192],
         }
     }
 }
@@ -44,6 +58,7 @@ impl CnRom {
 impl Mapper for CnRom {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
+            0x6000..=0x7FFF => self.prg_ram[usize::from(addr - 0x6000)],
             0x8000..=0xFFFF => {
                 let offset = usize::from(addr - 0x8000);
                 self.prg_rom[offset % self.prg_rom.len()]
@@ -53,7 +68,12 @@ impl Mapper for CnRom {
     }
 
     fn cpu_write(&mut self, addr: u16, value: u8) {
-        if addr >= 0x8000 {
+        if (0x6000..=0x7FFF).contains(&addr) {
+            self.prg_ram[usize::from(addr - 0x6000)] = value;
+        } else if addr >= 0x8000 {
+            // Bus conflict: the latched bank is the CPU value ANDed
+            // with the ROM byte the cartridge is simultaneously
+            // driving onto the bus.
             let rom_byte = self.cpu_read(addr);
             self.chr_bank = value & rom_byte;
         }

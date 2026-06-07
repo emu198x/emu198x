@@ -294,3 +294,23 @@ fn mmc3_4_scanline_timing() {
 fn mmc3_5_mmc3() {
     run_or_skip("mmc3_test/5-MMC3.nes");
 }
+
+// ────────────────────────────────────────────────────────────────
+//  ppu_read_buffer (Bisqwit's mammoth $2007 read-buffer suite)
+//
+//  ~80 sub-tests covering the $2007 read buffer (one-byte delay for
+//  $0000-$3EFF, immediate for palette $3F00-$3FFF), sequential reads
+//  with 1- and 32-byte increments, CIRAM/nametable mirroring, and
+//  PPU address decoding. Reports the first failing sub-test through
+//  the standard $6000 shell.
+//
+//  The ROM is assembled to CNROM (mapper 3) but writes its shell
+//  block to $6000-$7FFF WRAM, which production CNROM boards lack —
+//  our CNROM port carries the RAM for this reason (as NROM does).
+// ────────────────────────────────────────────────────────────────
+
+#[test]
+#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+fn ppu_read_buffer() {
+    run_or_skip("ppu_read_buffer/test_ppu_read_buffer.nes");
+}
