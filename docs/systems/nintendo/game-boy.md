@@ -8,6 +8,15 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
 ## What works
 
 - **SM83 CPU** — 49,600 Adam Tennant single-step tests pass + 92 lib unit tests.
+- **PPU rendering — dmg-acid2 pixel-perfect** (2026-06-07). The definitive DMG
+  PPU test renders byte-exact against the published reference (0 diffs / 23,040
+  px): BG, window, sprites (8×8 / 8×16), sprite-vs-BG priority, X/Y flip,
+  palettes, and the 10-sprite-per-line limit are all correct. Locked as a
+  golden-hash regression test.
+- **PPU / timer / interrupt / OAM-DMA timing — full mooneye DMG acceptance
+  suite passes (75/75)**, run under the matching boot profile per ROM
+  (dmg0 / dmgABC / mgb / sgb / sgb2). This includes the hard mode-timing edges
+  (`intr_2_mode0_timing_sprites`, `hblank_ly_scx_timing`, STAT write timing).
 - **DMG-family** — native window with keyboard/gamepad joypad, screenshots, live
   audio + capture, scripts, snapshots, `.sav` battery RAM.
 
@@ -15,34 +24,42 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
 
 - **LCD preset not calibrated** — the `lcd` filter is wired but not tuned against
   side-by-side hardware photos (Game Boy is the obvious case to take seriously).
-- **Real-game smoke breadth** — boot-through coverage of known-good titles is
-  thin; lock screenshots to catch regressions.
-- (PPU/APU/MBC accuracy beyond the CPU oracle isn't separately ledgered here — a
-  verification target.)
+- **APU not yet ledgered** — the SM83 + PPU/timing are test-verified, but the APU
+  has no equivalent suite run (same-suite / blargg `dmg_sound`) yet.
+- **Mealybug-tearoom (mid-scanline PPU)** — the hardest LCDC/scroll-mid-line
+  tests aren't run yet (framebuffer-vs-reference; the next PPU frontier).
 
 ## Known unknowns / disproven hypotheses
 
-- **Open: PPU/APU/timer accuracy** — the SM83 core is oracle-validated; the rest
-  is validated by "games run", not by Blargg/mooneye-style test ROMs yet.
-- **Verification targets** — run the mooneye-gb + Blargg Game Boy test suites and
-  calibrate `lcd` against `emulators/gameboy/` (SameBoy) references.
+- **Closed (2026-06-07): "PPU accuracy isn't ledgered."** It now is — dmg-acid2
+  pixel-perfect + mooneye DMG acceptance 75/75. The open frontier narrowed to the
+  APU and the mealybug mid-scanline tests.
+- **Verification targets** — run same-suite / blargg `dmg_sound` (APU) and
+  mealybug-tearoom (mid-scanline PPU); calibrate `lcd` against
+  `emulators/gameboy/` (SameBoy).
 
 ## Validated against
 
 - Adam Tennant SM83 corpus (49,600 tests, `~/Projects/Emu198x-Unclean/GameboyCPUTests/v2/`).
+- **Mooneye Test Suite** `acceptance/` — 75/75 DMG-family
+  (`assets/test-suites/gameboy/mooneye-test-suite/`), env-gated test
+  `mooneye_dmg_acceptance_suite_passes`.
+- **dmg-acid2** (`assets/test-suites/gameboy/dmg-acid2/`) — pixel-perfect vs
+  `reference-dmg.png`, golden-hash test `dmg_acid2_renders_reference`.
 - Reference: SameBoy (`emulators/gameboy/`).
 
 ## Timing & cycle-accuracy
 
 - **Master clock & dividers** — 4.194304 MHz (DMG). CPU machine-cycle = ÷4
   (1.048576 MHz); PPU + timers run off the master.
-- **Timing model realised** — the SM83 is cycle-stepped and the PPU is driven from
-  it, but PPU/APU sub-cycle accuracy isn't ledgered beyond "games run" (no
-  mooneye/Blargg GB timing suite wired yet).
+- **Timing model realised** — SM83 cycle-stepped; the PPU is a per-dot 4-state
+  fetcher + pixel FIFO with the mode-3 sprite/scroll penalty modelled, and the
+  timer/interrupt interaction is **mooneye-verified** (75/75 acceptance). This is
+  one of the most thoroughly ledgered cores in the fleet.
 - **CPU timing** — SM83 cycle-accurate (§62); 49,600 single-step tests prove the
-  *instruction set*, not PPU/timer interaction.
-- **Distance to full cycle-accuracy** — run mooneye-gb + Blargg GB timing ROMs;
-  PPU mode-timing (OAM scan / drawing / hblank) edge cases.
+  *instruction set*; mooneye proves the PPU/timer/interrupt interaction.
+- **Distance to full cycle-accuracy** — APU sub-cycle ledger (same-suite /
+  blargg `dmg_sound`); mealybug mid-scanline PPU edge cases.
 
 ## Tooling & drivability
 

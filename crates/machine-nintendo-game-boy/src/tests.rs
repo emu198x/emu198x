@@ -1097,3 +1097,134 @@ fn oam_dma_copies_160_bytes_from_source_page() {
         assert_eq!(gb.oam[i], (i & 0xFF) as u8, "oam[{i}] mismatch");
     }
 }
+
+/// Mooneye Test Suite — full DMG-family `acceptance/` sweep. Every ROM is run
+/// under the boot profile matching its model suffix (`dmg0` / `dmgABC` / `mgb` /
+/// `sgb` / `sgb2`); CGB-only ROMs are skipped (this is a DMG-family core).
+///
+/// A ROM passes when it outputs the Fibonacci magic `3,5,8,13,21,34` on the
+/// serial port (mooneye's success signal); `0x42` repeated is its failure
+/// signal. As of 2026-06-07 the whole suite passes (75/75). Gated on the ROM
+/// set: set `EMU198X_GB_MOONEYE_ROOT` to the extracted `mooneye-test-suite`
+/// directory and run with `--ignored`.
+#[test]
+#[ignore = "needs EMU198X_GB_MOONEYE_ROOT (mooneye-test-suite) — run with --ignored"]
+fn mooneye_dmg_acceptance_suite_passes() {
+    let Ok(root) = std::env::var("EMU198X_GB_MOONEYE_ROOT") else {
+        panic!("set EMU198X_GB_MOONEYE_ROOT to the mooneye-test-suite directory");
+    };
+    // Collect all .gb under acceptance/ recursively.
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "gb") {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    let mut roms = Vec::new();
+    walk(&std::path::Path::new(&root).join("acceptance"), &mut roms);
+    roms.sort();
+
+    let mut pass = 0;
+    let mut fails = Vec::new();
+    for rom_path in &roms {
+        let name = rom_path
+            .strip_prefix(&root)
+            .unwrap_or(rom_path)
+            .display()
+            .to_string();
+        // Skip CGB-only ROMs (this is a DMG-family core).
+        if name.contains("-C.gb") || name.contains("-cgb") {
+            continue;
+        }
+        // Pick the boot profile matching the ROM's model suffix.
+        let profile = if name.contains("dmg0") {
+            BootProfile::Dmg0
+        } else if name.contains("dmgABC") {
+            BootProfile::DmgAbc
+        } else if name.contains("sgb2") || name.contains("div2-S") {
+            BootProfile::Sgb2
+        } else if name.contains("-sgb") || name.contains("-S") {
+            BootProfile::Sgb
+        } else if name.contains("-mgb") {
+            BootProfile::Mgb
+        } else {
+            BootProfile::DmgAbc
+        };
+        let rom = std::fs::read(rom_path).unwrap();
+        let Ok((_, mut gb)) = GameBoy::from_rom_with_boot_profile(rom, profile) else {
+            fails.push((name, "load-error".to_string()));
+            continue;
+        };
+        let mut serial = Vec::new();
+        let mut verdict = "timeout";
+        for _ in 0..25_000_000u32 {
+            gb.step_m_cycle();
+            serial.extend(gb.drain_serial());
+            if serial.windows(6).any(|w| w == [3, 5, 8, 13, 21, 34]) {
+                verdict = "pass";
+                break;
+            }
+            if serial.windows(6).any(|w| w == [0x42; 6]) {
+                verdict = "fail";
+                break;
+            }
+        }
+        if verdict == "pass" {
+            pass += 1;
+        } else {
+            fails.push((name, verdict.to_string()));
+        }
+    }
+    assert!(
+        fails.is_empty(),
+        "{pass} mooneye acceptance tests pass, but these did not:\n{}",
+        fails
+            .iter()
+            .map(|(n, v)| format!("  {v:8} {n}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+/// dmg-acid2 (Matt Currie) — the definitive DMG PPU rendering test. A correct
+/// PPU draws a precise smiley face; any BG/window/sprite/priority/flip/palette
+/// bug shows as a documented distortion. We assert the post-palette shade
+/// framebuffer hashes to a known-good golden (verified pixel-perfect against the
+/// published reference image, 0 diffs / 23040 px, 2026-06-07).
+///
+/// Gated on the ROM: set `EMU198X_GB_DMG_ACID2` to `dmg-acid2.gb`, run with
+/// `--ignored`.
+#[test]
+#[ignore = "needs EMU198X_GB_DMG_ACID2 (dmg-acid2.gb) — run with --ignored"]
+fn dmg_acid2_renders_reference() {
+    let Ok(path) = std::env::var("EMU198X_GB_DMG_ACID2") else {
+        panic!("set EMU198X_GB_DMG_ACID2 to dmg-acid2.gb");
+    };
+    let rom = std::fs::read(path).unwrap();
+    let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
+    // Run ~60 frames so the test sets up and renders the final screen.
+    for _ in 0..1_100_000u32 {
+        gb.step_m_cycle();
+    }
+    // FNV-1a over the 160x144 post-palette shade framebuffer.
+    let fb = gb.framebuffer();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in fb {
+        hash ^= u64::from(b);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    eprintln!(
+        "dmg-acid2 framebuffer hash = {hash:#018x} (len {})",
+        fb.len()
+    );
+    assert_eq!(
+        hash, 0xf272_a8ff_e3db_4c16,
+        "dmg-acid2 framebuffer regressed"
+    );
+}

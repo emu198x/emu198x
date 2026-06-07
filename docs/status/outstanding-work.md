@@ -167,12 +167,19 @@ via `m68k-test-gen`.
 ## Nintendo Game Boy — `emu198x-game-boy`
 
 CPU oracle: 49,600 Adam Tennant SM83 single-step tests pass + 92 lib unit
-tests. DMG-family verifier window works with `wgpu` `raw`/`lcd`/`crt`,
-keyboard/gamepad joypad, scripts, snapshots, `.sav` battery-RAM sidecars.
+tests. **PPU/timing ledgered 2026-06-07: dmg-acid2 pixel-perfect +
+mooneye DMG acceptance 75/75** (env-gated regression tests
+`dmg_acid2_renders_reference` / `mooneye_dmg_acceptance_suite_passes`;
+ROMs in `assets/test-suites/gameboy/`). DMG-family verifier window works
+with `wgpu` `raw`/`lcd`/`crt`, keyboard/gamepad joypad, scripts,
+snapshots, `.sav` battery-RAM sidecars.
 
+- **A — APU not yet ledgered.** Run same-suite / blargg `dmg_sound`; the
+  CPU + PPU/timing are test-verified but the sound channels aren't.
+- **A — Mealybug-tearoom (mid-scanline PPU).** The hardest LCDC/scroll
+  mid-line tests (framebuffer-vs-reference) are the next PPU frontier.
 - **A — Tune `lcd` filter against hardware references.** The LCD preset
-  is wired but not calibrated against side-by-side photos. Game Boy is
-  the obvious case for taking the LCD preset seriously.
+  is wired but not calibrated against side-by-side photos.
 - **S — Broader real-game smoke coverage.** Boot through known-good
   titles and lock screenshots so regressions get caught.
 

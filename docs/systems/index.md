@@ -20,7 +20,7 @@ Rachel client (offline/AI — a **separate axis** from Net; see
 | [Commodore 64](commodore/c64.md) | Fully functional | **hc-driven (per-cycle VIC-II)** | win+mcp | Yes | ✅ |
 | [Nintendo NES](nintendo/nes.md) | SMB renders; 135/155 sweep | hc-driven (dot 2C02) | win+mcp | Yes | ✅ |
 | [Commodore Amiga](commodore/amiga/index.md) | Workbench 3.1 | hc-driven (DMA-exact) | win+mcp | Yes | ✅ |
-| [Nintendo Game Boy](nintendo/game-boy.md) | DMG verifier | PPU dot (unledgered) | win+mcp | Yes | ✅ |
+| [Nintendo Game Boy](nintendo/game-boy.md) | DMG verifier | PPU dot (mooneye 75/75 + acid2) | win+mcp | Yes | ✅ |
 | [Dragon 32](dragon/index.md) | Boots BASIC | beam VDG (partial) | win+mcp | Yes | ✅ |
 
 ## Extended (headless; script + MCP parity)
