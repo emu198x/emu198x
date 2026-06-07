@@ -14,7 +14,7 @@
 
 use common_commodore_iec::IecBus;
 use format_commodore_c64_d64::{
-    D64FileType, D64ParseError, parse_directory, read_sector, sectors_in_track,
+    D64FileType, D64ParseError, parse_directory, read_sector, sectors_in_track, write_sector,
 };
 use mos_6502::{M6502, registers::FLAG_V};
 use mos_via_6522::Via6522;
@@ -63,6 +63,9 @@ pub struct Drive1541 {
     gcr_head_offset: usize,
     last_read_data: u16,
     bit_counter: u8,
+    /// Which bit of the write latch (`gcr_write_value`) the head emits next,
+    /// MSB first. Transient write-mode state; not snapshotted.
+    write_bit_index: u8,
     sync_active: bool,
     byte_ready_level: bool,
     byte_ready_edge: bool,
@@ -217,6 +220,7 @@ impl Drive1541 {
             gcr_head_offset: 0,
             last_read_data: 0,
             bit_counter: 0,
+            write_bit_index: 0,
             sync_active: false,
             byte_ready_level: false,
             byte_ready_edge: false,
@@ -315,19 +319,42 @@ impl Drive1541 {
         self.disk.is_some()
     }
 
-    /// Loads one decoded `D64` image into the drive.
+    /// Loads one decoded `D64` image into the drive, **write-protected**.
+    ///
+    /// This is the default for archive media: a SAVE to a disk mounted this way
+    /// yields the authentic `?WRITE PROTECT ERROR`, and the host image is never
+    /// altered. Mount writable with [`load_d64_bytes_writable`] for a work disk.
+    /// See `knowledge/decisions/disk-save-write-back.md`.
     ///
     /// # Errors
     ///
     /// Returns an error if the `D64` image is malformed.
     pub fn load_d64_bytes(&mut self, bytes: &[u8]) -> Result<(), Drive1541MediaError> {
+        self.load_d64_bytes_writable(bytes, false)
+    }
+
+    /// Loads one decoded `D64` image, choosing whether the drive may write to it.
+    ///
+    /// `writable == false` clears the write-protect tab's *protection*: the ROM
+    /// sees a protected disk and refuses to write. `writable == true` lets a
+    /// SAVE lay GCR onto the surface; [`flush_image`](Self::flush_image) then
+    /// decodes it back to D64 bytes for the host to persist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `D64` image is malformed.
+    pub fn load_d64_bytes_writable(
+        &mut self,
+        bytes: &[u8],
+        writable: bool,
+    ) -> Result<(), Drive1541MediaError> {
         let directory = parse_directory(bytes)?;
         self.track_data = Some(build_track_data(bytes)?);
         self.disk = Some(Drive1541Disk {
             image_bytes: bytes.to_vec(),
             disk_name: directory.disk_name,
             disk_id: directory.disk_id,
-            write_protected: true,
+            write_protected: !writable,
             directory_entries: directory
                 .entries
                 .into_iter()
@@ -340,6 +367,36 @@ impl Drive1541 {
         });
         self.reset_rotation_state();
         Ok(())
+    }
+
+    /// Decodes the live GCR track surface back into a `D64` image.
+    ///
+    /// A SAVE lands GCR on the rotating surface in write mode; this turns the
+    /// whole surface back into 256-byte sectors so the host can persist it.
+    /// Unwritten tracks round-trip to their original bytes, so decoding the
+    /// entire disk is safe; a track that fails to decode keeps its prior bytes.
+    /// Returns `None` when no disk is mounted.
+    #[must_use]
+    pub fn flush_image(&self) -> Option<Vec<u8>> {
+        let disk = self.disk.as_ref()?;
+        let track_data = self.track_data.as_ref()?;
+        let mut image = disk.image_bytes.clone();
+
+        for track in 1..=35u8 {
+            let Some(raw) = track_data.track_bytes(track * 2) else {
+                continue;
+            };
+            let Ok(sectors) = sectors_in_track(track) else {
+                continue;
+            };
+            for sector in 0..sectors {
+                if let Some(data) = gcr_read_sector_from_raw_track(raw, sector) {
+                    let _ = write_sector(&mut image, track, sector, &data);
+                }
+            }
+        }
+
+        Some(image)
     }
 
     pub fn eject_disk(&mut self) {
@@ -478,6 +535,7 @@ impl Drive1541 {
             gcr_head_offset: snapshot.gcr_head_offset,
             last_read_data: snapshot.last_read_data,
             bit_counter: snapshot.bit_counter,
+            write_bit_index: 0,
             sync_active: snapshot.sync_active,
             byte_ready_level: snapshot.byte_ready_level,
             byte_ready_edge: snapshot.byte_ready_edge,
@@ -886,6 +944,7 @@ impl Drive1541 {
         self.gcr_head_offset = 0;
         self.last_read_data = 0;
         self.bit_counter = 0;
+        self.write_bit_index = 0;
         self.sync_active = false;
         self.byte_ready_level = false;
         self.byte_ready_edge = false;
@@ -930,7 +989,11 @@ impl Drive1541 {
     }
 
     fn advance_rotation_ref_cycles(&mut self, ref_cycles: u64) {
-        if ref_cycles == 0 || !self.motor_on || !self.is_read_mode() {
+        // The disk spins whenever the motor is on, in read *or* write mode.
+        // Read mode assembles bytes off the surface; write mode lays the write
+        // latch onto it. (Previously rotation was gated to read mode only, so
+        // SAVE never reached the surface.)
+        if ref_cycles == 0 || !self.motor_on {
             return;
         }
 
@@ -1005,6 +1068,16 @@ impl Drive1541 {
         if self.gcr_head_offset >= total_bits {
             self.gcr_head_offset = 0;
         }
+
+        if !self.is_read_mode() {
+            self.write_one_track_bit();
+            return;
+        }
+
+        // Reading holds the write serialiser at bit 0, so the next write phase
+        // starts on a byte boundary aligned with the ROM's first latched byte.
+        self.write_bit_index = 0;
+
         let bit = self.current_track_bit(self.gcr_head_offset);
 
         self.last_read_data = ((self.last_read_data << 1) | u16::from(bit)) & 0x03FF;
@@ -1023,6 +1096,40 @@ impl Drive1541 {
         if self.bit_counter == 8 {
             self.bit_counter = 0;
             self.gcr_read = self.last_read_data as u8;
+            self.schedule_byte_ready(self.rotation_ref_phase.saturating_sub(1));
+        }
+    }
+
+    /// Lays one bit of the write latch onto the surface at the head position,
+    /// MSB first. After eight bits a byte has been written, so byte-ready pulses
+    /// to make the ROM's write loop feed the next byte — the write-mode mirror
+    /// of the read path's byte assembly. Writes are dropped on a protected disk.
+    fn write_one_track_bit(&mut self) {
+        let writable = self
+            .disk
+            .as_ref()
+            .is_some_and(|disk| !disk.write_protected());
+        if writable {
+            let bit = (self.gcr_write_value >> (7 - self.write_bit_index)) & 0x01;
+            let offset = self.gcr_head_offset;
+            let head = self.head_position;
+            if let Some(track) = self
+                .track_data
+                .as_mut()
+                .and_then(|data| data.track_bytes_mut(head))
+            {
+                let byte_index = offset / 8;
+                let bit_index = 7 - (offset & 0x07);
+                if bit != 0 {
+                    track[byte_index] |= 1 << bit_index;
+                } else {
+                    track[byte_index] &= !(1 << bit_index);
+                }
+            }
+        }
+
+        self.write_bit_index = (self.write_bit_index + 1) & 0x07;
+        if self.write_bit_index == 0 {
             self.schedule_byte_ready(self.rotation_ref_phase.saturating_sub(1));
         }
     }
@@ -1087,6 +1194,16 @@ impl Drive1541TrackData {
         let slot = track_slot_index(head_position)?;
         let track = self.tracks.get(slot)?;
         if track.is_empty() { None } else { Some(track) }
+    }
+
+    fn track_bytes_mut(&mut self, head_position: u8) -> Option<&mut [u8]> {
+        let slot = track_slot_index(head_position)?;
+        let track = self.tracks.get_mut(slot)?;
+        if track.is_empty() {
+            None
+        } else {
+            Some(track.as_mut_slice())
+        }
     }
 }
 
@@ -1221,6 +1338,128 @@ fn track_slot_index(head_position: u8) -> Option<usize> {
     }
 }
 
+/// Inverse of [`GCR_CONVERSION_TABLE`]: maps a 5-bit GCR code back to its
+/// 4-bit nibble (invalid codes map to 0).
+const FROM_GCR_CONVERSION_TABLE: [u8; 32] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 1, 0, 12, 4, 5, 0, 0, 2, 3, 0, 15, 6, 7, 0, 9, 10, 11, 0, 13,
+    14, 0,
+];
+
+/// Scans a raw GCR track for the next sync mark (ten or more `1` bits), starting
+/// at `bit_offset` and looking at most `remaining_bits` ahead. Returns the bit
+/// offset of the first non-`1` bit after the sync, or `None` if none is found.
+fn gcr_find_sync(raw: &[u8], mut bit_offset: usize, mut remaining_bits: usize) -> Option<usize> {
+    if raw.is_empty() {
+        return None;
+    }
+
+    let total_bits = raw.len() * 8;
+    let mut window = 0u16;
+    let mut byte = raw[bit_offset >> 3] << (bit_offset & 0x07);
+
+    while remaining_bits > 0 {
+        if byte & 0x80 != 0 {
+            window = (window << 1) | 1;
+        } else if window & 0x03FF != 0x03FF {
+            window <<= 1;
+        } else {
+            return Some(bit_offset);
+        }
+
+        if (bit_offset & 0x07) != 0x07 {
+            bit_offset += 1;
+            byte <<= 1;
+        } else {
+            bit_offset += 1;
+            if bit_offset >= total_bits {
+                bit_offset = 0;
+            }
+            byte = raw[bit_offset >> 3];
+        }
+
+        remaining_bits -= 1;
+    }
+
+    None
+}
+
+/// Decodes five GCR bytes into four data bytes.
+fn gcr_decode_4bytes(source: &[u8]) -> [u8; 4] {
+    let mut expanded = u32::from(source[0]) << 13;
+    let mut dest = [0u8; 4];
+
+    for (i, byte) in dest.iter_mut().enumerate() {
+        expanded |= u32::from(source[i + 1]) << (5 + (i as u32 * 2));
+        *byte = FROM_GCR_CONVERSION_TABLE[((expanded >> 16) & 0x1F) as usize] << 4;
+        expanded <<= 5;
+        *byte |= FROM_GCR_CONVERSION_TABLE[((expanded >> 16) & 0x1F) as usize];
+        expanded <<= 5;
+    }
+
+    dest
+}
+
+/// Decodes `blocks` consecutive GCR groups (five bytes → four data bytes each)
+/// starting at `bit_offset`, wrapping around the track as needed.
+fn gcr_decode_block(raw: &[u8], bit_offset: usize, blocks: usize) -> Vec<u8> {
+    let shift = bit_offset & 0x07;
+    let mut byte_offset = bit_offset >> 3;
+    let mut carry = raw[byte_offset] << shift;
+    let mut decoded = Vec::with_capacity(blocks * 4);
+
+    for _ in 0..blocks {
+        let mut gcr = [0u8; 5];
+        for item in &mut gcr {
+            byte_offset += 1;
+            if byte_offset >= raw.len() {
+                byte_offset = 0;
+            }
+            if shift == 0 {
+                *item = carry;
+                carry = raw[byte_offset];
+            } else {
+                *item = carry | (((u16::from(raw[byte_offset]) << shift) >> 8) as u8);
+                carry = raw[byte_offset] << shift;
+            }
+        }
+        decoded.extend_from_slice(&gcr_decode_4bytes(&gcr));
+    }
+
+    decoded
+}
+
+/// Reads one decoded 256-byte sector out of a raw GCR track by locating its
+/// header (`0x08`, matching sector number) then its following data block
+/// (`0x07`). Returns `None` if the sector or its data block can't be found.
+fn gcr_read_sector_from_raw_track(raw: &[u8], sector: u8) -> Option<[u8; 256]> {
+    let total_bits = raw.len() * 8;
+    let mut search = 0usize;
+    let mut first_sync = None;
+
+    loop {
+        let sync = gcr_find_sync(raw, search, total_bits)?;
+        if first_sync == Some(sync) {
+            return None;
+        }
+        first_sync.get_or_insert(sync);
+
+        let header = gcr_decode_block(raw, sync, 1);
+        if header[0] == 0x08 && header[2] == sector {
+            let data_sync = gcr_find_sync(raw, sync, 500 * 8)?;
+            let decoded = gcr_decode_block(raw, data_sync, 65);
+            if decoded[0] != 0x07 {
+                return None;
+            }
+
+            let mut sector_data = [0u8; 256];
+            sector_data.copy_from_slice(&decoded[1..257]);
+            return Some(sector_data);
+        }
+
+        search = sync.wrapping_add(1) % total_bits;
+    }
+}
+
 const fn d64_file_type_name(kind: D64FileType) -> &'static str {
     match kind {
         D64FileType::Del => "DEL",
@@ -1237,17 +1476,13 @@ mod tests {
     use super::{
         DEFAULT_DEVICE_NUMBER, Drive1541, Drive1541Config, Drive1541InitError, Drive1541TrackData,
         IO_TRACE_LIMIT, MAX_HEAD_POSITION, RAM_SIZE, ROM_SIZE, TRACK_SLOT_COUNT, build_track_data,
-        d64_file_type_name, track_slot_index,
+        d64_file_type_name, gcr_read_sector_from_raw_track, track_slot_index,
     };
     use common_commodore_iec::IecBus;
     use format_commodore_c64_d64::{D64FileType, read_sector};
 
     const D64_STANDARD_SIZE: usize = 174_848;
     const D64_SECTOR_SIZE: usize = 256;
-    const FROM_GCR_CONVERSION_TABLE: [u8; 32] = [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 1, 0, 12, 4, 5, 0, 0, 2, 3, 0, 15, 6, 7, 0, 9, 10, 11, 0,
-        13, 14, 0,
-    ];
 
     fn make_rom(program: &[(u16, &[u8])], reset_vector: u16) -> [u8; ROM_SIZE] {
         let mut rom = [0xEA; ROM_SIZE];
@@ -1332,116 +1567,6 @@ mod tests {
         write_d64_sector(&mut bytes, 1, 0, &file_sector);
 
         bytes
-    }
-
-    fn gcr_find_sync(
-        raw: &[u8],
-        mut bit_offset: usize,
-        mut remaining_bits: usize,
-    ) -> Option<usize> {
-        if raw.is_empty() {
-            return None;
-        }
-
-        let total_bits = raw.len() * 8;
-        let mut window = 0u16;
-        let mut byte = raw[bit_offset >> 3] << (bit_offset & 0x07);
-
-        while remaining_bits > 0 {
-            if byte & 0x80 != 0 {
-                window = (window << 1) | 1;
-            } else if window & 0x03FF != 0x03FF {
-                window <<= 1;
-            } else {
-                return Some(bit_offset);
-            }
-
-            if (bit_offset & 0x07) != 0x07 {
-                bit_offset += 1;
-                byte <<= 1;
-            } else {
-                bit_offset += 1;
-                if bit_offset >= total_bits {
-                    bit_offset = 0;
-                }
-                byte = raw[bit_offset >> 3];
-            }
-
-            remaining_bits -= 1;
-        }
-
-        None
-    }
-
-    fn gcr_decode_4bytes(source: &[u8]) -> [u8; 4] {
-        let mut expanded = u32::from(source[0]) << 13;
-        let mut dest = [0u8; 4];
-
-        for (i, byte) in dest.iter_mut().enumerate() {
-            expanded |= u32::from(source[i + 1]) << (5 + (i as u32 * 2));
-            *byte = FROM_GCR_CONVERSION_TABLE[((expanded >> 16) & 0x1F) as usize] << 4;
-            expanded <<= 5;
-            *byte |= FROM_GCR_CONVERSION_TABLE[((expanded >> 16) & 0x1F) as usize];
-            expanded <<= 5;
-        }
-
-        dest
-    }
-
-    fn gcr_decode_block(raw: &[u8], bit_offset: usize, blocks: usize) -> Vec<u8> {
-        let shift = bit_offset & 0x07;
-        let mut byte_offset = bit_offset >> 3;
-        let mut carry = raw[byte_offset] << shift;
-        let mut decoded = Vec::with_capacity(blocks * 4);
-
-        for _ in 0..blocks {
-            let mut gcr = [0u8; 5];
-            for item in &mut gcr {
-                byte_offset += 1;
-                if byte_offset >= raw.len() {
-                    byte_offset = 0;
-                }
-                if shift == 0 {
-                    *item = carry;
-                    carry = raw[byte_offset];
-                } else {
-                    *item = carry | (((u16::from(raw[byte_offset]) << shift) >> 8) as u8);
-                    carry = raw[byte_offset] << shift;
-                }
-            }
-            decoded.extend_from_slice(&gcr_decode_4bytes(&gcr));
-        }
-
-        decoded
-    }
-
-    fn gcr_read_sector_from_raw_track(raw: &[u8], sector: u8) -> Option<[u8; 256]> {
-        let total_bits = raw.len() * 8;
-        let mut search = 0usize;
-        let mut first_sync = None;
-
-        loop {
-            let sync = gcr_find_sync(raw, search, total_bits)?;
-            if first_sync == Some(sync) {
-                return None;
-            }
-            first_sync.get_or_insert(sync);
-
-            let header = gcr_decode_block(raw, sync, 1);
-            if header[0] == 0x08 && header[2] == sector {
-                let data_sync = gcr_find_sync(raw, sync, 500 * 8)?;
-                let decoded = gcr_decode_block(raw, data_sync, 65);
-                if decoded[0] != 0x07 {
-                    return None;
-                }
-
-                let mut sector_data = [0u8; 256];
-                sector_data.copy_from_slice(&decoded[1..257]);
-                return Some(sector_data);
-            }
-
-            search = sync.wrapping_add(1) % total_bits;
-        }
     }
 
     #[test]
@@ -1735,6 +1860,114 @@ mod tests {
     }
 
     #[test]
+    fn write_mode_lays_the_latch_byte_onto_the_surface() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine
+            .load_d64_bytes_writable(&synthetic_d64(), true)
+            .expect("writable mount should succeed");
+        machine.head_position = 2;
+
+        // Serialise 0xAB MSB-first across the eight bit cells of track byte 1.
+        machine.gcr_write_value = 0xAB;
+        machine.write_bit_index = 0;
+        for offset in 8..16usize {
+            machine.gcr_head_offset = offset;
+            machine.write_one_track_bit();
+        }
+
+        let raw = machine
+            .track_data
+            .as_ref()
+            .expect("track data present")
+            .track_bytes(2)
+            .expect("track 1 present");
+        assert_eq!(raw[1], 0xAB, "the latch byte should land on the surface");
+    }
+
+    #[test]
+    fn protected_disk_drops_writes() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("default (protected) mount should succeed");
+        machine.head_position = 2;
+
+        let before = machine
+            .track_data
+            .as_ref()
+            .expect("track data present")
+            .track_bytes(2)
+            .expect("track 1 present")
+            .to_vec();
+
+        machine.gcr_write_value = 0xFF;
+        machine.write_bit_index = 0;
+        for offset in 8..16usize {
+            machine.gcr_head_offset = offset;
+            machine.write_one_track_bit();
+        }
+
+        let after = machine
+            .track_data
+            .as_ref()
+            .expect("track data present")
+            .track_bytes(2)
+            .expect("track 1 present");
+        assert_eq!(after, before.as_slice(), "a protected disk must not change");
+    }
+
+    #[test]
+    fn flush_image_round_trips_an_unwritten_disk() {
+        // Decoding the whole GCR surface back to D64 must reproduce the mounted
+        // image byte-for-byte — the property that makes whole-disk flush safe.
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let bytes = synthetic_d64();
+        machine
+            .load_d64_bytes_writable(&bytes, true)
+            .expect("synthetic D64 should mount writable");
+
+        let flushed = machine.flush_image().expect("a mounted disk should flush");
+        assert_eq!(flushed, bytes, "unwritten disk must round-trip exactly");
+    }
+
+    #[test]
+    fn writable_mount_clears_write_protect() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("default mount should succeed");
+        assert!(
+            machine
+                .disk
+                .as_ref()
+                .expect("disk mounted")
+                .write_protected(),
+            "default mount is write-protected (archive-safe)"
+        );
+
+        machine
+            .load_d64_bytes_writable(&synthetic_d64(), true)
+            .expect("writable mount should succeed");
+        assert!(
+            !machine
+                .disk
+                .as_ref()
+                .expect("disk mounted")
+                .write_protected(),
+            "writable mount drops write protection"
+        );
+    }
+
+    #[test]
     fn mounted_d64_gcr_track_round_trips_sector_zero() {
         let bytes = synthetic_d64();
         let track_data = build_track_data(&bytes).expect("synthetic D64 should build GCR data");
@@ -1888,6 +2121,7 @@ mod tests {
         let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
             .expect("1541 scaffold ROM should be valid");
 
+        machine.poke(0x1C0C, 0x22); // PCR: CB2 high = read mode
         machine.track_data = Some(Drive1541TrackData {
             tracks: vec![vec![0xFF]; TRACK_SLOT_COUNT],
         });
