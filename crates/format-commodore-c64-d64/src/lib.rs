@@ -208,6 +208,29 @@ pub fn read_sector(bytes: &[u8], track: u8, sector_num: u8) -> Result<&[u8], D64
     sector(bytes, track, sector_num)
 }
 
+/// Writes one 256-byte sector into a `D64` image in place.
+///
+/// This is the sector-level counterpart to [`read_sector`]: the write-back
+/// flush GCR-decodes each modified track to 256-byte sectors and lands them
+/// here. Archive images are mounted read-only and never reach this path; see
+/// `knowledge/decisions/disk-save-write-back.md`.
+///
+/// # Errors
+///
+/// Returns an error if the image is not a supported standard size or the
+/// track/sector pair is outside the image geometry.
+pub fn write_sector(
+    bytes: &mut [u8],
+    track: u8,
+    sector_num: u8,
+    data: &[u8; SECTOR_SIZE],
+) -> Result<(), D64ParseError> {
+    validate_d64_size(bytes)?;
+    let offset = sector_offset(track, sector_num)?;
+    bytes[offset..offset + SECTOR_SIZE].copy_from_slice(data);
+    Ok(())
+}
+
 impl D64FileType {
     const fn from_byte(value: u8) -> Self {
         match value {
@@ -339,9 +362,8 @@ mod tests {
         vec![0; D64_STANDARD_SIZE]
     }
 
-    fn write_sector(bytes: &mut [u8], track: u8, sector_num: u8, sector: &[u8; SECTOR_SIZE]) {
-        let offset = sector_offset(track, sector_num).expect("synthetic sector offset should fit");
-        bytes[offset..offset + SECTOR_SIZE].copy_from_slice(sector);
+    fn put_sector(bytes: &mut [u8], track: u8, sector_num: u8, sector: &[u8; SECTOR_SIZE]) {
+        write_sector(bytes, track, sector_num, sector).expect("synthetic sector should write");
     }
 
     fn synthetic_image() -> Vec<u8> {
@@ -353,7 +375,7 @@ mod tests {
         bam[0x90..0x98].copy_from_slice(b"DEMO DIS");
         bam[0x98] = b'K';
         bam[0xA2..0xA4].copy_from_slice(b"42");
-        write_sector(&mut bytes, BAM_TRACK, BAM_SECTOR, &bam);
+        put_sector(&mut bytes, BAM_TRACK, BAM_SECTOR, &bam);
 
         let mut directory = [0u8; SECTOR_SIZE];
         directory[2] = 0x82;
@@ -361,7 +383,7 @@ mod tests {
         directory[4] = 0;
         directory[5..10].copy_from_slice(b"HELLO");
         directory[30..32].copy_from_slice(&(1u16).to_le_bytes());
-        write_sector(
+        put_sector(
             &mut bytes,
             DIRECTORY_TRACK,
             DIRECTORY_START_SECTOR,
@@ -372,7 +394,7 @@ mod tests {
         file_sector[0] = 0;
         file_sector[1] = 6;
         file_sector[2..7].copy_from_slice(&[0x01, 0x08, 0x11, 0x22, 0x33]);
-        write_sector(&mut bytes, 1, 0, &file_sector);
+        put_sector(&mut bytes, 1, 0, &file_sector);
 
         bytes
     }
@@ -425,6 +447,43 @@ mod tests {
     }
 
     #[test]
+    fn write_sector_round_trips_through_read_sector() {
+        let mut image = blank_image();
+        let mut data = [0u8; SECTOR_SIZE];
+        data[0] = 0xDE;
+        data[1] = 0xAD;
+        data[SECTOR_SIZE - 1] = 0xBE;
+
+        write_sector(&mut image, 17, 5, &data).expect("write should land on a valid sector");
+        let read = read_sector(&image, 17, 5).expect("written sector should read back");
+
+        assert_eq!(read, &data[..]);
+    }
+
+    #[test]
+    fn write_sector_rejects_out_of_range_sector() {
+        let mut image = blank_image();
+        let data = [0u8; SECTOR_SIZE];
+        // Track 31 has only 17 sectors (0..=16); sector 20 is out of range.
+        let err = write_sector(&mut image, 31, 20, &data).expect_err("must reject bad sector");
+        assert_eq!(
+            err,
+            D64ParseError::InvalidSector {
+                track: 31,
+                sector: 20
+            }
+        );
+    }
+
+    #[test]
+    fn write_sector_rejects_unsupported_size() {
+        let mut tiny = vec![0u8; 100];
+        let data = [0u8; SECTOR_SIZE];
+        let err = write_sector(&mut tiny, 1, 0, &data).expect_err("must reject bad image size");
+        assert_eq!(err, D64ParseError::UnsupportedSize { actual: 100 });
+    }
+
+    #[test]
     fn rejects_unsupported_sizes() {
         let err = parse_directory(&[0; 123]).expect_err("bad D64 size must fail");
         assert_eq!(err, D64ParseError::UnsupportedSize { actual: 123 });
@@ -436,7 +495,7 @@ mod tests {
         let mut sector = [0u8; SECTOR_SIZE];
         sector[0] = 1;
         sector[1] = 0;
-        write_sector(&mut image, 1, 0, &sector);
+        put_sector(&mut image, 1, 0, &sector);
 
         let err = extract_first_prg(&image).expect_err("cyclic D64 chain must fail");
         assert_eq!(
