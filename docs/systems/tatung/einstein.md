@@ -19,21 +19,41 @@ AY-3-8910 + WD1770 floppy (`western-digital-wd1770` crate).
   status semantics. Mapped at `$18-$1B`, drive/side latch at `$23`,
   `insert_disk` API. 12 unit tests in the crate; the no-disk MOS boot is
   byte-for-byte unchanged by the extraction.
+- **Disk reading** — CPCEMU standard/extended `.DSK` images (the MAME
+  `einstein_flop` / TOSEC "Tatung Einstein TC-01" set) parse via
+  `Einstein::insert_cpc_dsk` and serve their sectors back through the FDC ports.
+  The parser flattens by **sector ID** (Einstein disks use IDs 0-9, 512-byte
+  sectors, 40 tracks, single sided), tolerating the half-track physical skew and
+  the occasional zeroed track block (cpm3.dsk track 9). Verified by a synthetic
+  round-trip unit test and a real-image parse test (`tests/disk_boot.rs`).
 
 ## Not implemented / accuracy gaps
 
-- **OS-from-disk — blocked on a disk image, not on the controller.** The WD1770
-  is now complete enough to seek + read sectors, but no Einstein disk image
-  (CP/M / Xtal DOS) exists anywhere in the asset tree, so the end-to-end
-  Ctrl-BREAK disk boot is unverified. The integration test is written and
-  `#[ignore]`d pending an image (the C64-archive pattern). Source a `.dsk` to
-  close this.
+- **OS boot via Ctrl-BREAK — stalls in the MOS load path, NOT the controller.**
+  Disk images are now in hand and the FDC reads their sectors correctly, but
+  driving Ctrl-BREAK (hold CTRL `$20` bit 6 + tap BREAK at matrix row 0 col 0)
+  does not load the OS: the MOS reaches its prompt, the keyboard interrupt
+  services **once**, and the FDC is **never accessed** afterwards (I/O trace:
+  `$20` read ×1, zero `$18-$1B` accesses). So the MOS enters a load path that
+  hangs before issuing any disk command. The likely cause is the interrupt model:
+  the real Einstein vectors keyboard/ADC/fire/VDP interrupts through a **Z80
+  daisy chain** (`z80daisy_generic`), which we approximate with a single
+  `kbd_int_pending` line — the Ctrl-BREAK boot routine probably depends on the
+  proper daisy-chain IM2 vectoring (and possibly the CTC). This is the next
+  concrete step to a full disk boot.
 - **Z80 CTC** — channel 0 stubbed at `$28`; MOS uses IM 1 so boot doesn't need it,
-  but disk-loaded software likely will (CTC crate exists, wiring is port work).
+  but disk-loaded software (and possibly the Ctrl-BREAK path above) likely will
+  (CTC crate exists, wiring is port work).
 - **Cassette / printer** unwired. **Snapshot** deferred. **No native window.**
 
 ## Known unknowns / disproven hypotheses
 
+- **Open: Ctrl-BREAK disk-boot stall.** See the accuracy gap above — the MOS load
+  path hangs before touching the FDC; the keyboard interrupt only services once.
+  Settling it needs a CPU-level trace of where the PC parks after Ctrl-BREAK and,
+  probably, a real Z80 daisy-chain interrupt model rather than the single-line
+  approximation. Disk *reading* itself is proven, so the controller is not the
+  suspect.
 - **DISPROVEN (donor): "ROM pages out once at `$21`."** The ROM toggles in/out via
   *any* access to port `$24`; the MOS copies ROM→RAM toggling between bytes, and
   the missing `$24` handler left it spinning ~32,000× in the copy loop.

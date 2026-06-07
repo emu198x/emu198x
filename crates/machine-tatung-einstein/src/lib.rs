@@ -99,6 +99,18 @@ pub enum EinsteinRegion {
     Pal,
 }
 
+/// A modifier key read on `$20` bits 5-7 (active low). The value is the
+/// status-byte bit it clears when held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Modifier {
+    /// GRAPH — `$20` bit 5.
+    Graph = 0x20,
+    /// CTRL — `$20` bit 6.
+    Control = 0x40,
+    /// SHIFT — `$20` bit 7.
+    Shift = 0x80,
+}
+
 /// ADC0844 4-channel 8-bit ADC — the Einstein's analogue-joystick port at I/O
 /// `$38`. A write selects the channel/mode (`data & 0x0f`); a read returns the
 /// conversion. Channels 1-4 carry joystick 1 X/Y and joystick 2 X/Y. The
@@ -466,6 +478,20 @@ impl Einstein {
         );
     }
 
+    /// Insert a disk from a CPCEMU standard or extended `.DSK` image (the
+    /// container the Einstein TOSEC / MAME `einstein_flop` disks ship in) into
+    /// a drive (0-3). Returns an error if the bytes are not a recognised DSK.
+    ///
+    /// The DSK stores sectors in physical (skewed) order with explicit IDs; we
+    /// flatten by **sector ID** into the drive's geometry, so the relaxed
+    /// (non-bit-timing) controller serves each ID correctly. Einstein disks use
+    /// sector IDs 0-9, 512-byte sectors, 40 tracks, single sided.
+    pub fn insert_cpc_dsk(&mut self, drive: usize, dsk: &[u8]) -> Result<(), String> {
+        let disk = parse_cpc_dsk(dsk)?;
+        self.fdc.insert_disk(drive, disk);
+        Ok(())
+    }
+
     /// Press a key at the given (row, column).
     pub fn press_key(&mut self, row: usize, col: u8) {
         if row < self.keyboard.len() && col < 8 {
@@ -477,6 +503,19 @@ impl Einstein {
     pub fn release_key(&mut self, row: usize, col: u8) {
         if row < self.keyboard.len() && col < 8 {
             self.keyboard[row] |= 1 << col;
+        }
+    }
+
+    /// Hold or release a modifier key read on `$20` bits 5-7 (active low):
+    /// GRAPH (bit 5), CTRL (bit 6), SHIFT (bit 7). The BREAK key itself is in
+    /// the scanned matrix at row 0, column 0 (`press_key(0, 0)`), so a
+    /// Ctrl-BREAK disk boot is `set_control(true)` + `press_key(0, 0)`.
+    pub fn set_modifier(&mut self, modifier: Modifier, held: bool) {
+        let bit = modifier as u8;
+        if held {
+            self.extra_keys &= !bit;
+        } else {
+            self.extra_keys |= bit;
         }
     }
 
@@ -571,6 +610,125 @@ impl zilog_z80::Z80Stepper for Einstein {
     fn step_tick(&mut self) {
         self.tick_tstate();
     }
+}
+
+/// Parse a CPCEMU standard or extended `.DSK` image into a flat,
+/// ID-addressable [`Disk`].
+///
+/// Layout: a 256-byte disk-information block, then for each track a 256-byte
+/// track-information block followed by its sector data in physical order. Each
+/// sector carries its own ID (`R`) in the track block's sector list; we place
+/// the data by ID so the controller — which the host addresses by ID — serves
+/// the right bytes regardless of the on-disk skew. Geometry is taken to be
+/// uniform across tracks (true for the Einstein `einstein_flop` set: 40 tracks,
+/// 1 side, 10 sectors of 512 bytes, IDs 0-9).
+///
+/// Reference: the CPCEMU DSK / "EXTENDED CPC DSK" format (the standard 3" disk
+/// container, shared with Amstrad CPC / PCW / Spectrum +3).
+fn parse_cpc_dsk(dsk: &[u8]) -> Result<Disk, String> {
+    if dsk.len() < 0x100 {
+        return Err("DSK too small for a disk-info block".into());
+    }
+    let extended = dsk.starts_with(b"EXTENDED");
+    let standard = dsk.starts_with(b"MV - CPC");
+    if !extended && !standard {
+        return Err("not a CPCEMU .DSK (bad disk-info signature)".into());
+    }
+
+    let tracks = dsk[0x30] as usize;
+    let sides = (dsk[0x31] as usize).max(1);
+    if tracks == 0 {
+        return Err("DSK declares zero tracks".into());
+    }
+
+    // Per-track byte size: a table of (size / 256) in the extended format, or a
+    // single uniform word in the standard format.
+    let track_size = |i: usize| -> usize {
+        if extended {
+            dsk.get(0x34 + i).map_or(0, |&b| b as usize * 256)
+        } else {
+            u16::from_le_bytes([dsk[0x32], dsk[0x33]]) as usize
+        }
+    };
+
+    // Read the uniform geometry (sector count, size, lowest ID) from the first
+    // present track, so we can size the flat buffer before placing sectors.
+    let mut geometry: Option<(usize, usize, u8)> = None;
+    let scan = 0x100;
+    for ti in 0..tracks * sides {
+        let tsize = track_size(ti);
+        if tsize == 0 {
+            continue;
+        }
+        let tib = dsk
+            .get(scan..scan + 256)
+            .ok_or("DSK truncated in the first track-info block")?;
+        let nsec = tib[0x15] as usize;
+        let mut min_id = u8::MAX;
+        for s in 0..nsec {
+            min_id = min_id.min(tib[0x18 + s * 8 + 2]);
+        }
+        geometry = Some((nsec, 128usize << tib[0x14], min_id));
+        break;
+    }
+    let (sectors_per_track, sector_size, first_id) = geometry.ok_or("DSK has no present tracks")?;
+    if sectors_per_track == 0 || sector_size == 0 {
+        return Err("DSK track has no sectors".into());
+    }
+
+    // Single pass: copy each sector into the flat buffer at its ID slot.
+    let mut flat = vec![0u8; tracks * sides * sectors_per_track * sector_size];
+    let mut off = 0x100;
+    for ti in 0..tracks * sides {
+        let tsize = track_size(ti);
+        if tsize == 0 {
+            continue;
+        }
+        let tib = dsk
+            .get(off..off + 256)
+            .ok_or("DSK truncated in a track-info block")?;
+        if !tib.starts_with(b"Track-Info") {
+            // Some images carry a zeroed/blank track block (an unformatted or
+            // deliberately-skipped track). Skip its sectors but keep the
+            // file offset aligned by the declared track size.
+            off += tsize;
+            continue;
+        }
+        let track = tib[0x10] as usize;
+        let side = tib[0x11] as usize;
+        let nsec = tib[0x15] as usize;
+
+        let mut data_off = off + 256;
+        for s in 0..nsec {
+            let entry = &tib[0x18 + s * 8..0x18 + s * 8 + 8];
+            let id = entry[2];
+            // Extended images record the real stored length per sector; the
+            // standard format uses the track's N code.
+            let stored = if extended {
+                u16::from_le_bytes([entry[6], entry[7]]) as usize
+            } else {
+                sector_size
+            };
+            if let Some(index) = id.checked_sub(first_id).map(usize::from)
+                && track < tracks
+                && side < sides
+                && index < sectors_per_track
+            {
+                let dst = ((track * sides + side) * sectors_per_track + index) * sector_size;
+                let len = sector_size.min(dsk.len().saturating_sub(data_off));
+                if dst + len <= flat.len() {
+                    flat[dst..dst + len].copy_from_slice(&dsk[data_off..data_off + len]);
+                }
+            }
+            data_off += stored;
+        }
+        off += tsize;
+    }
+
+    Ok(
+        Disk::new(flat, tracks, sides, sectors_per_track, sector_size)
+            .with_first_sector_id(first_id),
+    )
 }
 
 #[cfg(test)]
@@ -751,6 +909,73 @@ mod tests {
         let status = sys.io_read(0x18);
         assert_ne!(status & 0x10, 0, "record-not-found should be set");
         assert_eq!(status & 0x01, 0, "command should have finished");
+    }
+
+    /// Build a minimal extended CPC `.DSK`: `tracks` tracks, 1 side, `nsec`
+    /// sectors of 512 bytes with IDs `0..nsec`, where sector (t, id) is filled
+    /// with the byte `t ^ (id << 4) ^ 0x5A` so each sector is identifiable.
+    fn synthetic_dsk(tracks: u8, nsec: u8) -> Vec<u8> {
+        const SS: usize = 512;
+        let track_len = 256 + nsec as usize * SS;
+        let mut dsk = vec![0u8; 256 + tracks as usize * track_len];
+        dsk[..23].copy_from_slice(b"EXTENDED CPC DSK File\r\n");
+        dsk[0x30] = tracks;
+        dsk[0x31] = 1;
+        for t in 0..tracks as usize {
+            dsk[0x34 + t] = (track_len / 256) as u8;
+        }
+        let mut off = 0x100;
+        for t in 0..tracks {
+            dsk[off..off + 12].copy_from_slice(b"Track-Info\r\n");
+            dsk[off + 0x10] = t;
+            dsk[off + 0x11] = 0;
+            dsk[off + 0x14] = 2; // N=2 → 512
+            dsk[off + 0x15] = nsec;
+            for s in 0..nsec {
+                let e = off + 0x18 + s as usize * 8;
+                dsk[e] = t; // C
+                dsk[e + 1] = 0; // H
+                dsk[e + 2] = s; // R (sector ID)
+                dsk[e + 3] = 2; // N
+                dsk[e + 6] = (SS & 0xFF) as u8;
+                dsk[e + 7] = (SS >> 8) as u8;
+                let data = off + 256 + s as usize * SS;
+                dsk[data..data + SS].fill(t ^ (s << 4) ^ 0x5A);
+            }
+            off += track_len;
+        }
+        dsk
+    }
+
+    #[test]
+    fn cpc_dsk_round_trips_through_the_fdc() {
+        let mut sys = Einstein::new(vec![0u8; 0x2000], EinsteinRegion::Pal);
+        sys.insert_cpc_dsk(0, &synthetic_dsk(5, 10))
+            .expect("synthetic DSK parses");
+
+        // Read track 3, sector 7 through the ports and check the marker byte.
+        sys.io_write(0x23, 0x01); // drive 0, side 0
+        sys.io_write(0x1B, 3); // data register = target track
+        sys.io_write(0x18, 0x10); // seek
+        for _ in 0..128 {
+            sys.fdc.tick();
+        }
+        assert_eq!(sys.io_read(0x19), 3, "seeked to track 3");
+        sys.io_write(0x1A, 7); // sector register = ID 7
+        sys.io_write(0x18, 0x80); // read sector
+        for _ in 0..128 {
+            sys.fdc.tick();
+        }
+        let expected = 3u8 ^ (7 << 4) ^ 0x5A;
+        for i in 0..512 {
+            assert_eq!(sys.io_read(0x1B), expected, "byte {i} of track 3 sector 7");
+        }
+    }
+
+    #[test]
+    fn cpc_dsk_rejects_non_dsk() {
+        let mut sys = Einstein::new(vec![0u8; 0x2000], EinsteinRegion::Pal);
+        assert!(sys.insert_cpc_dsk(0, b"not a disk image at all").is_err());
     }
 }
 

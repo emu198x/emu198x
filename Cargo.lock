@@ -2422,6 +2422,7 @@ version = "0.2.0"
 dependencies = [
  "gi-ay-3-8910",
  "ti-tms9918",
+ "western-digital-wd1770",
  "zilog-z80",
 ]
 
@@ -4646,6 +4647,10 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "western-digital-wd1770"
+version = "0.2.0"
 
 [[package]]
 name = "wgpu"
