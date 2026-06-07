@@ -175,12 +175,55 @@ impl Tool<C64Session> for TypeStringTool {
     }
 }
 
+/// `save_disk` — persist drive 8's writable disk to a host `.d64`.
+///
+/// A SAVE in BASIC lands GCR on the drive's live surface; this decodes the
+/// whole surface back to a D64 image and writes it to `path`. The mounted disk
+/// must have been loaded with `writable: true`; archive media is never written.
+/// See `knowledge/decisions/disk-save-write-back.md`.
+struct SaveDiskTool;
+
+impl Tool<C64Session> for SaveDiskTool {
+    fn name(&self) -> &str {
+        "save_disk"
+    }
+
+    fn description(&self) -> &str {
+        "Persist drive 8's disk: decode the live 1541 surface back into a .d64 and write it to `path`. The disk must have been mounted with load_media writable=true (archive disks stay read-only)."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+            },
+            "required": ["path"],
+        })
+    }
+
+    fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
+        let path = required_str(&arguments, "path")?;
+        let bytes = session.machine().flush_drive8_image().ok_or_else(|| {
+            ToolError::Execution("save_disk: no disk mounted in drive 8".to_owned())
+        })?;
+        let len = bytes.len();
+        std::fs::write(path, &bytes).map_err(|err| {
+            ToolError::Execution(format!("save_disk: failed to write {path}: {err}"))
+        })?;
+
+        let body = json!({ "kind": "save_disk", "path": path, "bytes": len }).to_string();
+        Ok(ToolResponse::success_text(body))
+    }
+}
+
 /// Registers the C64-specific BASIC-authoring tools on the registry, after
 /// the shared `register_common_tools`.
 pub fn register_c64_tools(registry: &mut ToolRegistry<C64Session>) {
     registry.register(Box::new(LoadBasicProgramTool));
     registry.register(Box::new(PressKeyTool));
     registry.register(Box::new(TypeStringTool));
+    registry.register(Box::new(SaveDiskTool));
 }
 
 #[cfg(test)]
@@ -205,7 +248,12 @@ mod tests {
         register_common_tools(server.registry_mut());
         register_c64_tools(server.registry_mut());
 
-        for name in ["load_basic_program", "press_key", "type_string"] {
+        for name in [
+            "load_basic_program",
+            "press_key",
+            "type_string",
+            "save_disk",
+        ] {
             assert!(
                 server.registry().get(name).is_some(),
                 "C64 tool `{name}` was not registered"

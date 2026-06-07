@@ -112,6 +112,11 @@ pub enum ScriptStep {
         kind: ScriptMediaKind,
         /// Path to the media image on disk.
         path: PathBuf,
+        /// Whether the machine may write back to this image. Defaults to
+        /// `false` (archive-safe); a work disk opts in. See
+        /// `knowledge/decisions/disk-save-write-back.md`.
+        #[serde(default)]
+        writable: bool,
     },
     /// Start or stop media transport on a named slot.
     MediaTransport {
@@ -1002,10 +1007,18 @@ impl ScriptStep {
         session: &mut HeadlessSession<M, Q>,
     ) -> Result<Option<ScriptObservation>, ScriptError> {
         match self {
-            Self::LoadMedia { slot, kind, path } => {
+            Self::LoadMedia {
+                slot,
+                kind,
+                path,
+                writable,
+            } => {
                 let loaded = read_media_asset(path, (*kind).into())?;
                 let mut media = MediaSet::new();
-                media.push(MediaImage::new(slot.clone(), (*kind).into(), &loaded.bytes));
+                media.push(
+                    MediaImage::new(slot.clone(), (*kind).into(), &loaded.bytes)
+                        .writable(*writable),
+                );
                 session.load_media(&media)?;
                 Ok(None)
             }
@@ -1437,6 +1450,7 @@ mod tests {
                     slot: "tape-1".to_owned(),
                     kind: ScriptMediaKind::Tape,
                     path: media_path.clone(),
+                    writable: false,
                 },
                 ScriptStep::MediaTransport {
                     slot: "tape-1".to_owned(),

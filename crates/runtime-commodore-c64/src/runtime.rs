@@ -258,6 +258,14 @@ impl C64Runtime {
         self.drive8.as_ref()
     }
 
+    /// Decodes drive 8's live GCR surface back into a `D64` image so the host
+    /// can persist a SAVE. Returns `None` when no drive or disk is present.
+    /// See `knowledge/decisions/disk-save-write-back.md`.
+    #[must_use]
+    pub fn flush_drive8_image(&self) -> Option<Vec<u8>> {
+        self.drive8.as_ref()?.flush_image()
+    }
+
     /// Returns the current runtime time in `phi2` cycles.
     #[must_use]
     pub const fn time(&self) -> MachineTime {
@@ -460,12 +468,12 @@ impl MachineCore for C64Runtime {
                             .ok_or_else(|| MachineError::MissingFirmware {
                                 id: "commodore-1541-dos-rom".to_owned(),
                             })?;
-                    drive.load_d64_bytes(image.bytes).map_err(|reason| {
-                        MachineError::InvalidMedia {
+                    drive
+                        .load_d64_bytes_writable(image.bytes, image.writable)
+                        .map_err(|reason| MachineError::InvalidMedia {
                             slot: image.slot.as_ref().to_owned(),
                             reason: reason.to_string(),
-                        }
-                    })?;
+                        })?;
                 }
                 _ => {
                     return Err(MachineError::UnknownMediaSlot {

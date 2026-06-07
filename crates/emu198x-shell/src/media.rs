@@ -103,17 +103,29 @@ pub struct MediaImage<'a> {
     pub kind: MediaKind,
     /// Raw image bytes.
     pub bytes: &'a [u8],
+    /// Whether the machine may write back to this image. Defaults to `false`
+    /// so archive media stays read-only; a learner's work disk opts in. See
+    /// `knowledge/decisions/disk-save-write-back.md`.
+    pub writable: bool,
 }
 
 impl<'a> MediaImage<'a> {
-    /// Creates one media image descriptor.
+    /// Creates one read-only media image descriptor.
     #[must_use]
     pub fn new(slot: impl Into<Cow<'static, str>>, kind: MediaKind, bytes: &'a [u8]) -> Self {
         Self {
             slot: slot.into(),
             kind,
             bytes,
+            writable: false,
         }
+    }
+
+    /// Marks this image writable (the machine may persist changes to it).
+    #[must_use]
+    pub fn writable(mut self, writable: bool) -> Self {
+        self.writable = writable;
+        self
     }
 }
 

@@ -182,13 +182,14 @@ where
     }));
     registry.register(Box::new(ScriptStepTool {
         name: "load_media",
-        description: "Load a media image (cartridge / disk / tape / program) into a named slot.",
+        description: "Load a media image (cartridge / disk / tape / program) into a named slot. Set `writable` to allow the machine to persist a SAVE to this image (archive media must stay read-only; default false).",
         schema: json!({
             "type": "object",
             "properties": {
                 "slot": { "type": "string" },
                 "kind": { "type": "string" },
-                "path": { "type": "string" }
+                "path": { "type": "string" },
+                "writable": { "type": "boolean" }
             },
             "required": ["slot", "kind", "path"]
         }),
