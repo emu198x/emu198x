@@ -134,6 +134,32 @@ bit-level CLK/DATA handshake for the drive receiving a stream of data bytes
 lines + the 1541 ROM's listen loop. The integration test is the repro — fast,
 deterministic, real ROMs; add a drive-RAM peek to watch for the data landing.
 
+### Sharper diagnosis (2026-06-07, second pass)
+
+Per-track write instrumentation + PC histograms during the SAVE pin it down
+further:
+
+- The head writes **only track 18** (the directory/BAM track; ~29k bit-writes),
+  **never a data track** — so the file's data sector is never even attempted.
+- The C64 returns to its READY input loop (`$E5CD`) almost immediately — it does
+  **not** wait the ~1s a real disk write takes. So the C64's data send
+  "completes" without the drive ever performing a data write.
+- Sequence: filename/OPEN works (drive idle and listening → builds the dir entry
+  on track 18); then the drive goes busy doing OPEN disk I/O on track 18; when
+  the C64 starts the **data-channel** (`SECOND $61`) transfer, the drive isn't
+  servicing the serial bus, so the C64 clocks the data out to no listener and
+  proceeds.
+
+**Hypothesis to test first:** the drive, while busy with the OPEN's disk I/O,
+isn't holding the serial bus (DATA low = "not ready") or isn't servicing the
+data-channel `LISTEN`/`ATN`, so the C64 talker races ahead. Look at how the 1541
+interleaves disk-controller work with serial-bus service (ATN handling /
+hold-off) and whether the emulator's CPU-interleave + `IecBus` bus state during
+the drive's busy window matches hardware. Compare the working LOAD path (drive is
+talker, paces the bus) with the failing SAVE data path (drive must listen while
+busy). The suspicious `recompute_drive_bus_entry` ATN-acknowledge fold is worth
+auditing against VICE.
+
 ## Drift triggers
 
 - "Just write the SAVE back to the mounted image" — **stop.** Never write to an

@@ -62,15 +62,15 @@ fn save_writes_a_readable_file_to_a_writable_disk() {
     // Decode the live GCR surface back to a D64 and confirm the file is there.
     //
     // KNOWN FAILURE (2026-06-07): this assertion does not yet pass, and the
-    // cause is upstream of the write-back built here. Full diagnosis: the drive
-    // receives the OPEN/filename (its RAM holds "GREETING" + the BAM) and the
-    // GCR write-back surface is correct (write mode engages, track-18 sectors
-    // decode, flush round-trips). But the program's *data* bytes never reach
-    // the drive — "HI"/the PRINT token are absent from all drive RAM — so no
-    // data sector is ever written and the directory entry is never finalised,
-    // even though the C64 prints READY. The gap is the IEC serial C64→drive
-    // bulk data transfer (non-ATN listen/receive path), NOT the surface write
-    // or flush. See `knowledge/decisions/disk-save-write-back.md`.
+    // cause is upstream of the write-back built here. The GCR write-back is
+    // correct (write mode engages, track-18 sectors decode, flush round-trips),
+    // but a real SAVE never writes the file: instrumentation shows the head
+    // writes *only* track 18 (directory/BAM) and never a data track, the
+    // program bytes never land in any drive RAM, and the C64 returns to READY
+    // almost instantly instead of waiting ~1s for a disk write. So the drive
+    // gets the filename/OPEN but the data-channel transfer is lost — the IEC
+    // serial C64→drive data phase doesn't deliver while the drive is busy on
+    // the OPEN. See `knowledge/decisions/disk-save-write-back.md`.
     let saved = session
         .machine()
         .flush_drive8_image()
