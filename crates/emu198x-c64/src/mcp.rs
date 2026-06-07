@@ -11,6 +11,8 @@
 use emu198x_shell::mcp::{Server, ServerInfo, serve_stdio};
 use emu198x_shell::mcp_tools::register_common_tools;
 
+use crate::mcp_tools::register_c64_tools;
+
 /// Runs MCP mode: builds the booted session, registers the shared tools,
 /// and drives the stdio loop until stdin closes.
 ///
@@ -23,6 +25,7 @@ pub fn run() -> Result<(), String> {
 
     let mut server = Server::new(ServerInfo::new("emu198x-c64", env!("CARGO_PKG_VERSION")));
     register_common_tools(server.registry_mut());
+    register_c64_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

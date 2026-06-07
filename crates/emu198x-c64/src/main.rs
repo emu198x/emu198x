@@ -25,6 +25,7 @@
 //! window.
 
 mod mcp;
+mod mcp_tools;
 mod script;
 
 #[cfg(feature = "ui")]

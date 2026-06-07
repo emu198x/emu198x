@@ -204,6 +204,67 @@ fn c64_key_position(name: &str) -> Option<(u8, u8)> {
     }
 }
 
+/// Returns `true` when `name` maps to a C64 keyboard-matrix position.
+///
+/// Used by the `press_key` MCP tool to reject a typo with a clear error
+/// rather than silently dropping the keystroke (the live input path drops
+/// unknown names on purpose, which is the wrong behaviour for a tool the
+/// curriculum author drives by hand).
+#[must_use]
+pub fn key_name_is_valid(name: &str) -> bool {
+    c64_key_position(name).is_some()
+}
+
+/// C64 keycap names for the letters `A`–`Z`, indexed `0..26`.
+const LETTER_KEYS: [&str; 26] = [
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s",
+    "t", "u", "v", "w", "x", "y", "z",
+];
+
+/// C64 keycap names for the digits `0`–`9`, indexed `0..10`.
+const DIGIT_KEYS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+/// Maps one source character to the C64 key-name chord that produces it
+/// on a freshly-booted machine.
+///
+/// The default charset renders *unshifted* letter keys in upper case, so
+/// both `'A'` and `'a'` map to the bare letter keycap — exactly what BASIC
+/// keywords and `INPUT` responses expect. Characters that need a shifted
+/// keycap (`"`, `?`, brackets, `$`) return a two-key chord led by
+/// `lshift`. Returns `None` for characters with no single-keystroke C64
+/// equivalent; the caller skips those, matching the Spectrum `type_string`
+/// behaviour.
+#[must_use]
+pub fn keys_for_char(ch: char) -> Option<Vec<&'static str>> {
+    let upper = ch.to_ascii_uppercase();
+    if upper.is_ascii_uppercase() {
+        return Some(vec![LETTER_KEYS[(upper as u8 - b'A') as usize]]);
+    }
+    if ch.is_ascii_digit() {
+        return Some(vec![DIGIT_KEYS[(ch as u8 - b'0') as usize]]);
+    }
+    Some(match ch {
+        ' ' => vec!["space"],
+        '\n' | '\r' => vec!["return"],
+        '.' => vec!["."],
+        ',' => vec![","],
+        ':' => vec![":"],
+        ';' => vec!["semicolon"],
+        '/' => vec!["/"],
+        '=' => vec!["="],
+        '+' => vec!["plus"],
+        '-' => vec!["minus"],
+        '@' => vec!["at"],
+        '*' => vec!["asterisk"],
+        '"' => vec!["lshift", "2"],
+        '?' => vec!["lshift", "/"],
+        '(' => vec!["lshift", "8"],
+        ')' => vec!["lshift", "9"],
+        '$' => vec!["lshift", "4"],
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{apply_input_event, axis_to_pot8, canonical_control, machine_port, paddle_axis};
@@ -448,5 +509,44 @@ mod key_position_tests {
         assert_eq!(c64_key_position("runstop"), Some((7, 7)));
         assert_eq!(c64_key_position("LEFT"), None);
         assert_eq!(c64_key_position("UNKNOWN"), None);
+    }
+
+    #[test]
+    fn key_name_validity_matches_matrix() {
+        assert!(super::key_name_is_valid("a"));
+        assert!(super::key_name_is_valid("RETURN"));
+        assert!(super::key_name_is_valid("space"));
+        assert!(super::key_name_is_valid("runstop"));
+        assert!(!super::key_name_is_valid("escape"));
+        assert!(!super::key_name_is_valid(""));
+    }
+
+    #[test]
+    fn letters_map_to_unshifted_keycaps_in_either_case() {
+        assert_eq!(super::keys_for_char('A'), Some(vec!["a"]));
+        assert_eq!(super::keys_for_char('a'), Some(vec!["a"]));
+        assert_eq!(super::keys_for_char('Z'), Some(vec!["z"]));
+        assert_eq!(super::keys_for_char('z'), Some(vec!["z"]));
+    }
+
+    #[test]
+    fn digits_space_and_newline_map() {
+        assert_eq!(super::keys_for_char('0'), Some(vec!["0"]));
+        assert_eq!(super::keys_for_char('9'), Some(vec!["9"]));
+        assert_eq!(super::keys_for_char(' '), Some(vec!["space"]));
+        assert_eq!(super::keys_for_char('\n'), Some(vec!["return"]));
+        assert_eq!(super::keys_for_char('\r'), Some(vec!["return"]));
+    }
+
+    #[test]
+    fn shifted_punctuation_returns_a_chord() {
+        assert_eq!(super::keys_for_char('"'), Some(vec!["lshift", "2"]));
+        assert_eq!(super::keys_for_char('?'), Some(vec!["lshift", "/"]));
+    }
+
+    #[test]
+    fn unmapped_character_is_skipped() {
+        assert_eq!(super::keys_for_char('£'), None);
+        assert_eq!(super::keys_for_char('~'), None);
     }
 }
