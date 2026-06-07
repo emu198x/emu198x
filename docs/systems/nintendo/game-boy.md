@@ -28,7 +28,16 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
   all the DMG **wave-RAM-access-while-CH3-on** sub-cycle window (`09-wave read`,
   `10-wave trigger`, `12-wave write` while on): the read/write paths already gate
   on the sample-fetch window, but it needs T-cycle-exact alignment of the CPU
-  access against the APU fetch. Allow-listed in `blargg_dmg_sound_known_good`.
+  access against the APU fetch (the access must sync the APU to the exact
+  T-cycle, the way SameBoy's event-driven `GB_apu_run` does — a `step_m_cycle`
+  ordering change, not a wave-path tweak). Allow-listed in
+  `blargg_dmg_sound_known_good`.
+  - **Fixed 2026-06-07: channel pitch was an octave too high.** The four channel
+    frequency timers were ticked once per T-cycle (4 MHz) while their reload
+    values are calibrated for a 2 MHz channel clock (square `(2048-f)*2`, wave
+    `2047-f`, noise `divisor<<shift` with a halved table — SameBoy's 2-T-cycle
+    APU unit). They now advance on one DIV-counter parity, halving the rate to
+    the correct 2 MHz. Locked by `channel_frequency_timers_run_at_2mhz`.
 - **DMG `oam_bug` fails** — the DMG OAM-corruption quirk (sprite-table glitch on
   certain `inc/dec rr` over `$FE00`) isn't modelled. Rare in real software; most
   emulators skip it.

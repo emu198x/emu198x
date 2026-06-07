@@ -311,10 +311,26 @@ impl Apu {
             }
             self.prev_div_bit = div_bit;
 
-            self.ch1.tick();
-            self.ch2.tick();
-            self.ch3.tick(&self.wave_ram);
-            self.ch4.tick();
+            // The channel frequency timers run at 2 MHz — one step per
+            // two T-cycles. Every channel's reload value is calibrated
+            // for that cadence: square `(2048-f)*2`, wave `2047-f`,
+            // noise `divisor<<shift` with a halved divisor table —
+            // matching SameBoy's 2-T-cycle APU clock unit. `tick` is
+            // called once per T-cycle (4 MHz), so the channels advance
+            // on only one DIV-counter parity; ticking every call ran
+            // them at double speed (an octave too high across all four
+            // channels). The phase is locked to the DIV LSB rather than
+            // a free-running toggle so it stays absolute across APU
+            // enable/disable and `$FF04` resets, as on hardware. (The
+            // exact parity is not pinned by any passing test — the
+            // wave-RAM-read-while-on edge that would constrain it is
+            // still allow-listed.)
+            if div_counter & 1 == 0 {
+                self.ch1.tick();
+                self.ch2.tick();
+                self.ch3.tick(&self.wave_ram);
+                self.ch4.tick();
+            }
         }
 
         // Sample-rate conversion. SAMPLE_RATE_HZ counts per master

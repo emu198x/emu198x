@@ -231,11 +231,13 @@ fn frame_sequencer_clocks_length_on_step_zero() {
 
 #[test]
 fn square_duty_50_percent_pattern_is_half_high() {
-    // CH2 at frequency = 2047 → period_timer = (2048-2047)*2 = 2.
-    // The timer counts 2→1→0 over two ticks, then on the next tick
-    // it reloads + advances duty_position. So duty advances every
-    // 3 T-cycles. Sampling at the third tick of each window catches
-    // the duty position immediately after the advance.
+    // CH2 at frequency = 2047 → period reload = (2048-2047)*2 = 2.
+    // The channel frequency timer steps once per two T-cycles (2 MHz),
+    // so it counts 2→1→0 over two steps then reloads + advances the
+    // duty position on the next — one advance every 6 T-cycles. The
+    // advances land on T-cycles 6, 12, 18 … so sampling at the sixth
+    // tick of each window catches the duty position just after it
+    // advances.
     let mut apu = Apu::new();
     apu.write(REG_NR52, 0x80);
     apu.write(0xFF16, 0b10_000000); // duty 2 (50%), no length
@@ -247,7 +249,7 @@ fn square_duty_50_percent_pattern_is_half_high() {
     let mut lows = 0;
     let mut div: u16 = 0;
     for _ in 0..8 {
-        for _ in 0..3 {
+        for _ in 0..6 {
             div = div.wrapping_add(1);
             apu.tick(div);
         }
@@ -290,4 +292,26 @@ fn drain_samples_returns_buffered_floats_in_order() {
     // After drain, the same slots aren't re-read.
     let again = apu.drain_samples(&mut dest);
     assert!(again < written + 16);
+}
+
+#[test]
+fn channel_frequency_timers_run_at_2mhz() {
+    // The channel frequency timers advance once per *two* T-cycles, not
+    // once per T-cycle — the reload values are calibrated for that
+    // 2 MHz cadence. Ticking every T-cycle ran every channel an octave
+    // too high. CH3 at frequency 0x7FE (2046) reloads its period to
+    // (2048 - 2046) * 2 = 4 T-cycles per sample step, so 80 T-cycles is
+    // 20 steps — not the 40 a per-T-cycle tick would produce.
+    let mut apu = Apu::new();
+    apu.write(REG_NR52, 0x80); // power on
+    apu.write(0xFF1A, 0x80); // NR30: DAC on
+    apu.write(0xFF1D, 0xFE); // NR33: frequency low byte
+    apu.write(0xFF1E, 0x87); // NR34: trigger + frequency high bits → 0x7FE
+    let start = apu.ch3.sample_position;
+    let _ = run_t(&mut apu, 0, 80);
+    let advanced = apu.ch3.sample_position.wrapping_sub(start) & 0x1F;
+    assert!(
+        (19..=21).contains(&advanced),
+        "expected ~20 wave steps over 80 T-cycles (2 MHz cadence), got {advanced}"
+    );
 }
