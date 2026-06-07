@@ -36,14 +36,41 @@ cargo run --release -p emu198x-nes --no-default-features -- --smoke-root path/to
   compatibility-driven. 155-ROM sweep (2026-06-05): 135 PASS / 5 FAIL / 15 VISUAL.
 - **CPU edge timing** — `blargg_nes_cpu_test5` test 01-implied fails (CRC probe
   foundation at 2/20); `cpu_timing_test6` protocol not modelled.
-- **DMA interleave** — OAMDMA odd-cycle penalty + DMC sample-DMA cycle interleave
-  not modelled.
+- **DMA interleave** — `sprdma_and_dmc_dma` (code 1) and `dmc_dma_during_read4`
+  (`dma_2007_read`) still fail; the OAMDMA odd-cycle penalty + DMC sample-DMA
+  cycle interleave aren't cycle-exact. The remaining known NES accuracy frontier.
+
+## Test-ROM ledger (2026-06-07)
+
+Landed as `#[ignore]`-gated ledger tests in `crates/machine-nintendo-nes/tests/`.
+Run with `cargo test -p machine-nintendo-nes --test <file> -- --ignored`.
+
+- **`mmc3_test` 5/6** (`blargg_ppu.rs`) — scanline-IRQ A12 counter. Was 0/6: the
+  PPU only notified the mapper of A12 edges while rendering, so the `$2006`-driven
+  counter clocks the suite uses during forced blank were dropped. Now notifies on
+  every edge with the PPU cycle, and the MMC3 filter measures A12 low-duration
+  (Mesen's `_a12LowClock`). `6-MMC6` is intentionally unreachable — it tests the
+  MMC3 rev-A IRQ behaviour that contradicts `5-MMC3`, and the two ROMs share
+  identical mapper-4 headers (no per-ROM chip database here).
+- **`ppu_read_buffer` PASS** (`blargg_ppu.rs`) — Bisqwit's ~80-sub-test `$2007`
+  read-buffer suite. See the corrected note below.
+- **`cpu_dummy_reads` PASS** (`blargg_legacy.rs`) — 6502 dummy reads on
+  abs,X / (zp),Y / (zp,X). Older shell, no `$6000`; graded by scanning the
+  ascii.chr nametable for "Passed".
+- **sprite_hit 11/11 + sprite_overflow 5/5** (`ppu_onscreen.rs`) — 2005 suites
+  graded via the `$f8` result byte; sprite-0-hit and overflow timing all pass.
 
 ## Known unknowns / disproven hypotheses
 
-- **DISPROVEN: `test_ppu_read_buffer.nes` is failing.** Reclassified VISUAL after
-  confirming our CPU+PPU drive it correctly — it reports via screen + audio, not
-  `$6000` (2026-06-01).
+- **CORRECTED: `test_ppu_read_buffer.nes` now passes via `$6000`.** The earlier
+  (2026-06-01) "reports via screen + audio, not `$6000`" conclusion was wrong: the
+  ROM *does* write the `$6000` shell block, but it's CNROM (mapper 3) and the
+  mapper port carried no `$6000` work RAM, so the signature never landed and the
+  run looked like an endless "running"/VISUAL state. Adding 8 KiB WRAM at
+  `$6000-$7FFF` on CNROM (as NROM already does) makes it report `Some(0)` — and
+  the `$2007` read-buffer behaviour itself was already correct (2026-06-07).
+  *Lesson:* a `None`/VISUAL verdict from the `$6000` harness can mean the cart's
+  mapper lacks `$6000` WRAM, not a real PPU/CPU bug — check the mapper first.
 - **Open: the 01-implied culprit** — CRC probe at 2/20; not yet isolated.
 - **Open: the 5 FAIL ROMs** in the 155-sweep — individual causes not catalogued
   on this page.
@@ -55,6 +82,10 @@ cargo run --release -p emu198x-nes --no-default-features -- --smoke-root path/to
 
 - `nestest` 8991/8991; Blargg-style `$6000` test ROMs; the 155-ROM smoke sweep.
   Super Mario Bros. renders.
+- Per-suite ledgers (2026-06-07): `mmc3_test` 5/6, `ppu_read_buffer`,
+  `cpu_dummy_reads`, sprite_hit 11/11, sprite_overflow 5/5, `ppu_vbl_nmi` 10/10,
+  `instr_test-v5`, `instr_misc`, `oam_read`, `cpu_exec_space` (see the test-ROM
+  ledger above; harnesses in `crates/machine-nintendo-nes/tests/`).
 - Reference: Mesen2, fceux, nestopia (`emulators/nes/`).
 
 ## Timing & cycle-accuracy
