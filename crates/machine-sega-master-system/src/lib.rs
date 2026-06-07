@@ -81,6 +81,10 @@ use ti_sn76489::Sn76489;
 use zilog_z80::{BusOp, Z80};
 
 const CPU_TSTATES_PER_SCANLINE: u64 = 228;
+// VDP dot clock vs CPU clock: master 10.738635 MHz, CPU ÷3, VDP dot ÷2, so
+// 3 VDP dots advance per 2 CPU T-states (342 dots / 228 T-states per line).
+const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
+const VDP_DOT_PHASE_DENOMINATOR: u32 = 2;
 const NTSC_SCANLINES_PER_FRAME: u64 = 262;
 const PAL_SCANLINES_PER_FRAME: u64 = 313;
 const NTSC_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * NTSC_SCANLINES_PER_FRAME;
@@ -143,8 +147,8 @@ pub struct Sms {
     variant: SmsVariant,
     cpu_tstates: u64,
     tstates_per_frame: u64,
-    /// T-states accumulated within the current scanline.
-    scanline_tstates: u64,
+    /// VDP dot-clock phase accumulator (3 dots per 2 CPU T-states).
+    vdp_phase: u32,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
     io_trace: Option<Vec<IoEvent>>,
@@ -177,7 +181,7 @@ impl Sms {
             variant,
             cpu_tstates: 0,
             tstates_per_frame: variant.tstates_per_frame(),
-            scanline_tstates: 0,
+            vdp_phase: 0,
             frame_count: 0,
             io_trace: None,
         }
@@ -197,13 +201,13 @@ impl Sms {
         self.cpu.tick();
         self.handle_bus();
 
-        // sega-vdp only exposes tick_scanline (per-scanline render),
-        // so accumulate T-states and trigger one scanline at the
-        // 228-T-state boundary.
-        self.scanline_tstates += 1;
-        if self.scanline_tstates >= CPU_TSTATES_PER_SCANLINE {
-            self.scanline_tstates = 0;
-            self.vdp.tick_scanline();
+        // Interleave the VDP per dot (3 dots per 2 CPU T-states), so the line
+        // and frame interrupts land at the correct scanline relative to CPU
+        // execution — Mode-4 raster splits depend on this.
+        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+            self.vdp.tick();
+            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
         }
 
         // PSG ticks at the Z80 clock on SMS.

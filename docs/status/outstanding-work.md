@@ -1094,11 +1094,12 @@ Gated smoke at `crates/machine-sega-master-system/tests/cart_boot.rs`
 (picks first `.sms` from `~/.emu198x/media/sega-master-system/`)
 passes (1/1).
 
-- **A — Sega VDP only exposes `tick_scanline()`** (no per-dot
-  tick), so the machine accumulates 228 T-states per scanline and
-  issues one batched scanline tick at the boundary. More
-  accuracy-relaxed than `ti-tms9918`'s per-dot tick. Refining
-  `sega-vdp` to a per-dot model is the obvious next step.
+- ~~**A — Sega VDP only exposes `tick_scanline()`** (no per-dot tick).~~
+  **Closed 2026-06-07** — `sega-vdp::tick()` renders per dot and the SMS
+  machine interleaves it with the CPU at the 3:2 dot phase, so line/frame
+  interrupts land at the correct scanline. Byte-identical to the old batch
+  render for static frames (Alex Kidd / Sonic / Wonder Boy titles). Remaining:
+  validate line-IRQ timing against real split-screen scrollers; live HCOUNTER.
 - **A — Cart RAM at `$8000-$BFFF`** (when mapper control bit 3 is
   set) reads as `$FF` in this initial port; full SRAM
   write/read/persistence path needed for Phantasy Star, Wonder Boy

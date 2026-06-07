@@ -98,10 +98,16 @@ pub struct SegaVdp {
 
     // Rendering
     scanline: u16,
+    /// Current dot within the scanline (0-341), for per-dot rendering.
+    dot: u16,
     region: VdpRegion,
     #[allow(dead_code)]
     variant: VdpVariant,
     framebuffer: Vec<u32>,
+    /// Per-line sprite colour-index buffer (0 = no sprite pixel), evaluated at
+    /// the start of each active line and overlaid per pixel. Transient — not
+    /// part of the saved state.
+    sprite_buf: [u8; 256],
 
     /// Interrupt output (directly drives Z80 INT).
     pub interrupt: bool,
@@ -140,9 +146,11 @@ impl SegaVdp {
             line_counter: 0,
             line_irq_pending: false,
             scanline: 0,
+            dot: 0,
             region,
             variant,
             framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT) as usize],
+            sprite_buf: [0; 256],
             interrupt: false,
             frame_count: 0,
         }
@@ -339,21 +347,51 @@ impl SegaVdp {
         self.framebuffer.fill(backdrop);
     }
 
-    /// Tick one scanline. Returns true at frame end.
-    pub fn tick_scanline(&mut self) -> bool {
-        let active_lines: u16 = 192;
+    /// Tick one dot (pixel clock, ~5.37 MHz). Renders the active pixel scanned
+    /// out at this dot, and processes the per-line events (line/frame interrupt,
+    /// V counter) at line end. Returns true at frame end.
+    ///
+    /// Per dot, the line interrupt is flagged at the *end* of the line it
+    /// belongs to, so a host that interleaves the CPU per dot sees it at the
+    /// right scanline — the timing that makes Mode-4 raster splits land
+    /// correctly. For a static frame the framebuffer is identical to the old
+    /// scanline-batched render (both route every pixel through `bg_pixel`).
+    pub fn tick(&mut self) -> bool {
+        if self.scanline == 0 && self.dot == 0 {
+            self.fill_border();
+        }
+        if self.scanline < 192 && self.dot == 0 {
+            self.prepare_line_sprites(self.scanline as usize);
+        }
+        if self.scanline < 192 && self.dot < ACTIVE_WIDTH as u16 {
+            self.render_pixel(self.scanline as usize, self.dot as usize);
+        }
+        self.dot += 1;
+        if self.dot >= 342 {
+            self.dot = 0;
+            return self.advance_line();
+        }
+        false
+    }
 
-        // Paint the border at frame start; active rendering then
-        // overwrites the 256 x 192 interior.
+    /// Tick one whole scanline (batch render). Kept for tests and any per-line
+    /// host; produces identical output to the per-dot path for a static frame.
+    pub fn tick_scanline(&mut self) -> bool {
         if self.scanline == 0 {
             self.fill_border();
         }
-
-        // Render active scanlines
-        if self.scanline < active_lines {
+        if self.scanline < 192 {
             self.render_scanline(self.scanline);
+        }
+        self.advance_line()
+    }
 
-            // Line counter
+    /// End-of-line events: line counter / frame interrupt, V counter, interrupt
+    /// recompute, and the scanline advance. Returns true at frame end. Shared by
+    /// [`tick`](Self::tick) and [`tick_scanline`](Self::tick_scanline).
+    fn advance_line(&mut self) -> bool {
+        let active_lines: u16 = 192;
+        if self.scanline < active_lines {
             if self.line_counter == 0 {
                 self.line_counter = self.regs[10];
                 self.line_irq_pending = true;
@@ -361,16 +399,13 @@ impl SegaVdp {
                 self.line_counter -= 1;
             }
         } else if self.scanline == active_lines {
-            // Frame interrupt
             self.status |= 0x80;
             self.line_counter = self.regs[10];
             self.frame_count += 1;
         } else {
-            // VBlank — reload line counter each line
             self.line_counter = self.regs[10];
         }
 
-        // V counter
         self.v_counter = match self.region {
             VdpRegion::Ntsc => {
                 if self.scanline <= 0xDA {
@@ -414,89 +449,107 @@ impl SegaVdp {
 
     fn render_scanline(&mut self, line: u16) {
         let line = line as usize;
-        let offset = Self::active_offset(line);
-
-        if !self.display_enabled() {
-            let bg = self.backdrop_color();
-            self.framebuffer[offset..offset + ACTIVE_WIDTH as usize].fill(bg);
-            return;
-        }
-
-        if self.mode4_active() {
-            self.render_mode4_bg(line, offset);
-            self.render_mode4_sprites(line, offset);
-        } else {
-            // Legacy TMS9918A modes — render backdrop as placeholder
-            let bg = self.backdrop_color();
-            self.framebuffer[offset..offset + ACTIVE_WIDTH as usize].fill(bg);
+        self.prepare_line_sprites(line);
+        for x in 0..ACTIVE_WIDTH as usize {
+            self.render_pixel(line, x);
         }
     }
 
-    fn render_mode4_bg(&mut self, line: usize, offset: usize) {
+    /// Draw the active pixel at column `x` of `line`: the background pixel,
+    /// overlaid by this line's sprite pixel if present.
+    fn render_pixel(&mut self, line: usize, x: usize) {
+        let sprite = self.sprite_buf[x];
+        let argb = if sprite != 0 {
+            self.cram_to_argb(16 + sprite as usize)
+        } else {
+            self.bg_pixel(line, x)
+        };
+        self.framebuffer[Self::active_offset(line) + x] = argb;
+    }
+
+    /// Background colour at column `x` of `line`, before sprites. Returns the
+    /// backdrop when the display is blanked or in a (placeholder) legacy mode.
+    fn bg_pixel(&self, line: usize, x: usize) -> u32 {
+        if !self.display_enabled() {
+            return self.backdrop_color();
+        }
+        if self.mode4_active() {
+            self.mode4_bg_pixel(line, x)
+        } else {
+            // Legacy TMS9918A modes — backdrop placeholder (unchanged).
+            self.backdrop_color()
+        }
+    }
+
+    fn mode4_bg_pixel(&self, line: usize, pixel_x: usize) -> u32 {
+        // Column-0 blanking takes priority over the tile fetch.
+        if self.regs[0] & 0x20 != 0 && pixel_x < 8 {
+            return self.backdrop_color();
+        }
+
         let name_base = (self.regs[2] as usize & 0x0E) * 0x400;
         let scroll_x = self.regs[8] as usize;
         let scroll_y = self.regs[9] as usize;
-        let col0_blank = self.regs[0] & 0x20 != 0;
         let hscroll_lock = self.regs[0] & 0x40 != 0;
 
         let effective_line = (line + scroll_y) % 224; // Name table wraps at 224 (28 rows)
         let tile_row = effective_line / 8;
         let fine_y = effective_line & 7;
 
-        for pixel_x in 0..256 {
-            // Horizontal scroll (disable for top 2 rows if hscroll_lock)
-            let scrolled_x = if hscroll_lock && line < 16 {
-                pixel_x
-            } else {
-                (pixel_x + (256 - scroll_x)) & 0xFF
-            };
+        // Horizontal scroll (disabled for the top 2 rows if hscroll_lock).
+        let scrolled_x = if hscroll_lock && line < 16 {
+            pixel_x
+        } else {
+            (pixel_x + (256 - scroll_x)) & 0xFF
+        };
+        let tile_col = scrolled_x / 8;
+        let fine_x = scrolled_x & 7;
 
-            let tile_col = scrolled_x / 8;
-            let fine_x = scrolled_x & 7;
+        // Name table entry (2 bytes, little-endian).
+        let nt_addr = name_base + (tile_row * 32 + tile_col) * 2;
+        let nt_lo = self.vram[nt_addr & 0x3FFF] as u16;
+        let nt_hi = self.vram[(nt_addr + 1) & 0x3FFF] as u16;
+        let nt_entry = nt_lo | (nt_hi << 8);
 
-            // Read name table entry (2 bytes, little-endian)
-            let nt_addr = name_base + (tile_row * 32 + tile_col) * 2;
-            let nt_lo = self.vram[nt_addr & 0x3FFF] as u16;
-            let nt_hi = self.vram[(nt_addr + 1) & 0x3FFF] as u16;
-            let nt_entry = nt_lo | (nt_hi << 8);
+        let pattern_idx = (nt_entry & 0x01FF) as usize;
+        let h_flip = nt_entry & 0x0200 != 0;
+        let v_flip = nt_entry & 0x0400 != 0;
+        let palette = if nt_entry & 0x0800 != 0 { 16 } else { 0 };
+        let priority = nt_entry & 0x1000 != 0;
 
-            let pattern_idx = (nt_entry & 0x01FF) as usize;
-            let h_flip = nt_entry & 0x0200 != 0;
-            let v_flip = nt_entry & 0x0400 != 0;
-            let palette = if nt_entry & 0x0800 != 0 { 16 } else { 0 };
-            let priority = nt_entry & 0x1000 != 0;
+        let row = if v_flip { 7 - fine_y } else { fine_y };
+        let col = if h_flip { fine_x } else { 7 - fine_x };
 
-            let row = if v_flip { 7 - fine_y } else { fine_y };
-            let col = if h_flip { fine_x } else { 7 - fine_x };
+        // 4bpp planar: 4 bytes per row, 32 bytes per tile.
+        let pattern_addr = pattern_idx * 32 + row * 4;
+        let b0 = self.vram[pattern_addr & 0x3FFF];
+        let b1 = self.vram[(pattern_addr + 1) & 0x3FFF];
+        let b2 = self.vram[(pattern_addr + 2) & 0x3FFF];
+        let b3 = self.vram[(pattern_addr + 3) & 0x3FFF];
 
-            // 4bpp planar: 4 bytes per row, 32 bytes per tile
-            let pattern_addr = pattern_idx * 32 + row * 4;
-            let b0 = self.vram[(pattern_addr) & 0x3FFF];
-            let b1 = self.vram[(pattern_addr + 1) & 0x3FFF];
-            let b2 = self.vram[(pattern_addr + 2) & 0x3FFF];
-            let b3 = self.vram[(pattern_addr + 3) & 0x3FFF];
+        let color_idx = ((b0 >> col) & 1)
+            | (((b1 >> col) & 1) << 1)
+            | (((b2 >> col) & 1) << 2)
+            | (((b3 >> col) & 1) << 3);
 
-            let color_idx = ((b0 >> col) & 1)
-                | (((b1 >> col) & 1) << 1)
-                | (((b2 >> col) & 1) << 2)
-                | (((b3 >> col) & 1) << 3);
-
-            let argb = if color_idx == 0 && !priority {
-                self.backdrop_color()
-            } else {
-                self.cram_to_argb(palette + color_idx as usize)
-            };
-
-            // Column 0 blanking
-            if col0_blank && pixel_x < 8 {
-                self.framebuffer[offset + pixel_x] = self.backdrop_color();
-            } else {
-                self.framebuffer[offset + pixel_x] = argb;
-            }
+        if color_idx == 0 && !priority {
+            self.backdrop_color()
+        } else {
+            self.cram_to_argb(palette + color_idx as usize)
         }
     }
 
-    fn render_mode4_sprites(&mut self, line: usize, offset: usize) {
+    /// Prepare this line's sprite overlay: clear `sprite_buf`, then (when the
+    /// display is on and Mode 4 is active) evaluate the sprite table into it and
+    /// set the overflow / collision status flags.
+    fn prepare_line_sprites(&mut self, line: usize) {
+        self.sprite_buf = [0u8; 256];
+        if self.display_enabled() && self.mode4_active() {
+            self.evaluate_sprites(line);
+        }
+    }
+
+    fn evaluate_sprites(&mut self, line: usize) {
         let sat_base = (self.regs[5] as usize & 0x7E) * 0x80;
         let spg_base = if self.regs[6] & 0x04 != 0 {
             0x2000
@@ -579,12 +632,8 @@ impl SegaVdp {
             self.status |= 0x20;
         }
 
-        // Composite sprites onto framebuffer (behind priority tiles)
-        for (px, &c) in sprite_buffer.iter().enumerate() {
-            if c != 0 {
-                self.framebuffer[offset + px] = self.cram_to_argb(16 + c as usize);
-            }
-        }
+        // Publish the line's sprite pixels; `render_pixel` overlays them.
+        self.sprite_buf = sprite_buffer;
     }
 
     // -----------------------------------------------------------------------

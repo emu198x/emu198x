@@ -17,8 +17,6 @@ SN76489.
 
 ## Not implemented / accuracy gaps
 
-- **VDP is `tick_scanline()`-only** — 228 T-states batched per line, no per-dot
-  tick (more relaxed than `ti-tms9918`). Per-dot model is the next step.
 - **Cart RAM (`$8000-$BFFF`)** reads `$FF` — full SRAM persistence needed for
   Phantasy Star, Wonder Boy III, Golvellius.
 - **Mapper bank masking** — uses `next_power_of_two()-1`; non-power-of-two cart
@@ -42,13 +40,16 @@ SN76489.
 
 - **Master clock & dividers** — 10.738635 MHz NTSC (CPU ÷3 ≈ 3.58) / 10.640 MHz
   PAL (≈3.55). VDP dot ÷2.
-- **Timing model realised** — loosest of the TMS9918 lineage: `sega-vdp` exposes
-  only **`tick_scanline()`** (228 T-states batched per line, no per-dot tick),
-  more relaxed than `ti-tms9918`. Line-interrupt counter wired but
-  programmer-side behaviour unvalidated.
+- **Timing model realised** — **per-dot** (2026-06-07): `sega-vdp::tick()` draws
+  one pixel per dot and the machine interleaves it with the CPU at the 3:2 dot
+  phase (3 dots per 2 T-states), so the line and frame interrupts land at the
+  correct scanline relative to CPU execution — what Mode-4 raster splits depend
+  on. Byte-identical to the old scanline-batched render for static frames
+  (Alex Kidd / Sonic / Wonder Boy titles verified). The remaining timing debt is
+  the VDP-dot-to-T-state *phase* exactness and the HCOUNTER (still static).
 - **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
-- **Distance to full cycle-accuracy** — per-dot VDP model; line-IRQ reload/status
-  validation against split-screen scrollers.
+- **Distance to full cycle-accuracy** — validate line-IRQ reload/status timing
+  against real split-screen scrollers; implement a live HCOUNTER.
 
 ## Tooling & drivability
 
