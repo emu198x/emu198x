@@ -1280,3 +1280,175 @@ fn blargg_dmg_sound_suite_passes() {
         "blargg dmg_sound failures: {failures:?}"
     );
 }
+
+// -- Mealybug Tearoom (mid-scanline PPU) ------------------------------------
+
+/// Run to the `LD B,B` (opcode `0x40`) software breakpoint that every
+/// Mealybug ROM hits when the frame is rendered. Returns false on budget.
+#[cfg(test)]
+fn run_to_ld_b_b(gb: &mut GameBoy, max_instructions: u32) -> bool {
+    for _ in 0..max_instructions {
+        gb.step_instruction();
+        if gb.cpu().opcode == 0x40 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Decode a Mealybug `*_dmg_blob.png` reference into our shade convention
+/// (0 = lightest … 3 = darkest), one byte/pixel. The references come in 1-,
+/// 2- and 8-bit grayscale; `EXPAND` normalises them to 8-bit grey
+/// (`#FF/#AA/#55/#00`), which we round to the nearest of the four DMG shades.
+#[cfg(test)]
+fn decode_mealybug_dmg_ref(path: &std::path::Path) -> Vec<u8> {
+    let file = std::fs::File::open(path).unwrap();
+    let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info().unwrap();
+    let mut buf = vec![0u8; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut buf).unwrap();
+    assert_eq!(info.color_type, png::ColorType::Grayscale);
+    assert_eq!((info.width, info.height), (160, 144));
+    let stride = info.line_size;
+    let mut shades = vec![0u8; 160 * 144];
+    for y in 0..144usize {
+        for x in 0..160usize {
+            let grey = u16::from(buf[y * stride + x]);
+            // 0xFF→0, 0xAA→1, 0x55→2, 0x00→3.
+            shades[y * 160 + x] = 3 - ((grey * 3 + 127) / 255) as u8;
+        }
+    }
+    shades
+}
+
+#[test]
+#[ignore = "diagnostic: per-ROM pixel diff vs Mealybug DMG references (EMU198X_GB_MEALYBUG_ROOT)"]
+fn diagnostic_mealybug_dmg() {
+    let root = std::env::var("EMU198X_GB_MEALYBUG_ROOT")
+        .expect("set EMU198X_GB_MEALYBUG_ROOT to the mealybug ppu/ dir");
+    let dir = std::path::Path::new(&root);
+    let mut roms: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "gb"))
+        .collect();
+    roms.sort();
+
+    let mut total = 0;
+    let mut passing = 0;
+    for rom_path in &roms {
+        let stem = rom_path.file_stem().unwrap().to_string_lossy().to_string();
+        let reference = dir.join(format!("{stem}_dmg_blob.png"));
+        if !reference.exists() {
+            continue; // CGB-only test, no DMG reference
+        }
+        total += 1;
+        let rom = std::fs::read(rom_path).unwrap();
+        let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
+        let hit = run_to_ld_b_b(&mut gb, 4_000_000);
+        let expected = decode_mealybug_dmg_ref(&reference);
+        let fb = gb.framebuffer().to_vec();
+        let diff = fb.iter().zip(&expected).filter(|(a, b)| a != b).count();
+        if diff == 0 {
+            passing += 1;
+        }
+        // Optional visual dump: set EMU198X_GB_MEALYBUG_DUMP to a directory to
+        // write `<stem>_got/_exp/_diff.png` for each non-matching ROM.
+        if diff != 0
+            && let Ok(dump) = std::env::var("EMU198X_GB_MEALYBUG_DUMP")
+        {
+            let d = std::path::Path::new(&dump);
+            std::fs::create_dir_all(d).unwrap();
+            write_shades_png(&d.join(format!("{stem}_got.png")), &fb);
+            write_shades_png(&d.join(format!("{stem}_exp.png")), &expected);
+            let diff_shades: Vec<u8> = fb
+                .iter()
+                .zip(&expected)
+                .map(|(a, b)| if a == b { 0 } else { 3 })
+                .collect();
+            write_shades_png(&d.join(format!("{stem}_diff.png")), &diff_shades);
+        }
+        println!(
+            "{:>40}  diff={diff:>5}  {}",
+            stem,
+            if hit { "" } else { "(NO LD B,B)" }
+        );
+    }
+    println!("\nMealybug DMG: {passing}/{total} pixel-perfect");
+}
+
+/// Encode a 160×144 shade buffer (0 = lightest … 3 = darkest) as an 8-bit
+/// grayscale PNG using the DMG `#FF/#AA/#55/#00` levels.
+#[cfg(test)]
+fn write_shades_png(path: &std::path::Path, shades: &[u8]) {
+    const GREY: [u8; 4] = [0xFF, 0xAA, 0x55, 0x00];
+    let pixels: Vec<u8> = shades.iter().map(|&s| GREY[(s & 3) as usize]).collect();
+    let file = std::fs::File::create(path).unwrap();
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), 160, 144);
+    encoder.set_color(png::ColorType::Grayscale);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().unwrap();
+    writer.write_image_data(&pixels).unwrap();
+}
+
+/// Mealybug Tearoom DMG ledger. Asserts every ROM in `PASSING` renders
+/// pixel-perfect against its `_dmg_blob.png` reference (a regression guard
+/// that grows as mid-mode-3 PPU timing is tightened) and flags any ROM that
+/// newly reaches pixel-perfect so it can be promoted into `PASSING`.
+///
+/// The full set is surveyed by `diagnostic_mealybug_dmg`. Gated on the ROMs:
+/// set `EMU198X_GB_MEALYBUG_ROOT` to the mealybug `ppu/` dir, run `--ignored`.
+#[test]
+#[ignore = "needs EMU198X_GB_MEALYBUG_ROOT (mealybug ppu/ dir) — run with --ignored"]
+fn mealybug_dmg_ppu_ledger() {
+    // Pixel-perfect against the DMG reference. Grow as the PPU tightens.
+    const PASSING: &[&str] = &["m2_win_en_toggle"];
+
+    let root = std::env::var("EMU198X_GB_MEALYBUG_ROOT")
+        .expect("set EMU198X_GB_MEALYBUG_ROOT to the mealybug ppu/ dir");
+    let dir = std::path::Path::new(&root);
+
+    let diff_for = |stem: &str| -> usize {
+        let rom = std::fs::read(dir.join(format!("{stem}.gb"))).unwrap();
+        let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
+        run_to_ld_b_b(&mut gb, 4_000_000);
+        let expected = decode_mealybug_dmg_ref(&dir.join(format!("{stem}_dmg_blob.png")));
+        gb.framebuffer()
+            .iter()
+            .zip(&expected)
+            .filter(|(a, b)| a != b)
+            .count()
+    };
+
+    let regressed: Vec<_> = PASSING
+        .iter()
+        .filter(|stem| diff_for(stem) != 0)
+        .copied()
+        .collect();
+    assert!(
+        regressed.is_empty(),
+        "mealybug DMG regressions (were pixel-perfect): {regressed:?}"
+    );
+
+    // Surface any ROM that now passes but isn't yet ledgered.
+    let mut newly_passing = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|x| x != "gb") {
+            continue;
+        }
+        let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+        if PASSING.contains(&stem.as_str()) {
+            continue;
+        }
+        if dir.join(format!("{stem}_dmg_blob.png")).exists() && diff_for(&stem) == 0 {
+            newly_passing.push(stem);
+        }
+    }
+    assert!(
+        newly_passing.is_empty(),
+        "mealybug DMG tests now pixel-perfect — add to PASSING: {newly_passing:?}"
+    );
+}

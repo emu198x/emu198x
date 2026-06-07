@@ -35,8 +35,12 @@ runner, snapshots, `.sav` battery-RAM sidecars. Sharp LR35902 (SM83) core.
 - **DMG `oam_bug` fails** — the DMG OAM-corruption quirk (sprite-table glitch on
   certain `inc/dec rr` over `$FE00`) isn't modelled. Rare in real software; most
   emulators skip it.
-- **Mealybug-tearoom (mid-scanline PPU)** — the hardest LCDC/scroll-mid-line
-  tests aren't run yet (framebuffer-vs-reference; the next PPU frontier).
+- **Mealybug-tearoom (mid-scanline PPU) — 1/24 DMG** (ledgered 2026-06-07). The
+  per-dot renderer is wired to the suite (run to the `LD B,B` marker, compare the
+  framebuffer to each `_dmg_blob.png`), and `m2_win_en_toggle` is pixel-perfect.
+  The other 23 probe mid-mode-3 register writes (BGP/SCX/SCY/LCDC/WX/OBP0 changed
+  during a scanline) and still differ — the active PPU frontier. Survey via
+  `diagnostic_mealybug_dmg`; regression-guarded by `mealybug_dmg_ppu_ledger`.
 
 ## Known unknowns / disproven hypotheses
 
