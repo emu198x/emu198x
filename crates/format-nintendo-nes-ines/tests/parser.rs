@@ -501,39 +501,44 @@ fn mmc3_chr_ram_writes_through_selected_bank() {
     assert_eq!(mapper.chr_read(0x0002), 0x5A);
 }
 
-fn mmc3_a12_edge(mapper: &mut Mmc3) {
-    for _ in 0..16 {
-        mapper.notify_a12_rendering(false);
-    }
-    mapper.notify_a12_rendering(true);
+/// Simulate one debounced A12 rising edge: A12 falls, stays low well
+/// past the mapper's filter window, then rises. `clock` is the PPU
+/// master-clock counter (4 units per dot) threaded across calls.
+fn mmc3_a12_edge(mapper: &mut Mmc3, clock: &mut u64) {
+    *clock += 1;
+    mapper.notify_a12_rendering(false, *clock);
+    *clock += 64; // comfortably above A12_FILTER_CYCLES (40)
+    mapper.notify_a12_rendering(true, *clock);
 }
 
 #[test]
 fn mmc3_irq_counter_clocks_on_debounced_a12_edges() {
     let mut mapper = make_mmc3(4, 8);
+    let mut clock = 0u64;
 
     mapper.cpu_write(0xC000, 3);
     mapper.cpu_write(0xC001, 0);
     mapper.cpu_write(0xE001, 0);
 
-    mmc3_a12_edge(&mut mapper);
+    mmc3_a12_edge(&mut mapper, &mut clock);
     assert!(!mapper.irq_pending());
-    mmc3_a12_edge(&mut mapper);
+    mmc3_a12_edge(&mut mapper, &mut clock);
     assert!(!mapper.irq_pending());
-    mmc3_a12_edge(&mut mapper);
+    mmc3_a12_edge(&mut mapper, &mut clock);
     assert!(!mapper.irq_pending());
-    mmc3_a12_edge(&mut mapper);
+    mmc3_a12_edge(&mut mapper, &mut clock);
     assert!(mapper.irq_pending());
 }
 
 #[test]
 fn mmc3_irq_disable_acknowledges_pending_irq() {
     let mut mapper = make_mmc3(4, 8);
+    let mut clock = 0u64;
 
     mapper.cpu_write(0xC000, 0);
     mapper.cpu_write(0xC001, 0);
     mapper.cpu_write(0xE001, 0);
-    mmc3_a12_edge(&mut mapper);
+    mmc3_a12_edge(&mut mapper, &mut clock);
     assert!(mapper.irq_pending());
 
     mapper.cpu_write(0xE000, 0);

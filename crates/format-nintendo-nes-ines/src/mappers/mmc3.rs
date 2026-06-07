@@ -31,8 +31,21 @@ pub struct Mmc3 {
     irq_enabled: bool,
     irq_pending: bool,
     last_a12: bool,
-    dots_since_last_a12_rise: u16,
+    /// PPU master-clock value (4 units per dot) captured when A12
+    /// last fell to 0. Zero means "A12 is currently high / not yet
+    /// observed low". A rising edge only clocks the counter once A12
+    /// has stayed low for at least [`A12_FILTER_CYCLES`].
+    a12_low_cycle: u64,
 }
+
+/// Minimum time A12 must remain low before a rising edge is allowed
+/// to clock the IRQ counter, in PPU master-clock units (4 per dot).
+/// Set to 10 dots, matching Mesen's `A12Watcher` `minDelay = 10`.
+/// This rejects the rapid A12 toggles produced by the per-sprite
+/// garbage nametable fetches (A12 low only ~4 dots) while still
+/// counting the one clean rise per scanline and the long
+/// `$2006`-driven toggles the blargg `mmc3_test` suite uses.
+const A12_FILTER_CYCLES: u64 = 40;
 
 impl Mmc3 {
     /// Construct MMC3 from parsed iNES payloads.
@@ -62,7 +75,7 @@ impl Mmc3 {
             irq_enabled: false,
             irq_pending: false,
             last_a12: false,
-            dots_since_last_a12_rise: 0,
+            a12_low_cycle: 0,
         }
     }
 
@@ -117,14 +130,22 @@ impl Mmc3 {
         (self.chr_1k_bank(addr) * 1024 + offset) % self.chr.len()
     }
 
-    fn update_a12(&mut self, a12_high: bool) {
-        if a12_high && !self.last_a12 {
-            if self.dots_since_last_a12_rise >= 15 {
+    fn update_a12(&mut self, a12_high: bool, ppu_cycle: u64) {
+        if a12_high {
+            // Rising edge: clock the counter only if A12 was observed
+            // low for long enough (the hardware filter). `a12_low_cycle
+            // == 0` means we never saw the matching fall, so ignore.
+            if !self.last_a12
+                && self.a12_low_cycle != 0
+                && ppu_cycle.saturating_sub(self.a12_low_cycle) >= A12_FILTER_CYCLES
+            {
                 self.clock_irq_counter();
             }
-            self.dots_since_last_a12_rise = 0;
-        } else {
-            self.dots_since_last_a12_rise = self.dots_since_last_a12_rise.saturating_add(1);
+            self.a12_low_cycle = 0;
+        } else if self.a12_low_cycle == 0 {
+            // Falling edge (or first low): remember when A12 went low.
+            // Bias 0 → 1 so it never collides with the "unset" sentinel.
+            self.a12_low_cycle = ppu_cycle.max(1);
         }
         self.last_a12 = a12_high;
     }
@@ -226,8 +247,8 @@ impl Mapper for Mmc3 {
         self.irq_pending
     }
 
-    fn notify_a12_rendering(&mut self, a12_high: bool) {
-        self.update_a12(a12_high);
+    fn notify_a12_rendering(&mut self, a12_high: bool, ppu_cycle: u64) {
+        self.update_a12(a12_high, ppu_cycle);
     }
 
     fn snapshot(&self) -> MapperSnapshot {

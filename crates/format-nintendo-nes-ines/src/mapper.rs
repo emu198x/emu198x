@@ -135,13 +135,16 @@ pub trait Mapper: Send {
         false
     }
 
-    /// MMC3 IRQ counter hook. Called from inside the PPU tick when
-    /// the PPU address bus A12 line changes during background or
-    /// sprite fetches. The mapper applies its own debounce filter
-    /// (MMC3 ignores transitions < 15 dots apart).
+    /// MMC3 IRQ counter hook. Called from inside the PPU tick on
+    /// every PPU address-bus A12 edge — whether the PPU is rendering
+    /// or the CPU is toggling A12 through `$2006` during forced
+    /// blank. `ppu_cycle` is the PPU master-clock counter at the
+    /// edge (4 units per dot); the mapper uses it to measure how long
+    /// A12 stayed low and reject rises that arrive too soon after a
+    /// fall — the hardware A12 filter (Mesen's `_a12LowClock`).
     ///
     /// Default: no-op. NROM has no IRQ counter.
-    fn notify_a12_rendering(&mut self, _a12_high: bool) {}
+    fn notify_a12_rendering(&mut self, _a12_high: bool, _ppu_cycle: u64) {}
 
     /// Notify the mapper of one PPU read. MMC5 uses the sequence of
     /// nametable reads to detect scanlines; other mappers ignore it.

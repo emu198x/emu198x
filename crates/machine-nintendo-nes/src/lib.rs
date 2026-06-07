@@ -777,7 +777,72 @@ impl Nes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use format_nintendo_nes_ines::{Mirroring, Nrom};
+    use format_nintendo_nes_ines::{Mirroring, Nrom, parse_ines};
+
+    /// Run a blargg-style NES test ROM (result block at `$6000`,
+    /// signature `DE B0 61` at `$6001-3`, `$6000`=`0x80` running else
+    /// result; `0`=pass). Returns the result code, or `None` on timeout.
+    #[cfg(test)]
+    fn run_blargg_nes(rom: &[u8], max_frames: u64) -> Option<u8> {
+        let cart = parse_ines(rom).ok()?;
+        let mut nes = Nes::new(cart.mapper);
+        let mut needs_reset_at: Option<u64> = None;
+        for frame in 0..max_frames {
+            nes.run_frame();
+            if nes.peek(0x6001) == 0xDE && nes.peek(0x6002) == 0xB0 && nes.peek(0x6003) == 0x61 {
+                let status = nes.peek(0x6000);
+                match status {
+                    0x80 => {} // running
+                    0x81 => {
+                        // Test requests a soft reset ~100ms later.
+                        if needs_reset_at.is_none() {
+                            needs_reset_at = Some(frame + 7);
+                        }
+                        if needs_reset_at == Some(frame) {
+                            nes.soft_reset();
+                            needs_reset_at = None;
+                        }
+                    }
+                    other => return Some(other),
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    #[ignore = "diagnostic: run a directory of blargg NES test ROMs (EMU198X_NES_SUITE)"]
+    fn diagnostic_nes_suite() {
+        let dir = std::env::var("EMU198X_NES_SUITE").expect("set EMU198X_NES_SUITE");
+        let mut roms: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "nes"))
+            .collect();
+        roms.sort();
+        let frames = std::env::var("EMU198X_NES_FRAMES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(600);
+        let (mut pass, mut total) = (0, 0);
+        for rom in &roms {
+            let name = rom.file_stem().unwrap().to_string_lossy().to_string();
+            let code = run_blargg_nes(&std::fs::read(rom).unwrap(), frames);
+            total += 1;
+            if code == Some(0) {
+                pass += 1;
+            }
+            println!(
+                "{name:<34} -> {code:?}  {}",
+                if code == Some(0) { "PASS" } else { "fail" }
+            );
+        }
+        println!(
+            "\nNES suite {}: {pass}/{total}",
+            dir.rsplit('/').nth(1).unwrap_or("")
+        );
+    }
 
     /// Build an NES with a 16 KiB NROM (all $EA = NOP) and the
     /// reset vector pointing at $8000. Same pattern as the C64

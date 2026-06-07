@@ -239,3 +239,58 @@ fn oam_stress() {
 //  See `knowledge/decisions/nes-architecture-review.md` Seam 1 for
 //  the broader plan.
 // ────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────
+//  mmc3_test (MMC3 scanline counter / IRQ)
+//
+//  Shay Green's MMC3 IRQ bench. Each numbered ROM is itself a
+//  multi-sub-test that reports the first failing sub-test's code via
+//  the standard `$6000` shell, so a code of 0 means every sub-test
+//  in that ROM passed.
+//
+//  These exercise the PPU A12 line driving the mapper IRQ counter:
+//  the counter is clocked by debounced A12 rising edges, both during
+//  rendering fetches and when the CPU toggles A12 through `$2006`
+//  during forced blank. The mapper's low-duration filter (Mesen's
+//  `_a12LowClock`) rejects the rapid per-sprite toggles while
+//  counting the one clean rise per scanline.
+//
+//  `6-MMC6` is intentionally NOT wired: it tests the MMC3 *revision
+//  A* IRQ behaviour (don't re-fire when the latch reloads 0 after the
+//  counter normally reached 0), which directly contradicts `5-MMC3`
+//  (fire on every clock when the latch is 0). Both ROMs are mapper 4
+//  / submapper 0 with identical headers, so they cannot be told
+//  apart — real hardware splits on the specific chip die. Standard
+//  MMC3B emulation passes `5-MMC3` and cannot also pass `6-MMC6`
+//  without a per-ROM chip database (which Mesen has and we do not).
+// ────────────────────────────────────────────────────────────────
+
+#[test]
+#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+fn mmc3_1_clocking() {
+    run_or_skip("mmc3_test/1-clocking.nes");
+}
+
+#[test]
+#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+fn mmc3_2_details() {
+    run_or_skip("mmc3_test/2-details.nes");
+}
+
+#[test]
+#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+fn mmc3_3_a12_clocking() {
+    run_or_skip("mmc3_test/3-A12_clocking.nes");
+}
+
+#[test]
+#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+fn mmc3_4_scanline_timing() {
+    run_or_skip("mmc3_test/4-scanline_timing.nes");
+}
+
+#[test]
+#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+fn mmc3_5_mmc3() {
+    run_or_skip("mmc3_test/5-MMC3.nes");
+}

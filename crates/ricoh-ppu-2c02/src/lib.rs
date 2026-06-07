@@ -370,7 +370,17 @@ impl Ppu {
             }
         }
 
-        // Notify mapper of A12 transitions during rendering.
+        // With rendering disabled the PPU isn't fetching, so it drives
+        // the VRAM address bus with `v`. Track that on every scanline
+        // (the post-render/vblank branch above already does it for
+        // lines 240-260) so CPU `$2006` writes toggle A12 — and clock
+        // the MMC3 IRQ counter — during forced blank as on hardware.
+        if !self.rendering_enabled() {
+            self.bus_address = self.v & 0x3FFF;
+        }
+
+        // Notify mapper of A12 transitions (rendering fetches and
+        // forced-blank `$2006` toggles alike).
         self.check_a12(mapper);
 
         // Snapshot rendering-enabled at the end of this cycle so the
@@ -1256,9 +1266,11 @@ impl Ppu {
         let a12 = self.bus_address & 0x1000 != 0;
         if a12 != self.prev_a12 {
             self.prev_a12 = a12;
-            if self.rendering_active() {
-                mapper.notify_a12_rendering(a12);
-            }
+            // Notify on every edge — the MMC3 counter is clocked both by
+            // rendering fetches and by the CPU toggling A12 through
+            // `$2006` during forced blank. The mapper's own low-duration
+            // filter decides which edges count.
+            mapper.notify_a12_rendering(a12, self.ppu_clock);
         }
     }
 
@@ -2973,7 +2985,7 @@ mod tests {
             fn mirroring(&self) -> Mirroring {
                 self.inner.mirroring()
             }
-            fn notify_a12_rendering(&mut self, _high: bool) {
+            fn notify_a12_rendering(&mut self, _high: bool, _ppu_cycle: u64) {
                 self.notifications += 1;
             }
             fn snapshot(&self) -> format_nintendo_nes_ines::MapperSnapshot {
@@ -2997,13 +3009,15 @@ mod tests {
     }
 
     #[test]
-    fn check_a12_no_notification_when_rendering_disabled() {
+    fn check_a12_notifies_during_forced_blank() {
+        // The MMC3 IRQ counter is clocked by CPU `$2006` A12 toggles
+        // during forced blank, so check_a12 must notify even with
+        // rendering disabled (the mapper's own filter gates clocking).
         let mut mapper = dummy_mapper();
         let mut ppu = Ppu::new();
-        ppu.mask = 0; // disabled
+        ppu.mask = 0; // rendering disabled
         ppu.scanline = 0;
         ppu.bus_address = 0x1000;
-        // Should still update prev_a12 even if not rendering.
         ppu.check_a12(&mut mapper);
         assert!(ppu.prev_a12);
     }
