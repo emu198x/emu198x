@@ -53,6 +53,12 @@ const LINES_PER_FRAME: u8 = 154;
 const VBLANK_START: u8 = 144;
 const OAM_END: u16 = 80;
 const LCD_ENABLE_MODE0_DOTS: u16 = 80;
+/// Initial `position_in_line` at the start of mode 3 (SameBoy uses
+/// −16 = 240). Ours is calibrated against our fetcher's first-fill
+/// latency so the 160 drawn pixels still finish within `mode3_end_dot()`
+/// (which mooneye verifies); the warm-up drops then land mid-line writes
+/// at the correct pixel column.
+const POSITION_INIT: u8 = 0u8.wrapping_sub(16); // −16 = 240
 
 const FRAMEBUFFER_LEN: usize = (SCREEN_WIDTH * SCREEN_HEIGHT) as usize;
 
@@ -95,9 +101,12 @@ pub struct Ppu {
 
     /// X coordinate of the next pixel to emit (0..=160).
     pub lcd_x: u8,
-    /// Pixels at the start of mode 3 to discard for SCX fine-scroll
-    /// alignment (= SCX & 7).
-    discard_pixels: u8,
+    /// SameBoy's `position_in_line`: a `u8` shift cursor for mode 3.
+    /// 0..159 are on-screen (drawn); 240..255 (= −16..−1) are the
+    /// off-screen warm-up / SCX fine-discard zone (shifted but not
+    /// drawn). Drives both the draw gate and the fetcher's tile column.
+    #[serde(default)]
+    position_in_line: u8,
 
     fifo: Fifo,
     fetcher: Fetcher,
@@ -175,7 +184,7 @@ impl Ppu {
             dot: dot % DOTS_PER_LINE,
             ly: ly % LINES_PER_FRAME,
             lcd_x: 0,
-            discard_pixels: 0,
+            position_in_line: 0,
             fifo: Fifo::new(),
             fetcher: Fetcher::new(),
             sprites: [Sprite::EMPTY; 10],
@@ -218,7 +227,11 @@ impl Ppu {
             1
         } else if self.dot < OAM_END {
             2
-        } else if self.dot < self.mode3_end_dot() || self.lcd_x < SCREEN_WIDTH as u8 {
+        } else if self.dot < self.mode3_end_dot() {
+            // Mode 3 length is the canonical formula (mooneye-verified).
+            // The pixel shifter may finish a few dots later — it keeps
+            // drawing under its own `lcd_x < 160` guard, invisibly to the
+            // STAT mode reported here.
             3
         } else {
             0
@@ -518,16 +531,20 @@ impl Ppu {
                 self.fetcher.reset();
                 self.fifo.clear();
                 self.lcd_x = 0;
-                self.discard_pixels = self.scx & 7;
+                self.position_in_line = POSITION_INIT;
                 self.window_triggered = false;
             }
 
             if self.lcd_x < SCREEN_WIDTH as u8 {
-                // Window trigger check (once per pixel position).
+                // Window trigger check (once per pixel position). Keyed
+                // on `position_in_line` (the logical shift cursor), not
+                // `lcd_x`, so the warm-up zone doesn't spuriously trigger
+                // a low-WX window before the line starts drawing.
                 if !self.fetcher.is_window()
                     && (self.lcdc & lcdc::WINDOW_ENABLE) != 0
                     && self.ly >= self.wy
-                    && self.lcd_x.wrapping_add(7) >= self.wx
+                    && self.position_in_line < SCREEN_WIDTH as u8
+                    && self.position_in_line.wrapping_add(7) >= self.wx
                 {
                     self.fetcher.switch_to_window();
                     self.fifo.clear();
@@ -541,16 +558,25 @@ impl Ppu {
                     scx: self.scx,
                     scy: self.scy,
                     window_line: self.window_line,
+                    position_in_line: self.position_in_line,
                     _marker: core::marker::PhantomData,
                 };
                 self.fetcher.tick(ctx, &mut self.fifo, vram);
 
                 if self.fifo.len() > 0 {
                     let bg_index = self.fifo.pop();
-                    if self.discard_pixels > 0 {
-                        self.discard_pixels -= 1;
-                    } else {
-                        // BG/window disabled on DMG forces colour 0.
+                    // SCX fine-scroll discard: while in the off-screen
+                    // warm-up zone (−16..−9), jump to −8 once the low
+                    // three bits line up with SCX & 7.
+                    if self.position_in_line.wrapping_add(16) < 8
+                        && (self.position_in_line & 7) == (self.scx & 7)
+                    {
+                        self.position_in_line = 0u8.wrapping_sub(8); // −8 = 248
+                    }
+
+                    if self.position_in_line < SCREEN_WIDTH as u8 {
+                        // On-screen: draw. BG/window disabled on DMG
+                        // forces colour 0.
                         let effective_index = if (self.lcdc & lcdc::BG_ENABLE) != 0 {
                             bg_index
                         } else {
@@ -570,6 +596,8 @@ impl Ppu {
                         self.framebuffer[pixel_idx] = final_shade;
                         self.lcd_x += 1;
                     }
+                    // Off-screen warm-up (≥160 as a u8): shifted, not drawn.
+                    self.position_in_line = self.position_in_line.wrapping_add(1);
                 }
             }
             // else: Mode 0 (HBlank) — idle until next scanline.

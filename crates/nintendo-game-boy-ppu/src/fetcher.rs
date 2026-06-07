@@ -19,6 +19,11 @@ pub(crate) struct FetchCtx<'a> {
     pub scx: u8,
     pub scy: u8,
     pub window_line: u8,
+    /// Current pixel-shift position within the line (SameBoy's
+    /// `position_in_line`, a `u8` where 0..159 are on-screen and
+    /// 240..255 are the off-screen warm-up). The BG fetcher derives its
+    /// tile column from this, eight pixels ahead of the shifter.
+    pub position_in_line: u8,
     /// Allows borrowing future PPU state without changing the
     /// signature; not consumed today.
     pub _marker: core::marker::PhantomData<&'a ()>,
@@ -103,13 +108,21 @@ impl Fetcher {
                     map_base + wy_row * 32 + u16::from(self.x)
                 } else {
                     let y = ctx.ly.wrapping_add(ctx.scy);
-                    let x = (self.x as u16) * 8 + u16::from(ctx.scx);
+                    // Tile column = (SCX + position + 8) / 8, mod 32.
+                    // The `+8` keeps the fetcher one tile ahead of the
+                    // shifter; in the warm-up zone the coarse SCX tile is
+                    // used directly (SameBoy `advance_fetcher_state_machine`).
+                    let tile_x = if ctx.position_in_line.wrapping_add(16) < 8 {
+                        u16::from(ctx.scx >> 3)
+                    } else {
+                        ((u16::from(ctx.scx) + u16::from(ctx.position_in_line) + 8) / 8) & 0x1F
+                    };
                     let map_base: u16 = if (ctx.lcdc & 0x08) != 0 {
                         0x1C00
                     } else {
                         0x1800
                     };
-                    map_base + (u16::from(y) / 8 % 32) * 32 + (x / 8 % 32)
+                    map_base + (u16::from(y) / 8 % 32) * 32 + tile_x
                 };
                 self.tile_id = vram[usize::from(map_addr)];
                 self.state = State::ReadTileDataLow;
