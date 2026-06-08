@@ -66,7 +66,7 @@ path already hit and fixed.
 | **Beta WD1793 WRITE** + TRD write-back | M | Near-direct port of the `western-digital-wd1770` write model; TRD is a flat `Vec<u8>`, so flush is a byte copy. Smaller than +3 (no FormatTrack-rebuild). |
 | **Pentagon/Scorpion TRD LOAD wiring** + `.trd` parser | M | Controller + `insert_disk` exist and are wired, but no `MediaKind::Disk` route calls them and there's no `.trd` format crate. Most clone software is TRD — blocks real clone usage. |
 | **SZX** snapshot parser | M | The modern de-facto snapshot standard; extension is allowlisted but has no parser behind it. Chunked; per-chunk state already has homes. |
-| **CSW** / **PZX** tape, **SCL** Beta | S–M each | CSW v1 trivial (RLE → existing pulse player); v2 adds zlib. PZX block-structured (like TZX). SCL expands into the existing TRD layout. |
+| **CSW** / **PZX** tape, **SCL** Beta | S–M each | CSW v1 is RLE of pulse lengths feeding the existing player; v2 adds zlib. PZX block-structured (like TZX). SCL expands into the existing TRD layout. |
 | **128K-family tape auto-LOAD** | S | `autoload_basic_tape` is coupled to the 48K K-cursor editor; the 128K family boots to a menu. A 128-menu detector already exists — branch autoload on variant. Cheapest high-leverage win: unblocks autoload across the entire 128K family. |
 
 ## Bucket 3 — Clones (~2–3 weeks)
@@ -87,7 +87,7 @@ If 3+ of these get built, generalise that intercept hook first.
 |------|--------|------|
 | Kempston mouse | S | clone the joystick crate's shape |
 | ZX Printer (`$FB`) | S | `tick` hook already exists for bit-serial timing |
-| ULAplus (`$BF3B`/`$FF3B`) | S–M | port trivial; cost is threading a 64-entry palette override into the renderer |
+| ULAplus (`$BF3B`/`$FF3B`) | S–M | two ports (select + data); the cost is threading a 64-entry palette override into the renderer |
 | Interface 2 (16K cart ROM + 2nd joystick) | M | reuses the Beta ROM-paging pattern; raw 16K `.rom`, no new format |
 | Multiface 128/+3 | M–L | NMI freeze + bank-over-RAM intercept + paging-register shadow; snapshot save already exists |
 | **Interface 1 + Microdrive** | **XL** | the iconic tentpole: shadow-ROM paging + microdrive loop model + **new MDR format crate** + RS-232 + ZX Net. 1.5–3 weeks. |

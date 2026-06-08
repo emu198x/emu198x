@@ -157,7 +157,7 @@ helpers (`runtime-sinclair-zx-spectrum`, re-exported at the crate root):
 - **Cursor modes.** At the start of a line the cursor is **K** (keyword): a
   single letter key enters that key's *keyword* — `s` → `SAVE`, `j` → `LOAD`,
   `p` → `PRINT`, `e` → `REM`. After a keyword the cursor is **L** (letter), so
-  letters/digits enter literally. Type a line number with digit keys while still
+  letters/digits enter as typed. Type a line number with digit keys while still
   in K, then the statement keyword key. **Note:** this is the **48K** editor;
   the 128K family boots to a menu and uses a different keyword-entry model — the
   autoload/BASIC helpers are 48K-only today.
