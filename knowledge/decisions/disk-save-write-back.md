@@ -414,3 +414,65 @@ routine for SA 1 → the partial-buffer block write (the `$90` write job to trac
 C64 KERNAL `CLOSE` (`$F291`-ish) and the 1541 close-file path. Do **not** re-open
 the GCR write path or the IEC byte handshake — both are confirmed working for the
 directory write and the data receive respectively.
+
+## Session 5 — RESOLVED: phantom disk-change closed the channel (2026-06-08)
+
+`disk_save_roundtrip` is **green**. `SAVE"GREETING",8` writes a readable PRG
+(load address `$0801`) to a writable disk; the flushed D64 parses and the file
+extracts. Two fixes were needed — the Session 4 GCR write-verify latch, and this
+one.
+
+### Root cause of the unclosed file
+The CLOSE *was* received (`$DAC0`, secondary `$E1`) and close-file (`$DB02`) ran,
+but at `$DB02` the channel table `$022C` already read `$FF` — the write channel
+had been freed *before* close-file could flush its buffer, so `$DB02` hit its
+`DB0B RTS` (no channel) and wrote nothing.
+
+Traced the free: `$022C 81->FF` at `$D240`, called via `$D334` (close-channels-
+of-this-drive, `$D313`) from `$EC54`. The ROM only takes that path when the
+disk-change flag `$1C` is set (`$EC50: LDA $1C / BEQ / $EC54: JSR $D313`). `$1C`
+is set by the IRQ disk-change detector at `$F9A0`:
+
+```
+$F9A0 LDA $1C00 ; VIA2 PB
+$F9A3 AND #$10  ; bit 4 = write-protect sense
+$F9A5 CMP $1E   ; vs stored previous
+$F9A7 STA $1E
+$F9A9 BEQ $F9AF ; unchanged → skip
+$F9AD STA $1C   ; CHANGED → disk-change flag set
+```
+
+The write-protect **bit 4 changed** during the run. Our
+`Drive1541::write_protect_not_asserted` reported an **empty drive as protected**
+(PB4 = 0). The test boots to READY with no disk, then mounts the writable disk —
+so PB4 went 0 → 1, a phantom write-protect transition the DOS read as a disk
+swap, latching `$1C` and slamming the open SAVE channel shut.
+
+### The fix
+An empty drive must read **"not protected"** (PB4 = 1): the write-protect
+photocell sees light whenever nothing blocks the beam — through a writable disk's
+notch *or* an empty drive. Only a mounted, protected disk asserts the line.
+`write_protect_not_asserted` now returns true when no disk is present. Mounting a
+writable disk after boot is then a non-event for the WP line, so no phantom
+disk-change. Matches VICE `drive/drive-writeprotect.c` ("No disk in drive, write
+protection is off → return 0x10"). Regression test
+`via2_port_b_reads_not_protected_with_no_disk`.
+
+### What we did NOT need
+We did not model VICE's brief insertion transient (it pulses PB4 low for
+`DRIVE_ATTACH_DELAY` cycles so a *genuine* disk swap is detected). That is real
+accuracy debt for hot-swapping disks mid-session, but it is not needed for SAVE
+and would have to be timed not to re-trigger the very close we just fixed. Left
+as a future note, not a blocker.
+
+### Both bugs, in order
+1. **GCR write-verify** (Session 3/4): write serialiser indexed the port live →
+   read-after-write verify failed → directory sector never written. Fixed with a
+   latch-fed shift register.
+2. **Phantom disk-change** (Session 5): empty drive read as write-protected →
+   mounting flipped PB4 → DOS force-closed the channel before close-file could
+   flush. Fixed by reading an empty drive as not-protected.
+
+Neither alone is sufficient: (1) gets the directory written; (2) keeps the
+channel alive so the data block and the close commit. Together the SAVE
+round-trips.

@@ -931,11 +931,21 @@ impl Drive1541 {
     }
 
     fn write_protect_not_asserted(&self) -> bool {
-        self.selected_internal_drive_present()
-            && self
-                .disk
-                .as_ref()
-                .is_some_and(|disk| !disk.write_protected())
+        // The write-protect photocell reads "not protected" whenever light
+        // reaches it: through a writable disk's notch, AND through an empty
+        // drive (no media to block the beam). Only a write-protect tab — a
+        // mounted, protected disk — asserts the line. Reporting an empty drive
+        // as *protected* would make mounting a writable disk a phantom WP
+        // transition, which the DOS reads as a disk change and uses to slam
+        // every open channel shut (ROM $F9AD sets $1C → $EC54 JSR $D313) —
+        // breaking a SAVE onto a disk inserted after power-up. Matches VICE
+        // drive-writeprotect.c ("No disk in drive, write protection is off").
+        if !self.selected_internal_drive_present() {
+            return true;
+        }
+        self.disk
+            .as_ref()
+            .is_none_or(|disk| !disk.write_protected())
     }
 
     fn clear_byte_ready(&mut self) {
@@ -2922,6 +2932,27 @@ mod tests {
         assert!(
             port_b & 0x10 != 0,
             "an unprotected disk should pull VIA2 PB4 high through write_protect_not_asserted"
+        );
+    }
+
+    #[test]
+    fn via2_port_b_reads_not_protected_with_no_disk() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        let bus = IecBus::new();
+
+        // An empty drive lets the write-protect photocell see light, so it reads
+        // "not protected" (PB4 high) — the same level a writable disk presents.
+        // If it read protected instead, mounting a writable disk later would be a
+        // phantom WP transition that the DOS treats as a disk change and uses to
+        // force every open channel shut (breaking SAVE onto a freshly inserted
+        // disk).
+        assert!(machine.disk.is_none(), "fixture starts with no disk");
+        let port_b = machine.peek_with_iec_bus(0x1C00, &bus);
+        assert!(
+            port_b & 0x10 != 0,
+            "an empty drive should read VIA2 PB4 high (not write-protected)"
         );
     }
 
