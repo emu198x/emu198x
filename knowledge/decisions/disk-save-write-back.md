@@ -282,3 +282,67 @@ identify the drive's data-channel listener-receive routine and the buffer-routin
 (channel/secondary-address dispatch), and trace one data byte end-to-end against
 the C64 `ISOUR` ($EDDD-ish) handshake to find the broken edge. The env-gated IEC
 trace + drive-RAM dump (≈25 lines, reverted) are the tools — re-add them.
+
+## Session 3 — root cause found: GCR write-verify failure, NOT IEC (2026-06-08)
+
+**The IEC-serial framing (Sessions 1–2) was a symptom, not the cause.** Drove the
+*Anatomy of the 1541* ROM disassembly against an env-gated drive-PC probe in
+`runtime.rs::run_until` (peek drive RAM + regs at sync; ≈30 lines, reverted).
+Followed the discarded data backwards through the 1541 DOS and reached the real
+defect — in the **disk layer**, three levels below the serial bus.
+
+### The chain (each step proven, not inferred)
+1. **Data discarded at the listener dispatch.** The 1541 receive-data routine
+   `$EA2E` only stores incoming bytes if `$D107` reports the channel *active for
+   write* (carry clear) **or** the command is OPEN (`$F0`). In the SAVE data phase
+   (command `$60`, SA 1), `$D107` returns **carry set — channel inactive** → it
+   falls to `$EA4E`, releases the bus, and drops every data byte. (The filename
+   survives only because OPEN takes the `$F0` special-case path.)
+2. **The channel is inactive because the OPEN closed it.** `$022B+SA` (the
+   channel-association table; `$FF` = free) is allocated for SA 1 (`$022C` → `$81`
+   at `$D1F8`) then freed (`$FF` at `$D240`) **during** the OPEN. The free is the
+   normal close routine `$D22E`, reached from `$D313` ("close channels of this
+   drive") called at `$D045` inside the OPEN-file routine `$D042` — **no DOS error
+   abort** (`$C1C8` never runs).
+3. **The OPEN-file routine `$D042` runs twice, 5.2M cycles apart** (≈5 s of drive
+   time for an operation that should take ~150k cycles). The second pass closes
+   the channel; the data phase arrives 164k cycles later, before any re-open.
+4. **The 5M cycles are disk-read thrashing.** By the data bail: **586 SYNC
+   searches** (`$F556`) and ~24 disk jobs, on a freshly-formatted blank disk that
+   should need a handful. The DOS's believed track (`$22`) tracks the physical
+   head correctly and the stepper phase is consistent (`VIA2 PB&3 == (head-2)&3`),
+   so **seeking is NOT the bug**.
+5. **Root cause: the drive's own read-after-write VERIFY fails.** Job-completion
+   (`$F969`, result code in A) on track 18 returns mostly **code 7 = "25 WRITE
+   VERIFY ERROR"**, interleaved with a few OK. The 1541 writes a directory/BAM
+   sector, reads it back to verify, and the read-back **does not match what it
+   wrote** → retries forever → the file-create never completes. (Code 3 = "21 no
+   sync" appears only when the head momentarily drifts to the odd half-track 37,
+   where only even track-slots carry GCR — a secondary symptom, not the driver.)
+
+### Why this was never caught
+The only disk-read test through the real drive (`disk_autoload.rs`) asserts the
+screen reaches `LOADING` — it never verifies a *completed* read. The GCR
+write-back was "tested" only via the lenient `flush_image` GCR→D64 decoder
+("18 of 19 sectors decode"), **never against the drive ROM's strict
+read-after-write verify**. So the write path looked done but cannot survive the
+1541's own verify pass.
+
+### The actual fix target (next session)
+The bug is in `machine-commodore-1541`'s GCR **write path** — `write_one_track_bit`
++ the write/read byte-ready cadence (`rotate_one_track_bit`, `schedule_byte_ready`,
+`rotation_ref_phase`) — and/or SYNC/byte-boundary alignment between what the ROM
+writes and what the read path reassembles. The drive must be able to **write a
+sector and read it back identically** (header checksum + data-block checksum +
+SYNC intact). Build the repro at the **unit level**: drive the ROM's WRITE (job
+`$90`) then VERIFY (job `$A0`) on one sector and assert code 1, OR a pure
+`write_one_track_bit` → read-path round-trip on a synthetic sector. That turns the
+30 s integration test into a sub-second loop. The IEC serial bus, the channel
+dispatch, the seek/stepper, and the GCR→D64 flush decoder are all **correct and
+downstream** — do not touch them.
+
+**Supersedes the IEC framing above.** The data-channel handshake was never the
+problem; it is the visible end of a disk-write-verify failure. Drift trigger:
+"the SAVE data bytes don't reach the drive — fix the IEC handshake" → **stop**,
+the bytes are dropped because the write channel was closed by a thrashing OPEN
+that can't pass its own write-verify; fix the GCR write path.

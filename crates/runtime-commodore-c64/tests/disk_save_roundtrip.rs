@@ -61,16 +61,17 @@ fn save_writes_a_readable_file_to_a_writable_disk() {
 
     // Decode the live GCR surface back to a D64 and confirm the file is there.
     //
-    // KNOWN FAILURE (diagnosis revised 2026-06-08): the serial bus IS active and
-    // the OPEN fully works — the drive builds the dir entry in RAM ("GREETING",
-    // type $02 = UNCLOSED PRG, data pointer track 17/sector 0) and loads the BAM,
-    // and its ATN handler runs even while busy. But the program *data* bytes
-    // never reach the drive's data buffer (no PRINT token / "HI" in drive RAM),
-    // so the file is left unclosed and nothing is committed. The data-channel
-    // per-byte talker→listener handshake fails (the C64 retries for ~6M cycles).
-    // Ruled out: the IecBus ATNA fold (matches VICE), the CPU interleave, ATN
-    // release, the ATN→CA1 IRQ. See `knowledge/decisions/disk-save-write-back.md`
-    // § "Session 2".
+    // KNOWN FAILURE — root cause found 2026-06-08 (Session 3): a 1541 GCR
+    // WRITE-VERIFY failure, NOT the IEC serial bus. During the OPEN the drive
+    // writes the directory/BAM sector to track 18, reads it back to verify, and
+    // the read-back fails (job result code 7 = "25 WRITE VERIFY ERROR"), so the
+    // file-create thrashes (~586 SYNC searches, ~5M cycles) and never activates
+    // the write channel. The data phase then finds the channel closed and drops
+    // the bytes. The IEC handshake, channel dispatch, seek/stepper, and the
+    // GCR→D64 flush decoder are all correct and downstream. The fix is in
+    // `machine-commodore-1541`'s GCR write path (write/read byte-ready cadence +
+    // SYNC alignment): the drive must write a sector and read it back identically.
+    // See `knowledge/decisions/disk-save-write-back.md` § "Session 3".
     let saved = session
         .machine()
         .flush_drive8_image()
