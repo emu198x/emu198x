@@ -30,7 +30,7 @@ Rachel client (offline/AI — a **separate axis** from Net; see
 | [Atari 800XL](atari/800xl.md) | BASIC READY; types | fixed-DMA (relaxed) | mcp | Yes | ✅ |
 | [Commodore VIC-20](commodore/vic-20.md) | READY; PRG autoload | relaxed | mcp | Yes | ✅ |
 | [MSX1](msx/index.md) | MSX BASIC | per-dot VDP (3:2 CPU phase relaxed) | mcp | Yes | ✅ |
-| [Acorn Electron](acorn/electron.md) | BASIC `>`; types | 1 MHz RAM contention (modes 0-3 halt TODO) | mcp | Marginal | ✅ |
+| [Acorn Electron](acorn/electron.md) | BASIC `>`; types | 1 MHz RAM contention + modes-0-3 fetch halt | mcp | Marginal | ✅ |
 | [Acorn BBC Micro](acorn/bbc-micro.md) | MODE 7 banner renders | 1 MHz-bus contention | mcp | Yes | ✅ |
 | [Oric Atmos](oric/atmos.md) | BASIC; types | per-scanline | mcp | Marginal | ✅ |
 | [Sord M5](sord/m5.md) | Carts play; Dig Dug | per-dot VDP | mcp | Marginal | — |

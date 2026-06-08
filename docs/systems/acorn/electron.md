@@ -22,16 +22,23 @@ crate.
   runs at half the speed of ROM code, the Electron's defining trait. Matches
   MAME `electron_ula::set_cpu_clock`; tests `ram_access_costs_two_master_ticks…`,
   `ram_bound_code_fits_fewer_cpu_cycles…`.
+- **Modes-0-3 display-fetch halt** (2026-06-08) — on top of the 1 MHz drop, a RAM
+  access in a graphics mode 0-3 while the video circuits are fetching (the first
+  40 µs / 80 master ticks of a displayed scanline) *halts* the CPU's clock until
+  the fetch window ends — the Electron's harshest contention, why mode-0 code
+  crawls. Faithful to MAME `electron_ula::waitforramsync` (stall
+  `(640 − hpos)/16` rounded up to even for the ½ MHz resync), in
+  `display_halt_ticks`; tests `display_halt_only_bites_ram_in_modes_0_3_fetch_window`,
+  `ram_resident_loop_crawls_in_mode0_versus_mode4`.
 
 ## Not implemented / accuracy gaps
 
-- **ULA contention — modes-0-3 display halt + sync penalty.** The CPU now drops
-  to 1 MHz on every RAM / keyboard-paged-ROM access (see "What works"), matching
-  MAME's `set_cpu_clock`. Still missing: the harsher **modes-0-3** behaviour,
-  where the CPU is fully *halted* (not just halved) while the ULA fetches display
-  bytes (`waitforramsync`), and the half-cycle penalty when the 2 MHz→1 MHz
-  clocks resynchronise. These need the per-dot display-fetch position, which the
-  scanline-batched renderer doesn't track yet.
+- **ULA contention — half-cycle sync penalty.** Both the 1 MHz RAM/keyboard-ROM
+  drop and the modes-0-3 display-fetch *halt* are now modelled (see "What works").
+  Still missing: the half-cycle penalty when the 2 MHz→1 MHz clocks resynchronise
+  on *every* clock change (the fetch-halt path already carries its own ½ MHz
+  even-rounding); and excluding mode 3's spaced blank lines from the halt window
+  (a documented MAME limitation too — `waitforramsync` over-halts those lines).
 - **Sideways ROM paging (`$FE05`)** — register stored but doesn't swap a paged-ROM
   array in; only BASIC visible.
 - **Cassette (`$FE04`)** write-stub. **Snapshot** deferred. **No native window.**
@@ -46,8 +53,9 @@ crate.
   high/low — naive decode scanned RAM garbage; (3) each 8×8 cell is 8 consecutive
   bytes, text rows 10 lines apart (250 displayed) — the old raster stride was
   wrong.
-- **Verification target** — the modes-0-3 display-fetch halt (`waitforramsync`)
-  against MAME / Elkulator captures; the base 1 MHz-RAM contention is in.
+- **Verification target** — the modes-0-3 display-fetch halt and the base 1 MHz
+  RAM contention are both in (per MAME `electron_ula`); a real mode-0 timing demo
+  against MAME / Elkulator captures would confirm the exact stall edges.
 
 ## Validated against
 
@@ -61,12 +69,16 @@ crate.
 - **Timing model realised** — master-clock-driven: a fixed 312 × 128 master
   ticks/frame at 2 MHz, the CPU spending one tick per ROM/OS/I/O cycle and two
   per RAM / keyboard-ROM cycle — the **1 MHz RAM contention** that gives the
-  Electron its character. Display layout/screen-start MAME-accurate. Remaining:
-  the modes-0-3 display-fetch *halt* and the 2→1 MHz sync penalty.
+  Electron its character — *plus* the **modes-0-3 display-fetch halt**, which
+  stops the CPU's clock to the end of the fetch window on a contended RAM access
+  during the active display (`display_halt_ticks`, per MAME `waitforramsync`).
+  Display layout/screen-start MAME-accurate.
 - **CPU timing** — 6502 cycle-accurate (§62) at the instruction level; bus
-  contention now modelled at access-class (RAM/ROM) granularity.
-- **Distance to full cycle-accuracy** — modes-0-3 display-fetch halt
-  (`waitforramsync`); the half-cycle clock-resync penalty.
+  contention modelled at access-class (RAM/ROM) granularity plus the per-scanline
+  display-fetch halt for modes 0-3.
+- **Distance to full cycle-accuracy** — the half-cycle 2→1 MHz clock-resync
+  penalty on clock changes outside the fetch halt; excluding mode 3's spaced
+  blank lines from the halt window.
 
 ## Tooling & drivability
 

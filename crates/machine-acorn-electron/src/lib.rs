@@ -22,9 +22,13 @@
 //! at half the speed of ROM code, the Electron's defining trait. The
 //! frame is a fixed 312 × 128 master ticks; the CPU fits a variable
 //! number of cycles into it. Matches MAME `electron_ula::set_cpu_clock`.
-//! Still TODO: the harsher modes-0-3 display-fetch *halt*
-//! (`waitforramsync` — the CPU is stopped, not just halved, while the
-//! ULA fetches display bytes), and the half-cycle 2→1 MHz sync penalty.
+//! On top of the 1 MHz drop, **modes 0-3 add a display-fetch *halt***:
+//! a RAM access while the video circuits are fetching (the first 40 µs
+//! of a displayed scanline) stops the CPU's clock until the fetch ends,
+//! per `electron_ula::waitforramsync` — modelled in `display_halt_ticks`.
+//! Still TODO: the half-cycle 2→1 MHz sync penalty on every clock change
+//! outside the fetch halt, and excluding mode 3's spaced blank lines from
+//! the halt (a known MAME limitation too).
 //!
 //! - **CPU:** 6502A @ 2 MHz, 1 MHz under ULA RAM contention
 //! - **ULA:** custom — video / sound / keyboard / cassette /
@@ -72,6 +76,18 @@ pub const FB_HEIGHT: u32 = 256;
 const CYCLES_PER_SCANLINE: u64 = 128;
 const SCANLINES_PER_FRAME: u16 = 312;
 const CYCLES_PER_FRAME: u64 = CYCLES_PER_SCANLINE * SCANLINES_PER_FRAME as u64;
+
+/// Master ticks (2 MHz) the video circuits spend fetching display bytes per
+/// scanline: 640 visible pixels = 40 µs of the 64 µs line (MAME `set_raw`
+/// visible width 640, CPU = pixel-clock ÷ 8). In modes 0-3 a RAM access that
+/// lands inside this window is *halted* — the ULA stops the CPU's clock until
+/// the fetch ends, the Electron's harshest contention. Outside it (hblank /
+/// vblank) RAM merely drops to 1 MHz like modes 4-6.
+const FETCH_CYCLES: u64 = 80;
+/// Displayed scanlines (those the video circuits fetch for). MAME gates the
+/// halt on `vpos` strictly inside the visible area; mode 3's spaced blank
+/// lines are not excluded yet (matches MAME's own `waitforramsync` TODO).
+const DISPLAYED_LINES: std::ops::Range<u64> = 1..256;
 
 const CPU_CLOCK_HZ: u32 = 2_000_000;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -308,6 +324,10 @@ pub struct AcornElectron {
     /// fixed 312 × 128 master ticks; the CPU fits a variable number of
     /// cycles into it depending on its RAM/ROM access mix.
     master_ticks: u64,
+    /// `master_ticks` at the start of the current frame. The display-fetch
+    /// halt and the line boundaries are measured relative to this, so a cycle
+    /// that overruns a line carries its extra ticks into the next line.
+    frame_base: u64,
     frame_count: u64,
     /// Scanline currently being rendered.
     scanline: u16,
@@ -330,6 +350,7 @@ impl AcornElectron {
             framebuffer: vec![PALETTE[0]; (FB_WIDTH * FB_HEIGHT) as usize],
             cpu_cycles: 0,
             master_ticks: 0,
+            frame_base: 0,
             frame_count: 0,
             scanline: 0,
         }
@@ -344,9 +365,9 @@ impl AcornElectron {
         // the line boundaries to a frame base so a cycle that overruns a
         // line boundary carries its extra tick into the next line rather
         // than stretching the frame.
-        let frame_base = self.master_ticks;
+        self.frame_base = self.master_ticks;
         for line in 0..SCANLINES_PER_FRAME {
-            let line_end = frame_base + u64::from(line + 1) * CYCLES_PER_SCANLINE;
+            let line_end = self.frame_base + u64::from(line + 1) * CYCLES_PER_SCANLINE;
             while self.master_ticks < line_end {
                 self.tick_cpu_cycle();
             }
@@ -367,7 +388,8 @@ impl AcornElectron {
 
     fn tick_cpu_cycle(&mut self) {
         self.cpu.tick();
-        let cost = self.access_master_ticks(self.cpu.addr);
+        let cost = self.access_master_ticks(self.cpu.addr)
+            + self.display_halt_ticks(self.cpu.addr, self.master_ticks - self.frame_base);
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
         } else {
@@ -395,6 +417,40 @@ impl AcornElectron {
             0x8000..=0xBFFF if matches!(self.ula.rom_page, 8 | 9) => 2,
             _ => 1,
         }
+    }
+
+    /// Extra master ticks (2 MHz) the ULA steals when the CPU touches RAM in a
+    /// modes-0-3 display-fetch window — the Electron's *halt* contention. In
+    /// modes 0-3 the video circuits fetch a full byte every CPU cycle, so any
+    /// RAM access while they are fetching stops the CPU's clock until the fetch
+    /// window ends; the access then completes at 1 MHz (the two ticks
+    /// `access_master_ticks` already charges). Modes 4-6 fetch half as often
+    /// and never halt — they only drop to 1 MHz (handled by the 2-tick cost).
+    ///
+    /// `frame_pos` is `master_ticks` relative to the frame start. Faithful to
+    /// MAME `electron_ula::waitforramsync`: the stall is
+    /// `(640 - hpos) / 16` CPU cycles rounded up to even (the ½ MHz resync),
+    /// which in master ticks is `2 × even_up((FETCH_CYCLES − pos)/2)` — i.e.
+    /// the CPU resumes at the end of the fetch window.
+    fn display_halt_ticks(&self, addr: u16, frame_pos: u64) -> u64 {
+        // Only RAM, only the contended modes.
+        if addr > 0x7FFF || self.ula.mode() >= 4 {
+            return 0;
+        }
+        let line = frame_pos / CYCLES_PER_SCANLINE;
+        let pos_in_line = frame_pos % CYCLES_PER_SCANLINE;
+        if !DISPLAYED_LINES.contains(&line) || pos_in_line >= FETCH_CYCLES {
+            return 0;
+        }
+        // MAME computes the stall in CPU cycles as `(640 - hpos)/16`; with
+        // 8 pixel-clocks per CPU cycle and pos_in_line already in 2 MHz ticks,
+        // hpos = 8·pos so `(640 - 8·pos)/16 = (FETCH_CYCLES - pos)/2`. Round
+        // that up to even (the 2→1 MHz clock resync) and double back to ticks.
+        let mut icount = (FETCH_CYCLES - pos_in_line) / 2;
+        if icount & 1 == 1 {
+            icount += 1;
+        }
+        icount * 2
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
@@ -765,6 +821,61 @@ mod tests {
         // so just assert it is in the contended band, not the flat 39 936.
         assert!(rom_cycles <= CYCLES_PER_FRAME);
         assert!(rom_cycles >= CYCLES_PER_FRAME / 2);
+    }
+
+    #[test]
+    fn display_halt_only_bites_ram_in_modes_0_3_fetch_window() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        // Mode 0 (default misc_control = 0) is a contended mode. A RAM access
+        // at the very start of a displayed line's fetch window stalls the CPU
+        // to the end of the window: the full 80 master ticks (40 µs at 2 MHz).
+        assert_eq!(sys.display_mode(), 0);
+        let line10 = 10 * CYCLES_PER_SCANLINE; // start of displayed line 10
+        assert_eq!(sys.display_halt_ticks(0x3000, line10), 80);
+        // Later in the window the stall shrinks; the last tick of the window
+        // and anything in hblank ([80, 128)) cost nothing extra.
+        assert_eq!(sys.display_halt_ticks(0x3000, line10 + 40), 40);
+        assert_eq!(sys.display_halt_ticks(0x3000, line10 + 79), 0);
+        assert_eq!(sys.display_halt_ticks(0x3000, line10 + 100), 0);
+        // No halt off the displayed lines (vblank) or on line 0 (MAME gate).
+        assert_eq!(sys.display_halt_ticks(0x3000, 300 * CYCLES_PER_SCANLINE), 0);
+        assert_eq!(sys.display_halt_ticks(0x3000, 0), 0);
+        // ROM never halts, even mid-window.
+        assert_eq!(sys.display_halt_ticks(0xC000, line10), 0);
+        // Modes 4-6 only drop to 1 MHz — they never halt.
+        sys.ula_write(0xFE07, 0b0010_0000); // mode 4
+        assert_eq!(sys.display_mode(), 4);
+        assert_eq!(sys.display_halt_ticks(0x3000, line10), 0);
+    }
+
+    #[test]
+    fn ram_resident_loop_crawls_in_mode0_versus_mode4() {
+        // A 6502 executing from RAM fetches its opcodes from RAM, so in a
+        // contended mode every fetch lands in the display halt. The same loop
+        // therefore completes far fewer CPU cycles per frame in mode 0 than in
+        // mode 4, where RAM merely runs at 1 MHz.
+        fn ram_loop_cycles(mode_misc: u8) -> u64 {
+            let (mut os, basic) = trap_roms();
+            // Point the reset vector into RAM at $0040.
+            os[0x3FFC] = 0x40;
+            os[0x3FFD] = 0x00;
+            let mut sys = AcornElectron::new(os, basic);
+            sys.ula_write(0xFE07, mode_misc); // select display mode
+            // JMP $0040 — a tight self-loop resident in RAM.
+            sys.poke(0x0040, 0x4C);
+            sys.poke(0x0041, 0x40);
+            sys.poke(0x0042, 0x00);
+            let before = sys.cpu_cycles();
+            sys.run_frame();
+            sys.cpu_cycles() - before
+        }
+        let mode0 = ram_loop_cycles(0b0000_0000); // mode 0 — halts
+        let mode4 = ram_loop_cycles(0b0010_0000); // mode 4 — 1 MHz only
+        assert!(
+            mode0 < mode4,
+            "mode 0 RAM loop ({mode0}) should fit fewer cycles than mode 4 ({mode4})"
+        );
     }
 
     #[test]
