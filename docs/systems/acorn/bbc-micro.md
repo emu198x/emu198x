@@ -43,14 +43,18 @@ boots and draws the MODE 7 `BBC Computer 32K` / `BASIC` banner. MOS 6502A +
 
 ## Timing & cycle-accuracy
 
-- **Master clock & dividers** — 16 MHz master; 6502A nominally 2 MHz, but real
-  hardware runs the famous **alternating 1 MHz / 2 MHz per-cycle** scheme during
-  video access.
-- **Timing model realised** — relaxed: a **flat 2 MHz** (no 1/2 MHz contention);
-  MODE 7 SAA5050 teletext renders, other modes via the inline video ULA.
-- **CPU timing** — 6502 cycle-accurate (§62).
-- **Distance to full cycle-accuracy** — the alternating 1/2 MHz contention;
-  SAA5050 niceties (rounding, double-height, flash).
+- **Master clock & dividers** — 16 MHz master; 6502A at 2 MHz, dropping to
+  1 MHz for the 1 MHz-bus peripherals (the alternating-clock scheme).
+- **Timing model realised** — master-clock-driven: a fixed 312 × 128 ticks/frame
+  at 2 MHz, with the **1 MHz-bus contention** modelled — the CPU spends two ticks
+  on a FRED (`$FC00`) / JIM (`$FD00`) / slow-SHEILA (CRTC, ACIA, both VIAs, ADC)
+  access and one on everything else. Unlike the Electron, RAM and ROM stay at
+  2 MHz (no display-fetch contention). Matches MAME `bbc_state::set_cpu_clock`.
+  MODE 7 SAA5050 teletext renders; other modes via the inline video ULA.
+- **CPU timing** — 6502 cycle-accurate (§62); 1 MHz-bus contention modelled at
+  access-class granularity.
+- **Distance to full cycle-accuracy** — the half-cycle 2→1 MHz clock-resync
+  penalty; SAA5050 niceties (rounding, double-height, flash).
 
 ## Tooling & drivability
 

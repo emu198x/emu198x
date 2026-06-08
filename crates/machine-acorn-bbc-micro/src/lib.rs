@@ -18,7 +18,12 @@
 //! response to the BBC's Computer Literacy Project, it became the
 //! UK education-and-home-computing standard for the 1980s.
 //!
-//! - **CPU:** 6502A @ 2 MHz
+//! - **CPU:** 6502A @ 2 MHz, dropping to 1 MHz for the 1 MHz-bus
+//!   peripherals (FRED `$FC00`, JIM `$FD00`, and the slow SHEILA
+//!   devices — CRTC, ACIA, both VIAs, ADC). RAM and ROM stay at 2 MHz,
+//!   so unlike the Electron there is no display-fetch contention. The
+//!   frame is a fixed 312 × 128 master ticks at 2 MHz; a 1 MHz-bus
+//!   access costs two of them. Matches MAME `bbc_state::set_cpu_clock`.
 //! - **CRTC:** Motorola 6845
 //! - **Video ULA:** Acorn custom (256-colour-pool→16-entry palette,
 //!   bpp + fast-clock selection)
@@ -321,6 +326,12 @@ pub struct BbcMicro {
     teletext_font: Vec<u8>,
     framebuffer: Vec<u32>,
     cpu_cycles: u64,
+    /// 2 MHz master-clock ticks since construction. The CPU runs at
+    /// 2 MHz (one tick per cycle) for RAM, ROM and fast I/O, but slows
+    /// to 1 MHz (two ticks) for the 1 MHz peripherals — the BBC bus
+    /// contention. The frame is a fixed 312 × 128 master ticks; the CPU
+    /// fits a variable number of cycles into it.
+    master_ticks: u64,
     frame_count: u64,
     /// Joystick fire buttons, `[joy1, joy2]`. The two analogue joysticks each
     /// have a switch wired to System VIA port B: PB4 (joy 1) and PB5 (joy 2),
@@ -355,6 +366,7 @@ impl BbcMicro {
             teletext_font: Vec::new(),
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
             cpu_cycles: 0,
+            master_ticks: 0,
             frame_count: 0,
             fire: [false; 2],
             adc: Upd7002::new(),
@@ -406,9 +418,16 @@ impl BbcMicro {
 
     /// Run one PAL frame.
     pub fn run_frame(&mut self) -> u64 {
+        // The frame is a fixed 312 × 128 = 39 936 master ticks at 2 MHz.
+        // Each scanline is 128 ticks; the CPU fits a variable number of
+        // 6502 cycles into it because accesses to the 1 MHz peripherals
+        // cost two ticks. Anchor line boundaries to a frame base so a
+        // cycle that overruns a boundary carries its extra tick into the
+        // next line rather than stretching the frame.
+        let frame_base = self.master_ticks;
         for line in 0..SCANLINES_PER_FRAME {
-            // Run CPU + chips for one scanline.
-            for _ in 0..CYCLES_PER_LINE {
+            let line_end = frame_base + u64::from(line + 1) * CYCLES_PER_LINE;
+            while self.master_ticks < line_end {
                 self.tick_cpu_cycle();
             }
             // Render visible scanlines.
@@ -433,23 +452,49 @@ impl BbcMicro {
         self.update_keyboard_pa7();
         self.update_joystick_fire();
         self.cpu.tick();
+        let cost = Self::access_master_ticks(self.cpu.addr);
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
         }
-        self.crtc.tick();
-        self.system_via.tick();
-        self.user_via.tick();
-        self.psg.tick();
-        // μPD7002 end-of-conversion is wired to System VIA CB1. Drive the line
-        // low on the completion edge (the OS's CB1 is set for a negative edge),
-        // which latches the analogue interrupt.
-        if self.adc.tick() {
-            self.system_via.set_cb1_level(false);
+        // The chips run off the constant 2 MHz clock, so they advance one
+        // tick per master tick — one or two per 6502 cycle depending on
+        // whether this access hit a 1 MHz peripheral.
+        for _ in 0..cost {
+            self.crtc.tick();
+            self.system_via.tick();
+            self.user_via.tick();
+            self.psg.tick();
+            // μPD7002 end-of-conversion is wired to System VIA CB1. Drive
+            // the line low on the completion edge (the OS's CB1 is set for
+            // a negative edge), latching the analogue interrupt.
+            if self.adc.tick() {
+                self.system_via.set_cb1_level(false);
+            }
         }
         self.cpu.irq = self.system_via.irq || self.user_via.irq;
+        self.master_ticks += cost;
         self.cpu_cycles += 1;
+    }
+
+    /// Master ticks (2 MHz) a 6502 cycle accessing `addr` consumes — the
+    /// BBC's 1 MHz-bus contention. The CPU runs at 2 MHz for RAM, ROM and
+    /// the fast SHEILA devices (one tick), but slows to 1 MHz (two ticks)
+    /// for the 1 MHz peripherals: FRED (`$FC00`), JIM (`$FD00`), and the
+    /// SHEILA slow devices — 6845 CRTC / ACIA / serial (`$FE00-$FE1F`),
+    /// System VIA (`$FE40-$FE5F`), User VIA (`$FE60-$FE7F`) and the ADC
+    /// (`$FEC0-$FEDF`). Mirrors MAME `bbc_state::set_cpu_clock`. The
+    /// half-cycle 2→1 MHz clock-resync penalty is not yet modelled.
+    fn access_master_ticks(addr: u16) -> u64 {
+        match addr & 0xFF00 {
+            0xFC00 | 0xFD00 => 2,
+            0xFE00 => match addr & 0x00E0 {
+                0x00 | 0x40 | 0x60 | 0xC0 => 2,
+                _ => 1,
+            },
+            _ => 1,
+        }
     }
 
     /// Drive System VIA PA7 from the key selected by the code on PA0-6.
@@ -835,6 +880,40 @@ mod tests {
             sys.run_frame();
         }
         assert_eq!(sys.frame_count(), 10);
+    }
+
+    #[test]
+    fn one_mhz_bus_accesses_cost_two_ticks_rest_one() {
+        // RAM, ROM and the fast SHEILA devices run at 2 MHz (one tick);
+        // FRED/JIM and the slow SHEILA devices at 1 MHz (two ticks).
+        // Fast:
+        assert_eq!(BbcMicro::access_master_ticks(0x0000), 1); // RAM
+        assert_eq!(BbcMicro::access_master_ticks(0xC000), 1); // MOS ROM
+        assert_eq!(BbcMicro::access_master_ticks(0x8000), 1); // sideways ROM
+        assert_eq!(BbcMicro::access_master_ticks(0xFE20), 1); // video ULA
+        assert_eq!(BbcMicro::access_master_ticks(0xFE30), 1); // ROM-page latch
+        assert_eq!(BbcMicro::access_master_ticks(0xFE80), 1); // FDC (fast)
+        // Slow (1 MHz bus):
+        assert_eq!(BbcMicro::access_master_ticks(0xFC00), 2); // FRED
+        assert_eq!(BbcMicro::access_master_ticks(0xFD00), 2); // JIM
+        assert_eq!(BbcMicro::access_master_ticks(0xFE00), 2); // CRTC
+        assert_eq!(BbcMicro::access_master_ticks(0xFE40), 2); // System VIA
+        assert_eq!(BbcMicro::access_master_ticks(0xFE5F), 2); // System VIA top
+        assert_eq!(BbcMicro::access_master_ticks(0xFE60), 2); // User VIA
+        assert_eq!(BbcMicro::access_master_ticks(0xFEC0), 2); // ADC
+    }
+
+    #[test]
+    fn frame_is_a_fixed_master_tick_budget() {
+        // However the CPU's access mix falls out, the frame is exactly
+        // 312 × 128 master ticks; the CPU just fits fewer cycles in when
+        // it hits the 1 MHz bus.
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.run_frame();
+        assert_eq!(sys.master_ticks, CYCLES_PER_FRAME);
+        // The trap loop runs entirely in ROM (2 MHz), so it fits one CPU
+        // cycle per master tick — the maximum.
+        assert_eq!(sys.cpu_cycles(), CYCLES_PER_FRAME);
     }
 
     #[test]
