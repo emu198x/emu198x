@@ -130,6 +130,23 @@ pub struct Gtia {
     consol_out: u8,       // CONSOL write latch (output; bit 3 = speaker)
     console_switches: u8, // START/SELECT/OPTION inputs (active low, bits 0-2)
 
+    // -- Per-scanline beam-compositing state --
+    // The beam composites the active line left-to-right. `begin_scanline`
+    // precomputes the playfield colour-register *index* buffer (stable for the
+    // line — ANTIC DMA's the bitmap at line start); `composite_playfield` then
+    // resolves those indices to colours using the *live* colour registers as
+    // the beam reaches each pixel, so a mid-line COLBK/COLPF write changes only
+    // the pixels drawn after it.
+    sl_visible: bool,                         // false when the line is off-screen
+    sl_fb_offset: usize,                      // framebuffer index of this line's first active pixel
+    sl_mode: AnticMode,                       // ANTIC mode for the line
+    sl_gtia_mode: u8,                         // PRIOR bits 6-7 (GTIA 9/10/11 modes)
+    sl_pf_width: u16,                         // playfield width in colour clocks
+    sl_pf_span: (usize, usize),               // active-x [start, end) the playfield occupies
+    sl_line_buf: [u8; ACTIVE_WIDTH as usize], // per-pixel playfield colour-register indices
+    sl_playfield: Vec<u8>,                    // raw ANTIC playfield bytes (GTIA 9/10/11 resolve)
+    sl_x: usize,                              // compositing cursor: next active-x to draw
+
     // -- Framebuffer --
     framebuffer: Vec<u32>,
 }
@@ -158,6 +175,15 @@ impl Gtia {
             trig: [1; 4], // all released
             consol_out: 0x00,
             console_switches: 0x07, // all buttons released (active low)
+            sl_visible: false,
+            sl_fb_offset: 0,
+            sl_mode: AnticMode::Blank,
+            sl_gtia_mode: 0,
+            sl_pf_width: 0,
+            sl_pf_span: (0, 0),
+            sl_line_buf: [0; ACTIVE_WIDTH as usize],
+            sl_playfield: Vec::new(),
+            sl_x: 0,
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
         }
     }
@@ -315,61 +341,116 @@ impl Gtia {
     /// - `pf_width`: playfield width in colour clocks (128, 160, or 192)
     /// - `mode`: the ANTIC display mode, controls colour interpretation
     pub fn render_line(&mut self, line: u16, playfield: &[u8], pf_width: u16, mode: AnticMode) {
+        self.begin_scanline(line, playfield, pf_width, mode);
+        self.composite_playfield(ACTIVE_WIDTH as usize);
+        self.overlay_pm_and_collisions();
+    }
+
+    /// Start a new active scan line: precompute the playfield colour-register
+    /// *index* buffer (stable for the whole line — ANTIC DMA's the bitmap at
+    /// line start) and reset the compositing cursor. The colours themselves are
+    /// resolved later, per pixel, from the live registers (see
+    /// `composite_playfield`) so mid-line register writes land at the beam.
+    pub fn begin_scanline(&mut self, line: u16, playfield: &[u8], pf_width: u16, mode: AnticMode) {
+        self.sl_x = 0;
         if line >= ACTIVE_HEIGHT as u16 {
+            self.sl_visible = false;
             return;
         }
-
+        self.sl_visible = true;
         let fb_row = BORDER_TOP as usize + line as usize;
-        let fb_offset = fb_row * FB_WIDTH as usize + BORDER_LEFT as usize;
-        let gtia_mode = (self.prior >> 6) & 0x03;
+        self.sl_fb_offset = fb_row * FB_WIDTH as usize + BORDER_LEFT as usize;
+        self.sl_mode = mode;
+        self.sl_gtia_mode = (self.prior >> 6) & 0x03;
+        self.sl_pf_width = pf_width;
+        self.sl_playfield.clear();
+        self.sl_playfield.extend_from_slice(playfield);
 
-        // -- Build a 320-pixel line of colour register indices --
+        // Build the 320-pixel line of playfield colour-register indices.
         let mut line_buf = [0u8; ACTIVE_WIDTH as usize];
-        let mut pf_span = (0usize, 0usize);
+        self.sl_pf_span = if mode != AnticMode::Blank {
+            self.fill_playfield_line(&mut line_buf, playfield, pf_width, mode, self.sl_gtia_mode)
+        } else {
+            (0, 0)
+        };
+        self.sl_line_buf = line_buf;
+    }
 
-        if mode != AnticMode::Blank {
-            pf_span = self.fill_playfield_line(&mut line_buf, playfield, pf_width, mode, gtia_mode);
+    /// Composite background + playfield pixels from the cursor up to (but not
+    /// including) active-x `end`, resolving each index to a colour with the
+    /// *live* colour registers, and advance the cursor. Players/missiles are
+    /// overlaid afterwards (`overlay_pm_and_collisions`). Calling with
+    /// `end == ACTIVE_WIDTH` finishes the line; the beam-driven path calls it
+    /// repeatedly with the current beam position.
+    pub fn composite_playfield(&mut self, end: usize) {
+        if !self.sl_visible {
+            return;
         }
+        let end = end.min(ACTIVE_WIDTH as usize);
 
         // Hi-res 1.5-colour modes (2, 3, and F with no GTIA override): the
-        // playfield background is COLPF2 and lit pixels take COLPF2's hue
-        // with COLPF1's luminance. Anything outside the playfield is COLBK
-        // border. All other modes keep index 0 == COLBK (background colour 4).
-        let hires_text = gtia_mode == 0
-            && matches!(mode, AnticMode::Mode2 | AnticMode::Mode3 | AnticMode::ModeF);
-        let hires_fg = (self.colpf[2] & 0xF0) | (self.colpf[1] & 0x0F);
+        // playfield background is COLPF2 and lit pixels take COLPF2's hue with
+        // COLPF1's luminance. Anything outside the playfield is COLBK border.
+        let hires_text = self.sl_gtia_mode == 0
+            && matches!(
+                self.sl_mode,
+                AnticMode::Mode2 | AnticMode::Mode3 | AnticMode::ModeF
+            );
 
-        // -- Build player/missile overlay --
-        let mut pm_colour = [0u8; ACTIVE_WIDTH as usize]; // 0 = no PM pixel
-        let mut pm_index = [0u8; ACTIVE_WIDTH as usize]; // which PM object (for collisions)
-        self.overlay_players_missiles(&mut pm_colour, &mut pm_index);
+        while self.sl_x < end {
+            let x = self.sl_x;
+            let pf_col_idx = self.sl_line_buf[x];
+            let in_pf = x >= self.sl_pf_span.0 && x < self.sl_pf_span.1;
 
-        // -- Compose final pixels with priority and collision detection --
-        for x in 0..ACTIVE_WIDTH as usize {
-            let pf_col_idx = line_buf[x];
-            let in_pf = x >= pf_span.0 && x < pf_span.1;
-
-            // Collision detection: PM vs playfield
-            if pm_index[x] != 0 && pf_col_idx != 0 {
-                self.record_collisions(pm_index[x], pf_col_idx);
-            }
-
-            // Priority: default ($00) — PM over PF over background
-            let final_colour = if pm_colour[x] != 0 {
-                pm_colour[x]
-            } else if hires_text && in_pf {
+            let colour = if hires_text && in_pf {
                 if pf_col_idx != 0 {
-                    hires_fg
+                    (self.colpf[2] & 0xF0) | (self.colpf[1] & 0x0F)
                 } else {
                     self.colpf[2]
                 }
             } else if pf_col_idx != 0 {
-                self.resolve_colour(pf_col_idx, gtia_mode, playfield, x, pf_width, mode)
+                self.resolve_colour(
+                    pf_col_idx,
+                    self.sl_gtia_mode,
+                    &self.sl_playfield,
+                    x,
+                    self.sl_pf_width,
+                    self.sl_mode,
+                )
             } else {
                 self.colbk
             };
 
-            self.framebuffer[fb_offset + x] = colour_to_argb32(final_colour);
+            self.framebuffer[self.sl_fb_offset + x] = colour_to_argb32(colour);
+            self.sl_x += 1;
+        }
+    }
+
+    /// Overlay the players and missiles over the composited playfield and
+    /// record collisions, using the live registers. Default priority (PM over
+    /// PF over background). Finishes any un-composited playfield first so a
+    /// caller may invoke it directly after `begin_scanline`.
+    ///
+    /// In phases 1-2 this runs once at line end; phase 3 moves it to beam time
+    /// so mid-line HPOS/GRAFP rewrites (sprite multiplexing) land correctly.
+    pub fn overlay_pm_and_collisions(&mut self) {
+        if !self.sl_visible {
+            return;
+        }
+        self.composite_playfield(ACTIVE_WIDTH as usize);
+
+        let mut pm_colour = [0u8; ACTIVE_WIDTH as usize]; // 0 = no PM pixel
+        let mut pm_index = [0u8; ACTIVE_WIDTH as usize]; // which PM object (collisions)
+        self.overlay_players_missiles(&mut pm_colour, &mut pm_index);
+
+        for x in 0..ACTIVE_WIDTH as usize {
+            // Collision detection: PM vs playfield (independent of priority).
+            if pm_index[x] != 0 && self.sl_line_buf[x] != 0 {
+                self.record_collisions(pm_index[x], self.sl_line_buf[x]);
+            }
+            if pm_colour[x] != 0 {
+                self.framebuffer[self.sl_fb_offset + x] = colour_to_argb32(pm_colour[x]);
+            }
         }
     }
 
@@ -753,6 +834,32 @@ mod tests {
         // Write COLPM2 ($14) and verify
         gtia.write(0x14, 0x46);
         assert_eq!(gtia.colpm[2], 0x46);
+    }
+
+    #[test]
+    fn mid_line_colbk_change_affects_only_later_pixels() {
+        // The beam seam: compositing resolves colour indices to colours from
+        // the *live* registers as the cursor advances. Writing COLBK between
+        // two `composite_playfield` calls must recolour only the pixels drawn
+        // after the write — the mechanism Phase 2 drives from the machine to
+        // make rainbow / gradient kernels appear. A blank line is all index 0
+        // (background), so every pixel takes COLBK.
+        let mut gtia = Gtia::new();
+        gtia.write(0x1A, 0x0A); // COLBK = A
+        gtia.begin_scanline(0, &[], 160, AnticMode::Blank);
+        gtia.composite_playfield(ACTIVE_WIDTH as usize / 2); // left half at A
+        gtia.write(0x1A, 0x0C); // COLBK = B
+        gtia.composite_playfield(ACTIVE_WIDTH as usize); // right half at B
+
+        let fb = gtia.framebuffer();
+        let base = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let colour_a = colour_to_argb32(0x0A);
+        let colour_b = colour_to_argb32(0x0C);
+        assert_ne!(colour_a, colour_b);
+        assert_eq!(fb[base + 10], colour_a, "left half keeps the first COLBK");
+        assert_eq!(fb[base + 150], colour_a, "still left of the change");
+        assert_eq!(fb[base + 200], colour_b, "right half takes the new COLBK");
+        assert_eq!(fb[base + 310], colour_b, "right edge takes the new COLBK");
     }
 
     #[test]
