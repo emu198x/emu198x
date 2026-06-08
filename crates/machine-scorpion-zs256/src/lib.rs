@@ -23,6 +23,7 @@ use common_sinclair_zx_spectrum::snapshot::{
     Snapshot, apply_128k_bank_pages, apply_ay_registers, apply_z80_registers,
 };
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
+use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_SCORPION};
 use common_sinclair_zx_spectrum::ula::Ula;
 use gi_ay_3_8912::Ay3_8912;
@@ -45,6 +46,10 @@ pub struct ScorpionZS256 {
     /// Kempston Interface joystick. Defaults to unattached.
     pub kempston: KempstonJoystick,
     pub tape: TapePlayer,
+    /// Captures the MIC line during a SAVE for tape write-back (mirrors the 48K
+    /// class). `#[serde(default)]` keeps pre-SAVE snapshots loadable.
+    #[serde(default)]
+    recorder: TapeRecorder,
     pub ay: Ay3_8912,
     pub beta: BetaDisk,
     pub audio: BeeperAudio,
@@ -67,6 +72,7 @@ impl ScorpionZS256 {
             keyboard: [0xFF; 8],
             kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
+            recorder: TapeRecorder::new(),
             ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME),
             beta: BetaDisk::new(),
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, TIMING_SCORPION.tstates_per_frame, cpu_hz),
@@ -74,6 +80,17 @@ impl ScorpionZS256 {
             hc: 0,
             speaker: SpeakerMixer::default(),
         }
+    }
+
+    /// Decodes any captured tape `SAVE` signal into standard-speed blocks.
+    #[must_use]
+    pub fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        self.recorder.decode()
+    }
+
+    /// Discards captured `SAVE` signal (e.g. after flushing it to a file).
+    pub fn clear_tape_recording(&mut self) {
+        self.recorder.clear();
     }
 
     #[must_use]
@@ -185,6 +202,8 @@ impl ScorpionZS256 {
                 let tstate = self.hc / 4;
                 self.audio.set_level(tstate, self.speaker.level());
             }
+            // MIC (bit 3) carries the tape SAVE signal.
+            self.recorder.set_mic_level(data & 0x08 != 0);
         }
         if port & 0x8002 == 0x0000 {
             self.memory.write_7ffd(data);
@@ -301,6 +320,7 @@ impl SpectrumDriver for ScorpionZS256 {
     #[inline(always)]
     fn on_tstate(&mut self, hc: u32) {
         self.tape.advance_tstates(1);
+        self.recorder.advance(1);
         if hc % 8 == 2 {
             self.ay.tick();
         }

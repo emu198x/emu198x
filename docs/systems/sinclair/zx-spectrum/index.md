@@ -122,9 +122,9 @@ pulses → two pulses per data bit, MSB first) back into standard-speed blocks.
 via `format-sinclair-zx-spectrum-tap::encode_tap`. Wired across all three core
 classes, so every mainstream model captures: **48K / 16K / +** (48K class),
 **128K / +2** (128K class), and **+2A / +2B / +3** (Amstrad class, one generic
-impl). The bespoke clone cores — Pentagon, Scorpion, Timex TC2048/TS2068 — have
-their own structs and inherit the no-op default (not yet wired). Standard pulse
-constants live in
+impl), plus the bespoke clone cores **Pentagon 128 / Scorpion ZS-256 / Timex
+TC2048 / TC2068 / TS2068** (each wired in its own machine crate). So every
+Spectrum variant now captures. Standard pulse constants live in
 `tape.rs`; SAVE never mutates a mounted playback tape, so no writable-flag
 gating is needed (unlike disk). Repro: `cargo test -p runtime-sinclair-zx-spectrum
 --test tape_save_roundtrip -- --ignored`.

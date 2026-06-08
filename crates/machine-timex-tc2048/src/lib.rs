@@ -24,6 +24,7 @@ use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::apply_z80_registers;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
+use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH_HIRES, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use format_sinclair_zx_spectrum_snapshot::Snapshot;
@@ -45,6 +46,10 @@ pub struct TimexTC2048 {
     /// Kempston Interface joystick. Defaults to unattached.
     pub kempston: KempstonJoystick,
     pub tape: TapePlayer,
+    /// Captures the MIC line during a SAVE for tape write-back (mirrors the 48K
+    /// class). `#[serde(default)]` keeps pre-SAVE snapshots loadable.
+    #[serde(default)]
+    recorder: TapeRecorder,
     pub audio: BeeperAudio,
     pub audio_frame: Vec<f32>,
 
@@ -65,11 +70,23 @@ impl TimexTC2048 {
             keyboard: [0xFF; 8],
             kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
+            recorder: TapeRecorder::new(),
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, TIMING_48K.tstates_per_frame, cpu_hz),
             audio_frame: vec![0.0; samples_per_frame],
             hc: 0,
             speaker: SpeakerMixer::default(),
         }
+    }
+
+    /// Decodes any captured tape `SAVE` signal into standard-speed blocks.
+    #[must_use]
+    pub fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        self.recorder.decode()
+    }
+
+    /// Discards captured `SAVE` signal (e.g. after flushing it to a file).
+    pub fn clear_tape_recording(&mut self) {
+        self.recorder.clear();
     }
 
     #[must_use]
@@ -179,6 +196,8 @@ impl TimexTC2048 {
                     let tstate = self.hc / 4;
                     self.audio.set_level(tstate, self.speaker.level());
                 }
+                // MIC (bit 3) carries the tape SAVE signal.
+                self.recorder.set_mic_level(data & 0x08 != 0);
             }
             0xFF => self.ula.write_ff(data),
             _ => {}
@@ -286,6 +305,7 @@ impl SpectrumDriver for TimexTC2048 {
     #[inline(always)]
     fn on_tstate(&mut self, _hc: u32) {
         self.tape.advance_tstates(1);
+        self.recorder.advance(1);
         let ear = self.tape.ear_level();
         if ear != self.speaker.ear {
             self.speaker.ear = ear;

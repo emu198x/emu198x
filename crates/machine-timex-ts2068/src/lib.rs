@@ -23,6 +23,7 @@ use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::apply_z80_registers;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
+use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{
     FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH_HIRES, TIMING_48K,
 };
@@ -83,6 +84,10 @@ pub struct TimexTS2068 {
     /// Kempston Interface joystick. Defaults to unattached.
     pub kempston: KempstonJoystick,
     pub tape: TapePlayer,
+    /// Captures the MIC line during a SAVE for tape write-back (mirrors the 48K
+    /// class). `#[serde(default)]` keeps pre-SAVE snapshots loadable.
+    #[serde(default)]
+    recorder: TapeRecorder,
     pub ay: Ay3_8912,
     pub audio: BeeperAudio,
     pub audio_frame: Vec<f32>,
@@ -112,6 +117,7 @@ impl TimexTS2068 {
             keyboard: [0xFF; 8],
             kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
+            recorder: TapeRecorder::new(),
             ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, samples_per_frame),
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, timing.tstates_per_frame, cpu_hz),
             audio_frame: vec![0.0; samples_per_frame],
@@ -119,6 +125,17 @@ impl TimexTS2068 {
             hc: 0,
             speaker: SpeakerMixer::default(),
         }
+    }
+
+    /// Decodes any captured tape `SAVE` signal into standard-speed blocks.
+    #[must_use]
+    pub fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        self.recorder.decode()
+    }
+
+    /// Discards captured `SAVE` signal (e.g. after flushing it to a file).
+    pub fn clear_tape_recording(&mut self) {
+        self.recorder.clear();
     }
 
     /// Returns the static frame-timing descriptor for this variant.
@@ -242,6 +259,8 @@ impl TimexTS2068 {
                     let tstate = self.hc / 4;
                     self.audio.set_level(tstate, self.speaker.level());
                 }
+                // MIC (bit 3) carries the tape SAVE signal.
+                self.recorder.set_mic_level(data & 0x08 != 0);
             }
             0xF4 => self.memory.write_f4(data),
             0xF5 => self.ay.select_register(data),
@@ -349,6 +368,7 @@ impl SpectrumDriver for TimexTS2068 {
     #[inline(always)]
     fn on_tstate(&mut self, hc: u32) {
         self.tape.advance_tstates(1);
+        self.recorder.advance(1);
         if hc % 8 == 2 {
             self.ay.tick();
         }

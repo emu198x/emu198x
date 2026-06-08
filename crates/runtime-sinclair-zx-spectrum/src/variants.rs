@@ -1351,6 +1351,12 @@ impl SpectrumMachine for Pentagon128 {
     fn tape_stop(&mut self) {
         Pentagon128::tape_stop(self);
     }
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        Pentagon128::recorded_tape_blocks(self)
+    }
+    fn clear_tape_recording(&mut self) {
+        Pentagon128::clear_tape_recording(self);
+    }
     fn reset_machine(&mut self) {
         Pentagon128::reset(self);
     }
@@ -1478,6 +1484,12 @@ impl SpectrumMachine for ScorpionZS256 {
     fn tape_stop(&mut self) {
         ScorpionZS256::tape_stop(self);
     }
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        ScorpionZS256::recorded_tape_blocks(self)
+    }
+    fn clear_tape_recording(&mut self) {
+        ScorpionZS256::clear_tape_recording(self);
+    }
     fn reset_machine(&mut self) {
         ScorpionZS256::reset(self);
     }
@@ -1604,6 +1616,12 @@ impl SpectrumMachine for TimexTC2048 {
     fn tape_stop(&mut self) {
         TimexTC2048::tape_stop(self);
     }
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        TimexTC2048::recorded_tape_blocks(self)
+    }
+    fn clear_tape_recording(&mut self) {
+        TimexTC2048::clear_tape_recording(self);
+    }
     fn reset_machine(&mut self) {
         TimexTC2048::reset(self);
     }
@@ -1724,6 +1742,12 @@ impl SpectrumMachine for TimexTS2068 {
     }
     fn tape_stop(&mut self) {
         TimexTS2068::tape_stop(self);
+    }
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        TimexTS2068::recorded_tape_blocks(self)
+    }
+    fn clear_tape_recording(&mut self) {
+        TimexTS2068::clear_tape_recording(self);
     }
     fn reset_machine(&mut self) {
         TimexTS2068::reset(self);
