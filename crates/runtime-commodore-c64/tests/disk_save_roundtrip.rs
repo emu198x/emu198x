@@ -61,17 +61,17 @@ fn save_writes_a_readable_file_to_a_writable_disk() {
 
     // Decode the live GCR surface back to a D64 and confirm the file is there.
     //
-    // KNOWN FAILURE — root cause found 2026-06-08 (Session 3): a 1541 GCR
-    // WRITE-VERIFY failure, NOT the IEC serial bus. During the OPEN the drive
-    // writes the directory/BAM sector to track 18, reads it back to verify, and
-    // the read-back fails (job result code 7 = "25 WRITE VERIFY ERROR"), so the
-    // file-create thrashes (~586 SYNC searches, ~5M cycles) and never activates
-    // the write channel. The data phase then finds the channel closed and drops
-    // the bytes. The IEC handshake, channel dispatch, seek/stepper, and the
-    // GCR→D64 flush decoder are all correct and downstream. The fix is in
-    // `machine-commodore-1541`'s GCR write path (write/read byte-ready cadence +
-    // SYNC alignment): the drive must write a sector and read it back identically.
-    // See `knowledge/decisions/disk-save-write-back.md` § "Session 3".
+    // KNOWN FAILURE — narrowed 2026-06-08 (Session 4). The Session 3 GCR
+    // write-verify bug is FIXED (machine-commodore-1541 write serialiser is now
+    // a latch-fed shift register), so the drive writes the directory/BAM sector
+    // to track 18 and it passes its own read-after-write verify: the GREETING
+    // directory entry now appears. The remaining failure is the CLOSE phase. A
+    // drive-PC trace proved the program bytes ARE received and buffered (channel
+    // active, $022C=$81), but the directory entry is left UNCLOSED — raw type
+    // $02, not $82 (parse_directory masks the closed bit and shows "Prg") — and
+    // no data block is ever written (the drive never seeks to track 17). The
+    // final CLOSE never flushes the file buffer. Next: trace the CLOSE ($E1)
+    // end to end. See `knowledge/decisions/disk-save-write-back.md` § "Session 4".
     let saved = session
         .machine()
         .flush_drive8_image()

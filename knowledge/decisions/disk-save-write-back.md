@@ -346,3 +346,71 @@ problem; it is the visible end of a disk-write-verify failure. Drift trigger:
 "the SAVE data bytes don't reach the drive — fix the IEC handshake" → **stop**,
 the bytes are dropped because the write channel was closed by a thrashing OPEN
 that can't pass its own write-verify; fix the GCR write path.
+
+## Session 4 — Session 3 fixed; data block now the front line (2026-06-08)
+
+### What was fixed
+The Session 3 root cause is **resolved**. `machine-commodore-1541`'s write path
+emitted each surface bit by indexing the `gcr_write_value` *port* live
+(`bit = (gcr_write_value >> (7 - write_bit_index)) & 1`). The DOS write loop runs
+**one byte ahead in the pipeline** — it stores the next byte into the port partway
+through the current byte's emission — so live indexing spliced the next byte into
+the byte already going onto the surface, failing the drive's own read-after-write
+verify (job code 7).
+
+Fix: model the serialiser as the hardware does (and as VICE `rotation.c` lines
+537–556 do) — a **shift register** (`write_shift`) that emits its MSB and shifts
+left each bit, reloading from the `gcr_write_value` **latch** only at the byte
+boundary. A mid-byte store can no longer corrupt the byte in flight. The read
+branch keeps `write_shift` pre-loaded with the latch so a write phase starts
+aligned. New unit test `write_latch_ignores_mid_byte_store` (red→green); existing
+`write_mode_lays_the_latch_byte_onto_the_surface` seeds the serialiser as a
+boundary load would. All 66 crate tests green. (Committed — see git log.)
+
+**Cross-check used:** VICE `emulators/c64/vice-3.10/src/drive/rotation.c` — the
+write branch reloads `last_write_data = GCR_write_value` only at `bit_counter == 8`.
+
+### Proven effect on the real SAVE
+`disk_save_roundtrip` advanced from **"no directory entry written"** (the
+`GREETING` assertion failed) to **"`GREETING` directory entry written to track
+18"**. The track-18 directory/BAM sector now passes the drive's read-after-write
+verify — the write path itself is fixed.
+
+### The new front line — the file is left UNCLOSED (traced, not inferred)
+Re-instrumented `runtime.rs::run_until` with an env-gated (`EMU_SAVE_TRACE`)
+drive-PC probe over the receive dispatch (`$EA2E`/`$EA44`/`$EA4E`) and job
+completion (`$F969`), plus sector dumps of the flushed image. Findings (probe
+reverted):
+
+1. **Data IS received and buffered.** In the data phase the channel is active
+   (`$022C` = `$81`, SA `$61`) and the program bytes flow through `$EA44`
+   (`JSR $E9C9` receive) → `$EA47` (byte in A: `01 08 0C …` = the `$0801` load
+   address + tokenised program) → `$EA48` (`JSR $CFB7`, the "write data byte in
+   buffer" routine). **No bytes take the `$EA4E` bail.** Session 3's "bytes
+   dropped at dispatch" no longer applies post-fix — disproven by trace.
+2. **The directory entry is written but UNCLOSED.** Raw track-18/sector-1 bytes:
+   `00 FF 02 11 00 "GREETING" A0…` — file type **`$02` = UNCLOSED PRG** (bit 7
+   clear; a closed PRG is `$82`), data pointer **track 17 / sector 0**. `blocks`
+   stays 0. (`parse_directory` reports `type = Prg` because it masks the closed
+   bit — do **not** read that as "closed". Check the raw `$02` vs `$82`.)
+3. **No data block is ever written.** Across the whole SAVE only **6 disk jobs**
+   complete (`$F969`): track 18 (`$22`=`$12`) ×5 and track 19 (`$22`=`$13`) ×1,
+   all result `01` OK bar one `0F` (drive-not-ready, power-on). **The drive never
+   seeks to or writes track 17** (head 34). Track-17/0 and track-19/0 both flush
+   back empty — the data sits in the channel buffer and is never committed.
+
+So the failure is now squarely the **CLOSE phase**: after the data phase the
+final `CLOSE` (LISTEN + SECOND `$E1`, SA 1) must flush the partial file buffer to
+the allocated track 17/0, set its link bytes `(00, count)`, mark the dir entry
+closed (`$82`) with the block count, and write the BAM. None of that runs. This
+matches **Session 2's "file left unclosed"** observation — a layer the
+write-verify fix correctly did not touch.
+
+**Next step (Session 5):** trace the CLOSE end to end. First question: does the
+`CLOSE`/`$E1` command even reach the drive (is the C64 back at `READY`, or is it
+stuck holding the bus after the data phase)? Then follow the drive's close-file
+routine for SA 1 → the partial-buffer block write (the `$90` write job to track
+17) → dir update + BAM write. Tools: the same env-gated drive-PC probe; watch the
+C64 KERNAL `CLOSE` (`$F291`-ish) and the 1541 close-file path. Do **not** re-open
+the GCR write path or the IEC byte handshake — both are confirmed working for the
+directory write and the data receive respectively.

@@ -63,9 +63,17 @@ pub struct Drive1541 {
     gcr_head_offset: usize,
     last_read_data: u16,
     bit_counter: u8,
-    /// Which bit of the write latch (`gcr_write_value`) the head emits next,
-    /// MSB first. Transient write-mode state; not snapshotted.
+    /// Which bit of the write serialiser the head emits next, MSB first.
+    /// Transient write-mode state; not snapshotted.
     write_bit_index: u8,
+    /// The write serialiser: emits its MSB onto the surface and shifts left
+    /// each bit, reloading from the `gcr_write_value` port latch only at the
+    /// byte boundary. Modelling it as a latch-fed shift register (not a live
+    /// index into `gcr_write_value`) means a mid-byte store by the ROM's write
+    /// loop — which runs one byte ahead in the pipeline — cannot corrupt the
+    /// byte already on its way to the surface. Mirrors VICE `rotation.c`.
+    /// Transient write-mode state; not snapshotted.
+    write_shift: u8,
     sync_active: bool,
     byte_ready_level: bool,
     byte_ready_edge: bool,
@@ -221,6 +229,7 @@ impl Drive1541 {
             last_read_data: 0,
             bit_counter: 0,
             write_bit_index: 0,
+            write_shift: 0,
             sync_active: false,
             byte_ready_level: false,
             byte_ready_edge: false,
@@ -536,6 +545,7 @@ impl Drive1541 {
             last_read_data: snapshot.last_read_data,
             bit_counter: snapshot.bit_counter,
             write_bit_index: 0,
+            write_shift: 0,
             sync_active: snapshot.sync_active,
             byte_ready_level: snapshot.byte_ready_level,
             byte_ready_edge: snapshot.byte_ready_edge,
@@ -945,6 +955,7 @@ impl Drive1541 {
         self.last_read_data = 0;
         self.bit_counter = 0;
         self.write_bit_index = 0;
+        self.write_shift = 0;
         self.sync_active = false;
         self.byte_ready_level = false;
         self.byte_ready_edge = false;
@@ -1074,9 +1085,11 @@ impl Drive1541 {
             return;
         }
 
-        // Reading holds the write serialiser at bit 0, so the next write phase
-        // starts on a byte boundary aligned with the ROM's first latched byte.
+        // Reading holds the write serialiser at bit 0 and keeps it pre-loaded
+        // with the current latch, so the next write phase starts on a byte
+        // boundary aligned with the ROM's first latched byte.
         self.write_bit_index = 0;
+        self.write_shift = self.gcr_write_value;
 
         let bit = self.current_track_bit(self.gcr_head_offset);
 
@@ -1100,17 +1113,25 @@ impl Drive1541 {
         }
     }
 
-    /// Lays one bit of the write latch onto the surface at the head position,
-    /// MSB first. After eight bits a byte has been written, so byte-ready pulses
-    /// to make the ROM's write loop feed the next byte — the write-mode mirror
-    /// of the read path's byte assembly. Writes are dropped on a protected disk.
+    /// Lays one bit of the write serialiser onto the surface at the head
+    /// position, MSB first, then shifts the serialiser left. After eight bits a
+    /// byte has been written, so the serialiser reloads from the `gcr_write_value`
+    /// port latch and byte-ready pulses to make the ROM's write loop feed the
+    /// next byte — the write-mode mirror of the read path's byte assembly.
+    ///
+    /// The serialiser is a latch-fed shift register, not a live index into
+    /// `gcr_write_value`: the ROM's write loop runs one byte ahead, storing the
+    /// next byte into the latch partway through the current byte's emission.
+    /// Reading the latch live would splice that next byte into the current one
+    /// and fail the drive's read-after-write verify; loading it only at the byte
+    /// boundary keeps each byte intact. Writes are dropped on a protected disk.
     fn write_one_track_bit(&mut self) {
         let writable = self
             .disk
             .as_ref()
             .is_some_and(|disk| !disk.write_protected());
         if writable {
-            let bit = (self.gcr_write_value >> (7 - self.write_bit_index)) & 0x01;
+            let bit = (self.write_shift >> 7) & 0x01;
             let offset = self.gcr_head_offset;
             let head = self.head_position;
             if let Some(track) = self
@@ -1128,8 +1149,10 @@ impl Drive1541 {
             }
         }
 
+        self.write_shift <<= 1;
         self.write_bit_index = (self.write_bit_index + 1) & 0x07;
         if self.write_bit_index == 0 {
+            self.write_shift = self.gcr_write_value;
             self.schedule_byte_ready(self.rotation_ref_phase.saturating_sub(1));
         }
     }
@@ -1870,7 +1893,10 @@ mod tests {
         machine.head_position = 2;
 
         // Serialise 0xAB MSB-first across the eight bit cells of track byte 1.
+        // The serialiser is loaded from the port latch at a byte boundary, so
+        // seed it here as that boundary load would.
         machine.gcr_write_value = 0xAB;
+        machine.write_shift = 0xAB;
         machine.write_bit_index = 0;
         for offset in 8..16usize {
             machine.gcr_head_offset = offset;
@@ -2932,6 +2958,65 @@ mod tests {
         // No D64 mounted, so current_track_bytes() returns None and the bit read
         // collapses to a zero.
         assert_eq!(machine.current_track_bit(0), 0);
+    }
+
+    /// Drives the write serialiser one bit at a time exactly as
+    /// `rotate_one_track_bit`'s write branch does, capturing the surface offset
+    /// each bit lands on.
+    fn write_one_byte_with_mid_store(machine: &mut Drive1541, first_byte: u8, mid_store: u8) -> u8 {
+        // Latch the byte, then cross a byte boundary so the serialiser is loaded
+        // with it (the 1541 write port is a latch consumed at the boundary).
+        machine.gcr_write_value = first_byte;
+        let mut guard = 0;
+        loop {
+            machine.rotate_one_track_bit();
+            guard += 1;
+            assert!(guard < 64, "should reach a byte boundary");
+            if machine.write_bit_index == 0 {
+                break;
+            }
+        }
+
+        // Emit the eight bits of `first_byte`. After the first bit, the ROM's
+        // write loop stores the *next* byte into the latch mid-serialisation —
+        // a latched serialiser must ignore it until the next boundary.
+        let mut offsets = [0usize; 8];
+        for (index, slot) in offsets.iter_mut().enumerate() {
+            machine.rotate_one_track_bit();
+            *slot = machine.gcr_head_offset;
+            if index == 0 {
+                machine.gcr_write_value = mid_store;
+            }
+        }
+
+        offsets.iter().fold(0u8, |acc, &offset| {
+            (acc << 1) | machine.current_track_bit(offset)
+        })
+    }
+
+    #[test]
+    fn write_latch_ignores_mid_byte_store() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+            .expect("1541 scaffold ROM should be valid");
+        machine
+            .load_d64_bytes_writable(&synthetic_d64(), true)
+            .expect("synthetic disk should mount writable");
+
+        // Write mode: PCR drives CB2 as a manual output held low.
+        machine.poke(0x1C0C, 0xC0);
+        assert!(!machine.is_read_mode(), "PCR $C0 should select write mode");
+
+        // The byte serialised onto the surface must be the value latched at the
+        // boundary, not whatever the ROM stored partway through. The live-index
+        // write path corrupts the tail of the byte; the latched serialiser does
+        // not. Mirrors VICE `rotation.c` (separate write shift register reloaded
+        // from `GCR_write_value` only at the byte boundary).
+        let written = write_one_byte_with_mid_store(&mut machine, 0xA5, 0x00);
+        assert_eq!(
+            written, 0xA5,
+            "a mid-byte store to the write latch must not corrupt the byte on the surface"
+        );
     }
 
     #[test]
