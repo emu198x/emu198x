@@ -38,6 +38,12 @@ RAM, optional 16 KB expansion.
 
 ## Known unknowns / disproven hypotheses
 
+- **Open: BIOS periodically blanks the whole screen** for a wide stretch of
+  frames (~100+) in its idle loop — `render_display` then catches an all-backdrop
+  frame. Surfaced when the region/clock fix shifted the boot-test sampling point
+  off a "drawn" frame (the test now keeps the best frame across the run). A real
+  Aquarius shows `READY` steadily, so this is a suspected render/screen-RAM bug,
+  not real behaviour — separate from the clock work. (2026-06-08.)
 - **DISPROVEN: "Astrosmash not drawing is a per-game quirk."** It stalled blank
   on *every* 16 KB cart, not just Astrosmash — a system-level bug, the scrambler
   (below). (2026-06-06.)
@@ -63,10 +69,15 @@ RAM, optional 16 KB expansion.
 
 ## Timing & cycle-accuracy
 
-- **Master clock & dividers** — Z80A at 3.579545 MHz. **No periodic CPU
-  interrupt** — the base machine wires neither IRQ nor NMI (per MAME; only the
-  expansion port can assert them). This is load-bearing: a fictitious per-frame
-  NMI corrupted cart-detect (fixed this session).
+- **Master clock & dividers** — single 7.15909 MHz crystal; Z80A at ÷2 =
+  3.579545 MHz (MAME `7.15909_MHz_XTAL / 2`). **Region-selectable** via
+  `AquariusRegion`: NTSC (262 lines, ~59.7 Hz — the Mattel US machine, default)
+  or PAL (313 lines, ~50.1 Hz — the European Radofin machine); the frame is
+  458 × lines ÷ 2 T-states. The core previously hardcoded 3.5 MHz / PAL-50 Hz,
+  running the NTSC machine ~20% slow with the CPU ~2% off; fixed 2026-06-08.
+  **No periodic CPU interrupt** — the base machine wires neither IRQ nor NMI
+  (per MAME; only the expansion port can assert them). This is load-bearing: a
+  fictitious per-frame NMI corrupted cart-detect (fixed this session).
 - **Timing model realised** — relaxed: the 40×24 character display renders
   **end-of-frame** (mid-frame char/colour writes show next frame).
 - **CPU timing** — Z80 cycle-accurate (§62).

@@ -163,10 +163,11 @@ fn key_to_matrix(name: &str) -> Option<(usize, u8)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use machine_mattel_aquarius::AquariusRegion;
     use std::borrow::Cow;
 
     fn make_aquarius() -> Aquarius {
-        Aquarius::new(vec![0u8; 0x4000], 0)
+        Aquarius::new(vec![0u8; 0x4000], 0, AquariusRegion::Ntsc)
     }
 
     fn button(port: u8, name: &str, pressed: bool) -> InputEvent {

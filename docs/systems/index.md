@@ -39,7 +39,7 @@ Rachel client (offline/AI — a **separate axis** from Net; see
 | [Spectravideo SVI-328](spectravideo/svi-328.md) | SV-BASIC; types | per-dot VDP | mcp | Marginal | — |
 | [Commodore PET](commodore/pet.md) | BASIC `READY.` | relaxed (1× CRTC) | mcp | Marginal | — |
 | [Jupiter Ace](jupiter/ace.md) | Forth; interactive | hc-ish; e-o-f display | mcp | No | target (planned) |
-| [Mattel Aquarius](mattel/aquarius.md) | BASIC + carts play | end-of-frame | mcp | No | — |
+| [Mattel Aquarius](mattel/aquarius.md) | BASIC + carts play | end-of-frame (NTSC/PAL) | mcp | No | — |
 | [Sega Master System](sega/master-system.md) | Cart title (Mode 4) | per-dot VDP (3:2 interleave) | mcp | Marginal | ✅ |
 | [Sega SG-1000](sega/sg-1000.md) | Cart title | per-dot VDP (3:2 phase relaxed) | mcp | No | — |
 | [ColecoVision](coleco/colecovision.md) | BIOS title | per-dot VDP (3:2 phase) | mcp | Marginal | ✅ |

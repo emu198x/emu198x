@@ -17,7 +17,7 @@
 //! generator is a separate 2 KB ROM (supplied via `set_char_rom`), not part
 //! of the BASIC ROM.
 //!
-//! - **CPU:** Z80A @ 3.5 MHz
+//! - **CPU:** Z80A @ 3.579545 MHz (7.15909 MHz crystal ÷ 2)
 //! - **ROM:** 8 KB Microsoft BASIC at `$0000-$1FFF`; separate 2 KB
 //!   character-generator ROM
 //! - **RAM:** 1 KB char + 1 KB colour + 2 KB spare at `$3000-$3FFF`
@@ -77,7 +77,11 @@ const AY_CLOCK_HZ: u32 = (CPU_CLOCK_HZ / 2) as u32;
 /// AY audio configuration. The controllers only use the chip's I/O ports, so
 /// these feed the (unconsumed) tone generator and are not load-bearing.
 const AY_SAMPLE_RATE: u32 = 44_100;
-const AY_SAMPLES_PER_FRAME: usize = 882;
+/// AY samples per frame by region (44.1 kHz ÷ frame rate). The AY tone
+/// generators are unconsumed (controllers use only its I/O ports), so
+/// this is non-load-bearing, but kept region-correct for consistency.
+const NTSC_AY_SAMPLES_PER_FRAME: usize = 735; // 44100 / 60
+const PAL_AY_SAMPLES_PER_FRAME: usize = 882; // 44100 / 50
 
 /// The 16 rotary-disc position codes, in clock order from 12:00 — each value
 /// is ANDed into the controller byte when the disc rests at that position.
@@ -134,9 +138,34 @@ pub const FB_WIDTH: u32 = CHAR_COLS * CHAR_WIDTH;
 /// Framebuffer pixel height (`CHAR_ROWS * CHAR_HEIGHT`).
 pub const FB_HEIGHT: u32 = CHAR_ROWS * CHAR_HEIGHT;
 
-const CPU_CLOCK_HZ: u64 = 3_500_000;
-const FRAMES_PER_SECOND_PAL: u64 = 50;
-const CPU_TSTATES_PER_FRAME: u64 = CPU_CLOCK_HZ / FRAMES_PER_SECOND_PAL;
+/// Master dot clock: a single 7.15909 MHz crystal (MAME `aquarius.cpp`
+/// `7.15909_MHz_XTAL`). The Z80 and the TEA1002 derive from it.
+const DOT_CLOCK_HZ: u64 = 7_159_090;
+/// Z80A clock — the crystal ÷ 2 = 3.579545 MHz (MAME `maincpu` =
+/// `7.15909_MHz_XTAL / 2`). The earlier 3.5 MHz value was wrong; the
+/// runtime profile already declared 3.579545 MHz.
+const CPU_CLOCK_HZ: u64 = DOT_CLOCK_HZ / 2;
+/// Dot clocks per scanline (MAME `set_raw` htotal = 458).
+const DOTS_PER_LINE: u64 = 458;
+/// Scanlines per frame by region (MAME `set_raw` vtotal): NTSC 262
+/// (~59.7 Hz), PAL 312 (~50.1 Hz).
+const NTSC_LINES_PER_FRAME: u64 = 262;
+const PAL_LINES_PER_FRAME: u64 = 313;
+/// Z80 T-states per frame = dot clocks per frame ÷ 2.
+const NTSC_TSTATES_PER_FRAME: u64 = DOTS_PER_LINE * NTSC_LINES_PER_FRAME / 2;
+const PAL_TSTATES_PER_FRAME: u64 = DOTS_PER_LINE * PAL_LINES_PER_FRAME / 2;
+
+/// Video region: the Mattel US Aquarius is NTSC (~60 Hz); the European
+/// Radofin machine is PAL (~50 Hz). Same 3.579545 MHz CPU either way —
+/// only the scanline count and frame rate differ.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+pub enum AquariusRegion {
+    /// NTSC, 262 lines, ~59.7 Hz — the Mattel US machine.
+    #[default]
+    Ntsc,
+    /// PAL, 313 lines, ~50.1 Hz — the European Radofin machine.
+    Pal,
+}
 
 const CHAR_ROM_OFFSET: usize = 0x1800;
 const NUM_KEY_ROWS: usize = 8;
@@ -180,7 +209,10 @@ pub struct Aquarius {
     speaker_bit: bool,
     scrambler: u8,
     framebuffer: Vec<u32>,
+    region: AquariusRegion,
     cpu_tstates: u64,
+    /// Z80 T-states per frame for the active region.
+    tstates_per_frame: u64,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
     io_trace: Option<Vec<IoEvent>>,
@@ -193,14 +225,18 @@ pub struct Aquarius {
 }
 
 impl Aquarius {
-    /// Create a new Aquarius with the given 8 KB BASIC ROM and optional
-    /// expansion RAM in kilobytes (up to 16).
+    /// Create a new Aquarius with the given 8 KB BASIC ROM, optional
+    /// expansion RAM in kilobytes (up to 16), and video region.
     #[must_use]
-    pub fn new(rom: Vec<u8>, expansion_kb: usize) -> Self {
+    pub fn new(rom: Vec<u8>, expansion_kb: usize, region: AquariusRegion) -> Self {
         let expansion_ram = if expansion_kb > 0 {
             vec![0u8; expansion_kb.min(16) * 1024]
         } else {
             Vec::new()
+        };
+        let (tstates_per_frame, ay_samples_per_frame) = match region {
+            AquariusRegion::Ntsc => (NTSC_TSTATES_PER_FRAME, NTSC_AY_SAMPLES_PER_FRAME),
+            AquariusRegion::Pal => (PAL_TSTATES_PER_FRAME, PAL_AY_SAMPLES_PER_FRAME),
         };
         Self {
             cpu: Z80::new(),
@@ -216,10 +252,12 @@ impl Aquarius {
             speaker_bit: false,
             scrambler: 0,
             framebuffer: vec![PALETTE[0]; (FB_WIDTH * FB_HEIGHT) as usize],
+            region,
             cpu_tstates: 0,
+            tstates_per_frame,
             frame_count: 0,
             io_trace: None,
-            psg: Ay3_8910::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, AY_SAMPLES_PER_FRAME),
+            psg: Ay3_8910::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, ay_samples_per_frame),
             ctrl_input: [0xFF; 2],
         }
     }
@@ -239,7 +277,7 @@ impl Aquarius {
 
     /// Run one frame and return T-states consumed.
     pub fn run_frame(&mut self) -> u64 {
-        let target = self.cpu_tstates + CPU_TSTATES_PER_FRAME;
+        let target = self.cpu_tstates + self.tstates_per_frame;
         // The base Aquarius wires no periodic CPU interrupt. Per MAME
         // `aquarius.cpp`, IRQ0 and NMI are driven only by the expansion port
         // (a disk interface, etc.) — video/VBlank asserts neither. An earlier
@@ -253,7 +291,13 @@ impl Aquarius {
 
         self.render_display();
         self.frame_count += 1;
-        CPU_TSTATES_PER_FRAME
+        self.tstates_per_frame
+    }
+
+    /// The configured video region.
+    #[must_use]
+    pub fn region(&self) -> AquariusRegion {
+        self.region
     }
 
     fn tick_tstate(&mut self) {
@@ -607,15 +651,21 @@ mod tests {
 
     #[test]
     fn frame_returns_expected_tstates() {
-        let mut sys = Aquarius::new(trap_rom(), 0);
-        let t = sys.run_frame();
-        assert_eq!(t, CPU_TSTATES_PER_FRAME);
-        assert_eq!(sys.frame_count(), 1);
+        // NTSC: 458 dots × 262 lines ÷ 2 = 59 998 T-states (~59.7 Hz at the
+        // 3.579545 MHz CPU). PAL: 458 × 313 ÷ 2 = 71 677 (~50.1 Hz).
+        let mut ntsc = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
+        assert_eq!(ntsc.run_frame(), NTSC_TSTATES_PER_FRAME);
+        assert_eq!(ntsc.frame_count(), 1);
+        assert_eq!(NTSC_TSTATES_PER_FRAME, 59_998);
+
+        let mut pal = Aquarius::new(trap_rom(), 0, AquariusRegion::Pal);
+        assert_eq!(pal.run_frame(), PAL_TSTATES_PER_FRAME);
+        assert!(PAL_TSTATES_PER_FRAME > NTSC_TSTATES_PER_FRAME);
     }
 
     #[test]
     fn many_frames_complete_without_panic() {
-        let mut sys = Aquarius::new(trap_rom(), 0);
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
         for _ in 0..60 {
             sys.run_frame();
         }
@@ -624,7 +674,7 @@ mod tests {
 
     #[test]
     fn rom_visible_at_low_window() {
-        let sys = Aquarius::new(trap_rom(), 0);
+        let sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
         assert_eq!(sys.mem_read(0x0008), 0x18);
         // Character ROM byte.
         assert_eq!(sys.mem_read(0x1800), 0xFF);
@@ -632,7 +682,7 @@ mod tests {
 
     #[test]
     fn char_and_colour_ram_round_trip() {
-        let mut sys = Aquarius::new(trap_rom(), 0);
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
         sys.mem_write(0x3000, b'A');
         sys.mem_write(0x3400, 0xF0);
         assert_eq!(sys.mem_read(0x3000), b'A');
@@ -641,7 +691,7 @@ mod tests {
 
     #[test]
     fn expansion_ram_round_trip_when_present() {
-        let mut sys = Aquarius::new(trap_rom(), 16);
+        let mut sys = Aquarius::new(trap_rom(), 16, AquariusRegion::Ntsc);
         sys.mem_write(0x4000, 0x42);
         sys.mem_write(0x7FFF, 0x77);
         assert_eq!(sys.mem_read(0x4000), 0x42);
@@ -650,14 +700,14 @@ mod tests {
 
     #[test]
     fn expansion_ram_returns_ff_without_expansion() {
-        let mut sys = Aquarius::new(trap_rom(), 0);
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
         sys.mem_write(0x4000, 0x42);
         assert_eq!(sys.mem_read(0x4000), 0xFF);
     }
 
     #[test]
     fn keyboard_high_byte_selects_row() {
-        let mut sys = Aquarius::new(trap_rom(), 0);
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
         sys.key_matrix[3] = 0x0F; // Row 3 has columns 4-7 pressed.
         // Selecting row 3 means clearing bit 3 of the high address byte.
         let port = ((!(1u16 << 3)) << 8) | 0xFF;
@@ -666,7 +716,7 @@ mod tests {
 
     #[test]
     fn writing_ff_drives_speaker_bit() {
-        let mut sys = Aquarius::new(trap_rom(), 0);
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
         sys.io_write(0xFF, 0x01);
         assert!(sys.speaker_bit());
         sys.io_write(0xFF, 0x00);
@@ -675,7 +725,7 @@ mod tests {
 
     #[test]
     fn render_paints_framebuffer_with_default_colour_ram() {
-        let mut sys = Aquarius::new(trap_rom(), 0);
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
         // Default char RAM = $20 (space). With solid $FF character
         // pattern this would render all cells as the fg colour for
         // space — but space is char $20 so the pattern would be
@@ -693,7 +743,7 @@ mod tests {
 
     #[test]
     fn key_press_and_release() {
-        let mut sys = Aquarius::new(trap_rom(), 0);
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
         sys.set_key(2, 4, true);
         assert_eq!(sys.key_matrix[2] & (1 << 4), 0);
         sys.set_key(2, 4, false);
@@ -708,7 +758,7 @@ mod tests {
 
     #[test]
     fn controllers_read_through_the_expander_ay_ports() {
-        let mut sys = Aquarius::new(trap_rom(), 0);
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
         // Idle: both ports read all-high (input mode on reset).
         assert_eq!(read_ay(&mut sys, 14), 0xFF);
         assert_eq!(read_ay(&mut sys, 15), 0xFF);

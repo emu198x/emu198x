@@ -14,7 +14,7 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use machine_mattel_aquarius::Aquarius;
+use machine_mattel_aquarius::{Aquarius, AquariusRegion};
 
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, CHAR_FIRMWARE_ID, Model, profile_for};
@@ -186,7 +186,7 @@ impl AquariusRuntime {
             self.machine = None;
             return;
         };
-        let mut machine = Aquarius::new(bios, self.expansion_kb);
+        let mut machine = Aquarius::new(bios, self.expansion_kb, AquariusRegion::Ntsc);
         if let Some(char_rom) = self.char_rom_bytes.clone() {
             machine.set_char_rom(char_rom);
         }

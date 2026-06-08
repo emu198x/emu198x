@@ -24,7 +24,7 @@
 use std::env;
 use std::fs;
 
-use machine_mattel_aquarius::Aquarius;
+use machine_mattel_aquarius::{Aquarius, AquariusRegion};
 use zilog_z80::Z80Stepper;
 
 fn env_file(var: &str) -> Vec<u8> {
@@ -33,7 +33,7 @@ fn env_file(var: &str) -> Vec<u8> {
 }
 
 fn cart_machine() -> Aquarius {
-    let mut sys = Aquarius::new(env_file("EMU198X_AQUARIUS_BIOS"), 0);
+    let mut sys = Aquarius::new(env_file("EMU198X_AQUARIUS_BIOS"), 0, AquariusRegion::Ntsc);
     sys.set_char_rom(env_file("EMU198X_AQUARIUS_CHAR"));
     sys.insert_cart(env_file("EMU198X_AQUARIUS_CART"));
     sys
