@@ -76,7 +76,7 @@ pub use machine_commodore_amiga_ocs::RamConfig;
 /// Convert drive status (active-high booleans) into the CIA-A PRA
 /// external-input byte Kickstart reads via `$BFE001`.
 ///
-/// Non-disk bits (PA0=OVL out, PA1=/LED out, PA6=FIR1, PA7=FIR0)
+/// Non-disk bits (PA0=OVL out, PA1=/LED out, PA6=FIR0, PA7=FIR1)
 /// default high. Disk bits default high and are pulled low when the
 /// corresponding drive signal is asserted.
 fn drive_pra_byte(s: &DriveStatus) -> u8 {
@@ -122,16 +122,21 @@ impl JoystickState {
         true
     }
 
+    // Amiga joysticks are cross-wired into the two pot pairs: the X pair
+    // (JOYxDAT bits 1,0) carries RIGHT (both bits) and DOWN (low-bit
+    // toggle); the Y pair (bits 9,8) carries LEFT and UP. Verified
+    // against vAmiga Joystick::joydat() + HRM Appendix A:
+    //   Right = X1 · Left = Y1 · Down = X0 xor X1 · Up = Y0 xor Y1
     fn x_bits(self) -> u8 {
-        let left = self.left && !self.right;
         let right = self.right && !self.left;
-        u8::from(left ^ right) | (u8::from(right) << 1)
+        let down = self.down && !self.up;
+        (u8::from(right) << 1) | u8::from(right ^ down)
     }
 
     fn y_bits(self) -> u8 {
+        let left = self.left && !self.right;
         let up = self.up && !self.down;
-        let down = self.down && !self.up;
-        u8::from(up ^ down) | (u8::from(down) << 1)
+        (u8::from(left) << 1) | u8::from(left ^ up)
     }
 }
 
@@ -433,10 +438,12 @@ impl AmigaA1200 {
 
     fn refresh_cia_a_external_inputs(&mut self) {
         let mut pra = drive_pra_byte(&self.drive.status());
-        if self.port1_left_button_pressed {
+        // CIA-A PRA fire bits are active-low: PA6 = /FIR0 (controller
+        // port 0 — mouse left button), PA7 = /FIR1 (controller port 1).
+        if self.port0_left_button_pressed {
             pra &= !(1 << 6);
         }
-        if self.port0_left_button_pressed {
+        if self.port1_left_button_pressed {
             pra &= !(1 << 7);
         }
         self.cia_a.set_external_a(pra);
@@ -570,8 +577,8 @@ impl AmigaA1200 {
         //   PA4 /DSKTRACK0 — low when head is at cylinder 0.
         //   PA3 /DSKPROT — low when disk is write-protected.
         //   PA2 /DSKCHANGE — low when disk changed since last step.
-        // The other bits (PA0=OVL output, PA1=/LED output, PA6=FIR1,
-        // PA7=FIR0) default high / inactive.
+        // The other bits (PA0=OVL output, PA1=/LED output, PA6=FIR0,
+        // PA7=FIR1) default high / inactive.
         //
         // Prior to the floppy port we used a static `$EB` constant
         // here. That still matches `drive_pra_byte(drive.status())`

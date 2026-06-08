@@ -474,55 +474,67 @@ fn mouse_buttons_drive_cia_and_potgor_inputs() {
 
     amiga.set_mouse_button_port0("left", true);
     assert_eq!(
-        amiga.read_word(0x00BF_E001) & 0x80,
+        amiga.read_word(0x00BF_E001) & 0x40,
         0,
-        "left mouse button is active-low on CIA-A FIR0"
+        "left mouse button is active-low on CIA-A FIR0 (PA6)"
     );
     amiga.set_mouse_button_port0("left", false);
-    assert_ne!(amiga.read_word(0x00BF_E001) & 0x80, 0);
+    assert_ne!(amiga.read_word(0x00BF_E001) & 0x40, 0);
 
     amiga.set_mouse_button_port0("right", true);
     amiga.set_mouse_button_port0("middle", true);
     let potgor = amiga.read_word(0x00DF_F016);
-    assert_eq!(potgor & 0x0100, 0, "right button pulls port-0 LX low");
-    assert_eq!(potgor & 0x0400, 0, "middle button pulls port-0 RX low");
+    assert_eq!(potgor & 0x0400, 0, "right button pulls port-0 bit 10 low");
+    assert_eq!(potgor & 0x0100, 0, "middle button pulls port-0 bit 8 low");
 }
 
 #[test]
 fn joystick_port1_drives_joy1dat_and_cia_fire() {
     let mut amiga = AmigaOcs::new(zero_rom());
 
+    // Amiga joystick cross-wiring (verified vs vAmiga Joystick::joydat):
+    // RIGHT → X pair (bits 1,0); LEFT → Y pair (bits 9,8); DOWN → X0^X1
+    // (bit 0); UP → Y0^Y1 (bit 8). Mask 0x0303 covers both pot pairs.
     assert!(amiga.set_joystick_control(1, "right", true));
     assert_eq!(
-        amiga.read_word(0x00DF_F00C) & 0x0003,
+        amiga.read_word(0x00DF_F00C) & 0x0303,
         0x0003,
-        "right sets JOY1DAT horizontal low bits per Amiga joystick encoding"
+        "RIGHT lands on the X pot pair (JOY1DAT bits 1,0)"
     );
-
     assert!(amiga.set_joystick_control(1, "right", false));
+
     assert!(amiga.set_joystick_control(1, "left", true));
     assert_eq!(
-        amiga.read_word(0x00DF_F00C) & 0x0003,
-        0x0001,
-        "left sets only the horizontal xor bit"
+        amiga.read_word(0x00DF_F00C) & 0x0303,
+        0x0300,
+        "LEFT lands on the Y pot pair (bits 9,8), not the X pair"
     );
-
     assert!(amiga.set_joystick_control(1, "left", false));
+
+    assert!(amiga.set_joystick_control(1, "up", true));
+    assert_eq!(
+        amiga.read_word(0x00DF_F00C) & 0x0303,
+        0x0100,
+        "UP = Y0 xor Y1 (bit 8)"
+    );
+    assert!(amiga.set_joystick_control(1, "up", false));
+
     assert!(amiga.set_joystick_control(1, "down", true));
     assert_eq!(
-        amiga.read_word(0x00DF_F00C) & 0x0300,
-        0x0300,
-        "down sets JOY1DAT vertical low bits per Amiga joystick encoding"
+        amiga.read_word(0x00DF_F00C) & 0x0303,
+        0x0001,
+        "DOWN = X0 xor X1 (bit 0) — on the X pair, not the Y pair"
     );
+    assert!(amiga.set_joystick_control(1, "down", false));
 
     assert!(amiga.set_joystick_control(1, "fire", true));
     assert_eq!(
-        amiga.read_word(0x00BF_E001) & 0x40,
+        amiga.read_word(0x00BF_E001) & 0x80,
         0,
-        "port-1 fire is active-low on CIA-A FIR1"
+        "port-1 fire is active-low on CIA-A FIR1 (PA7)"
     );
     assert!(amiga.set_joystick_control(1, "fire", false));
-    assert_ne!(amiga.read_word(0x00BF_E001) & 0x40, 0);
+    assert_ne!(amiga.read_word(0x00BF_E001) & 0x80, 0);
 }
 
 #[test]

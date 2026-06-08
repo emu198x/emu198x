@@ -51,7 +51,7 @@ fn potgor_reads_pot_pin_levels_on_input_pins() {
 
 #[test]
 fn potgor_input_pin_can_be_pulled_low_by_peripheral() {
-    // Port 0 middle button pressed → POTGOR bit 10 = 0.
+    // Port 0 middle button pressed → POTGOR bit 8 = 0.
     let mut p = Paula8364::new();
     p.set_pot_pin_level(POTGOR_BTN_PORT0_MIDDLE, false);
     let v = p.peek_potgor();
@@ -68,9 +68,9 @@ fn potgor_input_pin_can_be_pulled_low_by_peripheral() {
 
 #[test]
 fn potgor_output_pin_reads_back_the_latched_dat_bit() {
-    // Configure port 0 middle pin as output, drive it low.
+    // Configure the port-0 middle pin (bit 8 = LX) as output, drive low.
     let mut p = Paula8364::new();
-    p.write_potgo(POTGO_OUTRX); // OUT_RX = 1, DATRX = 0
+    p.write_potgo(POTGO_OUTLX); // OUT_LX = 1, DATLX = 0
     // Even if the peripheral drives the pin high, the output bit
     // wins because the chip is actively driving the line.
     p.set_pot_pin_level(POTGOR_BTN_PORT0_MIDDLE, true);
@@ -81,9 +81,20 @@ fn potgor_output_pin_reads_back_the_latched_dat_bit() {
         "output-configured pin reports the driven DAT value"
     );
 
-    p.write_potgo(POTGO_OUTRX | POTGO_DATRX); // drive high
+    p.write_potgo(POTGO_OUTLX | POTGO_DATLX); // drive high
     let v = p.peek_potgor();
     assert_ne!(v & POTGOR_BTN_PORT0_MIDDLE, 0);
+}
+
+#[test]
+fn mouse_buttons_map_to_the_hardware_potgor_bits() {
+    // Regression: the RIGHT and MIDDLE bits were previously swapped on
+    // both ports. Verified against vAmiga (Mouse::changePotgo) and
+    // WinUAE: right = the port's upper pot bit, middle = the lower.
+    assert_eq!(POTGOR_BTN_PORT0_MIDDLE, 1 << 8, "port 0 middle = bit 8");
+    assert_eq!(POTGOR_BTN_PORT0_RIGHT, 1 << 10, "port 0 right = bit 10");
+    assert_eq!(POTGOR_BTN_PORT1_MIDDLE, 1 << 12, "port 1 middle = bit 12");
+    assert_eq!(POTGOR_BTN_PORT1_RIGHT, 1 << 14, "port 1 right = bit 14");
 }
 
 #[test]

@@ -83,10 +83,10 @@ pub mod bits {
     //
     //   bit 15  OUTRY  — port 1 Y-pin output-enable
     //   bit 14  DATRY  — port 1 Y-pin data (output) / level (input)
-    //   bit 13  OUTLY  — port 1 X-pin output-enable  (often the "right mouse button" input)
+    //   bit 13  OUTLY  — port 1 X-pin output-enable
     //   bit 12  DATLY  — port 1 X-pin data / level
     //   bit 11  OUTRX  — port 0 Y-pin output-enable
-    //   bit 10  DATRX  — port 0 Y-pin data / level   (often the "middle mouse button" input)
+    //   bit 10  DATRX  — port 0 Y-pin data / level
     //   bit  9  OUTLX  — port 0 X-pin output-enable
     //   bit  8  DATLX  — port 0 X-pin data / level
     //   bit  0  START  — begin a new charge cycle (write side only)
@@ -99,12 +99,16 @@ pub mod bits {
     pub const POTGO_DATRX: u16 = 0x0400;
     pub const POTGO_OUTLX: u16 = 0x0200;
     pub const POTGO_DATLX: u16 = 0x0100;
-    /// Convenient masks for the four pot pins (input readback in POTGOR
-    /// uses the DAT bits to report the current pin level).
-    pub const POTGOR_BTN_PORT0_MIDDLE: u16 = POTGO_DATRX;
-    pub const POTGOR_BTN_PORT0_RIGHT: u16 = POTGO_DATLX;
-    pub const POTGOR_BTN_PORT1_MIDDLE: u16 = POTGO_DATRY;
-    pub const POTGOR_BTN_PORT1_RIGHT: u16 = POTGO_DATLY;
+    /// Mouse buttons on POTGOR, per controller port, active-low (idle =
+    /// high). The RIGHT button is the port's upper pot bit, the MIDDLE
+    /// button the lower: port 0 → RIGHT = bit 10, MIDDLE = bit 8; port 1
+    /// → RIGHT = bit 14, MIDDLE = bit 12. Verified against vAmiga
+    /// (`Mouse::changePotgo`) and WinUAE (`inputdevice.cpp`); the right
+    /// button is Intuition's menu button, so this mapping must be exact.
+    pub const POTGOR_BTN_PORT0_MIDDLE: u16 = POTGO_DATLX; // bit 8
+    pub const POTGOR_BTN_PORT0_RIGHT: u16 = POTGO_DATRX; // bit 10
+    pub const POTGOR_BTN_PORT1_MIDDLE: u16 = POTGO_DATLY; // bit 12
+    pub const POTGOR_BTN_PORT1_RIGHT: u16 = POTGO_DATRY; // bit 14
     /// DAT bit mask for all four pot pins in POTGOR.
     pub const POTGOR_DAT_ALL: u16 = POTGO_DATRY | POTGO_DATLY | POTGO_DATRX | POTGO_DATLX;
 
