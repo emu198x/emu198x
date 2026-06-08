@@ -170,3 +170,74 @@ auditing against VICE.
   the work image is mounted writable explicitly.
 - Treating `assets/` as scratch space for any test/capture — **stop.** Work
   images live outside the archive tree.
+
+## Next-session execution plan — the IEC data-phase handshake (2026-06-08)
+
+Resourced and ready: working repro, VICE 3.10 vendored, hardware refs staged.
+This plan is the turnkey start for a focused session.
+
+### What we know (settled)
+- GCR write-back + decode + flush are **done and tested** — downstream of data
+  that never arrives. Do not touch them.
+- The C64↔1541 **interleave is sound**: `runtime-commodore-c64/src/runtime.rs`
+  `run_until` (~L501-516) is a rational-clock model — it ticks whichever CPU is
+  next due by true relative Hz (`next_drive_tick <= next_c64_tick`), then
+  `sync_iec_bus` propagates bus state. Relative timing is therefore unlikely to
+  be the root cause.
+- The failure is the **C64-talker → drive-listener BULK DATA receive** during the
+  SAVE data phase (after `SECOND $61`). OPEN/filename (drive idle, listening)
+  works; the drive builds the dir entry on track 18, goes busy with disk I/O,
+  and the C64's subsequent data bytes never land in drive RAM. C64 returns to
+  READY (~$E5CD) without the ~1s a real write takes.
+
+### Prime suspect (the crux)
+The CBM serial **byte handshake** + the drive holding **DATA low while busy**:
+- Protocol (see refs): talker holds CLK low; listener signals "ready to receive"
+  by releasing DATA high; talker releases CLK; listener pulls DATA low to ACK the
+  byte. A busy device keeps DATA low so the talker WAITS. If our drive releases
+  DATA (looks ready) while busy, the C64 clocks bytes to no listener and proceeds.
+- The hardware **ATN-acknowledge** (VICE "ATNA"): drives pull DATA low in response
+  to ATN via a gate. Our equivalent is the `IecBus::recompute_drive_bus_entry`
+  fold (`common-commodore-iec/src/lib.rs:128-132`) — flagged suspicious. Compare
+  bit-for-bit against VICE `iec_update_cpu_bus` + the drv_bus/ATNA logic.
+
+### Ranked hypotheses to test
+1. **H1 — drive doesn't hold DATA low while busy.** During the OPEN's track-18
+   I/O the 1541 ROM should keep DATA asserted (not-ready) until its main loop
+   returns to serial service. Audit our VIA1 PB → `write_drive_port_b` mapping
+   and whether the ROM's DATA output is actually reflected on the bus in the busy
+   window. (Most likely.)
+2. **H3 — the `recompute_drive_bus_entry` ATN/DATA fold is wrong**, so the
+   C64-visible DATA-in during the data phase is computed incorrectly. Diff
+   against VICE `iecbus.c`.
+3. **H4 — the drive never enters the data-channel listen state** (SECOND $61),
+   so it isn't set up to receive at all (an upstream handshake/timing miss).
+4. **H2 — bus sync ordering** in `run_until` (which side updates the bus vs syncs
+   first) drops a transient edge. Lower probability given the rational clock.
+
+### Instrumentation (extend the repro)
+`crates/runtime-commodore-c64/tests/disk_save_roundtrip.rs` is the repro (~28s,
+ROMs at `~/.emu198x/roms/commodore-c64/`). Add a per-tick trace during the data
+phase capturing: ATN/CLK/DATA (both `cpu_port` and `drive_port` views of IecBus),
+the C64 KERNAL PC (the serial-send routine ~`$ED40`/`$EDAD`), and the 1541 PC.
+Build the handshake sequence and diff against the protocol (and, if needed, a
+VICE run with `-verbose`/IEC debug). Pinpoint the exact edge where the C64 sends
+without the drive holding DATA / acknowledging.
+
+### Reference cross-checks (staged in `~/bitsavers-staging/pdf/commodore/`)
+- **VICE** `emulators/c64/vice-3.10/src/iecbus/iecbus.c` (`iec_update_cpu_bus`,
+  ATNA) + `src/drive/iec/iec.c` — the authoritative bus + drive model to match.
+- **pagetable "Commodore Peripheral Bus Part 4 — Standard Serial"** (Steil) +
+  **Butterfield "How the Serial Bus Works"** — the byte handshake + EOI + the
+  busy/ready DATA semantics.
+- **Anatomy of the 1541** — the drive ROM's serial listen loop addresses.
+- **R6522 VIA datasheet** — PB/CB2 serial-line behaviour in the 1541.
+
+### Fix + validation
+Fix the responsible layer (most likely the IecBus DATA-hold/ATNA fold or the VIA1
+mapping; possibly the sync ordering). Validate with:
+- A new **fast IecBus unit test** asserting the data-phase handshake states
+  (drive-busy ⇒ DATA held low ⇒ C64 sees not-ready), so the regression is cheap.
+- The repro test going green (a readable `GREETING` dir entry + extractable PRG).
+Success criterion: `disk_save_roundtrip` passes; then the GCR→D64 flush already
+in place persists the file.
