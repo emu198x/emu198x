@@ -952,6 +952,58 @@ fn parse_step(action: &str, arguments: Value) -> Result<ScriptStep, ToolError> {
 /// tools here are registered AFTER `register_debug_tools` so they override
 /// its generic versions by name, preserving the curriculum output shape.
 /// Order is the order shown by `tools/list`.
+/// `save_tape` — persist a tape `SAVE` to a host `.tap`.
+///
+/// During a BASIC `SAVE` the ROM toggles the MIC line; the recorder captures
+/// that signal and this decodes it back into standard-speed blocks, writing a
+/// reloadable `.tap` to `path`. Captures every `SAVE` performed since the tape
+/// session started (authentic multi-file tape behaviour). Mirrors the C64
+/// `save_disk` tool. See `docs/systems/sinclair/zx-spectrum/index.md`.
+struct SaveTapeTool;
+
+impl Tool<SpectrumSession> for SaveTapeTool {
+    fn name(&self) -> &str {
+        "save_tape"
+    }
+
+    fn description(&self) -> &str {
+        "Persist a tape SAVE: decode the MIC signal the ROM laid down during BASIC SAVE into a standard .tap and write it to `path`. Captures every SAVE since the tape session started. Errors if nothing has been saved yet."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+            },
+            "required": ["path"],
+        })
+    }
+
+    fn call(
+        &self,
+        arguments: Value,
+        session: &mut SpectrumSession,
+    ) -> Result<ToolResponse, ToolError> {
+        let path = arguments
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                ToolError::Execution("save_tape: missing required string 'path'".to_owned())
+            })?;
+        let bytes = session.machine().flush_tape_image().ok_or_else(|| {
+            ToolError::Execution("save_tape: no tape SAVE has been recorded".to_owned())
+        })?;
+        let len = bytes.len();
+        std::fs::write(path, &bytes).map_err(|err| {
+            ToolError::Execution(format!("save_tape: failed to write {path}: {err}"))
+        })?;
+
+        let body = json!({ "kind": "save_tape", "path": path, "bytes": len }).to_string();
+        Ok(ToolResponse::success_text(body))
+    }
+}
+
 pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     let string_field = || json!({"type": "string"});
     let integer_field = || json!({"type": "integer", "minimum": 0});
@@ -1196,6 +1248,8 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
         }),
     }));
+
+    registry.register(Box::new(SaveTapeTool));
 }
 
 #[cfg(test)]
@@ -1422,6 +1476,7 @@ mod tests {
             "watch_memory_start",
             "watch_memory_clear",
             "watch_memory_log",
+            "save_tape",
         ];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");

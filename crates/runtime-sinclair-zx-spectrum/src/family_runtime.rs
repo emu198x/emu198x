@@ -371,6 +371,20 @@ macro_rules! match_kind {
     };
 }
 
+impl SpectrumRuntimeKind {
+    /// Flushes any captured tape `SAVE` on the active variant to `.tap` bytes,
+    /// or `None` if nothing was recorded (or the variant does not yet capture).
+    #[must_use]
+    pub fn flush_tape_image(&self) -> Option<Vec<u8>> {
+        match_kind!(self, |rt| rt.flush_tape_image())
+    }
+
+    /// Discards any captured tape `SAVE` signal on the active variant.
+    pub fn clear_tape_recording(&mut self) {
+        match_kind!(self, |rt| rt.clear_tape_recording());
+    }
+}
+
 impl MachineCore for SpectrumRuntimeKind {
     fn profile(&self) -> &MachineProfile {
         match_kind!(self, |rt| rt.profile())
