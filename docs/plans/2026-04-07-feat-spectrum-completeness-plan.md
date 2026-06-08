@@ -2,8 +2,19 @@
 title: "feat: Spectrum completeness — architecture hardening, persistence, peripherals, accuracy, debugger"
 type: feat
 date: 2026-04-07
+status: superseded
+superseded_by: docs/plans/2026-06-08-spectrum-100-percent-plan.md
 review: docs/reviews/2026-04-07-architectural-review.md
 ---
+
+> **SUPERSEDED (2026-06-08).** Kept only as a historical record of how the
+> architecture was built (the Phase −1/0/1 foundations — `emu198x-shell`, the
+> System trait, the persistence/config work — have all landed; the
+> implementation lives in the code and `RULES.md`). For the **current** state
+> and remaining road to 100%, see
+> [`2026-06-08-spectrum-100-percent-plan.md`](2026-06-08-spectrum-100-percent-plan.md)
+> and the system doc [`docs/systems/sinclair/zx-spectrum/index.md`](../systems/sinclair/zx-spectrum/index.md).
+> Do not treat the status lines below as current.
 
 # Spectrum Completeness Plan
 
