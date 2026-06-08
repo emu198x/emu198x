@@ -10,6 +10,9 @@ SN76489.
 
 - **Sega VDP Mode 4** — 4bpp tiles, dual 16-colour palettes from a 64-colour
   pool, 8 sprites/line, scroll registers, line-interrupt counter, H/V readback.
+  **BG-over-sprite priority** (2026-06-08): a foreground tile (priority bit set)
+  with an opaque pixel occludes the sprite; transparent BG (index 0) always lets
+  sprites through. Test `mode4_priority_tile_occludes_sprite`.
 - **Sega mapper** — `$FFFC-$FFFF` bank registers + cart-RAM control.
 - **Cart boot to title** — Alex Kidd (1986, 128K) full Mode 4 title; smoke
   `tests/cart_boot.rs` (first `.sms`). No BIOS required.
