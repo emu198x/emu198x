@@ -69,7 +69,7 @@ below are residual accuracy/scope debt, not blockers.
   this tightens the oracle, it does not gate the launch. See
   [`knowledge/tests/spectrum.md`](../../knowledge/tests/spectrum.md).
 - **A — 4 residual FUSE block-I/O AF disagreements** on `INIR`, `OTIR`,
-  `CPDR`, `OTDR` (X/Y undocumented flag bits at the final repeat
+  `INDR`, `OTDR` (X/Y undocumented flag bits at the final repeat
   iteration). WZ matches, T-states match, memory effects match; just the
   undoc bits. Resolution needs silicon-level evidence; not a launch
   blocker.

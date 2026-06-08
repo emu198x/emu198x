@@ -1,97 +1,123 @@
 # ZX Spectrum
 
-## Status: Playable (48K, 128K, +2A, +3)
+## Status: Mainstream models complete; clones and peripherals are the remaining distance
 
-The Spectrum boots, loads tapes, plays games, and has full audio. The 128K model has bank switching, AY sound, and shadow screen. The +2A/+3 models add extended paging (port $1FFD), 4 ROM banks, and the +3 includes an FDC with DSK disk image support.
+The mainstream Sinclair/Amstrad models — **48K, 16K, +, 128K, +2, +2A, +2B, +3** —
+are effectively at 100% on the hard parts (CPU, timing, video, audio) and run
+games. The family also includes Russian clones (**Pentagon 128, Scorpion ZS-256**)
+and US **Timex** machines (TC2048, TC2068, TS2068), which are at varying
+completeness. Tape both **LOADs and SAVEs**; +3/Beta disks **read** (write is not
+yet implemented). The remaining distance to a fully complete Spectrum line is
+concentrated in three buckets — **disk-write + format breadth**, **the clones**,
+and **the peripheral catalogue** — plus a few accuracy edges. The full roadmap
+and effort estimate live in
+[`docs/plans/2026-06-08-spectrum-100-percent-plan.md`](../../../plans/2026-06-08-spectrum-100-percent-plan.md).
 
 ## What works
 
-- **CPU:** Z80 — 1,604,000 Tom Harte tests passing. Full undocumented behaviour (MEMPTR, Q flag, SCF/CCF bits 3/5).
-- **Video:** ULA — full display with border, memory contention (48K 6C001E pattern + 128K 7K010E phase offset, baked into contention_phase field with no runtime conditional). Flash attribute. Floating bus (returns current ULA fetch byte). Snow effect (CPU reads from display RAM corrupt ULA address).
-- **Audio:** Beeper (port $FE bit 4) + MIC (bit 3) + EAR feedback + AY-3-8912 PSG (128K).
-- **128K paging:** Port $7FFD — 8 RAM pages, 2 ROMs, shadow screen, paging lock. Contended memory detection for odd-numbered banks at $C000.
-- **+2A/+3 paging:** Port $1FFD — normal mode with 4-ROM selection ($1FFD bit 2 + $7FFD bit 4), special mode with 4 all-RAM configurations. Page table write protection toggled dynamically.
-- **+3 FDC:** NEC uPD765A — SPECIFY, SENSE DRIVE STATUS, RECALIBRATE, SENSE INTERRUPT STATUS, SEEK, READ DATA commands. Accessed via ports $2FFD (status) and $3FFD (data). Motor control via $1FFD bit 3.
-- **Disk images:** DSK format parser (standard + extended) with track/sector addressing and variable sector sizes.
-- **Tape loading:** TAP, TZX (with loop flattening), WAV import via emu-tape.
-- **Snapshots:** SNA and Z80 (v1/v2/v3, compressed and paged).
-- **Input:** Full keyboard matrix, Kempston joystick.
-- **Capture:** PNG screenshots, GIF recording, FFmpeg video+audio, WAV audio recording.
-- **Infrastructure:** Save states, rewind (Tab), turbo mode (F1), TOML config persistence.
-- **MCP server:** Headless JSON-RPC 2.0 (cpu_state, memory_peek, step, screenshot, etc.).
-- **Shell:** Auto-detects +3 ROMs (4 files) > 128K ROMs (2 files) > 48K ROM. Auto-LOAD for tapes, .dsk file support, ZIP extraction.
+- **CPU** — Z80, Tom Harte 1,604,000 tests **100%**, Patrik Rak `z80test` **6/6
+  with zero allowlist**, ZEXDOC/ZEXALL, FUSE 1,351/1,356 (the 5 are an accepted
+  undocumented-flag allowlist — see Accuracy edges). Full undocumented behaviour
+  (MEMPTR/WZ, Q flag, SCF/CCF bits 3/5).
+- **Video** — ULA full display, border, **memory contention** (48K 6C001E +
+  128K 7K010E phase offset, baked into a `contention_phase` field with no runtime
+  conditional; the **+2A/+3 40078** has its own MREQ-only pattern in
+  `amstrad-ula-40077`). Flash attribute. **Floating bus** (returns the current
+  ULA fetch byte; FLOATSPY-tested). The project's *reference* timing model
+  (RULES §53–56).
+- **Audio** — Beeper (port `$FE` bit 4) + EAR feedback + **AY-3-8912** PSG (128K
+  and later).
+- **Tape** — **LOAD** (TAP, TZX with loop flattening, WAV) and **SAVE** (MIC
+  capture → `.tap`, every variant in the family; see the Port `$FE` section).
+- **128K paging** — port `$7FFD`: 8 RAM pages, 2 ROMs, shadow screen, paging
+  lock, contended-bank detection.
+- **+2A/+3 paging** — port `$1FFD`: 4-ROM selection, special all-RAM modes,
+  dynamic page write-protect.
+- **+3 disk (read)** — NEC µPD765A FDC (SPECIFY, SENSE DRIVE/INTERRUPT,
+  RECALIBRATE, SEEK, READ DATA, READ ID) via ports `$2FFD`/`$3FFD`; real games
+  load (e.g. Chase H.Q. to title). DSK/EDSK parsed (read-only).
+- **Snapshots** — SNA, Z80 (v1/v2/v3, compressed + paged), RZX.
+- **Input** — full keyboard matrix, Kempston joystick.
+- **Capture & infra** — PNG, GIF, FFmpeg A/V, WAV; save states, rewind, turbo,
+  TOML config; **CRT/LCD/raw** native filters (`emu198x-native-video`, CRT-Lottes
+  shader).
+- **MCP / script** — headless JSON-RPC + `--script`; rich surface (cpu/ay/memory,
+  port r/w, step, run_until_pc, press_key/type_string, watch_memory/ay,
+  snapshots, screenshots, `save_tape`).
 
 ## Models
 
-| Model | ULA | ROMs | Paging | Storage |
-|-------|-----|------|--------|---------|
-| 48K | 6C001E | 1 | None | Tape |
-| 128K | 7K010E | 2 | $7FFD | Tape |
-| +2 | 7K010E | 2 | $7FFD | Tape (built-in) |
-| +2A | 40078 | 4 | $7FFD + $1FFD | Tape |
-| +3 | 40078 | 4 | $7FFD + $1FFD | Tape + 3" FDC |
+| Model | ULA / core | ROMs | Paging | Storage | State |
+|-------|-----------|------|--------|---------|-------|
+| 16K / 48K / + | 6C001E (48K class) | 1 | none | Tape | **Complete** |
+| 128K / +2 | 7K010E (128K class) | 2 | `$7FFD` | Tape | **Complete** |
+| +2A / +2B / +3 | 40078 (Amstrad class) | 4 | `$7FFD`+`$1FFD` | Tape (+3: 3″ FDC) | Playable; disk read-only |
+| Pentagon 128 | pentagon-ula | 2 | `$7FFD` | Tape; Beta (not wired) | Boots; no TRD load yet |
+| Scorpion ZS-256 | scorpion-ula | — | `$7FFD`+`$1FFD` | Tape; Beta | **No screen output** (bug) |
+| Timex TC2048 | SCLD | 1 | none | Tape | Boots; SCLD **mode 0 only** |
+| Timex TC2068 / TS2068 | SCLD | 2 | bank-switch | Tape (cart) | **Does not reach menu** |
 
 ## Not implemented / accuracy gaps
 
-### Important
-- **128K tape loading** — auto-LOAD needs the `USR 0` sequence for 128K mode entry
-- **SZX snapshot format** — third-party snapshots often use this
-- **CRT shader** — WGSL fragment shader implementing `CrtParameters`
+### Storage (the largest bucket)
+- **+3 disk WRITE** — µPD765A `WriteData` / `FormatTrack` unimplemented (read-only);
+  needs the execution-phase write + an EDSK *writer* + a writable-mount/flush model.
+  ST3 does not report WRPROT (bit 6).
+- **Beta / TR-DOS WRITE** — WD1793 Write Sector/Track stubbed (`ST_WRITE_PROTECT`);
+  near-direct port of the existing `western-digital-wd1770` write model.
+- **Pentagon/Scorpion TRD LOAD** — the Beta controller exists and is wired, but no
+  `MediaKind::Disk` route calls `beta.insert_disk()` and there is no `.trd`/`.scl`
+  parser; most clone software is TRD, so this blocks real clone usage.
+- **Formats** — **SZX** snapshot (extension allowlisted, no parser behind it),
+  **CSW**/**PZX** tape, **SCL** Beta; UDI/FDI flux formats (niche).
+- **128K-family tape auto-LOAD** — `autoload_basic_tape` is coupled to the 48K
+  editor's K-cursor model; the 128K family boots to a menu (needs menu nav / `USR 0`).
 
-### Nice to have
-- **PZX/CSW tape formats** — niche but some titles only available in these
-- **Multiface/Interface 1** — peripheral emulation
-- **True +3 disk operations** — WRITE DATA, FORMAT TRACK commands for FDC
-- **+3-specific contention** — the 40078 gate array has slightly different timing
-  from the 7K010E; not separately modelled.
-- **Scorpion ZS-256** — reaches CPU-liveness but not screen output (research
-  recorded, fix scoped).
+### Clones
+- **Scorpion ZS-256 — no screen output.** Boots to CPU-liveness but never paints
+  `$4000–$5AFF`; three coupled memory-map bugs identified vs FUSE
+  (`machine-scorpion-zs256/src/memory.rs`: `$1FFD` page-select bit, ROM-select
+  logic, ROM 3 / Beta overlay).
+- **Timex extended SCLD video** — modes 1–7 (hi-res 512×192, hi-colour 8×1,
+  dual-screen) stored but **unrendered** (`timex-scld` renders mode 0 only); the
+  Timex headline feature. TC2068/TS2068 also do not reach the boot menu; TS2068's
+  in-core `frame_timing()` returns PAL despite being a 60 Hz NTSC machine.
 
-## Known unknowns / disproven hypotheses
+### Peripherals (none of these are architecturally blocked — the `Peripheral`
+trait + the proven ROM-paging precedent pave the road)
+- **Kempston mouse**, **ZX Printer** (`$FB`), **ULAplus** (`$BF3B`/`$FF3B`
+  64-colour palette), **Interface 2** (16K cart ROM + 2nd joystick), **Multiface**
+  128/+3 (NMI freeze + bank-over-RAM), **Interface 1 + Microdrive** (shadow-ROM
+  paging + MDR format + RS-232 + ZX Net), **Spectranet** (Ethernet — the
+  cross-platform netplay target).
 
-- **Open: ULA smoke strictness.** The 5 ULA/contention TAP smokes aren't yet
-  tightened to strict Spectron PNG comparison — they pass at a looser bar, so a
-  subtle contention regression could slip through. (Noted in
-  `docs/status/current-system-usability.md` as residual debt, not a launch gate.)
-- **Open: +3 contention model.** Assumed close to the 7K010E; the 40078's actual
-  timing is a verification target against primary ULA timing docs.
-- **Verification targets** — the contention patterns (6C001E / 7K010E phase
-  offset) are validated by TAP smokes and CPU oracles; the underlying timing
-  numbers should be confirmed against the primary ULA references in
-  `../../reference/` rather than treated as settled.
-
-## Validated against
-
-- CPU: Tom Harte 100%, ZEXDOC/ZEXALL pass, FUSE 1,351/1,356, Patrik Rak
-  `z80test` 6/6 (zero allowlist).
-- 262/262 runtime tests; 8/8 boot goldens; 6 ULA/contention TAP smokes.
-- Reference: fuse, zesarux, SpecIde, Spectrum MiSTer core (`emulators/zx-spectrum/`).
+### Accuracy edges
+- **Snow effect — not implemented** (the 128K ULA address-corruption quirk; niche).
+- **ULA contention smokes are not byte-equal** to Spectron references — they pass
+  at a looser self-locked-golden bar, so a subtle contention regression could slip
+  through. Needs a Spectron downscale-and-compare harness.
+- **+2A/+3 video/INT constants** — the *contention pattern* is +2A-specific
+  (`DELAY_TABLE_PLUS2A`), but `CONFIG_PLUS2A = CONFIG_128K` aliases the video/INT
+  geometry; a verification target against primary 40078 timing, likely a no-op.
+- **5 FUSE block-I/O disagreements** (`INIR`/`OTIR`/`INDR`/`OTDR`, X/Y undocumented
+  flag bits at the final repeat) — an accepted allowlist; real silicon itself
+  varies, so effectively unclosable and zero practical impact.
 
 ## Timing & cycle-accuracy
 
-- **Master clock & dividers** — 14 MHz master; Z80 at 3.5 MHz; the ULA ticks every
-  **half-cycle** (7 MHz). `hc` is the only time counter.
-- **Timing model realised** — the **reference implementation of the project's
-  model** (RULES §53-56 is written around it): the master oscillator drives the
-  loop, the ULA ticks every half-cycle, the CPU ticks only when the ULA allows,
-  contention = a skipped CPU slot. Per-variant contention (48K 6C001E / 128K
-  7K010E phase offset) is baked into a `contention_phase` field with no runtime
-  conditional. Floating bus + snow effect modelled.
-- **CPU timing** — Z80 cycle-accurate (§62): Tom Harte 100%, ZEXDOC/ZEXALL, FUSE
-  1,351/1,356, Patrik Rak `z80test` 6/6.
-- **Distance to full cycle-accuracy** — the +3 (40078 gate array) has slightly
-  different contention timing, not separately modelled; the 5 ULA smokes aren't
-  yet byte-equal against Spectron references.
-
-## Tooling & drivability
-
-- **Script / MCP** — strong: `--script` + a full JSON-RPC `--mcp` (cpu_state,
-  memory_peek/poke, port r/w, step, run_until_pc, press_key/type_string,
-  query_ay, watch_memory/watch_ay, snapshots, screenshots).
-- **Native window** — yes (primary tier): `wgpu` `raw`/`lcd`/`crt`, keyboard,
-  audio, tape autoload.
-- **Disassembler** — `disasm` present; converges on the Asm198x shared Z80
-  disassembler.
+- **Master clock** — 14 MHz master; Z80 at 3.5 MHz; the ULA ticks every
+  **half-cycle** (7 MHz); `hc` is the only time counter.
+- **Model** — the project's reference timing implementation (RULES §53–56): the
+  master oscillator drives the loop, the ULA ticks every half-cycle, the CPU ticks
+  only when the ULA allows, contention = a skipped CPU slot. Per-variant contention
+  baked into `contention_phase` with no runtime conditional. **The +2A/+3 (40078)
+  contention IS separately modelled** in `amstrad-ula-40077` (MREQ-only, distinct
+  `DELAY_TABLE_PLUS2A`).
+- **CPU** — cycle-accurate (§62): Tom Harte 100%, ZEXDOC/ZEXALL, FUSE 1,351/1,356,
+  `z80test` 6/6.
+- **Distance to true 100%** — the contention *logic* is settled (passes `z80test`);
+  the gap is oracle strictness (byte-equal Spectron comparison, Medium) and the
+  absent snow quirk (Medium, niche), not CPU or contention correctness.
 
 ## Port $FE I/O, tape SAVE/LOAD, and driving the keyboard from tests
 
@@ -119,56 +145,55 @@ a time, presenting the EAR level on `$FE` bit 6.
 timestamps every MIC edge and `decode()`s the pulse train (pilot → 2 sync
 pulses → two pulses per data bit, MSB first) back into standard-speed blocks.
 `SpectrumRuntime::flush_tape_image()` serialises those to a reloadable `.tap`
-via `format-sinclair-zx-spectrum-tap::encode_tap`. Wired across all three core
-classes, so every mainstream model captures: **48K / 16K / +** (48K class),
-**128K / +2** (128K class), and **+2A / +2B / +3** (Amstrad class, one generic
-impl), plus the bespoke clone cores **Pentagon 128 / Scorpion ZS-256 / Timex
-TC2048 / TC2068 / TS2068** (each wired in its own machine crate). So every
-Spectrum variant now captures. Standard pulse constants live in
-`tape.rs`; SAVE never mutates a mounted playback tape, so no writable-flag
-gating is needed (unlike disk). Repro: `cargo test -p runtime-sinclair-zx-spectrum
---test tape_save_roundtrip -- --ignored`.
+via `format-sinclair-zx-spectrum-tap::encode_tap`; the `save_tape` MCP tool writes
+it to disk. Wired across **every** variant in the family. SAVE never mutates a
+mounted playback tape, so no writable-flag gating is needed (unlike disk). Repro:
+`cargo test -p runtime-sinclair-zx-spectrum --test tape_save_roundtrip -- --ignored`.
 
-**Driving the 48K BASIC editor from a test or tool** — use a `HeadlessSession`
+**Driving the BASIC editor from a test or tool** — use a `HeadlessSession`
 (`SpectrumSessionQueryProvider`) and the public `tap_key` / `tap_symbol_combo`
-helpers (`runtime-sinclair-zx-spectrum`, re-exported at the crate root). Key
-points:
+helpers (`runtime-sinclair-zx-spectrum`, re-exported at the crate root):
 
 - **Cursor modes.** At the start of a line the cursor is **K** (keyword): a
   single letter key enters that key's *keyword* — `s` → `SAVE`, `j` → `LOAD`,
   `p` → `PRINT`, `e` → `REM`. After a keyword the cursor is **L** (letter), so
   letters/digits enter literally. Type a line number with digit keys while still
-  in K, then the statement keyword key.
-- **Symbols** needing SYMBOL SHIFT use `tap_symbol_combo` — e.g. `"` is SYMBOL
-  SHIFT + `P` (`tap_symbol_combo(s, "p")`).
+  in K, then the statement keyword key. **Note:** this is the **48K** editor;
+  the 128K family boots to a menu and uses a different keyword-entry model — the
+  autoload/BASIC helpers are 48K-only today.
+- **Symbols** needing SYMBOL SHIFT use `tap_symbol_combo` — `"` is SYMBOL SHIFT
+  + `P`.
 - **`SAVE` waits.** After `SAVE "x"` + ENTER the ROM prints "Start tape, then
-  press any key." and blocks until a keypress — send one before expecting the
-  signal.
-- Worked example: `tests/tape_save_roundtrip.rs` (enter `10 REM`, `SAVE "A"`,
-  flush, assert the `.tap` header + data block).
+  press any key." and blocks until a keypress — send one before expecting signal.
+- Worked example: `tests/tape_save_roundtrip.rs`.
 
 ## Peripherals & connectivity
 
-- **Emulated now** — tape (TAP/TZX/WAV), +3 disk (DSK via uPD765A FDC), Kempston
-  joystick, snapshots (SNA/Z80).
-- **Period peripherals (emulatable)** — Interface 1 (microdrive + RS-232 + ZX Net),
-  Interface 2 (carts + joystick), ZX Printer, Multiface, Beta Disk.
-- **Internet-capable** — **Yes**: Interface 1 carried **ZX Net** (a period local
-  network) and RS-232; modern emulatable kit — **Spectranet** (Ethernet, fully
-  documented) and ESP-based WiFi modems. A strong, active net scene.
+- **Emulated now** — tape (TAP/TZX/WAV LOAD + `.tap` SAVE), +3 disk (DSK read via
+  µPD765A), Beta/WD1793 (read, not yet runtime-wired for clones), Kempston
+  joystick, snapshots (SNA/Z80/RZX).
+- **Architecture** — a clean `Peripheral` trait
+  (`common-sinclair-zx-spectrum/src/peripheral.rs`); the only recurring cost for
+  new peripherals is the memory-bus ROM/RAM intercept (proven hand-wired in the
+  Beta TR-DOS paging; worth generalising once 3+ ROM-paging peripherals exist).
+- **Not yet** — Kempston mouse, ZX Printer, ULAplus, Interface 2, Multiface,
+  Interface 1 + Microdrive, Spectranet (see the plan for sizing).
+- **Internet-capable** — **Yes** (period): Interface 1 ZX Net + RS-232; modern
+  emulatable kit — **Spectranet** (Ethernet), the right target for cross-platform
+  netplay.
 
 ## Test coverage
 
-| Component | Tests |
-|-----------|-------|
-| ULA | 25 (frame timing, contention patterns, 128K banks, phase offset, floating bus, snow effect, display rendering) |
-| AY-3-8912 | 5 (tone period, register mapping, audio output) |
-| DSK | 5 (standard format parsing, sector read, error handling) |
-| FDC | 5 (status, specify, recalibrate, seek, read sector) |
-| Machine | 10 (ROM, paging, keyboard, save state) |
-| Snapshots | 10 (SNA, Z80 v1/v2/v3) |
-| Variants | 6 (48K, 128K, +2, +2A, +3 registration) |
-| **Total** | **105** |
+Across the whole Spectrum family there are **~636 `#[test]` functions**. The
+runtime crate alone has **~264** (172 integration + 92 unit), plus **8 boot
+goldens** and the per-machine-crate ULA/contention/floating-bus TAP smokes
+(`tape_smoke.rs`, `float_bus.rs` in the 48K/128K crates) and game goldens
+(btime/ptime/halt2int/floatspy, speedlock, rainbow-islands).
+
+Genuine coverage holes (not counting artifacts): Scorpion (liveness-only, no
+golden), TC2068/TS2068 (golden locks a known-wrong stripe state, honestly), Timex
+extended video modes (unimplemented → untested), Pentagon/Scorpion TRD (not
+wired), +3 FDC write/format (unimplemented).
 
 ## ROMs
 
@@ -177,9 +202,5 @@ Place in `roms/sinclair-zx-spectrum/`:
 | File | Size | Description |
 |------|------|-------------|
 | `48.rom` | 16KB | 48K Spectrum ROM (required for 48K) |
-| `128-0.rom` | 16KB | 128K editor ROM (enables 128K mode) |
-| `128-1.rom` | 16KB | 48K BASIC ROM for 128K |
-| `plus3-0.rom` | 16KB | +3 editor ROM (enables +3 mode) |
-| `plus3-1.rom` | 16KB | +3 syntax checker ROM |
-| `plus3-2.rom` | 16KB | +3DOS ROM |
-| `plus3-3.rom` | 16KB | 48K BASIC ROM for +3 |
+| `128-0.rom` / `128-1.rom` | 16KB each | 128K editor + 48K BASIC ROM |
+| `plus3-0.rom` … `plus3-3.rom` | 16KB each | +3 editor / syntax / +3DOS / 48K BASIC |
