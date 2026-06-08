@@ -1,8 +1,21 @@
 # Nintendo Entertainment System (NES)
 
-## Status: Usable native/headless baseline
+## Status: Cores at/near accuracy ceiling; breadth-limited
 
-The NES path now has a usable NTSC machine/runtime/native baseline. It runs through the shared shell, passes the `nestest` CPU/machine proof, renders mapper-supported cartridges, and exposes screenshots, audio capture/playback, keyboard/gamepad input, reset, snapshots, local smoke-matrix reporting, Blargg-style `$6000` test ROM assertions, and video filter modes. Mapper coverage is still the main compatibility limiter.
+The NES has the **most finished chip cores in the fleet**. The 2A03 CPU is at the
+Tom Harte ceiling (2.56 M single-step + nestest 8991/8991); the 2C02 PPU is
+dot-exact and passes every PPU torture suite in the repo (sprite-0, overflow incl.
+the hardware diagonal bug, vbl/NMI race, read-buffer); the APU passes the entire
+blargg APU suite with an exact nonlinear mixer. It runs through the shared shell
+with screenshots, audio capture, keyboard/gamepad, reset, snapshots, smoke-matrix
+reporting, and Blargg-style `$6000` assertions.
+
+The distance to 100% is therefore **not** the chips — it is breadth and a couple
+of genuine bugs: mapper coverage (~75–82% of the NTSC library boots today),
+controller-only peripherals (no Zapper/Four Score), PAL chip-ready but unwired,
+a MMC5 register-read routing bug, and battery `.sav` that's parsed but never
+persisted. Three narrow cycle-exact timing ROMs (DMA interleave + two CPU-timing
+cases) remain on the core, closeable with reference traces.
 
 ## Hardware overview
 
@@ -32,13 +45,35 @@ cargo run --release -p emu198x-nes --no-default-features -- --smoke-root path/to
 
 ## Not implemented / accuracy gaps
 
-- **Mapper long tail** — the common mappers are in; the rest are
-  compatibility-driven. 155-ROM sweep (2026-06-05): 135 PASS / 5 FAIL / 15 VISUAL.
-- **CPU edge timing** — `blargg_nes_cpu_test5` test 01-implied fails (CRC probe
-  foundation at 2/20); `cpu_timing_test6` protocol not modelled.
-- **DMA interleave** — `sprdma_and_dmc_dma` (code 1) and `dmc_dma_during_read4`
-  (`dma_2007_read`) still fail; the OAMDMA odd-cycle penalty + DMC sample-DMA
-  cycle interleave aren't cycle-exact. The remaining known NES accuracy frontier.
+- **Mapper long tail** — 14 mapper numbers are in (NROM, MMC1, UxROM, CNROM,
+  MMC3, MMC5, AxROM, Color Dreams, VRC2a, Action 53, BxROM/NINA-001, Sunsoft-4,
+  Camerica); ~75–82% of the commercial NTSC library boots. **Missing cheap wins:**
+  MMC2 (9) / MMC4 (10) — Punch-Out!!, Fire Emblem — and GxROM (66). **Missing tail
+  (effort-heavy, mostly JP/niche):** the VRC4/6/7 IRQ + audio family, Namco 163,
+  Sunsoft 5B. 155-ROM sweep (2026-06-05): 135 PASS / 5 FAIL / 15 VISUAL.
+- **MMC5 register-read routing bug** — the machine returns open-bus for
+  `$4020–$5FFF` and never calls `mapper.cpu_read` there, so MMC5's IRQ-status,
+  multiplier, and ExRAM *reads* are dead (writes work). The mapper itself is
+  implemented; the routing gap is flagged in-code (`machine-nintendo-nes/src/lib.rs:528`).
+  Any MMC5 game that reads back IRQ status or the multiplier misbehaves. Small fix.
+- **Battery `.sav` not persisted** — `has_battery` is parsed and PRG-RAM is
+  battery-backed in the mappers, but no code loads/flushes a `.sav` file, so saves
+  survive a session (and snapshots) but not across runs. RPGs are unplayable as
+  intended. Small–Medium.
+- **PAL/Dendy not selectable** — the APU has full PAL tables and the PPU accepts
+  311 lines, but the machine hardwires NTSC (`Ppu::new()` + a fixed 3:1 divider;
+  PAL needs 3.2:1) and the only runtime profile is `NesNtsc`. The whole PAL
+  library runs at the wrong speed/timing today. Small–Medium to plumb through.
+- **CPU edge timing** — `blargg_nes_cpu_test5` is **10/11** sub-tests; only
+  `01-implied` lacks its `[OK]` marker (a side-effect on one implied/NOP opcode
+  the looser standalone `instr_test` misses). `cpu_timing_test6` runs and reports
+  a real `$F0` fail (frame-relative instruction timing) — both need a reference
+  trace to localise, not guessing.
+- **DMA interleave** — `sprdma_and_dmc_dma` (code 1) still fails; the OAMDMA
+  odd-cycle penalty + DMC sample-DMA cycle interleave aren't cycle-exact. The
+  read-side `dmc_dma_during_read4` ROMs are VISUAL (no `$6000` protocol), not
+  fails. The remaining known core accuracy frontier — machine-layer DMA, not the
+  APU or PPU.
 
 ## Test-ROM ledger (2026-06-07)
 
@@ -71,7 +106,9 @@ Run with `cargo test -p machine-nintendo-nes --test <file> -- --ignored`.
   the `$2007` read-buffer behaviour itself was already correct (2026-06-07).
   *Lesson:* a `None`/VISUAL verdict from the `$6000` harness can mean the cart's
   mapper lacks `$6000` WRAM, not a real PPU/CPU bug — check the mapper first.
-- **Open: the 01-implied culprit** — CRC probe at 2/20; not yet isolated.
+- **Open: the 01-implied culprit** — `cpu_test5` is 10/11; the one implied/NOP
+  opcode side-effect that fails the stricter CRC is not yet isolated. (The earlier
+  "2/20 CRC probe" figure was stale.)
 - **Open: the 5 FAIL ROMs** in the 155-sweep — individual causes not catalogued
   on this page.
 - **Verification targets** — exact PPU/APU timing claims are from secondary
@@ -127,3 +164,10 @@ Run with `cargo test -p machine-nintendo-nes --test <file> -- --ignored`.
 | `machine-nintendo-nes` | NES machine wiring | Active |
 | `runtime-nintendo-nes` | Shared shell runtime | Active |
 | `emu198x-nes` | Native verifier shell | Active |
+
+## Road to 100%
+
+The full tiered breakdown — bugs first (MMC5 read routing, `.sav`), then library
+coverage (MMC2/4, GxROM, PAL, Zapper/Four Score), then the cycle-exact core
+finish, then expansion-audio + FDS breadth — is in
+[`docs/plans/2026-06-08-nes-100-percent-plan.md`](../../plans/2026-06-08-nes-100-percent-plan.md).
