@@ -71,6 +71,31 @@ pub fn parse_tap(data: &[u8]) -> Result<Vec<TapBlock>, String> {
     Ok(blocks)
 }
 
+/// Encodes a sequence of raw blocks into TAP file bytes.
+///
+/// The inverse of [`parse_tap`]: each block is written as a little-endian
+/// `u16` length followed by `flag`, the payload, and a trailing XOR checksum
+/// (`flag ^ payload[0] ^ … ^ payload[n]`) — exactly the on-tape byte stream the
+/// ROM loader produced. `parse_tap(&encode_tap(b)) == b` for any blocks `b`.
+#[must_use]
+pub fn encode_tap(blocks: &[TapBlock]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for block in blocks {
+        // On-tape length covers the flag, the payload, and the checksum byte.
+        let len = block.data.len() + 2;
+        out.extend_from_slice(&(len as u16).to_le_bytes());
+
+        let mut checksum = block.flag;
+        out.push(block.flag);
+        for &byte in &block.data {
+            checksum ^= byte;
+            out.push(byte);
+        }
+        out.push(checksum);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +120,36 @@ mod tests {
 
         let err = parse_tap(&tap).expect_err("truncated TAP block must fail");
         assert!(err.contains("claims 5 bytes"));
+    }
+
+    #[test]
+    fn encode_writes_length_prefix_and_xor_checksum() {
+        let blocks = vec![TapBlock {
+            flag: 0xFF,
+            data: vec![0x01, 0x08],
+        }];
+
+        // len = flag + 2 payload + checksum = 4; checksum = FF^01^08 = F6.
+        assert_eq!(
+            encode_tap(&blocks),
+            vec![0x04, 0x00, 0xFF, 0x01, 0x08, 0xF6]
+        );
+    }
+
+    #[test]
+    fn encode_then_parse_round_trips() {
+        let blocks = vec![
+            TapBlock {
+                flag: 0x00,
+                data: (0..17).collect(),
+            },
+            TapBlock {
+                flag: 0xFF,
+                data: vec![0xDE, 0xAD, 0xBE, 0xEF],
+            },
+        ];
+
+        let parsed = parse_tap(&encode_tap(&blocks)).expect("encoded TAP should parse");
+        assert_eq!(parsed, blocks);
     }
 }
