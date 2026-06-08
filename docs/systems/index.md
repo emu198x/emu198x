@@ -35,7 +35,7 @@ Rachel client (offline/AI — a **separate axis** from Net; see
 | [Oric Atmos](oric/atmos.md) | BASIC; types | end-of-frame | mcp | Marginal | ✅ |
 | [Sord M5](sord/m5.md) | Carts play; Dig Dug | per-dot VDP | mcp | Marginal | — |
 | [Memotech MTX](memotech/mtx.md) | BASIC `Ready` | per-dot VDP | mcp | Marginal | — |
-| [Tatung Einstein](tatung/einstein.md) | MOS prompt; types | per-dot VDP | mcp | Marginal | — |
+| [Tatung Einstein](tatung/einstein.md) | MOS prompt; types | per-dot VDP (exact 4 MHz:5.37 MHz) | mcp | Marginal | — |
 | [Spectravideo SVI-328](spectravideo/svi-328.md) | SV-BASIC; types | per-dot VDP | mcp | Marginal | — |
 | [Commodore PET](commodore/pet.md) | BASIC `READY.` | relaxed (1× CRTC) | mcp | Marginal | — |
 | [Jupiter Ace](jupiter/ace.md) | Forth; interactive | hc-ish; e-o-f display | mcp | No | target (planned) |

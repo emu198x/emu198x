@@ -70,16 +70,21 @@ AY-3-8910 + WD1770 floppy (`western-digital-wd1770` crate).
 
 ## Timing & cycle-accuracy
 
-- **Master clock & dividers** — Z80A at ~4 MHz. (Exact crystal/divider tree —
-  verify against MAME `tatung/einstein.cpp`.)
-- **Timing model realised** — TMS9918 now renders **per-dot** (each pixel drawn at
-  its dot; `ti-tms9918::tick`); the keyboard interrupt is a synthesised 50 Hz IM2
-  device; the WD1770 (`western-digital-wd1770`) is faithful at the
-  register/command level with a **relaxed cycle-countdown** timing model — not raw
-  MFM bit-cell timing (no `LOST DATA`, synthesised INDEX pulse).
+- **Master clock & dividers** — Z80A at **4 MHz**; TMS9918A dot clock
+  5.369318 MHz. The VDP is fed through an **exact-Hz accumulator** (≈1.342
+  dots/T-state), and a frame is one VDP raster, so the CPU runs at its true
+  4 MHz. (Was the integer 3:2 counter shared with the 3.58 MHz machines, which
+  silently ran the CPU at ~3.58 MHz — ~11% slow, with the AY pitch flat to
+  match. Fixed 2026-06-08; same model as the Memotech MTX.)
+- **Timing model realised** — TMS9918 renders **per-dot** (each pixel drawn at
+  its dot; `ti-tms9918::tick`) at the exact 4 MHz : 5.369 MHz ratio; the
+  keyboard interrupt is a synthesised 50 Hz IM2 device; the WD1770
+  (`western-digital-wd1770`) is faithful at the register/command level with a
+  **relaxed cycle-countdown** timing model — not raw MFM bit-cell timing (no
+  `LOST DATA`, synthesised INDEX pulse).
 - **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
-- **Distance to full cycle-accuracy** — exact VDP-dot/CPU phase; raw-MFM/exact FDC
-  timing; CTC channel timing for disk-loaded software.
+- **Distance to full cycle-accuracy** — sub-dot VDP/CPU phase exactness;
+  raw-MFM/exact FDC timing; CTC channel timing for disk-loaded software.
 
 ## Tooling & drivability
 

@@ -65,25 +65,29 @@
 //!
 //! # Clock model
 //!
-//! Adopts the 3:2 VDP-dot-per-T-state phase counter pattern from
-//! SG-1000 / MSX. Einstein's CPU runs at 4 MHz (vs the 3.58 MHz
-//! TMS9918-family standard); the absolute clock rates differ but the
-//! relative phase counter holds because both chips run on their own
-//! crystals and we approximate using the ratio. PSG ticks every other
-//! T-state for the CPU ÷ 2 = 2 MHz AY clock.
+//! Einstein's Z80A runs at **4 MHz**, faster than the 3.58 MHz the rest
+//! of the TMS9918 family uses. The VDP is fed through an **exact-Hz
+//! accumulator** — 5.369318 MHz dot clock against the 4 MHz CPU, ≈1.342
+//! dots/T-state — not the integer 3:2 (=1.5) counter the 3.58 MHz
+//! machines share. With 3:2 the CPU effectively ran at ~3.58 MHz (≈11 %
+//! slow); the exact ratio keeps it at its true 4 MHz. A frame is one
+//! VDP raster (the VDP free-runs and is the timing anchor), same model
+//! as the Memotech MTX (the other 4 MHz TMS9918 machine). PSG ticks
+//! every other T-state for the CPU ÷ 2 = 2 MHz AY clock.
 
 use gi_ay_3_8910::Ay3_8910;
 use ti_tms9918::{Tms9918, VdpRegion};
 use western_digital_wd1770::{Disk, Wd1770};
 use zilog_z80::{BusOp, Z80};
 
-const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
-const VDP_DOT_PHASE_DENOMINATOR: u32 = 2;
-const CPU_TSTATES_PER_SCANLINE: u64 = 228;
-const NTSC_SCANLINES_PER_FRAME: u64 = 262;
-const PAL_SCANLINES_PER_FRAME: u64 = 313;
-const NTSC_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * NTSC_SCANLINES_PER_FRAME;
-const PAL_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * PAL_SCANLINES_PER_FRAME;
+// Einstein's Z80A runs at 4 MHz; the TMS9918A dot clock is 5.369318 MHz.
+// That ratio (≈1.342, *not* 3:2) is what makes the Einstein different from
+// the 3.58 MHz TMS9918 machines — feeding the VDP through an exact-Hz
+// accumulator instead of the integer 3:2 counter keeps the CPU at its true
+// 4 MHz instead of the ~3.58 MHz the 3:2 approximation produced. Same model
+// as the Memotech MTX (the other 4 MHz TMS9918 machine in the fleet).
+const CPU_CLOCK_HZ: i64 = 4_000_000;
+const VDP_CLOCK_HZ: i64 = 5_369_318;
 
 const AY_CLOCK_HZ: u32 = 2_000_000;
 const AY_SAMPLE_RATE: u32 = 48_000;
@@ -192,8 +196,10 @@ pub struct Einstein {
     fire: [bool; 2],
     region: EinsteinRegion,
     cpu_tstates: u64,
-    tstates_per_frame: u64,
-    vdp_phase: u32,
+    /// VDP dot-clock accumulator (in CPU-Hz units). Each T-state adds
+    /// [`VDP_CLOCK_HZ`]; every [`CPU_CLOCK_HZ`] accumulated ticks the VDP
+    /// one dot — an exact 5.369318 MHz : 4 MHz ratio.
+    vdp_accum: i64,
     psg_phase: u8,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
@@ -207,10 +213,6 @@ impl Einstein {
         let vdp_region = match region {
             EinsteinRegion::Ntsc => VdpRegion::Ntsc,
             EinsteinRegion::Pal => VdpRegion::Pal,
-        };
-        let tstates_per_frame = match region {
-            EinsteinRegion::Ntsc => NTSC_TSTATES_PER_FRAME,
-            EinsteinRegion::Pal => PAL_TSTATES_PER_FRAME,
         };
         Self {
             cpu: Z80::new(),
@@ -229,8 +231,7 @@ impl Einstein {
             fire: [false; 2],
             region,
             cpu_tstates: 0,
-            tstates_per_frame,
-            vdp_phase: 0,
+            vdp_accum: 0,
             psg_phase: 0,
             frame_count: 0,
             io_trace: None,
@@ -246,12 +247,21 @@ impl Einstein {
         if self.kbd_int_enabled && self.keyboard.iter().any(|&row| row != 0xFF) {
             self.kbd_int_pending = true;
         }
-        let target = self.cpu_tstates + self.tstates_per_frame;
-        while self.cpu_tstates < target {
+        // Run until the VDP completes a frame. The VDP is the timing anchor
+        // (it free-runs its scanline counter), so a frame is exactly one
+        // TMS9918 raster — and the CPU fits its true 4 MHz worth of T-states
+        // into it, not the ~3.58 MHz the old fixed T-state budget implied.
+        // Same VDP-frame-driven loop as the Memotech MTX.
+        let start = self.cpu_tstates;
+        let target_frame = self.frame_count + 1;
+        // Defensive cap (~2× a PAL frame at 4 MHz) so a misbehaving VDP can't
+        // spin forever.
+        let cap = start + 160_000;
+        while self.vdp.frame_count < target_frame && self.cpu_tstates < cap {
             self.tick_tstate();
         }
-        self.frame_count += 1;
-        self.tstates_per_frame
+        self.frame_count = target_frame;
+        self.cpu_tstates - start
     }
 
     fn tick_tstate(&mut self) {
@@ -259,10 +269,10 @@ impl Einstein {
         self.handle_bus();
         self.fdc.tick();
 
-        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+        self.vdp_accum += VDP_CLOCK_HZ;
+        while self.vdp_accum >= CPU_CLOCK_HZ {
+            self.vdp_accum -= CPU_CLOCK_HZ;
             self.vdp.tick();
-            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
         }
 
         self.psg_phase ^= 1;
@@ -743,18 +753,35 @@ mod tests {
     }
 
     #[test]
-    fn ntsc_frame_returns_expected_tstates() {
+    fn ntsc_frame_runs_one_vdp_frame_of_4mhz_tstates() {
         let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        // The VDP increments frame_count at vblank (scanline 192), so the
+        // first run_frame is a short 193-line startup frame; measure a
+        // steady-state one.
+        sys.run_frame();
         let t = sys.run_frame();
-        assert_eq!(t, NTSC_TSTATES_PER_FRAME);
-        assert_eq!(sys.frame_count(), 1);
+        // One full NTSC VDP frame is 342 × 262 dots; at 4 MHz : 5.369318 MHz
+        // that is ≈66 754 T-states — ~1.5× the ~44 730 the old 3.58 MHz-
+        // equivalent budget produced.
+        let expected = 342u64 * 262 * 4_000_000 / 5_369_318;
+        assert!(
+            t.abs_diff(expected) <= 400,
+            "got {t} T-states, expected ≈{expected} for one 4 MHz NTSC frame"
+        );
     }
 
     #[test]
-    fn pal_frame_returns_expected_tstates() {
+    fn pal_frame_runs_one_vdp_frame_of_4mhz_tstates() {
         let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Pal);
+        sys.run_frame(); // discard the short startup frame
         let t = sys.run_frame();
-        assert_eq!(t, PAL_TSTATES_PER_FRAME);
+        // One full PAL VDP frame is 342 × 313 dots; at 4 MHz : 5.369318 MHz
+        // that is ≈79 760 T-states (4 MHz / 50.16 Hz).
+        let expected = 342u64 * 313 * 4_000_000 / 5_369_318;
+        assert!(
+            t.abs_diff(expected) <= 400,
+            "got {t} T-states, expected ≈{expected} for one 4 MHz PAL frame"
+        );
     }
 
     #[test]
@@ -813,14 +840,23 @@ mod tests {
     }
 
     #[test]
-    fn vdp_dot_ratio_is_three_per_two_tstates() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
-        let start = sys.vdp.scanline();
-        for _ in 0..4 {
-            sys.tick_tstate();
+    fn vdp_dot_ratio_is_exact_5_369_to_4_mhz() {
+        // The VDP advances 5_369_318 dots per 4_000_000 T-states — the true
+        // 4 MHz Einstein ratio (≈1.342 dots/T-state), not the 3:2 (=1.5) the
+        // 3.58 MHz TMS9918 machines use. The accumulator yields exactly
+        // VDP_CLOCK_HZ dots over CPU_CLOCK_HZ T-states with no drift, the
+        // same recurrence `tick_tstate` runs.
+        let mut accum = 0i64;
+        let mut dots = 0i64;
+        for _ in 0..CPU_CLOCK_HZ {
+            accum += VDP_CLOCK_HZ;
+            while accum >= CPU_CLOCK_HZ {
+                accum -= CPU_CLOCK_HZ;
+                dots += 1;
+            }
         }
-        assert_eq!(sys.vdp.scanline(), start);
-        assert_eq!(sys.vdp_phase, 0);
+        assert_eq!(dots, VDP_CLOCK_HZ);
+        assert_eq!(accum, 0);
     }
 
     #[test]
