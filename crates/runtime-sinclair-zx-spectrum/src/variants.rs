@@ -564,6 +564,12 @@ impl SpectrumMachine for Spectrum16K {
     fn tape_stop(&mut self) {
         self.stop_tape();
     }
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        Spectrum16K::recorded_tape_blocks(self)
+    }
+    fn clear_tape_recording(&mut self) {
+        Spectrum16K::clear_tape_recording(self);
+    }
     fn reset_machine(&mut self) {
         self.reset();
     }
@@ -704,6 +710,12 @@ impl SpectrumMachine for SpectrumPlus {
     fn tape_stop(&mut self) {
         self.stop_tape();
     }
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        SpectrumPlus::recorded_tape_blocks(self)
+    }
+    fn clear_tape_recording(&mut self) {
+        SpectrumPlus::clear_tape_recording(self);
+    }
     fn reset_machine(&mut self) {
         self.reset();
     }
@@ -838,6 +850,12 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn tape_stop(&mut self) {
         Spectrum128K::tape_stop(self);
+    }
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        Spectrum128K::recorded_tape_blocks(self)
+    }
+    fn clear_tape_recording(&mut self) {
+        Spectrum128K::clear_tape_recording(self);
     }
     fn reset_machine(&mut self) {
         Spectrum128K::reset(self);
@@ -991,6 +1009,12 @@ impl SpectrumMachine for SpectrumPlus2 {
     fn tape_stop(&mut self) {
         SpectrumPlus2::tape_stop(self);
     }
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        SpectrumPlus2::recorded_tape_blocks(self)
+    }
+    fn clear_tape_recording(&mut self) {
+        SpectrumPlus2::clear_tape_recording(self);
+    }
     fn reset_machine(&mut self) {
         SpectrumPlus2::reset(self);
     }
@@ -1142,6 +1166,12 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
     fn tape_stop(&mut self) {
         SpectrumAmstradClassCore::<V>::tape_stop(self);
+    }
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        SpectrumAmstradClassCore::<V>::recorded_tape_blocks(self)
+    }
+    fn clear_tape_recording(&mut self) {
+        SpectrumAmstradClassCore::<V>::clear_tape_recording(self);
     }
     fn reset_machine(&mut self) {
         SpectrumAmstradClassCore::<V>::reset(self);

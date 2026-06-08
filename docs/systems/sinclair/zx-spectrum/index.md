@@ -119,9 +119,12 @@ a time, presenting the EAR level on `$FE` bit 6.
 timestamps every MIC edge and `decode()`s the pulse train (pilot → 2 sync
 pulses → two pulses per data bit, MSB first) back into standard-speed blocks.
 `SpectrumRuntime::flush_tape_image()` serialises those to a reloadable `.tap`
-via `format-sinclair-zx-spectrum-tap::encode_tap`. Wired for the **48K class**
-only so far (the shared core captures; the 16K/+ just need the one-line trait
-override, 128K needs its core wired). Standard pulse constants live in
+via `format-sinclair-zx-spectrum-tap::encode_tap`. Wired across all three core
+classes, so every mainstream model captures: **48K / 16K / +** (48K class),
+**128K / +2** (128K class), and **+2A / +2B / +3** (Amstrad class, one generic
+impl). The bespoke clone cores — Pentagon, Scorpion, Timex TC2048/TS2068 — have
+their own structs and inherit the no-op default (not yet wired). Standard pulse
+constants live in
 `tape.rs`; SAVE never mutates a mounted playback tape, so no writable-flag
 gating is needed (unlike disk). Repro: `cargo test -p runtime-sinclair-zx-spectrum
 --test tape_save_roundtrip -- --ignored`.

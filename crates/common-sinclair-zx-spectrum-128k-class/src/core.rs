@@ -21,6 +21,7 @@ use common_sinclair_zx_spectrum::snapshot::{
     Snapshot, apply_128k_bank_pages, apply_ay_registers, apply_z80_registers,
 };
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
+use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_128K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use gi_ay_3_8912::Ay3_8912;
@@ -55,6 +56,10 @@ pub struct Spectrum128kClassCore<V: Class128kVariant> {
     /// flips `attached = true` when the host plugs the interface in.
     pub kempston: KempstonJoystick,
     pub tape: TapePlayer,
+    /// Captures the MIC line during a SAVE for tape write-back (mirrors the 48K
+    /// class). `#[serde(default)]` keeps pre-SAVE snapshots loadable.
+    #[serde(default)]
+    recorder: TapeRecorder,
     pub ay: Ay3_8912,
     pub audio: BeeperAudio,
     pub audio_frame: Vec<f32>,
@@ -96,6 +101,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             keyboard: [0xFF; 8],
             kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
+            recorder: TapeRecorder::new(),
             ay: {
                 let mut ay = Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME);
                 // Sinclair 128K wiring: AY port A bit 6 is the serial CTS
@@ -115,6 +121,17 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             ay_watch: None,
             _variant: PhantomData,
         }
+    }
+
+    /// Decodes any captured tape `SAVE` signal into standard-speed blocks.
+    #[must_use]
+    pub fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        self.recorder.decode()
+    }
+
+    /// Discards captured `SAVE` signal (e.g. after flushing it to a file).
+    pub fn clear_tape_recording(&mut self) {
+        self.recorder.clear();
     }
 
     /// See `SpectrumMachineCore::start_memory_write_watch` on the
@@ -332,6 +349,8 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
                 let tstate = self.hc / 4;
                 self.audio.set_level(tstate, self.speaker.level());
             }
+            // MIC (bit 3) carries the tape SAVE signal.
+            self.recorder.set_mic_level(data & 0x08 != 0);
         }
 
         // Memory paging: port $7FFD (active when bit 1 = 0 and bit 15 = 0).
@@ -441,6 +460,7 @@ impl<V: Class128kVariant> SpectrumDriver for Spectrum128kClassCore<V> {
     #[inline(always)]
     fn on_tstate(&mut self, hc: u32) {
         self.tape.advance_tstates(1);
+        self.recorder.advance(1);
         if hc % 8 == 2 {
             self.ay.tick();
         }

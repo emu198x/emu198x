@@ -26,6 +26,7 @@ use common_sinclair_zx_spectrum::snapshot::{
     Snapshot, apply_128k_bank_pages, apply_ay_registers, apply_z80_registers,
 };
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
+use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_PLUS2A};
 use common_sinclair_zx_spectrum::ula::Ula;
 use gi_ay_3_8912::Ay3_8912;
@@ -56,6 +57,10 @@ pub struct SpectrumAmstradClassCore<V: AmstradVariant> {
     pub framebuffer: Vec<u8>,
     pub keyboard: [u8; 8],
     pub tape: TapePlayer,
+    /// Captures the MIC line during a SAVE for tape write-back (mirrors the 48K
+    /// class). `#[serde(default)]` keeps pre-SAVE snapshots loadable.
+    #[serde(default)]
+    recorder: TapeRecorder,
     pub ay: Ay3_8912,
     pub fdc: Upd765a,
     pub audio: BeeperAudio,
@@ -106,6 +111,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
             tape: TapePlayer::new(),
+            recorder: TapeRecorder::new(),
             ay: {
                 let mut ay = Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME);
                 // Amstrad +2A / +2B / +3 wiring: AY port A bit 6 is the
@@ -124,6 +130,17 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             ay_watch: None,
             _variant: PhantomData,
         }
+    }
+
+    /// Decodes any captured tape `SAVE` signal into standard-speed blocks.
+    #[must_use]
+    pub fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        self.recorder.decode()
+    }
+
+    /// Discards captured `SAVE` signal (e.g. after flushing it to a file).
+    pub fn clear_tape_recording(&mut self) {
+        self.recorder.clear();
     }
 
     /// See `SpectrumMachineCore::start_memory_write_watch` on the
@@ -356,6 +373,8 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
                 let tstate = self.hc / 4;
                 self.audio.set_level(tstate, self.speaker.level());
             }
+            // MIC (bit 3) carries the tape SAVE signal.
+            self.recorder.set_mic_level(data & 0x08 != 0);
         }
 
         // Memory paging — the +2A/+3 uses tighter port decoding than
@@ -487,6 +506,7 @@ impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
     #[inline(always)]
     fn on_tstate(&mut self, hc: u32) {
         self.tape.advance_tstates(1);
+        self.recorder.advance(1);
         if hc % 8 == 2 {
             self.ay.tick();
         }
