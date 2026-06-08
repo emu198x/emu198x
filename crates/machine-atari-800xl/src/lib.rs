@@ -232,13 +232,25 @@ impl Atari800xl {
     }
 
     fn tick_colour_clock(&mut self) {
+        let ccpl = u64::from(COLOUR_CLOCKS_PER_LINE);
+
+        // At the left edge of a scan line, hand ANTIC the line and prime the
+        // GTIA to composite it. Compositing then runs left-to-right through the
+        // line (below), so a mid-line COLBK/COLPF write lands at the beam.
+        if self.master_clock.is_multiple_of(ccpl) {
+            self.start_scan_line();
+        }
+
         self.master_clock += 1;
 
-        if self
-            .master_clock
-            .is_multiple_of(u64::from(COLOUR_CLOCKS_PER_LINE))
-        {
-            self.process_scan_line();
+        // Advance playfield compositing to the beam's new position, sampling
+        // the live colour registers as it goes.
+        let line_cc = (self.master_clock % ccpl) as u16;
+        self.gtia.composite_to_beam(line_cc);
+
+        // When the line completes, overlay players/missiles + collisions.
+        if self.master_clock.is_multiple_of(ccpl) {
+            self.gtia.overlay_pm_and_collisions();
         }
 
         if self.master_clock.is_multiple_of(2) {
@@ -256,7 +268,12 @@ impl Atari800xl {
         }
     }
 
-    fn process_scan_line(&mut self) {
+    /// Start a scan line: ANTIC fetches its display data and the GTIA begins
+    /// beam compositing for it. Player/missile DMA and the DLI/VBI NMI are
+    /// applied here, and the per-line DMA budget that gates the CPU is set.
+    /// The actual pixels are composited incrementally as the beam advances
+    /// (`composite_to_beam`), then finished with the PM overlay at line end.
+    fn start_scan_line(&mut self) {
         let result = self.antic.process_line(&self.ram);
         if result.pm_dma {
             for i in 0..4 {
@@ -266,7 +283,7 @@ impl Atari800xl {
         }
         let line = self.antic.scan_line().saturating_sub(1);
         let visible_line = line.wrapping_sub(8);
-        self.gtia.render_line(
+        self.gtia.begin_scanline(
             visible_line,
             &result.playfield,
             result.playfield_width,
@@ -565,6 +582,69 @@ impl Atari800xl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A cart that changes COLBK twice per scan line: colour A from the line
+    /// start, colour B from mid-line. With beam compositing this paints a
+    /// horizontal split on every visible line — the whole-line renderer could
+    /// only ever show the final colour (B) across the entire row.
+    fn colbk_split_cart() -> Vec<u8> {
+        let mut rom = vec![0xEAu8; 8192]; // NOP fill; entry at $A000
+        let prog: [u8; 26] = [
+            0xA9, 0x00, // $A000 LDA #$00
+            0x8D, 0x0E, 0xD4, // $A002 STA $D40E  (NMIEN = 0: no DLI/VBI NMI)
+            0x8D, 0x0A, 0xD4, // $A005 STA $D40A  (WSYNC — wait for line start)  [loop]
+            0xA9, 0x0F, // $A008 LDA #$0F  (white)
+            0x8D, 0x1A, 0xD0, // $A00A STA $D01A  (COLBK = A, near line start → left)
+            0xA2, 0x08, // $A00D LDX #$08
+            0xCA, // $A00F DEX                                            [wait]
+            0xD0, 0xFD, // $A010 BNE $A00F  (burn cycles → beam advances mid-line)
+            0xA9, 0x46, // $A012 LDA #$46  (red)
+            0x8D, 0x1A, 0xD0, // $A014 STA $D01A  (COLBK = B, mid-line → right)
+            0x4C, 0x05, 0xA0, // $A017 JMP $A005  (back to WSYNC)
+        ];
+        rom[..prog.len()].copy_from_slice(&prog);
+        rom
+    }
+
+    #[test]
+    fn mid_line_colbk_write_splits_the_scanline() {
+        // Beam compositing made observable end-to-end: a program that rewrites
+        // COLBK partway across each line must produce a horizontal split. The
+        // old whole-line renderer sampled COLBK once at line end, so every row
+        // was a single colour; a non-uniform active row proves the beam path.
+        let mut sys = Atari800xl::new(
+            None,
+            None,
+            Some(colbk_split_cart()),
+            Atari800xlRegion::Ntsc,
+            false,
+        )
+        .expect("init");
+        for _ in 0..40 {
+            sys.run_frame();
+        }
+        let fb = sys.framebuffer();
+        let w = sys.framebuffer_width() as usize;
+        // A visible line well inside the active region (active starts at
+        // BORDER_TOP; pick row 100 of the 240 active lines).
+        let row = atari_gtia::BORDER_TOP as usize + 100;
+        let base = row * w + atari_gtia::BORDER_LEFT as usize;
+        let active: std::collections::BTreeSet<u32> = (0..atari_gtia::ACTIVE_WIDTH as usize)
+            .map(|x| fb[base + x])
+            .collect();
+        assert!(
+            active.len() >= 2,
+            "scan line should show two background colours (a beam split), got {}",
+            active.len()
+        );
+        // And the split runs left-to-right: a clearly-left pixel differs from a
+        // clearly-right one.
+        assert_ne!(
+            fb[base + 10],
+            fb[base + atari_gtia::ACTIVE_WIDTH as usize - 10],
+            "left and right of the line should be different COLBK colours"
+        );
+    }
 
     fn trap_cart() -> Vec<u8> {
         let mut rom = vec![0xEAu8; 8192];

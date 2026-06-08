@@ -180,14 +180,25 @@ impl Atari5200 {
     }
 
     fn tick_colour_clock(&mut self) {
+        let ccpl = u64::from(COLOUR_CLOCKS_PER_LINE);
+
+        // At the left edge of a scan line, hand ANTIC the line and prime the
+        // GTIA to composite it. Compositing then runs left-to-right through the
+        // line (below), so a mid-line COLBK/COLPF write lands at the beam.
+        if self.master_clock.is_multiple_of(ccpl) {
+            self.start_scan_line();
+        }
+
         self.master_clock += 1;
 
-        // At every scan-line boundary, run ANTIC + render.
-        if self
-            .master_clock
-            .is_multiple_of(u64::from(COLOUR_CLOCKS_PER_LINE))
-        {
-            self.process_scan_line();
+        // Advance playfield compositing to the beam's new position, sampling
+        // the live colour registers as it goes.
+        let line_cc = (self.master_clock % ccpl) as u16;
+        self.gtia.composite_to_beam(line_cc);
+
+        // When the line completes, overlay players/missiles + collisions.
+        if self.master_clock.is_multiple_of(ccpl) {
+            self.gtia.overlay_pm_and_collisions();
         }
 
         // CPU + POKEY tick every 2nd colour clock.
@@ -208,7 +219,12 @@ impl Atari5200 {
         }
     }
 
-    fn process_scan_line(&mut self) {
+    /// Start a scan line: ANTIC fetches its display data and the GTIA begins
+    /// beam compositing for it. Player/missile DMA and the DLI/VBI NMI are
+    /// applied here, and the per-line DMA budget that gates the CPU is set.
+    /// Pixels are composited incrementally as the beam advances
+    /// (`composite_to_beam`), then finished with the PM overlay at line end.
+    fn start_scan_line(&mut self) {
         let result = self.antic.process_line(&self.dma_mem[..]);
         if result.pm_dma {
             for i in 0..4 {
@@ -221,7 +237,7 @@ impl Atari5200 {
         // visible start.
         let line = self.antic.scan_line().saturating_sub(1);
         let visible_line = line.wrapping_sub(8);
-        self.gtia.render_line(
+        self.gtia.begin_scanline(
             visible_line,
             &result.playfield,
             result.playfield_width,

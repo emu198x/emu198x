@@ -426,6 +426,24 @@ impl Gtia {
         }
     }
 
+    /// Composite the playfield up to the beam's current line colour-clock.
+    ///
+    /// `line_cc` is the beam position within the 228-colour-clock scan line
+    /// (0 at the line's left edge). It is mapped to an active-x through the
+    /// playfield's left margin (`PF_LEFT_CC`) — the same origin players use —
+    /// so a colour-register write at a given beam cc recolours exactly the
+    /// pixels from that cc onward. Left of the active window it draws nothing;
+    /// past the right edge it finishes the line. The machine calls this every
+    /// colour clock to drive beam-ordered compositing.
+    pub fn composite_to_beam(&mut self, line_cc: u16) {
+        let target = if line_cc <= PF_LEFT_CC {
+            0
+        } else {
+            usize::min(((line_cc - PF_LEFT_CC) * 2) as usize, ACTIVE_WIDTH as usize)
+        };
+        self.composite_playfield(target);
+    }
+
     /// Overlay the players and missiles over the composited playfield and
     /// record collisions, using the live registers. Default priority (PM over
     /// PF over background). Finishes any un-composited playfield first so a
