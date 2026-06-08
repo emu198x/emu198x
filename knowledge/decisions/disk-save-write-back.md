@@ -1,8 +1,12 @@
 # Disk/tape SAVE write-back — read-only archive, explicit writable work image
 
-**Status:** Decided 2026-06-07; implementation in progress. Driven by the
-Code198x "Meet C64 BASIC" primer needing a real `SAVE`/`LOAD` round-trip
-(unit 14, "Keeping Your Work").
+**Status:** Decided 2026-06-07. **C64 disk path COMPLETE 2026-06-08** — a real
+`SAVE"GREETING",8` round-trips end to end: `disk_save_roundtrip.rs` proves the
+file is written and structurally valid, and `saved_program_loads_back_and_runs`
+proves it `NEW`s, `LOAD`s back, and `RUN`s (output on screen). Remaining:
+Spectrum write parity (tape record, +3 µPD765A WriteData, Beta WD179x) — see the
+roadmap. Driven by the Code198x "Meet C64 BASIC" primer needing a real
+`SAVE`/`LOAD` round-trip (unit 14, "Keeping Your Work").
 
 ## The problem
 
