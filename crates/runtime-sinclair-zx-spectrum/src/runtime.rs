@@ -103,6 +103,16 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// Stops tape transport.
     fn tape_stop(&mut self);
 
+    /// Decodes any captured tape SAVE signal into standard-speed blocks.
+    /// Defaults to none for machine classes whose SAVE capture is not yet
+    /// wired (only the 48K class records today).
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        Vec::new()
+    }
+
+    /// Discards any captured tape SAVE signal (e.g. after a flush).
+    fn clear_tape_recording(&mut self) {}
+
     /// Soft-resets the machine's CPU, timing, and audio state.
     fn reset_machine(&mut self);
 
@@ -434,6 +444,42 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
     #[must_use]
     pub fn machine_mut(&mut self) -> &mut M {
         &mut self.machine
+    }
+
+    /// Flushes any captured tape `SAVE` to a `.tap` image.
+    ///
+    /// Unlike a disk `SAVE`, a tape `SAVE` never mutates a mounted (playback)
+    /// tape — the ROM lays a fresh signal on the MIC line that the recorder
+    /// captures independently. This decodes that signal into standard-speed
+    /// blocks and serialises them as a reloadable `.tap`. Returns `None` when
+    /// nothing has been recorded.
+    #[must_use]
+    pub fn flush_tape_image(&self) -> Option<Vec<u8>> {
+        let blocks = self.machine.recorded_tape_blocks();
+        if blocks.is_empty() {
+            return None;
+        }
+
+        // A recorded block's `data` is the full on-tape stream (flag, payload,
+        // checksum); a TAP block stores only the payload, so strip both ends.
+        let tap_blocks: Vec<_> = blocks
+            .into_iter()
+            .map(|block| format_sinclair_zx_spectrum_tap::TapBlock {
+                flag: block.flag,
+                data: block
+                    .data
+                    .get(1..block.data.len().saturating_sub(1))
+                    .unwrap_or(&[])
+                    .to_vec(),
+            })
+            .collect();
+
+        Some(format_sinclair_zx_spectrum_tap::encode_tap(&tap_blocks))
+    }
+
+    /// Discards any captured tape `SAVE` signal.
+    pub fn clear_tape_recording(&mut self) {
+        self.machine.clear_tape_recording();
     }
 
     /// Returns the current runtime time in authoritative half-cycles.

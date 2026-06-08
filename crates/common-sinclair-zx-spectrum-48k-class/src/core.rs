@@ -24,6 +24,7 @@ use common_sinclair_zx_spectrum::memory::{MemoryBus, Spectrum16kMemory, Spectrum
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::{Snapshot, apply_48k_pages, apply_z80_registers};
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
+use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
@@ -64,6 +65,11 @@ pub struct SpectrumMachineCore<M: MemoryBus, V: Variant48kClass> {
     /// disconnected port reads floating bus, not zero).
     pub kempston: KempstonJoystick,
     tape: TapePlayer,
+    /// Captures the MIC line during a `SAVE` so the signal can be flushed back
+    /// to a writable tape file. `#[serde(default)]` keeps older snapshots
+    /// (written before tape SAVE) loadable.
+    #[serde(default)]
+    recorder: TapeRecorder,
     tape_input: TapeInput,
     audio: BeeperAudio,
     audio_frame: Vec<f32>,
@@ -97,6 +103,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             keyboard: KeyboardMatrix::new(),
             kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
+            recorder: TapeRecorder::new(),
             tape_input: TapeInput::new(),
             audio,
             audio_frame,
@@ -362,6 +369,23 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         &self.tape
     }
 
+    /// The tape SAVE recorder capturing the MIC line.
+    #[must_use]
+    pub fn recorder(&self) -> &TapeRecorder {
+        &self.recorder
+    }
+
+    /// Decodes any captured `SAVE` signal into standard-speed tape blocks.
+    #[must_use]
+    pub fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        self.recorder.decode()
+    }
+
+    /// Discards captured `SAVE` signal (e.g. after flushing it to a file).
+    pub fn clear_tape_recording(&mut self) {
+        self.recorder.clear();
+    }
+
     /// Returns the current border colour.
     #[must_use]
     pub fn border_color(&self) -> u8 {
@@ -372,6 +396,10 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     pub fn write_fe(&mut self, value: u8) {
         self.ula.write_fe(value);
         self.sync_beeper_level(value);
+        // MIC (bit 3) carries the tape SAVE signal. It only toggles during a
+        // SAVE, so capturing every write is cheap; the recorder ignores
+        // no-change writes and the runtime decides whether to flush it.
+        self.recorder.set_mic_level(value & 0x08 != 0);
     }
 
     /// Reads port `$FE`.
@@ -547,6 +575,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumDriver for SpectrumMachineCore<M,
     #[inline(always)]
     fn on_tstate(&mut self, _hc: u32) {
         self.tape.advance_tstates(1);
+        self.recorder.advance(1);
         self.sync_ear_level();
     }
 

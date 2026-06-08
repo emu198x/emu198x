@@ -423,6 +423,12 @@ impl SpectrumMachine for Spectrum48k {
     fn tape_stop(&mut self) {
         self.stop_tape();
     }
+    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        Spectrum48k::recorded_tape_blocks(self)
+    }
+    fn clear_tape_recording(&mut self) {
+        Spectrum48k::clear_tape_recording(self);
+    }
     fn reset_machine(&mut self) {
         self.reset();
     }
