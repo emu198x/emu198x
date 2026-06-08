@@ -52,7 +52,7 @@ mod cartridge;
 
 pub use cartridge::Cartridge;
 
-use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE};
+use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC, cpu_dma_stalled};
 use atari_gtia::Gtia;
 use atari_pokey::Pokey;
 use mos_6502::M6502;
@@ -204,9 +204,16 @@ impl Atari5200 {
         // CPU + POKEY tick every 2nd colour clock.
         if self.master_clock.is_multiple_of(2) {
             self.line_cycle += 1;
-            // CPU stalls for the ANTIC DMA budget at the start of the
-            // line; freed once line_cycle exceeds the budget.
-            if self.line_cycle > u16::from(self.dma_budget) && !self.antic.wsync_halt() {
+            // ANTIC releases a WSYNC-halted CPU at HSYNC (end of the visible
+            // region), not at the next line (MAME `CYCLES_HSYNC`).
+            if self.line_cycle == CYCLES_HSYNC {
+                self.antic.clear_wsync();
+            }
+            // CPU runs unless ANTIC is stealing this cycle for DMA (spread
+            // through the fetch window) or it is held by WSYNC.
+            if !cpu_dma_stalled(self.line_cycle, u16::from(self.dma_budget))
+                && !self.antic.wsync_halt()
+            {
                 self.cpu.tick();
                 if self.cpu.rw {
                     self.cpu.data_in = self.mem_read(self.cpu.addr);
@@ -245,7 +252,6 @@ impl Atari5200 {
         );
         self.dma_budget = result.dma_cycles;
         self.line_cycle = 0;
-        self.antic.clear_wsync();
         // VBI + DLI both pulse the NMI line.
         let nmi = self.antic.take_vbi() || self.antic.take_dli();
         self.cpu.nmi = nmi;

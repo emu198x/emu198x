@@ -47,7 +47,7 @@ mod cartridge;
 
 pub use cartridge::Cartridge;
 
-use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE};
+use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC, cpu_dma_stalled};
 use atari_gtia::Gtia;
 use atari_pokey::Pokey;
 use mos_6502::M6502;
@@ -255,7 +255,17 @@ impl Atari800xl {
 
         if self.master_clock.is_multiple_of(2) {
             self.line_cycle += 1;
-            if self.line_cycle > u16::from(self.dma_budget) && !self.antic.wsync_halt() {
+            // ANTIC releases a WSYNC-halted CPU at HSYNC (end of the visible
+            // region), not at the next line — so post-WSYNC writes land at the
+            // right beam position (MAME `CYCLES_HSYNC`).
+            if self.line_cycle == CYCLES_HSYNC {
+                self.antic.clear_wsync();
+            }
+            // CPU runs unless ANTIC is stealing this cycle for DMA (spread
+            // through the fetch window) or it is held by WSYNC.
+            if !cpu_dma_stalled(self.line_cycle, u16::from(self.dma_budget))
+                && !self.antic.wsync_halt()
+            {
                 self.cpu.tick();
                 if self.cpu.rw {
                     self.cpu.data_in = self.mem_read(self.cpu.addr);
@@ -291,7 +301,6 @@ impl Atari800xl {
         );
         self.dma_budget = result.dma_cycles;
         self.line_cycle = 0;
-        self.antic.clear_wsync();
         self.cpu.nmi = self.antic.take_vbi() || self.antic.take_dli();
     }
 

@@ -407,8 +407,9 @@ impl Gtia {
             let cc = PF_LEFT_CC + (x as u16) / 2;
             let (pm_colour, pm_bits) = self.pm_at_cc(cc);
 
-            // Collision: PM vs playfield (independent of the final priority).
-            if pm_bits != 0 && pf_col_idx != 0 {
+            // Collisions (independent of the final priority): PM-vs-playfield
+            // where playfield is present, PM-vs-PM wherever objects overlap.
+            if pm_bits != 0 {
                 self.record_collisions(pm_bits, pf_col_idx);
             }
 
@@ -589,30 +590,30 @@ impl Gtia {
         (fb_start, fb_end)
     }
 
-    /// Record collision flags for a pixel where PM and PF overlap.
+    /// Record collisions for a pixel covered by the players/missiles in
+    /// `pm_bits`. `pf_idx` is the playfield colour-register index there (0 =
+    /// background / no playfield). PM-to-playfield collisions only register
+    /// where a playfield colour (1-4) is present; PM-to-PM collisions register
+    /// wherever the objects overlap, **independent of the playfield** — the
+    /// hardware compares the object signals directly, so two players collide
+    /// over bare background too.
     fn record_collisions(&mut self, pm_bits: u8, pf_idx: u8) {
-        // pf_idx is a colour register index (1-4 for PF0-PF3)
-        let pf_bit = if (1..=4).contains(&pf_idx) {
-            1u8 << (pf_idx - 1)
-        } else {
-            return;
-        };
-
-        // Players (bits 0-3 of pm_bits)
-        for p in 0..NUM_PLAYERS {
-            if pm_bits & (1 << p) != 0 {
-                self.p_pf[p] |= pf_bit;
+        // PM vs playfield — only where a playfield colour is present.
+        if (1..=4).contains(&pf_idx) {
+            let pf_bit = 1u8 << (pf_idx - 1);
+            for p in 0..NUM_PLAYERS {
+                if pm_bits & (1 << p) != 0 {
+                    self.p_pf[p] |= pf_bit;
+                }
+            }
+            for m in 0..NUM_MISSILES {
+                if pm_bits & (1 << (m + 4)) != 0 {
+                    self.m_pf[m] |= pf_bit;
+                }
             }
         }
 
-        // Missiles (bits 4-7 of pm_bits)
-        for m in 0..NUM_MISSILES {
-            if pm_bits & (1 << (m + 4)) != 0 {
-                self.m_pf[m] |= pf_bit;
-            }
-        }
-
-        // Player-to-player collisions
+        // Player-to-player collisions (independent of the playfield).
         for p in 0..NUM_PLAYERS {
             if pm_bits & (1 << p) == 0 {
                 continue;
@@ -624,7 +625,7 @@ impl Gtia {
             }
         }
 
-        // Missile-to-player collisions
+        // Missile-to-player collisions (independent of the playfield).
         for m in 0..NUM_MISSILES {
             if pm_bits & (1 << (m + 4)) == 0 {
                 continue;
@@ -922,6 +923,28 @@ mod tests {
         // P0PF should have bit 0 set (hit PF0)
         let p0pf = gtia.read(0x04);
         assert_ne!(p0pf & 0x01, 0, "Player 0 should collide with PF0");
+    }
+
+    #[test]
+    fn players_collide_over_bare_background() {
+        // Player-to-player collisions register wherever the objects overlap,
+        // even over background with no playfield. The old overlay only recorded
+        // collisions where playfield was present, so two players over bare
+        // background never registered.
+        let mut gtia = Gtia::new();
+        // Players 0 and 1 both at HPOS=60 with a solid pattern → they overlap.
+        gtia.write(0x00, 60); // HPOSP0
+        gtia.write(0x01, 60); // HPOSP1
+        gtia.write(0x0D, 0xFF); // GRAFP0
+        gtia.write(0x0E, 0xFF); // GRAFP1
+        gtia.write(0x12, 0x0E); // COLPM0
+        gtia.write(0x13, 0x2A); // COLPM1
+
+        // Blank line — no playfield anywhere.
+        gtia.render_line(0, &[], 160, AnticMode::Blank);
+
+        assert_ne!(gtia.read(0x0C) & 0x02, 0, "P0PL should record a hit on P1");
+        assert_ne!(gtia.read(0x0D) & 0x01, 0, "P1PL should record a hit on P0");
     }
 
     #[test]

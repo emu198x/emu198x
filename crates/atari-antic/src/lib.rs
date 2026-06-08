@@ -23,8 +23,55 @@ pub const COLOUR_CLOCKS_PER_LINE: u16 = 228;
 /// CPU cycles per scan line (`colour_clock` / 2).
 pub const CPU_CYCLES_PER_LINE: u8 = 114;
 
+/// CPU cycle at which ANTIC's display-fetch DMA begins (MAME `CYCLES_HSTART`).
+/// The CPU runs at full speed before this; the DMA steal lands in the fetch
+/// window that follows.
+pub const CYCLES_HSTART: u16 = 32;
+
+/// CPU cycle of HSYNC — where the visible region ends and ANTIC releases a
+/// CPU held by WSYNC (MAME `CYCLES_HSYNC`). A `STA WSYNC` halts the CPU until
+/// the beam reaches this cycle, not until the next scan line.
+pub const CYCLES_HSYNC: u16 = 104;
+
 /// Memory refresh DMA cycles stolen every line.
 const REFRESH_DMA_CYCLES: u8 = 9;
+
+/// Whether the CPU is stalled by ANTIC DMA on cycle `line_cycle` (1-based,
+/// within the 114-cycle line) given the line's total `dma_budget`.
+///
+/// Real ANTIC steals its DMA cycles spread through the display-fetch window
+/// `[CYCLES_HSTART, CYCLES_HSYNC)` rather than in one block at the line start.
+/// This distributes `dma_budget` stalls evenly across that 72-cycle window
+/// (a Bresenham split), so a mid-line CPU write lands at roughly the right
+/// beam position instead of being shoved late by a front-loaded block. When
+/// the budget exceeds the window (heavy character modes), the overflow spills
+/// into the cycles immediately before `CYCLES_HSTART`. Exactly `dma_budget`
+/// cycles are stolen either way, preserving the per-line cycle count.
+///
+/// This is an approximation: the *exact* per-character fetch positions are
+/// mode-dependent and not modelled (a relaxation MAME shares — it block-steals
+/// `m_steal_cycles`). It captures the window, not the fine structure.
+#[must_use]
+pub fn cpu_dma_stalled(line_cycle: u16, dma_budget: u16) -> bool {
+    if dma_budget == 0 {
+        return false;
+    }
+    let window = CYCLES_HSYNC - CYCLES_HSTART; // 72 fetch cycles
+    if dma_budget >= window {
+        // Steal the whole window plus the overflow just before it.
+        let overflow = dma_budget - window;
+        return line_cycle > CYCLES_HSTART - overflow && line_cycle <= CYCLES_HSYNC;
+    }
+    // Even spread across (CYCLES_HSTART, CYCLES_HSYNC]: steal on cycle c when
+    // the running count floor(pos·budget/window) advances.
+    if line_cycle <= CYCLES_HSTART || line_cycle > CYCLES_HSYNC {
+        return false;
+    }
+    let pos = u32::from(line_cycle - CYCLES_HSTART); // 1..=window
+    let budget = u32::from(dma_budget);
+    let win = u32::from(window);
+    (pos * budget) / win > ((pos - 1) * budget) / win
+}
 
 /// First visible scan line (approximate).
 const VISIBLE_START: u16 = 8;
@@ -940,6 +987,57 @@ mod tests {
     /// Helper: create a minimal 64KB RAM array.
     fn make_ram() -> Vec<u8> {
         vec![0u8; 65536]
+    }
+
+    fn count_stalls(dma_budget: u16) -> u16 {
+        (1..=u16::from(CPU_CYCLES_PER_LINE))
+            .filter(|&c| cpu_dma_stalled(c, dma_budget))
+            .count() as u16
+    }
+
+    #[test]
+    fn dma_spread_preserves_the_cycle_budget() {
+        // However the steal is distributed, exactly `dma_budget` cycles are
+        // stolen per line — the count the CPU loses must not change.
+        for budget in [0u16, 1, 9, 32, 50, 72, 73, 90, 100] {
+            assert_eq!(
+                count_stalls(budget),
+                budget,
+                "exactly {budget} cycles should be stolen"
+            );
+        }
+    }
+
+    #[test]
+    fn dma_steal_lands_in_the_fetch_window() {
+        // A modest budget steals only inside (HSTART, HSYNC] — the CPU runs at
+        // full speed before the display fetch, unlike the old front-loaded
+        // block that stalled from cycle 0.
+        for c in 1..=CYCLES_HSTART {
+            assert!(
+                !cpu_dma_stalled(c, 40),
+                "no steal before HSTART (cycle {c})"
+            );
+        }
+        for c in CYCLES_HSYNC + 1..=u16::from(CPU_CYCLES_PER_LINE) {
+            assert!(!cpu_dma_stalled(c, 40), "no steal after HSYNC (cycle {c})");
+        }
+    }
+
+    #[test]
+    fn dma_overflow_spills_before_the_window() {
+        // A budget larger than the 72-cycle window fills the window and spills
+        // into the cycles just before HSTART, but still steals exactly budget.
+        let budget = 90; // window is 72 → overflow 18
+        assert_eq!(count_stalls(budget), budget);
+        assert!(
+            cpu_dma_stalled(CYCLES_HSTART, budget),
+            "overflow reaches HSTART"
+        );
+        assert!(
+            !cpu_dma_stalled(CYCLES_HSTART - 18, budget),
+            "but not earlier than the overflow"
+        );
     }
 
     #[test]
