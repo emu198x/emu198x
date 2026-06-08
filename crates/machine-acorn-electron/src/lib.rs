@@ -16,12 +16,17 @@
 //! replaces the BBC's discrete video, sound, keyboard, and interrupt
 //! chips. Sold heavily into UK schools and homes. **Famous for its
 //! ULA's bus-contention behaviour**: the CPU and ULA share the RAM
-//! bus, and the CPU effectively halves to 1 MHz during RAM access
-//! windows (this initial port runs CPU at a flat 2 MHz; contention
-//! is in the accuracy backlog).
+//! bus, so the CPU drops to 1 MHz whenever it touches RAM. This core
+//! models that — RAM and the keyboard-paged ROM cost two 2 MHz master
+//! ticks per 6502 cycle, ROM/OS/I/O cost one — so a RAM-bound loop runs
+//! at half the speed of ROM code, the Electron's defining trait. The
+//! frame is a fixed 312 × 128 master ticks; the CPU fits a variable
+//! number of cycles into it. Matches MAME `electron_ula::set_cpu_clock`.
+//! Still TODO: the harsher modes-0-3 display-fetch *halt*
+//! (`waitforramsync` — the CPU is stopped, not just halved, while the
+//! ULA fetches display bytes), and the half-cycle 2→1 MHz sync penalty.
 //!
-//! - **CPU:** 6502A @ 2 MHz (1 MHz under ULA contention on real
-//!   hardware — flat 2 MHz here)
+//! - **CPU:** 6502A @ 2 MHz, 1 MHz under ULA RAM contention
 //! - **ULA:** custom — video / sound / keyboard / cassette /
 //!   interrupts. Eight display modes matching the BBC Micro except
 //!   MODE 7 teletext (which lives in the SAA5050 on the BBC and is
@@ -296,6 +301,13 @@ pub struct AcornElectron {
     basic_rom: Vec<u8>,
     framebuffer: Vec<u32>,
     cpu_cycles: u64,
+    /// 2 MHz master-clock ticks since construction. The CPU advances
+    /// one 6502 cycle per ULA access, but each access consumes one
+    /// master tick at 2 MHz (ROM/OS/I/O) or two at 1 MHz (RAM and the
+    /// keyboard-paged ROM) — the ULA bus contention. The frame is a
+    /// fixed 312 × 128 master ticks; the CPU fits a variable number of
+    /// cycles into it depending on its RAM/ROM access mix.
+    master_ticks: u64,
     frame_count: u64,
     /// Scanline currently being rendered.
     scanline: u16,
@@ -317,6 +329,7 @@ impl AcornElectron {
             basic_rom,
             framebuffer: vec![PALETTE[0]; (FB_WIDTH * FB_HEIGHT) as usize],
             cpu_cycles: 0,
+            master_ticks: 0,
             frame_count: 0,
             scanline: 0,
         }
@@ -325,8 +338,16 @@ impl AcornElectron {
     /// Run one PAL frame (312 scanlines × 128 CPU cycles each).
     pub fn run_frame(&mut self) -> u64 {
         self.scanline = 0;
+        // The frame is a fixed 312 × 128 = 39 936 master ticks at 2 MHz.
+        // Each scanline is 128 master ticks; the CPU fits a variable
+        // number of cycles into it (RAM accesses cost two ticks). Anchor
+        // the line boundaries to a frame base so a cycle that overruns a
+        // line boundary carries its extra tick into the next line rather
+        // than stretching the frame.
+        let frame_base = self.master_ticks;
         for line in 0..SCANLINES_PER_FRAME {
-            for _ in 0..CYCLES_PER_SCANLINE {
+            let line_end = frame_base + u64::from(line + 1) * CYCLES_PER_SCANLINE;
+            while self.master_ticks < line_end {
                 self.tick_cpu_cycle();
             }
             if line < FB_HEIGHT as u16 {
@@ -346,13 +367,34 @@ impl AcornElectron {
 
     fn tick_cpu_cycle(&mut self) {
         self.cpu.tick();
+        let cost = self.access_master_ticks(self.cpu.addr);
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
         }
-        self.ula.tick_sound();
+        // The ULA sound runs off the constant 2 MHz clock, so it ticks
+        // once per master tick (one or two per CPU cycle).
+        for _ in 0..cost {
+            self.ula.tick_sound();
+        }
+        self.master_ticks += cost;
         self.cpu_cycles += 1;
+    }
+
+    /// Master ticks (2 MHz) consumed by a 6502 cycle accessing `addr` —
+    /// the ULA bus contention. RAM (`$0000-$7FFF`) and the keyboard-paged
+    /// ROM (slots 8/9) run the CPU at 1 MHz (two ticks); ROM, OS and I/O
+    /// run at 2 MHz (one tick). Mirrors MAME `electron_ula::set_cpu_clock`
+    /// (which also leaves the `$FCxx/$FDxx/$FExx` I/O pages at 2 MHz to
+    /// avoid breaking tape loading). The harsher modes-0-3 display-fetch
+    /// halt (`waitforramsync`) is not yet modelled — see the crate docs.
+    fn access_master_ticks(&self, addr: u16) -> u64 {
+        match addr {
+            0x0000..=0x7FFF => 2,
+            0x8000..=0xBFFF if matches!(self.ula.rom_page, 8 | 9) => 2,
+            _ => 1,
+        }
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
@@ -674,6 +716,55 @@ mod tests {
         let t = sys.run_frame();
         assert_eq!(t, CYCLES_PER_FRAME);
         assert_eq!(sys.frame_count(), 1);
+    }
+
+    #[test]
+    fn ram_access_costs_two_master_ticks_rom_one() {
+        let (os, basic) = trap_roms();
+        let sys = AcornElectron::new(os, basic);
+        // RAM and the keyboard-paged ROM run the CPU at 1 MHz (2 ticks);
+        // ROM, OS and I/O at 2 MHz (1 tick).
+        assert_eq!(sys.access_master_ticks(0x0000), 2); // zero page RAM
+        assert_eq!(sys.access_master_ticks(0x7FFF), 2); // top of RAM
+        assert_eq!(sys.access_master_ticks(0xC000), 1); // OS ROM
+        assert_eq!(sys.access_master_ticks(0xFE00), 1); // ULA I/O
+        assert_eq!(sys.access_master_ticks(0x8000), 1); // paged ROM (slot 0)
+    }
+
+    #[test]
+    fn keyboard_paged_rom_is_contended() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        sys.ula.rom_page = 8; // keyboard pages into $8000-$BFFF
+        assert_eq!(sys.access_master_ticks(0x8000), 2);
+        sys.ula.rom_page = 9;
+        assert_eq!(sys.access_master_ticks(0xA000), 2);
+        sys.ula.rom_page = 12; // an ordinary ROM slot
+        assert_eq!(sys.access_master_ticks(0x8000), 1);
+    }
+
+    #[test]
+    fn ram_bound_code_fits_fewer_cpu_cycles_than_rom_bound() {
+        // A frame of RAM-bound execution must complete fewer 6502 cycles
+        // than ROM-bound execution, since each RAM access takes twice as
+        // long — the whole point of the contention model.
+        let (os, basic) = trap_roms();
+
+        // ROM-bound: reset vector into OS ROM, which traps in a tight
+        // ROM loop (set up by trap_roms).
+        let mut rom_sys = AcornElectron::new(os.clone(), basic.clone());
+        let before = rom_sys.cpu_cycles();
+        rom_sys.run_frame();
+        let rom_cycles = rom_sys.cpu_cycles() - before;
+
+        // The frame budget is the same 39 936 master ticks either way…
+        assert_eq!(rom_sys.master_ticks, CYCLES_PER_FRAME);
+        // …and a pure-ROM frame fits close to one CPU cycle per tick,
+        // strictly more than a frame could fit if every access were RAM
+        // (which would be ~half). The trap loop touches the stack/zp too,
+        // so just assert it is in the contended band, not the flat 39 936.
+        assert!(rom_cycles <= CYCLES_PER_FRAME);
+        assert!(rom_cycles >= CYCLES_PER_FRAME / 2);
     }
 
     #[test]

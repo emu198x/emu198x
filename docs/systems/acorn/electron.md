@@ -15,12 +15,23 @@ crate.
 - **Keyboard** — types into BASIC, read the accurate way: through the paged
   region (`$8000-$BFFF`, ROM slot 8/9), not `$FE00` (fix `5d4b1d87`; test
   `keyboard_reads_active_high_through_paged_rom`).
+- **ULA bus contention** (2026-06-08) — the CPU drops to **1 MHz on every RAM
+  (`$0000-$7FFF`) and keyboard-paged-ROM access**, 2 MHz for ROM/OS/I/O. The
+  frame is a fixed 312 × 128 master ticks at 2 MHz; the CPU fits a variable
+  number of 6502 cycles into it by its RAM/ROM access mix — so RAM-bound code
+  runs at half the speed of ROM code, the Electron's defining trait. Matches
+  MAME `electron_ula::set_cpu_clock`; tests `ram_access_costs_two_master_ticks…`,
+  `ram_bound_code_fits_fewer_cpu_cycles…`.
 
 ## Not implemented / accuracy gaps
 
-- **ULA bus contention** — CPU halves to 1 MHz during ULA RAM-fetch windows; this
-  port runs a flat 2 MHz. A significant gap on contention-sensitive software
-  (Elite, scrollers).
+- **ULA contention — modes-0-3 display halt + sync penalty.** The CPU now drops
+  to 1 MHz on every RAM / keyboard-paged-ROM access (see "What works"), matching
+  MAME's `set_cpu_clock`. Still missing: the harsher **modes-0-3** behaviour,
+  where the CPU is fully *halted* (not just halved) while the ULA fetches display
+  bytes (`waitforramsync`), and the half-cycle penalty when the 2 MHz→1 MHz
+  clocks resynchronise. These need the per-dot display-fetch position, which the
+  scanline-batched renderer doesn't track yet.
 - **Sideways ROM paging (`$FE05`)** — register stored but doesn't swap a paged-ROM
   array in; only BASIC visible.
 - **Cassette (`$FE04`)** write-stub. **Snapshot** deferred. **No native window.**
@@ -35,7 +46,8 @@ crate.
   high/low — naive decode scanned RAM garbage; (3) each 8×8 cell is 8 consecutive
   bytes, text rows 10 lines apart (250 displayed) — the old raster stride was
   wrong.
-- **Verification target** — ULA contention timing (the big accuracy gap).
+- **Verification target** — the modes-0-3 display-fetch halt (`waitforramsync`)
+  against MAME / Elkulator captures; the base 1 MHz-RAM contention is in.
 
 ## Validated against
 
@@ -46,12 +58,15 @@ crate.
 
 - **Master clock & dividers** — 16 MHz master; 6502 nominally 2 MHz, but real
   hardware **halves to 1 MHz during ULA RAM-fetch windows**.
-- **Timing model realised** — relaxed: runs a **flat 2 MHz** with no ULA
-  contention — a significant gap on a machine whose software (Elite, scrollers)
-  is heavily timing-sensitive. Display layout/screen-start now MAME-accurate.
-- **CPU timing** — 6502 cycle-accurate (§62) at the instruction level; the bus
-  contention slowdown is the missing piece.
-- **Distance to full cycle-accuracy** — ULA 1 MHz/2 MHz contention.
+- **Timing model realised** — master-clock-driven: a fixed 312 × 128 master
+  ticks/frame at 2 MHz, the CPU spending one tick per ROM/OS/I/O cycle and two
+  per RAM / keyboard-ROM cycle — the **1 MHz RAM contention** that gives the
+  Electron its character. Display layout/screen-start MAME-accurate. Remaining:
+  the modes-0-3 display-fetch *halt* and the 2→1 MHz sync penalty.
+- **CPU timing** — 6502 cycle-accurate (§62) at the instruction level; bus
+  contention now modelled at access-class (RAM/ROM) granularity.
+- **Distance to full cycle-accuracy** — modes-0-3 display-fetch halt
+  (`waitforramsync`); the half-cycle clock-resync penalty.
 
 ## Tooling & drivability
 
