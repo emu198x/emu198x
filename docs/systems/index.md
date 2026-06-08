@@ -42,7 +42,7 @@ Rachel client (offline/AI — a **separate axis** from Net; see
 | [Mattel Aquarius](mattel/aquarius.md) | BASIC + carts play | end-of-frame | mcp | No | — |
 | [Sega Master System](sega/master-system.md) | Cart title (Mode 4) | per-dot VDP (3:2 interleave) | mcp | Marginal | ✅ |
 | [Sega SG-1000](sega/sg-1000.md) | Cart title | per-dot VDP (3:2 phase relaxed) | mcp | No | — |
-| [ColecoVision](coleco/colecovision.md) | BIOS title | per-dot VDP (3:1 phase relaxed!) | mcp | Marginal | ✅ |
+| [ColecoVision](coleco/colecovision.md) | BIOS title | per-dot VDP (3:2 phase) | mcp | Marginal | ✅ |
 | [Atari 2600](atari/2600.md) | Combat playable | pixel-level TIA | mcp | Yes | ✅ |
 | [Atari 5200](atari/5200.md) | Pac-Man menu | fixed-DMA (relaxed) | mcp | No | ✅ (offline) |
 | [Atari 7800](atari/7800.md) | Asteroids renders | zone-DMA | mcp | No | — |

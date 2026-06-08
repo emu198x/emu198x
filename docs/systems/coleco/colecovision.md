@@ -10,26 +10,26 @@ The first donor extraction. The 1982 BIOS reaches "COLECOVISION™ / TURN GAME O
 - **Z80 + TMS9918A (VDP) + SN76489AN (PSG)** — pin-driven bus wiring.
 - **BIOS boot to title** — smoke `tests/bios_boot.rs` runs 200 frames and asserts
   a non-trivial framebuffer.
+- **Correct 3:2 VDP-dot/CPU phase clock** (2026-06-07) — the VDP advances 3 dots
+  per 2 Z80 T-states (master 10.738635 MHz, CPU ÷3, VDP dot ÷2), so wall-clock
+  speed, audio pitch, and the *moment* a mid-scanline register write takes effect
+  are all correct. Replaced the donor's flat 3:1 model (ran 1.5× too fast);
+  matches the SG-1000. Regression tests `vdp_runs_at_three_dots_per_two_tstates`
+  + `one_frame_of_tstates_is_exactly_one_vdp_frame`.
+- **Per-dot VDP render** — each pixel drawn at the dot it is scanned out, so
+  mid-scanline register writes land on the correct pixels.
 
 ## Not implemented / accuracy gaps
 
-- **Clock ratios (initial-port)** — VDP runs 3 dots/CPU cycle; the real ratio is
-  1.5 (master 10.738635 MHz, CPU ÷3, VDP dot ÷2). Frame structure completes but
-  wall-clock speed is off. SG-1000 already has the correct 3:2 counter — port it.
-- **TMS9918A VDP-dot/CPU phase** — the VDP now renders **per-dot** (mid-scanline
-  register writes land on the correct pixels), but the VDP-dot-to-CPU-cycle phase
-  is still the relaxed 3:1 ratio (see clock-ratios above), so the *moment* a write
-  takes effect can still be off by a few dots.
 - **IM 1 IntAck** returns `$FF` (matches BIOS `RST 38h`); cart-driven IntAck
   unverified.
+- **HCOUNTER** static (not tracked per-dot) — affects only software that reads it.
 - **Snapshot** — deferred. **No native window.**
 
 ## Known unknowns / disproven hypotheses
 
-- **Open: clock fidelity** — the 3:1 ratio is a known initial-port approximation,
-  not validated; the fix (3:2) is mechanical once the model is comfortable.
-- **Verification targets** — VDP per-dot timing + IM 1 cart-bus behaviour against
-  ColecoVision diagnostics / reference emulators.
+- **Verification targets** — IM 1 cart-bus behaviour against ColecoVision
+  diagnostics / reference emulators.
 
 ## Validated against
 
@@ -40,14 +40,14 @@ The first donor extraction. The 1982 BIOS reaches "COLECOVISION™ / TURN GAME O
 
 - **Master clock & dividers** — 10.738635 MHz. CPU = ÷3 ≈ 3.579545 MHz; VDP dot =
   ÷2 ≈ 5.369 MHz (real ratio 1.5 dots/CPU cycle).
-- **Timing model realised** — VDP render is now **per-dot** (each pixel drawn at
-  the dot it is scanned out; see `ti-tms9918::tick`). The remaining debt is the
-  VDP-dot-to-CPU-cycle *phase*: the initial port runs the VDP at **3:1** (3× too
-  fast) with NTSC/PAL frame budgets in CPU cycles. SG-1000 already carries the
-  correct 3:2 counter — porting it is the fix.
+- **Timing model realised** — the **correct 3:2** VDP-dot-to-T-state phase
+  counter (3 dots per 2 T-states, NTSC/PAL frame budgets in Z80 T-states) **and**
+  the shared **per-dot** VDP render (`ti-tms9918::tick`). The same model as the
+  SG-1000; replaced the donor's 3:1 approximation. Line/frame interrupts and
+  mid-scanline writes land at the right phase.
 - **CPU timing** — Z80 cycle-accurate (§62); no Z80 bus-timing oracle.
-- **Distance to full cycle-accuracy** — correct the 3:2 dot ratio (per-dot VDP
-  render landed); verify IM 1 cart-bus IntAck.
+- **Distance to full cycle-accuracy** — small: per-dot HCOUNTER tracking; verify
+  IM 1 cart-bus IntAck.
 
 ## Tooling & drivability
 

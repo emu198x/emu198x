@@ -41,28 +41,35 @@
 //!
 //! # Accuracy
 //!
-//! Inherits the donor's `VDP_DOTS_PER_CPU = 3` tick model — see the
-//! note in [`ti_tms9918`] and `docs/status/outstanding-work.md`
-//! § ColecoVision. Real master-clock ratios on a real CV are
-//! crystal 10.738635 MHz with CPU ÷ 3 and VDP dot ÷ 2; the donor's
-//! ratio is the starting point and lands the chip catching-up
-//! work-list item.
+//! Uses the correct **3:2 VDP-dot-to-CPU-T-state phase clock**: the
+//! real CV crystal is 10.738635 MHz with the CPU at ÷3 and the VDP dot
+//! clock at ÷2, so the VDP advances 3 dots per 2 T-states. This
+//! replaced the donor's flat 3:1 tick model (`VDP_DOTS_PER_CPU = 3`),
+//! which ran the VDP and wall-clock 1.5× too fast. Same model as the
+//! SG-1000 (identical TMS9918A + Z80 at the same clocks).
 
 use ti_sn76489::Sn76489;
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
 
-/// VDP dot ticks issued per CPU cycle in this initial-port tick model
-/// (donor-inherited; see crate-level "Accuracy" note).
-const VDP_DOTS_PER_CPU: u32 = 3;
+/// VDP dot ticks per CPU T-state, numerator. The real ColecoVision
+/// crystal is 10.738635 MHz with the CPU at ÷3 (3.579545 MHz) and the
+/// VDP dot clock at ÷2 (5.369318 MHz), so the VDP runs **3 dots per 2
+/// CPU T-states** — the same 3:2 phase as the SG-1000 (identical
+/// TMS9918A + Z80 at the same clocks). Replaces the donor's flat 3:1
+/// approximation, which ran both the VDP and wall-clock 1.5× fast.
+const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
+/// VDP dot ticks per CPU T-state, denominator.
+const VDP_DOT_PHASE_DENOMINATOR: u32 = 2;
 
-/// CPU cycles per NTSC frame in the initial-port tick model. Derived
-/// from `342 dots × 262 lines` of NTSC TMS9918A timing, divided by the
-/// initial-port VDP-per-CPU ratio.
-const NTSC_CPU_CYCLES_PER_FRAME: u64 = 342 * 262;
+/// CPU T-states per scanline (342 VDP dots × 2 / 3).
+const CPU_TSTATES_PER_SCANLINE: u64 = 228;
 
-/// CPU cycles per PAL frame in the initial-port tick model.
-const PAL_CPU_CYCLES_PER_FRAME: u64 = 342 * 313;
+/// CPU T-states per NTSC frame (228 × 262 lines).
+const NTSC_CPU_CYCLES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * 262;
+
+/// CPU T-states per PAL frame (228 × 313 lines).
+const PAL_CPU_CYCLES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * 313;
 
 /// ColecoVision region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,10 +178,13 @@ pub struct ColecoVision {
     joystick_mode: bool,
     /// Region.
     region: CvRegion,
-    /// CPU cycle counter (initial-port tick model).
+    /// CPU T-state counter.
     cpu_cycles: u64,
-    /// CPU cycles per frame for the active region.
+    /// CPU T-states per frame for the active region.
     cpu_cycles_per_frame: u64,
+    /// VDP dot-phase accumulator (numerator units); ticks the VDP 3
+    /// dots per 2 T-states.
+    vdp_phase: u32,
     /// Frame counter.
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
@@ -206,6 +216,7 @@ impl ColecoVision {
             region,
             cpu_cycles: 0,
             cpu_cycles_per_frame,
+            vdp_phase: 0,
             frame_count: 0,
             io_trace: None,
         }
@@ -221,7 +232,7 @@ impl ColecoVision {
         self.cpu_cycles_per_frame
     }
 
-    /// Advance one CPU cycle of the initial-port tick model.
+    /// Advance one Z80 T-state and the chips it drives.
     fn tick_cpu_cycle(&mut self) {
         // 1. CPU half-cycle ticks until the next bus op is requested.
         //    Per RULES.md rule 6 we drive the Z80 by inspecting its
@@ -231,9 +242,11 @@ impl ColecoVision {
         self.cpu.tick();
         self.handle_bus();
 
-        // 2. VDP advances its own dot clock. Initial-port ratio.
-        for _ in 0..VDP_DOTS_PER_CPU {
+        // 2. VDP advances by 3/2 dots per T-state — phase counter.
+        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
             self.vdp.tick();
+            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
         }
 
         // 3. PSG advances one CPU clock (internal ÷ 16 divider).
@@ -470,6 +483,34 @@ mod tests {
         let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Pal);
         let cycles = cv.run_frame();
         assert_eq!(cycles, PAL_CPU_CYCLES_PER_FRAME);
+    }
+
+    #[test]
+    fn vdp_runs_at_three_dots_per_two_tstates() {
+        // 3:2 phase, not the donor's 3:1: 4 T-states add 12 phase units,
+        // each dot consumes 2 → 6 dots, 0 remainder (well within one
+        // 342-dot line, so the scanline shouldn't advance yet).
+        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
+        let start = cv.vdp.scanline();
+        for _ in 0..4 {
+            cv.tick_cpu_cycle();
+        }
+        assert_eq!(cv.vdp_phase, 0);
+        assert_eq!(cv.vdp.scanline(), start);
+    }
+
+    #[test]
+    fn one_frame_of_tstates_is_exactly_one_vdp_frame() {
+        // 228×262 T-states × 3/2 = 342×262 dots = one full NTSC frame,
+        // so the VDP scanline returns to where it started. Under the old
+        // 3:1 model the VDP would have run ~1.5 frames in this budget.
+        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
+        let start = cv.vdp.scanline();
+        for _ in 0..NTSC_CPU_CYCLES_PER_FRAME {
+            cv.tick_cpu_cycle();
+        }
+        assert_eq!(cv.vdp.scanline(), start);
+        assert_eq!(cv.vdp_phase, 0);
     }
 
     #[test]
