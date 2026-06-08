@@ -27,7 +27,7 @@ Rachel client (offline/AI — a **separate axis** from Net; see
 
 | System | Boot today | Timing | Drive | Net | Rachel |
 |--------|-----------|--------|-------|-----|--------|
-| [Atari 800XL](atari/800xl.md) | BASIC READY; types | beam GTIA (colour + P/M); fixed-DMA | mcp | Yes | ✅ |
+| [Atari 800XL](atari/800xl.md) | BASIC READY; types | beam GTIA + windowed DMA | mcp | Yes | ✅ |
 | [Commodore VIC-20](commodore/vic-20.md) | READY; PRG autoload | relaxed | mcp | Yes | ✅ |
 | [MSX1](msx/index.md) | MSX BASIC | per-dot VDP (3:2 CPU phase relaxed) | mcp | Yes | ✅ |
 | [Acorn Electron](acorn/electron.md) | BASIC `>`; types | 1 MHz RAM contention + modes-0-3 fetch halt | mcp | Marginal | ✅ |
@@ -44,7 +44,7 @@ Rachel client (offline/AI — a **separate axis** from Net; see
 | [Sega SG-1000](sega/sg-1000.md) | Cart title | per-dot VDP (3:2 phase relaxed) | mcp | No | — |
 | [ColecoVision](coleco/colecovision.md) | BIOS title | per-dot VDP (3:2 phase) | mcp | Marginal | ✅ |
 | [Atari 2600](atari/2600.md) | Combat playable | pixel-level TIA | mcp | Yes | ✅ |
-| [Atari 5200](atari/5200.md) | Pac-Man menu | beam GTIA (colour + P/M); fixed-DMA | mcp | No | ✅ (offline) |
+| [Atari 5200](atari/5200.md) | Pac-Man menu | beam GTIA + windowed DMA | mcp | No | ✅ (offline) |
 | [Atari 7800](atari/7800.md) | Asteroids renders | zone-DMA | mcp | No | — |
 | [Acorn Atom](acorn/atom.md) | Prompt; types | relaxed (text VDG) | mcp | Marginal | — |
 | [Sinclair ZX81](sinclair/zx81.md) | Boot screen | relaxed (NMI/HALT) | mcp | Marginal | — |
