@@ -71,12 +71,16 @@
 //!
 //! # Display rendering
 //!
-//! Donor's render-end-of-frame pattern: every `run_frame` rebuilds
-//! the framebuffer from RAM ($BB80 TEXT, $A000 HIRES, $B400
-//! charset) using **serial attributes** — bytes `$00-$1F` in the
-//! screen image change the ink/paper colour for the rest of the
-//! line rather than rendering a glyph. Same 8-colour 3-bit RGB
-//! palette as the Acorn / BBC family.
+//! **Per-scanline**: `run_frame` runs the CPU a raster line at a time and
+//! renders each visible display line from RAM ($BB80 TEXT, $A000 HIRES,
+//! $B400 charset) at the moment the beam scans it — so mid-frame changes
+//! (raster splits, per-line serial-attribute and TEXT/HIRES mode changes)
+//! land on the right rows. The 224-line display sits at raster lines
+//! 65..289 of the 312-line frame (Oricutron `vid_start = 65`). **Serial
+//! attributes**: bytes `$00-$1F` in the screen image change the ink/paper
+//! colour for the rest of the line rather than rendering a glyph, and
+//! reset at the start of each line. Same 8-colour 3-bit RGB palette as the
+//! Acorn / BBC family.
 
 use gi_ay_3_8912::Ay3_8912;
 use mos_6502::M6502;
@@ -91,6 +95,9 @@ const CPU_CLOCK_HZ: u32 = 1_000_000;
 const LINES_PER_FRAME: u32 = 312;
 const CYCLES_PER_LINE: u32 = 64;
 const TICKS_PER_FRAME: u64 = (LINES_PER_FRAME * CYCLES_PER_LINE) as u64;
+/// First raster line of the visible display (top border height). The
+/// 224-line display occupies raster lines 65..289 (Oricutron `vid_start`).
+const DISPLAY_TOP: u32 = 65;
 
 const AY_SAMPLE_RATE: u32 = 48_000;
 const AY_SAMPLES_PER_FRAME: usize = 1024;
@@ -175,11 +182,22 @@ impl OricAtmos {
 
     /// Run one PAL frame.
     pub fn run_frame(&mut self) -> u64 {
-        let target = self.cpu_cycles + TICKS_PER_FRAME;
-        while self.cpu_cycles < target {
-            self.tick_cpu_cycle();
+        // Render scanline-by-scanline as the beam scans, reading display RAM
+        // at the moment each line is scanned out, so mid-frame changes —
+        // raster splits, serial-attribute and TEXT/HIRES mode changes per
+        // line — land on the right rows. The 224-line display occupies raster
+        // lines DISPLAY_TOP..DISPLAY_TOP+224 of the 312-line frame
+        // (Oricutron `vid_start = 65`).
+        let frame_start = self.cpu_cycles;
+        for raster in 0..LINES_PER_FRAME {
+            let line_end = frame_start + u64::from((raster + 1) * CYCLES_PER_LINE);
+            while self.cpu_cycles < line_end {
+                self.tick_cpu_cycle();
+            }
+            if (DISPLAY_TOP..DISPLAY_TOP + FB_HEIGHT).contains(&raster) {
+                self.render_scanline((raster - DISPLAY_TOP) as usize);
+            }
         }
-        self.render_display();
         self.frame_count += 1;
         TICKS_PER_FRAME
     }
@@ -370,146 +388,99 @@ impl OricAtmos {
         };
     }
 
-    fn render_display(&mut self) {
-        // $26A bit 2 = HIRES mode.
+    /// Render the single display pixel-line `fb_y` (0..224) from the
+    /// current RAM. Called once per visible raster line so mid-frame
+    /// changes land on the right rows. `$26A` bit 2 (HIRES) is read per
+    /// line, so a raster mode split takes effect at the right scanline.
+    fn render_scanline(&mut self, fb_y: usize) {
         let hires = self.ram[0x026A] & 0x04 != 0;
         if hires {
-            self.render_hires();
+            if fb_y < 24 {
+                // The top 3 text rows live at $BF68 in HIRES mode.
+                self.render_text_scanline(fb_y, 0xBF68);
+            } else {
+                self.render_bitmap_scanline(fb_y);
+            }
         } else {
-            self.render_text();
+            self.render_text_scanline(fb_y, 0xBB80);
         }
     }
 
-    fn render_text(&mut self) {
-        let base = 0xBB80usize;
+    /// One pixel-line of a 40×N character display. `base` is the screen
+    /// memory; the font row comes from the character generator at $B400.
+    /// Serial attributes reset at the start of the line — the ULA
+    /// re-scans the row's bytes for every one of its eight pixel lines.
+    fn render_text_scanline(&mut self, fb_y: usize, base: usize) {
         let charset_base = 0xB400usize;
-        for row in 0..28 {
-            let mut ink: u32 = ORIC_PALETTE[7];
-            let mut paper: u32 = ORIC_PALETTE[0];
-            for col in 0..40 {
-                let byte = self.ram[base + row * 40 + col];
-                let inverse = byte & 0x80 != 0;
-                let effective = byte & 0x7F;
-                if effective < 32 {
-                    Self::apply_serial_attribute(effective, &mut ink, &mut paper);
-                    Self::fill_cell(&mut self.framebuffer, row, col, paper);
-                } else {
-                    let char_idx = effective as usize;
-                    for line in 0..8 {
-                        let pattern = self
-                            .ram
-                            .get(charset_base + char_idx * 8 + line)
-                            .copied()
-                            .unwrap_or(0);
-                        let fb_y = row * 8 + line;
-                        if fb_y >= FB_HEIGHT as usize {
-                            continue;
-                        }
-                        for bit in 0..6 {
-                            let fb_x = col * 6 + bit;
-                            if fb_x >= FB_WIDTH as usize {
-                                continue;
-                            }
-                            let (fg, bg) = if inverse { (paper, ink) } else { (ink, paper) };
-                            let pixel = if pattern & (0x20 >> bit) != 0 { fg } else { bg };
-                            self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = pixel;
-                        }
+        let char_row = fb_y / 8;
+        let font_row = fb_y % 8;
+        let mut ink: u32 = ORIC_PALETTE[7];
+        let mut paper: u32 = ORIC_PALETTE[0];
+        for col in 0..40 {
+            let byte = self.ram[base + char_row * 40 + col];
+            let inverse = byte & 0x80 != 0;
+            let effective = byte & 0x7F;
+            if effective < 32 {
+                Self::apply_serial_attribute(effective, &mut ink, &mut paper);
+                self.fill_scanline_cell(fb_y, col, paper);
+            } else {
+                let pattern = self
+                    .ram
+                    .get(charset_base + effective as usize * 8 + font_row)
+                    .copied()
+                    .unwrap_or(0);
+                for bit in 0..6 {
+                    let fb_x = col * 6 + bit;
+                    if fb_x >= FB_WIDTH as usize {
+                        continue;
                     }
+                    let (fg, bg) = if inverse { (paper, ink) } else { (ink, paper) };
+                    let pixel = if pattern & (0x20 >> bit) != 0 { fg } else { bg };
+                    self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = pixel;
                 }
             }
         }
     }
 
-    fn render_hires(&mut self) {
-        let text_base = 0xBF68usize;
-        let charset_base = 0xB400usize;
-        // Top 3 text rows.
-        for row in 0..3 {
-            let mut ink: u32 = ORIC_PALETTE[7];
-            let mut paper: u32 = ORIC_PALETTE[0];
-            for col in 0..40 {
-                let byte = self.ram[text_base + row * 40 + col];
-                let inverse = byte & 0x80 != 0;
-                let effective = byte & 0x7F;
-                if effective < 32 {
-                    Self::apply_serial_attribute(effective, &mut ink, &mut paper);
-                    Self::fill_cell(&mut self.framebuffer, row, col, paper);
-                } else {
-                    let char_idx = effective as usize;
-                    for line in 0..8 {
-                        let pattern = self
-                            .ram
-                            .get(charset_base + char_idx * 8 + line)
-                            .copied()
-                            .unwrap_or(0);
-                        let fb_y = row * 8 + line;
-                        if fb_y >= FB_HEIGHT as usize {
-                            continue;
-                        }
-                        for bit in 0..6 {
-                            let fb_x = col * 6 + bit;
-                            if fb_x >= FB_WIDTH as usize {
-                                continue;
-                            }
-                            let (fg, bg) = if inverse { (paper, ink) } else { (ink, paper) };
-                            let pixel = if pattern & (0x20 >> bit) != 0 { fg } else { bg };
-                            self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = pixel;
-                        }
-                    }
-                }
-            }
-        }
-        // Bitmap area: 200 lines from $A000.
+    /// One pixel-line of the HIRES bitmap (the 200 lines from $A000,
+    /// drawn below the 3-row text header at `fb_y` 24..224).
+    fn render_bitmap_scanline(&mut self, fb_y: usize) {
         let bitmap_base = 0xA000usize;
-        for line in 0..200 {
-            let mut ink: u32 = ORIC_PALETTE[7];
-            let mut paper: u32 = ORIC_PALETTE[0];
-            for col in 0..40 {
-                let byte = self.ram[bitmap_base + line * 40 + col];
-                let inverse = byte & 0x80 != 0;
-                let effective = byte & 0x7F;
-                let fb_y = 24 + line;
-                if fb_y >= FB_HEIGHT as usize {
-                    continue;
-                }
-                if effective < 32 {
-                    Self::apply_serial_attribute(effective, &mut ink, &mut paper);
-                    for bit in 0..6 {
-                        let fb_x = col * 6 + bit;
-                        if fb_x < FB_WIDTH as usize {
-                            self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = paper;
-                        }
+        let line = fb_y - 24;
+        let mut ink: u32 = ORIC_PALETTE[7];
+        let mut paper: u32 = ORIC_PALETTE[0];
+        for col in 0..40 {
+            let byte = self.ram[bitmap_base + line * 40 + col];
+            let inverse = byte & 0x80 != 0;
+            let effective = byte & 0x7F;
+            if effective < 32 {
+                Self::apply_serial_attribute(effective, &mut ink, &mut paper);
+                self.fill_scanline_cell(fb_y, col, paper);
+            } else {
+                for bit in 0..6 {
+                    let fb_x = col * 6 + bit;
+                    if fb_x >= FB_WIDTH as usize {
+                        continue;
                     }
-                } else {
-                    for bit in 0..6 {
-                        let fb_x = col * 6 + bit;
-                        if fb_x >= FB_WIDTH as usize {
-                            continue;
-                        }
-                        let (fg, bg) = if inverse { (paper, ink) } else { (ink, paper) };
-                        let pixel = if effective & (0x20 >> bit) != 0 {
-                            fg
-                        } else {
-                            bg
-                        };
-                        self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = pixel;
-                    }
+                    let (fg, bg) = if inverse { (paper, ink) } else { (ink, paper) };
+                    let pixel = if effective & (0x20 >> bit) != 0 {
+                        fg
+                    } else {
+                        bg
+                    };
+                    self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = pixel;
                 }
             }
         }
     }
 
-    fn fill_cell(fb: &mut [u32], row: usize, col: usize, paper: u32) {
-        for line in 0..8 {
-            let fb_y = row * 8 + line;
-            if fb_y >= FB_HEIGHT as usize {
-                continue;
-            }
-            for bit in 0..6 {
-                let fb_x = col * 6 + bit;
-                if fb_x < FB_WIDTH as usize {
-                    fb[fb_y * FB_WIDTH as usize + fb_x] = paper;
-                }
+    /// Paint one character cell's six pixels on a single scanline with the
+    /// paper colour (used by a serial-attribute control byte).
+    fn fill_scanline_cell(&mut self, fb_y: usize, col: usize, paper: u32) {
+        for bit in 0..6 {
+            let fb_x = col * 6 + bit;
+            if fb_x < FB_WIDTH as usize {
+                self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = paper;
             }
         }
     }
@@ -673,6 +644,24 @@ mod tests {
         assert_eq!(sys.mem_read(0xC000), 0x4C);
         assert_eq!(sys.mem_read(0xFFFC), 0x00);
         assert_eq!(sys.mem_read(0xFFFD), 0xC0);
+    }
+
+    #[test]
+    fn render_scanline_reads_its_own_character_row() {
+        // The per-scanline renderer must read each line's row from RAM
+        // independently — the basis for raster effects. TEXT mode is the
+        // default ($26A bit 2 = 0). A "paper = colour 1" serial-attribute
+        // byte ($11) as cell 0 of character row 5 paints that cell.
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        sys.ram[0xBB80 + 5 * 40] = 0x11;
+
+        // A scanline inside row 5 (fb_y 40..48) picks up that byte…
+        sys.render_scanline(40);
+        assert_eq!(sys.framebuffer[40 * FB_WIDTH as usize], ORIC_PALETTE[1]);
+
+        // …a scanline in a different row does not.
+        sys.render_scanline(32);
+        assert_ne!(sys.framebuffer[32 * FB_WIDTH as usize], ORIC_PALETTE[1]);
     }
 
     #[test]

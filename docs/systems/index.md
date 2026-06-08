@@ -32,7 +32,7 @@ Rachel client (offline/AI — a **separate axis** from Net; see
 | [MSX1](msx/index.md) | MSX BASIC | per-dot VDP (3:2 CPU phase relaxed) | mcp | Yes | ✅ |
 | [Acorn Electron](acorn/electron.md) | BASIC `>`; types | 1 MHz RAM contention (modes 0-3 halt TODO) | mcp | Marginal | ✅ |
 | [Acorn BBC Micro](acorn/bbc-micro.md) | MODE 7 banner renders | 1 MHz-bus contention | mcp | Yes | ✅ |
-| [Oric Atmos](oric/atmos.md) | BASIC; types | end-of-frame | mcp | Marginal | ✅ |
+| [Oric Atmos](oric/atmos.md) | BASIC; types | per-scanline | mcp | Marginal | ✅ |
 | [Sord M5](sord/m5.md) | Carts play; Dig Dug | per-dot VDP | mcp | Marginal | — |
 | [Memotech MTX](memotech/mtx.md) | BASIC `Ready` | per-dot VDP | mcp | Marginal | — |
 | [Tatung Einstein](tatung/einstein.md) | MOS prompt; types | per-dot VDP (exact 4 MHz:5.37 MHz) | mcp | Marginal | — |

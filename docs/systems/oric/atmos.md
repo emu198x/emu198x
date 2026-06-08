@@ -24,8 +24,6 @@ chip crate.
   ROM wins on reads; bank-switching to expose RAM at `$C000-$FFFF` not modelled.
 - **TAP cassette loader** — donor has the `.tap` parser; not yet wired into the
   binary.
-- **Mid-frame palette across scanlines** — serial attributes work within a line,
-  not across scanlines mid-render (end-of-frame render).
 - **Snapshot** deferred. **No native window.**
 
 ## Known unknowns / disproven hypotheses
@@ -33,8 +31,9 @@ chip crate.
 - **DISPROVEN (donor): keyboard sense model.** Fixed to sense on VIA PB3 (column
   PB0-2, row mask on port A) and wired the 8×8 matrix (2026-06-05) — the boot
   itself was clean first-try, no code changes.
-- **Verification targets** — RAM-under-ROM banking + cross-scanline serial
-  attributes against the Oric reference (`emulators/oric/oricutron/`).
+- **Verification targets** — RAM-under-ROM banking; a real raster-split demo
+  against the Oric reference (`emulators/oric/oricutron/`) to confirm the
+  per-scanline split point.
 
 ## Validated against
 
@@ -45,11 +44,15 @@ chip crate.
 
 - **Master clock & dividers** — 6502 at ~1 MHz; the custom video ULA generates the
   display from screen RAM.
-- **Timing model realised** — relaxed: the display renders **end-of-frame** (serial
-  attributes work within a line, not across scanlines mid-render).
+- **Timing model realised** — **per-scanline**: `run_frame` runs the CPU a raster
+  line at a time and renders each visible display line from RAM at the moment the
+  beam scans it (display at raster 65..289, Oricutron `vid_start`). Mid-frame
+  changes — raster splits, per-line serial-attribute and TEXT/HIRES mode changes —
+  now land on the right rows. (2026-06-08; was end-of-frame.)
 - **CPU timing** — 6502 cycle-accurate (§62).
-- **Distance to full cycle-accuracy** — cross-scanline serial attributes;
-  RAM-under-ROM banking; beam-accurate ULA timing.
+- **Distance to full cycle-accuracy** — sub-scanline ULA fetch timing (the
+  per-line render samples RAM at line start, not per character cell);
+  RAM-under-ROM banking.
 
 ## Tooling & drivability
 
