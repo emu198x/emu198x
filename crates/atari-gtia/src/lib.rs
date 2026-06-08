@@ -342,8 +342,7 @@ impl Gtia {
     /// - `mode`: the ANTIC display mode, controls colour interpretation
     pub fn render_line(&mut self, line: u16, playfield: &[u8], pf_width: u16, mode: AnticMode) {
         self.begin_scanline(line, playfield, pf_width, mode);
-        self.composite_playfield(ACTIVE_WIDTH as usize);
-        self.overlay_pm_and_collisions();
+        self.finish_scanline();
     }
 
     /// Start a new active scan line: precompute the playfield colour-register
@@ -376,12 +375,13 @@ impl Gtia {
         self.sl_line_buf = line_buf;
     }
 
-    /// Composite background + playfield pixels from the cursor up to (but not
-    /// including) active-x `end`, resolving each index to a colour with the
-    /// *live* colour registers, and advance the cursor. Players/missiles are
-    /// overlaid afterwards (`overlay_pm_and_collisions`). Calling with
-    /// `end == ACTIVE_WIDTH` finishes the line; the beam-driven path calls it
-    /// repeatedly with the current beam position.
+    /// Composite pixels from the cursor up to (but not including) active-x
+    /// `end`, and advance the cursor. Each pixel resolves the playfield index
+    /// and the player/missile coverage from the *live* registers at that pixel's
+    /// beam colour-clock, applies default priority (PM over PF over background),
+    /// and records collisions — so mid-line colour, HPOS/GRAFP and HITCLR writes
+    /// all land at the beam. Calling with `end == ACTIVE_WIDTH` finishes the
+    /// line; the beam-driven path calls it repeatedly with the beam position.
     pub fn composite_playfield(&mut self, end: usize) {
         if !self.sl_visible {
             return;
@@ -400,9 +400,22 @@ impl Gtia {
         while self.sl_x < end {
             let x = self.sl_x;
             let pf_col_idx = self.sl_line_buf[x];
-            let in_pf = x >= self.sl_pf_span.0 && x < self.sl_pf_span.1;
 
-            let colour = if hires_text && in_pf {
+            // Players/missiles at this pixel's beam colour-clock, from the
+            // *live* registers — so a mid-line HPOS/GRAFP rewrite (sprite
+            // multiplexing) and per-pixel collision timing land at the beam.
+            let cc = PF_LEFT_CC + (x as u16) / 2;
+            let (pm_colour, pm_bits) = self.pm_at_cc(cc);
+
+            // Collision: PM vs playfield (independent of the final priority).
+            if pm_bits != 0 && pf_col_idx != 0 {
+                self.record_collisions(pm_bits, pf_col_idx);
+            }
+
+            let in_pf = x >= self.sl_pf_span.0 && x < self.sl_pf_span.1;
+            let colour = if pm_colour != 0 {
+                pm_colour
+            } else if hires_text && in_pf {
                 if pf_col_idx != 0 {
                     (self.colpf[2] & 0xF0) | (self.colpf[1] & 0x0F)
                 } else {
@@ -426,6 +439,77 @@ impl Gtia {
         }
     }
 
+    /// Player/missile colour and object-bit mask covering beam colour-clock
+    /// `cc`, evaluated from the live registers. Missiles paint first and only
+    /// where still empty; players then overwrite the colour and OR their object
+    /// bit — default priority, matching the prior whole-line overlay. A colour
+    /// of 0 doubles as "no PM pixel" (a player whose COLPM is 0 still collides
+    /// but shows the playfield through), preserving the original sentinel.
+    fn pm_at_cc(&self, cc: u16) -> (u8, u8) {
+        let fifth_player = (self.prior & 0x10) != 0;
+        let mut colour = 0u8;
+        let mut bits = 0u8;
+        for m in 0..NUM_MISSILES {
+            if self.missile_covers(m, cc) && colour == 0 {
+                colour = if fifth_player {
+                    self.colpf[3]
+                } else {
+                    self.colpm[m]
+                };
+                bits |= 1 << (m + 4);
+            }
+        }
+        for p in 0..NUM_PLAYERS {
+            if self.player_covers(p, cc) {
+                colour = self.colpm[p];
+                bits |= 1 << p;
+            }
+        }
+        (colour, bits)
+    }
+
+    /// Whether player `p`'s graphic covers beam colour-clock `cc`, from the
+    /// live HPOS / SIZE / GRAFP. A player spans `8 × width` colour clocks from
+    /// its HPOS, each of its 8 graphic bits `width` clocks wide.
+    fn player_covers(&self, p: usize, cc: u16) -> bool {
+        let pattern = self.grafp[p];
+        if pattern == 0 {
+            return false;
+        }
+        let hpos = u16::from(self.hposp[p]);
+        if cc < hpos {
+            return false;
+        }
+        let width = player_pixel_width(self.sizep[p] & 0x03);
+        let offset = cc - hpos;
+        if offset >= 8 * width {
+            return false;
+        }
+        let bit = (offset / width) as u8; // 0..8, MSB first
+        pattern & (1 << (7 - bit)) != 0
+    }
+
+    /// Whether missile `m`'s graphic covers beam colour-clock `cc`, from the
+    /// live HPOS / SIZE / GRAFM. A missile is a 2-bit pattern, each bit
+    /// `width` colour clocks wide.
+    fn missile_covers(&self, m: usize, cc: u16) -> bool {
+        let pattern = (self.grafm >> (m * 2)) & 0x03;
+        if pattern == 0 {
+            return false;
+        }
+        let hpos = u16::from(self.hposm[m]);
+        if cc < hpos {
+            return false;
+        }
+        let width = missile_width((self.sizem >> (m * 2)) & 0x03);
+        let offset = cc - hpos;
+        if offset >= 2 * width {
+            return false;
+        }
+        let bit = (offset / width) as u8; // 0 or 1, MSB first
+        pattern & (1 << (1 - bit)) != 0
+    }
+
     /// Composite the playfield up to the beam's current line colour-clock.
     ///
     /// `line_cc` is the beam position within the 228-colour-clock scan line
@@ -444,32 +528,15 @@ impl Gtia {
         self.composite_playfield(target);
     }
 
-    /// Overlay the players and missiles over the composited playfield and
-    /// record collisions, using the live registers. Default priority (PM over
-    /// PF over background). Finishes any un-composited playfield first so a
-    /// caller may invoke it directly after `begin_scanline`.
-    ///
-    /// In phases 1-2 this runs once at line end; phase 3 moves it to beam time
-    /// so mid-line HPOS/GRAFP rewrites (sprite multiplexing) land correctly.
-    pub fn overlay_pm_and_collisions(&mut self) {
+    /// Finish the scan line by compositing any remaining pixels to the right
+    /// edge. Players/missiles and collisions are folded into
+    /// `composite_playfield` at beam time (see `pm_at_cc`), so this just
+    /// flushes the cursor — the machine calls it once the line completes.
+    pub fn finish_scanline(&mut self) {
         if !self.sl_visible {
             return;
         }
         self.composite_playfield(ACTIVE_WIDTH as usize);
-
-        let mut pm_colour = [0u8; ACTIVE_WIDTH as usize]; // 0 = no PM pixel
-        let mut pm_index = [0u8; ACTIVE_WIDTH as usize]; // which PM object (collisions)
-        self.overlay_players_missiles(&mut pm_colour, &mut pm_index);
-
-        for x in 0..ACTIVE_WIDTH as usize {
-            // Collision detection: PM vs playfield (independent of priority).
-            if pm_index[x] != 0 && self.sl_line_buf[x] != 0 {
-                self.record_collisions(pm_index[x], self.sl_line_buf[x]);
-            }
-            if pm_colour[x] != 0 {
-                self.framebuffer[self.sl_fb_offset + x] = colour_to_argb32(pm_colour[x]);
-            }
-        }
     }
 
     /// Fill the 320-pixel line buffer with playfield colour register indices.
@@ -520,81 +587,6 @@ impl Gtia {
         }
 
         (fb_start, fb_end)
-    }
-
-    /// Overlay player/missile graphics onto the PM buffers.
-    fn overlay_players_missiles(
-        &self,
-        pm_colour: &mut [u8; ACTIVE_WIDTH as usize],
-        pm_index: &mut [u8; ACTIVE_WIDTH as usize],
-    ) {
-        let fifth_player = (self.prior & 0x10) != 0;
-
-        // Render missiles
-        for m in 0..NUM_MISSILES {
-            let pattern = (self.grafm >> (m * 2)) & 0x03;
-            if pattern == 0 {
-                continue;
-            }
-            let hpos = self.hposm[m];
-            let size_bits = (self.sizem >> (m * 2)) & 0x03;
-            let width = missile_width(size_bits);
-            let colour = if fifth_player {
-                self.colpf[3]
-            } else {
-                self.colpm[m]
-            };
-
-            for bit in 0..2u16 {
-                if pattern & (1 << (1 - bit)) == 0 {
-                    continue;
-                }
-                for sub in 0..width {
-                    let cc = u16::from(hpos) + bit * width + sub;
-                    if let Some(x) = cc_to_fb_x(cc) {
-                        // Each colour clock = 2 hires pixels
-                        for dx in 0..2usize {
-                            let fx = x + dx;
-                            if fx < ACTIVE_WIDTH as usize && pm_colour[fx] == 0 {
-                                pm_colour[fx] = colour;
-                                pm_index[fx] |= 1 << (m + 4);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Render players (higher priority than missiles in default mode)
-        for p in 0..NUM_PLAYERS {
-            let pattern = self.grafp[p];
-            if pattern == 0 {
-                continue;
-            }
-            let hpos = self.hposp[p];
-            let size_bits = self.sizep[p] & 0x03;
-            let pixel_width = player_pixel_width(size_bits);
-            let colour = self.colpm[p];
-
-            for bit in 0..8u16 {
-                if pattern & (1 << (7 - bit)) == 0 {
-                    continue;
-                }
-                for sub in 0..pixel_width {
-                    let cc = u16::from(hpos) + bit * pixel_width + sub;
-                    if let Some(x) = cc_to_fb_x(cc) {
-                        // Each colour clock = 2 hires pixels
-                        for dx in 0..2usize {
-                            let fx = x + dx;
-                            if fx < ACTIVE_WIDTH as usize {
-                                pm_colour[fx] = colour;
-                                pm_index[fx] |= 1 << p;
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /// Record collision flags for a pixel where PM and PF overlap.
@@ -780,26 +772,6 @@ impl Default for Gtia {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Convert a colour clock position to a framebuffer x coordinate.
-/// Returns `None` if the position is outside the visible region.
-fn cc_to_fb_x(cc: u16) -> Option<usize> {
-    if cc >= PF_LEFT_CC && cc < PF_LEFT_CC + (ACTIVE_WIDTH as u16 / 2) {
-        // Each colour clock = 2 hires pixels
-        let x = ((cc - PF_LEFT_CC) * 2) as usize;
-        if x + 1 < ACTIVE_WIDTH as usize {
-            Some(x)
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-
 /// Player pixel width for a given size value (bits 0-1 of `SIZEPx`).
 const fn player_pixel_width(size_bits: u8) -> u16 {
     match size_bits & 0x03 {
@@ -904,6 +876,36 @@ mod tests {
     }
 
     #[test]
+    fn player_multiplexes_within_a_scanline() {
+        // Phase 3: players are evaluated per pixel from the *live* HPOS as the
+        // beam advances, so rewriting HPOSP0 partway across the line draws the
+        // same player object at two X positions — sprite multiplexing. The old
+        // whole-line overlay sampled HPOS once (the final value), so the early
+        // copy could not exist.
+        let mut gtia = Gtia::new();
+        gtia.write(0x0D, 0xFF); // GRAFP0: solid 8-pixel pattern
+        gtia.write(0x12, 0x3A); // COLPM0: a visible colour
+        // Blank line — no playfield, so any drawn pixel is the player.
+        gtia.begin_scanline(0, &[], 160, AnticMode::Blank);
+
+        gtia.write(0x00, 50); // HPOSP0 = 50 → covers cc 50..58 → active-x 4..20
+        gtia.composite_playfield(40); // beam crosses the left copy with HPOS 50
+        gtia.write(0x00, 180); // HPOSP0 = 180 → covers cc 180..188 → active-x 264..280
+        gtia.composite_playfield(ACTIVE_WIDTH as usize); // right copy with HPOS 180
+
+        let fb = gtia.framebuffer();
+        let base = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let player_argb = colour_to_argb32(0x3A);
+        let bg_argb = colour_to_argb32(0x00);
+        // Left copy (HPOS 50): cc 52 → active-x 8.
+        assert_eq!(fb[base + 8], player_argb, "left copy at the first HPOS");
+        // Right copy (HPOS 180): cc 183 → active-x 270.
+        assert_eq!(fb[base + 270], player_argb, "right copy at the second HPOS");
+        // Between the two copies the player is absent (background shows).
+        assert_eq!(fb[base + 140], bg_argb, "no player between the two copies");
+    }
+
+    #[test]
     fn collision_detection_player_playfield() {
         let mut gtia = Gtia::new();
         // Place player 0 at HPOS=60 (fb_x = (60-48)*2 = 24)
@@ -920,6 +922,47 @@ mod tests {
         // P0PF should have bit 0 set (hit PF0)
         let p0pf = gtia.read(0x04);
         assert_ne!(p0pf & 0x01, 0, "Player 0 should collide with PF0");
+    }
+
+    #[test]
+    fn collisions_accumulate_at_beam_time() {
+        // Phase 3: collisions are recorded per pixel as the beam advances, not
+        // in one pass at line end. So a collision is visible after compositing
+        // only the left part of the line (the old whole-line overlay would read
+        // zero until the line finished), and a mid-line HITCLR wipes only what
+        // has been drawn so far — the next pixels re-accumulate it.
+        let mut gtia = Gtia::new();
+        gtia.write(0x00, 60); // HPOSP0 = 60 → active-x 24..
+        gtia.write(0x08, 0x03); // SIZEP0 = quad → 8×4 = 32 cc wide (active-x 24..88)
+        gtia.write(0x0D, 0xFF); // GRAFP0: solid
+        gtia.write(0x12, 0x0E); // COLPM0: visible
+        // Playfield (PF0) under the whole player span (fb-x 24..88 → bytes 12..44).
+        let mut playfield = vec![0u8; 160];
+        for b in playfield.iter_mut().take(44).skip(12) {
+            *b = 1; // colour index 1 = COLPF0
+        }
+        gtia.begin_scanline(0, &playfield, 160, AnticMode::ModeD);
+
+        // Composite only as far as active-x 50 — the beam has crossed the left
+        // part of the player/playfield overlap.
+        gtia.composite_playfield(50);
+        assert_ne!(
+            gtia.read(0x04) & 0x01,
+            0,
+            "collision already recorded mid-line (beam-time, not line-end)"
+        );
+
+        // HITCLR mid-line clears what has been drawn so far…
+        gtia.write(0x1E, 0x00);
+        assert_eq!(gtia.read(0x04) & 0x01, 0, "HITCLR cleared the collision");
+
+        // …and the rest of the line re-accumulates it as the beam continues.
+        gtia.finish_scanline();
+        assert_ne!(
+            gtia.read(0x04) & 0x01,
+            0,
+            "right of the line re-records the collision after HITCLR"
+        );
     }
 
     #[test]

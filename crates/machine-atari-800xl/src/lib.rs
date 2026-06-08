@@ -250,7 +250,7 @@ impl Atari800xl {
 
         // When the line completes, overlay players/missiles + collisions.
         if self.master_clock.is_multiple_of(ccpl) {
-            self.gtia.overlay_pm_and_collisions();
+            self.gtia.finish_scanline();
         }
 
         if self.master_clock.is_multiple_of(2) {
