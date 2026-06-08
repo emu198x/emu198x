@@ -47,10 +47,10 @@ const AMIGA_JOYSTICK_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Down, ButtonTarget::new(2, "down")),
     (HostControl::Left, ButtonTarget::new(2, "left")),
     (HostControl::Right, ButtonTarget::new(2, "right")),
-    (HostControl::South, ButtonTarget::new(2, "fire")),
-    (HostControl::East, ButtonTarget::new(2, "fire")),
-    (HostControl::West, ButtonTarget::new(2, "fire")),
-    (HostControl::North, ButtonTarget::new(2, "fire")),
+    (HostControl::South, ButtonTarget::new(2, "fire")), // primary fire
+    (HostControl::East, ButtonTarget::new(2, "button2")), // 2nd fire (POTGOR)
+    (HostControl::North, ButtonTarget::new(2, "button3")), // 3rd fire (POTGOR)
+    (HostControl::West, ButtonTarget::new(2, "fire")),  // alt primary fire
 ]);
 
 #[derive(Debug, Default, PartialEq, Eq)]

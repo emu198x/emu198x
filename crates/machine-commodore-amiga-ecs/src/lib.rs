@@ -18,7 +18,10 @@ pub use agnus::{
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
 pub use commodore_gary::{ChipSelect, Gary};
-use commodore_paula_8364::bits::{POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT};
+use commodore_paula_8364::bits::{
+    POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT, POTGOR_BTN_PORT1_MIDDLE,
+    POTGOR_BTN_PORT1_RIGHT,
+};
 use commodore_paula_8364::decode as paula_decode;
 pub use commodore_paula_8364::{AudioControls, AudioField, IntSource, Paula8364, PaulaChannel};
 pub use copper::Copper;
@@ -97,6 +100,10 @@ struct JoystickState {
     left: bool,
     right: bool,
     fire: bool,
+    /// Second / third fire buttons (two-button or CD32-style pad). Read
+    /// back via POTGOR, not CIA-A PRA — see `set_joystick_control`.
+    button2: bool,
+    button3: bool,
 }
 
 impl JoystickState {
@@ -107,6 +114,8 @@ impl JoystickState {
             "left" => self.left = pressed,
             "right" => self.right = pressed,
             "fire" | "button" | "button1" => self.fire = pressed,
+            "fire2" | "button2" => self.button2 = pressed,
+            "fire3" | "button3" => self.button3 = pressed,
             _ => return false,
         }
         true
@@ -836,6 +845,14 @@ impl AmigaEcs {
         self.port1_left_button_pressed = self.joystick1.fire;
         self.joy1_x = (self.joy1_x & 0xFC) | self.joystick1.x_bits();
         self.joy1_y = (self.joy1_y & 0xFC) | self.joystick1.y_bits();
+        // Second / third fire buttons sit on port 1's POTGOR pot lines
+        // (active-low), the same pins the mouse right / middle buttons
+        // use. Per vAmiga Joystick::changePotgo: button2 → the RIGHT
+        // pin, button3 → the MIDDLE pin.
+        self.paula
+            .set_pot_pin_level(POTGOR_BTN_PORT1_RIGHT, !self.joystick1.button2);
+        self.paula
+            .set_pot_pin_level(POTGOR_BTN_PORT1_MIDDLE, !self.joystick1.button3);
         self.refresh_cia_a_external_inputs();
         true
     }

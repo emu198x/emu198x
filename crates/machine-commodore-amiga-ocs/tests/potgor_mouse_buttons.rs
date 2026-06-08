@@ -38,3 +38,28 @@ fn port0_middle_button_pulls_potgor_bit8() {
     assert_eq!(v & PORT0_MIDDLE, 0, "middle button pulls POTGOR bit 8 low");
     assert_eq!(v & PORT0_RIGHT, PORT0_RIGHT, "right (bit 10) unaffected");
 }
+
+#[test]
+fn joystick_port1_second_and_third_buttons_reach_potgor() {
+    // A two-button / CD32-style pad's 2nd and 3rd fire buttons read on
+    // port 1's POTGOR pot lines (the same pins the mouse right / middle
+    // use): button2 → bit 14, button3 → bit 12. Verified vs vAmiga.
+    let mut amiga = machine();
+    assert_eq!(
+        amiga.read_word(POTGOR) & 0x5000,
+        0x5000,
+        "both pins idle high"
+    );
+
+    assert!(amiga.set_joystick_control(1, "button2", true));
+    let v = amiga.read_word(POTGOR);
+    assert_eq!(v & (1 << 14), 0, "2nd fire pulls POTGOR bit 14 low");
+    assert_eq!(v & (1 << 12), 1 << 12, "3rd-button pin untouched");
+
+    assert!(amiga.set_joystick_control(1, "button3", true));
+    assert_eq!(
+        amiga.read_word(POTGOR) & (1 << 12),
+        0,
+        "3rd fire pulls bit 12 low"
+    );
+}

@@ -26,3 +26,24 @@ fn joystick_directions_match_hardware_cross_wiring() {
     assert_eq!(press(&mut a, "up"), 0x0100, "UP → bit 8 (Y0 xor Y1)");
     assert_eq!(press(&mut a, "down"), 0x0001, "DOWN → bit 0 (X0 xor X1)");
 }
+
+#[test]
+fn joystick_second_and_third_buttons_reach_port1_potgor() {
+    const POTGOR: u32 = 0x00DF_F016;
+    let mut a = AmigaEcs::new(vec![0u8; 256 * 1024]);
+    // 2nd / 3rd fire buttons read on port 1's POTGOR pot lines (the same
+    // pins the mouse right / middle use): button2 → bit 14, button3 → 12.
+    assert_eq!(a.read_word(POTGOR) & 0x5000, 0x5000, "both pins idle high");
+
+    assert!(a.set_joystick_control(1, "button2", true));
+    let v = a.read_word(POTGOR);
+    assert_eq!(v & (1 << 14), 0, "2nd fire pulls POTGOR bit 14 low");
+    assert_eq!(v & (1 << 12), 1 << 12, "3rd-button pin untouched");
+
+    assert!(a.set_joystick_control(1, "button3", true));
+    assert_eq!(
+        a.read_word(POTGOR) & (1 << 12),
+        0,
+        "3rd fire pulls bit 12 low"
+    );
+}
