@@ -241,3 +241,44 @@ mapping; possibly the sync ordering). Validate with:
 - The repro test going green (a readable `GREETING` dir entry + extractable PRG).
 Success criterion: `disk_save_roundtrip` passes; then the GCR→D64 flush already
 in place persists the file.
+
+## Session 2 — diagnosis corrected (2026-06-08)
+
+Re-instrumented the repro with an env-gated IEC line trace (log
+`cpu_bus`/`cpu_port`/`drive_port`/`drive_bus[8]` + both CPU PCs on any change,
+in `runtime.rs::run_until`) + a post-SAVE drive-RAM dump. Findings **revise** the
+2026-06-07 diagnosis:
+
+- **The serial bus is ACTIVE during the SAVE** — not dead. Both CPUs spend ~6M
+  cycles in their serial routines (C64 in the KERNAL `$ED..`/`$EE..` send/receive,
+  drive in `$E8xx` ATN handler + `$E9C9` receive + `$EAxx` bit loops + `$EA53`
+  idle). The "C64 returns to READY almost instantly" framing was wrong.
+- **OPEN fully works.** Drive RAM `$0500` holds the dir entry under construction:
+  `00 FF 02 11 00 "GREETING" A0…` — file type **`$02` = UNCLOSED PRG** (bit 7
+  clear; a closed file is `$82`), data pointer **track 17 / sector 0**. BAM is
+  loaded (`$0700`: `12 01 41 …`). ATN releases correctly for data phases.
+- **The ATN IRQ works.** The drive's ATN handler (`$E8xx`) runs even while busy —
+  so "drive busy, ignores ATN" is disproven. ATN→VIA1 CA1 is wired (machine.rs
+  `sync_iec_bus`), the fold matches VICE, the interleave is a rational clock.
+- **The program DATA never reaches the drive's data buffer** — no `$99` PRINT
+  token, no `48 49` "HI" anywhere in drive RAM `$0300-$07FF`. The file is left
+  **unclosed**, so nothing is committed and (separately) the dir sector the drive
+  does write to track 18 doesn't carry a closed entry.
+- **~6M cycles of repeated command phases** (the C64 re-issuing under ATN) — the
+  data-channel **per-byte talker→listener handshake fails and the C64 retries**.
+
+**Ruled out this pass:** IecBus DATA/ATNA fold (byte-identical to VICE
+`drv_bus[8]`), CPU interleave, ATN release, ATN→CA1 IRQ delivery.
+
+**Sharper root cause:** the **data-channel per-byte handshake** (C64 `ISOUR`
+send-byte ↔ the 1541 listener receive) fails — the byte is clocked but the
+drive's ready/ACK (DATA-line) handshake doesn't route the byte into the file
+channel's buffer. Likely a per-byte DATA-ready/ACK timing edge specific to the
+data channel (the *command* bytes route fine; the *file-channel data* bytes do
+not).
+
+**Next step (reference-ready):** with the *Anatomy of the 1541* ROM disassembly,
+identify the drive's data-channel listener-receive routine and the buffer-routing
+(channel/secondary-address dispatch), and trace one data byte end-to-end against
+the C64 `ISOUR` ($EDDD-ish) handshake to find the broken edge. The env-gated IEC
+trace + drive-RAM dump (≈25 lines, reverted) are the tools — re-add them.
